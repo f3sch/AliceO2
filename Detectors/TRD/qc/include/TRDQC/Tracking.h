@@ -74,8 +74,8 @@ struct TrackQC {
   std::array<int, constants::NLAYER> trackletMcm{};                                      ///< the MCM number of the tracklet
   std::array<float, constants::NLAYER> trackletChi2{};                                   ///< estimated chi2 for the update of the track with the given tracklet
   std::array<std::array<int, constants::NCHARGES>, constants::NLAYER> trackletCharges{}; ///< charges of tracklets
-  std::array<float, constants::NLAYER> trackletPhi{};         //< Phi 0:2Pi value of Tracklet
-  std::array<float, constants::NLAYER> trackletEta{};         //< Eta value of Tracklet
+  std::array<float, constants::NLAYER> trackletPhi{};                                    //< Phi 0:2Pi value of Tracklet
+  std::array<float, constants::NLAYER> trackletEta{};                                    //< Eta value of Tracklet
   ClassDefNV(TrackQC, 1);
 };
 
