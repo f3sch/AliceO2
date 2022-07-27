@@ -269,7 +269,7 @@ int TrackletsParser::Parse()
           }
 
           mcmtrackletcount = 0;
-          std::fill(mTrackletMCMData.begin(), mTrackletMCMData.end(), TrackletMCMData {0});
+          std::fill(mTrackletMCMData.begin(), mTrackletMCMData.end(), TrackletMCMData{0});
           mWordsRead++;
         } else {
           if (mState == StateTrackletMCMHeader || (mState == StateTrackletHCHeader && !mOptions[mIgnoreTrackletHCHeader])) {
