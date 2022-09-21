@@ -119,7 +119,7 @@ std::unique_ptr<TMultiGraph> draw(int i)
 // The times must be given in unix epoch ms format.
 // The default Run is 523677 for the test ccdb.
 // The offset for the next calibration is 15 Minutes.
-void plotVdriftExB(unsigned int runNumber = 523677, std::string ccdb = "http://ccdb-test.cern.ch:8080", timePoint queryInterval = 900000 )
+void plotVdriftExB(unsigned int runNumber = 523677, std::string ccdb = "http://ccdb-test.cern.ch:8080", timePoint queryInterval = 900000)
 {
   ccdbDownload(runNumber, ccdb, queryInterval);
   find_good();
