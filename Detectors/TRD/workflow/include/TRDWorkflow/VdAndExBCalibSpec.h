@@ -26,7 +26,9 @@
 #include "Framework/WorkflowSpec.h"
 #include "CCDB/CcdbApi.h"
 #include "CCDB/CcdbObjectInfo.h"
+#include "Framework/CCDBParamSpec.h"
 #include "DetectorsBase/GRPGeomHelper.h"
+#include "DataFormatsGlobalTracking/RecoContainer.h"
 #include <chrono>
 
 using namespace o2::framework;
@@ -39,7 +41,7 @@ namespace calibration
 class VdAndExBCalibDevice : public o2::framework::Task
 {
  public:
-  VdAndExBCalibDevice(std::shared_ptr<o2::base::GRPGeomRequest> req) : mCCDBRequest(req) {}
+  VdAndExBCalibDevice(std::shared_ptr<o2::globaltracking::DataRequest> dataRequest, std::shared_ptr<o2::base::GRPGeomRequest> req) : mDataRequest(dataRequest), mCCDBRequest(req) {}
   void init(o2::framework::InitContext& ic) final
   {
     o2::base::GRPGeomHelper::instance().setRequest(mCCDBRequest);
@@ -62,10 +64,13 @@ class VdAndExBCalibDevice : public o2::framework::Task
   {
     auto runStartTime = std::chrono::high_resolution_clock::now();
     o2::base::GRPGeomHelper::instance().checkUpdates(pc);
-    auto data = pc.inputs().get<o2::trd::AngularResidHistos>("input");
+    o2::globaltracking::RecoContainer inputData;
+    inputData.collectData(pc, *mDataRequest);
+    mCalibrator->retrievePrev();
+    auto dataAngRes = pc.inputs().get<o2::trd::AngularResidHistos>("input");
     o2::base::TFIDInfoHelper::fillTFIDInfo(pc, mCalibrator->getCurrentTFInfo());
-    LOG(info) << "Processing TF " << mCalibrator->getCurrentTFInfo().tfCounter << " with " << data.getNEntries() << " AngularResidHistos entries";
-    mCalibrator->process(data);
+    LOG(info) << "Processing TF " << mCalibrator->getCurrentTFInfo().tfCounter << " with " << dataAngRes.getNEntries() << " AngularResidHistos entries";
+    mCalibrator->process(dataAngRes);
     sendOutput(pc.outputs());
     std::chrono::duration<double, std::milli> runDuration = std::chrono::high_resolution_clock::now() - runStartTime;
     LOGP(info, "Duration for run method: {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(runDuration).count());
@@ -80,6 +85,7 @@ class VdAndExBCalibDevice : public o2::framework::Task
 
  private:
   std::unique_ptr<o2::trd::CalibratorVdExB> mCalibrator;
+  std::shared_ptr<o2::globaltracking::DataRequest> mDataRequest;
   std::shared_ptr<o2::base::GRPGeomRequest> mCCDBRequest;
   //________________________________________________________________
   void sendOutput(DataAllocator& output)
@@ -117,10 +123,13 @@ DataProcessorSpec getTRDVdAndExBCalibSpec()
   using device = o2::calibration::VdAndExBCalibDevice;
   using clbUtils = o2::calibration::Utils;
 
+  auto dataRequest = std::make_shared<o2::globaltracking::DataRequest>();
   std::vector<OutputSpec> outputs;
   outputs.emplace_back(ConcreteDataTypeMatcher{o2::calibration::Utils::gDataOriginCDBPayload, "VDRIFTEXB"}, Lifetime::Sporadic);
   outputs.emplace_back(ConcreteDataTypeMatcher{o2::calibration::Utils::gDataOriginCDBWrapper, "VDRIFTEXB"}, Lifetime::Sporadic);
-  std::vector<InputSpec> inputs{{"input", "TRD", "ANGRESHISTS"}};
+  auto& inputs = dataRequest->inputs;
+  inputs.emplace_back("input", "TRD", "ANGRESHISTS");
+  inputs.emplace_back("calvdexb", "TRD", "CALVDRIFTEXB", 0, Lifetime::Condition, ccdbParamSpec("TRD/Calib/CalVdriftExB"));
   auto ccdbRequest = std::make_shared<o2::base::GRPGeomRequest>(true,                           // orbitResetTime
                                                                 true,                           // GRPECS=true
                                                                 false,                          // GRPLHCIF
@@ -132,7 +141,7 @@ DataProcessorSpec getTRDVdAndExBCalibSpec()
     "calib-vdexb-calibration",
     inputs,
     outputs,
-    AlgorithmSpec{adaptFromTask<device>(ccdbRequest)},
+    AlgorithmSpec{adaptFromTask<device>(dataRequest, ccdbRequest)},
     Options{
       {"sec-per-slot", VariantType::UInt32, 900u, {"number of seconds per calibration time slot"}},
       {"max-delay", VariantType::UInt32, 2u, {"number of slots in past to consider"}},
