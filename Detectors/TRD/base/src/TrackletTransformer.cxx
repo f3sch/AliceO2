@@ -58,7 +58,7 @@ float TrackletTransformer::calculateDy(int detector, int slope)
   double padWidth = mPadPlane->getWidthIPad();
 
   float vDrift = mCalVdriftExB->getVdrift(detector);
-  if(vDrift == 0.){
+  if (vDrift == 0.) {
     vDrift = constants::VDRIFTDEFAULT;
   }
   float exb = mCalVdriftExB->getExB(detector);
@@ -143,7 +143,7 @@ double TrackletTransformer::getTimebin(int detector, double x)
 {
   // calculate timebin from x position within chamber
   float vDrift = mCalVdriftExB->getVdrift(detector);
-  if(vDrift == 0.){
+  if (vDrift == 0.) {
     vDrift = constants::VDRIFTDEFAULT;
   }
   double t0 = 4.0; // time (in timebins) of start of drift region
