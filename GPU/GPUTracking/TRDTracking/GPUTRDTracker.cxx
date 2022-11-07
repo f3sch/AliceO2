@@ -657,6 +657,22 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
             GPUWarning("Track parameter for track %i, x=%f at chamber %i x=%f in layer %i cannot be retrieved", iTrk, trkWork->getX(), currDet, mR[currDet], iLayer);
           }
         }
+        // check if track crosses padrows
+        if (iDet == 0) {
+          float projZEntry, projYEntry;
+          // Get Z for Entry of Track
+          prop->getPropagatedYZ(trkWork->getX() - 3.f, projYEntry, projZEntry);
+          // Get Padrow number for Exit&Entry and compare. If is not equal mark
+          // as padrow crossing. While simple, this comes with the cost of not
+          // properly handling Tracklets that hit a different Pad but still get
+          // attached to the Track. It is estimated that the probability for
+          // this is low.
+          auto padrowEntry = pad->GetPadRowNumber(projZEntry);
+          auto padrowExit = pad->GetPadRowNumber(trkWork->getX());
+          if (padrowEntry != padrowExit) {
+            trkWork->setIsPadrowCrossing(iLayer);
+          }
+        }
         // first propagate track to x of tracklet
         for (int trkltIdx = glbTrkltIdxOffset + mTrackletIndexArray[trkltIdxOffset + currDet]; trkltIdx < glbTrkltIdxOffset + mTrackletIndexArray[trkltIdxOffset + currDet + 1]; ++trkltIdx) {
           if (CAMath::Abs(trkWork->getY() - spacePoints[trkltIdx].getY()) > roadY || CAMath::Abs(trkWork->getZ() + zShiftTrk - spacePoints[trkltIdx].getZ()) > roadZ) {

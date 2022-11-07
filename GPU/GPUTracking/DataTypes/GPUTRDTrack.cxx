@@ -31,6 +31,7 @@ GPUd() void GPUTRDTrack_t<T>::initialize()
 {
   // set all members to their default values (needed since in-class initialization not possible with AliRoot)
   mChi2 = 0.f;
+  mIsPadrowCrossing = 0;
   mRefGlobalTrackId = 0;
   mCollisionId = -1;
   mFlags = 0;
