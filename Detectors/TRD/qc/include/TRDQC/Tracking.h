@@ -42,15 +42,15 @@ namespace trd
 {
 
 struct TrackQC {
-  int type;              ///< 0 TPC-TRD track; 1 ITS-TPC-TRD track
-  int nTracklets;        ///< number of attached TRD tracklets
-  int nLayers;           //< Number of Layers of a Track in which the track extrapolation was in geometrical acceptance of the TRD
-  float chi2;            ///< total chi2 value for the track
-  float reducedChi2;     ///< chi2 total divided by number of layers in which track is inside TRD geometrical acceptance
-  float p;               ///< the total momentum of the track at the point of the innermost ITS cluster (ITS-TPC-TRD) or at the inner TPC radius (TPC-TRD)
-  float pt;              ///< the transverse momentum of the track at the point of the innermost ITS cluster (ITS-TPC-TRD) or at the inner TPC radius (TPC-TRD)
-  float ptSigma2;        ///< Sigma2 of pt
-  float dEdxTotTPC;      ///< raw total dEdx information for seeding track in TPC
+  int type;                       ///< 0 TPC-TRD track; 1 ITS-TPC-TRD track
+  int nTracklets;                 ///< number of attached TRD tracklets
+  int nLayers;                    //< Number of Layers of a Track in which the track extrapolation was in geometrical acceptance of the TRD
+  float chi2;                     ///< total chi2 value for the track
+  float reducedChi2;              ///< chi2 total divided by number of layers in which track is inside TRD geometrical acceptance
+  float p;                        ///< the total momentum of the track at the point of the innermost ITS cluster (ITS-TPC-TRD) or at the inner TPC radius (TPC-TRD)
+  float pt;                       ///< the transverse momentum of the track at the point of the innermost ITS cluster (ITS-TPC-TRD) or at the inner TPC radius (TPC-TRD)
+  float ptSigma2;                 ///< Sigma2 of pt
+  float dEdxTotTPC;               ///< raw total dEdx information for seeding track in TPC
   unsigned char isPadrowCrossing; ///< bits 0 to 5 indicate if track crossed a padrow in that layer
 
   // layer-wise information for seeding track and assigned tracklet (if available)
