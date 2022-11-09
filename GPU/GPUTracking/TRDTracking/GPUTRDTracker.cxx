@@ -835,7 +835,7 @@ GPUd() bool GPUTRDTracker_t<TRDTRK, PROP>::FollowProlongation(PROP* prop, TRDTRK
       if (padrowEntry != padrowExit) {
         trkWork->setIsPadrowCrossing(iLayer);
       }
-      auto currDet =  tracklets[mHypothesis[iUpdate + hypothesisIdxOffset].mTrackletId].getDetector();
+      auto currDet = tracklets[mHypothesis[iUpdate + hypothesisIdxOffset].mTrackletId].getDetector();
       // Mark tracklets as Padrow crossing if they have a neighboring tracklet.
       for (int trkltIdx = glbTrkltIdxOffset + mTrackletIndexArray[trkltIdxOffset + currDet]; trkltIdx < glbTrkltIdxOffset + mTrackletIndexArray[trkltIdxOffset + currDet + 1]; ++trkltIdx) {
         // skip orig tracklet
