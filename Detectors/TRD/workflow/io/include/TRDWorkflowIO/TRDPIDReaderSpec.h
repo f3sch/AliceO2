@@ -43,7 +43,7 @@ class TRDPIDReader : public Task
     TPCTRD
   };
 
-  TRDPIDReader(bool useMC, Mode mode) : mUseMC(useMC), mMode(mode){}
+  TRDPIDReader(bool useMC, Mode mode) : mUseMC(useMC), mMode(mode) {}
   ~TRDPIDReader() override = default;
   void init(InitContext& ic) final;
   void run(ProcessingContext& pc) final;
