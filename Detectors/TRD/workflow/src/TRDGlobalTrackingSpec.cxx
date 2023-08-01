@@ -856,6 +856,8 @@ DataProcessorSpec getTRDGlobalTrackingSpec(bool useMC, GTrackID::mask_t src, boo
 #endif
       case PIDPolicy::Dummy:
         break;
+    default:
+      throw std::runtime_error("Unable to load requested PID policy data!");
     }
     // request calibration data
     inputs.emplace_back("localgainfactors", "TRD", "LOCALGAINFACTORS", 0, Lifetime::Condition, ccdbParamSpec("TRD/Calib/LocalGainFactor"));
