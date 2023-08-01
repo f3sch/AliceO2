@@ -138,8 +138,8 @@ std::vector<float> ML::prepareModelInput(const TrackTRD& trkTRD, const o2::globa
       const auto xCalib = input.getTRDCalibratedTracklets()[trkTRD.getTrackletIndex(iLayer)].getX();
       auto bz = o2::base::Propagator::Instance()->getNominalBz();
       const auto snp = trk.getSnp();
-      const auto tgl = getSnpAt(o2::math_utils::sector2Angle(input.getTRDTracklets()[trkIn.getTrackletIndex(iLayer)]), xCalib, bz)
-        const auto& trklt = trackletsRaw[trkltId];
+      const auto tgl = getSnpAt(o2::math_utils::sector2Angle(input.getTRDTracklets()[trkIn.getTrackletIndex(iLayer)]), xCalib, bz);
+      const auto& trklt = trackletsRaw[trkltId];
       const auto [q0, q1, q2] = getCharges(trklt, iLayer, trkTRD, input, snp, tgl); // correct charges
       in[iLayer * NCHARGES + 0] = q0;
       in[iLayer * NCHARGES + 1] = q1;
