@@ -39,11 +39,11 @@ namespace trd
 {
 namespace detail
 {
-  /// Lookup Table class for ccdb upload
-  template <int nDim>
+/// Lookup Table class for ccdb upload
+template <int nDim>
 class LUT
 {
-public:
+ public:
   LUT() = default;
   LUT(std::vector<float> p, std::vector<TGraph> l) : mIntervalsP(p), mLUTs(l) {}
 
@@ -70,7 +70,7 @@ public:
     }
   }
 
-private:
+ private:
   std::vector<float> mIntervalsP; ///< half-open interval upper bounds starting at 0, e.g., for {1.0,2.0,...} is (-inf,1.0], (1.0,2.0], (2.0, ...)
   std::vector<TGraph> mLUTs;      ///< corresponding likelihood lookup tables
 
@@ -78,15 +78,15 @@ private:
 };
 } // namespace detail
 
-  /// This is the ML Base class which defines the interface all machine learning
-  /// models.
-  template <int nDim>
+/// This is the ML Base class which defines the interface all machine learning
+/// models.
+template <int nDim>
 class LQND : public PIDBase
 {
   static_assert(nDim == 1 || nDim == 3, "Likelihood only for 1/3 dimension");
   using PIDBase::PIDBase;
 
-public:
+ public:
   ~LQND() = default;
 
   void init(o2::framework::ProcessingContext& pc) final
