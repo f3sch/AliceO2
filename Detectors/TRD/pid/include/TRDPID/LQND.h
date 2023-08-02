@@ -26,6 +26,7 @@
 #include "DataFormatsTRD/CalibratedTracklet.h"
 #include "DetectorsBase/Propagator.h"
 #include "Framework/Logger.h"
+#include "ReconstructionDataFormats/TrackParametrization.h"
 
 #include <memory>
 #include <vector>
@@ -111,7 +112,7 @@ public:
       const auto xCalib = input.getTRDCalibratedTracklets()[trkIn.getTrackletIndex(iLayer)].getX();
       auto bz = o2::base::Propagator::Instance()->getNominalBz();
       const auto snp = trk.getSnp();
-      const auto tgl = getSnpAt(o2::math_utils::sector2Angle(HelperMethods::getSector(input.getTRDTracklets()[trkIn.getTrackletIndex(iLayer)].getDetector())), xCalib, bz);
+      const auto tgl = o2::track::getSnpAt(o2::math_utils::sector2Angle(HelperMethods::getSector(input.getTRDTracklets()[trkIn.getTrackletIndex(iLayer)].getDetector())), xCalib, bz);
       const auto& trklt = trackletsRaw[trkltId];
       const auto [q0, q1, q2] = getCharges(trklt, iLayer, trkIn, input, snp, tgl); // correct charges
       if constexpr (nDim == 1) {
