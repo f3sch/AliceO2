@@ -36,7 +36,8 @@
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #endif
 
-void CompareClusterSize(long timestamp = 0) {
+void CompareClusterSize(long timestamp = 0)
+{
   gROOT->SetBatch();
   gStyle->SetOptStat(0);
 
@@ -59,18 +60,18 @@ void CompareClusterSize(long timestamp = 0) {
   hITS->SetLineWidth(2);
   hITS->SetFillColorAlpha(kBlue + 2, 0.3);
   // get topology dict
-  auto &mgr = o2::ccdb::BasicCCDBManager::instance();
+  auto& mgr = o2::ccdb::BasicCCDBManager::instance();
   mgr.setURL("http://alice-ccdb.cern.ch");
   mgr.setTimestamp(timestamp != 0 ? timestamp
                                   : o2::ccdb::getCurrentTimestamp());
-  const o2::itsmft::TopologyDictionary *dict =
-      mgr.get<o2::itsmft::TopologyDictionary>("ITS/Calib/ClusterDictionary");
+  const o2::itsmft::TopologyDictionary* dict =
+    mgr.get<o2::itsmft::TopologyDictionary>("ITS/Calib/ClusterDictionary");
   std::unique_ptr<TFile> clusFile(TFile::Open("o2clus_its.root"));
   auto clusTree = clusFile->Get<TTree>("o2sim");
   std::vector<o2::itsmft::CompClusterExt> clusArr, *clusArrP{&clusArr};
   clusTree->SetBranchAddress("ITSClusterComp", &clusArrP);
   std::vector<unsigned char> patterns;
-  std::vector<unsigned char> *patternsPtr{&patterns};
+  std::vector<unsigned char>* patternsPtr{&patterns};
   clusTree->SetBranchAddress("ITSClusterPatt", &patternsPtr);
   std::vector<o2::itsmft::ROFRecord> rofRecVec, *rofRecVecP{&rofRecVec};
   clusTree->SetBranchAddress("ITSClustersROF", &rofRecVecP);
@@ -79,12 +80,12 @@ void CompareClusterSize(long timestamp = 0) {
   auto pattIt = patternsPtr->cbegin();
 
   for (int irof = 0; irof < nROFRec; irof++) {
-    const auto &rofRec = rofRecVec[irof];
+    const auto& rofRec = rofRecVec[irof];
     // rofRec.print();
 
     for (int icl = 0; icl < rofRec.getNEntries(); icl++) {
       int clEntry = rofRec.getFirstEntry() + icl;
-      const auto &cluster = clusArr[clEntry];
+      const auto& cluster = clusArr[clEntry];
       // cluster.print();
 
       auto pattId = cluster.getPatternID();
@@ -110,8 +111,8 @@ void CompareClusterSize(long timestamp = 0) {
   its3Cluster->Draw("hist same");
   auto legend = new TLegend(0.6, 0.7, 0.9, 0.9);
   legend->AddEntry(
-      hITS, Form("ITS2 data %.2f +/- %.2f", hITS->GetMean(), hITS->GetRMS()),
-      "f");
+    hITS, Form("ITS2 data %.2f +/- %.2f", hITS->GetMean(), hITS->GetRMS()),
+    "f");
   legend->AddEntry(its3Cluster.get(),
                    Form("ITS3 MC %.2f +/- %.2f", its3Cluster->GetMean(),
                         its3Cluster->GetRMS()),
