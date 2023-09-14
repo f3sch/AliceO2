@@ -395,7 +395,7 @@ void DataRequest::requestSecondaryVertices(bool)
 {
   addInput({"v0sIdx", "GLO", "V0S_IDX", 0, Lifetime::Timeframe});
   addInput({"v0s", "GLO", "V0S", 0, Lifetime::Timeframe});
-  addInput({"p2v0s", "GLO", "PVTX_V5REFS", 0, Lifetime::Timeframe});
+  addInput({"p2v0s", "GLO", "PVTX_V0REFS", 0, Lifetime::Timeframe});
   addInput({"cascsIdx", "GLO", "CASCS_IDX", 0, Lifetime::Timeframe});
   addInput({"cascs", "GLO", "CASCS", 0, Lifetime::Timeframe});
   addInput({"p2cascs", "GLO", "PVTX_CASCREFS", 0, Lifetime::Timeframe});
