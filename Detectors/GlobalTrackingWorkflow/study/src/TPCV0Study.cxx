@@ -215,7 +215,7 @@ DataProcessorSpec getTPCV0StudySpec(GTrackID::mask_t srcTracks, bool useMC)
                                                               true);
 
   return DataProcessorSpec{
-    "tpc-track-study",
+    "tpc-v0-study",
     dataRequest->inputs,
     outputs,
     AlgorithmSpec{adaptFromTask<TPCV0StudySpec>(dataRequest, ggRequest, srcTracks, useMC)},

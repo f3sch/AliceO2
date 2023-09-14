@@ -51,18 +51,22 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
 {
   WorkflowSpec specs;
 
-  GID::mask_t allowedSourcesTrc = GID::getSourcesMask("TPC");
+  GID::mask_t allowedSourcesTrc = GID::getSourcesMask("ITS,ITS-TPC,TPC");
 
   // Update the (declared) parameters if changed from the command line
   o2::conf::ConfigurableParam::updateFromString(configcontext.options().get<std::string>("configKeyValues"));
   auto useMC = !configcontext.options().get<bool>("disable-mc");
   GID::mask_t src = allowedSourcesTrc & GID::getSourcesMask(configcontext.options().get<std::string>("track-sources"));
+  src |= GID::getSourcesMask("TPC"); // guarantee at least TPConly tracks
   o2::globaltracking::InputHelper::addInputSpecs(configcontext, specs, src, src, src, useMC);
-  o2::globaltracking::InputHelper::addInputSpecsPVertex(configcontext, specs, useMC); // P-vertex is always needed
+  o2::globaltracking::InputHelper::addInputSpecsPVertex(configcontext, specs, useMC);
+  o2::globaltracking::InputHelper::addInputSpecsSVertex(configcontext, specs);
   specs.emplace_back(o2::trackstudy::getTPCV0StudySpec(src, useMC));
 
   // configure dpl timer to inject correct firstTForbit: start from the 1st orbit of TF containing 1st sampled orbit
   o2::raw::HBFUtilsInitializer hbfIni(configcontext, specs);
+  // write the configuration used for the studies workflow
+  o2::conf::ConfigurableParam::writeINI("o2_tpc_v0_study.ini");
 
   return specs;
 }
