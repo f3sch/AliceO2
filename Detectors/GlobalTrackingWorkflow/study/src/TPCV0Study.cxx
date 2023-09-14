@@ -185,18 +185,18 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
       }
 
       (*mTree) << "mcTPCTracks"
-               << "mcPosTrk" << mcPosTrk
-               << "mcEleTrk" << mcEleTrk
-               << "mcPosTrkProp" << mcPosTrkProp
-               << "mcEleTrkProp" << mcEleTrkProp
-               << "mcMother" << mcMother
+               << "mcPosTrk=" << mcPosTrk
+               << "mcEleTrk=" << mcEleTrk
+               << "mcPosTrkProp=" << mcPosTrkProp
+               << "mcEleTrkProp=" << mcEleTrkProp
+               << "mcMother=" << mcMother
                << "\n";
     }
-    LOGP(info, "WRITING STUFF");
+
     (*mTree) << "tpcTracks"
-             << "recoPosTrk" << recoPosTrk
-             << "recoEleTrk" << recoEleTrk
-             << "recoPVtx" << recoPVtx
+             << "recoPosTrk=" << recoPosTrk
+             << "recoEleTrk=" << recoEleTrk
+             << "recoPVtx=" << recoPVtx
              << "\n";
   }
 }
