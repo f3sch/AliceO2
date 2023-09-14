@@ -204,12 +204,12 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
 void TPCV0StudySpec::endOfStream(EndOfStreamContext& /*ec*/)
 {
   mTree.reset();
-  LOGF(info, "+++ Invalid MC Labels {}", mCounterInvalidLabel);
-  LOGF(info, "+++ Invalid MC EventID {}", mCounterInvalidEventID);
-  LOGF(info, "+++ Invalid MC Track {}", mCounterInvalidMCTrack);
-  LOGF(info, "+++ Invalid MC MotherID {}", mCounterInvalidMotherID);
-  LOGF(info, "+++ Invalid MC PDG {}", mCounterInvalidPDG);
-  LOGF(info, "+++ Failed Propagations {}", mCounterFailedProp);
+  LOGP(info, "+++ Invalid MC Labels {}", mCounterInvalidLabel);
+  LOGP(info, "+++ Invalid MC EventID {}", mCounterInvalidEventID);
+  LOGP(info, "+++ Invalid MC Track {}", mCounterInvalidMCTrack);
+  LOGP(info, "+++ Invalid MC MotherID {}", mCounterInvalidMotherID);
+  LOGP(info, "+++ Invalid MC PDG {}", mCounterInvalidPDG);
+  LOGP(info, "+++ Failed Propagations {}", mCounterFailedProp);
   LOGF(info, "TPC V0 Study total timing: Cpu: %.3e Real: %.3e s in %d slots",
        mTimer.CpuTime(), mTimer.RealTime(), mTimer.Counter() - 1);
 }
