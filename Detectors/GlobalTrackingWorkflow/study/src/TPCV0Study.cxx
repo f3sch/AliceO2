@@ -70,6 +70,14 @@ class TPCV0StudySpec final : public Task
   gsl::span<const o2::MCEventLabel> mMCPrimVertices;
   gsl::span<const o2::dataformats::V0> mV0s;
   gsl::span<const o2::dataformats::V0Index> mV0sIdx;
+
+  // Counters
+  uint32_t mCounterInvalidLabel{0};
+  uint32_t mCounterInvalidEventID{0};
+  uint32_t mCounterInvalidMCTrack{0};
+  uint32_t mCounterInvalidMotherID{0};
+  uint32_t mCounterInvalidPDG{0};
+  uint32_t mCounterFailedProp{0};
 };
 
 void TPCV0StudySpec::init(InitContext& /*ic*/)
@@ -108,6 +116,7 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
   mMCPrimVertices = recoData.getPrimaryVertexMCLabels();
   mV0s = recoData.getV0s();
   mV0sIdx = recoData.getV0sIdx();
+
   if (!mV0sIdx.empty() && (!mV0s.empty() && mV0sIdx.size() != mV0s.size())) {
     LOGP(fatal, "Mismatch between input SVertices indices and kinematics (not requested?): V0: {}/{}", mV0sIdx.size(), mV0s.size());
   }
@@ -134,16 +143,23 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
     if (mUseMC) {
       auto mcPosLab = mTPCTrkLabels[v0Idx.getProngID(0)];
       auto mcEleLab = mTPCTrkLabels[v0Idx.getProngID(1)];
-      if (!mcPosLab.isValid() || !mcEleLab.isValid() || mcPosLab.getEventID() != mcEleLab.getEventID()) {
+      if (!mcPosLab.isValid() || !mcEleLab.isValid()) {
+        ++mCounterInvalidLabel;
+        continue;
+      }
+      if (mcPosLab.getEventID() != mcEleLab.getEventID()) {
+        ++mCounterInvalidEventID;
         continue;
       }
       auto mcPosTrk = mcReader.getTrack(mcPosLab);
       auto mcEleTrk = mcReader.getTrack(mcEleLab);
       if ((mcPosTrk == nullptr) || (mcEleTrk == nullptr)) {
+        ++mCounterInvalidMCTrack;
         continue;
       }
       if (auto mcPosMotherId = mcPosTrk->getMotherTrackId(), mcEleMotherId = mcEleTrk->getMotherTrackId();
           mcPosMotherId != mcEleMotherId || mcPosMotherId == -1 || mcEleMotherId == -1) {
+        ++mCounterInvalidMotherID;
         continue;
       }
       auto mcMother = mcReader.getTrack(mcPosLab.getEventID(), mcPosTrk->getMotherTrackId());
@@ -155,6 +171,7 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
       std::array<float, 3> mcEleMomXYZ{static_cast<float>(mcEleTrk->GetStartVertexMomentumX()), static_cast<float>(mcEleTrk->GetStartVertexMomentumY()), static_cast<float>(mcEleTrk->GetStartVertexMomentumZ())};
       TParticlePDG* mcElePDG = TDatabasePDG::Instance()->GetParticle(mcEleTrk->GetPdgCode());
       if ((mcPosPDG == nullptr) || (mcElePDG == nullptr)) {
+        ++mCounterInvalidPDG;
         continue;
       }
       o2::track::TrackPar mcPosTrkProp(mcPosXYZ, mcPosMomXYZ, TMath::Nint(mcPosPDG->Charge() / 3), false);
@@ -163,6 +180,7 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
                                                         !mcEleTrkProp.rotate(recoEleTrk.getAlpha()) ||
                                                         !prop->PropagateToXBxByBz(mcPosTrkProp, recoPosTrk.getX()) ||
                                                         !prop->PropagateToXBxByBz(mcEleTrkProp, recoEleTrk.getX())) {
+        ++mCounterFailedProp;
         continue;
       }
 
@@ -186,6 +204,12 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
 void TPCV0StudySpec::endOfStream(EndOfStreamContext& /*ec*/)
 {
   mTree.reset();
+  LOGF(info, "+++ Invalid MC Labels {}", mCounterInvalidLabel);
+  LOGF(info, "+++ Invalid MC EventID {}", mCounterInvalidEventID);
+  LOGF(info, "+++ Invalid MC Track {}", mCounterInvalidMCTrack);
+  LOGF(info, "+++ Invalid MC MotherID {}", mCounterInvalidMotherID);
+  LOGF(info, "+++ Invalid MC PDG {}", mCounterInvalidPDG);
+  LOGF(info, "+++ Failed Propagations {}", mCounterFailedProp);
   LOGF(info, "TPC V0 Study total timing: Cpu: %.3e Real: %.3e s in %d slots",
        mTimer.CpuTime(), mTimer.RealTime(), mTimer.Counter() - 1);
 }
