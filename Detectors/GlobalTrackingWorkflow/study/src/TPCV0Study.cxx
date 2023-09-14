@@ -18,9 +18,7 @@
 #include "ReconstructionDataFormats/GlobalTrackID.h"
 #include "ReconstructionDataFormats/PrimaryVertex.h"
 #include "DetectorsBase/Propagator.h"
-#include "DetectorsBase/GeometryManager.h"
 #include "SimulationDataFormat/MCEventLabel.h"
-#include "SimulationDataFormat/MCUtils.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "DetectorsBase/GRPGeomHelper.h"
 #include "GlobalTrackingStudy/TPCV0Study.h"
@@ -64,7 +62,7 @@ class TPCV0StudySpec final : public Task
   void process(o2::globaltracking::RecoContainer& recoData);
 
  private:
-  void updateTimeDependentParams(ProcessingContext& pc);
+  static void updateTimeDependentParams(ProcessingContext& pc);
   std::shared_ptr<DataRequest> mDataRequest;
   std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;
   bool mUseMC{false}; ///< MC flag
@@ -90,7 +88,7 @@ void TPCV0StudySpec::init(InitContext& /*ic*/)
 void TPCV0StudySpec::run(ProcessingContext& pc)
 {
   o2::globaltracking::RecoContainer recoData;
-  recoData.collectData(pc, *mDataRequest.get()); // select tracks of needed type, with minimal cuts, the real selected will be done in the vertexer
+  recoData.collectData(pc, *mDataRequest); // select tracks of needed type, with minimal cuts, the real selected will be done in the vertexer
   updateTimeDependentParams(pc);                 // Make sure this is called after recoData.collectData, which may load some conditions
   process(recoData);
 }
