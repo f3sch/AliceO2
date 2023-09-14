@@ -13,9 +13,11 @@
 #include <vector>
 
 #include "TDatabasePDG.h"
+#include "TStopwatch.h"
 
 #include "DataFormatsGlobalTracking/RecoContainer.h"
 #include "ReconstructionDataFormats/GlobalTrackID.h"
+#include "DataFormatsTPC/TrackTPC.h"
 #include "ReconstructionDataFormats/PrimaryVertex.h"
 #include "DetectorsBase/Propagator.h"
 #include "SimulationDataFormat/MCEventLabel.h"
@@ -29,17 +31,10 @@
 
 namespace o2::trackstudy
 {
-using std::shared_ptr;
-
 using namespace o2::framework;
 using DetID = o2::detectors::DetID;
-using DataRequest = o2::globaltracking::DataRequest;
-
-using PVertex = o2::dataformats::PrimaryVertex;
-using V2TRef = o2::dataformats::VtxTrackRef;
-using VTIndex = o2::dataformats::VtxTrackIndex;
 using GTrackID = o2::dataformats::GlobalTrackID;
-using TBracket = o2::math_utils::Bracketf_t;
+using DataRequest = o2::globaltracking::DataRequest;
 
 using timeEst = o2::dataformats::TimeStampWithError<float, float>;
 
@@ -50,10 +45,8 @@ class TPCV0StudySpec final : public Task
   TPCV0StudySpec(TPCV0StudySpec&&) = delete;
   TPCV0StudySpec& operator=(const TPCV0StudySpec&) = delete;
   TPCV0StudySpec& operator=(TPCV0StudySpec&&) = delete;
-  TPCV0StudySpec(shared_ptr<DataRequest> dr, std::shared_ptr<o2::base::GRPGeomRequest> gr, GTrackID::mask_t src, bool useMC)
-    : mDataRequest(std::move(dr)), mGGCCDBRequest(std::move(gr)), mUseMC(useMC), mTracksSrc(src)
-  {
-  }
+  TPCV0StudySpec(std::shared_ptr<DataRequest> dr, std::shared_ptr<o2::base::GRPGeomRequest> gr, bool useMC)
+    : mDataRequest(std::move(dr)), mGGCCDBRequest(std::move(gr)), mUseMC(useMC) {}
   ~TPCV0StudySpec() final = default;
   void init(InitContext& ic) final;
   void run(ProcessingContext& pc) final;
@@ -63,12 +56,12 @@ class TPCV0StudySpec final : public Task
 
  private:
   static void updateTimeDependentParams(ProcessingContext& pc);
-  std::shared_ptr<DataRequest> mDataRequest;
-  std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest;
-  bool mUseMC{false}; ///< MC flag
+  TStopwatch mTimer;
+  std::shared_ptr<DataRequest> mDataRequest{};
+  std::shared_ptr<o2::base::GRPGeomRequest> mGGCCDBRequest{};
+  bool mUseMC{false};
   std::unique_ptr<o2::utils::TreeStreamRedirector> mTree;
-  GTrackID::mask_t mTracksSrc{};
-  o2::steer::MCKinematicsReader mcReader; // reader of MC information
+  o2::steer::MCKinematicsReader mcReader;
 
   gsl::span<const o2::tpc::TrackTPC> mTPCTracksArray;
   gsl::span<const o2::MCCompLabel> mTPCTrkLabels;
@@ -81,16 +74,20 @@ class TPCV0StudySpec final : public Task
 
 void TPCV0StudySpec::init(InitContext& /*ic*/)
 {
+  mTimer.Stop();
+  mTimer.Reset();
   o2::base::GRPGeomHelper::instance().setRequest(mGGCCDBRequest);
   mTree = std::make_unique<o2::utils::TreeStreamRedirector>("tpc-trackStudy.root", "recreate");
 }
 
 void TPCV0StudySpec::run(ProcessingContext& pc)
 {
+  mTimer.Start(false);
   o2::globaltracking::RecoContainer recoData;
   recoData.collectData(pc, *mDataRequest); // select tracks of needed type, with minimal cuts, the real selected will be done in the vertexer
-  updateTimeDependentParams(pc);                 // Make sure this is called after recoData.collectData, which may load some conditions
+  updateTimeDependentParams(pc);           // Make sure this is called after recoData.collectData, which may load some conditions
   process(recoData);
+  mTimer.Stop();
 }
 
 void TPCV0StudySpec::updateTimeDependentParams(ProcessingContext& pc)
@@ -105,13 +102,16 @@ void TPCV0StudySpec::updateTimeDependentParams(ProcessingContext& pc)
 
 void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
 {
-  auto prop = o2::base::Propagator::Instance();
   mTPCTracksArray = recoData.getTPCTracks();
   mPrimVertices = recoData.getPrimaryVertices();
   mPrimVer2TRefs = recoData.getPrimaryVertexMatchedTrackRefs();
   mMCPrimVertices = recoData.getPrimaryVertexMCLabels();
   mV0s = recoData.getV0s();
   mV0sIdx = recoData.getV0sIdx();
+  if (!mV0sIdx.empty() && mV0sIdx.size() != mV0s.size()) {
+    LOGP(fatal, "Mismatch between input SVertices indices and kinematics (not requested?): V0: {}/{}", mV0sIdx.size(), mV0s.size());
+  }
+  LOGP(info, "Found {} reconstructed V0", mV0sIdx.size());
 
   std::vector<o2::InteractionTimeRecord> intRecs;
   if (mUseMC) { // extract MC tracks
@@ -124,15 +124,12 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
     mTPCTrkLabels = recoData.getTPCTracksMCLabels();
   }
 
-  if (!mV0sIdx.empty() && mV0sIdx.size() != mV0s.size()) {
-    LOGP(fatal, "This data has not secondary vertices kinematics filled");
-  }
-
-  for (size_t iv = 0; iv < mV0sIdx.size(); ++iv) {
-    auto v0 = mV0s[iv];
-    auto v0Idx = mV0sIdx[iv];
-    auto recoPosTrk = v0.getProng(0);
-    auto recoEleTrk = v0.getProng(1);
+  for (const auto& v0Idx : mV0sIdx) {
+    // auto v0 = mV0s[iv];
+    // auto recoPosTrk = v0.getProng(0);
+    // auto recoEleTrk = v0.getProng(1);
+    const auto& recoPosTrk = recoData.getTPCTrack(v0Idx.getProngID(0));
+    const auto& recoEleTrk = recoData.getTPCTrack(v0Idx.getProngID(1));
     const auto& recoPVtx = recoData.getPrimaryVertex(v0Idx.getVertexID());
     if (mUseMC) {
       auto mcPosLab = mTPCTrkLabels[v0Idx.getProngID(0)];
@@ -162,10 +159,10 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
       }
       o2::track::TrackPar mcPosTrkProp(mcPosXYZ, mcPosMomXYZ, TMath::Nint(mcPosPDG->Charge() / 3), false);
       o2::track::TrackPar mcEleTrkProp(mcEleXYZ, mcEleMomXYZ, TMath::Nint(mcElePDG->Charge() / 3), false);
-      if (!mcPosTrkProp.rotate(recoPosTrk.getAlpha()) ||
-          !mcEleTrkProp.rotate(recoEleTrk.getAlpha()) ||
-          !prop->PropagateToXBxByBz(mcPosTrkProp, recoPosTrk.getX()) ||
-          !prop->PropagateToXBxByBz(mcEleTrkProp, recoEleTrk.getX())) {
+      if (auto prop = o2::base::Propagator::Instance(); !mcPosTrkProp.rotate(recoPosTrk.getAlpha()) ||
+                                                        !mcEleTrkProp.rotate(recoEleTrk.getAlpha()) ||
+                                                        !prop->PropagateToXBxByBz(mcPosTrkProp, recoPosTrk.getX()) ||
+                                                        !prop->PropagateToXBxByBz(mcEleTrkProp, recoEleTrk.getX())) {
         continue;
       }
 
@@ -188,6 +185,8 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
 void TPCV0StudySpec::endOfStream(EndOfStreamContext& /*ec*/)
 {
   mTree.reset();
+  LOGF(info, "TPC V0 Study total timing: Cpu: %.3e Real: %.3e s in %d slots",
+       mTimer.CpuTime(), mTimer.RealTime(), mTimer.Counter() - 1);
 }
 
 void TPCV0StudySpec::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
@@ -199,7 +198,6 @@ void TPCV0StudySpec::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
 
 DataProcessorSpec getTPCV0StudySpec(GTrackID::mask_t srcTracks, bool useMC)
 {
-  std::vector<OutputSpec> outputs;
   auto dataRequest = std::make_shared<DataRequest>();
 
   dataRequest->requestTracks(srcTracks, useMC);
@@ -217,8 +215,8 @@ DataProcessorSpec getTPCV0StudySpec(GTrackID::mask_t srcTracks, bool useMC)
   return DataProcessorSpec{
     "tpc-v0-study",
     dataRequest->inputs,
-    outputs,
-    AlgorithmSpec{adaptFromTask<TPCV0StudySpec>(dataRequest, ggRequest, srcTracks, useMC)},
+    {},
+    AlgorithmSpec{adaptFromTask<TPCV0StudySpec>(dataRequest, ggRequest, useMC)},
     {}};
 }
 
