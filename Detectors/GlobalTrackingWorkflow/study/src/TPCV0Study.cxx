@@ -77,7 +77,7 @@ void TPCV0StudySpec::init(InitContext& /*ic*/)
   mTimer.Stop();
   mTimer.Reset();
   o2::base::GRPGeomHelper::instance().setRequest(mGGCCDBRequest);
-  mTree = std::make_unique<o2::utils::TreeStreamRedirector>("tpc-trackStudy.root", "recreate");
+  mTree = std::make_unique<o2::utils::TreeStreamRedirector>("tpc-v0-study.root", "recreate");
 }
 
 void TPCV0StudySpec::run(ProcessingContext& pc)
@@ -108,7 +108,7 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
   mMCPrimVertices = recoData.getPrimaryVertexMCLabels();
   mV0s = recoData.getV0s();
   mV0sIdx = recoData.getV0sIdx();
-  if (!mV0sIdx.empty() && mV0sIdx.size() != mV0s.size()) {
+  if (!mV0sIdx.empty() && (!mV0s.empty() && mV0sIdx.size() != mV0s.size())) {
     LOGP(fatal, "Mismatch between input SVertices indices and kinematics (not requested?): V0: {}/{}", mV0sIdx.size(), mV0s.size());
   }
   LOGP(info, "Found {} reconstructed V0", mV0sIdx.size());
@@ -174,6 +174,7 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
                << "mcMother" << mcMother
                << "\n";
     }
+    LOGP(info, "WRITING STUFF");
     (*mTree) << "tpcTracks"
              << "recoPosTrk" << recoPosTrk
              << "recoEleTrk" << recoEleTrk
