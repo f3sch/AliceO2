@@ -11,6 +11,7 @@
 
 o2_add_library(GlobalTrackingStudy
                SOURCES src/TPCTrackStudy.cxx
+                       src/TPCV0Study.cxx
                        src/TrackingStudy.cxx
                        src/TPCDataFilter.cxx
                        src/ITSOffsStudy.cxx
@@ -45,4 +46,9 @@ o2_add_executable(study-workflow
 o2_add_executable(dump-workfow
                   COMPONENT_NAME bc-tracks
                   SOURCES src/track-dump-workflow.cxx
+                  PUBLIC_LINK_LIBRARIES O2::GlobalTrackingStudy)
+
+o2_add_executable(study-workflow
+                  COMPONENT_NAME tpc-v0
+                  SOURCES src/tpc-v0-study-workflow.cxx
                   PUBLIC_LINK_LIBRARIES O2::GlobalTrackingStudy)
