@@ -21,6 +21,7 @@
 #include "Framework/ProcessingContext.h"
 #include "Framework/DataProcessorSpec.h"
 #include "ReconstructionDataFormats/StrangeTrack.h"
+#include "SimulationDataFormat/MCUtils.h"
 
 #ifdef WITH_OPENMP
 #include <omp.h>
@@ -41,6 +42,12 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
   mNV0s = mNCascades = mN3Bodies = 0;
   updateTimeDependentParams(); // TODO RS: strictly speaking, one should do this only in case of the CCDB objects update
   mPVertices = recoData.getPrimaryVertices();
+  if (mUseMC && mUseDebug) {
+    if (!mcReader.initFromDigitContext("collisioncontext.root")) {
+      LOGP(fatal, "Initialization of MCKinematicsReader failed!");
+    }
+    mTPCTrkLabels = recoData.getTPCTracksMCLabels();
+  }
   buildT2V(recoData); // build track->vertex refs from vertex->track (if other workflow will need this, consider producing a message in the VertexTrackMatcher)
   int ntrP = mTracksPool[POS].size(), ntrN = mTracksPool[NEG].size();
   if (mStrTracker) {
@@ -216,11 +223,20 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
   }
 
   extractPVReferences(v0sIdx, v0Refs, cascsIdx, cascRefs, body3Idx, vtx3bodyRefs);
+  if (mUseDebug) {
+    writeDebugV0Found(v0sIdx, v0Refs);
+    LOGP(info, "Processed {} TPC only tracks", mCounterTPConly);
+    mDebugOut.reset();
+  }
 }
 
 //__________________________________________________________________
 void SVertexer::init()
 {
+  if (mUseDebug) {
+    mDebugOut = std::make_unique<o2::utils::TreeStreamRedirector>("svertexer-debug.root", "recreate");
+    LOGP(info, "Enabled debug output");
+  }
 }
 
 //__________________________________________________________________
@@ -1093,8 +1109,16 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
   auto err = correctTPCTrack(trLoc, trTPC, twe.getTimeStamp(), twe.getTimeStampError());
   if (err < 0) {
     mTracksPool[posneg].pop_back(); // discard
+    return true;
   }
   trLoc.minR = std::sqrt(trLoc.getX() * trLoc.getX() + trLoc.getY() * trLoc.getY());
+
+  // write debug output for unconstrained tpc tracks contributing to the pool
+  if (mUseDebug) {
+    ++mCounterTPConly;
+    writeDebugV0Candidates(trTPC, gid, vtxid, trLoc);
+  }
+
   return true;
 }
 
@@ -1113,4 +1137,55 @@ float SVertexer::correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::Tra
   trc.setCov(trc.getSigmaZ2() + driftErr * driftErr, o2::track::kSigZ2);
 
   return driftErr;
+}
+
+void SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk)
+{
+  using namespace o2::mcutils;
+  static long counter{0};
+  const auto& vtx = mPVertices[vtxid];
+  if (mUseMC) {
+    auto lbl = mTPCTrkLabels[gid];
+    const MCTrack* mcTrack = nullptr;
+    if (!lbl.isValid() || (mcTrack = mcReader.getTrack(lbl)) == nullptr) {
+      return;
+    }
+    std::array<float, 3> xyz{(float)mcTrack->GetStartVertexCoordinatesX(), (float)mcTrack->GetStartVertexCoordinatesY(), (float)mcTrack->GetStartVertexCoordinatesZ()};
+    std::array<float, 3> pxyz{(float)mcTrack->GetStartVertexMomentumX(), (float)mcTrack->GetStartVertexMomentumY(), (float)mcTrack->GetStartVertexMomentumZ()};
+    TParticlePDG* pPDG = TDatabasePDG::Instance()->GetParticle(mcTrack->GetPdgCode());
+    if (pPDG == nullptr) {
+      return;
+    }
+    o2::track::TrackPar mctrO2(xyz, pxyz, TMath::Nint(pPDG->Charge() / 3), false);
+    //
+    // propagate it to the alpha/X of the reconstructed track
+    if (!mctrO2.rotate(trk.getAlpha()) || !o2::base::Propagator::Instance()->PropagateToXBxByBz(mctrO2, trk.getX())) {
+      return;
+    }
+    // Mother Particle
+    auto src = lbl.getSourceID();
+    auto eve = lbl.getEventID();
+    const auto& pcontainer = mcReader.getTracks(src, eve);
+    const auto& mother = MCTrackNavigator::getMother(*mcTrack, pcontainer);
+    (*mDebugOut) << "mcCandTracks"
+                 << "idx=" << counter
+                 << "Trk=" << mctrO2
+                 << "source=" << src
+                 << "event=" << eve
+                 << "mother" << mother
+                 << "isPPrim=" << MCTrackNavigator::isPhysicalPrimary(*mother, pcontainer)
+                 << "\n";
+  }
+  (*mDebugOut) << "candTracks"
+               << "idx=" << counter
+               << "bTrk=" << trk
+               << "aTrk=" << candTrk
+               << "pVtx=" << vtx
+               << "\n";
+  ++counter;
+}
+
+template <class TVI, class TCI>
+void SVertexer::writeDebugV0Found(TVI const& v0s, TCI const& vtx2V0Refs)
+{
 }

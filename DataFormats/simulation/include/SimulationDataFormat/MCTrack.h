@@ -28,6 +28,7 @@
 #include "TParticlePDG.h"
 #include "TVector3.h"
 #include <type_traits>
+#include "FairLogger.h"
 
 namespace o2
 {
@@ -379,9 +380,9 @@ inline MCTrackT<T>::MCTrackT(const TParticle& part)
 template <typename T>
 inline void MCTrackT<T>::Print(Int_t trackId) const
 {
-  // LOG(debug) << "Track " << trackId << ", mother : " << mMotherTrackId << ", Type " << mPdgCode << ", momentum ("
-  //           << mStartVertexMomentumX << ", " << mStartVertexMomentumY << ", " << mStartVertexMomentumZ << ") GeV"
-  //          ;
+  LOG(info) << "Track " << trackId << ", mother : " << mMotherTrackId << ", Type " << mPdgCode << ", momentum ("
+            << mStartVertexMomentumX << ", " << mStartVertexMomentumY << ", " << mStartVertexMomentumZ << ") GeV"
+           ;
 }
 
 template <typename T>

@@ -54,7 +54,7 @@ namespace o2d = o2::dataformats;
 class SecondaryVertexingSpec : public Task
 {
  public:
-  SecondaryVertexingSpec(std::shared_ptr<DataRequest> dr, std::shared_ptr<o2::base::GRPGeomRequest> gr, bool enabCasc, bool enable3body, bool enableStrangenessTracking, bool useMC) : mDataRequest(dr), mGGCCDBRequest(gr), mEnableCascades(enabCasc), mEnable3BodyVertices(enable3body), mEnableStrangenessTracking(enableStrangenessTracking), mUseMC(useMC) {}
+  SecondaryVertexingSpec(std::shared_ptr<DataRequest> dr, std::shared_ptr<o2::base::GRPGeomRequest> gr, bool enabCasc, bool enable3body, bool enableStrangenessTracking, bool useMC, bool useDebug) : mDataRequest(dr), mGGCCDBRequest(gr), mEnableCascades(enabCasc), mEnable3BodyVertices(enable3body), mEnableStrangenessTracking(enableStrangenessTracking), mUseMC(useMC) ,mUseDebug{useDebug}{}
   ~SecondaryVertexingSpec() override = default;
   void init(InitContext& ic) final;
   void run(ProcessingContext& pc) final;
@@ -71,6 +71,7 @@ class SecondaryVertexingSpec : public Task
   bool mEnable3BodyVertices = false;
   bool mEnableStrangenessTracking = false;
   bool mUseMC = false;
+  bool mUseDebug= false;
   o2::vertexing::SVertexer mVertexer;
   o2::strangeness_tracking::StrangenessTracker mStrTracker;
   TStopwatch mTimer;
@@ -86,6 +87,7 @@ void SecondaryVertexingSpec::init(InitContext& ic)
   mVertexer.setEnable3BodyDecays(mEnable3BodyVertices);
   mVertexer.setNThreads(ic.options().get<int>("threads"));
   mVertexer.setUseMC(mUseMC);
+  mVertexer.setUseDebug(mUseDebug);
   if (mEnableStrangenessTracking) {
     mStrTracker.setCorrType(o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrLUT);
     mStrTracker.setConfigParams(&o2::strangeness_tracking::StrangenessTrackingParamConfig::Instance());
@@ -181,7 +183,7 @@ void SecondaryVertexingSpec::updateTimeDependentParams(ProcessingContext& pc)
   }
 }
 
-DataProcessorSpec getSecondaryVertexingSpec(GTrackID::mask_t src, bool enableCasc, bool enable3body, bool enableStrangenesTracking, bool useMC)
+DataProcessorSpec getSecondaryVertexingSpec(GTrackID::mask_t src, bool enableCasc, bool enable3body, bool enableStrangenesTracking, bool useMC,bool useDebug)
 {
   std::vector<OutputSpec> outputs;
   Options opts{
@@ -231,7 +233,7 @@ DataProcessorSpec getSecondaryVertexingSpec(GTrackID::mask_t src, bool enableCas
     "secondary-vertexing",
     dataRequest->inputs,
     outputs,
-    AlgorithmSpec{adaptFromTask<SecondaryVertexingSpec>(dataRequest, ggRequest, enableCasc, enable3body, enableStrangenesTracking, useMC)},
+    AlgorithmSpec{adaptFromTask<SecondaryVertexingSpec>(dataRequest, ggRequest, enableCasc, enable3body, enableStrangenesTracking, useMC,useDebug)},
     opts};
 }
 

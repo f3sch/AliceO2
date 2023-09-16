@@ -34,6 +34,8 @@
 #include <algorithm>
 #include "GPUO2InterfaceRefit.h"
 #include "TPCFastTransform.h"
+#include "CommonUtils/TreeStreamRedirector.h"
+#include "Steer/MCKinematicsReader.h"
 
 namespace o2
 {
@@ -117,6 +119,8 @@ class SVertexer
   int getNThreads() const { return mNThreads; }
   void setUseMC(bool v) { mUseMC = v; }
   bool getUseMC() const { return mUseMC; }
+  void setUseDebug(bool v) { mUseDebug = v; }
+  bool getUseDebug() const { return mUseDebug; }
 
   void setTPCTBin(int nbc)
   {
@@ -141,6 +145,9 @@ class SVertexer
   bool acceptTrack(GIndex gid, const o2::track::TrackParCov& trc) const;
   bool processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int vtxid);
   float correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::TrackTPC tTPC, float tmus, float tmusErr) const;
+  void writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk);
+  template <class TVI, class TCI>
+  void writeDebugV0Found(TVI const& v0s, TCI const& vtx2V0Refs);
 
   uint64_t getPairIdx(GIndex id1, GIndex id2) const
   {
@@ -194,6 +201,12 @@ class SVertexer
   bool mEnableCascades = true;
   bool mEnable3BodyDecays = false;
   bool mUseMC = false;
+  bool mUseDebug = false;
+
+  int mCounterTPConly{0};
+  gsl::span<const o2::MCCompLabel> mTPCTrkLabels; ///< input TPC Track MC labels
+  std::unique_ptr<o2::utils::TreeStreamRedirector> mDebugOut;
+  o2::steer::MCKinematicsReader mcReader; // reader of MC information
 };
 
 } // namespace vertexing
