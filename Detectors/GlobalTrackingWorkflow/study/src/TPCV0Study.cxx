@@ -122,7 +122,7 @@ void TPCV0StudySpec::loadData(o2::globaltracking::RecoContainer& recoData)
   mV0sIdx = recoData.getV0sIdx();
 
   if (!mV0sIdx.empty() && mV0sIdx.size() != mV0s.size()) {
-    LOGP(fatal, "Mismatch between input SVertices indices and kinematics (not requested?): V0: {}/{} (vertexed with svertex.createFullV0s=true?)", mV0sIdx.size(), mV0s.size());
+    LOGP(fatal, "Mismatch between input SVertices indices and kinematics (not requested?): V0: {}/{} (vertexed with svertexer.createFullV0s=true?)", mV0sIdx.size(), mV0s.size());
   }
   LOGP(info, "Found {} reconstructed V0", mV0sIdx.size());
 
@@ -144,8 +144,8 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
     const auto& recoEleTrk = v0.getProng(1);
     const auto& recoPVtx = recoData.getPrimaryVertex(v0Idx.getVertexID());
     if (mUseMC) {
-      auto mcPosLab = mTPCTrkLabels[v0Idx.getProngID(0)];
-      auto mcEleLab = mTPCTrkLabels[v0Idx.getProngID(1)];
+      auto mcPosLab = mTPCTrkLabels[v0Idx.getProngID(0).getIndex()];
+      auto mcEleLab = mTPCTrkLabels[v0Idx.getProngID(1).getIndex()];
       if (!mcPosLab.isValid() || !mcEleLab.isValid() ||
           mcPosLab.getEventID() != mcEleLab.getEventID() ||
           mcPosLab.getSourceID() != mcEleLab.getSourceID()) {

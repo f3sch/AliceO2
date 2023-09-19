@@ -43,10 +43,9 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
   updateTimeDependentParams(); // TODO RS: strictly speaking, one should do this only in case of the CCDB objects update
   mPVertices = recoData.getPrimaryVertices();
   if (mUseMC && mUseDebug) {
-    if (!mcReader.initFromDigitContext("collisioncontext.root")) {
-      LOGP(fatal, "Initialization of MCKinematicsReader failed!");
-    }
+    mITSTrkLabels = recoData.getITSTracksMCLabels();
     mTPCTrkLabels = recoData.getTPCTracksMCLabels();
+    mITSTPCTrkLabels = recoData.getTPCITSTracksMCLabels();
   }
   buildT2V(recoData); // build track->vertex refs from vertex->track (if other workflow will need this, consider producing a message in the VertexTrackMatcher)
   int ntrP = mTracksPool[POS].size(), ntrN = mTracksPool[NEG].size();
@@ -224,9 +223,9 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
 
   extractPVReferences(v0sIdx, v0Refs, cascsIdx, cascRefs, body3Idx, vtx3bodyRefs);
   if (mUseDebug) {
-    writeDebugV0Found(v0sIdx, v0Refs);
+    writeDebugV0Found(v0sIdx, recoData);
     LOGP(info, "Processed {} TPC only tracks", mCounterTPConly);
-    mDebugOut.reset();
+    mDebugStream.reset();
   }
 }
 
@@ -234,8 +233,45 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
 void SVertexer::init()
 {
   if (mUseDebug) {
-    mDebugOut = std::make_unique<o2::utils::TreeStreamRedirector>("svertexer-debug.root", "recreate");
+    mDebugStream = std::make_unique<o2::utils::TreeStreamRedirector>("svertexer-debug.root", "recreate");
     LOGP(info, "Enabled debug output");
+    if (mUseMC) {
+      mCounterTrueGammas = 0;
+      if (!mcReader.initFromDigitContext("collisioncontext.root")) {
+        LOGP(fatal, "Initialization of MCKinematicsReader failed!");
+      }
+      for (int iSource{0}; iSource < mcReader.getNSources(); ++iSource) {
+        for (int iEvent{0}; iEvent < mcReader.getNEvents(iSource); ++iEvent) {
+          const auto& pcontainer = mcReader.getTracks(iSource, iEvent);
+          for (const auto& mcparticle : pcontainer) {
+            if (mcparticle.GetPdgCode() == 22 &&
+                mcparticle.isPrimary() &&
+                o2::mcutils::MCTrackNavigator::isPhysicalPrimary(mcparticle, pcontainer)) { // all primary photons
+              if (auto d0 = o2::mcutils::MCTrackNavigator::getDaughter0(mcparticle, pcontainer),
+                  d1 = o2::mcutils::MCTrackNavigator::getDaughter1(mcparticle, pcontainer);
+                  d0 != d1 && d0 != nullptr && d1 != nullptr &&
+                  d0->getProcess() == kPPair &&
+                  d1->getProcess() == kPPair &&
+                  d0->hasHits() &&
+                  d1->hasHits()) {
+                if (auto d0TPC = d0->leftTrace(o2::detectors::DetID::TPC), d0ITS = d0->leftTrace(o2::detectors::DetID::ITS),
+                    d1TPC = d1->leftTrace(o2::detectors::DetID::TPC), d1ITS = d1->leftTrace(o2::detectors::DetID::ITS);
+                    (d0TPC || d0ITS) && (d1TPC || d1ITS)) {
+                  if (d0ITS && d1ITS && !d0TPC && !d1TPC) {
+                    ++mCounterTrueGammasITS;
+                  } else if (d0TPC && d1TPC && !d0ITS && !d1ITS) {
+                    ++mCounterTrueGammasTPC;
+                  } else if (d0ITS && d0TPC && d1ITS && d1TPC) {
+                    ++mCounterTrueGammasITSTPC;
+                  }
+                }
+                ++mCounterTrueGammas;
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }
 
@@ -1142,10 +1178,9 @@ float SVertexer::correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::Tra
 void SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk)
 {
   using namespace o2::mcutils;
-  static long counter{0};
   const auto& vtx = mPVertices[vtxid];
   if (mUseMC) {
-    auto lbl = mTPCTrkLabels[gid];
+    auto lbl = mTPCTrkLabels[gid.getIndex()];
     const MCTrack* mcTrack = nullptr;
     if (!lbl.isValid() || (mcTrack = mcReader.getTrack(lbl)) == nullptr) {
       return;
@@ -1166,26 +1201,144 @@ void SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid,
     auto src = lbl.getSourceID();
     auto eve = lbl.getEventID();
     const auto& pcontainer = mcReader.getTracks(src, eve);
-    const auto& mother = MCTrackNavigator::getMother(*mcTrack, pcontainer);
-    (*mDebugOut) << "mcCandTracks"
-                 << "idx=" << counter
-                 << "Trk=" << mctrO2
-                 << "source=" << src
-                 << "event=" << eve
-                 << "mother" << mother
-                 << "isPPrim=" << MCTrackNavigator::isPhysicalPrimary(*mother, pcontainer)
-                 << "\n";
+    const auto& mother = *(MCTrackNavigator::getMother(*mcTrack, pcontainer));
+    (*mDebugStream) << mDebugStreamName.data()
+                    << "mcTrk=" << mctrO2
+                    << "mcSrc=" << src
+                    << "mcEve=" << eve
+                    << "mcMother" << mother
+                    << "mcIsPPrim=" << MCTrackNavigator::isPhysicalPrimary(mother, pcontainer);
   }
-  (*mDebugOut) << "candTracks"
-               << "idx=" << counter
-               << "bTrk=" << trk
-               << "aTrk=" << candTrk
-               << "pVtx=" << vtx
-               << "\n";
-  ++counter;
+  (*mDebugStream) << mDebugStreamName.data()
+                  << "bTrk=" << trk
+                  << "aTrk=" << candTrk
+                  << "pVtx=" << vtx
+                  << "gid=" << gid
+                  << "found=" << (bool)false
+                  << "\n";
 }
 
-template <class TVI, class TCI>
-void SVertexer::writeDebugV0Found(TVI const& v0s, TCI const& vtx2V0Refs)
+template <class TVI, class RECO>
+void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
 {
+  std::vector<bool> invLbl(v0s.size(), false);
+  std::vector<bool> uneqEveID(v0s.size(), false);
+  std::vector<bool> uneqSrcID(v0s.size(), false);
+  std::vector<bool> nullMCDTrks(v0s.size(), false);
+  std::vector<bool> uneqMother(v0s.size(), false);
+  std::vector<bool> nullMother(v0s.size(), false);
+  std::vector<bool> good(v0s.size(), false);
+  std::vector<bool> goodITS(v0s.size(), false);
+  std::vector<bool> goodTPC(v0s.size(), false);
+  std::vector<bool> goodITSTPC(v0s.size(), false);
+  std::vector<bool> goodMixed(v0s.size(), false);
+  std::vector<bool> notGamma(v0s.size(), false);
+  std::vector<bool> totV0sF(v0s.size(), false);
+  std::vector<bool> itsV0F(v0s.size(), false);
+  std::vector<bool> tpcV0F(v0s.size(), false);
+  std::vector<bool> itstpcV0F(v0s.size(), false);
+  std::vector<bool> mixedV0F(v0s.size(), false);
+  std::vector<float> d0P(v0s.size(), -1);
+  std::vector<float> d1P(v0s.size(), -1);
+  std::vector<float> mP(v0s.size(), -1);
+  for (int i{0}; i < v0s.size(); ++i) {
+    totV0sF[i] = true;
+    auto gid0 = v0s[i].getProngID(0);
+    auto gid1 = v0s[i].getProngID(1);
+    if (gid0.getSource() == GIndex::TPC || gid1.getSource() == GIndex::TPC) {
+      tpcV0F[i] = true;
+    } else if (gid0.getSource() == GIndex::ITS || gid1.getSource() == GIndex::ITS) {
+      itsV0F[i] = true;
+    } else if (gid0.getSource() == GIndex::ITSTPC || gid1.getSource() == GIndex::ITSTPC) {
+      itstpcV0F[i] = true;
+    } else {
+      mixedV0F[i] = true;
+    }
+
+    auto getLabel = [&](auto gid) {
+      if (gid.getSource() == GIndex::ITS && recoData.isTrackSourceLoaded(GIndex::ITS)) {
+        return mITSTrkLabels[gid.getIndex()];
+      } else if (gid.getSource() == GIndex::ITSTPC && recoData.isTrackSourceLoaded(GIndex::ITSTPC)) {
+        return mITSTPCTrkLabels[gid.getIndex()];
+      } else if (gid.getSource() == GIndex::TPC && recoData.isTrackSourceLoaded(GIndex::TPC)) {
+        return mTPCTrkLabels[gid.getIndex()];
+      }
+      return o2::MCCompLabel();
+    };
+    auto lbl0 = getLabel(gid0);
+    auto lbl1 = getLabel(gid1);
+    if (!lbl0.isValid() || !lbl1.isValid()) {
+      invLbl[i] = true;
+      continue;
+    }
+    if (lbl0.getEventID() != lbl1.getEventID()) {
+      uneqEveID[i] = true;
+      continue;
+    }
+    if (lbl0.getSourceID() != lbl1.getSourceID()) {
+      uneqSrcID[i] = true;
+      continue;
+    }
+    auto mcTrk0 = mcReader.getTrack(lbl0);
+    auto mcTrk1 = mcReader.getTrack(lbl1);
+    if (mcTrk0 == nullptr || mcTrk1 == nullptr) {
+      nullMCDTrks[i] = true;
+      continue;
+    }
+    if (auto mcMotherId0 = mcTrk0->getMotherTrackId(), mcMotherId1 = mcTrk1->getMotherTrackId();
+        mcMotherId0 != mcMotherId1 || mcMotherId0 == -1 || mcMotherId1 == -1) {
+      uneqMother[i] = true;
+      continue;
+    }
+    auto src = lbl0.getSourceID();
+    auto eve = lbl0.getEventID();
+    const auto& pcontainer = mcReader.getTracks(src, eve);
+    const auto& mother = o2::mcutils::MCTrackNavigator::getMother(*mcTrk0, pcontainer);
+    if (mother == nullptr) {
+      nullMother[i] = true;
+      continue;
+    }
+    if (mother->GetPdgCode() != 22) {
+      notGamma[i] = true;
+      continue;
+    }
+
+    if (itsV0F[i]) {
+      goodITS[i] = true;
+    } else if (tpcV0F[i]) {
+      goodTPC[i] = true;
+    } else if (itstpcV0F[i]) {
+      goodITSTPC[i] = true;
+    } else {
+      goodMixed[i] = true;
+    }
+    good[i] = true;
+
+    d0P[i] = mcTrk0->GetP();
+    d1P[i] = mcTrk1->GetP();
+    mP[i] = mother->GetP();
+  }
+
+  auto count = [](auto b) { return std::count(b.begin(), b.end(), true); };
+
+  LOG(info) << "______________________________________________";
+  LOG(info) << "Total Found V0s: " << count(totV0sF) << " (" << count(itsV0F) << " ITS/" << count(tpcV0F) << " TPConly/" << count(itstpcV0F) << " ITSTPC/" << count(mixedV0F) << " MIXED) out of " << mCounterTrueGammas << " true v0 gammas";
+  LOG(info) << "__ Invalid Label: " << count(invLbl);
+  LOG(info) << "__ Unequal event ID: " << count(uneqEveID);
+  LOG(info) << "__ Unequal source ID: " << count(uneqSrcID);
+  LOG(info) << "__ NullPtr MC Trk: " << count(nullMCDTrks);
+  LOG(info) << "__ Unequal mother ID: " << count(uneqMother);
+  LOG(info) << "__ NullPtr mother Trk: " << count(nullMother);
+  LOG(info) << "__ Good V0 Trks: " << count(good);
+  LOG(info) << "__ Not Gammas: " << count(notGamma);
+  LOG(info) << "   `--> ITSonly=" << count(goodITS) << " TPConly=" << count(goodTPC) << " ITSTPConly=" << count(goodITSTPC) << " Mixed=" << count(goodMixed);
+  LOG(info) << "______________________________________________";
+  (*mDebugStream) << "v0Stat"
+                  << "total=" << totV0sF << "its=" << itsV0F << "tpc=" << tpcV0F << "itstpc=" << itstpcV0F << "mixed=" << mixedV0F
+                  << "invlbl=" << invLbl
+                  << "eveID=" << uneqEveID << "srcID=" << uneqSrcID << "nullptrMC=" << nullMCDTrks << "motherID=" << uneqMother << "nullptrMother=" << nullMother << "notGammas=" << notGamma
+                  << "good=" << good << "gits=" << goodITS << "gtpc=" << goodTPC << "gitstpc=" << goodITSTPC << "gmixed=" << goodMixed
+                  << "motherP=" << mP << "d0P=" << d0P << "d1P=" << d1P
+                  << "trueV0Generated=" << mCounterTrueGammas << "trueV0ITS=" << mCounterTrueGammasITS << "trueV0TPC=" << mCounterTrueGammasTPC << "trueV0ITSTPC=" << mCounterTrueGammasITSTPC
+                  << "\n";
 }
