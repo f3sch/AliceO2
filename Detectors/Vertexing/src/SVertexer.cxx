@@ -1225,7 +1225,6 @@ void SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid,
                   << "aTrk=" << candTrk
                   << "pVtx=" << vtx
                   << "gid=" << gid
-                  << "found=" << (bool)false
                   << "\n";
 }
 
@@ -1334,7 +1333,7 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
   auto count = [](auto b) { return std::count(b.begin(), b.end(), true); };
 
   LOG(info) << "______________________________________________";
-  LOG(info) << "Total Found V0s: " << count(totV0sF) << " (" << count(itsV0F) << " ITS/" << count(tpcV0F) << " TPConly/" << count(itstpcV0F) << " ITSTPC/" << count(mixedV0F) << " MIXED) out of " << mCounterTrueGammas << " true v0 gammas";
+  LOG(info) << "Total Found V0s: " << count(totV0sF) << " ( " << count(itsV0F) << " ITS/ " << count(tpcV0F) << " TPConly/ " << count(itstpcV0F) << " ITSTPC/ " << count(mixedV0F) << " MIXED) out of " << mCounterTrueGammas << " true v0 gammas";
   LOG(info) << "__ Invalid Label: " << count(invLbl);
   LOG(info) << "__ Unequal event ID: " << count(uneqEveID);
   LOG(info) << "__ Unequal source ID: " << count(uneqSrcID);
@@ -1343,7 +1342,7 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
   LOG(info) << "__ NullPtr mother Trk: " << count(nullMother);
   LOG(info) << "__ Good V0 Trks: " << count(good);
   LOG(info) << "__ Not Gammas: " << count(notGamma);
-  LOG(info) << "   `--> ITSonly=" << count(goodITS) << " TPConly=" << count(goodTPC) << " ITSTPConly=" << count(goodITSTPC) << " Mixed=" << count(goodMixed);
+  LOG(info) << "   `--> ITSonly= " << count(goodITS) << " TPConly= " << count(goodTPC) << " ITSTPConly= " << count(goodITSTPC) << " Mixed= " << count(goodMixed);
   LOG(info) << "______________________________________________";
   (*mDebugStream) << "v0Stat"
                   << "total=" << totV0sF << "its=" << itsV0F << "tpc=" << tpcV0F << "itstpc=" << itstpcV0F << "mixed=" << mixedV0F
@@ -1359,6 +1358,10 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
 void SVertexer::writeDebugTrackPools(const o2::globaltracking::RecoContainer& recoData)
 {
   auto ntrP = mTracksPool[POS].size(), ntrN = mTracksPool[NEG].size();
+  ULong64_t cFindable{0};
+  ULong64_t cFindableITS{0};
+  ULong64_t cFindableTPC{0};
+  ULong64_t cFindableITSTPC{0};
   for (int itp = 0; itp < ntrP; itp++) {
     auto& seedP = mTracksPool[POS][itp];
     int firstN = mVtxFirstTrack[NEG][seedP.vBracket.getMin()];
@@ -1431,6 +1434,15 @@ void SVertexer::writeDebugTrackPools(const o2::globaltracking::RecoContainer& re
                       << "mother=" << mother
                       << "type=" << type
                       << "\n";
+      if (type == GIndex::TPC) {
+        ++cFindableTPC;
+      } else if (type == GIndex::ITS) {
+        ++cFindableITS;
+      } else if (type == GIndex::ITSTPC) {
+        ++cFindableITSTPC;
+      }
+      ++cFindable;
     }
   }
+  LOG(info) << "There are " << cFindable << " good findable V0s ( " << cFindableITS << " ITS/ " << cFindableTPC << " TPC/ " << cFindableITSTPC << " ITSTPC)";
 }
