@@ -255,13 +255,18 @@ void SVertexer::init()
                   d0->hasHits() &&
                   d1->hasHits()) {
                 if (auto d0TPC = d0->leftTrace(o2::detectors::DetID::TPC), d0ITS = d0->leftTrace(o2::detectors::DetID::ITS),
-                    d1TPC = d1->leftTrace(o2::detectors::DetID::TPC), d1ITS = d1->leftTrace(o2::detectors::DetID::ITS);
-                    (d0TPC || d0ITS) && (d1TPC || d1ITS)) {
+                    d0TRD = d1->leftTrace(o2::detectors::DetID::TRD), d0TOF = d1->leftTrace(o2::detectors::DetID::TOF),
+                    d1TPC = d1->leftTrace(o2::detectors::DetID::TPC), d1ITS = d1->leftTrace(o2::detectors::DetID::ITS),
+                    d1TRD = d1->leftTrace(o2::detectors::DetID::TRD), d1TOF = d1->leftTrace(o2::detectors::DetID::TOF);
+                    (d0TPC || d0ITS) && (d1TPC || d1ITS) && !d0TRD && !d0TOF && !d1TRD && !d1TOF) {
                   if (d0ITS && d1ITS && !d0TPC && !d1TPC) {
+                    mTrueGammasITSPt.push_back(mcparticle.GetPt());
                     ++mCounterTrueGammasITS;
                   } else if (d0TPC && d1TPC && !d0ITS && !d1ITS) {
+                    mTrueGammasTPCPt.push_back(mcparticle.GetPt());
                     ++mCounterTrueGammasTPC;
                   } else if (d0ITS && d0TPC && d1ITS && d1TPC) {
+                    mTrueGammasITSTPCPt.push_back(mcparticle.GetPt());
                     ++mCounterTrueGammasITSTPC;
                   }
                 }
@@ -534,6 +539,9 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
   }
 
   LOG(info) << "Collected " << mTracksPool[POS].size() << " positive and " << mTracksPool[NEG].size() << " negative seeds";
+  if (mUseDebug) {
+    writeDebugTrackPools(recoData);
+  }
 }
 
 //__________________________________________________________________
@@ -1143,7 +1151,7 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
   int posneg = trTPC.getSign() < 0 ? 1 : 0;
   auto trLoc = mTracksPool[posneg].emplace_back(TrackCand{trTPC, gid, {vtxid, vtxid}, 0.});
   auto err = correctTPCTrack(trLoc, trTPC, twe.getTimeStamp(), twe.getTimeStampError());
-  if (err < 0) {
+  if (err < 0 || TMath::Abs(trTPC.getZ() - vtx.getZ() - trTPC.getTgl() * trTPC.getX()) > mSVParams->mTPCTrackMaxZ) {
     mTracksPool[posneg].pop_back(); // discard
     return true;
   }
@@ -1202,6 +1210,9 @@ void SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid,
     auto eve = lbl.getEventID();
     const auto& pcontainer = mcReader.getTracks(src, eve);
     const auto& mother = *(MCTrackNavigator::getMother(*mcTrack, pcontainer));
+    if (!mother.isPrimary() || !(mother.GetPdgCode() == 22)) {
+      return;
+    }
     (*mDebugStream) << mDebugStreamName.data()
                     << "mcTrk=" << mctrO2
                     << "mcSrc=" << src
@@ -1238,9 +1249,9 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
   std::vector<bool> tpcV0F(v0s.size(), false);
   std::vector<bool> itstpcV0F(v0s.size(), false);
   std::vector<bool> mixedV0F(v0s.size(), false);
-  std::vector<float> d0P(v0s.size(), -1);
-  std::vector<float> d1P(v0s.size(), -1);
-  std::vector<float> mP(v0s.size(), -1);
+  std::vector<float> gD0Pt(v0s.size(), -1);
+  std::vector<float> gD1Pt(v0s.size(), -1);
+  std::vector<float> gMPt(v0s.size(), -1);
   for (int i{0}; i < v0s.size(); ++i) {
     totV0sF[i] = true;
     auto gid0 = v0s[i].getProngID(0);
@@ -1263,7 +1274,7 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
       } else if (gid.getSource() == GIndex::TPC && recoData.isTrackSourceLoaded(GIndex::TPC)) {
         return mTPCTrkLabels[gid.getIndex()];
       }
-      return o2::MCCompLabel();
+      return o2::MCCompLabel(true);
     };
     auto lbl0 = getLabel(gid0);
     auto lbl1 = getLabel(gid1);
@@ -1298,7 +1309,8 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
       nullMother[i] = true;
       continue;
     }
-    if (mother->GetPdgCode() != 22) {
+    bool isPhysicalPrimary = o2::mcutils::MCTrackNavigator::isPhysicalPrimary(*mother, pcontainer);
+    if (mother->GetPdgCode() != 22 || !mother->isPrimary() || !isPhysicalPrimary) {
       notGamma[i] = true;
       continue;
     }
@@ -1314,9 +1326,9 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
     }
     good[i] = true;
 
-    d0P[i] = mcTrk0->GetP();
-    d1P[i] = mcTrk1->GetP();
-    mP[i] = mother->GetP();
+    gD0Pt[i] = mcTrk0->GetPt();
+    gD1Pt[i] = mcTrk1->GetPt();
+    gMPt[i] = mother->GetPt();
   }
 
   auto count = [](auto b) { return std::count(b.begin(), b.end(), true); };
@@ -1338,7 +1350,87 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
                   << "invlbl=" << invLbl
                   << "eveID=" << uneqEveID << "srcID=" << uneqSrcID << "nullptrMC=" << nullMCDTrks << "motherID=" << uneqMother << "nullptrMother=" << nullMother << "notGammas=" << notGamma
                   << "good=" << good << "gits=" << goodITS << "gtpc=" << goodTPC << "gitstpc=" << goodITSTPC << "gmixed=" << goodMixed
-                  << "motherP=" << mP << "d0P=" << d0P << "d1P=" << d1P
+                  << "gMotherPt=" << gMPt << "gD0Pt=" << gD0Pt << "gD1Pt=" << gD1Pt
                   << "trueV0Generated=" << mCounterTrueGammas << "trueV0ITS=" << mCounterTrueGammasITS << "trueV0TPC=" << mCounterTrueGammasTPC << "trueV0ITSTPC=" << mCounterTrueGammasITSTPC
+                  << "trueITSPt=" << mTrueGammasITSPt << "trueTPCPt=" << mTrueGammasTPCPt << "trueITSTPCPt=" << mTrueGammasITSTPCPt
                   << "\n";
+}
+
+void SVertexer::writeDebugTrackPools(const o2::globaltracking::RecoContainer& recoData)
+{
+  auto ntrP = mTracksPool[POS].size(), ntrN = mTracksPool[NEG].size();
+  for (int itp = 0; itp < ntrP; itp++) {
+    auto& seedP = mTracksPool[POS][itp];
+    int firstN = mVtxFirstTrack[NEG][seedP.vBracket.getMin()];
+    if (firstN < 0) {
+      continue;
+    }
+    for (int itn = firstN; itn < ntrN; itn++) {
+      auto& seedN = mTracksPool[NEG][itn];
+      if (seedN.vBracket > seedP.vBracket) {
+        break;
+      }
+      if (mSVParams->maxPVContributors < 2 && static_cast<int>(seedP.gid.isPVContributor()) + static_cast<int>(seedN.gid.isPVContributor()) > mSVParams->maxPVContributors) {
+        continue;
+      }
+      auto gid0 = seedP.gid, gid1 = seedN.gid;
+      uint8_t type = 0;
+      if (gid0.getSource() == GIndex::TPC || gid1.getSource() == GIndex::TPC) {
+        type = GIndex::TPC;
+      } else if (gid0.getSource() == GIndex::ITS || gid1.getSource() == GIndex::ITS) {
+        type = GIndex::ITS;
+      } else if (gid0.getSource() == GIndex::ITSTPC || gid1.getSource() == GIndex::ITSTPC) {
+        type = GIndex::ITSTPC;
+      } else {
+        continue;
+      }
+      auto getLabel = [&](auto gid) {
+        if (gid.getSource() == GIndex::ITS && recoData.isTrackSourceLoaded(GIndex::ITS)) {
+          return mITSTrkLabels[gid.getIndex()];
+        } else if (gid.getSource() == GIndex::ITSTPC && recoData.isTrackSourceLoaded(GIndex::ITSTPC)) {
+          return mITSTPCTrkLabels[gid.getIndex()];
+        } else if (gid.getSource() == GIndex::TPC && recoData.isTrackSourceLoaded(GIndex::TPC)) {
+          return mTPCTrkLabels[gid.getIndex()];
+        }
+        return o2::MCCompLabel(true);
+      };
+      auto lbl0 = getLabel(gid0);
+      auto lbl1 = getLabel(gid1);
+      if (!lbl0.isValid() || !lbl1.isValid()) {
+        continue;
+      }
+      if (lbl0.getEventID() != lbl1.getEventID()) {
+        continue;
+      }
+      if (lbl0.getSourceID() != lbl1.getSourceID()) {
+        continue;
+      }
+      auto mcTrk0 = mcReader.getTrack(lbl0);
+      auto mcTrk1 = mcReader.getTrack(lbl1);
+      if (mcTrk0 == nullptr || mcTrk1 == nullptr) {
+        continue;
+      }
+      if (auto mcMotherId0 = mcTrk0->getMotherTrackId(), mcMotherId1 = mcTrk1->getMotherTrackId();
+          mcMotherId0 != mcMotherId1 || mcMotherId0 == -1 || mcMotherId1 == -1) {
+        continue;
+      }
+      auto src = lbl0.getSourceID();
+      auto eve = lbl0.getEventID();
+      const auto& pcontainer = mcReader.getTracks(src, eve);
+      const auto& mother = o2::mcutils::MCTrackNavigator::getMother(*mcTrk0, pcontainer);
+      if (mother == nullptr) {
+        continue;
+      }
+      bool isPhysicalPrimary = o2::mcutils::MCTrackNavigator::isPhysicalPrimary(*mother, pcontainer);
+      if (mother->GetPdgCode() != 22 || !mother->isPrimary() || !isPhysicalPrimary) {
+        continue;
+      }
+      (*mDebugStream) << "findableV0s"
+                      << "seedP=" << seedP
+                      << "seedN=" << seedN
+                      << "mother=" << mother
+                      << "type=" << type
+                      << "\n";
+    }
+  }
 }

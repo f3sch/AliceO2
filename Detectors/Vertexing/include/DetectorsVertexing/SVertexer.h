@@ -145,9 +145,6 @@ class SVertexer
   bool acceptTrack(GIndex gid, const o2::track::TrackParCov& trc) const;
   bool processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int vtxid);
   float correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::TrackTPC tTPC, float tmus, float tmusErr) const;
-  void writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk);
-  template <class TVI, class RECO>
-  void writeDebugV0Found(TVI const& v0s, RECO const& recoData);
 
   uint64_t getPairIdx(GIndex id1, GIndex id2) const
   {
@@ -208,12 +205,19 @@ class SVertexer
   long mCounterTrueGammasITS{0};
   long mCounterTrueGammasTPC{0};
   long mCounterTrueGammasITSTPC{0};
+  std::vector<double> mTrueGammasITSPt;
+  std::vector<double> mTrueGammasTPCPt;
+  std::vector<double> mTrueGammasITSTPCPt;
   gsl::span<const o2::MCCompLabel> mITSTrkLabels;    ///< input ITS Track MC labels
   gsl::span<const o2::MCCompLabel> mTPCTrkLabels;    ///< input TPC Track MC labels
   gsl::span<const o2::MCCompLabel> mITSTPCTrkLabels; ///< input ITS-TPC Track MC labels
   std::unique_ptr<o2::utils::TreeStreamRedirector> mDebugStream;
   static constexpr std::string_view mDebugStreamName{"candTracks"};
   o2::steer::MCKinematicsReader mcReader; // reader of MC information
+  void writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk);
+  void writeDebugTrackPools(const o2::globaltracking::RecoContainer& recoData);
+  template <class TVI, class RECO>
+  void writeDebugV0Found(TVI const& v0s, RECO const& recoData);
 };
 
 } // namespace vertexing

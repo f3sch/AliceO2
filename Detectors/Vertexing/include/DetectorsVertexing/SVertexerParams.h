@@ -91,6 +91,7 @@ struct SVertexerParams : public o2::conf::ConfigurableParamHelper<SVertexerParam
 
   bool mExcludeTPCtracks = false; // don't loop over TPC tracks if true (if loaded, dEdx info is used instead)
   float mTPCTrackMaxX = -1.f;     // don't use TPC standalone tracks with X exceeding this
+  float mTPCTrackMaxZ = 21.f;     // max allowed z diff for straight line fit back to pVtx
   float minTPCdEdx = 250;         // starting from this dEdx value, tracks with p > minMomTPCdEdx are always accepted
   float minMomTPCdEdx = 0.8;      // minimum p for tracks with dEdx > mMinTPCdEdx to be accepted
 
