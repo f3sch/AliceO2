@@ -32,10 +32,12 @@
 #include "DataFormatsTPC/TrackTPC.h"
 #include <numeric>
 #include <algorithm>
+#include <tuple>
 #include "GPUO2InterfaceRefit.h"
 #include "TPCFastTransform.h"
 #include "CommonUtils/TreeStreamRedirector.h"
 #include "Steer/MCKinematicsReader.h"
+#include "boost/functional/hash.hpp"
 
 namespace o2
 {
@@ -215,9 +217,25 @@ class SVertexer
   static constexpr std::string_view mDebugStreamName{"candTracks"};
   o2::steer::MCKinematicsReader mcReader; // reader of MC information
   void writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk);
-  void writeDebugTrackPools(const o2::globaltracking::RecoContainer& recoData);
+  void writeDebugBTrackPools(const o2::globaltracking::RecoContainer& recoData);
+  void writeDebugATrackPools(const o2::globaltracking::RecoContainer& recoData);
   template <class TVI, class RECO>
   void writeDebugV0Found(TVI const& v0s, RECO const& recoData);
+
+  using key_t = std::tuple<int, int, int>;
+
+  struct key_hash {
+    size_t operator()(const key_t& k) const
+    {
+      const auto& [eve, src, trkid] = k;
+      size_t seed = 0;
+      boost::hash_combine(seed, eve);
+      boost::hash_combine(seed, src);
+      boost::hash_combine(seed, trkid);
+      return seed;
+    }
+  };
+  using map_t = std::unordered_map<std::tuple<int, int, int>, std::tuple<MCTrack, MCTrack, MCTrack, bool>, key_hash>;
 };
 
 } // namespace vertexing
