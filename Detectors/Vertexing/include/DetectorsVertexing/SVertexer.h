@@ -223,7 +223,7 @@ class SVertexer
     std::array<std::array<ULong64_t, NSIZE>, 4> mCounters;
     void inc(CHECK c, GIndex const& gid0, GIndex const& gid1)
     {
-        SVertexer s
+      SVertexer s;
       if (s.checkITSTPC(gid0, gid1)) {
         ++mCounters[0][c];
       } else if (s.checkITS(gid0, gid1)) {
