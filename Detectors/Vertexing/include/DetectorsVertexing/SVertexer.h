@@ -223,11 +223,12 @@ class SVertexer
     std::array<std::array<ULong64_t, NSIZE>, 4> mCounters;
     void inc(CHECK c, GIndex const& gid0, GIndex const& gid1)
     {
-      if (SVertexer::checkITSTPC(gid0, gid1)) {
+        SVertexer s
+      if (s.checkITSTPC(gid0, gid1)) {
         ++mCounters[0][c];
-      } else if (SVertexer::checkITS(gid0, gid1)) {
+      } else if (s.checkITS(gid0, gid1)) {
         ++mCounters[1][c];
-      } else if (SVertexer::checkTPC(gid0, gid1)) {
+      } else if (s.checkTPC(gid0, gid1)) {
         ++mCounters[2][c];
       } else {
         ++mCounters[3][c]; // should not happen
@@ -245,7 +246,7 @@ class SVertexer
       }
     }
   };
-  Counter_t mCounter;
+  Counter_t mCounter{};
   std::vector<double> mTrueGammasITSPt;
   std::vector<double> mTrueGammasTPCPt;
   std::vector<double> mTrueGammasITSTPCPt;
@@ -277,7 +278,6 @@ class SVertexer
   using map_before_t = std::unordered_map<std::tuple<int, int, int>, std::tuple<MCTrack, MCTrack, MCTrack, bool>, key_hash>;
   using map_after_t = std::unordered_map<std::tuple<int, int, int>, std::tuple<TrackCand, MCTrack, TrackCand, MCTrack, MCTrack>, key_hash>;
 
- public:
   bool checkMother(o2::MCTrack const* mother, const std::vector<o2::MCTrack>& pcontainer)
   {
     if (mother == nullptr) {
