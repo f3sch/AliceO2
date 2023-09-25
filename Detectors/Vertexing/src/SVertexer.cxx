@@ -557,6 +557,7 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
 //__________________________________________________________________
 bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread)
 {
+  mCounter.inc(CALLED, seedP.gid, seedN.gid);
   auto& fitterV0 = mFitterV0[ithread];
   int nCand = fitterV0.process(seedP, seedN);
   if (nCand == 0) { // discard this pair
@@ -1310,7 +1311,7 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
   LOG(info) << "______________________________________________";
   LOG(info) << "Total Found V0s: " << count(totV0sF) << " ( " << count(itsV0F) << " ITS/ " << count(tpcV0F) << " TPConly/ " << count(itstpcV0F) << " ITSTPC) out of " << mCounterTrueGammas << " true v0 gammas";
   LOG(info) << "__ Good V0 Trks: " << count(good);
-  LOG(info) << "   `--> ITSonly= " << count(goodITS) << " TPConly= " << count(goodTPC) << " ITSTPConly= " << count(goodITSTPC) ;
+  LOG(info) << "   `--> ITSonly= " << count(goodITS) << " TPConly= " << count(goodTPC) << " ITSTPConly= " << count(goodITSTPC);
   LOG(info) << "______________________________________________";
   (*mDebugStream) << "v0Stat"
                   << "total=" << totV0sF << "its=" << itsV0F << "tpc=" << tpcV0F << "itstpc=" << itstpcV0F

@@ -216,6 +216,7 @@ class SVertexer
     PROPVTX,
     REJPT2,
     REJTGL,
+    CALLED,
     NSIZE,
   };
   struct Counter_t {
