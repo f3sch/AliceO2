@@ -293,8 +293,8 @@ class SVertexer
 
   bool checkITS(GIndex const& gid0, GIndex const& gid1)
   {
-    auto gid0ITS = GIndex::includesDet(o2::detectors::DetID::ITS, gid0);
-    auto gid1ITS = GIndex::includesDet(o2::detectors::DetID::ITS, gid1);
+    auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
+    auto gid1ITS = gid1.includesDet(o2::detectors::DetID::ITS);
     if (!gid0ITS || !gid1ITS) {
       return false;
     }
@@ -303,10 +303,10 @@ class SVertexer
 
   bool checkTPC(GIndex const& gid0, GIndex const& gid1)
   {
-    auto gid0ITS = GIndex::includesDet(o2::detectors::DetID::ITS, gid0);
-    auto gid1ITS = GIndex::includesDet(o2::detectors::DetID::ITS, gid1);
-    auto gid0TPC = GIndex::includesDet(o2::detectors::DetID::TPC, gid0);
-    auto gid1TPC = GIndex::includesDet(o2::detectors::DetID::TPC, gid1);
+    auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
+    auto gid1ITS = gid1.includesDet(o2::detectors::DetID::ITS);
+    auto gid0TPC = gid0.includesDet(o2::detectors::DetID::TPC);
+    auto gid1TPC = gid1.includesDet(o2::detectors::DetID::TPC);
     if (gid0ITS || gid1ITS || !gid0TPC || !gid1TPC) {
       return false;
     }
@@ -315,10 +315,10 @@ class SVertexer
 
   bool checkITSTPC(GIndex const& gid0, GIndex const& gid1)
   {
-    auto gid0ITS = GIndex::includesDet(o2::detectors::DetID::ITS, gid0);
-    auto gid1ITS = GIndex::includesDet(o2::detectors::DetID::ITS, gid1);
-    auto gid0TPC = GIndex::includesDet(o2::detectors::DetID::TPC, gid0);
-    auto gid1TPC = GIndex::includesDet(o2::detectors::DetID::TPC, gid1);
+    auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
+    auto gid1ITS = gid1.includesDet(o2::detectors::DetID::ITS);
+    auto gid0TPC = gid0.includesDet(o2::detectors::DetID::TPC);
+    auto gid1TPC = gid1.includesDet(o2::detectors::DetID::TPC);
     if (!gid0ITS || !gid1ITS || !gid0TPC || !gid1TPC) {
       return false;
     }

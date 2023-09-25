@@ -257,8 +257,8 @@ void SVertexer::init()
                   d1->getProcess() == kPPair &&
                   d0->hasHits() &&
                   d1->hasHits() &&
-                d0->GetP()  > 0.05 &&
-                d1->GetP()  > 0.05) {
+                  d0->GetP() > 0.05 &&
+                  d1->GetP() > 0.05) {
                 if (auto d0TPC = d0->leftTrace(o2::detectors::DetID::TPC), d0ITS = d0->leftTrace(o2::detectors::DetID::ITS),
                     d1TPC = d1->leftTrace(o2::detectors::DetID::TPC), d1ITS = d1->leftTrace(o2::detectors::DetID::ITS);
                     (d0TPC || d0ITS) && (d1TPC || d1ITS)) {
@@ -1264,23 +1264,24 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
       itstpcV0F[i] = true;
     } else {
       LOGP(warn, "THIS SHOULD NOT HAPPEN!");
+      goodMixed[i] = true;
     }
 
     auto lbl0 = getLabel(gid0, recoData);
     auto lbl1 = getLabel(gid1, recoData);
-    if(!checkLabels(lbl0, lbl1)){
+    if (!checkLabels(lbl0, lbl1)) {
       continue;
     }
     auto mcTrk0 = mcReader.getTrack(lbl0);
     auto mcTrk1 = mcReader.getTrack(lbl1);
-    if(!checkPair(mcTrk0, mcTrk1)){
+    if (!checkPair(mcTrk0, mcTrk1)) {
       continue;
     }
     auto src = lbl0.getSourceID();
     auto eve = lbl0.getEventID();
     const auto& pcontainer = mcReader.getTracks(src, eve);
     const auto& mother = o2::mcutils::MCTrackNavigator::getMother(*mcTrk0, pcontainer);
-    if(!checkMother(mother, pcontainer)){
+    if (!checkMother(mother, pcontainer)) {
       continue;
     }
 
@@ -1309,11 +1310,9 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
   LOG(info) << "______________________________________________";
   (*mDebugStream) << "v0Stat"
                   << "total=" << totV0sF << "its=" << itsV0F << "tpc=" << tpcV0F << "itstpc=" << itstpcV0F << "mixed=" << mixedV0F
-                  << "invlbl=" << invLbl
-                  << "eveID=" << uneqEveID << "srcID=" << uneqSrcID << "nullptrMC=" << nullMCDTrks << "motherID=" << uneqMother << "nullptrMother=" << nullMother << "notGammas=" << notGamma
                   << "good=" << good << "gits=" << goodITS << "gtpc=" << goodTPC << "gitstpc=" << goodITSTPC << "gmixed=" << goodMixed
                   << "gMotherPt=" << gMPt << "gD0Pt=" << gD0Pt << "gD1Pt=" << gD1Pt
-                  << "trueV0Generated=" << mCounterTrueGammas << "trueV0ITS=" << mCounterTrueGammasITS << "trueV0TPC=" << mCounterTrueGammasTPC << "trueV0ITSTPC=" << mCounterTrueGammasITSTPC
+                  << "trueV0ITS=" << mCounterTrueGammasITS << "trueV0TPC=" << mCounterTrueGammasTPC << "trueV0ITSTPC=" << mCounterTrueGammasITSTPC
                   << "trueITSPt=" << mTrueGammasITSPt << "trueTPCPt=" << mTrueGammasTPCPt << "trueITSTPCPt=" << mTrueGammasITSTPCPt
                   << "\n";
 }
@@ -1370,11 +1369,11 @@ void SVertexer::writeDebugBTrackPools(const o2::globaltracking::RecoContainer& r
         ++nMCITSTrks;
       } else if (d0TPC && d1TPC) {
         ++nMCTPCTrks;
-      } else{
+      } else {
         LOGP(info, "++++ err");
         d0->Print();
         d1->Print();
-        continue
+        continue;
       }
       ++nMCTrks;
       const auto idx = std::make_tuple(eve, src, mcTrk->getMotherTrackId());
@@ -1471,9 +1470,10 @@ void SVertexer::writeDebugATrackPools(const o2::globaltracking::RecoContainer& r
         ++cFindableITS;
       } else if (checkITSTPC(gid0, gid1)) {
         ++cFindableITSTPC;
-      } else{
+      } else {
         LOGP(warn, "--- err");
-
+        mcTrk0->Print();
+        mcTrk1->Print();
       }
       ++cFindable;
     }
