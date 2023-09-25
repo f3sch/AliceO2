@@ -274,6 +274,9 @@ class SVertexer
     if (lbl0.getSourceID() != lbl1.getSourceID()) {
       return false;
     }
+    if (lbl0.getTrackID() == lbl1.getTrackID()) {
+      return false; // possible looper?
+    }
     return true;
   }
 

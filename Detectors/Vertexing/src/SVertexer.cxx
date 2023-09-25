@@ -1247,7 +1247,6 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
   std::vector<bool> itsV0F(v0s.size(), false);
   std::vector<bool> tpcV0F(v0s.size(), false);
   std::vector<bool> itstpcV0F(v0s.size(), false);
-  std::vector<bool> mixedV0F(v0s.size(), false);
   std::vector<float> gD0Pt(v0s.size(), -1);
   std::vector<float> gD1Pt(v0s.size(), -1);
   std::vector<float> gMPt(v0s.size(), -1);
@@ -1262,10 +1261,7 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
     } else if (checkTPC(gid0, gid1)) {
       tpcV0F[i] = true;
     } else {
-      LOGP(warn, "THIS SHOULD NOT HAPPEN!");
-      gid0.print();
-      gid1.print();
-      goodMixed[i] = true;
+      continue; // cannot be matched
     }
 
     auto lbl0 = getLabel(gid0, recoData);
@@ -1292,8 +1288,6 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
       goodTPC[i] = true;
     } else if (itstpcV0F[i]) {
       goodITSTPC[i] = true;
-    } else {
-      goodMixed[i] = true;
     }
     good[i] = true;
 
@@ -1305,13 +1299,13 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
   auto count = [](auto b) { return std::count(b.begin(), b.end(), true); };
 
   LOG(info) << "______________________________________________";
-  LOG(info) << "Total Found V0s: " << count(totV0sF) << " ( " << count(itsV0F) << " ITS/ " << count(tpcV0F) << " TPConly/ " << count(itstpcV0F) << " ITSTPC/ " << count(mixedV0F) << " MIXED) out of " << mCounterTrueGammas << " true v0 gammas";
+  LOG(info) << "Total Found V0s: " << count(totV0sF) << " ( " << count(itsV0F) << " ITS/ " << count(tpcV0F) << " TPConly/ " << count(itstpcV0F) << " ITSTPC) out of " << mCounterTrueGammas << " true v0 gammas";
   LOG(info) << "__ Good V0 Trks: " << count(good);
-  LOG(info) << "   `--> ITSonly= " << count(goodITS) << " TPConly= " << count(goodTPC) << " ITSTPConly= " << count(goodITSTPC) << " Mixed= " << count(goodMixed);
+  LOG(info) << "   `--> ITSonly= " << count(goodITS) << " TPConly= " << count(goodTPC) << " ITSTPConly= " << count(goodITSTPC) ;
   LOG(info) << "______________________________________________";
   (*mDebugStream) << "v0Stat"
-                  << "total=" << totV0sF << "its=" << itsV0F << "tpc=" << tpcV0F << "itstpc=" << itstpcV0F << "mixed=" << mixedV0F
-                  << "good=" << good << "gits=" << goodITS << "gtpc=" << goodTPC << "gitstpc=" << goodITSTPC << "gmixed=" << goodMixed
+                  << "total=" << totV0sF << "its=" << itsV0F << "tpc=" << tpcV0F << "itstpc=" << itstpcV0F
+                  << "good=" << good << "gits=" << goodITS << "gtpc=" << goodTPC << "gitstpc=" << goodITSTPC
                   << "gMotherPt=" << gMPt << "gD0Pt=" << gD0Pt << "gD1Pt=" << gD1Pt
                   << "trueV0ITS=" << mCounterTrueGammasITS << "trueV0TPC=" << mCounterTrueGammasTPC << "trueV0ITSTPC=" << mCounterTrueGammasITSTPC
                   << "trueITSPt=" << mTrueGammasITSPt << "trueTPCPt=" << mTrueGammasTPCPt << "trueITSTPCPt=" << mTrueGammasITSTPCPt
@@ -1379,7 +1373,7 @@ void SVertexer::writeDebugBTrackPools(const o2::globaltracking::RecoContainer& r
         if (std::get<3>(map[idx]) == false) {
           std::get<3>(map[idx]) = true;
         } else {
-          continue; // we already added this, tracks can appear multiple times
+          continue; // we already added this, tracks can appear multiple times e.g. loopers thus only count once
         }
         if (d0ITS && d1ITS && d0TPC && d1TPC) {
           ++nMCCITSTPCTrks;
@@ -1469,11 +1463,7 @@ void SVertexer::writeDebugATrackPools(const o2::globaltracking::RecoContainer& r
       } else if (checkTPC(gid0, gid1)) {
         ++cFindableTPC;
       } else {
-        LOGP(warn, "--- err");
-        gid0.print();
-        gid1.print();
-        mcTrk0->Print();
-        mcTrk1->Print();
+        continue; // these cannot be found
       }
       ++cFindable;
     }
