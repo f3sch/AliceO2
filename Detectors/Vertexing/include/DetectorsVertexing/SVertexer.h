@@ -222,7 +222,7 @@ class SVertexer
     Counter_t()
     {
       mTotCounters.fill(0);
-      for (const auto& c : mCounters) {
+      for (auto& c : mCounters) {
         c.fill(0);
       }
     }
