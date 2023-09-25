@@ -1369,9 +1369,6 @@ void SVertexer::writeDebugBTrackPools(const o2::globaltracking::RecoContainer& r
       } else if (d0TPC && d1TPC) {
         ++nMCTPCTrks;
       } else {
-        LOGP(info, "++++ err");
-        d0->Print();
-        d1->Print();
         continue;
       }
       ++nMCTrks;
@@ -1471,6 +1468,8 @@ void SVertexer::writeDebugATrackPools(const o2::globaltracking::RecoContainer& r
         ++cFindableITSTPC;
       } else {
         LOGP(warn, "--- err");
+        gid0.print();
+        gid1.print();
         mcTrk0->Print();
         mcTrk1->Print();
       }
