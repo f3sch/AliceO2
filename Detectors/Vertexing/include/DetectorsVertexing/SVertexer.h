@@ -211,36 +211,37 @@ class SVertexer
   ULong64_t mCounterTrueGammasITSTPC{0};
   struct Counter_t {
     enum CHECK : unsigned int {
-      FPROCESS = 0;
-      MINR2TOMEANVERTEX;
-      REJCAUSALITY;
-      PROPVTX;
-      REJPT2;
-      REJTGL;
-      NSIZE;
+      FPROCESS = 0,
+      MINR2TOMEANVERTEX,
+      REJCAUSALITY,
+      PROPVTX,
+      REJPT2,
+      REJTGL,
+      NSIZE,
     };
-    std::array<ULong64_t, NSIZE> mTotCounters{0};
-    std::array<std::array<ULong64_t, NSIZE>, 4> mCounters{0};
-    void inc(CHECK, GIndex const& gid0, GIndex gid1)
+    std::array<ULong64_t, NSIZE> mTotCounters;
+    std::array<std::array<ULong64_t, NSIZE>, 4> mCounters;
+    void inc(CHECK c, GIndex const& gid0, GIndex gid1)
     {
       if (checkITSTPC(gid0, gid1)) {
-        ++mCounters[0][CHECK];
+        ++mCounters[0][c];
       } else if (checkITS(gid0, gid1)) {
-        ++mCounters[1][CHECK];
+        ++mCounters[1][c];
       } else if (checkTPC(gid0, gid1)) {
-        ++mCounters[2][CHECK];
+        ++mCounters[2][c];
       } else {
-        ++mCounters[3][CHECK]; // should not happen
+        ++mCounters[3][c]; // should not happen
       }
-      ++mTotCounters[CHECK];
+      ++mTotCounters[c];
     }
-    void print(){
-      for(int i{0}; i<NSIZE;++i){
-        LOGP(info, "{} - CHECK: {}",i, mTotCounters[i]);
-        LOGP(info, "   `--> ITSTPC {}",i, mCounters[0][i]);
-        LOGP(info, "   `--> ITS    {}",i, mCounters[1][i]);
-        LOGP(info, "   `-->    TPC {}",i, mCounters[2][i]);
-        LOGP(info, "   `-->  ????? {}",i, mCounters[3][i]);
+    void print()
+    {
+      for (int i{0}; i < NSIZE; ++i) {
+        LOGP(info, "{} - CHECK: {}", i, mTotCounters[i]);
+        LOGP(info, "   `--> ITSTPC {}", i, mCounters[0][i]);
+        LOGP(info, "   `--> ITS    {}", i, mCounters[1][i]);
+        LOGP(info, "   `-->    TPC {}", i, mCounters[2][i]);
+        LOGP(info, "   `-->  ????? {}", i, mCounters[3][i]);
       }
     }
   };
