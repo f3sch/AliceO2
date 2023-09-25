@@ -36,6 +36,7 @@
 #include "GPUO2InterfaceRefit.h"
 #include "TPCFastTransform.h"
 #include "CommonUtils/TreeStreamRedirector.h"
+#include "SimulationDataFormat/MCUtils.h"
 #include "Steer/MCKinematicsReader.h"
 #include "boost/functional/hash.hpp"
 

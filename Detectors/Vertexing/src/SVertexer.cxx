@@ -21,7 +21,6 @@
 #include "Framework/ProcessingContext.h"
 #include "Framework/DataProcessorSpec.h"
 #include "ReconstructionDataFormats/StrangeTrack.h"
-#include "SimulationDataFormat/MCUtils.h"
 #include "FairLogger.h"
 
 #include <unordered_map>
