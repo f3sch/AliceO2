@@ -218,7 +218,7 @@ class SVertexer
     REJTGL,
     NSIZE,
   };
-  const std::unordered_map<CHECK, std::string_view> CHECK2NAME{
+  static const std::unordered_map<CHECK, std::string_view> CHECK2NAME{
     {FPROCESS, "FProcess"},
     {MINR2TOMEANVERTEX, "MINR2TOMEANVERTEX"},
     {REJCAUSALITY, "RejCausality"},
