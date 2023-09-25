@@ -218,6 +218,14 @@ class SVertexer
     REJTGL,
     NSIZE,
   };
+  const std::unordered_map<CHECK, std::string_view> CHECK2NAME{
+    {FPROCESS, "FProcess"},
+    {MINR2TOMEANVERTEX, "MINR2TOMEANVERTEX"},
+    {REJCAUSALITY, "RejCausality"},
+    {PROPVTX, "Propagate to vertex"},
+    {REJPT2, "Pt2 cut"},
+    {REJTGL, "TgL cut"},
+  };
   struct Counter_t {
     std::array<ULong64_t, NSIZE> mTotCounters;
     std::array<std::array<ULong64_t, NSIZE>, 4> mCounters;
@@ -237,12 +245,12 @@ class SVertexer
     }
     void print()
     {
-      for (int i{0}; i < NSIZE; ++i) {
-        LOGP(info, "{} - CHECK: {}", i, mTotCounters[i]);
-        LOGP(info, "   `--> ITSTPC {}", i, mCounters[0][i]);
-        LOGP(info, "   `--> ITS    {}", i, mCounters[1][i]);
-        LOGP(info, "   `-->    TPC {}", i, mCounters[2][i]);
-        LOGP(info, "   `-->  ????? {}", i, mCounters[3][i]);
+      for (int i{0}; i < CHECK::NSIZE; ++i) {
+        LOGP(info, "{} - CHECK: {}", CHECK2NAME[i], mTotCounters[i]);
+        LOGP(info, "   `--> ITSTPC {}", mCounters[0][i]);
+        LOGP(info, "   `--> ITS    {}", mCounters[1][i]);
+        LOGP(info, "   `-->    TPC {}", mCounters[2][i]);
+        LOGP(info, "   `-->  ????? {}", mCounters[3][i]);
       }
     }
   };
