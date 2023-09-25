@@ -220,14 +220,14 @@ class SVertexer
     NSIZE,
   };
   struct Counter_t {
-    static const std::unordered_map<int, std::string> cNames{
-      {CHECK::FPROCESS, "Fitter Processing"},
-      {CHECK::MINR2TOMEANVERTEX, "Min R2 to mean Vertex"},
-      {CHECK::REJCAUSALITY, "Rejection Causality"},
-      {CHECK::PROPVTX, "Propagating to vertex"},
-      {CHECK::REJPT2, "Rejection Pt2"},
-      {CHECK::REJTGL, "Rejection TgL"},
-      {CHECK::CALLED, "#CALLED"},
+    static const std::array<const std::string_view, NSIZE> cNames{
+      "Fitter Processing",
+      "Min R2 to mean Vertex",
+      "Rejection Causality",
+      "Propagating to vertex",
+      "Rejection Pt2",
+      "Rejection TgL",
+      "#CALLED",
     };
     Counter_t()
     {
@@ -255,7 +255,7 @@ class SVertexer
     void print()
     {
       for (int i{0}; i < CHECK::NSIZE; ++i) {
-        LOGP(info, "{} - CHECK: {}: {}", i, cNames.at(i), mTotCounters[i]);
+        LOGP(info, "{} - CHECK: {}: {}", i, cNames[i], mTotCounters[i]);
         LOGP(info, "                 `--> ITSTPC {}", mCounters[0][i]);
         LOGP(info, "                 `--> ITS    {}", mCounters[1][i]);
         LOGP(info, "                 `-->    TPC {}", mCounters[2][i]);
