@@ -223,11 +223,11 @@ class SVertexer
     std::array<std::array<ULong64_t, NSIZE>, 4> mCounters;
     void inc(CHECK c, GIndex const& gid0, GIndex const& gid1)
     {
-      if (checkITSTPC(gid0, gid1)) {
+      if (SVertexer::checkITSTPC(gid0, gid1)) {
         ++mCounters[0][c];
-      } else if (checkITS(gid0, gid1)) {
+      } else if (SVertexer::checkITS(gid0, gid1)) {
         ++mCounters[1][c];
-      } else if (checkTPC(gid0, gid1)) {
+      } else if (SVertexer::checkTPC(gid0, gid1)) {
         ++mCounters[2][c];
       } else {
         ++mCounters[3][c]; // should not happen
@@ -277,6 +277,7 @@ class SVertexer
   using map_before_t = std::unordered_map<std::tuple<int, int, int>, std::tuple<MCTrack, MCTrack, MCTrack, bool>, key_hash>;
   using map_after_t = std::unordered_map<std::tuple<int, int, int>, std::tuple<TrackCand, MCTrack, TrackCand, MCTrack, MCTrack>, key_hash>;
 
+ public:
   bool checkMother(o2::MCTrack const* mother, const std::vector<o2::MCTrack>& pcontainer)
   {
     if (mother == nullptr) {
