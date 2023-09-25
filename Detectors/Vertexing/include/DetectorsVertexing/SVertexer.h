@@ -220,7 +220,7 @@ class SVertexer
     NSIZE,
   };
   struct Counter_t {
-    static const std::array<const std::string_view, NSIZE> cNames{
+    static constexpr std::array<std::string_view, NSIZE> cNames{
       "Fitter Processing",
       "Min R2 to mean Vertex",
       "Rejection Causality",
