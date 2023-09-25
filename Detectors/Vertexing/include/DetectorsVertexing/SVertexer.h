@@ -209,19 +209,19 @@ class SVertexer
   ULong64_t mCounterTrueGammasITS{0};
   ULong64_t mCounterTrueGammasTPC{0};
   ULong64_t mCounterTrueGammasITSTPC{0};
+  enum CHECK : unsigned int {
+    FPROCESS = 0,
+    MINR2TOMEANVERTEX,
+    REJCAUSALITY,
+    PROPVTX,
+    REJPT2,
+    REJTGL,
+    NSIZE,
+  };
   struct Counter_t {
-    enum CHECK : unsigned int {
-      FPROCESS = 0,
-      MINR2TOMEANVERTEX,
-      REJCAUSALITY,
-      PROPVTX,
-      REJPT2,
-      REJTGL,
-      NSIZE,
-    };
     std::array<ULong64_t, NSIZE> mTotCounters;
     std::array<std::array<ULong64_t, NSIZE>, 4> mCounters;
-    void inc(CHECK c, GIndex const& gid0, GIndex gid1)
+    void inc(CHECK c, GIndex const& gid0, GIndex const& gid1)
     {
       if (checkITSTPC(gid0, gid1)) {
         ++mCounters[0][c];
