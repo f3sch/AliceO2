@@ -1255,14 +1255,16 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
     totV0sF[i] = true;
     auto gid0 = v0s[i].getProngID(0);
     auto gid1 = v0s[i].getProngID(1);
-    if (checkTPC(gid0, gid1)) {
-      tpcV0F[i] = true;
+    if (checkITSTPC(gid0, gid1)) {
+      itstpcV0F[i] = true;
     } else if (checkITS(gid0, gid1)) {
       itsV0F[i] = true;
-    } else if (checkITSTPC(gid0, gid1)) {
-      itstpcV0F[i] = true;
+    } else if (checkTPC(gid0, gid1)) {
+      tpcV0F[i] = true;
     } else {
       LOGP(warn, "THIS SHOULD NOT HAPPEN!");
+      gid0.print();
+      gid1.print();
       goodMixed[i] = true;
     }
 
@@ -1460,12 +1462,12 @@ void SVertexer::writeDebugATrackPools(const o2::globaltracking::RecoContainer& r
         std::get<3>(map[idx]) = *mcTrk0;
         std::get<4>(map[idx]) = *mother;
       }
-      if (checkTPC(gid0, gid1)) {
-        ++cFindableTPC;
+      if (checkITSTPC(gid0, gid1)) {
+        ++cFindableITSTPC;
       } else if (checkITS(gid0, gid1)) {
         ++cFindableITS;
-      } else if (checkITSTPC(gid0, gid1)) {
-        ++cFindableITSTPC;
+      } else if (checkTPC(gid0, gid1)) {
+        ++cFindableTPC;
       } else {
         LOGP(warn, "--- err");
         gid0.print();

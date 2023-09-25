@@ -296,7 +296,7 @@ class SVertexer
   {
     auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
     auto gid1ITS = gid1.includesDet(o2::detectors::DetID::ITS);
-    if (gid0ITS && !gid1ITS) {
+    if (gid0ITS && gid1ITS) {
       return true;
     }
     return false;
