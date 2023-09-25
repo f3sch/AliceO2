@@ -235,9 +235,94 @@ class SVertexer
       return seed;
     }
   };
-  using map_t = std::unordered_map<std::tuple<int, int, int>, std::tuple<MCTrack, MCTrack, MCTrack, bool>, key_hash>;
-};
+  using map_before_t = std::unordered_map<std::tuple<int, int, int>, std::tuple<MCTrack, MCTrack, MCTrack, bool>, key_hash>;
+  using map_after_t = std::unordered_map<std::tuple<int, int, int>, std::tuple<TrackCand, MCTrack, TrackCand, MCTrack, MCTrack>, key_hash>;
 
+  bool checkMother(o2::MCTrack const* mother, const std::vector<o2::MCTrack>& pcontainer)
+  {
+    if (mother == nullptr) {
+      return false;
+    }
+    bool isPhysicalPrimary = o2::mcutils::MCTrackNavigator::isPhysicalPrimary(*mother, pcontainer);
+    if (mother->GetPdgCode() != 22 || !mother->isPrimary() || !isPhysicalPrimary) {
+      return false;
+    }
+  }
+
+  o2::MCCompLabel getLabel(GIndex const& gid, o2::globaltracking::RecoContainer const& recoData)
+  {
+    if (gid.getSource() == GIndex::ITS && recoData.isTrackSourceLoaded(GIndex::ITS)) {
+      return mITSTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::ITSTPC && recoData.isTrackSourceLoaded(GIndex::ITSTPC)) {
+      return mITSTPCTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::TPC && recoData.isTrackSourceLoaded(GIndex::TPC)) {
+      return mTPCTrkLabels[gid.getIndex()];
+    }
+    return o2::MCCompLabel(true);
+  }
+
+  boold checkLabels(o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1)
+  {
+    if (!lbl0.isValid() || !lbl1.isValid() || lbl0.isFake() || lbl1.isFake()) {
+      return false;
+    }
+    if (lbl0.getEventID() != lbl1.getEventID()) {
+      return false;
+    }
+    if (lbl0.getSourceID() != lbl1.getSourceID()) {
+      return false;
+    }
+    return true;
+  }
+
+  bool checkPair(o2::MCTrack const* mcTrk0, o2::MCTrack const* mcTrk1)
+  {
+    if (mcTrk0 == nullptr || mcTrk1 == nullptr || mcTrk0 == mcTrk1) {
+      return false;
+    }
+    if (auto mcMotherId0 = mcTrk0->getMotherTrackId(), mcMotherId1 = mcTrk1->getMotherTrackId();
+        mcMotherId0 != mcMotherId1 || mcMotherId0 == -1 || mcMotherId1 == -1) {
+      return false;
+    }
+    if (mcTrk0->getProcess() != kPPair || mcTrk1->getProcess() != kPPair) {
+      return false;
+    }
+  }
+
+  bool checkITS(GIndex const& gid0, GIndex const& gid1)
+  {
+    auto gid0ITS = GIndex::includesDet(o2::detectors::DetID::ITS, gid0);
+    auto gid1ITS = GIndex::includesDet(o2::detectors::DetID::ITS, gid1);
+    if (!gid0ITS || !gid1ITS) {
+      return false;
+    }
+    return true;
+  }
+
+  bool checkTPC(GIndex const& gid0, GIndex const& gid1)
+  {
+    auto gid0ITS = GIndex::includesDet(o2::detectors::DetID::ITS, gid0);
+    auto gid1ITS = GIndex::includesDet(o2::detectors::DetID::ITS, gid1);
+    auto gid0TPC = GIndex::includesDet(o2::detectors::DetID::TPC, gid0);
+    auto gid1TPC = GIndex::includesDet(o2::detectors::DetID::TPC, gid1);
+    if (gid0ITS || gid1ITS || !gid0TPC || !gid1TPC) {
+      return false;
+    }
+    return true;
+  }
+
+  bool checkITSTPC(GIndex const& gid0, GIndex const& gid1)
+  {
+    auto gid0ITS = GIndex::includesDet(o2::detectors::DetID::ITS, gid0);
+    auto gid1ITS = GIndex::includesDet(o2::detectors::DetID::ITS, gid1);
+    auto gid0TPC = GIndex::includesDet(o2::detectors::DetID::TPC, gid0);
+    auto gid1TPC = GIndex::includesDet(o2::detectors::DetID::TPC, gid1);
+    if (!gid0ITS || !gid1ITS || !gid0TPC || !gid1TPC) {
+      return false;
+    }
+    return true;
+  }
+};
 } // namespace vertexing
 } // namespace o2
 
