@@ -247,6 +247,7 @@ class SVertexer
     if (mother->GetPdgCode() != 22 || !mother->isPrimary() || !isPhysicalPrimary) {
       return false;
     }
+    return true;
   }
 
   o2::MCCompLabel getLabel(GIndex const& gid, o2::globaltracking::RecoContainer const& recoData)
@@ -261,7 +262,7 @@ class SVertexer
     return o2::MCCompLabel(true);
   }
 
-  boold checkLabels(o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1)
+  bool checkLabels(o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1)
   {
     if (!lbl0.isValid() || !lbl1.isValid() || lbl0.isFake() || lbl1.isFake()) {
       return false;
@@ -287,6 +288,7 @@ class SVertexer
     if (mcTrk0->getProcess() != kPPair || mcTrk1->getProcess() != kPPair) {
       return false;
     }
+    return true;
   }
 
   bool checkITS(GIndex const& gid0, GIndex const& gid1)

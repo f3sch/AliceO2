@@ -1266,8 +1266,8 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
       LOGP(warn, "THIS SHOULD NOT HAPPEN!");
     }
 
-    auto lbl0 = getLabel(gid0);
-    auto lbl1 = getLabel(gid1);
+    auto lbl0 = getLabel(gid0, recoData);
+    auto lbl1 = getLabel(gid1, recoData);
     if(!checkLabels(lbl0, lbl1)){
       continue;
     }
@@ -1332,7 +1332,7 @@ void SVertexer::writeDebugBTrackPools(const o2::globaltracking::RecoContainer& r
         continue;
       }
       ++nTrks;
-      auto lbl = getLabel(tvid);
+      auto lbl = getLabel(tvid, recoData);
       if (!lbl.isValid() || lbl.isFake()) {
         continue;
       }
@@ -1370,6 +1370,11 @@ void SVertexer::writeDebugBTrackPools(const o2::globaltracking::RecoContainer& r
         ++nMCITSTrks;
       } else if (d0TPC && d1TPC) {
         ++nMCTPCTrks;
+      } else{
+        LOGP(info, "++++ err");
+        d0->Print();
+        d1->Print();
+        continue
       }
       ++nMCTrks;
       const auto idx = std::make_tuple(eve, src, mcTrk->getMotherTrackId());
@@ -1433,8 +1438,8 @@ void SVertexer::writeDebugATrackPools(const o2::globaltracking::RecoContainer& r
         continue;
       }
       auto gid0 = seedP.gid, gid1 = seedN.gid;
-      auto lbl0 = getLabel(gid0);
-      auto lbl1 = getLabel(gid1);
+      auto lbl0 = getLabel(gid0, recoData);
+      auto lbl1 = getLabel(gid1, recoData);
       if (!checkLabels(lbl0, lbl1)) {
         continue;
       }
@@ -1466,6 +1471,9 @@ void SVertexer::writeDebugATrackPools(const o2::globaltracking::RecoContainer& r
         ++cFindableITS;
       } else if (checkITSTPC(gid0, gid1)) {
         ++cFindableITSTPC;
+      } else{
+        LOGP(warn, "--- err");
+
       }
       ++cFindable;
     }
