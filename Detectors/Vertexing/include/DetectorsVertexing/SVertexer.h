@@ -37,6 +37,7 @@
 #include "TPCFastTransform.h"
 #include "CommonUtils/TreeStreamRedirector.h"
 #include "SimulationDataFormat/MCUtils.h"
+#include "FairLogger.h"
 #include "Steer/MCKinematicsReader.h"
 #include "boost/functional/hash.hpp"
 
@@ -203,11 +204,47 @@ class SVertexer
   bool mUseMC = false;
   bool mUseDebug = false;
 
-  long mCounterTPConly{0};
-  long mCounterTrueGammas{0};
-  long mCounterTrueGammasITS{0};
-  long mCounterTrueGammasTPC{0};
-  long mCounterTrueGammasITSTPC{0};
+  ULong64_t mCounterTPConly{0};
+  ULong64_t mCounterTrueGammas{0};
+  ULong64_t mCounterTrueGammasITS{0};
+  ULong64_t mCounterTrueGammasTPC{0};
+  ULong64_t mCounterTrueGammasITSTPC{0};
+  struct Counter_t {
+    enum CHECK : unsigned int {
+      FPROCESS = 0;
+      MINR2TOMEANVERTEX;
+      REJCAUSALITY;
+      PROPVTX;
+      REJPT2;
+      REJTGL;
+      NSIZE;
+    };
+    std::array<ULong64_t, NSIZE> mTotCounters{0};
+    std::array<std::array<ULong64_t, NSIZE>, 4> mCounters{0};
+    void inc(CHECK, GIndex const& gid0, GIndex gid1)
+    {
+      if (checkITSTPC(gid0, gid1)) {
+        ++mCounters[0][CHECK];
+      } else if (checkITS(gid0, gid1)) {
+        ++mCounters[1][CHECK];
+      } else if (checkTPC(gid0, gid1)) {
+        ++mCounters[2][CHECK];
+      } else {
+        ++mCounters[3][CHECK]; // should not happen
+      }
+      ++mTotCounters[CHECK];
+    }
+    void print(){
+      for(int i{0}; i<NSIZE;++i){
+        LOGP(info, "{} - CHECK: {}",i, mTotCounters[i]);
+        LOGP(info, "   `--> ITSTPC {}",i, mCounters[0][i]);
+        LOGP(info, "   `--> ITS    {}",i, mCounters[1][i]);
+        LOGP(info, "   `-->    TPC {}",i, mCounters[2][i]);
+        LOGP(info, "   `-->  ????? {}",i, mCounters[3][i]);
+      }
+    }
+  };
+  Counter_t mCounter;
   std::vector<double> mTrueGammasITSPt;
   std::vector<double> mTrueGammasTPCPt;
   std::vector<double> mTrueGammasITSTPCPt;
