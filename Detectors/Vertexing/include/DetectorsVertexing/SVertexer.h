@@ -296,22 +296,23 @@ class SVertexer
   {
     auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
     auto gid1ITS = gid1.includesDet(o2::detectors::DetID::ITS);
-    if (!gid0ITS || !gid1ITS) {
-      return false;
+    if (gid0ITS && !gid1ITS) {
+      return true;
     }
-    return true;
+    return false;
   }
 
   bool checkTPC(GIndex const& gid0, GIndex const& gid1)
   {
-    auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
-    auto gid1ITS = gid1.includesDet(o2::detectors::DetID::ITS);
-    auto gid0TPC = gid0.includesDet(o2::detectors::DetID::TPC);
-    auto gid1TPC = gid1.includesDet(o2::detectors::DetID::TPC);
-    if (gid0ITS || gid1ITS || !gid0TPC || !gid1TPC) {
+    if (checkITS(gid0, gid1)) {
       return false;
     }
-    return true;
+    auto gid0TPC = gid0.includesDet(o2::detectors::DetID::TPC);
+    auto gid1TPC = gid1.includesDet(o2::detectors::DetID::TPC);
+    if (gid0TPC && gid1TPC) {
+      return true;
+    }
+    return false;
   }
 
   bool checkITSTPC(GIndex const& gid0, GIndex const& gid1)
@@ -320,10 +321,10 @@ class SVertexer
     auto gid1ITS = gid1.includesDet(o2::detectors::DetID::ITS);
     auto gid0TPC = gid0.includesDet(o2::detectors::DetID::TPC);
     auto gid1TPC = gid1.includesDet(o2::detectors::DetID::TPC);
-    if (!gid0ITS || !gid1ITS || !gid0TPC || !gid1TPC) {
-      return false;
+    if (gid0ITS && gid1ITS && gid0TPC && gid1TPC) {
+      return true;
     }
-    return true;
+    return false;
   }
 };
 } // namespace vertexing
