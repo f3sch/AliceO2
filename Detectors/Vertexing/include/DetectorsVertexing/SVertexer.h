@@ -220,7 +220,7 @@ class SVertexer
     NSIZE,
   };
   struct Counter_t {
-    static const std::unordered_map<int, std::string> cNames{
+    static std::unordered_map<int, std::string> cNames{
       {CHECK::FPROCESS, "Fitter Processing"},
       {CHECK::MINR2TOMEANVERTEX, "Min R2 to mean Vertex"},
       {CHECK::REJCAUSALITY, "Rejection Causality"},
