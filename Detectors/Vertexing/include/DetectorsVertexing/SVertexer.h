@@ -219,6 +219,13 @@ class SVertexer
     NSIZE,
   };
   struct Counter_t {
+    Counter_t()
+    {
+      mTotCounters.fill(0);
+      for (const auto& c : mCounters) {
+        c.fill(0);
+      }
+    }
     std::array<ULong64_t, NSIZE> mTotCounters;
     std::array<std::array<ULong64_t, NSIZE>, 4> mCounters;
     void inc(CHECK c, GIndex const& gid0, GIndex const& gid1)
