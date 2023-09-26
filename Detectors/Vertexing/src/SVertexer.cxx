@@ -593,10 +593,11 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
     LOG(info) << "RejCausality " << rv0 << " " << drv0P << " " << drv0N;
     LOG(info) << "found vertex " << v0XYZ[0] << ' ' << v0XYZ[1] << ' ' << v0XYZ[2];
-    LOG(info) << "seedP:";
+    LOGP(info, "seedP: X={} Y={} Z={} -> Rxy={}", seedP.getX(), seedP.getY(), seedP.getZ(), std::sqrt(seedP.getX()*seedP.getX()+seedP.getY()*seedP.getY()));
     seedP.print();
-    LOG(info) << "seedN:";
+    LOGP(info, "seedN: X={} Y={} Z={} -> Rxy={}", seedN.getX(), seedN.getY(), seedN.getZ(), std::sqrt(seedN.getX()*seedN.getX()+seedN.getY()*seedN.getY()));
     seedN.print();
+
     mCounterV0.inc(CHECKV0::REJCAUSALITY, seedP.gid, seedN.gid);
     return false;
   }
