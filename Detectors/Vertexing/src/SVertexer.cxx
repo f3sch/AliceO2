@@ -1196,6 +1196,9 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
     return true;
   }
   trLoc.minR = std::sqrt(trLoc.getX() * trLoc.getX() + trLoc.getY() * trLoc.getY());
+  if(trLoc.minR == 0){
+    trLoc.print();
+  }
 
   // write debug output for unconstrained tpc tracks contributing to the pool
   if (mUseDebug) {
