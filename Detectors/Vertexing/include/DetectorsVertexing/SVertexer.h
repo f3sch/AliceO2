@@ -228,7 +228,7 @@ class SVertexer
     "Rejection TgL",
     "#CALLED",
   };
-  Counter_t<CHECK, cNames> mCounter{};
+  Counter_t<CHECK, decltype(cNames)> mCounter{cNames};
   std::vector<double> mTrueGammasITSPt;
   std::vector<double> mTrueGammasTPCPt;
   std::vector<double> mTrueGammasITSTPCPt;
@@ -351,9 +351,10 @@ class SVertexer
     return false;
   }
 
-  template <class Checks, class Names>
+  template <class Checks, class NAMES>
   struct Counter_t {
-    Counter_t()
+      NAMES _names;
+    Counter_t(NAMES const& names): _names{names}
     {
       mTotCounters.fill(0);
       for (auto& c : mCounters) {
@@ -379,7 +380,7 @@ class SVertexer
     void print()
     {
       for (int i{0}; i < Checks::NSIZE; ++i) {
-        LOGP(info, "{} - CHECK: {}: {}", i, Names[i], mTotCounters[i]);
+        LOGP(info, "{} - CHECK: {}: {}", i, _names[i], mTotCounters[i]);
         LOGP(info, "                 `--> ITSTPC {}", mCounters[0][i]);
         LOGP(info, "                 `--> ITS    {}", mCounters[1][i]);
         LOGP(info, "                 `-->    TPC {}", mCounters[2][i]);
