@@ -209,50 +209,6 @@ class SVertexer
   ULong64_t mCounterTrueGammasITS{0};
   ULong64_t mCounterTrueGammasTPC{0};
   ULong64_t mCounterTrueGammasITSTPC{0};
-  enum CHECKV0 : unsigned int {
-    FPROCESS = 0,
-    MINR2TOMEANVERTEX,
-    REJCAUSALITY,
-    PROPVTX,
-    REJPT2,
-    REJTGL,
-    CALLED,
-    NSIZE,
-  };
-  static constexpr std::array<std::string_view, static_cast<size_t>(CHECKV0::NSIZE)> checkV0Names{
-    "Fitter Processing",
-    "Min R2 to mean Vertex",
-    "Rejection Causality",
-    "Propagating to vertex",
-    "Rejection Pt2",
-    "Rejection TgL",
-    "#CALLED",
-  };
-  Counter_t<CHECKV0> mCounterV0{checkV0Names};
-  enum BUILDT2V : unsigned int {
-    NOTLOADED = 0,
-    TPCTRACK,
-    TPCEXCLUDE,
-    TPCSPROCESS,
-    TPCFPROCESS,
-    AMBIGIOUS,
-    ACCOUNT,
-    REJECTED,
-    CALLED,
-    NSIZE,
-  };
-  static constexpr std::array<std::string_view, static_cast<size_t>(BUILDT2V::NSIZE)> buildT2VNames{
-    "Track source not loaded",
-    "TPC track",
-    "Excluded TPC track",
-    "TPC track successfully processed",
-    "TPC track failed processed",
-    "Ambigious track",
-    "Ambigious: Already accounted track (latter one)",
-    "Ambigious: Already rejected track",
-    "#CALLED",
-  };
-  Counter_t<BUILDT2V> mCounterBuildT2V{buildT2VNames};
   std::vector<double> mTrueGammasITSPt;
   std::vector<double> mTrueGammasTPCPt;
   std::vector<double> mTrueGammasITSTPCPt;
@@ -429,6 +385,51 @@ class SVertexer
       }
     }
   };
+
+  enum class CHECKV0 : unsigned int {
+    FPROCESS = 0,
+    MINR2TOMEANVERTEX,
+    REJCAUSALITY,
+    PROPVTX,
+    REJPT2,
+    REJTGL,
+    CALLED,
+    NSIZE,
+  };
+  static constexpr std::array<std::string_view, static_cast<size_t>(CHECKV0::NSIZE)> checkV0Names{
+    "Fitter Processing",
+    "Min R2 to mean Vertex",
+    "Rejection Causality",
+    "Propagating to vertex",
+    "Rejection Pt2",
+    "Rejection TgL",
+    "#CALLED",
+  };
+  Counter_t<CHECKV0> mCounterV0{checkV0Names};
+  enum class BUILDT2V : unsigned int {
+    NOTLOADED = 0,
+    TPCTRACK,
+    TPCEXCLUDE,
+    TPCSPROCESS,
+    TPCFPROCESS,
+    AMBIGIOUS,
+    ACCOUNT,
+    REJECTED,
+    CALLED,
+    NSIZE,
+  };
+  static constexpr std::array<std::string_view, static_cast<size_t>(BUILDT2V::NSIZE)> buildT2VNames{
+    "Track source not loaded",
+    "TPC track",
+    "Excluded TPC track",
+    "TPC track successfully processed",
+    "TPC track failed processed",
+    "Ambigious track",
+    "Ambigious: Already accounted track (latter one)",
+    "Ambigious: Already rejected track",
+    "#CALLED",
+  };
+  Counter_t<BUILDT2V> mCounterBuildT2V{buildT2VNames};
 };
 } // namespace vertexing
 } // namespace o2
