@@ -209,7 +209,7 @@ class SVertexer
   ULong64_t mCounterTrueGammasITS{0};
   ULong64_t mCounterTrueGammasTPC{0};
   ULong64_t mCounterTrueGammasITSTPC{0};
-  enum class CHECKV0 : unsigned int {
+  enum CHECKV0 : unsigned int {
     FPROCESS = 0,
     MINR2TOMEANVERTEX,
     REJCAUSALITY,
@@ -229,7 +229,7 @@ class SVertexer
     "#CALLED",
   };
   Counter_t<CHECKV0::NSIZE> mCounterV0{checkV0Names};
-  enum class BUILDT2V : unsigned int {
+  enum BUILDT2V : unsigned int {
     NOTLOADED = 0,
     TPCTRACK,
     TPCEXCLUDE,
