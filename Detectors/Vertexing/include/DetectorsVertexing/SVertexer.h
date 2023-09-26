@@ -228,7 +228,44 @@ class SVertexer
     "Rejection TgL",
     "#CALLED",
   };
-  Counter_t<CHECK, decltype(cNames)> mCounter{cNames};
+  template <unsigned int size>
+  struct Counter_t {
+    const std::array<std::string_view, size>& _names;
+    Counter_t(std::array<std::string_view, size> const& names) : _names{names}
+    {
+      mTotCounters.fill(0);
+      for (auto& c : mCounters) {
+        c.fill(0);
+      }
+    }
+    std::vector<ULong64_t> mTotCounters;
+    std::array<std::vector<ULong64_t, size>, 4> mCounters;
+    void inc(CHECK c, GIndex const& gid0, GIndex const& gid1)
+    {
+      SVertexer s;
+      if (s.checkITSTPC(gid0, gid1)) {
+        ++mCounters[0][c];
+      } else if (s.checkITS(gid0, gid1)) {
+        ++mCounters[1][c];
+      } else if (s.checkTPC(gid0, gid1)) {
+        ++mCounters[2][c];
+      } else {
+        ++mCounters[3][c]; // should not happen
+      }
+      ++mTotCounters[c];
+    }
+    void print()
+    {
+      for (int i{0}; i < size; ++i) {
+        LOGP(info, "{} - CHECK: {}: {}", i, _names[i], mTotCounters[i]);
+        LOGP(info, "                 `--> ITSTPC {}", mCounters[0][i]);
+        LOGP(info, "                 `--> ITS    {}", mCounters[1][i]);
+        LOGP(info, "                 `-->    TPC {}", mCounters[2][i]);
+        LOGP(info, "                 `--> ?????? {}", mCounters[3][i]);
+      }
+    }
+  };
+  Counter_t<CHECK::NSIZE, decltype(cNames)> mCounter{cNames};
   std::vector<double> mTrueGammasITSPt;
   std::vector<double> mTrueGammasTPCPt;
   std::vector<double> mTrueGammasITSTPCPt;
@@ -350,44 +387,6 @@ class SVertexer
     }
     return false;
   }
-
-  template <class Checks, class NAMES>
-  struct Counter_t {
-      NAMES _names;
-    Counter_t(NAMES const& names): _names{names}
-    {
-      mTotCounters.fill(0);
-      for (auto& c : mCounters) {
-        c.fill(0);
-      }
-    }
-    std::array<ULong64_t, Checks::NSIZE> mTotCounters;
-    std::array<std::array<ULong64_t, Checks::NSIZE>, 4> mCounters;
-    void inc(CHECK c, GIndex const& gid0, GIndex const& gid1)
-    {
-      SVertexer s;
-      if (s.checkITSTPC(gid0, gid1)) {
-        ++mCounters[0][c];
-      } else if (s.checkITS(gid0, gid1)) {
-        ++mCounters[1][c];
-      } else if (s.checkTPC(gid0, gid1)) {
-        ++mCounters[2][c];
-      } else {
-        ++mCounters[3][c]; // should not happen
-      }
-      ++mTotCounters[c];
-    }
-    void print()
-    {
-      for (int i{0}; i < Checks::NSIZE; ++i) {
-        LOGP(info, "{} - CHECK: {}: {}", i, _names[i], mTotCounters[i]);
-        LOGP(info, "                 `--> ITSTPC {}", mCounters[0][i]);
-        LOGP(info, "                 `--> ITS    {}", mCounters[1][i]);
-        LOGP(info, "                 `-->    TPC {}", mCounters[2][i]);
-        LOGP(info, "                 `--> ?????? {}", mCounters[3][i]);
-      }
-    }
-  };
 };
 } // namespace vertexing
 } // namespace o2
