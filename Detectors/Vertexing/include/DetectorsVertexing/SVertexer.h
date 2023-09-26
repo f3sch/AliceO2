@@ -219,51 +219,16 @@ class SVertexer
     CALLED,
     NSIZE,
   };
-  struct Counter_t {
-    static constexpr std::array<std::string_view, NSIZE> cNames{
-      "Fitter Processing",
-      "Min R2 to mean Vertex",
-      "Rejection Causality",
-      "Propagating to vertex",
-      "Rejection Pt2",
-      "Rejection TgL",
-      "#CALLED",
-    };
-    Counter_t()
-    {
-      mTotCounters.fill(0);
-      for (auto& c : mCounters) {
-        c.fill(0);
-      }
-    }
-    std::array<ULong64_t, NSIZE> mTotCounters;
-    std::array<std::array<ULong64_t, NSIZE>, 4> mCounters;
-    void inc(CHECK c, GIndex const& gid0, GIndex const& gid1)
-    {
-      SVertexer s;
-      if (s.checkITSTPC(gid0, gid1)) {
-        ++mCounters[0][c];
-      } else if (s.checkITS(gid0, gid1)) {
-        ++mCounters[1][c];
-      } else if (s.checkTPC(gid0, gid1)) {
-        ++mCounters[2][c];
-      } else {
-        ++mCounters[3][c]; // should not happen
-      }
-      ++mTotCounters[c];
-    }
-    void print()
-    {
-      for (int i{0}; i < CHECK::NSIZE; ++i) {
-        LOGP(info, "{} - CHECK: {}: {}", i, cNames[i], mTotCounters[i]);
-        LOGP(info, "                 `--> ITSTPC {}", mCounters[0][i]);
-        LOGP(info, "                 `--> ITS    {}", mCounters[1][i]);
-        LOGP(info, "                 `-->    TPC {}", mCounters[2][i]);
-        LOGP(info, "                 `-->  ????? {}", mCounters[3][i]);
-      }
-    }
+  static constexpr std::array<std::string_view, CHECK::NSIZE> cNames{
+    "Fitter Processing",
+    "Min R2 to mean Vertex",
+    "Rejection Causality",
+    "Propagating to vertex",
+    "Rejection Pt2",
+    "Rejection TgL",
+    "#CALLED",
   };
-  Counter_t mCounter{};
+  Counter_t<CHECK, cNames> mCounter{};
   std::vector<double> mTrueGammasITSPt;
   std::vector<double> mTrueGammasTPCPt;
   std::vector<double> mTrueGammasITSTPCPt;
@@ -385,6 +350,43 @@ class SVertexer
     }
     return false;
   }
+
+  template <class Checks, class Names>
+  struct Counter_t {
+    Counter_t()
+    {
+      mTotCounters.fill(0);
+      for (auto& c : mCounters) {
+        c.fill(0);
+      }
+    }
+    std::array<ULong64_t, Checks::NSIZE> mTotCounters;
+    std::array<std::array<ULong64_t, Checks::NSIZE>, 4> mCounters;
+    void inc(CHECK c, GIndex const& gid0, GIndex const& gid1)
+    {
+      SVertexer s;
+      if (s.checkITSTPC(gid0, gid1)) {
+        ++mCounters[0][c];
+      } else if (s.checkITS(gid0, gid1)) {
+        ++mCounters[1][c];
+      } else if (s.checkTPC(gid0, gid1)) {
+        ++mCounters[2][c];
+      } else {
+        ++mCounters[3][c]; // should not happen
+      }
+      ++mTotCounters[c];
+    }
+    void print()
+    {
+      for (int i{0}; i < Checks::NSIZE; ++i) {
+        LOGP(info, "{} - CHECK: {}: {}", i, Names[i], mTotCounters[i]);
+        LOGP(info, "                 `--> ITSTPC {}", mCounters[0][i]);
+        LOGP(info, "                 `--> ITS    {}", mCounters[1][i]);
+        LOGP(info, "                 `-->    TPC {}", mCounters[2][i]);
+        LOGP(info, "                 `--> ?????? {}", mCounters[3][i]);
+      }
+    }
+  };
 };
 } // namespace vertexing
 } // namespace o2
