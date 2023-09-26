@@ -594,9 +594,9 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     LOG(info) << "RejCausality " << rv0 << " " << drv0P << " " << drv0N;
     LOG(info) << "found vertex " << v0XYZ[0] << ' ' << v0XYZ[1] << ' ' << v0XYZ[2];
     LOG(info) << "seedP:";
-    fitterV0.getTrack(0).print();
+    seedP.print();
     LOG(info) << "seedN:";
-    fitterV0.getTrack(1).print();
+    seedN.print();
     mCounterV0.inc(CHECKV0::REJCAUSALITY, seedP.gid, seedN.gid);
     return false;
   }
