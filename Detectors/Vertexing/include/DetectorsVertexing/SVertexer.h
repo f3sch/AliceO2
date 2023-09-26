@@ -414,7 +414,7 @@ class SVertexer
     TPCFPROCESS,
     AMBIGIOUS,
     ACCOUNT,
-    RJECTED,
+    REJECTED,
     BACCEPT,
     NACCEPT,
     NACCEPTAMBI,

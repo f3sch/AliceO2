@@ -591,7 +591,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
-    LOG(info) << "RejCausality " << rv0 < < < < drv0P << " " << drv0N;
+    LOG(info) << "RejCausality " << rv0 << " " << drv0P << " " << drv0N;
     LOG(info) << "found vertex " << v0XYZ[0] << ' ' << v0XYZ[1] << ' ' << v0XYZ[2];
     LOG(info) << "seedP:";
     fitterV0.getTrack(0).print();
