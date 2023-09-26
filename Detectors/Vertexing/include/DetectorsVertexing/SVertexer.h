@@ -219,7 +219,7 @@ class SVertexer
     CALLED,
     NSIZE,
   };
-  static constexpr std::array<std::string_view, CHECKV0::NSIZE> checkV0Names{
+  static constexpr std::array<std::string_view, static_cast<size_t>(CHECKV0::NSIZE)> checkV0Names{
     "Fitter Processing",
     "Min R2 to mean Vertex",
     "Rejection Causality",
@@ -241,7 +241,7 @@ class SVertexer
     CALLED,
     NSIZE,
   };
-  static constexpr std::array<std::string_view, BUILDT2V::NSIZE> buildT2VNames{
+  static constexpr std::array<std::string_view, static_cast<size_t>(BUILDT2V::NSIZE)> buildT2VNames{
     "Track source not loaded",
     "TPC track",
     "Excluded TPC track",
@@ -375,21 +375,22 @@ class SVertexer
     return false;
   }
 
-  template <unsigned int size>
+  template <typename Enum>
   struct Counter_t {
-    const std::array<std::string_view, size>& _names;
-    Counter_t(std::array<std::string_view, size> const& names) : _names{names}
+    const std::array<std::string_view, static_cast<size_t>(Enum::NSIZE)>& _names;
+    Counter_t(std::array<std::string_view, static_cast<size_t>(Enum::NSIZE)> const& names) : _names{names}
     {
       mTotCounters.fill(0);
       for (auto& c : mCounters) {
         c.fill(0);
       }
     }
-    std::array<ULong64_t, size> mTotCounters;
-    std::array<std::array<ULong64_t, size>, 4> mCounters;
-    void inc(unsigned int c, GIndex const& gid0, GIndex const& gid1)
+    std::array<ULong64_t, static_cast<size_t>(Enum::NSIZE)> mTotCounters{};
+    std::array<std::array<ULong64_t, static_cast<size_t>(Enum::NSIZE)>, 4> mCounters{};
+    void inc(Enum e, GIndex const& gid0, GIndex const& gid1)
     {
       SVertexer s;
+      auto c = static_cast<unsigned int>(e);
       if (s.checkITSTPC(gid0, gid1)) {
         ++mCounters[0][c];
       } else if (s.checkITS(gid0, gid1)) {
@@ -401,8 +402,9 @@ class SVertexer
       }
       ++mTotCounters[c];
     }
-    void inc(unsigned int c, GIndex const& gid)
+    void inc(Enum e, GIndex const& gid)
     {
+      auto c = static_cast<unsigned int>(e);
       auto gidITS = gid.includesDet(o2::detectors::DetID::ITS);
       auto gidTPC = gid.includesDet(o2::detectors::DetID::TPC);
       if (gidITS && gidTPC) {
@@ -418,7 +420,7 @@ class SVertexer
     }
     void print()
     {
-      for (int i{0}; i < size; ++i) {
+      for (int i{0}; i < static_cast<int>(Enum::NSIZE); ++i) {
         LOGP(info, "{} - CHECK: {}: {}", i, _names[i], mTotCounters[i]);
         LOGP(info, "                 `--> ITSTPC {}", mCounters[0][i]);
         LOGP(info, "                 `--> ITS    {}", mCounters[1][i]);
