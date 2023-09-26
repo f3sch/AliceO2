@@ -265,7 +265,7 @@ class SVertexer
       }
     }
   };
-  Counter_t<CHECK::NSIZE, decltype(cNames)> mCounter{cNames};
+  Counter_t<CHECK::NSIZE> mCounter{cNames};
   std::vector<double> mTrueGammasITSPt;
   std::vector<double> mTrueGammasTPCPt;
   std::vector<double> mTrueGammasITSTPCPt;
