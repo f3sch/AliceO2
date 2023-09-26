@@ -228,7 +228,7 @@ class SVertexer
     "Rejection TgL",
     "#CALLED",
   };
-  Counter_t<CHECKV0::NSIZE> mCounterV0{checkV0Names};
+  Counter_t<CHECKV0> mCounterV0{checkV0Names};
   enum BUILDT2V : unsigned int {
     NOTLOADED = 0,
     TPCTRACK,
@@ -252,7 +252,7 @@ class SVertexer
     "Ambigious: Already rejected track",
     "#CALLED",
   };
-  Counter_t<BUILDT2V::NSIZE> mCounterBuildT2V{buildT2VNames};
+  Counter_t<BUILDT2V> mCounterBuildT2V{buildT2VNames};
   std::vector<double> mTrueGammasITSPt;
   std::vector<double> mTrueGammasTPCPt;
   std::vector<double> mTrueGammasITSTPCPt;
