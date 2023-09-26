@@ -227,8 +227,11 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
   if (mUseDebug) {
     writeDebugV0Found(v0sIdx, recoData);
     LOGP(info, "Processed {} TPC only tracks", mCounterTPConly);
+    LOGP(info, "-----------BUILDT2V Stats--------------------");
+    mCounterBuildT2V.print();
+    LOGP(info, "---------------------------------------------");
     LOGP(info, "---- checkV0 stats ----");
-    mCounter.print();
+    mCounterV0.print();
     LOGP(info, "-----------------------");
     mDebugStream.reset();
   }
@@ -556,10 +559,6 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
       }
     }
   }
-
-  LOGP(info, "-----------BUILDT2V Stats--------------------");
-  mCounterBuildT2V.print();
-  LOGP(info, "---------------------------------------------");
 
   LOG(info) << "Collected " << mTracksPool[POS].size() << " positive and " << mTracksPool[NEG].size() << " negative seeds";
   if (mUseDebug) {
