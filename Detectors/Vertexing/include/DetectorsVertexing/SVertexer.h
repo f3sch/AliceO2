@@ -209,7 +209,7 @@ class SVertexer
   ULong64_t mCounterTrueGammasITS{0};
   ULong64_t mCounterTrueGammasTPC{0};
   ULong64_t mCounterTrueGammasITSTPC{0};
-  enum CHECK : unsigned int {
+  enum class CHECKV0 : unsigned int {
     FPROCESS = 0,
     MINR2TOMEANVERTEX,
     REJCAUSALITY,
@@ -219,7 +219,7 @@ class SVertexer
     CALLED,
     NSIZE,
   };
-  static constexpr std::array<std::string_view, CHECK::NSIZE> cNames{
+  static constexpr std::array<std::string_view, CHECKV0::NSIZE> checkV0Names{
     "Fitter Processing",
     "Min R2 to mean Vertex",
     "Rejection Causality",
@@ -228,44 +228,31 @@ class SVertexer
     "Rejection TgL",
     "#CALLED",
   };
-  template <unsigned int size>
-  struct Counter_t {
-    const std::array<std::string_view, size>& _names;
-    Counter_t(std::array<std::string_view, size> const& names) : _names{names}
-    {
-      mTotCounters.fill(0);
-      for (auto& c : mCounters) {
-        c.fill(0);
-      }
-    }
-    std::array<ULong64_t, size> mTotCounters;
-    std::array<std::array<ULong64_t, size>, 4> mCounters;
-    void inc(CHECK c, GIndex const& gid0, GIndex const& gid1)
-    {
-      SVertexer s;
-      if (s.checkITSTPC(gid0, gid1)) {
-        ++mCounters[0][c];
-      } else if (s.checkITS(gid0, gid1)) {
-        ++mCounters[1][c];
-      } else if (s.checkTPC(gid0, gid1)) {
-        ++mCounters[2][c];
-      } else {
-        ++mCounters[3][c]; // should not happen
-      }
-      ++mTotCounters[c];
-    }
-    void print()
-    {
-      for (int i{0}; i < size; ++i) {
-        LOGP(info, "{} - CHECK: {}: {}", i, _names[i], mTotCounters[i]);
-        LOGP(info, "                 `--> ITSTPC {}", mCounters[0][i]);
-        LOGP(info, "                 `--> ITS    {}", mCounters[1][i]);
-        LOGP(info, "                 `-->    TPC {}", mCounters[2][i]);
-        LOGP(info, "                 `--> ?????? {}", mCounters[3][i]);
-      }
-    }
+  Counter_t<CHECKV0::NSIZE> mCounterV0{checkV0Names};
+  enum class BUILDT2V : unsigned int {
+    NOTLOADED = 0,
+    TPCTRACK,
+    TPCEXCLUDE,
+    TPCSPROCESS,
+    TPCFPROCESS,
+    AMBIGIOUS,
+    ACCOUNT,
+    REJECTED,
+    CALLED,
+    NSIZE,
   };
-  Counter_t<CHECK::NSIZE> mCounter{cNames};
+  static constexpr std::array<std::string_view, BUILDT2V::NSIZE> buildT2VNames{
+    "Track source not loaded",
+    "TPC track",
+    "Excluded TPC track",
+    "TPC track successfully processed",
+    "TPC track failed processed",
+    "Ambigious track",
+    "Ambigious: Already accounted track (latter one)",
+    "Ambigious: Already rejected track",
+    "#CALLED",
+  };
+  Counter_t<BUILDT2V::NSIZE> mCounterBuildT2V{buildT2VNames};
   std::vector<double> mTrueGammasITSPt;
   std::vector<double> mTrueGammasTPCPt;
   std::vector<double> mTrueGammasITSTPCPt;
@@ -387,6 +374,59 @@ class SVertexer
     }
     return false;
   }
+
+  template <unsigned int size>
+  struct Counter_t {
+    const std::array<std::string_view, size>& _names;
+    Counter_t(std::array<std::string_view, size> const& names) : _names{names}
+    {
+      mTotCounters.fill(0);
+      for (auto& c : mCounters) {
+        c.fill(0);
+      }
+    }
+    std::array<ULong64_t, size> mTotCounters;
+    std::array<std::array<ULong64_t, size>, 4> mCounters;
+    void inc(unsigned int c, GIndex const& gid0, GIndex const& gid1)
+    {
+      SVertexer s;
+      if (s.checkITSTPC(gid0, gid1)) {
+        ++mCounters[0][c];
+      } else if (s.checkITS(gid0, gid1)) {
+        ++mCounters[1][c];
+      } else if (s.checkTPC(gid0, gid1)) {
+        ++mCounters[2][c];
+      } else {
+        ++mCounters[3][c]; // should not happen
+      }
+      ++mTotCounters[c];
+    }
+    void inc(unsigned int c, GIndex const& gid)
+    {
+      auto gidITS = gid.includesDet(o2::detectors::DetID::ITS);
+      auto gidTPC = gid.includesDet(o2::detectors::DetID::TPC);
+      if (gidITS && gidTPC) {
+        ++mCounters[0][c];
+      } else if (gidITS) {
+        ++mCounters[1][c];
+      } else if (gidTPC) {
+        ++mCounters[2][c];
+      } else {
+        ++mCounters[3][c];
+      }
+      ++mTotCounters[c];
+    }
+    void print()
+    {
+      for (int i{0}; i < size; ++i) {
+        LOGP(info, "{} - CHECK: {}: {}", i, _names[i], mTotCounters[i]);
+        LOGP(info, "                 `--> ITSTPC {}", mCounters[0][i]);
+        LOGP(info, "                 `--> ITS    {}", mCounters[1][i]);
+        LOGP(info, "                 `-->    TPC {}", mCounters[2][i]);
+        LOGP(info, "                 `--> ?????? {}", mCounters[3][i]);
+      }
+    }
+  };
 };
 } // namespace vertexing
 } // namespace o2

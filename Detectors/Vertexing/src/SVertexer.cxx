@@ -481,28 +481,37 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
     int it = vtref.getFirstEntry(), itLim = it + vtref.getEntries();
     for (; it < itLim; it++) {
       auto tvid = trackIndex[it];
+      mCounterBuildT2V.inc(BUILDT2V::CALLED, tvid);
       if (!recoData.isTrackSourceLoaded(tvid.getSource())) {
+        mCounterBuildT2V.inc(BUILDT2V::NOTLOADED, tvid);
         continue;
       }
       if (tvid.getSource() == GIndex::TPC) {
+        mCounterBuildT2V.inc(BUILDT2V::TPCTRACK, tvid);
         if (mSVParams->mExcludeTPCtracks) {
+          mCounterBuildT2V.inc(BUILDT2V::TPCEXCLUDE, tvid);
           continue;
         }
         // unconstrained TPC tracks require special treatment: there is no point in checking DCA to mean vertex since it is not precise,
         // but we need to create a clone of TPC track constrained to this particular vertex time.
         if (processTPCTrack(recoData.getTPCTrack(tvid), tvid, iv)) {
+          mCounterBuildT2V.inc(BUILDT2V::TPCSPROCESS, tvid);
           continue;
         }
+        mCounterBuildT2V.inc(BUILDT2V::TPCFPROCESS, tvid);
       }
 
       if (tvid.isAmbiguous()) { // was this track already processed?
+        mCounterBuildT2V.inc(BUILDT2V::AMBIGIOUS, tvid);
         auto tref = tmap.find(tvid);
         if (tref != tmap.end()) {
+          mCounterBuildT2V.inc(BUILDT2V::ACCOUNT, tvid);
           mTracksPool[tref->second.second][tref->second.first].vBracket.setMax(iv); // this track was already processed with other vertex, account the latter
           continue;
         }
         // was it already rejected?
         if (rejmap.find(tvid) != rejmap.end()) {
+          mCounterBuildT2V.inc(BUILDT2V::REJECTED, tvid);
           continue;
         }
       }
@@ -548,6 +557,10 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
     }
   }
 
+  LOGP(info, "-----------BUILDT2V Stats--------------------");
+  mCounterBuildT2V.print();
+  LOGP(info, "---------------------------------------------");
+
   LOG(info) << "Collected " << mTracksPool[POS].size() << " positive and " << mTracksPool[NEG].size() << " negative seeds";
   if (mUseDebug) {
     writeDebugATrackPools(recoData);
@@ -557,11 +570,11 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
 //__________________________________________________________________
 bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread)
 {
-  mCounter.inc(CALLED, seedP.gid, seedN.gid);
+  mCounterV0.inc(CHECKV0::CALLED, seedP.gid, seedN.gid);
   auto& fitterV0 = mFitterV0[ithread];
   int nCand = fitterV0.process(seedP, seedN);
   if (nCand == 0) { // discard this pair
-    mCounter.inc(FPROCESS, seedP.gid, seedN.gid);
+    mCounterV0.inc(CHECKV0::FPROCESS, seedP.gid, seedN.gid);
     return false;
   }
   const auto& v0XYZ = fitterV0.getPCACandidate();
@@ -569,19 +582,19 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   // check closeness to the beam-line
   float dxv0 = v0XYZ[0] - mMeanVertex.getX(), dyv0 = v0XYZ[1] - mMeanVertex.getY(), r2v0 = dxv0 * dxv0 + dyv0 * dyv0;
   if (r2v0 < mMinR2ToMeanVertex) {
-    mCounter.inc(MINR2TOMEANVERTEX, seedP.gid, seedN.gid);
+    mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, seedP.gid, seedN.gid);
     return false;
   }
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
     LOG(debug) << "RejCausality " << drv0P << " " << drv0N;
-    mCounter.inc(REJCAUSALITY, seedP.gid, seedN.gid);
+    mCounterV0.inc(CHECKV0::REJCAUSALITY, seedP.gid, seedN.gid);
     return false;
   }
   const int cand = 0;
   if (!fitterV0.isPropagateTracksToVertexDone(cand) && !fitterV0.propagateTracksToVertex(cand)) {
-    mCounter.inc(PROPVTX, seedP.gid, seedN.gid);
+    mCounterV0.inc(CHECKV0::PROPVTX, seedP.gid, seedN.gid);
     return false;
   }
   auto& trPProp = fitterV0.getTrack(0, cand);
@@ -597,12 +610,12 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   float pt2V0 = pV0[0] * pV0[0] + pV0[1] * pV0[1], prodXYv0 = dxv0 * pV0[0] + dyv0 * pV0[1], tDCAXY = prodXYv0 / pt2V0;
   if (pt2V0 < mMinPt2V0) { // pt cut
     LOG(debug) << "RejPt2 " << pt2V0;
-    mCounter.inc(REJPT2, seedP.gid, seedN.gid);
+    mCounterV0.inc(CHECKV0::REJPT2, seedP.gid, seedN.gid);
     return false;
   }
   if (pV0[2] * pV0[2] / pt2V0 > mMaxTgl2V0) { // tgLambda cut
     LOG(debug) << "RejTgL " << pV0[2] * pV0[2] / pt2V0;
-    mCounter.inc(REJTGL, seedP.gid, seedN.gid);
+    mCounterV0.inc(CHECKV0::REJTGL, seedP.gid, seedN.gid);
     return false;
   }
   float p2V0 = pt2V0 + pV0[2] * pV0[2], ptV0 = std::sqrt(pt2V0);
