@@ -238,8 +238,8 @@ class SVertexer
         c.fill(0);
       }
     }
-    std::vector<ULong64_t> mTotCounters;
-    std::array<std::vector<ULong64_t, size>, 4> mCounters;
+    std::array<ULong64_t, size> mTotCounters;
+    std::array<std::array<ULong64_t, size>, 4> mCounters;
     void inc(CHECK c, GIndex const& gid0, GIndex const& gid1)
     {
       SVertexer s;
