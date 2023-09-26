@@ -591,8 +591,9 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
-    LOG(info) << "RejCausality: Radius=" << rv0 << " Drv0P=" << drv0P << " (minR=" <<seedP.minR<< ") Drv0N=" << drv0N << " (minR=" << seedN.minR<<")";
+    LOG(info) << "RejCausality: Radius=" << rv0 <<" Drv0P=" << drv0P << " (minR=" <<seedP.minR<< ") Drv0N=" << drv0N << " (minR=" << seedN.minR<<")";
     LOG(info) << "found vertex " << v0XYZ[0] << ' ' << v0XYZ[1] << ' ' << v0XYZ[2];
+    LOG(info) << "mean vertex " << mMeanVertex.getX() << ' ' << mMeanVertex.getY() << ' ' << mMeanVertex.getZ();
     LOGP(info, "seedP: X={} Y={} Z={} -> Rxy={} - {}", seedP.getX(), seedP.getY(), seedP.getZ(), std::sqrt(seedP.getX()*seedP.getX()+seedP.getY()*seedP.getY()), seedP.gid.asString());
     seedP.print();
     LOGP(info, "seedN: X={} Y={} Z={} -> Rxy={} - {}", seedN.getX(), seedN.getY(), seedN.getZ(), std::sqrt(seedN.getX()*seedN.getX()+seedN.getY()*seedN.getY()), seedN.gid.asString());
