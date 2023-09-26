@@ -414,7 +414,11 @@ class SVertexer
     TPCFPROCESS,
     AMBIGIOUS,
     ACCOUNT,
-    REJECTED,
+    RJECTED,
+    BACCEPT,
+    NACCEPT,
+    NACCEPTAMBI,
+    AACCEPT,
     CALLED,
     NSIZE,
   };
@@ -427,6 +431,10 @@ class SVertexer
     "Ambigious track",
     "Ambigious: Already accounted track (latter one)",
     "Ambigious: Already rejected track",
+    "Before acceptTrack",
+    "Not acceptTrack",
+    "Not acceptTrack Ambigious",
+    "After acceptTrack",
     "#CALLED",
   };
   Counter_t<BUILDT2V> mCounterBuildT2V{buildT2VNames};

@@ -531,12 +531,16 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
         }
       }
 
+      mCounterBuildT2V.inc(BUILDT2V::BACCEPT, tvid);
       if (!acceptTrack(tvid, trc) && !heavyIonisingParticle) {
+        mCounterBuildT2V.inc(BUILDT2V::NACCEPT, tvid);
         if (tvid.isAmbiguous()) {
+          mCounterBuildT2V.inc(BUILDT2V::NACCEPTAMBI, tvid);
           rejmap[tvid] = true;
         }
         continue;
       }
+      mCounterBuildT2V.inc(BUILDT2V::AACCEPT, tvid);
       int posneg = trc.getSign() < 0 ? 1 : 0;
       float r = std::sqrt(trc.getX() * trc.getX() + trc.getY() * trc.getY());
       mTracksPool[posneg].emplace_back(TrackCand{trc, tvid, {iv, iv}, r});
@@ -587,7 +591,12 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
-    LOG(debug) << "RejCausality " << drv0P << " " << drv0N;
+    LOG(info) << "RejCausality " << rv0 < < < < drv0P << " " << drv0N;
+    LOG(info) << "found vertex " << v0XYZ[0] << ' ' << v0XYZ[1] << ' ' << v0XYZ[2];
+    LOG(info) << "seedP:";
+    fitterV0.getTrack(0).print();
+    LOG(info) << "seedN:";
+    fitterV0.getTrack(1).print();
     mCounterV0.inc(CHECKV0::REJCAUSALITY, seedP.gid, seedN.gid);
     return false;
   }
