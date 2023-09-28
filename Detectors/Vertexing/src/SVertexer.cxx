@@ -68,6 +68,10 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
     }
     for (int itn = firstN; itn < ntrN; itn++) { // start from the 1st negative track of lowest-ID vertex of positive
       auto& seedN = mTracksPool[NEG][itn];
+      if (seedP.gid.getIndex() == 4181 || seedN.gid.getIndex() == 4181) {
+        LOGP(info, "### P: {} - {}", fmt::ptr(&seedP), seedP.minR);
+        LOGP(info, "### N: {} - {}", fmt::ptr(&seedN), seedN.minR);
+      }
       if (seedN.vBracket > seedP.vBracket) { // all vertices compatible with seedN are in future wrt that of seedP
         LOG(debug) << "Brackets do not match";
         break;
@@ -543,6 +547,9 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
       mCounterBuildT2V.inc(BUILDT2V::AACCEPT, tvid);
       int posneg = trc.getSign() < 0 ? 1 : 0;
       float r = std::sqrt(trc.getX() * trc.getX() + trc.getY() * trc.getY());
+      if (r < 1e-6 || tvid.getIndex() == 4181) {
+        LOGP(info, "%%% {}: {} - r={}", tvid.asString(), trc.asString(), r);
+      }
       mTracksPool[posneg].emplace_back(TrackCand{trc, tvid, {iv, iv}, r});
       if (tvid.isAmbiguous()) { // track attached to >1 vertex, remember that it was already processed
         tmap[tvid] = {mTracksPool[posneg].size() - 1, posneg};
@@ -556,6 +563,12 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
     const auto& tracksPool = mTracksPool[pn];
     for (unsigned i = 0; i < tracksPool.size(); i++) {
       const auto& t = tracksPool[i];
+      if (t.gid.getIndex() == 4181) {
+        LOGP(info, "################# gid == 4181 #################");
+        LOGP(info, "### pn={} i={}", pn, i);
+        LOGP(info, "### {} - {}", fmt::ptr(&t), t.minR);
+        LOGP(info, "### {}", t.asString());
+      }
       for (int j{t.vBracket.getMin()}; j <= t.vBracket.getMax(); ++j) {
         if (vtxFirstT[j] == -1) {
           vtxFirstT[j] = i;
@@ -573,6 +586,7 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
 //__________________________________________________________________
 bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread)
 {
+  LOGP(info, "#### seedP.gid={} (minR={})    seedN.gid={}    (minR={})", seedP.gid.asString(), seedP.minR, seedN.gid.asString(), seedN.minR);
   mCounterV0.inc(CHECKV0::CALLED, seedP.gid, seedN.gid);
   auto& fitterV0 = mFitterV0[ithread];
   int nCand = fitterV0.process(seedP, seedN);
@@ -591,12 +605,12 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
-    LOG(info) << "RejCausality: Radius=" << rv0 <<" Drv0P=" << drv0P << " (minR=" <<seedP.minR<< ") Drv0N=" << drv0N << " (minR=" << seedN.minR<<")";
+    LOG(info) << "RejCausality: Radius=" << rv0 << " Drv0P=" << drv0P << " (minR=" << seedP.minR << ") Drv0N=" << drv0N << " (minR=" << seedN.minR << ")";
     LOG(info) << "found vertex " << v0XYZ[0] << ' ' << v0XYZ[1] << ' ' << v0XYZ[2];
     LOG(info) << "mean vertex " << mMeanVertex.getX() << ' ' << mMeanVertex.getY() << ' ' << mMeanVertex.getZ();
-    LOGP(info, "seedP: X={} Y={} Z={} -> Rxy={} - {}", seedP.getX(), seedP.getY(), seedP.getZ(), std::sqrt(seedP.getX()*seedP.getX()+seedP.getY()*seedP.getY()), seedP.gid.asString());
+    LOGP(info, "seedP: X={} Y={} Z={} -> Rxy={} - {}", seedP.getX(), seedP.getY(), seedP.getZ(), std::sqrt(seedP.getX() * seedP.getX() + seedP.getY() * seedP.getY()), seedP.gid.asString());
     seedP.print();
-    LOGP(info, "seedN: X={} Y={} Z={} -> Rxy={} - {}", seedN.getX(), seedN.getY(), seedN.getZ(), std::sqrt(seedN.getX()*seedN.getX()+seedN.getY()*seedN.getY()), seedN.gid.asString());
+    LOGP(info, "seedN: X={} Y={} Z={} -> Rxy={} - {}", seedN.getX(), seedN.getY(), seedN.getZ(), std::sqrt(seedN.getX() * seedN.getX() + seedN.getY() * seedN.getY()), seedN.gid.asString());
     seedN.print();
 
     mCounterV0.inc(CHECKV0::REJCAUSALITY, seedP.gid, seedN.gid);
@@ -1189,21 +1203,32 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
   const auto& vtx = mPVertices[vtxid];
   auto twe = vtx.getTimeStamp();
   int posneg = trTPC.getSign() < 0 ? 1 : 0;
-  auto trLoc = mTracksPool[posneg].emplace_back(TrackCand{trTPC, gid, {vtxid, vtxid}, 0.});
+  auto& trLoc = mTracksPool[posneg].emplace_back(TrackCand{trTPC, gid, {vtxid, vtxid}, 0.123});
+  trLoc.minR = std::sqrt(trLoc.getX() * trLoc.getX() + trLoc.getY() * trLoc.getY());
   auto err = correctTPCTrack(trLoc, trTPC, twe.getTimeStamp(), twe.getTimeStampError());
   if (err < 0 || TMath::Abs(trTPC.getZ() - vtx.getZ() - trTPC.getTgl() * trTPC.getX()) > mSVParams->mTPCTrackMaxZ) {
     mTracksPool[posneg].pop_back(); // discard
     return true;
   }
-  trLoc.minR = std::sqrt(trLoc.getX() * trLoc.getX() + trLoc.getY() * trLoc.getY());
-  if(trLoc.minR == 0){
+  if (std::abs(trLoc.minR) < 1e-6) {
+    LOG(info) << "+++ minR close to zero";
     trLoc.print();
+  }
+  if (gid.getIndex() == 4181) {
+    LOGP(info, "~~~~~~~~~~~~~~~~~~~~~ gid == 4181 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~`");
+    LOGP(info, "pn={} i={}", posneg, mTracksPool[posneg].size() - 1);
+    LOGP(info, "~~~ {}", gid.asString());
+    LOGP(info, "~~~ {} - {}", fmt::ptr(&trLoc), trLoc.minR);
+    LOGP(info, "~~~ {}", trTPC.asString());
+    LOGP(info, "~~~ {}", trLoc.asString());
+    LOGP(info, "~~~~~~~~ mTracksPool[{}][{}]",posneg, mTracksPool[posneg].size()-1);
+    LOGP(info, "~~~ {} - {}", fmt::ptr(&mTracksPool[posneg].back()), mTracksPool[posneg].back().minR);
   }
 
   // write debug output for unconstrained tpc tracks contributing to the pool
   if (mUseDebug) {
     ++mCounterTPConly;
-    writeDebugV0Candidates(trTPC, gid, vtxid, trLoc);
+    // writeDebugV0Candidates(trTPC, gid, vtxid, trLoc);
   }
 
   return true;

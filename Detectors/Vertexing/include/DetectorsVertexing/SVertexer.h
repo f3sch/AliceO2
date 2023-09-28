@@ -427,7 +427,7 @@ class SVertexer
     "TPC track",
     "Excluded TPC track",
     "TPC track successfully processed",
-    "TPC track failed processed",
+    "TPC track constrained processed",
     "Ambigious track",
     "Ambigious: Already accounted track (latter one)",
     "Ambigious: Already rejected track",
