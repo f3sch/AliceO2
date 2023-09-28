@@ -209,12 +209,15 @@ class SVertexer
   ULong64_t mCounterTrueGammasITS{0};
   ULong64_t mCounterTrueGammasTPC{0};
   ULong64_t mCounterTrueGammasITSTPC{0};
-  std::vector<double> mTrueGammasITSPt;
-  std::vector<double> mTrueGammasTPCPt;
-  std::vector<double> mTrueGammasITSTPCPt;
-  gsl::span<const o2::MCCompLabel> mITSTrkLabels;    ///< input ITS Track MC labels
-  gsl::span<const o2::MCCompLabel> mTPCTrkLabels;    ///< input TPC Track MC labels
-  gsl::span<const o2::MCCompLabel> mITSTPCTrkLabels; ///< input ITS-TPC Track MC labels
+  gsl::span<const o2::MCCompLabel> mITSTrkLabels;
+  gsl::span<const o2::MCCompLabel> mTPCTrkLabels;
+  gsl::span<const o2::MCCompLabel> mITSTPCTrkLabels;
+  gsl::span<const o2::MCCompLabel> mITSTPCTOFTrkLabels;
+  gsl::span<const o2::MCCompLabel> mITSTPCTRDTrkLabels;
+  gsl::span<const o2::MCCompLabel> mITSTPCTRDTOFTrkLabels;
+  gsl::span<const o2::MCCompLabel> mTPCTRDTOFTrkLabels;
+  gsl::span<const o2::MCCompLabel> mTPCTRDTrkLabels;
+  gsl::span<const o2::MCCompLabel> mTPCTOFTrkLabels;
   std::unique_ptr<o2::utils::TreeStreamRedirector> mDebugStream;
   static constexpr std::string_view mDebugStreamName{"candTracks"};
   o2::steer::MCKinematicsReader mcReader; // reader of MC information
@@ -237,8 +240,13 @@ class SVertexer
       return seed;
     }
   };
-  using map_before_t = std::unordered_map<std::tuple<int, int, int>, std::tuple<MCTrack, MCTrack, MCTrack, bool>, key_hash>;
-  using map_after_t = std::unordered_map<std::tuple<int, int, int>, std::tuple<TrackCand, MCTrack, TrackCand, MCTrack, MCTrack>, key_hash>;
+  using map_before_t = std::unordered_map<key_t, std::tuple<MCTrack, MCTrack, MCTrack, bool>, key_hash>;
+  using map_after_t = std::unordered_map<key_t, std::tuple<TrackCand, MCTrack, TrackCand, MCTrack, MCTrack>, key_hash>;
+  using map_mc_t = std::unordered_map<key_t, std::pair<key_t, key_t>, key_hash>;
+
+  map_mc_t mD0Map;
+  map_mc_t mD1Map;
+  map_mc_t mMotherMap;
 
   bool checkMother(o2::MCTrack const* mother, const std::vector<o2::MCTrack>& pcontainer)
   {
@@ -252,16 +260,26 @@ class SVertexer
     return true;
   }
 
-  o2::MCCompLabel getLabel(GIndex const& gid, o2::globaltracking::RecoContainer const& recoData)
+  o2::MCCompLabel getLabel(GIndex const& gid)
   {
-    if (gid.getSource() == GIndex::ITS && recoData.isTrackSourceLoaded(GIndex::ITS)) {
-      return mITSTrkLabels[gid.getIndex()];
-    } else if (gid.getSource() == GIndex::ITSTPC && recoData.isTrackSourceLoaded(GIndex::ITSTPC)) {
+    if (gid.getSource() == GIndex::ITSTPCTRDTOF) {
+      return mITSTPCTRDTOFTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::ITSTPCTOF) {
+      return mITSTPCTOFTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::ITSTPCTRD) {
+      return mITSTPCTRDTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::TPCTRD) {
+      return mTPCTRDTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::TPCTOF) {
+      return mTPCTOFTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::ITSTPC) {
       return mITSTPCTrkLabels[gid.getIndex()];
-    } else if (gid.getSource() == GIndex::TPC && recoData.isTrackSourceLoaded(GIndex::TPC)) {
+    } else if (gid.getSource() == GIndex::ITS) {
+      return mITSTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::TPC) {
       return mTPCTrkLabels[gid.getIndex()];
     }
-    return o2::MCCompLabel(true);
+    return {};
   }
 
   bool checkLabels(o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1)
@@ -334,54 +352,329 @@ class SVertexer
   template <typename Enum>
   struct Counter_t {
     const std::array<std::string_view, static_cast<size_t>(Enum::NSIZE)>& _names;
-    Counter_t(std::array<std::string_view, static_cast<size_t>(Enum::NSIZE)> const& names) : _names{names}
+    const map_mc_t& _M;
+    const map_mc_t& _D0;
+    const map_mc_t& _D1;
+    Counter_t(std::array<std::string_view, static_cast<size_t>(Enum::NSIZE)> const& names, map_mc_t const& m, map_mc_t const& d0, map_mc_t const& d1) : _names{names}, _M{m}, _D0{d0}, _D1{d1}
     {
       mTotCounters.fill(0);
       for (auto& c : mCounters) {
         c.fill(0);
       }
     }
+
     std::array<ULong64_t, static_cast<size_t>(Enum::NSIZE)> mTotCounters{};
-    std::array<std::array<ULong64_t, static_cast<size_t>(Enum::NSIZE)>, 4> mCounters{};
+    std::array<std::array<ULong64_t, static_cast<size_t>(Enum::NSIZE)>, 55> mCounters{};
+    std::array<std::array<ULong64_t, static_cast<size_t>(Enum::NSIZE)>, 55> mCountersV0{};
     void inc(Enum e, GIndex const& gid0, GIndex const& gid1)
     {
-      SVertexer s;
       auto c = static_cast<unsigned int>(e);
-      if (s.checkITSTPC(gid0, gid1)) {
+      auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
+      auto gid0TPC = gid0.includesDet(o2::detectors::DetID::TPC);
+      auto gid0TRD = gid0.includesDet(o2::detectors::DetID::TRD);
+      auto gid0TOF = gid0.includesDet(o2::detectors::DetID::TOF);
+      auto gid1ITS = gid1.includesDet(o2::detectors::DetID::ITS);
+      auto gid1TPC = gid1.includesDet(o2::detectors::DetID::TPC);
+      auto gid1TRD = gid1.includesDet(o2::detectors::DetID::TRD);
+      auto gid1TOF = gid1.includesDet(o2::detectors::DetID::TOF);
+      if (gid0ITS && gid0TPC && gid0TRD && gid0TOF && gid1ITS && gid1TPC && gid1TRD && gid1TOF) {
         ++mCounters[0][c];
-      } else if (s.checkITS(gid0, gid1)) {
+      } else if ((gid0ITS && gid0TPC && !gid0TRD && gid0TOF && gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && gid0TOF && gid1ITS && gid1TPC && !gid1TRD && gid1TOF)) {
         ++mCounters[1][c];
-      } else if (s.checkTPC(gid0, gid1)) {
+      } else if ((gid0ITS && gid0TPC && gid0TRD && !gid0TOF && gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && gid0TOF && gid1ITS && gid1TPC && gid1TRD && !gid1TOF)) {
         ++mCounters[2][c];
+      } else if ((!gid0ITS && gid0TPC && gid0TRD && gid0TOF && gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && gid0TOF && !gid1ITS && gid1TPC && gid1TRD && gid1TOF)) {
+        ++mCounters[3][c];
+      } else if ((!gid0ITS && gid0TPC && gid0TRD && !gid0TOF && gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && gid0TOF && !gid1ITS && gid1TPC && gid1TRD && !gid1TOF)) {
+        ++mCounters[4][c];
+      } else if ((!gid0ITS && gid0TPC && !gid0TRD && gid0TOF && gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && gid1TOF)) {
+        ++mCounters[5][c];
+      } else if ((gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && gid0TOF && gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[6][c];
+      } else if ((gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && gid0TOF && gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[7][c];
+      } else if ((!gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[8][c];
+      } else if ((!gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && gid0TOF && !gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[9][c];
+      } else if (gid0ITS && gid0TPC && !gid0TRD && gid0TOF && gid1ITS && gid1TPC && !gid1TRD && gid1TOF) {
+        ++mCounters[10][c];
+      } else if ((gid0ITS && gid0TPC && gid0TRD && !gid0TOF && gid1ITS && gid1TPC && !gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && !gid0TRD && gid0TOF && gid1ITS && gid1TPC && gid1TRD && !gid1TOF)) {
+        ++mCounters[11][c];
+      } else if ((!gid0ITS && gid0TPC && gid0TRD && gid0TOF && gid1ITS && gid1TPC && !gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && !gid0TRD && gid0TOF && !gid1ITS && gid1TPC && gid1TRD && gid1TOF)) {
+        ++mCounters[12][c];
+      } else if ((!gid0ITS && gid0TPC && gid0TRD && !gid0TOF && gid1ITS && gid1TPC && !gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && !gid0TRD && gid0TOF && !gid1ITS && gid1TPC && gid1TRD && !gid1TOF)) {
+        ++mCounters[13][c];
+      } else if ((!gid0ITS && gid0TPC && !gid0TRD && gid0TOF && gid1ITS && gid1TPC && !gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && !gid0TRD && gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && gid1TOF)) {
+        ++mCounters[14][c];
+      } else if ((gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && !gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && !gid0TRD && gid0TOF && gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[15][c];
+      } else if ((gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && !gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && !gid0TRD && gid0TOF && gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[16][c];
+      } else if ((!gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && !gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && !gid0TRD && gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[17][c];
+      } else if ((!gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && !gid1TRD && gid1TOF) ||
+                 (gid0ITS && gid0TPC && !gid0TRD && gid0TOF && !gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[18][c];
+      } else if (gid0ITS && gid0TPC && gid0TRD && !gid0TOF && gid1ITS && gid1TPC && gid1TRD && !gid1TOF) {
+        ++mCounters[19][c];
+      } else if ((!gid0ITS && gid0TPC && gid0TRD && gid0TOF && gid1ITS && gid1TPC && gid1TRD && !gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && gid1TRD && gid1TOF)) {
+        ++mCounters[20][c];
+      } else if ((!gid0ITS && gid0TPC && gid0TRD && !gid0TOF && gid1ITS && gid1TPC && gid1TRD && !gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && gid1TRD && !gid1TOF)) {
+        ++mCounters[21][c];
+      } else if ((!gid0ITS && gid0TPC && !gid0TRD && gid0TOF && gid1ITS && gid1TPC && gid1TRD && !gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && gid1TOF)) {
+        ++mCounters[22][c];
+      } else if ((gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && gid1TRD && !gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && !gid0TOF && gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[23][c];
+      } else if ((gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && gid1TRD && !gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && !gid0TOF && gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[24][c];
+      } else if ((!gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && gid1TRD && !gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[25][c];
+      } else if ((!gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && gid1TRD && !gid1TOF) ||
+                 (gid0ITS && gid0TPC && gid0TRD && !gid0TOF && !gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[26][c];
+      } else if (!gid0ITS && gid0TPC && gid0TRD && gid0TOF && !gid1ITS && gid1TPC && gid1TRD && gid1TOF) {
+        ++mCounters[27][c];
+      } else if ((!gid0ITS && gid0TPC && gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (!gid0ITS && gid0TPC && gid0TRD && gid0TOF && !gid1ITS && gid1TPC && gid1TRD && !gid1TOF)) {
+        ++mCounters[28][c];
+      } else if ((!gid0ITS && gid0TPC && !gid0TRD && gid0TOF && !gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (!gid0ITS && gid0TPC && gid0TRD && gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && gid1TOF)) {
+        ++mCounters[29][c];
+      } else if ((gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (!gid0ITS && gid0TPC && gid0TRD && gid0TOF && gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[30][c];
+      } else if ((gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (!gid0ITS && gid0TPC && gid0TRD && gid0TOF && gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[31][c];
+      } else if ((!gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (!gid0ITS && gid0TPC && gid0TRD && gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[32][c];
+      } else if ((!gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && gid1TRD && gid1TOF) ||
+                 (!gid0ITS && gid0TPC && gid0TRD && gid0TOF && !gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[33][c];
+      } else if (!gid0ITS && gid0TPC && gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && gid1TRD && !gid1TOF) {
+        ++mCounters[34][c];
+      } else if ((!gid0ITS && gid0TPC && !gid0TRD && gid0TOF && !gid1ITS && gid1TPC && gid1TRD && !gid1TOF) ||
+                 (!gid0ITS && gid0TPC && gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && gid1TOF)) {
+        ++mCounters[35][c];
+      } else if ((gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && gid1TRD && !gid1TOF) ||
+                 (!gid0ITS && gid0TPC && gid0TRD && !gid0TOF && gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[36][c];
+      } else if ((gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && gid1TRD && !gid1TOF) ||
+                 (!gid0ITS && gid0TPC && gid0TRD && !gid0TOF && gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[37][c];
+      } else if ((!gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && gid1TRD && !gid1TOF) ||
+                 (!gid0ITS && gid0TPC && gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[38][c];
+      } else if ((!gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && gid1TRD && !gid1TOF) ||
+                 (!gid0ITS && gid0TPC && gid0TRD && !gid0TOF && !gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[39][c];
+      } else if (!gid0ITS && gid0TPC && !gid0TRD && gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && gid1TOF) {
+        ++mCounters[40][c];
+      } else if ((gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && gid1TOF) ||
+                 (!gid0ITS && gid0TPC && !gid0TRD && gid0TOF && gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[41][c];
+      } else if ((gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && gid1TOF) ||
+                 (!gid0ITS && gid0TPC && !gid0TRD && gid0TOF && gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[42][c];
+      } else if ((!gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && gid1TOF) ||
+                 (!gid0ITS && gid0TPC && !gid0TRD && gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[43][c];
+      } else if ((!gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && gid1TOF) ||
+                 (!gid0ITS && gid0TPC && !gid0TRD && gid0TOF && !gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[44][c];
+      } else if (gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && !gid1TRD && !gid1TOF) {
+        ++mCounters[45][c];
+      } else if ((gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && !gid1TRD && !gid1TOF) ||
+                 (gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[46][c];
+      } else if ((!gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && !gid1TRD && !gid1TOF) ||
+                 (gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[47][c];
+      } else if ((!gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && gid1TPC && !gid1TRD && !gid1TOF) ||
+                 (gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[48][c];
+      } else if (gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF) {
+        ++mCounters[49][c];
+      } else if ((!gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF) ||
+                 (gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[50][c];
+      } else if ((!gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF) ||
+                 (gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[51][c];
+      } else if (!gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && !gid1TOF) {
+        ++mCounters[52][c];
+      } else if ((!gid0ITS && !gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && gid1TPC && !gid1TRD && !gid1TOF) ||
+                 (!gid0ITS && gid0TPC && !gid0TRD && !gid0TOF && !gid1ITS && !gid1TPC && !gid1TRD && !gid1TOF)) {
+        ++mCounters[53][c];
       } else {
-        ++mCounters[3][c]; // should not happen
+        ++mCounters[54][c]; // should not happen
       }
       ++mTotCounters[c];
     }
     void inc(Enum e, GIndex const& gid)
     {
+
+      SVertexer s;
       auto c = static_cast<unsigned int>(e);
       auto gidITS = gid.includesDet(o2::detectors::DetID::ITS);
       auto gidTPC = gid.includesDet(o2::detectors::DetID::TPC);
-      if (gidITS && gidTPC) {
+      auto gidTRD = gid.includesDet(o2::detectors::DetID::TRD);
+      auto gidTOF = gid.includesDet(o2::detectors::DetID::TOF);
+      if (gidITS && gidTPC && gidTRD && gidTOF) {
         ++mCounters[0][c];
-      } else if (gidITS) {
+      } else if (gidITS && gidTPC && !gidTRD && gidTOF) {
         ++mCounters[1][c];
-      } else if (gidTPC) {
+      } else if (gidITS && gidTPC && gidTRD && !gidTOF) {
         ++mCounters[2][c];
-      } else {
+      } else if (!gidITS && gidTPC && gidTRD && gidTOF) {
         ++mCounters[3][c];
+      } else if (!gidITS && gidTPC && gidTRD && !gidTOF) {
+        ++mCounters[4][c];
+      } else if (!gidITS && gidTPC && !gidTRD && gidTOF) {
+        ++mCounters[5][c];
+      } else if (gidITS && gidTPC && !gidTRD && !gidTOF) {
+        ++mCounters[6][c];
+      } else if (gidITS && !gidTPC && !gidTRD && !gidTOF) {
+        ++mCounters[7][c];
+      } else if (!gidITS && gidTPC && !gidTRD && !gidTOF) {
+        ++mCounters[8][c];
+      } else {
+        ++mCounters[9][c];
       }
       ++mTotCounters[c];
+      auto lbl = s.getLabel(gid);
+      if (lbl.isFake() || !lbl.isValid()) {
+        return;
+      }
+      auto idx = std::make_tuple(lbl.getSourceID(), lbl.getEventID(), lbl.getTrackID());
+      auto it0 = _D0.find(idx), it1 = _D1.find(idx);
+      auto it0T = it0 != _D0.end(), it1T = it1 != _D1.end();
+      if (it0T && it1T) {
+        LOGP(warn, "### collision");
+      } else if (it0T || it1T) {
+        if (gidITS && gidTPC && gidTRD && gidTOF) {
+          ++mCountersV0[0][c];
+        } else if (gidITS && gidTPC && !gidTRD && gidTOF) {
+          ++mCountersV0[1][c];
+        } else if (gidITS && gidTPC && gidTRD && !gidTOF) {
+          ++mCountersV0[2][c];
+        } else if (!gidITS && gidTPC && gidTRD && gidTOF) {
+          ++mCountersV0[3][c];
+        } else if (!gidITS && gidTPC && gidTRD && !gidTOF) {
+          ++mCountersV0[4][c];
+        } else if (!gidITS && gidTPC && !gidTRD && gidTOF) {
+          ++mCountersV0[5][c];
+        } else if (gidITS && gidTPC && !gidTRD && !gidTOF) {
+          ++mCountersV0[6][c];
+        } else if (gidITS && !gidTPC && !gidTRD && !gidTOF) {
+          ++mCountersV0[7][c];
+        } else if (!gidITS && gidTPC && !gidTRD && !gidTOF) {
+          ++mCountersV0[8][c];
+        } else {
+          ++mCountersV0[9][c];
+        }
+      }
     }
+
     void print()
     {
       for (int i{0}; i < static_cast<int>(Enum::NSIZE); ++i) {
         LOGP(info, "{} - CHECK: {}: {}", i, _names[i], mTotCounters[i]);
-        LOGP(info, "                 `--> ITSTPC {}", mCounters[0][i]);
-        LOGP(info, "                 `--> ITS    {}", mCounters[1][i]);
-        LOGP(info, "                 `-->    TPC {}", mCounters[2][i]);
-        LOGP(info, "                 `--> ?????? {}", mCounters[3][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF {} / {}", mCountersV0[0][i], mCounters[0][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF {} / {}", mCountersV0[1][i], mCounters[1][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     {} / {}", mCountersV0[2][i], mCounters[2][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF {} / {}", mCountersV0[3][i], mCounters[3][i]);
+        LOGP(info, "                 `-->     TPC-TRD     {} / {}", mCountersV0[4][i], mCounters[4][i]);
+        LOGP(info, "                 `-->     TPC-   -TOF {} / {}", mCountersV0[5][i], mCounters[5][i]);
+        LOGP(info, "                 `--> ITS-TPC         {} / {}", mCountersV0[6][i], mCounters[6][i]);
+        LOGP(info, "                 `--> ITS             {} / {}", mCountersV0[7][i], mCounters[7][i]);
+        LOGP(info, "                 `-->     TPC         {} / {}", mCountersV0[8][i], mCounters[8][i]);
+        LOGP(info, "                 `--> ???             {} / {}", mCountersV0[9][i], mCounters[9][i]);
+      }
+    }
+    void print2()
+    {
+      for (int i{0}; i < static_cast<int>(Enum::NSIZE); ++i) {
+        LOGP(info, "{} - CHECK: {}: {}", i, _names[i], mTotCounters[i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF & ITS-TPC-TRD-TOF {}", mCounters[0][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF & ITS-TPC-   -TOF {}", mCounters[1][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF & ITS-TPC-TRD     {}", mCounters[2][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF &     TPC-TRD-TOF {}", mCounters[3][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF &     TPC-TRD     {}", mCounters[4][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF &     TPC-   -TOF {}", mCounters[5][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF & ITS-TPC         {}", mCounters[6][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF & ITS             {}", mCounters[7][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF &     TPC         {}", mCounters[8][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF & ???             {}", mCounters[9][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF & ITS-TPC-   -TOF {}", mCounters[10][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF & ITS-TPC-TRD     {}", mCounters[11][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF &     TPC-TRD-TOF {}", mCounters[12][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF &     TPC-TRD     {}", mCounters[13][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF &     TPC-   -TOF {}", mCounters[14][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF & ITS-TPC         {}", mCounters[15][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF & ITS             {}", mCounters[16][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF &     TPC         {}", mCounters[17][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF & ???             {}", mCounters[18][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     & ITS-TPC-TRD     {}", mCounters[19][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     &     TPC-TRD-TOF {}", mCounters[20][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     &     TPC-TRD     {}", mCounters[21][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     &     TPC-   -TOF {}", mCounters[22][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     & ITS-TPC         {}", mCounters[23][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     & ITS             {}", mCounters[24][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     &     TPC         {}", mCounters[25][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     & ???             {}", mCounters[26][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF &     TPC-TRD-TOF {}", mCounters[27][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF &     TPC-TRD     {}", mCounters[28][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF &     TPC-   -TOF {}", mCounters[29][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF & ITS-TPC         {}", mCounters[30][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF & ITS             {}", mCounters[31][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF &     TPC         {}", mCounters[32][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF & ???             {}", mCounters[33][i]);
+        LOGP(info, "                 `-->     TPC-TRD     &     TPC-TRD     {}", mCounters[34][i]);
+        LOGP(info, "                 `-->     TPC-TRD     &     TPC-   -TOF {}", mCounters[35][i]);
+        LOGP(info, "                 `-->     TPC-TRD     & ITS-TPC         {}", mCounters[36][i]);
+        LOGP(info, "                 `-->     TPC-TRD     & ITS             {}", mCounters[37][i]);
+        LOGP(info, "                 `-->     TPC-TRD     &     TPC         {}", mCounters[38][i]);
+        LOGP(info, "                 `-->     TPC-TRD     & ???             {}", mCounters[39][i]);
+        LOGP(info, "                 `-->     TPC-   -TOF &     TPC-   -TOF {}", mCounters[40][i]);
+        LOGP(info, "                 `-->     TPC-   -TOF & ITS-TPC         {}", mCounters[41][i]);
+        LOGP(info, "                 `-->     TPC-   -TOF & ITS             {}", mCounters[42][i]);
+        LOGP(info, "                 `-->     TPC-   -TOF &     TPC         {}", mCounters[43][i]);
+        LOGP(info, "                 `-->     TPC-   -TOF & ???             {}", mCounters[44][i]);
+        LOGP(info, "                 `--> ITS-TPC         & ITS-TPC         {}", mCounters[45][i]);
+        LOGP(info, "                 `--> ITS-TPC         & ITS             {}", mCounters[46][i]);
+        LOGP(info, "                 `--> ITS-TPC         &     TPC         {}", mCounters[47][i]);
+        LOGP(info, "                 `--> ITS-TPC         & ???             {}", mCounters[48][i]);
+        LOGP(info, "                 `--> ITS             & ITS             {}", mCounters[49][i]);
+        LOGP(info, "                 `--> ITS             &     TPC         {}", mCounters[50][i]);
+        LOGP(info, "                 `--> ITS             & ???             {}", mCounters[51][i]);
+        LOGP(info, "                 `-->     TPC         &     TPC         {}", mCounters[52][i]);
+        LOGP(info, "                 `-->     TPC         & ???             {}", mCounters[53][i]);
+        LOGP(info, "                 `--> ???             & ???             {}", mCounters[54][i]);
       }
     }
   };
@@ -405,7 +698,7 @@ class SVertexer
     "Rejection TgL",
     "#CALLED",
   };
-  Counter_t<CHECKV0> mCounterV0{checkV0Names};
+  Counter_t<CHECKV0> mCounterV0{checkV0Names, mMotherMap, mD0Map, mD1Map};
   enum class BUILDT2V : unsigned int {
     NOTLOADED = 0,
     TPCTRACK,
@@ -415,6 +708,7 @@ class SVertexer
     AMBIGIOUS,
     ACCOUNT,
     REJECTED,
+    HEAVY,
     BACCEPT,
     NACCEPT,
     NACCEPTAMBI,
@@ -431,13 +725,14 @@ class SVertexer
     "Ambigious track",
     "Ambigious: Already accounted track (latter one)",
     "Ambigious: Already rejected track",
+    "Heavy ionising particle",
     "Before acceptTrack",
     "Not acceptTrack",
     "Not acceptTrack Ambigious",
     "After acceptTrack",
     "#CALLED",
   };
-  Counter_t<BUILDT2V> mCounterBuildT2V{buildT2VNames};
+  Counter_t<BUILDT2V> mCounterBuildT2V{buildT2VNames, mMotherMap, mD0Map, mD1Map};
 };
 } // namespace vertexing
 } // namespace o2
