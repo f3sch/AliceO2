@@ -22,7 +22,9 @@
 #include "Framework/DataProcessorSpec.h"
 #include "ReconstructionDataFormats/StrangeTrack.h"
 #include "FairLogger.h"
+#include "DataFormatsTRD/TrackTRD.h"
 
+#include <tuple>
 #include <unordered_map>
 
 #ifdef WITH_OPENMP
@@ -231,7 +233,6 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
 
   extractPVReferences(v0sIdx, v0Refs, cascsIdx, cascRefs, body3Idx, vtx3bodyRefs);
   if (mUseDebug) {
-    LOGP(info, "Processed {} TPC only tracks", mCounterTPConly);
     LOGP(info, "-----------BUILDT2V Stats--------------------");
     mCounterBuildT2V.print();
     LOGP(info, "---------------------------------------------");
@@ -250,7 +251,6 @@ void SVertexer::init()
     mDebugStream = std::make_unique<o2::utils::TreeStreamRedirector>("svertexer-debug.root", "recreate");
     LOGP(info, "Enabled debug output");
     if (mUseMC) {
-      mCounterTrueGammas = 0;
       if (!mcReader.initFromDigitContext("collisioncontext.root")) {
         LOGP(fatal, "Initialization of MCKinematicsReader failed!");
       }
@@ -273,36 +273,52 @@ void SVertexer::init()
                   d0->GetP() > 0.05 &&
                   d1->GetP() > 0.05) {
                 TParticlePDG* pPDG0 = TDatabasePDG::Instance()->GetParticle(d0->GetPdgCode());
-                if (pPDG0->Charge() < 0) {
+                if (pPDG0 != nullptr && pPDG0->Charge() < 0) {
                   std::swap(d0, d1);
                 }
                 auto d0TPC = d0->leftTrace(o2::detectors::DetID::TPC), d0ITS = d0->leftTrace(o2::detectors::DetID::ITS),
                      d0TRD = d0->leftTrace(o2::detectors::DetID::TRD), d0TOF = d0->leftTrace(o2::detectors::DetID::TOF),
                      d1TPC = d1->leftTrace(o2::detectors::DetID::TPC), d1ITS = d1->leftTrace(o2::detectors::DetID::ITS),
                      d1TRD = d0->leftTrace(o2::detectors::DetID::TRD), d1TOF = d0->leftTrace(o2::detectors::DetID::TOF);
-                if (d0ITS && d0TPC && d1ITS && d1TPC) {
-                  ++mCounterTrueGammasITSTPC;
-                } else if (d0TPC && d1TPC) {
-                  ++mCounterTrueGammasTPC;
-                } else if (d0ITS && d1ITS) {
-                  ++mCounterTrueGammasITS;
-                } else {
-                  continue;
+                auto sss = mCounterMC.inc(MCGEN::GEN, d0ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
+                if (sss) {
+                  // LOGP(info, "### unidentified pair ###");
+                  // d0->Print();
+                  // d1->Print();
+                  // mcparticle.Print();
+                  // LOGP(info, "#########################");
                 }
-                ++mCounterTrueGammas;
 
                 // mc map
                 const auto idxMother = std::make_tuple(iSource, iEvent, i);
                 const auto idxD0 = std::make_tuple(iSource, iEvent, mcparticle.getFirstDaughterTrackId());
                 const auto idxD1 = std::make_tuple(iSource, iEvent, mcparticle.getLastDaughterTrackId());
-                SVertexer::mMotherMap[idxMother] = std::make_pair(idxD0, idxD1);
-                SVertexer::mD0Map[idxD0] = std::make_pair(idxD1, idxMother);
-                SVertexer::mD1Map[idxD1] = std::make_pair(idxD0, idxMother);
+                mMotherV0Map[idxMother] = std::make_pair(idxD0, idxD1);
+                mD0V0Map[idxD0] = std::make_pair(idxD1, idxMother);
+                mD1V0Map[idxD1] = std::make_pair(idxD0, idxMother);
               }
+            }
+            if (TParticlePDG* pPDG = TDatabasePDG::Instance()->GetParticle(mcparticle.GetPdgCode());
+                mcparticle.hasHits() &&
+                mcparticle.GetP() > 0.05 &&
+                pPDG != nullptr && pPDG->Charge() != 0) {
+              auto hitTPC = mcparticle.leftTrace(o2::detectors::DetID::TPC), hitITS = mcparticle.leftTrace(o2::detectors::DetID::ITS),
+                   hitTRD = mcparticle.leftTrace(o2::detectors::DetID::TRD), hitTOF = mcparticle.leftTrace(o2::detectors::DetID::TOF);
+              auto sss = mCounterMC.inc(MCGEN::GEN, hitITS, hitTPC, hitTRD, hitTOF);
+              if (sss) {
+                // mcparticle.Print();
+              }
+              const auto idx = std::make_tuple(iSource, iEvent, i);
+              mMCParticle[idx] = true;
             }
           }
         }
       }
+      LOGP(info, "~~~~~~~~~~~~~~~~~~~MC GEN Stats~~~~~~~~~~~~~~~~");
+      mCounterMC.printMC();
+      LOGP(info, "~~~~~~~~~~~~~~~~~~~V0 pairs generated~~~~~~~~~~");
+      mCounterMC.printMC2();
+      LOGP(info, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
     }
   }
 }
@@ -494,7 +510,8 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
     mVtxFirstTrack[i].resize(nv, -1);
   }
   if (mUseDebug) {
-    writeDebugBTrackPools(recoData);
+    writeDebugWithoutTiming(recoData);
+    // writeDebugBTrackPools(recoData);
   }
   for (int iv = 0; iv < nv; iv++) {
     const auto& vtref = vtxRefs[iv];
@@ -502,37 +519,37 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
     for (; it < itLim; it++) {
       auto tvid = trackIndex[it];
       auto lbl = getLabel(tvid);
-      mCounterBuildT2V.inc(BUILDT2V::CALLED, tvid, lbl, mD0Map, mD1Map);
+      mCounterBuildT2V.inc(BUILDT2V::CALLED, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
       if (!recoData.isTrackSourceLoaded(tvid.getSource())) {
-        mCounterBuildT2V.inc(BUILDT2V::NOTLOADED, tvid, lbl, mD0Map, mD1Map);
+        mCounterBuildT2V.inc(BUILDT2V::NOTLOADED, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
         continue;
       }
       if (tvid.getSource() == GIndex::TPC) {
-        mCounterBuildT2V.inc(BUILDT2V::TPCTRACK, tvid, lbl, mD0Map, mD1Map);
+        mCounterBuildT2V.inc(BUILDT2V::TPCTRACK, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
         if (mSVParams->mExcludeTPCtracks) {
-          mCounterBuildT2V.inc(BUILDT2V::TPCEXCLUDE, tvid, lbl, mD0Map, mD1Map);
+          mCounterBuildT2V.inc(BUILDT2V::TPCEXCLUDE, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
           continue;
         }
         // unconstrained TPC tracks require special treatment: there is no point in checking DCA to mean vertex since it is not precise,
         // but we need to create a clone of TPC track constrained to this particular vertex time.
         if (processTPCTrack(recoData.getTPCTrack(tvid), tvid, iv)) {
-          mCounterBuildT2V.inc(BUILDT2V::TPCSPROCESS, tvid, lbl, mD0Map, mD1Map);
+          mCounterBuildT2V.inc(BUILDT2V::TPCSPROCESS, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
           continue;
         }
-        mCounterBuildT2V.inc(BUILDT2V::TPCFPROCESS, tvid, lbl, mD0Map, mD1Map);
+        mCounterBuildT2V.inc(BUILDT2V::TPCFPROCESS, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
       }
 
       if (tvid.isAmbiguous()) { // was this track already processed?
-        mCounterBuildT2V.inc(BUILDT2V::AMBIGIOUS, tvid, lbl, mD0Map, mD1Map);
+        mCounterBuildT2V.inc(BUILDT2V::AMBIGIOUS, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
         auto tref = tmap.find(tvid);
         if (tref != tmap.end()) {
-          mCounterBuildT2V.inc(BUILDT2V::ACCOUNT, tvid, lbl, mD0Map, mD1Map);
+          mCounterBuildT2V.inc(BUILDT2V::ACCOUNT, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
           mTracksPool[tref->second.second][tref->second.first].vBracket.setMax(iv); // this track was already processed with other vertex, account the latter
           continue;
         }
         // was it already rejected?
         if (rejmap.find(tvid) != rejmap.end()) {
-          mCounterBuildT2V.inc(BUILDT2V::REJECTED, tvid, lbl, mD0Map, mD1Map);
+          mCounterBuildT2V.inc(BUILDT2V::REJECTED, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
           continue;
         }
       }
@@ -546,20 +563,20 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
         if (dEdxTPC > mSVParams->minTPCdEdx && trc.getP() > mSVParams->minMomTPCdEdx) // accept high dEdx tracks (He3, He4)
         {
           heavyIonisingParticle = true;
-          mCounterBuildT2V.inc(BUILDT2V::HEAVY, tvid, lbl, mD0Map, mD1Map);
+          mCounterBuildT2V.inc(BUILDT2V::HEAVY, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
         }
       }
 
-      mCounterBuildT2V.inc(BUILDT2V::BACCEPT, tvid, lbl, mD0Map, mD1Map);
+      mCounterBuildT2V.inc(BUILDT2V::BACCEPT, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
       if (!acceptTrack(tvid, trc) && !heavyIonisingParticle) {
-        mCounterBuildT2V.inc(BUILDT2V::NACCEPT, tvid, lbl, mD0Map, mD1Map);
+        mCounterBuildT2V.inc(BUILDT2V::NACCEPT, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
         if (tvid.isAmbiguous()) {
-          mCounterBuildT2V.inc(BUILDT2V::NACCEPTAMBI, tvid, lbl, mD0Map, mD1Map);
+          mCounterBuildT2V.inc(BUILDT2V::NACCEPTAMBI, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
           rejmap[tvid] = true;
         }
         continue;
       }
-      mCounterBuildT2V.inc(BUILDT2V::AACCEPT, tvid, lbl, mD0Map, mD1Map);
+      mCounterBuildT2V.inc(BUILDT2V::AACCEPT, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
       int posneg = trc.getSign() < 0 ? 1 : 0;
       float r = std::sqrt(trc.getX() * trc.getX() + trc.getY() * trc.getY());
       mTracksPool[posneg].emplace_back(TrackCand{trc, tvid, {iv, iv}, r});
@@ -585,7 +602,11 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
 
   LOG(info) << "Collected " << mTracksPool[POS].size() << " positive and " << mTracksPool[NEG].size() << " negative seeds";
   if (mUseDebug) {
-    writeDebugATrackPools(recoData);
+    // writeDebugATrackPools(recoData);
+    writeDebugWithTiming(recoData);
+    LOGP(info, "~~~~~~~~~Before&After Timing information findable V0s~~~~~~~~~~~~~");
+    mCounterReco.printMC2();
+    LOGP(info, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
   }
 }
 
@@ -595,25 +616,11 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   auto lbl0 = getLabel(seedP.gid);
   auto lbl1 = getLabel(seedN.gid);
   auto ok = checkLabels(lbl0, lbl1);
-  if (ok) {
-    auto idx0 = std::make_tuple(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID());
-    auto it0 = mD0Map.find(idx0);
-    auto it0T = it0 != mD0Map.end();
-    auto idx1 = std::make_tuple(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID());
-    auto it1 = mD1Map.find(idx1);
-    auto it1T = it1 != mD1Map.end();
-    if (it0T && it1T) {
-      LOGP(info, "### {}/{}/{}    {}/{}/{}", std::get<0>(mD0Map[idx0].second), std::get<1>(mD0Map[idx0].second), std::get<2>(mD0Map[idx0].second), std::get<0>(mD1Map[idx1].second), std::get<1>(mD1Map[idx1].second), std::get<2>(mD1Map[idx1].second));
-      if (mD0Map[idx0].second == mD1Map[idx1].second) {
-        LOGP(info, "######### Found true pair");
-      }
-    }
-  }
-  mCounterV0.inc(CHECKV0::CALLED, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
+  mCounterV0.inc(CHECKV0::CALLED, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0V0Map, mD1V0Map);
   auto& fitterV0 = mFitterV0[ithread];
   int nCand = fitterV0.process(seedP, seedN);
   if (nCand == 0) { // discard this pair
-    mCounterV0.inc(CHECKV0::FPROCESS, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
+    mCounterV0.inc(CHECKV0::FPROCESS, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0V0Map, mD1V0Map);
     return false;
   }
   const auto& v0XYZ = fitterV0.getPCACandidate();
@@ -621,18 +628,18 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   // check closeness to the beam-line
   float dxv0 = v0XYZ[0] - mMeanVertex.getX(), dyv0 = v0XYZ[1] - mMeanVertex.getY(), r2v0 = dxv0 * dxv0 + dyv0 * dyv0;
   if (r2v0 < mMinR2ToMeanVertex) {
-    mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
+    mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0V0Map, mD1V0Map);
     return false;
   }
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
-    mCounterV0.inc(CHECKV0::REJCAUSALITY, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
+    mCounterV0.inc(CHECKV0::REJCAUSALITY, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0V0Map, mD1V0Map);
     return false;
   }
   const int cand = 0;
   if (!fitterV0.isPropagateTracksToVertexDone(cand) && !fitterV0.propagateTracksToVertex(cand)) {
-    mCounterV0.inc(CHECKV0::PROPVTX, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
+    mCounterV0.inc(CHECKV0::PROPVTX, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0V0Map, mD1V0Map);
     return false;
   }
   auto& trPProp = fitterV0.getTrack(0, cand);
@@ -648,12 +655,12 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   float pt2V0 = pV0[0] * pV0[0] + pV0[1] * pV0[1], prodXYv0 = dxv0 * pV0[0] + dyv0 * pV0[1], tDCAXY = prodXYv0 / pt2V0;
   if (pt2V0 < mMinPt2V0) { // pt cut
     LOG(debug) << "RejPt2 " << pt2V0;
-    mCounterV0.inc(CHECKV0::REJPT2, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
+    mCounterV0.inc(CHECKV0::REJPT2, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0V0Map, mD1V0Map);
     return false;
   }
   if (pV0[2] * pV0[2] / pt2V0 > mMaxTgl2V0) { // tgLambda cut
     LOG(debug) << "RejTgL " << pV0[2] * pV0[2] / pt2V0;
-    mCounterV0.inc(CHECKV0::REJTGL, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
+    mCounterV0.inc(CHECKV0::REJTGL, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0V0Map, mD1V0Map);
     return false;
   }
   float p2V0 = pt2V0 + pV0[2] * pV0[2], ptV0 = std::sqrt(pt2V0);
@@ -1227,7 +1234,6 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
 
   // write debug output for unconstrained tpc tracks contributing to the pool
   if (mUseDebug) {
-    ++mCounterTPConly;
     writeDebugV0Candidates(trTPC, gid, vtxid, trLoc);
   }
 
@@ -1360,7 +1366,7 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
   auto count = [](auto b) { return std::count(b.begin(), b.end(), true); };
 
   LOG(info) << "______________________________________________";
-  LOG(info) << "Total Found V0s: " << count(totV0sF) << " ( " << count(itsV0F) << " ITS/ " << count(tpcV0F) << " TPConly/ " << count(itstpcV0F) << " ITSTPC) out of " << mCounterTrueGammas << " true v0 gammas";
+  LOG(info) << "Total Found V0s: " << count(totV0sF) << " ( " << count(itsV0F) << " ITS/ " << count(tpcV0F) << " TPConly/ " << count(itstpcV0F) << " ITSTPC)";
   LOG(info) << "__ Good V0 Trks: " << count(good);
   LOG(info) << "   `--> ITSonly= " << count(goodITS) << " TPConly= " << count(goodTPC) << " ITSTPConly= " << count(goodITSTPC);
   LOG(info) << "______________________________________________";
@@ -1368,7 +1374,6 @@ void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
                   << "total=" << totV0sF << "its=" << itsV0F << "tpc=" << tpcV0F << "itstpc=" << itstpcV0F
                   << "good=" << good << "gits=" << goodITS << "gtpc=" << goodTPC << "gitstpc=" << goodITSTPC
                   << "gMotherPt=" << gMPt << "gD0Pt=" << gD0Pt << "gD1Pt=" << gD1Pt
-                  << "trueV0ITS=" << mCounterTrueGammasITS << "trueV0TPC=" << mCounterTrueGammasTPC << "trueV0ITSTPC=" << mCounterTrueGammasITSTPC
                   << "\n";
 }
 
@@ -1432,19 +1437,19 @@ void SVertexer::writeDebugBTrackPools(const o2::globaltracking::RecoContainer& r
       if (map.find(idx) != map.end()) {
         if (std::get<3>(map[idx]) == false) {
           std::get<3>(map[idx]) = true;
+          if (d0ITS && d1ITS && d0TPC && d1TPC) {
+            ++nMCCITSTPCTrks;
+          } else if (d0ITS && d1ITS) {
+            ++nMCCITSTrks;
+          } else if (d0TPC && d1TPC) {
+            ++nMCCTPCTrks;
+          } else {
+            continue; // not findable anyways
+          }
+          ++nCTrks;
         } else {
           continue; // we already added this, tracks can appear multiple times e.g. loopers thus only count once
         }
-        if (d0ITS && d1ITS && d0TPC && d1TPC) {
-          ++nMCCITSTPCTrks;
-        } else if (d0ITS && d1ITS) {
-          ++nMCCITSTrks;
-        } else if (d0TPC && d1TPC) {
-          ++nMCCTPCTrks;
-        } else {
-          continue; // not findable anyways
-        }
-        ++nCTrks;
       } else {
         std::get<0>(map[idx]) = *d0;
         std::get<1>(map[idx]) = *d1;
@@ -1462,8 +1467,8 @@ void SVertexer::writeDebugBTrackPools(const o2::globaltracking::RecoContainer& r
                     << "found=" << found
                     << "\n";
   }
-  LOGP(info, "Before Pool-Building: {} Tracks with {} good V0 MC tracks ( {} ITS/ {} TPC/ {} ITSTPC) and {} are complete ( {} ITS/ {} TPC/ {} ITSTPC)",
-       nTrks, nMCTrks, nMCITSTrks, nMCTPCTrks, nMCITSTPCTrks, nCTrks, nMCCITSTrks, nMCCTPCTrks, nMCCITSTPCTrks);
+  // LOGP(info, "Before Pool-Building: {} Tracks with {} good V0 MC tracks ( {} ITS/ {} TPC/ {} ITSTPC) and {} are complete ( {} ITS/ {} TPC/ {} ITSTPC)",
+  //      nTrks, nMCTrks, nMCITSTrks, nMCTPCTrks, nMCITSTPCTrks, nCTrks, nMCCITSTrks, nMCCTPCTrks, nMCCITSTPCTrks);
 }
 
 void SVertexer::writeDebugATrackPools(const o2::globaltracking::RecoContainer& recoData)
@@ -1539,4 +1544,107 @@ void SVertexer::writeDebugATrackPools(const o2::globaltracking::RecoContainer& r
                     << "\n";
   }
   LOG(info) << "There are " << cFindable << " good findable V0s ( " << cFindableITS << " ITS/ " << cFindableTPC << " TPC/ " << cFindableITSTPC << " ITSTPC)";
+}
+
+void SVertexer::writeDebugWithoutTiming(const o2::globaltracking::RecoContainer& recoData)
+{
+  map_timing_t map;
+  auto findV0 = [&](const auto& tracks, auto src) {
+    for (int iTrk{0}; iTrk < tracks.size(); ++iTrk) {
+      o2::dataformats::GlobalTrackID id(iTrk, src);
+      auto lbl = getLabel(id);
+      if (lbl.isFake() || !lbl.isValid()) {
+        continue;
+      }
+      auto idx = std::make_tuple(lbl.getSourceID(), lbl.getEventID(), lbl.getTrackID());
+      auto it0 = mD0V0Map.find(idx);
+      auto it1 = mD1V0Map.find(idx);
+      auto it0T = it0 != mD0V0Map.end();
+      auto it1T = it1 != mD1V0Map.end();
+      key_t mother;
+      if (it0T) {
+        mother = (*it0).second.second;
+      } else if (it1T) {
+        mother = (*it1).second.second;
+      } else {
+        continue;
+      }
+      if (map.find(mother) != map.end()) {
+        if (!std::get<2>(map[mother])) {
+          std::get<1>(map[mother]) = id;
+          std::get<2>(map[mother]) = true;
+        } else {
+          continue; // already set once
+        }
+      } else {
+        std::get<0>(map[mother]) = id;
+        std::get<2>(map[mother]) = false;
+      }
+    }
+  };
+
+  findV0(recoData.getITSTPCTRDTOFMatches(), GIndex::ITSTPCTRDTOF);
+  findV0(recoData.getITSTPCTOFMatches(), GIndex::ITSTPCTOF);
+  // findV0<true>(recoData.getITSTPCTRDTracks<o2::trd::TrackTRD>(), GIndex::ITSTPCTRD);
+  findV0(recoData.getTPCTRDTOFMatches(), GIndex::TPCTRDTOF);
+  // findV0(recoData.getTPCTRDTracks<o2::trd::TrackTRD>(), GIndex::TPCTRD);
+  findV0(recoData.getTPCTOFTracks(), GIndex::TPCTOF);
+  findV0(recoData.getTPCITSTracks(), GIndex::ITSTPC);
+  findV0(recoData.getITSTracks(), GIndex::ITS);
+  findV0(recoData.getTPCTracks(), GIndex::TPC);
+
+  for (const auto& [_, v] : map) {
+    const auto& [gid0, gid1, found] = v;
+    if (found) {
+      mCounterReco.inc(Reco::WITHOUT, gid0, gid1);
+    }
+  }
+}
+
+void SVertexer::writeDebugWithTiming(const o2::globaltracking::RecoContainer& recoData)
+{
+  map_timing_t map;
+  auto ntrP = mTracksPool[POS].size(), ntrN = mTracksPool[NEG].size();
+  for (int itp = 0; itp < ntrP; itp++) {
+    auto& seedP = mTracksPool[POS][itp];
+    int firstN = mVtxFirstTrack[NEG][seedP.vBracket.getMin()];
+    if (firstN < 0) {
+      continue;
+    }
+    for (int itn = firstN; itn < ntrN; itn++) {
+      auto& seedN = mTracksPool[NEG][itn];
+      if (seedN.vBracket > seedP.vBracket) {
+        break;
+      }
+      if (mSVParams->maxPVContributors < 2 && static_cast<int>(seedP.gid.isPVContributor()) + static_cast<int>(seedN.gid.isPVContributor()) > mSVParams->maxPVContributors) {
+        continue;
+      }
+      auto gid0 = seedP.gid, gid1 = seedN.gid;
+      auto lbl0 = getLabel(gid0);
+      auto lbl1 = getLabel(gid1);
+      if (!checkLabels(lbl0, lbl1)) {
+        continue;
+      }
+      auto idx0 = std::make_tuple(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID());
+      auto it0 = mD0V0Map.find(idx0);
+      auto it0T = it0 != mD0V0Map.end();
+      auto idx1 = std::make_tuple(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID());
+      auto it1 = mD1V0Map.find(idx1);
+      auto it1T = it1 != mD1V0Map.end();
+      if (it0T && it1T) {
+        if ((*it0).second.second == (*it1).second.second) {
+          auto idx = (*it0).second.second;
+          if (map.find(idx) == map.end()) {
+            std::get<0>(map[idx]) = gid0;
+            std::get<1>(map[idx]) = gid1;
+          }
+        }
+      }
+    }
+  }
+
+  for (const auto& [_, v] : map) {
+    const auto& [gid0, gid1, _x] = v;
+    mCounterReco.inc(Reco::WITH, gid0, gid1);
+  }
 }
