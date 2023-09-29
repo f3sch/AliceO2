@@ -231,7 +231,6 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
 
   extractPVReferences(v0sIdx, v0Refs, cascsIdx, cascRefs, body3Idx, vtx3bodyRefs);
   if (mUseDebug) {
-    writeDebugV0Found(v0sIdx, recoData);
     LOGP(info, "Processed {} TPC only tracks", mCounterTPConly);
     LOGP(info, "-----------BUILDT2V Stats--------------------");
     mCounterBuildT2V.print();
@@ -239,6 +238,7 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
     LOGP(info, "---- checkV0 stats ----");
     mCounterV0.print2();
     LOGP(info, "-----------------------");
+    writeDebugV0Found(v0sIdx, recoData);
     mDebugStream.reset();
   }
 }
@@ -259,7 +259,7 @@ void SVertexer::init()
           const auto& pcontainer = mcReader.getTracks(iSource, iEvent);
           for (int i{0}; i < pcontainer.size(); ++i) {
             const auto& mcparticle = pcontainer[i];
-            if (mcparticle.GetPdgCode() == 22 &&
+            if (mcparticle.GetPdgCode() == v0Type &&
                 mcparticle.isPrimary() &&
                 o2::mcutils::MCTrackNavigator::isPhysicalPrimary(mcparticle, pcontainer)) { // all primary photons
               if (auto d0 = o2::mcutils::MCTrackNavigator::getDaughter0(mcparticle, pcontainer),
@@ -295,9 +295,9 @@ void SVertexer::init()
                 const auto idxMother = std::make_tuple(iSource, iEvent, i);
                 const auto idxD0 = std::make_tuple(iSource, iEvent, mcparticle.getFirstDaughterTrackId());
                 const auto idxD1 = std::make_tuple(iSource, iEvent, mcparticle.getLastDaughterTrackId());
-                mMotherMap[idxMother] = std::make_pair(idxD0, idxD1);
-                mD0Map[idxD0] = std::make_pair(idxD1, idxMother);
-                mD1Map[idxD1] = std::make_pair(idxD0, idxMother);
+                SVertexer::mMotherMap[idxMother] = std::make_pair(idxD0, idxD1);
+                SVertexer::mD0Map[idxD0] = std::make_pair(idxD1, idxMother);
+                SVertexer::mD1Map[idxD1] = std::make_pair(idxD0, idxMother);
               }
             }
           }
@@ -501,37 +501,38 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
     int it = vtref.getFirstEntry(), itLim = it + vtref.getEntries();
     for (; it < itLim; it++) {
       auto tvid = trackIndex[it];
-      mCounterBuildT2V.inc(BUILDT2V::CALLED, tvid);
+      auto lbl = getLabel(tvid);
+      mCounterBuildT2V.inc(BUILDT2V::CALLED, tvid, lbl, mD0Map, mD1Map);
       if (!recoData.isTrackSourceLoaded(tvid.getSource())) {
-        mCounterBuildT2V.inc(BUILDT2V::NOTLOADED, tvid);
+        mCounterBuildT2V.inc(BUILDT2V::NOTLOADED, tvid, lbl, mD0Map, mD1Map);
         continue;
       }
       if (tvid.getSource() == GIndex::TPC) {
-        mCounterBuildT2V.inc(BUILDT2V::TPCTRACK, tvid);
+        mCounterBuildT2V.inc(BUILDT2V::TPCTRACK, tvid, lbl, mD0Map, mD1Map);
         if (mSVParams->mExcludeTPCtracks) {
-          mCounterBuildT2V.inc(BUILDT2V::TPCEXCLUDE, tvid);
+          mCounterBuildT2V.inc(BUILDT2V::TPCEXCLUDE, tvid, lbl, mD0Map, mD1Map);
           continue;
         }
         // unconstrained TPC tracks require special treatment: there is no point in checking DCA to mean vertex since it is not precise,
         // but we need to create a clone of TPC track constrained to this particular vertex time.
         if (processTPCTrack(recoData.getTPCTrack(tvid), tvid, iv)) {
-          mCounterBuildT2V.inc(BUILDT2V::TPCSPROCESS, tvid);
+          mCounterBuildT2V.inc(BUILDT2V::TPCSPROCESS, tvid, lbl, mD0Map, mD1Map);
           continue;
         }
-        mCounterBuildT2V.inc(BUILDT2V::TPCFPROCESS, tvid);
+        mCounterBuildT2V.inc(BUILDT2V::TPCFPROCESS, tvid, lbl, mD0Map, mD1Map);
       }
 
       if (tvid.isAmbiguous()) { // was this track already processed?
-        mCounterBuildT2V.inc(BUILDT2V::AMBIGIOUS, tvid);
+        mCounterBuildT2V.inc(BUILDT2V::AMBIGIOUS, tvid, lbl, mD0Map, mD1Map);
         auto tref = tmap.find(tvid);
         if (tref != tmap.end()) {
-          mCounterBuildT2V.inc(BUILDT2V::ACCOUNT, tvid);
+          mCounterBuildT2V.inc(BUILDT2V::ACCOUNT, tvid, lbl, mD0Map, mD1Map);
           mTracksPool[tref->second.second][tref->second.first].vBracket.setMax(iv); // this track was already processed with other vertex, account the latter
           continue;
         }
         // was it already rejected?
         if (rejmap.find(tvid) != rejmap.end()) {
-          mCounterBuildT2V.inc(BUILDT2V::REJECTED, tvid);
+          mCounterBuildT2V.inc(BUILDT2V::REJECTED, tvid, lbl, mD0Map, mD1Map);
           continue;
         }
       }
@@ -545,20 +546,20 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
         if (dEdxTPC > mSVParams->minTPCdEdx && trc.getP() > mSVParams->minMomTPCdEdx) // accept high dEdx tracks (He3, He4)
         {
           heavyIonisingParticle = true;
-          mCounterBuildT2V.inc(BUILDT2V::HEAVY, tvid);
+          mCounterBuildT2V.inc(BUILDT2V::HEAVY, tvid, lbl, mD0Map, mD1Map);
         }
       }
 
-      mCounterBuildT2V.inc(BUILDT2V::BACCEPT, tvid);
+      mCounterBuildT2V.inc(BUILDT2V::BACCEPT, tvid, lbl, mD0Map, mD1Map);
       if (!acceptTrack(tvid, trc) && !heavyIonisingParticle) {
-        mCounterBuildT2V.inc(BUILDT2V::NACCEPT, tvid);
+        mCounterBuildT2V.inc(BUILDT2V::NACCEPT, tvid, lbl, mD0Map, mD1Map);
         if (tvid.isAmbiguous()) {
-          mCounterBuildT2V.inc(BUILDT2V::NACCEPTAMBI, tvid);
+          mCounterBuildT2V.inc(BUILDT2V::NACCEPTAMBI, tvid, lbl, mD0Map, mD1Map);
           rejmap[tvid] = true;
         }
         continue;
       }
-      mCounterBuildT2V.inc(BUILDT2V::AACCEPT, tvid);
+      mCounterBuildT2V.inc(BUILDT2V::AACCEPT, tvid, lbl, mD0Map, mD1Map);
       int posneg = trc.getSign() < 0 ? 1 : 0;
       float r = std::sqrt(trc.getX() * trc.getX() + trc.getY() * trc.getY());
       mTracksPool[posneg].emplace_back(TrackCand{trc, tvid, {iv, iv}, r});
@@ -591,11 +592,28 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
 //__________________________________________________________________
 bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread)
 {
-  mCounterV0.inc(CHECKV0::CALLED, seedP.gid, seedN.gid);
+  auto lbl0 = getLabel(seedP.gid);
+  auto lbl1 = getLabel(seedN.gid);
+  auto ok = checkLabels(lbl0, lbl1);
+  if (ok) {
+    auto idx0 = std::make_tuple(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID());
+    auto it0 = mD0Map.find(idx0);
+    auto it0T = it0 != mD0Map.end();
+    auto idx1 = std::make_tuple(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID());
+    auto it1 = mD1Map.find(idx1);
+    auto it1T = it1 != mD1Map.end();
+    if (it0T && it1T) {
+      LOGP(info, "### {}/{}/{}    {}/{}/{}", std::get<0>(mD0Map[idx0].second), std::get<1>(mD0Map[idx0].second), std::get<2>(mD0Map[idx0].second), std::get<0>(mD1Map[idx1].second), std::get<1>(mD1Map[idx1].second), std::get<2>(mD1Map[idx1].second));
+      if (mD0Map[idx0].second == mD1Map[idx1].second) {
+        LOGP(info, "######### Found true pair");
+      }
+    }
+  }
+  mCounterV0.inc(CHECKV0::CALLED, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
   auto& fitterV0 = mFitterV0[ithread];
   int nCand = fitterV0.process(seedP, seedN);
   if (nCand == 0) { // discard this pair
-    mCounterV0.inc(CHECKV0::FPROCESS, seedP.gid, seedN.gid);
+    mCounterV0.inc(CHECKV0::FPROCESS, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
     return false;
   }
   const auto& v0XYZ = fitterV0.getPCACandidate();
@@ -603,18 +621,18 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   // check closeness to the beam-line
   float dxv0 = v0XYZ[0] - mMeanVertex.getX(), dyv0 = v0XYZ[1] - mMeanVertex.getY(), r2v0 = dxv0 * dxv0 + dyv0 * dyv0;
   if (r2v0 < mMinR2ToMeanVertex) {
-    mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, seedP.gid, seedN.gid);
+    mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
     return false;
   }
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
-    mCounterV0.inc(CHECKV0::REJCAUSALITY, seedP.gid, seedN.gid);
+    mCounterV0.inc(CHECKV0::REJCAUSALITY, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
     return false;
   }
   const int cand = 0;
   if (!fitterV0.isPropagateTracksToVertexDone(cand) && !fitterV0.propagateTracksToVertex(cand)) {
-    mCounterV0.inc(CHECKV0::PROPVTX, seedP.gid, seedN.gid);
+    mCounterV0.inc(CHECKV0::PROPVTX, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
     return false;
   }
   auto& trPProp = fitterV0.getTrack(0, cand);
@@ -630,12 +648,12 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   float pt2V0 = pV0[0] * pV0[0] + pV0[1] * pV0[1], prodXYv0 = dxv0 * pV0[0] + dyv0 * pV0[1], tDCAXY = prodXYv0 / pt2V0;
   if (pt2V0 < mMinPt2V0) { // pt cut
     LOG(debug) << "RejPt2 " << pt2V0;
-    mCounterV0.inc(CHECKV0::REJPT2, seedP.gid, seedN.gid);
+    mCounterV0.inc(CHECKV0::REJPT2, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
     return false;
   }
   if (pV0[2] * pV0[2] / pt2V0 > mMaxTgl2V0) { // tgLambda cut
     LOG(debug) << "RejTgL " << pV0[2] * pV0[2] / pt2V0;
-    mCounterV0.inc(CHECKV0::REJTGL, seedP.gid, seedN.gid);
+    mCounterV0.inc(CHECKV0::REJTGL, seedP.gid, seedN.gid, lbl0, lbl1, ok, mD0Map, mD1Map);
     return false;
   }
   float p2V0 = pt2V0 + pV0[2] * pV0[2], ptV0 = std::sqrt(pt2V0);
@@ -1388,7 +1406,7 @@ void SVertexer::writeDebugBTrackPools(const o2::globaltracking::RecoContainer& r
         continue;
       }
       bool isPhysicalPrimary = o2::mcutils::MCTrackNavigator::isPhysicalPrimary(*mother, pcontainer);
-      if (mother->GetPdgCode() != 22 || !mother->isPrimary() || !isPhysicalPrimary) {
+      if (mother->GetPdgCode() != v0Type || !mother->isPrimary() || !isPhysicalPrimary) {
         continue;
       }
       const auto d0 = o2::mcutils::MCTrackNavigator::getDaughter0(*mother, pcontainer);
