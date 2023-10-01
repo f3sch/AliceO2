@@ -118,7 +118,13 @@ class SVertexer
   int getN3Bodies() const { return mN3Bodies; }
   int getNStrangeTracks() const { return mNStrangeTracks; }
   auto& getMeanVertex() const { return mMeanVertex; }
-  void setMeanVertex(const o2d::VertexBase& v) { mMeanVertex = v; }
+  void setMeanVertex(const o2d::MeanVertexObject* v)
+  {
+    if (v == nullptr) {
+      return;
+    }
+    mMeanVertex = v->getMeanVertex();
+  }
   void setNThreads(int n);
   int getNThreads() const { return mNThreads; }
   void setUseMC(bool v) { mUseMC = v; }
@@ -921,6 +927,14 @@ class SVertexer
     "Reconstructed true V0s findable with timing information (e.g., in TrackPool)",
   };
   Counter_t<Reco> mCounterReco{recoNames};
+
+  enum class V0Found : unsigned int {
+    FOUND,
+    NSIZE,
+  };
+  static constexpr std::array<std::string_view, static_cast<size_t>(V0Found::NSIZE)> v0Names{
+    "Found V0s"};
+  Counter_t<V0Found> mCounterV0Found{v0Names};
 };
 } // namespace vertexing
 } // namespace o2

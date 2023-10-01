@@ -1305,76 +1305,34 @@ void SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid,
 template <class TVI, class RECO>
 void SVertexer::writeDebugV0Found(TVI const& v0s, RECO const& recoData)
 {
-  std::vector<bool> good(v0s.size(), false);
-  std::vector<bool> goodITS(v0s.size(), false);
-  std::vector<bool> goodTPC(v0s.size(), false);
-  std::vector<bool> goodITSTPC(v0s.size(), false);
-  std::vector<bool> goodMixed(v0s.size(), false);
-  std::vector<bool> totV0sF(v0s.size(), false);
-  std::vector<bool> itsV0F(v0s.size(), false);
-  std::vector<bool> tpcV0F(v0s.size(), false);
-  std::vector<bool> itstpcV0F(v0s.size(), false);
-  std::vector<float> gD0Pt(v0s.size(), -1);
-  std::vector<float> gD1Pt(v0s.size(), -1);
-  std::vector<float> gMPt(v0s.size(), -1);
-  for (int i{0}; i < v0s.size(); ++i) {
-    totV0sF[i] = true;
-    auto gid0 = v0s[i].getProngID(0);
-    auto gid1 = v0s[i].getProngID(1);
-    if (checkITSTPC(gid0, gid1)) {
-      itstpcV0F[i] = true;
-    } else if (checkITS(gid0, gid1)) {
-      itsV0F[i] = true;
-    } else if (checkTPC(gid0, gid1)) {
-      tpcV0F[i] = true;
-    } else {
-      continue; // cannot be matched
-    }
-
-    auto lbl0 = getLabel(gid0);
-    auto lbl1 = getLabel(gid1);
-    if (!checkLabels(lbl0, lbl1)) {
-      continue;
-    }
-    auto mcTrk0 = mcReader.getTrack(lbl0);
-    auto mcTrk1 = mcReader.getTrack(lbl1);
-    if (!checkPair(mcTrk0, mcTrk1)) {
-      continue;
-    }
-    auto src = lbl0.getSourceID();
-    auto eve = lbl0.getEventID();
-    const auto& pcontainer = mcReader.getTracks(src, eve);
-    const auto& mother = o2::mcutils::MCTrackNavigator::getMother(*mcTrk0, pcontainer);
-    if (!checkMother(mother, pcontainer)) {
-      continue;
-    }
-
-    if (itsV0F[i]) {
-      goodITS[i] = true;
-    } else if (tpcV0F[i]) {
-      goodTPC[i] = true;
-    } else if (itstpcV0F[i]) {
-      goodITSTPC[i] = true;
-    }
-    good[i] = true;
-
-    gD0Pt[i] = mcTrk0->GetPt();
-    gD1Pt[i] = mcTrk1->GetPt();
-    gMPt[i] = mother->GetPt();
+  /*
+-    if (!checkLabels(lbl0, lbl1)) {
+-      continue;
+-    }
+-    auto mcTrk0 = mcReader.getTrack(lbl0);
+-    auto mcTrk1 = mcReader.getTrack(lbl1);
+-    if (!checkPair(mcTrk0, mcTrk1)) {
+-      continue;
+-    }
+-    auto src = lbl0.getSourceID();
+-    auto eve = lbl0.getEventID();
+-    const auto& pcontainer = mcReader.getTracks(src, eve);
+-    const auto& mother = o2::mcutils::MCTrackNavigator::getMother(*mcTrk0, pcontainer);
+-    if (!checkMother(mother, pcontainer)) {
+-      continue;
+-    }
+*/
+  for (const auto& v0 : v0s) {
+    const auto gid0 = v0.getProngID(0);
+    const auto gid1 = v0.getProngID(1);
+    const auto lbl0 = getLabel(gid0);
+    const auto lbl1 = getLabel(gid1);
+    auto ok = checkLabels(lbl0, lbl1);
+    mCounterV0Found.inc(V0Found::FOUND, gid0, gid1, lbl0, lbl1, ok, mD0V0Map, mD1V0Map);
   }
-
-  auto count = [](auto b) { return std::count(b.begin(), b.end(), true); };
-
-  LOG(info) << "______________________________________________";
-  LOG(info) << "Total Found V0s: " << count(totV0sF) << " ( " << count(itsV0F) << " ITS/ " << count(tpcV0F) << " TPConly/ " << count(itstpcV0F) << " ITSTPC)";
-  LOG(info) << "__ Good V0 Trks: " << count(good);
-  LOG(info) << "   `--> ITSonly= " << count(goodITS) << " TPConly= " << count(goodTPC) << " ITSTPConly= " << count(goodITSTPC);
-  LOG(info) << "______________________________________________";
-  (*mDebugStream) << "v0Stat"
-                  << "total=" << totV0sF << "its=" << itsV0F << "tpc=" << tpcV0F << "itstpc=" << itstpcV0F
-                  << "good=" << good << "gits=" << goodITS << "gtpc=" << goodTPC << "gitstpc=" << goodITSTPC
-                  << "gMotherPt=" << gMPt << "gD0Pt=" << gD0Pt << "gD1Pt=" << gD1Pt
-                  << "\n";
+  LOGP(info, "----------------V0 Found-----------------------------");
+  mCounterV0Found.print2();
+  LOGP(info, "-----------------------------------------------------");
 }
 
 void SVertexer::writeDebugBTrackPools(const o2::globaltracking::RecoContainer& recoData)
@@ -1622,9 +1580,6 @@ void SVertexer::writeDebugWithTiming(const o2::globaltracking::RecoContainer& re
       auto gid0 = seedP.gid, gid1 = seedN.gid;
       auto lbl0 = getLabel(gid0);
       auto lbl1 = getLabel(gid1);
-      if (!checkLabels(lbl0, lbl1)) {
-        continue;
-      }
       auto idx0 = std::make_tuple(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID());
       auto it0 = mD0V0Map.find(idx0);
       auto it0T = it0 != mD0V0Map.end();

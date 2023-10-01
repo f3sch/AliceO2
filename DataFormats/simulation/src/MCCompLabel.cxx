@@ -10,6 +10,7 @@
 // or submit itself to any jurisdiction.
 
 #include "SimulationDataFormat/MCCompLabel.h"
+#include "FairLogger.h"
 #include <iomanip>
 #include <ios>
 #include <iostream>
@@ -35,7 +36,7 @@ std::ostream& operator<<(std::ostream& os, MCCompLabel const& c)
 void MCCompLabel::print() const
 {
   // print itself
-  std::cout << (MCCompLabel) * this << std::endl;
+  LOG(info) << (MCCompLabel) * this;
 }
 
 } // namespace o2

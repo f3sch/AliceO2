@@ -12,6 +12,7 @@
 /// @file  SecondaryVertexingSpec.cxx
 
 #include <vector>
+#include "Framework/CCDBParamSpec.h"
 #include "ReconstructionDataFormats/Decay3Body.h"
 #include "DataFormatsGlobalTracking/RecoContainer.h"
 #include "ReconstructionDataFormats/TrackTPCITS.h"
@@ -124,18 +125,21 @@ void SecondaryVertexingSpec::endOfStream(EndOfStreamContext& ec)
 void SecondaryVertexingSpec::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
 {
   if (o2::base::GRPGeomHelper::instance().finaliseCCDB(matcher, obj)) {
-    return;
+    LOG(info)<< "GRPGeomHelper no data loaded";
   }
   if (mTPCVDriftHelper.accountCCDBInputs(matcher, obj)) {
-    return;
+    LOG(info)<< "TPCVDriftHelper no data loaded";
   }
   if (mTPCCorrMapsLoader.accountCCDBInputs(matcher, obj)) {
-    return;
+    LOG(info)<< "TPCCorrMapsLoader no data loaded";
   }
   if (matcher == ConcreteDataMatcher("ITS", "CLUSDICT", 0)) {
     LOG(info) << "cluster dictionary updated";
     mStrTracker.setClusterDictionary((const o2::itsmft::TopologyDictionary*)obj);
-    return;
+  }
+  if (matcher == ConcreteDataMatcher("GLO", "MEANVERTEX", 0)) {
+    LOG(info) << "Imposing new MeanVertex: " << ((const o2::dataformats::MeanVertexObject*)obj)->asString();
+    mVertexer.setMeanVertex((const o2::dataformats::MeanVertexObject*)obj);
   }
 }
 
@@ -207,6 +211,7 @@ DataProcessorSpec getSecondaryVertexingSpec(GTrackID::mask_t src, bool enableCas
                                                               true);
   o2::tpc::VDriftHelper::requestCCDBInputs(dataRequest->inputs);
   o2::tpc::CorrectionMapsLoader::requestCCDBInputs(dataRequest->inputs, opts, src[GTrackID::CTP]);
+  dataRequest->inputs.emplace_back("meanvtx", "GLO", "MEANVERTEX", 0, Lifetime::Condition, ccdbParamSpec("GLO/Calib/MeanVertex", {}, 1));
 
   outputs.emplace_back("GLO", "V0S_IDX", 0, Lifetime::Timeframe);        // found V0s indices
   outputs.emplace_back("GLO", "V0S", 0, Lifetime::Timeframe);            // found V0s
@@ -219,6 +224,7 @@ DataProcessorSpec getSecondaryVertexingSpec(GTrackID::mask_t src, bool enableCas
   outputs.emplace_back("GLO", "DECAYS3BODY_IDX", 0, Lifetime::Timeframe); // found 3 body vertices indices
   outputs.emplace_back("GLO", "DECAYS3BODY", 0, Lifetime::Timeframe);    // found 3 body vertices
   outputs.emplace_back("GLO", "PVTX_3BODYREFS", 0, Lifetime::Timeframe); // prim.vertex -> 3 body vertices refs
+
 
   if (enableStrangenesTracking) {
     outputs.emplace_back("GLO", "STRANGETRACKS", 0, Lifetime::Timeframe); // found strange track
