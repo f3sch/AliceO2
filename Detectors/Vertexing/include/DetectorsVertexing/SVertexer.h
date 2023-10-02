@@ -71,6 +71,7 @@ class SVertexer
   using Decay3BodyIndex = o2::dataformats::Decay3BodyIndex;
   using RRef = o2::dataformats::RangeReference<int, int>;
   using VBracket = o2::math_utils::Bracket<int>;
+  using Vec3D = ROOT::Math::SVector<double, 3>;
 
   enum HypV0 { Photon,
                K0,
@@ -219,14 +220,11 @@ class SVertexer
   gsl::span<const o2::MCCompLabel> mTPCTRDTOFTrkLabels;
   gsl::span<const o2::MCCompLabel> mTPCTRDTrkLabels;
   gsl::span<const o2::MCCompLabel> mTPCTOFTrkLabels;
-  std::unique_ptr<o2::utils::TreeStreamRedirector> mDebugStream;
-  static constexpr std::string_view mDebugStreamName{"candTracks"};
+  o2::utils::TreeStreamRedirector mDebugStream{"svertexer-debug.root", "recreate"};
   o2::steer::MCKinematicsReader mcReader; // reader of MC information
   void writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk);
   void writeDebugWithoutTiming(const o2::globaltracking::RecoContainer& recoData);
   void writeDebugWithTiming(const o2::globaltracking::RecoContainer& recoData);
-  void writeDebugBTrackPools(const o2::globaltracking::RecoContainer& recoData);
-  void writeDebugATrackPools(const o2::globaltracking::RecoContainer& recoData);
   template <class TVI, class RECO>
   void writeDebugV0Found(TVI const& v0s, RECO const& recoData);
 
@@ -266,7 +264,7 @@ class SVertexer
       return seed;
     }
   };
-  using map_dup_t = std::unordered_map<key_dup_t, bool, key_dup_hash>;
+  using map_dup_t = std::unordered_map<key_dup_t, ULong64_t, key_dup_hash>;
 
   static bool checkMother(o2::MCTrack const* mother, const std::vector<o2::MCTrack>& pcontainer)
   {
@@ -369,7 +367,8 @@ class SVertexer
   template <typename Enum>
   struct Counter_t {
     const std::array<std::string_view, static_cast<size_t>(Enum::NSIZE)>& _names;
-    Counter_t(std::array<std::string_view, static_cast<size_t>(Enum::NSIZE)> const& names) : _names{names}
+    const std::string _treeName;
+    Counter_t(std::string_view const& treeName, std::array<std::string_view, static_cast<size_t>(Enum::NSIZE)> const& names) : _treeName{treeName}, _names{names}
     {
       mTotCounters.fill(0);
       for (auto& c : mCounters) {
@@ -403,10 +402,11 @@ class SVertexer
       ++mCounters[i][c];
       ++mTotCounters[c];
     }
-
-    void inc(Enum e, GIndex const& gid0, GIndex const& gid1, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1)
+    void inc(Enum e, Vec3D const& vertex, const o2::track::TrackParCov& seedP, const o2::track::TrackParCov& seedN, GIndex const& gid0, GIndex const& gid1, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream)
     {
       auto c = static_cast<unsigned int>(e);
+      bool duplicate{false};
+      bool trueV0{false};
       auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
       auto gid0TPC = gid0.includesDet(o2::detectors::DetID::TPC);
       auto gid0TRD = gid0.includesDet(o2::detectors::DetID::TRD);
@@ -421,27 +421,139 @@ class SVertexer
       auto idx = std::make_tuple(gid0, gid1);
       auto dup = mDup2Map[i][c].find(idx) != mDup2Map[i][c].end();
       if (dup) {
+        duplicate = true;
         ++mCountersDup[i][c];
       } else {
-        mDup2Map[i][c][idx] = true;
+        ++mDup2Map[i][c][idx];
       }
-      if (!checkLabels) {
-        return;
-      }
-      auto idx0 = std::make_tuple(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID());
-      auto it0 = d0.find(idx0);
-      auto it0T = it0 != d0.end();
-      auto idx1 = std::make_tuple(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID());
-      auto it1 = d1.find(idx1);
-      auto it1T = it1 != d1.end();
-      if (it0T && it1T) {
-        if ((*it0).second.second == (*it1).second.second) {
-          ++mCountersV0[i][c];
-          if (dup) {
-            ++mCountersV0Dup[i][c];
+      if (checkLabels) {
+        auto idx0 = std::make_tuple(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID());
+        auto it0 = d0.find(idx0);
+        auto it0T = it0 != d0.end();
+        auto idx1 = std::make_tuple(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID());
+        auto it1 = d1.find(idx1);
+        auto it1T = it1 != d1.end();
+        if (it0T && it1T) {
+          if ((*it0).second.second == (*it1).second.second) {
+            trueV0 = true;
+            ++mCountersV0[i][c];
+            if (dup) {
+              ++mCountersV0Dup[i][c];
+            }
           }
         }
       }
+      const MCTrack *mcTrk0 = mcReader.getTrack(lbl0), *mcTrk1 = mcReader.getTrack(lbl1);
+      if (mcTrk0 == nullptr || mcTrk1 == nullptr) {
+        return;
+      }
+      std::array<float, 3> xyz0{(float)mcTrk0->GetStartVertexCoordinatesX(), (float)mcTrk0->GetStartVertexCoordinatesY(), (float)mcTrk0->GetStartVertexCoordinatesZ()};
+      std::array<float, 3> pxyz0{(float)mcTrk0->GetStartVertexMomentumX(), (float)mcTrk0->GetStartVertexMomentumY(), (float)mcTrk0->GetStartVertexMomentumZ()};
+      std::array<float, 3> xyz1{(float)mcTrk1->GetStartVertexCoordinatesX(), (float)mcTrk1->GetStartVertexCoordinatesY(), (float)mcTrk1->GetStartVertexCoordinatesZ()};
+      std::array<float, 3> pxyz1{(float)mcTrk1->GetStartVertexMomentumX(), (float)mcTrk1->GetStartVertexMomentumY(), (float)mcTrk1->GetStartVertexMomentumZ()};
+      auto pPDG0 = TDatabasePDG::Instance()->GetParticle(mcTrk0->GetPdgCode());
+      auto pPDG1 = TDatabasePDG::Instance()->GetParticle(mcTrk1->GetPdgCode());
+      if (pPDG0 == nullptr || pPDG1 == nullptr) {
+        return;
+      }
+      o2::track::TrackPar mctr0(xyz0, pxyz0, TMath::Nint(pPDG0->Charge() / 3), false);
+      o2::track::TrackPar mctr1(xyz1, pxyz1, TMath::Nint(pPDG1->Charge() / 3), false);
+      if (!mctr0.rotate(seedP.getAlpha()) || !o2::base::Propagator::Instance()->PropagateToXBxByBz(mctr0, seedP.getX()) ||
+          !mctr1.rotate(seedN.getAlpha()) || !o2::base::Propagator::Instance()->PropagateToXBxByBz(mctr1, seedN.getX())) {
+        return;
+      }
+
+      mDebugStream << _treeName.c_str()
+                   << "recoSeedP=" << seedP
+                   << "recoSeedN=" << seedN
+                   << "mcSeedP=" << mctr0
+                   << "mcSeedN=" << mctr1
+                   << "vertex=" << vertex
+                   << "case=" << c
+                   << "isDuplicate=" << duplicate
+                   << "isV0=" << trueV0
+                   << "\n";
+    }
+
+    void inc(Enum e, Vec3D const& vertex, const TrackCand& seedP, const TrackCand& seedN, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream, bool write = true, bool useMC = false)
+    {
+      auto c = static_cast<unsigned int>(e);
+      bool duplicate{false};
+      bool trueV0{false};
+      auto gid0ITS = seedP.gid.includesDet(o2::detectors::DetID::ITS);
+      auto gid0TPC = seedP.gid.includesDet(o2::detectors::DetID::TPC);
+      auto gid0TRD = seedP.gid.includesDet(o2::detectors::DetID::TRD);
+      auto gid0TOF = seedP.gid.includesDet(o2::detectors::DetID::TOF);
+      auto gid1ITS = seedN.gid.includesDet(o2::detectors::DetID::ITS);
+      auto gid1TPC = seedN.gid.includesDet(o2::detectors::DetID::TPC);
+      auto gid1TRD = seedN.gid.includesDet(o2::detectors::DetID::TRD);
+      auto gid1TOF = seedN.gid.includesDet(o2::detectors::DetID::TOF);
+      int i = getCombination(gid0ITS, gid0TPC, gid0TRD, gid0TOF, gid1ITS, gid1TPC, gid1TRD, gid1TOF);
+      ++mCounters[i][c];
+      ++mTotCounters[c];
+      auto idx = std::make_tuple(seedP.gid, seedN.gid);
+      auto dup = mDup2Map[i][c].find(idx) != mDup2Map[i][c].end();
+      if (dup) {
+        duplicate = true;
+        ++mCountersDup[i][c];
+      } else {
+        ++mDup2Map[i][c][idx];
+      }
+      if (checkLabels) {
+        auto idx0 = std::make_tuple(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID());
+        auto it0 = d0.find(idx0);
+        auto it0T = it0 != d0.end();
+        auto idx1 = std::make_tuple(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID());
+        auto it1 = d1.find(idx1);
+        auto it1T = it1 != d1.end();
+        if (it0T && it1T) {
+          if ((*it0).second.second == (*it1).second.second) {
+            trueV0 = true;
+            ++mCountersV0[i][c];
+            if (dup) {
+              ++mCountersV0Dup[i][c];
+            }
+          }
+        }
+      }
+      if (!write) {
+        return;
+      }
+      o2::track::TrackPar mctr0, mctr1;
+      if (useMC) {
+        const MCTrack *mcTrk0 = mcReader.getTrack(lbl0), *mcTrk1 = mcReader.getTrack(lbl1);
+        if (mcTrk0 == nullptr || mcTrk1 == nullptr) {
+          return;
+        }
+        std::array<float, 3> xyz0{(float)mcTrk0->GetStartVertexCoordinatesX(), (float)mcTrk0->GetStartVertexCoordinatesY(), (float)mcTrk0->GetStartVertexCoordinatesZ()};
+        std::array<float, 3> pxyz0{(float)mcTrk0->GetStartVertexMomentumX(), (float)mcTrk0->GetStartVertexMomentumY(), (float)mcTrk0->GetStartVertexMomentumZ()};
+        std::array<float, 3> xyz1{(float)mcTrk1->GetStartVertexCoordinatesX(), (float)mcTrk1->GetStartVertexCoordinatesY(), (float)mcTrk1->GetStartVertexCoordinatesZ()};
+        std::array<float, 3> pxyz1{(float)mcTrk1->GetStartVertexMomentumX(), (float)mcTrk1->GetStartVertexMomentumY(), (float)mcTrk1->GetStartVertexMomentumZ()};
+        auto pPDG0 = TDatabasePDG::Instance()->GetParticle(mcTrk0->GetPdgCode());
+        auto pPDG1 = TDatabasePDG::Instance()->GetParticle(mcTrk1->GetPdgCode());
+        if (pPDG0 == nullptr || pPDG1 == nullptr) {
+          return;
+        }
+        o2::track::TrackPar _mctr0(xyz0, pxyz0, TMath::Nint(pPDG0->Charge() / 3), false);
+        o2::track::TrackPar _mctr1(xyz1, pxyz1, TMath::Nint(pPDG1->Charge() / 3), false);
+        if (!_mctr0.rotate(seedP.getAlpha()) || !o2::base::Propagator::Instance()->PropagateToXBxByBz(_mctr0, seedP.getX()) ||
+            !_mctr1.rotate(seedN.getAlpha()) || !o2::base::Propagator::Instance()->PropagateToXBxByBz(_mctr1, seedN.getX())) {
+          return;
+        }
+        mctr0 = _mctr0;
+        mctr1 = _mctr1;
+      }
+
+      mDebugStream << _treeName.c_str()
+                   << "recoSeedP=" << (o2::track::TrackParCov)seedP
+                   << "recoSeedN=" << (o2::track::TrackParCov)seedN
+                   // << "mcSeedP=" << mctr0
+                   // << "mcSeedN=" << mctr1
+                   << "vertex=" << vertex
+                   << "case=" << c
+                   << "isDuplicate=" << duplicate
+                   << "isV0=" << trueV0
+                   << "\n";
     }
 
     bool inc(Enum e, bool gid0ITS, bool gid0TPC, bool gid0TRD, bool gid0TOF)
@@ -867,8 +979,8 @@ class SVertexer
     "Rejection TgL",
     "#CALLED",
   };
-
-  Counter_t<CHECKV0> mCounterV0{checkV0Names};
+  static constexpr std::string_view checkV0TreeName{"checkV0"};
+  Counter_t<CHECKV0> mCounterV0{checkV0TreeName, checkV0Names};
 
   enum class BUILDT2V : unsigned int {
     NOTLOADED = 0,
@@ -903,10 +1015,8 @@ class SVertexer
     "After acceptTrack",
     "#CALLED",
   };
-
-  Counter_t<BUILDT2V> mCounterBuildT2V{buildT2VNames};
-
-  static constexpr auto v0Type = kGamma;
+  static constexpr std::string_view buildT2VTreeName{"buildT2V"};
+  Counter_t<BUILDT2V> mCounterBuildT2V{buildT2VTreeName, buildT2VNames};
 
   enum class MCGEN : unsigned int {
     GEN = 0,
@@ -915,7 +1025,8 @@ class SVertexer
   static constexpr std::array<std::string_view, static_cast<size_t>(MCGEN::NSIZE)> mcNames{
     "V0s generated",
   };
-  Counter_t<MCGEN> mCounterMC{mcNames};
+  static constexpr std::string_view mcTreeName{"alksjdlk"};
+  Counter_t<MCGEN> mCounterMC{mcTreeName, mcNames};
 
   enum class Reco : unsigned int {
     WITHOUT = 0,
@@ -926,7 +1037,8 @@ class SVertexer
     "Reconstructed true V0s findable without timing information (e.g., in RecoContainer)",
     "Reconstructed true V0s findable with timing information (e.g., in TrackPool)",
   };
-  Counter_t<Reco> mCounterReco{recoNames};
+  static constexpr std::string_view recoTreeName{"recoTracks"};
+  Counter_t<Reco> mCounterReco{recoTreeName, recoNames};
 
   enum class V0Found : unsigned int {
     FOUND,
@@ -934,7 +1046,10 @@ class SVertexer
   };
   static constexpr std::array<std::string_view, static_cast<size_t>(V0Found::NSIZE)> v0Names{
     "Found V0s"};
-  Counter_t<V0Found> mCounterV0Found{v0Names};
+  static constexpr std::string_view v0TreeName{"v0Found"};
+  Counter_t<V0Found> mCounterV0Found{v0TreeName, v0Names};
+
+  static constexpr auto v0Type = kGamma;
 };
 } // namespace vertexing
 } // namespace o2
