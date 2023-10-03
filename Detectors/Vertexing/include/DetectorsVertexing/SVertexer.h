@@ -474,6 +474,7 @@ class SVertexer
                    << "svertex=" << v0
                    << "pvertex=" << pvertex
                    << "case=" << c
+                   << "comb=" << i
                    << "isDuplicate=" << duplicate
                    << "isV0=" << trueV0
                    << "\n";
@@ -535,6 +536,7 @@ class SVertexer
                    << "svertex=" << sv
                    << "pvertex=" << pvertex
                    << "case=" << c
+                   << "comb=" << i
                    << "isDuplicate=" << duplicate
                    << "isV0=" << trueV0
                    << "\n";
