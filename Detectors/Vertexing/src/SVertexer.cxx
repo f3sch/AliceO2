@@ -503,6 +503,7 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
   }
   for (int iv = 0; iv < nv; iv++) {
     const auto& vtref = vtxRefs[iv];
+    const auto& vtx = mPVertices[iv];
     int it = vtref.getFirstEntry(), itLim = it + vtref.getEntries();
     for (; it < itLim; it++) {
       auto tvid = trackIndex[it];
@@ -603,11 +604,11 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   auto lbl0 = getLabel(seedP.gid);
   auto lbl1 = getLabel(seedN.gid);
   auto ok = checkLabels(lbl0, lbl1);
-  mCounterV0.inc(CHECKV0::CALLED, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, false);
+  mCounterV0.inc(CHECKV0::CALLED, {}, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, false);
   auto& fitterV0 = mFitterV0[ithread];
   int nCand = fitterV0.process(seedP, seedN);
   if (nCand == 0) { // discard this pair
-    mCounterV0.inc(CHECKV0::FPROCESS, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0.inc(CHECKV0::FPROCESS, {}, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
     return false;
   }
   const auto& v0XYZ = fitterV0.getPCACandidate();
@@ -615,23 +616,23 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   // check closeness to the beam-line
   float dxv0 = v0XYZ[0] - mMeanVertex.getX(), dyv0 = v0XYZ[1] - mMeanVertex.getY(), r2v0 = dxv0 * dxv0 + dyv0 * dyv0;
   if (r2v0 < mMinR2ToMeanVertex) {
-    mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, {},v0XYZ , seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
     return false;
   }
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
-    mCounterV0.inc(CHECKV0::REJCAUSALITY, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0.inc(CHECKV0::REJCAUSALITY, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
     return false;
   }
   const int cand = 0;
   if (!fitterV0.isPropagateTracksToVertexDone(cand) && !fitterV0.propagateTracksToVertex(cand)) {
-    mCounterV0.inc(CHECKV0::PROPVTX, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0.inc(CHECKV0::PROPVTX, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
     return false;
   }
   auto& trPProp = fitterV0.getTrack(0, cand);
   auto& trNProp = fitterV0.getTrack(1, cand);
-  std::array<float, 3> pP, pN;
+  std::array<float, 3> pP{}, pN{};
   trPProp.getPxPyPzGlo(pP);
   trNProp.getPxPyPzGlo(pN);
   // estimate DCA of neutral V0 track to beamline: straight line with parametric equation
@@ -642,12 +643,12 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   float pt2V0 = pV0[0] * pV0[0] + pV0[1] * pV0[1], prodXYv0 = dxv0 * pV0[0] + dyv0 * pV0[1], tDCAXY = prodXYv0 / pt2V0;
   if (pt2V0 < mMinPt2V0) { // pt cut
     LOG(debug) << "RejPt2 " << pt2V0;
-    mCounterV0.inc(CHECKV0::REJPT2, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0.inc(CHECKV0::REJPT2, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
     return false;
   }
   if (pV0[2] * pV0[2] / pt2V0 > mMaxTgl2V0) { // tgLambda cut
     LOG(debug) << "RejTgL " << pV0[2] * pV0[2] / pt2V0;
-    mCounterV0.inc(CHECKV0::REJTGL, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0.inc(CHECKV0::REJTGL, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
     return false;
   }
   float p2V0 = pt2V0 + pV0[2] * pV0[2], ptV0 = std::sqrt(pt2V0);
@@ -732,6 +733,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     float cosPA = prodXYZv0 / std::sqrt((dx * dx + dy * dy + dz * dz) * p2V0);
     if (cosPA < bestCosPA) {
       LOG(debug) << "Rej. cosPA: " << cosPA;
+      mCounterV0.inc(CHECKV0::REJCPA, pv, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
       continue;
     }
     if (!candFound) {
@@ -1298,13 +1300,13 @@ void SVertexer::writeDebugV0Found(TVI const& v0sIdx, TV const& v0s)
   for (int i{0}; i < v0s.size(); ++i) {
     const auto& v0 = v0s[i];
     const auto& v0Idx = v0sIdx[i];
+    const auto& pVtx = mPVertices[v0Idx.getVertexID()];
     const auto gid0 = v0Idx.getProngID(0);
     const auto gid1 = v0Idx.getProngID(1);
-    TrackCand trkP;
     const auto lbl0 = getLabel(gid0);
     const auto lbl1 = getLabel(gid1);
     auto ok = checkLabels(lbl0, lbl1);
-    mCounterV0Found.inc(V0Found::FOUND, {v0.getX(), v0.getY(), v0.getZ()}, v0.getProng(0), v0.getProng(1), gid0, gid1, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0Found.inc(V0Found::FOUND, pVtx, {v0.getX(), v0.getY(), v0.getZ()}, v0.getProng(0), v0.getProng(1), gid0, gid1, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
   }
   LOGP(info, "----------------V0 Found-----------------------------");
   mCounterV0Found.print2();

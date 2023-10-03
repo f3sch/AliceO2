@@ -40,6 +40,7 @@
 #include "Steer/MCKinematicsReader.h"
 #include "boost/functional/hash.hpp"
 #include "TPDGCode.h"
+#include "TArrayD.h"
 
 namespace o2
 {
@@ -402,8 +403,9 @@ class SVertexer
       ++mCounters[i][c];
       ++mTotCounters[c];
     }
-    void inc(Enum e, Vec3D const& vertex, const o2::track::TrackParCov& seedP, const o2::track::TrackParCov& seedN, GIndex const& gid0, GIndex const& gid1, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream)
+    void inc(Enum e, PVertex const& pvertex, std::array<float, 3> const& svertex, const o2::track::TrackParCov& seedP, const o2::track::TrackParCov& seedN, GIndex const& gid0, GIndex const& gid1, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream)
     {
+      // foundV0
       auto c = static_cast<unsigned int>(e);
       bool duplicate{false};
       bool trueV0{false};
@@ -468,18 +470,24 @@ class SVertexer
                    << "recoSeedN=" << seedN
                    << "mcSeedP=" << mctr0
                    << "mcSeedN=" << mctr1
-                   << "vertex=" << vertex
+                   << "svertex=" << svertex
+                   << "pvertex=" << pvertex
                    << "case=" << c
                    << "isDuplicate=" << duplicate
                    << "isV0=" << trueV0
                    << "\n";
     }
 
-    void inc(Enum e, Vec3D const& vertex, const TrackCand& seedP, const TrackCand& seedN, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream, bool write = true, bool useMC = false)
+    void inc(Enum e, PVertex const& pvertex, Vec3D const& svertex, const TrackCand& seedP, const TrackCand& seedN, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream, bool write = true, bool useMC = false)
     {
+      // checkV0
       auto c = static_cast<unsigned int>(e);
       bool duplicate{false};
       bool trueV0{false};
+        TArrayD sv{3};
+        sv.SetAt(svertex[0], 0);
+        sv.SetAt(svertex[1], 1);
+        sv.SetAt(svertex[2], 2);
       auto gid0ITS = seedP.gid.includesDet(o2::detectors::DetID::ITS);
       auto gid0TPC = seedP.gid.includesDet(o2::detectors::DetID::TPC);
       auto gid0TRD = seedP.gid.includesDet(o2::detectors::DetID::TRD);
@@ -519,37 +527,12 @@ class SVertexer
       if (!write) {
         return;
       }
-      o2::track::TrackPar mctr0, mctr1;
-      if (useMC) {
-        const MCTrack *mcTrk0 = mcReader.getTrack(lbl0), *mcTrk1 = mcReader.getTrack(lbl1);
-        if (mcTrk0 == nullptr || mcTrk1 == nullptr) {
-          return;
-        }
-        std::array<float, 3> xyz0{(float)mcTrk0->GetStartVertexCoordinatesX(), (float)mcTrk0->GetStartVertexCoordinatesY(), (float)mcTrk0->GetStartVertexCoordinatesZ()};
-        std::array<float, 3> pxyz0{(float)mcTrk0->GetStartVertexMomentumX(), (float)mcTrk0->GetStartVertexMomentumY(), (float)mcTrk0->GetStartVertexMomentumZ()};
-        std::array<float, 3> xyz1{(float)mcTrk1->GetStartVertexCoordinatesX(), (float)mcTrk1->GetStartVertexCoordinatesY(), (float)mcTrk1->GetStartVertexCoordinatesZ()};
-        std::array<float, 3> pxyz1{(float)mcTrk1->GetStartVertexMomentumX(), (float)mcTrk1->GetStartVertexMomentumY(), (float)mcTrk1->GetStartVertexMomentumZ()};
-        auto pPDG0 = TDatabasePDG::Instance()->GetParticle(mcTrk0->GetPdgCode());
-        auto pPDG1 = TDatabasePDG::Instance()->GetParticle(mcTrk1->GetPdgCode());
-        if (pPDG0 == nullptr || pPDG1 == nullptr) {
-          return;
-        }
-        o2::track::TrackPar _mctr0(xyz0, pxyz0, TMath::Nint(pPDG0->Charge() / 3), false);
-        o2::track::TrackPar _mctr1(xyz1, pxyz1, TMath::Nint(pPDG1->Charge() / 3), false);
-        if (!_mctr0.rotate(seedP.getAlpha()) || !o2::base::Propagator::Instance()->PropagateToXBxByBz(_mctr0, seedP.getX()) ||
-            !_mctr1.rotate(seedN.getAlpha()) || !o2::base::Propagator::Instance()->PropagateToXBxByBz(_mctr1, seedN.getX())) {
-          return;
-        }
-        mctr0 = _mctr0;
-        mctr1 = _mctr1;
-      }
 
       mDebugStream << _treeName.c_str()
                    << "recoSeedP=" << (o2::track::TrackParCov)seedP
                    << "recoSeedN=" << (o2::track::TrackParCov)seedN
-                   // << "mcSeedP=" << mctr0
-                   // << "mcSeedN=" << mctr1
-                   << "vertex=" << vertex
+                   << "svertex=" << sv
+                   << "pvertex=" << pvertex
                    << "case=" << c
                    << "isDuplicate=" << duplicate
                    << "isV0=" << trueV0
@@ -967,6 +950,7 @@ class SVertexer
     PROPVTX,
     REJPT2,
     REJTGL,
+    REJCPA,
     CALLED,
     NSIZE,
   };
@@ -977,6 +961,7 @@ class SVertexer
     "Propagating to vertex",
     "Rejection Pt2",
     "Rejection TgL",
+    "Rejection Cos Pointing Angle",
     "#CALLED",
   };
   static constexpr std::string_view checkV0TreeName{"checkV0"};
