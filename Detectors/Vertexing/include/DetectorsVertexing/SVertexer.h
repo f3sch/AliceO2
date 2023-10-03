@@ -403,12 +403,13 @@ class SVertexer
       ++mCounters[i][c];
       ++mTotCounters[c];
     }
-    void inc(Enum e, PVertex const& pvertex, std::array<float, 3> const& svertex, const o2::track::TrackParCov& seedP, const o2::track::TrackParCov& seedN, GIndex const& gid0, GIndex const& gid1, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream)
+    void inc(Enum e, PVertex const& pvertex, V0 const& v0, GIndex const& gid0, GIndex const& gid1, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream)
     {
       // foundV0
       auto c = static_cast<unsigned int>(e);
       bool duplicate{false};
       bool trueV0{false};
+      const auto &seedP = v0.getProng(0), seedN = v0.getProng(1);
       auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
       auto gid0TPC = gid0.includesDet(o2::detectors::DetID::TPC);
       auto gid0TRD = gid0.includesDet(o2::detectors::DetID::TRD);
@@ -470,7 +471,7 @@ class SVertexer
                    << "recoSeedN=" << seedN
                    << "mcSeedP=" << mctr0
                    << "mcSeedN=" << mctr1
-                   << "svertex=" << svertex
+                   << "svertex=" << v0
                    << "pvertex=" << pvertex
                    << "case=" << c
                    << "isDuplicate=" << duplicate
@@ -484,10 +485,10 @@ class SVertexer
       auto c = static_cast<unsigned int>(e);
       bool duplicate{false};
       bool trueV0{false};
-        TArrayD sv{3};
-        sv.SetAt(svertex[0], 0);
-        sv.SetAt(svertex[1], 1);
-        sv.SetAt(svertex[2], 2);
+      TArrayD sv{3};
+      sv.SetAt(svertex[0], 0);
+      sv.SetAt(svertex[1], 1);
+      sv.SetAt(svertex[2], 2);
       auto gid0ITS = seedP.gid.includesDet(o2::detectors::DetID::ITS);
       auto gid0TPC = seedP.gid.includesDet(o2::detectors::DetID::TPC);
       auto gid0TRD = seedP.gid.includesDet(o2::detectors::DetID::TRD);

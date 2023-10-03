@@ -1306,7 +1306,7 @@ void SVertexer::writeDebugV0Found(TVI const& v0sIdx, TV const& v0s)
     const auto lbl0 = getLabel(gid0);
     const auto lbl1 = getLabel(gid1);
     auto ok = checkLabels(lbl0, lbl1);
-    mCounterV0Found.inc(V0Found::FOUND, pVtx, {v0.getX(), v0.getY(), v0.getZ()}, v0.getProng(0), v0.getProng(1), gid0, gid1, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0Found.inc(V0Found::FOUND, pVtx, v0, gid0, gid1, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
   }
   LOGP(info, "----------------V0 Found-----------------------------");
   mCounterV0Found.print2();
