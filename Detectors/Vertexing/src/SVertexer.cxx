@@ -279,9 +279,9 @@ void SVertexer::init()
                      d0TRD = d0->leftTrace(o2::detectors::DetID::TRD), d0TOF = d0->leftTrace(o2::detectors::DetID::TOF),
                      d1TPC = d1->leftTrace(o2::detectors::DetID::TPC), d1ITS = d1->leftTrace(o2::detectors::DetID::ITS),
                      d1TRD = d0->leftTrace(o2::detectors::DetID::TRD), d1TOF = d0->leftTrace(o2::detectors::DetID::TOF);
-                const auto idxMother = std::make_tuple(iSource, iEvent, i);
-                if (mMotherV0Map.find(idxMother) != mMotherV0Map.end()) {
-                  auto i = mCounterMC.inc(MCGEN::GEN, d0ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
+                if (const auto idxMother = std::make_tuple(iSource, iEvent, i);
+                    mMotherV0Map.find(idxMother) == mMotherV0Map.end()) {
+                  auto comb = mCounterMC.inc(MCGEN::GEN, d0ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
                   const auto idxD0 = std::make_tuple(iSource, iEvent, mcparticle.getFirstDaughterTrackId());
                   const auto idxD1 = std::make_tuple(iSource, iEvent, mcparticle.getLastDaughterTrackId());
                   mMotherV0Map[idxMother] = std::make_pair(idxD0, idxD1);
@@ -291,7 +291,7 @@ void SVertexer::init()
                                << "d0=" << *d0
                                << "d1=" << *d1
                                << "mother=" << mcparticle
-                               << "comb=" << i
+                               << "comb=" << comb
                                << "\n";
                 }
               }
