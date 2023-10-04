@@ -279,21 +279,21 @@ void SVertexer::init()
                      d0TRD = d0->leftTrace(o2::detectors::DetID::TRD), d0TOF = d0->leftTrace(o2::detectors::DetID::TOF),
                      d1TPC = d1->leftTrace(o2::detectors::DetID::TPC), d1ITS = d1->leftTrace(o2::detectors::DetID::ITS),
                      d1TRD = d0->leftTrace(o2::detectors::DetID::TRD), d1TOF = d0->leftTrace(o2::detectors::DetID::TOF);
-                auto i = mCounterMC.inc(MCGEN::GEN, d0ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
-
-                // mc map
                 const auto idxMother = std::make_tuple(iSource, iEvent, i);
-                const auto idxD0 = std::make_tuple(iSource, iEvent, mcparticle.getFirstDaughterTrackId());
-                const auto idxD1 = std::make_tuple(iSource, iEvent, mcparticle.getLastDaughterTrackId());
-                mMotherV0Map[idxMother] = std::make_pair(idxD0, idxD1);
-                mD0V0Map[idxD0] = std::make_pair(idxD1, idxMother);
-                mD1V0Map[idxD1] = std::make_pair(idxD0, idxMother);
-                mDebugStream << "mcGen"
-                             << "d0=" << *d0
-                             << "d1=" << *d1
-                             << "mother=" << mcparticle
-                             << "case=" << i
-                             << "\n";
+                if (mMotherV0Map.find(idxMother) != mMotherV0Map.end()) {
+                  auto i = mCounterMC.inc(MCGEN::GEN, d0ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
+                  const auto idxD0 = std::make_tuple(iSource, iEvent, mcparticle.getFirstDaughterTrackId());
+                  const auto idxD1 = std::make_tuple(iSource, iEvent, mcparticle.getLastDaughterTrackId());
+                  mMotherV0Map[idxMother] = std::make_pair(idxD0, idxD1);
+                  mD0V0Map[idxD0] = std::make_pair(idxD1, idxMother);
+                  mD1V0Map[idxD1] = std::make_pair(idxD0, idxMother);
+                  mDebugStream << "mcGen"
+                               << "d0=" << *d0
+                               << "d1=" << *d1
+                               << "mother=" << mcparticle
+                               << "case=" << i
+                               << "\n";
+                }
               }
             }
             if (TParticlePDG* pPDG = TDatabasePDG::Instance()->GetParticle(mcparticle.GetPdgCode());
@@ -1236,7 +1236,7 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
 }
 
 //______________________________________________
-float SVertexer::correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::TrackTPC tTPC, float tmus, float tmusErr) const
+float SVertexer::correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::TrackTPC& tTPC, float tmus, float tmusErr) const
 {
   // Correct the track copy trc of the TPC track for the assumed interaction time
   // return extra uncertainty in Z due to the interaction time uncertainty

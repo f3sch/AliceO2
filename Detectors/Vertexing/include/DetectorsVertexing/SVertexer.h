@@ -156,7 +156,7 @@ class SVertexer
   void updateTimeDependentParams();
   bool acceptTrack(GIndex gid, const o2::track::TrackParCov& trc) const;
   bool processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int vtxid);
-  float correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::TrackTPC tTPC, float tmus, float tmusErr) const;
+  float correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::TrackTPC& tTPC, float tmus, float tmusErr) const;
 
   uint64_t getPairIdx(GIndex id1, GIndex id2) const
   {
