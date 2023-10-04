@@ -279,7 +279,7 @@ void SVertexer::init()
                      d0TRD = d0->leftTrace(o2::detectors::DetID::TRD), d0TOF = d0->leftTrace(o2::detectors::DetID::TOF),
                      d1TPC = d1->leftTrace(o2::detectors::DetID::TPC), d1ITS = d1->leftTrace(o2::detectors::DetID::ITS),
                      d1TRD = d0->leftTrace(o2::detectors::DetID::TRD), d1TOF = d0->leftTrace(o2::detectors::DetID::TOF);
-                mCounterMC.inc(MCGEN::GEN, d0ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
+                auto i = mCounterMC.inc(MCGEN::GEN, d0ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
 
                 // mc map
                 const auto idxMother = std::make_tuple(iSource, iEvent, i);
@@ -292,6 +292,7 @@ void SVertexer::init()
                              << "d0=" << *d0
                              << "d1=" << *d1
                              << "mother=" << mcparticle
+                             << "case=" << i
                              << "\n";
               }
             }

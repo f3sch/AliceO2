@@ -551,13 +551,13 @@ class SVertexer
       return i == 9;
     }
 
-    bool inc(Enum e, bool gid0ITS, bool gid0TPC, bool gid0TRD, bool gid0TOF, bool gid1ITS, bool gid1TPC, bool gid1TRD, bool gid1TOF)
+    int inc(Enum e, bool gid0ITS, bool gid0TPC, bool gid0TRD, bool gid0TOF, bool gid1ITS, bool gid1TPC, bool gid1TRD, bool gid1TOF)
     {
       auto c = static_cast<unsigned int>(e);
       int i = getCombination(gid0ITS, gid0TPC, gid0TRD, gid0TOF, gid1ITS, gid1TPC, gid1TRD, gid1TOF);
       ++mCounters[i][c];
       ++mTotCounters[c];
-      return i == 54;
+      return i;
     }
 
     int getCombination(bool gid0ITS, bool gid0TPC, bool gid0TRD, bool gid0TOF, bool gid1ITS, bool gid1TPC, bool gid1TRD, bool gid1TOF)
