@@ -291,7 +291,7 @@ void SVertexer::init()
                                << "d0=" << *d0
                                << "d1=" << *d1
                                << "mother=" << mcparticle
-                               << "case=" << i
+                               << "comb=" << i
                                << "\n";
                 }
               }
