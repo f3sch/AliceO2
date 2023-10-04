@@ -288,6 +288,11 @@ void SVertexer::init()
                 mMotherV0Map[idxMother] = std::make_pair(idxD0, idxD1);
                 mD0V0Map[idxD0] = std::make_pair(idxD1, idxMother);
                 mD1V0Map[idxD1] = std::make_pair(idxD0, idxMother);
+                mDebugStream << "mcGen"
+                             << "d0=" << *d0
+                             << "d1=" << *d1
+                             << "mother=" << mcparticle
+                             << "\n";
               }
             }
             if (TParticlePDG* pPDG = TDatabasePDG::Instance()->GetParticle(mcparticle.GetPdgCode());
@@ -616,7 +621,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   // check closeness to the beam-line
   float dxv0 = v0XYZ[0] - mMeanVertex.getX(), dyv0 = v0XYZ[1] - mMeanVertex.getY(), r2v0 = dxv0 * dxv0 + dyv0 * dyv0;
   if (r2v0 < mMinR2ToMeanVertex) {
-    mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, {},v0XYZ , seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
     return false;
   }
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
