@@ -271,6 +271,12 @@ void SVertexer::init()
                   d1->hasHits() &&
                   d0->GetP() > 0.05 &&
                   d1->GetP() > 0.05) {
+                auto R = std::sqrt(d0->GetStartVertexCoordinatesX() * d0->GetStartVertexCoordinatesX() + d0->GetStartVertexCoordinatesY() * d0->GetStartVertexCoordinatesY());
+                if (abs(d0->GetStartVertexCoordinatesZ()) < 250. &&
+                    abs(d1->GetStartVertexCoordinatesZ()) < 250. &&
+                    R > 5 && R < 180) { // only count photons where the conversion point is in the fuducial region
+                  continue;
+                }
                 TParticlePDG* pPDG0 = TDatabasePDG::Instance()->GetParticle(d0->GetPdgCode());
                 if (pPDG0 != nullptr && pPDG0->Charge() < 0) {
                   std::swap(d0, d1);
@@ -281,7 +287,7 @@ void SVertexer::init()
                      d1TRD = d0->leftTrace(o2::detectors::DetID::TRD), d1TOF = d0->leftTrace(o2::detectors::DetID::TOF);
                 if (const auto idxMother = std::make_tuple(iSource, iEvent, i);
                     mMotherV0Map.find(idxMother) == mMotherV0Map.end()) {
-                  auto comb = mCounterMC.inc(MCGEN::GEN, d0ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
+                  auto comb = mCounterMC.inc(MCGEN::GEN, d1ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
                   const auto idxD0 = std::make_tuple(iSource, iEvent, mcparticle.getFirstDaughterTrackId());
                   const auto idxD1 = std::make_tuple(iSource, iEvent, mcparticle.getLastDaughterTrackId());
                   mMotherV0Map[idxMother] = std::make_pair(idxD0, idxD1);
