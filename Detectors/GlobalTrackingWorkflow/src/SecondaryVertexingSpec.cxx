@@ -125,21 +125,23 @@ void SecondaryVertexingSpec::endOfStream(EndOfStreamContext& ec)
 void SecondaryVertexingSpec::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
 {
   if (o2::base::GRPGeomHelper::instance().finaliseCCDB(matcher, obj)) {
-    LOG(info)<< "GRPGeomHelper no data loaded";
+    return;
   }
   if (mTPCVDriftHelper.accountCCDBInputs(matcher, obj)) {
-    LOG(info)<< "TPCVDriftHelper no data loaded";
+    return;
   }
   if (mTPCCorrMapsLoader.accountCCDBInputs(matcher, obj)) {
-    LOG(info)<< "TPCCorrMapsLoader no data loaded";
+    return;
   }
   if (matcher == ConcreteDataMatcher("ITS", "CLUSDICT", 0)) {
     LOG(info) << "cluster dictionary updated";
     mStrTracker.setClusterDictionary((const o2::itsmft::TopologyDictionary*)obj);
+    return;
   }
   if (matcher == ConcreteDataMatcher("GLO", "MEANVERTEX", 0)) {
     LOG(info) << "Imposing new MeanVertex: " << ((const o2::dataformats::MeanVertexObject*)obj)->asString();
     mVertexer.setMeanVertex((const o2::dataformats::MeanVertexObject*)obj);
+    return;
   }
 }
 
