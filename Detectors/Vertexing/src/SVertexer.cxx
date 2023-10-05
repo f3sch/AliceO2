@@ -274,7 +274,7 @@ void SVertexer::init()
                 auto R = std::sqrt(d0->GetStartVertexCoordinatesX() * d0->GetStartVertexCoordinatesX() + d0->GetStartVertexCoordinatesY() * d0->GetStartVertexCoordinatesY());
                 if (abs(d0->GetStartVertexCoordinatesZ()) < 250. &&
                     abs(d1->GetStartVertexCoordinatesZ()) < 250. &&
-                if(    R > 6 && R < 180) { // only count photons where the conversion point is in the fuducial region
+                    R > 6 && R < 180) { // only count photons where the conversion point is in the fuducial region
                   continue;
                 }
                 TParticlePDG* pPDG0 = TDatabasePDG::Instance()->GetParticle(d0->GetPdgCode());

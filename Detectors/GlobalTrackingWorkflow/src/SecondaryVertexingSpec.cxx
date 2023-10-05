@@ -185,6 +185,7 @@ void SecondaryVertexingSpec::updateTimeDependentParams(ProcessingContext& pc)
       mStrTracker.setupFitters();
     }
   }
+  pc.inputs().get<o2::dataformats::MeanVertexObject*>("meanvtx");
 }
 
 DataProcessorSpec getSecondaryVertexingSpec(GTrackID::mask_t src, bool enableCasc, bool enable3body, bool enableStrangenesTracking, bool useMC,bool useDebug)
