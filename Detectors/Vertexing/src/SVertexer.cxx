@@ -274,7 +274,7 @@ void SVertexer::init()
                 auto R = std::sqrt(d0->GetStartVertexCoordinatesX() * d0->GetStartVertexCoordinatesX() + d0->GetStartVertexCoordinatesY() * d0->GetStartVertexCoordinatesY());
                 if (abs(d0->GetStartVertexCoordinatesZ()) < 250. &&
                     abs(d1->GetStartVertexCoordinatesZ()) < 250. &&
-                    R > 5 && R < 180) { // only count photons where the conversion point is in the fuducial region
+                if(    R > 6 && R < 180) { // only count photons where the conversion point is in the fuducial region
                   continue;
                 }
                 TParticlePDG* pPDG0 = TDatabasePDG::Instance()->GetParticle(d0->GetPdgCode());
@@ -1227,7 +1227,7 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
   int posneg = trTPC.getSign() < 0 ? 1 : 0;
   auto& trLoc = mTracksPool[posneg].emplace_back(TrackCand{trTPC, gid, {vtxid, vtxid}, 0.123});
   auto err = correctTPCTrack(trLoc, trTPC, twe.getTimeStamp(), twe.getTimeStampError());
-  if (err < 0 || TMath::Abs(trTPC.getZ() - vtx.getZ() - trTPC.getTgl() * trTPC.getX()) > mSVParams->mTPCTrackMaxZ) {
+  if (err < 0 || TMath::Abs(trLoc.getZ() - vtx.getZ() - trLoc.getTgl() * trLoc.getX()) > mSVParams->mTPCTrackMaxZ) {
     mTracksPool[posneg].pop_back(); // discard
     return true;
   }
