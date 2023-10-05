@@ -255,6 +255,10 @@ void SVertexer::init()
       }
       for (int iSource{0}; iSource < mcReader.getNSources(); ++iSource) {
         for (int iEvent{0}; iEvent < mcReader.getNEvents(iSource); ++iEvent) {
+          const auto& header = mcReader.getMCEventHeader(iSource, iEvent);
+          if (abs(header.GetZ()) > 30) {
+            continue;
+          }
           const auto& pcontainer = mcReader.getTracks(iSource, iEvent);
           for (int i{0}; i < pcontainer.size(); ++i) {
             const auto& mcparticle = pcontainer[i];
@@ -274,7 +278,7 @@ void SVertexer::init()
                 auto R = std::sqrt(d0->GetStartVertexCoordinatesX() * d0->GetStartVertexCoordinatesX() + d0->GetStartVertexCoordinatesY() * d0->GetStartVertexCoordinatesY());
                 if (abs(d0->GetStartVertexCoordinatesZ()) < 250. &&
                     abs(d1->GetStartVertexCoordinatesZ()) < 250. &&
-                    R > 6 && R < 180) { // only count photons where the conversion point is in the fuducial region
+                    R < 180) { // only count photons where the conversion point is in the fuducial region
                   continue;
                 }
                 TParticlePDG* pPDG0 = TDatabasePDG::Instance()->GetParticle(d0->GetPdgCode());
@@ -283,8 +287,15 @@ void SVertexer::init()
                 }
                 auto d0TPC = d0->leftTrace(o2::detectors::DetID::TPC), d0ITS = d0->leftTrace(o2::detectors::DetID::ITS),
                      d0TRD = d0->leftTrace(o2::detectors::DetID::TRD), d0TOF = d0->leftTrace(o2::detectors::DetID::TOF),
+                     d0ZDC = d0->leftTrace(o2::detectors::DetID::ZDC), d0FT0 = d0->leftTrace(o2::detectors::DetID::FT0),
+                     d0FV0 = d0->leftTrace(o2::detectors::DetID::FV0),
                      d1TPC = d1->leftTrace(o2::detectors::DetID::TPC), d1ITS = d1->leftTrace(o2::detectors::DetID::ITS),
-                     d1TRD = d0->leftTrace(o2::detectors::DetID::TRD), d1TOF = d0->leftTrace(o2::detectors::DetID::TOF);
+                     d1TRD = d0->leftTrace(o2::detectors::DetID::TRD), d1TOF = d0->leftTrace(o2::detectors::DetID::TOF),
+                     d1ZDC = d1->leftTrace(o2::detectors::DetID::ZDC), d1FT0 = d0->leftTrace(o2::detectors::DetID::FT0),
+                     d1FV0 = d1->leftTrace(o2::detectors::DetID::FV0);
+                if (d0ZDC || d0FV0 || d0FT0 || d1ZDC || d1FV0 || d1FT0) {
+                  continue;
+                }
                 if (const auto idxMother = std::make_tuple(iSource, iEvent, i);
                     mMotherV0Map.find(idxMother) == mMotherV0Map.end()) {
                   auto comb = mCounterMC.inc(MCGEN::GEN, d1ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
@@ -298,6 +309,8 @@ void SVertexer::init()
                                << "d1=" << *d1
                                << "mother=" << mcparticle
                                << "comb=" << comb
+                               << "header=" << header
+                               << ""
                                << "\n";
                 }
               }
