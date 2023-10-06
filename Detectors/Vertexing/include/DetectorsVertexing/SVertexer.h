@@ -154,7 +154,7 @@ class SVertexer
   void setupThreads();
   void buildT2V(const o2::globaltracking::RecoContainer& recoTracks);
   void updateTimeDependentParams();
-  bool acceptTrack(GIndex gid, const o2::track::TrackParCov& trc) const;
+  bool acceptTrack(GIndex gid, const o2::track::TrackParCov& trc) ;
   bool processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int vtxid);
   float correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::TrackTPC& tTPC, float tmus, float tmusErr) const;
 
@@ -242,7 +242,7 @@ class SVertexer
       return seed;
     }
   };
-  using map_timing_t = std::unordered_map<key_t, std::tuple<GIndex, GIndex, bool>, key_hash>;
+  using map_timing_t = std::unordered_map<key_t, std::tuple<GIndex, GIndex, bool, ULong64_t>, key_hash>;
   using map_before_t = std::unordered_map<key_t, std::tuple<MCTrack, MCTrack, MCTrack, bool>, key_hash>;
   using map_after_t = std::unordered_map<key_t, std::tuple<TrackCand, MCTrack, TrackCand, MCTrack, MCTrack>, key_hash>;
   using map_mc_t = std::unordered_map<key_t, std::pair<key_t, key_t>, key_hash>;
@@ -276,7 +276,7 @@ class SVertexer
     return mother->GetPdgCode() == v0Type && mother->isPrimary() && isPhysicalPrimary;
   }
 
-  o2::MCCompLabel getLabel(GIndex const& gid)
+  o2::MCCompLabel getLabel(GIndex const& gid) const
   {
     if (gid.getSource() == GIndex::ITSTPCTRDTOF) {
       return mITSTPCTRDTOFTrkLabels[gid.getIndex()];
@@ -388,7 +388,7 @@ class SVertexer
 
     ULong64_t mCounterMC{0};
 
-    void inc(Enum e, GIndex const& gid0, GIndex const& gid1)
+    void inc(Enum e, GIndex const& gid0, GIndex const& gid1, ULong64_t dup)
     {
       auto c = static_cast<unsigned int>(e);
       auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
@@ -402,6 +402,7 @@ class SVertexer
       int i = getCombination(gid0ITS, gid0TPC, gid0TRD, gid0TOF, gid1ITS, gid1TPC, gid1TRD, gid1TOF);
       ++mCounters[i][c];
       ++mTotCounters[c];
+      mCountersV0Dup[i][c] += dup;
     }
     void inc(Enum e, PVertex const& pvertex, V0 const& v0, GIndex const& gid0, GIndex const& gid1, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream)
     {
@@ -882,6 +883,69 @@ class SVertexer
       LOGP(info, "                 `--> ???             {:>10}", mCountersMC[9][i]);
     }
 
+    void printTiming()
+    {
+      for (int i{0}; i < static_cast<int>(Enum::NSIZE); ++i) {
+        LOGP(info, "{} - CHECK: {}: {}", i, _names[i], mTotCounters[i]);
+        LOGP(info, "                 `--> Track           & Track           {:>15} / {:>15} ", "true V0s pairs", "V0 dup");
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF & ITS-TPC-TRD-TOF {:>15} / {:>15} ", mCounters[0][i], mCountersV0Dup[0][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF & ITS-TPC-   -TOF {:>15} / {:>15} ", mCounters[1][i], mCountersV0Dup[1][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF & ITS-TPC-TRD     {:>15} / {:>15} ", mCounters[2][i], mCountersV0Dup[2][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF &     TPC-TRD-TOF {:>15} / {:>15} ", mCounters[3][i], mCountersV0Dup[3][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF &     TPC-TRD     {:>15} / {:>15} ", mCounters[4][i], mCountersV0Dup[4][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF &     TPC-   -TOF {:>15} / {:>15} ", mCounters[5][i], mCountersV0Dup[5][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF & ITS-TPC         {:>15} / {:>15} ", mCounters[6][i], mCountersV0Dup[6][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF & ITS             {:>15} / {:>15} ", mCounters[7][i], mCountersV0Dup[7][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF &     TPC         {:>15} / {:>15} ", mCounters[8][i], mCountersV0Dup[8][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD-TOF & ???             {:>15} / {:>15} ", mCounters[9][i], mCountersV0Dup[9][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF & ITS-TPC-   -TOF {:>15} / {:>15} ", mCounters[10][i], mCountersV0Dup[10][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF & ITS-TPC-TRD     {:>15} / {:>15} ", mCounters[11][i], mCountersV0Dup[11][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF &     TPC-TRD-TOF {:>15} / {:>15} ", mCounters[12][i], mCountersV0Dup[12][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF &     TPC-TRD     {:>15} / {:>15} ", mCounters[13][i], mCountersV0Dup[13][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF &     TPC-   -TOF {:>15} / {:>15} ", mCounters[14][i], mCountersV0Dup[14][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF & ITS-TPC         {:>15} / {:>15} ", mCounters[15][i], mCountersV0Dup[15][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF & ITS             {:>15} / {:>15} ", mCounters[16][i], mCountersV0Dup[16][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF &     TPC         {:>15} / {:>15} ", mCounters[17][i], mCountersV0Dup[17][i]);
+        LOGP(info, "                 `--> ITS-TPC-   -TOF & ???             {:>15} / {:>15} ", mCounters[18][i], mCountersV0Dup[18][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     & ITS-TPC-TRD     {:>15} / {:>15} ", mCounters[19][i], mCountersV0Dup[19][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     &     TPC-TRD-TOF {:>15} / {:>15} ", mCounters[20][i], mCountersV0Dup[20][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     &     TPC-TRD     {:>15} / {:>15} ", mCounters[21][i], mCountersV0Dup[21][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     &     TPC-   -TOF {:>15} / {:>15} ", mCounters[22][i], mCountersV0Dup[22][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     & ITS-TPC         {:>15} / {:>15} ", mCounters[23][i], mCountersV0Dup[23][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     & ITS             {:>15} / {:>15} ", mCounters[24][i], mCountersV0Dup[24][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     &     TPC         {:>15} / {:>15} ", mCounters[25][i], mCountersV0Dup[25][i]);
+        LOGP(info, "                 `--> ITS-TPC-TRD     & ???             {:>15} / {:>15} ", mCounters[26][i], mCountersV0Dup[26][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF &     TPC-TRD-TOF {:>15} / {:>15} ", mCounters[27][i], mCountersV0Dup[27][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF &     TPC-TRD     {:>15} / {:>15} ", mCounters[28][i], mCountersV0Dup[28][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF &     TPC-   -TOF {:>15} / {:>15} ", mCounters[29][i], mCountersV0Dup[29][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF & ITS-TPC         {:>15} / {:>15} ", mCounters[30][i], mCountersV0Dup[30][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF & ITS             {:>15} / {:>15} ", mCounters[31][i], mCountersV0Dup[31][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF &     TPC         {:>15} / {:>15} ", mCounters[32][i], mCountersV0Dup[32][i]);
+        LOGP(info, "                 `-->     TPC-TRD-TOF & ???             {:>15} / {:>15} ", mCounters[33][i], mCountersV0Dup[33][i]);
+        LOGP(info, "                 `-->     TPC-TRD     &     TPC-TRD     {:>15} / {:>15} ", mCounters[34][i], mCountersV0Dup[34][i]);
+        LOGP(info, "                 `-->     TPC-TRD     &     TPC-   -TOF {:>15} / {:>15} ", mCounters[35][i], mCountersV0Dup[35][i]);
+        LOGP(info, "                 `-->     TPC-TRD     & ITS-TPC         {:>15} / {:>15} ", mCounters[36][i], mCountersV0Dup[36][i]);
+        LOGP(info, "                 `-->     TPC-TRD     & ITS             {:>15} / {:>15} ", mCounters[37][i], mCountersV0Dup[37][i]);
+        LOGP(info, "                 `-->     TPC-TRD     &     TPC         {:>15} / {:>15} ", mCounters[38][i], mCountersV0Dup[38][i]);
+        LOGP(info, "                 `-->     TPC-TRD     & ???             {:>15} / {:>15} ", mCounters[39][i], mCountersV0Dup[39][i]);
+        LOGP(info, "                 `-->     TPC-   -TOF &     TPC-   -TOF {:>15} / {:>15} ", mCounters[40][i], mCountersV0Dup[40][i]);
+        LOGP(info, "                 `-->     TPC-   -TOF & ITS-TPC         {:>15} / {:>15} ", mCounters[41][i], mCountersV0Dup[41][i]);
+        LOGP(info, "                 `-->     TPC-   -TOF & ITS             {:>15} / {:>15} ", mCounters[42][i], mCountersV0Dup[42][i]);
+        LOGP(info, "                 `-->     TPC-   -TOF &     TPC         {:>15} / {:>15} ", mCounters[43][i], mCountersV0Dup[43][i]);
+        LOGP(info, "                 `-->     TPC-   -TOF & ???             {:>15} / {:>15} ", mCounters[44][i], mCountersV0Dup[44][i]);
+        LOGP(info, "                 `--> ITS-TPC         & ITS-TPC         {:>15} / {:>15} ", mCounters[45][i], mCountersV0Dup[45][i]);
+        LOGP(info, "                 `--> ITS-TPC         & ITS             {:>15} / {:>15} ", mCounters[46][i], mCountersV0Dup[46][i]);
+        LOGP(info, "                 `--> ITS-TPC         &     TPC         {:>15} / {:>15} ", mCounters[47][i], mCountersV0Dup[47][i]);
+        LOGP(info, "                 `--> ITS-TPC         & ???             {:>15} / {:>15} ", mCounters[48][i], mCountersV0Dup[48][i]);
+        LOGP(info, "                 `--> ITS             & ITS             {:>15} / {:>15} ", mCounters[49][i], mCountersV0Dup[49][i]);
+        LOGP(info, "                 `--> ITS             &     TPC         {:>15} / {:>15} ", mCounters[50][i], mCountersV0Dup[50][i]);
+        LOGP(info, "                 `--> ITS             & ???             {:>15} / {:>15} ", mCounters[51][i], mCountersV0Dup[51][i]);
+        LOGP(info, "                 `-->     TPC         &     TPC         {:>15} / {:>15} ", mCounters[52][i], mCountersV0Dup[52][i]);
+        LOGP(info, "                 `-->     TPC         & ???             {:>15} / {:>15} ", mCounters[53][i], mCountersV0Dup[53][i]);
+        LOGP(info, "                 `--> ???             & ???             {:>15} / {:>15} ", mCounters[54][i], mCountersV0Dup[54][i]);
+      }
+    }
+
     void printMC2()
     {
       for (int i{0}; i < static_cast<int>(Enum::NSIZE); ++i) {
@@ -1029,7 +1093,7 @@ class SVertexer
   Counter_t<Reco> mCounterReco{recoTreeName, recoNames};
 
   enum class V0Found : unsigned int {
-    FOUND,
+    FOUND = 0,
     NSIZE,
   };
   static constexpr std::array<std::string_view, static_cast<size_t>(V0Found::NSIZE)> v0Names{
@@ -1038,6 +1102,26 @@ class SVertexer
   Counter_t<V0Found> mCounterV0Found{v0TreeName, v0Names};
 
   static constexpr auto v0Type = kGamma;
+
+  enum class AcceptTrack : unsigned int {
+    USEPROP,
+    D3DCA,
+    D1DCA,
+    EXTDCA,
+    MINDCATOPV,
+    RET,
+    NSIZE,
+  };
+  static constexpr std::array<std::string_view, static_cast<size_t>(AcceptTrack::NSIZE)> accNames{
+    "Use propagator (default false)",
+    "Propagator 3D (returns true)",
+    "Propagator 1D (returns true)",
+    "External DCA (returns true)",
+    "DCA to PV (returns false (too close)) ",
+    "Passed Okay",
+  };
+  static constexpr std::string_view accTreeName{"acceptTrack"};
+  Counter_t<AcceptTrack> mCounterAcceptTrack{accTreeName, accNames};
 };
 } // namespace vertexing
 } // namespace o2

@@ -474,33 +474,39 @@ void SVertexer::setupThreads()
 }
 
 //__________________________________________________________________
-bool SVertexer::acceptTrack(GIndex gid, const o2::track::TrackParCov& trc) const
+bool SVertexer::acceptTrack(GIndex gid, const o2::track::TrackParCov& trc)
 {
   if (gid.isPVContributor() && mSVParams->maxPVContributors < 1) {
     return false;
   }
-
+  const auto lbl = getLabel(gid);
   // DCA to mean vertex
   if (mSVParams->minDCAToPV > 0.f) {
+    mCounterAcceptTrack.inc(AcceptTrack::USEPROP, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
     o2::track::TrackPar trp(trc);
     std::array<float, 2> dca;
     auto* prop = o2::base::Propagator::Instance();
     if (mSVParams->usePropagator) {
       if (trp.getX() > mSVParams->minRFor3DField && !prop->PropagateToXBxByBz(trp, mSVParams->minRFor3DField, mSVParams->maxSnp, mSVParams->maxStep, o2::base::Propagator::MatCorrType(mSVParams->matCorr))) {
+        mCounterAcceptTrack.inc(AcceptTrack::D3DCA, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
         return true; // we don't need actually to propagate to the beam-line
       }
       if (!prop->propagateToDCA(mMeanVertex.getXYZ(), trp, prop->getNominalBz(), mSVParams->maxStep, o2::base::Propagator::MatCorrType(mSVParams->matCorr), &dca)) {
+        mCounterAcceptTrack.inc(AcceptTrack::D1DCA, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
         return true;
       }
     } else {
       if (!trp.propagateParamToDCA(mMeanVertex.getXYZ(), prop->getNominalBz(), &dca)) {
+        mCounterAcceptTrack.inc(AcceptTrack::EXTDCA, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
         return true;
       }
     }
     if (std::abs(dca[0]) < mSVParams->minDCAToPV) {
+      mCounterAcceptTrack.inc(AcceptTrack::MINDCATOPV, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
       return false;
     }
   }
+  mCounterAcceptTrack.inc(AcceptTrack::RET, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
   return true;
 }
 
@@ -615,8 +621,11 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
   if (mUseDebug) {
     writeDebugWithTiming(recoData);
     LOGP(info, "~~~~~~~~~Before&After Timing information findable V0s~~~~~~~~~~~~~");
-    mCounterReco.printMC2();
+    mCounterReco.printTiming();
     LOGP(info, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+    LOGP(info, "~~~~~~~~~Accept Track~~~~~~~~~~~~~");
+    mCounterAcceptTrack.print();
+    LOGP(info, "~@~~@@~@~@~~@@~@@~@~@@~@@~@@~@~@~@");
   }
 }
 
@@ -1346,23 +1355,22 @@ void SVertexer::writeDebugWithoutTiming(const o2::globaltracking::RecoContainer&
         continue;
       }
       auto idx = std::make_tuple(lbl.getSourceID(), lbl.getEventID(), lbl.getTrackID());
-      auto it0 = mD0V0Map.find(idx);
-      auto it1 = mD1V0Map.find(idx);
-      auto it0T = it0 != mD0V0Map.end();
-      auto it1T = it1 != mD1V0Map.end();
       key_t mother;
-      if (it0T) {
-        mother = (*it0).second.second;
-      } else if (it1T) {
-        mother = (*it1).second.second;
+      const auto& trc = recoData.getTrackParam(id);
+      if (auto it = mD0V0Map.find(idx); trc.getSign() > 0 && mD0V0Map.find(idx) != mD0V0Map.end()) {
+        mother = (*it).second.second;
+      } else if (auto it = mD1V0Map.find(idx); trc.getSign() < 0 && mD1V0Map.find(idx) != mD1V0Map.end()) {
+        mother = (*it).second.second;
       } else {
         continue;
       }
+
       if (map.find(mother) != map.end()) {
         if (!std::get<2>(map[mother])) {
           std::get<1>(map[mother]) = id;
           std::get<2>(map[mother]) = true;
         } else {
+          ++std::get<3>(map[mother]);
           continue; // already set once
         }
       } else {
@@ -1383,14 +1391,14 @@ void SVertexer::writeDebugWithoutTiming(const o2::globaltracking::RecoContainer&
   findV0(recoData.getTPCTracks(), GIndex::TPC);
 
   for (const auto& [_, v] : map) {
-    const auto& [gid0, gid1, found] = v;
+    const auto& [gid0, gid1, found, dup] = v;
     if (found) {
-      mCounterReco.inc(Reco::WITHOUT, gid0, gid1);
+      mCounterReco.inc(Reco::WITHOUT, gid0, gid1, dup);
     }
   }
 }
 
-void SVertexer::writeDebugWithTiming(const o2::globaltracking::RecoContainer& recoData)
+void SVertexer::writeDebugWithTiming(const o2::globaltracking::RecoContainer& /*recoData*/)
 {
   map_timing_t map;
   auto ntrP = mTracksPool[POS].size(), ntrN = mTracksPool[NEG].size();
@@ -1423,6 +1431,8 @@ void SVertexer::writeDebugWithTiming(const o2::globaltracking::RecoContainer& re
           if (map.find(idx) == map.end()) {
             std::get<0>(map[idx]) = gid0;
             std::get<1>(map[idx]) = gid1;
+          } else {
+            ++std::get<3>(map[idx]);
           }
         }
       }
@@ -1430,7 +1440,7 @@ void SVertexer::writeDebugWithTiming(const o2::globaltracking::RecoContainer& re
   }
 
   for (const auto& [_, v] : map) {
-    const auto& [gid0, gid1, _x] = v;
-    mCounterReco.inc(Reco::WITH, gid0, gid1);
+    const auto& [gid0, gid1, _x, dup] = v;
+    mCounterReco.inc(Reco::WITH, gid0, gid1, dup);
   }
 }
