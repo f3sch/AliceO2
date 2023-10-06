@@ -482,27 +482,27 @@ bool SVertexer::acceptTrack(GIndex gid, const o2::track::TrackParCov& trc)
   const auto lbl = getLabel(gid);
   // DCA to mean vertex
   if (mSVParams->minDCAToPV > 0.f) {
-    mCounterAcceptTrack.inc(AcceptTrack::USEPROP, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
     o2::track::TrackPar trp(trc);
-    std::array<float, 2> dca;
+    mCounterAcceptTrack.incAcceptTrack(AcceptTrack::USEPROP, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle, mDebugStream, trp);
+    std::array<float, 2> dca{};
     auto* prop = o2::base::Propagator::Instance();
     if (mSVParams->usePropagator) {
       if (trp.getX() > mSVParams->minRFor3DField && !prop->PropagateToXBxByBz(trp, mSVParams->minRFor3DField, mSVParams->maxSnp, mSVParams->maxStep, o2::base::Propagator::MatCorrType(mSVParams->matCorr))) {
-        mCounterAcceptTrack.inc(AcceptTrack::D3DCA, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
+        mCounterAcceptTrack.incAcceptTrack(AcceptTrack::D3DCA, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle, mDebugStream, trp);
         return true; // we don't need actually to propagate to the beam-line
       }
       if (!prop->propagateToDCA(mMeanVertex.getXYZ(), trp, prop->getNominalBz(), mSVParams->maxStep, o2::base::Propagator::MatCorrType(mSVParams->matCorr), &dca)) {
-        mCounterAcceptTrack.inc(AcceptTrack::D1DCA, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
+        mCounterAcceptTrack.incAcceptTrack(AcceptTrack::D1DCA, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle, mDebugStream, trp);
         return true;
       }
     } else {
       if (!trp.propagateParamToDCA(mMeanVertex.getXYZ(), prop->getNominalBz(), &dca)) {
-        mCounterAcceptTrack.inc(AcceptTrack::EXTDCA, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
+        mCounterAcceptTrack.incAcceptTrack(AcceptTrack::EXTDCA, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle, mDebugStream, trp);
         return true;
       }
     }
     if (std::abs(dca[0]) < mSVParams->minDCAToPV) {
-      mCounterAcceptTrack.inc(AcceptTrack::MINDCATOPV, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
+      mCounterAcceptTrack.incAcceptTrack(AcceptTrack::MINDCATOPV, gid, lbl, mD0V0Map, mD1V0Map, mMCParticle, mDebugStream, trp);
       return false;
     }
   }

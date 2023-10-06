@@ -154,7 +154,7 @@ class SVertexer
   void setupThreads();
   void buildT2V(const o2::globaltracking::RecoContainer& recoTracks);
   void updateTimeDependentParams();
-  bool acceptTrack(GIndex gid, const o2::track::TrackParCov& trc) ;
+  bool acceptTrack(GIndex gid, const o2::track::TrackParCov& trc);
   bool processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int vtxid);
   float correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::TrackTPC& tTPC, float tmus, float tmusErr) const;
 
@@ -787,6 +787,48 @@ class SVertexer
       }
     }
 
+    void incAcceptTrack(Enum e, GIndex const& gid, o2::MCCompLabel const& lbl, map_mc_t const& d0, map_mc_t const& d1, map_mc_particle_t const& mcparticles, utils::TreeStreamRedirector& mDebugStream, o2::track::TrackPar const& trc, bool write = false)
+    {
+      auto c = static_cast<unsigned int>(e);
+      auto gidITS = gid.includesDet(o2::detectors::DetID::ITS);
+      auto gidTPC = gid.includesDet(o2::detectors::DetID::TPC);
+      auto gidTRD = gid.includesDet(o2::detectors::DetID::TRD);
+      auto gidTOF = gid.includesDet(o2::detectors::DetID::TOF);
+      int i = getType(gidITS, gidTPC, gidTRD, gidTOF);
+      ++mCounters[i][c];
+      ++mTotCounters[c];
+      auto dup = mDupMap[i][c].find(gid) != mDupMap[i][c].end();
+      if (dup) {
+        ++mCountersDup[i][c];
+      } else {
+        mDupMap[i][c][gid] = true;
+      }
+      if (lbl.isFake() || !lbl.isValid()) {
+        return;
+      }
+      auto idx = std::make_tuple(lbl.getSourceID(), lbl.getEventID(), lbl.getTrackID());
+      auto it0 = d0.find(idx);
+      auto it1 = d1.find(idx);
+      auto it0T = it0 != d0.end();
+      auto it1T = it1 != d1.end();
+      if (it0T || it1T) {
+        ++mCountersV0[i][c];
+        if (dup) {
+          ++mCountersV0Dup[i][c];
+        }
+      }
+      auto mcgen = mcparticles.find(idx) != mcparticles.end();
+      if (mcgen) {
+        ++mCountersMC[i][c];
+      }
+      mDebugStream << _treeName.c_str()
+                   << "track=" << trc
+                   << "isV0=" << (it0T || it1T)
+                   << "case=" << c
+                   << "type=" << i
+                   << "\n";
+    }
+
     void print()
     {
       for (int i{0}; i < static_cast<int>(Enum::NSIZE); ++i) {
@@ -1105,7 +1147,7 @@ class SVertexer
   static constexpr auto v0Type = kGamma;
 
   enum class AcceptTrack : unsigned int {
-    USEPROP,
+    USEPROP = 0,
     D3DCA,
     D1DCA,
     EXTDCA,
