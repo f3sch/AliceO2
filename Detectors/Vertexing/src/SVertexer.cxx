@@ -639,7 +639,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   auto& fitterV0 = mFitterV0[ithread];
   int nCand = fitterV0.process(seedP, seedN);
   if (nCand == 0) { // discard this pair
-    mCounterV0.inc(CHECKV0::FPROCESS, {}, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0.inc(CHECKV0::FPROCESS, {}, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
     return false;
   }
   const auto& v0XYZ = fitterV0.getPCACandidate();

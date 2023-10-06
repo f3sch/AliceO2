@@ -481,7 +481,7 @@ class SVertexer
                    << "\n";
     }
 
-    void inc(Enum e, PVertex const& pvertex, Vec3D const& svertex, const TrackCand& seedP, const TrackCand& seedN, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream, bool write = true, bool useMC = false)
+    void inc(Enum e, PVertex const& pvertex, Vec3D const& svertex, const TrackCand& seedP, const TrackCand& seedN, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream, bool write = true, bool useMC = false, bool isPropFail = false)
     {
       // checkV0
       auto c = static_cast<unsigned int>(e);
@@ -538,6 +538,7 @@ class SVertexer
                    << "pvertex=" << pvertex
                    << "case=" << c
                    << "comb=" << i
+                   << "propFail=" << isPropFail
                    << "isDuplicate=" << duplicate
                    << "isV0=" << trueV0
                    << "\n";
