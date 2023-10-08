@@ -301,6 +301,7 @@ void SVertexer::init()
                   mMotherV0Map[idxMother] = std::make_pair(idxD0, idxD1);
                   mD0V0Map[idxD0] = std::make_pair(idxD1, idxMother);
                   mD1V0Map[idxD1] = std::make_pair(idxD0, idxMother);
+                  LOGP(info, "~~~~ Mother: {}, d0: {}, d1: {}", mcparticle.getProdProcessAsString(), d0->getProdProcessAsString(), d1->getProdProcessAsString());
                   mDebugStream << "mcGen"
                                << "d0=" << *d0
                                << "d1=" << *d1
