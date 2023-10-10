@@ -15,6 +15,7 @@
 #ifndef O2_S_VERTEXER_H
 #define O2_S_VERTEXER_H
 
+#include "ReconstructionDataFormats/Track.h"
 #include "gsl/span"
 #include "DataFormatsGlobalTracking/RecoContainer.h"
 #include "ReconstructionDataFormats/PrimaryVertex.h"
@@ -481,7 +482,7 @@ class SVertexer
                    << "\n";
     }
 
-    void inc(Enum e, PVertex const& pvertex, Vec3D const& svertex, const TrackCand& seedP, const TrackCand& seedN, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream, bool write = true, bool useMC = false, bool isPropFail = false)
+    bool inc(Enum e, PVertex const& pvertex, Vec3D const& svertex, const TrackCand& seedP, const TrackCand& seedN, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream, bool write = true, bool useMC = false, bool isPropFail = false, int nIter = -1)
     {
       // checkV0
       auto c = static_cast<unsigned int>(e);
@@ -527,21 +528,66 @@ class SVertexer
           }
         }
       }
+      bool goodProp = false;
+      MCTrack mcTrkP, mcTrkN;
+      o2::track::TrackPar trkPropP, trkPropN;
+      while (useMC && !goodProp) {
+        // get mc tracks
+        if (const auto mcTrkPPtr = mcReader.getTrack(lbl0), mcTrkNPtr = mcReader.getTrack(lbl1); mcTrkPPtr == nullptr || mcTrkNPtr == nullptr) {
+          break;
+        } else {
+          mcTrkP = *mcTrkPPtr;
+          mcTrkN = *mcTrkNPtr;
+        }
+        // propagate to vertex
+        std::array<float, 3> xyzP{(float)mcTrkP.GetStartVertexCoordinatesX(), (float)mcTrkP.GetStartVertexCoordinatesY(), (float)mcTrkP.GetStartVertexCoordinatesZ()};
+        auto RP = std::sqrt(xyzP[0] * xyzP[0] + xyzP[1] * xyzP[1]);
+        std::array<float, 3> xyzN{(float)mcTrkN.GetStartVertexCoordinatesX(), (float)mcTrkN.GetStartVertexCoordinatesY(), (float)mcTrkN.GetStartVertexCoordinatesZ()};
+        auto RN = std::sqrt(xyzN[0] * xyzN[0] + xyzN[1] * xyzN[1]);
+        std::array<float, 3> pxyzP{(float)mcTrkP.GetStartVertexMomentumX(), (float)mcTrkP.GetStartVertexMomentumY(), (float)mcTrkP.GetStartVertexMomentumZ()};
+        std::array<float, 3> pxyzN{(float)mcTrkN.GetStartVertexMomentumX(), (float)mcTrkN.GetStartVertexMomentumY(), (float)mcTrkN.GetStartVertexMomentumZ()};
+        TParticlePDG *pPDG = TDatabasePDG::Instance()->GetParticle(mcTrkP.GetPdgCode()), *nPDG = TDatabasePDG::Instance()->GetParticle(mcTrkN.GetPdgCode());
+        if (pPDG == nullptr || nPDG == nullptr) {
+          break;
+        }
+
+        // propagate track to conversion vertex, use same x and alpha
+        o2::track::TrackPar trP(xyzP, pxyzP, TMath::Nint(pPDG->Charge() / 3), false);
+        o2::track::TrackPar trN(xyzN, pxyzN, TMath::Nint(nPDG->Charge() / 3), false);
+        if (!trP.rotate(seedP.getAlpha()) || !o2::base::Propagator::Instance()->PropagateToXBxByBz(trP, RP) ||
+            !trN.rotate(seedP.getAlpha()) || !o2::base::Propagator::Instance()->PropagateToXBxByBz(trN, RN)) {
+          break;
+        }
+
+        // propagation was successful
+        trkPropP = trP;
+        trkPropN = trN;
+        goodProp = true;
+      }
+
       if (!write) {
-        return;
+        return trueV0;
       }
 
       mDebugStream << _treeName.c_str()
                    << "recoSeedP=" << (o2::track::TrackParCov)seedP
                    << "recoSeedN=" << (o2::track::TrackParCov)seedN
+                   << "recoSeedPropP=" << trkPropP
+                   << "recoSeedPropN=" << trkPropN
+                   << "mcSeedP=" << mcTrkP
+                   << "mcSeedN=" << mcTrkN
                    << "svertex=" << sv
                    << "pvertex=" << pvertex
                    << "case=" << c
                    << "comb=" << i
                    << "propFail=" << isPropFail
+                   << "nIter=" << nIter
                    << "isDuplicate=" << duplicate
                    << "isV0=" << trueV0
+                   << "goodProp=" << goodProp
                    << "\n";
+
+      return trueV0;
     }
 
     bool inc(Enum e, bool gid0ITS, bool gid0TPC, bool gid0TRD, bool gid0TOF)
@@ -1061,6 +1107,7 @@ class SVertexer
     REJPT2,
     REJTGL,
     REJCPA,
+    NEWV0,
     CALLED,
     NSIZE,
   };
@@ -1072,6 +1119,7 @@ class SVertexer
     "Rejection Pt2",
     "Rejection TgL",
     "Rejection Cos Pointing Angle",
+    "New V0",
     "#CALLED",
   };
   static constexpr std::string_view checkV0TreeName{"checkV0"};

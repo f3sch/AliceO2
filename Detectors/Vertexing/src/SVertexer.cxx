@@ -301,7 +301,6 @@ void SVertexer::init()
                   mMotherV0Map[idxMother] = std::make_pair(idxD0, idxD1);
                   mD0V0Map[idxD0] = std::make_pair(idxD1, idxMother);
                   mD1V0Map[idxD1] = std::make_pair(idxD0, idxMother);
-                  LOGP(info, "~~~~ Mother: {}, d0: {}, d1: {}", mcparticle.getProdProcessAsString(), d0->getProdProcessAsString(), d1->getProdProcessAsString());
                   mDebugStream << "mcGen"
                                << "d0=" << *d0
                                << "d1=" << *d1
@@ -425,11 +424,13 @@ void SVertexer::setupThreads()
     fitter.setMinParamChange(mSVParams->minParamChange);
     fitter.setMinRelChi2Change(mSVParams->minRelChi2Change);
     fitter.setMaxDZIni(mSVParams->maxDZIni);
+    fitter.setMaxDXYIni(mSVParams->maxDXYIni);
     fitter.setMaxChi2(mSVParams->maxChi2);
     fitter.setMatCorrType(o2::base::Propagator::MatCorrType(mSVParams->matCorr));
     fitter.setUsePropagator(mSVParams->usePropagator);
     fitter.setRefitWithMatCorr(mSVParams->refitWithMatCorr);
     fitter.setMaxStep(mSVParams->maxStep);
+    fitter.setMaxIter(mSVParams->maxIter);
     fitter.setMaxSnp(mSVParams->maxSnp);
     fitter.setMinXSeed(mSVParams->minXSeed);
   }
@@ -636,11 +637,14 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   auto lbl0 = getLabel(seedP.gid);
   auto lbl1 = getLabel(seedN.gid);
   auto ok = checkLabels(lbl0, lbl1);
-  mCounterV0.inc(CHECKV0::CALLED, {}, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, false);
+  bool check = mCounterV0.inc(CHECKV0::CALLED, {}, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, false);
   auto& fitterV0 = mFitterV0[ithread];
   int nCand = fitterV0.process(seedP, seedN);
   if (nCand == 0) { // discard this pair
-    mCounterV0.inc(CHECKV0::FPROCESS, {}, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
+    if (check) {
+      fitterV0.process(seedP, seedN);
+    }
+    mCounterV0.inc(CHECKV0::FPROCESS, {}, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, true, fitterV0.isPropagationFailure(), fitterV0.getNIterations());
     return false;
   }
   const auto& v0XYZ = fitterV0.getPCACandidate();
@@ -648,18 +652,18 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   // check closeness to the beam-line
   float dxv0 = v0XYZ[0] - mMeanVertex.getX(), dyv0 = v0XYZ[1] - mMeanVertex.getY(), r2v0 = dxv0 * dxv0 + dyv0 * dyv0;
   if (r2v0 < mMinR2ToMeanVertex) {
-    mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
     return false;
   }
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
-    mCounterV0.inc(CHECKV0::REJCAUSALITY, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0.inc(CHECKV0::REJCAUSALITY, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
     return false;
   }
   const int cand = 0;
   if (!fitterV0.isPropagateTracksToVertexDone(cand) && !fitterV0.propagateTracksToVertex(cand)) {
-    mCounterV0.inc(CHECKV0::PROPVTX, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0.inc(CHECKV0::PROPVTX, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
     return false;
   }
   auto& trPProp = fitterV0.getTrack(0, cand);
@@ -675,12 +679,12 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   float pt2V0 = pV0[0] * pV0[0] + pV0[1] * pV0[1], prodXYv0 = dxv0 * pV0[0] + dyv0 * pV0[1], tDCAXY = prodXYv0 / pt2V0;
   if (pt2V0 < mMinPt2V0) { // pt cut
     LOG(debug) << "RejPt2 " << pt2V0;
-    mCounterV0.inc(CHECKV0::REJPT2, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0.inc(CHECKV0::REJPT2, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
     return false;
   }
   if (pV0[2] * pV0[2] / pt2V0 > mMaxTgl2V0) { // tgLambda cut
     LOG(debug) << "RejTgL " << pV0[2] * pV0[2] / pt2V0;
-    mCounterV0.inc(CHECKV0::REJTGL, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    mCounterV0.inc(CHECKV0::REJTGL, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
     return false;
   }
   float p2V0 = pt2V0 + pV0[2] * pV0[2], ptV0 = std::sqrt(pt2V0);
@@ -772,6 +776,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
       new (&v0new) V0(v0XYZ, pV0, fitterV0.calcPCACovMatrixFlat(cand), trPProp, trNProp);
       new (&v0Idxnew) V0Index(-1, seedP.gid, seedN.gid);
       v0new.setDCA(fitterV0.getChi2AtPCACandidate(cand));
+      mCounterV0.inc(CHECKV0::NEWV0, pv, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, fitterV0.isPropagationFailure());
       candFound = true;
     }
     v0new.setCosPA(cosPA);

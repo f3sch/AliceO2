@@ -40,8 +40,11 @@ struct SVertexerParams : public o2::conf::ConfigurableParamHelper<SVertexerParam
   float minParamChange = 1e-3;  ///< stop when tracks X-params being minimized change by less that this value
   float minRelChi2Change = 0.9; ///< stop when chi2 changes by less than this value
   float maxDZIni = 5.;          ///< don't consider as a seed (circles intersection) if Z distance exceeds this
+  float maxDXYIni = 4.;          ///< don't consider as a seed (circles intersection) if XY distance exceeds this
   float maxRIni = 150;          ///< don't consider as a seed (circles intersection) if its R exceeds this
+  /// bb
   //
+  int maxIter = 20;
   // propagation options
   int matCorr = int(o2::base::Propagator::MatCorrType::USEMatCorrNONE); ///< material correction to use
   float minRFor3DField = 40;                                            ///< above this radius use 3D field
