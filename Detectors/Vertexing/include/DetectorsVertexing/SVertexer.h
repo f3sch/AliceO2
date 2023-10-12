@@ -1213,6 +1213,8 @@ class SVertexer
   };
   static constexpr std::string_view accTreeName{"acceptTrack"};
   Counter_t<AcceptTrack> mCounterAcceptTrack{accTreeName, accNames};
+
+    int nProcess{0};
 };
 } // namespace vertexing
 } // namespace o2

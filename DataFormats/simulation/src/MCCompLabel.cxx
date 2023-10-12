@@ -25,7 +25,7 @@ std::ostream& operator<<(std::ostream& os, MCCompLabel const& c)
   // stream itself
   if (c.isValid()) {
     os << '[' << c.getSourceID() << '/' << c.getEventID() << '/'
-       << (c.isFake() ? '-' : '+') << std::setw(6) << c.getTrackID() << ']';
+       << (c.isFake() ? "[fake]" : "[!fake]") << std::setw(6) << c.getTrackID() << ']';
   } else {
     os << (c.isNoise() ? "[noise]" : "[unset]");
   }

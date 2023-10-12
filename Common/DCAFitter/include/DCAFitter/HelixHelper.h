@@ -19,6 +19,7 @@
 #include "CommonConstants/MathConstants.h"
 #include "MathUtils/Utils.h"
 #include "MathUtils/Primitive2D.h"
+#include "FairLogger.h"
 
 namespace o2
 {
@@ -48,6 +49,10 @@ struct TrackAuxPar : public o2::math_utils::CircleXYf_t {
     ss = s * s;
     cs = c * s;
   }
+  void print()
+  {
+    LOGP(info, "TrackAuxPar: cos={}, sin={}, cos*cos={}, sin*sin={}, cos*sin={}", c, s, cc, ss, cs);
+  }
   ClassDefNV(TrackAuxPar, 1);
 };
 
@@ -58,6 +63,19 @@ struct CrossInfo {
   float xDCA[2] = {};
   float yDCA[2] = {};
   int nDCA = 0;
+  bool mDebug = false;
+  void setDebug()
+  {
+    mDebug = true;
+    bConcentric = false;
+    bDistXY = false;
+    bNotTouching = false;
+  }
+  void unsetDebug() { mDebug = false; }
+  bool bConcentric{false}, bDistXY{false}, bNotTouching{false};
+  float vDistXY;
+  float vRsum;
+  float vDist;
 
   int circlesCrossInfo(const TrackAuxPar& trax0, const TrackAuxPar& trax1, float maxDistXY = MaxDistXYDef)
   {
@@ -65,13 +83,21 @@ struct CrossInfo {
     const auto& trcB = trax0.rC > trax1.rC ? trax1 : trax0;
     float xDist = trcB.xC - trcA.xC, yDist = trcB.yC - trcA.yC;
     float dist2 = xDist * xDist + yDist * yDist, dist = std::sqrt(dist2), rsum = trcA.rC + trcB.rC;
+    LOG_IF(info, mDebug) << "xDist=" << xDist << ", yDist=" << yDist << ", dist2=" << dist2 << ", dist=" << dist << ", rsum=" << rsum;
     if (std::abs(dist) < 1e-12) {
+      LOG_IF(info, mDebug) << " -> concentric=" << nDCA;
+      bConcentric = true;
       return nDCA; // circles are concentric?
     }
     if (dist > rsum) { // circles don't touch, chose a point in between
       // the parametric equation of lines connecting the centers is
       // x = x0 + t/dist * (x1-x0), y = y0 + t/dist * (y1-y0)
       if (dist - rsum > maxDistXY) { // too large distance
+        LOG_IF(info, mDebug) << " -> too large distance=" << nDCA;
+        vDistXY = dist - rsum;
+        vDist = dist;
+        vRsum = rsum;
+        bDistXY = true;
         return nDCA;
       }
       notTouchingXY(dist, xDist, yDist, trcA, trcB.rC);
@@ -79,11 +105,14 @@ struct CrossInfo {
       // select the point of closest approach of 2 circles
       notTouchingXY(dist, xDist, yDist, trcA, -trcB.rC);
     } else { // 2 intersection points
+      LOG_IF(info, mDebug) << "2 intersection points";
       // to simplify calculations, we move to new frame x->x+Xc0, y->y+Yc0, so that
       // the 1st one is centered in origin
       if (std::abs(xDist) < std::abs(yDist)) {
         float a = (trcA.rC * trcA.rC - trcB.rC * trcB.rC + dist2) / (2. * yDist), b = -xDist / yDist, ab = a * b, bb = b * b;
         float det = ab * ab - (1. + bb) * (a * a - trcA.rC * trcA.rC);
+        LOG_IF(info, mDebug) << "Abs(xDist)<Abs(yDist)"
+                             << "a=" << a << ", b=" << b << ", det=" << det;
         if (det > 0.) {
           det = std::sqrt(det);
           xDCA[0] = (-ab + det) / (1. + b * b);
@@ -93,12 +122,16 @@ struct CrossInfo {
           yDCA[1] = a + b * xDCA[1] + trcA.yC;
           xDCA[1] += trcA.xC;
           nDCA = 2;
+          LOG_IF(info, mDebug) << "xDCA[0]=" << xDCA[0] << ", yDCA[0]=" << yDCA[0] << ", xDCA[1]=" << xDCA[1] << ", yDCA[1]=" << yDCA[1];
         } else { // due to the finite precision the det<=0, i.e. the circles are barely touching, fall back to this special case
+          LOG_IF(info, mDebug) << "    --> barely touching";
           notTouchingXY(dist, xDist, yDist, trcA, trcB.rC);
         }
       } else {
         float a = (trcA.rC * trcA.rC - trcB.rC * trcB.rC + dist2) / (2. * xDist), b = -yDist / xDist, ab = a * b, bb = b * b;
         float det = ab * ab - (1. + bb) * (a * a - trcA.rC * trcA.rC);
+        LOG_IF(info, mDebug) << "Abs(xDist)>Abs(yDist)"
+                             << "a=" << a << ", b=" << b << ", det=" << det;
         if (det > 0.) {
           det = std::sqrt(det);
           yDCA[0] = (-ab + det) / (1. + bb);
@@ -108,7 +141,9 @@ struct CrossInfo {
           xDCA[1] = a + b * yDCA[1] + trcA.xC;
           yDCA[1] += trcA.yC;
           nDCA = 2;
+          LOG_IF(info, mDebug) << "xDCA[0]=" << xDCA[0] << ", yDCA[0]=" << yDCA[0] << ", xDCA[1]=" << xDCA[1] << ", yDCA[1]=" << yDCA[1];
         } else { // due to the finite precision the det<=0, i.e. the circles are barely touching, fall back to this special case
+          LOG_IF(info, mDebug) << "    --> barely touching";
           notTouchingXY(dist, xDist, yDist, trcA, trcB.rC);
         }
       }
@@ -128,6 +163,8 @@ struct CrossInfo {
     auto t2d = (dist + trcA.rC - rBSign) / dist;
     xDCA[0] = trcA.xC + 0.5 * (xDist * t2d);
     yDCA[0] = trcA.yC + 0.5 * (yDist * t2d);
+    LOG_IF(info, mDebug) << " --> notTouchingXY: xDCA=" << xDCA[0] << " yDCA=" << yDCA[0];
+    bNotTouching = true;
   }
 
   template <typename T>

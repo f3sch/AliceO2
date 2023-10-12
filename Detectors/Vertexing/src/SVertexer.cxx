@@ -92,6 +92,28 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
     }
   }
 
+  LOG_IF(info, mUseDebug) << "Total rejected true V0s in processing: " << nProcess;
+  for (int i{0}; i < mNThreads; ++i) {
+    LOG_IF(info, mUseDebug) << "Thread = " << i;
+    const auto& f = mFitterV0[i];
+    f.printStats();
+    for (const auto& e : f.vChi2) {
+      mDebugStream << "pChi2"
+                   << "chi2=" << e << "\n";
+    }
+    for (const auto& e : f.vDistZ) {
+      mDebugStream << "pDistZ"
+                   << "z=" << e << "\n";
+    }
+    for (int j{0}; j < f.vDist.size(); ++j) {
+      mDebugStream << "pDist"
+                   << "xy=" << f.vDistXY[j]
+                   << "rsum=" << f.vRsum[j]
+                   << "dist=" << f.vDist[j]
+                   << "\n";
+    }
+  }
+
   // sort V0s and Cascades in vertex id
   struct vid {
     int thrID;
@@ -642,7 +664,15 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   int nCand = fitterV0.process(seedP, seedN);
   if (nCand == 0) { // discard this pair
     if (check) {
+      fitterV0.setDebug(nProcess++);
+      LOGP(info,"Label: 0");
+      seedP.gid.print();
+      lbl0.print();
+      LOGP(info,"Label: 1");
+      lbl1.print();
+      seedN.gid.print();
       fitterV0.process(seedP, seedN);
+      fitterV0.unsetDebug();
     }
     mCounterV0.inc(CHECKV0::FPROCESS, {}, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, true, fitterV0.isPropagationFailure(), fitterV0.getNIterations());
     return false;
