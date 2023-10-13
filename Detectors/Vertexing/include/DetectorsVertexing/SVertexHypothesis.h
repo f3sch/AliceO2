@@ -19,6 +19,7 @@
 #include "ReconstructionDataFormats/PID.h"
 #include <cmath>
 #include <array>
+#include "FairLogger.h"
 
 namespace o2
 {
@@ -65,6 +66,11 @@ class SVertexHypothesis
 
   float getSigma(float pt) const { return mPars[SigmaM] * (1.f + mPars[CPt] * pt); }
   float getMargin(float pt) const { return mPars[NSigmaM] * getSigma(pt) + mPars[MarginM]; }
+
+  void print() const
+  {
+    LOGP(info, "[+++] V0: {}  with PosProng: {}   and NegProng: {}", mPIDV0.getName(), mPIDPosProng.getName(), mPIDNegProng.getName());
+  }
 
  private:
   float getMass2PosProng() const { return PID::getMass2(mPIDPosProng); }

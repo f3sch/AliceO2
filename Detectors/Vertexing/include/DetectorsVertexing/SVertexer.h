@@ -16,6 +16,7 @@
 #define O2_S_VERTEXER_H
 
 #include "ReconstructionDataFormats/Track.h"
+#include "SimulationDataFormat/MCEventHeader.h"
 #include "gsl/span"
 #include "DataFormatsGlobalTracking/RecoContainer.h"
 #include "ReconstructionDataFormats/PrimaryVertex.h"
@@ -222,6 +223,7 @@ class SVertexer
   gsl::span<const o2::MCCompLabel> mTPCTRDTOFTrkLabels;
   gsl::span<const o2::MCCompLabel> mTPCTRDTrkLabels;
   gsl::span<const o2::MCCompLabel> mTPCTOFTrkLabels;
+  gsl::span<const o2::MCEventLabel> mPVertexLabels;
   o2::utils::TreeStreamRedirector mDebugStream{"svertexer-debug.root", "recreate"};
   o2::steer::MCKinematicsReader mcReader; // reader of MC information
   void writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk);
@@ -482,7 +484,7 @@ class SVertexer
                    << "\n";
     }
 
-    bool inc(Enum e, PVertex const& pvertex, Vec3D const& svertex, const TrackCand& seedP, const TrackCand& seedN, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream, bool write = true, bool useMC = false, bool isPropFail = false, int nIter = -1)
+    bool inc(Enum e, PVertex const& pvertex, dataformats::MCEventHeader const& pvertexheader, MCEventLabel const& pvertexlbl, Vec3D const& svertex, const TrackCand& seedP, const TrackCand& seedN, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream, bool write = true, bool useMC = false, bool isPropFail = false, int nIter = -1, float cospaxy = -100000, float dca2 = 0xdead)
     {
       // checkV0
       auto c = static_cast<unsigned int>(e);
@@ -578,6 +580,10 @@ class SVertexer
                    << "mcSeedN=" << mcTrkN
                    << "svertex=" << sv
                    << "pvertex=" << pvertex
+                   << "pvertexlbl=" << pvertexlbl
+                   << "pvertexheader=" << pvertexheader
+                   << "cospaxy=" << cospaxy
+                   << "dca2=" << dca2
                    << "case=" << c
                    << "comb=" << i
                    << "propFail=" << isPropFail
@@ -1106,6 +1112,10 @@ class SVertexer
     PROPVTX,
     REJPT2,
     REJTGL,
+    V0HYP,
+    REJAFTER3BODYCHECK,
+    COSPAXY,
+    ACOSPAXY,
     REJCPA,
     NEWV0,
     CALLED,
@@ -1118,6 +1128,10 @@ class SVertexer
     "Propagating to vertex",
     "Rejection Pt2",
     "Rejection TgL",
+    "Check V0 Hypothesis",
+    "Reject after 3 body check",
+    "Cos PA xy rejection",
+    "After Cos PA xy rejection",
     "Rejection Cos Pointing Angle",
     "New V0",
     "#CALLED",
@@ -1214,7 +1228,7 @@ class SVertexer
   static constexpr std::string_view accTreeName{"acceptTrack"};
   Counter_t<AcceptTrack> mCounterAcceptTrack{accTreeName, accNames};
 
-    int nProcess{0};
+  int nProcess{0};
 };
 } // namespace vertexing
 } // namespace o2

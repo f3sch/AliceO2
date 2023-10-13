@@ -15,6 +15,7 @@
 
 #include "DetectorsVertexing/SVertexer.h"
 #include "DetectorsBase/Propagator.h"
+#include "SimulationDataFormat/MCEventHeader.h"
 #include "TPCReconstruction/TPCFastTransformHelperO2.h"
 #include "DataFormatsTPC/VDriftCorrFact.h"
 #include "CorrectionMapsHelper.h"
@@ -23,6 +24,7 @@
 #include "ReconstructionDataFormats/StrangeTrack.h"
 #include "FairLogger.h"
 #include "DataFormatsTRD/TrackTRD.h"
+#include "SimulationDataFormat/MCEventLabel.h"
 
 #include <tuple>
 #include <unordered_map>
@@ -56,6 +58,7 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
     mITSTPCTrkLabels = recoData.getTPCITSTracksMCLabels();
     mITSTrkLabels = recoData.getITSTracksMCLabels();
     mTPCTrkLabels = recoData.getTPCTracksMCLabels();
+    mPVertexLabels = recoData.getPrimaryVertexMCLabels();
   }
   buildT2V(recoData); // build track->vertex refs from vertex->track (if other workflow will need this, consider producing a message in the VertexTrackMatcher)
   int ntrP = mTracksPool[POS].size(), ntrN = mTracksPool[NEG].size();
@@ -659,22 +662,27 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   auto lbl0 = getLabel(seedP.gid);
   auto lbl1 = getLabel(seedN.gid);
   auto ok = checkLabels(lbl0, lbl1);
-  bool check = mCounterV0.inc(CHECKV0::CALLED, {}, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, false);
+  const auto& pVtx = mcReader.getMCEventHeader(lbl0.getSourceID(), lbl0.getEventID());
+  MCEventLabel pVtxLbl;
+  if (seedP.vBracket.getOverlap(seedN.vBracket).isZeroLength()) {
+    pVtxLbl = mPVertexLabels[seedP.vBracket.getMin()];
+  }
+  bool check = mCounterV0.inc(CHECKV0::CALLED, {}, pVtx, pVtxLbl, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, false);
   auto& fitterV0 = mFitterV0[ithread];
   int nCand = fitterV0.process(seedP, seedN);
   if (nCand == 0) { // discard this pair
     if (check) {
       fitterV0.setDebug(nProcess++);
-      LOGP(info,"Label: 0");
+      LOGP(info, "Label: 0");
       seedP.gid.print();
       lbl0.print();
-      LOGP(info,"Label: 1");
+      LOGP(info, "Label: 1");
       lbl1.print();
       seedN.gid.print();
       fitterV0.process(seedP, seedN);
       fitterV0.unsetDebug();
     }
-    mCounterV0.inc(CHECKV0::FPROCESS, {}, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, true, fitterV0.isPropagationFailure(), fitterV0.getNIterations());
+    mCounterV0.inc(CHECKV0::FPROCESS, {}, pVtx, pVtxLbl, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, check, true, fitterV0.isPropagationFailure(), fitterV0.getNIterations());
     return false;
   }
   const auto& v0XYZ = fitterV0.getPCACandidate();
@@ -682,18 +690,18 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   // check closeness to the beam-line
   float dxv0 = v0XYZ[0] - mMeanVertex.getX(), dyv0 = v0XYZ[1] - mMeanVertex.getY(), r2v0 = dxv0 * dxv0 + dyv0 * dyv0;
   if (r2v0 < mMinR2ToMeanVertex) {
-    mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
+    mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
     return false;
   }
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
-    mCounterV0.inc(CHECKV0::REJCAUSALITY, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
+    mCounterV0.inc(CHECKV0::REJCAUSALITY, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
     return false;
   }
   const int cand = 0;
   if (!fitterV0.isPropagateTracksToVertexDone(cand) && !fitterV0.propagateTracksToVertex(cand)) {
-    mCounterV0.inc(CHECKV0::PROPVTX, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
+    mCounterV0.inc(CHECKV0::PROPVTX, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
     return false;
   }
   auto& trPProp = fitterV0.getTrack(0, cand);
@@ -709,12 +717,12 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   float pt2V0 = pV0[0] * pV0[0] + pV0[1] * pV0[1], prodXYv0 = dxv0 * pV0[0] + dyv0 * pV0[1], tDCAXY = prodXYv0 / pt2V0;
   if (pt2V0 < mMinPt2V0) { // pt cut
     LOG(debug) << "RejPt2 " << pt2V0;
-    mCounterV0.inc(CHECKV0::REJPT2, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
+    mCounterV0.inc(CHECKV0::REJPT2, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
     return false;
   }
   if (pV0[2] * pV0[2] / pt2V0 > mMaxTgl2V0) { // tgLambda cut
     LOG(debug) << "RejTgL " << pV0[2] * pV0[2] / pt2V0;
-    mCounterV0.inc(CHECKV0::REJTGL, {}, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
+    mCounterV0.inc(CHECKV0::REJTGL, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
     return false;
   }
   float p2V0 = pt2V0 + pV0[2] * pV0[2], ptV0 = std::sqrt(pt2V0);
@@ -725,6 +733,9 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   std::array<bool, NHypV0> hypCheckStatus{};
   for (int ipid = 0; ipid < NHypV0; ipid++) {
     if (mV0Hyps[ipid].check(p2Pos, p2Neg, p2V0, ptV0)) {
+      if (check) {
+        // mV0Hyps[ipid].print();
+      }
       goodHyp = hypCheckStatus[ipid] = true;
     }
   }
@@ -733,7 +744,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   bool good3bodyV0Hyp = false;
   for (int ipid = 2; ipid < 4; ipid++) {
     float massForLambdaHyp = mV0Hyps[ipid].calcMass(p2Pos, p2Neg, p2V0);
-    if (massForLambdaHyp - mV0Hyps[ipid].getMassV0Hyp() < mV0Hyps[ipid].getMargin(ptV0)) {
+    if (mEnable3BodyDecays && massForLambdaHyp - mV0Hyps[ipid].getMassV0Hyp() < mV0Hyps[ipid].getMargin(ptV0)) {
       good3bodyV0Hyp = true;
       break;
     }
@@ -748,6 +759,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   if (!goodHyp && mSVParams->checkV0Hypothesis) {
     LOG(debug) << "RejHypo";
     if (!checkFor3BodyDecays && !checkForCascade) {
+      mCounterV0.inc(CHECKV0::V0HYP, {}, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
       return false;
     } else {
       rejectAfter3BodyCheck = true;
@@ -761,6 +773,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     if (dca2 > mMaxDCAXY2ToMeanVertexV0Casc || cosPAXY < mSVParams->minCosPAXYMeanVertexCascV0) {
       LOG(debug) << "Rej for cascade DCAXY2: " << dca2 << " << cosPAXY: " << cosPAXY;
       if (!checkFor3BodyDecays) {
+        mCounterV0.inc(CHECKV0::REJAFTER3BODYCHECK, {}, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
         return false;
       } else {
         rejectAfter3BodyCheck = true;
@@ -773,6 +786,9 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
       checkFor3BodyDecays = false;
     }
   }
+  if (check) {
+    LOG(debug) << "True V0";
+  }
 
   if (dca2 > mMaxDCAXY2ToMeanVertex || cosPAXY < mSVParams->minCosPAXYMeanVertex) {
     if (checkForCascade) {
@@ -780,9 +796,11 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     } else if (checkFor3BodyDecays) {
       rejectAfter3BodyCheck = true;
     } else {
+      mCounterV0.inc(CHECKV0::COSPAXY, {}, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure(), -1, cosPAXY, dca2);
       return false;
     }
   }
+  mCounterV0.inc(CHECKV0::ACOSPAXY, {}, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure(), -1, cosPAXY, dca2);
 
   auto vlist = seedP.vBracket.getOverlap(seedN.vBracket); // indices of vertices shared by both seeds
   bool candFound = false;
@@ -799,14 +817,14 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     float cosPA = prodXYZv0 / std::sqrt((dx * dx + dy * dy + dz * dz) * p2V0);
     if (cosPA < bestCosPA) {
       LOG(debug) << "Rej. cosPA: " << cosPA;
-      mCounterV0.inc(CHECKV0::REJCPA, pv, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+      mCounterV0.inc(CHECKV0::REJCPA, pv, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
       continue;
     }
     if (!candFound) {
       new (&v0new) V0(v0XYZ, pV0, fitterV0.calcPCACovMatrixFlat(cand), trPProp, trNProp);
       new (&v0Idxnew) V0Index(-1, seedP.gid, seedN.gid);
       v0new.setDCA(fitterV0.getChi2AtPCACandidate(cand));
-      mCounterV0.inc(CHECKV0::NEWV0, pv, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, fitterV0.isPropagationFailure());
+      mCounterV0.inc(CHECKV0::NEWV0, pv, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure());
       candFound = true;
     }
     v0new.setCosPA(cosPA);
@@ -1278,6 +1296,10 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
     return false;                     // let it be processed as such
   }
   const auto& vtx = mPVertices[vtxid];
+  const auto& vtxLbl = mPVertexLabels[vtxid];
+  if (auto lbl = getLabel(gid); lbl.getEventID() != vtxLbl.getEventID() || lbl.getSourceID() != vtxLbl.getSourceID()) {
+    return true;
+  }
   auto twe = vtx.getTimeStamp();
   int posneg = trTPC.getSign() < 0 ? 1 : 0;
   auto& trLoc = mTracksPool[posneg].emplace_back(TrackCand{trTPC, gid, {vtxid, vtxid}, 0.123});
