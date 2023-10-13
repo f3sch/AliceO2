@@ -812,7 +812,12 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     } else if (checkFor3BodyDecays) {
       rejectAfter3BodyCheck = true;
     } else {
-      mCounterV0.inc(CHECKV0::COSPAXY, {}, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure(), -1, cosPAXY, dca2);
+      if (cosPAXY < mSVParams->minCosPAXYMeanVertex) {
+        mCounterV0.inc(CHECKV0::COSPAXY, {}, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure(), -1, cosPAXY, dca2);
+      }
+      if (dca2 > mMaxDCAXY2ToMeanVertex) {
+        mCounterV0.inc(CHECKV0::DCA2, {}, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure(), -1, cosPAXY, dca2);
+      }
       if (mSVParams->ret) {
         return false;
       }
