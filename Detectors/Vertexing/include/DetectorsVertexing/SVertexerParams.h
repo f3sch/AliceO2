@@ -28,7 +28,7 @@ namespace vertexing
 
 // These are configurable params for Primary Vertexer
 struct SVertexerParams : public o2::conf::ConfigurableParamHelper<SVertexerParams> {
-
+  bool ret = true;
   // parameters
   bool createFullV0s = false;      ///< fill V0s prongs/kinematics
   bool createFullCascades = false; ///< fill cascades prongs/kinematics
