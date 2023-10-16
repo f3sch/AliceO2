@@ -397,6 +397,8 @@ void SVertexer::updateTimeDependentParams()
   m3bodyHyps[Hyp3body::H3L3body].set(PID::HyperTriton, PID::Proton, PID::Pion, PID::Deuteron, mSVParams->pidCutsH3L3body, bz);
   m3bodyHyps[Hyp3body::AntiH3L3body].set(PID::HyperTriton, PID::Pion, PID::Proton, PID::Deuteron, mSVParams->pidCutsH3L3body, bz);
 
+  mCounterV0.setMeanVertex(mMeanVertex);
+
   for (auto& ft : mFitterV0) {
     ft.setBz(bz);
   }
@@ -690,14 +692,14 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   const auto& v0XYZ = fitterV0.getPCACandidate();
   // validate V0 radial position
   // check closeness to the beam-line
-  float dxv0 = v0XYZ[0] - mMeanVertex.getX(), dyv0 = v0XYZ[1] - mMeanVertex.getY(), r2v0 = dxv0 * dxv0 + dyv0 * dyv0;
+  const float dxv0 = v0XYZ[0] - mMeanVertex.getX(), dyv0 = v0XYZ[1] - mMeanVertex.getY(), r2v0 = dxv0 * dxv0 + dyv0 * dyv0;
   if (r2v0 < mMinR2ToMeanVertex) {
     mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure());
     if (mSVParams->ret) {
       return false;
     }
   }
-  float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
+  const float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
     mCounterV0.inc(CHECKV0::REJCAUSALITY, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure());
@@ -717,12 +719,8 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   std::array<float, 3> pP{}, pN{};
   trPProp.getPxPyPzGlo(pP);
   trNProp.getPxPyPzGlo(pN);
-  // estimate DCA of neutral V0 track to beamline: straight line with parametric equation
-  // x = X0 + pV0[0]*t, y = Y0 + pV0[1]*t reaches DCA to beamline (Xv, Yv) at
-  // t = -[ (x0-Xv)*pV0[0] + (y0-Yv)*pV0[1]) ] / ( pT(pV0)^2 )
-  // Similar equation for 3D distance involving pV0[2]
-  std::array<float, 3> pV0 = {pP[0] + pN[0], pP[1] + pN[1], pP[2] + pN[2]};
-  float pt2V0 = pV0[0] * pV0[0] + pV0[1] * pV0[1], prodXYv0 = dxv0 * pV0[0] + dyv0 * pV0[1], tDCAXY = prodXYv0 / pt2V0;
+  const std::array<float, 3> pV0 = {pP[0] + pN[0], pP[1] + pN[1], pP[2] + pN[2]};
+  const float pt2V0 = pV0[0] * pV0[0] + pV0[1] * pV0[1];
   if (pt2V0 < mMinPt2V0) { // pt cut
     LOG(debug) << "RejPt2 " << pt2V0;
     mCounterV0.inc(CHECKV0::REJPT2, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure());
@@ -780,8 +778,16 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     }
   }
 
-  float dcaX = dxv0 - pV0[0] * tDCAXY, dcaY = dyv0 - pV0[1] * tDCAXY, dca2 = dcaX * dcaX + dcaY * dcaY;
-  float cosPAXY = prodXYv0 / std::sqrt(r2v0 * pt2V0);
+  // estimate DCA of neutral V0 track to beamline: straight line with parametric equation
+  // x = X0 + pV0[0]*t, y = Y0 + pV0[1]*t reaches DCA to beamline (Xv, Yv) at
+  // t = -[ (x0-Xv)*pV0[0] + (y0-Yv)*pV0[1]) ] / ( pT(pV0)^2 )
+  // Similar equation for 3D distance involving pV0[2]
+  const float prodXYv0 = dxv0 * pV0[0] + dyv0 * pV0[1];
+  const float tDCAXY = prodXYv0 / pt2V0;
+  const float dcaX = dxv0 - pV0[0] * tDCAXY;
+  const float dcaY = dyv0 - pV0[1] * tDCAXY;
+  const float dca2 = dcaX * dcaX + dcaY * dcaY;
+  const float cosPAXY = prodXYv0 / std::sqrt(r2v0 * pt2V0);
 
   if (checkForCascade) { // use looser cuts for cascade v0 candidates
     if (dca2 > mMaxDCAXY2ToMeanVertexV0Casc || cosPAXY < mSVParams->minCosPAXYMeanVertexCascV0) {
@@ -848,7 +854,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
       new (&v0new) V0(v0XYZ, pV0, fitterV0.calcPCACovMatrixFlat(cand), trPProp, trNProp);
       new (&v0Idxnew) V0Index(-1, seedP.gid, seedN.gid);
       v0new.setDCA(fitterV0.getChi2AtPCACandidate(cand));
-      mCounterV0.inc(CHECKV0::NEWV0, pv, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, false, fitterV0.isPropagationFailure(), fitterV0.getNIterations(), cosPA, dca2);
+      mCounterV0.inc(CHECKV0::NEWV0, pv, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure(), fitterV0.getNIterations(), cosPA, dca2);
       candFound = true;
     }
     v0new.setCosPA(cosPA);

@@ -372,12 +372,17 @@ class SVertexer
   struct Counter_t {
     const std::array<std::string_view, static_cast<size_t>(Enum::NSIZE)>& _names;
     const std::string _treeName;
+    o2d::VertexBase mMeanVertex{{0., 0., 0.}, {0.1 * 0.1, 0., 0.1 * 0.1, 0., 0., 6. * 6.}};
     Counter_t(std::string_view const& treeName, std::array<std::string_view, static_cast<size_t>(Enum::NSIZE)> const& names) : _treeName{treeName}, _names{names}
     {
       mTotCounters.fill(0);
       for (auto& c : mCounters) {
         c.fill(0);
       }
+    }
+    void setMeanVertex(o2d::VertexBase const& v)
+    {
+      mMeanVertex = v;
     }
 
     std::array<ULong64_t, static_cast<size_t>(Enum::NSIZE)> mTotCounters{};
@@ -578,6 +583,7 @@ class SVertexer
                    << "recoSeedPropN=" << trkPropN
                    << "mcSeedP=" << mcTrkP
                    << "mcSeedN=" << mcTrkN
+                   << "meanVertex=" << mMeanVertex
                    << "svertex=" << sv
                    << "pvertex=" << pvertex
                    << "pvertexlbl=" << pvertexlbl
@@ -1115,7 +1121,7 @@ class SVertexer
     V0HYP,
     REJAFTER3BODYCHECK,
     COSPAXY,
-      DCA2,
+    DCA2,
     ACOSPAXY,
     REJCPA,
     NEWV0,
