@@ -1332,7 +1332,8 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
   }
   auto twe = vtx.getTimeStamp();
   int posneg = trTPC.getSign() < 0 ? 1 : 0;
-  auto& trLoc = mTracksPool[posneg].emplace_back(TrackCand{trTPC, gid, {vtxid, vtxid}, 0.123});
+  // auto& trLoc = mTracksPool[posneg].emplace_back(TrackCand{trTPC, gid, {vtxid, vtxid}, 0.123});
+  auto trLoc = mTracksPool[posneg].emplace_back(TrackCand{trTPC, gid, {vtxid, vtxid}, 0.123});
   auto err = correctTPCTrack(trLoc, trTPC, twe.getTimeStamp(), twe.getTimeStampError());
   if (err < 0 || TMath::Abs(trLoc.getZ() - vtx.getZ() - trLoc.getTgl() * trLoc.getX()) > mSVParams->mTPCTrackMaxZ) {
     mTracksPool[posneg].pop_back(); // discard
