@@ -220,16 +220,17 @@ class DCAFitterN
   float getMasStep() const { return mMaxStep; }
   float getMinXSeed() const { return mMinXSeed; }
 
-  void setDebug(int curId)
+  void setDebug(int curId, bool shutup)
   {
     mDebug = true;
-    LOG_IF(info, mDebug) << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Current failed Track = " << mCurID;
+    mShutup = shutup;
+    LOG_IF(info, mDebug && !mShutup) << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Current failed Track = " << mCurID;
     mCurID = curId;
-    mCrossings.setDebug();
+    mCrossings.setDebug(shutup);
   }
   void unsetDebug()
   {
-    LOG_IF(info, mDebug) << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+    LOG_IF(info, mDebug && !mShutup) << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
     mDebug = false;
     mCrossings.unsetDebug();
   }
@@ -365,7 +366,7 @@ class DCAFitterN
   float mMaxStep = 2.0;                                                                           // Max step for propagation with Propagator
   int mFitterID = 0;                                                                              // locat fitter ID (mostly for debugging)
   size_t mCallID = 0;
-  bool mDebug{false};
+  bool mDebug{false}, mShutup{false};
   int mCurID{0};
   ULong64_t nCrossings{0}, nPropFail{0}, nZCut{0}, nInvFail{0}, nCorrectFails{0}, nCloserAlt{0}, nChi2{0},
     nConcentric{0}, nDistXY{0}, nNotTouching{0}, nChi2Called{0}, nTotCrossings{0};
@@ -382,20 +383,20 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
   static_assert(sizeof...(args) == N, "incorrect number of input tracks");
   assign(0, args...);
   clear();
-  LOG_IF(info, mDebug) << "------------ TracksStart";
+  LOG_IF(info, mDebug && !mShutup) << "------------ TracksStart";
   for (int i = 0; i < N; i++) {
     mTrAux[i].set(*mOrigTrPtr[i], mBz);
-    if (mDebug) {
-      LOG_IF(info, mDebug) << "+++++ i=" << i;
+    if (mDebug && !mShutup) {
+      LOG(info) << "+++++ i=" << i;
       mOrigTrPtr[i]->print();
       mTrAux[i].print();
-      LOG_IF(info, mDebug) << "-----";
+      LOG(info) << "-----";
     }
   }
-  LOG_IF(info, mDebug) << "------------ TracksEnd";
+  LOG_IF(info, mDebug && !mShutup) << "------------ TracksEnd";
 
   if (!mCrossings.set(mTrAux[0], *mOrigTrPtr[0], mTrAux[1], *mOrigTrPtr[1], mMaxDXYIni)) { // even for N>2 it should be enough to test just 1 loop
-    LOG_IF(info, mDebug) << "no crossings";
+    LOG_IF(info, mDebug && !mShutup) << "no crossings";
     if (mDebug) {
       if (mCrossings.bNotTouching) {
         ++nNotTouching;
@@ -420,7 +421,7 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
     calcRMatrices(); // needed for fast residuals derivatives calculation in case of abs. distance minimization
   }
   if (mCrossings.nDCA == MAXHYP) { // if there are 2 candidates and they are too close, chose their mean as a starting point
-    LOG_IF(info, mDebug) << " `-> 2 candidates";
+    LOG_IF(info, mDebug && !mShutup) << " `-> 2 candidates";
     auto dst2 = (mCrossings.xDCA[0] - mCrossings.xDCA[1]) * (mCrossings.xDCA[0] - mCrossings.xDCA[1]) +
                 (mCrossings.yDCA[0] - mCrossings.yDCA[1]) * (mCrossings.yDCA[0] - mCrossings.yDCA[1]);
     if (dst2 < mMaxDist2ToMergeSeeds) {
@@ -434,10 +435,10 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
   nTotCrossings += mCrossings.nDCA;
   // check all crossings
   for (int ic = 0; ic < mCrossings.nDCA; ic++) {
-    LOG_IF(info, mDebug) << "iCandidate=" << ic << "/" << mCrossings.nDCA << ": xDCA=" << mCrossings.xDCA[ic] << " yDCA=" << mCrossings.yDCA[ic];
+    LOG_IF(info, mDebug && !mShutup) << "iCandidate=" << ic << "/" << mCrossings.nDCA << ": xDCA=" << mCrossings.xDCA[ic] << " yDCA=" << mCrossings.yDCA[ic];
     // check if radius is acceptable
     if (mCrossings.xDCA[ic] * mCrossings.xDCA[ic] + mCrossings.yDCA[ic] * mCrossings.yDCA[ic] > mMaxR2) {
-      LOG_IF(info, mDebug) << " `-> radius unaccepatble";
+      LOG_IF(info, mDebug && !mShutup) << " `-> radius unaccepatble";
       cont = true;
       ++nCont;
       continue;
@@ -451,10 +452,10 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
     mPCA[mCurHyp][1] = mCrossings.yDCA[ic];
     ++nChi2Called;
     if (mUseAbsDCA ? minimizeChi2NoErr() : minimizeChi2()) {
-      LOG_IF(info, mDebug) << "minimizeChi2 true";
+      LOG_IF(info, mDebug && !mShutup) << "minimizeChi2 true";
       mOrder[mCurHyp] = mCurHyp;
       if (mPropagateToPCA && !propagateTracksToVertex(mCurHyp)) {
-        LOG_IF(info, mDebug) << "propagateTracksToVertex failed";
+        LOG_IF(info, mDebug && !mShutup) << "propagateTracksToVertex failed";
         cont = true;
         ++nCont;
         continue; // discard candidate if failed to propagate to it
@@ -462,7 +463,7 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
       mCurHyp++;
     }
   }
-  LOG_IF(info, mDebug && nCont) << "Hit Continued: " << nCont;
+  LOG_IF(info, mDebug && nCont && !mShutup) << "Hit Continued: " << nCont;
 
   for (int i = mCurHyp; i--;) { // order in quality
     for (int j = i; j--;) {
@@ -476,7 +477,7 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
       recalculatePCAWithErrors(i);
     }
   }
-  LOG_IF(info, mDebug) << "number of candidates=" << mCurHyp;
+  LOG_IF(info, mDebug && !mShutup) << "number of candidates=" << mCurHyp;
   return mCurHyp;
 }
 
@@ -996,7 +997,7 @@ bool DCAFitterN<N, Args...>::minimizeChi2NoErr()
     mCandTr[mCurHyp][i] = *mOrigTrPtr[i];
     auto x = mTrAux[i].c * mPCA[mCurHyp][0] + mTrAux[i].s * mPCA[mCurHyp][1]; // X of PCA in the track frame
     if (x < mMinXSeed || !propagateParamToX(mCandTr[mCurHyp][i], x)) {
-      LOG_IF(info, mDebug) << "       " << i << ": ---> prop failed x of PCA";
+      LOG_IF(info, mDebug && !mShutup) << "       " << i << ": ---> prop failed x of PCA";
       if (mDebug)
         ++nPropFail;
       return false;
@@ -1026,14 +1027,14 @@ bool DCAFitterN<N, Args...>::minimizeChi2NoErr()
     }
     VecND dx = mD2Chi2Dx2 * mDChi2Dx;
     if (!correctTracks(dx)) {
-      LOG_IF(info, mDebug) << "              -> correctTracks failed";
+      LOG_IF(info, mDebug && !mShutup) << "              -> correctTracks failed";
       if (mDebug)
         ++nCorrectFails;
       return false;
     }
     calcPCANoErr(); // updated PCA
     if (mCrossIDAlt >= 0 && closerToAlternative()) {
-      LOG_IF(info, mDebug) << "              -> closerToAlternative failed";
+      LOG_IF(info, mDebug && !mShutup) << "              -> closerToAlternative failed";
       if (mDebug)
         ++nCloserAlt;
       mAllowAltPreference = false;
@@ -1043,7 +1044,7 @@ bool DCAFitterN<N, Args...>::minimizeChi2NoErr()
     chi2Upd = calcChi2NoErr(); // updated chi2
     if (getAbsMax(dx) < mMinParamChange || chi2Upd > chi2 * mMinRelChi2Change) {
       chi2 = chi2Upd;
-      LOG_IF(info, mDebug) << "                ~-> converged: chi2 = " << chi2;
+      LOG_IF(info, mDebug && !mShutup) << "                ~-> converged: chi2 = " << chi2;
       break; // converged
     }
     chi2 = chi2Upd;
@@ -1051,7 +1052,7 @@ bool DCAFitterN<N, Args...>::minimizeChi2NoErr()
   //
   mChi2[mCurHyp] = chi2 * NInv;
   bool ret = mChi2[mCurHyp] < mMaxChi2;
-  LOG_IF(info, !ret && mDebug) << "   ~-~-~> mChi2(=" << mChi2[mCurHyp] << ")<mMaxChi2(=" << mMaxChi2 << ") ==> " << ret;
+  LOG_IF(info, !ret && mDebug && !mShutup) << "   ~-~-~> mChi2(=" << mChi2[mCurHyp] << ")<mMaxChi2(=" << mMaxChi2 << ") ==> " << ret;
   if (!ret && mDebug) {
     ++nChi2;
     vChi2.push_back(mChi2[mCurHyp]);
@@ -1072,7 +1073,7 @@ bool DCAFitterN<N, Args...>::roughDZCut()
         if (mDebug) {
           vDistZ.push_back(zdist);
         }
-        LOG_IF(info, mDebug) << "             i=" << i << " j=" << j << "  ~~~~> zCut failed: " << zdist;
+        LOG_IF(info, mDebug && !mShutup) << "             i=" << i << " j=" << j << "  ~~~~> zCut failed: " << zdist;
         accept = false;
         break;
       }

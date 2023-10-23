@@ -334,6 +334,21 @@ void SVertexer::init()
                                << "header=" << header
                                << "R=" << R
                                << "\n";
+                  // if (comb == 54) {
+                  //   mcparticle.Print();
+                  // int i = 0;
+                  // auto mPtr = o2::mcutils::MCTrackNavigator::getMother(mcparticle, pcontainer);
+                  // while (mPtr != nullptr) {
+                  //   auto const& mm = *mPtr;
+                  //   LOGP(info, "Level: {}", i);
+                  //   mm.Print();
+                  //   mPtr == o2::mcutils::MCTrackNavigator::getMother(mm, pcontainer);
+                  //   --i;
+                  // }
+                  //   d0->Print();
+                  //   d1->Print();
+                  //   LOGP(info, "~~~");
+                  // }
                 }
               }
             }
@@ -355,6 +370,7 @@ void SVertexer::init()
       LOGP(info, "~~~~~~~~~~~~~~~~~~~V0 pairs generated~~~~~~~~~~");
       mCounterMC.printMC2();
       LOGP(info, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+      // LOGP(fatal, "just stop");
     }
   }
 }
@@ -674,13 +690,13 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   int nCand = fitterV0.process(seedP, seedN);
   if (nCand == 0) { // discard this pair
     if (check) {
-      fitterV0.setDebug(nProcess++);
-      LOGP(info, "Label: 0");
-      seedP.gid.print();
-      lbl0.print();
-      LOGP(info, "Label: 1");
-      lbl1.print();
-      seedN.gid.print();
+      fitterV0.setDebug(nProcess++, true);
+      // LOGP(info, "Label: 0");
+      // seedP.gid.print();
+      // lbl0.print();
+      // LOGP(info, "Label: 1");
+      // lbl1.print();
+      // seedN.gid.print();
       fitterV0.process(seedP, seedN);
       fitterV0.unsetDebug();
     }
@@ -829,7 +845,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
       }
     }
   }
-  LOG_IF(info, check) << "[------] V0: dca2(=" << dca2 << ") > mMaxDCAXY2ToMeanVertex(=" << mMaxDCAXY2ToMeanVertex << ");     cosPAXY(=" << cosPAXY << ") < minCosPAXYMeanVertex(=" << mSVParams->minCosPAXYMeanVertex << ")";
+  // LOG_IF(info, check) << "[------] V0: dca2(=" << dca2 << ") > mMaxDCAXY2ToMeanVertex(=" << mMaxDCAXY2ToMeanVertex << ");     cosPAXY(=" << cosPAXY << ") < minCosPAXYMeanVertex(=" << mSVParams->minCosPAXYMeanVertex << ")";
   mCounterV0.inc(CHECKV0::ACOSPAXY, {}, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure(), -1, cosPAXY, dca2);
 
   auto vlist = seedP.vBracket.getOverlap(seedN.vBracket); // indices of vertices shared by both seeds
