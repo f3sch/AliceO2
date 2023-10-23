@@ -138,11 +138,11 @@ void SecondaryVertexingSpec::finaliseCCDB(ConcreteDataMatcher& matcher, void* ob
     mStrTracker.setClusterDictionary((const o2::itsmft::TopologyDictionary*)obj);
     return;
   }
-  // if (matcher == ConcreteDataMatcher("GLO", "MEANVERTEX", 0)) {
-  //   LOG(info) << "Imposing new MeanVertex: " << ((const o2::dataformats::MeanVertexObject*)obj)->asString();
-  //   mVertexer.setMeanVertex((const o2::dataformats::MeanVertexObject*)obj);
-  //   return;
-  // }
+  if (matcher == ConcreteDataMatcher("GLO", "MEANVERTEX", 0)) {
+    LOG(info) << "Imposing new MeanVertex: " << ((const o2::dataformats::MeanVertexObject*)obj)->asString();
+    mVertexer.setMeanVertex((const o2::dataformats::MeanVertexObject*)obj);
+    return;
+  }
 }
 
 void SecondaryVertexingSpec::updateTimeDependentParams(ProcessingContext& pc)
@@ -187,7 +187,7 @@ void SecondaryVertexingSpec::updateTimeDependentParams(ProcessingContext& pc)
       mStrTracker.setupFitters();
     }
   }
-  // pc.inputs().get<o2::dataformats::MeanVertexObject*>("meanvtx");
+  pc.inputs().get<o2::dataformats::MeanVertexObject*>("meanvtx");
 }
 
 DataProcessorSpec getSecondaryVertexingSpec(GTrackID::mask_t src, bool enableCasc, bool enable3body, bool enableStrangenesTracking, bool useMC,bool useDebug)
