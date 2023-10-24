@@ -867,11 +867,12 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
       continue;
     }
     if (!candFound) {
-      new (&v0new) V0(v0XYZ, pV0, fitterV0.calcPCACovMatrixFlat(cand), trPProp, trNProp);
-      new (&v0Idxnew) V0Index(-1, seedP.gid, seedN.gid);
-      v0new.setDCA(fitterV0.getChi2AtPCACandidate(cand));
-      mCounterV0.inc(CHECKV0::NEWV0, pv, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure(), fitterV0.getNIterations(), cosPA, dca2);
-      candFound = true;
+      if (mCounterV0.inc(CHECKV0::NEWV0, pv, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure(), fitterV0.getNIterations(), cosPA, dca2)) {
+        new (&v0new) V0(v0XYZ, pV0, fitterV0.calcPCACovMatrixFlat(cand), trPProp, trNProp);
+        new (&v0Idxnew) V0Index(-1, seedP.gid, seedN.gid);
+        v0new.setDCA(fitterV0.getChi2AtPCACandidate(cand));
+        candFound = true;
+      }
     }
     v0new.setCosPA(cosPA);
     v0Idxnew.setVertexID(iv);
@@ -1384,46 +1385,50 @@ float SVertexer::correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::Tra
 
 void SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk)
 {
-  using namespace o2::mcutils;
   const auto& vtx = mPVertices[vtxid];
-  if (mUseMC) {
-    auto lbl = mTPCTrkLabels[gid.getIndex()];
-    const MCTrack* mcTrack = nullptr;
+  const auto& vtxLbl = mPVertexLabels[vtxid];
+  const auto& lbl = mTPCTrkLabels[gid.getIndex()];
+  auto idx = std::make_tuple(lbl.getSourceID(), lbl.getEventID(), lbl.getTrackID());
+  const MCTrack* mcTrack = nullptr;
+  MCTrack mother;
+  bool goodProp = false, isV0 = (mD0V0Map.find(idx) != mD0V0Map.end() || mD1V0Map.find(idx) != mD1V0Map.end());
+  o2::track::TrackPar trkProp;
+
+  while (!goodProp) {
     if (!lbl.isValid() || lbl.isFake() || (mcTrack = mcReader.getTrack(lbl)) == nullptr) {
-      return;
+      break;
     }
     std::array<float, 3> xyz{(float)mcTrack->GetStartVertexCoordinatesX(), (float)mcTrack->GetStartVertexCoordinatesY(), (float)mcTrack->GetStartVertexCoordinatesZ()};
     std::array<float, 3> pxyz{(float)mcTrack->GetStartVertexMomentumX(), (float)mcTrack->GetStartVertexMomentumY(), (float)mcTrack->GetStartVertexMomentumZ()};
     TParticlePDG* pPDG = TDatabasePDG::Instance()->GetParticle(mcTrack->GetPdgCode());
     if (pPDG == nullptr) {
-      return;
+      break;
     }
     o2::track::TrackPar mctrO2(xyz, pxyz, TMath::Nint(pPDG->Charge() / 3), false);
     //
     // propagate it to the alpha/X of the reconstructed track
     if (!mctrO2.rotate(trk.getAlpha()) || !o2::base::Propagator::Instance()->PropagateToXBxByBz(mctrO2, trk.getX())) {
-      return;
+      break;
     }
     // Mother Particle
     auto src = lbl.getSourceID();
     auto eve = lbl.getEventID();
     const auto& pcontainer = mcReader.getTracks(src, eve);
-    const auto& mother = MCTrackNavigator::getMother(*mcTrack, pcontainer);
-    if (!checkMother(mother, pcontainer)) {
-      return;
-    }
-    mDebugStream << "v0TPCCandidates"
-                 << "mcTrk=" << mctrO2
-                 << "mcSrc=" << src
-                 << "mcEve=" << eve
-                 << "mcMother=" << *mother
-                 << "mcIsPPrim=" << MCTrackNavigator::isPhysicalPrimary(*mother, pcontainer);
+    mother = *mcutils::MCTrackNavigator::getMother(*mcTrack, pcontainer);
+
+    trkProp = mctrO2;
+    goodProp = true;
   }
   mDebugStream << "v0TPCCandidates"
                << "bTrk=" << trk
                << "aTrk=" << candTrk
                << "pVtx=" << vtx
-               << "gid=" << gid
+               << "pVtxLbl=" << vtxLbl
+               << "propTrk=" << trkProp
+               << "mcTrk=" << mcTrack
+               << "mcMother=" << mother
+               << "isV0=" << isV0
+               << "goodProp=" << goodProp
                << "\n";
 }
 
