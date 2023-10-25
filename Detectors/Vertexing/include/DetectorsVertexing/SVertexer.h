@@ -231,6 +231,7 @@ class SVertexer
   void writeDebugWithTiming(const o2::globaltracking::RecoContainer& recoData);
   template <class TVI, class RECO>
   void writeDebugV0Found(TVI const& v0s, RECO const& recoData);
+  void writeMCInfo();
 
   using key_t = std::tuple<int, int, int>;
 

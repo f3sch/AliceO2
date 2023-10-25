@@ -272,107 +272,6 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
 //__________________________________________________________________
 void SVertexer::init()
 {
-  if (mUseDebug) {
-    LOGP(info, "Enabled debug output");
-    if (mUseMC) {
-      if (!mcReader.initFromDigitContext("collisioncontext.root")) {
-        LOGP(fatal, "Initialization of MCKinematicsReader failed!");
-      }
-      for (int iSource{0}; iSource < mcReader.getNSources(); ++iSource) {
-        for (int iEvent{0}; iEvent < mcReader.getNEvents(iSource); ++iEvent) {
-          const auto& header = mcReader.getMCEventHeader(iSource, iEvent);
-          if (abs(header.GetZ()) > 30) {
-            continue;
-          }
-          const auto& pcontainer = mcReader.getTracks(iSource, iEvent);
-          for (int i{0}; i < pcontainer.size(); ++i) {
-            const auto& mcparticle = pcontainer[i];
-            if (mcparticle.GetPdgCode() == mSVParams->v0type &&
-                o2::mcutils::MCTrackNavigator::isPhysicalPrimary(mcparticle, pcontainer)) { // all primary photons
-              if (auto d0 = o2::mcutils::MCTrackNavigator::getDaughter0(mcparticle, pcontainer),
-                  d1 = o2::mcutils::MCTrackNavigator::getDaughter1(mcparticle, pcontainer);
-                  d0 != d1 && d0 != nullptr && d1 != nullptr &&
-                  d0->GetPdgCode() == -d1->GetPdgCode() &&
-                  d0->getProcess() == kPPair &&
-                  d1->getProcess() == kPPair &&
-                  d0->hasHits() &&
-                  d1->hasHits() &&
-                  d0->GetP() > 0.05 &&
-                  d1->GetP() > 0.05) {
-                auto R = std::sqrt(d0->GetStartVertexCoordinatesX() * d0->GetStartVertexCoordinatesX() + d0->GetStartVertexCoordinatesY() * d0->GetStartVertexCoordinatesY());
-                if (abs(d0->GetStartVertexCoordinatesZ()) > 250. ||
-                    R > 180) { // only count photons where the conversion point is in the fuducial region
-                  continue;
-                }
-                TParticlePDG* pPDG0 = TDatabasePDG::Instance()->GetParticle(d0->GetPdgCode());
-                if (pPDG0 != nullptr && pPDG0->Charge() < 0) {
-                  std::swap(d0, d1);
-                }
-                auto d0TPC = d0->leftTrace(o2::detectors::DetID::TPC), d0ITS = d0->leftTrace(o2::detectors::DetID::ITS),
-                     d0TRD = d0->leftTrace(o2::detectors::DetID::TRD), d0TOF = d0->leftTrace(o2::detectors::DetID::TOF),
-                     d0ZDC = d0->leftTrace(o2::detectors::DetID::ZDC), d0FV0 = d0->leftTrace(o2::detectors::DetID::FV0),
-                     d1TPC = d1->leftTrace(o2::detectors::DetID::TPC), d1ITS = d1->leftTrace(o2::detectors::DetID::ITS),
-                     d1TRD = d0->leftTrace(o2::detectors::DetID::TRD), d1TOF = d0->leftTrace(o2::detectors::DetID::TOF),
-                     d1ZDC = d1->leftTrace(o2::detectors::DetID::ZDC),
-                     d1FV0 = d1->leftTrace(o2::detectors::DetID::FV0);
-                if (d0ZDC || d0FV0 || d1ZDC || d1FV0) {
-                  continue;
-                }
-                if (const auto idxMother = std::make_tuple(iSource, iEvent, i);
-                    mMotherV0Map.find(idxMother) == mMotherV0Map.end()) {
-                  auto comb = mCounterMC.inc(MCGEN::GEN, d1ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
-                  const auto idxD0 = std::make_tuple(iSource, iEvent, mcparticle.getFirstDaughterTrackId());
-                  const auto idxD1 = std::make_tuple(iSource, iEvent, mcparticle.getLastDaughterTrackId());
-                  mMotherV0Map[idxMother] = std::make_pair(idxD0, idxD1);
-                  mD0V0Map[idxD0] = std::make_pair(idxD1, idxMother);
-                  mD1V0Map[idxD1] = std::make_pair(idxD0, idxMother);
-                  mDebugStream << "mcGen"
-                               << "d0=" << *d0
-                               << "d1=" << *d1
-                               << "mother=" << mcparticle
-                               << "comb=" << comb
-                               << "header=" << header
-                               << "R=" << R
-                               << "\n";
-                  // if (comb == 54) {
-                  //   mcparticle.Print();
-                  // int i = 0;
-                  // auto mPtr = o2::mcutils::MCTrackNavigator::getMother(mcparticle, pcontainer);
-                  // while (mPtr != nullptr) {
-                  //   auto const& mm = *mPtr;
-                  //   LOGP(info, "Level: {}", i);
-                  //   mm.Print();
-                  //   mPtr == o2::mcutils::MCTrackNavigator::getMother(mm, pcontainer);
-                  //   --i;
-                  // }
-                  //   d0->Print();
-                  //   d1->Print();
-                  //   LOGP(info, "~~~");
-                  // }
-                }
-              }
-            }
-            if (TParticlePDG* pPDG = TDatabasePDG::Instance()->GetParticle(mcparticle.GetPdgCode());
-                mcparticle.hasHits() &&
-                mcparticle.GetP() > 0.05 &&
-                pPDG != nullptr && pPDG->Charge() != 0) {
-              auto hitTPC = mcparticle.leftTrace(o2::detectors::DetID::TPC), hitITS = mcparticle.leftTrace(o2::detectors::DetID::ITS),
-                   hitTRD = mcparticle.leftTrace(o2::detectors::DetID::TRD), hitTOF = mcparticle.leftTrace(o2::detectors::DetID::TOF);
-              mCounterMC.inc(MCGEN::GEN, hitITS, hitTPC, hitTRD, hitTOF);
-              const auto idx = std::make_tuple(iSource, iEvent, i);
-              mMCParticle[idx] = true;
-            }
-          }
-        }
-      }
-      LOGP(info, "~~~~~~~~~~~~~~~~~~~MC GEN Stats~~~~~~~~~~~~~~~~");
-      mCounterMC.printMC();
-      LOGP(info, "~~~~~~~~~~~~~~~~~~~V0 pairs generated~~~~~~~~~~");
-      mCounterMC.printMC2();
-      LOGP(info, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-      // LOGP(fatal, "just stop");
-    }
-  }
 }
 
 //__________________________________________________________________
@@ -398,6 +297,7 @@ void SVertexer::updateTimeDependentParams()
     mMaxTgl23Body = mSVParams->maxTgl3Body * mSVParams->maxTgl3Body;
     v0Type = mSVParams->v0type;
     setupThreads();
+    writeMCInfo();
   }
   auto bz = o2::base::Propagator::Instance()->getNominalBz();
   mV0Hyps[HypV0::Photon].set(PID::Photon, PID::Electron, PID::Electron, mSVParams->pidCutsPhoton, bz);
@@ -1553,5 +1453,110 @@ void SVertexer::writeDebugWithTiming(const o2::globaltracking::RecoContainer& /*
   for (const auto& [_, v] : map) {
     const auto& [gid0, gid1, _x, dup] = v;
     mCounterReco.inc(Reco::WITH, gid0, gid1, dup);
+  }
+}
+
+void SVertexer::writeMCInfo()
+{
+  if (mUseDebug) {
+    LOGP(info, "Enabled debug output");
+    if (mUseMC) {
+      if (!mcReader.initFromDigitContext("collisioncontext.root")) {
+        LOGP(fatal, "Initialization of MCKinematicsReader failed!");
+      }
+      for (int iSource{0}; iSource < mcReader.getNSources(); ++iSource) {
+        for (int iEvent{0}; iEvent < mcReader.getNEvents(iSource); ++iEvent) {
+          const auto& header = mcReader.getMCEventHeader(iSource, iEvent);
+          if (abs(header.GetZ()) > 30) {
+            continue;
+          }
+          const auto& pcontainer = mcReader.getTracks(iSource, iEvent);
+          for (int i{0}; i < pcontainer.size(); ++i) {
+            const auto& mcparticle = pcontainer[i];
+            if (mcparticle.GetPdgCode() == v0Type &&
+                o2::mcutils::MCTrackNavigator::isPhysicalPrimary(mcparticle, pcontainer)) { // all primary photons
+              if (auto d0 = o2::mcutils::MCTrackNavigator::getDaughter0(mcparticle, pcontainer),
+                  d1 = o2::mcutils::MCTrackNavigator::getDaughter1(mcparticle, pcontainer);
+                  d0 != d1 && d0 != nullptr && d1 != nullptr &&
+                  d0->GetPdgCode() == -d1->GetPdgCode() &&
+                  d0->getProcess() == kPPair &&
+                  d1->getProcess() == kPPair &&
+                  d0->hasHits() &&
+                  d1->hasHits() &&
+                  d0->GetP() > 0.05 &&
+                  d1->GetP() > 0.05) {
+                auto R = std::sqrt(d0->GetStartVertexCoordinatesX() * d0->GetStartVertexCoordinatesX() + d0->GetStartVertexCoordinatesY() * d0->GetStartVertexCoordinatesY());
+                if (abs(d0->GetStartVertexCoordinatesZ()) > 250. ||
+                    R > 180) { // only count photons where the conversion point is in the fuducial region
+                  continue;
+                }
+                TParticlePDG* pPDG0 = TDatabasePDG::Instance()->GetParticle(d0->GetPdgCode());
+                if (pPDG0 != nullptr && pPDG0->Charge() < 0) {
+                  std::swap(d0, d1);
+                }
+                auto d0TPC = d0->leftTrace(o2::detectors::DetID::TPC), d0ITS = d0->leftTrace(o2::detectors::DetID::ITS),
+                     d0TRD = d0->leftTrace(o2::detectors::DetID::TRD), d0TOF = d0->leftTrace(o2::detectors::DetID::TOF),
+                     d0ZDC = d0->leftTrace(o2::detectors::DetID::ZDC), d0FV0 = d0->leftTrace(o2::detectors::DetID::FV0),
+                     d1TPC = d1->leftTrace(o2::detectors::DetID::TPC), d1ITS = d1->leftTrace(o2::detectors::DetID::ITS),
+                     d1TRD = d0->leftTrace(o2::detectors::DetID::TRD), d1TOF = d0->leftTrace(o2::detectors::DetID::TOF),
+                     d1ZDC = d1->leftTrace(o2::detectors::DetID::ZDC),
+                     d1FV0 = d1->leftTrace(o2::detectors::DetID::FV0);
+                if (d0ZDC || d0FV0 || d1ZDC || d1FV0) {
+                  continue;
+                }
+                if (const auto idxMother = std::make_tuple(iSource, iEvent, i);
+                    mMotherV0Map.find(idxMother) == mMotherV0Map.end()) {
+                  auto comb = mCounterMC.inc(MCGEN::GEN, d1ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
+                  const auto idxD0 = std::make_tuple(iSource, iEvent, mcparticle.getFirstDaughterTrackId());
+                  const auto idxD1 = std::make_tuple(iSource, iEvent, mcparticle.getLastDaughterTrackId());
+                  mMotherV0Map[idxMother] = std::make_pair(idxD0, idxD1);
+                  mD0V0Map[idxD0] = std::make_pair(idxD1, idxMother);
+                  mD1V0Map[idxD1] = std::make_pair(idxD0, idxMother);
+                  mDebugStream << "mcGen"
+                               << "d0=" << *d0
+                               << "d1=" << *d1
+                               << "mother=" << mcparticle
+                               << "comb=" << comb
+                               << "header=" << header
+                               << "R=" << R
+                               << "\n";
+                  // if (comb == 54) {
+                  //   mcparticle.Print();
+                  // int i = 0;
+                  // auto mPtr = o2::mcutils::MCTrackNavigator::getMother(mcparticle, pcontainer);
+                  // while (mPtr != nullptr) {
+                  //   auto const& mm = *mPtr;
+                  //   LOGP(info, "Level: {}", i);
+                  //   mm.Print();
+                  //   mPtr == o2::mcutils::MCTrackNavigator::getMother(mm, pcontainer);
+                  //   --i;
+                  // }
+                  //   d0->Print();
+                  //   d1->Print();
+                  //   LOGP(info, "~~~");
+                  // }
+                }
+              }
+            }
+            if (TParticlePDG* pPDG = TDatabasePDG::Instance()->GetParticle(mcparticle.GetPdgCode());
+                mcparticle.hasHits() &&
+                mcparticle.GetP() > 0.05 &&
+                pPDG != nullptr && pPDG->Charge() != 0) {
+              auto hitTPC = mcparticle.leftTrace(o2::detectors::DetID::TPC), hitITS = mcparticle.leftTrace(o2::detectors::DetID::ITS),
+                   hitTRD = mcparticle.leftTrace(o2::detectors::DetID::TRD), hitTOF = mcparticle.leftTrace(o2::detectors::DetID::TOF);
+              mCounterMC.inc(MCGEN::GEN, hitITS, hitTPC, hitTRD, hitTOF);
+              const auto idx = std::make_tuple(iSource, iEvent, i);
+              mMCParticle[idx] = true;
+            }
+          }
+        }
+      }
+      LOGP(info, "~~~~~~~~~~~~~~~~~~~MC GEN Stats~~~~~~~~~~~~~~~~");
+      mCounterMC.printMC();
+      LOGP(info, "~~~~~~~~~~~~~~~~~~~V0 pairs generated~~~~~~~~~~");
+      mCounterMC.printMC2();
+      LOGP(info, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+      // LOGP(fatal, "just stop");
+    }
   }
 }
