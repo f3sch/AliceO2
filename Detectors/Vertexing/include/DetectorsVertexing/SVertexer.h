@@ -1214,7 +1214,7 @@ class SVertexer
   static constexpr std::string_view v0TreeName{"v0Found"};
   Counter_t<V0Found> mCounterV0Found{v0TreeName, v0Names};
 
-  static constexpr auto v0Type = kGamma;
+  PDG_t v0Type = kGamma;
 
   enum class AcceptTrack : unsigned int {
     USEPROP = 0,

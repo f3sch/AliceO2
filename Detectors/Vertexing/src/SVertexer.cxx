@@ -396,6 +396,7 @@ void SVertexer::updateTimeDependentParams()
     mMaxTgl2Casc = mSVParams->maxTglCasc * mSVParams->maxTglCasc;
     mMinPt23Body = mSVParams->minPt3Body * mSVParams->minPt3Body;
     mMaxTgl23Body = mSVParams->maxTgl3Body * mSVParams->maxTgl3Body;
+    v0Type = mSVParams->v0type;
     setupThreads();
   }
   auto bz = o2::base::Propagator::Instance()->getNominalBz();
