@@ -287,7 +287,7 @@ void SVertexer::init()
           const auto& pcontainer = mcReader.getTracks(iSource, iEvent);
           for (int i{0}; i < pcontainer.size(); ++i) {
             const auto& mcparticle = pcontainer[i];
-            if (mcparticle.GetPdgCode() == v0Type &&
+            if (mcparticle.GetPdgCode() == mSVParams->v0type &&
                 o2::mcutils::MCTrackNavigator::isPhysicalPrimary(mcparticle, pcontainer)) { // all primary photons
               if (auto d0 = o2::mcutils::MCTrackNavigator::getDaughter0(mcparticle, pcontainer),
                   d1 = o2::mcutils::MCTrackNavigator::getDaughter1(mcparticle, pcontainer);
