@@ -160,7 +160,7 @@ class SVertexer
   bool processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int vtxid);
   float correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::TrackTPC& tTPC, float tmus, float tmusErr) const;
 
-  uint64_t getPairIdx(GIndex id1, GIndex id2) const
+  static uint64_t getPairIdx(GIndex id1, GIndex id2)
   {
     return (uint64_t(id1) << 32) | id2;
   }
@@ -270,7 +270,7 @@ class SVertexer
   };
   using map_dup_t = std::unordered_map<key_dup_t, ULong64_t, key_dup_hash>;
 
-  static bool checkMother(o2::MCTrack const* mother, const std::vector<o2::MCTrack>& pcontainer)
+  bool checkMother(o2::MCTrack const* mother, const std::vector<o2::MCTrack>& pcontainer) const
   {
     if (mother == nullptr) {
       return false;
@@ -333,39 +333,30 @@ class SVertexer
     return true;
   }
 
-  bool checkITS(GIndex const& gid0, GIndex const& gid1)
+  static bool checkITS(GIndex const& gid0, GIndex const& gid1)
   {
     auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
     auto gid1ITS = gid1.includesDet(o2::detectors::DetID::ITS);
-    if (gid0ITS && gid1ITS) {
-      return true;
-    }
-    return false;
+    return gid0ITS && gid1ITS;
   }
 
-  bool checkTPC(GIndex const& gid0, GIndex const& gid1)
+  static bool checkTPC(GIndex const& gid0, GIndex const& gid1)
   {
     if (checkITS(gid0, gid1)) {
       return false;
     }
     auto gid0TPC = gid0.includesDet(o2::detectors::DetID::TPC);
     auto gid1TPC = gid1.includesDet(o2::detectors::DetID::TPC);
-    if (gid0TPC && gid1TPC) {
-      return true;
-    }
-    return false;
+    return gid0TPC && gid1TPC;
   }
 
-  bool checkITSTPC(GIndex const& gid0, GIndex const& gid1)
+  static bool checkITSTPC(GIndex const& gid0, GIndex const& gid1)
   {
     auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
     auto gid1ITS = gid1.includesDet(o2::detectors::DetID::ITS);
     auto gid0TPC = gid0.includesDet(o2::detectors::DetID::TPC);
     auto gid1TPC = gid1.includesDet(o2::detectors::DetID::TPC);
-    if (gid0ITS && gid1ITS && gid0TPC && gid1TPC) {
-      return true;
-    }
-    return false;
+    return gid0ITS && gid1ITS && gid0TPC && gid1TPC;
   }
 
   template <typename Enum>
