@@ -96,7 +96,9 @@ class DCAFitterN
   using vf = std::vector<float>;
 
  public:
+  o2::track::TrackParCov mSeedP, mSeedN;
   vf vChi2, vDist, vRsum, vDistXY, vDistZ;
+  std::vector<std::pair<o2::track::TrackParCov, o2::track::TrackParCov>> vChi2Trks, vDistTrks, vDistZTrks;
   void printStats() const
   {
     LOGP(info, "+-+_+_+_+_+_+__+_+_+_+_+_+_+_++__++__+++_+_+_+__++_+_");
@@ -220,17 +222,28 @@ class DCAFitterN
   float getMasStep() const { return mMaxStep; }
   float getMinXSeed() const { return mMinXSeed; }
 
-  void setDebug(int curId, bool shutup)
+  bool bDistZ, bChi2;
+  void setDebug(int curId, bool shutup, o2::track::TrackParCov const& seedP, o2::track::TrackParCov const& seedN)
   {
+    mSeedP = seedP;
+    mSeedN = seedN;
     mDebug = true;
     mShutup = shutup;
     LOG_IF(info, mDebug && !mShutup) << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Current failed Track = " << mCurID;
     mCurID = curId;
+    bDistZ = bChi2 = false;
     mCrossings.setDebug(shutup);
   }
   void unsetDebug()
   {
     LOG_IF(info, mDebug && !mShutup) << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+    if (mCrossings.bDistXY) {
+      vDistTrks.emplace_back(mSeedP, mSeedN);
+    } else if (bChi2) {
+      vChi2Trks.emplace_back(mSeedP, mSeedN);
+    } else if (bDistZ) {
+      vDistZTrks.emplace_back(mSeedP, mSeedN);
+    }
     mDebug = false;
     mCrossings.unsetDebug();
   }
@@ -1056,6 +1069,7 @@ bool DCAFitterN<N, Args...>::minimizeChi2NoErr()
   if (!ret && mDebug) {
     ++nChi2;
     vChi2.push_back(mChi2[mCurHyp]);
+    bChi2 = true;
   }
   return ret;
 }
@@ -1072,6 +1086,7 @@ bool DCAFitterN<N, Args...>::roughDZCut()
       if (zdist > mMaxDZIni) {
         if (mDebug) {
           vDistZ.push_back(zdist);
+          bDistZ = true;
         }
         LOG_IF(info, mDebug && !mShutup) << "             i=" << i << " j=" << j << "  ~~~~> zCut failed: " << zdist;
         accept = false;

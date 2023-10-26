@@ -100,19 +100,27 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
     LOG_IF(info, mUseDebug) << "Thread = " << i;
     const auto& f = mFitterV0[i];
     f.printStats();
-    for (const auto& e : f.vChi2) {
+    for (int j{0}; j < f.vChi2.size(); ++j) {
       mDebugStream << "pChi2"
-                   << "chi2=" << e << "\n";
+                   << "chi2=" << f.vChi2[j]
+                   << "seedP=" << f.vChi2Trks[j].first
+                   << "seedN=" << f.vChi2Trks[j].second
+                   << "\n";
     }
-    for (const auto& e : f.vDistZ) {
+    for (int j{0}; j < f.vDistZ.size(); ++j) {
       mDebugStream << "pDistZ"
-                   << "z=" << e << "\n";
+                   << "z=" << f.vDistZ[j]
+                   << "seedP=" << f.vDistZTrks[j].first
+                   << "seedN=" << f.vDistZTrks[j].second
+                   << "\n";
     }
     for (int j{0}; j < f.vDist.size(); ++j) {
       mDebugStream << "pDist"
                    << "xy=" << f.vDistXY[j]
                    << "rsum=" << f.vRsum[j]
                    << "dist=" << f.vDist[j]
+                   << "seedP=" << f.vDistTrks[j].first
+                   << "seedN=" << f.vDistTrks[j].second
                    << "\n";
     }
   }
@@ -591,7 +599,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   int nCand = fitterV0.process(seedP, seedN);
   if (nCand == 0) { // discard this pair
     if (check) {
-      fitterV0.setDebug(nProcess++, true);
+      fitterV0.setDebug(nProcess++, true, seedP, seedN);
       // LOGP(info, "Label: 0");
       // seedP.gid.print();
       // lbl0.print();
