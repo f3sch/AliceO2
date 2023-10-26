@@ -594,7 +594,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   if (seedP.vBracket.getOverlap(seedN.vBracket).isZeroLength()) {
     pVtxLbl = mPVertexLabels[seedP.vBracket.getMin()];
   }
-  bool check = mCounterV0.inc(CHECKV0::CALLED, {}, pVtx, pVtxLbl, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, false);
+  bool check = mCounterV0.inc(CHECKV0::CALLED, {}, pVtx, pVtxLbl, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, true);
   auto& fitterV0 = mFitterV0[ithread];
   int nCand = fitterV0.process(seedP, seedN);
   if (nCand == 0) { // discard this pair
