@@ -778,12 +778,10 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     }
     if (!candFound) {
       mCounterV0.inc(CHECKV0::NEWV0, pv, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure(), fitterV0.getNIterations(), cosPA, dca2);
-      if (check || true) {
-        new (&v0new) V0(v0XYZ, pV0, fitterV0.calcPCACovMatrixFlat(cand), trPProp, trNProp);
-        new (&v0Idxnew) V0Index(-1, seedP.gid, seedN.gid);
-        v0new.setDCA(fitterV0.getChi2AtPCACandidate(cand));
-        candFound = true;
-      }
+      new (&v0new) V0(v0XYZ, pV0, fitterV0.calcPCACovMatrixFlat(cand), trPProp, trNProp);
+      new (&v0Idxnew) V0Index(-1, seedP.gid, seedN.gid);
+      v0new.setDCA(fitterV0.getChi2AtPCACandidate(cand));
+      candFound = true;
     }
     v0new.setCosPA(cosPA);
     v0Idxnew.setVertexID(iv);
