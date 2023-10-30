@@ -571,6 +571,7 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
     }
   }
 
+  LOG(info) << "Alignment of TrackCand: " << alignof(TrackCand) << " with size: " << sizeof(TrackCand);
   LOG(info) << "Collected " << mTracksPool[POS].size() << " positive and " << mTracksPool[NEG].size() << " negative seeds";
   if (mUseDebug) {
     writeDebugWithTiming(recoData);
