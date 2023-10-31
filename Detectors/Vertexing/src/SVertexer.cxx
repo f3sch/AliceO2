@@ -1388,6 +1388,29 @@ void SVertexer::writeDebugWithoutTiming(const o2::globaltracking::RecoContainer&
         if (!std::get<2>(map[mother])) {
           std::get<1>(map[mother]) = id;
           std::get<2>(map[mother]) = true;
+
+          auto gid0 = id;
+          auto gid1 = std::get<0>(map[mother]);
+          auto lbl0 = lbl;
+          auto lbl1 = getLabel(gid1);
+          auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
+          auto gid0TPC = gid0.includesDet(o2::detectors::DetID::TPC);
+          auto gid0TRD = gid0.includesDet(o2::detectors::DetID::TRD);
+          auto gid0TOF = gid0.includesDet(o2::detectors::DetID::TOF);
+          auto gid1ITS = gid1.includesDet(o2::detectors::DetID::ITS);
+          auto gid1TPC = gid1.includesDet(o2::detectors::DetID::TPC);
+          auto gid1TRD = gid1.includesDet(o2::detectors::DetID::TRD);
+          auto gid1TOF = gid1.includesDet(o2::detectors::DetID::TOF);
+          int i = mCounterReco.getCombination(gid0ITS, gid0TPC, gid0TRD, gid0TOF, gid1ITS, gid1TPC, gid1TRD, gid1TOF);
+
+          const MCTrack *mcTrk0, *mcTrk1;
+          if ((mcTrk0 = mcReader.getTrack(lbl0)) != nullptr && ((mcTrk1 = mcReader.getTrack(lbl1)) != nullptr)) {
+            mDebugStream << "woReco"
+                         << "mcTrk0=" << *mcTrk0
+                         << "mcTrk1=" << *mcTrk1
+                         << "case=" << i
+                         << "\n";
+          }
         } else {
           ++std::get<3>(map[mother]);
           continue; // already set once
@@ -1450,6 +1473,26 @@ void SVertexer::writeDebugWithTiming(const o2::globaltracking::RecoContainer& /*
           if (map.find(idx) == map.end()) {
             std::get<0>(map[idx]) = gid0;
             std::get<1>(map[idx]) = gid1;
+            auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
+            auto gid0TPC = gid0.includesDet(o2::detectors::DetID::TPC);
+            auto gid0TRD = gid0.includesDet(o2::detectors::DetID::TRD);
+            auto gid0TOF = gid0.includesDet(o2::detectors::DetID::TOF);
+            auto gid1ITS = gid1.includesDet(o2::detectors::DetID::ITS);
+            auto gid1TPC = gid1.includesDet(o2::detectors::DetID::TPC);
+            auto gid1TRD = gid1.includesDet(o2::detectors::DetID::TRD);
+            auto gid1TOF = gid1.includesDet(o2::detectors::DetID::TOF);
+            int i = mCounterReco.getCombination(gid0ITS, gid0TPC, gid0TRD, gid0TOF, gid1ITS, gid1TPC, gid1TRD, gid1TOF);
+
+            const MCTrack *mcTrk0, *mcTrk1;
+            if ((mcTrk0 = mcReader.getTrack(lbl0)) != nullptr && ((mcTrk1 = mcReader.getTrack(lbl1)) != nullptr)) {
+              mDebugStream << "wReco"
+                           << "seedP=" << seedP
+                           << "seedN=" << seedN
+                           << "mcTrkP=" << *mcTrk0
+                           << "mcTrkN=" << *mcTrk1
+                           << "case=" << i
+                           << "\n";
+            }
           } else {
             ++std::get<3>(map[idx]);
           }
