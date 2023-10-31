@@ -470,8 +470,10 @@ class SVertexer
       mDebugStream << _treeName.c_str()
                    << "recoSeedP=" << seedP
                    << "recoSeedN=" << seedN
-                   << "mcSeedP=" << mctr0
-                   << "mcSeedN=" << mctr1
+                   << "mcSeedP=" << mcTrk0
+                   << "mcSeedN=" << mcTrk1
+                   << "mcSeedPropP=" << mctr0
+                   << "mcSeedPropN=" << mctr1
                    << "svertex=" << v0
                    << "pvertex=" << pvertex
                    << "case=" << c
