@@ -1524,6 +1524,7 @@ void SVertexer::writeMCInfo()
           const auto& pcontainer = mcReader.getTracks(iSource, iEvent);
           for (int i{0}; i < pcontainer.size(); ++i) {
             const auto& mcparticle = pcontainer[i];
+            const auto tglGen = std::abs(mcparticle.Pz() / mcparticle.GetPt());
             if (mcparticle.GetPdgCode() == v0Type &&
                 o2::mcutils::MCTrackNavigator::isPhysicalPrimary(mcparticle, pcontainer)) { // all primary photons
               if (auto d0 = o2::mcutils::MCTrackNavigator::getDaughter0(mcparticle, pcontainer),
@@ -1536,9 +1537,11 @@ void SVertexer::writeMCInfo()
                   d1->hasHits() &&
                   d0->GetP() > 0.05 &&
                   d1->GetP() > 0.05) {
+                const auto tglGend0 = std::abs(d0->Pz() / d0->GetPt());
+                const auto tglGend1 = std::abs(d0->Pz() / d0->GetPt());
                 auto R = std::sqrt(d0->GetStartVertexCoordinatesX() * d0->GetStartVertexCoordinatesX() + d0->GetStartVertexCoordinatesY() * d0->GetStartVertexCoordinatesY());
                 if (abs(d0->GetStartVertexCoordinatesZ()) > 250. ||
-                    R > 180) { // only count photons where the conversion point is in the fuducial region
+                    R > 180 || tglGend0 > 1.f || tglGend1 > 1.f) { // only count photons where the conversion point is in the fuducial region
                   continue;
                 }
                 TParticlePDG* pPDG0 = TDatabasePDG::Instance()->GetParticle(d0->GetPdgCode());
