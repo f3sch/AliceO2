@@ -1541,7 +1541,7 @@ void SVertexer::writeMCInfo()
                 const auto tglGend1 = std::abs(d0->Pz() / d0->GetPt());
                 auto R = std::sqrt(d0->GetStartVertexCoordinatesX() * d0->GetStartVertexCoordinatesX() + d0->GetStartVertexCoordinatesY() * d0->GetStartVertexCoordinatesY());
                 if (abs(d0->GetStartVertexCoordinatesZ()) > 250. ||
-                    R > 180 || tglGend0 > 1.f || tglGend1 > 1.f) { // only count photons where the conversion point is in the fuducial region
+                    R > 180 || tglGend0 > 1.f || tglGend1 > 1.f || d0->GetEta() > 1.f || d1->GetEta() > 1.f) { // only count photons where the conversion point is in the fuducial region
                   continue;
                 }
                 TParticlePDG* pPDG0 = TDatabasePDG::Instance()->GetParticle(d0->GetPdgCode());
