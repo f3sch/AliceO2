@@ -1356,7 +1356,22 @@ void SVertexer::writeDebugV0Found(TVI const& v0sIdx, TV const& v0s)
     const auto lbl0 = getLabel(gid0);
     const auto lbl1 = getLabel(gid1);
     auto ok = checkLabels(lbl0, lbl1);
-    mCounterV0Found.inc(V0Found::FOUND, pVtx, v0, gid0, gid1, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    auto isV0 = mCounterV0Found.inc(V0Found::FOUND, pVtx, v0, gid0, gid1, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
+    if (isV0) {
+      LOGP(info, "{:*^30}", "V0 pair start");
+      const auto& trkP = v0.getProng(0);
+      const auto& trkN = v0.getProng(1);
+      gid0.print();
+      lbl0.print();
+      trkP.print();
+      gid1.print();
+      lbl1.print();
+      trkN.print();
+      LOGP(info, "{:*^30}", "V0 pair end");
+      if (trkP.getSign() == trkN.getSign()) {
+        LOGP(fatal, "SAME SIGN V0");
+      }
+    }
   }
   LOGP(info, "----------------V0 Found-----------------------------");
   mCounterV0Found.print2();
