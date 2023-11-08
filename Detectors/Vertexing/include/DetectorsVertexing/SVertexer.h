@@ -302,6 +302,28 @@ class SVertexer
     return {};
   }
 
+  o2::MCCompLabel getLabel(GIndex const& gid, globaltracking::RecoContainer const& recoData) const
+  {
+    if (gid.getSource() == GIndex::ITSTPCTRDTOF && recoData.isTrackSourceLoaded(GIndex::ITSTPCTRDTOF)) {
+      return mITSTPCTRDTOFTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::ITSTPCTOF && recoData.isTrackSourceLoaded(GIndex::ITSTPCTRDTOF)) {
+      return mITSTPCTOFTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::ITSTPCTRD && recoData.isTrackSourceLoaded(GIndex::ITSTPCTRDTOF)) {
+      return mITSTPCTRDTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::TPCTRD && recoData.isTrackSourceLoaded(GIndex::ITSTPCTRDTOF)) {
+      return mTPCTRDTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::TPCTOF && recoData.isTrackSourceLoaded(GIndex::ITSTPCTRDTOF)) {
+      return mTPCTOFTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::ITSTPC && recoData.isTrackSourceLoaded(GIndex::ITSTPCTRDTOF)) {
+      return mITSTPCTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::ITS && recoData.isTrackSourceLoaded(GIndex::ITSTPCTRDTOF)) {
+      return mITSTrkLabels[gid.getIndex()];
+    } else if (gid.getSource() == GIndex::TPC && recoData.isTrackSourceLoaded(GIndex::ITSTPCTRDTOF)) {
+      return mTPCTrkLabels[gid.getIndex()];
+    }
+    return {};
+  }
+
   static bool checkLabels(o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1)
   {
     if (!lbl0.isValid() || !lbl1.isValid() || lbl0.isFake() || lbl1.isFake()) {

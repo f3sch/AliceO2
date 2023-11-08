@@ -489,7 +489,7 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
     int it = vtref.getFirstEntry(), itLim = it + vtref.getEntries();
     for (; it < itLim; it++) {
       auto tvid = trackIndex[it];
-      auto lbl = getLabel(tvid);
+      auto lbl = getLabel(tvid, recoData);
       mCounterBuildT2V.inc(BUILDT2V::CALLED, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
       if (!recoData.isTrackSourceLoaded(tvid.getSource())) {
         mCounterBuildT2V.inc(BUILDT2V::NOTLOADED, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
@@ -1384,7 +1384,7 @@ void SVertexer::writeDebugWithoutTiming(const o2::globaltracking::RecoContainer&
   auto findV0 = [&](const auto& tracks, auto src) {
     for (int iTrk{0}; iTrk < tracks.size(); ++iTrk) {
       o2::dataformats::GlobalTrackID id(iTrk, src);
-      auto lbl = getLabel(id);
+      auto lbl = getLabel(id, recoData);
       if (lbl.isFake() || !lbl.isValid()) {
         continue;
       }
@@ -1407,7 +1407,7 @@ void SVertexer::writeDebugWithoutTiming(const o2::globaltracking::RecoContainer&
           auto gid0 = id;
           auto gid1 = std::get<0>(map[mother]);
           auto lbl0 = lbl;
-          auto lbl1 = getLabel(gid1);
+          auto lbl1 = getLabel(gid1, recoData);
           auto gid0ITS = gid0.includesDet(o2::detectors::DetID::ITS);
           auto gid0TPC = gid0.includesDet(o2::detectors::DetID::TPC);
           auto gid0TRD = gid0.includesDet(o2::detectors::DetID::TRD);
@@ -1455,7 +1455,7 @@ void SVertexer::writeDebugWithoutTiming(const o2::globaltracking::RecoContainer&
   }
 }
 
-void SVertexer::writeDebugWithTiming(const o2::globaltracking::RecoContainer& /*recoData*/)
+void SVertexer::writeDebugWithTiming(const o2::globaltracking::RecoContainer& recoData)
 {
   map_timing_t map;
   auto ntrP = mTracksPool[POS].size(), ntrN = mTracksPool[NEG].size();
@@ -1474,8 +1474,8 @@ void SVertexer::writeDebugWithTiming(const o2::globaltracking::RecoContainer& /*
         continue;
       }
       auto gid0 = seedP.gid, gid1 = seedN.gid;
-      auto lbl0 = getLabel(gid0);
-      auto lbl1 = getLabel(gid1);
+      auto lbl0 = getLabel(gid0, recoData);
+      auto lbl1 = getLabel(gid1, recoData);
       auto idx0 = std::make_tuple(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID());
       auto it0 = mD0V0Map.find(idx0);
       auto it0T = it0 != mD0V0Map.end();
