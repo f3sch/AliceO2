@@ -1331,6 +1331,7 @@ void SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid,
   mDebugStream << "v0TPCCandidates"
                << "bTrk=" << trk
                << "aTrk=" << candTrk
+               << "lbl=" << lbl
                << "pVtx=" << vtx
                << "pVtxLbl=" << vtxLbl
                << "propTrk=" << trkProp
