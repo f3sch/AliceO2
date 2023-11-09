@@ -263,6 +263,9 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
     mCascadesIdxTmp[ith].clear();
     m3bodyIdxTmp[ith].clear();
   }
+  mDebugStream << "discardMap"
+               << "map=" << mDiscardMap
+               << "\n";
 
   extractPVReferences(v0sIdx, v0Refs, cascsIdx, cascRefs, body3Idx, vtx3bodyRefs);
   if (mUseDebug) {
@@ -491,15 +494,20 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
     for (; it < itLim; it++) {
       auto tvid = trackIndex[it];
       auto lbl = getLabel(tvid, recoData);
-      mCounterBuildT2V.inc(BUILDT2V::CALLED, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
+      bool check = mCounterBuildT2V.inc(BUILDT2V::CALLED, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
       if (!recoData.isTrackSourceLoaded(tvid.getSource())) {
         mCounterBuildT2V.inc(BUILDT2V::NOTLOADED, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
+        if (check) {
+          mDiscardMap[make_hash(lbl.getSourceID(), lbl.getEventID(), lbl.getTrackID())] = 1 * int(BUILDT2V::NOTLOADED);
+        }
         continue;
       }
       if (tvid.getSource() == GIndex::TPC) {
         mCounterBuildT2V.inc(BUILDT2V::TPCTRACK, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
         if (mSVParams->mExcludeTPCtracks) {
           mCounterBuildT2V.inc(BUILDT2V::TPCEXCLUDE, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
+          if (check)
+            mDiscardMap[make_hash(lbl.getSourceID(), lbl.getEventID(), lbl.getTrackID())] = 1 * int(BUILDT2V::TPCEXCLUDE);
           continue;
         }
         // unconstrained TPC tracks require special treatment: there is no point in checking DCA to mean vertex since it is not precise,
@@ -509,6 +517,9 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
           if (status) {
             mCounterBuildT2V.inc(BUILDT2V::TPCSPROCESS, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
             ++cTPC;
+          } else {
+            if (check)
+              mDiscardMap[make_hash(lbl.getSourceID(), lbl.getEventID(), lbl.getTrackID())] = 1 * int(BUILDT2V::TPCSPROCESS);
           }
           continue;
         }
@@ -615,8 +626,11 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
       // seedN.gid.print();
       fitterV0.process(seedP, seedN);
       fitterV0.unsetDebug();
+      mDiscardMap[make_hash(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID())] = int(CHECKV0::FPROCESS) + 1000;
+      mDiscardMap[make_hash(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID())] = int(CHECKV0::FPROCESS) + 1000;
     }
     mCounterV0.inc(CHECKV0::FPROCESS, {}, pVtx, pVtxLbl, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, check, true, fitterV0.isPropagationFailure(), fitterV0.getNIterations());
+
     if (mSVParams->ret) {
       return false;
     }
@@ -627,6 +641,10 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   const float dxv0 = v0XYZ[0] - mMeanVertex.getX(), dyv0 = v0XYZ[1] - mMeanVertex.getY(), r2v0 = dxv0 * dxv0 + dyv0 * dyv0;
   if (r2v0 < mMinR2ToMeanVertex) {
     mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure());
+    if (check) {
+      mDiscardMap[make_hash(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID())] = int(CHECKV0::MINR2TOMEANVERTEX) + 1000;
+      mDiscardMap[make_hash(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID())] = int(CHECKV0::MINR2TOMEANVERTEX) + 1000;
+    }
     if (mSVParams->ret) {
       return false;
     }
@@ -635,6 +653,10 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
     mCounterV0.inc(CHECKV0::REJCAUSALITY, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure());
+    if (check) {
+      mDiscardMap[make_hash(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID())] = int(CHECKV0::REJCAUSALITY) + 1000;
+      mDiscardMap[make_hash(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID())] = int(CHECKV0::REJCAUSALITY) + 1000;
+    }
     if (mSVParams->ret) {
       return false;
     }
@@ -642,6 +664,10 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   const int cand = 0;
   if (!fitterV0.isPropagateTracksToVertexDone(cand) && !fitterV0.propagateTracksToVertex(cand)) {
     mCounterV0.inc(CHECKV0::PROPVTX, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure());
+    if (check) {
+      mDiscardMap[make_hash(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID())] = int(CHECKV0::PROPVTX) + 1000;
+      mDiscardMap[make_hash(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID())] = int(CHECKV0::PROPVTX) + 1000;
+    }
     if (mSVParams->ret) {
       return false;
     }
@@ -656,6 +682,10 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   if (pt2V0 < mMinPt2V0) { // pt cut
     LOG(debug) << "RejPt2 " << pt2V0;
     mCounterV0.inc(CHECKV0::REJPT2, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure());
+    if (check) {
+      mDiscardMap[make_hash(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID())] = int(CHECKV0::REJPT2) + 1000;
+      mDiscardMap[make_hash(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID())] = int(CHECKV0::REJPT2) + 1000;
+    }
     if (mSVParams->ret) {
       return false;
     }
@@ -663,6 +693,10 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   if (pV0[2] * pV0[2] / pt2V0 > mMaxTgl2V0) { // tgLambda cut
     LOG(debug) << "RejTgL " << pV0[2] * pV0[2] / pt2V0;
     mCounterV0.inc(CHECKV0::REJTGL, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure());
+    if (check) {
+      mDiscardMap[make_hash(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID())] = int(CHECKV0::REJTGL) + 1000;
+      mDiscardMap[make_hash(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID())] = int(CHECKV0::REJTGL) + 1000;
+    }
     if (mSVParams->ret) {
       return false;
     }
@@ -702,6 +736,11 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     LOG(debug) << "RejHypo";
     if (!checkFor3BodyDecays && !checkForCascade) {
       mCounterV0.inc(CHECKV0::V0HYP, {}, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure());
+      if (check) {
+        mDiscardMap[make_hash(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID())] = int(CHECKV0::V0HYP) + 1000;
+        mDiscardMap[make_hash(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID())] = int(CHECKV0::V0HYP) + 1000;
+      }
+
       if (mSVParams->ret) {
         return false;
       }
@@ -752,9 +791,17 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     } else {
       if (cosPAXY < mSVParams->minCosPAXYMeanVertex) {
         mCounterV0.inc(CHECKV0::COSPAXY, {}, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure(), -1, cosPAXY, dca2);
+        if (check) {
+          mDiscardMap[make_hash(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID())] = int(CHECKV0::COSPAXY) + 1000;
+          mDiscardMap[make_hash(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID())] = int(CHECKV0::COSPAXY) + 1000;
+        }
       }
       if (dca2 > mMaxDCAXY2ToMeanVertex) {
         mCounterV0.inc(CHECKV0::DCA2, {}, pVtx, pVtxLbl, fitterV0.getPCACandidate(cand), seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure(), -1, cosPAXY, dca2);
+        if (check) {
+          mDiscardMap[make_hash(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID())] = int(CHECKV0::DCA2) + 1000;
+          mDiscardMap[make_hash(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID())] = int(CHECKV0::DCA2) + 1000;
+        }
       }
       if (mSVParams->ret) {
         return false;
@@ -1540,7 +1587,9 @@ void SVertexer::writeMCInfo()
       if (!mcReader.initFromDigitContext("collisioncontext.root")) {
         LOGP(fatal, "Initialization of MCKinematicsReader failed!");
       }
+      int events{0};
       for (int iSource{0}; iSource < mcReader.getNSources(); ++iSource) {
+        events += mcReader.getNEvents(iSource);
         for (int iEvent{0}; iEvent < mcReader.getNEvents(iSource); ++iEvent) {
           const auto& header = mcReader.getMCEventHeader(iSource, iEvent);
           if (abs(header.GetZ()) > 30) {
@@ -1630,6 +1679,7 @@ void SVertexer::writeMCInfo()
           }
         }
       }
+      LOGP(info, "+++ Sources: {}    Events: {}", mcReader.getNSources(), events);
       LOGP(info, "~~~~~~~~~~~~~~~~~~~MC GEN Stats~~~~~~~~~~~~~~~~");
       mCounterMC.printMC();
       LOGP(info, "~~~~~~~~~~~~~~~~~~~V0 pairs generated~~~~~~~~~~");

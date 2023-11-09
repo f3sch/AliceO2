@@ -235,15 +235,20 @@ class SVertexer
 
   using key_t = std::tuple<int, int, int>;
 
+  static size_t make_hash(int src, int eve, int id)
+  {
+    size_t seed = 0;
+    boost::hash_combine(seed, src ^ (0xdeadbeef ^ id));
+    boost::hash_combine(seed, eve << id);
+    boost::hash_combine(seed, id);
+    return seed;
+  }
+
   struct key_hash {
     size_t operator()(const key_t& k) const
     {
-      const auto& [eve, src, trkid] = k;
-      size_t seed = 0;
-      boost::hash_combine(seed, eve);
-      boost::hash_combine(seed, src);
-      boost::hash_combine(seed, trkid);
-      return seed;
+      const auto& [src, eve, trkid] = k;
+      return make_hash(src, eve, trkid);
     }
   };
   using map_timing_t = std::unordered_map<key_t, std::tuple<GIndex, GIndex, bool, ULong64_t>, key_hash>;
@@ -251,7 +256,9 @@ class SVertexer
   using map_after_t = std::unordered_map<key_t, std::tuple<TrackCand, MCTrack, TrackCand, MCTrack, MCTrack>, key_hash>;
   using map_mc_t = std::unordered_map<key_t, std::pair<key_t, key_t>, key_hash>;
   using map_mc_particle_t = std::unordered_map<key_t, bool, key_hash>;
+  using map_discard_t = std::unordered_map<size_t, int>;
 
+  map_discard_t mDiscardMap;
   map_mc_t mD0V0Map;
   map_mc_t mD1V0Map;
   map_mc_t mMotherV0Map;
@@ -832,13 +839,14 @@ class SVertexer
       return i;
     }
 
-    void inc(Enum e, GIndex const& gid, o2::MCCompLabel const& lbl, map_mc_t const& d0, map_mc_t const& d1, map_mc_particle_t const& mcparticles)
+    bool inc(Enum e, GIndex const& gid, o2::MCCompLabel const& lbl, map_mc_t const& d0, map_mc_t const& d1, map_mc_particle_t const& mcparticles)
     {
       auto c = static_cast<unsigned int>(e);
       auto gidITS = gid.includesDet(o2::detectors::DetID::ITS);
       auto gidTPC = gid.includesDet(o2::detectors::DetID::TPC);
       auto gidTRD = gid.includesDet(o2::detectors::DetID::TRD);
       auto gidTOF = gid.includesDet(o2::detectors::DetID::TOF);
+      bool isV0 = false;
       int i = getType(gidITS, gidTPC, gidTRD, gidTOF);
       ++mCounters[i][c];
       ++mTotCounters[c];
@@ -849,7 +857,7 @@ class SVertexer
         mDupMap[i][c][gid] = true;
       }
       if (lbl.isFake() || !lbl.isValid()) {
-        return;
+        return false;
       }
       auto idx = std::make_tuple(lbl.getSourceID(), lbl.getEventID(), lbl.getTrackID());
       auto it0 = d0.find(idx);
@@ -857,6 +865,7 @@ class SVertexer
       auto it0T = it0 != d0.end();
       auto it1T = it1 != d1.end();
       if (it0T || it1T) {
+        isV0 = true;
         ++mCountersV0[i][c];
         if (dup) {
           ++mCountersV0Dup[i][c];
@@ -866,6 +875,7 @@ class SVertexer
       if (mcgen) {
         ++mCountersMC[i][c];
       }
+      return isV0;
     }
 
     void incAcceptTrack(Enum e, GIndex const& gid, o2::MCCompLabel const& lbl, map_mc_t const& d0, map_mc_t const& d1, map_mc_particle_t const& mcparticles, utils::TreeStreamRedirector& mDebugStream, o2::track::TrackPar const& trc, bool write = false)
