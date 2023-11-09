@@ -483,6 +483,7 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
   if (mUseDebug) {
     writeDebugWithoutTiming(recoData);
   }
+  int cTPC{0};
   for (int iv = 0; iv < nv; iv++) {
     const auto& vtref = vtxRefs[iv];
     const auto& vtx = mPVertices[iv];
@@ -503,8 +504,12 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
         }
         // unconstrained TPC tracks require special treatment: there is no point in checking DCA to mean vertex since it is not precise,
         // but we need to create a clone of TPC track constrained to this particular vertex time.
-        if (processTPCTrack(recoData.getTPCTrack(tvid), tvid, iv)) {
-          mCounterBuildT2V.inc(BUILDT2V::TPCSPROCESS, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
+        bool status = false;
+        if (processTPCTrack(recoData.getTPCTrack(tvid), tvid, iv, status)) {
+          if (status) {
+            mCounterBuildT2V.inc(BUILDT2V::TPCSPROCESS, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
+            ++cTPC;
+          }
           continue;
         }
         mCounterBuildT2V.inc(BUILDT2V::TPCFPROCESS, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
@@ -573,6 +578,7 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
 
   LOG(info) << "Alignment of TrackCand: " << alignof(TrackCand) << " with size: " << sizeof(TrackCand);
   LOG(info) << "Collected " << mTracksPool[POS].size() << " positive and " << mTracksPool[NEG].size() << " negative seeds";
+  LOG(info) << "Processed unconstrained TPC tracks " << cTPC;
   if (mUseDebug) {
     writeDebugWithTiming(recoData);
     LOGP(info, "~~~~~~~~~Before&After Timing information findable V0s~~~~~~~~~~~~~");
@@ -1242,7 +1248,7 @@ void SVertexer::setNThreads(int n)
 }
 
 //______________________________________________
-bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int vtxid)
+bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int vtxid, bool& status)
 {
   if (mSVParams->mTPCTrackMaxX > 0. && trTPC.getX() > mSVParams->mTPCTrackMaxX) {
     return true;
@@ -1271,6 +1277,7 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
   if (mUseDebug) {
     writeDebugV0Candidates(trTPC, gid, vtxid, trLoc);
   }
+  status = true;
 
   return true;
 }
