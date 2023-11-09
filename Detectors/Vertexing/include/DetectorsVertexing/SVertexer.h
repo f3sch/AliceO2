@@ -428,6 +428,7 @@ class SVertexer
     }
     bool inc(Enum e, PVertex const& pvertex, V0 const& v0, GIndex const& gid0, GIndex const& gid1, o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1, bool checkLabels, map_mc_t const& d0, map_mc_t const& d1, o2::steer::MCKinematicsReader& mcReader, utils::TreeStreamRedirector& mDebugStream)
     {
+      static int marker = 0;
       // foundV0
       auto c = static_cast<unsigned int>(e);
       bool duplicate{false};
@@ -506,6 +507,7 @@ class SVertexer
                    << "comb=" << i
                    << "isDuplicate=" << duplicate
                    << "isV0=" << trueV0
+                   << "endMarker=" << marker++
                    << "\n";
       return trueV0;
     }

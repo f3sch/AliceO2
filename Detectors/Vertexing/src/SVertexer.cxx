@@ -1294,6 +1294,7 @@ float SVertexer::correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::Tra
 
 void SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk)
 {
+  static int marker = 0;
   const auto& vtx = mPVertices[vtxid];
   const auto& vtxLbl = mPVertexLabels[vtxid];
   const auto& lbl = mTPCTrkLabels[gid.getIndex()];
@@ -1339,6 +1340,7 @@ void SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid,
                << "mcMother=" << mother
                << "isV0=" << isV0
                << "goodProp=" << goodProp
+               << "endMarker=" << marker++
                << "\n";
 }
 
