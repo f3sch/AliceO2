@@ -32,6 +32,7 @@
 #include "DetectorsVertexing/SVertexHypothesis.h"
 #include "StrangenessTracking/StrangenessTracker.h"
 #include "DataFormatsTPC/TrackTPC.h"
+#include <cstdint>
 #include <numeric>
 #include <algorithm>
 #include <tuple>
@@ -40,7 +41,6 @@
 #include "CommonUtils/TreeStreamRedirector.h"
 #include "SimulationDataFormat/MCUtils.h"
 #include "Steer/MCKinematicsReader.h"
-#include "boost/functional/hash.hpp"
 #include "TPDGCode.h"
 #include "TArrayD.h"
 
@@ -233,29 +233,12 @@ class SVertexer
   void writeDebugV0Found(TVI const& v0s, RECO const& recoData);
   void writeMCInfo();
 
-  using key_t = std::tuple<int, int, int>;
-
-  static size_t make_hash(int src, int eve, int id)
-  {
-    size_t seed = 0;
-    boost::hash_combine(seed, src ^ (0xdeadbeef ^ id));
-    boost::hash_combine(seed, eve << id);
-    boost::hash_combine(seed, id);
-    return seed;
-  }
-
-  struct key_hash {
-    size_t operator()(const key_t& k) const
-    {
-      const auto& [src, eve, trkid] = k;
-      return make_hash(src, eve, trkid);
-    }
-  };
-  using map_timing_t = std::unordered_map<key_t, std::tuple<GIndex, GIndex, bool, ULong64_t>, key_hash>;
-  using map_before_t = std::unordered_map<key_t, std::tuple<MCTrack, MCTrack, MCTrack, bool>, key_hash>;
-  using map_after_t = std::unordered_map<key_t, std::tuple<TrackCand, MCTrack, TrackCand, MCTrack, MCTrack>, key_hash>;
-  using map_mc_t = std::unordered_map<key_t, std::pair<key_t, key_t>, key_hash>;
-  using map_mc_particle_t = std::unordered_map<key_t, bool, key_hash>;
+  using key_t = uint64_t;
+  using map_timing_t = std::unordered_map<key_t, std::tuple<GIndex, GIndex, bool, ULong64_t>>;
+  using map_before_t = std::unordered_map<key_t, std::tuple<MCTrack, MCTrack, MCTrack, bool>>;
+  using map_after_t = std::unordered_map<key_t, std::tuple<TrackCand, MCTrack, TrackCand, MCTrack, MCTrack>>;
+  using map_mc_t = std::unordered_map<key_t, std::pair<key_t, key_t>>;
+  using map_mc_particle_t = std::unordered_map<key_t, bool>;
   using map_discard_t = std::unordered_map<size_t, int>;
 
   map_discard_t mDiscardMap;
@@ -264,19 +247,7 @@ class SVertexer
   map_mc_t mMotherV0Map;
   map_mc_particle_t mMCParticle;
 
-  using key_dup_t = std::tuple<GIndex, GIndex>;
-
-  struct key_dup_hash {
-    size_t operator()(const key_dup_t& k) const
-    {
-      const auto& [gid0, gid1] = k;
-      size_t seed = 0;
-      boost::hash_combine(seed, gid0.getRaw());
-      boost::hash_combine(seed, gid1.getRaw());
-      return seed;
-    }
-  };
-  using map_dup_t = std::unordered_map<key_dup_t, ULong64_t, key_dup_hash>;
+  using map_dup_t = std::unordered_map<key_t, ULong64_t>;
 
   bool checkMother(o2::MCTrack const* mother, const std::vector<o2::MCTrack>& pcontainer) const
   {
@@ -452,7 +423,7 @@ class SVertexer
       int i = getCombination(gid0ITS, gid0TPC, gid0TRD, gid0TOF, gid1ITS, gid1TPC, gid1TRD, gid1TOF);
       ++mCounters[i][c];
       ++mTotCounters[c];
-      auto idx = std::make_tuple(gid0, gid1);
+      auto idx = (key_t)gid0.getRaw() << 32 | gid1.getRaw();
       auto dup = mDup2Map[i][c].find(idx) != mDup2Map[i][c].end();
       if (dup) {
         duplicate = true;
@@ -461,11 +432,9 @@ class SVertexer
         ++mDup2Map[i][c][idx];
       }
       if (checkLabels) {
-        auto idx0 = std::make_tuple(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID());
-        auto it0 = d0.find(idx0);
+        auto it0 = d0.find(lbl0.getRawValue());
         auto it0T = it0 != d0.end();
-        auto idx1 = std::make_tuple(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID());
-        auto it1 = d1.find(idx1);
+        auto it1 = d1.find(lbl1.getRawValue());
         auto it1T = it1 != d1.end();
         if (it0T && it1T) {
           if ((*it0).second.second == (*it1).second.second) {
@@ -540,7 +509,7 @@ class SVertexer
       int i = getCombination(gid0ITS, gid0TPC, gid0TRD, gid0TOF, gid1ITS, gid1TPC, gid1TRD, gid1TOF);
       ++mCounters[i][c];
       ++mTotCounters[c];
-      auto idx = std::make_tuple(seedP.gid, seedN.gid);
+      auto idx = (key_t)seedP.gid.getRaw() << 32 | seedN.gid.getRaw();
       auto dup = mDup2Map[i][c].find(idx) != mDup2Map[i][c].end();
       if (dup) {
         duplicate = true;
@@ -549,11 +518,9 @@ class SVertexer
         ++mDup2Map[i][c][idx];
       }
       if (checkLabels) {
-        auto idx0 = std::make_tuple(lbl0.getSourceID(), lbl0.getEventID(), lbl0.getTrackID());
-        auto it0 = d0.find(idx0);
+        auto it0 = d0.find(lbl0.getRawValue());
         auto it0T = it0 != d0.end();
-        auto idx1 = std::make_tuple(lbl1.getSourceID(), lbl1.getEventID(), lbl1.getTrackID());
-        auto it1 = d1.find(idx1);
+        auto it1 = d1.find(lbl1.getRawValue());
         auto it1T = it1 != d1.end();
         if (it0T && it1T) {
           if ((*it0).second.second == (*it1).second.second) {
@@ -859,9 +826,8 @@ class SVertexer
       if (lbl.isFake() || !lbl.isValid()) {
         return false;
       }
-      auto idx = std::make_tuple(lbl.getSourceID(), lbl.getEventID(), lbl.getTrackID());
-      auto it0 = d0.find(idx);
-      auto it1 = d1.find(idx);
+      auto it0 = d0.find(lbl.getRawValue());
+      auto it1 = d1.find(lbl.getRawValue());
       auto it0T = it0 != d0.end();
       auto it1T = it1 != d1.end();
       if (it0T || it1T) {
@@ -871,7 +837,7 @@ class SVertexer
           ++mCountersV0Dup[i][c];
         }
       }
-      auto mcgen = mcparticles.find(idx) != mcparticles.end();
+      auto mcgen = mcparticles.find(lbl.getRawValue()) != mcparticles.end();
       if (mcgen) {
         ++mCountersMC[i][c];
       }
@@ -897,9 +863,8 @@ class SVertexer
       if (lbl.isFake() || !lbl.isValid()) {
         return;
       }
-      auto idx = std::make_tuple(lbl.getSourceID(), lbl.getEventID(), lbl.getTrackID());
-      auto it0 = d0.find(idx);
-      auto it1 = d1.find(idx);
+      auto it0 = d0.find(lbl.getRawValue());
+      auto it1 = d1.find(lbl.getRawValue());
       auto it0T = it0 != d0.end();
       auto it1T = it1 != d1.end();
       if (it0T || it1T) {
@@ -908,7 +873,7 @@ class SVertexer
           ++mCountersV0Dup[i][c];
         }
       }
-      auto mcgen = mcparticles.find(idx) != mcparticles.end();
+      auto mcgen = mcparticles.find(lbl.getRawValue()) != mcparticles.end();
       if (mcgen) {
         ++mCountersMC[i][c];
       }
