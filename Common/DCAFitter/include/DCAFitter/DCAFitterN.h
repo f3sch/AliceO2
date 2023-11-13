@@ -223,16 +223,17 @@ class DCAFitterN
   float getMinXSeed() const { return mMinXSeed; }
 
   bool bDistZ, bChi2;
-  void setDebug(int curId, bool shutup, o2::track::TrackParCov const& seedP, o2::track::TrackParCov const& seedN)
+  void setDebug(int curId, bool shutup, o2::track::TrackParCov const& seedP, o2::track::TrackParCov const& seedN, bool isFound)
   {
     mSeedP = seedP;
     mSeedN = seedN;
     mDebug = true;
+    mFound = isFound;
     mShutup = shutup;
     LOG_IF(info, mDebug && !mShutup) << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Current failed Track = " << mCurID;
     mCurID = curId;
     bDistZ = bChi2 = false;
-    mCrossings.setDebug(shutup);
+    mCrossings.setDebug(shutup, isFound);
   }
   void unsetDebug()
   {
@@ -379,7 +380,7 @@ class DCAFitterN
   float mMaxStep = 2.0;                                                                           // Max step for propagation with Propagator
   int mFitterID = 0;                                                                              // locat fitter ID (mostly for debugging)
   size_t mCallID = 0;
-  bool mDebug{false}, mShutup{false};
+  bool mDebug{false}, mShutup{false}, mFound{false};
   int mCurID{0};
   ULong64_t nCrossings{0}, nPropFail{0}, nZCut{0}, nInvFail{0}, nCorrectFails{0}, nCloserAlt{0}, nChi2{0},
     nConcentric{0}, nDistXY{0}, nNotTouching{0}, nChi2Called{0}, nTotCrossings{0};
@@ -412,15 +413,18 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
     LOG_IF(info, mDebug && !mShutup) << "no crossings";
     if (mDebug) {
       if (mCrossings.bNotTouching) {
+        LOG_IF(info, mFound) << "--- Not Touching";
         ++nNotTouching;
       }
       if (mCrossings.bDistXY) {
         ++nDistXY;
+        LOG_IF(info, mFound) << "--- Distance XY";
         vDist.push_back(mCrossings.vDist);
         vDistXY.push_back(mCrossings.vDistXY);
         vRsum.push_back(mCrossings.vRsum);
       }
       if (mCrossings.bConcentric) {
+        LOG_IF(info, mFound) << "--- Concentric";
         ++nConcentric;
       }
       ++nCrossings;
@@ -452,6 +456,7 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
     // check if radius is acceptable
     if (mCrossings.xDCA[ic] * mCrossings.xDCA[ic] + mCrossings.yDCA[ic] * mCrossings.yDCA[ic] > mMaxR2) {
       LOG_IF(info, mDebug && !mShutup) << " `-> radius unaccepatble";
+      LOG_IF(info, mDebug && mFound) << "~~~ Radius Failed";
       cont = true;
       ++nCont;
       continue;
@@ -469,6 +474,7 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
       mOrder[mCurHyp] = mCurHyp;
       if (mPropagateToPCA && !propagateTracksToVertex(mCurHyp)) {
         LOG_IF(info, mDebug && !mShutup) << "propagateTracksToVertex failed";
+        LOG_IF(info, mDebug && mFound) << "~~~ Prop Failed";
         cont = true;
         ++nCont;
         continue; // discard candidate if failed to propagate to it

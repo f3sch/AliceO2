@@ -52,7 +52,7 @@ void customize(std::vector<ConfigParamSpec>& workflowOptions)
     {"disable-root-input", o2::framework::VariantType::Bool, false, {"disable root-files input reader"}},
     {"disable-root-output", o2::framework::VariantType::Bool, false, {"disable root-files output writer"}},
     {"disable-mc", o2::framework::VariantType::Bool, false, {"disable MC"}},
-    {"enable-debug", o2::framework::VariantType::Bool, false, {"enable debug output for TPC only tracks"}},
+    {"check-found", o2::framework::VariantType::Bool, false, {"recheck found V0s"}},
     {"vertexing-sources", VariantType::String, std::string{GID::ALL}, {"comma-separated list of sources to use in vertexing"}},
     {"disable-cascade-finder", o2::framework::VariantType::Bool, false, {"do not run cascade finder"}},
     {"disable-3body-finder", o2::framework::VariantType::Bool, false, {"do not run 3 body finder"}},
@@ -78,7 +78,7 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   // write the configuration used for the workflow
   o2::conf::ConfigurableParam::writeINI("o2secondary-vertexing-workflow_configuration.ini");
   bool useMC = !configcontext.options().get<bool>("disable-mc");
-  bool useDebug= configcontext.options().get<bool>("enable-debug");
+  bool checkFound = configcontext.options().get<bool>("check-found");
   auto disableRootOut = configcontext.options().get<bool>("disable-root-output");
   auto enableCasc = !configcontext.options().get<bool>("disable-cascade-finder");
   auto enable3body = !configcontext.options().get<bool>("disable-3body-finder");
@@ -95,7 +95,7 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   }
   WorkflowSpec specs;
 
-  specs.emplace_back(o2::vertexing::getSecondaryVertexingSpec(src, enableCasc, enable3body, enagleStrTr, useMC, useDebug));
+  specs.emplace_back(o2::vertexing::getSecondaryVertexingSpec(src, enableCasc, enable3body, enagleStrTr, checkFound));
 
   // only TOF clusters are needed if TOF is involved, no clusters MC needed
   WorkflowSpec inputspecs;

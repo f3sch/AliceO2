@@ -64,10 +64,12 @@ struct CrossInfo {
   float yDCA[2] = {};
   int nDCA = 0;
   bool mDebug = false;
+  bool mFound = false;
   bool mShutup = false;
-  void setDebug(bool shutup)
+  void setDebug(bool shutup, bool isFound)
   {
     mDebug = true;
+    mFound = isFound;
     mShutup = shutup;
     bConcentric = false;
     bDistXY = false;

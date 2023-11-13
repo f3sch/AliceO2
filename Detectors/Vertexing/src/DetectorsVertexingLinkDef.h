@@ -31,7 +31,4 @@
 #pragma link C++ class o2::vertexing::PVtxCompDump + ;
 #pragma link C++ class std::vector < o2::vertexing::PVtxCompDump> + ;
 
-#pragma link C++ class std::unorderd_map < size_t, int> + ;
-#pragma link C++ class std::unorderd_map < int, int> + ;
-
 #endif

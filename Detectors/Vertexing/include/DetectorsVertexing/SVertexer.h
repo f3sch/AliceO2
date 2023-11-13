@@ -107,6 +107,9 @@ class SVertexer
     GIndex gid{};
     VBracket vBracket{};
     float minR = 0; // track lowest point r
+    bool isV0 = false;
+    bool isInTgl = false;
+    bool isFound = false;
   };
 
   SVertexer(bool enabCascades = true, bool enab3body = false) : mEnableCascades{enabCascades}, mEnable3BodyDecays{enab3body}
@@ -133,8 +136,8 @@ class SVertexer
   int getNThreads() const { return mNThreads; }
   void setUseMC(bool v) { mUseMC = v; }
   bool getUseMC() const { return mUseMC; }
-  void setUseDebug(bool v) { mUseDebug = v; }
-  bool getUseDebug() const { return mUseDebug; }
+  void setCheckFound(bool v) { mCheckFound = v; }
+  bool getCheckFound() const { return mCheckFound; }
 
   void setTPCTBin(int nbc)
   {
@@ -212,7 +215,7 @@ class SVertexer
   bool mEnableCascades = true;
   bool mEnable3BodyDecays = false;
   bool mUseMC = false;
-  bool mUseDebug = false;
+  bool mCheckFound = false;
 
   gsl::span<const o2::MCCompLabel> mITSTrkLabels;
   gsl::span<const o2::MCCompLabel> mTPCTrkLabels;
@@ -226,7 +229,7 @@ class SVertexer
   gsl::span<const o2::MCEventLabel> mPVertexLabels;
   o2::utils::TreeStreamRedirector mDebugStream{"svertexer-debug.root", "recreate"};
   o2::steer::MCKinematicsReader mcReader; // reader of MC information
-  void writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk);
+  bool writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk);
   void writeDebugWithoutTiming(const o2::globaltracking::RecoContainer& recoData);
   void writeDebugWithTiming(const o2::globaltracking::RecoContainer& recoData);
   template <class TVI, class RECO>
@@ -246,6 +249,8 @@ class SVertexer
   map_mc_t mD1V0Map;
   map_mc_t mMotherV0Map;
   map_mc_particle_t mMCParticle;
+
+  std::vector<key_t> mFound, *mFoundPtr{&mFound};
 
   using map_dup_t = std::unordered_map<key_t, ULong64_t>;
 

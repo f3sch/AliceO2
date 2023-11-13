@@ -26,6 +26,9 @@
 #include "DataFormatsTRD/TrackTRD.h"
 #include "SimulationDataFormat/MCEventLabel.h"
 
+#include "TTree.h"
+#include "TFile.h"
+
 #include <tuple>
 #include <unordered_map>
 
@@ -45,21 +48,34 @@ using TrackTPC = o2::tpc::TrackTPC;
 //__________________________________________________________________
 void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::framework::ProcessingContext& pc)
 {
+  LOGP(info, "Enabled MC={}  Enabled Recheck={}", mUseMC, mCheckFound);
+  if (mCheckFound) {
+    LOGP(info, "Rechecking found V0s");
+    std::unique_ptr<TFile> filePtr(TFile::Open("svertexer-found.root"));
+    if (!filePtr || !filePtr->IsOpen() || filePtr->IsZombie()) {
+      LOGP(fatal, "`-> Could not open File!");
+    }
+    auto tree = filePtr->Get<TTree>("found");
+    if (tree == nullptr) {
+      LOGP(fatal, "`-> Could not open Tree!");
+    }
+    tree->SetBranchAddress("foundMap", &mFoundPtr);
+    tree->GetEntry(0);
+    LOGP(info, "Loaded Found map with {} entries", mFound.size());
+  }
   mNV0s = mNCascades = mN3Bodies = 0;
   updateTimeDependentParams(); // TODO RS: strictly speaking, one should do this only in case of the CCDB objects update
   mPVertices = recoData.getPrimaryVertices();
-  if (mUseMC && mUseDebug) {
-    mITSTPCTRDTOFTrkLabels = recoData.getITSTPCTRDTOFMatchesMCLabels();
-    mITSTPCTOFTrkLabels = recoData.getITSTPCTOFMatchesMCLabels();
-    mITSTPCTRDTrkLabels = recoData.getITSTPCTRDTracksMCLabels();
-    mTPCTRDTOFTrkLabels = recoData.getTPCTRDTOFTracksMCLabels();
-    mTPCTRDTrkLabels = recoData.getTPCTRDTracksMCLabels();
-    mTPCTOFTrkLabels = recoData.getTPCTOFTracksMCLabels();
-    mITSTPCTrkLabels = recoData.getTPCITSTracksMCLabels();
-    mITSTrkLabels = recoData.getITSTracksMCLabels();
-    mTPCTrkLabels = recoData.getTPCTracksMCLabels();
-    mPVertexLabels = recoData.getPrimaryVertexMCLabels();
-  }
+  mITSTPCTRDTOFTrkLabels = recoData.getITSTPCTRDTOFMatchesMCLabels();
+  mITSTPCTOFTrkLabels = recoData.getITSTPCTOFMatchesMCLabels();
+  mITSTPCTRDTrkLabels = recoData.getITSTPCTRDTracksMCLabels();
+  mTPCTRDTOFTrkLabels = recoData.getTPCTRDTOFTracksMCLabels();
+  mTPCTRDTrkLabels = recoData.getTPCTRDTracksMCLabels();
+  mTPCTOFTrkLabels = recoData.getTPCTOFTracksMCLabels();
+  mITSTPCTrkLabels = recoData.getTPCITSTracksMCLabels();
+  mITSTrkLabels = recoData.getITSTracksMCLabels();
+  mTPCTrkLabels = recoData.getTPCTracksMCLabels();
+  mPVertexLabels = recoData.getPrimaryVertexMCLabels();
   buildT2V(recoData); // build track->vertex refs from vertex->track (if other workflow will need this, consider producing a message in the VertexTrackMatcher)
   int ntrP = mTracksPool[POS].size(), ntrN = mTracksPool[NEG].size();
   if (mStrTracker) {
@@ -95,9 +111,9 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
     }
   }
 
-  LOG_IF(info, mUseDebug) << "Total rejected true V0s in processing: " << nProcess;
+  LOG(info) << "Total rejected true V0s in processing: " << nProcess;
   for (int i{0}; i < mNThreads; ++i) {
-    LOG_IF(info, mUseDebug) << "Thread = " << i;
+    LOG(info) << "Thread = " << i;
     const auto& f = mFitterV0[i];
     f.printStats();
     for (int j{0}; j < f.vChi2.size(); ++j) {
@@ -268,16 +284,22 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
                << "\n";
 
   extractPVReferences(v0sIdx, v0Refs, cascsIdx, cascRefs, body3Idx, vtx3bodyRefs);
-  if (mUseDebug) {
-    LOGP(info, "-----------BUILDT2V Stats--------------------");
-    mCounterBuildT2V.print();
-    LOGP(info, "---------------------------------------------");
-    LOGP(info, "---- checkV0 stats ----");
-    mCounterV0.print2();
-    LOGP(info, "-----------------------");
-    writeDebugV0Found(v0sIdx, fullv0s);
-    mDebugStream.Close();
+  LOGP(info, "-----------BUILDT2V Stats--------------------");
+  mCounterBuildT2V.print();
+  LOGP(info, "---------------------------------------------");
+  LOGP(info, "---- checkV0 stats ----");
+  mCounterV0.print2();
+  LOGP(info, "-----------------------");
+  writeDebugV0Found(v0sIdx, fullv0s);
+  if (!mCheckFound) {
+    o2::utils::TreeStreamRedirector mFoundStream{"svertexer-found.root", "recreate"};
+    LOGP(info, "Writing found V0s");
+    mFoundStream << "found"
+                 << "foundMap=" << mFound
+                 << "\n";
+    mFoundStream.Close();
   }
+  mDebugStream.Close();
 }
 
 //__________________________________________________________________
@@ -483,9 +505,7 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
     mVtxFirstTrack[i].clear();
     mVtxFirstTrack[i].resize(nv, -1);
   }
-  if (mUseDebug) {
-    writeDebugWithoutTiming(recoData);
-  }
+  writeDebugWithoutTiming(recoData);
   int cTPC{0};
   for (int iv = 0; iv < nv; iv++) {
     const auto& vtref = vtxRefs[iv];
@@ -590,15 +610,13 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
   LOG(info) << "Alignment of TrackCand: " << alignof(TrackCand) << " with size: " << sizeof(TrackCand);
   LOG(info) << "Collected " << mTracksPool[POS].size() << " positive and " << mTracksPool[NEG].size() << " negative seeds";
   LOG(info) << "Processed unconstrained TPC tracks " << cTPC;
-  if (mUseDebug) {
-    writeDebugWithTiming(recoData);
-    LOGP(info, "~~~~~~~~~Before&After Timing information findable V0s~~~~~~~~~~~~~");
-    mCounterReco.printTiming();
-    LOGP(info, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-    LOGP(info, "~~~~~~~~~Accept Track~~~~~~~~~~~~~");
-    mCounterAcceptTrack.print();
-    LOGP(info, "~@~~@@~@~@~~@@~@@~@~@@~@@~@@~@~@~@");
-  }
+  writeDebugWithTiming(recoData);
+  LOGP(info, "~~~~~~~~~Before&After Timing information findable V0s~~~~~~~~~~~~~");
+  mCounterReco.printTiming();
+  LOGP(info, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+  LOGP(info, "~~~~~~~~~Accept Track~~~~~~~~~~~~~");
+  mCounterAcceptTrack.print();
+  LOGP(info, "~@~~@@~@~@~~@@~@@~@~@@~@@~@@~@~@~@");
 }
 
 //__________________________________________________________________
@@ -607,17 +625,28 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   auto lbl0 = getLabel(seedP.gid);
   auto lbl1 = getLabel(seedN.gid);
   auto ok = checkLabels(lbl0, lbl1);
+  bool tpconly = seedP.gid.getSource() == GIndex::TPC && seedN.gid.getSource() == GIndex::TPC;
   const auto& pVtx = mcReader.getMCEventHeader(lbl0.getSourceID(), lbl0.getEventID());
   MCEventLabel pVtxLbl;
   if (seedP.vBracket.getOverlap(seedN.vBracket).isZeroLength()) {
     pVtxLbl = mPVertexLabels[seedP.vBracket.getMin()];
   }
   bool check = mCounterV0.inc(CHECKV0::CALLED, {}, pVtx, pVtxLbl, {}, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, false);
+  bool mcGood = false;
+  MCTrack mcTrk;
+  if (check) {
+    auto ptr = mcReader.getTrack(lbl0);
+    if (ptr != nullptr) {
+      mcGood = true;
+      mcTrk = *ptr;
+    }
+  }
   auto& fitterV0 = mFitterV0[ithread];
   int nCand = fitterV0.process(seedP, seedN);
+  bool notFound = !(seedP.isFound && seedN.isFound) && tpconly;
   if (nCand == 0) { // discard this pair
     if (check) {
-      fitterV0.setDebug(nProcess++, true, seedP, seedN);
+      fitterV0.setDebug(nProcess++, true, seedP, seedN, notFound);
       // LOGP(info, "Label: 0");
       // seedP.gid.print();
       // lbl0.print();
@@ -642,6 +671,9 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   if (r2v0 < mMinR2ToMeanVertex) {
     mCounterV0.inc(CHECKV0::MINR2TOMEANVERTEX, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure());
     if (check) {
+      if (notFound) {
+        LOGP(info, "+++ minR2ToMeanVertex: {} {} ", r2v0, mMinR2ToMeanVertex);
+      }
       mDiscardMap[lbl0.getRawValue()] = int(CHECKV0::MINR2TOMEANVERTEX) + 1000;
       mDiscardMap[lbl1.getRawValue()] = int(CHECKV0::MINR2TOMEANVERTEX) + 1000;
     }
@@ -650,10 +682,23 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     }
   }
   const float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
-  if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
-      drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
+  if (bool dP = drv0P > mSVParams->causalityRTolerance, ddP = drv0P<-mSVParams->maxV0ToProngsRDiff, dN = drv0N> mSVParams->causalityRTolerance, ddN = drv0N < -mSVParams->maxV0ToProngsRDiff;
+      dP || ddP || dN || ddN) {
     mCounterV0.inc(CHECKV0::REJCAUSALITY, {}, pVtx, pVtxLbl, v0XYZ, seedP, seedN, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream, true, check, fitterV0.isPropagationFailure());
     if (check) {
+      if (notFound) {
+        if (dP || dN) {
+          LOGP(info, "+++ Causality: Vertex too high drv0P={} drv0N={} > causalityRTolerance={}", drv0P, drv0N, mSVParams->causalityRTolerance);
+        } else {
+          LOGP(info, "+++ Causality: Vertex too low drv0P={} drv0N={} < maxV0ToProngsRDiff={}", drv0P, drv0N, -mSVParams->maxV0ToProngsRDiff);
+        }
+        if (mcGood) {
+          LOGP(info, "+++ `-> seedP.minR={} seedN.minR={}", seedP.minR, seedN.minR);
+          LOGP(info, "+++ `-> dxv0={} dyv0={} rv0={}", dxv0, dyv0, rv0);
+          LOGP(info, "+++ `-> MC Vertex is   x={}  y={}  z={}", mcTrk.GetStartVertexCoordinatesX(), mcTrk.GetStartVertexCoordinatesY(), mcTrk.GetStartVertexCoordinatesZ());
+          LOGP(info, "+++ `-> Reco Vertex is x={}  y={}  z={}", v0XYZ[0], v0XYZ[1], v0XYZ[2]);
+        }
+      }
       mDiscardMap[lbl0.getRawValue()] = int(CHECKV0::REJCAUSALITY) + 1000;
       mDiscardMap[lbl1.getRawValue()] = int(CHECKV0::REJCAUSALITY) + 1000;
     }
@@ -1314,15 +1359,20 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
   auto& trLoc = mTracksPool[posneg].emplace_back(TrackCand{trTPC, gid, {vtxid, vtxid}, 0.123});
   // auto trLoc = mTracksPool[posneg].emplace_back(TrackCand{trTPC, gid, {vtxid, vtxid}, 0.123});
   auto err = correctTPCTrack(trLoc, trTPC, twe.getTimeStamp(), twe.getTimeStampError());
-  if (err < 0 || TMath::Abs(trLoc.getZ() - vtx.getZ() - trLoc.getTgl() * trLoc.getX()) > mSVParams->mTPCTrackMaxZ) {
+  if (err < 0 || TMath::Abs(-trLoc.getZ() - vtx.getZ() + trLoc.getTgl() * trLoc.getX()) > mSVParams->mTPCTrackMaxZ) {
     mTracksPool[posneg].pop_back(); // discard
     return true;
   }
   trLoc.minR = std::sqrt(trLoc.getX() * trLoc.getX() + trLoc.getY() * trLoc.getY());
 
   // write debug output for unconstrained tpc tracks contributing to the pool
-  if (mUseDebug) {
-    writeDebugV0Candidates(trTPC, gid, vtxid, trLoc);
+  if (writeDebugV0Candidates(trTPC, gid, vtxid, trLoc)) {
+    trLoc.isV0 = true;
+    trLoc.isInTgl = TMath::Abs(-trLoc.getZ() - vtx.getZ() + trLoc.getTgl() * trLoc.getX()) < 40.;
+    if (mCheckFound) {
+      key_t lbl = getLabel(gid).getRawValue();
+      trLoc.isFound = std::find(std::begin(mFound), std::end(mFound), lbl) != std::end(mFound);
+    }
   }
   status = true;
 
@@ -1346,7 +1396,7 @@ float SVertexer::correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::Tra
   return driftErr;
 }
 
-void SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk)
+bool SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid, int vtxid, o2::track::TrackParCov const& candTrk)
 {
   static int marker = 0;
   const auto& vtx = mPVertices[vtxid];
@@ -1396,6 +1446,7 @@ void SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid,
                << "goodProp=" << goodProp
                << "endMarker=" << marker++
                << "\n";
+  return isV0;
 }
 
 template <class TVI, class TV>
@@ -1413,6 +1464,10 @@ void SVertexer::writeDebugV0Found(TVI const& v0sIdx, TV const& v0s)
     const auto lbl0 = getLabel(gid0);
     const auto lbl1 = getLabel(gid1);
     auto ok = checkLabels(lbl0, lbl1);
+    if (!mCheckFound) {
+      mFound.push_back(lbl0.getRawValue());
+      mFound.push_back(lbl1.getRawValue());
+    }
     auto isV0 = mCounterV0Found.inc(V0Found::FOUND, pVtx, v0, gid0, gid1, lbl0, lbl1, ok, mD0V0Map, mD1V0Map, mcReader, mDebugStream);
     // if (isV0) {
     //   LOGP(info, "{:*^30}", "V0 pair start");
@@ -1581,116 +1636,114 @@ void SVertexer::writeDebugWithTiming(const o2::globaltracking::RecoContainer& re
 
 void SVertexer::writeMCInfo()
 {
-  if (mUseDebug) {
-    LOGP(info, "Enabled debug output");
-    if (mUseMC) {
-      if (!mcReader.initFromDigitContext("collisioncontext.root")) {
-        LOGP(fatal, "Initialization of MCKinematicsReader failed!");
-      }
-      int events{0};
-      for (int iSource{0}; iSource < mcReader.getNSources(); ++iSource) {
-        events += mcReader.getNEvents(iSource);
-        for (int iEvent{0}; iEvent < mcReader.getNEvents(iSource); ++iEvent) {
-          const auto& header = mcReader.getMCEventHeader(iSource, iEvent);
-          if (abs(header.GetZ()) > 30) {
-            continue;
-          }
-          const auto& pcontainer = mcReader.getTracks(iSource, iEvent);
-          for (int i{0}; i < pcontainer.size(); ++i) {
-            const auto& mcparticle = pcontainer[i];
-            const auto tglGen = std::abs(mcparticle.Pz() / mcparticle.GetPt());
-            if (mcparticle.GetPdgCode() == v0Type &&
-                mcparticle.isPrimary() &&
-                o2::mcutils::MCTrackNavigator::isPhysicalPrimary(mcparticle, pcontainer)) { // all primary photons
-              if (auto d0 = o2::mcutils::MCTrackNavigator::getDaughter0(mcparticle, pcontainer),
-                  d1 = o2::mcutils::MCTrackNavigator::getDaughter1(mcparticle, pcontainer);
-                  d0 != d1 && d0 != nullptr && d1 != nullptr &&
-                  d0->GetPdgCode() == -d1->GetPdgCode() &&
-                  d0->getProcess() == kPPair &&
-                  d1->getProcess() == kPPair &&
-                  d0->hasHits() &&
-                  d1->hasHits() &&
-                  d0->GetP() > 0.05 &&
-                  d1->GetP() > 0.05) {
-                const auto tglGend0 = std::abs(d0->Pz() / d0->GetPt());
-                const auto tglGend1 = std::abs(d0->Pz() / d0->GetPt());
-                auto R = std::sqrt(d0->GetStartVertexCoordinatesX() * d0->GetStartVertexCoordinatesX() + d0->GetStartVertexCoordinatesY() * d0->GetStartVertexCoordinatesY());
-                if (abs(d0->GetStartVertexCoordinatesZ()) > 250. ||
-                    R > 180 || tglGend0 > 1.f || tglGend1 > 1.f || d0->GetEta() > 1.f || d1->GetEta() > 1.f) { // only count photons where the conversion point is in the fuducial region
-                  continue;
-                }
-                TParticlePDG* pPDG0 = TDatabasePDG::Instance()->GetParticle(d0->GetPdgCode());
-                if (pPDG0 != nullptr && pPDG0->Charge() < 0) {
-                  std::swap(d0, d1);
-                }
-                auto d0TPC = d0->leftTrace(o2::detectors::DetID::TPC), d0ITS = d0->leftTrace(o2::detectors::DetID::ITS),
-                     d0TRD = d0->leftTrace(o2::detectors::DetID::TRD), d0TOF = d0->leftTrace(o2::detectors::DetID::TOF),
-                     d0ZDC = d0->leftTrace(o2::detectors::DetID::ZDC), d0FV0 = d0->leftTrace(o2::detectors::DetID::FV0),
-                     d1TPC = d1->leftTrace(o2::detectors::DetID::TPC), d1ITS = d1->leftTrace(o2::detectors::DetID::ITS),
-                     d1TRD = d0->leftTrace(o2::detectors::DetID::TRD), d1TOF = d0->leftTrace(o2::detectors::DetID::TOF),
-                     d1ZDC = d1->leftTrace(o2::detectors::DetID::ZDC),
-                     d1FV0 = d1->leftTrace(o2::detectors::DetID::FV0);
-                if (d0ZDC || d0FV0 || d1ZDC || d1FV0) {
-                  continue;
-                }
-                const MCCompLabel motherLbl{i, iEvent, iSource};
-                if (const auto idxMother = motherLbl.getRawValue();
-                    mMotherV0Map.find(idxMother) == mMotherV0Map.end()) {
-                  auto comb = mCounterMC.inc(MCGEN::GEN, d1ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
-                  const MCCompLabel lblD0{mcparticle.getFirstDaughterTrackId(), iEvent, iSource};
-                  const MCCompLabel lblD1{mcparticle.getLastDaughterTrackId(), iEvent, iSource};
-                  const auto idxD0 = lblD0.getRawValue();
-                  const auto idxD1 = lblD1.getRawValue();
-                  mMotherV0Map[idxMother] = std::make_pair(idxD0, idxD1);
-                  mD0V0Map[idxD0] = std::make_pair(idxD1, idxMother);
-                  mD1V0Map[idxD1] = std::make_pair(idxD0, idxMother);
-                  mDebugStream << "mcGen"
-                               << "d0=" << *d0
-                               << "d1=" << *d1
-                               << "mother=" << mcparticle
-                               << "comb=" << comb
-                               << "header=" << header
-                               << "R=" << R
-                               << "\n";
-                  // if (comb == 54) {
-                  //   mcparticle.Print();
-                  // int i = 0;
-                  // auto mPtr = o2::mcutils::MCTrackNavigator::getMother(mcparticle, pcontainer);
-                  // while (mPtr != nullptr) {
-                  //   auto const& mm = *mPtr;
-                  //   LOGP(info, "Level: {}", i);
-                  //   mm.Print();
-                  //   mPtr == o2::mcutils::MCTrackNavigator::getMother(mm, pcontainer);
-                  //   --i;
-                  // }
-                  //   d0->Print();
-                  //   d1->Print();
-                  //   LOGP(info, "~~~");
-                  // }
-                }
+  LOGP(info, "Enabled debug output");
+  if (mUseMC) {
+    if (!mcReader.initFromDigitContext("collisioncontext.root")) {
+      LOGP(fatal, "Initialization of MCKinematicsReader failed!");
+    }
+    int events{0};
+    for (int iSource{0}; iSource < mcReader.getNSources(); ++iSource) {
+      events += mcReader.getNEvents(iSource);
+      for (int iEvent{0}; iEvent < mcReader.getNEvents(iSource); ++iEvent) {
+        const auto& header = mcReader.getMCEventHeader(iSource, iEvent);
+        if (abs(header.GetZ()) > 30) {
+          continue;
+        }
+        const auto& pcontainer = mcReader.getTracks(iSource, iEvent);
+        for (int i{0}; i < pcontainer.size(); ++i) {
+          const auto& mcparticle = pcontainer[i];
+          const auto tglGen = std::abs(mcparticle.Pz() / mcparticle.GetPt());
+          if (mcparticle.GetPdgCode() == v0Type &&
+              mcparticle.isPrimary() &&
+              o2::mcutils::MCTrackNavigator::isPhysicalPrimary(mcparticle, pcontainer)) { // all primary photons
+            if (auto d0 = o2::mcutils::MCTrackNavigator::getDaughter0(mcparticle, pcontainer),
+                d1 = o2::mcutils::MCTrackNavigator::getDaughter1(mcparticle, pcontainer);
+                d0 != d1 && d0 != nullptr && d1 != nullptr &&
+                d0->GetPdgCode() == -d1->GetPdgCode() &&
+                d0->getProcess() == kPPair &&
+                d1->getProcess() == kPPair &&
+                d0->hasHits() &&
+                d1->hasHits() &&
+                d0->GetP() > 0.05 &&
+                d1->GetP() > 0.05) {
+              const auto tglGend0 = std::abs(d0->Pz() / d0->GetPt());
+              const auto tglGend1 = std::abs(d0->Pz() / d0->GetPt());
+              auto R = std::sqrt(d0->GetStartVertexCoordinatesX() * d0->GetStartVertexCoordinatesX() + d0->GetStartVertexCoordinatesY() * d0->GetStartVertexCoordinatesY());
+              if (abs(d0->GetStartVertexCoordinatesZ()) > 250. ||
+                  R > 180 || tglGend0 > 1.f || tglGend1 > 1.f || d0->GetEta() > 1.f || d1->GetEta() > 1.f) { // only count photons where the conversion point is in the fuducial region
+                continue;
+              }
+              TParticlePDG* pPDG0 = TDatabasePDG::Instance()->GetParticle(d0->GetPdgCode());
+              if (pPDG0 != nullptr && pPDG0->Charge() < 0) {
+                std::swap(d0, d1);
+              }
+              auto d0TPC = d0->leftTrace(o2::detectors::DetID::TPC), d0ITS = d0->leftTrace(o2::detectors::DetID::ITS),
+                   d0TRD = d0->leftTrace(o2::detectors::DetID::TRD), d0TOF = d0->leftTrace(o2::detectors::DetID::TOF),
+                   d0ZDC = d0->leftTrace(o2::detectors::DetID::ZDC), d0FV0 = d0->leftTrace(o2::detectors::DetID::FV0),
+                   d1TPC = d1->leftTrace(o2::detectors::DetID::TPC), d1ITS = d1->leftTrace(o2::detectors::DetID::ITS),
+                   d1TRD = d0->leftTrace(o2::detectors::DetID::TRD), d1TOF = d0->leftTrace(o2::detectors::DetID::TOF),
+                   d1ZDC = d1->leftTrace(o2::detectors::DetID::ZDC),
+                   d1FV0 = d1->leftTrace(o2::detectors::DetID::FV0);
+              if (d0ZDC || d0FV0 || d1ZDC || d1FV0) {
+                continue;
+              }
+              const MCCompLabel motherLbl{i, iEvent, iSource};
+              if (const auto idxMother = motherLbl.getRawValue();
+                  mMotherV0Map.find(idxMother) == mMotherV0Map.end()) {
+                auto comb = mCounterMC.inc(MCGEN::GEN, d1ITS, d0TPC, d0TRD, d0TOF, d1ITS, d1TPC, d1TRD, d1TOF);
+                const MCCompLabel lblD0{mcparticle.getFirstDaughterTrackId(), iEvent, iSource};
+                const MCCompLabel lblD1{mcparticle.getLastDaughterTrackId(), iEvent, iSource};
+                const auto idxD0 = lblD0.getRawValue();
+                const auto idxD1 = lblD1.getRawValue();
+                mMotherV0Map[idxMother] = std::make_pair(idxD0, idxD1);
+                mD0V0Map[idxD0] = std::make_pair(idxD1, idxMother);
+                mD1V0Map[idxD1] = std::make_pair(idxD0, idxMother);
+                mDebugStream << "mcGen"
+                             << "d0=" << *d0
+                             << "d1=" << *d1
+                             << "mother=" << mcparticle
+                             << "comb=" << comb
+                             << "header=" << header
+                             << "R=" << R
+                             << "\n";
+                // if (comb == 54) {
+                //   mcparticle.Print();
+                // int i = 0;
+                // auto mPtr = o2::mcutils::MCTrackNavigator::getMother(mcparticle, pcontainer);
+                // while (mPtr != nullptr) {
+                //   auto const& mm = *mPtr;
+                //   LOGP(info, "Level: {}", i);
+                //   mm.Print();
+                //   mPtr == o2::mcutils::MCTrackNavigator::getMother(mm, pcontainer);
+                //   --i;
+                // }
+                //   d0->Print();
+                //   d1->Print();
+                //   LOGP(info, "~~~");
+                // }
               }
             }
-            if (TParticlePDG* pPDG = TDatabasePDG::Instance()->GetParticle(mcparticle.GetPdgCode());
-                mcparticle.hasHits() &&
-                mcparticle.GetP() > 0.05 &&
-                pPDG != nullptr && pPDG->Charge() != 0) {
-              auto hitTPC = mcparticle.leftTrace(o2::detectors::DetID::TPC), hitITS = mcparticle.leftTrace(o2::detectors::DetID::ITS),
-                   hitTRD = mcparticle.leftTrace(o2::detectors::DetID::TRD), hitTOF = mcparticle.leftTrace(o2::detectors::DetID::TOF);
-              mCounterMC.inc(MCGEN::GEN, hitITS, hitTPC, hitTRD, hitTOF);
-              const MCCompLabel lblIdx{i, iEvent, iSource};
-              const auto idx = lblIdx.getRawValue();
-              mMCParticle[idx] = true;
-            }
+          }
+          if (TParticlePDG* pPDG = TDatabasePDG::Instance()->GetParticle(mcparticle.GetPdgCode());
+              mcparticle.hasHits() &&
+              mcparticle.GetP() > 0.05 &&
+              pPDG != nullptr && pPDG->Charge() != 0) {
+            auto hitTPC = mcparticle.leftTrace(o2::detectors::DetID::TPC), hitITS = mcparticle.leftTrace(o2::detectors::DetID::ITS),
+                 hitTRD = mcparticle.leftTrace(o2::detectors::DetID::TRD), hitTOF = mcparticle.leftTrace(o2::detectors::DetID::TOF);
+            mCounterMC.inc(MCGEN::GEN, hitITS, hitTPC, hitTRD, hitTOF);
+            const MCCompLabel lblIdx{i, iEvent, iSource};
+            const auto idx = lblIdx.getRawValue();
+            mMCParticle[idx] = true;
           }
         }
       }
-      LOGP(info, "+++ Sources: {}    Events: {}", mcReader.getNSources(), events);
-      LOGP(info, "~~~~~~~~~~~~~~~~~~~MC GEN Stats~~~~~~~~~~~~~~~~");
-      mCounterMC.printMC();
-      LOGP(info, "~~~~~~~~~~~~~~~~~~~V0 pairs generated~~~~~~~~~~");
-      mCounterMC.printMC2();
-      LOGP(info, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
-      // LOGP(fatal, "just stop");
     }
+    LOGP(info, "+++ Sources: {}    Events: {}", mcReader.getNSources(), events);
+    LOGP(info, "~~~~~~~~~~~~~~~~~~~MC GEN Stats~~~~~~~~~~~~~~~~");
+    mCounterMC.printMC();
+    LOGP(info, "~~~~~~~~~~~~~~~~~~~V0 pairs generated~~~~~~~~~~");
+    mCounterMC.printMC2();
+    LOGP(info, "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+    // LOGP(fatal, "just stop");
   }
 }
