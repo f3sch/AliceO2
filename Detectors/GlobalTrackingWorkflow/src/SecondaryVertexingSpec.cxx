@@ -115,6 +115,7 @@ void SecondaryVertexingSpec::run(ProcessingContext& pc)
   mTimer.Stop();
   LOG(info) << "Found " << mVertexer.getNV0s() << " V0s, " << mVertexer.getNCascades() << " cascades, " << mVertexer.getN3Bodies() << " 3-body decays, "
             << mVertexer.getNStrangeTracks() << " strange tracks. Timing: CPU: " << mTimer.CpuTime() - timeCPU0 << " Real: " << mTimer.RealTime() - timeReal0 << " s";
+  LOGP(info, "~~~~");
 }
 
 void SecondaryVertexingSpec::endOfStream(EndOfStreamContext& ec)

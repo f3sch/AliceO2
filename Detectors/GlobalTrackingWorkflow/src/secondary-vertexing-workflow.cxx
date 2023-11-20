@@ -90,6 +90,7 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   if (enagleStrTr) {
     srcClus |= GID::getSourceMask(GID::ITS);
   }
+  srcClus |= GID::getSourceMask(GID::TPC);
   if (requireCTPLumi) {
     src = src | GID::getSourcesMask("CTP");
   }
