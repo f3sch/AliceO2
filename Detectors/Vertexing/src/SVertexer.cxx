@@ -25,6 +25,8 @@
 #include "FairLogger.h"
 #include "DataFormatsTRD/TrackTRD.h"
 #include "SimulationDataFormat/MCEventLabel.h"
+#include "CommonConstants/GeomConstants.h"
+#include "DataFormatsTPC/WorkflowHelper.h"
 
 #include "TTree.h"
 #include "TFile.h"
@@ -48,6 +50,7 @@ using TrackTPC = o2::tpc::TrackTPC;
 //__________________________________________________________________
 void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::framework::ProcessingContext& pc)
 {
+  mRecoCont = &recoData;
   LOGP(info, "Enabled MC={}  Enabled Recheck={}", mUseMC, mCheckFound);
   if (mCheckFound) {
     LOGP(info, "Rechecking found V0s");
@@ -76,6 +79,11 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
   mITSTrkLabels = recoData.getITSTracksMCLabels();
   mTPCTrkLabels = recoData.getTPCTracksMCLabels();
   mPVertexLabels = recoData.getPrimaryVertexMCLabels();
+  mTPCTracksArray = recoData.getTPCTracks();
+  mTPCTrackClusIdx = recoData.getTPCTracksClusterRefs();
+  mTPCClusterIdxStruct = &recoData.inputsTPCclusters->clusterIndex;
+  mTPCRefitterShMap = recoData.clusterShMapTPC;
+  mTPCRefitter = std::make_unique<o2::gpu::GPUO2InterfaceRefit>(mTPCClusterIdxStruct, mTPCCorrMapsHelper, o2::base::Propagator::Instance()->getNominalBz(), mTPCTrackClusIdx.data(), mTPCRefitterShMap.data(), nullptr, o2::base::Propagator::Instance());
   buildT2V(recoData); // build track->vertex refs from vertex->track (if other workflow will need this, consider producing a message in the VertexTrackMatcher)
   int ntrP = mTracksPool[POS].size(), ntrN = mTracksPool[NEG].size();
   if (mStrTracker) {
@@ -533,7 +541,7 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
         // unconstrained TPC tracks require special treatment: there is no point in checking DCA to mean vertex since it is not precise,
         // but we need to create a clone of TPC track constrained to this particular vertex time.
         bool status = false;
-        if (processTPCTrack(recoData.getTPCTrack(tvid), tvid, iv, status)) {
+        if (processTPCTrack(mTPCTracksArray[tvid], tvid, iv, status)) {
           if (status) {
             mCounterBuildT2V.inc(BUILDT2V::TPCSPROCESS, tvid, lbl, mD0V0Map, mD1V0Map, mMCParticle);
             ++cTPC;
@@ -587,6 +595,9 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
       int posneg = trc.getSign() < 0 ? 1 : 0;
       float r = std::sqrt(trc.getX() * trc.getX() + trc.getY() * trc.getY());
       mTracksPool[posneg].emplace_back(TrackCand{trc, tvid, {iv, iv}, r});
+      if (tvid.getSource() == GIndex::TPC) { // constrained TPC track?
+        correctTPCTrack(mTracksPool[posneg].back(), mTPCTracksArray[tvid], -1, -1);
+      }
       if (tvid.isAmbiguous()) { // track attached to >1 vertex, remember that it was already processed
         tmap[tvid] = {mTracksPool[posneg].size() - 1, posneg};
       }
@@ -1380,19 +1391,38 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
 }
 
 //______________________________________________
-float SVertexer::correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::TrackTPC& tTPC, float tmus, float tmusErr) const
+float SVertexer::correctTPCTrack(TrackCand& trc, const o2::tpc::TrackTPC& tTPC, float tmus, float tmusErr) const
 {
   // Correct the track copy trc of the TPC track for the assumed interaction time
   // return extra uncertainty in Z due to the interaction time uncertainty
   // TODO: at the moment, apply simple shift, but with Z-dependent calibration we may
   // need to do corrections on TPC cluster level and refit
   // This is a clone of MatchTPCITS::correctTPCTrack
-  float dDrift = (tmus * mMUS2TPCBin - tTPC.getTime0()) * mTPCBin2Z;
-  float driftErr = tmusErr * mMUS2TPCBin * mTPCBin2Z;
+  float tTB, tTBErr;
+  if (tmusErr < 0) { // use track data
+    tTB = tTPC.getTime0();
+    tTBErr = 0.5 * (tTPC.getDeltaTBwd() + tTPC.getDeltaTFwd());
+  } else {
+    tTB = tmus * mMUS2TPCBin;
+    tTBErr = tmusErr * mMUS2TPCBin;
+  }
+  float dDrift = (tTB - tTPC.getTime0()) * mTPCBin2Z;
+  float driftErr = tTBErr * mTPCBin2Z;
+  if (driftErr < 0) {
+    return driftErr;
+  }
   // eventually should be refitted, at the moment we simply shift...
   trc.setZ(tTPC.getZ() + (tTPC.hasASideClustersOnly() ? dDrift : -dDrift));
   trc.setCov(trc.getSigmaZ2() + driftErr * driftErr, o2::track::kSigZ2);
-
+  uint8_t sector, row;
+  auto cl = &tTPC.getCluster(mTPCTrackClusIdx, tTPC.getNClusters() - 1, *mTPCClusterIdxStruct, sector, row);
+  float x = 0, y = 0, z = 0;
+  mTPCCorrMapsHelper->Transform(sector, row, cl->getPad(), cl->getTime(), x, y, z, tTB);
+  if (x < o2::constants::geom::XTPCInnerRef) {
+    x = o2::constants::geom::XTPCInnerRef;
+  }
+  trc.minR = std::sqrt(x * x + y * y);
+  LOGP(debug, "set MinR = {} for row {}, x:{}, y:{}, z:{}", trc.minR, row, x, y, z);
   return driftErr;
 }
 
@@ -1407,6 +1437,35 @@ bool SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid,
   MCTrack mother;
   bool goodProp = false, isV0 = (mD0V0Map.find(idx) != mD0V0Map.end() || mD1V0Map.find(idx) != mD1V0Map.end());
   o2::track::TrackPar trkProp;
+  std::array<bool, 152> clMap{};
+  uint8_t sectorIndex, rowIndex;
+  uint32_t clusterIndex;
+  uint8_t found = 0;
+  uint8_t crossed = 0;
+  constexpr int maxRows = 152;
+  constexpr int neighbour = 2;
+  for (int i = 0; i < trk.getNClusterReferences(); i++) {
+    o2::tpc::TrackTPC::getClusterReference(mTPCTrackClusIdx, i, sectorIndex, rowIndex, clusterIndex, trk.getClusterRef());
+    clMap[rowIndex] = true;
+  }
+  int last = -1;
+  for (int i = 0; i < maxRows; i++) {
+    if (clMap[i]) {
+      crossed++;
+      found++;
+      last = i;
+    } else if ((i - last) <= neighbour) {
+      crossed++;
+    } else {
+      int lim = std::min(i + 1 + neighbour, maxRows);
+      for (int j = i + 1; j < lim; j++) {
+        if (clMap[j]) {
+          crossed++;
+          break;
+        }
+      }
+    }
+  }
 
   while (!goodProp) {
     if (!lbl.isValid() || lbl.isFake() || (mcTrack = mcReader.getTrack(lbl)) == nullptr) {
@@ -1442,6 +1501,8 @@ bool SVertexer::writeDebugV0Candidates(o2::tpc::TrackTPC const& trk, GIndex gid,
                << "propTrk=" << trkProp
                << "mcTrk=" << mcTrack
                << "mcMother=" << mother
+               << "crossed=" << crossed
+               << "found=" << found
                << "isV0=" << isV0
                << "goodProp=" << goodProp
                << "endMarker=" << marker++

@@ -27,6 +27,7 @@
 #include "ReconstructionDataFormats/VtxTrackIndex.h"
 #include "ReconstructionDataFormats/VtxTrackRef.h"
 #include "CommonDataFormat/RangeReference.h"
+#include "DataFormatsTPC/ClusterNativeHelper.h"
 #include "DCAFitter/DCAFitterN.h"
 #include "DetectorsVertexing/SVertexerParams.h"
 #include "DetectorsVertexing/SVertexHypothesis.h"
@@ -161,13 +162,17 @@ class SVertexer
   void updateTimeDependentParams();
   bool acceptTrack(GIndex gid, const o2::track::TrackParCov& trc);
   bool processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int vtxid, bool& status);
-  float correctTPCTrack(o2::track::TrackParCov& trc, const o2::tpc::TrackTPC& tTPC, float tmus, float tmusErr) const;
+  float correctTPCTrack(TrackCand& trc, const o2::tpc::TrackTPC& tTPC, float tmus, float tmusErr) const;
 
   static uint64_t getPairIdx(GIndex id1, GIndex id2)
   {
     return (uint64_t(id1) << 32) | id2;
   }
-
+  const o2::globaltracking::RecoContainer* mRecoCont = nullptr;
+  const o2::tpc::ClusterNativeAccess* mTPCClusterIdxStruct = nullptr; ///< struct holding the TPC cluster indices
+  gsl::span<const o2::tpc::TrackTPC> mTPCTracksArray;                 ///< input TPC tracks span
+  gsl::span<const o2::tpc::TPCClRefElem> mTPCTrackClusIdx;            ///< input TPC track cluster indices span
+  gsl::span<const unsigned char> mTPCRefitterShMap;                   ///< externally set TPC clusters sharing map
   // at the moment not used
   o2::gpu::CorrectionMapsHelper* mTPCCorrMapsHelper = nullptr;
   std::unique_ptr<o2::gpu::GPUO2InterfaceRefit> mTPCRefitter; ///< TPC refitter used for TPC tracks refit during the reconstruction

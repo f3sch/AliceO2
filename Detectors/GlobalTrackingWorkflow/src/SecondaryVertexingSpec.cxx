@@ -202,6 +202,11 @@ DataProcessorSpec getSecondaryVertexingSpec(GTrackID::mask_t src, bool enableCas
   GTrackID::mask_t srcClus{};
   if (enableStrangenesTracking) {
     src |= (srcClus = GTrackID::getSourceMask(GTrackID::Source::ITS));
+  }
+  if (src[GTrackID::TPC]) {
+    srcClus |= GTrackID::getSourceMask(GTrackID::TPC);
+  }
+  if (srcClus.any()) {
     dataRequest->requestClusters(srcClus, useMC);
   }
   dataRequest->requestTracks(src, useMC);
