@@ -868,14 +868,20 @@ void tileSegTest()
 
   if (true) {
     namespace cp = constants::pixelarray;
-    TH2I* h_raw_col = new TH2I("h_raw_col", "h_raw_col;raw;col", cp::nRows, 0, cp::nRows, cp::nCols, 0, cp::nCols);
-    TH2D* h_xLocal_zLocal = new TH2D("h_xLocal_zLocal", "h_xLocal_zLocal;xLocal;yLocal", 1000, -cp::length / 2, cp::length / 2, 1000, -cp::width / 2, cp::width / 2);
-    TH2D* h_xCurved_yCurved = new TH2D("h_xCurved_yCurved", "h_xCurved_yCurved", 100, -cp::length / 2, cp::length / 2, 100, -cp::width / 2, cp::width / 2);
+    TH2I* h_raw_col = new TH2I("h_raw_col", ";raw;col", cp::nRows, 0, cp::nRows, cp::nCols, 0, cp::nCols);
+    TH2D* h_xLocal_zLocal = new TH2D("h_xLocal_zLocal", ";xLocal;yLocal", cp::nRows * 3, -cp::length / 2, cp::length / 2, cp::nCols * 3, -cp::width / 2, cp::width / 2);
+    TH2D* h_xCurved_yCurved = new TH2D("h_xCurved_yCurved", ";xCurved;yCurved", 1000, 0., constants::radii[2] * 1.5, 1000, -constants::radii[2] * 0.5, +constants::radii[2] * 0.5);
     TGraph* g_raw_xLocal = new TGraph();
+    g_raw_xLocal->SetTitle(";raw;xLocal");
+    g_raw_xLocal->SetMarkerStyle(20);
+    g_raw_xLocal->SetMarkerSize(0.2);
     TGraph* g_col_zLocal = new TGraph();
+    g_col_zLocal->SetTitle(";col;zLocal");
+    g_col_zLocal->SetMarkerStyle(20);
+    g_col_zLocal->SetMarkerSize(0.2);
 
-    TH2D* h_xGlobal_yGlobal = new TH2D("h_xGlobal_yGlobal", "h_xGlobal_yGlobal;xGlobel;yGlobal", 1000, -constants::radii[2] * 1.5, +constants::radii[2] * 1.5, 1000, -constants::radii[2] * 1.5, +constants::radii[2] * 1.5);
-    TH2D* h_zGlobal_xGlobal = new TH2D("h_zGlobal_xGlobal", "h_zGlobal_xGlobal;xGlobel;yGlobal", 1000, -constants::segment::width, +constants::segment::width, 100, -constants::radii[2] * 1.5, +constants::radii[2] * 1.5);
+    TH2D* h_xGlobal_yGlobal = new TH2D("h_xGlobal_yGlobal", ";xGlobel;yGlobal", 1000, -constants::radii[2] * 1.5, +constants::radii[2] * 1.5, 1000, -constants::radii[2] * 1.5, +constants::radii[2] * 1.5);
+    TH2D* h_zGlobal_xGlobal = new TH2D("h_zGlobal_xGlobal", ";xGlobel;yGlobal", 1000, -constants::segment::width, +constants::segment::width, 100, -constants::radii[2] * 1.5, +constants::radii[2] * 1.5);
 
     for (unsigned int iLayer{}; iLayer < constants::nLayers; ++iLayer) {
       for (unsigned int iCarbonForm{0}; iCarbonForm < 2; ++iCarbonForm) {
@@ -902,10 +908,11 @@ void tileSegTest()
               double yCurved = 0;
 
               // Test the coordinate from dectector(row,col) to local(x',z') to curved(x'',y'') to global(x,y,z)
-              for (size_t i = 0; i < 1000; i++) {
-                //randomly sow the points in the pixel array
+              for (size_t i = 0; i < 10000; i++) {
+                // randomly sow the points in the pixel array
                 int row = gRandom->Uniform(0, cp::nRows);
                 int col = gRandom->Uniform(0, cp::nCols);
+
                 double xLocal = 0;
                 double zLocal = 0;
                 double xCurved = 0;
@@ -931,6 +938,7 @@ void tileSegTest()
         }
       }
     }
+
     TCanvas* c1 = new TCanvas("c1", "c1", 800, 800);
     gStyle->SetPadLeftMargin(0.15);
     c1->Divide(2, 2);
@@ -939,15 +947,13 @@ void tileSegTest()
     c1->cd(2);
     h_xLocal_zLocal->Draw("colz");
     c1->cd(3);
-    g_raw_xLocal->SetTitle(";raw;xLocal");
-    g_raw_xLocal->SetMarkerStyle(20);
-    g_raw_xLocal->SetMarkerSize(0.2);
-    g_raw_xLocal->Draw("ap");
+    gPad->DrawFrame(0, -cp::length / 2, cp::nRows, cp::length / 2);
+    g_raw_xLocal->Draw("same ap");
     c1->cd(4);
-    g_col_zLocal->SetTitle(";col;zLocal");
-    g_col_zLocal->Draw("ap");
+    gPad->DrawFrame(0, -cp::width / 2, cp::nCols, cp::width / 2);
+    g_col_zLocal->Draw("same ap");
 
-    TCanvas* c2 = new TCanvas("c2", "c2", 800, 800);
+    TCanvas* c2 = new TCanvas("c2", "c2", 400, 400);
     h_xCurved_yCurved->Draw("colz");
 
     TCanvas* c3 = new TCanvas("c3", "c3", 800, 400);
