@@ -34,6 +34,16 @@
 #include "TEveTrack.h"
 #include "TEveVSDStructs.h"
 
+#include "TFile.h"
+#include "TGraph.h"
+#include "TH1D.h"
+#include "TH2D.h"
+#include "TCanvas.h"
+#include "TStyle.h"
+#include "TRandom3.h"
+#include "TLine.h"
+#include "TArc.h"
+
 #include <iostream>
 #include <fmt/format.h>
 
@@ -540,10 +550,10 @@ class ITS3Layer
     longeronsVol->SetLineColor(color);
     auto zMoveLongerons = new TGeoTranslation(0, 0, -constants::segment::lec::width + constants::segment::width / 2.);
 
-    mCarbonForm->AddNode(mChip, 0);
     mCarbonForm->AddNode(HringCVol, 0, zMoveHringC);
     mCarbonForm->AddNode(HringAVol, 0, zMoveHringA);
     mCarbonForm->AddNode(longeronsVol, 0, zMoveLongerons);
+    mCarbonForm->AddNode(mChip, 0);
   }
 
   TGeoCompositeShape* getHringShape(TGeoTubeSeg* Hring, int nHoles, double radiusHoles)
@@ -581,7 +591,7 @@ class ITS3Layer
 
     // The offset is the right angle triangle of the middle radius with the
     // transverse axis.
-    double phiOffset = std::asin(constants::equatorialGap / mR) * constants::Rad2Deg;
+    double phiOffset = std::asin(constants::equatorialGap / 2. / mR) * constants::Rad2Deg;
     // double phiOffset = constants::equatorialGap / mRmin / 2.;
     auto rotTop = new TGeoRotation("", 0, 0, +phiOffset);
     auto rotBot = new TGeoRotation("", 0, 0, phiOffset + 180);
@@ -654,7 +664,7 @@ class SegmentationSuperAlpide
   /// the center of the sensitive volume.
   void curvedToFlat(value_t xCurved, value_t yCurved, value_t& xFlat, value_t& yFlat)
   {
-    // FIXME: Chunzheng: I think we should use the phi instead of complementary angles of phi
+    // // FIXME: Chunzheng: I think we should use the phi instead of complementary angles of phi
     // value_t dist = std::hypot(xCurved, yCurved);
     // yFlat = dist - mEffRadius;
     // value_t phi = (value_t)constants::PI / 2 - std::atan2((double)yCurved, (double)xCurved);
@@ -678,7 +688,7 @@ class SegmentationSuperAlpide
   /// the center of the sensitive volume.
   void flatToCurved(value_t xFlat, value_t yFlat, value_t& xCurved, value_t& yCurved)
   {
-    // FIXME: Chunzheng: I think maybe the xCurved and yCurved should be swapped in the old code, need to check
+    // // FIXME: Chunzheng: I think maybe the xCurved and yCurved should be swapped in the old code, need to check
     // value_t dist = yFlat + mEffRadius;
     // value_t phi = xFlat / dist;
     // value_t tang = std::tan((value_t)constants::PI / 2 - (value_t)phi);
@@ -691,6 +701,14 @@ class SegmentationSuperAlpide
     value_t phi = xFlat / dist;
     xCurved = dist * std::cos(phi);
     yCurved = dist * std::sin(phi);
+
+    //将(xCurved,yCurved)旋转一个角度 phiOffset
+    value_t phiOffset = std::asin((constants::pixelarray::length / 2.) / mEffRadius);
+    value_t xCurvedRotated = xCurved * std::cos(phiOffset) - yCurved * std::sin(phiOffset);
+    value_t yCurvedRotated = xCurved * std::sin(phiOffset) + yCurved * std::cos(phiOffset);
+
+    xCurved = xCurvedRotated;
+    yCurved = yCurvedRotated;
   }
 
   /// Transformation from Geant detector centered local coordinates (cm) to
@@ -819,6 +837,14 @@ void tileSegTest()
   /* gGeoManager->CheckGeometryFull(); */
   /* gGeoManager->RandomRays(); */
 
+  // 画一个水平面, 沿着z,x轴
+  auto plane = new TGeoBBox("plane", 5, 0.001, 15);
+  auto planeVol = new TGeoVolume("planeVol", plane, gGeoManager->GetMedium(material::MaterialNames[material::Vacuum]));
+  planeVol->SetLineColor(kRed);
+  planeVol->SetTransparency(50);
+  planeVol->SetVisDaughters(false);
+  top->AddNode(planeVol, 0, 0);
+
   TFile* file = TFile::Open("tile_seg.root", "RECREATE");
   gGeoManager->Write();
   file->Close();
@@ -870,7 +896,7 @@ void tileSegTest()
     namespace cp = constants::pixelarray;
     TH2I* h_raw_col = new TH2I("h_raw_col", ";raw;col", cp::nRows, 0, cp::nRows, cp::nCols, 0, cp::nCols);
     TH2D* h_xLocal_zLocal = new TH2D("h_xLocal_zLocal", ";xLocal;yLocal", cp::nRows * 3, -cp::length / 2, cp::length / 2, cp::nCols * 3, -cp::width / 2, cp::width / 2);
-    TH2D* h_xCurved_yCurved = new TH2D("h_xCurved_yCurved", ";xCurved;yCurved", 1000, 0., constants::radii[2] * 1.5, 1000, -constants::radii[2] * 0.5, +constants::radii[2] * 0.5);
+    TH2D* h_xCurved_yCurved = new TH2D("h_xCurved_yCurved", ";xCurved;yCurved", 100, 1., constants::radii[2] * 1.5, 100, -constants::radii[2] * 0.5, +constants::radii[2] * 0.5);
     TGraph* g_raw_xLocal = new TGraph();
     g_raw_xLocal->SetTitle(";raw;xLocal");
     g_raw_xLocal->SetMarkerStyle(20);
@@ -881,9 +907,10 @@ void tileSegTest()
     g_col_zLocal->SetMarkerSize(0.2);
 
     TH2D* h_xGlobal_yGlobal = new TH2D("h_xGlobal_yGlobal", ";xGlobel;yGlobal", 1000, -constants::radii[2] * 1.5, +constants::radii[2] * 1.5, 1000, -constants::radii[2] * 1.5, +constants::radii[2] * 1.5);
-    TH2D* h_zGlobal_xGlobal = new TH2D("h_zGlobal_xGlobal", ";xGlobel;yGlobal", 1000, -constants::segment::width, +constants::segment::width, 100, -constants::radii[2] * 1.5, +constants::radii[2] * 1.5);
+    TH2D* h_zGlobal_xGlobal = new TH2D("h_zGlobal_xGlobal", ";xGlobel;yGlobal", 100, -constants::segment::width, +constants::segment::width, 1000, -constants::radii[2] * 1.5, +constants::radii[2] * 1.5);
 
-    for (unsigned int iLayer{}; iLayer < constants::nLayers; ++iLayer) {
+    for (unsigned int iLayer{}; iLayer < 3; ++iLayer) {
+      // for (unsigned int iLayer{}; iLayer < constants::nLayers; ++iLayer) {
       for (unsigned int iCarbonForm{0}; iCarbonForm < 2; ++iCarbonForm) {
         // No Loop for chip = carbonform id
         for (unsigned int iSegment{0}; iSegment < constants::nSegments[iLayer]; ++iSegment) {
@@ -907,7 +934,6 @@ void tileSegTest()
               double xCurved = 0;
               double yCurved = 0;
 
-              // Test the coordinate from dectector(row,col) to local(x',z') to curved(x'',y'') to global(x,y,z)
               for (size_t i = 0; i < 10000; i++) {
                 // randomly sow the points in the pixel array
                 int row = gRandom->Uniform(0, cp::nRows);
@@ -955,12 +981,32 @@ void tileSegTest()
 
     TCanvas* c2 = new TCanvas("c2", "c2", 400, 400);
     h_xCurved_yCurved->Draw("colz");
-
+    TLine* line = new TLine(h_xCurved_yCurved->GetXaxis()->GetXmin(), 0, h_xCurved_yCurved->GetXaxis()->GetXmax(), 0);
+    line->Draw("same");
+    TArc* arc[3];
+    for (int i = 0; i < 3; i++) {
+      arc[i] = new TArc(0, 0, constants::radii[i] + constants::thickness / 2.);
+      arc[i]->SetLineColor(kRed);
+      arc[i]->SetFillStyle(0);
+      arc[i]->Draw("same");
+    }
+    //c2 显示Grid
+    c2->SetGrid();
+  
     TCanvas* c3 = new TCanvas("c3", "c3", 800, 400);
     c3->Divide(2, 1);
     c3->cd(1);
+    // 在图片中间画一个十字
     h_xGlobal_yGlobal->Draw("colz");
+    TLine* line1 = new TLine(h_xGlobal_yGlobal->GetXaxis()->GetXmin(), 0, h_xGlobal_yGlobal->GetXaxis()->GetXmax(), 0);
+    TLine* line2 = new TLine(0, h_xGlobal_yGlobal->GetYaxis()->GetXmin(), 0, h_xGlobal_yGlobal->GetYaxis()->GetXmax());
+    line1->Draw("same");
+    line2->Draw("same");
     c3->cd(2);
+    // 在图片中间画一个一字
     h_zGlobal_xGlobal->Draw("colz");
+    TLine* line3 = new TLine(h_zGlobal_xGlobal->GetXaxis()->GetXmin(), 0, h_zGlobal_xGlobal->GetXaxis()->GetXmax(), 0);
+    line3->Draw("same");
+
   }
 }
