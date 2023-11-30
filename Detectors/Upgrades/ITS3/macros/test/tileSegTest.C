@@ -635,7 +635,6 @@ class SegmentationSuperAlpide
   // x----------------------x
   // |           |          |
   // |           |          |
-  // |           |          |
   // |           |          |                        ^ x
   // |           |          |                        |
   // |           |          |                        |
@@ -664,16 +663,15 @@ class SegmentationSuperAlpide
   /// the center of the sensitive volume.
   void curvedToFlat(value_t xCurved, value_t yCurved, value_t& xFlat, value_t& yFlat)
   {
-    // // FIXME: Chunzheng: I think we should use the phi instead of complementary angles of phi
-    // value_t dist = std::hypot(xCurved, yCurved);
-    // yFlat = dist - mEffRadius;
-    // value_t phi = (value_t)constants::PI / 2 - std::atan2((double)yCurved, (double)xCurved);
-    // xFlat = mEffRadius * phi;
-
+    // TODO: need to be checked
     value_t dist = std::hypot(xCurved, yCurved);
     yFlat = dist - mEffRadius;
-    value_t phi = std::acos(xCurved / dist);
-    xFlat = dist * phi;
+    // phi is the angle between the x axis and the center of the pixel array
+    value_t phi = std::atan2(yCurved, xCurved);
+    // phiOffset is the angle between the x axis and the center of the pixel array
+    value_t phiOffset = std::asin((constants::pixelarray::length / 2.) / dist);
+    value_t actualPhi = phi - phiOffset;
+    xFlat = dist * (phi - phiOffset);
   }
 
   /// Transformation from the flat surface to a curved surface
@@ -688,27 +686,12 @@ class SegmentationSuperAlpide
   /// the center of the sensitive volume.
   void flatToCurved(value_t xFlat, value_t yFlat, value_t& xCurved, value_t& yCurved)
   {
-    // // FIXME: Chunzheng: I think maybe the xCurved and yCurved should be swapped in the old code, need to check
-    // value_t dist = yFlat + mEffRadius;
-    // value_t phi = xFlat / dist;
-    // value_t tang = std::tan((value_t)constants::PI / 2 - (value_t)phi);
-    // xCurved = (xFlat > 0 ? 1.f : -1.f) * dist / std::sqrt(1 + tang * tang);
-    // yCurved = xCurved * tang;
-
-    // we don't need to calculate the tangent
-    // when flat to curved, xflat is the arc length, so we can just get the Central angle easily
     value_t dist = yFlat + mEffRadius;
     value_t phi = xFlat / dist;
-    xCurved = dist * std::cos(phi);
-    yCurved = dist * std::sin(phi);
-
-    //将(xCurved,yCurved)旋转一个角度 phiOffset
-    value_t phiOffset = std::asin((constants::pixelarray::length / 2.) / mEffRadius);
-    value_t xCurvedRotated = xCurved * std::cos(phiOffset) - yCurved * std::sin(phiOffset);
-    value_t yCurvedRotated = xCurved * std::sin(phiOffset) + yCurved * std::cos(phiOffset);
-
-    xCurved = xCurvedRotated;
-    yCurved = yCurvedRotated;
+    // phiOffset is the angle between the x axis and the center of the pixel array
+    value_t phiOffset = std::asin((constants::pixelarray::length / 2.) / dist);
+    xCurved = dist * std::cos(phi + phiOffset);
+    yCurved = dist * std::sin(phi + phiOffset);
   }
 
   /// Transformation from Geant detector centered local coordinates (cm) to
@@ -772,7 +755,6 @@ class SegmentationSuperAlpide
     namespace cp = constants::pixelarray;
     // xRow = -(iRow - 0.5) * cp::pixel::pitchRow + cp::length / 2.;
     // zCol = -(iCol + 0.5) * cp::pixel::pitchCol - cp::width / 2.;
-
     // @Chunzheng
     xRow = -(iRow + 0.5) * cp::pixel::pitchRow + cp::length / 2.;
     zCol = (iCol + 0.5) * cp::pixel::pitchCol - cp::width / 2.;
@@ -837,13 +819,13 @@ void tileSegTest()
   /* gGeoManager->CheckGeometryFull(); */
   /* gGeoManager->RandomRays(); */
 
-  // 画一个水平面, 沿着z,x轴
+  // Draw a horizontal plane in the x-z frame to check the symmetry
   auto plane = new TGeoBBox("plane", 5, 0.001, 15);
   auto planeVol = new TGeoVolume("planeVol", plane, gGeoManager->GetMedium(material::MaterialNames[material::Vacuum]));
   planeVol->SetLineColor(kRed);
   planeVol->SetTransparency(50);
   planeVol->SetVisDaughters(false);
-  top->AddNode(planeVol, 0, 0);
+  top->AddNode(planeVol, 0);
 
   TFile* file = TFile::Open("tile_seg.root", "RECREATE");
   gGeoManager->Write();
@@ -896,7 +878,7 @@ void tileSegTest()
     namespace cp = constants::pixelarray;
     TH2I* h_raw_col = new TH2I("h_raw_col", ";raw;col", cp::nRows, 0, cp::nRows, cp::nCols, 0, cp::nCols);
     TH2D* h_xLocal_zLocal = new TH2D("h_xLocal_zLocal", ";xLocal;yLocal", cp::nRows * 3, -cp::length / 2, cp::length / 2, cp::nCols * 3, -cp::width / 2, cp::width / 2);
-    TH2D* h_xCurved_yCurved = new TH2D("h_xCurved_yCurved", ";xCurved;yCurved", 100, 1., constants::radii[2] * 1.5, 100, -constants::radii[2] * 0.5, +constants::radii[2] * 0.5);
+    TH2D* h_xCurved_yCurved = new TH2D("h_xCurved_yCurved", ";xCurved;yCurved", 300, -0.5, 4.5, 300, -1., 2.);
     TGraph* g_raw_xLocal = new TGraph();
     g_raw_xLocal->SetTitle(";raw;xLocal");
     g_raw_xLocal->SetMarkerStyle(20);
@@ -955,6 +937,7 @@ void tileSegTest()
                 h_xLocal_zLocal->Fill(xLocal, zLocal);
                 g_raw_xLocal->SetPoint(i, row, xLocal);
                 g_col_zLocal->SetPoint(i, col, zLocal);
+                h_xCurved_yCurved->Fill(0., xLocal);
                 h_xCurved_yCurved->Fill(xCurved, yCurved);
                 h_xGlobal_yGlobal->Fill(posGlobal[0], posGlobal[1]);
                 h_zGlobal_xGlobal->Fill(posGlobal[2], posGlobal[0]);
@@ -990,23 +973,20 @@ void tileSegTest()
       arc[i]->SetFillStyle(0);
       arc[i]->Draw("same");
     }
-    //c2 显示Grid
-    c2->SetGrid();
-  
+
     TCanvas* c3 = new TCanvas("c3", "c3", 800, 400);
     c3->Divide(2, 1);
     c3->cd(1);
-    // 在图片中间画一个十字
+    // Draw a cross in the middle
     h_xGlobal_yGlobal->Draw("colz");
     TLine* line1 = new TLine(h_xGlobal_yGlobal->GetXaxis()->GetXmin(), 0, h_xGlobal_yGlobal->GetXaxis()->GetXmax(), 0);
     TLine* line2 = new TLine(0, h_xGlobal_yGlobal->GetYaxis()->GetXmin(), 0, h_xGlobal_yGlobal->GetYaxis()->GetXmax());
     line1->Draw("same");
     line2->Draw("same");
     c3->cd(2);
-    // 在图片中间画一个一字
+    // Draw a horizontal line in the middle
     h_zGlobal_xGlobal->Draw("colz");
     TLine* line3 = new TLine(h_zGlobal_xGlobal->GetXaxis()->GetXmin(), 0, h_zGlobal_xGlobal->GetXaxis()->GetXmax(), 0);
     line3->Draw("same");
-
   }
 }
