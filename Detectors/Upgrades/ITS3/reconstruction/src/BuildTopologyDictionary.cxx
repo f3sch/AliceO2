@@ -14,6 +14,8 @@
 #include "ITS3Reconstruction/BuildTopologyDictionary.h"
 #include "ITS3Reconstruction/LookUp.h"
 
+#include "TFile.h"
+
 ClassImp(o2::its3::BuildTopologyDictionary);
 namespace o2
 {

@@ -846,7 +846,7 @@ void GeometryTGeo::extractSensorXAlpha(int isn, float& x, float& alp)
     double radius = 0.;
 #ifdef ENABLE_UPGRADES
     SegmentationITS3 seg(iLayer);
-    radius = seg.mRadii[iLayer];
+    radius = seg.getEffRadius();
 #endif
     locA[1] = radius;
     locB[1] = radius;

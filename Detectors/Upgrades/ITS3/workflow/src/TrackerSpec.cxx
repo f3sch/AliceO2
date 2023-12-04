@@ -30,8 +30,7 @@
 #include "DataFormatsTRD/TriggerRecord.h"
 #include <ITS3Reconstruction/IOUtils.h>
 #include "ITSReconstruction/FastMultEstConfig.h"
-#include "ITS3Base/DescriptorInnerBarrelITS3Param.h"
-// #include "ITS3Reconstruction/FastMultEst.h"
+#include "ITS3Base/Specs.h"
 
 namespace o2
 {
@@ -58,11 +57,6 @@ void TrackerDPL::init(InitContext& ic)
   mTimer.Stop();
   mTimer.Reset();
   o2::base::GRPGeomHelper::instance().setRequest(mGGCCDBRequest);
-  auto& paramGeom = DescriptorInnerBarrelITS3Param::Instance();
-  if (paramGeom.getITS3LayerConfigString() == "FourLayers") {
-    mNLayers = 8;
-  }
-
   mChainITS.reset(mRecChain->AddChain<o2::gpu::GPUChainITS>());
   mVertexer = std::make_unique<Vertexer>(mChainITS->GetITSVertexerTraits());
   mTracker = std::make_unique<Tracker>(mChainITS->GetITSTrackerTraits());
@@ -136,8 +130,8 @@ void TrackerDPL::init(InitContext& ic)
       }
     }
     for (int iLayer{0}; iLayer < params.NLayers - 4; ++iLayer) { // initialise ITS3 radii and lengths
-      params.LayerZ[iLayer] = paramGeom.mLength;
-      params.LayerRadii[iLayer] = paramGeom.mRadii[iLayer];
+      params.LayerZ[iLayer] = constants::segment::widthSensitive;
+      params.LayerRadii[iLayer] = constants::radii[iLayer];
     }
   }
 

@@ -38,6 +38,7 @@ class ITS3Layer
   // HalfBarrel             CarbonForm
   // Layer                  Layer
  public:
+  ITS3Layer(int layer = 0) : mNLayer(layer) {}
   // Create one layer of ITS3 and attach it to the motherVolume.
   void createLayer(TGeoVolume* motherVolume, int layer = 0);
 
@@ -51,7 +52,6 @@ class ITS3Layer
   void createCarbonForm();
   void createLayerImpl();
 
- private:
   uint8_t mNLayer{0}; // Layer number
   double mR{0};       // Middle Radius
   double mRmin{};     // Minimum Radius
@@ -65,6 +65,9 @@ class ITS3Layer
   TGeoVolumeAssembly* mChip{nullptr};
   TGeoVolumeAssembly* mCarbonForm{nullptr};
   TGeoVolumeAssembly* mLayer{nullptr};
+
+  // Medias
+  TGeoMedium* mSilicon{nullptr};
 
   ClassDefNV(ITS3Layer, 0);
 };

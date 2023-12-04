@@ -27,6 +27,7 @@
 #include "ITSMFTSimulation/Hit.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "ITS3Base/SegmentationSuperAlpide.h"
+#include "ITS3Base/Specs.h"
 #include "DataFormatsITSMFT/Digit.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "CommonDataFormat/InteractionRecord.h"
@@ -107,7 +108,8 @@ class Digitizer : public TObject
   }
 
   std::vector<SegmentationSuperAlpide> mSuperSegmentations;
-  std::vector<int> mLayerID;
+
+  std::vector<uint8_t> mLayerID;
   static constexpr float sec2ns = 1e9;
 
   o2::itsmft::DigiParams mParams;          ///< digitization parameters

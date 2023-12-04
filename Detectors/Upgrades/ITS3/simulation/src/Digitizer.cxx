@@ -38,13 +38,11 @@ using namespace o2::its3;
 
 void Digitizer::init()
 {
-  mLayerID.clear();
   mSuperSegmentations.clear();
-  for (int iLayer{0}; iLayer < mGeometry->getNumberOfLayers() - 4; ++iLayer) {
-    for (int iChip{0}; iChip < mGeometry->getNumberOfChipsPerLayer(iLayer); ++iChip) {
-      mSuperSegmentations.push_back(SegmentationSuperAlpide(iLayer));
-      mLayerID.push_back(iLayer);
-    }
+  mLayerID.clear();
+  for (int iLayer{0}; iLayer < constants::nLayers; ++iLayer) {
+    mSuperSegmentations.emplace_back(iLayer);
+    mLayerID.emplace_back(iLayer);
   }
 
   const int numOfChips = mGeometry->getNumberOfChips();
@@ -300,8 +298,8 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
     rowS = 0;
   }
 
-  int maxNrows{innerBarrel ? mSuperSegmentations[detID].mNRows : Segmentation::NRows};
-  int maxNcols{innerBarrel ? mSuperSegmentations[detID].mNCols : Segmentation::NCols};
+  unsigned int maxNrows{innerBarrel ? SuperSegmentation::mNRows : Segmentation::NRows};
+  unsigned int maxNcols{innerBarrel ? SuperSegmentation ::mNCols : Segmentation::NCols};
   if (rowE >= maxNrows) {
     rowE = maxNrows - 1;
   }
@@ -331,7 +329,7 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
   // take into account that the AlpideSimResponse depth defintion has different min/max boundaries
   // although the max should coincide with the surface of the epitaxial layer, which in the chip
   // local coordinates has Y = +SensorLayerThickness/2
-  float thickness = innerBarrel ? mSuperSegmentations[detID].mSensorLayerThicknessEff : Segmentation::SensorLayerThickness;
+  float thickness = innerBarrel ? SuperSegmentation::mSensorLayerThicknessEff : Segmentation::SensorLayerThickness;
   xyzLocS.SetY(xyzLocS.Y() + resp->getDepthMax() - thickness / 2.);
 
   // collect charge in evey pixel which might be affected by the hit
@@ -355,8 +353,8 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
     }
     bool flipCol, flipRow;
     // note that response needs coordinates along column row (locX) (locZ) then depth (locY)
-    float rowMax{0.5f * (innerBarrel ? mSuperSegmentations[detID].mPitchRow : Segmentation::PitchRow)};
-    float colMax{0.5f * (innerBarrel ? mSuperSegmentations[detID].mPitchCol : Segmentation::PitchCol)};
+    float rowMax{static_cast<float>(0.5f * (innerBarrel ? mSuperSegmentations[detID].mPitchRow : Segmentation::PitchRow))};
+    float colMax{static_cast<float>(0.5f * (innerBarrel ? mSuperSegmentations[detID].mPitchCol : Segmentation::PitchCol))};
     auto rspmat = resp->getResponse(xyzLocS.X() - cRowPix, xyzLocS.Z() - cColPix, xyzLocS.Y(), flipRow, flipCol, rowMax, colMax);
 
     xyzLocS += step;

@@ -30,7 +30,7 @@
 #include "ITSMFTBase/DPLAlpideParam.h"
 #include "CommonConstants/LHCConstants.h"
 #include "DetectorsCommonDataFormats/DetectorNameConf.h"
-#include "ITS3Base/DescriptorInnerBarrelITS3Param.h"
+#include "ITS3Base/Specs.h"
 
 using namespace o2::framework;
 
@@ -41,17 +41,10 @@ namespace its3
 
 void ClustererDPL::init(InitContext& ic)
 {
-  auto& paramGeom = DescriptorInnerBarrelITS3Param::Instance();
   mClusterer = std::make_unique<o2::its3::Clusterer>();
   int nChipsOB = o2::itsmft::ChipMappingITS::getNChips(o2::itsmft::ChipMappingITS::MB) + o2::itsmft::ChipMappingITS::getNChips(o2::itsmft::ChipMappingITS::OB);
-  int nChipsIB = 6;
-  int nLayersITS3 = 3;
-  if (paramGeom.getITS3LayerConfigString() == "FourLayers") {
-    nChipsIB += 4;
-    nLayersITS3 = 4;
-  }
-  mClusterer->setNChips(nChipsOB + nChipsIB);
-  mClusterer->setNumLayersITS3(nLayersITS3);
+  mClusterer->setNChips(nChipsOB + constants::nChipsIB);
+  mClusterer->setNumLayersITS3(constants::nLayers);
   mUseClusterDictionary = !ic.options().get<bool>("ignore-cluster-dictionary");
   o2::base::GRPGeomHelper::instance().setRequest(mGGCCDBRequest);
   mState = 1;

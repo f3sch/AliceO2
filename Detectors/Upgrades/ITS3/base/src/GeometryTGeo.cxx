@@ -15,8 +15,4 @@
 
 #include "ITS3Base/GeometryTGeo.h"
 
-#include "Rtypes.h"
-
-ClassImp(o2::its::GeometryTGeo);
-
 std::unique_ptr<o2::its::GeometryTGeo> GeometryTGeo::mInstance;

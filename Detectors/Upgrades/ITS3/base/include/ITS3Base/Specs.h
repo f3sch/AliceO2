@@ -13,6 +13,9 @@
 /// \brief TDR specs of ITS3
 /// \author felix.schlepper@cern.ch
 
+#ifndef O2_ALICE_ITS3_SPECS
+#define O2_ALICE_ITS3_SPECS
+
 #include "Rtypes.h"
 
 namespace o2::its3
@@ -27,14 +30,6 @@ namespace pixelarray
 constexpr double length{9.197 * mm};
 constexpr double width{3.571 * mm};
 constexpr EColor color{kGreen};
-constexpr unsigned int nCols{156};
-constexpr unsigned int nRows{440};
-constexpr unsigned int nPixels{nCols * nRows};
-namespace pixel
-{
-constexpr double pitchCol{width / static_cast<double>(nCols)};
-constexpr double pitchRow{length / static_cast<double>(nRows)};
-} // namespace pixel
 } // namespace pixelarray
 namespace tile
 {
@@ -90,12 +85,15 @@ constexpr EColor color{kCyan};
 } // namespace rec
 constexpr unsigned int nRSUs{12};
 constexpr double width{nRSUs * rsu::width + lec::width + rec::width};
+constexpr double widthSensitive{nRSUs * rsu::width};
 } // namespace segment
 constexpr unsigned int nLayers{3};
+constexpr unsigned int nChipsIB{2 * nLayers};
 constexpr std::array<double, nLayers> radii{19 * mm, 25.2 * mm, 31.5 * mm}; // middle radius e.g. inner radius+thickness/2.
 constexpr double equatorialGap{1 * mm};
 constexpr std::array<unsigned int, nLayers> nSegments{3, 4, 5};
 constexpr double thickness{50 * mu};
-constexpr double effThickness{66 * mu};
 } // namespace constants
 } // namespace o2::its3
+
+#endif

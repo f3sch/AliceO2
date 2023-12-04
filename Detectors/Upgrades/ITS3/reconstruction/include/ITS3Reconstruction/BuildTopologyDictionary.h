@@ -18,7 +18,6 @@
 #include "ITSMFTReconstruction/BuildTopologyDictionary.h"
 #include "DataFormatsITSMFT/ClusterTopology.h"
 #include "ITS3Reconstruction/TopologyDictionary.h"
-#include "ITS3Base/SuperAlpideParams.h"
 namespace o2
 {
 namespace its3

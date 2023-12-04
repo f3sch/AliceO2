@@ -339,16 +339,11 @@ void Clusterer::ClustererThread::initChip(const ChipPixelData* curChipData, uint
   if (chipId < 6) {
     SegmentationSuperAlpide seg(chipId / 2);
     size = seg.mNRows + 2;
-  } else if (chipId < 10 && nLayersITS3 == 4) {
-    SegmentationSuperAlpide seg(3);
-    size = seg.mNRows + 2;
   }
-  if (column1) {
-    delete[] column1;
-  }
-  if (column2) {
-    delete[] column2;
-  }
+
+  delete[] column1;
+  delete[] column2;
+
   column1 = new int[size];
   column2 = new int[size];
   column1[0] = column1[size - 1] = -1;
