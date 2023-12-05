@@ -67,6 +67,7 @@ constexpr EColor color{kRed};
 } // namespace databackbone
 constexpr double length{19.564 * mm};
 constexpr double width{21.666 * mm};
+constexpr unsigned int nTiles{12};
 } // namespace rsu
 namespace segment
 {
@@ -84,10 +85,14 @@ constexpr double width{1.5 * mm};
 constexpr EColor color{kCyan};
 } // namespace rec
 constexpr unsigned int nRSUs{12};
+constexpr unsigned int nTilesPerSegment{nRSUs * rsu::nTiles};
 constexpr double width{nRSUs * rsu::width + lec::width + rec::width};
 constexpr double widthSensitive{nRSUs * rsu::width};
 } // namespace segment
 constexpr unsigned int nLayers{3};
+constexpr unsigned int nTotLayers{7};
+constexpr unsigned int nITS2Layers{nTotLayers - nLayers};
+constexpr unsigned int nITS3Layers{nLayers};
 constexpr unsigned int nChipsIB{2 * nLayers};
 constexpr std::array<double, nLayers> radii{19 * mm, 25.2 * mm, 31.5 * mm}; // middle radius e.g. inner radius+thickness/2.
 constexpr double equatorialGap{1 * mm};

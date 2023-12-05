@@ -15,6 +15,7 @@
 #pragma link off all classes;
 #pragma link off all functions;
 
+#pragma link C++ class o2::its3::GeometryTGeo + ;
 #pragma link C++ class o2::its3::MisalignmentParameter + ;
 
 #endif

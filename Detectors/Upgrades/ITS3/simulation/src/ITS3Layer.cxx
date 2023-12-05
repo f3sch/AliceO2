@@ -11,7 +11,6 @@
 
 /// \file ITS3Layer.h
 /// \brief Definition of the ITS3Layer class
-/// \author Fabrizio Grosa <fgrosa@cern.ch>
 /// \author felix.schlepper@cern.ch
 
 #include "TGeoTube.h"
@@ -19,28 +18,32 @@
 
 #include "CommonConstants/MathConstants.h"
 #include "ITS3Base/Specs.h"
-#include "ITSBase/GeometryTGeo.h"
-#include "ITS3Base/SegmentationSuperAlpide.h"
+#include "ITS3Base/GeometryTGeo.h"
 #include "ITS3Simulation/ITS3Layer.h"
 #include "fairlogger/Logger.h"
 
-using namespace o2::constants;
+namespace o2m = o2::constants::math;
+namespace its3c = o2::its3::constants;
 
 namespace o2::its3
 {
+using its3TGeo = o2::its3::GeometryTGeo;
 
 void ITS3Layer::init()
 {
   // First we start by creating variables which we are reusing a couple of times.
-  mR = constants::radii[mNLayer];
-  mRmin = mR - constants::thickness / 2.;
-  mRmax = mR + constants::thickness / 2.;
+  mR = its3c::radii[mNLayer];
+  mRmin = mR - its3c::thickness / 2.;
+  mRmax = mR + its3c::thickness / 2.;
 
   if (gGeoManager == nullptr) {
     LOGP(fatal, "gGeoManager not initalized!");
   }
 
   mSilicon = gGeoManager->GetMedium("IT3_SI$");
+  if (mSilicon == nullptr) {
+    LOGP(fatal, "ITS3_SI$ == nullptr!");
+  }
 }
 
 void ITS3Layer::createLayer(TGeoVolume* motherVolume, int layer)
@@ -67,21 +70,19 @@ void ITS3Layer::createLayer(TGeoVolume* motherVolume, int layer)
 
 void ITS3Layer::createPixelArray()
 {
-  using namespace constants::pixelarray;
+  using namespace its3c::pixelarray;
   // A pixel array is pure silicon and the sensitive part of our detector.
   // It will be segmented into a 440x144 matrix by the
   // SuperSegmentationAlpide.
   // Pixel Array is just a longer version of the biasing but starts in phi at
   // biasPhi2.
   double pixelArrayPhi1 =
-    constants::tile::biasing::length / mRmin * math::Rad2Deg;
+    constants::tile::biasing::length / mRmin * o2m::Rad2Deg;
   double pixelArrayPhi2 =
-    length / mRmin * math::Rad2Deg + pixelArrayPhi1;
+    length / mRmin * o2m::Rad2Deg + pixelArrayPhi1;
   auto pixelArray = new TGeoTubeSeg(mRmin, mRmax, width / 2.,
                                     pixelArrayPhi1, pixelArrayPhi2);
-  mPixelArray = new TGeoVolume(
-    Form("pixelarray_%d", mNLayer) /* TODO change to correct name */,
-    pixelArray, mSilicon);
+  mPixelArray = new TGeoVolume(its3TGeo::getITS3PixelArrayPattern(mNLayer), pixelArray, mSilicon);
   mPixelArray->SetLineColor(color);
   mPixelArray->RegisterYourself();
 }
@@ -94,18 +95,17 @@ void ITS3Layer::createTile()
   // switches and readout periphery (latter three are insensitive). We start
   // building the tile with the left upper edge of the biasing as center of
   // the tile’s z-coordinate axis.
-  mTile = new TGeoVolumeAssembly(Form("tile_%d", mNLayer));
+  mTile = new TGeoVolumeAssembly(its3TGeo::getITS3TilePattern(mNLayer));
   mTile->VisibleDaughters();
 
   // Biasing
   auto zMoveBiasing = new TGeoTranslation(0, 0, +biasing::width / 2.);
   double biasPhi1 = 0;
-  double biasPhi2 = biasing::length / mRmin * math::Rad2Deg;
+  double biasPhi2 = biasing::length / mRmin * o2m::Rad2Deg;
   auto biasing =
     new TGeoTubeSeg(mRmin, mRmax, biasing::width / 2, biasPhi1,
                     biasPhi2);
-  auto biasingVol = new TGeoVolume(
-    Form("biasing_%d", mNLayer), biasing, mSilicon);
+  auto biasingVol = new TGeoVolume(Form("biasing_%d", mNLayer), biasing, mSilicon);
   biasingVol->SetLineColor(biasing::color);
   biasingVol->RegisterYourself();
   mTile->AddNode(biasingVol, 0, zMoveBiasing);
@@ -117,13 +117,11 @@ void ITS3Layer::createTile()
   // The readout periphery is also on top of the pixel array but extrudes on +z a bit e.g. is wider.
   auto zMoveReadout = new TGeoTranslation(0, 0, +readout::width / 2.);
   double readoutPhi1 =
-    constants::pixelarray::length / mRmin * math::Rad2Deg + biasPhi2;
+    constants::pixelarray::length / mRmin * o2m::Rad2Deg + biasPhi2;
   double readoutPhi2 =
-    readout::length / mRmin * math::Rad2Deg + readoutPhi1;
-  auto readout = new TGeoTubeSeg(mRmin, mRmax, readout::width / 2,
-                                 readoutPhi1, readoutPhi2);
-  auto readoutVol = new TGeoVolume(
-    Form("readout_%d", mNLayer), readout, mSilicon);
+    readout::length / mRmin * o2m::Rad2Deg + readoutPhi1;
+  auto readout = new TGeoTubeSeg(mRmin, mRmax, readout::width / 2, readoutPhi1, readoutPhi2);
+  auto readoutVol = new TGeoVolume(Form("readout_%d", mNLayer), readout, mSilicon);
   readoutVol->SetLineColor(readout::color);
   readoutVol->RegisterYourself();
   mTile->AddNode(readoutVol, 0, zMoveReadout);
@@ -131,11 +129,10 @@ void ITS3Layer::createTile()
   // Power Switches are on the side right side of the pixel array and biasing.
   auto zMovePowerSwitches = new TGeoTranslation(0, 0, +powerswitches::width / 2. + biasing::width);
   double powerPhi1 = 0;
-  double powerPhi2 = powerswitches::length / mRmin * math::Rad2Deg;
+  double powerPhi2 = powerswitches::length / mRmin * o2m::Rad2Deg;
   auto powerSwitches = new TGeoTubeSeg(
     mRmin, mRmax, powerswitches::width / 2, powerPhi1, powerPhi2);
-  auto powerSwitchesVol = new TGeoVolume(
-    Form("powerswitches_%d", mNLayer), powerSwitches, mSilicon);
+  auto powerSwitchesVol = new TGeoVolume(Form("powerswitches_%d", mNLayer), powerSwitches, mSilicon);
   powerSwitchesVol->SetLineColor(powerswitches::color);
   mTile->AddNode(powerSwitchesVol, 0, zMovePowerSwitches);
 }
@@ -144,20 +141,16 @@ void ITS3Layer::createRSU()
 {
   using namespace constants::rsu;
   // A Repeated Sensor Unit (RSU) is 12 Tiles + 4 Databackbones stichted together.
-  mRSU = new TGeoVolumeAssembly(Form("rsu_%d", mNLayer));
+  mRSU = new TGeoVolumeAssembly(its3TGeo::getITS3RSUPattern(mNLayer));
   mRSU->VisibleDaughters();
   int nCopyRSU{0}, nCopyDB{0};
 
   // Create the DatabackBone
   // The Databackbone spans the whole phi of the tile.
   double dataBackbonePhi1 = 0;
-  double dataBackbonePhi2 = databackbone::length / mRmin *
-                            math::Rad2Deg;
-  auto dataBackbone = new TGeoTubeSeg(mRmin, mRmax, databackbone::width / 2.,
-                                      dataBackbonePhi1,
-                                      dataBackbonePhi2);
-  auto dataBackboneVol = new TGeoVolume(
-    Form("databackbone_%d", mNLayer), dataBackbone, mSilicon);
+  double dataBackbonePhi2 = databackbone::length / mRmin * o2m::Rad2Deg;
+  auto dataBackbone = new TGeoTubeSeg(mRmin, mRmax, databackbone::width / 2., dataBackbonePhi1, dataBackbonePhi2);
+  auto dataBackboneVol = new TGeoVolume(Form("databackbone_%d", mNLayer), dataBackbone, mSilicon);
   dataBackboneVol->SetLineColor(databackbone::color);
   dataBackboneVol->RegisterYourself();
 
@@ -183,7 +176,7 @@ void ITS3Layer::createRSU()
   mRSU->AddNode(dataBackboneVol, nCopyDB++, zMoveLRDB);
 
   // Rotation for top half
-  double phi = length / mRmin * math::Rad2Deg;
+  double phi = length / mRmin * o2m::Rad2Deg;
   auto rot = new TGeoRotation("", 0, 0, phi / 2.);
 
   // Upper Left
@@ -214,7 +207,7 @@ void ITS3Layer::createSegment()
   // A segment is 12 RSUs + left and right end cap. We place the first rsu
   // as z-coordinate center and attach to this. Hence, we will displace the
   // left end-cap to the left and the right to right.
-  mSegment = new TGeoVolumeAssembly(Form("segment_%d", mNLayer));
+  mSegment = new TGeoVolumeAssembly(its3TGeo::getITS3SegmentPattern(mNLayer));
   mSegment->VisibleDaughters();
 
   for (int i{0}; i < nRSUs; ++i) {
@@ -224,7 +217,7 @@ void ITS3Layer::createSegment()
 
   // LEC
   double lecPhi1 = 0;
-  double lecPhi2 = lec::length / mRmin * math::Rad2Deg;
+  double lecPhi2 = lec::length / mRmin * o2m::Rad2Deg;
   auto zMoveLEC = new TGeoTranslation(0, 0, -lec::width / 2.);
   auto lec =
     new TGeoTubeSeg(mRmin, mRmax, lec::width / 2., lecPhi1, lecPhi2);
@@ -250,11 +243,11 @@ void ITS3Layer::createChip()
 
   // A HalfLayer is composed out of multiple segment stitched together along
   // rphi.
-  mChip = new TGeoVolumeAssembly(Form("chip_%d", mNLayer));
+  mChip = new TGeoVolumeAssembly(its3TGeo::getITS3ChipPattern(mNLayer));
   mChip->VisibleDaughters();
 
   for (int i{0}; i < constants::nSegments[mNLayer]; ++i) {
-    double phiOffset = constants::segment::length / mRmin * math::Rad2Deg;
+    double phiOffset = constants::segment::length / mRmin * o2m::Rad2Deg;
     auto rot = new TGeoRotation("", 0, 0, phiOffset * i);
     mChip->AddNode(mSegment, i, rot);
   }
@@ -262,7 +255,7 @@ void ITS3Layer::createChip()
 
 void ITS3Layer::createCarbonForm()
 {
-  mCarbonForm = new TGeoVolumeAssembly(Form("carbonform_%d", mNLayer));
+  mCarbonForm = new TGeoVolumeAssembly(its3TGeo::getITS3CarbonFormPattern(mNLayer));
   mCarbonForm->VisibleDaughters();
   mCarbonForm->AddNode(mChip, 0);
   // TODO
@@ -274,12 +267,12 @@ void ITS3Layer::createLayerImpl()
   // we have to take care of the equatorial gap. So both half layers will be
   // offset slightly by rotating in phi the upper HalfLayer and negative phi
   // the other one.
-  mLayer = new TGeoVolumeAssembly(Form("layer_%d", mNLayer));
+  mLayer = new TGeoVolumeAssembly(its3TGeo::getITS3LayerPattern(mNLayer));
   mLayer->VisibleDaughters();
 
   // The offset is the right angle triangle of the middle radius with the
   // transverse axis.
-  double phiOffset = std::asin(constants::equatorialGap / mR) * math::Rad2Deg;
+  double phiOffset = std::asin(constants::equatorialGap / mR) * o2m::Rad2Deg;
   // double phiOffset = constants::equatorialGap / mRmin / 2.;
   auto rotTop = new TGeoRotation("", 0, 0, +phiOffset);
   auto rotBot = new TGeoRotation("", 0, 0, phiOffset + 180);
