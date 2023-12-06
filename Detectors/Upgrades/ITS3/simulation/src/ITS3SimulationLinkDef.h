@@ -18,6 +18,8 @@
 #pragma link C++ class o2::its3::ITS3Layer + ;
 #pragma link C++ class o2::its3::ITS3Services + ;
 #pragma link C++ class o2::its3::DescriptorInnerBarrelITS3 + ;
+#pragma link C++ class o2::its3::Detector + ;
+#pragma link C++ class o2::base::DetImpl < o2::its3::Detector> + ;
 #pragma link C++ class o2::its3::Digitizer + ;
 
 #endif

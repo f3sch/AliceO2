@@ -16,10 +16,11 @@
 #ifndef ALICEO2_ITS3_DETECTOR_H_
 #define ALICEO2_ITS3_DETECTOR_H_
 
-#include "Rtypes.h"      // for Int_t, Double_t, Float_t, Bool_t, etc
-#include "TGeoManager.h" // for gGeoManager, TGeoManager (ptr only)
+#include "Rtypes.h"
+#include "TGeoManager.h"
+#include "TLorentzVector.h"
 
-#include "ITSMFTSimulation/Hit.h" // for Hit
+#include "ITSMFTSimulation/Hit.h"
 #include "DetectorsBase/GeometryManager.h"
 #include "DetectorsBase/Detector.h"
 
@@ -29,33 +30,69 @@ namespace o2::its3
 class Detector : public o2::base::DetImpl<Detector>
 {
  public:
-  Detector();
+  Detector(bool isActive = true);
   ~Detector() override;
+  Detector(const Detector&) = default;
+  Detector& operator=(const Detector&) = default;
 
-  Bool_t ProcessHits(FairVolume* v = nullptr) override;
+  Bool_t ProcessHits(FairVolume* v = nullptr) override { return true; }
   void Register() override;
 
  public:
-  void Reset() override;
-  void ConstructGeometry() override;
-  void InitGeometry() override {}
-  void GeneratePrimaries() override {}
-  void BeginEvent() override {}
+  void InitializeO2Detector() override {}
+  void Reset() override
+  {
+    if (!o2::utils::ShmManager::Instance().isOperational()) {
+      mHits->clear();
+    }
+  }
+  void ConstructGeometry() override {}
   void BeginPrimary() override {}
   void PreTrack() override {}
-  void Stepping() override {}
   void PostTrack() override {}
   void FinishPrimary() override {}
-  void FinishEvent() override {}
+
+  /// Gets the produced collections
+  std::vector<o2::itsmft::Hit>* mHits{o2::utils::createSimVector<o2::itsmft::Hit>()}; // Container for hit data
+  std::vector<o2::itsmft::Hit>* getHits(Int_t iColl) const
+  {
+    if (iColl == 0) {
+      return mHits;
+    }
+    return nullptr;
+  }
+
+ protected:
+  /// this is transient data about track passing the sensor
+  struct TrackData {               // this is transient
+    bool mHitStarted;              //! hit creation started
+    unsigned char mTrkStatusStart; //! track status flag
+    TLorentzVector mPositionStart; //! position at entrance
+    TLorentzVector mMomentumStart; //! momentum
+    double mEnergyLoss;            //! energy loss
+  } mTrackData{};                  //!
 
  private:
   void createMaterials();
   void createDetectorGeometry();
 
- private:
-  std::vector<o2::itsmft::Hit>* mHits{o2::utils::createSimVector<o2::itsmft::Hit>()}; // Container for hit data
+  template <typename Det>
+  friend class o2::base::DetImpl;
+  ClassDefOverride(Detector, 0);
 };
-
 } // namespace o2::its3
+
+#ifdef USESHM
+namespace o2
+{
+namespace base
+{
+template <>
+struct UseShm<o2::its3::Detector> {
+  static constexpr bool value = true;
+};
+} // namespace base
+} // namespace o2
+#endif
 
 #endif
