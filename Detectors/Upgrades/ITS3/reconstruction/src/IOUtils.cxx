@@ -15,7 +15,7 @@
 #include <DataFormatsITS3/CompCluster.h>
 #include <DataFormatsITSMFT/ROFRecord.h>
 #include <ITS3Reconstruction/TopologyDictionary.h>
-#include <ITSBase/GeometryTGeo.h>
+#include <ITS3Base/GeometryTGeo.h>
 #include <ITSMFTBase/SegmentationAlpide.h>
 #include <ITS3Base/SegmentationSuperAlpide.h>
 #include <Framework/Logger.h>
@@ -33,7 +33,7 @@ int loadROFrameDataITS3(its::TimeFrame* tf,
                         const its3::TopologyDictionary* dict,
                         const dataformats::MCTruthContainer<MCCompLabel>* mcLabels)
 {
-  its::GeometryTGeo* geom = its::GeometryTGeo::Instance();
+  its3::GeometryTGeo* geom = its3::GeometryTGeo::Instance();
   geom->fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L, o2::math_utils::TransformType::L2G));
 
   std::vector<o2::its3::SegmentationSuperAlpide> segITS3;
@@ -81,6 +81,7 @@ int loadROFrameDataITS3(its::TimeFrame* tf,
       float alpha = 0.;
       o2::math_utils::Point3D<float> trkXYZ;
       if (layer < geom->getNumberOfLayers() - 4) {
+        // TODO FS fix
         alpha = geom->getAlphaFromGlobalITS3(sensorID, gloXYZ);
         // Inverse transformation to the local --> tracking
         trkXYZ = geom->getT2LMatrixITS3(sensorID, alpha) ^ locXYZ;

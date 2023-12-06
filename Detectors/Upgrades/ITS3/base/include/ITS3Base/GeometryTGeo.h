@@ -73,6 +73,15 @@ class GeometryTGeo final : public o2::detectors::DetMatrixCache
   // Get First Chip ID of layer
   [[nodiscard]] unsigned int getFirstChipIndex(unsigned int lay) const { return (lay == 0) ? 0 : mLastChipIndex[lay - 1] + 1; }
 
+  // TODO FS better to query this from the TGeo
+  static int getNumberOfLayers() { return 7; }
+  static int getNumberOfChipsPerLayer(int layer) { return 2; }
+
+  // TODO FS placeholders
+  float getAlphaFromGlobalITS3(int isn, o2::math_utils::Point3D<float> gloXYZ) { return 0; }
+  float getSensorRefAlpha(int isn) const { return mCacheRefAlpha[isn]; }
+  const Mat3D getT2LMatrixITS3(int isn, float alpha) { return {}; }
+
  private:
   static std::unique_ptr<GeometryTGeo> mInstance; ///< singletone instance
 
