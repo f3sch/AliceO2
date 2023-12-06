@@ -585,9 +585,6 @@ int GeometryTGeo::extractNumberOfStaves(int lay) const
   // Loop on all half barrel nodes, count Stave volumes by checking names
   int nNodes = volHb->GetNodes()->GetEntries();
   for (int j = 0; j < nNodes; j++) {
-    // LOG(info) << "L" << lay << " " << j << " of " << nNodes << " "
-    //           << volHb->GetNodes()->At(j)->GetName() << " "
-    //           << mIsLayerITS3[lay] ? getITS3StavePattern() : getITSStavePattern() << " -> " << numberOfStaves;
     if (strstr(volHb->GetNodes()->At(j)->GetName(), getITSStavePattern())) {
       numberOfStaves++;
     }

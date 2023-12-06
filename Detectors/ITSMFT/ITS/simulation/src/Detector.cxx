@@ -182,11 +182,7 @@ Detector::Detector(Bool_t active, TString name, TString its3Version)
   mWrapperLayerId.resize(mNumberLayers);
 
   for (int j{0}; j < mNumberLayers; j++) {
-    if (detName == "IT3" && j < mNumberInnerLayers) {
-      mLayerName[j].Form("%s%d", GeometryTGeo::getITS3SensorPattern(), j); // See V3Layer
-    } else {
-      mLayerName[j].Form("%s%d", GeometryTGeo::getITSSensorPattern(), j); // See V3Layer
-    }
+    mLayerName[j].Form("%s%d", GeometryTGeo::getITSSensorPattern(), j); // See V3Layer
   }
 
   if (mNumberLayers > 0) { // if not, we'll Fatal-ize in CreateGeometry
@@ -236,11 +232,7 @@ Detector::Detector(const Detector& rhs)
 
   TString detName = rhs.GetName();
   for (int j{0}; j < mNumberLayers; j++) {
-    if (detName == "IT3" && j < mNumberInnerLayers) {
-      mLayerName[j].Form("%s%d", GeometryTGeo::getITS3SensorPattern(), j); // See V3Layer
-    } else {
-      mLayerName[j].Form("%s%d", GeometryTGeo::getITSSensorPattern(), j); // See V3Layer
-    }
+    mLayerName[j].Form("%s%d", GeometryTGeo::getITSSensorPattern(), j); // See V3Layer
   }
 }
 
@@ -285,11 +277,7 @@ Detector& Detector::operator=(const Detector& rhs)
 
   TString detName = rhs.GetName();
   for (Int_t j = 0; j < mNumberLayers; j++) {
-    if (detName == "IT3" && j < mNumberInnerLayers) {
-      mLayerName[j].Form("%s%d", GeometryTGeo::getITS3SensorPattern(), j); // See V3Layer
-    } else {
-      mLayerName[j].Form("%s%d", GeometryTGeo::getITSSensorPattern(), j); // See V3Layer
-    }
+    mLayerName[j].Form("%s%d", GeometryTGeo::getITSSensorPattern(), j); // See V3Layer
   }
 
   return *this;
@@ -651,20 +639,6 @@ void Detector::createMaterials()
   // Polymer for ITS services
   o2::base::Detector::Mixture(42, "POLY4SERVICES$", aPoly, zPoly, dPoly, 2, wPoly);
   o2::base::Detector::Medium(42, "POLY4SERVICES$", 42, 0, ifield, fieldm, tmaxfdSi, stemaxSi, deemaxSi, epsilSi, stminSi);
-
-  // For ITS3
-
-  // Araldite 2011
-  Float_t dAraldite = 1.05;
-
-  // ERG Duocel
-  o2::base::Detector::Material(39, "ERGDUOCEL$", 12.0107, 6, 0.06, 999, 999);
-  o2::base::Detector::Medium(39, "ERGDUOCEL$", 39, 0, ifield, fieldm, tmaxfdSi, stemaxSi, deemaxSi, epsilSi, stminSi);
-
-  // Impregnated carbon fleece
-  // (as educated guess we assume 50% carbon fleece 50% Araldite glue)
-  o2::base::Detector::Material(40, "IMPREG_FLEECE$", 12.0107, 6, 0.5 * (dAraldite + 0.4), 999, 999);
-  o2::base::Detector::Medium(40, "IMPREG_FLEECE$", 40, 0, ifield, fieldm, tmaxfdSi, stemaxSi, deemaxSi, epsilSi, stminSi);
 }
 
 void Detector::EndOfEvent() { Reset(); }
@@ -917,14 +891,7 @@ void Detector::constructDetectorGeometry()
   for (Int_t j = 0; j < mNumberLayers; j++) {
 
     if (j < mNumberInnerLayers) {
-      TString detName = GetName();
-      if (detName == "ITS") {
-        mGeometry[j] = ((DescriptorInnerBarrelITS2*)mDescriptorIB.get())->createLayer(j, wrapVols[0]); // define IB layers on first wrapper volume always
-      } else if (detName == "IT3") {
-#ifdef ENABLE_UPGRADES
-        ((DescriptorInnerBarrelITS3*)mDescriptorIB.get())->createLayer(j, wrapVols[0]); // define IB layers on first wrapper volume always
-#endif
-      }
+      mGeometry[j] = ((DescriptorInnerBarrelITS2*)mDescriptorIB.get())->createLayer(j, wrapVols[0]); // define IB layers on first wrapper volume always
       mWrapperLayerId[j] = 0;
     } else {
       TGeoVolume* dest = vITSV;
@@ -1101,7 +1068,7 @@ void Detector::addAlignableVolumes() const
 
   TString detName = GetName();
   TString path = Form("/cave_1/barrel_1/%s_2", GeometryTGeo::getITSVolPattern());
-  TString sname = GeometryTGeo::composeSymNameITS((detName == "IT3"));
+  TString sname = GeometryTGeo::composeSymNameITS();
 
   LOG(debug) << sname << " <-> " << path;
 
@@ -1297,12 +1264,7 @@ void Detector::defineSensitiveVolumes()
 
   // The names of the ITS sensitive volumes have the format: ITSUSensor(0...mNumberLayers-1)
   for (Int_t j = 0; j < mNumberLayers; j++) {
-    TString detName = GetName();
-    if (j < mNumberInnerLayers && detName == "IT3") {
-      volumeName = GeometryTGeo::getITS3SensorPattern() + TString::Itoa(j, 10);
-    } else {
-      volumeName = GeometryTGeo::getITSSensorPattern() + TString::Itoa(j, 10);
-    }
+    volumeName = GeometryTGeo::getITSSensorPattern() + TString::Itoa(j, 10);
     v = geoManager->GetVolume(volumeName.Data());
     AddSensitiveVolume(v);
   }

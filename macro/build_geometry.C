@@ -223,7 +223,7 @@ void build_geometry(FairRunSim* run = nullptr)
 #ifdef ENABLE_UPGRADES
   if (isActivated("IT3")) {
     // IT3
-    addReadoutDetector(new o2::its::Detector(isReadout("IT3"), "IT3"));
+    addReadoutDetector(new o2::its3::Detector(isReadout("IT3")));
   }
 
   if (isActivated("TRK")) {
