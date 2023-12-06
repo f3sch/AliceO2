@@ -16,9 +16,9 @@
 #include "ITS3Base/GeometryTGeo.h"
 #include "ITS3Base/SegmentationSuperAlpide.h"
 #include "ITS3Base/Specs.h"
-// #include "ITSBase/GeometryTGeo.h"
+#include "CommonConstants/MathConstants.h"
 
-// using ITS2TGeo = o2::its::GeometryTGeo;
+namespace o2m = o2::constants::math;
 
 ClassImp(o2::its3::GeometryTGeo);
 
@@ -45,6 +45,12 @@ void GeometryTGeo::Build(int mask)
     LOGP(fatal, "gGeoManager is not loaded!");
   }
 
+  // we require a pointer to the ITS2 TGeo instance but do not build it
+  mITS2Instance = ITS2TGeo::Instance(false);
+  if (mITS2Instance == nullptr) {
+    LOGP(fatal, "ITS2::Instance ref is null");
+  }
+
   // Count the number of tiles/chips
   int numberOfChips{0};
   for (int iLayer{0}; iLayer < constants::nTotLayers; ++iLayer) {
@@ -52,12 +58,12 @@ void GeometryTGeo::Build(int mask)
       mITS3NumberOfTilesPerChip[iLayer] = constants::rsu::nTiles * constants::nSegments[iLayer] * constants::segment::nRSUs;
       numberOfChips += mITS3NumberOfTilesPerLayer[iLayer] = 2 * mITS3NumberOfTilesPerChip[iLayer];
     } else {
-      // TODO
+      // TODO FS
     }
     mLastChipIndex[iLayer] = numberOfChips - 1;
   }
   setSize(numberOfChips);
-
+  fillTrackingFramesCache();
   fillMatrixCache(mask);
 }
 
@@ -101,55 +107,103 @@ void GeometryTGeo::extractSensorXAlpha(int isn, double& x, double& alp)
   o2::math_utils::bringTo02Pid(alp);
 }
 
-TGeoHMatrix* GeometryTGeo::extractMatrixSensor(unsigned int index) const
+TGeoHMatrix* GeometryTGeo::extractMatrixSensor(int index) const
 {
-
-  // extract matrix transforming from the PHYSICAL sensor frame to global one
-  // Note, the if the effective sensitive layer thickness is smaller than the
-  // total physical sensor tickness, this matrix is biased and connot be used
-  // directly for transformation from sensor frame to global one. Therefore, we
-  // need to add a shift.
-
-  unsigned int lay = getLayer(index), hba, stav, sstav, mod, chipInMod, hemi, segment, rsu, tile;
-  // TString path = Form("/cave_1/barrel_1/%s_2/", GeometryTGeo::getITSVolPattern());
-  if (mIsITS3Layer[lay]) {
-    if (!getChipIdITS3(index, lay, hemi, segment, rsu, tile)) {
-      return nullptr;
-    }
-  } else {
-    if (!getChipIdITS2(index, lay, hba, stav, sstav, mod, chipInMod)) {
-      return nullptr;
+  int lay = getLayer(index);
+  if (!mIsITS3Layer[lay]) {
+    if (const auto mat = mITS2Instance->extractMatrixSensor(index); mat == nullptr) {
+      LOGP(fatal, "Failed to extract ITS2 Matrix from index {}", index);
+    } else {
+      return mat;
     }
   }
-  return nullptr;
+
+  int chip, segment, rsu, tile;
+  TString path = Form("/cave_1/barrel_1/%s_2/", mITS2Instance->getITSVolPattern());
+  if (getChipIdITS3(index, lay, chip, segment, rsu, tile)) {
+    path += Form("%s_0/%s_%d/%s_0/%s_%d/%s_%d/%s_%d/%s_0", getITS3LayerPattern(lay), getITS3CarbonFormPattern(lay), chip, getITS3ChipPattern(lay),
+                 getITS3SegmentPattern(lay), segment, getITS3RSUPattern(lay), rsu, getITS3TilePattern(lay), tile, getITS3PixelArrayPattern(lay));
+  } else {
+    LOGP(fatal, "Failed to extract ITS3 Matrix from Geometry with index {} -> layer={} chip={} segment={} rsu={} tile={}", index, lay, chip, segment, rsu, tile);
+  }
+  if (!gGeoManager->CheckPath(path.Data())) {
+    LOGP(error, "Pathquery failed: {}", path.Data());
+    return nullptr;
+  }
+
+  static TGeoHMatrix matTmp;
+  gGeoManager->PushPath();
+  if (!gGeoManager->cd(path.Data())) {
+    gGeoManager->PopPath();
+    LOGP(error, "Error in cd-ing to {}", path.Data());
+    return nullptr;
+  }
+
+  matTmp = *gGeoManager->GetCurrentMatrix(); // matrix will change after cd;
+  gGeoManager->PopPath();
+
+  return &matTmp;
 }
 
 void GeometryTGeo::fillMatrixCache(int mask)
 {
-  // populate matrix cache for requested transformations
-}
-
-bool GeometryTGeo::getChipIdITS2(unsigned int index, unsigned int lay, unsigned int& hba, unsigned int& sta, unsigned int& hsta, unsigned int& mod, unsigned int& chip) const
-{
-  if (mIsITS3Layer[lay]) {
-    return false;
+  if (mSize < 1) {
+    LOG(warning) << "The method Build was not called yet";
+    Build(mask);
+    return;
   }
-  index -= getFirstChipIndex(lay);
-  auto its2layer = lay - constants::nITS3Layers;
-  hba = index / mITS2NumberOfChipsPerHalfBarrel[its2layer];
-  index %= mITS2NumberOfChipsPerHalfBarrel[its2layer];
-  sta = index / mITS2NumberOfChipsPerStave[its2layer];
-  index %= mITS2NumberOfChipsPerStave[its2layer];
-  hsta = mITS2NumberOfHalfStaves[its2layer] > 0 ? index / mITS2NumberOfChipsPerHalfStave[its2layer] : -1;
-  index %= mITS2NumberOfChipsPerHalfStave[its2layer];
-  mod = mITS2NumberOfModules[its2layer] > 0 ? index / mITS2NumberOfChipsPerModule[its2layer] : -1;
-  chip = index % mITS2NumberOfChipsPerModule[its2layer];
 
-  return true;
+  // build matrices
+  if ((mask & o2::math_utils::bit2Mask(o2::math_utils::TransformType::L2G)) && !getCacheL2G().isFilled()) {
+    // Matrices for Local (Sensor!!! rather than the full chip) to Global frame transformation
+    LOG(info) << "Loading ITS2 and ITS3 L2G matrices from TGeo";
+    auto& cacheL2G = getCacheL2G();
+    cacheL2G.setSize(mSize);
+
+    for (int i = 0; i < mSize; i++) {
+      TGeoHMatrix* hm = extractMatrixSensor(i);
+      cacheL2G.setMatrix(Mat3D(*hm), i);
+    }
+  }
+
+  if ((mask & o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L)) && !getCacheT2L().isFilled()) {
+    // matrices for Tracking to Local (Sensor!!! rather than the full chip) frame transformation
+    LOG(info) << "Loading ITS2 and ITS3 T2L matrices from TGeo";
+    auto& cacheT2L = getCacheT2L();
+    cacheT2L.setSize(mSize);
+    for (int i = 0; i < mSize; i++) {
+      TGeoHMatrix& hm = createT2LMatrix(i);
+      cacheT2L.setMatrix(Mat3D(hm), i);
+    }
+  }
+
+  if ((mask & o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2G)) && !getCacheT2G().isFilled()) {
+    LOG(warning) << "It is faster to use 2D rotation for T2G instead of full Transform3D matrices";
+    // matrices for Tracking to Global frame transformation
+    LOG(info) << "Loading ITS2 and ITS3 T2G matrices from TGeo";
+    auto& cacheT2G = getCacheT2G();
+    cacheT2G.setSize(mSize);
+    for (int i = 0; i < mSize; i++) {
+      TGeoHMatrix& mat = createT2LMatrix(i);
+      mat.MultiplyLeft(extractMatrixSensor(i));
+      cacheT2G.setMatrix(Mat3D(mat), i);
+    }
+  }
+
+  if ((mask & o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2GRot)) && !getCacheT2GRot().isFilled()) {
+    // 2D rotation matrices for Tracking frame to Global rotations
+    LOG(info) << "Loading ITS2 and ITS3 T2G rotation 2D matrices";
+    auto& cacheT2Gr = getCacheT2GRot();
+    cacheT2Gr.setSize(mSize);
+    for (int i = 0; i < mSize; i++) {
+      cacheT2Gr.setMatrix(Rot2D(getSensorRefAlpha(i)), i);
+    }
+  }
 }
 
-bool GeometryTGeo::getChipIdITS3(unsigned int index, unsigned int lay, unsigned int& chip, unsigned int& segment, unsigned int& rsu, unsigned int& tile) const
+bool GeometryTGeo::getChipIdITS3(int index, int lay, int& chip, int& segment, int& rsu, int& tile) const
 {
+  // TODO FS has to reflect filling in fillMatrixCache
   if (!mIsITS3Layer[lay]) {
     return false;
   }
@@ -163,13 +217,27 @@ bool GeometryTGeo::getChipIdITS3(unsigned int index, unsigned int lay, unsigned 
   return true;
 }
 
-unsigned int GeometryTGeo::getLayer(unsigned int index) const noexcept
+int GeometryTGeo::getLayer(int index) const noexcept
 {
-  unsigned int lay = 0;
+  int lay = 0;
   while (index > mLastChipIndex[lay]) {
     lay++;
   }
   return lay;
+}
+
+TGeoHMatrix& GeometryTGeo::createT2LMatrix(int isn)
+{
+  // create for sensor isn the TGeo matrix for Tracking to Local frame transformations
+  static TGeoHMatrix t2l;
+  double x = 0.f, alp = 0.f;
+  extractSensorXAlpha(isn, x, alp);
+  t2l.Clear();
+  t2l.RotateZ(alp * o2m::Rad2Deg); // rotate in direction of normal to the sensor plane
+  const TGeoHMatrix* matL2G = extractMatrixSensor(isn);
+  const TGeoHMatrix& matL2Gi = matL2G->Inverse();
+  t2l.MultiplyLeft(&matL2Gi);
+  return t2l;
 }
 
 } // namespace o2::its3

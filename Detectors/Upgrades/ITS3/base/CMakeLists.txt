@@ -12,7 +12,10 @@
 o2_add_library(ITS3Base
                SOURCES src/MisalignmentParameter.cxx
                        src/GeometryTGeo.cxx
-               PUBLIC_LINK_LIBRARIES O2::CommonConstants O2::MathUtils O2::DetectorsBase)
+               PUBLIC_LINK_LIBRARIES O2::CommonConstants 
+       				     O2::MathUtils 
+       				     O2::ITSBase 
+				     O2::DetectorsBase)
 
 o2_target_root_dictionary(ITS3Base
                           HEADERS include/ITS3Base/SegmentationSuperAlpide.h

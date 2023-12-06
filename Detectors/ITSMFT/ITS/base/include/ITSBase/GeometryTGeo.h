@@ -20,6 +20,7 @@
 #include <TGeoMatrix.h> // for TGeoHMatrix
 #include <TObject.h>    // for TObject
 #include <array>
+#include <memory>
 #include <string>
 #include <vector>
 #include "DetectorsBase/GeometryManager.h"
@@ -51,14 +52,14 @@ class GeometryTGeo : public o2::itsmft::GeometryTGeo
   // it is cheaper to use T2GRot
   using DetMatrixCache::getMatrixT2G;
 
-  static GeometryTGeo* Instance()
+  static GeometryTGeo* Instance(bool build = true)
   {
     // get (create if needed) a unique instance of the object
 #ifdef GPUCA_STANDALONE
     return nullptr; // TODO: DR: Obviously wrong, but to make it compile for now
 #else
     if (!sInstance) {
-      sInstance = std::unique_ptr<GeometryTGeo>(new GeometryTGeo(true, 0));
+      sInstance = std::make_unique<GeometryTGeo>(build, 0);
     }
     return sInstance.get();
 #endif
@@ -293,7 +294,6 @@ class GeometryTGeo : public o2::itsmft::GeometryTGeo
   /// Sym name of the chip in the given layer/halfbarrel/stave/substave/module
   static const char* composeSymNameChip(int lr, int hba, int sta, int ssta, int mod, int chip);
 
- protected:
   /// Get the transformation matrix of the SENSOR (not necessary the same as the chip)
   /// for a given chip 'index' by quering the TGeoManager
   TGeoHMatrix* extractMatrixSensor(int index) const;
@@ -386,7 +386,7 @@ class GeometryTGeo : public o2::itsmft::GeometryTGeo
   static std::unique_ptr<o2::its::GeometryTGeo> sInstance; ///< singletone instance
 #endif
 
-  ClassDefOverride(GeometryTGeo, 1); // ITS geometry based on TGeo
+  ClassDefOverride(GeometryTGeo, 2); // ITS geometry based on TGeo
 };
 } // namespace its
 } // namespace o2
