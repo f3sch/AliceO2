@@ -43,6 +43,7 @@
 #include "TFile.h"           // for TVirtualMCStack
 
 #include <cstdio> // for NULL, snprintf
+#include <memory>
 
 class FairModule;
 
@@ -56,10 +57,6 @@ using std::endl;
 using o2::itsmft::Hit;
 using Segmentation = o2::itsmft::SegmentationAlpide;
 using namespace o2::its;
-
-#ifdef ENABLE_UPGRADES
-using namespace o2::its3;
-#endif
 
 Detector::Detector()
   : o2::base::DetImpl<Detector>("ITS", kTRUE),
@@ -126,8 +123,8 @@ void Detector::configOuterBarrelITS(int nInnerBarrelLayers, int buildLevel)
   }
 }
 
-Detector::Detector(Bool_t active, TString name, TString its3Version)
-  : o2::base::DetImpl<Detector>(name, active),
+Detector::Detector(Bool_t active)
+  : o2::base::DetImpl<Detector>("ITS", active),
     mTrackData(),
     /*
     mHitStarted(false),
@@ -141,29 +138,13 @@ Detector::Detector(Bool_t active, TString name, TString its3Version)
     mNumberLayers(sNumberOuterLayers),
     mHits(o2::utils::createSimVector<o2::itsmft::Hit>())
 {
-  if (name == "ITS") {
-    mDescriptorIB.reset(new DescriptorInnerBarrelITS2(3));
-  } else if (name == "IT3") {
-#ifdef ENABLE_UPGRADES
-    mDescriptorIB.reset(new DescriptorInnerBarrelITS3());
-#endif
-  } else {
-    LOG(fatal) << "Detector name not supported (options ITS and ITS3)";
-  }
-
   auto& param = ITSBaseParam::Instance();
   int buildLevelITS = param.buildLevel;
 
-  TString detName = GetName();
-  if (detName == "ITS") {
-    ((DescriptorInnerBarrelITS2*)mDescriptorIB.get())->configure(buildLevelITS);
-  } else if (detName == "IT3") {
-#ifdef ENABLE_UPGRADES
-    ((DescriptorInnerBarrelITS3*)mDescriptorIB.get())->configure();
-#endif
-  }
+  mDescriptorIB = std::make_shared<DescriptorInnerBarrelITS2>(3);
+  mDescriptorIB->configure(buildLevelITS);
 
-  mNumberInnerLayers = mDescriptorIB.get()->getNumberOfLayers();
+  mNumberInnerLayers = mDescriptorIB->getNumberOfLayers();
   mNumberLayers = mNumberInnerLayers + sNumberOuterLayers;
 
   mLayerName.resize(mNumberLayers);
@@ -891,7 +872,7 @@ void Detector::constructDetectorGeometry()
   for (Int_t j = 0; j < mNumberLayers; j++) {
 
     if (j < mNumberInnerLayers) {
-      mGeometry[j] = ((DescriptorInnerBarrelITS2*)mDescriptorIB.get())->createLayer(j, wrapVols[0]); // define IB layers on first wrapper volume always
+      mGeometry[j] = mDescriptorIB->createLayer(j, wrapVols[0]); // define IB layers on first wrapper volume always
       mWrapperLayerId[j] = 0;
     } else {
       TGeoVolume* dest = vITSV;
@@ -937,16 +918,9 @@ void Detector::constructDetectorGeometry()
   }
 
   // Now create the services
-  TString detName = GetName();
-  if (detName == "ITS") {
-    ((DescriptorInnerBarrelITS2*)mDescriptorIB.get())->createServices(wrapVols[0]);
-  } else if (detName == "IT3") {
-#ifdef ENABLE_UPGRADES
-    ((DescriptorInnerBarrelITS3*)mDescriptorIB.get())->createServices(wrapVols[0]);
-#endif
-  }
+  mDescriptorIB->createServices(wrapVols[0]);
 
-  mServicesGeometry = new V3Services(detName);
+  mServicesGeometry = new V3Services(GetName());
   createMiddlBarrelServices(wrapVols[1]);
   createOuterBarrelServices(wrapVols[2]);
   createOuterBarrelSupports(vITSV);
@@ -1080,14 +1054,12 @@ void Detector::addAlignableVolumes() const
   for (Int_t lr = 0; lr < mNumberLayers; lr++) {
     if (lr < mNumberInnerLayers) {
       if (detName == "ITS") {
-        ((DescriptorInnerBarrelITS2*)mDescriptorIB.get())->addAlignableVolumesLayer(lr, mWrapperLayerId[lr], path, lastUID);
+        mDescriptorIB->addAlignableVolumesLayer(lr, mWrapperLayerId[lr], path, lastUID);
       }
     } else {
       addAlignableVolumesLayer(lr, path, lastUID);
     }
   }
-
-  return;
 }
 
 void Detector::addAlignableVolumesLayer(int lr, TString& parent, Int_t& lastUID) const
@@ -1110,8 +1082,6 @@ void Detector::addAlignableVolumesLayer(int lr, TString& parent, Int_t& lastUID)
   for (Int_t hb = start; hb < nhbarrel; hb++) {
     addAlignableVolumesHalfBarrel(lr, hb, path, lastUID);
   }
-
-  return;
 }
 
 void Detector::addAlignableVolumesHalfBarrel(Int_t lr, Int_t hb, TString& parent, Int_t& lastUID) const
@@ -1139,8 +1109,6 @@ void Detector::addAlignableVolumesHalfBarrel(Int_t lr, Int_t hb, TString& parent
   for (int st = 0; st < nstaves; st++) {
     addAlignableVolumesStave(lr, hb, st, path, lastUID);
   }
-
-  return;
 }
 
 void Detector::addAlignableVolumesStave(Int_t lr, Int_t hb, Int_t st, TString& parent, Int_t& lastUID) const
@@ -1167,8 +1135,6 @@ void Detector::addAlignableVolumesStave(Int_t lr, Int_t hb, Int_t st, TString& p
   for (Int_t sst = start; sst < nhstave; sst++) {
     addAlignableVolumesHalfStave(lr, hb, st, sst, path, lastUID);
   }
-
-  return;
 }
 
 void Detector::addAlignableVolumesHalfStave(Int_t lr, Int_t hb, Int_t st, Int_t hst, TString& parent, Int_t& lastUID) const
@@ -1198,8 +1164,6 @@ void Detector::addAlignableVolumesHalfStave(Int_t lr, Int_t hb, Int_t st, Int_t 
   for (Int_t md = start; md < nmodules; md++) {
     addAlignableVolumesModule(lr, hb, st, hst, md, path, lastUID);
   }
-
-  return;
 }
 
 void Detector::addAlignableVolumesModule(Int_t lr, Int_t hb, Int_t st, Int_t hst, Int_t md, TString& parent, Int_t& lastUID) const
@@ -1228,8 +1192,6 @@ void Detector::addAlignableVolumesModule(Int_t lr, Int_t hb, Int_t st, Int_t hst
   for (Int_t ic = 0; ic < nchips; ic++) {
     addAlignableVolumesChip(lr, hb, st, hst, md, ic, path, lastUID);
   }
-
-  return;
 }
 
 void Detector::addAlignableVolumesChip(Int_t lr, Int_t hb, Int_t st, Int_t hst, Int_t md, Int_t ch, TString& parent,
@@ -1251,8 +1213,6 @@ void Detector::addAlignableVolumesChip(Int_t lr, Int_t hb, Int_t st, Int_t hst, 
   if (!gGeoManager->SetAlignableEntry(sname, path.Data(), modUID)) {
     LOG(fatal) << "Unable to set alignable entry ! " << sname << " : " << path;
   }
-
-  return;
 }
 
 void Detector::defineSensitiveVolumes()

@@ -67,7 +67,11 @@ class GeometryTGeo final : public o2::detectors::DetMatrixCache
 
   // Get Layer number from Index
   [[nodiscard]] int getLayer(int index) const noexcept;
-  // Get Chip ID from Index in ITS3
+  [[nodiscard]] int getChipIndex(int l6, int l5, int l4, int l3, int l2, int l1) const;
+  // Get index from Chip in ITS2 layer
+  [[nodiscard]] int getChipIndexITS2(int lay, int hba, int sta, int substa, int md, int chipInMod) const;
+  [[nodiscard]] int getChipIndexITS3(int lay, int chip, int seg, int rsu, int tile, int pixelarray) const;
+  // Get Chip ID from Index in ITS3 layer
   [[nodiscard]] bool getChipIdITS3(int index, int lay, int& chip, int& segment, int& rsu, int& tile) const;
   // Get Last Chip ID of layer
   [[nodiscard]] int getLastChipIndex(int lay) const { return mLastChipIndex[lay]; }
@@ -90,19 +94,18 @@ class GeometryTGeo final : public o2::detectors::DetMatrixCache
   static std::unique_ptr<GeometryTGeo> mInstance; ///< singletone instance
   ITS2TGeo* mITS2Instance;
 
-  static constexpr std::array<bool, constants::nTotLayers> mIsITS3Layer{true, true, true, false, false, false, false}; ///< mask indicating a new layer
-  std::array<int, constants::nITS2Layers> mITS2NumberOfStaves{};                                                       ///< ITS2 number of staves/layer(layer)
-  std::array<int, constants::nITS2Layers> mITS2NumberOfHalfStaves{};                                                   ///< ITS2 the number of substaves/stave(layer)
-  std::array<int, constants::nITS2Layers> mITS2NumberOfModules{};                                                      ///< ITS2 number of modules/substave(layer)
-  std::array<int, constants::nITS2Layers> mITS2NumberOfChipsPerModule{};                                               ///< ITS2 number of chips per module (group of chips on substaves)
-  std::array<int, constants::nITS2Layers> mITS2NumberOfChipRowsPerModule{};                                            ///< ITS2 number of chips rows per module (relevant for OB modules)
-  std::array<int, constants::nITS2Layers> mITS2NumberOfChipsPerHalfStave{};                                            ///< ITS2 number of chips per substave
-  std::array<int, constants::nITS2Layers> mITS2NumberOfChipsPerStave{};                                                ///< ITS2 number of chips per stave
-  std::array<int, constants::nITS2Layers> mITS2NumberOfChipsPerHalfBarrel{};                                           ///< ITS2 number of chips per halfbarrel
-  std::array<int, constants::nITS2Layers> mITS2NumberOfChipsPerLayer{};                                                ///< ITS2 number of chips per layer
-  std::array<int, constants::nITS3Layers> mITS3NumberOfTilesPerLayer{};                                                ///< ITS3 number of chips/tiles per layer
-  std::array<int, constants::nITS3Layers> mITS3NumberOfTilesPerChip{};                                                 ///< ITS3 number of chips/tiles per chip
-  std::array<int, constants::nTotLayers> mLastChipIndex{};                                                             ///< max ID of the detctor in the layer
+  std::array<int, constants::nITS2Layers> mITS2NumberOfStaves{};             ///< ITS2 number of staves/layer(layer)
+  std::array<int, constants::nITS2Layers> mITS2NumberOfHalfStaves{};         ///< ITS2 the number of substaves/stave(layer)
+  std::array<int, constants::nITS2Layers> mITS2NumberOfModules{};            ///< ITS2 number of modules/substave(layer)
+  std::array<int, constants::nITS2Layers> mITS2NumberOfChipsPerModule{};     ///< ITS2 number of chips per module (group of chips on substaves)
+  std::array<int, constants::nITS2Layers> mITS2NumberOfChipRowsPerModule{};  ///< ITS2 number of chips rows per module (relevant for OB modules)
+  std::array<int, constants::nITS2Layers> mITS2NumberOfChipsPerHalfStave{};  ///< ITS2 number of chips per substave
+  std::array<int, constants::nITS2Layers> mITS2NumberOfChipsPerStave{};      ///< ITS2 number of chips per stave
+  std::array<int, constants::nITS2Layers> mITS2NumberOfChipsPerHalfBarrel{}; ///< ITS2 number of chips per halfbarrel
+  std::array<int, constants::nITS2Layers> mITS2NumberOfChipsPerLayer{};      ///< ITS2 number of chips per layer
+  std::array<int, constants::nITS3Layers> mITS3NumberOfTilesPerLayer{};      ///< ITS3 number of chips/tiles per layer
+  std::array<int, constants::nITS3Layers> mITS3NumberOfTilesPerChip{};       ///< ITS3 number of chips/tiles per chip
+  std::array<int, constants::nTotLayers> mLastChipIndex{};                   ///< max ID of the detctor in the layer
 
   // Cache tracking frame for every sensor
   void fillTrackingFramesCache();

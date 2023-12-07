@@ -94,7 +94,8 @@ constexpr unsigned int nTotLayers{7};
 constexpr unsigned int nITS2Layers{nTotLayers - nLayers};
 constexpr unsigned int nITS3Layers{nLayers};
 constexpr unsigned int nChipsIB{2 * nLayers};
-constexpr std::array<double, nLayers> radii{19 * mm, 25.2 * mm, 31.5 * mm}; // middle radius e.g. inner radius+thickness/2.
+constexpr std::array<bool, nTotLayers> isITS3Layer{true, true, true, false, false, false, false}; ///< mask indicating a new layer
+constexpr std::array<double, nLayers> radii{19 * mm, 25.2 * mm, 31.5 * mm};                       // middle radius e.g. inner radius+thickness/2.
 constexpr double equatorialGap{1 * mm};
 constexpr std::array<unsigned int, nLayers> nSegments{3, 4, 5};
 constexpr double thickness{50 * mu};

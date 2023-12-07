@@ -69,10 +69,10 @@
 #include "SimPublishChannelHelper.h"
 
 #ifdef ENABLE_UPGRADES
+#include <ITSSimulation/Detector.h>
 #include <TRKSimulation/Detector.h>
 #include <FT3Simulation/Detector.h>
 #include <FCTSimulation/Detector.h>
-#include <ITS3Simulation/DescriptorInnerBarrelITS3.h>
 #include <IOTOFSimulation/Detector.h>
 #endif
 
@@ -954,18 +954,7 @@ void O2HitMerger::initDetInstances()
     }
 #ifdef ENABLE_UPGRADES
     if (i == DetID::IT3) {
-      std::string confKey = o2::conf::SimConfig::Instance().getKeyValueString();
-      auto params = o2::utils::Str::tokenize(confKey, ';', true);
-      std::string version = "";
-      for (auto& param : params) {
-        auto keyval = o2::utils::Str::tokenize(param, '=');
-        if (keyval[0].find("DescriptorInnerBarrelITS3") != std::string::npos) {
-          version = o2::utils::Str::trim_copy(keyval[1]);
-          break;
-        }
-      }
-
-      mDetectorInstances[i] = std::move(std::make_unique<o2::its::Detector>(true, "IT3", version));
+      mDetectorInstances[i] = std::move(std::make_unique<o2::its3::Detector>(true));
       counter++;
     }
     if (i == DetID::TRK) {

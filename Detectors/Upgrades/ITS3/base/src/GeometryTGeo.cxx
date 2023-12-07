@@ -24,6 +24,8 @@ ClassImp(o2::its3::GeometryTGeo);
 
 namespace o2::its3
 {
+using namespace constants;
+
 std::unique_ptr<GeometryTGeo> GeometryTGeo::mInstance;
 
 std::string GeometryTGeo::sLayerNameITS3 = "ITS3Layer";
@@ -53,9 +55,9 @@ void GeometryTGeo::Build(int mask)
 
   // Count the number of tiles/chips
   int numberOfChips{0};
-  for (int iLayer{0}; iLayer < constants::nTotLayers; ++iLayer) {
-    if (mIsITS3Layer[iLayer]) {
-      mITS3NumberOfTilesPerChip[iLayer] = constants::rsu::nTiles * constants::nSegments[iLayer] * constants::segment::nRSUs;
+  for (int iLayer{0}; iLayer < nTotLayers; ++iLayer) {
+    if (isITS3Layer[iLayer]) {
+      mITS3NumberOfTilesPerChip[iLayer] = rsu::nTiles * nSegments[iLayer] * segment::nRSUs;
       numberOfChips += mITS3NumberOfTilesPerLayer[iLayer] = 2 * mITS3NumberOfTilesPerChip[iLayer];
     } else {
       // TODO FS
@@ -88,7 +90,7 @@ void GeometryTGeo::extractSensorXAlpha(int isn, double& x, double& alp)
   double locA[3] = {-100., 0., 0.}, locB[3] = {100., 0., 0.}, gloA[3], gloB[3];
   int iLayer = getLayer(isn);
 
-  if (mIsITS3Layer[iLayer]) {
+  if (isITS3Layer[iLayer]) {
     // in this case we need the line tangent to the circumference
     double radius = 0.;
     SegmentationSuperAlpide seg(iLayer);
@@ -110,7 +112,7 @@ void GeometryTGeo::extractSensorXAlpha(int isn, double& x, double& alp)
 TGeoHMatrix* GeometryTGeo::extractMatrixSensor(int index) const
 {
   int lay = getLayer(index);
-  if (!mIsITS3Layer[lay]) {
+  if (!isITS3Layer[lay]) {
     if (const auto mat = mITS2Instance->extractMatrixSensor(index); mat == nullptr) {
       LOGP(fatal, "Failed to extract ITS2 Matrix from index {}", index);
     } else {
@@ -201,19 +203,39 @@ void GeometryTGeo::fillMatrixCache(int mask)
   }
 }
 
+int GeometryTGeo::getChipIndex(int l6, int l5, int l4, int l3, int l2, int l1) const
+{
+  // TODO FS
+  if (isITS3Layer[l6]) {
+  } else {
+  }
+  return 0;
+}
+
+int GeometryTGeo::getChipIndexITS2(int lay, int hba, int sta, int substa, int md, int chipInMod) const
+{
+  // TODO FS
+  return 0;
+}
+int GeometryTGeo::getChipIndexITS3(int lay, int chip, int seg, int rsu, int tile, int pixelarray) const
+{
+  // TODO FS
+  return 0;
+}
+
 bool GeometryTGeo::getChipIdITS3(int index, int lay, int& chip, int& segment, int& rsu, int& tile) const
 {
   // TODO FS has to reflect filling in fillMatrixCache
-  if (!mIsITS3Layer[lay]) {
+  if (!isITS3Layer[lay]) {
     return false;
   }
   index -= getFirstChipIndex(lay);
   chip = index / mITS3NumberOfTilesPerChip[lay];
   index %= mITS3NumberOfTilesPerChip[lay];
-  segment = index / constants::segment::nTilesPerSegment;
-  index -= segment * constants::segment::nTilesPerSegment;
-  rsu = index / constants::segment::nRSUs;
-  tile = index % constants::rsu::nTiles;
+  segment = index / segment::nTilesPerSegment;
+  index -= segment * segment::nTilesPerSegment;
+  rsu = index / segment::nRSUs;
+  tile = index % rsu::nTiles;
   return true;
 }
 

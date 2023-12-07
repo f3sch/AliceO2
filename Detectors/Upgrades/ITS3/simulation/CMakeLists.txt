@@ -16,8 +16,8 @@ o2_add_library(ITS3Simulation
                        src/DescriptorInnerBarrelITS3.cxx
                        src/Digitizer.cxx
                PUBLIC_LINK_LIBRARIES O2::SimulationDataFormat
-                                     O2::ITSBase O2::ITSMFTSimulation
-				     O2::ITS3Base
+                                     O2::ITSBase O2::ITS3Base
+				     O2::ITSMFTSimulation 
                                      ROOT::Physics)
 
 o2_target_root_dictionary(ITS3Simulation

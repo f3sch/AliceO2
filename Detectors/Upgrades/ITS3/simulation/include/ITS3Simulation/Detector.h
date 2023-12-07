@@ -21,8 +21,9 @@
 #include "TLorentzVector.h"
 
 #include "ITSMFTSimulation/Hit.h"
-#include "DetectorsBase/GeometryManager.h"
 #include "DetectorsBase/Detector.h"
+#include "ITS3Base/GeometryTGeo.h"
+#include "ITS3Base/Specs.h"
 
 namespace o2::its3
 {
@@ -35,18 +36,18 @@ class Detector : public o2::base::DetImpl<Detector>
   Detector(const Detector&) = default;
   Detector& operator=(const Detector&) = default;
 
-  Bool_t ProcessHits(FairVolume* v = nullptr) override { return true; }
+  Bool_t ProcessHits(FairVolume* vol = nullptr) override;
   void Register() override;
 
  public:
-  void InitializeO2Detector() override {}
+  void InitializeO2Detector() override;
   void Reset() override
   {
     if (!o2::utils::ShmManager::Instance().isOperational()) {
       mHits->clear();
     }
   }
-  void ConstructGeometry() override {}
+  void ConstructGeometry() override;
   void BeginPrimary() override {}
   void PreTrack() override {}
   void PostTrack() override {}
@@ -62,7 +63,7 @@ class Detector : public o2::base::DetImpl<Detector>
     return nullptr;
   }
 
- protected:
+ private:
   /// this is transient data about track passing the sensor
   struct TrackData {               // this is transient
     bool mHitStarted;              //! hit creation started
@@ -70,11 +71,24 @@ class Detector : public o2::base::DetImpl<Detector>
     TLorentzVector mPositionStart; //! position at entrance
     TLorentzVector mMomentumStart; //! momentum
     double mEnergyLoss;            //! energy loss
-  } mTrackData{};                  //!
+  } mTrackData;                    //!
 
- private:
+  /// Creates all the materials
   void createMaterials();
+
+  /// Creates the Detector Geometry
   void createDetectorGeometry();
+
+  /// Define the sensitive volumes of the Geometry
+  void defineSensitiveVolumes();
+
+  o2::itsmft::Hit* addHit(int trackID, int detID, const TVector3& startPos, const TVector3& endPos,
+                          const TVector3& startMom, double startE, double endTime, double eLoss,
+                          unsigned char startStatus, unsigned char endStatus);
+
+  GeometryTGeo* mTGeo{nullptr};                            //! GeometryTGeo instance
+  std::array<int, constants::nTotLayers> mLayerID{};       //! layer identifiers, e.g. the pixelarray/sensor in each layer
+  std::array<TString, constants::nTotLayers> mLayerName{}; //! layer names, e.g. the pixelarray/sensor in each layer
 
   template <typename Det>
   friend class o2::base::DetImpl;

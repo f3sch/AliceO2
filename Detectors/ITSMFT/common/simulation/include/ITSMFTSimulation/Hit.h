@@ -30,7 +30,7 @@ class Hit : public o2::BasicXYZEHit<Float_t, Float_t>
 {
 
  public:
-  enum HitStatus_t {
+  enum HitStatus_t : unsigned char {
     kTrackEntering = 0x1,
     kTrackInside = 0x1 << 1,
     kTrackExiting = 0x1 << 2,

@@ -27,10 +27,6 @@
 #include "TLorentzVector.h"                          // for TLorentzVector
 #include "TVector3.h"                                // for TVector3
 
-#ifdef ENABLE_UPGRADES
-#include "ITS3Simulation/DescriptorInnerBarrelITS3.h" // for Description of Inner Barrel (ITS3)
-#endif
-
 class FairVolume;
 class TGeoVolume;
 
@@ -77,7 +73,7 @@ class Detector : public o2::base::DetImpl<Detector>
   /// Name : Detector Name
   /// Active: kTRUE for active detectors (ProcessHits() will be called)
   ///         kFALSE for inactive detectors
-  Detector(Bool_t active, TString name = "ITS", TString its3Version = "");
+  Detector(Bool_t active);
 
   /// Default constructor
   Detector();
@@ -297,7 +293,7 @@ class Detector : public o2::base::DetImpl<Detector>
   std::vector<V3Layer*> mGeometry; //! Geometry
   V3Services* mServicesGeometry;   //! Services Geometry
 
-  std::shared_ptr<DescriptorInnerBarrel> mDescriptorIB; //! Descriptor of Inner Barrel geometry
+  std::shared_ptr<DescriptorInnerBarrelITS2> mDescriptorIB; //! Descriptor of Inner Barrel geometry
 
   template <typename Det>
   friend class o2::base::DetImpl;

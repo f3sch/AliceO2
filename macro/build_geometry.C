@@ -50,6 +50,8 @@
 #endif
 
 #ifdef ENABLE_UPGRADES
+#include <ITS3Simulation/Detector.h>
+#include <MFTSimulation/Detector.h>
 #include <TRKSimulation/Detector.h>
 #include <FT3Simulation/Detector.h>
 #include <FCTSimulation/Detector.h>
