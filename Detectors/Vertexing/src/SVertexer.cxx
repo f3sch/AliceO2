@@ -513,16 +513,19 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
 
       // get Nclusters in the ITS if available
       int8_t nITSclu = -1;
+      bool shortOBITSOnlyTrack = false;
       auto itsGID = recoData.getITSContributorGID(tvid);
       if (itsGID.getSource() == GIndex::ITS) {
         if (isITSloaded) {
           auto& itsTrack = recoData.getITSTrack(itsGID);
           nITSclu = itsTrack.getNumberOfClusters();
+          shortOBITSOnlyTrack = itsTrack.getFirstClusterLayer() >= 3;
         }
       } else if (itsGID.getSource() == GIndex::ITSAB) {
         if (isITSTPCloaded) {
           auto& itsABTracklet = recoData.getITSABRef(itsGID);
           nITSclu = itsABTracklet.getNClusters();
+          shortOBITSOnlyTrack = true; // by construction true
         }
       }
       if (!acceptTrack(tvid, trc) && !heavyIonisingParticle) {
@@ -532,7 +535,7 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
         continue;
       }
 
-      if (!hasTPC && nITSclu < mSVParams->mITSSAminNclu) {
+      if (!hasTPC && nITSclu < mSVParams->mITSSAminNclu && (!shortOBITSOnlyTrack || mSVParams->mRejectITSonlyOBtrack)) {
         continue; // reject short ITS-only
       }
 
