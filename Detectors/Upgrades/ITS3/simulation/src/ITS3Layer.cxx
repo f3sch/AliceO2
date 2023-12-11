@@ -280,4 +280,33 @@ void ITS3Layer::createLayerImpl()
   mLayer->AddNode(mCarbonForm, 0, rotTop);
   mLayer->AddNode(mCarbonForm, 1, rotBot);
 }
+
+void ITS3Layer::buildPartial(TGeoVolume* motherVolume, TGeoMatrix* mat, BuildLevel level)
+{
+  switch (level) {
+    case kPixelArray:
+      motherVolume->AddNode(mPixelArray, 0, mat);
+      break;
+    case kTile:
+      motherVolume->AddNode(mTile, 0, mat);
+      break;
+    case kRSU:
+      motherVolume->AddNode(mRSU, 0, mat);
+      break;
+    case kSegment:
+      motherVolume->AddNode(mSegment, 0, mat);
+      break;
+    case kChip:
+      motherVolume->AddNode(mChip, 0, mat);
+      break;
+    case kCarbonForm:
+      motherVolume->AddNode(mCarbonForm, 0, mat);
+      break;
+    case kLayer:
+      [[fallthrough]];
+    default:
+      motherVolume->AddNode(mLayer, 0, mat);
+  }
+}
+
 } // namespace o2::its3

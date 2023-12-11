@@ -42,6 +42,20 @@ class ITS3Layer
   // Create one layer of ITS3 and attach it to the motherVolume.
   void createLayer(TGeoVolume* motherVolume, int layer = 0);
 
+  enum BuildLevel : uint8_t {
+    kPixelArray = 0,
+    kTile,
+    kRSU,
+    kSegment,
+    kCarbonForm,
+    kChip,
+    kLayer,
+    kAll,
+  };
+
+  // Build a partial Version of the detector.
+  void buildPartial(TGeoVolume* motherVolume, TGeoMatrix* mat = nullptr, BuildLevel level = kAll);
+
  private:
   void init();
   void createPixelArray();
