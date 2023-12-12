@@ -43,7 +43,6 @@ class SegmentationSuperAlpide
   // x----------------------x
   // |           |          |
   // |           |          |
-  // |           |          |
   // |           |          |                        ^ x
   // |           |          |                        |
   // |           |          |                        |
@@ -82,11 +81,9 @@ class SegmentationSuperAlpide
   {
     T dist = std::hypot(xCurved, yCurved);
     yFlat = dist - mEffRadius;
-    // phi is the angle between the x axis and the center of the pixel array
-    T phi = std::atan2(yCurved, xCurved);
-    // phiOffset is the angle between the x axis and the center of the pixel array
-    T phiOffset = std::asin((constants::pixelarray::length / 2.) / dist);
-    T actualPhi = phi - phiOffset;
+    // MUST align the flat surface with the curved surface with the original pixel array is on
+    T phiReadout = constants::tile::readout::length / (constants::radii[mLayer] - constants::thickness / 2.);
+    xFlat = std::atan2(xCurved, yCurved) * phiReadout - constants::pixelarray::length / 2.;
   }
 
   /// Transformation from the flat surface to a curved surface
@@ -103,11 +100,10 @@ class SegmentationSuperAlpide
   void flatToCurved(T xFlat, T yFlat, T& xCurved, T& yCurved)
   {
     T dist = yFlat + mEffRadius;
-    T phi = xFlat / dist;
-    // phiOffset is the angle between the x axis and the center of the pixel array
-    T phiOffset = std::asin((constants::pixelarray::length / 2.) / dist);
-    xCurved = dist * std::cos(phi + phiOffset);
-    yCurved = dist * std::sin(phi + phiOffset);
+    // MUST align the flat surface with the curved surface with the original pixel array is on
+    T phiReadout = constants::tile::readout::length / (constants::radii[mLayer] - constants::thickness / 2.);
+    xCurved = dist * std::cos(phiReadout + (xFlat + constants::pixelarray::length / 2.) / dist);
+    yCurved = dist * std::sin(phiReadout + (xFlat + constants::pixelarray::length / 2.) / dist);
   }
 
   /// Transformation from Geant detector centered local coordinates (cm) to
@@ -137,10 +133,8 @@ class SegmentationSuperAlpide
   void localToDetectorUnchecked(T const xRow, T const zCol, TI& iRow, TI& iCol) const noexcept
   {
     namespace cp = constants::pixelarray;
-    T x = cp::length / 2. - xRow; // transformation to upper edge of pixelarray
-    T z = zCol + cp::width / 2.;  // transformation to left edge of pixelarray
-    iRow = std::floor(x / mPitchRow);
-    iCol = std::floor(z / mPitchCol);
+    iRow = std::floor((cp::length / 2. - xRow) / mNRows);
+    iCol = std::floor((zCol + cp::width / 2.) / mNCols);
   }
 
   /// Transformation from Detector cell coordinates to Geant detector centered
@@ -166,8 +160,8 @@ class SegmentationSuperAlpide
   void detectorToLocalUnchecked(TI const iRow, TI const iCol, T& xRow, T& zCol) const noexcept
   {
     namespace cp = constants::pixelarray;
-    xRow = -(iRow + 0.5) * mPitchRow + cp::length / 2.;
-    zCol = (iCol + 0.5) * mPitchCol - cp::width / 2.;
+    xRow = -(iRow + 0.5) * mNRows + cp::length / 2.;
+    zCol = (iCol + 0.5) * mNCols - cp::width / 2.;
   }
 
   template <typename T = double, typename TI = int>
