@@ -61,6 +61,8 @@ class V0Index : public DecayNBodyIndex<2>
   bool isPhotonOnly() const { return testBit(1); }
   void setStandaloneV0() { setBit(0); }
   void setPhotonOnly() { setBit(1); }
+  bool isTPCOnlyProng(int prong) const { return mProngIDs[prong].getSource() == GIndex::TPC; }
+  bool isTPCOnly() const { return (mProngIDs[0].getSource() == GIndex::TPC || mProngIDs[1].getSource() == GIndex::TPC); }
   ClassDefNV(V0Index, 1);
 };
 

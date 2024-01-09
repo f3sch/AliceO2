@@ -107,6 +107,9 @@
 #pragma link C++ class o2::dataformats::V0 + ;
 #pragma link C++ class std::vector < o2::dataformats::V0> + ;
 
+#pragma link C++ class o2::dataformats::V0TPC + ;
+#pragma link C++ class std::vector < o2::dataformats::V0TPC> + ;
+
 #pragma link C++ class o2::dataformats::Cascade + ;
 #pragma link C++ class std::vector < o2::dataformats::Cascade> + ;
 

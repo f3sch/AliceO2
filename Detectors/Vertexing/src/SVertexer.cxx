@@ -42,7 +42,7 @@ using TrackTPC = o2::tpc::TrackTPC;
 void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::framework::ProcessingContext& pc)
 {
   mRecoCont = &recoData;
-  mNV0s = mNCascades = mN3Bodies = 0;
+  mNV0s = mNV0TPCs = mNCascades = mN3Bodies = 0;
   updateTimeDependentParams(); // TODO RS: strictly speaking, one should do this only in case of the CCDB objects update
   mPVertices = recoData.getPrimaryVertices();
   buildT2V(recoData); // build track->vertex refs from vertex->track (if other workflow will need this, consider producing a message in the VertexTrackMatcher)
@@ -94,6 +94,11 @@ void SVertexer::produceOutput(o2::framework::ProcessingContext& pc)
   };
   for (int ith = 0; ith < mNThreads; ith++) {
     mNV0s += mV0sIdxTmp[ith].size();
+    for (const auto& v0Idx : mV0sIdxTmp[ith]) {
+      if (v0Idx.isTPCOnly()) {
+        ++mNV0TPCs;
+      }
+    }
     mNCascades += mCascadesIdxTmp[ith].size();
     mN3Bodies += m3bodyIdxTmp[ith].size();
   }
@@ -126,6 +131,8 @@ void SVertexer::produceOutput(o2::framework::ProcessingContext& pc)
   auto& v0Refs = pc.outputs().make<std::vector<RRef>>(o2f::Output{"GLO", "PVTX_V0REFS", 0});
   auto& cascRefs = pc.outputs().make<std::vector<RRef>>(o2f::Output{"GLO", "PVTX_CASCREFS", 0});
   auto& vtx3bodyRefs = pc.outputs().make<std::vector<RRef>>(o2f::Output{"GLO", "PVTX_3BODYREFS", 0});
+  // special TPC-only output
+  auto& v0sTPC = pc.outputs().make<std::vector<V0TPC>>(o2f::Output{"GLO", "V0S_TPC", 0});
 
   // sorted V0s
   v0sIdx.reserve(mNV0s);
@@ -142,6 +149,9 @@ void SVertexer::produceOutput(o2::framework::ProcessingContext& pc)
   if (mSVParams->createFull3Bodies) {
     full3body.reserve(mN3Bodies);
   }
+  if (!mSVParams->mExcludeTPCtracks) {
+    v0sTPC.reserve(mNV0TPCs);
+  }
 
   for (const auto& id : v0SortID) {
     auto& v0idx = mV0sIdxTmp[id.thrID][id.entry];
@@ -150,6 +160,21 @@ void SVertexer::produceOutput(o2::framework::ProcessingContext& pc)
     v0idx.setVertexID(pos); // this v0 copy will be discarded, use its vertexID to store the new position of final V0
     if (mSVParams->createFullV0s) {
       fullv0s.push_back(mV0sTmp[id.thrID][id.entry]);
+    }
+    if (!mSVParams->mExcludeTPCtracks && v0idx.isTPCOnly()) {
+      V0TPC v0tpc;
+      v0tpc.setVertexID(v0idx.getVertexID());
+      for (int iProng = 0; iProng < 2; ++iProng) {
+        // fill special TPC-only track information
+        if (v0idx.isTPCOnlyProng(iProng)) {
+          const auto& trkTPC = mTPCTracksArray[v0idx.getProngID(iProng)];
+          v0tpc.setTime0(iProng, trkTPC.getTime0());
+          if (trkTPC.hasASideClustersOnly()) {
+            v0tpc.setASideOnly(iProng);
+          }
+        }
+      }
+      v0sTPC.push_back(v0tpc);
     }
   }
   // since V0s were reshuffled, we need to correct the cascade -> V0 reference indices
@@ -860,6 +885,12 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     }
     if (photonOnly) {
       mV0sIdxTmp[ithread].back().setPhotonOnly();
+    }
+    if (isTPConly) {
+      for (int i = 0; i < 2; ++i) {
+        if (mV0sIdxTmp[ithread].back().isTPCOnlyProng(i)) {
+        }
+      }
     }
 
     if (mSVParams->createFullV0s) {

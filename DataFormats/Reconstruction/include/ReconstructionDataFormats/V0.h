@@ -12,12 +12,12 @@
 #ifndef ALICEO2_V0_H
 #define ALICEO2_V0_H
 
+#include <sys/param.h>
 #include "ReconstructionDataFormats/VtxTrackIndex.h"
 #include "ReconstructionDataFormats/Track.h"
 #include "ReconstructionDataFormats/PID.h"
 #include "ReconstructionDataFormats/DecayNBodyIndex.h" // RS Remove after dropping indices in O2Physics
 #include <array>
-#include <Math/SVector.h>
 
 namespace o2
 {
@@ -53,11 +53,34 @@ class V0 : public o2::track::TrackParCov
   float calcR2() const { return getX() * getX() + getY() * getY(); }
 
  protected:
-  std::array<Track, 2> mProngs;    // prongs kinematics at vertex
-  float mCosPA = 0;                // cos of pointing angle
-  float mDCA = 9990;               // distance of closest approach of prongs
+  std::array<Track, 2> mProngs; // prongs kinematics at vertex
+  float mCosPA = 0;             // cos of pointing angle
+  float mDCA = 9990;            // distance of closest approach of prongs
 
   ClassDefNV(V0, 2);
+};
+
+class V0TPC
+{
+ public:
+  void setTime0(int prong, float time0) { mTime0[prong] = time0; }
+  void setVertexID(int id) { mVertexID = id; }
+  void setFlags(uint8_t flags) { mFlags = flags; }
+
+  float getTime0(int prong) const { return mTime0[prong]; }
+  int getVertexID() const { return mVertexID; }
+  uint8_t getFlags() const { return mFlags; }
+
+  /// Flags access
+  void setASideOnly(int prong) { SETBIT(mFlags, prong); }
+  bool isASideOnly(int prong) const { return TESTBIT(mFlags, prong); }
+
+ private:
+  int mVertexID{-1};           // id of parent vertex
+  std::array<float, 2> mTime0; // reconstruction time0
+  uint8_t mFlags{0};           // User defined Flags
+
+  ClassDefNV(V0TPC, 1);
 };
 
 } // namespace dataformats

@@ -164,6 +164,7 @@ class PrimaryVertex;
 class VtxTrackIndex;
 class VtxTrackRef;
 class V0;
+class V0TPC;
 class V0Index;
 class Cascade;
 class CascadeIndex;
@@ -289,6 +290,7 @@ struct RecoContainer {
   enum SVTXSlots { V0SIDX,         // V0s indices
                    V0S,            // V0 objects
                    PVTX_V0REFS,    // PV -> V0 references
+                   V0TPCS,         // V0 TPC-only corrections
                    CASCSIDX,       // Cascade indices
                    CASCS,          // Cascade objects
                    PVTX_CASCREFS,  // PV -> Cascade reference
@@ -687,12 +689,16 @@ struct RecoContainer {
   // Secondary vertices
   const o2::dataformats::V0Index& getV0Idx(int i) const { return svtxPool.get_as<o2::dataformats::V0Index>(V0SIDX, i); }
   const o2::dataformats::V0& getV0(int i) const { return svtxPool.get_as<o2::dataformats::V0>(V0S, i); }
+  const o2::dataformats::V0TPC& getV0TPC(int i) const { return svtxPool.get_as<o2::dataformats::V0TPC>(V0TPCS, i); }
   const o2::dataformats::CascadeIndex& getCascadeIdx(int i) const { return svtxPool.get_as<o2::dataformats::CascadeIndex>(CASCSIDX, i); }
   const o2::dataformats::Cascade& getCascade(int i) const { return svtxPool.get_as<o2::dataformats::Cascade>(CASCS, i); }
 
   auto getV0sIdx() const { return svtxPool.getSpan<o2::dataformats::V0Index>(V0SIDX); }
   auto getV0s() const { return svtxPool.getSpan<o2::dataformats::V0>(V0S); }
   auto getPV2V0Refs() { return svtxPool.getSpan<o2::dataformats::RangeReference<int, int>>(PVTX_V0REFS); }
+
+  // V0 TPC-only
+  auto getV0TPCs() const { return svtxPool.getSpan<o2::dataformats::V0TPC>(V0TPCS); }
 
   auto getCascadesIdx() const { return svtxPool.getSpan<o2::dataformats::CascadeIndex>(CASCSIDX); }
   auto getCascades() const { return svtxPool.getSpan<o2::dataformats::Cascade>(CASCS); }

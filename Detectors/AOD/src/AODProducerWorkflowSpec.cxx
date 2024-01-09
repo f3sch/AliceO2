@@ -1187,17 +1187,19 @@ void AODProducerWorkflowDPL::fillMCTrackLabelsTable(MCTrackLabelCursorType& mcTr
   }
 }
 
-template <typename V0CursorType, typename CascadeCursorType, typename Decay3BodyCursorType>
-void AODProducerWorkflowDPL::fillSecondaryVertices(const o2::globaltracking::RecoContainer& recoData, V0CursorType& v0Cursor, CascadeCursorType& cascadeCursor, Decay3BodyCursorType& decay3BodyCursor)
+template <typename V0CursorType, typename V0TPCCursorType, typename CascadeCursorType, typename Decay3BodyCursorType>
+void AODProducerWorkflowDPL::fillSecondaryVertices(const o2::globaltracking::RecoContainer& recoData, V0CursorType& v0Cursor, V0TPCCursorType& v0TPCCursor, CascadeCursorType& cascadeCursor, Decay3BodyCursorType& decay3BodyCursor)
 {
 
   auto v0s = recoData.getV0sIdx();
   auto cascades = recoData.getCascadesIdx();
   auto decays3Body = recoData.getDecays3BodyIdx();
+  auto v0TPCs = recoData.getV0TPCs();
 
   v0Cursor.reserve(v0s.size());
+  v0TPCCursor.reserve(v0TPCs.size());
   // filling v0s table
-  for (size_t iv0 = 0; iv0 < v0s.size(); iv0++) {
+  for (size_t iv0 = 0, iv0tpc = 0; iv0 < v0s.size(); iv0++) {
     const auto& v0 = v0s[iv0];
     auto trPosID = v0.getProngID(0);
     auto trNegID = v0.getProngID(1);
@@ -1224,6 +1226,16 @@ void AODProducerWorkflowDPL::fillSecondaryVertices(const o2::globaltracking::Rec
     if (posTableIdx != -1 and negTableIdx != -1 and collID != -1) {
       v0Cursor(collID, posTableIdx, negTableIdx, v0flags);
       mV0ToTableID[int(iv0)] = mTableV0ID++;
+      if (v0.isTPCOnly()) {
+        if (iv0tpc < v0TPCs.size()) {
+          const auto& v0TPC = v0TPCs[iv0tpc++];
+          float time0[2] = {v0TPC.getTime0(0), v0TPC.getTime0(1)};
+          uint8_t flags = v0TPC.getFlags();
+          v0TPCCursor(collID, time0, flags);
+        } else { // This should never be possible
+          LOG(warn) << "TPC-only V0 indexing overflowed";
+        }
+      }
     }
   }
 
@@ -1852,6 +1864,7 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
   auto ambigMFTTracksCursor = createTableCursor<o2::aod::AmbiguousMFTTracks>(pc);
   auto ambigFwdTracksCursor = createTableCursor<o2::aod::AmbiguousFwdTracks>(pc);
   auto v0sCursor = createTableCursor<o2::aod::V0s>(pc);
+  auto v0TPCsCursor = createTableCursor<o2::aod::V0TPCs>(pc);
   auto zdcCursor = createTableCursor<o2::aod::Zdcs>(pc);
   auto hmpCursor = createTableCursor<o2::aod::HMPIDs>(pc);
   auto caloCellsCursor = createTableCursor<o2::aod::Calos>(pc);
@@ -2200,7 +2213,7 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
     collisionID++;
   }
 
-  fillSecondaryVertices(recoData, v0sCursor, cascadesCursor, decay3BodyCursor);
+  fillSecondaryVertices(recoData, v0sCursor, v0TPCsCursor, cascadesCursor, decay3BodyCursor);
   fillHMPID(recoData, hmpCursor);
   fillStrangenessTrackingTables(recoData, trackedV0Cursor, trackedCascadeCursor, tracked3BodyCurs);
 
@@ -2981,6 +2994,7 @@ DataProcessorSpec getAODProducerWorkflowSpec(GID::mask_t src, bool enableSV, boo
     OutputForTable<AmbiguousFwdTracks>::spec(),
     OutputForTable<FwdTrkCls>::spec(),
     OutputForTable<V0s>::spec(),
+    OutputForTable<V0TPCs>::spec(),
     OutputForTable<HMPIDs>::spec(),
     OutputForTable<Zdcs>::spec(),
     OutputForTable<Calos>::spec(),

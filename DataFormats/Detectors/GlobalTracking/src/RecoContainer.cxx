@@ -400,11 +400,12 @@ void DataRequest::requestPrimaryVerterticesTMP(bool mc) // primary vertices befo
   requestMap["PVertexTMP"] = mc;
 }
 
-void DataRequest::requestSecondaryVertices(bool)
+void DataRequest::requestSecondaryVertices(bool /*unused*/)
 {
   addInput({"v0sIdx", "GLO", "V0S_IDX", 0, Lifetime::Timeframe});
   addInput({"v0s", "GLO", "V0S", 0, Lifetime::Timeframe});
   addInput({"p2v0s", "GLO", "PVTX_V0REFS", 0, Lifetime::Timeframe});
+  addInput({"v0TPCs", "GLO", "V0S_TPC", 0, Lifetime::Timeframe});
   addInput({"cascsIdx", "GLO", "CASCS_IDX", 0, Lifetime::Timeframe});
   addInput({"cascs", "GLO", "CASCS", 0, Lifetime::Timeframe});
   addInput({"p2cascs", "GLO", "PVTX_CASCREFS", 0, Lifetime::Timeframe});
@@ -792,6 +793,7 @@ void RecoContainer::addSVertices(ProcessingContext& pc, bool)
   svtxPool.registerContainer(pc.inputs().get<gsl::span<o2::dataformats::V0Index>>("v0sIdx"), V0SIDX);
   svtxPool.registerContainer(pc.inputs().get<gsl::span<o2::dataformats::V0>>("v0s"), V0S);
   svtxPool.registerContainer(pc.inputs().get<gsl::span<o2::dataformats::RangeReference<int, int>>>("p2v0s"), PVTX_V0REFS);
+  svtxPool.registerContainer(pc.inputs().get<gsl::span<o2::dataformats::V0TPC>>("v0TPCs"), V0TPCS);
   svtxPool.registerContainer(pc.inputs().get<gsl::span<o2::dataformats::CascadeIndex>>("cascsIdx"), CASCSIDX);
   svtxPool.registerContainer(pc.inputs().get<gsl::span<o2::dataformats::Cascade>>("cascs"), CASCS);
   svtxPool.registerContainer(pc.inputs().get<gsl::span<o2::dataformats::RangeReference<int, int>>>("p2cascs"), PVTX_CASCREFS);

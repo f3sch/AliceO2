@@ -29,6 +29,7 @@ namespace vertexing
 {
 using RRef = o2::dataformats::RangeReference<int, int>;
 using V0 = o2::dataformats::V0;
+using V0TPC = o2::dataformats::V0TPC;
 using V0Index = o2::dataformats::V0Index;
 using Cascade = o2::dataformats::Cascade;
 using CascadeIndex = o2::dataformats::CascadeIndex;
@@ -57,6 +58,7 @@ DataProcessorSpec getSecondaryVertexWriterSpec()
   auto inpV0 = InputSpec{"v0s", "GLO", "V0S", 0};
   auto inpV0ID = InputSpec{"v0sIdx", "GLO", "V0S_IDX", 0};
   auto inpV0Ref = InputSpec{"pv2v0ref", "GLO", "PVTX_V0REFS", 0};
+  auto inpV0TPC = InputSpec{"v0TPCs", "GLO", "V0S_TPC", 0};
   auto inpCasc = InputSpec{"cascs", "GLO", "CASCS", 0};
   auto inpCascID = InputSpec{"cascsIdx", "GLO", "CASCS_IDX", 0};
   auto inpCascRef = InputSpec{"pv2cascref", "GLO", "PVTX_CASCREFS", 0};
@@ -70,6 +72,7 @@ DataProcessorSpec getSecondaryVertexWriterSpec()
                                 BranchDefinition<std::vector<V0Index>>{inpV0ID, "V0sID", loggerV},
                                 BranchDefinition<std::vector<V0>>{inpV0, "V0s"},
                                 BranchDefinition<std::vector<RRef>>{inpV0Ref, "PV2V0Refs"},
+                                BranchDefinition<std::vector<V0TPC>>{inpV0TPC, "V0TPCs"},
 
                                 BranchDefinition<std::vector<CascadeIndex>>{inpCascID, "CascadesID", loggerC},
                                 BranchDefinition<std::vector<Cascade>>{inpCasc, "Cascades"},

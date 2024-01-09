@@ -37,6 +37,7 @@ class SecondaryVertexReader : public o2::framework::Task
   using RRef = o2::dataformats::RangeReference<int, int>;
   using V0Index = o2::dataformats::V0Index;
   using V0 = o2::dataformats::V0;
+  using V0TPC = o2::dataformats::V0TPC;
   using CascadeIndex = o2::dataformats::CascadeIndex;
   using Cascade = o2::dataformats::Cascade;
   using Decay3BodyIndex = o2::dataformats::Decay3BodyIndex;
@@ -56,6 +57,7 @@ class SecondaryVertexReader : public o2::framework::Task
   std::vector<V0Index> mV0sIdx, *mV0sIdxPtr = &mV0sIdx;
   std::vector<V0> mV0s, *mV0sPtr = &mV0s;
   std::vector<RRef> mPV2V0Ref, *mPV2V0RefPtr = &mPV2V0Ref;
+  std::vector<V0TPC> mV0TPCs, *mV0TPCsPtr = &mV0TPCs;
   std::vector<CascadeIndex> mCascsIdx, *mCascsIdxPtr = &mCascsIdx;
   std::vector<Cascade> mCascs, *mCascsPtr = &mCascs;
   std::vector<RRef> mPV2CascRef, *mPV2CascRefPtr = &mPV2CascRef;
@@ -70,6 +72,7 @@ class SecondaryVertexReader : public o2::framework::Task
   std::string mSVertexTreeName = "o2sim";
   std::string mV0IdxBranchName = "V0sID";
   std::string mV0BranchName = "V0s";
+  std::string mV0TPCBranchName = "V0TPCs";
   std::string mPVertex2V0RefBranchName = "PV2V0Refs";
   std::string mCascIdxBranchName = "CascadesID";
   std::string mCascBranchName = "Cascades";
@@ -91,11 +94,12 @@ void SecondaryVertexReader::run(ProcessingContext& pc)
   auto ent = mTree->GetReadEntry() + 1;
   assert(ent < mTree->GetEntries()); // this should not happen
   mTree->GetEntry(ent);
-  LOG(info) << "Pushing " << mV0s.size() << " V0s and " << mCascs.size() << " cascades at entry " << ent;
+  LOG(info) << "Pushing " << mV0s.size() << " V0s with " << mV0TPCs.size() << " TPC-only V0s and " << mCascs.size() << " cascades at entry " << ent;
 
   pc.outputs().snapshot(Output{"GLO", "V0S_IDX", 0}, mV0sIdx);
   pc.outputs().snapshot(Output{"GLO", "V0S", 0}, mV0s);
   pc.outputs().snapshot(Output{"GLO", "PVTX_V0REFS", 0}, mPV2V0Ref);
+  pc.outputs().snapshot(Output{"GLO", "V0S_TPC", 0}, mV0TPCs);
   pc.outputs().snapshot(Output{"GLO", "CASCS_IDX", 0}, mCascsIdx);
   pc.outputs().snapshot(Output{"GLO", "CASCS", 0}, mCascs);
   pc.outputs().snapshot(Output{"GLO", "PVTX_CASCREFS", 0}, mPV2CascRef);
@@ -119,6 +123,7 @@ void SecondaryVertexReader::connectTree()
   assert(mTree->GetBranch(mV0IdxBranchName.c_str()));
   assert(mTree->GetBranch(mV0BranchName.c_str()));
   assert(mTree->GetBranch(mPVertex2V0RefBranchName.c_str()));
+  assert(mTree->GetBranch(mV0TPCBranchName.c_str()));
   assert(mTree->GetBranch(mCascBranchName.c_str()));
   assert(mTree->GetBranch(mCascIdxBranchName.c_str()));
   assert(mTree->GetBranch(mPVertex2CascRefBranchName.c_str()));
@@ -129,6 +134,7 @@ void SecondaryVertexReader::connectTree()
   mTree->SetBranchAddress(mV0IdxBranchName.c_str(), &mV0sIdxPtr);
   mTree->SetBranchAddress(mV0BranchName.c_str(), &mV0sPtr);
   mTree->SetBranchAddress(mPVertex2V0RefBranchName.c_str(), &mPV2V0RefPtr);
+  mTree->SetBranchAddress(mV0TPCBranchName.c_str(), &mV0TPCsPtr);
   mTree->SetBranchAddress(mCascIdxBranchName.c_str(), &mCascsIdxPtr);
   mTree->SetBranchAddress(mCascBranchName.c_str(), &mCascsPtr);
   mTree->SetBranchAddress(mPVertex2CascRefBranchName.c_str(), &mPV2CascRefPtr);
@@ -142,15 +148,16 @@ void SecondaryVertexReader::connectTree()
 DataProcessorSpec getSecondaryVertexReaderSpec()
 {
   std::vector<OutputSpec> outputs;
-  outputs.emplace_back("GLO", "V0S_IDX", 0, Lifetime::Timeframe);       // found V0s indices
-  outputs.emplace_back("GLO", "V0S", 0, Lifetime::Timeframe);           // found V0s
-  outputs.emplace_back("GLO", "PVTX_V0REFS", 0, Lifetime::Timeframe);   // prim.vertex -> V0s refs
-  outputs.emplace_back("GLO", "CASCS_IDX", 0, Lifetime::Timeframe);     // found Cascades indices
-  outputs.emplace_back("GLO", "CASCS", 0, Lifetime::Timeframe);         // found Cascades
-  outputs.emplace_back("GLO", "PVTX_CASCREFS", 0, Lifetime::Timeframe); // prim.vertex -> Cascades refs
+  outputs.emplace_back("GLO", "V0S_IDX", 0, Lifetime::Timeframe);         // found V0s indices
+  outputs.emplace_back("GLO", "V0S", 0, Lifetime::Timeframe);             // found V0s
+  outputs.emplace_back("GLO", "PVTX_V0REFS", 0, Lifetime::Timeframe);     // prim.vertex -> V0s refs
+  outputs.emplace_back("GLO", "V0S_TPC", 0, Lifetime::Timeframe);         // found TPC V0s extra info
+  outputs.emplace_back("GLO", "CASCS_IDX", 0, Lifetime::Timeframe);       // found Cascades indices
+  outputs.emplace_back("GLO", "CASCS", 0, Lifetime::Timeframe);           // found Cascades
+  outputs.emplace_back("GLO", "PVTX_CASCREFS", 0, Lifetime::Timeframe);   // prim.vertex -> Cascades refs
   outputs.emplace_back("GLO", "DECAYS3BODY_IDX", 0, Lifetime::Timeframe); // found 3 body vertices indices
-  outputs.emplace_back("GLO", "DECAYS3BODY", 0, Lifetime::Timeframe);   // found 3 body Decays
-  outputs.emplace_back("GLO", "PVTX_3BODYREFS", 0, Lifetime::Timeframe); // prim.vertex -> 3 body Decays refs
+  outputs.emplace_back("GLO", "DECAYS3BODY", 0, Lifetime::Timeframe);     // found 3 body Decays
+  outputs.emplace_back("GLO", "PVTX_3BODYREFS", 0, Lifetime::Timeframe);  // prim.vertex -> 3 body Decays refs
 
   return DataProcessorSpec{
     "secondary-vertex-reader",

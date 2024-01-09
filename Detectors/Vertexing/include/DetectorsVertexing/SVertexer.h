@@ -59,6 +59,7 @@ class SVertexer
   using VRef = o2::dataformats::VtxTrackRef;
   using PVertex = const o2::dataformats::PrimaryVertex;
   using V0 = o2::dataformats::V0;
+  using V0TPC = o2::dataformats::V0TPC;
   using V0Index = o2::dataformats::V0Index;
   using Cascade = o2::dataformats::Cascade;
   using CascadeIndex = o2::dataformats::CascadeIndex;
@@ -197,7 +198,7 @@ class SVertexer
   PIDResponse mPIDresponse;
 
   int mNThreads = 1;
-  int mNV0s = 0, mNCascades = 0, mN3Bodies = 0, mNStrangeTracks = 0;
+  int mNV0s = 0, mNV0TPCs = 0, mNCascades = 0, mN3Bodies = 0, mNStrangeTracks = 0;
   float mBz = 0;
   float mMinR2ToMeanVertex = 0;
   float mMaxDCAXY2ToMeanVertex = 0;

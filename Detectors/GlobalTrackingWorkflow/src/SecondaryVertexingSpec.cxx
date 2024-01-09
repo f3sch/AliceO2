@@ -253,6 +253,7 @@ DataProcessorSpec getSecondaryVertexingSpec(GTrackID::mask_t src, bool enableCas
   outputs.emplace_back("GLO", "V0S_IDX", 0, Lifetime::Timeframe);     // found V0s indices
   outputs.emplace_back("GLO", "V0S", 0, Lifetime::Timeframe);         // found V0s
   outputs.emplace_back("GLO", "PVTX_V0REFS", 0, Lifetime::Timeframe); // prim.vertex -> V0s refs
+  outputs.emplace_back("GLO", "V0S_TPC", 0, Lifetime::Timeframe);     // Corrections for found TPC-only V0s
 
   outputs.emplace_back("GLO", "CASCS_IDX", 0, Lifetime::Timeframe);     // found Cascades indices
   outputs.emplace_back("GLO", "CASCS", 0, Lifetime::Timeframe);         // found Cascades
