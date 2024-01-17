@@ -188,8 +188,13 @@ class DCAFitterN
   void setMaxSnp(float s) { mMaxSnp = s; }
   void setMaxStep(float s) { mMaxStep = s; }
   void setMinXSeed(float x) { mMinXSeed = x; }
+  void setCollinear() { mCollinear = true; }
+  void unsetCollinear() { mCollinear = false; }
 
-  int getNCandidates() const { return mCurHyp; }
+  int getNCandidates() const
+  {
+    return mCurHyp;
+  }
   int getMaxIter() const { return mMaxIter; }
   float getMaxR() const { return std::sqrt(mMaxR2); }
   float getMaxDZIni() const { return mMaxDZIni; }
@@ -318,6 +323,7 @@ class DCAFitterN
   int mCurHyp = 0;
   int mCrossIDCur = 0;
   int mCrossIDAlt = -1;
+  bool mCollinear = false;                                                                        // consider collinearity of prongs by disabling maxDXYIni/maxDZIni cut and taking weighted midpoint of crossings
   bool mAllowAltPreference = true;                                                                // if the fit converges to alternative PCA seed, abandon the current one
   bool mUseAbsDCA = false;                                                                        // use abs. distance minimization rather than chi2
   bool mWeightedFinalPCA = false;                                                                 // recalculate PCA as a cov-matrix weighted mean, even if absDCA method was used
@@ -339,7 +345,7 @@ class DCAFitterN
   float mMaxStep = 2.0;                                                                           // Max step for propagation with Propagator
   int mFitterID = 0;                                                                              // locat fitter ID (mostly for debugging)
   size_t mCallID = 0;
-  ClassDefNV(DCAFitterN, 1);
+  ClassDefNV(DCAFitterN, 2);
 };
 
 ///_________________________________________________________________________
@@ -875,7 +881,7 @@ bool DCAFitterN<N, Args...>::minimizeChi2()
     mTrcEInv[mCurHyp][i].set(mCandTr[mCurHyp][i], XerrFactor); // prepare inverse cov.matrices at starting point
   }
 
-  if (mMaxDZIni > 0 && !roughDZCut()) { // apply rough cut on tracks Z difference
+  if (!mCollinear && mMaxDZIni > 0 && !roughDZCut()) { // apply rough cut on tracks Z difference
     return false;
   }
 
@@ -931,7 +937,7 @@ bool DCAFitterN<N, Args...>::minimizeChi2NoErr()
     }
     setTrackPos(mTrPos[mCurHyp][i], mCandTr[mCurHyp][i]); // prepare positions
   }
-  if (mMaxDZIni > 0 && !roughDZCut()) { // apply rough cut on tracks Z difference
+  if (!mCollinear && mMaxDZIni > 0 && !roughDZCut()) { // apply rough cut on tracks Z difference
     return false;
   }
 

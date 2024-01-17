@@ -59,7 +59,7 @@ struct CrossInfo {
   float yDCA[2] = {};
   int nDCA = 0;
 
-  int circlesCrossInfo(const TrackAuxPar& trax0, const TrackAuxPar& trax1, float maxDistXY = MaxDistXYDef)
+  int circlesCrossInfo(const TrackAuxPar& trax0, const TrackAuxPar& trax1, float maxDistXY = MaxDistXYDef, bool isCollinear = false)
   {
     const auto& trcA = trax0.rC > trax1.rC ? trax0 : trax1; // designate the largest circle as A
     const auto& trcB = trax0.rC > trax1.rC ? trax1 : trax0;
@@ -71,7 +71,7 @@ struct CrossInfo {
     if (dist > rsum) { // circles don't touch, chose a point in between
       // the parametric equation of lines connecting the centers is
       // x = x0 + t/dist * (x1-x0), y = y0 + t/dist * (y1-y0)
-      if (dist - rsum > maxDistXY) { // too large distance
+      if (!isCollinear && dist - rsum > maxDistXY) { // too large distance
         return nDCA;
       }
       notTouchingXY(dist, xDist, yDist, trcA, trcB.rC);
@@ -132,7 +132,7 @@ struct CrossInfo {
 
   template <typename T>
   int linesCrossInfo(const TrackAuxPar& trax0, const T& tr0,
-                     const TrackAuxPar& trax1, const T& tr1, float maxDistXY = MaxDistXYDef)
+                     const TrackAuxPar& trax1, const T& tr1, float maxDistXY = MaxDistXYDef, bool isCollinear = false)
   {
     /// closest approach of 2 straight lines
     ///  TrackParam propagation can be parameterized in lab in a form
@@ -181,7 +181,7 @@ struct CrossInfo {
       float addx0 = kx0 * t0, addy0 = ky0 * t0, addx1 = kx1 * t1, addy1 = ky1 * t1;
       dx += addx1 - addx0; // recalculate XY distance at DCA
       dy += addy1 - addy0;
-      if (dx * dx + dy * dy > maxDistXY * maxDistXY) {
+      if (!isCollinear && dx * dx + dy * dy > maxDistXY * maxDistXY) {
         return nDCA;
       }
       xDCA[0] = (trax0.xC + addx0 + trax1.xC + addx1) * 0.5;
@@ -193,7 +193,7 @@ struct CrossInfo {
 
   template <typename T>
   int circleLineCrossInfo(const TrackAuxPar& trax0, const T& tr0,
-                          const TrackAuxPar& trax1, const T& tr1, float maxDistXY = MaxDistXYDef)
+                          const TrackAuxPar& trax1, const T& tr1, float maxDistXY = MaxDistXYDef, bool isCollinear = false)
   {
     /// closest approach of line and circle
     ///  TrackParam propagation can be parameterized in lab in a form
@@ -238,7 +238,7 @@ struct CrossInfo {
       float t = -dk * cspi2;
       float xL = traxL.xC + kx * t, yL = traxL.yC + ky * t; // point on the line, need to average with point on the circle
       float dxc = xL - traxH.xC, dyc = yL - traxH.yC, dist = std::sqrt(dxc * dxc + dyc * dyc);
-      if (dist - traxH.rC > maxDistXY) { // too large distance
+      if (!isCollinear && dist - traxH.rC > maxDistXY) { // too large distance
         return nDCA;
       }
       float drcf = traxH.rC / dist; // radius / distance to circle center
@@ -251,16 +251,16 @@ struct CrossInfo {
   }
 
   template <typename T>
-  int set(const TrackAuxPar& trax0, const T& tr0, const TrackAuxPar& trax1, const T& tr1, float maxDistXY = MaxDistXYDef)
+  int set(const TrackAuxPar& trax0, const T& tr0, const TrackAuxPar& trax1, const T& tr1, float maxDistXY = MaxDistXYDef, bool isCollinear = false)
   {
     // calculate up to 2 crossings between 2 circles
     nDCA = 0;
     if (trax0.rC > o2::constants::math::Almost0 && trax1.rC > o2::constants::math::Almost0) { // both are not straight lines
-      nDCA = circlesCrossInfo(trax0, trax1, maxDistXY);
+      nDCA = circlesCrossInfo(trax0, trax1, maxDistXY, isCollinear);
     } else if (trax0.rC < o2::constants::math::Almost0 && trax1.rC < o2::constants::math::Almost0) { // both are straigt lines
-      nDCA = linesCrossInfo(trax0, tr0, trax1, tr1, maxDistXY);
+      nDCA = linesCrossInfo(trax0, tr0, trax1, tr1, maxDistXY, isCollinear);
     } else {
-      nDCA = circleLineCrossInfo(trax0, tr0, trax1, tr1, maxDistXY);
+      nDCA = circleLineCrossInfo(trax0, tr0, trax1, tr1, maxDistXY, isCollinear);
     }
     //
     return nDCA;
@@ -269,9 +269,9 @@ struct CrossInfo {
   CrossInfo() = default;
 
   template <typename T>
-  CrossInfo(const TrackAuxPar& trax0, const T& tr0, const TrackAuxPar& trax1, const T& tr1, float maxDistXY = MaxDistXYDef)
+  CrossInfo(const TrackAuxPar& trax0, const T& tr0, const TrackAuxPar& trax1, const T& tr1, float maxDistXY = MaxDistXYDef, bool isCollinear = false)
   {
-    set(trax0, tr0, trax1, tr1, maxDistXY);
+    set(trax0, tr0, trax1, tr1, maxDistXY, isCollinear);
   }
   ClassDefNV(CrossInfo, 1);
 };

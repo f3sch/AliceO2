@@ -622,6 +622,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     LOG(debug) << "RejDCAFitter";
     return false;
   }
+  LOGP(info, "Number of Candidates: {}", nCand);
   const auto& v0XYZ = fitterV0.getPCACandidate();
   // validate V0 radial position
   // check closeness to the beam-line
