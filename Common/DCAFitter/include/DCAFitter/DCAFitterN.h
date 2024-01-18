@@ -17,19 +17,17 @@
 #ifndef _ALICEO2_DCA_FITTERN_
 #define _ALICEO2_DCA_FITTERN_
 #include <TMath.h>
-#include "MathUtils/Cartesian.h"
+#include <cmath>
 #include "ReconstructionDataFormats/Track.h"
 #include "DCAFitter/HelixHelper.h"
 #include "DetectorsBase/Propagator.h"
 
-namespace o2
-{
-namespace vertexing
+namespace o2::vertexing
 {
 ///__________________________________________________________________________________
 ///< Inverse cov matrix (augmented by a dummy X error) of the point defined by the track
 struct TrackCovI {
-  float sxx, syy, syz, szz;
+  float sxx{}, syy{}, syz{}, szz{};
 
   TrackCovI(const o2::track::TrackParCov& trc, float xerrFactor = 1.) { set(trc, xerrFactor); }
 
@@ -56,7 +54,7 @@ struct TrackCovI {
 ///__________________________________________________________________________
 ///< Derivative (up to 2) of the TrackParam position over its running param X
 struct TrackDeriv {
-  float dydx, dzdx, d2ydx2, d2zdx2;
+  float dydx{}, dzdx{}, d2ydx2{}, d2zdx2{};
   TrackDeriv() = default;
   TrackDeriv(const o2::track::TrackPar& trc, float bz) { set(trc, bz); }
   void set(const o2::track::TrackPar& trc, float bz)
@@ -106,7 +104,7 @@ class DCAFitterN
   //=========================================================================
   ///< return PCA candidate, by default best on is provided (no check for the index validity)
   const Vec3D& getPCACandidate(int cand = 0) const { return mPCA[mOrder[cand]]; }
-  const auto getPCACandidatePos(int cand = 0) const
+  auto getPCACandidatePos(int cand = 0) const
   {
     const auto& vd = mPCA[mOrder[cand]];
     return std::array<float, 3>{float(vd[0]), float(vd[1]), float(vd[2])};
@@ -271,7 +269,7 @@ class DCAFitterN
     return mat;
   }
 
-  void assign(int) {}
+  void assign(int /*unused*/) {}
   template <class T, class... Tr>
   void assign(int i, const T& t, const Tr&... args)
   {
@@ -315,7 +313,7 @@ class DCAFitterN
   std::array<ArrTrPos, MAXHYP> mTrRes;       // Track residuals
   std::array<Vec3D, MAXHYP> mPCA;            // PCA for each vertex candidate
   std::array<float, MAXHYP> mChi2 = {0};     // Chi2 at PCA candidate
-  std::array<int, MAXHYP> mNIters;           // number of iterations for each seed
+  std::array<int, MAXHYP> mNIters{};           // number of iterations for each seed
   std::array<bool, MAXHYP> mTrPropDone{};    // Flag that the tracks are fully propagated to PCA
   std::array<bool, MAXHYP> mPropFailed{};    // Flag that some propagation failed for this PCA candidate
   MatSym3D mWeightInv;                       // inverse weight of single track, [sum{M^T E M}]^-1 in EQ.T
@@ -694,7 +692,7 @@ void DCAFitterN<N, Args...>::calcPCANoErr()
   // RRRR    mTrAux[N-1].loc2glo(mTrPos[mCurHyp][N-1][0], mTrPos[mCurHyp][N-1][1], pca[0], pca[1] );
   pca[2] = mTrPos[mCurHyp][N - 1][2];
   for (int i = N - 1; i--;) {
-    double x, y;
+    double x = NAN, y = NAN;
     o2::math_utils::rotateZd(mTrPos[mCurHyp][i][0], mTrPos[mCurHyp][i][1], x, y, mTrAux[i].s, mTrAux[i].c);
     // RRRR mTrAux[i].loc2glo(mTrPos[mCurHyp][i][0], mTrPos[mCurHyp][i][1], x, y );
     pca[0] += x;
@@ -849,7 +847,7 @@ inline o2::track::TrackPar DCAFitterN<N, Args...>::getTrackParamAtPCA(int i, int
       trc.invalidate();
     }
   }
-  return std::move(trc);
+  return trc;
 }
 
 //___________________________________________________________________
@@ -890,7 +888,7 @@ bool DCAFitterN<N, Args...>::minimizeChi2()
   }
   calcPCA();            // current PCA
   calcTrackResiduals(); // current track residuals
-  float chi2Upd, chi2 = calcChi2();
+  float chi2Upd = NAN, chi2 = calcChi2();
   do {
     calcTrackDerivatives(); // current track derivatives (1st and 2nd)
     calcResidDerivatives(); // current residals derivatives (1st and 2nd)
@@ -943,7 +941,7 @@ bool DCAFitterN<N, Args...>::minimizeChi2NoErr()
 
   calcPCANoErr();       // current PCA
   calcTrackResiduals(); // current track residuals
-  float chi2Upd, chi2 = calcChi2NoErr();
+  float chi2Upd = NAN, chi2 = calcChi2NoErr();
   do {
     calcTrackDerivatives();      // current track derivatives (1st and 2nd)
     calcResidDerivativesNoErr(); // current residals derivatives (1st and 2nd)
@@ -1029,8 +1027,8 @@ o2::track::TrackParCov DCAFitterN<N, Args...>::createParentTrackParCov(int cand,
     trc.getPxPyPzGlo(pvecT);
     trc.getCovXYZPxPyPzGlo(covT);
     constexpr int MomInd[6] = {9, 13, 14, 18, 19, 20}; // cov matrix elements for momentum component
-    for (int i = 0; i < 6; i++) {
-      covV[MomInd[i]] += covT[MomInd[i]];
+    for (int i : MomInd) {
+      covV[i] += covT[i];
     }
     for (int i = 0; i < 3; i++) {
       pvecV[i] += pvecT[i];
@@ -1044,7 +1042,7 @@ o2::track::TrackParCov DCAFitterN<N, Args...>::createParentTrackParCov(int cand,
   covV[3] = covVtxV(2, 0);
   covV[4] = covVtxV(2, 1);
   covV[5] = covVtxV(2, 2);
-  return std::move(o2::track::TrackParCov(getPCACandidatePos(cand), pvecV, covV, q, sectorAlpha));
+  return {getPCACandidatePos(cand), pvecV, covV, q, sectorAlpha};
 }
 
 //___________________________________________________________________
@@ -1066,7 +1064,7 @@ o2::track::TrackPar DCAFitterN<N, Args...>::createParentTrackPar(int cand, bool 
     q += trc.getCharge();
   }
   const std::array<float, 3> vertex = {(float)wvtx[0], (float)wvtx[1], (float)wvtx[2]};
-  return std::move(o2::track::TrackPar(vertex, pvecV, q, sectorAlpha));
+  return {vertex, pvecV, q, sectorAlpha};
 }
 
 //___________________________________________________________________
@@ -1104,6 +1102,6 @@ inline bool DCAFitterN<N, Args...>::propagateToX(o2::track::TrackParCov& t, floa
 using DCAFitter2 = DCAFitterN<2, o2::track::TrackParCov>;
 using DCAFitter3 = DCAFitterN<3, o2::track::TrackParCov>;
 
-} // namespace vertexing
-} // namespace o2
+} // namespace o2::vertexing
+
 #endif // _ALICEO2_DCA_FITTERN_
