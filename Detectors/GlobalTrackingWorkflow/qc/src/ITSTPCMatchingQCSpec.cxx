@@ -29,7 +29,7 @@ namespace o2
 namespace globaltracking
 {
 
-void ITSTPCMatchingQCDevice::init(InitContext&  /*ic*/)
+void ITSTPCMatchingQCDevice::init(InitContext& /*ic*/)
 {
   const o2::globaltracking::ITSTPCMatchingQCParams& params = o2::globaltracking::ITSTPCMatchingQCParams::Instance();
 
