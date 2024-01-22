@@ -21,6 +21,7 @@
 #include "ReconstructionDataFormats/Track.h"
 #include "DCAFitter/HelixHelper.h"
 #include "DetectorsBase/Propagator.h"
+#include "fairlogger/Logger.h"
 
 namespace o2::vertexing
 {
@@ -313,7 +314,7 @@ class DCAFitterN
   std::array<ArrTrPos, MAXHYP> mTrRes;       // Track residuals
   std::array<Vec3D, MAXHYP> mPCA;            // PCA for each vertex candidate
   std::array<float, MAXHYP> mChi2 = {0};     // Chi2 at PCA candidate
-  std::array<int, MAXHYP> mNIters{};           // number of iterations for each seed
+  std::array<int, MAXHYP> mNIters{};         // number of iterations for each seed
   std::array<bool, MAXHYP> mTrPropDone{};    // Flag that the tracks are fully propagated to PCA
   std::array<bool, MAXHYP> mPropFailed{};    // Flag that some propagation failed for this PCA candidate
   MatSym3D mWeightInv;                       // inverse weight of single track, [sum{M^T E M}]^-1 in EQ.T
@@ -362,6 +363,7 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
   if (!mCrossings.set(mTrAux[0], *mOrigTrPtr[0], mTrAux[1], *mOrigTrPtr[1], mMaxDXYIni)) { // even for N>2 it should be enough to test just 1 loop
     return 0;                                                                              // no crossing
   }
+  LOGP(info, "DCAFitter: nDCA={} isCollinear={}", mCrossings.nDCA, mCollinear);
   for (int ih = 0; ih < MAXHYP; ih++) {
     mPropFailed[ih] = false;
   }
@@ -380,7 +382,8 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
   // check all crossings
   for (int ic = 0; ic < mCrossings.nDCA; ic++) {
     // check if radius is acceptable
-    if (mCrossings.xDCA[ic] * mCrossings.xDCA[ic] + mCrossings.yDCA[ic] * mCrossings.yDCA[ic] > mMaxR2) {
+    if (auto r2 = mCrossings.xDCA[ic] * mCrossings.xDCA[ic] + mCrossings.yDCA[ic] * mCrossings.yDCA[ic]; r2 > mMaxR2) {
+      LOGP(info, "DCAFitter: Cand={} -> skipped r2={}", ic, r2);
       continue;
     }
     mCrossIDCur = ic;
@@ -391,9 +394,11 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
     mPCA[mCurHyp][0] = mCrossings.xDCA[ic];
     mPCA[mCurHyp][1] = mCrossings.yDCA[ic];
 
-    if (mUseAbsDCA ? minimizeChi2NoErr() : minimizeChi2()) {
+    if ((mCrossings.nDCA == 2 && mCollinear) || (mUseAbsDCA ? minimizeChi2NoErr() : minimizeChi2())) {
+      LOGP(info, "DCAFitter: Cand={} -> Minimized successful", ic);
       mOrder[mCurHyp] = mCurHyp;
       if (mPropagateToPCA && !propagateTracksToVertex(mCurHyp)) {
+        LOGP(info, "DCAFitter: Cand={} -> Prop Failed", ic);
         continue; // discard candidate if failed to propagate to it
       }
       mCurHyp++;
@@ -412,6 +417,7 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
       recalculatePCAWithErrors(i);
     }
   }
+  LOGP(info, "DCAFitter: return with {} chi2={}", mCurHyp, mChi2[mCurHyp]);
   return mCurHyp;
 }
 
@@ -869,6 +875,9 @@ template <int N, typename... Args>
 bool DCAFitterN<N, Args...>::minimizeChi2()
 {
   // find best chi2 (weighted DCA) of N tracks in the vicinity of the seed PCA
+  if (mCollinear) {
+    return true;
+  }
   for (int i = N; i--;) {
     mCandTr[mCurHyp][i] = *mOrigTrPtr[i];
     auto x = mTrAux[i].c * mPCA[mCurHyp][0] + mTrAux[i].s * mPCA[mCurHyp][1]; // X of PCA in the track frame
@@ -926,7 +935,9 @@ template <int N, typename... Args>
 bool DCAFitterN<N, Args...>::minimizeChi2NoErr()
 {
   // find best chi2 (absolute DCA) of N tracks in the vicinity of the PCA seed
-
+  if (mCollinear) {
+    return true;
+  }
   for (int i = N; i--;) {
     mCandTr[mCurHyp][i] = *mOrigTrPtr[i];
     auto x = mTrAux[i].c * mPCA[mCurHyp][0] + mTrAux[i].s * mPCA[mCurHyp][1]; // X of PCA in the track frame
@@ -935,7 +946,7 @@ bool DCAFitterN<N, Args...>::minimizeChi2NoErr()
     }
     setTrackPos(mTrPos[mCurHyp][i], mCandTr[mCurHyp][i]); // prepare positions
   }
-  if (!mCollinear && mMaxDZIni > 0 && !roughDZCut()) { // apply rough cut on tracks Z difference
+  if (mMaxDZIni > 0 && !roughDZCut()) { // apply rough cut on tracks Z difference
     return false;
   }
 

@@ -154,6 +154,8 @@ class TrackParametrization
   GPUd() value_t getAlpha() const;
   GPUd() value_t getY() const;
   GPUd() value_t getZ() const;
+  GPUd() value_t getRho() const;
+  GPUd() value_t getR() const;
   GPUd() value_t getSnp() const;
   GPUd() value_t getTgl() const;
   GPUd() value_t getQ2Pt() const;
@@ -324,6 +326,20 @@ template <typename value_T>
 GPUdi() auto TrackParametrization<value_T>::getZ() const -> value_t
 {
   return mP[kZ];
+}
+
+//____________________________________________________________
+template <typename value_T>
+GPUdi() auto TrackParametrization<value_T>::getRho() const -> value_t
+{
+  return std::hypot(getX(), getY());
+}
+
+//____________________________________________________________
+template <typename value_T>
+GPUdi() auto TrackParametrization<value_T>::getR() const -> value_t
+{
+  return std::hypot(getX(), getY(), getZ());
 }
 
 //____________________________________________________________

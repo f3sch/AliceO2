@@ -571,59 +571,60 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
 //__________________________________________________________________
 bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread)
 {
+  LOGP(info, "------------ New V0 check");
   auto& fitterV0 = mFitterV0[ithread];
   // Fast rough cuts on pairs before feeding to DCAFitter, tracks are not in the same Frame or at same X
   bool isTPConly = (seedP.gid.getSource() == GIndex::TPC || seedN.gid.getSource() == GIndex::TPC);
   if (mSVParams->mTPCTrackPhotonTune && isTPConly) {
     // Check if Tgl is close enough
-    if (std::abs(seedP.getTgl() - seedN.getTgl()) > mSVParams->maxV0TglAbsDiff) {
-      LOG(debug) << "RejTgl";
-      return false;
-    }
-    // Check in transverse plane
-    float sna, csa;
-    o2::math_utils::CircleXYf_t trkPosCircle;
-    seedP.getCircleParams(mBz, trkPosCircle, sna, csa);
-    o2::math_utils::CircleXYf_t trkEleCircle;
-    seedN.getCircleParams(mBz, trkEleCircle, sna, csa);
-    // Does the radius of both tracks compare to their absolute circle center distance
-    float c2c = std::hypot(trkPosCircle.xC - trkEleCircle.xC,
-                           trkPosCircle.yC - trkEleCircle.yC);
-    float r2r = trkPosCircle.rC + trkEleCircle.rC;
-    float dcr = c2c - r2r;
-    if (std::abs(dcr) > mSVParams->mTPCTrackD2R) {
-      LOG(debug) << "RejD2R " << c2c << " " << r2r << " " << dcr;
-      return false;
-    }
-    // Will the conversion point look somewhat reasonable
-    float r1_r = trkPosCircle.rC / r2r;
-    float r2_r = trkEleCircle.rC / r2r;
-    float dR = std::hypot(r2_r * trkPosCircle.xC + r1_r * trkEleCircle.xC, r2_r * trkPosCircle.yC + r1_r * trkEleCircle.yC);
-    if (dR > mSVParams->mTPCTrackDR) {
-      LOG(debug) << "RejDR" << dR;
-      return false;
-    }
+    // if (std::abs(seedP.getTgl() - seedN.getTgl()) > mSVParams->maxV0TglAbsDiff) {
+    //   LOG(info) << "RejTgl";
+    //   return false;
+    // }
+    // // Check in transverse plane
+    // float sna, csa;
+    // o2::math_utils::CircleXYf_t trkPosCircle;
+    // seedP.getCircleParams(mBz, trkPosCircle, sna, csa);
+    // o2::math_utils::CircleXYf_t trkEleCircle;
+    // seedN.getCircleParams(mBz, trkEleCircle, sna, csa);
+    // // Does the radius of both tracks compare to their absolute circle center distance
+    // float c2c = std::hypot(trkPosCircle.xC - trkEleCircle.xC,
+    //                        trkPosCircle.yC - trkEleCircle.yC);
+    // float r2r = trkPosCircle.rC + trkEleCircle.rC;
+    // float dcr = c2c - r2r;
+    // if (std::abs(dcr) > mSVParams->mTPCTrackD2R) {
+    //   LOG(info) << "RejD2R " << c2c << " " << r2r << " " << dcr;
+    //   return false;
+    // }
+    // // Will the conversion point look somewhat reasonable
+    // float r1_r = trkPosCircle.rC / r2r;
+    // float r2_r = trkEleCircle.rC / r2r;
+    // float dR = std::hypot(r2_r * trkPosCircle.xC + r1_r * trkEleCircle.xC, r2_r * trkPosCircle.yC + r1_r * trkEleCircle.yC);
+    // if (dR > mSVParams->mTPCTrackDR) {
+    //   LOG(info) << "RejDR" << dR;
+    //   return false;
+    // }
 
     // Setup looser cuts for the DCAFitter
     fitterV0.setMaxDZIni(mSVParams->mTPCTrackMaxDZIni);
     fitterV0.setMaxDXYIni(mSVParams->mTPCTrackMaxDXYIni);
     fitterV0.setMaxChi2(mSVParams->mTPCTrackMaxChi2);
+    fitterV0.setCollinear();
   }
 
   // feed DCAFitter
   int nCand = fitterV0.process(seedP, seedN);
   if (mSVParams->mTPCTrackPhotonTune && isTPConly) {
     // Reset immediately to the defaults
-    fitterV0.setMaxDZIni(mSVParams->maxDZIni);
-    fitterV0.setMaxDXYIni(mSVParams->maxDXYIni);
     fitterV0.setMaxChi2(mSVParams->maxChi2);
+    fitterV0.unsetCollinear();
   }
   if (nCand == 0) { // discard this pair
-    LOG(debug) << "RejDCAFitter";
+    LOG(info) << "RejDCAFitter";
     return false;
   }
-  LOGP(info, "Number of Candidates: {}", nCand);
   const auto& v0XYZ = fitterV0.getPCACandidate();
+  LOGP(info, "IsTPConly={}: X={} Y={} -> R={}", isTPConly, v0XYZ[0], v0XYZ[1], std::hypot(v0XYZ[0], v0XYZ[1]));
   // validate V0 radial position
   // check closeness to the beam-line
   float dxv0 = v0XYZ[0] - mMeanVertex.getX(), dyv0 = v0XYZ[1] - mMeanVertex.getY(), r2v0 = dxv0 * dxv0 + dyv0 * dyv0;
@@ -633,12 +634,12 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
-    LOG(debug) << "RejCausality " << drv0P << " " << drv0N;
+    LOG(info) << "RejCausality " << drv0P << " " << drv0N;
     return false;
   }
   const int cand = 0;
   if (!fitterV0.isPropagateTracksToVertexDone(cand) && !fitterV0.propagateTracksToVertex(cand)) {
-    LOG(debug) << "RejProp failed";
+    LOG(info) << "RejProp failed";
     return false;
   }
   const auto& trPProp = fitterV0.getTrack(0, cand);
@@ -653,11 +654,11 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   std::array<float, 3> pV0 = {pP[0] + pN[0], pP[1] + pN[1], pP[2] + pN[2]};
   float pt2V0 = pV0[0] * pV0[0] + pV0[1] * pV0[1], prodXYv0 = dxv0 * pV0[0] + dyv0 * pV0[1], tDCAXY = prodXYv0 / pt2V0;
   if (pt2V0 < mMinPt2V0) { // pt cut
-    LOG(debug) << "RejPt2 " << pt2V0;
+    LOG(info) << "RejPt2 " << pt2V0;
     return false;
   }
   if (pV0[2] * pV0[2] / pt2V0 > mMaxTgl2V0) { // tgLambda cut
-    LOG(debug) << "RejTgL " << pV0[2] * pV0[2] / pt2V0;
+    LOG(info) << "RejTgL " << pV0[2] * pV0[2] / pt2V0;
     return false;
   }
   float p2V0 = pt2V0 + pV0[2] * pV0[2], ptV0 = std::sqrt(pt2V0);
@@ -743,7 +744,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   bool rejectIfNotCascade = false;
 
   if (!goodHyp && mSVParams->checkV0Hypothesis) {
-    LOG(debug) << "RejHypo";
+    LOG(info) << "RejHypo";
     if (!checkFor3BodyDecays && !checkForCascade) {
       return false;
     } else {
@@ -756,7 +757,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
 
   if (checkForCascade) { // use looser cuts for cascade v0 candidates
     if (dca2 > mMaxDCAXY2ToMeanVertexV0Casc || cosPAXY < mSVParams->minCosPAXYMeanVertexCascV0) {
-      LOG(debug) << "Rej for cascade DCAXY2: " << dca2 << " << cosPAXY: " << cosPAXY;
+      LOG(info) << "Rej for cascade DCAXY2: " << dca2 << " << cosPAXY: " << cosPAXY;
       if (!checkFor3BodyDecays) {
         return false;
       } else {
@@ -766,7 +767,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   }
   if (checkFor3BodyDecays) { // use looser cuts for 3-body decay candidates
     if (dca2 > mMaxDCAXY2ToMeanVertex3bodyV0 || cosPAXY < mSVParams->minCosPAXYMeanVertex3bodyV0) {
-      LOG(debug) << "Rej for 3 body decays DCAXY2: " << dca2 << " << cosPAXY: " << cosPAXY;
+      LOG(info) << "Rej for 3 body decays DCAXY2: " << dca2 << " << cosPAXY: " << cosPAXY;
       checkFor3BodyDecays = false;
     }
   }
@@ -802,7 +803,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     float dx = v0XYZ[0] - pv.getX(), dy = v0XYZ[1] - pv.getY(), dz = v0XYZ[2] - pv.getZ(), prodXYZv0 = dx * pV0[0] + dy * pV0[1] + dz * pV0[2];
     float cosPA = prodXYZv0 / std::sqrt((dx * dx + dy * dy + dz * dz) * p2V0);
     if (cosPA < bestCosPA) {
-      LOG(debug) << "Rej. cosPA: " << cosPA;
+      LOG(info) << "Rej. cosPA: " << cosPA;
       continue;
     }
     if (!candFound) {

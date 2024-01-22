@@ -19,6 +19,7 @@
 #include "CommonConstants/MathConstants.h"
 #include "MathUtils/Utils.h"
 #include "MathUtils/Primitive2D.h"
+#include "fairlogger/Logger.h"
 
 namespace o2
 {
@@ -68,10 +69,19 @@ struct CrossInfo {
     if (std::abs(dist) < 1e-12) {
       return nDCA; // circles are concentric?
     }
+    if (isCollinear) {
+      LOGP(info, "is collinear 2 crossing!");
+      float r2r = trcA.rC + trcB.rC;
+      float r1_r = trcA.rC / r2r;
+      float r2_r = trcB.rC / r2r;
+      xDCA[0] = r2_r * trcA.xC + r1_r * trcB.xC;
+      yDCA[0] = r2_r * trcA.yC + r1_r * trcB.yC;
+      return 1;
+    }
     if (dist > rsum) { // circles don't touch, chose a point in between
       // the parametric equation of lines connecting the centers is
       // x = x0 + t/dist * (x1-x0), y = y0 + t/dist * (y1-y0)
-      if (!isCollinear && dist - rsum > maxDistXY) { // too large distance
+      if (dist - rsum > maxDistXY) { // too large distance
         return nDCA;
       }
       notTouchingXY(dist, xDist, yDist, trcA, trcB.rC);
