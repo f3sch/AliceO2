@@ -293,7 +293,7 @@ void MatchITSTPCQC::initDataRequest()
   // initialize data request, if it was not already done
   mSrc &= mAllowedSources;
 
-  if (mSrc[GID::Source::ITSTPC] || mSrc[GID::Source::TPC] || mSrc[GID::Source::ITS]) {
+  if (!mSrc[GID::Source::ITSTPC] || !mSrc[GID::Source::TPC] || !mSrc[GID::Source::ITS]) {
     LOG(fatal) << "We cannot do ITSTPC QC, some sources are missing, check sources in " << mSrc;
   }
 
