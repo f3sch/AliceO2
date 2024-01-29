@@ -325,7 +325,7 @@ class MatchITSTPCQC
   float mEtaCut = 1e10f; // 1e10f as defaults of Detectors/GlobalTracking/include/GlobalTracking/TrackCuts.h
                          // TODO: define 2 different values for min and max (*)
 
-  ClassDefNV(MatchITSTPCQC, 2);
+  ClassDefNV(MatchITSTPCQC, 3);
 };
 } // namespace o2::globaltracking
 
