@@ -16,7 +16,6 @@
 #ifndef ALICEO2_GLOBTRACKING_MATCHTPCITS_QC_
 #define ALICEO2_GLOBTRACKING_MATCHTPCITS_QC_
 
-#include <TH1D.h>
 #include <TH1F.h>
 #include <TH2F.h>
 #include <TEfficiency.h>
@@ -32,18 +31,15 @@
 #include <array>
 #include <set>
 
-namespace o2
-{
-
-namespace globaltracking
+namespace o2::globaltracking
 {
 
 using GID = o2::dataformats::GlobalTrackID;
 
 struct LblInfo {
-
   int mIdx = -1;
   bool mIsPhysicalPrimary = false;
+  bool mIsDuplicate = false;
 };
 
 class MatchITSTPCQC
@@ -62,71 +58,6 @@ class MatchITSTPCQC
   void setDataRequest(const std::shared_ptr<o2::globaltracking::DataRequest>& dr) { mDataRequest = dr; }
   void finalize();
   void reset();
-
-  TH1D* getHistoPtNum(matchType m) const { return mPtNum[m]; }
-  TH1D* getHistoPtDen(matchType m) const { return mPtDen[m]; }
-  TEfficiency* getFractionITSTPCmatch(matchType m) const { return mFractionITSTPCmatch[m]; }
-
-  TH1D* getHistoPtNumNoEta0(matchType m) const { return mPtNum_noEta0[m]; }
-  TH1D* getHistoPtDenNoEta0(matchType m) const { return mPtDen_noEta0[m]; }
-  TEfficiency* getFractionITSTPCmatchNoEta0(matchType m) const { return mFractionITSTPCmatch_noEta0[m]; }
-
-  TH1F* getHistoPhiNum(matchType m) const { return mPhiNum[m]; }
-  TH1F* getHistoPhiDen(matchType m) const { return mPhiDen[m]; }
-  TEfficiency* getFractionITSTPCmatchPhi(matchType m) const { return mFractionITSTPCmatchPhi[m]; }
-
-  TH2F* getHistoPhiVsPtNum(matchType m) const { return mPhiVsPtNum[m]; }
-  TH2F* getHistoPhiVsPtDen(matchType m) const { return mPhiVsPtDen[m]; }
-  TEfficiency* getFractionITSTPCmatchPhiVsPt(matchType m) const { return mFractionITSTPCmatchPhiVsPt[m]; }
-
-  TH1F* getHistoEtaNum(matchType m) const { return mEtaNum[m]; }
-  TH1F* getHistoEtaDen(matchType m) const { return mEtaDen[m]; }
-  TEfficiency* getFractionITSTPCmatchEta(matchType m) const { return mFractionITSTPCmatchEta[m]; }
-
-  TH2F* getHistoEtaVsPtNum(matchType m) const { return mEtaVsPtNum[m]; }
-  TH2F* getHistoEtaVsPtDen(matchType m) const { return mEtaVsPtDen[m]; }
-  TEfficiency* getFractionITSTPCmatchEtaVsPt(matchType m) const { return mFractionITSTPCmatchEtaVsPt[m]; }
-
-  TH2F* getHistoClsVsPtNum(matchType m) const { return mClsVsPtNum[m]; }
-  TH2F* getHistoClsVsPtDen(matchType m) const { return mClsVsPtDen[m]; }
-  TEfficiency* getFractionITSTPCmatchClsVsPt(matchType m) const { return mFractionITSTPCmatchClsVsPt[m]; }
-
-  TH2F* getHistoChi2VsPtNum(matchType m) const { return mChi2VsPtNum[m]; }
-  TH2F* getHistoChi2VsPtDen(matchType m) const { return mChi2VsPtDen[m]; }
-  TEfficiency* getFractionITSTPCmatchChi2VsPt(matchType m) const { return mFractionITSTPCmatchChi2VsPt[m]; }
-
-  TH1F* getHistoPtPhysPrimNum(matchType m) const { return mPtPhysPrimNum[m]; }
-  TH1F* getHistoPtPhysPrimDen(matchType m) const { return mPtPhysPrimDen[m]; }
-  TEfficiency* getFractionITSTPCmatchPhysPrim(matchType m) const { return mFractionITSTPCmatchPhysPrim[m]; }
-
-  TH1F* getHistoPhiPhysPrimNum(matchType m) const { return mPhiPhysPrimNum[m]; }
-  TH1F* getHistoPhiPhysPrimDen(matchType m) const { return mPhiPhysPrimDen[m]; }
-  TEfficiency* getFractionITSTPCmatchPhiPhysPrim(matchType m) const { return mFractionITSTPCmatchPhiPhysPrim[m]; }
-
-  TH1F* getHistoEtaPhysPrimNum(matchType m) const { return mEtaPhysPrimNum[m]; }
-  TH1F* getHistoEtaPhysPrimDen(matchType m) const { return mEtaPhysPrimDen[m]; }
-  TEfficiency* getFractionITSTPCmatchEtaPhysPrim(matchType m) const { return mFractionITSTPCmatchEtaPhysPrim[m]; }
-
-  TH2F* getHistoResidualPt() const { return mResidualPt; }
-  TH2F* getHistoResidualPhi() const { return mResidualPhi; }
-  TH2F* getHistoResidualEta() const { return mResidualEta; }
-
-  TH1F* getHistoChi2Matching() const { return mChi2Matching; }
-  TH1F* getHistoChi2Refit() const { return mChi2Refit; }
-  TH2F* getHistoTimeResVsPt() const { return mTimeResVsPt; }
-  TH1F* getHistoDCAr() const { return mDCAr; }
-  TH2F* getHistoDCArVsPtNum() const { return mDCArVsPtNum; }
-  TH2F* getHistoDCArVsPtDen() const { return mDCArVsPtDen; }
-  TEfficiency* getFractionITSTPCmatchDCArVsPt() const { return mFractionITSTPCmatchDCArVsPt; }
-
-  TH1D* getHisto1OverPtNum(matchType m) const { return m1OverPtNum[m]; }
-  TH1D* getHisto1OverPtDen(matchType m) const { return m1OverPtDen[m]; }
-  TEfficiency* getFractionITSTPCmatch1OverPt(matchType m) const { return mFractionITSTPCmatch1OverPt[m]; }
-
-  TH1D* getHisto1OverPtPhysPrimNum(matchType m) const { return m1OverPtPhysPrimNum[m]; }
-  TH1D* getHisto1OverPtPhysPrimDen(matchType m) const { return m1OverPtPhysPrimDen[m]; }
-  TEfficiency* getFractionITSTPCmatchPhysPrim1OverPt(matchType m) const { return mFractionITSTPCmatchPhysPrim1OverPt[m]; }
-
   void getHistos(TObjArray& objar);
 
   /// \brief Publishes the histograms to the publisher e.g. the one provided by the QC task
@@ -143,10 +74,6 @@ class MatchITSTPCQC
       publisher->startPublishing(mPtNum_noEta0[i]);
       publisher->startPublishing(mPtDen_noEta0[i]);
       publisher->startPublishing(mFractionITSTPCmatch_noEta0[i]);
-
-      publisher->startPublishing(mPtPhysPrimNum[i]);
-      publisher->startPublishing(mPtPhysPrimDen[i]);
-      publisher->startPublishing(mFractionITSTPCmatchPhysPrim[i]);
 
       publisher->startPublishing(mPhiNum[i]);
       publisher->startPublishing(mPhiDen[i]);
@@ -169,10 +96,6 @@ class MatchITSTPCQC
         }
       }
 
-      publisher->startPublishing(mPhiPhysPrimNum[i]);
-      publisher->startPublishing(mPhiPhysPrimDen[i]);
-      publisher->startPublishing(mFractionITSTPCmatchPhiPhysPrim[i]);
-
       publisher->startPublishing(mPhiVsPtNum[i]);
       publisher->startPublishing(mPhiVsPtDen[i]);
       publisher->startPublishing(mFractionITSTPCmatchPhiVsPt[i]);
@@ -180,10 +103,6 @@ class MatchITSTPCQC
       publisher->startPublishing(mEtaNum[i]);
       publisher->startPublishing(mEtaDen[i]);
       publisher->startPublishing(mFractionITSTPCmatchEta[i]);
-
-      publisher->startPublishing(mEtaPhysPrimNum[i]);
-      publisher->startPublishing(mEtaPhysPrimDen[i]);
-      publisher->startPublishing(mFractionITSTPCmatchEtaPhysPrim[i]);
 
       publisher->startPublishing(mEtaVsPtNum[i]);
       publisher->startPublishing(mEtaVsPtDen[i]);
@@ -201,9 +120,31 @@ class MatchITSTPCQC
       publisher->startPublishing(m1OverPtDen[i]);
       publisher->startPublishing(mFractionITSTPCmatch1OverPt[i]);
 
-      publisher->startPublishing(m1OverPtPhysPrimNum[i]);
-      publisher->startPublishing(m1OverPtPhysPrimDen[i]);
-      publisher->startPublishing(mFractionITSTPCmatchPhysPrim1OverPt[i]);
+      if (mUseMC) {
+        publisher->startPublishing(mPtPhysPrimNum[i]);
+        publisher->startPublishing(mPtPhysPrimDen[i]);
+        publisher->startPublishing(mFractionITSTPCmatchPhysPrim[i]);
+
+        publisher->startPublishing(m1OverPtPhysPrimNum[i]);
+        publisher->startPublishing(m1OverPtPhysPrimDen[i]);
+        publisher->startPublishing(mFractionITSTPCmatchPhysPrim1OverPt[i]);
+
+        publisher->startPublishing(mPhiPhysPrimNum[i]);
+        publisher->startPublishing(mPhiPhysPrimDen[i]);
+        publisher->startPublishing(mFractionITSTPCmatchPhiPhysPrim[i]);
+
+        publisher->startPublishing(mEtaPhysPrimNum[i]);
+        publisher->startPublishing(mEtaPhysPrimDen[i]);
+        publisher->startPublishing(mFractionITSTPCmatchEtaPhysPrim[i]);
+
+        publisher->startPublishing(mDupPtNum[i]);
+        publisher->startPublishing(mDupPtDen[i]);
+        publisher->startPublishing(mFractionITSTPCmatchDupPt[i]);
+
+        publisher->startPublishing(mQPtNum[i]);
+        publisher->startPublishing(mQPtDen[i]);
+        publisher->startPublishing(mFractionITSTPCmatchQPt[i]);
+      }
     }
     publisher->startPublishing(mChi2Matching);
     publisher->startPublishing(mChi2Refit);
@@ -222,11 +163,11 @@ class MatchITSTPCQC
   bool getUseTrkPID() const { return mUseTrkPID; }
   void setUseMC(bool b) { mUseMC = b; }
   bool getUseMC() const { return mUseMC; }
+  void setDebugHist(bool b) { mDebugHist = b; }
+  bool getDebugHist() const { return mDebugHist; }
   void deleteHistograms();
   void setBz(float bz) { mBz = bz; }
 
-  // track selection
-  bool selectTrack(o2::tpc::TrackTPC const& track); // still present but not used
   // ITS track
   void setMinPtITSCut(float v) { mPtITSCut = v; };
   void setEtaITSCut(float v) { mEtaITSCut = v; }; // TODO: define 2 different values for min and max (**)
@@ -262,6 +203,7 @@ class MatchITSTPCQC
   // ITS-TPC
   gsl::span<const o2::dataformats::TrackTPCITS> mITSTPCTracks;
   bool mUseMC = false;                                                                     // Usage of the MC information
+  bool mDebugHist = false;                                                                 // Debug Histograms
   bool mUseTrkPID = false;                                                                 // Usage of the PID hypothesis in tracking
   float mBz = 0;                                                                           ///< nominal Bz
   std::array<std::unordered_map<o2::MCCompLabel, LblInfo>, matchType::SIZE> mMapLabels;    // map with labels that have been found for the matched ITSTPC tracks; key is the label,
@@ -271,42 +213,34 @@ class MatchITSTPCQC
                                                                                            // value is the LblInfo with the id of the track with the highest number of TPC clusters found
                                                                                            // with that label so far, and the flag to say if it is a physical primary or not
   o2::steer::MCKinematicsReader mcReader;                                                  // reader of MC information
+  TDatabasePDG* mPDGDB;                                                                    // PDG Database
 
   // Pt
-  TH1D* mPtNum[matchType::SIZE] = {};
-  TH1D* mPtDen[matchType::SIZE] = {};
+  TH1F* mPtNum[matchType::SIZE] = {};
+  TH1F* mPtDen[matchType::SIZE] = {};
   TEfficiency* mFractionITSTPCmatch[matchType::SIZE] = {};
-  TH1D* mPtNum_noEta0[matchType::SIZE] = {};
-  TH1D* mPtDen_noEta0[matchType::SIZE] = {};
+  TH1F* mPtNum_noEta0[matchType::SIZE] = {};
+  TH1F* mPtDen_noEta0[matchType::SIZE] = {};
   TEfficiency* mFractionITSTPCmatch_noEta0[matchType::SIZE] = {};
-  TH1F* mPtPhysPrimNum[matchType::SIZE] = {};
-  TH1F* mPtPhysPrimDen[matchType::SIZE] = {};
-  TEfficiency* mFractionITSTPCmatchPhysPrim[matchType::SIZE] = {};
   // Pt split per PID hypothesis in tracking
-  TH1D* mPtNumVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
-  TH1D* mPtDenVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
+  TH1F* mPtNumVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
+  TH1F* mPtDenVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
   TEfficiency* mFractionITSTPCmatchPtVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
   // Phi
   TH1F* mPhiNum[matchType::SIZE] = {};
   TH1F* mPhiDen[matchType::SIZE] = {};
   TEfficiency* mFractionITSTPCmatchPhi[matchType::SIZE] = {};
-  TH1F* mPhiPhysPrimNum[matchType::SIZE] = {};
-  TH1F* mPhiPhysPrimDen[matchType::SIZE] = {};
-  TEfficiency* mFractionITSTPCmatchPhiPhysPrim[matchType::SIZE] = {};
   TH2F* mPhiVsPtNum[matchType::SIZE] = {};
   TH2F* mPhiVsPtDen[matchType::SIZE] = {};
   TEfficiency* mFractionITSTPCmatchPhiVsPt[matchType::SIZE] = {};
   // Phi split per PID hypothesis in tracking
-  TH1D* mPhiNumVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
-  TH1D* mPhiDenVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
+  TH1F* mPhiNumVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
+  TH1F* mPhiDenVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
   TEfficiency* mFractionITSTPCmatchPhiVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
   // Eta
   TH1F* mEtaNum[matchType::SIZE] = {};
   TH1F* mEtaDen[matchType::SIZE] = {};
   TEfficiency* mFractionITSTPCmatchEta[matchType::SIZE] = {};
-  TH1F* mEtaPhysPrimNum[matchType::SIZE] = {};
-  TH1F* mEtaPhysPrimDen[matchType::SIZE] = {};
-  TEfficiency* mFractionITSTPCmatchEtaPhysPrim[matchType::SIZE] = {};
   TH2F* mEtaVsPtNum[matchType::SIZE] = {};
   TH2F* mEtaVsPtDen[matchType::SIZE] = {};
   TEfficiency* mFractionITSTPCmatchEtaVsPt[matchType::SIZE] = {};
@@ -319,8 +253,8 @@ class MatchITSTPCQC
   TH2F* mChi2VsPtDen[matchType::SIZE] = {};
   TEfficiency* mFractionITSTPCmatchChi2VsPt[matchType::SIZE] = {};
   // Eta split per PID hypothesis in tracking
-  TH1D* mEtaNumVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
-  TH1D* mEtaDenVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
+  TH1F* mEtaNumVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
+  TH1F* mEtaDenVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
   TEfficiency* mFractionITSTPCmatchEtaVsTrkPID[matchType::SIZE][track::PID::NIDs] = {};
   // Residuals
   TH2F* mResidualPt = nullptr;
@@ -335,12 +269,35 @@ class MatchITSTPCQC
   TH2F* mDCArVsPtDen = nullptr;
   TEfficiency* mFractionITSTPCmatchDCArVsPt = nullptr;
   // 1/Pt
-  TH1D* m1OverPtNum[matchType::SIZE] = {};
-  TH1D* m1OverPtDen[matchType::SIZE] = {};
+  TH1F* m1OverPtNum[matchType::SIZE] = {};
+  TH1F* m1OverPtDen[matchType::SIZE] = {};
   TEfficiency* mFractionITSTPCmatch1OverPt[matchType::SIZE] = {};
-  TH1D* m1OverPtPhysPrimNum[matchType::SIZE] = {};
-  TH1D* m1OverPtPhysPrimDen[matchType::SIZE] = {};
+
+  /// MC
+  // Pt
+  TH1F* mPtPhysPrimNum[matchType::SIZE] = {};
+  TH1F* mPtPhysPrimDen[matchType::SIZE] = {};
+  TEfficiency* mFractionITSTPCmatchPhysPrim[matchType::SIZE] = {};
+  // 1/Pt
+  TH1F* m1OverPtPhysPrimNum[matchType::SIZE] = {};
+  TH1F* m1OverPtPhysPrimDen[matchType::SIZE] = {};
   TEfficiency* mFractionITSTPCmatchPhysPrim1OverPt[matchType::SIZE] = {};
+  // Phi
+  TH1F* mPhiPhysPrimNum[matchType::SIZE] = {};
+  TH1F* mPhiPhysPrimDen[matchType::SIZE] = {};
+  TEfficiency* mFractionITSTPCmatchPhiPhysPrim[matchType::SIZE] = {};
+  // Eta
+  TH1F* mEtaPhysPrimNum[matchType::SIZE] = {};
+  TH1F* mEtaPhysPrimDen[matchType::SIZE] = {};
+  TEfficiency* mFractionITSTPCmatchEtaPhysPrim[matchType::SIZE] = {};
+  // MC Duplicates
+  TH1F* mDupPtNum[matchType::SIZE] = {};
+  TH1F* mDupPtDen[matchType::SIZE] = {};
+  TEfficiency* mFractionITSTPCmatchDupPt[matchType::SIZE] = {};
+  // MC Wrong Charge
+  TH1F* mQPtNum[matchType::SIZE] = {};
+  TH1F* mQPtDen[matchType::SIZE] = {};
+  TEfficiency* mFractionITSTPCmatchQPt[matchType::SIZE] = {};
 
   void setEfficiency(TEfficiency* eff, TH1* hnum, TH1* hden, bool is2D = false);
 
@@ -369,7 +326,6 @@ class MatchITSTPCQC
 
   ClassDefNV(MatchITSTPCQC, 2);
 };
-} // namespace globaltracking
-} // namespace o2
+} // namespace o2::globaltracking
 
 #endif

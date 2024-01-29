@@ -42,9 +42,8 @@ void ITSTPCMatchingQCDevice::init(InitContext& /*ic*/)
   mMatchITSTPCQC->setMinDCAtoBeamPipeDistanceCut(params.minDCACut);
   mMatchITSTPCQC->setMinDCAtoBeamPipeYCut(params.minDCACutY);
   o2::base::GRPGeomHelper::instance().setRequest(mCCDBRequest);
-  if (mUseMC) {
-    mMatchITSTPCQC->setUseMC(mUseMC);
-  }
+  mMatchITSTPCQC->setUseMC(mUseMC);
+  mMatchITSTPCQC->setDebugHist(mDebugHist);
 }
 
 //_____________________________________________________________
@@ -94,7 +93,7 @@ namespace framework
 {
 using GID = o2::dataformats::GlobalTrackID;
 
-DataProcessorSpec getITSTPCMatchingQCDevice(bool useMC)
+DataProcessorSpec getITSTPCMatchingQCDevice(bool useMC, bool debugHist)
 {
   std::vector<OutputSpec> outputs;
   outputs.emplace_back("GLO", "ITSTPCMATCHQC", 0, Lifetime::Sporadic);
@@ -113,7 +112,7 @@ DataProcessorSpec getITSTPCMatchingQCDevice(bool useMC)
     "itstpc-matching-qc",
     dataRequest->inputs,
     outputs,
-    AlgorithmSpec{adaptFromTask<o2::globaltracking::ITSTPCMatchingQCDevice>(dataRequest, ccdbRequest, useMC)},
+    AlgorithmSpec{adaptFromTask<o2::globaltracking::ITSTPCMatchingQCDevice>(dataRequest, ccdbRequest, useMC, debugHist)},
     Options{{}}};
 }
 
