@@ -287,9 +287,9 @@ bool MatchITSTPCQC::init()
       mDupPtDen[i]->Sumw2();
       mFractionITSTPCmatchDupPt[i] = new TEfficiency(Form("mFractionITSTPCmatchDupPt_%s", title[i].data()), Form("Fraction of ITSTPC matched tracks vs Pt, wrt %s tracks; #it{p}_{T} [GeV#it{c}]; Eff", title[i].data()), 100, 0., 20.);
 
-      mQPtNum[i] = new TH1F(Form("mDupPtNum_%s", title[i].data()), Form("%s tracks with wrong MC charge; #it{p}_{T} [GeV#it{c}]", title[i].data()), 100, 0., 20.);
+      mQPtNum[i] = new TH1F(Form("mQPtNum_%s", title[i].data()), Form("%s tracks with wrong MC charge; #it{p}_{T} [GeV#it{c}]", title[i].data()), 100, 0., 20.);
       mQPtNum[i]->Sumw2();
-      mQPtDen[i] = new TH1F(Form("mDupPtDen_%s", title[i].data()), Form("%s tracks with wrong MC charge; #it{p}_{T} [GeV#it{c}]", title[i].data()), 100, 0., 20.);
+      mQPtDen[i] = new TH1F(Form("mQPtDen_%s", title[i].data()), Form("%s tracks with wrong MC charge; #it{p}_{T} [GeV#it{c}]", title[i].data()), 100, 0., 20.);
       mQPtDen[i]->Sumw2();
       mFractionITSTPCmatchQPt[i] = new TEfficiency(Form("mFractionITSTPCmatchQPt_%s", title[i].data()), Form("Fraction of ITSTPC with wrong MC charge matched tracks vs Pt, wrt %s tracks; #it{p}_{T} [GeV#it{c}]; Eff", title[i].data()), 100, 0., 20.);
     }
