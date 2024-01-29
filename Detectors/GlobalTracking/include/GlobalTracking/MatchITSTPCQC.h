@@ -121,29 +121,31 @@ class MatchITSTPCQC
       publisher->startPublishing(mFractionITSTPCmatch1OverPt[i]);
 
       // MC
-      publisher->startPublishing(mPtPhysPrimNum[i]);
-      publisher->startPublishing(mPtPhysPrimDen[i]);
-      publisher->startPublishing(mFractionITSTPCmatchPhysPrim[i]);
+      if (mUseMC) {
+        publisher->startPublishing(mPtPhysPrimNum[i]);
+        publisher->startPublishing(mPtPhysPrimDen[i]);
+        publisher->startPublishing(mFractionITSTPCmatchPhysPrim[i]);
 
-      publisher->startPublishing(m1OverPtPhysPrimNum[i]);
-      publisher->startPublishing(m1OverPtPhysPrimDen[i]);
-      publisher->startPublishing(mFractionITSTPCmatchPhysPrim1OverPt[i]);
+        publisher->startPublishing(m1OverPtPhysPrimNum[i]);
+        publisher->startPublishing(m1OverPtPhysPrimDen[i]);
+        publisher->startPublishing(mFractionITSTPCmatchPhysPrim1OverPt[i]);
 
-      publisher->startPublishing(mPhiPhysPrimNum[i]);
-      publisher->startPublishing(mPhiPhysPrimDen[i]);
-      publisher->startPublishing(mFractionITSTPCmatchPhiPhysPrim[i]);
+        publisher->startPublishing(mPhiPhysPrimNum[i]);
+        publisher->startPublishing(mPhiPhysPrimDen[i]);
+        publisher->startPublishing(mFractionITSTPCmatchPhiPhysPrim[i]);
 
-      publisher->startPublishing(mEtaPhysPrimNum[i]);
-      publisher->startPublishing(mEtaPhysPrimDen[i]);
-      publisher->startPublishing(mFractionITSTPCmatchEtaPhysPrim[i]);
+        publisher->startPublishing(mEtaPhysPrimNum[i]);
+        publisher->startPublishing(mEtaPhysPrimDen[i]);
+        publisher->startPublishing(mFractionITSTPCmatchEtaPhysPrim[i]);
 
-      publisher->startPublishing(mDupPtNum[i]);
-      publisher->startPublishing(mDupPtDen[i]);
-      publisher->startPublishing(mFractionITSTPCmatchDupPt[i]);
+        publisher->startPublishing(mDupPtNum[i]);
+        publisher->startPublishing(mDupPtDen[i]);
+        publisher->startPublishing(mFractionITSTPCmatchDupPt[i]);
 
-      publisher->startPublishing(mQPtNum[i]);
-      publisher->startPublishing(mQPtDen[i]);
-      publisher->startPublishing(mFractionITSTPCmatchQPt[i]);
+        publisher->startPublishing(mQPtNum[i]);
+        publisher->startPublishing(mQPtDen[i]);
+        publisher->startPublishing(mFractionITSTPCmatchQPt[i]);
+      }
     }
     publisher->startPublishing(mChi2Matching);
     publisher->startPublishing(mChi2Refit);
