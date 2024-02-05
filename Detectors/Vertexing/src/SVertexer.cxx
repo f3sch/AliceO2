@@ -571,6 +571,7 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
 //__________________________________________________________________
 bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread)
 {
+  bool isCollinear=true;
   auto& fitterV0 = mFitterV0[ithread];
   // Fast rough cuts on pairs before feeding to DCAFitter, tracks are not in the same Frame or at same X
   bool isTPConly = (seedP.gid.getSource() == GIndex::TPC || seedN.gid.getSource() == GIndex::TPC);
@@ -608,7 +609,8 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     fitterV0.setMaxDZIni(mSVParams->mTPCTrackMaxDZIni);
     fitterV0.setMaxDXYIni(mSVParams->mTPCTrackMaxDXYIni);
     fitterV0.setMaxChi2(mSVParams->mTPCTrackMaxChi2);
-    // fitterV0.setCollinear();
+    fitterV0.setCollinear();
+    isCollinear=true;
   }
 
   // feed DCAFitter
@@ -618,14 +620,13 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     fitterV0.setMaxDZIni(mSVParams->maxDZIni);
     fitterV0.setMaxDXYIni(mSVParams->maxDXYIni);
     fitterV0.setMaxChi2(mSVParams->maxChi2);
-    // fitterV0.unsetCollinear();
+    fitterV0.unsetCollinear();
   }
   if (nCand == 0) { // discard this pair
-    LOG(info) << "RejDCAFitter";
+    LOG(debug) << "RejDCAFitter no candiates found";
     return false;
   }
   const auto& v0XYZ = fitterV0.getPCACandidate();
-  LOGP(info, "IsTPConly={}: X={} Y={} -> R={}", isTPConly, v0XYZ[0], v0XYZ[1], std::hypot(v0XYZ[0], v0XYZ[1]));
   // validate V0 radial position
   // check closeness to the beam-line
   float dxv0 = v0XYZ[0] - mMeanVertex.getX(), dyv0 = v0XYZ[1] - mMeanVertex.getY(), r2v0 = dxv0 * dxv0 + dyv0 * dyv0;
@@ -862,7 +863,10 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
       mV0sIdxTmp[ithread].back().setStandaloneV0();
     }
     if (photonOnly) {
-      mV0sIdxTmp[ithread].back().setPhotonOnly();
+      mV0sIdxTmp[ithread].back().setTPCPhotonOnly();
+    }
+    if (isCollinear) {
+      mV0sIdxTmp[ithread].back().setCollinear();
     }
 
     if (mSVParams->createFullV0s) {

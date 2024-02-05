@@ -69,15 +69,6 @@ struct CrossInfo {
     if (std::abs(dist) < 1e-12) {
       return nDCA; // circles are concentric?
     }
-    if (isCollinear) {
-      LOGP(info, "is collinear 2 crossing!");
-      float r2r = trcA.rC + trcB.rC;
-      float r1_r = trcA.rC / r2r;
-      float r2_r = trcB.rC / r2r;
-      xDCA[0] = r2_r * trcA.xC + r1_r * trcB.xC;
-      yDCA[0] = r2_r * trcA.yC + r1_r * trcB.yC;
-      return 1;
-    }
     if (dist > rsum) { // circles don't touch, chose a point in between
       // the parametric equation of lines connecting the centers is
       // x = x0 + t/dist * (x1-x0), y = y0 + t/dist * (y1-y0)
@@ -89,6 +80,18 @@ struct CrossInfo {
       // select the point of closest approach of 2 circles
       notTouchingXY(dist, xDist, yDist, trcA, -trcB.rC);
     } else { // 2 intersection points
+      if (isCollinear) {
+        /// collinear tracks, e.g. electrons from photon conversion
+        /// if there are 2 crossings of the circle it is better to take
+        /// a weighted average of the crossing points as a radius
+        float r2r = trcA.rC + trcB.rC;
+        float r1_r = trcA.rC / r2r;
+        float r2_r = trcB.rC / r2r;
+        xDCA[0] = r2_r * trcA.xC + r1_r * trcB.xC;
+        yDCA[0] = r2_r * trcA.yC + r1_r * trcB.yC;
+        LOGP(info, "circlesCrossInfo: r2r={} r1_r={} r2_r{} xDCA={} yDCA={}", r2r, r1_r, r2_r, xDCA[0], yDCA[0]);
+        return 1;
+      }
       // to simplify calculations, we move to new frame x->x+Xc0, y->y+Yc0, so that
       // the 1st one is centered in origin
       if (std::abs(xDist) < std::abs(yDist)) {
@@ -142,7 +145,7 @@ struct CrossInfo {
 
   template <typename T>
   int linesCrossInfo(const TrackAuxPar& trax0, const T& tr0,
-                     const TrackAuxPar& trax1, const T& tr1, float maxDistXY = MaxDistXYDef, bool isCollinear = false)
+                     const TrackAuxPar& trax1, const T& tr1, float maxDistXY = MaxDistXYDef)
   {
     /// closest approach of 2 straight lines
     ///  TrackParam propagation can be parameterized in lab in a form
@@ -191,7 +194,7 @@ struct CrossInfo {
       float addx0 = kx0 * t0, addy0 = ky0 * t0, addx1 = kx1 * t1, addy1 = ky1 * t1;
       dx += addx1 - addx0; // recalculate XY distance at DCA
       dy += addy1 - addy0;
-      if (!isCollinear && dx * dx + dy * dy > maxDistXY * maxDistXY) {
+      if (dx * dx + dy * dy > maxDistXY * maxDistXY) {
         return nDCA;
       }
       xDCA[0] = (trax0.xC + addx0 + trax1.xC + addx1) * 0.5;
@@ -203,7 +206,7 @@ struct CrossInfo {
 
   template <typename T>
   int circleLineCrossInfo(const TrackAuxPar& trax0, const T& tr0,
-                          const TrackAuxPar& trax1, const T& tr1, float maxDistXY = MaxDistXYDef, bool isCollinear = false)
+                          const TrackAuxPar& trax1, const T& tr1, float maxDistXY = MaxDistXYDef)
   {
     /// closest approach of line and circle
     ///  TrackParam propagation can be parameterized in lab in a form
@@ -248,7 +251,7 @@ struct CrossInfo {
       float t = -dk * cspi2;
       float xL = traxL.xC + kx * t, yL = traxL.yC + ky * t; // point on the line, need to average with point on the circle
       float dxc = xL - traxH.xC, dyc = yL - traxH.yC, dist = std::sqrt(dxc * dxc + dyc * dyc);
-      if (!isCollinear && dist - traxH.rC > maxDistXY) { // too large distance
+      if (dist - traxH.rC > maxDistXY) { // too large distance
         return nDCA;
       }
       float drcf = traxH.rC / dist; // radius / distance to circle center
@@ -267,10 +270,10 @@ struct CrossInfo {
     nDCA = 0;
     if (trax0.rC > o2::constants::math::Almost0 && trax1.rC > o2::constants::math::Almost0) { // both are not straight lines
       nDCA = circlesCrossInfo(trax0, trax1, maxDistXY, isCollinear);
-    } else if (trax0.rC < o2::constants::math::Almost0 && trax1.rC < o2::constants::math::Almost0) { // both are straigt lines
-      nDCA = linesCrossInfo(trax0, tr0, trax1, tr1, maxDistXY, isCollinear);
+    } else if (trax0.rC < o2::constants::math::Almost0 && trax1.rC < o2::constants::math::Almost0) { // both are straight lines
+      nDCA = linesCrossInfo(trax0, tr0, trax1, tr1, maxDistXY);
     } else {
-      nDCA = circleLineCrossInfo(trax0, tr0, trax1, tr1, maxDistXY, isCollinear);
+      nDCA = circleLineCrossInfo(trax0, tr0, trax1, tr1, maxDistXY);
     }
     //
     return nDCA;

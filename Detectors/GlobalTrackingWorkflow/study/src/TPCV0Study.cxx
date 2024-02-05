@@ -203,6 +203,7 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
              << "recoEleTrk=" << recoEleTrk
              << "recoPVtx=" << recoPVtx
              << "v0=" << v0
+             << "v0Idx=" << v0Idx
              << "\n";
     ++mCounterSuccess;
   }
