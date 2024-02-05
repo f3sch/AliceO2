@@ -360,8 +360,8 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
   for (int i = 0; i < N; i++) {
     mTrAux[i].set(*mOrigTrPtr[i], mBz);
   }
-  if (!mCrossings.set(mTrAux[0], *mOrigTrPtr[0], mTrAux[1], *mOrigTrPtr[1], mMaxDXYIni)) { // even for N>2 it should be enough to test just 1 loop
-    return 0;                                                                              // no crossing
+  if (!mCrossings.set(mTrAux[0], *mOrigTrPtr[0], mTrAux[1], *mOrigTrPtr[1], mMaxDXYIni, mCollinear)) { // even for N>2 it should be enough to test just 1 loop
+    return 0;                                                                                          // no crossing
   }
   LOGP(info, "DCAFitter: nDCA={} isCollinear={}", mCrossings.nDCA, mCollinear);
   for (int ih = 0; ih < MAXHYP; ih++) {
@@ -888,7 +888,7 @@ bool DCAFitterN<N, Args...>::minimizeChi2()
     mTrcEInv[mCurHyp][i].set(mCandTr[mCurHyp][i], XerrFactor); // prepare inverse cov.matrices at starting point
   }
 
-  if (!mCollinear && mMaxDZIni > 0 && !roughDZCut()) { // apply rough cut on tracks Z difference
+  if (mMaxDZIni > 0 && !roughDZCut()) { // apply rough cut on tracks Z difference
     return false;
   }
 

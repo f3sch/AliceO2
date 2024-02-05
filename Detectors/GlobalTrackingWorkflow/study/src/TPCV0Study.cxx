@@ -70,8 +70,6 @@ class TPCV0StudySpec final : public Task
   o2::steer::MCKinematicsReader mcReader;
 
   gsl::span<const o2::MCCompLabel> mTPCTrkLabels;
-  gsl::span<const o2::dataformats::PrimaryVertex> mPrimVertices;
-  gsl::span<const o2::MCEventLabel> mMCPrimVertices;
   gsl::span<const o2::dataformats::V0> mV0s;
   gsl::span<const o2::dataformats::V0Index> mV0sIdx;
 
@@ -117,8 +115,6 @@ void TPCV0StudySpec::updateTimeDependentParams(ProcessingContext& pc)
 
 void TPCV0StudySpec::loadData(o2::globaltracking::RecoContainer& recoData)
 {
-  mPrimVertices = recoData.getPrimaryVertices();
-  mMCPrimVertices = recoData.getPrimaryVertexMCLabels();
   mV0s = recoData.getV0s();
   mV0sIdx = recoData.getV0sIdx();
 
@@ -195,15 +191,14 @@ void TPCV0StudySpec::process(o2::globaltracking::RecoContainer& recoData)
         continue;
       }
 
-      (*mTree) << "mcTPCTracks"
+      (*mTree) << "study"
                << "mcPosTrk=" << mcPosTrk
                << "mcEleTrk=" << mcEleTrk
                << "mcPosTrkProp=" << mcPosTrkProp
                << "mcEleTrkProp=" << mcEleTrkProp
-               << "mcMother=" << mother
-               << "\n";
+               << "mcMother=" << mother;
     }
-    (*mTree) << "tpcTracks"
+    (*mTree) << "study"
              << "recoPosTrk=" << recoPosTrk
              << "recoEleTrk=" << recoEleTrk
              << "recoPVtx=" << recoPVtx

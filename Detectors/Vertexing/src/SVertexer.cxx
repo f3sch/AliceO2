@@ -571,7 +571,6 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
 //__________________________________________________________________
 bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread)
 {
-  LOGP(info, "------------ New V0 check");
   auto& fitterV0 = mFitterV0[ithread];
   // Fast rough cuts on pairs before feeding to DCAFitter, tracks are not in the same Frame or at same X
   bool isTPConly = (seedP.gid.getSource() == GIndex::TPC || seedN.gid.getSource() == GIndex::TPC);
@@ -609,15 +608,17 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     fitterV0.setMaxDZIni(mSVParams->mTPCTrackMaxDZIni);
     fitterV0.setMaxDXYIni(mSVParams->mTPCTrackMaxDXYIni);
     fitterV0.setMaxChi2(mSVParams->mTPCTrackMaxChi2);
-    fitterV0.setCollinear();
+    // fitterV0.setCollinear();
   }
 
   // feed DCAFitter
   int nCand = fitterV0.process(seedP, seedN);
   if (mSVParams->mTPCTrackPhotonTune && isTPConly) {
     // Reset immediately to the defaults
+    fitterV0.setMaxDZIni(mSVParams->maxDZIni);
+    fitterV0.setMaxDXYIni(mSVParams->maxDXYIni);
     fitterV0.setMaxChi2(mSVParams->maxChi2);
-    fitterV0.unsetCollinear();
+    // fitterV0.unsetCollinear();
   }
   if (nCand == 0) { // discard this pair
     LOG(info) << "RejDCAFitter";
