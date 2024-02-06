@@ -382,7 +382,6 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
   for (int ic = 0; ic < mCrossings.nDCA; ic++) {
     // check if radius is acceptable
     if (auto r2 = mCrossings.xDCA[ic] * mCrossings.xDCA[ic] + mCrossings.yDCA[ic] * mCrossings.yDCA[ic]; r2 > mMaxR2) {
-      LOGP(info, "DCAFitter: radius2={} unacceptable with maxR2={}", r2, mMaxR2);
       continue;
     }
     mCrossIDCur = ic;

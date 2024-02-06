@@ -89,7 +89,6 @@ struct CrossInfo {
         float r2_r = trcB.rC / r2r;
         xDCA[0] = r2_r * trcA.xC + r1_r * trcB.xC;
         yDCA[0] = r2_r * trcA.yC + r1_r * trcB.yC;
-        LOGP(info, "circlesCrossInfo: r2r={} r1_r={} r2_r{} xDCA={} yDCA={}", r2r, r1_r, r2_r, xDCA[0], yDCA[0]);
         return 1;
       }
       // to simplify calculations, we move to new frame x->x+Xc0, y->y+Yc0, so that
