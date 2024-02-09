@@ -37,6 +37,10 @@
 #include "GPUO2InterfaceRefit.h"
 #include "TPCFastTransform.h"
 #include "DataFormatsTPC/PIDResponse.h"
+#include "CommonUtils/TreeStreamRedirector.h"
+#include "SimulationDataFormat/MCUtils.h"
+#include "Steer/MCKinematicsReader.h"
+#include "boost/functional/hash.hpp"
 
 namespace o2
 {
@@ -221,6 +225,55 @@ class SVertexer
   bool mEnableCascades = true;
   bool mEnable3BodyDecays = false;
   bool mUseMC = false;
+
+  gsl::span<const o2::MCCompLabel> mTPCTrkLabels;
+  std::unique_ptr<o2::utils::TreeStreamRedirector> mDebugStream{nullptr};
+  o2::steer::MCKinematicsReader mcReader; // reader of MC information
+  using key_t = std::tuple<int64_t, int64_t>;
+  key_t makeKey(MCCompLabel l1, MCCompLabel l2)
+  {
+    return {l1.getRawValue(), l2.getRawValue()};
+  }
+
+  struct key_hash {
+    size_t operator()(const key_t& k) const
+    {
+      const auto& [lab1, lab2] = k;
+      size_t seed = 0;
+      boost::hash_combine(seed, lab1);
+      boost::hash_combine(seed, lab2);
+      return seed;
+    }
+  };
+  key_hash mHasher;
+  using map_mc_t = std::unordered_map<key_t, bool, key_hash>;
+  map_mc_t mMCV0s;
+
+  MCCompLabel getLabel(GIndex const& gid) const
+  {
+    if (gid.getSource() == GIndex::TPC) {
+      return mTPCTrkLabels[gid.getIndex()];
+    }
+    MCCompLabel lbl{};
+    lbl.setFakeFlag();
+    return lbl;
+  }
+  static bool checkLabels(o2::MCCompLabel const& lbl0, o2::MCCompLabel const& lbl1)
+  {
+    if (!lbl0.isValid() || !lbl1.isValid() || lbl0.isFake() || lbl1.isFake()) {
+      return false;
+    }
+    if (lbl0.getEventID() != lbl1.getEventID()) {
+      return false;
+    }
+    if (lbl0.getSourceID() != lbl1.getSourceID()) {
+      return false;
+    }
+    if (lbl0.getTrackID() == lbl1.getTrackID()) {
+      return false; // possible looper?
+    }
+    return true;
+  }
 };
 
 } // namespace vertexing

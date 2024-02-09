@@ -45,6 +45,7 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
   mNV0s = mNCascades = mN3Bodies = 0;
   updateTimeDependentParams(); // TODO RS: strictly speaking, one should do this only in case of the CCDB objects update
   mPVertices = recoData.getPrimaryVertices();
+  mTPCTrkLabels = recoData.getTPCTracksMCLabels();
   buildT2V(recoData); // build track->vertex refs from vertex->track (if other workflow will need this, consider producing a message in the VertexTrackMatcher)
   int ntrP = mTracksPool[POS].size(), ntrN = mTracksPool[NEG].size();
   if (mStrTracker) {
@@ -79,7 +80,7 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
       checkV0(seedP, seedN, itp, itn, iThread);
     }
   }
-
+  mDebugStream.reset();
   produceOutput(pc);
 }
 
@@ -259,6 +260,42 @@ void SVertexer::produceOutput(o2::framework::ProcessingContext& pc)
 //__________________________________________________________________
 void SVertexer::init()
 {
+  mDebugStream = std::make_unique<o2::utils::TreeStreamRedirector>("svertexer-debug.root", "recreate");
+  if (!mcReader.initFromDigitContext("collisioncontext.root")) {
+    LOGP(fatal, "Initialization of MCKinematicsReader failed!");
+  }
+  int events{0};
+  for (int iSource{0}; iSource < mcReader.getNSources(); ++iSource) {
+    events += mcReader.getNEvents(iSource);
+    for (int iEvent{0}; iEvent < mcReader.getNEvents(iSource); ++iEvent) {
+      const auto& header = mcReader.getMCEventHeader(iSource, iEvent);
+      const auto& pcontainer = mcReader.getTracks(iSource, iEvent);
+      for (int i{0}; i < pcontainer.size(); ++i) {
+        const auto& mcparticle = pcontainer[i];
+        const auto tglGen = std::abs(mcparticle.Pz() / mcparticle.GetPt());
+        if (mcparticle.GetPdgCode() == 22) {
+          if (auto d0 = o2::mcutils::MCTrackNavigator::getDaughter0(mcparticle, pcontainer),
+              d1 = o2::mcutils::MCTrackNavigator::getDaughter1(mcparticle, pcontainer);
+              d0 != d1 && d0 != nullptr && d1 != nullptr &&
+              d0->GetPdgCode() == -d1->GetPdgCode() &&
+              d0->getProcess() == kPPair &&
+              d1->getProcess() == kPPair) {
+            // acutall photons, might not be reconstructable though
+            TParticlePDG* pPDG0 = TDatabasePDG::Instance()->GetParticle(d0->GetPdgCode());
+            bool swap = false;
+            if (pPDG0->Charge() < 0) {
+              swap = true;
+            }
+            const MCCompLabel lblD0{(swap) ? mcparticle.getFirstDaughterTrackId() : mcparticle.getLastDaughterTrackId(), iEvent, iSource};
+            const MCCompLabel lblD1{(swap) ? mcparticle.getLastDaughterTrackId() : mcparticle.getFirstDaughterTrackId(), iEvent, iSource};
+            auto key = makeKey(lblD0, lblD1);
+            LOGP(debug, "MC: key={}", mHasher(key));
+            mMCV0s[key] = true;
+          }
+        }
+      }
+    }
+  }
 }
 
 //__________________________________________________________________
@@ -571,10 +608,11 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
 //__________________________________________________________________
 bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread)
 {
-  bool isCollinear = true;
+  bool isCollinear = false;
   auto& fitterV0 = mFitterV0[ithread];
   // Fast rough cuts on pairs before feeding to DCAFitter, tracks are not in the same Frame or at same X
   bool isTPConly = (seedP.gid.getSource() == GIndex::TPC || seedN.gid.getSource() == GIndex::TPC);
+  float dTgl = seedP.getTgl() - seedN.getTgl();
   if (mSVParams->mTPCTrackPhotonTune && isTPConly) {
     // Check if Tgl is close enough
     // if (std::abs(seedP.getTgl() - seedN.getTgl()) > mSVParams->maxV0TglAbsDiff) {
@@ -606,27 +644,27 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     // }
 
     // Setup looser cuts for the DCAFitter
-    // fitterV0.setMaxDZIni(mSVParams->mTPCTrackMaxDZIni);
-    // fitterV0.setMaxDXYIni(mSVParams->mTPCTrackMaxDXYIni);
+    fitterV0.setMaxDZIni(mSVParams->mTPCTrackMaxDZIni);
+    fitterV0.setMaxDXYIni(mSVParams->mTPCTrackMaxDXYIni);
     fitterV0.setMaxChi2(mSVParams->mTPCTrackMaxChi2);
-    fitterV0.setCollinear();
-    isCollinear = true;
+    // fitterV0.setCollinear();
+    // isCollinear = true;
   }
 
   // feed DCAFitter
   int nCand = fitterV0.process(seedP, seedN);
   if (mSVParams->mTPCTrackPhotonTune && isTPConly) {
     // Reset immediately to the defaults
-    // fitterV0.setMaxDZIni(mSVParams->maxDZIni);
-    // fitterV0.setMaxDXYIni(mSVParams->maxDXYIni);
+    fitterV0.setMaxDZIni(mSVParams->maxDZIni);
+    fitterV0.setMaxDXYIni(mSVParams->maxDXYIni);
     fitterV0.setMaxChi2(mSVParams->maxChi2);
-    fitterV0.unsetCollinear();
+    // fitterV0.unsetCollinear();
   }
   if (nCand == 0) { // discard this pair
     LOG(debug) << "RejDCAFitter no candiates found";
     return false;
   } else if (nCand == 1) {
-    LOGP(info, "1 Candidate; collinear: {}", isCollinear);
+    LOGP(debug, "1 Candidate; collinear: {}", isCollinear);
   }
   const auto& v0XYZ = fitterV0.getPCACandidate();
   // validate V0 radial position
@@ -638,12 +676,12 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
   if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
       drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
-    LOGP(info, "RejCausality rv0={}, PosR={} (drv0P={}), NegR={} (drv0N={})", rv0, seedP.minR, drv0P, seedN.minR, drv0N);
+    LOGP(debug, "RejCausality rv0={}, PosR={} (drv0P={}), NegR={} (drv0N={})", rv0, seedP.minR, drv0P, seedN.minR, drv0N);
     return false;
   }
   const int cand = 0;
   if (!fitterV0.isPropagateTracksToVertexDone(cand) && !fitterV0.propagateTracksToVertex(cand)) {
-    LOG(info) << "RejProp failed";
+    LOG(debug) << "RejProp failed";
     return false;
   }
   const auto& trPProp = fitterV0.getTrack(0, cand);
@@ -658,11 +696,11 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   std::array<float, 3> pV0 = {pP[0] + pN[0], pP[1] + pN[1], pP[2] + pN[2]};
   float pt2V0 = pV0[0] * pV0[0] + pV0[1] * pV0[1], prodXYv0 = dxv0 * pV0[0] + dyv0 * pV0[1], tDCAXY = prodXYv0 / pt2V0;
   if (pt2V0 < mMinPt2V0) { // pt cut
-    LOG(info) << "RejPt2 " << pt2V0;
+    LOG(debug) << "RejPt2 " << pt2V0;
     return false;
   }
   if (pV0[2] * pV0[2] / pt2V0 > mMaxTgl2V0) { // tgLambda cut
-    LOG(info) << "RejTgL " << pV0[2] * pV0[2] / pt2V0;
+    LOG(debug) << "RejTgL " << pV0[2] * pV0[2] / pt2V0;
     return false;
   }
   float p2V0 = pt2V0 + pV0[2] * pV0[2], ptV0 = std::sqrt(pt2V0);
@@ -748,7 +786,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   bool rejectIfNotCascade = false;
 
   if (!goodHyp && mSVParams->checkV0Hypothesis) {
-    LOG(info) << "RejHypo";
+    LOG(debug) << "RejHypo";
     if (!checkFor3BodyDecays && !checkForCascade) {
       return false;
     } else {
@@ -761,7 +799,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
 
   if (checkForCascade) { // use looser cuts for cascade v0 candidates
     if (dca2 > mMaxDCAXY2ToMeanVertexV0Casc || cosPAXY < mSVParams->minCosPAXYMeanVertexCascV0) {
-      LOG(info) << "Rej for cascade DCAXY2: " << dca2 << " << cosPAXY: " << cosPAXY;
+      LOG(debug) << "Rej for cascade DCAXY2: " << dca2 << " << cosPAXY: " << cosPAXY;
       if (!checkFor3BodyDecays) {
         return false;
       } else {
@@ -771,7 +809,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   }
   if (checkFor3BodyDecays) { // use looser cuts for 3-body decay candidates
     if (dca2 > mMaxDCAXY2ToMeanVertex3bodyV0 || cosPAXY < mSVParams->minCosPAXYMeanVertex3bodyV0) {
-      LOG(info) << "Rej for 3 body decays DCAXY2: " << dca2 << " << cosPAXY: " << cosPAXY;
+      LOG(debug) << "Rej for 3 body decays DCAXY2: " << dca2 << " << cosPAXY: " << cosPAXY;
       checkFor3BodyDecays = false;
     }
   }
@@ -807,7 +845,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     float dx = v0XYZ[0] - pv.getX(), dy = v0XYZ[1] - pv.getY(), dz = v0XYZ[2] - pv.getZ(), prodXYZv0 = dx * pV0[0] + dy * pV0[1] + dz * pV0[2];
     float cosPA = prodXYZv0 / std::sqrt((dx * dx + dy * dy + dz * dz) * p2V0);
     if (cosPA < bestCosPA) {
-      LOG(info) << "Rej. cosPA: " << cosPA;
+      LOG(debug) << "Rej. cosPA: " << cosPA;
       continue;
     }
     if (!candFound) {
@@ -881,6 +919,50 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
       mStrTracker->processV0(iv, v0new, v0Idxnew, ithread);
     }
   }
+
+  // Write out new V0
+  auto lbl0 = getLabel(v0Idxnew.getProngID(0));
+  auto lbl1 = getLabel(v0Idxnew.getProngID(1));
+  auto ok = checkLabels(lbl0, lbl1);
+  auto key = makeKey(lbl0, lbl1);
+  LOGP(debug, "Lbl ok={} -> key={}", ok, mHasher(key));
+  auto trueV0 = mMCV0s.find(key) != mMCV0s.end();
+  if (ok) {
+    auto mcPosTrk = mcReader.getTrack(lbl0);
+    auto mcEleTrk = mcReader.getTrack(lbl1);
+    if (mcPosTrk != nullptr && mcEleTrk != nullptr && mcPosTrk != mcEleTrk) {
+      if (auto mcPosMotherId = mcPosTrk->getMotherTrackId(), mcEleMotherId = mcEleTrk->getMotherTrackId();
+          mcPosMotherId == mcEleMotherId && mcPosMotherId != -1 && mcEleMotherId != -1) {
+        auto src = lbl0.getSourceID();
+        auto eve = lbl0.getEventID();
+        const auto& pcontainer = mcReader.getTracks(src, eve);
+        const auto& mother = o2::mcutils::MCTrackNavigator::getMother(*mcPosTrk, pcontainer);
+        trueV0 = mother->GetPdgCode() == 22;
+      } else {
+        ok = false;
+      }
+    } else {
+      ok = false;
+    }
+  }
+
+  (*mDebugStream) << "dump"
+                  << "r2v0=" << r2v0
+                  << "rv0=" << rv0
+                  << "drv0P=" << drv0P
+                  << "drv0N=" << drv0N
+                  << "pt2v0=" << pt2V0
+                  << "dTgl=" << dTgl
+                  << "tglv0=" << pV0[2] * pV0[2] / pt2V0
+                  << "goodMHyp=" << hypCheckStatus[HypV0::Photon]
+                  << "dca2=" << dca2
+                  << "cosPAXY=" << cosPAXY
+                  << "V0=" << v0new
+                  << "isTPConly=" << isTPConly
+                  << "lblOk=" << ok
+                  << "isV0=" << trueV0
+                  << "isCol=" << isCollinear
+                  << "\n";
 
   return mV0sIdxTmp[ithread].size() - nV0Ini != 0;
 }
@@ -1339,7 +1421,11 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
     float drd2 = std::sqrt(cR * cR - trkCircle.rC * trkCircle.rC);
     bool dRD2 = drd2 > mSVParams->mTPCTrackXY2Radius;
 
-    if (dCls || dDPV || dRD2) {
+    // if (dCls || dDPV || dRD2) {
+    //   mTracksPool[posneg].pop_back();
+    //   return true;
+    // }
+    if (dDPV) {
       mTracksPool[posneg].pop_back();
       return true;
     }
