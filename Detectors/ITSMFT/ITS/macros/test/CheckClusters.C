@@ -203,7 +203,7 @@ void CheckClusters(std::string clusfile = "o2clus_its.root", std::string hitfile
       auto z0 = locHsta.Z(), dltz = locH.Z() - z0;
       auto r = (0.5 * (Segmentation::SensorLayerThickness - Segmentation::SensorLayerThicknessEff) - y0) / dlty;
       locH.SetXYZ(x0 + r * dltx, y0 + r * dlty, z0 + r * dltz);
-      //locH.SetXYZ(0.5 * (locH.X() + locHsta.X()), 0.5 * (locH.Y() + locHsta.Y()), 0.5 * (locH.Z() + locHsta.Z()));
+      // locH.SetXYZ(0.5 * (locH.X() + locHsta.X()), 0.5 * (locH.Y() + locHsta.Y()), 0.5 * (locH.Z() + locHsta.Z()));
       std::array<float, 18> data = {(float)lab.getEventID(), (float)trID,
                                     locH.X(), locH.Z(), dltx / dlty, dltz / dlty,
                                     gloC.X(), gloC.Y(), gloC.Z(),
@@ -220,6 +220,18 @@ void CheckClusters(std::string clusfile = "o2clus_its.root", std::string hitfile
   nt.Draw("dz:dx", "abs(dz)<0.01 && abs(dx)<0.01");
   new TCanvas;
   nt.Draw("dz:tz", "abs(dz)<0.005 && abs(tz)<2");
+
+  auto canvdXdZ = new TCanvas("canvdXdZ", "", 1600, 800);
+  canvdXdZ->Divide(2, 2);
+  canvdXdZ->cd(1)->SetLogz();
+  nt.Draw("dx:dz>>h_dx_vs_dz_IB(1000, -0.01, 0.01, 1000, -0.01, 0.01)", "id < 3120", "colz");
+  canvdXdZ->cd(2)->SetLogz();
+  nt.Draw("dx:dz>>h_dx_vs_dz_OB(1000, -0.01, 0.01, 1000, -0.01, 0.01)", "id >= 3120", "colz");
+  canvdXdZ->cd(3)->SetLogz();
+  nt.Draw("dx:dz>>h_dx_vs_dz_IB_z(1000, -0.01, 0.01, 1000, -0.01, 0.01)", "id < 3120 && abs(cgz) < 2", "colz");
+  canvdXdZ->cd(4)->SetLogz();
+  nt.Draw("dx:dz>>h_dx_vs_dz_OB_z(1000, -0.01, 0.01, 1000, -0.01, 0.01)", "id >= 3120 && abs(cgz) < 2", "colz");
+  canvdXdZ->SaveAs("itsclusters_dx_vs_dz.pdf");
 
   auto c1 = new TCanvas("p1", "pullX");
   c1->cd();
