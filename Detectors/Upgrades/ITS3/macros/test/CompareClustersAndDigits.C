@@ -290,7 +290,7 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
       locHMiddle.SetXYZ(0.5f * (locHEnd.X() + locHStart.X()), 0.5f * (locHEnd.Y() + locHStart.Y()), 0.5f * (locHEnd.Z() + locHStart.Z()));
 
       int rowHS, colHS, rowHM, colHM, rowHE, colHE, colC, rowC;
-      bool v1,v2,v3,v4;
+      bool v1, v2, v3, v4;
       if (isIB) {
         v1 = o2::its3::SuperSegmentations[layer].localToDetector(locHStart.X(), locHStart.Z(), rowHS, colHS);
         v2 = o2::its3::SuperSegmentations[layer].localToDetector(locHMiddle.X(), locHMiddle.Z(), rowHM, colHM);
@@ -302,7 +302,7 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
         v3 = o2::itsmft::SegmentationAlpide::localToDetector(locHEnd.X(), locHEnd.Z(), rowHE, colHE);
         v4 = o2::itsmft::SegmentationAlpide::localToDetector(locC.X(), locC.Z(), rowC, colC);
       }
-      if (!v1 || !v2 || !v3||!v4) {
+      if (!v1 || !v2 || !v3 || !v4) {
         // sometimes the transformation for hit start/end do not work since they can beyond the chip if they are
         // at the edge, so for visualisation purposes we do not draw these clusters
         continue;

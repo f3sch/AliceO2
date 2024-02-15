@@ -27,7 +27,6 @@
 
 using namespace o2::framework;
 
-
 namespace o2::its3
 {
 
@@ -72,6 +71,5 @@ class ClusterReader : public Task
 framework::DataProcessorSpec getITS3ClusterReaderSpec(bool useMC = true, bool usePatterns = true);
 
 } // namespace o2::its3
-
 
 #endif /* O2_ITSMFT_CLUSTERREADER */

@@ -54,5 +54,4 @@ class BuildTopologyDictionary
 };
 } // namespace o2::its3
 
-
 #endif

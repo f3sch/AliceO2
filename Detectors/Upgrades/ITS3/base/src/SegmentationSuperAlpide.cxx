@@ -17,5 +17,4 @@ namespace o2::its3
 {
 
 const std::array<SegmentationSuperAlpide, constants::nLayers> SuperSegmentations{0, 1, 2};
-
 }

@@ -42,8 +42,9 @@ constexpr auto nCols{SegmentationSuperAlpide::mNCols};
 constexpr auto fLength{SegmentationSuperAlpide::mLength};
 constexpr auto fWidth{SegmentationSuperAlpide::mWidth};
 
-TH2 *DrawReverseBins(TH2 *h) {
-  TH2F *h2 = new TH2F(Form("%s_invert", h->GetName()), h->GetTitle(), nCols, 0,
+TH2* DrawReverseBins(TH2* h)
+{
+  TH2F* h2 = new TH2F(Form("%s_invert", h->GetName()), h->GetTitle(), nCols, 0,
                       nCols, nRows, 0, nRows);
 
   h2->GetXaxis()->SetLabelOffset(999);
@@ -60,67 +61,70 @@ TH2 *DrawReverseBins(TH2 *h) {
   return h2;
 }
 
-void ReverseYAxis(TH1 *h) {
+void ReverseYAxis(TH1* h)
+{
   gPad->Update();
-  TGaxis *newaxis =
-      new TGaxis(gPad->GetUxmin(), gPad->GetUymax(), gPad->GetUxmin() - 0.001,
-                 gPad->GetUymin(), h->GetYaxis()->GetXmin(),
-                 h->GetYaxis()->GetXmax(), 510, "+");
+  TGaxis* newaxis =
+    new TGaxis(gPad->GetUxmin(), gPad->GetUymax(), gPad->GetUxmin() - 0.001,
+               gPad->GetUymin(), h->GetYaxis()->GetXmin(),
+               h->GetYaxis()->GetXmax(), 510, "+");
   newaxis->SetLabelOffset(-0.03);
   newaxis->Draw();
 }
 
-void DrawXAxisCol(TH1 *h) {
+void DrawXAxisCol(TH1* h)
+{
   gPad->Update();
-  TGaxis *newaxis =
-      new TGaxis(gPad->GetUxmin(), gPad->GetUymax(), gPad->GetUxmin() - 0.001,
-                 gPad->GetUymin(), h->GetXaxis()->GetXmin(),
-                 h->GetYaxis()->GetXmax(), 510, "+");
+  TGaxis* newaxis =
+    new TGaxis(gPad->GetUxmin(), gPad->GetUymax(), gPad->GetUxmin() - 0.001,
+               gPad->GetUymin(), h->GetXaxis()->GetXmin(),
+               h->GetYaxis()->GetXmax(), 510, "+");
   newaxis->SetLabelOffset(-0.03);
   newaxis->Draw();
 }
 
-void CheckSuperAlpideSegmentTrans() {
+void CheckSuperAlpideSegmentTrans()
+{
   gStyle->SetOptStat(1111111);
 
   for (int iLayer{0}; iLayer < 3; ++iLayer) {
     double r_inner = constants::radii[iLayer] - constants::thickness / 2.;
     double r_outer = constants::radii[iLayer] + constants::thickness / 2.;
     double phiReadout_inner =
-        constants::tile::readout::width / r_inner * Rad2Deg;
+      constants::tile::readout::width / r_inner * Rad2Deg;
     double phiReadout_outer =
-        constants::tile::readout::width / r_outer * Rad2Deg;
+      constants::tile::readout::width / r_outer * Rad2Deg;
     double pixelarray_inner =
-        constants::pixelarray::width / r_inner * Rad2Deg + phiReadout_inner;
+      constants::pixelarray::width / r_inner * Rad2Deg + phiReadout_inner;
     double pixelarray_outer =
-        constants::pixelarray::width / r_outer * Rad2Deg + phiReadout_outer;
+      constants::pixelarray::width / r_outer * Rad2Deg + phiReadout_outer;
     auto arc_inner =
-        new TArc(0, 0, r_inner, phiReadout_inner, pixelarray_inner);
+      new TArc(0, 0, r_inner, phiReadout_inner, pixelarray_inner);
     arc_inner->SetFillStyle(0);
     arc_inner->SetLineColor(kBlue);
     auto arc_outer =
-        new TArc(0, 0, r_outer, phiReadout_outer, pixelarray_outer);
+      new TArc(0, 0, r_outer, phiReadout_outer, pixelarray_outer);
     arc_outer->SetFillStyle(0);
     arc_outer->SetLineColor(kRed);
     // Generate points on arc
-    auto *h_c2f_base =
-        new TH2F(Form("h_c2f_base_%d", iLayer), "Curved 2 Flat", 100,
-                 -r_outer - 0.1, r_outer + 0.1, 100, -0.2, 1.2);
-    auto *h_f2c_res =
-        new TH2F(Form("h_f2c_res_%d", iLayer), "XY Residuals;x [cm]; y [cm]",
-                 101, -1e-3, 1e-3, 101, -2e-3, 2e-3);
+    auto* h_c2f_base =
+      new TH2F(Form("h_c2f_base_%d", iLayer), "Curved 2 Flat", 100,
+               -r_outer - 0.1, r_outer + 0.1, 100, -0.2, 1.2);
+    auto* h_f2c_res =
+      new TH2F(Form("h_f2c_res_%d", iLayer), "XY Residuals;x [cm]; y [cm]",
+               101, -1e-3, 1e-3, 101, -2e-3, 2e-3);
     // double stepSize = pixelarray_inner - phiReadout_inner;
     double stepSize = 1e-3;
-    auto *g_arc_inner = new TGraph();
+    auto* g_arc_inner = new TGraph();
     g_arc_inner->SetMarkerStyle(5);
     g_arc_inner->SetMarkerColor(kBlue + 1);
-    auto *g_arc_inner_flat = new TGraph();
+    auto* g_arc_inner_flat = new TGraph();
     g_arc_inner_flat->SetMarkerStyle(5);
     g_arc_inner_flat->SetMarkerColor(kBlue + 1);
-    auto *g_arc_outer = new TGraph();
+    auto* g_arc_outer = new TGraph();
     g_arc_outer->SetMarkerStyle(5);
     g_arc_outer->SetMarkerColor(kRed + 1);
-    auto *g_arc_outer_flat = new TGraph();
+    auto* g_arc_outer_flat = new TGraph();
     g_arc_outer_flat->SetMarkerStyle(5);
     g_arc_outer_flat->SetMarkerColor(kRed + 1);
     double xmin_inner = {0}, xmax_inner = {0};
@@ -140,8 +144,7 @@ void CheckSuperAlpideSegmentTrans() {
                                               y_inner_flat);
       SuperSegmentations[iLayer].flatToCurved(x_inner_flat, y_inner_flat,
                                               x_inner_curved, y_inner_curved);
-      SuperSegmentations[iLayer].curvedToFlat(x_outer, y_outer, x_outer_flat,Axis
-                                              y_outer_flat);
+      SuperSegmentations[iLayer].curvedToFlat(x_outer, y_outer, x_outer_flat, Axis y_outer_flat);
       SuperSegmentations[iLayer].flatToCurved(x_outer_flat, y_outer_flat,
                                               x_outer_curved, y_outer_curved);
       g_arc_inner_flat->AddPoint(x_inner_flat, y_inner_flat);
@@ -172,37 +175,37 @@ void CheckSuperAlpideSegmentTrans() {
     Info("C2F", "Outer: Xmin=%f Xmax=%f ---> %f", xmin_outer, xmax_outer,
          width_outer);
     if (double dev =
-            abs(width_inner - constants::pixelarray::width) / width_inner;
+          abs(width_inner - constants::pixelarray::width) / width_inner;
         dev > 0.001) {
       Error("C2F", "Inner: Not equal length projection! Real=%f (Dev=%f%%",
             constants::pixelarray::width, dev);
     }
     if (double dev =
-            abs(width_outer - constants::pixelarray::width) / width_outer;
+          abs(width_outer - constants::pixelarray::width) / width_outer;
         dev > 0.001) {
       Error("C2F", "Outer: Not equal length projection! Real=%f (Dev=%f%%",
             constants::pixelarray::width, dev);
     }
 
     // L2D, D2L transformations
-    auto *h_local = new TH2F(Form("h_local_%d", iLayer), "Local Coordinates",
+    auto* h_local = new TH2F(Form("h_local_%d", iLayer), "Local Coordinates",
                              nCols, 0, nCols, nRows, 0, nRows);
-    auto *h_detector = new TH2F(
-        Form("h_detector_%d", iLayer), "Detector Coordinates", nCols * 4,
-        -fLength / 2., fLength / 2., nRows * 4, -fWidth / 2., fWidth / 2.);
-    auto *h_l2d_row =
-        new TH1F(Form("h_l2d_row_%d", iLayer),
-                 "Residual: row_{gen} - row_{ii}; #DeltaRow", 1000, -10, 10);
-    auto *h_l2d_col =
-        new TH1F(Form("h_l2d_col_%d", iLayer),
-                 "Residual: col_{gen} - col_{ii}; #DeltaCol", 1000, -10, 10);
+    auto* h_detector = new TH2F(
+      Form("h_detector_%d", iLayer), "Detector Coordinates", nCols * 4,
+      -fLength / 2., fLength / 2., nRows * 4, -fWidth / 2., fWidth / 2.);
+    auto* h_l2d_row =
+      new TH1F(Form("h_l2d_row_%d", iLayer),
+               "Residual: row_{gen} - row_{ii}; #DeltaRow", 1000, -10, 10);
+    auto* h_l2d_col =
+      new TH1F(Form("h_l2d_col_%d", iLayer),
+               "Residual: col_{gen} - col_{ii}; #DeltaCol", 1000, -10, 10);
 
     for (int iRow{0}; iRow < nRows; ++iRow) {
       for (int iCol{0}; iCol < nCols; ++iCol) {
         float xRow{0}, zCol{0};
         int iiRow{0}, iiCol{0};
         auto v1 =
-            SuperSegmentations[iLayer].detectorToLocal(iRow, iCol, xRow, zCol);
+          SuperSegmentations[iLayer].detectorToLocal(iRow, iCol, xRow, zCol);
         auto v2 = SuperSegmentations[iLayer].localToDetector(xRow, zCol, iiRow,
                                                              iiCol);
         // Info("L2D",
@@ -222,7 +225,7 @@ void CheckSuperAlpideSegmentTrans() {
     }
 
     // Plots
-    auto *c = new TCanvas();
+    auto* c = new TCanvas();
     c->SetTitle(Form("Layer %d", iLayer));
     c->Divide(2, 3);
     c->cd(1);
@@ -236,7 +239,7 @@ void CheckSuperAlpideSegmentTrans() {
     c->cd(2);
     h_f2c_res->Draw("colz");
     c->cd(3);
-    auto *h_local_invert = DrawReverseBins(h_local);
+    auto* h_local_invert = DrawReverseBins(h_local);
     h_local_invert->Draw();
     ReverseYAxis(h_local_invert);
     DrawXAxisCol(h_local_invert);

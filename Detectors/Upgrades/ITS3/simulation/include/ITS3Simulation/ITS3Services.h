@@ -32,5 +32,4 @@ class ITS3Services
 
 } // namespace o2::its3
 
-
 #endif

@@ -17,7 +17,6 @@
 
 #include <fairlogger/Logger.h> // for LOG
 
-
 namespace o2::its3
 {
 

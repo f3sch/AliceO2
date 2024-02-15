@@ -121,5 +121,4 @@ class Digitizer : public TObject
 };
 } // namespace o2::its3
 
-
 #endif /* ALICEO2_ITS3_DIGITIZER_H */

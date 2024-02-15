@@ -21,7 +21,6 @@
 #include <Framework/Logger.h>
 #include "ITS3Base/SpecsV2.h"
 
-
 namespace o2::its3::ioutils
 {
 using SSAlpide = o2::its3::SegmentationSuperAlpide;
@@ -53,7 +52,7 @@ int loadROFrameDataITS3(its::TimeFrame* tf,
         sigmaY2 = dict->getErr2X(pattID) * pitchRow * pitchRow;
         sigmaZ2 = dict->getErr2Z(pattID) * pitchCol * pitchCol;
         if (!dict->isGroup(pattID)) {
-          locXYZ = dict->getClusterCoordinates(c );
+          locXYZ = dict->getClusterCoordinates(c);
         } else {
           o2::itsmft::ClusterPattern patt(pattIt);
           locXYZ = dict->getClusterCoordinates(c, patt);

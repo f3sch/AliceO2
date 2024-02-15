@@ -20,7 +20,6 @@
 #include "GPUReconstruction.h"
 #include "GPUChainITS.h"
 
-
 namespace o2::its3::reco_workflow
 {
 
@@ -32,7 +31,5 @@ framework::WorkflowSpec getWorkflow(bool useMC,
                                     bool disableRootOutput,
                                     int useTrig);
 }
-
-
 
 #endif
