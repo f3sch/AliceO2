@@ -98,7 +98,7 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
   std::vector<MC2HITS_map> mc2hitVec;
 
   // Geometry
-  /* o2::base::GeometryManager::loadGeometry(inputGeom, false, false, true); */
+  o2::base::GeometryManager::loadGeometry(inputGeom);
   auto gman = o2::its::GeometryTGeo::Instance(true);
   gman->fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L, o2::math_utils::TransformType::T2GRot,
                                                  o2::math_utils::TransformType::L2G)); // request cached transforms
@@ -338,8 +338,7 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
     }
     auto& dat = data[iChip];
     gFile->cd();
-    /* auto path = gman->getMatrixPath(iChip); */
-    TString path; // TODO wrong use above
+    auto path = gman->getMatrixPath(iChip);
     const std::string cpath{path.Data() + 39, path.Data() + path.Length()};
     const std::filesystem::path p{cpath};
     if (oFile->mkdir(p.parent_path().c_str(), "", true) == nullptr) {
