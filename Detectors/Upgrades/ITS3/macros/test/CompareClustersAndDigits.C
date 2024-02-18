@@ -124,9 +124,9 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
   TFile fileC(clusfile.data());
   auto* clusTree = dynamic_cast<TTree*>(fileC.Get("o2sim"));
   std::vector<CompClusterExt>* clusArr = nullptr;
-  clusTree->SetBranchAddress("IT3ClusterComp", &clusArr);
+  clusTree->SetBranchAddress("ITSClusterComp", &clusArr);
   std::vector<unsigned char>* patternsPtr = nullptr;
-  auto pattBranch = clusTree->GetBranch("IT3ClusterPatt");
+  auto pattBranch = clusTree->GetBranch("ITSClusterPatt");
   if (pattBranch != nullptr) {
     pattBranch->SetAddress(&patternsPtr);
   }
@@ -144,14 +144,14 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
 
   // ROFrecords
   std::vector<ROFRec> rofRecVec, *rofRecVecP = &rofRecVec;
-  clusTree->SetBranchAddress("IT3ClustersROF", &rofRecVecP);
+  clusTree->SetBranchAddress("ITSClustersROF", &rofRecVecP);
 
   // Cluster MC labels
   o2::dataformats::MCTruthContainer<o2::MCCompLabel>* clusLabArr = nullptr;
   std::vector<MC2ROF> mc2rofVec, *mc2rofVecP = &mc2rofVec;
-  if ((hitTree != nullptr) && (clusTree->GetBranch("IT3ClusterMCTruth") != nullptr)) {
-    clusTree->SetBranchAddress("IT3ClusterMCTruth", &clusLabArr);
-    clusTree->SetBranchAddress("IT3ClustersMC2ROF", &mc2rofVecP);
+  if ((hitTree != nullptr) && (clusTree->GetBranch("ITSClusterMCTruth") != nullptr)) {
+    clusTree->SetBranchAddress("ITSClusterMCTruth", &clusLabArr);
+    clusTree->SetBranchAddress("ITSClustersMC2ROF", &mc2rofVecP);
   }
 
   clusTree->GetEntry(0);

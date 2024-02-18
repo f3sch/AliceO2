@@ -107,16 +107,16 @@ If the `FourLayers` geometry was used in the simulation, it should be set also f
 
 ``` bash
 export IGNORE_VALIDITYCHECK_OF_CCDB_LOCALCACHE=1
-export ALICEO2_CCDB_LOCALCACHE=../ccdb
-mkdir -p ../ccdb/GLO/Config/GeometryAligned
-mkdir -p ../ccdb/IT3/Calib/ClusterDictionary
+export ALICEO2_CCDB_LOCALCACHE=./ccdb
+mkdir -p ./ccdb/GLO/Config/GeometryAligned
+mkdir -p ./ccdb/IT3/Calib/ClusterDictionary
 ```
 
 ### pp
 Simulate PIPE and ITS3
 
 ``` bash
-o2-sim -g pythia8pp -j10 -m PIPE IT3 --field ccdb --vertexMode kCCDB --noemptyevents --run 302000 -n10000
+o2-sim -g pythia8pp -j10 -m PIPE IT3 --field ccdb --vertexMode kCCDB --noemptyevents --run 302000 -n100
 cp o2sim_geometry-aligned.root ${ALICEO2_CCDB_LOCALCACHE}/GLO/Config/GeometryAligned/snapshot.root
 ```
 
@@ -155,8 +155,8 @@ o2-its3-reco-workflow -b --tracking-mode off \
 
 ### Check Clusters
 ``` bash
-root -x -l '~/git/alice/O2/Detectors/Upgrades/ITS3/macros/test/CheckClustersITS3.C++("o2clus_it3.root", "o2sim_HitsIT3.root", "o2sim_geometry-aligned.root", "IT3dictionary.root")'
-root -x -l '~/git/alice/O2/Detectors/Upgrades/ITS3/macros/test/CompareClustersAndDigits.C++("o2clus_it3.root", "it3digits.root","IT3dictionary.root", "o2sim_HitsIT3.root", "o2sim_geometry-aligned.root")'
+root -x -l '~/git/alice/O2/Detectors/Upgrades/ITS3/macros/test/CheckClustersITS3.C++("o2clus_its.root", "o2sim_HitsIT3.root", "o2sim_geometry-aligned.root", "IT3dictionary.root")'
+root -x -l '~/git/alice/O2/Detectors/Upgrades/ITS3/macros/test/CompareClustersAndDigits.C++("o2clus_its.root", "it3digits.root","IT3dictionary.root", "o2sim_HitsIT3.root", "o2sim_geometry-aligned.root")'
 root -x -l '~/git/alice/O2/Detectors/Upgrades/ITS3/macros/test/CheckClusterSize.C++("o2clus_it3.root", "o2sim_Kine.root", "IT3dictionary.root", false)'
 ```
 
@@ -164,6 +164,7 @@ root -x -l '~/git/alice/O2/Detectors/Upgrades/ITS3/macros/test/CheckClusterSize.
 This repeats the clusterization steps and enables travcking.
 
 ``` bash
-o2-its3-reco-workflow -b --tracking-mode sync --condition-remap="file://${ALICEO2_CCDB_LOCALCACHE}=IT3/Calib/ClusterDictionary,GLO/Config/GeometryAligned"
-root -x -l '~/git/alice/O2/Detectors/Upgrades/ITS3/macros/test/CheckTracksITS3.C++("o2trac_its3.root", "o2clus_it3.root", "o2sim_Kine.root", "o2sim_grp.root", "o2sim_geometry-aligned.root", false)'
+o2-its3-reco-workflow -b --tracking-mode async --condition-remap="file://${ALICEO2_CCDB_LOCALCACHE}=IT3/Calib/ClusterDictionary,GLO/Config/GeometryAligned" --configKeyValues "HBFUtils.runNumber=302000;"
+
+root -x -l '~/git/alice/O2/Detectors/Upgrades/ITS3/macros/test/CheckTracksITS3.C++("o2trac_its.root", "o2clus_its.root", "o2sim_Kine.root", "o2sim_grp.root", "o2sim_geometry-aligned.root", false)'
 ```

@@ -104,19 +104,19 @@ void CheckTracksITS3(const std::string& tracfile = "o2trac_its3.root",
   TTree* clusTree = (TTree*)gFile->Get("o2sim");
   std::vector<o2::itsmft::CompClusterExt>* clusArr = nullptr;
   std::vector<CompClusterExt>* clusArrITS = nullptr;
-  clusTree->SetBranchAddress("IT3ClusterComp", &clusArr);
+  clusTree->SetBranchAddress("ITSClusterComp", &clusArr);
   // Cluster MC labels
   o2::dataformats::MCTruthContainer<o2::MCCompLabel>* clusLabArr = nullptr;
-  clusTree->SetBranchAddress("IT3ClusterMCTruth", &clusLabArr);
+  clusTree->SetBranchAddress("ITSClusterMCTruth", &clusLabArr);
 
   // Reconstructed tracks
   TFile::Open(tracfile.data());
   TTree* recTree = (TTree*)gFile->Get("o2sim");
   std::vector<TrackITS>* recArr = nullptr;
-  recTree->SetBranchAddress("IT3Track", &recArr);
+  recTree->SetBranchAddress("ITSTrack", &recArr);
   // Track MC labels
   std::vector<o2::MCCompLabel>* trkLabArr = nullptr;
-  recTree->SetBranchAddress("IT3TrackMCTruth", &trkLabArr);
+  recTree->SetBranchAddress("ITSTrackMCTruth", &trkLabArr);
 
   std::cout << "** Filling particle table ... " << std::flush;
   int lastEventIDcl = -1, cf = 0;
