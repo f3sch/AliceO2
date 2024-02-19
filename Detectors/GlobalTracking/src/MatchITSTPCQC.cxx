@@ -31,6 +31,7 @@ MatchITSTPCQC::~MatchITSTPCQC()
 
 void MatchITSTPCQC::reset()
 {
+  return;
   for (int i = 0; i < matchType::SIZE; ++i) {
     // Pt
     mPtNum[i]->Reset();
@@ -325,9 +326,9 @@ void MatchITSTPCQC::run(o2::framework::ProcessingContext& ctx)
   mITSTracks = mRecoCont.getITSTracks();
   mITSTPCTracks = mRecoCont.getTPCITSTracks();
 
-  LOG(debug) << "****** Number of found ITSTPC tracks = " << mITSTPCTracks.size();
-  LOG(debug) << "****** Number of found TPC    tracks = " << mTPCTracks.size();
-  LOG(debug) << "****** Number of found ITS    tracks = " << mITSTracks.size();
+  LOG(info) << "****** Number of found ITSTPC tracks = " << mITSTPCTracks.size();
+  LOG(info) << "****** Number of found TPC    tracks = " << mTPCTracks.size();
+  LOG(info) << "****** Number of found ITS    tracks = " << mITSTracks.size();
 
   // cache selection for TPC and ITS tracks
   std::vector<bool> isTPCTrackSelectedEntry(mTPCTracks.size(), false);
