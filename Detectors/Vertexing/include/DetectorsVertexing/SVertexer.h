@@ -155,7 +155,7 @@ class SVertexer
  private:
   template <class TVI, class TCI, class T3I, class TR>
   void extractPVReferences(const TVI& v0s, TR& vtx2V0Refs, const TCI& cascades, TR& vtx2CascRefs, const T3I& vtxs3, TR& vtx2body3Refs);
-  bool checkV0(const TrackCand& seed0, const TrackCand& seed1, int iP, int iN, int ithread);
+  bool checkV0(const TrackCand& seed0, const TrackCand& seed1, int iP, int iN, int ithread, bool isCollinear = false);
   int checkCascades(const V0Index& v0Idx, const V0& v0, float rv0, std::array<float, 3> pV0, float p2V0, int avoidTrackID, int posneg, VBracket v0vlist, int ithread);
   int check3bodyDecays(const V0Index& v0Idx, const V0& v0, float rv0, std::array<float, 3> pV0, float p2V0, int avoidTrackID, int posneg, VBracket v0vlist, int ithread);
   void setupThreads();

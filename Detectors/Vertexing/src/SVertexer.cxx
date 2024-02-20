@@ -606,19 +606,18 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
 }
 
 //__________________________________________________________________
-bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread)
+bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread, bool isCollinear)
 {
-  bool isCollinear = false;
   auto& fitterV0 = mFitterV0[ithread];
   // Fast rough cuts on pairs before feeding to DCAFitter, tracks are not in the same Frame or at same X
   bool isTPConly = (seedP.gid.getSource() == GIndex::TPC || seedN.gid.getSource() == GIndex::TPC);
   float dTgl = seedP.getTgl() - seedN.getTgl();
   if (mSVParams->mTPCTrackPhotonTune && isTPConly) {
     // Check if Tgl is close enough
-    // if (std::abs(seedP.getTgl() - seedN.getTgl()) > mSVParams->maxV0TglAbsDiff) {
-    //   LOG(info) << "RejTgl";
-    //   return false;
-    // }
+    if (std::abs(seedP.getTgl() - seedN.getTgl()) > mSVParams->maxV0TglAbsDiff) {
+      LOG(info) << "RejTgl";
+      return false;
+    }
     // // Check in transverse plane
     // float sna, csa;
     // o2::math_utils::CircleXYf_t trkPosCircle;
