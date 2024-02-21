@@ -392,7 +392,7 @@ int DCAFitterN<N, Args...>::process(const Tr&... args)
     mPCA[mCurHyp][0] = mCrossings.xDCA[ic];
     mPCA[mCurHyp][1] = mCrossings.yDCA[ic];
 
-    if (mCollinear || (mUseAbsDCA ? minimizeChi2NoErr() : minimizeChi2())) {
+    if (mUseAbsDCA ? minimizeChi2NoErr() : minimizeChi2()) {
       mOrder[mCurHyp] = mCurHyp;
       if (mPropagateToPCA && !propagateTracksToVertex(mCurHyp)) {
         continue; // discard candidate if failed to propagate to it
@@ -890,9 +890,9 @@ bool DCAFitterN<N, Args...>::minimizeChi2()
   calcPCA();            // current PCA
   calcTrackResiduals(); // current track residuals
   float chi2Upd = NAN, chi2 = calcChi2();
-  if (mCollinear) {
-    return chi2 < mMaxChi2;
-  }
+  // if (mCollinear) {
+  //   return chi2 < mMaxChi2;
+  // }
   do {
     calcTrackDerivatives(); // current track derivatives (1st and 2nd)
     calcResidDerivatives(); // current residals derivatives (1st and 2nd)
@@ -945,9 +945,9 @@ bool DCAFitterN<N, Args...>::minimizeChi2NoErr()
   calcPCANoErr();       // current PCA
   calcTrackResiduals(); // current track residuals
   float chi2Upd = NAN, chi2 = calcChi2NoErr();
-  if (mCollinear) {
-    return chi2 < mMaxChi2;
-  }
+  // if (mCollinear) {
+  //   return chi2 < mMaxChi2;
+  // }
   do {
     calcTrackDerivatives();      // current track derivatives (1st and 2nd)
     calcResidDerivativesNoErr(); // current residals derivatives (1st and 2nd)
