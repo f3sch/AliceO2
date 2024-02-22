@@ -643,21 +643,21 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     // }
 
     // Setup looser cuts for the DCAFitter
-    fitterV0.setMaxDZIni(mSVParams->mTPCTrackMaxDZIni);
-    fitterV0.setMaxDXYIni(mSVParams->mTPCTrackMaxDXYIni);
+    // fitterV0.setMaxDZIni(mSVParams->mTPCTrackMaxDZIni);
+    // fitterV0.setMaxDXYIni(mSVParams->mTPCTrackMaxDXYIni);
     fitterV0.setMaxChi2(mSVParams->mTPCTrackMaxChi2);
-    // fitterV0.setCollinear();
-    // isCollinear = true;
+    fitterV0.setCollinear();
+    isCollinear = true;
   }
 
   // feed DCAFitter
   int nCand = fitterV0.process(seedP, seedN);
   if (mSVParams->mTPCTrackPhotonTune && isTPConly) {
     // Reset immediately to the defaults
-    fitterV0.setMaxDZIni(mSVParams->maxDZIni);
-    fitterV0.setMaxDXYIni(mSVParams->maxDXYIni);
+    // fitterV0.setMaxDZIni(mSVParams->maxDZIni);
+    // fitterV0.setMaxDXYIni(mSVParams->maxDXYIni);
     fitterV0.setMaxChi2(mSVParams->maxChi2);
-    // fitterV0.unsetCollinear();
+    fitterV0.unsetCollinear();
   }
   if (nCand == 0) { // discard this pair
     LOG(debug) << "RejDCAFitter no candiates found";
