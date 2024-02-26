@@ -880,7 +880,7 @@ bool DCAFitterN<N, Args...>::minimizeChi2()
     mTrcEInv[mCurHyp][i].set(mCandTr[mCurHyp][i], XerrFactor); // prepare inverse cov.matrices at starting point
   }
 
-  if (!mCollinear && mMaxDZIni > 0 && !roughDZCut()) { // apply rough cut on tracks Z difference
+  if (mMaxDZIni > 0 && !roughDZCut()) { // apply rough cut on tracks Z difference
     return false;
   }
 
@@ -938,16 +938,13 @@ bool DCAFitterN<N, Args...>::minimizeChi2NoErr()
     }
     setTrackPos(mTrPos[mCurHyp][i], mCandTr[mCurHyp][i]); // prepare positions
   }
-  if (!mCollinear && mMaxDZIni > 0 && !roughDZCut()) { // apply rough cut on tracks Z difference
+  if (mMaxDZIni > 0 && !roughDZCut()) { // apply rough cut on tracks Z difference
     return false;
   }
 
   calcPCANoErr();       // current PCA
   calcTrackResiduals(); // current track residuals
   float chi2Upd = NAN, chi2 = calcChi2NoErr();
-  // if (mCollinear) {
-  //   return chi2 < mMaxChi2;
-  // }
   do {
     calcTrackDerivatives();      // current track derivatives (1st and 2nd)
     calcResidDerivativesNoErr(); // current residals derivatives (1st and 2nd)

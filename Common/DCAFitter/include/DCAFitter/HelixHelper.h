@@ -69,6 +69,16 @@ struct CrossInfo {
     if (std::abs(dist) < 1e-12) {
       return nDCA; // circles are concentric?
     }
+    if (isCollinear && (dist - rsum < maxDistXY)) {
+      /// collinear tracks; in this case it is better to take
+      /// a weighted average of the crossing points as a radius
+      float r2r = trcA.rC + trcB.rC;
+      float r1_r = trcA.rC / r2r;
+      float r2_r = trcB.rC / r2r;
+      xDCA[0] = r2_r * trcA.xC + r1_r * trcB.xC;
+      yDCA[0] = r2_r * trcA.yC + r1_r * trcB.yC;
+      return 1;
+    }
     if (dist > rsum) { // circles don't touch, chose a point in between
       // the parametric equation of lines connecting the centers is
       // x = x0 + t/dist * (x1-x0), y = y0 + t/dist * (y1-y0)
@@ -80,17 +90,6 @@ struct CrossInfo {
       // select the point of closest approach of 2 circles
       notTouchingXY(dist, xDist, yDist, trcA, -trcB.rC);
     } else { // 2 intersection points
-      if (isCollinear) {
-        /// collinear tracks, e.g. electrons from photon conversion
-        /// if there are 2 crossings of the circle it is better to take
-        /// a weighted average of the crossing points as a radius
-        float r2r = trcA.rC + trcB.rC;
-        float r1_r = trcA.rC / r2r;
-        float r2_r = trcB.rC / r2r;
-        xDCA[0] = r2_r * trcA.xC + r1_r * trcB.xC;
-        yDCA[0] = r2_r * trcA.yC + r1_r * trcB.yC;
-        return 1;
-      }
       // to simplify calculations, we move to new frame x->x+Xc0, y->y+Yc0, so that
       // the 1st one is centered in origin
       if (std::abs(xDist) < std::abs(yDist)) {

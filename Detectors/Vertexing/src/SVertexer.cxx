@@ -606,7 +606,7 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
 }
 
 //__________________________________________________________________
-bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread, bool isCollinear)
+bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread)
 {
   auto& fitterV0 = mFitterV0[ithread];
   // Fast rough cuts on pairs before feeding to DCAFitter, tracks are not in the same Frame or at same X
@@ -647,7 +647,6 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     // fitterV0.setMaxDXYIni(mSVParams->mTPCTrackMaxDXYIni);
     fitterV0.setMaxChi2(mSVParams->mTPCTrackMaxChi2);
     fitterV0.setCollinear();
-    isCollinear = true;
   }
 
   // feed DCAFitter
@@ -662,8 +661,6 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   if (nCand == 0) { // discard this pair
     LOG(debug) << "RejDCAFitter no candiates found";
     return false;
-  } else if (nCand == 1) {
-    LOGP(debug, "1 Candidate; collinear: {}", isCollinear);
   }
   const auto& v0XYZ = fitterV0.getPCACandidate();
   // validate V0 radial position
@@ -903,8 +900,6 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     }
     if (photonOnly) {
       mV0sIdxTmp[ithread].back().setTPCPhotonOnly();
-    }
-    if (isCollinear) {
       mV0sIdxTmp[ithread].back().setCollinear();
     }
 
@@ -960,7 +955,6 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
                   << "isTPConly=" << isTPConly
                   << "lblOk=" << ok
                   << "isV0=" << trueV0
-                  << "isCol=" << isCollinear
                   << "\n";
 
   return mV0sIdxTmp[ithread].size() - nV0Ini != 0;
