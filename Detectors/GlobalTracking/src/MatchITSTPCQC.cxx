@@ -123,15 +123,13 @@ void MatchITSTPCQC::deleteHistograms()
 
 void MatchITSTPCQC::reset()
 {
-  // these histograms are created regardless of the mode
-  for (int i = 0; i < matchType::SIZE; ++i) {
-    // Pt
-    mPtNum[i]->Reset();
-    mPtDen[i]->Reset();
-  }
-
-  if (!mIsSync) { // these only exists in async
+  if (mIsSync) {
+    mPtNum[matchType::ITS]->Reset();
+  } else {
     for (int i = 0; i < matchType::SIZE; ++i) {
+      // Pt
+      mPtNum[i]->Reset();
+      mPtDen[i]->Reset();
       mPtNum_noEta0[i]->Reset();
       mPtDen_noEta0[i]->Reset();
 
@@ -433,7 +431,7 @@ void MatchITSTPCQC::initTrackCuts()
 void MatchITSTPCQC::initTrackSelection(o2::framework::ProcessingContext& ctx)
 {
   // Getting the B field
-  mBz = o2::base::Propagator::Instance()->getNominalBz();
+  // mBz = o2::base::Propagator::Instance()->getNominalBz();
 
   mRecoCont.collectData(ctx, *mDataRequest.get());
   mTPCTracks = mRecoCont.getTPCTracks();
@@ -529,6 +527,8 @@ void MatchITSTPCQC::runSync(o2::framework::ProcessingContext& ctx)
 void MatchITSTPCQC::runAsync(o2::framework::ProcessingContext& ctx)
 {
   initTrackSelection(ctx);
+
+  mBz = o2::base::Propagator::Instance()->getNominalBz();
 
   // numerator + eta, chi2...
   if (mUseMC) {
