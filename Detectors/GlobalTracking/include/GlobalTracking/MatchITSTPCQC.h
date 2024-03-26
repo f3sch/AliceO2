@@ -16,17 +16,20 @@
 #ifndef ALICEO2_GLOBTRACKING_MATCHTPCITS_QC_
 #define ALICEO2_GLOBTRACKING_MATCHTPCITS_QC_
 
-#include <TH1D.h>
-#include <TH1F.h>
-#include <TH2F.h>
-#include <TEfficiency.h>
-#include <TObjArray.h>
+#include "TH1D.h"
+#include "TH1F.h"
+#include "TH2F.h"
+#include "TEfficiency.h"
+#include "TObjArray.h"
+
 #include "DataFormatsGlobalTracking/RecoContainer.h"
 #include "Framework/ProcessingContext.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTrack.h"
 #include "Steer/MCKinematicsReader.h"
 #include "ReconstructionDataFormats/PID.h"
+#include "GlobalTracking/TrackCuts.h"
+
 #include <unordered_map>
 #include <vector>
 #include <array>
@@ -58,7 +61,8 @@ class MatchITSTPCQC
 
   bool init();
   void initDataRequest();
-  void run(o2::framework::ProcessingContext& ctx);
+  void runAsync(o2::framework::ProcessingContext& ctx);
+  void runSync(o2::framework::ProcessingContext& ctx);
   void setDataRequest(const std::shared_ptr<o2::globaltracking::DataRequest>& dr) { mDataRequest = dr; }
   void finalize();
   void reset();
@@ -254,6 +258,7 @@ class MatchITSTPCQC
   void setPtCut(float v) { mPtCut = v; }
   void setMaxPtCut(float v) { mPtMaxCut = v; }
   void setEtaCut(float v) { mEtaCut = v; } // TODO: define 2 different values for min and max (*)
+  void setSyncMode(bool sync) { mIsSync = sync; }
 
  private:
   std::shared_ptr<o2::globaltracking::DataRequest> mDataRequest;
@@ -267,6 +272,7 @@ class MatchITSTPCQC
   // ITS-TPC
   gsl::span<const o2::dataformats::TrackTPCITS> mITSTPCTracks;
   bool mUseMC = false;                                                                     // Usage of the MC information
+  bool mIsSync = false;                                                                    // Sync mode (reduced production of histograms)
   bool mUseTrkPID = false;                                                                 // Usage of the PID hypothesis in tracking
   float mBz = 0;                                                                           ///< nominal Bz
   std::array<std::unordered_map<o2::MCCompLabel, LblInfo>, matchType::SIZE> mMapLabels;    // map with labels that have been found for the matched ITSTPC tracks; key is the label,
@@ -371,8 +377,19 @@ class MatchITSTPCQC
   float mPtMaxCut = 1e10f;
   float mEtaCut = 1e10f; // 1e10f as defaults of Detectors/GlobalTracking/include/GlobalTracking/TrackCuts.h
                          // TODO: define 2 different values for min and max (*)
+  TrackCuts mCuts;
+  void initTrackCuts();
+  void initTrackSelection(o2::framework::ProcessingContext& ctx);
+  void clearTrackSelection();
+  std::vector<bool> mIsTPCTrackSelectedEntry{};
+  std::vector<bool> mIsITSTrackSelectedEntry{};
 
-  ClassDefNV(MatchITSTPCQC, 2);
+  const std::array<std::string, matchType::SIZE> mTitle{"TPC", "ITS"};
+
+  unsigned int mEvCounter{0};
+  unsigned int getEventCounter() const { return mEvCounter; }
+
+  ClassDefNV(MatchITSTPCQC, 3);
 };
 } // namespace globaltracking
 } // namespace o2

@@ -21,6 +21,7 @@ void customize(std::vector<o2::framework::ConfigParamSpec>& workflowOptions)
   // option allowing to set parameters
   std::vector<o2::framework::ConfigParamSpec> options{
     {"disable-mc", o2::framework::VariantType::Bool, false, {"disable use of MC information even if available"}},
+    {"is-sync", o2::framework::VariantType::Bool, false, {"run in synch. mode"}},
     {"configKeyValues", VariantType::String, "", {"Semicolon separated key=value strings ..."}}};
   std::swap(workflowOptions, options);
 }
@@ -37,8 +38,9 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   o2::conf::ConfigurableParam::writeINI("o2-itstpc-matching-qc.ini");
   LOG(info) << "ITSTPC matching QC: disable-mc = " << configcontext.options().get<std::string>("disable-mc");
   auto useMC = !configcontext.options().get<bool>("disable-mc");
+  auto isSync = configcontext.options().get<bool>("is-sync");
 
   WorkflowSpec specs;
-  specs.emplace_back(getITSTPCMatchingQCDevice(useMC));
+  specs.emplace_back(getITSTPCMatchingQCDevice(useMC, isSync));
   return specs;
 }

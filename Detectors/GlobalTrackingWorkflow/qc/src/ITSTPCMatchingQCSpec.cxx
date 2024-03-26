@@ -41,6 +41,7 @@ void ITSTPCMatchingQCDevice::init(InitContext& /*ic*/)
   mMatchITSTPCQC->setMinNTPCClustersCut(params.minNTPCClustersCut);
   mMatchITSTPCQC->setMinDCAtoBeamPipeDistanceCut(params.minDCACut);
   mMatchITSTPCQC->setMinDCAtoBeamPipeYCut(params.minDCACutY);
+  mMatchITSTPCQC->setSyncMode(mIsSync);
   o2::base::GRPGeomHelper::instance().setRequest(mCCDBRequest);
   if (mUseMC) {
     mMatchITSTPCQC->setUseMC(mUseMC);
@@ -52,7 +53,11 @@ void ITSTPCMatchingQCDevice::init(InitContext& /*ic*/)
 void ITSTPCMatchingQCDevice::run(o2::framework::ProcessingContext& pc)
 {
   o2::base::GRPGeomHelper::instance().checkUpdates(pc);
-  mMatchITSTPCQC->run(pc);
+  if (mIsSync) {
+    mMatchITSTPCQC->runSync(pc);
+  } else {
+    mMatchITSTPCQC->runAsync(pc);
+  }
 }
 
 //_____________________________________________________________
@@ -68,18 +73,21 @@ void ITSTPCMatchingQCDevice::endOfStream(o2::framework::EndOfStreamContext& ec)
 
 void ITSTPCMatchingQCDevice::sendOutput(DataAllocator& output)
 {
-
-  TObjArray objar;
-  mMatchITSTPCQC->getHistos(objar);
-  output.snapshot(Output{"GLO", "ITSTPCMATCHQC", 0}, objar);
-
   TFile* f = new TFile(Form("outITSTPCmatchingQC.root"), "RECREATE");
   if (f == nullptr) {
     LOGP(error, "Cannot write QC to file 'outITSTPCmatchingQC.root'");
     return;
   }
-  objar.Write("ObjArray", TObject::kSingleKey);
-  f->Close();
+
+  if (mIsSync) {
+  } else {
+    TObjArray objar;
+    mMatchITSTPCQC->getHistos(objar);
+    output.snapshot(Output{"GLO", "ITSTPCMATCHQC", 0}, objar);
+
+    objar.Write("ObjArray", TObject::kSingleKey);
+    f->Close();
+  }
 }
 
 void ITSTPCMatchingQCDevice::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
@@ -94,7 +102,7 @@ namespace framework
 {
 using GID = o2::dataformats::GlobalTrackID;
 
-DataProcessorSpec getITSTPCMatchingQCDevice(bool useMC)
+DataProcessorSpec getITSTPCMatchingQCDevice(bool useMC, bool isSync)
 {
   std::vector<OutputSpec> outputs;
   outputs.emplace_back("GLO", "ITSTPCMATCHQC", 0, Lifetime::Sporadic);
@@ -113,7 +121,7 @@ DataProcessorSpec getITSTPCMatchingQCDevice(bool useMC)
     "itstpc-matching-qc",
     dataRequest->inputs,
     outputs,
-    AlgorithmSpec{adaptFromTask<o2::globaltracking::ITSTPCMatchingQCDevice>(dataRequest, ccdbRequest, useMC)},
+    AlgorithmSpec{adaptFromTask<o2::globaltracking::ITSTPCMatchingQCDevice>(dataRequest, ccdbRequest, useMC, isSync)},
     Options{{}}};
 }
 
