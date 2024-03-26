@@ -528,7 +528,8 @@ void MatchITSTPCQC::runAsync(o2::framework::ProcessingContext& ctx)
 {
   initTrackSelection(ctx);
 
-  mBz = o2::base::Propagator::Instance()->getNominalBz();
+  // mBz = o2::base::Propagator::Instance()->getNominalBz();
+  mBz = 0.5;
 
   // numerator + eta, chi2...
   if (mUseMC) {
