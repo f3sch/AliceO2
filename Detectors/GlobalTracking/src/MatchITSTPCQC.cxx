@@ -431,7 +431,8 @@ void MatchITSTPCQC::initTrackCuts()
 void MatchITSTPCQC::initTrackSelection(o2::framework::ProcessingContext& ctx)
 {
   // Getting the B field
-  // mBz = o2::base::Propagator::Instance()->getNominalBz();
+  mBz = o2::base::Propagator::Instance()->getNominalBz();
+  mCuts.setBz(mBz);
 
   mRecoCont.collectData(ctx, *mDataRequest.get());
   mTPCTracks = mRecoCont.getTPCTracks();

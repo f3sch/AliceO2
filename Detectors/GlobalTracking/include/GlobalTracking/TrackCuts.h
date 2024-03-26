@@ -128,6 +128,9 @@ class TrackCuts
     return true;
   }
 
+  void setBz(float bz) { mBz = bz; };
+  float getBz() const { return mBz; };
+
  private:
   //////////////////////  cut values   //////////////////////////////
   /// ITS track
@@ -146,7 +149,7 @@ class TrackCuts
   float mMinPt{0.f}, mMaxPt{1e10f};      // range in pT
   float mMinEta{-1e10f}, mMaxEta{1e10f}; // range in eta
 
-  float mBz = o2::base::Propagator::Instance()->getNominalBz();
+  float mBz{-999.};
 
   ClassDefNV(TrackCuts, 2);
 };
