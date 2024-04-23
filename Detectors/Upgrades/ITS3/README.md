@@ -84,7 +84,7 @@ o2-sim -g pythia8pp -j10 -m PIPE IT3 --run 303901 -n10
 
 ## Creating CCDB Objects
 
-### Create Full geometry + Aligned + GeometryTGeo
+### !TODO! Create Full geometry + Aligned + GeometryTGeo
 
 ```bash
 # Create Full Geometry

@@ -17,6 +17,7 @@ o2_add_library(TRDReconstruction
                        src/CruRawReader.cxx
                        src/DataReaderTask.cxx
                        src/EventRecord.cxx
+                       src/TRDTrackingParams.cxx
                PUBLIC_LINK_LIBRARIES O2::TRDBase
                                      O2::DataFormatsTRD
                                      O2::DataFormatsTPC
@@ -27,6 +28,8 @@ o2_add_library(TRDReconstruction
                                      O2::DataFormatsCTP
                                      Microsoft.GSL::GSL)
 
+o2_target_root_dictionary(TRDReconstruction
+                          HEADERS include/TRDReconstruction/TRDTrackingParams.h)
 
 o2_add_executable(datareader
     COMPONENT_NAME trd

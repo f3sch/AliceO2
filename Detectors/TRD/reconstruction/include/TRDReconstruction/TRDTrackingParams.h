@@ -9,13 +9,21 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-#ifdef __CLING__
+#ifndef TRDTRACKINGPARAMS_H_
+#define TRDTRACKINGPARAMS_H_
 
-#pragma link off all globals;
-#pragma link off all classes;
-#pragma link off all functions;
+#include "CommonUtils/ConfigurableParam.h"
+#include "CommonUtils/ConfigurableParamHelper.h"
 
-#pragma link C++ class o2::trd::TRDTrackingParams;
-#pragma link C++ class o2::conf::ConfigurableParamHelper < o2::trd::TRDTrackingParams> + ;
+namespace o2::trd
+{
 
-#endif
+struct TRDTrackingParams : public o2::conf::ConfigurableParamHelper<TRDTrackingParams> {
+  bool withITS3 = false; ///< Detector geometry includes ITS3
+
+  O2ParamDef(TRDTrackingParams, "TRDTrkParams");
+};
+
+} // namespace o2::trd
+
+#endif // TRDTRACKINGPARAMS_H_
