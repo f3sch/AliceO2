@@ -222,7 +222,7 @@ struct DataRequest {
   void requestFV0RecPoints(bool mc);
   void requestFDDRecPoints(bool mc);
   void requestZDCRecEvents(bool mc);
-  void requestITSClusters(bool mc);
+  void requestITSClusters(bool mc, bool withIT3 = false);
   void requestMFTClusters(bool mc);
   void requestTPCClusters(bool mc);
   void requestTPCTriggers();
@@ -370,7 +370,7 @@ struct RecoContainer {
   void addMFTMCHMatches(o2::framework::ProcessingContext& pc, bool mc);
   void addMCHMIDMatches(o2::framework::ProcessingContext& pc, bool mc);
 
-  void addITSClusters(o2::framework::ProcessingContext& pc, bool mc);
+  void addITSClusters(o2::framework::ProcessingContext& pc, bool mc, bool withIT3 = false);
   void addMFTClusters(o2::framework::ProcessingContext& pc, bool mc);
   void addTPCClusters(o2::framework::ProcessingContext& pc, bool mc, bool shmap, bool occmap);
   void addTPCTriggers(o2::framework::ProcessingContext& pc);

@@ -50,6 +50,10 @@
 #include "TPCCalibration/VDriftHelper.h"
 #include "TPCCalibration/CorrectionMapsLoader.h"
 
+#ifdef ENABLE_UPGRADES
+#include "ITS3Reconstruction/TopologyDictionary.h"
+#endif
+
 using namespace o2::framework;
 using MCLabelsCl = o2::dataformats::MCTruthContainer<o2::MCCompLabel>;
 using MCLabelsTr = gsl::span<const o2::MCCompLabel>;
@@ -64,8 +68,8 @@ class TPCITSMatchingDPL : public Task
 {
  public:
   TPCITSMatchingDPL(std::shared_ptr<DataRequest> dr, std::shared_ptr<o2::base::GRPGeomRequest> gr, const o2::tpc::CorrectionMapsLoaderGloOpts& sclOpts,
-                    bool useFT0, bool calib, bool skipTPCOnly, bool useMC)
-    : mDataRequest(dr), mGGCCDBRequest(gr), mUseFT0(useFT0), mCalibMode(calib), mSkipTPCOnly(skipTPCOnly), mUseMC(useMC)
+                    bool useFT0, bool calib, bool skipTPCOnly, bool useMC, bool withIT3)
+    : mDataRequest(dr), mGGCCDBRequest(gr), mUseFT0(useFT0), mCalibMode(calib), mSkipTPCOnly(skipTPCOnly), mUseMC(useMC), mWithIT3(withIT3)
   {
     mTPCCorrMapsLoader.setLumiScaleType(sclOpts.lumiType);
     mTPCCorrMapsLoader.setLumiScaleMode(sclOpts.lumiMode);
@@ -87,6 +91,7 @@ class TPCITSMatchingDPL : public Task
   bool mCalibMode = false;
   bool mSkipTPCOnly = false; // to use only externally constrained tracks (for test only)
   bool mUseMC = true;
+  bool mWithIT3 = false;
   TStopwatch mTimer;
 };
 
@@ -147,7 +152,7 @@ void TPCITSMatchingDPL::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
     return;
   }
   if (matcher == ConcreteDataMatcher("ITS", "CLUSDICT", 0)) {
-    LOG(info) << "cluster dictionary updated";
+    LOG(info) << "its cluster dictionary updated";
     mMatching.setITSDictionary((const o2::itsmft::TopologyDictionary*)obj);
     return;
   }
@@ -158,10 +163,17 @@ void TPCITSMatchingDPL::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
     return;
   }
   if (matcher == ConcreteDataMatcher("ITS", "GEOMTGEO", 0)) {
-    LOG(info) << "ITS GeomtetryTGeo loaded from ccdb";
+    LOG(info) << "ITS GeometryTGeo loaded from ccdb";
     o2::its::GeometryTGeo::adopt((o2::its::GeometryTGeo*)obj);
     return;
   }
+#ifdef ENABLE_UPGRADES
+  if (matcher == ConcreteDataMatcher("IT3", "CLUSDICT", 0)) {
+    LOG(info) << "it3 cluster dictionary updated";
+    mMatching.setIT3Dictionary((const o2::its3::TopologyDictionary*)obj);
+    return;
+  }
+#endif
 }
 
 void TPCITSMatchingDPL::updateTimeDependentParams(ProcessingContext& pc)
@@ -186,6 +198,7 @@ void TPCITSMatchingDPL::updateTimeDependentParams(ProcessingContext& pc)
     mMatching.setITSTriggered(!o2::base::GRPGeomHelper::instance().getGRPECS()->isDetContinuousReadOut(o2::detectors::DetID::ITS));
     mMatching.setNHBPerTF(o2::base::GRPGeomHelper::instance().getGRPECS()->getNHBFPerTF());
     mMatching.setMCTruthOn(mUseMC);
+    mMatching.setWithIT3(mWithIT3);
     mMatching.setUseFT0(mUseFT0);
     mMatching.setVDriftCalib(mCalibMode);
     if (o2::base::GRPGeomHelper::instance().getGRPECS()->getRunType() != o2::parameters::GRPECSObject::RunType::COSMICS) {
@@ -224,7 +237,7 @@ void TPCITSMatchingDPL::updateTimeDependentParams(ProcessingContext& pc)
   }
 }
 
-DataProcessorSpec getTPCITSMatchingSpec(GTrackID::mask_t src, bool useFT0, bool calib, bool skipTPCOnly, bool useGeom, bool useMC, const o2::tpc::CorrectionMapsLoaderGloOpts& sclOpts)
+DataProcessorSpec getTPCITSMatchingSpec(GTrackID::mask_t src, bool useFT0, bool calib, bool skipTPCOnly, bool useGeom, bool useMC, const o2::tpc::CorrectionMapsLoaderGloOpts& sclOpts, bool withIT3)
 {
   std::vector<OutputSpec> outputs;
   auto dataRequest = std::make_shared<DataRequest>();
@@ -235,7 +248,7 @@ DataProcessorSpec getTPCITSMatchingSpec(GTrackID::mask_t src, bool useFT0, bool 
 
   dataRequest->requestTracks(src, useMC);
   dataRequest->requestTPCClusters(false);
-  dataRequest->requestITSClusters(useMC); // Only ITS clusters labels are needed for the afterburner
+  dataRequest->requestITSClusters(useMC, withIT3); // Only ITS clusters labels are needed for the afterburner
   if (useFT0) {
     dataRequest->requestFT0RecPoints(false);
   }
@@ -277,7 +290,7 @@ DataProcessorSpec getTPCITSMatchingSpec(GTrackID::mask_t src, bool useFT0, bool 
     "itstpc-track-matcher",
     dataRequest->inputs,
     outputs,
-    AlgorithmSpec{adaptFromTask<TPCITSMatchingDPL>(dataRequest, ggRequest, sclOpts, useFT0, calib, skipTPCOnly, useMC)},
+    AlgorithmSpec{adaptFromTask<TPCITSMatchingDPL>(dataRequest, ggRequest, sclOpts, useFT0, calib, skipTPCOnly, useMC, withIT3)},
     opts};
 }
 

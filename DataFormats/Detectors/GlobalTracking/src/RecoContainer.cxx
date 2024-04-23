@@ -42,6 +42,10 @@
 #include "Framework/DataRefUtils.h"
 #include "Framework/CCDBParamSpec.h"
 
+#ifdef ENABLE_UPGRADES
+#include "ITS3Reconstruction/TopologyDictionary.h"
+#endif
+
 using namespace o2::globaltracking;
 using namespace o2::framework;
 namespace o2d = o2::dataformats;
@@ -222,17 +226,27 @@ void DataRequest::requestTOFMatches(o2::dataformats::GlobalTrackID::mask_t src, 
   }
 }
 
-void DataRequest::requestITSClusters(bool mc)
+void DataRequest::requestITSClusters(bool mc, bool withIT3)
 {
   addInput({"clusITS", "ITS", "COMPCLUSTERS", 0, Lifetime::Timeframe});
   addInput({"clusITSPatt", "ITS", "PATTERNS", 0, Lifetime::Timeframe});
   addInput({"clusITSROF", "ITS", "CLUSTERSROF", 0, Lifetime::Timeframe});
-  addInput({"cldictITS", "ITS", "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec("ITS/Calib/ClusterDictionary")});
   addInput({"alpparITS", "ITS", "ALPIDEPARAM", 0, Lifetime::Condition, ccdbParamSpec("ITS/Config/AlpideParam")});
   if (mc) {
     addInput({"clusITSMC", "ITS", "CLUSTERSMCTR", 0, Lifetime::Timeframe});
   }
+#ifdef ENABLE_UPGRADES
+  if (withIT3) {
+    addInput({"cldictIT3", "IT3", "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec("IT3/Calib/ClusterDictionary")});
+    requestMap["clusIT3"] = mc;
+  } else {
+    addInput({"cldictITS", "ITS", "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec("ITS/Calib/ClusterDictionary")});
+    requestMap["clusITS"] = mc;
+  }
+#else
+  addInput({"cldictITS", "ITS", "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec("ITS/Calib/ClusterDictionary")});
   requestMap["clusITS"] = mc;
+#endif
 }
 
 void DataRequest::requestMFTClusters(bool mc)
@@ -673,6 +687,13 @@ void RecoContainer::collectData(ProcessingContext& pc, const DataRequest& reques
     addITSClusters(pc, req->second);
   }
 
+#ifdef ENABLE_UPGRADES
+  req = reqMap.find("clusIT3");
+  if (req != reqMap.end()) {
+    addITSClusters(pc, req->second, true);
+  }
+#endif
+
   req = reqMap.find("clusMFT");
   if (req != reqMap.end()) {
     addMFTClusters(pc, req->second);
@@ -1033,11 +1054,19 @@ void RecoContainer::addHMPMatches(ProcessingContext& pc, bool mc)
 }
 
 //__________________________________________________________
-void RecoContainer::addITSClusters(ProcessingContext& pc, bool mc)
+void RecoContainer::addITSClusters(ProcessingContext& pc, bool mc, bool withIT3)
 {
   if (pc.services().get<o2::framework::TimingInfo>().globalRunNumberChanged) {            // this params need to be queried only once
-    pc.inputs().get<o2::itsmft::TopologyDictionary*>("cldictITS");                        // just to trigger the finaliseCCDB
     pc.inputs().get<o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>*>("alpparITS"); // note: configurable param does not need finaliseCCDB
+#ifdef ENABLE_UPGRADES
+    if (withIT3) {
+      pc.inputs().get<o2::its3::TopologyDictionary*>("cldictIT3"); // just to trigger the finaliseCCDB
+    } else {
+      pc.inputs().get<o2::itsmft::TopologyDictionary*>("cldictITS"); // just to trigger the finaliseCCDB
+    }
+#else
+    pc.inputs().get<o2::itsmft::TopologyDictionary*>("cldictITS"); // just to trigger the finaliseCCDB
+#endif
   }
   commonPool[GTrackID::ITS].registerContainer(pc.inputs().get<gsl::span<o2::itsmft::ROFRecord>>("clusITSROF"), CLUSREFS);
   commonPool[GTrackID::ITS].registerContainer(pc.inputs().get<gsl::span<o2::itsmft::CompClusterExt>>("clusITS"), CLUSTERS);

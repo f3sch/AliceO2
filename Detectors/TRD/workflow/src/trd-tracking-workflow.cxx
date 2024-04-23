@@ -55,6 +55,9 @@ void customize(std::vector<o2::framework::ConfigParamSpec>& workflowOptions)
     {"enable-qc", VariantType::Bool, false, {"enable tracking QC"}},
     {"enable-pid", VariantType::Bool, false, {"Enable PID"}},
     {"enable-ph", VariantType::Bool, false, {"Enable creation of PH plots"}},
+#ifdef ENABLE_UPGRADES
+    {"with-it3", VariantType::Bool, false, {"run with IT3 detector instead of ITS"}},
+#endif
     {"trd-digits-spec", VariantType::Int, 0, {"Input digits subspec, ignored if disable-root-input is false"}},
     {"track-sources", VariantType::String, std::string{GTrackID::ALL}, {"comma-separated list of sources to use for tracking"}},
     {"filter-trigrec", VariantType::Bool, false, {"ignore interaction records without ITS data"}},
@@ -86,6 +89,11 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   auto gain = configcontext.options().get<bool>("enable-gain-calib");
   auto pulseHeight = configcontext.options().get<bool>("enable-ph");
   auto digitsSpec = configcontext.options().get<int>("trd-digits-spec");
+#ifndef ENABLE_UPGRADES
+  bool withIT3 = false;
+#else
+  auto withIT3 = configcontext.options().get<bool>("with-it3");
+#endif
   auto sclOpt = o2::tpc::CorrectionMapsLoader::parseGlobalOptions(configcontext.options());
   bool rootInput = !configcontext.options().get<bool>("disable-root-input");
   GTrackID::mask_t srcTRD = allowedSources & GTrackID::getSourcesMask(configcontext.options().get<std::string>("track-sources"));
@@ -116,7 +124,7 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   if (sclOpt.needTPCScalersWorkflow() && !configcontext.options().get<bool>("disable-root-input")) {
     specs.emplace_back(o2::tpc::getTPCScalerSpec(sclOpt.lumiType == 2, sclOpt.enableMShapeCorrection));
   }
-  specs.emplace_back(o2::trd::getTRDGlobalTrackingSpec(useMC, srcTRD, trigRecFilterActive, strict, pid, policy, sclOpt));
+  specs.emplace_back(o2::trd::getTRDGlobalTrackingSpec(useMC, srcTRD, trigRecFilterActive, strict, pid, policy, sclOpt, withIT3));
   if (vdexb || gain) {
     specs.emplace_back(o2::trd::getTRDTrackBasedCalibSpec(srcTRD, vdexb, gain));
   }

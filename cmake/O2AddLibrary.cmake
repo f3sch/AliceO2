@@ -61,7 +61,7 @@ function(o2_add_library baseTargetName)
     A
     ""
     "TARGETVARNAME"
-    "SOURCES;PUBLIC_INCLUDE_DIRECTORIES;PUBLIC_LINK_LIBRARIES;PRIVATE_INCLUDE_DIRECTORIES;PRIVATE_LINK_LIBRARIES"
+    "SOURCES;PUBLIC_INCLUDE_DIRECTORIES;PUBLIC_LINK_LIBRARIES;PRIVATE_INCLUDE_DIRECTORIES;PRIVATE_LINK_LIBRARIES;PUBLIC_UPGRADE_LINK_LIBRARIES"
     )
 
   if(A_UNPARSED_ARGUMENTS)
@@ -91,6 +91,17 @@ function(o2_add_library baseTargetName)
   # Start by adding the public dependencies to other targets
   if(A_PUBLIC_LINK_LIBRARIES)
     foreach(L IN LISTS A_PUBLIC_LINK_LIBRARIES)
+      string(FIND ${L} "::" NS)
+      if(${NS} EQUAL -1)
+        message(FATAL_ERROR "Trying to use a non-namespaced target ${L}")
+      endif()
+      target_link_libraries(${target} PUBLIC ${L})
+    endforeach()
+  endif()
+
+  # Adding the public upgrade dependencies to other targets if ENABLE_UPGRADES is set
+  if(A_PUBLIC_UPGRADE_LINK_LIBRARIES AND ENABLE_UPGRADES)
+    foreach(L IN LISTS A_PUBLIC_UPGRADE_LINK_LIBRARIES)
       string(FIND ${L} "::" NS)
       if(${NS} EQUAL -1)
         message(FATAL_ERROR "Trying to use a non-namespaced target ${L}")

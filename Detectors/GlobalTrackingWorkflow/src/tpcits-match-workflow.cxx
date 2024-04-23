@@ -43,6 +43,9 @@ void customize(std::vector<o2::framework::ConfigParamSpec>& workflowOptions)
     {"disable-root-input", o2::framework::VariantType::Bool, false, {"disable root-files input reader"}},
     {"disable-root-output", o2::framework::VariantType::Bool, false, {"disable root-files output writer"}},
     {"track-sources", VariantType::String, "TPC", {"comma-separated list of sources to use: TPC,TPC-TOF,TPC-TRD,TPC-TRD-TOF"}},
+#ifdef ENABLE_UPGRADES
+    {"with-it3", VariantType::Bool, false, {"run with IT3 detector instead of ITS"}},
+#endif
     {"produce-calibration-data", o2::framework::VariantType::Bool, false, {"produce output for TPC vdrift calibration"}},
     {"use-full-geometry", o2::framework::VariantType::Bool, false, {"use full geometry instead of the light-weight ITS part"}},
     {"configKeyValues", VariantType::String, "", {"Semicolon separated key=value strings ..."}}};
@@ -84,7 +87,12 @@ WorkflowSpec defineDataProcessing(o2::framework::ConfigContext const& configcont
   }
   auto useMC = !configcontext.options().get<bool>("disable-mc");
   auto calib = configcontext.options().get<bool>("produce-calibration-data");
-  auto srcL = src | GID::getSourcesMask("ITS,TPC"); // ITS is neadded always, TPC must be loaded even if bare TPC tracks are not used in matching
+#ifndef ENABLE_UPGRADES
+  bool withIT3 = false;
+#else
+  auto withIT3 = configcontext.options().get<bool>("with-it3");
+#endif
+  auto srcL = src | GID::getSourcesMask("ITS,TPC"); // ITS is needed always, TPC must be loaded even if bare TPC tracks are not used in matching
   if (sclOpt.requestCTPLumi) {
     srcL = srcL | GID::getSourcesMask("CTP");
   }
@@ -93,7 +101,7 @@ WorkflowSpec defineDataProcessing(o2::framework::ConfigContext const& configcont
   if (sclOpt.needTPCScalersWorkflow() && !configcontext.options().get<bool>("disable-root-input")) {
     specs.emplace_back(o2::tpc::getTPCScalerSpec(sclOpt.lumiType == 2, sclOpt.enableMShapeCorrection));
   }
-  specs.emplace_back(o2::globaltracking::getTPCITSMatchingSpec(srcL, useFT0, calib, !GID::includesSource(GID::TPC, src), useGeom, useMC, sclOpt));
+  specs.emplace_back(o2::globaltracking::getTPCITSMatchingSpec(srcL, useFT0, calib, !GID::includesSource(GID::TPC, src), useGeom, useMC, sclOpt, withIT3));
 
   if (!configcontext.options().get<bool>("disable-root-output")) {
     specs.emplace_back(o2::globaltracking::getTrackWriterTPCITSSpec(useMC));

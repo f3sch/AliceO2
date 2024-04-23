@@ -9,6 +9,8 @@
 # granted to it by virtue of its status as an Intergovernmental Organization
 # or submit itself to any jurisdiction.
 
+#add_compile_options(-O0 -g -fPIC -fno-omit-frame-pointer)
+
 add_subdirectory(io)
 
 o2_add_library(TRDWorkflow
@@ -49,7 +51,8 @@ o2_add_library(TRDWorkflow
                                      O2::TPCWorkflow
                                      O2::TRDWorkflowIO
                                      O2::TRDPID
-                                     O2::DataFormatsFT0)
+                                     O2::DataFormatsFT0
+               PUBLIC_UPGRADE_LINK_LIBRARIES O2::ITS3Reconstruction)
 
 o2_add_executable(trap-sim
                   COMPONENT_NAME trd
