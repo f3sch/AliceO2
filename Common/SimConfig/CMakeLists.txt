@@ -27,7 +27,7 @@ o2_target_root_dictionary(SimConfig
                                   include/SimConfig/SimParams.h
                                   include/SimConfig/SimUserDecay.h
                                   include/SimConfig/InteractionDiamondParam.h
-		                  include/SimConfig/DigiParams.h
+                                  include/SimConfig/DigiParams.h
                                   include/SimConfig/G4Params.h
                                   include/SimConfig/GlobalProcessCutSimParam.h
                                   include/SimConfig/MatMapParams.h)

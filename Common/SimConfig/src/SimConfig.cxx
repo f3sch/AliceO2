@@ -59,11 +59,14 @@ void SimConfig::initOptions(boost::program_options::options_description& options
     "asservice", bpo::value<bool>()->default_value(false), "run in service/server mode")(
     "noGeant", bpo::bool_switch(), "prohibits any Geant transport/physics (by using tight cuts)")(
     "forwardKine", bpo::bool_switch(), "forward kinematics on a FairMQ channel")(
+#ifdef ENABLE_UPGRADES
+    "withIT3", bpo::bool_switch()->default_value(false), "replace ITS with IT3")(
+#endif
     "noDiscOutput", bpo::bool_switch(), "switch off writing sim results to disc (useful in combination with forwardKine)");
   options.add_options()("fromCollContext", bpo::value<std::string>()->default_value(""), "Use a pregenerated collision context to infer number of events to simulate, how to embedd them, the vertex position etc. Takes precedence of other options such as \"--nEvents\".");
 }
 
-void SimConfig::determineActiveModules(std::vector<std::string> const& inputargs, std::vector<std::string> const& skippedModules, std::vector<std::string>& activeModules, bool isUpgrade)
+void SimConfig::determineActiveModules(std::vector<std::string> const& inputargs, std::vector<std::string> const& skippedModules, std::vector<std::string>& activeModules, bool isUpgrade, bool withIT3)
 {
   using o2::detectors::DetID;
 
@@ -86,8 +89,7 @@ void SimConfig::determineActiveModules(std::vector<std::string> const& inputargs
           LOGP(fatal, "List of active modules contains {}, which is not a module from the upgrades.", activeModules[i]);
         }
       }
-    }
-    if (!isUpgrade) {
+    } else {
       for (int i = 0; i < activeModules.size(); ++i) {
         if (activeModules[i] == "A3IP" ||
             activeModules[i] == "TRK" ||
@@ -98,6 +100,9 @@ void SimConfig::determineActiveModules(std::vector<std::string> const& inputargs
             activeModules[i] == "MI3" ||
             activeModules[i] == "ECL") {
           LOGP(fatal, "List of active modules contains {}, which is not a run 3 module", activeModules[i]);
+        } else if (withIT3 && activeModules[i] == "ITS") {
+          activeModules[i] = "IT3";
+          LOGP(info, "Replacing ITS with IT3 as active module");
         }
       }
     }
@@ -133,7 +138,10 @@ void SimConfig::determineActiveModules(std::vector<std::string> const& inputargs
       activeModules.emplace_back("SHIL");
       for (int d = DetID::First; d <= DetID::Last; ++d) {
 #ifdef ENABLE_UPGRADES
-        if (d != DetID::IT3 && d != DetID::TRK && d != DetID::FT3 && d != DetID::FCT && d != DetID::TF3 && d != DetID::RCH && d != DetID::ECL && d != DetID::MI3) {
+        if (withIT3 && d == DetID::ITS) {
+          activeModules.emplace_back(DetID::getName(DetID::IT3));
+          LOGP(info, "Replacing ITS with IT3 as active module");
+        } else if (d != DetID::IT3 && d != DetID::TRK && d != DetID::FT3 && d != DetID::FCT && d != DetID::TF3 && d != DetID::RCH && d != DetID::ECL && d != DetID::MI3) {
           activeModules.emplace_back(DetID::getName(d));
         }
       }
@@ -206,8 +214,14 @@ bool SimConfig::resetFromParsedMap(boost::program_options::variables_map const& 
   mConfigData.mMCEngine = vm["mcEngine"].as<std::string>();
   mConfigData.mNoGeant = vm["noGeant"].as<bool>();
 
+#ifndef ENABLE_UPGRADES
+  mConfigData.mWithIT3 = false;
+#else
+  mConfigData.mWithIT3 = vm["withIT3"].as<bool>();
+#endif
+
   // get final set of active Modules
-  determineActiveModules(vm["modules"].as<std::vector<std::string>>(), vm["skipModules"].as<std::vector<std::string>>(), mConfigData.mActiveModules, mConfigData.mIsUpgrade);
+  determineActiveModules(vm["modules"].as<std::vector<std::string>>(), vm["skipModules"].as<std::vector<std::string>>(), mConfigData.mActiveModules, mConfigData.mIsUpgrade, mConfigData.mWithIT3);
   if (mConfigData.mNoGeant) {
     // CAVE is all that's needed (and that will be built either way), so clear all modules and set the O2TrivialMCEngine
     mConfigData.mActiveModules.clear();
