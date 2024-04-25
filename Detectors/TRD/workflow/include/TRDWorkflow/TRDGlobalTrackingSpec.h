@@ -106,7 +106,7 @@ class TRDGlobalTracking : public o2::framework::Task
 #ifdef ENABLE_UPGRADES
   const o2::its3::TopologyDictionary* mIT3Dict = nullptr; ///< IT3 cluster patterns dictionary
 #endif
-  bool mWithIT3{false};                                   ///< running with IT3
+  bool mWithIT3{false};                 ///< running with IT3
   std::array<float, 5> mCovDiagInner{}; ///< total cov.matrix extra diagonal error from TrackTuneParams
   std::array<float, 5> mCovDiagOuter{}; ///< total cov.matrix extra diagonal error from TrackTuneParams
   // PID

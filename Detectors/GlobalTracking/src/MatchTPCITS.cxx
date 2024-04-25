@@ -243,7 +243,7 @@ void MatchTPCITS::init()
 #endif
 
   if (mParams->runAfterBurner) { // only used in AfterBurner
-    mRGHelper.init();    // prepare helper for TPC track / ITS clusters matching
+    mRGHelper.init();            // prepare helper for TPC track / ITS clusters matching
   }
 
   clear();
@@ -1421,8 +1421,7 @@ void MatchTPCITS::refitWinners(pmr::vector<o2::dataformats::TrackTPCITS>& matche
 
 #ifdef WITH_OPENMP
 #pragma omp parallel for schedule(dynamic) num_threads(mNThreads) \
-  reduction(+                                                     \
-            : nFailedRefit)
+  reduction(+ : nFailedRefit)
 #endif
   for (int ifit = 0; ifit < nToFit; ifit++) {
     int iTPC = tpcToFit[ifit], iITS;
