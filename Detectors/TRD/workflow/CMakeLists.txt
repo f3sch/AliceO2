@@ -52,7 +52,7 @@ o2_add_library(TRDWorkflow
                                      O2::TRDWorkflowIO
                                      O2::TRDPID
                                      O2::DataFormatsFT0
-               PUBLIC_UPGRADE_LINK_LIBRARIES O2::ITS3Reconstruction)
+               PUBLIC_LINK_LIBRARIES_UPGRADE O2::ITS3Reconstruction)
 
 o2_add_executable(trap-sim
                   COMPONENT_NAME trd

@@ -53,7 +53,7 @@ o2_add_library(GlobalTracking
                                      O2::MathUtils
                                      O2::ReconstructionDataFormats
                                      O2::Steer
-               PUBLIC_UPGRADE_LINK_LIBRARIES O2::ITS3Reconstruction)
+               PUBLIC_LINK_LIBRARIES_UPGRADE O2::ITS3Reconstruction)
 
 o2_target_root_dictionary(GlobalTracking
                           HEADERS include/GlobalTracking/MatchTPCITSParams.h
