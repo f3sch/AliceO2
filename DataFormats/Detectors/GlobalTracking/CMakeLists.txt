@@ -37,7 +37,7 @@ o2_add_library(
     O2::DataFormatsPHOS
     O2::DataFormatsEMCAL
     O2::GPUDataTypeHeaders
-  PUBLIC_UPGRADE_LINK_LIBRARIES
+  PUBLIC_LINK_LIBRARIES_UPGRADE
     O2::ITS3Reconstruction
   PRIVATE_LINK_LIBRARIES
     O2::Framework)

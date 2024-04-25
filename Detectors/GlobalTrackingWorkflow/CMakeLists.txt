@@ -49,7 +49,7 @@ o2_add_library(GlobalTrackingWorkflow
                                      O2::SimulationDataFormat
                                      O2::DetectorsVertexing
                                      O2::StrangenessTracking
-               PUBLIC_UPGRADE_LINK_LIBRARIES O2::ITS3Reconstruction)
+               PUBLIC_LINK_LIBRARIES_UPGRADE O2::ITS3Reconstruction)
 
 o2_add_executable(driver-workflow
                   COMPONENT_NAME reader
