@@ -1421,7 +1421,8 @@ void MatchTPCITS::refitWinners(pmr::vector<o2::dataformats::TrackTPCITS>& matche
 
 #ifdef WITH_OPENMP
 #pragma omp parallel for schedule(dynamic) num_threads(mNThreads) \
-  reduction(+ : nFailedRefit)
+  reduction(+                                                     \
+            : nFailedRefit)
 #endif
   for (int ifit = 0; ifit < nToFit; ifit++) {
     int iTPC = tpcToFit[ifit], iITS;
