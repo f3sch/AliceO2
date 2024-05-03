@@ -18,3 +18,15 @@ o2_add_executable(thinner
                   COMPONENT_NAME aod
                   SOURCES src/aodThinner.cxx
                   PUBLIC_LINK_LIBRARIES  ROOT::Core ROOT::Net)
+
+o2_add_executable(readspeed
+                  COMPONENT_NAME aod
+                  SOURCES src/aodReadSpeed.cxx
+                  PUBLIC_LINK_LIBRARIES  ROOT::Core
+                                         ROOT::Graf
+                                         ROOT::Gpad
+                                         ROOT::Hist
+                                         ROOT::Tree
+                                         O2::Framework
+                                         O2::Version
+                                         Boost::program_options)
