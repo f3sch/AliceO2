@@ -59,6 +59,7 @@ std::vector<ConfigParamSpec> WorkflowCustomizationHelpers::requiredWorkflowOptio
            {"aod-writer-resdir", VariantType::String, "", {"Name of the output directory"}},
            {"aod-writer-resfile", VariantType::String, "", {"Default name of the output file"}},
            {"aod-writer-maxfilesize", VariantType::Float, 0.0f, {"Maximum size of an output file in megabytes"}},
+           {"aod-writer-compression", VariantType::Int, 505, {"Compression Mode of output file"}},
            {"aod-writer-resmode", VariantType::String, "RECREATE", {"Creation mode of the result files: NEW, CREATE, RECREATE, UPDATE"}},
            {"aod-writer-ntfmerge", VariantType::Int, -1, {"Number of time frames to merge into one file"}},
            {"aod-writer-keep", VariantType::String, "", {"Comma separated list of ORIGIN/DESCRIPTION/SUBSPECIFICATION:treename:col1/col2/..:filename"}},

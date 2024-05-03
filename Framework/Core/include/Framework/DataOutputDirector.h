@@ -80,6 +80,8 @@ struct DataOutputDirector {
   void setNumberTimeFramesToMerge(int ntfmerge) { mnumberTimeFramesToMerge = ntfmerge > 0 ? ntfmerge : 1; }
   std::string getFileMode() { return mfileMode; }
   void setFileMode(std::string filemode) { mfileMode = filemode; }
+  int getCompressionMode() const { return mcompMode; }
+  void setCompressionMode(int mode) { mcompMode = mode; }
 
   // get matching DataOutputDescriptors
   std::vector<DataOutputDescriptor*> getDataOutputDescriptors(header::DataHeader dh);
@@ -113,6 +115,7 @@ struct DataOutputDirector {
   int mfileCounter = 1;
   float mmaxfilesize = -1.;
   int mnumberTimeFramesToMerge = 1;
+  int mcompMode = 505;
   std::string mfileMode = "RECREATE";
 
   std::tuple<std::string, std::string, std::string, float, int> readJsonDocument(Document* doc);

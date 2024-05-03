@@ -310,6 +310,7 @@ class RootTreeWriter
   void init(const char* filename, const char* treename, const char* treetitle = nullptr)
   {
     mFile = std::make_unique<TFile>(filename, "RECREATE");
+    mFile->SetCompressionSettings(ROOT::RCompressionSetting::EDefaults::kUseGeneralPurpose);
     mTree = std::make_unique<TTree>(treename, treetitle != nullptr ? treetitle : treename);
     mTree->SetDirectory(mFile.get());
     mTreeStructure->setup(mBranchSpecs, mTree.get());

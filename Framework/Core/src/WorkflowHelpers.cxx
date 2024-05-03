@@ -1049,6 +1049,7 @@ std::shared_ptr<DataOutputDirector> WorkflowHelpers::getDataOutputDirector(Confi
   float mfs, maxfilesize(-1.);
   std::string fmo, filemode("RECREATE");
   int ntfm, ntfmerge = 1;
+  int compmode = 501;
 
   // values from json
   if (options.isSet("aod-writer-json")) {
@@ -1104,6 +1105,9 @@ std::shared_ptr<DataOutputDirector> WorkflowHelpers::getDataOutputDirector(Confi
       ntfmerge = ntfm;
     }
   }
+  if (options.isSet("aod-writer-compression")) {
+    compmode = options.get<int>("aod-writer-compression");
+  }
   // parse the keepString
   if (options.isSet("aod-writer-keep")) {
     auto keepString = options.get<std::string>("aod-writer-keep");
@@ -1130,6 +1134,7 @@ std::shared_ptr<DataOutputDirector> WorkflowHelpers::getDataOutputDirector(Confi
   dod->setFileMode(filemode);
   dod->setMaximumFileSize(maxfilesize);
   dod->setNumberTimeFramesToMerge(ntfmerge);
+  dod->setCompressionMode(compmode);
 
   return dod;
 }
