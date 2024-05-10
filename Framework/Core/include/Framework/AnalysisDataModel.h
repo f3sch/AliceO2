@@ -1410,6 +1410,18 @@ DECLARE_SOA_TABLE(Decay3Bodys, "AOD", "DECAY3BODY", //! Run 2 cascade table
 using Decay3Bodys = Decay3Bodys; //! this defines the current default version
 using Decay3Body = Decay3Bodys::iterator;
 
+namespace v0tpc
+{
+DECLARE_SOA_INDEX_COLUMN(Track, track);            //! TPC track index
+DECLARE_SOA_COLUMN(TrackTime0, trackTime0, float); //! TPC Time0
+} // namespace v0tpc
+
+DECLARE_SOA_TABLE(V0TPCs_000, "AOD", "V0TPC", //! TPC-only V0 track time
+                  o2::soa::Index<>, v0tpc::TrackId, v0tpc::trackTime0);
+
+using V0TPCs = V0TPCs_000; //! this defines the current default version
+using V0TPC = V0TPCs::iterator;
+
 namespace strangenesstracking
 {
 DECLARE_SOA_INDEX_COLUMN(Track, track);                                 //! Strange track index

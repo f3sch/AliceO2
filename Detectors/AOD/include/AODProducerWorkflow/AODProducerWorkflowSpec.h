@@ -533,8 +533,8 @@ class AODProducerWorkflowDPL : public Task
 
   void fillIndexTablesPerCollision(const o2::dataformats::VtxTrackRef& trackRef, const gsl::span<const GIndex>& GIndices, const o2::globaltracking::RecoContainer& data);
 
-  template <typename V0CursorType, typename CascadeCursorType, typename Decay3bodyCursorType>
-  void fillSecondaryVertices(const o2::globaltracking::RecoContainer& data, V0CursorType& v0Cursor, CascadeCursorType& cascadeCursor, Decay3bodyCursorType& decay3bodyCursor);
+  template <typename V0CursorType, typename CascadeCursorType, typename Decay3BodyCursorType, typename V0TPCCursor>
+  void fillSecondaryVertices(const o2::globaltracking::RecoContainer& recoData, V0CursorType& v0Cursor, CascadeCursorType& cascadeCursor, Decay3BodyCursorType& decay3BodyCursor, V0TPCCursor& v0tpcCursor);
 
   template <typename HMPCursorType>
   void fillHMPID(const o2::globaltracking::RecoContainer& recoData, HMPCursorType& hmpCursor);

@@ -1121,8 +1121,8 @@ void AODProducerWorkflowDPL::fillMCTrackLabelsTable(MCTrackLabelCursorType& mcTr
   }
 }
 
-template <typename V0CursorType, typename CascadeCursorType, typename Decay3BodyCursorType>
-void AODProducerWorkflowDPL::fillSecondaryVertices(const o2::globaltracking::RecoContainer& recoData, V0CursorType& v0Cursor, CascadeCursorType& cascadeCursor, Decay3BodyCursorType& decay3BodyCursor)
+template <typename V0CursorType, typename CascadeCursorType, typename Decay3BodyCursorType, typename V0TPCCursor>
+void AODProducerWorkflowDPL::fillSecondaryVertices(const o2::globaltracking::RecoContainer& recoData, V0CursorType& v0Cursor, CascadeCursorType& cascadeCursor, Decay3BodyCursorType& decay3BodyCursor, V0TPCCursor& v0tpcCursor)
 {
 
   auto v0s = recoData.getV0sIdx();
@@ -1158,6 +1158,13 @@ void AODProducerWorkflowDPL::fillSecondaryVertices(const o2::globaltracking::Rec
     if (posTableIdx != -1 and negTableIdx != -1 and collID != -1) {
       v0Cursor(collID, posTableIdx, negTableIdx, v0flags);
       mV0ToTableID[int(iv0)] = mTableV0ID++;
+    }
+    // Fill for V0s assoc. to TPC-only tracks time0 table!
+    if (trPosID == GIndex::TPC) {
+      v0tpcCursor(posTableIdx, recoData.getTPCTrack(trPosID).getTime0());
+    }
+    if (trNegID == GIndex::TPC) {
+      v0tpcCursor(negTableIdx, recoData.getTPCTrack(trNegID).getTime0());
     }
   }
 
@@ -1799,6 +1806,7 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
   auto ambigMFTTracksCursor = createTableCursor<o2::aod::AmbiguousMFTTracks>(pc);
   auto ambigFwdTracksCursor = createTableCursor<o2::aod::AmbiguousFwdTracks>(pc);
   auto v0sCursor = createTableCursor<o2::aod::V0s>(pc);
+  auto v0tpcCursor = createTableCursor<o2::aod::V0TPCs>(pc);
   auto zdcCursor = createTableCursor<o2::aod::Zdcs>(pc);
   auto hmpCursor = createTableCursor<o2::aod::HMPIDs>(pc);
   auto caloCellsCursor = createTableCursor<o2::aod::Calos>(pc);
@@ -2144,7 +2152,7 @@ void AODProducerWorkflowDPL::run(ProcessingContext& pc)
     collisionID++;
   }
 
-  fillSecondaryVertices(recoData, v0sCursor, cascadesCursor, decay3BodyCursor);
+  fillSecondaryVertices(recoData, v0sCursor, cascadesCursor, decay3BodyCursor, v0tpcCursor);
   fillHMPID(recoData, hmpCursor);
   fillStrangenessTrackingTables(recoData, trackedV0Cursor, trackedCascadeCursor, tracked3BodyCurs);
 
