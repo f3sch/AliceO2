@@ -27,6 +27,7 @@ o2_add_library(SimConfig
 o2_target_root_dictionary(SimConfig
                           HEADERS include/SimConfig/SimConfig.h
                                   include/SimConfig/SimParams.h
+                                  include/SimConfig/SimPluginManager.h
                                   include/SimConfig/SimUserDecay.h
                                   include/SimConfig/InteractionDiamondParam.h
                                   include/SimConfig/DigiParams.h

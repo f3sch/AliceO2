@@ -24,7 +24,6 @@
 #include "DetectorsPassive/Pipe.h"
 #include <Field/MagneticField.h>
 #include <TPCSimulation/Detector.h>
-#include <ITSSimulation/Detector.h>
 #include <MFTSimulation/Detector.h>
 #include <MCHSimulation/Detector.h>
 #include <MIDSimulation/Detector.h>
@@ -47,6 +46,7 @@
 #include <algorithm>
 #include "DetectorsCommonDataFormats/UpgradesStatus.h"
 #include <DetectorsBase/SimFieldUtils.h>
+#include <SimConfig/SimPluginManager.h>
 #endif
 
 #ifdef ENABLE_UPGRADES
@@ -61,6 +61,8 @@
 #include <Alice3DetectorsPassive/Absorber.h>
 #include <Alice3DetectorsPassive/Magnet.h>
 #endif
+
+using Return = o2::base::Detector*;
 
 void finalize_geometry(FairRunSim* run);
 
@@ -226,7 +228,8 @@ void build_geometry(FairRunSim* run = nullptr)
 #ifdef ENABLE_UPGRADES
   if (isActivated("IT3")) {
     // IT3
-    addReadoutDetector(new o2::its::Detector(isReadout("IT3"), "IT3"));
+    addReadoutDetector(o2::conf::SimPluginManager::Instance().executeFunctionAlias<Return, const char*, bool>(
+      "O2ITSSimulation", "create_Detector_ITS", "IT3", isReadout("IT3")));
   }
 
   if (isActivated("TRK")) {
@@ -267,7 +270,8 @@ void build_geometry(FairRunSim* run = nullptr)
 
   if (isActivated("ITS")) {
     // its
-    addReadoutDetector(new o2::its::Detector(isReadout("ITS")));
+    addReadoutDetector(o2::conf::SimPluginManager::Instance().executeFunctionAlias<Return, const char*, bool>(
+      "O2ITSSimulation", "create_Detector_ITS", "ITS", isReadout("ITS")));
   }
 
   if (isActivated("MFT")) {

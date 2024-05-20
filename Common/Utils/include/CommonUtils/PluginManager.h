@@ -1,0 +1,202 @@
+// Copyright 2019-2020 CERN and copyright holders of ALICE O2.
+// See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
+// All rights not expressly granted are reserved.
+//
+// This software is distributed under the terms of the GNU General Public
+// License v3 (GPL Version 3), copied verbatim in the file "COPYING".
+//
+// In applying this license CERN does not waive the privileges and immunities
+// granted to it by virtue of its status as an Intergovernmental Organization
+// or submit itself to any jurisdiction.
+
+// \brief A thin wrapper to manage dynamic library loading, based around boost::dll
+
+#ifndef PLUGINMANAGER_H_
+#define PLUGINMANAGER_H_
+
+#include "Framework/Logger.h"
+
+#include <boost/dll.hpp>
+#include <boost/function.hpp>
+#include <boost/core/demangle.hpp>
+
+#include <filesystem>
+#include <optional>
+#include <unordered_map>
+#include <memory>
+#include <mutex>
+#include <cstdlib>
+#include <functional>
+#include <typeinfo>
+
+namespace o2::utils
+{
+
+// Manages dynamic loading and unloading of libraries and symbol lookups.
+// It ensures thread-safety through the use of mutexes and implements the
+// Meyers Singleton pattern to provide a single instance of the manager.
+template <typename DerivedType>
+class PluginManagerBase
+{
+
+ public:
+  using library_t = std::shared_ptr<boost::dll::shared_library>;
+
+  static DerivedType& Instance()
+  {
+    static DerivedType instance;
+    return instance;
+  }
+
+  // Loads a dynamic library by its name and stores its handle. Returns true
+  // if the library is successfully loaded or already loaded.
+  bool addLibrary(const std::string& library)
+  {
+    const std::lock_guard<std::mutex> lock(mLock);
+
+    if (mLibraries.find(library) != mLibraries.end()) {
+      return true;
+    }
+
+    if (mO2Path.empty()) {
+      if (const auto* path = std::getenv("O2_ROOT")) {
+        mO2Path = path;
+      } else {
+        LOGP(error, "$O2_ROOT not set!");
+        return false;
+      }
+    }
+
+    auto path = getO2Path(library);
+    if (auto dpath{boost::dll::shared_library::decorate(path)}; !std::filesystem::exists(dpath.c_str())) {
+      LOGP(error, "Library under '{}' does not exist!", dpath.c_str());
+      return false;
+    }
+
+    try {
+      auto lib = std::make_shared<boost::dll::shared_library>(path,
+                                                              boost::dll::load_mode::append_decorations |
+                                                                boost::dll::load_mode::rtld_lazy);
+      if (lib == nullptr) {
+        throw std::runtime_error("Library handle is nullptr!");
+      }
+      mLibraries[library] = std::move(lib);
+      return true;
+    } catch (std::exception& e) {
+      LOGP(error, "Failed to load library (path='{}'), failed reason: '{}'", boost::dll::shared_library::decorate(path).c_str(), e.what());
+      return false;
+    } catch (...) {
+      LOGP(error, "Failed to load library (path='{}') for unknown reason!", boost::dll::shared_library::decorate(path).c_str());
+      return false;
+    }
+  }
+
+  bool hasSymbol(const std::string& library, const std::string& symbol)
+  {
+    if (mLibraries.find(library) == mLibraries.end()) {
+      if (!addLibrary(library)) {
+        return false;
+      }
+    }
+
+    return mLibraries[library]->has(symbol);
+  }
+
+  template <typename ProtoType>
+  std::optional<boost::function<ProtoType>> getFunctionAlias(const std::string& library, const std::string& fname)
+  {
+    if (fname.empty()) {
+      LOGP(error, "Function name cannot be empty!");
+      return std::nullopt;
+    }
+
+    if (mLibraries.find(library) == mLibraries.end()) {
+      // In this case libray was not loaded before; try adding it now. If
+      // loading fails, we are done.
+      if (!addLibrary(library)) {
+        return std::nullopt;
+      }
+    }
+
+    const std::lock_guard<std::mutex> lock(mLock);
+    const auto& lib = *mLibraries[library];
+    if (!lib.has(fname)) {
+      LOGP(error, "Library '{}' does not have a symbol '{}'", library, fname);
+      return std::nullopt;
+    }
+
+    boost::function<ProtoType> func = boost::dll::import_alias<ProtoType>(lib, fname);
+    if (func.empty()) {
+      LOGP(error, "Library '{}' does not have a symbol '{}' with {}", library, fname, getTypeName<ProtoType>());
+      return std::nullopt;
+    }
+    return func;
+  }
+
+  template <typename Ret, typename... Args>
+  Ret executeFunctionAlias(const std::string& library, const std::string& fname, Args... args)
+  {
+    using ProtoType = Ret(Args...);
+    if (auto func = getFunctionAlias<ProtoType>(library, fname)) {
+      return (*func)(args...);
+    } else {
+      throw std::runtime_error(fmt::format("Cannot get '{}' from '{}'", fname, library));
+    }
+  }
+
+  void print(bool verbose = false)
+  {
+    const std::lock_guard<std::mutex> lock(mLock);
+
+    if (mO2Path.empty() || mLibraries.empty()) {
+      LOGP(info, "No libraries added!");
+    }
+
+    LOGP(info, "Printing loaded plugin information:");
+    for (int i{0}; const auto& [library, handle] : mLibraries) {
+      LOGP(info, " {: <3d}: {}", i++, library);
+      if (verbose) {
+        boost::dll::library_info libInfo{boost::dll::shared_library::decorate(getO2Path(library))};
+        for (int j{0}; const auto& sec : libInfo.sections()) {
+          LOGP(info, "         SECTION {: <3d}: {}", j++, sec);
+          for (int k{0}; const auto& symb : libInfo.symbols(sec)) {
+            LOGP(info, "                         SYMBOL {: <3d}: {}", k++, symb);
+          }
+        }
+      }
+    }
+  }
+
+  // Delete other constructors since this a singleton
+  PluginManagerBase(const PluginManagerBase&) = delete;
+  PluginManagerBase& operator=(const PluginManagerBase&) = delete;
+  PluginManagerBase(PluginManagerBase&&) = delete;
+  PluginManagerBase& operator=(PluginManagerBase&&) = delete;
+
+ protected:
+  PluginManagerBase()
+  {
+    LOGP(info, "{} instance created", getTypeName<DerivedType>());
+  }
+  ~PluginManagerBase() = default;
+
+ private:
+  [[nodiscard]] std::string getO2Path(const std::string& library) const
+  {
+    return mO2Path + "/lib/" + library;
+  }
+
+  template <typename ProtoType>
+  [[nodiscard]] auto getTypeName() -> std::string
+  {
+    return boost::core::demangle(typeid(ProtoType).name());
+  }
+
+  std::unordered_map<std::string, library_t> mLibraries{};
+  std::mutex mLock{};
+  std::string mO2Path{};
+};
+
+} // namespace o2::utils
+
+#endif // PLUGINMANAGER_H_
