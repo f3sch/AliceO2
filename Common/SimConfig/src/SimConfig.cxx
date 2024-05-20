@@ -222,7 +222,7 @@ bool SimConfig::determineActiveModulesVersion(const std::string& version, const 
 
   // Filter skipped modules
   for (auto& s : skippedModules) {
-    if(s.empty()){
+    if (s.empty()) {
       continue;
     }
     auto iter = std::find(activeModules.begin(), activeModules.end(), s);
