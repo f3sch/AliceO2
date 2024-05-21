@@ -12,7 +12,7 @@
 #ifndef SIMDLLOADER_H_
 #define SIMDLLOADER_H_
 
-#include "CommonUtils/DLLoader.h"
+#include "CommonUtils/DLLoaderBase.h"
 
 namespace o2::conf
 {

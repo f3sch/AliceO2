@@ -45,7 +45,7 @@ o2_target_root_dictionary(CommonUtils
                                   include/CommonUtils/KeyValParam.h
                                   include/CommonUtils/VerbosityConfig.h
                                   include/CommonUtils/FileFetcher.h
-                                  include/CommonUtils/DLLoader.h
+                                  include/CommonUtils/DLLoaderBase.h
                                   include/CommonUtils/NameConf.h
                                   include/CommonUtils/IRFrameSelector.h
                                   include/CommonUtils/DebugStreamer.h)

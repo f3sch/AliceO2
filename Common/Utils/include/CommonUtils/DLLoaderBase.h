@@ -57,7 +57,7 @@ class DLLoaderBase
   // if the library is successfully loaded or already loaded.
   bool addLibrary(const std::string& library)
   {
-    const std::lock_guard<std::mutex> lock(mLock);
+    const std::scoped_lock lock(mLock);
 
     if (mLibraries.find(library) != mLibraries.end()) {
       return true; // Library already loaded
@@ -100,6 +100,8 @@ class DLLoaderBase
   // Checks if a library contains a specific symbol.
   bool hasSymbol(const std::string& library, const std::string& symbol)
   {
+    const std::scoped_lock lock(mLock);
+
     if (mLibraries.find(library) == mLibraries.end()) {
       // Library not loaded, attempt to load it
       if (!addLibrary(library)) {
@@ -107,6 +109,7 @@ class DLLoaderBase
       }
     }
 
+    // Checks if the symbol exists but does not load it.
     return mLibraries[library]->has(symbol);
   }
 
@@ -114,6 +117,8 @@ class DLLoaderBase
   template <typename ProtoType>
   std::optional<boost::function<ProtoType>> getFunctionAlias(const std::string& library, const std::string& fname)
   {
+    const std::scoped_lock lock(mLock);
+
     if (fname.empty()) {
       LOGP(error, "Function name cannot be empty!");
       return std::nullopt;
@@ -126,7 +131,6 @@ class DLLoaderBase
       }
     }
 
-    const std::lock_guard<std::mutex> lock(mLock);
     const auto& lib = *mLibraries[library];
     if (!lib.has(fname)) {
       LOGP(error, "Library '{}' does not have a symbol '{}'", library, fname);
@@ -145,18 +149,21 @@ class DLLoaderBase
   template <typename Ret, typename... Args>
   Ret executeFunctionAlias(const std::string& library, const std::string& fname, Args... args)
   {
+    const std::scoped_lock lock(mLock);
+
     using ProtoType = Ret(Args...);
     if (auto func = getFunctionAlias<ProtoType>(library, fname)) {
       return (*func)(args...);
-    } else {
-      throw std::runtime_error(fmt::format("Cannot get '{}' from '{}'", fname, library));
     }
+
+    // cannot execute function at all
+    throw std::runtime_error(fmt::format("Cannot get '{}' from '{}'", fname, library));
   }
 
   // Prints information about the loaded libraries and their symbols.
   void print(bool verbose = false)
   {
-    const std::lock_guard<std::mutex> lock(mLock);
+    const std::scoped_lock lock(mLock);
 
     if (mO2Path.empty() || mLibraries.empty()) {
       LOGP(info, "No libraries added!");
@@ -205,9 +212,9 @@ class DLLoaderBase
     return boost::core::demangle(typeid(ProtoType).name());
   }
 
-  std::unordered_map<std::string, library_t> mLibraries{};
-  std::mutex mLock{};
-  std::string mO2Path{};
+  std::unordered_map<std::string, library_t> mLibraries{}; // pointers to loaded libraries
+  std::recursive_mutex mLock{};                            // while a recursive mutex is more expansive it makes locking easier
+  std::string mO2Path{};                                   // holds the path O2 dynamic library determined by $O2_ROOT
 };
 
 } // namespace o2::utils
