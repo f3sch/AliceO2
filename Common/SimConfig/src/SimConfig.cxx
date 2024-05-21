@@ -149,14 +149,7 @@ void SimConfig::determineActiveModules(std::vector<std::string> const& inputargs
 #endif
     }
   }
-  // now we take out detectors listed as skipped
-  for (auto& s : skippedModules) {
-    auto iter = std::find(activeModules.begin(), activeModules.end(), s);
-    if (iter != activeModules.end()) {
-      // take it out
-      activeModules.erase(iter);
-    }
-  }
+  filterSkippedElements(activeModules, skippedModules);
 }
 
 bool SimConfig::determineActiveModulesVersion(const std::string& version, const std::string& fileName, std::vector<std::string> const& inputargs, std::vector<std::string> const& skippedModules, std::vector<std::string>& activeModules)
@@ -219,21 +212,7 @@ bool SimConfig::determineActiveModulesVersion(const std::string& version, const 
 
   // Insert into active modules
   std::copy(modules.begin(), modules.end(), std::back_inserter(activeModules));
-
-  // Filter skipped modules
-  for (auto& s : skippedModules) {
-    if (s.empty()) {
-      continue;
-    }
-    auto iter = std::find(activeModules.begin(), activeModules.end(), s);
-    if (iter != activeModules.end()) {
-      // take it out
-      activeModules.erase(iter);
-    } else {
-      LOGP(info, "Module '{}' not present in list, e.g., not skipped", s);
-    }
-  }
-
+  filterSkippedElements(activeModules, skippedModules);
   return true;
 }
 
@@ -429,6 +408,22 @@ bool SimConfig::parseFieldString(std::string const& fieldstring, int& fieldvalue
     fieldvalue = std::stoi(fieldstring.substr(0, fieldstring.rfind("U")));
   }
   return true;
+}
+
+void SimConfig::filterSkippedElements(std::vector<std::string>& elements, std::vector<std::string> const& skipped)
+{
+  for (auto& s : skipped) {
+    if (s.empty()) { // nothing to skip here
+      continue;
+    }
+    auto iter = std::find(elements.begin(), elements.end(), s);
+    if (iter != elements.end()) {
+      // take it out
+      elements.erase(iter);
+    } else {
+      LOGP(warn, "Element '{}' not present in currently element list; check if this is expected!", s);
+    }
+  }
 }
 
 void SimConfig::adjustFromCollContext(std::string const& collcontextfile, std::string const& prefix)
