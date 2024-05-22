@@ -23,6 +23,7 @@ o2_add_library(TRDWorkflow
                        src/EntropyDecoderSpec.cxx
                        src/EntropyEncoderSpec.cxx
                        src/TrackBasedCalibSpec.cxx
+                       src/TRDTrackingParams.cxx
                        include/TRDWorkflow/KrClustererSpec.h
                        include/TRDWorkflow/VdAndExBCalibSpec.h
                        include/TRDWorkflow/GainCalibSpec.h
@@ -30,6 +31,7 @@ o2_add_library(TRDWorkflow
                        include/TRDWorkflow/TRDGlobalTrackingQCSpec.h
                        include/TRDWorkflow/NoiseCalibSpec.h
                        include/TRDWorkflow/T0FitSpec.h
+                       include/TRDWorkflow/TRDTrackingParams.h
                PUBLIC_LINK_LIBRARIES O2::Framework O2::DPLUtils
                                      O2::Steer
                                      O2::Algorithm

@@ -53,7 +53,7 @@ class TRDGlobalTracking : public o2::framework::Task
 {
  public:
   TRDGlobalTracking(bool useMC, bool withPID, PIDPolicy policy, std::shared_ptr<o2::globaltracking::DataRequest> dataRequest, std::shared_ptr<o2::base::GRPGeomRequest> gr, const o2::tpc::CorrectionMapsLoaderGloOpts& sclOpts,
-                    o2::dataformats::GlobalTrackID::mask_t src, bool trigRecFilterActive, bool strict, bool withIT3 = false) : mUseMC(useMC), mWithPID(withPID), mDataRequest(dataRequest), mGGCCDBRequest(gr), mTrkMask(src), mTrigRecFilter(trigRecFilterActive), mStrict(strict), mPolicy(policy), mWithIT3(withIT3)
+                    o2::dataformats::GlobalTrackID::mask_t src, bool trigRecFilterActive, bool strict) : mUseMC(useMC), mWithPID(withPID), mDataRequest(dataRequest), mGGCCDBRequest(gr), mTrkMask(src), mTrigRecFilter(trigRecFilterActive), mStrict(strict), mPolicy(policy)
   {
     mTPCCorrMapsLoader.setLumiScaleType(sclOpts.lumiType);
     mTPCCorrMapsLoader.setLumiScaleMode(sclOpts.lumiMode);
@@ -106,7 +106,6 @@ class TRDGlobalTracking : public o2::framework::Task
 #ifdef ENABLE_UPGRADES
   const o2::its3::TopologyDictionary* mIT3Dict = nullptr; ///< IT3 cluster patterns dictionary
 #endif
-  bool mWithIT3{false};                 ///< running with IT3
   std::array<float, 5> mCovDiagInner{}; ///< total cov.matrix extra diagonal error from TrackTuneParams
   std::array<float, 5> mCovDiagOuter{}; ///< total cov.matrix extra diagonal error from TrackTuneParams
   // PID
@@ -115,7 +114,7 @@ class TRDGlobalTracking : public o2::framework::Task
 };
 
 /// create a processor spec
-framework::DataProcessorSpec getTRDGlobalTrackingSpec(bool useMC, o2::dataformats::GlobalTrackID::mask_t src, bool trigRecFilterActive, bool strict /* = false*/, bool withPID /* = false*/, PIDPolicy policy /* = PIDPolicy::DEFAULT*/, const o2::tpc::CorrectionMapsLoaderGloOpts& sclOpts, bool withIT3 = false);
+framework::DataProcessorSpec getTRDGlobalTrackingSpec(bool useMC, o2::dataformats::GlobalTrackID::mask_t src, bool trigRecFilterActive, bool strict /* = false*/, bool withPID /* = false*/, PIDPolicy policy /* = PIDPolicy::DEFAULT*/, const o2::tpc::CorrectionMapsLoaderGloOpts& sclOpts);
 
 } // namespace trd
 } // namespace o2

@@ -12,6 +12,7 @@
 /// @file   TRDGlobalTrackingSpec.cxx
 
 #include "TRDWorkflow/TRDGlobalTrackingSpec.h"
+#include "TRDWorkflow/TRDTrackingParams.h"
 #include "TRDBase/Geometry.h"
 #include "DetectorsCommonDataFormats/DetectorNameConf.h"
 #include "DetectorsBase/GeometryManager.h"
@@ -304,7 +305,7 @@ void TRDGlobalTracking::run(ProcessingContext& pc)
     mITSClustersArray.clear();
     mITSClustersArray.reserve(clusITS.size());
 #ifdef ENABLE_UPGRADES
-    if (mWithIT3) {
+    if (o2::trd::TRDTrackingParams::Instance().withITS3) {
       o2::its3::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mIT3Dict);
     } else {
       o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
@@ -837,7 +838,7 @@ void TRDGlobalTracking::endOfStream(EndOfStreamContext& ec)
        mTimer.CpuTime(), mTimer.RealTime(), mTimer.Counter() - 1);
 }
 
-DataProcessorSpec getTRDGlobalTrackingSpec(bool useMC, GTrackID::mask_t src, bool trigRecFilterActive, bool strict, bool withPID, PIDPolicy policy, const o2::tpc::CorrectionMapsLoaderGloOpts& sclOpts, bool withIT3)
+DataProcessorSpec getTRDGlobalTrackingSpec(bool useMC, GTrackID::mask_t src, bool trigRecFilterActive, bool strict, bool withPID, PIDPolicy policy, const o2::tpc::CorrectionMapsLoaderGloOpts& sclOpts)
 {
   std::vector<OutputSpec> outputs;
   uint32_t ss = o2::globaltracking::getSubSpec(strict ? o2::globaltracking::MatchingType::Strict : o2::globaltracking::MatchingType::Standard);
@@ -851,7 +852,7 @@ DataProcessorSpec getTRDGlobalTrackingSpec(bool useMC, GTrackID::mask_t src, boo
   dataRequest->requestTPCClusters(false); // only needed for refit, don't care about labels
   if (GTrackID::includesSource(GTrackID::Source::ITSTPC, src)) {
     // ITS clusters are only needed if we match to ITS-TPC tracks
-    dataRequest->requestITSClusters(false, withIT3); // only needed for refit, don't care about labels
+    dataRequest->requestITSClusters(false, o2::trd::TRDTrackingParams::Instance().withITS3); // only needed for refit, don't care about labels
     trkSrc |= GTrackID::getSourcesMask("ITS");
   }
   dataRequest->requestTracks(trkSrc, useMC);
@@ -929,7 +930,7 @@ DataProcessorSpec getTRDGlobalTrackingSpec(bool useMC, GTrackID::mask_t src, boo
     processorName,
     inputs,
     outputs,
-    AlgorithmSpec{adaptFromTask<TRDGlobalTracking>(useMC, withPID, policy, dataRequest, ggRequest, sclOpts, src, trigRecFilterActive, strict, withIT3)},
+    AlgorithmSpec{adaptFromTask<TRDGlobalTracking>(useMC, withPID, policy, dataRequest, ggRequest, sclOpts, src, trigRecFilterActive, strict)},
     opts};
 }
 

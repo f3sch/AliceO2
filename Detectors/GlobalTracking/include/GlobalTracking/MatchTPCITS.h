@@ -425,8 +425,6 @@ class MatchTPCITS
     mMCTruthON = v;
   }
 
-  void setWithIT3(bool v) { mWithIT3 = v; }
-
   ///< request VDrift calibration
   void setVDriftCalib(bool v)
   {
@@ -587,7 +585,6 @@ class MatchTPCITS
   bool mFieldON = true;    ///< flag for field ON/OFF
   bool mCosmics = false;   ///< flag cosmics mode
   bool mMCTruthON = false; ///< flag availability of MC truth
-  bool mWithIT3 = false;   ///< flag availability of using IT3
   float mBz = 0;           ///< nominal Bz
   int mTFCount = 0;        ///< internal TF counter for debugger
   int mNThreads = 1;       ///< number of OMP threads

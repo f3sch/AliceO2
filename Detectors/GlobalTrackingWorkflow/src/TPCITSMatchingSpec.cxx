@@ -68,8 +68,8 @@ class TPCITSMatchingDPL : public Task
 {
  public:
   TPCITSMatchingDPL(std::shared_ptr<DataRequest> dr, std::shared_ptr<o2::base::GRPGeomRequest> gr, const o2::tpc::CorrectionMapsLoaderGloOpts& sclOpts,
-                    bool useFT0, bool calib, bool skipTPCOnly, bool useMC, bool withIT3)
-    : mDataRequest(dr), mGGCCDBRequest(gr), mUseFT0(useFT0), mCalibMode(calib), mSkipTPCOnly(skipTPCOnly), mUseMC(useMC), mWithIT3(withIT3)
+                    bool useFT0, bool calib, bool skipTPCOnly, bool useMC)
+    : mDataRequest(dr), mGGCCDBRequest(gr), mUseFT0(useFT0), mCalibMode(calib), mSkipTPCOnly(skipTPCOnly), mUseMC(useMC)
   {
     mTPCCorrMapsLoader.setLumiScaleType(sclOpts.lumiType);
     mTPCCorrMapsLoader.setLumiScaleMode(sclOpts.lumiMode);
@@ -91,7 +91,6 @@ class TPCITSMatchingDPL : public Task
   bool mCalibMode = false;
   bool mSkipTPCOnly = false; // to use only externally constrained tracks (for test only)
   bool mUseMC = true;
-  bool mWithIT3 = false;
   TStopwatch mTimer;
 };
 
@@ -198,7 +197,6 @@ void TPCITSMatchingDPL::updateTimeDependentParams(ProcessingContext& pc)
     mMatching.setITSTriggered(!o2::base::GRPGeomHelper::instance().getGRPECS()->isDetContinuousReadOut(o2::detectors::DetID::ITS));
     mMatching.setNHBPerTF(o2::base::GRPGeomHelper::instance().getGRPECS()->getNHBFPerTF());
     mMatching.setMCTruthOn(mUseMC);
-    mMatching.setWithIT3(mWithIT3);
     mMatching.setUseFT0(mUseFT0);
     mMatching.setVDriftCalib(mCalibMode);
     if (o2::base::GRPGeomHelper::instance().getGRPECS()->getRunType() != o2::parameters::GRPECSObject::RunType::COSMICS) {
@@ -237,7 +235,7 @@ void TPCITSMatchingDPL::updateTimeDependentParams(ProcessingContext& pc)
   }
 }
 
-DataProcessorSpec getTPCITSMatchingSpec(GTrackID::mask_t src, bool useFT0, bool calib, bool skipTPCOnly, bool useGeom, bool useMC, const o2::tpc::CorrectionMapsLoaderGloOpts& sclOpts, bool withIT3)
+DataProcessorSpec getTPCITSMatchingSpec(GTrackID::mask_t src, bool useFT0, bool calib, bool skipTPCOnly, bool useGeom, bool useMC, const o2::tpc::CorrectionMapsLoaderGloOpts& sclOpts)
 {
   std::vector<OutputSpec> outputs;
   auto dataRequest = std::make_shared<DataRequest>();
@@ -248,7 +246,7 @@ DataProcessorSpec getTPCITSMatchingSpec(GTrackID::mask_t src, bool useFT0, bool 
 
   dataRequest->requestTracks(src, useMC);
   dataRequest->requestTPCClusters(false);
-  dataRequest->requestITSClusters(useMC, withIT3); // Only ITS clusters labels are needed for the afterburner
+  dataRequest->requestITSClusters(useMC, MatchTPCITSParams::Instance().withITS3); // Only ITS clusters labels are needed for the afterburner and request possibly for ITS3
   if (useFT0) {
     dataRequest->requestFT0RecPoints(false);
   }
@@ -290,7 +288,7 @@ DataProcessorSpec getTPCITSMatchingSpec(GTrackID::mask_t src, bool useFT0, bool 
     "itstpc-track-matcher",
     dataRequest->inputs,
     outputs,
-    AlgorithmSpec{adaptFromTask<TPCITSMatchingDPL>(dataRequest, ggRequest, sclOpts, useFT0, calib, skipTPCOnly, useMC, withIT3)},
+    AlgorithmSpec{adaptFromTask<TPCITSMatchingDPL>(dataRequest, ggRequest, sclOpts, useFT0, calib, skipTPCOnly, useMC)},
     opts};
 }
 

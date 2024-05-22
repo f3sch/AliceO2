@@ -632,7 +632,7 @@ bool MatchTPCITS::prepareITSData()
   auto pattIt = patterns.begin();
   mITSClustersArray.reserve(clusITS.size());
 #ifdef ENABLE_UPGRADES
-  if (mWithIT3) {
+  if (mParams->withITS3) {
     o2::its3::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mIT3Dict);
   } else {
     o2::its::ioutils::convertCompactClusters(clusITS, pattIt, mITSClustersArray, mITSDict);
@@ -648,7 +648,7 @@ bool MatchTPCITS::prepareITSData()
     auto pattID = clus.getPatternID();
     unsigned int npix;
 #ifdef ENABLE_UPGRADES
-    if ((pattID == o2::itsmft::CompCluster::InvalidPatternID) || ((mWithIT3) ? mIT3Dict->isGroup(pattID) : mITSDict->isGroup(pattID))) { // braces guarantee evaluation order
+    if ((pattID == o2::itsmft::CompCluster::InvalidPatternID) || ((mParams->withITS3) ? mIT3Dict->isGroup(pattID) : mITSDict->isGroup(pattID))) { // braces guarantee evaluation order
 #else
     if (pattID == o2::itsmft::CompCluster::InvalidPatternID || mITSDict->isGroup(pattID)) {
 #endif
@@ -657,7 +657,7 @@ bool MatchTPCITS::prepareITSData()
       npix = patt.getNPixels();
     } else {
 #ifdef ENABLE_UPGRADES
-      if (mWithIT3) {
+      if (mParams->withITS3) {
         npix = mIT3Dict->getNpixels(pattID);
       } else {
         npix = mITSDict->getNpixels(pattID);

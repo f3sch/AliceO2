@@ -226,7 +226,7 @@ void DataRequest::requestTOFMatches(o2::dataformats::GlobalTrackID::mask_t src, 
   }
 }
 
-void DataRequest::requestITSClusters(bool mc, bool withIT3)
+void DataRequest::requestITSClusters(bool mc, bool withITS3)
 {
   addInput({"clusITS", "ITS", "COMPCLUSTERS", 0, Lifetime::Timeframe});
   addInput({"clusITSPatt", "ITS", "PATTERNS", 0, Lifetime::Timeframe});
@@ -236,7 +236,7 @@ void DataRequest::requestITSClusters(bool mc, bool withIT3)
     addInput({"clusITSMC", "ITS", "CLUSTERSMCTR", 0, Lifetime::Timeframe});
   }
 #ifdef ENABLE_UPGRADES
-  if (withIT3) {
+  if (withITS3) {
     addInput({"cldictIT3", "IT3", "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec("IT3/Calib/ClusterDictionary")});
     requestMap["clusIT3"] = mc;
   } else {
@@ -1054,12 +1054,12 @@ void RecoContainer::addHMPMatches(ProcessingContext& pc, bool mc)
 }
 
 //__________________________________________________________
-void RecoContainer::addITSClusters(ProcessingContext& pc, bool mc, bool withIT3)
+void RecoContainer::addITSClusters(ProcessingContext& pc, bool mc, bool withITS3)
 {
   if (pc.services().get<o2::framework::TimingInfo>().globalRunNumberChanged) {            // this params need to be queried only once
     pc.inputs().get<o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>*>("alpparITS"); // note: configurable param does not need finaliseCCDB
 #ifdef ENABLE_UPGRADES
-    if (withIT3) {
+    if (withITS3) {
       pc.inputs().get<o2::its3::TopologyDictionary*>("cldictIT3"); // just to trigger the finaliseCCDB
     } else {
       pc.inputs().get<o2::itsmft::TopologyDictionary*>("cldictITS"); // just to trigger the finaliseCCDB
