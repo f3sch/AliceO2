@@ -57,7 +57,7 @@ class DLLoaderBase
   // if the library is successfully loaded or already loaded.
   bool addLibrary(const std::string& library)
   {
-    const std::scoped_lock lock(mLock);
+    const std::lock_guard lock(mLock);
 
     if (mLibraries.find(library) != mLibraries.end()) {
       return true; // Library already loaded
@@ -97,10 +97,37 @@ class DLLoaderBase
     }
   }
 
+  // Unloads a given library returns true if this succeeded.
+  //
+  // Nota bene: Actually, we have very little control here when the unloading
+  // hapens since the linkder decides this based on if there is any reference
+  // left. And even if the reference counter goes to zero the linker is free to
+  // leave the library loaded and clean up whenever it wants.
+  bool unloadLibrary(const std::string& library)
+  {
+    const std::lock_guard lock(mLock);
+
+    if (auto it = mLibraries.find(library); it != mLibraries.end()) {
+      mLibraries.erase(it);
+      return true;
+    }
+
+    LOGP(error, "No '{}' library found, cannot unload it!", library);
+    return false;
+  }
+
+  // Resets all loaded libraries and O2Path, this invalidates all outside kept
+  // references.
+  void reset()
+  {
+    mO2Path.clear();
+    mLibraries.clear();
+  }
+
   // Checks if a library contains a specific symbol.
   bool hasSymbol(const std::string& library, const std::string& symbol)
   {
-    const std::scoped_lock lock(mLock);
+    const std::lock_guard lock(mLock);
 
     if (mLibraries.find(library) == mLibraries.end()) {
       // Library not loaded, attempt to load it
@@ -117,7 +144,7 @@ class DLLoaderBase
   template <typename ProtoType>
   std::optional<boost::function<ProtoType>> getFunctionAlias(const std::string& library, const std::string& fname)
   {
-    const std::scoped_lock lock(mLock);
+    const std::lock_guard lock(mLock);
 
     if (fname.empty()) {
       LOGP(error, "Function name cannot be empty!");
@@ -149,7 +176,7 @@ class DLLoaderBase
   template <typename Ret, typename... Args>
   Ret executeFunctionAlias(const std::string& library, const std::string& fname, Args... args)
   {
-    const std::scoped_lock lock(mLock);
+    const std::lock_guard lock(mLock);
 
     using ProtoType = Ret(Args...);
     if (auto func = getFunctionAlias<ProtoType>(library, fname)) {
@@ -163,7 +190,7 @@ class DLLoaderBase
   // Prints information about the loaded libraries and their symbols.
   void print(bool verbose = false)
   {
-    const std::scoped_lock lock(mLock);
+    const std::lock_guard lock(mLock);
 
     if (mO2Path.empty() || mLibraries.empty()) {
       LOGP(info, "No libraries added!");
@@ -212,9 +239,9 @@ class DLLoaderBase
     return boost::core::demangle(typeid(ProtoType).name());
   }
 
-  std::unordered_map<std::string, library_t> mLibraries{}; // pointers to loaded libraries
-  std::recursive_mutex mLock{};                            // while a recursive mutex is more expansive it makes locking easier
-  std::string mO2Path{};                                   // holds the path O2 dynamic library determined by $O2_ROOT
+  std::unordered_map<std::string, library_t> mLibraries{}; // Pointers to loaded libraries, calls `unload()' for each library, e.g., correctly destroy this object
+  std::recursive_mutex mLock{};                            // While a recursive mutex is more expansive it makes locking easier
+  std::string mO2Path{};                                   // Holds the path O2 dynamic library determined by $O2_ROOT
 };
 
 } // namespace o2::utils
