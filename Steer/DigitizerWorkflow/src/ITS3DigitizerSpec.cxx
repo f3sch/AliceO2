@@ -102,7 +102,6 @@ class ITS3DPLDigitizerTask : BaseDPLDigitizer
       if (mDigits.empty()) {
         return; // no digits were flushed, nothing to accumulate
       }
-      static int fixMC2ROF = 0; // 1st entry in mc2rofRecordsAccum to be fixed for ROFRecordID
       auto ndigAcc = digitsAccum.size();
       std::copy(mDigits.begin(), mDigits.end(), std::back_inserter(digitsAccum));
 
@@ -140,9 +139,9 @@ class ITS3DPLDigitizerTask : BaseDPLDigitizer
 
     auto& eventParts = context->getEventParts(withQED);
     // loop over all composite collisions given from context (aka loop over all the interaction records)
-    int bcShift = mDigitizer.getParams().getROFrameBiasInBC();
+    const int bcShift = mDigitizer.getParams().getROFrameBiasInBC();
     // loop over all composite collisions given from context (aka loop over all the interaction records)
-    for (int collID = 0; collID < timesview.size(); ++collID) {
+    for (size_t collID = 0; collID < timesview.size(); ++collID) {
       auto irt = timesview[collID];
       if (irt.toLong() < bcShift) { // due to the ROF misalignment the collision would go to negative ROF ID, discard
         continue;
@@ -159,7 +158,7 @@ class ITS3DPLDigitizerTask : BaseDPLDigitizer
         mHits.clear();
         context->retrieveHits(mSimChains, o2::detectors::SimTraits::DETECTORBRANCHNAMES[mID][0].c_str(), part.sourceID, part.entryID, &mHits);
 
-        if (mHits.size() > 0) {
+        if (!mHits.empty()) {
           LOG(debug) << "For collision " << collID << " eventID " << part.entryID
                      << " found " << mHits.size() << " hits ";
           mDigitizer.process(&mHits, part.entryID, part.sourceID); // call actual digitization procedure
