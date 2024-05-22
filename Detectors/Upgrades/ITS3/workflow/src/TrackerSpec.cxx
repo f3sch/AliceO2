@@ -46,7 +46,8 @@ namespace its3
 {
 using Vertex = o2::dataformats::Vertex<o2::dataformats::TimeStamp<int>>;
 
-TrackerDPL::TrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool isMC, int trgType, const std::string& trModeS, o2::gpu::GPUDataTypes::DeviceType dType) : mGGCCDBRequest(gr), mIsMC{isMC}, mUseTriggers{trgType}, mMode{trModeS}, mRecChain{o2::gpu::GPUReconstruction::CreateInstance(dType, true)}
+TrackerDPL::TrackerDPL(std::shared_ptr<o2::base::GRPGeomRequest> gr, bool isMC, int trgType, const std::string& trModeS, o2::gpu::GPUDataTypes::DeviceType dType) :
+  mGGCCDBRequest(gr), mIsMC{isMC}, mUseTriggers{trgType}, mMode{trModeS}, mRecChain{o2::gpu::GPUReconstruction::CreateInstance(dType, true)}
 {
   std::transform(mMode.begin(), mMode.end(), mMode.begin(), [](unsigned char c) { return std::tolower(c); });
 }
@@ -212,7 +213,7 @@ void TrackerDPL::run(ProcessingContext& pc)
     vertexerElapsedTime = mVertexer->clustersToVertices(logger);
   }
   const auto& multEstConf = FastMultEstConfig::Instance(); // parameters for mult estimation and cuts
-  for (auto iRof{0}; iRof < rofspan.size(); ++iRof) {
+  for (size_t iRof{0}; iRof < rofspan.size(); ++iRof) {
     std::vector<Vertex> vtxVecLoc;
     auto& vtxROF = vertROFvec.emplace_back(rofspan[iRof]);
     vtxROF.setFirstEntry(vertices.size());
@@ -220,7 +221,7 @@ void TrackerDPL::run(ProcessingContext& pc)
       auto vtxSpan = timeFrame->getPrimaryVertices(iRof);
       vtxROF.setNEntries(vtxSpan.size());
       bool selROF = vtxSpan.size() == 0;
-      for (auto iV{0}; iV < vtxSpan.size(); ++iV) {
+      for (size_t iV{0}; iV < vtxSpan.size(); ++iV) {
         auto& v = vtxSpan[iV];
         if (multEstConf.isVtxMultCutRequested() && !multEstConf.isPassingVtxMultCut(v.getNContributors())) {
           continue; // skip vertex of unwanted multiplicity
@@ -271,7 +272,6 @@ void TrackerDPL::run(ProcessingContext& pc)
       trackLabels = timeFrame->getTracksLabel(iROF);
       auto number{tracks.size()};
       auto first{allTracks.size()};
-      int offset = -rof.getFirstEntry(); // cluster entry!!!
       rof.setFirstEntry(first);
       rof.setNEntries(number);
       if (processingMask[iROF]) {
@@ -283,8 +283,8 @@ void TrackerDPL::run(ProcessingContext& pc)
       for (unsigned int iTrk{0}; iTrk < tracks.size(); ++iTrk) {
         auto& trc{tracks[iTrk]};
         trc.setFirstClusterEntry(allClusIdx.size()); // before adding tracks, create final cluster indices
-        int ncl = trc.getNumberOfClusters(), nclf = 0;
-        for (int ic = TrackITSExt::MaxClusters; ic--;) { // track internally keeps in->out cluster indices, but we want to store the references as out->in!!!
+        int nclf = 0;
+        for (int ic = TrackITSExt::MaxClusters; (ic--) != 0;) { // track internally keeps in->out cluster indices, but we want to store the references as out->in!!!
           auto clid = trc.getClusterIndex(ic);
           if (clid >= 0) {
             allClusIdx.push_back(clid);

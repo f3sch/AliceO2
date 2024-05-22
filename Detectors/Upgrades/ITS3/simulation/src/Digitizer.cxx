@@ -136,7 +136,7 @@ void Digitizer::fillOutputContainer(uint32_t frameLast)
     rcROF.setFirstEntry(mDigits->size()); // start of current ROF in digits
 
     auto& extra = *(mExtraBuff.front().get());
-    for (int iChip{0}; iChip < mChips.size(); ++iChip) {
+    for (size_t iChip{0}; iChip < mChips.size(); ++iChip) {
       auto& chip = mChips[iChip];
       if (constants::detID::isDetITS3(iChip)) { // Check if this is a chip of ITS3
         chip.addNoise(mROFrameMin, mROFrameMin, &mParams, SuperSegmentation::mNRows, SuperSegmentation::mNCols);
