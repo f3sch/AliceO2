@@ -19,3 +19,4 @@
 #include "SimConfig/SimParams.h"
 O2ParamImpl(o2::conf::SimCutParams);
 O2ParamImpl(o2::conf::SimMaterialParams);
+O2ParamImpl(o2::conf::SimConfigParams);

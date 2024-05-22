@@ -10,15 +10,12 @@
 // or submit itself to any jurisdiction.
 
 #include <SimConfig/SimConfig.h>
-#include <SimConfig/DetectorVersions.h>
+#include <SimConfig/SimParams.h>
+#include <SimConfig/DetectorLists.h>
 #include <DetectorsCommonDataFormats/DetID.h>
 #include <SimulationDataFormat/DigitizationContext.h>
-#include <rapidjson/document.h>
-#include <rapidjson/error/en.h>
-#include <rapidjson/istreamwrapper.h>
 #include <boost/program_options.hpp>
 #include <iostream>
-#include <fstream>
 #include <fairlogger/Logger.h>
 #include <thread>
 #include <cmath>
@@ -39,8 +36,7 @@ void SimConfig::initOptions(boost::program_options::options_description& options
     "skipModules", bpo::value<std::vector<std::string>>()->multitoken()->default_value(std::vector<std::string>({""}), ""), "list of modules excluded in geometry (precendence over -m")(
     "readoutDetectors", bpo::value<std::vector<std::string>>()->multitoken()->default_value(std::vector<std::string>(), ""), "list of detectors creating hits, all if not given; added to to active modules")(
     "skipReadoutDetectors", bpo::value<std::vector<std::string>>()->multitoken()->default_value(std::vector<std::string>(), ""), "list of detectors to skip hit creation (precendence over --readoutDetectors")(
-    "detectorVersion", bpo::value<std::string>()->default_value(""), "Use a specific version of ALICE, e.g., a predefined list")(
-    "detectorVersionJSON", bpo::value<std::string>()->default_value(""), "Provide a JSON file containing custom versions of detector configurations")(
+    "detectorList", bpo::value<std::string>()->default_value(""), "Use a specific version of ALICE, e.g., a predefined list")(
     "nEvents,n", bpo::value<unsigned int>()->default_value(0), "number of events")(
     "startEvent", bpo::value<unsigned int>()->default_value(0), "index of first event to be used (when applicable)")(
     "extKinFile", bpo::value<std::string>()->default_value("Kinematics.root"),
@@ -152,61 +148,40 @@ void SimConfig::determineActiveModules(std::vector<std::string> const& inputargs
   filterSkippedElements(activeModules, skippedModules);
 }
 
-bool SimConfig::determineActiveModulesVersion(const std::string& version, const std::string& fileName, std::vector<std::string> const& inputargs, std::vector<std::string> const& skippedModules, std::vector<std::string>& activeModules)
+bool SimConfig::determineActiveModulesList(const std::string& version, std::vector<std::string> const& inputargs, std::vector<std::string> const& skippedModules, std::vector<std::string>& activeModules)
 {
-  DetectorElements_t modules;
-  if (!fileName.empty()) {
-    // Parse JSON file to build map
-    std::ifstream fileStream(fileName, std::ios::in);
-    if (!fileStream.is_open()) {
-      LOGP(error, "Cannot open '{}'!", fileName);
+  DetectorList_t modules;
+  DetectorMap_t map;
+  if (const auto& path = SimConfigParams::Instance().detectorListJSON; !path.empty()) {
+    if (!parseDetectorMapfromJSON(path, map)) {
+      LOGP(error, "Could not parse {}; check errors above!", path);
       return false;
     }
-    rapidjson::IStreamWrapper isw(fileStream);
-    rapidjson::Document doc;
-    doc.ParseStream(isw);
-    if (doc.HasParseError()) {
-      LOGP(error, "Error parsing provided json file '{}':", fileName);
-      LOGP(error, "  - Error -> {}", rapidjson::GetParseError_En(doc.GetParseError()));
-      LOGP(error, "  - Offset -> {}", doc.GetErrorOffset());
+    if (map.find(version) == map.end()) {
+      LOGP(error, "List {} is not defined in custom JSON file!", version);
+      printDetMap(map);
       return false;
     }
-
-    // Build map
-    DetectorMap_t detectorVersions;
-    try {
-      for (auto verItr = doc.MemberBegin(); verItr != doc.MemberEnd(); ++verItr) {
-        const auto& version = verItr->name.GetString();
-        DetectorElements_t elements;
-        const auto& eles = doc[version];
-        for (auto eleItr = eles.MemberBegin(); eleItr != eles.MemberEnd(); ++eleItr) {
-          elements.emplace_back(eleItr->name.GetString());
-        }
-        detectorVersions[version] = elements;
-      }
-    } catch (const std::exception& e) {
-      LOGP(error, "Failed to build detector map from custom file with {}", e.what());
-      return false;
-    }
-
-    // Get Detectors
-    if (detectorVersions.find(version) == detectorVersions.end()) {
-      LOGP(error, "Did not find '{}' in custom versions", version);
-      printDetMap(detectorVersions);
-      return false;
-    } else {
-      modules = detectorVersions.at(version);
-    }
-    LOGP(info, "Running with detector version '{}' from file '{}'", version, fileName);
+    modules = map[version];
+    LOGP(info, "Running with version {} from custom detector list '{}'", version, path);
   } else {
-    // Otherwise check 'official' versions
-    if (DetectorVersions.find(version) == DetectorVersions.end()) {
-      LOGP(error, "Did not find '{}' in official versions", version);
-      printDetMap(DetectorVersions);
+    // Otherwise check 'official' versions which provided in config
+    auto o2env = std::getenv("O2_ROOT");
+    if (!o2env) {
+      LOGP(error, "O2_ROOT environment not defined");
       return false;
-    } else {
-      modules = DetectorVersions.at(version);
     }
+    const std::string rootpath(fmt::format("{}/share/config/o2simdetectorlist_template.json", o2env));
+    if (!parseDetectorMapfromJSON(rootpath, map)) {
+      LOGP(error, "Could not parse {} -> check errors above!", rootpath);
+      return false;
+    }
+    if (map.find(version) == map.end()) {
+      LOGP(error, "List {} is not defined in 'official' JSON file!", version);
+      printDetMap(map);
+      return false;
+    }
+    modules = map[version];
     LOGP(info, "Running with official detector version '{}'", version);
   }
 
@@ -274,14 +249,13 @@ bool SimConfig::resetFromParsedMap(boost::program_options::variables_map const& 
   mConfigData.mReadoutDetectors.clear();
   mConfigData.mActiveModules.clear();
 
-  if (vm["detectorVersion"].defaulted()) {
+  if (vm["detectorList"].defaulted()) {
     // get final set of active Modules
     determineActiveModules(vm["modules"].as<std::vector<std::string>>(), vm["skipModules"].as<std::vector<std::string>>(), mConfigData.mActiveModules, mConfigData.mIsUpgrade);
   } else {
     // Check for a specific detector version
-    const bool ret = determineActiveModulesVersion(vm["detectorVersion"].as<std::string>(), vm["detectorVersionJSON"].as<std::string>(), vm["modules"].as<std::vector<std::string>>(), vm["skipModules"].as<std::vector<std::string>>(), mConfigData.mActiveModules);
-    if (!ret) {
-      return ret;
+    if (!determineActiveModulesList(vm["detectorList"].as<std::string>(), vm["modules"].as<std::vector<std::string>>(), vm["skipModules"].as<std::vector<std::string>>(), mConfigData.mActiveModules)) {
+      return false;
     }
   }
 
@@ -475,15 +449,6 @@ void SimConfig::adjustFromCollContext(std::string const& collcontextfile, std::s
   }
 }
 
-void SimConfig::checkOptionalDependency(const bpo::variables_map& vm, const char* for_what, const char* required_option) const
-{
-  if ((vm.count(for_what) != 0u) && !vm[for_what].defaulted()) {
-    if (vm.count(required_option) == 0u || vm[required_option].defaulted()) {
-      throw bpo::error(fmt::format("Option '{}' requires option '{}'!", for_what, required_option));
-    }
-  }
-}
-
 bool SimConfig::resetFromArguments(int argc, char* argv[])
 {
   // Arguments parsing
@@ -500,9 +465,6 @@ bool SimConfig::resetFromArguments(int argc, char* argv[])
       std::cout << desc << std::endl;
       return false;
     }
-
-    // if detectorVersionJSON is specified then one must also specified which version in the custom file should be used!
-    checkOptionalDependency(vm, "detectorVersionJSON", "detectorVersion");
 
     bpo::notify(vm);
   } catch (const bpo::error& e) {

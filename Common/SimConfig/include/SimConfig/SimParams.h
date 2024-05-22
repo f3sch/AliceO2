@@ -22,11 +22,11 @@ namespace conf
 // parameters to influence/set the tracking cuts in simulation
 // (mostly used in O2MCApplication stepping)
 struct SimCutParams : public o2::conf::ConfigurableParamHelper<SimCutParams> {
-  bool stepFiltering = true; // if we activate the step filtering in O2BaseMCApplication
+  bool stepFiltering = true;                                                                                  // if we activate the step filtering in O2BaseMCApplication
   bool stepTrackRefHook = false;                                                                              // if we create track references during generic stepping
   std::string stepTrackRefHookFile = "${O2_ROOT}/share/Detectors/gconfig/StandardSteppingTrackRefHook.macro"; // the standard code holding the TrackRef callback
 
-  bool trackSeed = false;    // per track seeding for track-reproducible mode
+  bool trackSeed = false; // per track seeding for track-reproducible mode
 
   double maxRTracking = 1E20;    // max R tracking cut in cm (in the VMC sense) -- applied in addition to cutting in the stepping function
   double maxAbsZTracking = 1E20; // max |Z| tracking cut in cm (in the VMC sense) -- applied in addition to cutting in the stepping function
@@ -48,6 +48,13 @@ struct SimMaterialParams : public o2::conf::ConfigurableParamHelper<SimMaterialP
   std::string localDensityFactor; // Expected format: "SimMaterialParams.localDensityFactor=<mod1>:<value1>,<mod2>:<value2>,..."
 
   O2ParamDef(SimMaterialParams, "SimMaterialParams");
+};
+
+// parameters to influence general simulation configurations
+struct SimConfigParams : public o2::conf::ConfigurableParamHelper<SimConfigParams> {
+  std::string detectorListJSON; // path to a custom JSON file defining the detector lists
+
+  O2ParamDef(SimConfigParams, "SimConfigParams");
 };
 
 } // namespace conf

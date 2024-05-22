@@ -105,9 +105,6 @@ class SimConfig
     resetFromArguments(1, argv);
   };
 
-  // Function used to check that of 'for_what' is specified, then 'required_option' is specified too.
-  void checkOptionalDependency(const boost::program_options::variables_map& vm, const char* for_what, const char* required_option) const;
-
  public:
   static SimConfig& Instance()
   {
@@ -143,7 +140,7 @@ class SimConfig
   // static helper functions to determine list of active / readout modules
   // can also be used from outside
   static void determineActiveModules(std::vector<std::string> const& input, std::vector<std::string> const& skipped, std::vector<std::string>& active, bool isUpgrade = false);
-  static bool determineActiveModulesVersion(const std::string& version, const std::string& fileName, std::vector<std::string> const& input, std::vector<std::string> const& skipped, std::vector<std::string>& active);
+  static bool determineActiveModulesList(const std::string& version, std::vector<std::string> const& input, std::vector<std::string> const& skipped, std::vector<std::string>& active);
   static void determineReadoutDetectors(std::vector<std::string> const& active, std::vector<std::string> const& enabledRO, std::vector<std::string> const& skippedRO, std::vector<std::string>& finalRO);
 
   // helper to parse field option
