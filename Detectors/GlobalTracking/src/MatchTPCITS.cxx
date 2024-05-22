@@ -243,7 +243,7 @@ void MatchTPCITS::init()
 #endif
 
   if (mParams->runAfterBurner) { // only used in AfterBurner
-    mRGHelper.init();    // prepare helper for TPC track / ITS clusters matching
+    mRGHelper.init();            // prepare helper for TPC track / ITS clusters matching
   }
 
   clear();
