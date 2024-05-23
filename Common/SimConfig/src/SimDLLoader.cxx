@@ -9,16 +9,5 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-#ifndef SIMDLLOADER_H_
-#define SIMDLLOADER_H_
-
-#include "CommonUtils/DLLoaderBase.h"
-
-namespace o2::conf
-{
-
-O2DLLoaderDef(SimDLLoader)
-
-} // namespace o2::conf
-
-#endif // SIMDLLOADER_H_
+#include "SimConfig/SimDLLoader.h"
+O2DLLoaderImpl(o2::conf::SimDLLoader)

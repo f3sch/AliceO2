@@ -12,6 +12,7 @@
 o2_add_library(SimConfig
                SOURCES src/SimConfig.cxx
                        src/SimParams.cxx
+                       src/SimDLLoader.cxx
                        src/SimUserDecay.cxx
                        src/DigiParams.cxx
                        src/G4Params.cxx

@@ -24,6 +24,7 @@ o2_add_library(CommonUtils
                        src/NameConf.cxx
                        src/IRFrameSelector.cxx
                        src/DebugStreamer.cxx
+                       src/DLLoaderBase.cxx
                PUBLIC_LINK_LIBRARIES ROOT::Hist ROOT::Tree Boost::iostreams O2::CommonDataFormat O2::Headers
                                      FairLogger::FairLogger O2::MathUtils TBB::tbb Boost::boost)
 

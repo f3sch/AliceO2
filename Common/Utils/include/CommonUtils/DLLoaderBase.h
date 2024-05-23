@@ -49,8 +49,7 @@ class DLLoaderBase
   // 2. Once loaded they are not again unloaded until the end of the program.
   static DerivedType& Instance()
   {
-    static DerivedType instance;
-    return instance;
+    return DerivedType::sInstance;
   }
 
   // Loads a dynamic library by its name and stores its handle. Returns true
@@ -219,10 +218,7 @@ class DLLoaderBase
 
  protected:
   // Constructor and destructor are protected to enforce singleton pattern.
-  DLLoaderBase()
-  {
-    LOGP(info, "{} instance created", getTypeName<DerivedType>());
-  }
+  DLLoaderBase() = default;
   ~DLLoaderBase() = default;
 
  private:
@@ -245,5 +241,16 @@ class DLLoaderBase
 };
 
 } // namespace o2::utils
+
+#define O2DLLoaderDef(classname)                                   \
+  class classname : public o2::utils::DLLoaderBase<classname>      \
+  {                                                                \
+   private:                                                        \
+    static classname sInstance;                                    \
+    classname() = default;                                         \
+    friend class o2::utils::DLLoaderBase<classname>; \
+  };
+
+#define O2DLLoaderImpl(classname) classname classname::sInstance;
 
 #endif // DLLOADER_H_
