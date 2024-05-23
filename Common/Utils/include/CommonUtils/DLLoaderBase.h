@@ -242,13 +242,13 @@ class DLLoaderBase
 
 } // namespace o2::utils
 
-#define O2DLLoaderDef(classname)                                   \
-  class classname : public o2::utils::DLLoaderBase<classname>      \
-  {                                                                \
-   private:                                                        \
-    static classname sInstance;                                    \
-    classname() = default;                                         \
-    friend class o2::utils::DLLoaderBase<classname>; \
+#define O2DLLoaderDef(classname)                              \
+  class classname : public o2::utils::DLLoaderBase<classname> \
+  {                                                           \
+   private:                                                   \
+    static classname sInstance;                               \
+    classname() = default;                                    \
+    friend class o2::utils::DLLoaderBase<classname>;          \
   };
 
 #define O2DLLoaderImpl(classname) classname classname::sInstance;
