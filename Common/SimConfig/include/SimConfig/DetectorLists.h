@@ -31,7 +31,7 @@ using DetectorMap_t = std::unordered_map<std::string, DetectorList_t>;
 bool parseDetectorMapfromJSON(const std::string& path, DetectorMap_t& map);
 
 // Print the DetetectorMap
-void printDetMap(const DetectorMap_t& map);
+void printDetMap(const DetectorMap_t& map, const std::string& list = "");
 } // namespace o2::conf
 
 #endif // O2_DETECTORLISTS_H_

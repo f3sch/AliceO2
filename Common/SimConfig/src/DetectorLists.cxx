@@ -57,13 +57,20 @@ bool parseDetectorMapfromJSON(const std::string& path, DetectorMap_t& map)
   return true;
 }
 
-void printDetMap(const DetectorMap_t& map)
+void printDetMap(const DetectorMap_t& map, const std::string& list)
 {
-  LOGP(error, "List of available versions including their detectors:");
-  for (int i{0}; const auto& [version, elements] : map) {
-    LOGP(error, " - {: >2d}. {}:", i++, version);
-    for (int j{0}; const auto& element : elements) {
-      LOGP(error, "\t\t* {: >2d}.\t{}", j++, element);
+  if (list.empty()) {
+    LOGP(error, "List of all available versions including their detectors:");
+    for (int i{0}; const auto& [version, elements] : map) {
+      LOGP(error, " - {: >2d}. {}:", i++, version);
+      for (int j{0}; const auto& element : elements) {
+        LOGP(error, "\t\t* {: >2d}.\t{}", j++, element);
+      }
+    }
+  } else {
+    LOGP(error, "List of available modules for version {}:", list);
+    for (int j{0}; const auto& element : map.at(list)) {
+      LOGP(error, "\t* {: >2d}.\t{}", j++, element);
     }
   }
 }

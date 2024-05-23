@@ -181,7 +181,7 @@ class SimConfig
   SimConfigData mConfigData; //!
 
   // Filter out skipped elements in the list
-  static void filterSkippedElements(std::vector<std::string>& elements, std::vector<std::string> const& skipped);
+  static bool filterSkippedElements(std::vector<std::string>& elements, std::vector<std::string> const& skipped);
 
   // adjust/overwrite some option settings when collision context is used
   void adjustFromCollContext(std::string const& collcontextfile, std::string const& prefix);

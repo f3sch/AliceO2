@@ -21,6 +21,7 @@
 #include <cmath>
 #include <chrono>
 #include <regex>
+#include <algorithm>
 
 using namespace o2::conf;
 namespace bpo = boost::program_options;
@@ -184,11 +185,23 @@ bool SimConfig::determineActiveModulesList(const std::string& version, std::vect
     modules = map[version];
     LOGP(info, "Running with official detector version '{}'", version);
   }
-
-  // Insert into active modules
-  std::copy(modules.begin(), modules.end(), std::back_inserter(activeModules));
-  filterSkippedElements(activeModules, skippedModules);
-  return true;
+  // check if specified modules are in list
+  if (inputargs.size() != 1 || inputargs[0] != "all") {
+    std::vector<std::string> diff;
+    std::set_difference(inputargs.begin(), inputargs.end(), modules.begin(), modules.end(), std::back_inserter(diff));
+    if (!diff.empty()) {
+      LOGP(error, "Modules specified that are not present in detector list {}", version);
+      for (int j{0}; const auto& m : diff) {
+        LOGP(info, " - {: <2}. {}", j++, m);
+      }
+      printDetMap(map, version);
+      return false;
+    }
+  }
+  // Insert into active modules if module is built buy -m or insert all if default for -m is used ("all")
+  std::copy_if(modules.begin(), modules.end(), std::back_inserter(activeModules),
+               [&inputargs](const auto& e) { return (inputargs.size() == 1 && inputargs[0] == "all") || (std::find(inputargs.begin(), inputargs.end(), e) != inputargs.end()); });
+  return filterSkippedElements(activeModules, skippedModules);
 }
 
 void SimConfig::determineReadoutDetectors(std::vector<std::string> const& activeModules, std::vector<std::string> const& enableReadout, std::vector<std::string> const& disableReadout, std::vector<std::string>& readoutDetectors)
@@ -384,7 +397,7 @@ bool SimConfig::parseFieldString(std::string const& fieldstring, int& fieldvalue
   return true;
 }
 
-void SimConfig::filterSkippedElements(std::vector<std::string>& elements, std::vector<std::string> const& skipped)
+bool SimConfig::filterSkippedElements(std::vector<std::string>& elements, std::vector<std::string> const& skipped)
 {
   for (auto& s : skipped) {
     if (s.empty()) { // nothing to skip here
@@ -395,9 +408,21 @@ void SimConfig::filterSkippedElements(std::vector<std::string>& elements, std::v
       // take it out
       elements.erase(iter);
     } else {
-      LOGP(warn, "Element '{}' not present in currently element list; check if this is expected!", s);
+      LOGP(error, "Skipped modules specified that are not present in built modules!");
+      LOGP(error, "Built modules:");
+      for (int j{0}; const auto& m : elements) {
+        LOGP(error, " + {: <2}. {}", j++, m);
+      }
+      std::vector<std::string> diff;
+      std::set_difference(skipped.begin(), skipped.end(), elements.begin(), elements.end(), std::back_inserter(diff));
+      LOGP(error, "Specified skipped modules not present in built modules::");
+      for (int j{0}; const auto& m : diff) {
+        LOGP(error, " - {: <2}. {}", j++, m);
+      }
+      return false;
     }
   }
+  return true;
 }
 
 void SimConfig::adjustFromCollContext(std::string const& collcontextfile, std::string const& prefix)
