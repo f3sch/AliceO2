@@ -3221,6 +3221,6 @@ ClassImp(o2::tpc::Detector);
 extern "C" {
 o2::base::Detector* create_detector_tpc(bool active)
 {
-  return o2::tpc::Detector::create( active);
+  return o2::tpc::Detector::create(active);
 }
 }
