@@ -807,7 +807,7 @@ void CheckDCA(const std::string& collisioncontextFileName = "collisioncontext.ro
   gPad->BuildLegend(0.8, 0.8, 0.94, 0.94);
 
   auto canvDcaPtComp = new TCanvas("canvDcaPtAllLayersComp", "", 500, 500);
-  canvDcaPtComp->Divide(2,2);
+  canvDcaPtComp->Divide(2, 2);
   canvDcaPtComp->cd(1);
   hDcaxyVsPtAllLayersITS[211]->Draw();
   canvDcaPtComp->cd(2);
@@ -818,7 +818,7 @@ void CheckDCA(const std::string& collisioncontextFileName = "collisioncontext.ro
   hDcazVsPtAllLayersITSTPC[211]->Draw();
 
   auto canvDcaPhiComp = new TCanvas("canvDcaPhiAllLayersComp", "", 500, 500);
-  canvDcaPhiComp->Divide(2,2);
+  canvDcaPhiComp->Divide(2, 2);
   canvDcaPhiComp->cd(1);
   hDcaxyVsPhiAllLayersITS[211]->Draw();
   canvDcaPhiComp->cd(2);
