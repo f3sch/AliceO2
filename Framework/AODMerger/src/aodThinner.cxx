@@ -10,6 +10,8 @@
 // or submit itself to any jurisdiction.
 
 #include <unordered_map>
+#include <numeric>
+#include <algorithm>
 #include <getopt.h>
 
 #include "TSystem.h"
@@ -31,16 +33,41 @@
 
 // AOD reduction tool
 //   Designed for the 2022 pp data with specific selections:
-//   - Remove all TPC only tracks, optionally keep TPC-only V0 tracks
+//   - Remove all TPC only tracks, keep TPC-only V0 tracks
 //   - Remove all V0s which refer to any removed track
 //   - Remove all cascade which refer to any removed V0
 //   - Remove all ambiguous track entries which point to a track with collision
 //   - Adjust all indices
+//   adjusted also for 2023
+
+// Collection of possible error codes.
+// Some of these are transient, e.g., overwritten by others.
+// If any is encountered check the logs!
+enum ErrorCodes : int {
+  SUCCESS = 0,                   // Succesful exit
+  ORDERED_KEYS = 5,              // Encounter unoreded keys
+  MISSING_TRKEXTRA = 6,          // Branch O2trackextra* was not present in file
+  MISSING_TRKIU = 7,             // Branch O2trackiu* was not present in file
+  MISSING_V0 = 8,                // Branch O2v0* was not present in file
+  NO_VLA_SUPPORT = 9,            // Branch with VLA detected but is not supported by thinner
+  BRANCH_DETECTION = 10,         // Sanity check for branches failed
+  EMPTY_FILE = 11,               // Input/Output file empty after thinning
+  MISSING_TRACKEDV0 = 12,        // Branch O2trackedv0* not present in file
+  MISSING_TRACKEDCASC = 13,      // Branch O2trackedcascade* not present in file
+  MISSING_TRACKED3BODY = 14,     // Branch O2tracked3body* not present in file
+  SANITY_TRACKED = 15,           // Late sanity check if O2tracked* is present
+  NOT_EXPECTED_REDUCTION = 16,   // Reduced a tree which should not be reduced
+  MISSING_CASCADES = 17,         // Branch O2cascades not preset in file
+  MISSING_DECAY3BODYS = 18,      // Branch O2decay3body not preset in file
+  MISSING_TRACKQA = 19,          // Branch O2trackqa not preset in file
+  PROCESSING_MORE_THAN_ONE = 20, // Processing more than once actively check branch
+};
+
 int main(int argc, char* argv[])
 {
   std::string inputFileName("AO2D.root");
   std::string outputFileName("AO2D_thinned.root");
-  int exitCode = 0; // 0: success, !=0: failure
+  int exitCode = SUCCESS; // 0: success, !=0: failure
   bool bOverwrite = false;
 
   int option_index = 1;
@@ -145,7 +172,7 @@ int main(int argc, char* argv[])
         if (std::strcmp(ki->GetName(), kj->GetName()) == 0 && std::strcmp(ki->GetTitle(), kj->GetTitle()) == 0) {
           if (ki->GetCycle() < kj->GetCycle()) {
             printf("    *** FATAL *** we had ordered the keys, first cycle should be higher, please check");
-            exitCode = 5;
+            exitCode = ORDERED_KEYS;
           } else {
             // key is a duplicate, let's remove it
             treeList->Remove(kj);
@@ -159,14 +186,48 @@ int main(int argc, char* argv[])
     }
 
     // Scan versions e.g. 001 or 002 ...
-    TString v0Name{"O2v0_???"}, trkExtraName{"O2trackextra*"};
-    TRegexp v0Re(v0Name, kTRUE), trkExtraRe(trkExtraName, kTRUE);
+    TString v0Name{"O2v0*"};
+    TRegexp v0Re(v0Name, kTRUE);
+    TString cascName{"O2cascade*"};
+    TRegexp cascRe(cascName, kTRUE);
+    TString decay3bodyName{"O2decay3body*"};
+    TRegexp decay3bodyRe(decay3bodyName, kTRUE);
+    TString trkExtraName{"O2trackextra*"};
+    TRegexp trkExtraRe(trkExtraName, kTRUE);
+    bool hasTrackedV0{false};
+    TString trackedV0Name{"O2trackedv0*"};
+    TRegexp trackedV0Re(trackedV0Name, kTRUE);
+    bool hasTrackedCasc{false};
+    TString trackedCascName{"O2trackedcascade*"};
+    TRegexp trackedCascRe(trackedCascName, kTRUE);
+    bool hasTracked3Body{false};
+    TString tracked3BodyName{"O2tracked3body*"};
+    TRegexp tracked3BodyRe(tracked3BodyName, kTRUE);
+    bool hasTrackQA{false};
+    TString trackQAName{"O2trackqa*"};
+    TRegexp trackQARe(trackQAName, kTRUE);
     for (TObject* obj : *treeList) {
       TString st = obj->GetName();
       if (st.Index(v0Re) != kNPOS) {
         v0Name = st;
+      } else if (st.Index(cascRe) != kNPOS) {
+        cascName = st;
+      } else if (st.Index(decay3bodyRe) != kNPOS) {
+        decay3bodyName = st;
       } else if (st.Index(trkExtraRe) != kNPOS) {
         trkExtraName = st;
+      } else if (st.Index(trackedV0Re) != kNPOS) {
+        hasTrackedV0 = true;
+        trackedV0Name = st;
+      } else if (st.Index(trackedCascRe) != kNPOS) {
+        hasTrackedCasc = true;
+        trackedCascName = st;
+      } else if (st.Index(tracked3BodyRe) != kNPOS) {
+        hasTracked3Body = true;
+        tracked3BodyName = st;
+      } else if (st.Index(trackQARe) != kNPOS) {
+        hasTrackQA = true;
+        trackQAName = st;
       }
     }
 
@@ -179,37 +240,137 @@ int main(int argc, char* argv[])
     auto trackExtraTree = (TTree*)inputFile->Get(Form("%s/%s", dfName, trkExtraName.Data()));
     if (trackExtraTree == nullptr) {
       printf("%s table not found\n", trkExtraName.Data());
-      exitCode = 6;
+      exitCode = MISSING_TRKEXTRA;
       break;
     }
     auto track_iu = (TTree*)inputFile->Get(Form("%s/%s", dfName, "O2track_iu"));
     if (track_iu == nullptr) {
       printf("O2track_iu table not found\n");
-      exitCode = 7;
+      exitCode = MISSING_TRKIU;
       break;
     }
     auto v0s = (TTree*)inputFile->Get(Form("%s/%s", dfName, v0Name.Data()));
     if (v0s == nullptr) {
       printf("%s table not found\n", v0Name.Data());
-      exitCode = 8;
+      exitCode = MISSING_V0;
+      break;
+    }
+    auto cascades = (TTree*)inputFile->Get(Form("%s/%s", dfName, cascName.Data()));
+    if (cascades == nullptr) {
+      printf("%s table not found\n", cascName.Data());
+      exitCode = MISSING_CASCADES;
+      break;
+    }
+    auto decay3bodys = (TTree*)inputFile->Get(Form("%s/%s", dfName, decay3bodyName.Data()));
+    if (decay3bodys == nullptr) {
+      printf("%s table not found\n", decay3bodyName.Data());
+      exitCode = MISSING_DECAY3BODYS;
       break;
     }
 
-    // We need to loop over the V0s once and flag the prong indices
-    int trackIdxPos = 0, trackIdxNeg = 0;
-    std::unordered_map<int, bool> keepV0TPCs;
-    v0s->SetBranchAddress("fIndexTracks_Pos", &trackIdxPos);
-    v0s->SetBranchAddress("fIndexTracks_Neg", &trackIdxNeg);
-    auto nV0s = v0s->GetEntriesFast();
-    for (int i{0}; i < nV0s; ++i) {
-      v0s->GetEntry(i);
-      keepV0TPCs[trackIdxPos] = true;
-      keepV0TPCs[trackIdxNeg] = true;
+    // Strangeness Tracking Trees
+    TTree *trackedV0s{nullptr}, *trackedCasc{nullptr}, *tracked3Body{nullptr};
+    if (hasTrackedV0 && (trackedV0s = (TTree*)inputFile->Get(Form("%s/%s", dfName, trackedV0Name.Data()))) == nullptr) {
+      exitCode = MISSING_TRACKEDV0;
+      break;
+    }
+    if (hasTrackedCasc && (trackedCasc = (TTree*)inputFile->Get(Form("%s/%s", dfName, trackedCascName.Data()))) == nullptr) {
+      exitCode = MISSING_TRACKEDCASC;
+      break;
+    }
+    if (hasTracked3Body && (tracked3Body = (TTree*)inputFile->Get(Form("%s/%s", dfName, tracked3BodyName.Data()))) == nullptr) {
+      exitCode = MISSING_TRACKED3BODY;
+      break;
+    }
+    // TrackQA
+    TTree* trackQA;
+    if (hasTrackQA && (trackQA = (TTree*)inputFile->Get(Form("%s/%s", dfName, trackQAName.Data()))) == nullptr) {
+      exitCode = MISSING_TRACKQA;
+      break;
     }
 
-    std::vector<int> acceptedTracks(trackExtraTree->GetEntries(), -1);
-    std::vector<bool> hasCollision(trackExtraTree->GetEntries(), false);
-    std::vector<int> keepV0s(v0s->GetEntries(), -1);
+    std::vector<int> acceptedTracks(trackExtraTree->GetEntriesFast(), -1); // New track Idx for accepted Tracks
+    std::vector<bool> hasCollision(trackExtraTree->GetEntriesFast(), false);
+
+    // We need to loop over the V0s once and flag the prong indices
+    int trackIdxPos = 0, trackIdxNeg = 0;
+    std::vector<bool> keepV0s(trackExtraTree->GetEntriesFast(), false);
+    v0s->SetBranchAddress("fIndexTracks_Pos", &trackIdxPos);
+    v0s->SetBranchAddress("fIndexTracks_Neg", &trackIdxNeg);
+    for (int i{0}; i < v0s->GetEntriesFast(); ++i) {
+      v0s->GetEntry(i);
+      keepV0s[trackIdxPos] = true;
+      keepV0s[trackIdxNeg] = true;
+    }
+
+    int trackIdxCasc = -1;
+    std::vector<bool> keepCascades(trackExtraTree->GetEntriesFast(), false);
+    cascades->SetBranchAddress("fIndexTracks", &trackIdxCasc);
+    for (int i{0}; i < cascades->GetEntriesFast(); ++i) {
+      cascades->GetEntry(i);
+      keepCascades[trackIdxCasc] = true;
+    }
+
+    int trackIdx0{-1}, trackIdx1{-1}, trackIdx2{-1};
+    std::vector<bool> keep3Bodys(trackExtraTree->GetEntriesFast(), false);
+    decay3bodys->SetBranchAddress("fIndexTracks_0", &trackIdx0);
+    decay3bodys->SetBranchAddress("fIndexTracks_1", &trackIdx1);
+    decay3bodys->SetBranchAddress("fIndexTracks_2", &trackIdx2);
+    for (int i{0}; i < decay3bodys->GetEntriesFast(); ++i) {
+      decay3bodys->GetEntry(i);
+      keep3Bodys[trackIdx0] = true;
+      keep3Bodys[trackIdx1] = true;
+      keep3Bodys[trackIdx2] = true;
+    }
+
+    /// Strangeness Tracked
+    // V0
+    std::vector<bool> keepTrackedV0s;
+    if (hasTrackedV0) {
+      keepTrackedV0s = std::vector<bool>(trackExtraTree->GetEntriesFast(), false);
+      trackedV0s->SetBranchAddress("fIndexTracks", &trackIdx0);
+      trackedV0s->SetBranchAddress("fIndexTracks_ITS", &trackIdx1);
+      for (int i{0}; i < trackedV0s->GetEntriesFast(); ++i) {
+        trackedV0s->GetEntry(i);
+        keepTrackedV0s[trackIdx0] = true;
+        keepTrackedV0s[trackIdx1] = true;
+      }
+    }
+    // Cascades
+    std::vector<bool> keepTrackedCascs;
+    if (hasTrackedCasc) {
+      keepTrackedCascs = std::vector<bool>(trackExtraTree->GetEntriesFast(), false);
+      trackedCasc->SetBranchAddress("fIndexTracks", &trackIdx0);
+      trackedCasc->SetBranchAddress("fIndexTracks_ITS", &trackIdx1);
+      for (int i{0}; i < trackedCasc->GetEntriesFast(); ++i) {
+        trackedCasc->GetEntry(i);
+        keepTrackedCascs[trackIdx0] = true;
+        keepTrackedCascs[trackIdx1] = true;
+      }
+    }
+    // 3Bodys
+    std::vector<bool> keepTracked3Bodys;
+    if (hasTracked3Body) {
+      keepTracked3Bodys = std::vector<bool>(trackExtraTree->GetEntriesFast(), false);
+      tracked3Body->SetBranchAddress("fIndexTracks", &trackIdx0);
+      tracked3Body->SetBranchAddress("fIndexTracks_ITS", &trackIdx1);
+      for (int i{0}; i < tracked3Body->GetEntriesFast(); ++i) {
+        tracked3Body->GetEntry(i);
+        keepTracked3Bodys[trackIdx0] = true;
+        keepTracked3Bodys[trackIdx1] = true;
+      }
+    }
+
+    // TrackQA
+    std::vector<bool> keepTrackQA;
+    if (hasTrackQA) {
+      keepTrackQA = std::vector<bool>(trackExtraTree->GetEntriesFast(), false);
+      trackQA->SetBranchAddress("fIndexTracks", &trackIdx0);
+      for (int i{0}; i < trackQA->GetEntriesFast(); ++i) {
+        trackQA->GetEntry(i);
+        keepTrackQA[trackIdx0] = true;
+      }
+    }
 
     uint8_t tpcNClsFindable = 0;
     bool bTPClsFindable = false;
@@ -250,15 +411,15 @@ int main(int argc, char* argv[])
     if (!bTPClsFindable || !bTRDPattern || !bTOFChi2 ||
         (!bITSClusterMap && !bITSClusterSizes)) {
       printf("    *** FATAL *** Branch detection failed in %s for trackextra.[(fITSClusterMap=%d,fITSClusterSizes=%d),fTPCNClsFindable=%d,fTRDPattern=%d,fTOFChi2=%d]\n", dfName, bITSClusterMap, bITSClusterSizes, bTPClsFindable, bTRDPattern, bTOFChi2);
-      exitCode = 10;
+      exitCode = BRANCH_DETECTION;
       break;
     }
 
     int fIndexCollisions = 0;
     track_iu->SetBranchAddress("fIndexCollisions", &fIndexCollisions);
 
-    // loop over all tracks
-    auto entries = trackExtraTree->GetEntries();
+    // loop over all tracks and reindex them
+    auto entries = trackExtraTree->GetEntriesFast();
     int counter = 0;
     for (int i = 0; i < entries; i++) {
       trackExtraTree->GetEntry(i);
@@ -267,11 +428,15 @@ int main(int argc, char* argv[])
       // Flag collisions
       hasCollision[i] = (fIndexCollisions >= 0);
 
-      // Remove TPC only tracks, if they are not assoc. to a V0
+      // Remove TPC only tracks, if they are not assoc. to a V0/Cascade/3Body
       if (tpcNClsFindable > 0 && TRDPattern == 0 && TOFChi2 < -1. &&
           (!bITSClusterMap || ITSClusterMap == 0) &&
           (!bITSClusterSizes || ITSClusterSizes == 0) &&
-          (keepV0TPCs.find(i) == keepV0TPCs.end())) {
+          !keepV0s[i] && !keepCascades[i] && !keep3Bodys[i] &&
+          (!hasTrackQA || !keepTrackQA[i]) &&
+          (!hasTrackedV0 || !keepTrackedV0s[i]) &&
+          (!hasTrackedCasc || !keepTrackedCascs[i]) &&
+          (!hasTracked3Body || !keepTracked3Bodys[i])) {
         counter++;
       } else {
         acceptedTracks[i] = i - counter;
@@ -290,7 +455,7 @@ int main(int argc, char* argv[])
       outputDir->cd();
 
       auto inputTree = (TTree*)inputFile->Get(Form("%s/%s", dfName, treeName.Data()));
-      printf("    Processing tree %s with %lld entries with total size %lld\n", treeName.Data(), inputTree->GetEntries(), inputTree->GetTotBytes());
+      printf("    Processing tree %s with %lld entries with total size %lld\n", treeName.Data(), inputTree->GetEntriesFast(), inputTree->GetTotBytes());
       auto outputTree = inputTree->CloneTree(0);
       outputTree->SetAutoFlush(0);
 
@@ -309,7 +474,7 @@ int main(int argc, char* argv[])
         // detect VLA
         if (((TLeaf*)br->GetListOfLeaves()->First())->GetLeafCount() != nullptr) {
           printf("  *** FATAL ***: VLA detection is not supported\n");
-          exitCode = 9;
+          exitCode = NO_VLA_SUPPORT;
         } else if (branchName.BeginsWith("fIndexSlice")) {
           int* buffer = new int[2];
           memset(buffer, 0, 2 * sizeof(buffer[0]));
@@ -331,26 +496,56 @@ int main(int argc, char* argv[])
         }
       }
 
-      bool processingTracks = treeName.BeginsWith("O2track"); // matches any of the track tables
-      bool processingCascades = treeName.BeginsWith("O2cascade");
-      bool processingV0s = treeName.BeginsWith("O2v0");
-      bool processingAmbiguousTracks = treeName.BeginsWith("O2ambiguoustrack");
+      const bool processingTracked = treeName.BeginsWith("O2tracked");
+      const bool processingTrackQA = treeName.BeginsWith("O2trackqa");
+      const bool processingTracks = treeName.BeginsWith("O2track") && !processingTracked && !processingTrackQA; // matches any of the track tables and not tracked{v0s,cascase,3body} or trackqa;
+      const bool processingCascades = treeName.BeginsWith("O2cascade");
+      const bool processing3Body = treeName.BeginsWith("O2decay3body");
+      const bool processingV0s = treeName.BeginsWith("O2v0");
+      const bool processingAmbiguousTracks = treeName.BeginsWith("O2ambiguoustrack");
 
-      auto indexV0s = -1;
-      if (processingCascades) {
-        inputTree->SetBranchAddress("fIndexV0s", &indexV0s);
-        outputTree->SetBranchAddress("fIndexV0s", &indexV0s);
+      const std::array<bool, 7> processingCheck{processingTracked, processingTrackQA, processingTracks, processingCascades, processing3Body, processingV0s, processingAmbiguousTracks};
+      if (std::accumulate(processingCheck.begin(), processingCheck.end(), 0) > 1) {
+        exitCode = PROCESSING_MORE_THAN_ONE;
+        printf("  Processing more than branch (Mask=%d/%d/%d/%d/%d/%d/%d)\n", processingTracked, processingTrackQA, processingTracks, processingCascades, processing3Body, processingV0s, processingAmbiguousTracks);
+        break;
       }
 
-      auto entries = inputTree->GetEntries();
+      int indexTrack0{-1}, indexTrack1{-1}, indexTrack2{-1};
+      if (processingV0s) {
+        inputTree->SetBranchAddress("fIndexTracks_Pos", &indexTrack0);
+        outputTree->SetBranchAddress("fIndexTracks_Pos", &indexTrack0);
+        inputTree->SetBranchAddress("fIndexTracks_Neg", &indexTrack1);
+        outputTree->SetBranchAddress("fIndexTracks_Neg", &indexTrack1);
+      } else if (processingCascades || processingTrackQA) {
+        inputTree->SetBranchAddress("fIndexTracks", &indexTrack0);
+        outputTree->SetBranchAddress("fIndexTracks", &indexTrack0);
+      } else if (processing3Body) {
+        inputTree->SetBranchAddress("fIndexTracks_0", &indexTrack0);
+        outputTree->SetBranchAddress("fIndexTracks_0", &indexTrack0);
+        inputTree->SetBranchAddress("fIndexTracks_1", &indexTrack1);
+        outputTree->SetBranchAddress("fIndexTracks_1", &indexTrack1);
+        inputTree->SetBranchAddress("fIndexTracks_2", &indexTrack2);
+        outputTree->SetBranchAddress("fIndexTracks_2", &indexTrack2);
+      } else if (processingTracked) {
+        inputTree->SetBranchAddress("fIndexTracks", &indexTrack0);
+        outputTree->SetBranchAddress("fIndexTracks", &indexTrack0);
+        inputTree->SetBranchAddress("fIndexTracks_ITS", &indexTrack1);
+        outputTree->SetBranchAddress("fIndexTracks_ITS", &indexTrack1);
+      }
+
+      // Here we loop over all tracks
+      auto entries = inputTree->GetEntriesFast();
       for (int i = 0; i < entries; i++) {
         inputTree->GetEntry(i);
-        bool fillThisEntry = true;
+        bool fillThisEntry = true; // Assume by default tracks are accepted
         // Special case for Tracks, TracksExtra, TracksCov
         if (processingTracks) {
           if (acceptedTracks[i] < 0) {
             fillThisEntry = false;
           }
+        } else if (processingTrackQA) {
+          // Do nothing, just fill
         } else {
           // Other table than Tracks* --> reassign indices to Tracks
           for (const auto& idx : indexList) {
@@ -367,13 +562,16 @@ int main(int argc, char* argv[])
           }
         }
 
-        // Reassign v0 index of cascades
-        if (processingCascades) {
-          if (keepV0s[indexV0s] < 0) {
-            fillThisEntry = false;
-          } else {
-            indexV0s = keepV0s[indexV0s];
-          }
+        // Reassign prong track(s)
+        if (processingV0s || processingTracked) { // Reassign two Prongs or reassign the add. ITS Prong + track
+          indexTrack0 = acceptedTracks[indexTrack0];
+          indexTrack1 = acceptedTracks[indexTrack1];
+        } else if (processing3Body) { // Reassign three Prongs
+          indexTrack0 = acceptedTracks[indexTrack0];
+          indexTrack1 = acceptedTracks[indexTrack1];
+          indexTrack2 = acceptedTracks[indexTrack2];
+        } else if (processingCascades || processingTrackQA) { // Reassign the add. prong or the TPC ref. track
+          indexTrack0 = acceptedTracks[indexTrack0];
         }
 
         // Keep only tracks which have no collision, see O2-3601
@@ -385,14 +583,25 @@ int main(int argc, char* argv[])
 
         if (fillThisEntry) {
           outputTree->Fill();
-          if (processingV0s) {
-            keepV0s[i] = outputTree->GetEntries() - 1;
-          }
         }
       }
 
-      if (entries != outputTree->GetEntries()) {
-        printf("      Reduced from %lld to %lld entries\n", entries, outputTree->GetEntries());
+      if (entries != outputTree->GetEntriesFast()) {
+        printf("      Reduced from %lld to %lld entries\n", entries, outputTree->GetEntriesFast());
+        // sanity check by hardcoding the trees for which we expect a reduction
+        const TString tableName{removeVersionSuffix(outputTree->GetName())};
+        static const std::array<TString, 4> checkNames{"O2track_iu", "O2trackextra", "O2trackcov_iu", "O2ambiguoustrack"};
+        std::vector<bool> checks(checkNames.size(), false);
+        for (size_t i{0}; i < checkNames.size(); ++i) {
+          if (tableName.EqualTo(checkNames[i])) {
+            checks[i] = true;
+          }
+        }
+        if (std::none_of(checks.begin(), checks.end(), [](bool b) { return b; })) {
+          exitCode = NOT_EXPECTED_REDUCTION;
+          printf("       -> Reduction is not expected for this tree!\n");
+          break;
+        }
       }
 
       delete inputTree;
@@ -433,7 +642,7 @@ int main(int argc, char* argv[])
   auto sAfter = outputFile->GetSize();
   if (sBefore <= 0 || sAfter <= 0) {
     printf("Warning: Empty input or output file after thinning!\n");
-    exitCode = 9;
+    exitCode = EMPTY_FILE;
   }
   auto spaceSaving = (1 - ((double)sAfter) / ((double)sBefore)) * 100;
   printf("Stats: After=%lld / Before=%lld Bytes ---> Saving %.1f%% diskspace!\n", sAfter, sBefore, spaceSaving);

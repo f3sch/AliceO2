@@ -10,14 +10,18 @@
 // or submit itself to any jurisdiction.
 
 #include <TString.h>
+#include <TRegexp.h>
 
 const char* removeVersionSuffix(const char* treeName)
 {
   // remove version suffix, e.g. O2v0_001 becomes O2v0
+  // handle O2track_iu correctly
+  static const TString pattern{"_[0-9]+$"};
+  static const TRegexp rpattern{pattern};
   static TString tmp;
   tmp = treeName;
-  if (tmp.First("_") >= 0) {
-    tmp.Remove(tmp.First("_"));
+  if (auto pos = tmp.Index(rpattern); pos != kNPOS) {
+    tmp.Remove(pos);
   }
   return tmp;
 }
