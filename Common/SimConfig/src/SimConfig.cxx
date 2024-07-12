@@ -24,7 +24,7 @@
 using namespace o2::conf;
 namespace bpo = boost::program_options;
 
-void SimConfig::initOptions(boost::program_options::options_description& options)
+void SimConfig::initOptions(boost::program_options::options_description& options, bool isRun5)
 {
   int nsimworkersdefault = std::max(1u, std::thread::hardware_concurrency() / 2);
   options.add_options()(
@@ -35,7 +35,7 @@ void SimConfig::initOptions(boost::program_options::options_description& options
     "skipModules", bpo::value<std::vector<std::string>>()->multitoken()->default_value(std::vector<std::string>({""}), ""), "list of modules excluded in geometry (precendence over -m")(
     "readoutDetectors", bpo::value<std::vector<std::string>>()->multitoken()->default_value(std::vector<std::string>(), ""), "list of detectors creating hits, all if not given; added to to active modules")(
     "skipReadoutDetectors", bpo::value<std::vector<std::string>>()->multitoken()->default_value(std::vector<std::string>(), ""), "list of detectors to skip hit creation (precendence over --readoutDetectors")(
-    "detectorList", bpo::value<std::string>()->default_value("ALICE2"),
+    "detectorList", bpo::value<std::string>()->default_value((isRun5) ? "ALICE3" : "ALICE2"),
     "Use a specific version of ALICE, e.g., a predefined list."
     "There is an 'official' list provided with:"
     "\nALICE2  : The default configuration for Run 3"
@@ -484,13 +484,13 @@ void SimConfig::adjustFromCollContext(std::string const& collcontextfile, std::s
   }
 }
 
-bool SimConfig::resetFromArguments(int argc, char* argv[])
+bool SimConfig::resetFromArguments(int argc, char* argv[], bool isRun5)
 {
   // Arguments parsing
   bpo::variables_map vm;
   bpo::options_description desc("Allowed options");
   desc.add_options()("help,h", "Produce help message.");
-  initOptions(desc);
+  initOptions(desc, isRun5);
 
   try {
     bpo::store(parse_command_line(argc, argv, desc), vm);

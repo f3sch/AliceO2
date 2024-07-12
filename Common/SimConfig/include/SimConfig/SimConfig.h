@@ -118,11 +118,11 @@ class SimConfig
     return SimConfig();
   }
 
-  static void initOptions(boost::program_options::options_description&);
+  static void initOptions(boost::program_options::options_description&, bool isRun5=false);
 
   // initializes the configuration from command line arguments
   // returns true of correctly initialized and not --help called
-  bool resetFromArguments(int argc, char* argv[]);
+  bool resetFromArguments(int argc, char* argv[], bool isRun5=false);
 
   // initializes from existing parsed map
   bool resetFromParsedMap(boost::program_options::variables_map const&);
@@ -173,6 +173,7 @@ class SimConfig
   int getRunNumber() const { return mConfigData.mRunNumber; }
   bool isNoGeant() const { return mConfigData.mNoGeant; }
   void setRun5(bool value = true) { mConfigData.mIsUpgrade = value; }
+  bool isRun5() const { return mConfigData.mIsUpgrade; }
   bool forwardKine() const { return mConfigData.mForwardKine; }
   bool writeToDisc() const { return mConfigData.mWriteToDisc; }
   VertexMode getVertexMode() const { return mConfigData.mVertexMode; }

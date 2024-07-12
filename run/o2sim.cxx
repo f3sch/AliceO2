@@ -22,7 +22,7 @@ int main(int argc, char* argv[])
 #ifdef SIM_RUN5
   conf.setRun5();
 #endif
-  if (!conf.resetFromArguments(argc, argv)) {
+  if (!conf.resetFromArguments(argc, argv, conf.isRun5())) {
     return 1;
   }
 
