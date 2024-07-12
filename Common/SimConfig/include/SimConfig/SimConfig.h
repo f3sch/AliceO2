@@ -118,11 +118,11 @@ class SimConfig
     return SimConfig();
   }
 
-  static void initOptions(boost::program_options::options_description&, bool isRun5=false);
+  static void initOptions(boost::program_options::options_description&, bool isRun5 = false);
 
   // initializes the configuration from command line arguments
   // returns true of correctly initialized and not --help called
-  bool resetFromArguments(int argc, char* argv[], bool isRun5=false);
+  bool resetFromArguments(int argc, char* argv[], bool isRun5 = false);
 
   // initializes from existing parsed map
   bool resetFromParsedMap(boost::program_options::variables_map const&);
