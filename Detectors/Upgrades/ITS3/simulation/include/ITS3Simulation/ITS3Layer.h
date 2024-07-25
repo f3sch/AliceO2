@@ -41,7 +41,7 @@ class ITS3Layer
  public:
   ITS3Layer(int layer = 0) : mNLayer(layer)
   {
-    LOGP(info, "Called on {} layer {}", layer, mNLayer);
+    LOGP(debug, "Called on {} layer {}", layer, mNLayer);
   }
 
   ITS3Layer(TGeoVolume* motherVolume, int layer = 0) : ITS3Layer(layer)
