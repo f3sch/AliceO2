@@ -10,6 +10,7 @@
 // or submit itself to any jurisdiction.
 
 #include "ITS3Simulation/DescriptorInnerBarrelITS3.h"
+#include "ITS3Base/ITS3Params.h"
 #include "fairlogger/Logger.h"
 
 using namespace o2::its3;
