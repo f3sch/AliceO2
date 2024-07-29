@@ -56,7 +56,7 @@ using Rot3D = ROOT::Math::Rotation3D;
 using Euler3D = ROOT::Math::EulerAngles;
 using Trafo3D = ROOT::Math::Transform3DF;
 
-#define DECLARE_SENSOR(id)             \
+#define DECLARE_SENSOR(id)       \
   float Sensor##id##Dx = 0.f;    \
   float Sensor##id##Dy = 0.f;    \
   float Sensor##id##Dz = 0.f;    \
