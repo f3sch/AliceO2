@@ -26,6 +26,7 @@
 #include <vector>
 #include <ranges>
 #include <memory>
+#include <string_view>
 #endif
 
 // Read in a file called 'input.txt' output a corresponding static dead map.
@@ -49,15 +50,22 @@ void CreateITS3StaticDeadMap(const std::string& filename = "input.txt")
     return;
   }
 
+  using std::operator""sv;
+  constexpr auto delim{","sv};
+
   std::string line;
   while (std::getline(infile, line)) {
     std::stringstream ss(line);
-    for (const auto& item : line | std::views::split(',') | std::views::transform([](auto&& subrange) {
-                              return std::string(subrange.begin(), subrange.end());
-                            }) |
+    for (const auto& item : line |
+                              std::views::split(delim) |
                               std::views::filter([](const auto& str) {
                                 return !str.empty();
+                              }) |
+                              std::views::transform([](const auto&& str) {
+                                return std::string(str.begin(), str.end());
                               })) {
+      auto tile = std::stoi(item);
+      Info("", "Disabling tile %d", tile);
       intSet.insert(std::stoi(item));
     }
   }
