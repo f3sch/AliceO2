@@ -12,3 +12,5 @@
 install(FILES MisAlignHitsITS3.C MisAlignGeoITS3.C DESTINATION share/macro/)
 its3_add_macro(MisAlignHitsITS3.C)
 its3_add_macro(MisAlignGeoITS3.C)
+
+its3_add_macro(TestLegendrePol.C)
