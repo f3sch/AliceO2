@@ -17,7 +17,7 @@
 #include "Framework/DataRefUtils.h"
 #include "Framework/Lifetime.h"
 #include "Framework/Task.h"
-#include "Steer/HitProcessingManager.h" // for DigitizationContext
+#include "Steer/HitProcessingManager.h"
 #include "DataFormatsITSMFT/Digit.h"
 #include "SimulationDataFormat/ConstMCTruthContainer.h"
 #include "DetectorsBase/BaseDPLDigitizer.h"
@@ -30,19 +30,12 @@
 #include "ITSMFTBase/DPLAlpideParam.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "ITS3Base/ITS3Params.h"
+#include "ITS3Align/MisalignmentManager.h"
 
 #include <TChain.h>
 #include <TStopwatch.h>
-#include <TMethodCall.h>
-#include <TSystem.h>
-#include <TROOT.h>
-#include <TString.h>
-#include <TInterpreter.h>
-
-#include <boost/interprocess/sync/named_semaphore.hpp>
 
 #include <string>
-#include <filesystem>
 
 using namespace o2::framework;
 using SubSpecificationType = o2::framework::DataAllocator::SubSpecificationType;
@@ -84,9 +77,12 @@ class ITS3DPLDigitizerTask : BaseDPLDigitizer
       return;
     }
     updateTimeDependentParams(pc);
-    if (ITS3Params::Instance().applyMisalignment) {
-      applyMisalignment();
+
+    if (ITS3Params::Instance().applyMisalignmentHits) {
+      LOGP(info, "Applying misalignment to ITS3 Hits");
+      o2::its3::align::MisalignmentManager::misalignHits();
     }
+
     // read collision context from input
     auto context = pc.inputs().get<o2::steer::DigitizationContext*>("collisioncontext");
     context->initSimChains(mID, mSimChains);
@@ -273,47 +269,11 @@ class ITS3DPLDigitizerTask : BaseDPLDigitizer
   }
 
  private:
-  void applyMisalignment()
-  {
-    LOGP(info, "Applying misalignment to ITS3 Hits");
-    const std::filesystem::path macroPath{gSystem->ExpandPathName(ITS3Params::Instance().localHitMisAlignerMacro.c_str())};
-    const std::filesystem::path configFilePath{gSystem->ExpandPathName(ITS3Params::Instance().misalignemntConfig.c_str())};
-    LOGP(info, "Using MisAligner macro '{}'", macroPath.c_str());
-    LOGP(info, "Using ConfigFile '{}'", configFilePath.c_str());
-
-    if (!std::filesystem::exists(macroPath)) {
-      LOGP(fatal, "Requested user macro {} does not exist", macroPath.c_str());
-    }
-    if (!configFilePath.empty() && !std::filesystem::exists(configFilePath)) {
-      LOGP(fatal, "Requested user config {} does not exist", configFilePath.c_str());
-    }
-
-    try { // protect macro compilation from pipelined code with a semaphore
-      auto sem = boost::interprocess::named_semaphore(boost::interprocess::open_or_create_t{}, "its3_digitizer_misalign", 1);
-      sem.wait();
-      TString const cmd = macroPath.string() + "+";
-      if (gROOT->LoadMacro(cmd)) {
-        LOGP(fatal, "Could not compile user macro {}", macroPath.c_str());
-      }
-      LOGP(info, "Macro {} compiled, starting up", macroPath.c_str());
-      sem.post();
-    } catch (const std::exception& err) {
-      LOGP(fatal, "Failed to create semaphore with: {}", err.what());
-    }
-
-    int error{TInterpreter::kNoError};
-    gInterpreter->ProcessLine(Form("%s(\"%s\")", macroPath.stem().c_str(), configFilePath.c_str()));
-    if (error != TInterpreter::kNoError) {
-      LOGP(fatal, "Macro execution failed with {}", error);
-    }
-    LOGP(info, "Macro exit-code: {}", error);
-  }
-
   bool mWithMCTruth{true};
   bool mFinished{false};
   bool mDisableQED{false};
   const o2::detectors::DetID mID{o2::detectors::DetID::IT3};
-  o2::header::DataOrigin mOrigin{o2::header::gDataOriginIT3};
+  const o2::header::DataOrigin mOrigin{o2::header::gDataOriginIT3};
   o2::its3::Digitizer mDigitizer{};
   std::vector<o2::itsmft::Digit> mDigits{};
   std::vector<o2::itsmft::ROFRecord> mROFRecords{};

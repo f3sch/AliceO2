@@ -9,44 +9,51 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-/// \file MisAlignHits.C
-/// \brief Misalign on-the-fly hits for ITS3
-/// \author felix.schlepper@cern.ch
+#include "Framework/Logger.h"
+#include "ITS3Align/MisalignmentManager.h"
+#include "ITS3Align/MisalignmentHits.h"
 
-#include "ITS3Base/MisAlignHelpers.h"
+#include "TFile.h"
 
-void MisAlignHitsITS3(const std::string& configFilePath = "")
+#include <string>
+#include <filesystem>
+#include <memory>
+#include <algorithm>
+#include <optional>
+#include <vector>
+
+namespace fs = std::filesystem;
+
+namespace o2::its3::align
 {
-  auto& params = MisAlignGlobalParams::Instance();
-  params.writeINI("default_parameters_local.ini", "MisAlignGlobalParams");
-  LOGP(info, "{:*^90}", " ITS3 LOCAL MISALIGNMENT START ");
-  if (configFilePath.empty()) {
-    LOGP(info, "No user config provided using defaults");
-  } else {
-    LOGP(info, "User config at {}", configFilePath);
-    params.updateFromFile(configFilePath);
-  }
-  params.writeINI("used_parameters_local.ini", "MisAlignGlobalParams");
-  params.printKeyValues(true, true);
 
-  std::array<Trafo3D, its3c::nSensorsIB> gRotoTranslations{};
-  for (int iSensor{0}; iSensor < (int)its3c::nSensorsIB; ++iSensor) {
-    Euler3D rot{
-      params.getValueAs<float>(fmt::format("MisAlignGlobalParams.Sensor{}Phi", iSensor)),
-      params.getValueAs<float>(fmt::format("MisAlignGlobalParams.Sensor{}Theta", iSensor)),
-      params.getValueAs<float>(fmt::format("MisAlignGlobalParams.Sensor{}Psi", iSensor)),
-    };
-    Trans3D trans{
-      params.getValueAs<float>(fmt::format("MisAlignGlobalParams.Sensor{}Dx", iSensor)),
-      params.getValueAs<float>(fmt::format("MisAlignGlobalParams.Sensor{}Dy", iSensor)),
-      params.getValueAs<float>(fmt::format("MisAlignGlobalParams.Sensor{}Dz", iSensor)),
-    };
-    gRotoTranslations[iSensor] = Trafo3D(rot, trans);
+void MisalignmentManager::createBackup(const fs::path& src, const fs::path& dest)
+{
+  if (fs::exists(dest)) {
+    LOGP(info, "Previous orignal file found, using this as src");
+  } else {
+    if (!fs::exists(src)) {
+      LOGP(fatal, "File {} does not exist", src.c_str());
+    }
+    LOGP(info, "Trying to backup file to {}", dest.c_str());
+    try {
+      fs::rename(src, dest);
+    } catch (const fs::filesystem_error& err) {
+      LOGP(fatal, "Cannot create backup file for Hit-File: {}", err.what());
+    }
   }
+}
+
+void MisalignmentManager::misalignHits()
+{
+  LOGP(info, "{:*^90}", " ITS3 LOCAL MISALIGNMENT START ");
+
+  MisAlignmentHits MisAligner;
+  MisAligner.init();
 
   const fs::path oldHitFileSrc{fs::current_path().string() + "/o2sim_HitsIT3.root"};
   const fs::path oldHitFileDest{fs::current_path().string() + "/o2sim_HitsIT3_Orig.root"};
-  backup_file(oldHitFileSrc, oldHitFileDest);
+  createBackup(oldHitFileSrc, oldHitFileDest);
 
   std::unique_ptr<TFile> origFile{TFile::Open(oldHitFileDest.c_str(), "READ")};
   if (origFile == nullptr || origFile->IsZombie()) {
@@ -69,31 +76,19 @@ void MisAlignHitsITS3(const std::string& configFilePath = "")
   std::vector<o2::itsmft::Hit> newHits, *newHitsPtr{nullptr};
   newTree->Branch("IT3Hit", &newHitsPtr);
 
-  auto misalignHit = [&](const o2::itsmft::Hit& origHit) -> std::optional<o2::itsmft::Hit> {
-    if (!its3c::detID::isDetITS3(origHit.GetDetectorID())) { // only modify IB
-      return origHit;
-    }
-    int sensorID{its3c::detID::getSensorID(origHit.GetDetectorID())};
-
-    auto hit{origHit};
-    Point3D hitXYZ{hit.GetX(), hit.GetY(), hit.GetZ()};
-
-    // Global RotoTranslation
-    hitXYZ = gRotoTranslations[sensorID] * hitXYZ;
-    hit.SetXYZ(hitXYZ.X(), hitXYZ.Y(), hitXYZ.Z());
-    return hit;
-  };
-
+  LOGP(info, "Preparations done; starting hit loop");
   ULong64_t totalOrigHits{0}, totalNewHits{0};
   for (int iEntry{0}; origTree->LoadTree(iEntry) >= 0; ++iEntry) {
     if (origTree->GetEntry(iEntry) <= 0) {
       continue;
     }
 
+    LOGP(info, "Processing event {} of {}", iEntry, origTree->GetEntries());
+
     newHits.clear();
     newHits.reserve(origHits.size());
     for (const auto& origHit : origHits) {
-      if (auto newHit = misalignHit(origHit)) {
+      if (auto newHit = MisAligner.processHit(origHit)) {
         newHits.emplace_back(*newHit);
       }
     }
@@ -107,9 +102,13 @@ void MisAlignHitsITS3(const std::string& configFilePath = "")
 
   newFile->WriteTObject(newTree.get());
 
+  MisAligner.printStats();
+
   LOGP(info, "Summary: Total orignal Hits {}", totalOrigHits);
   LOGP(info, "Summary: Total misaligned Hits {}", totalNewHits);
   LOGP(info, "Summary: Discarded Hits {}", totalOrigHits - totalNewHits);
 
   LOGP(info, "{:*^90}", " ITS3 LOCAL MISALIGNMENT END ");
 }
+
+} // namespace o2::its3::align

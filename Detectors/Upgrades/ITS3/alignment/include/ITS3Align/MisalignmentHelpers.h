@@ -9,12 +9,12 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-/// \file MisAlignHelpers.h
+/// \file MisalignmentHelpers.h
 /// \brief Misalign helpers
 /// \author felix.schlepper@cern.ch
 
-#ifndef MISALIGNPARAMS_H_
-#define MISALIGNPARAMS_H_
+#ifndef ITS3_MISALIGNMENT_HELPERS_H_
+#define ITS3_MISALIGNMENT_HELPERS_H_
 
 #if !defined(__CLING__) || defined(__ROOTCLING__)
 #include "ITSBase/GeometryTGeo.h"
@@ -46,6 +46,9 @@
 #include <optional>
 #include <vector>
 #endif
+
+namespace o2::its3::align
+{
 
 namespace fs = std::filesystem;
 namespace pt = boost::property_tree;
@@ -164,4 +167,6 @@ void ApplyGlobalMatrixVolume(const std::string& path, const TGeoHMatrix& globalM
   motherVol->Voxelize("");
 }
 
-#endif // MISALIGNPARAMS_H_
+} // namespace o2::its3::align
+
+#endif
