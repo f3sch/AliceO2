@@ -95,7 +95,7 @@ class Hit : public o2::BasicXYZEHit<Float_t, Float_t>
   Bool_t IsAliveStart() const { return mTrackStatusStart & kTrackAlive; }
 
   // Entrance position setter
-  void SetPosStart(const math_utils::Point3D<Float_t>& p ){ mPosStart = p; }
+  void SetPosStart(const math_utils::Point3D<Float_t>& p) { mPosStart = p; }
 
   /// Output to screen
   void Print(const Option_t* opt) const;

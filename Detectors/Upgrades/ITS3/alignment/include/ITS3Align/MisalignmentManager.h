@@ -23,6 +23,7 @@ class MisalignmentManager
   void misalignHits();
 
   static void createBackup(const std::filesystem::path& src, const std::filesystem::path& dest);
+
  private:
 };
 

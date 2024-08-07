@@ -44,7 +44,6 @@ void MisalignmentManager::createBackup(const fs::path& src, const fs::path& dest
   }
 }
 
-
 void MisalignmentManager::misalignHits()
 {
   LOGP(info, "{:*^90}", " ITS3 LOCAL MISALIGNMENT START ");
