@@ -33,10 +33,9 @@ using its3TGeo = o2::its::GeometryTGeo;
 
 void ITS3Layer::init()
 {
-  // First we start by creating variables which we are reusing a couple of times.
   mR = its3c::radii[mNLayer];
-  mRmin = mR - its3c::thickness / 2.;
-  mRmax = mR + its3c::thickness / 2.;
+  mRmin = its3c::radiiInner[mNLayer];
+  mRmax = its3c::radiiOuter[mNLayer];
 }
 
 void ITS3Layer::getMaterials(bool create)

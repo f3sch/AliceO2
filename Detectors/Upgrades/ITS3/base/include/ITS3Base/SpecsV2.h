@@ -109,12 +109,13 @@ constexpr EColor color{kGray};
 constexpr unsigned int nLayers{3};
 constexpr unsigned int nTotLayers{7};
 constexpr unsigned int nSensorsIB{2 * nLayers};
-constexpr std::array<bool, nTotLayers> isITS3Layer{true, true, true, false, false, false, false}; ///< mask indicating a new layer
-constexpr std::array<float, nLayers> radii{19.0006 * mm, 25.228 * mm, 31.4554 * mm};              // middle radius e.g. inner radius+thickness/2.
 constexpr float equatorialGap{1 * mm};
 constexpr std::array<unsigned int, nLayers> nSegments{3, 4, 5};
-constexpr float thickness{50 * mu};    //< Physical Thickness of chip
-constexpr float effThickness{66 * mu}; //< Physical thickness + metal substrate
+constexpr float thickness{50 * mu};                                                                                                  //< Physical Thickness of chip
+constexpr float effThickness{66 * mu};                                                                                               //< Physical thickness + metal substrate
+constexpr std::array<float, nLayers> radii{19.0006 * mm, 25.228 * mm, 31.4554 * mm};                                                 // middle radius e.g. inner radius+thickness/2.
+constexpr std::array<float, nLayers> radiiInner{radii[0] - thickness / 2.f, radii[1] - thickness / 2.f, radii[2] - thickness / 2.f}; // inner radius
+constexpr std::array<float, nLayers> radiiOuter{radii[0] + thickness / 2.f, radii[1] + thickness / 2.f, radii[2] + thickness / 2.f}; // inner radius
 namespace detID
 {
 constexpr unsigned int mDetIDs{2 * 12 * 12 * 12};                //< 2 Hemispheres * (3,4,5=12 segments in a layer) * 12 RSUs in a segment * 12 Tiles in a RSU

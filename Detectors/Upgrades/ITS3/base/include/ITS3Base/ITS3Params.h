@@ -20,8 +20,7 @@ namespace o2::its3
 
 struct ITS3Params : public o2::conf::ConfigurableParamHelper<ITS3Params> {
   // Alignment studies
-  bool applyMisalignment{false};                                                    // Apply detector misalignment
-  std::string localHitMisAlignerMacro{"${O2_ROOT}/share/macro/MisAlignHitsITS3.C"}; // Path to macro for local hit mis-alignment
+  bool applyMisalignmentHits{false};                                                // Apply detector misalignment on hit level
   std::string globalGeoMisAlignerMacro{"${O2_ROOT}/share/macro/MisAlignGeoITS3.C"}; // Path to macro for global geometry mis-alignment
   std::string misalignemntConfig{};                                                 // Path to config file for mis-alignment
   // Chip studies

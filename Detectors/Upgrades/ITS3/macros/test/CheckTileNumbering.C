@@ -21,6 +21,7 @@
 #include <TMath.h>
 #include <TStyle.h>
 #include <TLine.h>
+#include <TError.h>
 
 #include "ITSBase/GeometryTGeo.h"
 #include "ITS3Base/SpecsV2.h"
@@ -31,7 +32,8 @@
 
 #include <array>
 #include <cmath>
-#include <iostream>
+#include <fstream>
+#include <iomanip>
 #include <vector>
 #endif
 
@@ -88,23 +90,17 @@ void Draw(TH2* in, float phiOff1, float phiOff2, int n = 3)
   in->Draw("TEXT;same");
 }
 
-void CheckTileNumbering(const std::string& inputGeom = "o2sim_geometry.root", const std::string& deadmap = "")
+void CheckTileNumbering(const std::string& inputGeom = "o2sim_geometry.root", const std::string& deadmap = "", bool write = false)
 {
   gStyle->SetOptStat(0);
   gStyle->SetHistMinimumZero();
   const Int_t NRGBs = 3;
-  Double_t stops[NRGBs] = {0.00, 0.01, 1.00};
-  Double_t red[NRGBs] = {1.00, 1.00, 0.75};
-  Double_t green[NRGBs] = {1.00, 0.00, 0.75};
-  Double_t blue[NRGBs] = {1.00, 0.00, 0.75};
+  Int_t colors[NRGBs] = {kWhite, kRed, kGray};
+  TColor::SetPalette(NRGBs, colors, 1.0);
 
-  // Create a new color palette
-  TColor::CreateGradientColorTable(NRGBs, stops, red, green, blue, NRGBs);
-  gStyle->SetNumberContours(NRGBs);
-
-  float phiOffsetL0 = std::asin(o2::its3::constants::equatorialGap / 2.f / o2::its3::constants::radii[0]);
-  float phiOffsetL1 = std::asin(o2::its3::constants::equatorialGap / 2.f / o2::its3::constants::radii[1]);
-  float phiOffsetL2 = std::asin(o2::its3::constants::equatorialGap / 2.f / o2::its3::constants::radii[2]);
+  const float phiOffsetL0 = std::asin(o2::its3::constants::equatorialGap / 2.f / o2::its3::constants::radii[0]);
+  const float phiOffsetL1 = std::asin(o2::its3::constants::equatorialGap / 2.f / o2::its3::constants::radii[1]);
+  const float phiOffsetL2 = std::asin(o2::its3::constants::equatorialGap / 2.f / o2::its3::constants::radii[2]);
   const float markerSize = 0.5;
   auto hL0Up = new TH2F("hL0Up", "L0 Upper;z (cm); #varphi (rad)", halfTiles, -halfZ, halfZ, 2 * 3, phiOffsetL0, TMath::Pi() - phiOffsetL0);
   hL0Up->SetMarkerSize(markerSize);
@@ -130,6 +126,15 @@ void CheckTileNumbering(const std::string& inputGeom = "o2sim_geometry.root", co
     mNoiseMap = f->Get<o2::itsmft::NoiseMap>("ccdb_object");
   }
 
+  std::ofstream fs;
+  if (write) {
+    fs.open("its3Numbering.txt", std::ios::out);
+    if (!fs.is_open()) {
+      Error("", "Cannot open file for writing!");
+      write = false;
+    }
+  }
+
   float xFlat{0}, yFlat{0}, x{0}, y{0}, z{0};
   for (unsigned int iDet{0}; iDet <= o2::its3::constants::detID::l2IDEnd; ++iDet) {
     int sensorID = o2::its3::constants::detID::getSensorID(iDet);
@@ -143,10 +148,13 @@ void CheckTileNumbering(const std::string& inputGeom = "o2sim_geometry.root", co
     auto xBin = hSensors[sensorID]->GetXaxis()->FindBin(z);
     auto yBin = hSensors[sensorID]->GetYaxis()->FindBin(phi);
     hSensors[sensorID]->SetBinContent(xBin, yBin, iDet);
-    /* Info("", "Tile %d -> Sensor %d: Z=%f; Phi=%f -> xBin=%d yBin=%d (X=%f;Y=%f)", iDet, sensorID, gloC.Z(), phi, xBin, yBin, gloC.X(), gloC.Y()); */
+    if (write) {
+      fs << std::setfill('0') << std::setw(4) << iDet << " -> Layer " << layerID << " Sensor " << sensorID << " phi=" << phi << " z=" << z << " Path: " << gman->getMatrixPath(iDet)
+         << "\n";
+    }
   }
 
-  auto c = new TCanvas("cL0", "Numbering Layer 0", 4000, 3000);
+  auto c = new TCanvas("cL0", "Numbering Layer 0", 1000, 700);
   c->Divide(1, 2);
   c->cd(1);
   Draw(hL0Up, phiOffsetL0, TMath::Pi() - phiOffsetL0, 3);
