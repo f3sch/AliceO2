@@ -157,3 +157,14 @@ The file `hijing.C` can be found [here](https://alice.its.cern.ch/jira/browse/AO
 ``` bash
 o2-sim-digitizer-workflow --configKeyValues="ITS3Params.useDeadChannelMap=true;"
 ```
+
+
+### Alignment studies
+#### Deform hits
+1. Create misalignment parameters with `CreateMisalignmentITS3.C`
+2. Visualize with `ShowCoefficients.C`
+3. Run digitizer
+``` bash
+o2-sim-digitizer-workflow -b --configKeyValues="ITS3Params.applyMisalignmentHits=true;ITS3Params.misalignmentHitsParams=misparams.root"
+o2-its3-reco-workflow -b --configKeyValues "HBFUtils.runNumber=303901;" --tracking-mode async
+```

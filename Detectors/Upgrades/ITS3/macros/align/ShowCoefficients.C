@@ -45,7 +45,7 @@ void ShowCoefficients(const std::string& fileName = "misparams.root", bool findM
     gMin->SetPrintLevel(1);
   }
 
-  if (0) {
+  if (1) {
     const std::array<const char*, 3> axisName{"x", "y", "z"};
     constexpr int nPoints{100};
     constexpr int nPoints2{nPoints * nPoints};
@@ -117,7 +117,7 @@ void ShowCoefficients(const std::string& fileName = "misparams.root", bool findM
     }
   }
 
-  {
+  if constexpr (0) {
     constexpr int nPoints{50};
     constexpr int nPoints2{nPoints * nPoints};
     constexpr double radL = o2::its3::constants::radii[2] + 0.3, zL = o2::its3::constants::segment::lengthSensitive / 2.0 + 2.0;

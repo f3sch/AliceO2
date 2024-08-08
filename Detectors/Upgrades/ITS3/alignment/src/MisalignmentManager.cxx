@@ -12,8 +12,10 @@
 #include "Framework/Logger.h"
 #include "ITS3Align/MisalignmentManager.h"
 #include "ITS3Align/MisalignmentHits.h"
+#include "SimConfig/DigiParams.h"
 
 #include "TFile.h"
+#include "TStopwatch.h"
 
 #include <string>
 #include <filesystem>
@@ -48,11 +50,14 @@ void MisalignmentManager::misalignHits()
 {
   LOGP(info, "{:*^90}", " ITS3 LOCAL MISALIGNMENT START ");
 
+  TStopwatch timer;
+  timer.Start();
+
   MisAlignmentHits MisAligner;
   MisAligner.init();
 
-  const fs::path oldHitFileSrc{fs::current_path().string() + "/o2sim_HitsIT3.root"};
-  const fs::path oldHitFileDest{fs::current_path().string() + "/o2sim_HitsIT3_Orig.root"};
+  const fs::path oldHitFileSrc{fs::current_path().string() + "/" + o2::conf::DigiParams::Instance().digitizationgeometry_prefix + "_HitsIT3.root"};
+  const fs::path oldHitFileDest{fs::current_path().string() + "/" + o2::conf::DigiParams::Instance().digitizationgeometry_prefix + "_HitsIT3_Orig.root"};
   createBackup(oldHitFileSrc, oldHitFileDest);
 
   std::unique_ptr<TFile> origFile{TFile::Open(oldHitFileDest.c_str(), "READ")};
@@ -104,13 +109,15 @@ void MisalignmentManager::misalignHits()
 
   newFile->WriteTObject(newTree.get());
 
+  timer.Stop();
+
   MisAligner.printStats();
 
   auto totalDiscardedHits = totalOrigHits - totalNewHits;
   LOGP(info, "Summary: Total orignal Hits {}", totalOrigHits);
   LOGP(info, "Summary: Total misaligned Hits {} ({:.2f}%)", totalNewHits, static_cast<float>(totalNewHits) / static_cast<float>(totalOrigHits) * 100);
   LOGP(info, "Summary: Total discarded Hits {} ({:.2f}%)", totalDiscardedHits, static_cast<float>(totalDiscardedHits) / static_cast<float>(totalOrigHits) * 100);
-
+  LOGP(info, "Summary: Misalignment took {}s", timer.CpuTime());
   LOGP(info, "{:*^90}", " ITS3 LOCAL MISALIGNMENT END ");
 }
 

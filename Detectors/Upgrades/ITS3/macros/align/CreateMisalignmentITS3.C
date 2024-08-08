@@ -16,7 +16,7 @@
 #include "ITS3Align/MisalignmentParameters.h"
 #endif
 
-void CreateMisalignmentITS3(bool dummy = false)
+void CreateMisalignmentITS3(bool dummy = false, bool manual = false)
 {
   gRandom->SetSeed(42);
 
@@ -29,23 +29,35 @@ void CreateMisalignmentITS3(bool dummy = false)
 
   o2::its3::align::MisalignmentParameters params;
 
-  for (int sensorID{0}; sensorID < 6; ++sensorID) {
-    TMatrixD coeffX(nOrder + 1, nOrder + 1);
-    TMatrixD coeffY(nOrder + 1, nOrder + 1);
-    TMatrixD coeffZ(nOrder + 1, nOrder + 1);
-    for (int i{0}; i <= nOrder; ++i) {
-      for (int j{0}; j <= i; ++j) {
-        // some random scaling as higher order parameters have higher influence
-        coeffX(i, j) = (dummy) ? 0.0 : getRandom() / (1.0 + i * j * 2.0);
-        coeffZ(i, j) = (dummy) ? 0.0 : getRandom() / (1.0 + i * j * 2.0);
-        coeffY(i, j) = (dummy) ? 0.0 : getRandom() / (1.0 + i * j * 2.0);
+  if (!manual) {
+    for (int sensorID{0}; sensorID < 6; ++sensorID) {
+      TMatrixD coeffX(nOrder + 1, nOrder + 1);
+      TMatrixD coeffY(nOrder + 1, nOrder + 1);
+      TMatrixD coeffZ(nOrder + 1, nOrder + 1);
+      for (int i{0}; i <= nOrder; ++i) {
+        for (int j{0}; j <= i; ++j) {
+          // some random scaling as higher order parameters have higher influence
+          coeffX(i, j) = (dummy) ? 0.0 : getRandom() / (1.0 + i * j * 2.0);
+          coeffZ(i, j) = (dummy) ? 0.0 : getRandom() / (1.0 + i * j * 2.0);
+          coeffY(i, j) = (dummy) ? 0.0 : getRandom() / (1.0 + i * j * 2.0);
+        }
       }
-    }
 
-    params.setLegendreCoeffX(sensorID, coeffX);
-    params.setLegendreCoeffY(sensorID, coeffY);
-    params.setLegendreCoeffZ(sensorID, coeffZ);
-    params.printLegendreParams(sensorID);
+      params.setLegendreCoeffX(sensorID, coeffX);
+      params.setLegendreCoeffY(sensorID, coeffY);
+      params.setLegendreCoeffZ(sensorID, coeffZ);
+      params.printLegendreParams(sensorID);
+    }
+  } else {
+    TMatrixD coeff(1 + 1, 1 + 1);
+    TMatrixD coeffNull(1 + 1, 1 + 1);
+    coeff(0, 1) = 50e-4;
+    coeff(1, 1) = 50e-4;
+    for (int sensorID{0}; sensorID < 6; ++sensorID) {
+      params.setLegendreCoeffX(sensorID, coeff);
+      params.setLegendreCoeffY(sensorID, coeff);
+      params.setLegendreCoeffZ(sensorID, coeffNull);
+    }
   }
 
   params.store("misparams.root");

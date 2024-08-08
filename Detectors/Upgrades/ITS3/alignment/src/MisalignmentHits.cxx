@@ -99,6 +99,45 @@ std::optional<o2::itsmft::Hit> MisAlignmentHits::processHit(const o2::itsmft::Hi
     ++mStats[Stats::kHitNotMigrated];
   }
 
+  /// Check if we crossed a boundary within the entering and exiting hit from the midpoint
+  if constexpr (false) {
+    bool crossesBoundary{false};
+    TGeoNode *nEnt{nullptr}, *nExt{nullptr};
+    {
+      auto dirEnt = mCurWorkingHits[WorkingHit::kEntering].mPointDef - midPointDef;
+      auto stepEnt = std::min(static_cast<double>(dirEnt.R()), std::abs(dirEnt.R() - 5.e-4));
+      auto dirEntU = dirEnt.Unit();
+      gGeoManager->SetCurrentPoint(midPointDef.X(), midPointDef.Y(), midPointDef.Z());
+      gGeoManager->SetCurrentDirection(dirEntU.X(), dirEntU.Y(), dirEntU.Z());
+      nEnt = gGeoManager->FindNextBoundaryAndStep(stepEnt, false);
+      if (gGeoManager->IsOnBoundary()) {
+        ++mStats[Stats::kHitEntBoundary];
+        crossesBoundary = true;
+      }
+    }
+    {
+      auto dirExt = midPointDef - mCurWorkingHits[WorkingHit::kEntering].mPointDef;
+      auto stepExt = std::min(static_cast<double>(dirExt.R()), std::abs(dirExt.R() - 5.e-4));
+      auto dirExtU = dirExt.Unit();
+      gGeoManager->SetCurrentPoint(midPointDef.X(), midPointDef.Y(), midPointDef.Z());
+      gGeoManager->SetCurrentDirection(dirExtU.X(), dirExtU.Y(), dirExtU.Z());
+      nExt = gGeoManager->FindNextBoundaryAndStep(stepExt, false);
+      if (gGeoManager->IsOnBoundary()) {
+        ++mStats[Stats::kHitExtBoundary];
+        crossesBoundary = true;
+      }
+    }
+
+    if (crossesBoundary && nEnt != nullptr && nExt != nullptr) {
+      if (nEnt != nExt) {
+        return std::nullopt;
+      } else {
+        ++mStats[Stats::kHitSameBoundary]; // indicates that the step size is too large and we end up in the mother volume; just pretend that his fine for now
+      }
+    }
+    ++mStats[Stats::kHitNoBoundary];
+  }
+
   // Get new postion
   mCurHit.SetPosStart(mCurWorkingHits[WorkingHit::kEntering].mPointDef);
   mCurHit.SetPos(mCurWorkingHits[WorkingHit::kExiting].mPointDef);
@@ -113,15 +152,16 @@ bool MisAlignmentHits::deformHit(WorkingHit::HitType t)
   auto& wHit = mCurWorkingHits[t];
 
   mMinimizer->Clear(); // clear for next iteration
-  if (mMethod == PropMethod::Line) {
-    prepareLineMethod(t);
-  } else {
-    preparePropagtorMethod(t);
-  }
   constexpr double minStep{1e-5};
   constexpr double phiMargin{0.3};
   constexpr double zMargin{4.0};
-  mMinimizer->SetLimitedVariable(0, "t", 0.0, minStep, -2.5, 2.5);
+  if (mMethod == PropMethod::Line) {
+    prepareLineMethod(t);
+    mMinimizer->SetVariable(0, "t", 0.0, minStep); // this is left as a free parameter on since t is very small since start and end of hit are close
+  } else {
+    preparePropagtorMethod(t);
+    // mMinimizer->SetLimitedVariable(0, "t", 0.0, minStep, -2.5, 2.5); // TODO
+  }
   mMinimizer->SetLimitedVariable(1, "phiStar", wHit.mPhi, minStep,
                                  std::max(static_cast<double>(wHit.mPhiBorder1), static_cast<double>(wHit.mPhi) - phiMargin),
                                  std::min(static_cast<double>(wHit.mPhiBorder2), static_cast<double>(wHit.mPhi) + phiMargin));
@@ -148,7 +188,7 @@ bool MisAlignmentHits::deformHit(WorkingHit::HitType t)
 
   if (ss == 0 || ss == 1) { // for Minuit2 0=ok, 1=ok with pos. forced hesse
     ++mStats[Stats::kMinimizerStatusOk];
-    if (mMinimizer->MinValue() < 1e-4) { // within 1 um considering the pixel pitch this good enough
+    if (mMinimizer->MinValue() < 2e-4) { // within 2 um considering the pixel pitch this good enough
       ++mStats[Stats::kMinimizerValueOk];
     } else {
       ++mStats[Stats::kMinimizerValueBad];
@@ -225,6 +265,7 @@ void MisAlignmentHits::printStats() const
   LOGP(info, "  - IsSensitve: {} yes {} no", mStats[Stats::kProjSensitive], mStats[Stats::kProjNonSensitive]);
   LOGP(info, "  - IsAlive: {} yes {} no", mStats[Stats::kHitAlive], mStats[Stats::kHitDead]);
   LOGP(info, "  - HasMigrated: {} yes {} no", mStats[Stats::kHitMigrated], mStats[Stats::kHitNotMigrated]);
+  LOGP(info, "  - Crosses Boundary: {} entering {} exiting {} same {} no", mStats[Stats::kHitEntBoundary], mStats[Stats::kHitExtBoundary], mStats[Stats::kHitSameBoundary], mStats[Stats::kHitNoBoundary]);
   LOGP(info, "  --> Good Hits {}", mStats[Stats::kHitSuccess]);
 }
 
