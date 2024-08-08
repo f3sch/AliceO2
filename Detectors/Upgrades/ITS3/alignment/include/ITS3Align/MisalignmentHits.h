@@ -19,6 +19,7 @@
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTSimulation/Hit.h"
 #include "MathUtils/Cartesian.h"
+#include "MathUtils/Utils.h"
 #include "Steer/MCKinematicsReader.h"
 
 #include <regex>
@@ -38,7 +39,7 @@ class MisAlignmentHits
     Line,
   };
 
-  void init(PropMethod m = PropMethod::Line);
+  void init();
 
   std::optional<o2::itsmft::Hit> processHit(const o2::itsmft::Hit& hit);
 
@@ -81,14 +82,9 @@ class MisAlignmentHits
 
       // Pre-calculate the normalized u,v coordinates
       const bool isTop = mSensorID % 2 == 0;
-      mPhi = std::atan2(mPoint.Y(), mPoint.X());
-      mPhi = (mPhi >= 0) ? mPhi : (2 * TMath::Pi() + mPhi);
-      mPhiBorder1 = std::asin(constants::equatorialGap / 2.f / mRadius);
-      mPhiBorder2 = TMath::Pi() - std::asin(constants::equatorialGap / 2.f / mRadius);
-      if (!isTop) {
-        mPhiBorder1 += TMath::Pi();
-        mPhiBorder2 += TMath::Pi();
-      }
+      mPhi = o2::math_utils::to02Pi(std::atan2(mPoint.Y(), mPoint.X()));
+      mPhiBorder1 = o2::math_utils::to02Pi(((isTop) ? 0.f : 1.f) * TMath::Pi() + std::asin(constants::equatorialGap / 2.f / mRadius));
+      mPhiBorder2 = o2::math_utils::to02Pi(((isTop) ? 1.f : 2.f) * TMath::Pi() - std::asin(constants::equatorialGap / 2.f / mRadius));
       mU = ((mPhi - mPhiBorder1) * 2.f) / (mPhiBorder2 - mPhiBorder1) - 1.f;
       mV = (2.f * mPoint.Z() + constants::segment::lengthSensitive) / constants::segment::lengthSensitive - 1.f;
     }
@@ -119,13 +115,9 @@ class MisAlignmentHits
 
   bool deformHit(WorkingHit::HitType t);
 
-  std::tuple<double, double, double> getDeformation(unsigned int id, double u, double v) const
+  auto getDeformation(unsigned int id, double u, double v) const
   {
-    return {
-      mDeformations.getDeformationX(id, u, v),
-      mDeformations.getDeformationX(id, u, v),
-      mDeformations.getDeformationX(id, u, v),
-    };
+    return mDeformations.getDeformation(id, u, v);
   }
 
   // Mimize function assuming a straight line
@@ -192,6 +184,12 @@ class MisAlignmentHits
     kMinimizerStatusBad,
     kMinimizerValueOk,
     kMinimizerValueBad,
+    kMinimizerConverged,
+    kMinimizerCovPos,
+    kMinimizerHesse,
+    kMinimizerEDM,
+    kMinimizerLimit,
+    kMinimizerOther,
     kALL,
   };
   std::array<ULong64_t, Stats::kALL> mStats;

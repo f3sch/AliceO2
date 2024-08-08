@@ -16,15 +16,15 @@
 #include "ITS3Align/MisalignmentParameters.h"
 #endif
 
-void CreateMisalignmentITS3()
+void CreateMisalignmentITS3(bool dummy = false)
 {
   gRandom->SetSeed(42);
 
   // Legendre coeff.
   constexpr int nOrder{2};
   auto getRandom = []() {
-    constexpr double scale{80.e-3};
-    return scale * gRandom->Uniform(-0.2, 0.2);
+    constexpr double scale{100.e-4};
+    return scale * gRandom->Uniform(-1.0, 1.0);
   };
 
   o2::its3::align::MisalignmentParameters params;
@@ -36,9 +36,9 @@ void CreateMisalignmentITS3()
     for (int i{0}; i <= nOrder; ++i) {
       for (int j{0}; j <= i; ++j) {
         // some random scaling as higher order parameters have higher influence
-        coeffX(i, j) = getRandom() / (1.0 + i * j * 2.0);
-        coeffZ(i, j) = getRandom() / (1.0 + i * j * 2.0);
-        coeffY(i, j) = getRandom() / (1.0 + i * j * 2.0);
+        coeffX(i, j) = (dummy) ? 0.0 : getRandom() / (1.0 + i * j * 2.0);
+        coeffZ(i, j) = (dummy) ? 0.0 : getRandom() / (1.0 + i * j * 2.0);
+        coeffY(i, j) = (dummy) ? 0.0 : getRandom() / (1.0 + i * j * 2.0);
       }
     }
 

@@ -29,6 +29,36 @@ class Deformations
   double getDeformationX(unsigned int id, double u, double v) const { return getDeformation<0>(id, u, v); }
   double getDeformationY(unsigned int id, double u, double v) const { return getDeformation<1>(id, u, v); }
   double getDeformationZ(unsigned int id, double u, double v) const { return getDeformation<2>(id, u, v); }
+  double getDeformation(unsigned int id, unsigned int axis, double u, double v) const
+  {
+    if (axis == 0) {
+      return mLegX[id](u, v);
+    } else if (axis == 1) {
+      return mLegY[id](u, v);
+    } else {
+      return mLegZ[id](u, v);
+    }
+  }
+  std::array<double, 3> getDeformation(unsigned int id, double u, double v) const
+  {
+    return {getDeformation<0>(id, u, v),
+            getDeformation<1>(id, u, v),
+            getDeformation<2>(id, u, v)};
+  }
+  std::array<unsigned int, 3> getOrders(unsigned int id) const
+  {
+    return {mLegX[id].NOrder(), mLegY[id].NOrder(), mLegZ[id].NOrder()};
+  }
+  const o2::math_utils::Legendre2DPolynominal& getLegendre(unsigned int id, unsigned int axis) const
+  {
+    if (axis == 0) {
+      return mLegX[id];
+    } else if (axis == 1) {
+      return mLegY[id];
+    } else {
+      return mLegZ[id];
+    }
+  }
 
  private:
   template <int axis>

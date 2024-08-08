@@ -59,6 +59,7 @@ class Legendre1DPolynominal final : public TNamed,
   }
 
   unsigned int NPar() const final { return fParams.size(); }
+  unsigned int NOrder() const { return fOrder; }
 
   ROOT::Math::IBaseFunctionOneDim* Clone() const final { return new Legendre1DPolynominal(fParams); }
   TObject* Clone(const char* name) const final
@@ -140,6 +141,7 @@ class Legendre2DPolynominal final : public TNamed,
     return fOrder * (fOrder + 1) / 2 + fOrder + 1;
   }
   unsigned int NDim() const final { return 2; }
+  unsigned int NOrder() const { return fOrder; }
 
   TMatrixD getCoefficients() const
   {

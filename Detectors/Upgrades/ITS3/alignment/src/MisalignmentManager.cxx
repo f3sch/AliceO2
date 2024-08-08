@@ -77,13 +77,15 @@ void MisalignmentManager::misalignHits()
   newTree->Branch("IT3Hit", &newHitsPtr);
 
   LOGP(info, "Preparations done; starting hit loop");
+  auto nEntries = origTree->GetEntries();
   ULong64_t totalOrigHits{0}, totalNewHits{0};
-  for (int iEntry{0}; origTree->LoadTree(iEntry) >= 0; ++iEntry) {
+  for (Long64_t iEntry{0}; origTree->LoadTree(iEntry) >= 0; ++iEntry) {
     if (origTree->GetEntry(iEntry) <= 0) {
       continue;
     }
 
-    LOGP(info, "Processing event {} of {}", iEntry, origTree->GetEntries());
+    const auto progress = (iEntry * 100) / nEntries;
+    LOG_IF(info, progress % 10 == 0) << "Processing event " << iEntry << " / " << nEntries;
 
     newHits.clear();
     newHits.reserve(origHits.size());
@@ -104,9 +106,10 @@ void MisalignmentManager::misalignHits()
 
   MisAligner.printStats();
 
+  auto totalDiscardedHits = totalOrigHits - totalNewHits;
   LOGP(info, "Summary: Total orignal Hits {}", totalOrigHits);
-  LOGP(info, "Summary: Total misaligned Hits {}", totalNewHits);
-  LOGP(info, "Summary: Discarded Hits {}", totalOrigHits - totalNewHits);
+  LOGP(info, "Summary: Total misaligned Hits {} ({:.2f}%)", totalNewHits, static_cast<float>(totalNewHits) / static_cast<float>(totalOrigHits) * 100);
+  LOGP(info, "Summary: Total discarded Hits {} ({:.2f}%)", totalDiscardedHits, static_cast<float>(totalDiscardedHits) / static_cast<float>(totalOrigHits) * 100);
 
   LOGP(info, "{:*^90}", " ITS3 LOCAL MISALIGNMENT END ");
 }

@@ -27,25 +27,31 @@
 namespace o2::its3::align
 {
 
-void MisAlignmentHits::init(PropMethod m)
+void MisAlignmentHits::init()
 {
-  // TGeoManager::SetVerboseLevel(5);
-  mMethod = m;
+  if (o2::its3::ITS3Params::Instance().misalignmentHitsUseProp) {
+    mMethod = PropMethod::Propagator;
+  } else {
+    mMethod = PropMethod::Line;
+  }
+
   mGeo = o2::its::GeometryTGeo::Instance();
+
+  mMinimizer.reset(ROOT::Math::Factory::CreateMinimizer("Minuit2", "Migrad"));
+  if (mMinimizer == nullptr) {
+    LOGP(fatal, "Cannot create minimizer");
+  }
+  mMinimizer->SetMaxFunctionCalls(10'000'000);
+  mMinimizer->SetStrategy(1);
+  mMinimizer->SetPrintLevel(0);
 
   if (mMethod == PropMethod::Propagator) {
     mMCReader = std::make_unique<o2::steer::MCKinematicsReader>("collisioncontext.root");
     LOGP(info, "Using propagator to find intersection");
   } else {
     LOGP(info, "Using local straight-line to find intersection");
+    mMinimizer->SetFunction(mLine);
   }
-
-  mMinimizer.reset(ROOT::Math::Factory::CreateMinimizer("Minuit2", "Migrad"));
-  if (mMinimizer == nullptr) {
-    LOGP(fatal, "Cannot create minimizer");
-  }
-  mMinimizer->SetMaxFunctionCalls(10000000);
-  mMinimizer->SetPrintLevel(0);
 
   resetStats();
 
@@ -58,6 +64,7 @@ void MisAlignmentHits::init(PropMethod m)
 
 std::optional<o2::itsmft::Hit> MisAlignmentHits::processHit(const o2::itsmft::Hit& hit)
 {
+  LOGP(debug, "Procesing hit on {} at {},{},{} phi={}", hit.GetDetectorID(), hit.GetPos().X(), hit.GetPos().Y(), hit.GetPos().Z(), o2::math_utils::to02Pi(hit.GetPos().phi()));
   ++mStats[Stats::kHitTotal];
 
   if (!constants::detID::isDetITS3(hit.GetDetectorID())) {
@@ -108,23 +115,40 @@ bool MisAlignmentHits::deformHit(WorkingHit::HitType t)
   mMinimizer->Clear(); // clear for next iteration
   if (mMethod == PropMethod::Line) {
     prepareLineMethod(t);
-    mMinimizer->SetFunction(mLine);
   } else {
     preparePropagtorMethod(t);
   }
-  constexpr double minStep{0.0000001};
-  mMinimizer->SetTolerance(0.00000001);
-  mMinimizer->SetLimitedVariable(0, "t", 1.0, minStep, -2.0, 2.0);
-  mMinimizer->SetLimitedVariable(1, "phiStar", wHit.mPhi, minStep, wHit.mPhiBorder1, wHit.mPhiBorder2); // limits will be recalulcate later
+  constexpr double minStep{1e-5};
+  constexpr double phiMargin{0.3};
+  constexpr double zMargin{4.0};
+  mMinimizer->SetLimitedVariable(0, "t", 0.0, minStep, -2.5, 2.5);
+  mMinimizer->SetLimitedVariable(1, "phiStar", wHit.mPhi, minStep,
+                                 std::max(static_cast<double>(wHit.mPhiBorder1), static_cast<double>(wHit.mPhi) - phiMargin),
+                                 std::min(static_cast<double>(wHit.mPhiBorder2), static_cast<double>(wHit.mPhi) + phiMargin));
   mMinimizer->SetLimitedVariable(2, "zStar", wHit.mPoint.Z(), minStep,
-                                 std::max(-constants::segment::lengthSensitive / 2.f, wHit.mPoint.Z() - 2),
-                                 std::min(constants::segment::lengthSensitive / 2.f, wHit.mPoint.Z() + 2));
+                                 std::max(static_cast<double>(-constants::segment::lengthSensitive / 2.f), static_cast<double>(wHit.mPoint.Z()) - zMargin),
+                                 std::min(static_cast<double>(constants::segment::lengthSensitive / 2.f), static_cast<double>(wHit.mPoint.Z()) + zMargin));
 
   mMinimizer->Minimize(); // perform the actual minimization
 
-  if (auto ss = mMinimizer->Status(); ss == 0 || ss == 1) { // for Minuit2 0=ok, 1=ok with pos. forced hesse
+  auto ss = mMinimizer->Status();
+  if (ss == 1) {
+    ++mStats[Stats::kMinimizerCovPos];
+  } else if (ss == 2) {
+    ++mStats[Stats::kMinimizerHesse];
+  } else if (ss == 3) {
+    ++mStats[Stats::kMinimizerEDM];
+  } else if (ss == 4) {
+    ++mStats[Stats::kMinimizerLimit];
+  } else if (ss == 5) {
+    ++mStats[Stats::kMinimizerOther];
+  } else {
+    ++mStats[Stats::kMinimizerConverged];
+  }
+
+  if (ss == 0 || ss == 1) { // for Minuit2 0=ok, 1=ok with pos. forced hesse
     ++mStats[Stats::kMinimizerStatusOk];
-    if (mMinimizer->MinValue() < 0.000001) {
+    if (mMinimizer->MinValue() < 1e-4) { // within 1 um considering the pixel pitch this good enough
       ++mStats[Stats::kMinimizerValueOk];
     } else {
       ++mStats[Stats::kMinimizerValueBad];
@@ -195,6 +219,8 @@ void MisAlignmentHits::printStats() const
   LOGP(info, "Processed {} Hits (IB:{}; OB:{}):", mStats[Stats::kHitTotal], mStats[Stats::kHitIsIB], mStats[Stats::kHitIsOB]);
   LOGP(info, "  - Minimizer Status: {} ok {} bad (2x)", mStats[Stats::kMinimizerStatusOk], mStats[Stats::kMinimizerStatusBad]);
   LOGP(info, "  - Minimizer Value: {} ok {} bad (2x)", mStats[Stats::kMinimizerValueOk], mStats[Stats::kMinimizerValueBad]);
+  LOGP(info, "  - Minimizer Detailed: {} Converged {} pos. forced Hesse (2x)", mStats[Stats::kMinimizerConverged], mStats[Stats::kMinimizerHesse]);
+  LOGP(info, "  - Minimizer Detailed: {} EDM {} call limit {} other (2x)", mStats[Stats::kMinimizerEDM], mStats[Stats::kMinimizerLimit], mStats[Stats::kMinimizerOther]);
   LOGP(info, "  - FindNode: {} ok {} failed", mStats[Stats::kFindNodeSuccess], mStats[Stats::kFindNodeFailed]);
   LOGP(info, "  - IsSensitve: {} yes {} no", mStats[Stats::kProjSensitive], mStats[Stats::kProjNonSensitive]);
   LOGP(info, "  - IsAlive: {} yes {} no", mStats[Stats::kHitAlive], mStats[Stats::kHitDead]);
@@ -205,14 +231,14 @@ void MisAlignmentHits::printStats() const
 void MisAlignmentHits::prepareLineMethod(WorkingHit::HitType from)
 {
   // Set the starint point and radius
-  mLine.mStart = mCurWorkingHits[from].mPoint;
+  // always start from the entering hit that way t is always pos. defined
+  mLine.mStart = mCurWorkingHits[WorkingHit::kEntering].mPoint;
   mLine.mRadius = mCurWorkingHits[from].mRadius;
   mLine.mSensorID = mCurWorkingHits[from].mSensorID;
   // Calculate the direction vector
-  const int to = (from == WorkingHit::kExiting) ? WorkingHit::kEntering : WorkingHit::kExiting;
-  mLine.mD[0] = mCurWorkingHits[from].mPoint.X() - mCurWorkingHits[to].mPoint.X();
-  mLine.mD[1] = mCurWorkingHits[from].mPoint.Y() - mCurWorkingHits[to].mPoint.Y();
-  mLine.mD[2] = mCurWorkingHits[from].mPoint.Z() - mCurWorkingHits[to].mPoint.Z();
+  mLine.mD[0] = mCurWorkingHits[WorkingHit::kExiting].mPoint.X() - mCurWorkingHits[WorkingHit::kEntering].mPoint.X();
+  mLine.mD[1] = mCurWorkingHits[WorkingHit::kExiting].mPoint.Y() - mCurWorkingHits[WorkingHit::kEntering].mPoint.Y();
+  mLine.mD[2] = mCurWorkingHits[WorkingHit::kExiting].mPoint.Z() - mCurWorkingHits[WorkingHit::kEntering].mPoint.Z();
 }
 
 } // namespace o2::its3::align
