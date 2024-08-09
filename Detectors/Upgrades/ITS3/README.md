@@ -166,5 +166,5 @@ o2-sim-digitizer-workflow --configKeyValues="ITS3Params.useDeadChannelMap=true;"
 3. Run digitizer
 ``` bash
 o2-sim-digitizer-workflow -b --configKeyValues="ITS3Params.applyMisalignmentHits=true;ITS3Params.misalignmentHitsParams=misparams.root"
-o2-its3-reco-workflow -b --configKeyValues "HBFUtils.runNumber=303901;" --tracking-mode async
+${O2_ROOT}/bin/o2-its3-reco-workflow --tracking-mode async -b --run --condition-not-after 3385078236000 --shm-segment-size ${SHMSIZE:-50000000000} --configKeyValues "HBFUtils.orbitFirstSampled=0;HBFUtils.nHBFPerTF=128;HBFUtils.orbitFirst=0;HBFUtils.runNumber=311901;HBFUtils.startTime=1551418230000;GlobalParams.withITS3=true;ITSVertexerParam.lowMultBeamDistCut=0.;NameConf.mDirMatLUT=.."
 ```

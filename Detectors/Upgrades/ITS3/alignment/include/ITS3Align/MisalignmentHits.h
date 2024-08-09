@@ -15,6 +15,7 @@
 #include "Math/IFunction.h"
 #include "Math/Minimizer.h"
 
+#include "ReconstructionDataFormats/Track.h"
 #include "ITS3Align/Deformations.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTSimulation/Hit.h"
@@ -41,7 +42,7 @@ class MisAlignmentHits
 
   void init();
 
-  std::optional<o2::itsmft::Hit> processHit(const o2::itsmft::Hit& hit);
+  std::optional<o2::itsmft::Hit> processHit(int iEvent, const o2::itsmft::Hit& hit);
 
   void resetStats() { mStats.fill(0ull); }
   void printStats() const;
@@ -67,10 +68,12 @@ class MisAlignmentHits
 
     WorkingHit() = default;
 
-    WorkingHit(HitType t, const o2::itsmft::Hit& hit) : mType(t),
-                                                        mDetID(hit.GetDetectorID()),
-                                                        mLayerID(constants::detID::getDetID2Layer(mDetID)),
-                                                        mSensorID(constants::detID::getSensorID(mDetID))
+    WorkingHit(int eventID, HitType t, const o2::itsmft::Hit& hit) : mEvent(eventID),
+                                                                     mTrackID(hit.GetTrackID()),
+                                                                     mType(t),
+                                                                     mDetID(hit.GetDetectorID()),
+                                                                     mLayerID(constants::detID::getDetID2Layer(mDetID)),
+                                                                     mSensorID(constants::detID::getSensorID(mDetID))
     {
       if (mType == kEntering) {
         mRadius = constants::radiiInner[mLayerID];
@@ -80,7 +83,7 @@ class MisAlignmentHits
         mPoint = hit.GetPos();
       }
 
-      // Pre-calculate the normalized u,v coordinates
+      // Pre-calculate the normalized u,v coordinates as starting parameters
       const bool isTop = mSensorID % 2 == 0;
       mPhi = o2::math_utils::to02Pi(std::atan2(mPoint.Y(), mPoint.X()));
       mPhiBorder1 = o2::math_utils::to02Pi(((isTop) ? 0.f : 1.f) * TMath::Pi() + std::asin(constants::equatorialGap / 2.f / mRadius));
@@ -96,6 +99,8 @@ class MisAlignmentHits
       mPointDef.SetZ(z);
     }
 
+    int mEvent;
+    int mTrackID;
     HitType mType;
     short mDetID;
     int mLayerID;
@@ -134,36 +139,41 @@ class MisAlignmentHits
     double mRadius;
     const MisAlignmentHits* mMis;
 
+    double mPhiTot;
+    double mPhi1;
+
     unsigned int NDim() const override { return 3; }
     ROOT::Math::IBaseFunctionMultiDim* Clone() const override { return nullptr; }
 
    private:
-    double DoEval(const double* x) const override
-    {
-      const double t = x[0];
-      const double phi = x[1];
-      const double z = x[2];
-
-      /// Find the point along the line given current t
-      double xline = mStart.X() + t * mD[0],
-             yline = mStart.Y() + t * mD[1],
-             zline = mStart.Z() + t * mD[2];
-
-      // Find the point of the deformed geometry given a certain phi' and z'
-      double xideal = mRadius * std::cos(phi), yideal = mRadius * std::sin(phi),
-             zideal = z;
-      double u, v;
-      auto [dx, dy, dz] = mMis->getDeformation(mSensorID, u, v);
-      double xdef = xideal + dx, ydef = yideal + dy, zdef = zideal + dz;
-
-      // Minimize the euclidean distance of the line point and the deformed point
-      return std::hypot(xline - xdef, yline - ydef, zline - zdef);
-    }
+    double DoEval(const double* x) const override;
   };
   StraightLine mLine{this};
-
   void prepareLineMethod(WorkingHit::HitType from);
-  void preparePropagtorMethod(WorkingHit::HitType from) {}
+
+  // Mimize function using the MCTrack
+  class Propagator : public ROOT::Math::IBaseFunctionMultiDim
+  {
+   public:
+    Propagator(const MisAlignmentHits* m) : mMis(m) {}
+
+    o2::track::TrackPar mTrack;
+    float mBz;
+    unsigned int mSensorID;
+    double mRadius;
+    const MisAlignmentHits* mMis;
+
+    double mPhiTot;
+    double mPhi1;
+
+    unsigned int NDim() const override { return 3; }
+    ROOT::Math::IBaseFunctionMultiDim* Clone() const override { return nullptr; }
+
+   private:
+    double DoEval(const double* x) const override;
+  };
+  Propagator mPropagator{this};
+  bool preparePropagatorMethod(WorkingHit::HitType from);
 
   enum Stats : uint8_t {
     kHitTotal = 0,
@@ -194,6 +204,8 @@ class MisAlignmentHits
     kMinimizerEDM,
     kMinimizerLimit,
     kMinimizerOther,
+    kPropTrackNull,
+    kPropPDGNull,
     kALL,
   };
   std::array<ULong64_t, Stats::kALL> mStats;

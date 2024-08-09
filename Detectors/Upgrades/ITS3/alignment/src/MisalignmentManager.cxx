@@ -95,7 +95,7 @@ void MisalignmentManager::misalignHits()
     newHits.clear();
     newHits.reserve(origHits.size());
     for (const auto& origHit : origHits) {
-      if (auto newHit = MisAligner.processHit(origHit)) {
+      if (auto newHit = MisAligner.processHit(iEntry, origHit)) {
         newHits.emplace_back(*newHit);
       }
     }

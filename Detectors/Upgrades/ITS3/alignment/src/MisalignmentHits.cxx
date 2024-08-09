@@ -12,6 +12,8 @@
 #include "ITS3Align/MisalignmentHits.h"
 #include "ITS3Base/SegmentationSuperAlpide.h"
 #include "ITS3Base/ITS3Params.h"
+#include "SimConfig/DigiParams.h"
+#include "DetectorsBase/Propagator.h"
 #include "Framework/Logger.h"
 
 #include "Math/Factory.h"
@@ -41,13 +43,15 @@ void MisAlignmentHits::init()
   if (mMinimizer == nullptr) {
     LOGP(fatal, "Cannot create minimizer");
   }
-  mMinimizer->SetMaxFunctionCalls(10'000'000);
-  mMinimizer->SetStrategy(1);
+  mMinimizer->SetMaxFunctionCalls(1'000'000'000);
+  mMinimizer->SetStrategy(0);
   mMinimizer->SetPrintLevel(0);
 
   if (mMethod == PropMethod::Propagator) {
-    mMCReader = std::make_unique<o2::steer::MCKinematicsReader>("collisioncontext.root");
     LOGP(info, "Using propagator to find intersection");
+    const auto& prefix = o2::conf::DigiParams::Instance().digitizationgeometry_prefix;
+    mMCReader = std::make_unique<o2::steer::MCKinematicsReader>(prefix, o2::steer::MCKinematicsReader::Mode::kMCKine);
+    mMinimizer->SetFunction(mPropagator);
   } else {
     LOGP(info, "Using local straight-line to find intersection");
     mMinimizer->SetFunction(mLine);
@@ -62,9 +66,8 @@ void MisAlignmentHits::init()
   }
 }
 
-std::optional<o2::itsmft::Hit> MisAlignmentHits::processHit(const o2::itsmft::Hit& hit)
+std::optional<o2::itsmft::Hit> MisAlignmentHits::processHit(int iEvent, const o2::itsmft::Hit& hit)
 {
-  LOGP(debug, "Procesing hit on {} at {},{},{} phi={}", hit.GetDetectorID(), hit.GetPos().X(), hit.GetPos().Y(), hit.GetPos().Z(), o2::math_utils::to02Pi(hit.GetPos().phi()));
   ++mStats[Stats::kHitTotal];
 
   if (!constants::detID::isDetITS3(hit.GetDetectorID())) {
@@ -75,8 +78,8 @@ std::optional<o2::itsmft::Hit> MisAlignmentHits::processHit(const o2::itsmft::Hi
 
   // Set the working hits
   mCurHit = hit;
-  mCurWorkingHits[WorkingHit::kEntering] = WorkingHit(WorkingHit::kEntering, hit);
-  mCurWorkingHits[WorkingHit::kExiting] = WorkingHit(WorkingHit::kExiting, hit);
+  mCurWorkingHits[WorkingHit::kEntering] = WorkingHit(iEvent, WorkingHit::kEntering, hit);
+  mCurWorkingHits[WorkingHit::kExiting] = WorkingHit(iEvent, WorkingHit::kExiting, hit);
 
   // Do work
   if (!deformHit(WorkingHit::kEntering) || !deformHit(WorkingHit::kExiting)) {
@@ -153,14 +156,16 @@ bool MisAlignmentHits::deformHit(WorkingHit::HitType t)
 
   mMinimizer->Clear(); // clear for next iteration
   constexpr double minStep{1e-5};
-  constexpr double phiMargin{0.3};
   constexpr double zMargin{4.0};
+  constexpr double phiMargin{0.4};
   if (mMethod == PropMethod::Line) {
     prepareLineMethod(t);
     mMinimizer->SetVariable(0, "t", 0.0, minStep); // this is left as a free parameter on since t is very small since start and end of hit are close
   } else {
-    preparePropagtorMethod(t);
-    // mMinimizer->SetLimitedVariable(0, "t", 0.0, minStep, -2.5, 2.5); // TODO
+    if (!preparePropagatorMethod(t)) {
+      return false;
+    }
+    mMinimizer->SetVariable(0, "r", mPropagator.mTrack.getX(), minStep); // this is left as a free parameter on since t is very small since start and end of hit are close
   }
   mMinimizer->SetLimitedVariable(1, "phiStar", wHit.mPhi, minStep,
                                  std::max(static_cast<double>(wHit.mPhiBorder1), static_cast<double>(wHit.mPhi) - phiMargin),
@@ -207,6 +212,7 @@ bool MisAlignmentHits::deformHit(WorkingHit::HitType t)
 
 int MisAlignmentHits::getDetID(const o2::math_utils::Point3D<float>& point)
 {
+  // Do not modify the path, I do not know if this is needed but lets be safe
   gGeoManager->PushPath();
   auto id = getDetIDFromCords(point);
   gGeoManager->PopPath();
@@ -266,6 +272,9 @@ void MisAlignmentHits::printStats() const
   LOGP(info, "  - IsAlive: {} yes {} no", mStats[Stats::kHitAlive], mStats[Stats::kHitDead]);
   LOGP(info, "  - HasMigrated: {} yes {} no", mStats[Stats::kHitMigrated], mStats[Stats::kHitNotMigrated]);
   LOGP(info, "  - Crosses Boundary: {} entering {} exiting {} same {} no", mStats[Stats::kHitEntBoundary], mStats[Stats::kHitExtBoundary], mStats[Stats::kHitSameBoundary], mStats[Stats::kHitNoBoundary]);
+  if (mMethod == PropMethod::Propagator) {
+    LOGP(info, " - Propagator: {} null track {} null pdg", mStats[Stats::kPropTrackNull], mStats[Stats::kPropPDGNull]);
+  }
   LOGP(info, "  --> Good Hits {}", mStats[Stats::kHitSuccess]);
 }
 
@@ -276,10 +285,81 @@ void MisAlignmentHits::prepareLineMethod(WorkingHit::HitType from)
   mLine.mStart = mCurWorkingHits[WorkingHit::kEntering].mPoint;
   mLine.mRadius = mCurWorkingHits[from].mRadius;
   mLine.mSensorID = mCurWorkingHits[from].mSensorID;
+  mLine.mPhiTot = mCurWorkingHits[from].mPhiBorder2 - mCurWorkingHits[from].mPhiBorder1;
+  mLine.mPhi1 = mCurWorkingHits[from].mPhiBorder1;
   // Calculate the direction vector
   mLine.mD[0] = mCurWorkingHits[WorkingHit::kExiting].mPoint.X() - mCurWorkingHits[WorkingHit::kEntering].mPoint.X();
   mLine.mD[1] = mCurWorkingHits[WorkingHit::kExiting].mPoint.Y() - mCurWorkingHits[WorkingHit::kEntering].mPoint.Y();
   mLine.mD[2] = mCurWorkingHits[WorkingHit::kExiting].mPoint.Z() - mCurWorkingHits[WorkingHit::kEntering].mPoint.Z();
+}
+
+double MisAlignmentHits::StraightLine::DoEval(const double* x) const
+{
+  const double t = x[0];
+  const double phi = x[1];
+  const double z = x[2];
+  const double nphi = (phi - mPhi1) * 2.0 / mPhiTot - 1.0;
+  const double nz = (z - (-constants::segment::lengthSensitive / 2.0)) * 2.0 / constants::segment::lengthSensitive - 1.0;
+
+  /// Find the point along the line given current t
+  double xline = mStart.X() + t * mD[0],
+         yline = mStart.Y() + t * mD[1],
+         zline = mStart.Z() + t * mD[2];
+
+  // Find the point of the deformed geometry given a certain phi' and z'
+  double xideal = mRadius * std::cos(phi), yideal = mRadius * std::sin(phi),
+         zideal = z;
+  const auto [dx, dy, dz] = mMis->getDeformation(mSensorID, nphi, nz);
+  double xdef = xideal + dx, ydef = yideal + dy, zdef = zideal + dz;
+
+  // Minimize the euclidean distance of the line point and the deformed point
+  return std::hypot(xline - xdef, yline - ydef, zline - zdef);
+}
+
+bool MisAlignmentHits::preparePropagatorMethod(WorkingHit::HitType from)
+{
+  mPropagator.mRadius = mCurWorkingHits[from].mRadius;
+  mPropagator.mSensorID = mCurWorkingHits[from].mSensorID;
+  mPropagator.mPhiTot = mCurWorkingHits[from].mPhiBorder2 - mCurWorkingHits[from].mPhiBorder1;
+  mPropagator.mPhi1 = mCurWorkingHits[from].mPhiBorder1;
+  const auto mcTrack = mMCReader->getTrack(mCurWorkingHits[from].mEvent, mCurWorkingHits[from].mTrackID);
+  if (mcTrack == nullptr) {
+    ++mStats[Stats::kPropTrackNull];
+    return false;
+  }
+  const std::array<float, 3> xyz{(float)mcTrack->GetStartVertexCoordinatesX(), (float)mcTrack->GetStartVertexCoordinatesY(), (float)mcTrack->GetStartVertexCoordinatesZ()},
+    pxyz{(float)mcTrack->GetStartVertexMomentumX(), (float)mcTrack->GetStartVertexMomentumY(), (float)mcTrack->GetStartVertexMomentumZ()};
+  const TParticlePDG* pPDG = TDatabasePDG::Instance()->GetParticle(mcTrack->GetPdgCode());
+  if (pPDG == nullptr) {
+    ++mStats[Stats::kPropPDGNull];
+    return false;
+  }
+  mPropagator.mTrack = o2::track::TrackPar(xyz, pxyz, TMath::Nint(pPDG->Charge() / 3), false);
+  mPropagator.mBz = o2::base::Propagator::Instance()->getNominalBz();
+}
+
+double MisAlignmentHits::Propagator::DoEval(const double* x) const
+{
+  const double r = x[0];
+  const double phi = x[1];
+  const double z = x[2];
+  const double nphi = (phi - mPhi1) * 2.0 / mPhiTot - 1.0;
+  const double nz = (z - (-constants::segment::lengthSensitive / 2.0)) * 2.0 / constants::segment::lengthSensitive - 1.0;
+
+  auto trc = mTrack;
+  if (!trc.propagateTo(r, mBz)) {
+    return 999;
+  }
+  const auto glo = trc.getXYZGlo();
+
+  // Find the point of the deformed geometry given a certain phi' and z'
+  double xideal = mRadius * std::cos(phi), yideal = mRadius * std::sin(phi),
+         zideal = z;
+  const auto [dx, dy, dz] = mMis->getDeformation(mSensorID, nphi, nz);
+  double xdef = xideal + dx, ydef = yideal + dy, zdef = zideal + dz;
+
+  // Minimize the euclidean distance of the propagator point and the deformed point
+  return std::hypot(glo.X() - xdef, glo.Y() - ydef, glo.Z() - zdef);
 }
 
 } // namespace o2::its3::align

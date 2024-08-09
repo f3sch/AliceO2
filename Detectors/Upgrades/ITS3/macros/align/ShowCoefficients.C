@@ -46,6 +46,91 @@ void ShowCoefficients(const std::string& fileName = "misparams.root", bool findM
   }
 
   if (1) {
+    constexpr double factor{20};
+    constexpr int nPoints{1000};
+    const std::array<double, 7> zFix{-12., -8.67, -4.33, 0., 4.33, 8.67, 12.};
+    const std::array<double, 7> phiFix{1. / 4. * TMath::Pi(), 0.5 * TMath::Pi(), 3. / 4. * TMath::Pi(), TMath::Pi(), 5. / 4. * TMath::Pi(), 6. / 4. * TMath::Pi(), 7. / 4. * TMath::Pi()};
+    const std::array<const char*, 7> phiFixName{"#frac{1}{4}", "#frac{1}{2}", "#frac{3}{4}", "1", "#frac{5}{4}", "#frac{6}{4}", "#frac{7}{4}"};
+    const std::array<bool, 7> phiFixTop{true, true, true, false, false, false, false};
+    const std::array<std::array<int, 3>, 2> sensorN{{{0, 2, 4}, {1, 3, 5}}};
+    constexpr double z1{-o2::its3::constants::segment::lengthSensitive / 2.0}, z2{o2::its3::constants::segment::lengthSensitive / 2.0}, zTot{z2 - z1}, zStep{zTot / (nPoints - 1)};
+    std::array<double, nPoints * 6> xi, yi, zi, ri;
+    std::array<double, nPoints * 6> xd, yd;
+    std::array<double, nPoints * 3> zd, rd;
+    auto canv = new TCanvas();
+    canv->Divide(7, 2);
+    for (int i{0}; i < 7; ++i) {
+      const bool isTop = phiFixTop[i];
+      for (int s{0}; s < 6; ++s) {
+        const double radius = o2::its3::constants::radii[s / 2];
+        const double nzFix = (zFix[i] - z1) * 2.0 / zTot - 1.0;
+        const double phi1 = o2::math_utils::to02Pi(((isTop) ? 0.f : 1.f) * TMath::Pi() + std::asin(o2::its3::constants::equatorialGap / 2.f / radius));
+        const double phi2 = o2::math_utils::to02Pi(((isTop) ? 1.f : 2.f) * TMath::Pi() - std::asin(o2::its3::constants::equatorialGap / 2.f / radius));
+        const double phiTot{phi2 - phi1}, phiStep{phiTot / (nPoints - 1)};
+        const double nphiFix = ((phiFix[i]) - phi1) * 2.0 / phiTot - 1.0;
+
+        for (int j{0}; j < nPoints; ++j) {
+          const int idx = s * nPoints + j;
+          const double z = z1 + j * zStep;
+          const double nz = (z - z1) * 2.0 / zTot - 1.0;
+          const double phi = phi1 + j * phiStep;
+          const double nphi = (phi - phi1) * 2.0 / phiTot - 1.0;
+
+          xi[idx] = radius * std::cos(phi);
+          yi[idx] = radius * std::sin(phi);
+          zi[idx] = z;
+          ri[idx] = std::sqrt(xi[idx] * xi[idx] + yi[idx] * yi[idx]);
+          const auto [dxXY, dyXY, dzXY] = def.getDeformation(s, nphi, nzFix);
+          xd[idx] = xi[idx] + dxXY * factor;
+          yd[idx] = yi[idx] + dyXY * factor;
+        }
+      }
+      canv->cd(i + 1);
+      auto gixy = new TGraph(nPoints * 6, xi.data(), yi.data());
+      gixy->SetNameTitle(Form("g_i_xy_%d", i), Form("Ideal xy z=%.2f; x (cm); y (cm)", zFix[i]));
+      gixy->SetMarkerColor(kBlue);
+      gixy->Draw("AP");
+      auto gdxy = new TGraph(nPoints * 6, xd.data(), yd.data());
+      gdxy->SetNameTitle(Form("g_d_xy_%d", i), Form("Deformed (x%.0f) xy z=%.2f; x (cm); y (cm)", factor, zFix[i]));
+      gdxy->SetMarkerColor(kRed);
+      gdxy->Draw("P;same");
+
+      if (i == 3) {
+        continue;
+      }
+
+
+      for (const int s : ((isTop) ? sensorN[0] : sensorN[1])) {
+        const double radius = o2::its3::constants::radii[s / 2];
+        const double phi1 = o2::math_utils::to02Pi(((isTop) ? 0.f : 1.f) * TMath::Pi() + std::asin(o2::its3::constants::equatorialGap / 2.f / radius));
+        const double phi2 = o2::math_utils::to02Pi(((isTop) ? 1.f : 2.f) * TMath::Pi() - std::asin(o2::its3::constants::equatorialGap / 2.f / radius));
+        const double phiTot{phi2 - phi1}, phiStep{phiTot / (nPoints - 1)};
+        const double nphiFix = ((phiFix[i]) - phi1) * 2.0 / phiTot - 1.0;
+        Info("", "phi1=%f phi2=%f nphiFix=%f", phi1, phi2, nphiFix);
+        for (int j{0}; j < nPoints; ++j) {
+          const int idx = (s / 2) * nPoints + j;
+          const double z = z1 + j * zStep;
+          const double nz = (z - z1) * 2.0 / zTot - 1.0;
+          const auto [dxZR, dyZR, dzZR] = def.getDeformation(s, nphiFix, nz);
+          zd[idx] = z + dzZR * factor;
+          const double xxd = xi[idx] + dxZR * factor, yyd = yi[idx] + dyZR * factor;
+          rd[idx] = std::sqrt(xxd * xxd + yyd * yyd);
+        }
+      }
+      canv->cd(i + 8);
+      auto gizr = new TGraph(nPoints * 3, zi.data(), ri.data());
+      gizr->SetNameTitle(Form("g_i_zr_%d", i), Form("Ideal zr #varphi=%s #Pi; z (cm); r (cm)", phiFixName[i]));
+      gizr->SetMarkerColor(kBlue);
+      gizr->Draw("AP");
+      auto gdzr = new TGraph(nPoints * 3, zd.data(), rd.data());
+      gdzr->SetNameTitle(Form("g_d_zr_%d", i), Form("Deformed (x%0.f) zr #varphi=%s #Pi; z (cm); r (cm)", factor, phiFixName[i]));
+      gdzr->SetMarkerColor(kRed);
+      gdzr->Draw("P;same");
+    }
+    canv->Draw();
+  }
+
+  if (0) {
     const std::array<const char*, 3> axisName{"x", "y", "z"};
     constexpr int nPoints{100};
     constexpr int nPoints2{nPoints * nPoints};
