@@ -99,7 +99,6 @@ void ShowCoefficients(const std::string& fileName = "misparams.root", bool findM
         continue;
       }
 
-
       for (const int s : ((isTop) ? sensorN[0] : sensorN[1])) {
         const double radius = o2::its3::constants::radii[s / 2];
         const double phi1 = o2::math_utils::to02Pi(((isTop) ? 0.f : 1.f) * TMath::Pi() + std::asin(o2::its3::constants::equatorialGap / 2.f / radius));
