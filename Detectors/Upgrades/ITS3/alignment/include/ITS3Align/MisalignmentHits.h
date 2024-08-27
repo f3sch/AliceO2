@@ -120,11 +120,6 @@ class MisAlignmentHits
 
   bool deformHit(WorkingHit::HitType t);
 
-  auto getDeformation(unsigned int id, double u, double v) const
-  {
-    return mDeformations.getDeformation(id, u, v);
-  }
-
   // Mimize function assuming a straight line
   // given in the parametric representation by y_v = t * d_x + x_s
   // assuming no offset is needed

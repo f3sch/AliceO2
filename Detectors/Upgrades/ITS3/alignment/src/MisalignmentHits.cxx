@@ -310,10 +310,8 @@ double MisAlignmentHits::StraightLine::DoEval(const double* x) const
          zline = mStart.Z() + t * mD[2];
 
   // Find the point of the deformed geometry given a certain phi' and z'
-  double xideal = mRadius * std::cos(phi), yideal = mRadius * std::sin(phi),
-         zideal = z;
-  const auto [dx, dy, dz] = mMis->getDeformation(mSensorID, nphi, nz);
-  double xdef = xideal + dx, ydef = yideal + dy, zdef = zideal + dz;
+  const double xideal = mRadius * std::cos(phi), yideal = mRadius * std::sin(phi), zideal = z;
+  const auto [xdef, ydef, zdef] = mMis->mDeformations.getDeformation(mSensorID, mRadius, phi, z, nphi, nz);
 
   // Minimize the euclidean distance of the line point and the deformed point
   return std::hypot(xline - xdef, yline - ydef, zline - zdef);
@@ -357,10 +355,7 @@ double MisAlignmentHits::Propagator::DoEval(const double* x) const
   const auto glo = trc.getXYZGlo();
 
   // Find the point of the deformed geometry given a certain phi' and z'
-  double xideal = mRadius * std::cos(phi), yideal = mRadius * std::sin(phi),
-         zideal = z;
-  const auto [dx, dy, dz] = mMis->getDeformation(mSensorID, nphi, nz);
-  double xdef = xideal + dx, ydef = yideal + dy, zdef = zideal + dz;
+  const auto [xdef, ydef, zdef] = mMis->mDeformations.getDeformation(mSensorID, mRadius, phi, z, nphi, nz);
 
   // Minimize the euclidean distance of the propagator point and the deformed point
   return std::hypot(glo.X() - xdef, glo.Y() - ydef, glo.Z() - zdef);

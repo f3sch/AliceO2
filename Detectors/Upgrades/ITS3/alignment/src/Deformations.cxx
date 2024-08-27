@@ -27,14 +27,11 @@ void Deformations::init(const fs::path& path)
     LOGP(fatal, "File {} does not exists!", path.c_str());
   }
 
-  auto params = MisalignmentParameters::load(path.string());
+  mParams = *MisalignmentParameters::load(path.string());
   LOGP(info, "Loaded Parameters");
 
-  // Set the legendre pols
   for (int iSensor{0}; iSensor < 6; ++iSensor) {
-    mLegX[iSensor] = o2::math_utils::Legendre2DPolynominal(params->getLegendreCoeffX(iSensor));
-    mLegY[iSensor] = o2::math_utils::Legendre2DPolynominal(params->getLegendreCoeffY(iSensor));
-    mLegZ[iSensor] = o2::math_utils::Legendre2DPolynominal(params->getLegendreCoeffZ(iSensor));
+    mLegendre[iSensor] = o2::math_utils::Legendre2DPolynominal(mParams.getLegendreCoeff(iSensor));
   }
 }
 
