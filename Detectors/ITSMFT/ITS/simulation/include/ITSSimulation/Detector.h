@@ -213,7 +213,7 @@ class Detector : public o2::base::DetImpl<Detector>
 
   /// Return Chip Volume UID
   /// \param id volume id
-  Int_t chipVolUID(Int_t id) const { return o2::base::GeometryManager::getSensID(o2::detectors::DetID::ITS, id); }
+  Int_t chipVolUID(Int_t id) const { return o2::base::GeometryManager::getSensID(o2::detectors::DetID(GetName()), id); }
 
   void EndOfEvent() override;
 

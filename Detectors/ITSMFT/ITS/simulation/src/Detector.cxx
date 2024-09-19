@@ -1103,7 +1103,7 @@ void Detector::addAlignableVolumes() const
 
   TString detName = GetName();
   TString path = Form("/cave_1/barrel_1/%s_2", GeometryTGeo::getITSVolPattern());
-  TString sname = GeometryTGeo::composeSymNameITS((detName == "IT3"));
+  TString sname = GeometryTGeo::composeSymNameITS();
 
   LOG(debug) << sname << " <-> " << path;
 
@@ -1115,7 +1115,9 @@ void Detector::addAlignableVolumes() const
   for (Int_t lr = 0; lr < mNumberLayers; lr++) {
     if (lr < mNumberInnerLayers) {
       if (detName == "ITS") {
-        ((DescriptorInnerBarrelITS2*)mDescriptorIB.get())->addAlignableVolumesLayer(lr, mWrapperLayerId[lr], path, lastUID);
+        dynamic_cast<DescriptorInnerBarrelITS2*>(mDescriptorIB.get())->addAlignableVolumesLayer(lr, mWrapperLayerId[lr], path, lastUID);
+      } else {
+        dynamic_cast<DescriptorInnerBarrelITS3*>(mDescriptorIB.get())->addAlignableVolumesLayer(lr, mWrapperLayerId[lr], path, lastUID);
       }
     } else {
       addAlignableVolumesLayer(lr, path, lastUID);

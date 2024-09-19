@@ -11,10 +11,11 @@
 
 #include "ITS3Base/SegmentationSuperAlpide.h"
 
-ClassImp(o2::its3::SegmentationSuperAlpide);
-
 namespace o2::its3
 {
+    template class SegmentationSuperAlpide<float>;
+    template class SegmentationSuperAlpide<double>;
 
-const std::array<SegmentationSuperAlpide, constants::nLayers> SuperSegmentations{0, 1, 2};
+const std::array<SegmentationSuperAlpideF, constants::nLayers> SuperSegmentationsF{0, 1, 2};
+const std::array<SegmentationSuperAlpideD, constants::nLayers> SuperSegmentationsD{0, 1, 2};
 }

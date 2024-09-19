@@ -26,6 +26,7 @@ namespace o2::its3
 {
 
 /// Segmentation and response for pixels in ITS3 upgrade
+template<typename T >
 class SegmentationSuperAlpide
 {
   // This class defines the segmenation of the pixelArray in the tile. We define
@@ -63,13 +64,18 @@ class SegmentationSuperAlpide
   static constexpr int mNCols{constants::pixelarray::nCols};
   static constexpr int mNRows{constants::pixelarray::nRows};
   static constexpr int nPixels{mNCols * mNRows};
-  static constexpr float mLength{constants::pixelarray::length};
-  static constexpr float mWidth{constants::pixelarray::width};
-  static constexpr float mPitchCol{constants::pixelarray::length / static_cast<float>(mNCols)};
-  static constexpr float mPitchRow{constants::pixelarray::width / static_cast<float>(mNRows)};
-  static constexpr float mSensorLayerThickness{constants::thickness};
-  static constexpr float mSensorLayerThicknessEff{constants::effThickness};
-  static constexpr std::array<float, constants::nLayers> mRadii{constants::radii};
+  static constexpr T mLength{constants::pixelarray::length};
+  static constexpr T mWidth{constants::pixelarray::width};
+  static constexpr T mPitchCol{constants::pixelarray::length / static_cast<T>(mNCols)};
+  static constexpr T mPitchRow{constants::pixelarray::width / static_cast<T>(mNRows)};
+  static constexpr T mSensorLayerThickness{constants::thickness};
+  static constexpr T mSensorLayerThicknessEff{constants::effThickness};
+  static constexpr std::array<T, constants::nLayers> mRadii
+  {
+    static_cast<T>(constants::radii[0]),
+    static_cast<T>(constants::radii[1]),
+    static_cast<T>(constants::radii[2])
+      };
 
   /// Transformation from the curved surface to a flat surface
   /// \param xCurved Detector local curved coordinate x in cm with respect to
@@ -80,12 +86,12 @@ class SegmentationSuperAlpide
   /// the center of the sensitive volume.
   /// \param yFlat Detector local flat coordinate y in cm with respect to
   /// the center of the sensitive volume.
-  void curvedToFlat(const float xCurved, const float yCurved, float& xFlat, float& yFlat) const noexcept
+  void curvedToFlat(const T xCurved, const T yCurved, T& xFlat, T& yFlat) const noexcept
   {
     // MUST align the flat surface with the curved surface with the original pixel array is on
-    float dist = std::hypot(xCurved, yCurved);
-    float phiReadout = constants::tile::readout::width / constants::radii[mLayer];
-    float phi = std::atan2(yCurved, xCurved);
+    T dist = std::hypot(xCurved, yCurved);
+    T phiReadout = constants::tile::readout::width / constants::radii[mLayer];
+    T phi = std::atan2(yCurved, xCurved);
     xFlat = mRadii[mLayer] * (phi - phiReadout) - constants::pixelarray::width / 2.;
     yFlat = dist - mRadii[mLayer];
   }
@@ -100,11 +106,11 @@ class SegmentationSuperAlpide
   /// the center of the sensitive volume.
   /// \param yCurved Detector local curved coordinate y in cm with respect to
   /// the center of the sensitive volume.
-  void flatToCurved(float xFlat, float yFlat, float& xCurved, float& yCurved) const noexcept
+  void flatToCurved(T xFlat, T yFlat, T& xCurved, T& yCurved) const noexcept
   {
     // MUST align the flat surface with the curved surface with the original pixel array is on
-    float dist = yFlat + mRadii[mLayer];
-    float phiReadout = constants::tile::readout::width / mRadii[mLayer];
+    T dist = yFlat + mRadii[mLayer];
+    T phiReadout = constants::tile::readout::width / mRadii[mLayer];
     xCurved = dist * std::cos(phiReadout + (xFlat + constants::pixelarray::width / 2.) / mRadii[mLayer]);
     yCurved = dist * std::sin(phiReadout + (xFlat + constants::pixelarray::width / 2.) / mRadii[mLayer]);
   }
@@ -114,13 +120,13 @@ class SegmentationSuperAlpide
   /// Returns true if point x,z is inside sensitive volume, false otherwise.
   /// A value of -1 for iRow or iCol indicates that this point is outside of the
   /// detector segmentation as defined.
-  /// \param float x Detector local coordinate x in cm with respect to
+  /// \param T x Detector local coordinate x in cm with respect to
   /// the center of the sensitive volume.
-  /// \param float z Detector local coordinate z in cm with respect to
+  /// \param T z Detector local coordinate z in cm with respect to
   /// the center of the sensitive volume.
   /// \param int iRow Detector x cell coordinate.
   /// \param int iCol Detector z cell coordinate.
-  bool localToDetector(float const xRow, float const zCol, int& iRow, int& iCol) const noexcept
+  bool localToDetector(T const xRow, T const zCol, int& iRow, int& iCol) const noexcept
   {
     localToDetectorUnchecked(xRow, zCol, iRow, iCol);
     if (!isValid(iRow, iCol)) {
@@ -131,7 +137,7 @@ class SegmentationSuperAlpide
   }
 
   // Same as localToDetector w.o. checks.
-  void localToDetectorUnchecked(float const xRow, float const zCol, int& iRow, int& iCol) const noexcept
+  void localToDetectorUnchecked(T const xRow, T const zCol, int& iRow, int& iCol) const noexcept
   {
     namespace cp = constants::pixelarray;
     iRow = std::floor((cp::width / 2. - xRow) / mPitchRow);
@@ -142,13 +148,13 @@ class SegmentationSuperAlpide
   /// local coordinates (cm)
   /// \param int iRow Detector x cell coordinate.
   /// \param int iCol Detector z cell coordinate.
-  /// \param float x Detector local coordinate x in cm with respect to the
+  /// \param T x Detector local coordinate x in cm with respect to the
   /// center of the sensitive volume.
-  /// \param float z Detector local coordinate z in cm with respect to the
+  /// \param T z Detector local coordinate z in cm with respect to the
   /// center of the sensitive volume.
   /// If iRow and or iCol is outside of the segmentation range a value of -0.5*Dx()
   /// or -0.5*Dz() is returned.
-  bool detectorToLocal(int const iRow, int const iCol, float& xRow, float& zCol) const noexcept
+  bool detectorToLocal(int const iRow, int const iCol, T& xRow, T& zCol) const noexcept
   {
     if (!isValid(iRow, iCol)) {
       return false;
@@ -159,16 +165,16 @@ class SegmentationSuperAlpide
 
   // Same as detectorToLocal w.o. checks.
   // We position ourself in the middle of the pixel.
-  void detectorToLocalUnchecked(int const iRow, int const iCol, float& xRow, float& zCol) const noexcept
+  void detectorToLocalUnchecked(int const iRow, int const iCol, T& xRow, T& zCol) const noexcept
   {
     namespace cp = constants::pixelarray;
     xRow = -(iRow + 0.5) * mPitchRow + cp::width / 2.;
     zCol = (iCol + 0.5) * mPitchCol - cp::length / 2.;
   }
 
-  bool detectorToLocal(int const row, int const col, math_utils::Point3D<float>& loc) const noexcept
+  bool detectorToLocal(int const row, int const col, math_utils::Point3D<T>& loc) const noexcept
   {
-    float xRow{0.}, zCol{0.};
+    T xRow{0.}, zCol{0.};
     if (!detectorToLocal(row, col, xRow, zCol)) {
       return false;
     }
@@ -176,18 +182,18 @@ class SegmentationSuperAlpide
     return true;
   }
 
-  void detectorToLocalUnchecked(int const row, int const col, math_utils::Point3D<float>& loc) const noexcept
+  void detectorToLocalUnchecked(int const row, int const col, math_utils::Point3D<T>& loc) const noexcept
   {
-    float xRow{0.}, zCol{0.};
+    T xRow{0.}, zCol{0.};
     detectorToLocalUnchecked(row, col, xRow, zCol);
     loc.SetCoordinates(xRow, 0., zCol);
   }
 
  private:
-  template <typename T>
-  [[nodiscard]] bool isValid(T const row, T const col) const noexcept
+  template <typename TT>
+  [[nodiscard]] bool isValid(TT const row, TT const col) const noexcept
   {
-    if constexpr (std::is_floating_point_v<T>) { // compares in local coord.
+    if constexpr (std::is_floating_point_v<TT>) { // compares in local coord.
       namespace cp = constants::pixelarray;
       return !static_cast<bool>(row <= -cp::width / 2. || cp::width / 2. <= row || col <= -cp::length / 2. || cp::length / 2. <= col);
     } else { // compares in rows/cols
@@ -196,12 +202,24 @@ class SegmentationSuperAlpide
   }
 
   const int mLayer{0}; ///< chip layer
-
-  ClassDef(SegmentationSuperAlpide, 1);
 };
 
+  using SegmentationSuperAlpideF = SegmentationSuperAlpide<float>;
+  using SegmentationSuperAlpideD = SegmentationSuperAlpide<double>;
+
+
 /// Segmentation array
-extern const std::array<SegmentationSuperAlpide, constants::nLayers> SuperSegmentations;
+extern const std::array<SegmentationSuperAlpideF, constants::nLayers> SuperSegmentationsF;
+extern const std::array<SegmentationSuperAlpideD, constants::nLayers> SuperSegmentationsD;
+
+  template<typename T>
+  const auto& getSuperSegmentations(int layer){
+    if constexpr(std::is_same_v<T, double>){
+      return SuperSegmentationsD[layer];
+    } else{
+      return SuperSegmentationsF[layer];
+    }
+  }
 } // namespace o2::its3
 
 #endif

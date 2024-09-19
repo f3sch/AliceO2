@@ -20,11 +20,12 @@
 void CreateMisalignmentITS3(bool dummy = false, bool manual = false)
 {
   gRandom->SetSeed(42);
+  const TMatrixD nullMatrix(1, 1);
 
   // Legendre coeff.
-  constexpr int nOrder{2};
+  constexpr int nOrder{3};
   auto getRandom = []() {
-    constexpr double scale{50.e-4};
+    constexpr double scale{30.e-4};
     return scale * gRandom->Uniform(-1.0, 1.0);
   };
 
@@ -34,7 +35,13 @@ void CreateMisalignmentITS3(bool dummy = false, bool manual = false)
 
   for (int sensorID{0}; sensorID < 6; ++sensorID) {
     o2::detectors::AlignParam p;
-    p.setTranslation(getRandom(), getRandom(), getRandom());
+    if (sensorID < 3) {
+      if (sensorID % 2 == 0) {
+        p.setTranslation(0.f, 30e-4f, 0.f);
+      } else {
+        p.setTranslation(0.f, -30e-4f, 0.f);
+      }
+    }
     params.setGlobal(sensorID, p);
   }
 
@@ -61,13 +68,18 @@ void CreateMisalignmentITS3(bool dummy = false, bool manual = false)
   } else {
     for (int sensorID{0}; sensorID < 6; ++sensorID) {
       TMatrixD coeff(nOrder + 1, nOrder + 1);
-      for (int i{0}; i <= nOrder; ++i) {
-        for (int j{0}; j <= i; ++j) {
-          // some random scaling as higher order parameters have higher influence
-          coeff(i, j) = getRandom() / (1.0 + i * j * 2.0);
+
+      if (sensorID > 3) {
+        params.setLegendreCoeff(sensorID, nullMatrix);
+      } else {
+        for (int i{1}; i <= nOrder; ++i) {
+          for (int j{0}; j <= i; ++j) {
+            // some random scaling as higher order parameters have higher influence
+            coeff(i, j) = getRandom(); /// (1.0 + i * j);
+          }
         }
+        params.setLegendreCoeff(sensorID, coeff);
       }
-      params.setLegendreCoeff(sensorID, coeff);
     }
   }
 

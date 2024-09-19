@@ -68,7 +68,7 @@ void ITS3TrackingInterface::loadROF(gsl::span<itsmft::ROFRecord>& trackROFspan,
                                     gsl::span<const unsigned char>::iterator& pattIt,
                                     const dataformats::MCTruthContainer<MCCompLabel>* mcLabels)
 {
-  ioutils::loadROFrameDataITS3(mTimeFrame, trackROFspan, clusters, pattIt, mDict, mcLabels);
+  ioutils::loadROFrameDataITS3(getTimeFrame(), trackROFspan, clusters, pattIt, mDict, mcLabels);
 }
 
 } // namespace o2::its3

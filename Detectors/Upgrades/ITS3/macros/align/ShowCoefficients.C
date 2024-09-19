@@ -32,159 +32,162 @@ void ShowCoefficients(const std::string& fileName = "misparams.root")
   def.init(fileName);
 
   if constexpr (1) {
-      constexpr int nPoints{1000};
-      const std::array<double, 7> zFix{-12., -8.67, -4.33, 0., 4.33, 8.67, 12.};
-      const std::array<double, 7> phiFix{1. / 4. * TMath::Pi(), 0.5 * TMath::Pi(), 3. / 4. * TMath::Pi(), TMath::Pi(), 5. / 4. * TMath::Pi(), 6. / 4. * TMath::Pi(), 7. / 4. * TMath::Pi()};
-      const std::array<const char*, 7> phiFixName{"#frac{1}{4}", "#frac{1}{2}", "#frac{3}{4}", "1", "#frac{5}{4}", "#frac{6}{4}", "#frac{7}{4}"};
-      const std::array<bool, 7> phiFixTop{true, true, true, false, false, false, false};
-      const std::array<std::array<int, 3>, 2> sensorN{{{0, 2, 4}, {1, 3, 5}}};
-      constexpr double z1{-o2::its3::constants::segment::lengthSensitive / 2.0}, z2{o2::its3::constants::segment::lengthSensitive / 2.0}, zTot{z2 - z1}, zStep{zTot / (nPoints - 1)};
-      auto canv = new TCanvas();
-      canv->Divide(7, 2);
-      for (int i{0}; i < 7; ++i) {
-        std::array<double, nPoints * 6> xi, yi, xd, yd;
-        for (int s{0}; s < 6; ++s) {
-          const bool isTop = s % 2 == 0;
-          const double radius = o2::its3::constants::radii[s / 2];
-          const double nzFix = (zFix[i] - z1) * 2.0 / zTot - 1.0;
-          const double phi1 = o2::math_utils::to02Pi(((isTop) ? 0.f : 1.f) * TMath::Pi() + std::asin(o2::its3::constants::equatorialGap / 2.f / radius));
-          const double phi2 = o2::math_utils::to02Pi(((isTop) ? 1.f : 2.f) * TMath::Pi() - std::asin(o2::its3::constants::equatorialGap / 2.f / radius));
-          const double phiTot{phi2 - phi1}, phiStep{phiTot / (nPoints - 1)};
-          const double nphiFix = ((phiFix[i]) - phi1) * 2.0 / phiTot - 1.0;
+    constexpr int nPoints{1000};
+    const std::array<double, 7> zFix{-12., -8.67, -4.33, 0., 4.33, 8.67, 12.};
+    const std::array<double, 7> phiFix{1. / 4. * TMath::Pi(), 0.5 * TMath::Pi(), 3. / 4. * TMath::Pi(), TMath::Pi(), 5. / 4. * TMath::Pi(), 6. / 4. * TMath::Pi(), 7. / 4. * TMath::Pi()};
+    const std::array<const char*, 7> phiFixName{"#frac{1}{4}", "#frac{1}{2}", "#frac{3}{4}", "1", "#frac{5}{4}", "#frac{6}{4}", "#frac{7}{4}"};
+    const std::array<bool, 7> phiFixTop{true, true, true, false, false, false, false};
+    const std::array<std::array<int, 3>, 2> sensorN{{{0, 2, 4}, {1, 3, 5}}};
+    constexpr double z1{-o2::its3::constants::segment::lengthSensitive / 2.0}, z2{o2::its3::constants::segment::lengthSensitive / 2.0}, zTot{z2 - z1}, zStep{zTot / (nPoints - 1)};
+    auto canv = new TCanvas();
+    canv->Divide(7, 2);
+    for (int i{0}; i < 7; ++i) {
+      std::array<double, nPoints * 6> xi, yi, xd, yd;
+      for (int s{0}; s < 6; ++s) {
+        const bool isTop = s % 2 == 0;
+        const double radius = o2::its3::constants::radii[s / 2];
+        const double nzFix = (zFix[i] - z1) * 2.0 / zTot - 1.0;
+        const double phi1 = o2::math_utils::to02Pi(((isTop) ? 0.f : 1.f) * TMath::Pi() + std::asin(o2::its3::constants::equatorialGap / 2.f / radius));
+        const double phi2 = o2::math_utils::to02Pi(((isTop) ? 1.f : 2.f) * TMath::Pi() - std::asin(o2::its3::constants::equatorialGap / 2.f / radius));
+        const double phiTot{phi2 - phi1}, phiStep{phiTot / (nPoints - 1)};
+        const double nphiFix = ((phiFix[i]) - phi1) * 2.0 / phiTot - 1.0;
 
-          for (int j{0}; j < nPoints; ++j) {
-            const int idx = s * nPoints + j;
-            const double phi = phi1 + j * phiStep;
-            const double nphi = (phi - phi1) * 2.0 / phiTot - 1.0;
+        for (int j{0}; j < nPoints; ++j) {
+          const int idx = s * nPoints + j;
+          const double phi = phi1 + j * phiStep;
+          const double nphi = (phi - phi1) * 2.0 / phiTot - 1.0;
 
-            xi[idx] = radius * std::cos(phi);
-            yi[idx] = radius * std::sin(phi);
-            const auto [dxXY, dyXY, _] = def.getDeformation(s,radius, phi, 0, nphi, nzFix, factor);
-            xd[idx] = dxXY;
-            yd[idx] = dyXY;
-          }
+          xi[idx] = radius * std::cos(phi);
+          yi[idx] = radius * std::sin(phi);
+          const auto [dxXY, dyXY, _] = def.getDeformation(s, radius, phi, 0, nphi, nzFix, factor);
+          xd[idx] = dxXY;
+          yd[idx] = dyXY;
         }
-        canv->cd(i + 1);
-        auto gixy = new TGraph(nPoints * 6, xi.data(), yi.data());
-        gixy->SetNameTitle(Form("g_i_xy_%d", i), Form("Ideal xy at z=%.2f; x (cm); y (cm)", zFix[i]));
-        gixy->SetMarkerColor(kBlue);
-        gixy->Draw("AP");
-        auto gdxy = new TGraph(nPoints * 6, xd.data(), yd.data());
-        gdxy->SetNameTitle(Form("g_d_xy_%d", i), Form("Deformed (x%.0f) xy at z=%.2f; x (cm); y (cm)", factor, zFix[i]));
-        gdxy->SetMarkerColor(kRed);
-        gdxy->Draw("P;same");
-
-        if (i == 3) {
-          continue;
-        }
-
-        std::array<double, nPoints * 3> zi, ri, zd, rd;
-        const bool isTop = phiFixTop[i];
-        for (const int s : ((isTop) ? sensorN[0] : sensorN[1])) {
-          const double radius = o2::its3::constants::radii[s / 2];
-          const double phi1 = o2::math_utils::to02Pi(((isTop) ? 0.f : 1.f) * TMath::Pi() + std::asin(o2::its3::constants::equatorialGap / 2.f / radius));
-          const double phi2 = o2::math_utils::to02Pi(((isTop) ? 1.f : 2.f) * TMath::Pi() - std::asin(o2::its3::constants::equatorialGap / 2.f / radius));
-          const double phiTot{phi2 - phi1}, phiStep{phiTot / (nPoints - 1)};
-          const double nphiFix = ((phiFix[i]) - phi1) * 2.0 / phiTot - 1.0;
-          for (int j{0}; j < nPoints; ++j) {
-            const int idx = (s / 2) * nPoints + j;
-            const double z = z1 + j * zStep;
-            const double nz = (z - z1) * 2.0 / zTot - 1.0;
-            const double xi = radius * std::cos(phiFix[i]), yi = radius * std::sin(phiFix[i]);
-            ri[idx] = radius;
-            zi[idx] = z;
-            const auto [dxZR, dyZR, dzZR ]= def.getDeformation(s,radius, phiFix[i], z, nphiFix, nz, factor);
-            zd[idx] =  dzZR  ;
-            rd[idx] = std::sqrt(dxZR * dxZR + dyZR * dyZR);
-          }
-        }
-        canv->cd(i + 8);
-        auto gizr = new TGraph(nPoints * 3, zi.data(), ri.data());
-        gizr->SetNameTitle(Form("g_i_zr_%d", i), Form("Ideal zr at #varphi=%s #Pi; z (cm); r (cm)", phiFixName[i]));
-        gizr->SetMarkerColor(kBlue);
-        gizr->Draw("AP");
-        auto gdzr = new TGraph(nPoints * 3, zd.data(), rd.data());
-        gdzr->SetNameTitle(Form("g_d_zr_%d", i), Form("Deformed (x%0.f) zr at #varphi=%s #Pi; z (cm); r (cm)", factor, phiFixName[i]));
-        gdzr->SetMarkerColor(kRed);
-        gdzr->Draw("P;same");
       }
-      canv->Draw();
-      canv->SaveAs("its3_deformation.pdf");
+      canv->cd(i + 1);
+      auto gixy = new TGraph(nPoints * 6, xi.data(), yi.data());
+      gixy->SetNameTitle(Form("g_i_xy_%d", i), Form("Ideal xy at z=%.2f; x (cm); y (cm)", zFix[i]));
+      gixy->SetMarkerColor(kBlue);
+      gixy->Draw("AP");
+      auto gdxy = new TGraph(nPoints * 6, xd.data(), yd.data());
+      gdxy->SetNameTitle(Form("g_d_xy_%d", i), Form("Deformed (x%.0f) xy at z=%.2f; x (cm); y (cm)", factor, zFix[i]));
+      gdxy->SetMarkerColor(kRed);
+      gdxy->Draw("P;same");
+
+      if (i == 3) {
+        continue;
+      }
+
+      std::array<double, nPoints * 3> zi, ri, zd, rd;
+      const bool isTop = phiFixTop[i];
+      for (const int s : ((isTop) ? sensorN[0] : sensorN[1])) {
+        const double radius = o2::its3::constants::radii[s / 2];
+        const double phi1 = o2::math_utils::to02Pi(((isTop) ? 0.f : 1.f) * TMath::Pi() + std::asin(o2::its3::constants::equatorialGap / 2.f / radius));
+        const double phi2 = o2::math_utils::to02Pi(((isTop) ? 1.f : 2.f) * TMath::Pi() - std::asin(o2::its3::constants::equatorialGap / 2.f / radius));
+        const double phiTot{phi2 - phi1}, phiStep{phiTot / (nPoints - 1)};
+        const double nphiFix = ((phiFix[i]) - phi1) * 2.0 / phiTot - 1.0;
+        for (int j{0}; j < nPoints; ++j) {
+          const int idx = (s / 2) * nPoints + j;
+          const double z = z1 + j * zStep;
+          const double nz = (z - z1) * 2.0 / zTot - 1.0;
+          const double xi = radius * std::cos(phiFix[i]), yi = radius * std::sin(phiFix[i]);
+          ri[idx] = radius;
+          zi[idx] = z;
+          const auto [dxZR, dyZR, dzZR] = def.getDeformation(s, radius, phiFix[i], z, nphiFix, nz, factor);
+          zd[idx] = dzZR;
+          rd[idx] = std::sqrt(dxZR * dxZR + dyZR * dyZR);
+        }
+      }
+      canv->cd(i + 8);
+      auto gizr = new TGraph(nPoints * 3, zi.data(), ri.data());
+      gizr->SetNameTitle(Form("g_i_zr_%d", i), Form("Ideal zr at #varphi=%s #Pi; z (cm); r (cm)", phiFixName[i]));
+      gizr->SetMarkerColor(kBlue);
+      gizr->Draw("AP");
+      auto gdzr = new TGraph(nPoints * 3, zd.data(), rd.data());
+      gdzr->SetNameTitle(Form("g_d_zr_%d", i), Form("Deformed (x%0.f) zr at #varphi=%s #Pi; z (cm); r (cm)", factor, phiFixName[i]));
+      gdzr->SetMarkerColor(kRed);
+      gdzr->Draw("P;same");
     }
+    canv->Draw();
+    canv->SaveAs("its3_deformation.pdf");
+  }
 
   if constexpr (1) {
-      const std::array<const char*, 3> axisName{"x", "y", "z"};
-      constexpr int nPoints{100};
-      constexpr int nPoints2{nPoints * nPoints};
-      constexpr double minX{-1.0}, maxX{1.0},
-        stepX{(maxX - minX) / static_cast<double>(nPoints)};
+    const std::array<const char*, 3> axisName{"x", "y", "z"};
+    constexpr int nPoints{100};
+    constexpr int nPoints2{nPoints * nPoints};
+    constexpr double minX{-1.0}, maxX{1.0},
+      stepX{(maxX - minX) / static_cast<double>(nPoints)};
 
-      for (unsigned int iSensor{0}; iSensor < 6; ++iSensor) {
-        const auto nOrders = def.getOrder(iSensor);
-        std::array<double, nPoints2> x, y, z;
-        auto canv = new TCanvas(Form("c_sensor%d", iSensor), Form("Legendre Coefficients Sensor %d", iSensor));
-        canv->Divide(nOrders + 1, nOrders + 1);
-
-        { // Draw total polynominal
-          for (int iPoint{0}; iPoint < nPoints; ++iPoint) {
-            double xcur = minX + iPoint * stepX;
-            for (int jPoint{0}; jPoint < nPoints; ++jPoint) {
-              double ycur = minX + jPoint * stepX;
-              int i = iPoint * nPoints + jPoint;
-              x[i] = xcur;
-              y[i] = ycur;
-              z[i] = def.getDeformation(iSensor, xcur, ycur);
-            }
-          }
-          canv->cd(nOrders + 1);
-          auto g = new TGraph2D(nPoints2, x.data(), y.data(), z.data());
-          g->SetTitle(Form("Legendre Polynominal %d-deg Sensor %d;u;v;w", nOrders, iSensor));
-          g->SetName(Form("g_%d", iSensor));
-          g->Draw("surf1");
-          g->GetXaxis()->SetRangeUser(minX, maxX);
-          g->GetYaxis()->SetRangeUser(minX, maxX);
-          gPad->Update();
-        }
-
-        { // Draw decomposition of contributions to polynominal
-          const auto& leg = def.getLegendre(iSensor);
-          const auto coeff = leg.getCoefficients();
-          for (unsigned int iOrder{0}; iOrder <= nOrders; ++iOrder) {
-            for (unsigned int jOrder{0}; jOrder <= iOrder; ++jOrder) {
-              for (int iPoint{0}; iPoint < nPoints; ++iPoint) {
-                double xcur = minX + iPoint * stepX;
-                for (int jPoint{0}; jPoint < nPoints; ++jPoint) {
-                  double ycur = minX + jPoint * stepX;
-                  int i = iPoint * nPoints + jPoint;
-                  x[i] = xcur;
-                  y[i] = ycur;
-                  z[i] = leg(iOrder, jOrder, xcur, ycur);
-                }
-              }
-              canv->cd(1 + iOrder * (nOrders + 1) + jOrder);
-              auto g = new TGraph2D(nPoints2, x.data(), y.data(), z.data());
-              g->SetTitle(Form("c_{%d,%d}=%.4f;u;v;w", iOrder, jOrder, coeff(iOrder, jOrder)));
-              g->SetName(Form("g_%d_%d_%d", iSensor, iOrder, jOrder));
-              if (iOrder == 0 && jOrder == 0) { // Fix display of constant value
-                g->Draw("P0");
-              } else {
-                g->Draw("surf1");
-              }
-              g->GetXaxis()->SetRangeUser(minX, maxX);
-              g->GetYaxis()->SetRangeUser(minX, maxX);
-              gPad->Update();
-            }
-          }
-        }
-        canv->Draw();
-        canv->SaveAs(Form("its3_sensor%d.pdf", iSensor));
+    for (unsigned int iSensor{0}; iSensor < 6; ++iSensor) {
+      const auto nOrders = def.getOrder(iSensor);
+      if (nOrders == 0) {
+        continue;
       }
+      std::array<double, nPoints2> x, y, z;
+      auto canv = new TCanvas(Form("c_sensor%d", iSensor), Form("Legendre Coefficients Sensor %d", iSensor));
+      canv->Divide(nOrders + 1, nOrders + 1);
+
+      { // Draw total polynominal
+        for (int iPoint{0}; iPoint < nPoints; ++iPoint) {
+          double xcur = minX + iPoint * stepX;
+          for (int jPoint{0}; jPoint < nPoints; ++jPoint) {
+            double ycur = minX + jPoint * stepX;
+            int i = iPoint * nPoints + jPoint;
+            x[i] = xcur;
+            y[i] = ycur;
+            z[i] = def.getDeformation(iSensor, xcur, ycur);
+          }
+        }
+        canv->cd(nOrders + 1);
+        auto g = new TGraph2D(nPoints2, x.data(), y.data(), z.data());
+        g->SetTitle(Form("Legendre Polynominal %d-deg Sensor %d;u;v;w", nOrders, iSensor));
+        g->SetName(Form("g_%d", iSensor));
+        g->Draw("surf1");
+        g->GetXaxis()->SetRangeUser(minX, maxX);
+        g->GetYaxis()->SetRangeUser(minX, maxX);
+        gPad->Update();
+      }
+
+      { // Draw decomposition of contributions to polynominal
+        const auto& leg = def.getLegendre(iSensor);
+        const auto coeff = leg.getCoefficients();
+        for (unsigned int iOrder{0}; iOrder <= nOrders; ++iOrder) {
+          for (unsigned int jOrder{0}; jOrder <= iOrder; ++jOrder) {
+            for (int iPoint{0}; iPoint < nPoints; ++iPoint) {
+              double xcur = minX + iPoint * stepX;
+              for (int jPoint{0}; jPoint < nPoints; ++jPoint) {
+                double ycur = minX + jPoint * stepX;
+                int i = iPoint * nPoints + jPoint;
+                x[i] = xcur;
+                y[i] = ycur;
+                z[i] = leg(iOrder, jOrder, xcur, ycur);
+              }
+            }
+            canv->cd(1 + iOrder * (nOrders + 1) + jOrder);
+            auto g = new TGraph2D(nPoints2, x.data(), y.data(), z.data());
+            g->SetTitle(Form("c_{%d,%d}=%.4f;u;v;w", iOrder, jOrder, coeff(iOrder, jOrder)));
+            g->SetName(Form("g_%d_%d_%d", iSensor, iOrder, jOrder));
+            if (iOrder == 0 && jOrder == 0) { // Fix display of constant value
+              g->Draw("P0");
+            } else {
+              g->Draw("surf1");
+            }
+            g->GetXaxis()->SetRangeUser(minX, maxX);
+            g->GetYaxis()->SetRangeUser(minX, maxX);
+            gPad->Update();
+          }
+        }
+      }
+      canv->Draw();
+      canv->SaveAs(Form("its3_sensor%d.pdf", iSensor));
     }
+  }
 
   /* if constexpr (0) { */
-        /*   constexpr int nPoints{50}; */
-        /*   constexpr int nPoints2{nPoints * nPoints}; */
-        /*   constexpr double radL = o2::its3::constants::radii[2] + 0.3, zL = o2::its3::constants::segment::lengthSensitive / 2.0 + 2.0; */
+  /*   constexpr int nPoints{50}; */
+  /*   constexpr int nPoints2{nPoints * nPoints}; */
+  /*   constexpr double radL = o2::its3::constants::radii[2] + 0.3, zL = o2::its3::constants::segment::lengthSensitive / 2.0 + 2.0; */
 
   /*   // Plot the whole geometry */
   /*   std::array<TGraph2D*, 6> gIdeal; */

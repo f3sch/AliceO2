@@ -68,6 +68,13 @@ void TrackerDPL::init(InitContext& ic)
                                                mChainITS->GetITSTrackerTraits(),
                                                mChainITS->GetITSTimeframe());
   mITS3TrackingInterface.initialise();
+  // Overwrite certain standard tracker parameters
+  for(auto& params: mITS3TrackingInterface.getTracker()->getParameters()){
+    for (int iLayer{0}; iLayer <3; ++iLayer){
+      params.LayerZ[iLayer] = constants::segment::lengthSensitive + 0.1f;
+      params.LayerRadii[iLayer] = constants::radii[iLayer];
+    }
+  }
 }
 
 void TrackerDPL::stop()

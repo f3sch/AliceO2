@@ -25,6 +25,7 @@
 #include "Align/AlignableDetectorTRD.h"
 #include "Align/AlignableDetectorTOF.h"
 #include "Align/AlignableDetectorTPC.h"
+#include "Align/AlignableDetectorIT3.h"
 #include "Align/EventVertex.h"
 #include "Align/ResidualsControllerFast.h"
 #include "Align/GeometricalConstraint.h"
@@ -120,6 +121,9 @@ void Controller::init()
   if (mDetMask[DetID::TOF]) {
     addDetector(new AlignableDetectorTOF(this));
   }
+  if (mDetMask[DetID::IT3]) {
+    addDetector(new AlignableDetectorIT3(this));
+  }
   for (int src = GIndex::NSources; src--;) {
     if (mMPsrc[src]) {
       mTrackSources.push_back(src);
@@ -181,9 +185,9 @@ void Controller::process()
     nVtx++;
     bool newVtx = true;
     for (int src : mTrackSources) {
-      if ((GIndex::getSourceDetectorsMask(src) & mDetMask).none()) { // do we need this source?
-        continue;
-      }
+      // if ((GIndex::getSourceDetectorsMask(src) & mDetMask).none()) { // do we need this source?
+      //   continue;
+      // }
       int start = trackRef.getFirstEntryOfSource(src), end = start + trackRef.getEntriesOfSource(src);
       for (int ti = start; ti < end; ti++) {
         auto trackIndex = primVerGIs[ti];
@@ -226,6 +230,14 @@ void Controller::process()
             npnt += npntDet;
             ndet++;
           } else if (mAllowAfterburnerTracks && contributorsGID[GIndex::ITSAB].isIndexSet() && (npntDet = det->processPoints(contributorsGID[GIndex::ITSAB], 2, false)) > 0) {
+            npnt += npntDet;
+            ndet++;
+          } else {
+            continue;
+          }
+        }
+        if ((det = getDetector(DetID::IT3))) {
+          if (contributorsGID[GIndex::ITS].isIndexSet() && (npntDet = det->processPoints(contributorsGID[GIndex::ITS], algConf.minITSClusters, false)) > 0) {
             npnt += npntDet;
             ndet++;
           } else {

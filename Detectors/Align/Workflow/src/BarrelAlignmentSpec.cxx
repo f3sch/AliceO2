@@ -49,6 +49,11 @@
 
 #include <boost/interprocess/sync/named_semaphore.hpp>
 
+#ifdef ENABLE_UPGRADES
+#include "Align/AlignableDetectorIT3.h"
+#include "ITS3Reconstruction/TopologyDictionary.h"
+#endif
+
 /*
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DataFormatsTPC/Constants.h"
@@ -257,6 +262,10 @@ void BarrelAlignmentSpec::updateTimeDependentParams(ProcessingContext& pc)
   if (GTrackID::includesDet(DetID::TRD, mMPsrc) && mTRDTransformer) {
     pc.inputs().get<o2::trd::CalVdriftExB*>("calvdexb"); // just to trigger the finaliseCCDB
   }
+  LOGP(info, "---------------- {}", mDetMask.to_string());
+  if (GTrackID::includesDet(DetID::IT3, mDetMask)) {
+    pc.inputs().get<o2::its3::TopologyDictionary*>("cldictIT3"); // just to trigger the finaliseCCDB
+  }
   if (mLoadTPCCalib) {
 
     static float prevField = 1e-6;
@@ -304,6 +313,18 @@ void BarrelAlignmentSpec::finaliseCCDB(o2::framework::ConcreteDataMatcher& match
       return;
     }
   }
+#ifdef ENABLE_UPGRADES
+  if (matcher == ConcreteDataMatcher("IT3", "CLUSDICT", 0)) {
+    auto* it3 = mController->getDetector(o2::detectors::DetID::IT3);
+    if (it3) {
+      LOG(info) << "cluster dictionary updated";
+      ((AlignableDetectorIT3*)it3)->setIT3Dictionary((const o2::its3::TopologyDictionary*)obj);
+      return;
+    } else {
+      LOGP(fatal, "IT3 not there");
+    }
+  }
+#endif
   if (matcher == ConcreteDataMatcher("TRD", "CALVDRIFTEXB", 0)) {
     LOG(info) << "CalVdriftExB object has been updated";
     mTRDTransformer->setCalVdriftExB((const o2::trd::CalVdriftExB*)obj);
@@ -401,6 +422,11 @@ DataProcessorSpec getBarrelAlignmentSpec(GTrackID::mask_t srcMP, GTrackID::mask_
       o2::tpc::CorrectionMapsLoader::requestCCDBInputs(dataRequest->inputs, opts, sclOpts);
       loadTPCCalib = true;
     }
+#ifdef ENABLE_UPGRADES
+    if (dets[DetID::IT3]  && !skipDetClusters[DetID::ITS]) {
+      dataRequest->requestIT3Clusters(useMC);
+    }
+#endif
   }
   auto ccdbRequest = std::make_shared<o2::base::GRPGeomRequest>(true,                                 // orbitResetTime
                                                                 true,                                 // GRPECS=true
@@ -409,9 +435,9 @@ DataProcessorSpec getBarrelAlignmentSpec(GTrackID::mask_t srcMP, GTrackID::mask_
                                                                 true,                                 // askMatLUT
                                                                 o2::base::GRPGeomRequest::Alignments, // geometry
                                                                 dataRequest->inputs,
-                                                                false,              // ask update once (except field)
-                                                                true,               // init PropagatorD
-                                                                "ITS,TPC,TRD,TOF"); // alignment objects to apply
+                                                                false,                                 // ask update once (except field)
+                                                                true,                                  // init PropagatorD
+                                                                o2::detectors::DetID::getNames(dets)); // alignment objects to apply
   return DataProcessorSpec{
     "barrel-alignment",
     dataRequest->inputs,

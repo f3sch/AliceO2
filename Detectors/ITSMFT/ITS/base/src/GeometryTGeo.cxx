@@ -25,7 +25,7 @@
 #ifdef ENABLE_UPGRADES
 #include "ITS3Base/SpecsV2.h"
 #include "ITS3Base/SegmentationSuperAlpide.h"
-using SuperSegmentation = o2::its3::SegmentationSuperAlpide;
+using SuperSegmentation = o2::its3::SegmentationSuperAlpideF;
 #endif
 
 #include <TGeoBBox.h>         // for TGeoBBox
@@ -339,7 +339,11 @@ const char* GeometryTGeo::composeSymNameModule(int lr, int hba, int stave, int s
 //__________________________________________________________________________
 const char* GeometryTGeo::composeSymNameChip(int lr, int hba, int sta, int substave, int mod, int chip, bool isITS3)
 {
-  return Form("%s/%s%d", composeSymNameModule(lr, hba, sta, substave, mod, isITS3), isITS3 ? getITS3ChipPattern() : getITSChipPattern(), chip);
+  if (!isITS3) {
+    return Form("%s/%s%d", composeSymNameModule(lr, hba, sta, substave, mod, false), getITSChipPattern(), chip);
+  } else {
+    return Form("%s/%s", composeSymNameModule(lr, hba, sta, substave, mod, true), getITS3ChipPattern());
+  }
 }
 
 TString GeometryTGeo::getMatrixPath(int index) const
@@ -423,7 +427,7 @@ TGeoHMatrix* GeometryTGeo::extractMatrixSensor(int index) const
   double delta = Segmentation::SensorLayerThickness - Segmentation::SensorLayerThicknessEff;
 #ifdef ENABLE_UPGRADES
   if (mIsLayerITS3[getLayer(index)]) {
-    delta = its3::SegmentationSuperAlpide::mSensorLayerThickness - its3::SegmentationSuperAlpide::mSensorLayerThicknessEff;
+    delta = its3::SegmentationSuperAlpideF::mSensorLayerThickness - its3::SegmentationSuperAlpideF::mSensorLayerThicknessEff;
   }
 #endif
 

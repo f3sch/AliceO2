@@ -19,6 +19,7 @@
 #include "GPUCommonBitSet.h"
 #include "CommonDataFormat/AbstractRef.h"
 #include "DetectorsCommonDataFormats/DetID.h"
+#include "Framework/Logger.h"
 #ifndef GPUCA_GPUCODE
 #include <iosfwd>
 #include <string>

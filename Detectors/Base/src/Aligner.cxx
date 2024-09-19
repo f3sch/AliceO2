@@ -46,7 +46,7 @@ void Aligner::applyAlignment(long timestamp, DetID::mask_t addMask) const
   }
   ccdbmgr.setURL(o2::base::NameConf::getCCDBServer());
   ccdbmgr.setTimestamp(timestamp);
-  DetID::mask_t done, skipped;
+  DetID::mask_t done, skipped, failed;
   DetID::mask_t detGeoMask(gGeoManager->GetUniqueID());
   for (auto id = DetID::First; id <= DetID::Last; id++) {
     if (!msk[id] || (detGeoMask.any() && !detGeoMask[id])) {
@@ -58,8 +58,11 @@ void Aligner::applyAlignment(long timestamp, DetID::mask_t addMask) const
       throw std::runtime_error(fmt::format("Failed to fetch alignment from {}:{}", o2::base::NameConf::getCCDBServer(), path));
     }
     if (!algV->empty()) {
-      done.set(id);
-      o2::base::GeometryManager::applyAlignment(*algV);
+      if (o2::base::GeometryManager::applyAlignment(*algV)) {
+        done.set(id);
+      } else {
+        failed.set(id);
+      }
     } else {
       skipped.set(id);
     }
@@ -71,7 +74,12 @@ void Aligner::applyAlignment(long timestamp, DetID::mask_t addMask) const
   if (skipped.any()) {
     log += fmt::format(", empty object for [{}]", DetID::getNames(skipped));
   }
-  LOG(info) << log;
+  if (failed.any()) {
+    log += fmt::format(", failed to apply [{}]", DetID::getNames(failed));
+    LOG(alarm) << log;
+  } else {
+    LOG(info) << log;
+  }
   gGeoManager->RefreshPhysicalNodes(false);
 }
 

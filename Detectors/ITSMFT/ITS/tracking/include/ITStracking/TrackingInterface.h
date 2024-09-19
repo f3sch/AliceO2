@@ -70,7 +70,9 @@ class ITSTrackingInterface
     mMode = mode;
   }
 
-  TimeFrame* mTimeFrame = nullptr;
+  auto getTimeFrame() const { return mTimeFrame; }
+  auto getTracker() const { return mTracker.get(); }
+  auto getVertexer() const { return mVertexer.get(); }
 
  protected:
   virtual void loadROF(gsl::span<itsmft::ROFRecord>& trackROFspan,
@@ -87,6 +89,7 @@ class ITSTrackingInterface
   TrackingMode mMode = TrackingMode::Unset;
   bool mOverrideBeamEstimation = false;
   const o2::itsmft::TopologyDictionary* mDict = nullptr;
+  TimeFrame* mTimeFrame = nullptr;
   std::unique_ptr<Tracker> mTracker = nullptr;
   std::unique_ptr<Vertexer> mVertexer = nullptr;
   const o2::dataformats::MeanVertexObject* mMeanVertex;

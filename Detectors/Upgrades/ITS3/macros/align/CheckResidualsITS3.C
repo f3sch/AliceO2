@@ -36,7 +36,11 @@
 
 #include <optional>
 #include <tuple>
+#include <filesystem>
+#include <cstdlib>
 #endif
+
+namespace fs = std::filesystem;
 
 // Refit ITS3 tracks by using the clusters from the OB only then propagate the
 // tracks to the IB clusters and calculate their residuals.
@@ -116,7 +120,7 @@ std::optional<Cluster> propagateTo(Track& trk, const o2::itsmft::CompClusterExt&
 
 void CheckResidualsITS3(bool plotOnly = false,
                         bool useITS = false,
-                        const std::string& dictFileName = "../ccdb/IT3/Calib/ClusterDictionary/snapshot.root",
+                        std::string dictFileName = "IT3dictionary.root",
                         const std::string& collisioncontextFileName = "collisioncontext.root",
                         const std::string& itsTracksFileName = "o2trac_its.root",
                         const std::string& itsClustersFileName = "o2clus_its.root",
@@ -127,6 +131,17 @@ void CheckResidualsITS3(bool plotOnly = false,
   std::array<TH3F*, 6> hIBDx, hIBDy, hIBDz, hIBDr;
 
   if (!plotOnly) {
+    if (fs::exists(dictFileName)) {
+      LOGP(info, "Using local dictionary file");
+    } else {
+      const std::string ccdb = std::getenv("ALICEO2_CCDB_LOCALCACHE");
+      dictFileName = ccdb + "/IT3/Calib/ClusterDictionary/snapshot.root";
+      if (fs::exists(dictFileName)) {
+        LOGP(info, "Loading from local ccdb cache");
+      } else {
+        LOGP(fatal, "Provide dictionary!");
+      }
+    }
     mDict = new o2::its3::TopologyDictionary(dictFileName);
 
     o2::base::GeometryManager::loadGeometry(geomFileName);

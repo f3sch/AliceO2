@@ -10,8 +10,6 @@
 // or submit itself to any jurisdiction.
 
 #if !defined(__CLING__) || defined(__ROOTCLING__)
-#include "Math/Factory.h"
-#include "Math/Minimizer.h"
 #include "TAxis.h"
 #include "TCanvas.h"
 #include "TGraph.h"
@@ -24,9 +22,7 @@
 #include "MathUtils/LegendrePols.h"
 #endif
 
-static ROOT::Math::Minimizer* gMin;
-
-void TestLegendrePol(bool findMin1D = false, bool findMin2D = false)
+void TestLegendrePol()
 {
   constexpr int nMaxOrder{2};
   constexpr int nPoints{100};
@@ -40,17 +36,6 @@ void TestLegendrePol(bool findMin1D = false, bool findMin2D = false)
     return scale * gRandom->Uniform(-1.0, 1.0);
   };
 
-  if (findMin1D || findMin2D) {
-    gMin = ROOT::Math::Factory::CreateMinimizer("Minuit2", "Migrad");
-    if (gMin == nullptr) {
-      Error("", "Cannot create minimizer !");
-      return;
-    }
-    gMin->SetMaxFunctionCalls(1000000); // for Minuit/Minuit2
-    gMin->SetTolerance(0.00001);
-    gMin->SetPrintLevel(1);
-  }
-
   { // 1D
     Info("", "---------------- 1D -------------");
     std::array<double, nPoints> x, y;
@@ -59,36 +44,6 @@ void TestLegendrePol(bool findMin1D = false, bool findMin2D = false)
       std::generate(std::begin(coeff), std::end(coeff), getRandom);
 
       o2::math_utils::Legendre1DPolynominal leg1D(coeff);
-
-      // Optionally find a deformation
-      if (findMin1D) {
-        std::vector<double> cccc(nOrder + 2, 0.0);
-        cccc[0] = nOrder;
-        for (int iOrder{0}; iOrder <= nOrder; ++iOrder) {
-          cccc[1 + iOrder] = coeff[iOrder];
-        }
-
-        gMin->Clear();
-        /* gMin->SetFunction(&leg1D.DoIntegralPar); */
-        constexpr double minStep{0.001};
-        gMin->SetFixedVariable(0, "c_0", coeff[0]);
-        for (int iOrder{1}; iOrder <= nOrder; ++iOrder) {
-          gMin->SetVariable(iOrder, Form("c_%d", iOrder), coeff[iOrder],
-                            minStep);
-        }
-        gMin->Minimize();
-        auto stat = gMin->Status();
-        auto min = gMin->MinValue();
-        if ((stat == 0 || stat == 1) && min < 0.01) {
-          Info("", "Minimizer converged with %f; using new values!", min);
-          const double* cmins = gMin->X();
-          for (int i{0}; i <= nOrder; ++i) {
-            Info("", "New values are c_%d=%.4f -> %.4f", i, coeff[i],
-                 cmins[1 + i]);
-            coeff[i] = cmins[1 + i];
-          }
-        }
-      }
 
       auto c1d = new TCanvas(Form("c1D_%d", nOrder),
                              Form("Legendre 1D Order %d", nOrder));
@@ -148,57 +103,6 @@ void TestLegendrePol(bool findMin1D = false, bool findMin2D = false)
       }
 
       o2::math_utils::Legendre2DPolynominal leg2D(coeff);
-
-      // Optionally find a deformation
-      /* if (findMin2D) { */
-      /*   std::vector<double> cccc(nOrder + 2, 0.0); */
-      /*   cccc[0] = nOrder; */
-      /*   for (int i{0}; i <= nOrder; ++i) { */
-      /*     for (int j{0}; j <= i; ++j) { */
-      /*       int k = i * (i + 1) / 2 + j; */
-      /*       cccc[1 + k] = coeff(i, j); */
-      /*     } */
-      /*   } */
-      /*   auto ig = legendre_poly2D_integral(cccc.data()); */
-
-      /*   gMin->Clear(); */
-      /*   ROOT::Math::Functor fmin(&legendre_poly2D_integral, */
-      /*                            2 + nOrder * (nOrder + 1) / 2 + nOrder); */
-      /*   Info("", "ig=%f    parameters=%d", ig, */
-      /*        2 + nOrder * (nOrder + 1) / 2 + nOrder); */
-      /*   gMin->SetFunction(fmin); */
-      /*   constexpr double minStep{0.001}; */
-      /*   gMin->SetFixedVariable(0, "nOrder", nOrder); */
-      /*   gMin->SetFixedVariable(1, "c_00", coeff(0, 0)); */
-      /*   for (int iOrder{1}; iOrder <= nOrder; ++iOrder) { */
-      /*     for (int jOrder{0}; jOrder <= iOrder; ++jOrder) { */
-      /*       int k = iOrder * (iOrder + 1) / 2 + jOrder + 1; */
-      /*       Info("", "Setting parameter %d", k); */
-      /*       if (getRandom() < 0.0) { */
-      /*         gMin->SetFixedVariable(k, Form("c_%d_%d", iOrder, jOrder), */
-      /*                                coeff(iOrder, jOrder)); */
-      /*       } else { */
-      /*         gMin->SetVariable(k, Form("c_%d_%d", iOrder, jOrder), */
-      /*                           coeff(iOrder, jOrder), minStep); */
-      /*       } */
-      /*     } */
-      /*   } */
-      /*   gMin->Minimize(); */
-      /*   return; */
-      /*   auto stat = gMin->Status(); */
-      /*   auto min = gMin->MinValue(); */
-      /*   if ((stat == 0 || stat == 1) && min < 0.01) { */
-      /*     Info("", "Minimizer converged with %f; using new values!", min); */
-      /*     const double *cmins = gMin->X(); */
-      /*     for (int iOrder{1}; iOrder <= nOrder; ++iOrder) { */
-      /*       for (int jOrder{0}; jOrder <= iOrder; ++jOrder) { */
-      /*         int k = iOrder * (iOrder + 1) / 2 + jOrder; */
-      /*         coeff(iOrder, jOrder) = cmins[k + 1]; */
-      /*       } */
-      /*     } */
-      /*   } */
-      /* } */
-
       leg2D.printCoefficients();
 
       { // Draw total polynominal

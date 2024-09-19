@@ -92,6 +92,7 @@ void GRPGeomHelper::setRequest(std::shared_ptr<GRPGeomRequest> req)
 
 bool GRPGeomHelper::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
 {
+  LOGP(info, "------------- GRPFinalise -> desc={}/orig={}", matcher.description.as<std::string>(), matcher.origin.as<std::string>());
   if (mRequest->askGRPMagField && matcher == ConcreteDataMatcher("GLO", "GRPMAGFIELD", 0)) {
     bool needInit = mGRPMagField == nullptr;
     mGRPMagField = (o2::parameters::GRPMagField*)obj;
@@ -218,9 +219,7 @@ void GRPGeomHelper::checkUpdates(ProcessingContext& pc) const
     if (mRequest->askAlignments) {
       for (auto id = DetID::First; id <= DetID::Last; id++) {
         std::string binding = fmt::format("align{}", DetID::getName(id));
-        if (pc.inputs().getPos(binding.c_str()) < 0) {
-          return;
-        } else {
+        if (pc.inputs().getPos(binding.c_str()) >= 0) {
           pc.inputs().get<std::vector<o2::detectors::AlignParam>*>(binding);
         }
       }

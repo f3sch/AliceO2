@@ -334,7 +334,7 @@ void Clusterer::ClustererThread::initChip(const ChipPixelData* curChipData, uint
   size = itsmft::SegmentationAlpide::NRows + 2;
   int chipId = curChipData->getChipID();
   if (its3::constants::detID::isDetITS3(chipId)) {
-    size = its3::SegmentationSuperAlpide::mNRows + 2;
+    size = its3::SegmentationSuperAlpideF::mNRows + 2;
   }
 
   delete[] column1;

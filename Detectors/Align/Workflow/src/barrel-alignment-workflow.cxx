@@ -82,7 +82,7 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
 {
   WorkflowSpec specs;
   GID::mask_t alowedSources = GID::getSourcesMask("ITS,TPC,TRD,ITS-TPC,TPC-TOF,TPC-TRD,ITS-TPC-TRD,TPC-TRD-TOF,ITS-TPC-TOF,ITS-TPC-TRD-TOF");
-  DetID::mask_t allowedDets = DetID::getMask("ITS,TPC,TRD,TOF");
+  DetID::mask_t allowedDets = DetID::getMask("ITS,TPC,TRD,TOF,IT3");
 
   // Update the (declared) parameters if changed from the command line
   o2::conf::ConfigurableParam::updateFromString(configcontext.options().get<std::string>("configKeyValues"));

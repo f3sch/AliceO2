@@ -21,9 +21,9 @@
 
 namespace o2::its3::ioutils
 {
-using SSAlpide = o2::its3::SegmentationSuperAlpide;
-constexpr float DefClusErrorRow = o2::its3::SegmentationSuperAlpide::mPitchRow * 0.5;
-constexpr float DefClusErrorCol = o2::its3::SegmentationSuperAlpide::mPitchCol * 0.5;
+using SSAlpide = o2::its3::SegmentationSuperAlpideF;
+constexpr float DefClusErrorRow = SSAlpide::mPitchRow * 0.5;
+constexpr float DefClusErrorCol = SSAlpide::mPitchCol * 0.5;
 constexpr float DefClusError2Row = DefClusErrorRow * DefClusErrorRow;
 constexpr float DefClusError2Col = DefClusErrorCol * DefClusErrorCol;
 

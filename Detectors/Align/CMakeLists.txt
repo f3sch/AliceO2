@@ -9,27 +9,27 @@
 # granted to it by virtue of its status as an Intergovernmental Organization
 # or submit itself to any jurisdiction.
 
-#add_compile_options(-O0 -g -fPIC)
+add_compile_options(-O0 -g -fPIC)
 
 o2_add_library(Align
                SOURCES  src/GeometricalConstraint.cxx
                         src/DOFSet.cxx
                         src/AlignableDetector.cxx
                         src/AlignableDetectorITS.cxx
-                        #src/AlignableDetectorHMPID.cxx
                         src/AlignableDetectorTOF.cxx
                         src/AlignableDetectorTPC.cxx
                         src/AlignableDetectorTRD.cxx
+                        src/AlignableDetectorIT3.cxx
                         src/Millepede2Record.cxx
                         src/AlignmentPoint.cxx
                         src/ResidualsController.cxx
                         src/ResidualsControllerFast.cxx
                         src/AlignableSensor.cxx
-                        #src/AlignableSensorHMPID.cxx
                         src/AlignableSensorITS.cxx
                         src/AlignableSensorTOF.cxx
                         src/AlignableSensorTPC.cxx
                         src/AlignableSensorTRD.cxx
+                        src/AlignableSensorIT3.cxx
                         src/Controller.cxx
                         src/AlignmentTrack.cxx
                         src/AlignableVolume.cxx
@@ -50,6 +50,7 @@ o2_add_library(Align
                                      O2::DataFormatsGlobalTracking
                                      O2::TPCCalibration
                                      O2::GPUTracking
+                                     O2::ITS3Reconstruction
                                      ROOT::Core
                                      ROOT::Geom
                                      ROOT::MathCore
@@ -66,7 +67,7 @@ o2_target_root_dictionary(
           include/Align/AlignableDetectorTOF.h
           include/Align/AlignableDetectorTPC.h
           include/Align/AlignableDetectorTRD.h
-          #include/Align/AlignableDetectorHMPID.h
+          include/Align/AlignableDetectorIT3.h
           include/Align/Millepede2Record.h
           include/Align/AlignmentPoint.h
           include/Align/AlignableSensor.h
@@ -74,7 +75,7 @@ o2_target_root_dictionary(
           include/Align/AlignableSensorTOF.h
           include/Align/AlignableSensorTPC.h
           include/Align/AlignableSensorTRD.h
-          #include/Align/AlignableSensorHMPID.h
+          include/Align/AlignableSensorIT3.h
           include/Align/Controller.h
           include/Align/AlignmentTrack.h
           include/Align/AlignableVolume.h

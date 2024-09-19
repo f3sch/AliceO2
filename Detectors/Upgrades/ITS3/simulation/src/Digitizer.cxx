@@ -13,6 +13,7 @@
 /// \brief Implementation of the ITS3 digitizer
 
 #include "ITSMFTBase/SegmentationAlpide.h"
+#include "ITS3Base/SegmentationSuperAlpide.h"
 #include "ITS3Simulation/Digitizer.h"
 #include "MathUtils/Cartesian.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
@@ -26,7 +27,7 @@
 
 using o2::itsmft::Hit;
 using Segmentation = o2::itsmft::SegmentationAlpide;
-using SuperSegmentation = o2::its3::SegmentationSuperAlpide;
+using SuperSegmentation = o2::its3::SegmentationSuperAlpideF;
 using o2::itsmft::AlpideRespSimMat;
 using o2::itsmft::PreDigit;
 
@@ -238,8 +239,8 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
   if (innerBarrel) {
     // transform the point on the curved surface to a flat one
     float xFlatE{0.f}, yFlatE{0.f}, xFlatS{0.f}, yFlatS{0.f};
-    SuperSegmentations[layer].curvedToFlat(xyzLocS.X(), xyzLocS.Y(), xFlatS, yFlatS);
-    SuperSegmentations[layer].curvedToFlat(xyzLocE.X(), xyzLocE.Y(), xFlatE, yFlatE);
+    SuperSegmentationsF[layer].curvedToFlat(xyzLocS.X(), xyzLocS.Y(), xFlatS, yFlatS);
+    SuperSegmentationsF[layer].curvedToFlat(xyzLocE.X(), xyzLocE.Y(), xFlatE, yFlatE);
     // update the local coordinates with the flattened ones
     xyzLocS.SetXYZ(xFlatS, yFlatS, xyzLocS.Z());
     xyzLocE.SetXYZ(xFlatE, yFlatE, xyzLocE.Z());
@@ -255,14 +256,14 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
   int rowS = -1, colS = -1, rowE = -1, colE = -1, nSkip = 0;
   if (innerBarrel) {
     // get entrance pixel row and col
-    while (!SuperSegmentations[layer].localToDetector(xyzLocS.X(), xyzLocS.Z(), rowS, colS)) { // guard-ring ?
+    while (!SuperSegmentationsF[layer].localToDetector(xyzLocS.X(), xyzLocS.Z(), rowS, colS)) { // guard-ring ?
       if (++nSkip >= nSteps) {
         return; // did not enter to sensitive matrix
       }
       xyzLocS += step;
     }
     // get exit pixel row and col
-    while (!SuperSegmentations[layer].localToDetector(xyzLocE.X(), xyzLocE.Z(), rowE, colE)) { // guard-ring ?
+    while (!SuperSegmentationsF[layer].localToDetector(xyzLocE.X(), xyzLocE.Z(), rowE, colE)) { // guard-ring ?
       if (++nSkip >= nSteps) {
         return; // did not enter to sensitive matrix
       }
@@ -333,13 +334,13 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
   for (int iStep = nSteps; iStep--;) {
     // Get the pixel ID
     if (innerBarrel) {
-      SuperSegmentations[layer].localToDetector(xyzLocS.X(), xyzLocS.Z(), row, col);
+      SuperSegmentationsF[layer].localToDetector(xyzLocS.X(), xyzLocS.Z(), row, col);
     } else {
       Segmentation::localToDetector(xyzLocS.X(), xyzLocS.Z(), row, col);
     }
     if (row != rowPrev || col != colPrev) { // update pixel and coordinates of its center
       if (innerBarrel) {
-        if (!SuperSegmentations[layer].detectorToLocal(row, col, cRowPix, cColPix)) {
+        if (!SuperSegmentationsF[layer].detectorToLocal(row, col, cRowPix, cColPix)) {
           continue;
         }
       } else if (!Segmentation::detectorToLocal(row, col, cRowPix, cColPix)) {
