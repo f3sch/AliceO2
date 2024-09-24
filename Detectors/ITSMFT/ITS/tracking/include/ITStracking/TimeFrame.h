@@ -174,7 +174,7 @@ class TimeFrame
   size_t getNumberOfTracks() const;
   size_t getNumberOfUsedClusters() const;
   auto getNumberOfExtendedTracks() const { return mNExtendedTracks; }
-  auto getNumberOfUsedExtendedClusters()const  { return mNExtendedUsedClusters; }
+  auto getNumberOfUsedExtendedClusters() const { return mNExtendedUsedClusters; }
 
   bool checkMemory(unsigned long max) { return getArtefactsMemory() < max; }
   unsigned long getArtefactsMemory();

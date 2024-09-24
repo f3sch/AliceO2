@@ -110,7 +110,7 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
     }
     specs.emplace_back(o2::its::study::getAnomalyStudy(srcCls, useMC));
   }
-  if(configcontext.options().get<bool>("track-extension-study")){
+  if (configcontext.options().get<bool>("track-extension-study")) {
     anyStudy = true;
     srcTrc = GID::getSourcesMask(configcontext.options().get<std::string>("track-sources"));
     srcCls = GID::getSourcesMask("ITS");
