@@ -49,6 +49,7 @@ o2_target_root_dictionary(CommonUtils
                                   include/CommonUtils/DLLoaderBase.h
                                   include/CommonUtils/NameConf.h
                                   include/CommonUtils/IRFrameSelector.h
+                                  include/CommonUtils/EnumBitOperators.h
                                   include/CommonUtils/DebugStreamer.h)
 
 o2_add_test(TreeStream
