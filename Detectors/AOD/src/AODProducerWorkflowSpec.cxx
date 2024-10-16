@@ -51,6 +51,7 @@
 #include "Framework/DataTypes.h"
 #include "Framework/TableBuilder.h"
 #include "Framework/CCDBParamSpec.h"
+#include "CommonUtils/TreeStreamRedirector.h"
 #include "FT0Base/Geometry.h"
 #include "GlobalTracking/MatchTOF.h"
 #include "ReconstructionDataFormats/Cascade.h"
@@ -1687,6 +1688,10 @@ void AODProducerWorkflowDPL::init(InitContext& ic)
   mThinTracks = ic.options().get<bool>("thin-tracks");
   mPropTracks = ic.options().get<bool>("propagate-tracks");
   mPropMuons = ic.options().get<bool>("propagate-muons");
+  mStreamerMask = static_cast<AODProducerStreamerMask>(ic.options().get<std::underlying_type_t<AODProducerStreamerMask>>("with-streamers"));
+  if (O2_ENUM_ANY_BIT(mStreamerMask)) {
+    LOGP(info, "Writing streamer data with mask {:0{}b}", static_cast<std::underlying_type_t<AODProducerStreamerMask>>(mStreamerMask), std::numeric_limits<std::underlying_type_t<AODProducerStreamerMask>>::digits);
+  }
   mTrackQCFraction = ic.options().get<float>("trackqc-fraction");
   mTrackQCNTrCut = ic.options().get<int64_t>("trackqc-NTrCut");
   if (auto seed = ic.options().get<int>("seed"); seed == 0) {
@@ -1772,6 +1777,10 @@ void AODProducerWorkflowDPL::init(InitContext& ic)
   mHeavyIonUpdate = when;
 
   mTimer.Reset();
+
+  if (O2_ENUM_ANY_BIT(mStreamerMask)) {
+    mStreamer = std::make_unique<o2::utils::TreeStreamRedirector>("AO2DStreamer.root", "RECREATE");
+  }
 }
 
 void AODProducerWorkflowDPL::run(ProcessingContext& pc)
@@ -2642,6 +2651,40 @@ AODProducerWorkflowDPL::TrackQA AODProducerWorkflowDPL::processBarrelTrackQA(int
           trackQAHolder.dRefGloSnp = safeInt8Clamp(((itsCopy.getSnp() + tpcCopy.getSnp()) * 0.5f - gloCopy.getSnp()) * scaleGlo(2));
           trackQAHolder.dRefGloTgl = safeInt8Clamp(((itsCopy.getTgl() + tpcCopy.getTgl()) * 0.5f - gloCopy.getTgl()) * scaleGlo(3));
           trackQAHolder.dRefGloQ2Pt = safeInt8Clamp(((itsCopy.getQ2Pt() + tpcCopy.getQ2Pt()) * 0.5f - gloCopy.getQ2Pt()) * scaleGlo(4));
+
+          if (O2_ENUM_TEST_BIT(mStreamerMask, AODProducerStreamerMask::TrackQA)) {
+            (*mStreamer) << "trackQA"
+                         << "trackITSOrig=" << itsOrig
+                         << "trackTPCOrig=" << tpcOrig
+                         << "trackITSTPCOrig=" << trackPar
+                         << "trackITSProp=" << itsCopy
+                         << "trackTPCProp=" << tpcCopy
+                         << "trackITSTPCProp=" << gloCopy
+                         << "refRadius=" << o2::aod::track::trackQARefRadius
+                         << "trackQAHolder.tpcTime0=" << trackQAHolder.tpcTime0
+                         << "trackQAHolder.tpcdcaR=" << trackQAHolder.tpcdcaR
+                         << "trackQAHolder.tpcdcaZ=" << trackQAHolder.tpcdcaZ
+                         << "trackQAHolder.tpcdcaClusterByteMask=" << trackQAHolder.tpcClusterByteMask
+                         << "trackQAHolder.tpcdEdxMax0R=" << trackQAHolder.tpcdEdxMax0R
+                         << "trackQAHolder.tpcdEdxMax1R=" << trackQAHolder.tpcdEdxMax1R
+                         << "trackQAHolder.tpcdEdxMax2R=" << trackQAHolder.tpcdEdxMax2R
+                         << "trackQAHolder.tpcdEdxMax3R=" << trackQAHolder.tpcdEdxMax3R
+                         << "trackQAHolder.tpcdEdxTot0R=" << trackQAHolder.tpcdEdxTot0R
+                         << "trackQAHolder.tpcdEdxTot1R=" << trackQAHolder.tpcdEdxTot1R
+                         << "trackQAHolder.tpcdEdxTot2R=" << trackQAHolder.tpcdEdxTot2R
+                         << "trackQAHolder.tpcdEdxTot3R=" << trackQAHolder.tpcdEdxTot3R
+                         << "trackQAHolder.dRefContY=" << trackQAHolder.dRefContY
+                         << "trackQAHolder.dRefContZ=" << trackQAHolder.dRefContZ
+                         << "trackQAHolder.dRefContSnp=" << trackQAHolder.dRefContSnp
+                         << "trackQAHolder.dRefContTgl=" << trackQAHolder.dRefContTgl
+                         << "trackQAHolder.dRefContQ2Pt=" << trackQAHolder.dRefContQ2Pt
+                         << "trackQAHolder.dRefGloY=" << trackQAHolder.dRefGloY
+                         << "trackQAHolder.dRefGloZ=" << trackQAHolder.dRefGloZ
+                         << "trackQAHolder.dRefGloSnp=" << trackQAHolder.dRefGloSnp
+                         << "trackQAHolder.dRefGloTgl=" << trackQAHolder.dRefGloTgl
+                         << "trackQAHolder.dRefGloQ2Pt=" << trackQAHolder.dRefGloQ2Pt
+                         << "\n";
+          }
         }
       }
     }
@@ -3011,6 +3054,8 @@ void AODProducerWorkflowDPL::endOfStream(EndOfStreamContext& /*ec*/)
 {
   LOGF(info, "aod producer dpl total timing: Cpu: %.3e Real: %.3e s in %d slots",
        mTimer.CpuTime(), mTimer.RealTime(), mTimer.Counter() - 1);
+
+  mStreamer.reset();
 }
 
 DataProcessorSpec getAODProducerWorkflowSpec(GID::mask_t src, bool enableSV, bool enableStrangenessTracking, bool useMC, bool CTPConfigPerRun)
@@ -3143,6 +3188,7 @@ DataProcessorSpec getAODProducerWorkflowSpec(GID::mask_t src, bool enableSV, boo
       ConfigParamSpec{"thin-tracks", VariantType::Bool, false, {"Produce thinned track tables"}},
       ConfigParamSpec{"trackqc-fraction", VariantType::Float, float(0.1), {"Fraction of tracks to QC"}},
       ConfigParamSpec{"trackqc-NTrCut", VariantType::Int64, 4L, {"Minimal length of the track - in amount of tracklets"}},
+      ConfigParamSpec{"with-streamers", VariantType::Int, 0, {"Bit-mask to steer writing of intermediate streamer files"}},
       ConfigParamSpec{"seed", VariantType::Int, 0, {"Set seed for random generator used for sampling (0 (default) means using a random_device)"}},
     }};
 }

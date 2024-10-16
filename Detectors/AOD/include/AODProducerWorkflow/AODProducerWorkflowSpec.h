@@ -30,6 +30,8 @@
 #include "TStopwatch.h"
 #include "ZDCBase/Constants.h"
 #include "GlobalTracking/MatchGlobalFwd.h"
+#include "CommonUtils/TreeStreamRedirector.h"
+#include "CommonUtils/EnumBitOperators.h"
 
 #include <cstdint>
 #include <limits>
@@ -205,7 +207,15 @@ class BunchCrossings
 
   std::vector<TimeWindow> mTimeWindows; // the time window structure covering the complete duration of mBCTimeVector
   double mWindowSize;                   // the size of a single time window
-};                                      // end internal class
+}; // end internal class
+
+// Steering bits for additional output during AOD production
+enum struct AODProducerStreamerMask {
+  None = 0,
+  TrackQA = O2_ENUM_SET_BIT(0),
+  All = std::numeric_limits<std::underlying_type_t<AODProducerStreamerMask>>::max(),
+};
+O2_DEFINE_ENUM_BIT_OPERATORS(AODProducerStreamerMask)
 
 class AODProducerWorkflowDPL : public Task
 {
@@ -242,6 +252,9 @@ class AODProducerWorkflowDPL : public Task
 
   std::unordered_set<GIndex> mGIDUsedBySVtx;
   std::unordered_set<GIndex> mGIDUsedByStr;
+
+  AODProducerStreamerMask mStreamerMask;
+  std::shared_ptr<o2::utils::TreeStreamRedirector> mStreamer;
 
   int mNThreads = 1;
   bool mUseMC = true;
