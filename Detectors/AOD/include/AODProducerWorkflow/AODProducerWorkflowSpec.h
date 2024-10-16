@@ -31,6 +31,8 @@
 #include "ZDCBase/Constants.h"
 #include "GlobalTracking/MatchGlobalFwd.h"
 
+#include <cstdint>
+#include <limits>
 #include <set>
 #include <string>
 #include <vector>
@@ -339,6 +341,7 @@ class AODProducerWorkflowDPL : public Task
   uint32_t mTrackCovOffDiag = 0xFFFF0000;      // 7 bits
   uint32_t mTrackSignal = 0xFFFFFF00;          // 15 bits
   uint32_t mTrackTime = 0xFFFFFFFF;            // use full float precision for time
+  uint32_t mTPCTime0 = 0xFFFFFC00;             // 13 bits
   uint32_t mTrackTimeError = 0xFFFFFF00;       // 15 bits
   uint32_t mTrackPosEMCAL = 0xFFFFFF00;        // 15 bits
   uint32_t mTracklets = 0xFFFFFF00;            // 15 bits
@@ -396,18 +399,28 @@ class AODProducerWorkflowDPL : public Task
 
   struct TrackQA {
     GID trackID;
-    float tpcTime0;
-    int16_t tpcdcaR;
-    int16_t tpcdcaZ;
-    uint8_t tpcClusterByteMask;
-    uint8_t tpcdEdxMax0R;
-    uint8_t tpcdEdxMax1R;
-    uint8_t tpcdEdxMax2R;
-    uint8_t tpcdEdxMax3R;
-    uint8_t tpcdEdxTot0R;
-    uint8_t tpcdEdxTot1R;
-    uint8_t tpcdEdxTot2R;
-    uint8_t tpcdEdxTot3R;
+    float tpcTime0{};
+    int16_t tpcdcaR{};
+    int16_t tpcdcaZ{};
+    uint8_t tpcClusterByteMask{};
+    uint8_t tpcdEdxMax0R{};
+    uint8_t tpcdEdxMax1R{};
+    uint8_t tpcdEdxMax2R{};
+    uint8_t tpcdEdxMax3R{};
+    uint8_t tpcdEdxTot0R{};
+    uint8_t tpcdEdxTot1R{};
+    uint8_t tpcdEdxTot2R{};
+    uint8_t tpcdEdxTot3R{};
+    int8_t dRefContY{std::numeric_limits<int8_t>::min()};
+    int8_t dRefContZ{std::numeric_limits<int8_t>::min()};
+    int8_t dRefContSnp{std::numeric_limits<int8_t>::min()};
+    int8_t dRefContTgl{std::numeric_limits<int8_t>::min()};
+    int8_t dRefContQ2Pt{std::numeric_limits<int8_t>::min()};
+    int8_t dRefGloY{std::numeric_limits<int8_t>::min()};
+    int8_t dRefGloZ{std::numeric_limits<int8_t>::min()};
+    int8_t dRefGloSnp{std::numeric_limits<int8_t>::min()};
+    int8_t dRefGloTgl{std::numeric_limits<int8_t>::min()};
+    int8_t dRefGloQ2Pt{std::numeric_limits<int8_t>::min()};
   };
 
   // helper struct for addToFwdTracksTable()
