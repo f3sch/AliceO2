@@ -47,6 +47,7 @@ void ITS3Layer::getMaterials(bool create)
   mSilicon = getMaterial("IT3_SI$", create);
   mAir = getMaterial("IT3_AIR$", create);
   mCarbon = getMaterial("IT3_CARBON$", create);
+  mCopper = getMaterial("IT3_COPPER$", create);
 }
 
 TGeoMedium* ITS3Layer::getMaterial(const char* matName, bool create)
@@ -276,11 +277,19 @@ void ITS3Layer::createChip()
   mChip = new TGeoVolumeAssembly(its3TGeo::getITS3ChipPattern(mNLayer));
   mChip->VisibleDaughters();
 
+  auto phiOffset = constants::segment::width / mR * o2m::Rad2Deg;
   for (unsigned int i{0}; i < constants::nSegments[mNLayer]; ++i) {
-    double phiOffset = constants::segment::width / mR * o2m::Rad2Deg;
     auto rot = new TGeoRotation("", 0, 0, phiOffset * i);
     mChip->AddNode(mSegment, i, rot);
   }
+
+  // Add metal stack positioned radially outward
+  auto zMoveMetal = new TGeoTranslation(0, 0, constants::metalstack::length / 2. - constants::segment::lec::length);
+  auto metal = new TGeoTubeSeg(mRmax, mRmax + constants::metalstack::thickness, constants::metalstack::length / 2., 0, 3.0 * phiOffset);
+  auto metalVol = new TGeoVolume(Form("metal%d", mNLayer), metal, mCopper);
+  metalVol->SetLineColor(constants::metalstack::color);
+  metalVol->RegisterYourself();
+  mChip->AddNode(metalVol, 0, zMoveMetal);
 }
 
 void ITS3Layer::createCarbonForm()

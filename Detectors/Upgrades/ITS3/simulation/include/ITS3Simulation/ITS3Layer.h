@@ -82,6 +82,7 @@ class ITS3Layer
   TGeoMedium* mSilicon{nullptr};
   TGeoMedium* mAir{nullptr};
   TGeoMedium* mCarbon{nullptr};
+  TGeoMedium* mCopper{nullptr};
   void getMaterials(bool create = false);
   TGeoMedium* getMaterial(const char* matName, bool create = false);
 

@@ -45,7 +45,7 @@ void TestSensorGeometry(bool checkFull = false)
   if (checkFull) {
     gGeoManager->CheckGeometryFull();
   }
-  gGeoManager->CheckOverlaps(0.0001);
+  gGeoManager->CheckOverlaps(0.00001);
   TIter nextOverlap{gGeoManager->GetListOfOverlaps()};
   while ((obj = (TObject*)nextOverlap())) {
     LOGP(info, "Overlap in {}", obj->GetName());

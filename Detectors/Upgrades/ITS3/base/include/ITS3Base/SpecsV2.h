@@ -106,16 +106,25 @@ constexpr std::array<int, 3> nHoles{11, 11, 11};                          // how
 constexpr std::array<float, 3> radiusHoles{1.0 * mm, 1.0 * mm, 2.0 * mm}; // what is the radius of the holes for each layer?
 constexpr EColor color{kGray};
 } // namespace carbonfoam
+namespace metalstack
+{
+constexpr float thickness{5 * mu}; // physical thickness of the copper metal stack
+constexpr float length{segment::length};
+constexpr float width{segment::width};
+constexpr EColor color{kBlack};
+} // namespace metalstack
 constexpr unsigned int nLayers{3};
 constexpr unsigned int nTotLayers{7};
 constexpr unsigned int nSensorsIB{2 * nLayers};
 constexpr float equatorialGap{1 * mm};
 constexpr std::array<unsigned int, nLayers> nSegments{3, 4, 5};
-constexpr float thickness{50 * mu};                                                                                                  //< Physical Thickness of chip
-constexpr float effThickness{66 * mu};                                                                                               //< Physical thickness + metal substrate
+constexpr float epitaxialThickness{10 * mu};
+constexpr float psubThickness{40 * mu};
+constexpr float thickness{epitaxialThickness + psubThickness};                                                                       // physical thickness of chip
+constexpr float effThickness{epitaxialThickness + psubThickness / 2.0};                                                              // correction to the epitaxial layer
 constexpr std::array<float, nLayers> radii{19.0006 * mm, 25.228 * mm, 31.4554 * mm};                                                 // middle radius e.g. inner radius+thickness/2.
-constexpr std::array<float, nLayers> radiiInner{radii[0] - thickness / 2.f, radii[1] - thickness / 2.f, radii[2] - thickness / 2.f}; // inner radius
-constexpr std::array<float, nLayers> radiiOuter{radii[0] + thickness / 2.f, radii[1] + thickness / 2.f, radii[2] + thickness / 2.f}; // inner radius
+constexpr std::array<float, nLayers> radiiInner{radii[0] - thickness / 2.0, radii[1] - thickness / 2.0, radii[2] - thickness / 2.0}; // inner radius
+constexpr std::array<float, nLayers> radiiOuter{radii[0] + thickness / 2.0, radii[1] + thickness / 2.0, radii[2] + thickness / 2.0}; // inner radius
 namespace detID
 {
 constexpr unsigned int mDetIDs{2 * 12 * 12 * 12};                //< 2 Hemispheres * (3,4,5=12 segments in a layer) * 12 RSUs in a segment * 12 Tiles in a RSU
