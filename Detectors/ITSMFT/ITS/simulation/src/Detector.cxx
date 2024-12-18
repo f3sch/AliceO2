@@ -724,7 +724,7 @@ void Detector::defineLayer(Int_t nlay, Double_t phi0, Double_t r, Int_t nstav, I
   //   none.
 
   LOG(debug) << "L# " << nlay << " Phi:" << phi0 << " R:" << r << " Nst:" << nstav << " Nunit:" << nunit
-            << " Lthick:" << lthick << " Dthick:" << dthick << " DetID:" << dettypeID << " B:" << buildLevel;
+             << " Lthick:" << lthick << " Dthick:" << dthick << " DetID:" << dettypeID << " B:" << buildLevel;
 
   if (nlay >= mNumberLayers || nlay < 0) {
     LOG(error) << "Wrong layer number " << nlay;
