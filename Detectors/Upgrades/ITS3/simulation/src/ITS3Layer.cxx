@@ -285,7 +285,7 @@ void ITS3Layer::createChip()
 
   // Add metal stack positioned radially outward
   auto zMoveMetal = new TGeoTranslation(0, 0, constants::metalstack::length / 2. - constants::segment::lec::length);
-  auto metal = new TGeoTubeSeg(mRmax, mRmax + constants::metalstack::thickness, constants::metalstack::length / 2., 0, 3.0 * phiOffset);
+  auto metal = new TGeoTubeSeg(mRmax, mRmax + constants::metalstack::thickness, constants::metalstack::length / 2., 0, constants::nSegments[mNLayer] * phiOffset);
   auto metalVol = new TGeoVolume(Form("metal%d", mNLayer), metal, mCopper);
   metalVol->SetLineColor(constants::metalstack::color);
   metalVol->RegisterYourself();
