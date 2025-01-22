@@ -76,7 +76,7 @@ void ITS3Layer::createLayer(TGeoVolume* motherVolume)
   createLayerImpl();
   mBuilt = true;
 
-  LOGP(info, "ITS3-Layer: Created Layer {} with mR={} (minR={}, maxR={})", mNLayer, mR, mRmin, mRmax);
+  LOGP(debug, "ITS3-Layer: Created Layer {} with mR={} (minR={}, maxR={})", mNLayer, mR, mRmin, mRmax);
   if (motherVolume == nullptr) {
     return;
   }
