@@ -143,18 +143,18 @@ math_utils::Point3D<T> TopologyDictionary::getClusterCoordinates(const itsmft::C
     locCl.SetZ(locCl.Z() + this->getZCOG(cl.getPatternID()) * itsmft::SegmentationAlpide::PitchCol);
   } else {
     auto layer = its3::constants::detID::getDetID2Layer(cl.getSensorID());
-    its3::SuperSegmentations[layer].detectorToLocalUnchecked(cl.getRow(), cl.getCol(), locCl);
+    mSuperSegmentations[layer].detectorToLocalUnchecked(cl.getRow(), cl.getCol(), locCl);
     locCl.SetX(locCl.X() + this->getXCOG(cl.getPatternID()) * its3::SegmentationSuperAlpide::mPitchRow);
     locCl.SetZ(locCl.Z() + this->getZCOG(cl.getPatternID()) * its3::SegmentationSuperAlpide::mPitchCol);
     float xCurved{0.f}, yCurved{0.f};
-    its3::SuperSegmentations[layer].flatToCurved(locCl.X(), locCl.Y(), xCurved, yCurved);
+    mSuperSegmentations[layer].flatToCurved(locCl.X(), locCl.Y(), xCurved, yCurved);
     locCl.SetXYZ(xCurved, yCurved, locCl.Z());
   }
   return locCl;
 }
 
 template <typename T>
-math_utils::Point3D<T> TopologyDictionary::getClusterCoordinates(const itsmft::CompClusterExt& cl, const itsmft::ClusterPattern& patt, bool isGroup)
+math_utils::Point3D<T> TopologyDictionary::getClusterCoordinates(const itsmft::CompClusterExt& cl, const itsmft::ClusterPattern& patt, bool isGroup) const
 {
   auto refRow = cl.getRow();
   auto refCol = cl.getCol();
@@ -169,9 +169,9 @@ math_utils::Point3D<T> TopologyDictionary::getClusterCoordinates(const itsmft::C
     o2::itsmft::SegmentationAlpide::detectorToLocalUnchecked(refRow + xCOG, refCol + zCOG, locCl);
   } else {
     auto layer = its3::constants::detID::getDetID2Layer(cl.getSensorID());
-    its3::SuperSegmentations[layer].detectorToLocalUnchecked(refRow + xCOG, refCol + zCOG, locCl);
+    mSuperSegmentations[layer].detectorToLocalUnchecked(refRow + xCOG, refCol + zCOG, locCl);
     float xCurved{0.f}, yCurved{0.f};
-    its3::SuperSegmentations[layer].flatToCurved(locCl.X(), locCl.Y(), xCurved, yCurved);
+    mSuperSegmentations[layer].flatToCurved(locCl.X(), locCl.Y(), xCurved, yCurved);
     locCl.SetXYZ(xCurved, yCurved, locCl.Z());
   }
   return locCl;
@@ -194,6 +194,6 @@ TopologyDictionary* TopologyDictionary::loadFrom(const std::string& fname, const
 
 // Explicitly instaniate templates
 template math_utils::Point3D<float> TopologyDictionary::getClusterCoordinates<float>(const itsmft::CompClusterExt& cl) const;
-template math_utils::Point3D<float> TopologyDictionary::getClusterCoordinates<float>(const itsmft::CompClusterExt& cl, const itsmft::ClusterPattern& patt, bool isGroup);
+template math_utils::Point3D<float> TopologyDictionary::getClusterCoordinates<float>(const itsmft::CompClusterExt& cl, const itsmft::ClusterPattern& patt, bool isGroup) const;
 
 } // namespace o2::its3

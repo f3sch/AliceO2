@@ -108,6 +108,8 @@ class Digitizer : public TObject
   uint32_t mEventROFrameMin = 0xffffffff; ///< lowest RO frame for processed events (w/o automatic noise ROFs)
   uint32_t mEventROFrameMax = 0;          ///< highest RO frame forfor processed events (w/o automatic noise ROFs)
 
+  const std::array<o2::its3::SegmentationSuperAlpide, 3> mSuperSegmentations{0, 1, 2};
+
   o2::itsmft::AlpideSimResponse* mAlpSimResp = nullptr; // simulated response
 
   const o2::its::GeometryTGeo* mGeometry = nullptr; ///< ITS3 geometry

@@ -53,10 +53,10 @@ class SegmentationSuperAlpide
   // |           |          |
   // x----------------------x
  public:
-  virtual ~SegmentationSuperAlpide() = default;
+  ~SegmentationSuperAlpide() = default;
   SegmentationSuperAlpide(const SegmentationSuperAlpide&) = default;
   SegmentationSuperAlpide(SegmentationSuperAlpide&&) = delete;
-  SegmentationSuperAlpide& operator=(const SegmentationSuperAlpide&) = delete;
+  SegmentationSuperAlpide& operator=(const SegmentationSuperAlpide&) = default;
   SegmentationSuperAlpide& operator=(SegmentationSuperAlpide&&) = delete;
   constexpr SegmentationSuperAlpide(int layer) : mLayer{layer} {}
 
@@ -85,9 +85,8 @@ class SegmentationSuperAlpide
   {
     // MUST align the flat surface with the curved surface with the original pixel array is on
     float dist = std::hypot(xCurved, yCurved);
-    float phiReadout = constants::tile::readout::width / constants::radii[mLayer];
     float phi = std::atan2(yCurved, xCurved);
-    xFlat = mRadii[mLayer] * (phi - phiReadout) - constants::pixelarray::width / 2.;
+    xFlat = (mRadii[mLayer] * phi) - constants::pixelarray::width / 2.;
     yFlat = dist - mRadii[mLayer];
   }
 
@@ -105,9 +104,8 @@ class SegmentationSuperAlpide
   {
     // MUST align the flat surface with the curved surface with the original pixel array is on
     float dist = yFlat + mRadii[mLayer];
-    float phiReadout = constants::tile::readout::width / mRadii[mLayer];
-    xCurved = dist * std::cos(phiReadout + (xFlat + constants::pixelarray::width / 2.) / mRadii[mLayer]);
-    yCurved = dist * std::sin(phiReadout + (xFlat + constants::pixelarray::width / 2.) / mRadii[mLayer]);
+    xCurved = dist * std::cos((xFlat + constants::pixelarray::width / 2.) / mRadii[mLayer]);
+    yCurved = dist * std::sin((xFlat + constants::pixelarray::width / 2.) / mRadii[mLayer]);
   }
 
   /// Transformation from Geant detector centered local coordinates (cm) to
@@ -196,13 +194,9 @@ class SegmentationSuperAlpide
     }
   }
 
-  const int mLayer{0}; ///< chip layer
-
-  ClassDef(SegmentationSuperAlpide, 1);
+  int mLayer{0}; ///< chip layer
 };
 
-/// Segmentation array
-extern const std::array<SegmentationSuperAlpide, constants::nLayers> SuperSegmentations;
 } // namespace o2::its3
 
 #endif

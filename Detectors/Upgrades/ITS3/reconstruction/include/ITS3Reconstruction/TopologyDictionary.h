@@ -17,6 +17,7 @@
 
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DataFormatsITSMFT/ClusterPattern.h"
+#include "ITS3Base/SegmentationSuperAlpide.h"
 
 namespace o2::its3
 {
@@ -125,7 +126,7 @@ class TopologyDictionary
 
   /// Returns the local position of a compact cluster
   template <typename T = float>
-  static math_utils::Point3D<T> getClusterCoordinates(const itsmft::CompClusterExt& cl, const itsmft::ClusterPattern& patt, bool isGroup = true);
+  math_utils::Point3D<T> getClusterCoordinates(const itsmft::CompClusterExt& cl, const itsmft::ClusterPattern& patt, bool isGroup = true) const;
 
   static TopologyDictionary* loadFrom(const std::string& fileName = "", const std::string& objName = "ccdb_object");
 
@@ -134,10 +135,11 @@ class TopologyDictionary
 
  private:
   static constexpr int STopoSize{8 * 255 + 1};
-  std::unordered_map<unsigned long, int> mCommonMap{}; ///< Map of pair <hash, position in mVectorOfIDs>
-  std::unordered_map<int, int> mGroupMap{};            ///< Map of pair <groudID, position in mVectorOfIDs>
-  int mSmallTopologiesLUT[STopoSize]{};                ///< Look-Up Table for the topologies with 1-byte linearised matrix
-  std::vector<itsmft::GroupStruct> mVectorOfIDs{};     ///< Vector of topologies and groups
+  std::unordered_map<unsigned long, int> mCommonMap{};                           ///< Map of pair <hash, position in mVectorOfIDs>
+  std::unordered_map<int, int> mGroupMap{};                                      ///< Map of pair <groudID, position in mVectorOfIDs>
+  int mSmallTopologiesLUT[STopoSize]{};                                          ///< Look-Up Table for the topologies with 1-byte linearised matrix
+  std::vector<itsmft::GroupStruct> mVectorOfIDs{};                               ///< Vector of topologies and groups
+  std::array<o2::its3::SegmentationSuperAlpide, 3> mSuperSegmentations{0, 1, 2}; ///< Segmentations for IB layers
 
   ClassDefNV(TopologyDictionary, 3);
 };
