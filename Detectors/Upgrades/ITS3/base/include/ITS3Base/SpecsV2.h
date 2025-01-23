@@ -118,10 +118,11 @@ constexpr unsigned int nTotLayers{7};
 constexpr unsigned int nSensorsIB{2 * nLayers};
 constexpr float equatorialGap{1 * mm};
 constexpr std::array<unsigned int, nLayers> nSegments{3, 4, 5};
-constexpr float epitaxialThickness{10 * mu};
-constexpr float psubThickness{40 * mu};
+constexpr float epitaxialThickness{10 * mu};                                                                                         // eptixial layer (charge collection)
+constexpr float psubThickness{40 * mu};                                                                                              // silicon substrate
 constexpr float thickness{epitaxialThickness + psubThickness};                                                                       // physical thickness of chip
-constexpr float effThickness{epitaxialThickness + psubThickness / 2.0};                                                              // correction to the epitaxial layer
+constexpr float effThickness{epitaxialThickness / 2.0 + psubThickness};                                                              // effective physical thickness
+constexpr float corrThickness{effThickness - thickness / 2.0};                                                                       // correction to get into the epitxial layer
 constexpr std::array<float, nLayers> radii{19.0006 * mm, 25.228 * mm, 31.4554 * mm};                                                 // middle radius e.g. inner radius+thickness/2.
 constexpr std::array<float, nLayers> radiiInner{radii[0] - thickness / 2.0, radii[1] - thickness / 2.0, radii[2] - thickness / 2.0}; // inner radius
 constexpr std::array<float, nLayers> radiiOuter{radii[0] + thickness / 2.0, radii[1] + thickness / 2.0, radii[2] + thickness / 2.0}; // inner radius

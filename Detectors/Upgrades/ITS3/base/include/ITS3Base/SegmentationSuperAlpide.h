@@ -69,6 +69,7 @@ class SegmentationSuperAlpide
   static constexpr float mPitchRow{constants::pixelarray::width / static_cast<float>(mNRows)};
   static constexpr float mSensorLayerThickness{constants::thickness};
   static constexpr float mSensorLayerThicknessEff{constants::effThickness};
+  static constexpr float mSensorLayerThicknessCorr{constants::corrThickness};
   static constexpr std::array<float, constants::nLayers> mRadii{constants::radii};
 
   /// Transformation from the curved surface to a flat surface
