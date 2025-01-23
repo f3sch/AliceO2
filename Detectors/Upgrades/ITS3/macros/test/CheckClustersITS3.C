@@ -57,7 +57,8 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
   using ROFRec = o2::itsmft::ROFRecord;
   using MC2ROF = o2::itsmft::MC2ROFRecord;
   using HitVec = std::vector<Hit>;
-  using MC2HITS_map = std::unordered_map<uint64_t, int>; // maps (track_ID<<16 + chip_ID) to entry in the hit vector
+  using MC2HITS_map = std::unordered_map<uint64_t, int>; // maps (track_ID<<32 + chip_ID) to entry in the hit vector
+  std::array<SuperSegmentation, 3> mSuperSegmentations{0, 1, 2};
 
   std::vector<HitVec*> hitVecPool;
   std::vector<MC2HITS_map> mc2hitVec;
@@ -234,10 +235,10 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
       } else {
         // compare in local flat coordinates
         float xFlatEnd{0.}, yFlatEnd{0.};
-        o2::its3::SuperSegmentations[layer].curvedToFlat(locH.X(), locH.Y(), xFlatEnd, yFlatEnd);
+        mSuperSegmentations[layer].curvedToFlat(locH.X(), locH.Y(), xFlatEnd, yFlatEnd);
         locH.SetXYZ(xFlatEnd, yFlatEnd, locH.Z());
         float xFlatSta{0.}, yFlatSta{0.};
-        o2::its3::SuperSegmentations[layer].curvedToFlat(locHsta.X(), locHsta.Y(), xFlatSta, yFlatSta);
+        mSuperSegmentations[layer].curvedToFlat(locHsta.X(), locHsta.Y(), xFlatSta, yFlatSta);
         locHsta.SetXYZ(xFlatSta, yFlatSta, locHsta.Z());
         // recalculate x/y in flat
         // x0 = xFlatSta, dltx = xFlatEnd - x0;
@@ -248,7 +249,7 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
         // not really precise, but okish
         locH.SetXYZ(0.5f * (locH.X() + locHsta.X()), 0.5f * (locH.Y() + locHsta.Y()), 0.5f * (locH.Z() + locHsta.Z()));
 
-        o2::its3::SuperSegmentations[layer].curvedToFlat(locC.X(), locC.Y(), xFlatSta, yFlatSta);
+        mSuperSegmentations[layer].curvedToFlat(locC.X(), locC.Y(), xFlatSta, yFlatSta);
         locC.SetXYZ(xFlatSta, yFlatSta, locC.Z());
       }
 
