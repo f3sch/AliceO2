@@ -37,7 +37,7 @@ using namespace o2::framework;
 namespace o2d = o2::dataformats;
 
 GRPGeomRequest::GRPGeomRequest(bool orbitResetTime, bool GRPECS, bool GRPLHCIF, bool GRPMagField, bool askMatLUT, GeomRequest geom, std::vector<o2::framework::InputSpec>& inputs, bool askOnce, bool needPropD, std::string detMaskString)
-  : askGRPECS(GRPECS), askGRPLHCIF(GRPLHCIF), askGRPMagField(GRPMagField), askMatLUT(askMatLUT), askTime(orbitResetTime), askOnceAllButField(askOnce), needPropagatorD(needPropD)
+  : askGRPECS(GRPECS), askGRPLHCIF(GRPLHCIF), askGRPMagField(GRPMagField), askMatLUT(askMatLUT), askTime(orbitResetTime), askOnceAllButField(askOnce), needPropagatorD(needPropD), algDetMask(DetID::getMask(detMaskString))
 {
   if (geom == Aligned) {
     askGeomAlign = true;
@@ -48,7 +48,6 @@ GRPGeomRequest::GRPGeomRequest(bool orbitResetTime, bool GRPECS, bool GRPLHCIF, 
   }
   if (geom == Alignments) {
     askAlignments = true;
-    o2::detectors::DetID::mask_t algDetMask = DetID::getMask(detMaskString);
     for (auto id = DetID::First; id <= DetID::Last; id++) {
       if (algDetMask[id]) {
         std::string binding = fmt::format("align{}", DetID::getName(id));
@@ -164,6 +163,9 @@ bool GRPGeomHelper::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
   constexpr o2::header::DataDescription algDesc{"ALIGNMENT"};
   if (mRequest->askAlignments && matcher.description == algDesc) {
     for (auto id = DetID::First; id <= DetID::Last; id++) {
+      if (!mRequest->algDetMask[id]) {
+        continue;
+      }
       if (matcher.origin == DetID::getDataOrigin(id)) {
         LOG(info) << DetID::getName(id) << " alignment updated";
         mAlignments[id] = (std::vector<o2::detectors::AlignParam>*)obj;
@@ -233,9 +235,12 @@ void GRPGeomHelper::checkUpdates(ProcessingContext& pc)
     }
     if (mRequest->askAlignments) {
       for (auto id = DetID::First; id <= DetID::Last; id++) {
+        if (!mRequest->algDetMask[id]) {
+          continue;
+        }
         std::string binding = fmt::format("align{}", DetID::getName(id));
         if (pc.inputs().getPos(binding.c_str()) < 0) {
-          return;
+          LOGP(fatal, "Alignment for detector {} was requested but no binding was found!", id);
         } else {
           pc.inputs().get<std::vector<o2::detectors::AlignParam>*>(binding);
         }

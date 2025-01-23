@@ -98,12 +98,13 @@ struct GRPGeomRequest {
   bool askGRPLHCIF = false;
   bool askGRPMagField = false;
   bool askMatLUT = false;
-  bool askTime = false;       // need orbit reset time for precise timestamp calculation
-  bool askGeomAlign = false;  // load aligned geometry
-  bool askGeomIdeal = false;  // load ideal geometry
-  bool askAlignments = false; // load detector alignments but don't apply them
-  bool askOnceAllButField = false; // for all entries but field query only once
-  bool needPropagatorD = false;    // init also PropagatorD
+  bool askTime = false;                    // need orbit reset time for precise timestamp calculation
+  bool askGeomAlign = false;               // load aligned geometry
+  bool askGeomIdeal = false;               // load ideal geometry
+  bool askAlignments = false;              // load detector alignments but don't apply them
+  bool askOnceAllButField = false;         // for all entries but field query only once
+  bool needPropagatorD = false;            // init also PropagatorD
+  o2::detectors::DetID::mask_t algDetMask; // mask of requested alignment objects
 
   GRPGeomRequest() = delete;
   GRPGeomRequest(bool orbitResetTime, bool GRPECS, bool GRPLHCIF, bool GRPMagField, bool askMatLUT, GeomRequest geom, std::vector<o2::framework::InputSpec>& inputs, bool askOnce = false, bool needPropD = false, std::string detMaskString = "all");
