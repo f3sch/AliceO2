@@ -85,13 +85,9 @@ void ITS3Layer::createPixelArray()
   // A pixel array is pure silicon and the sensitive part of our detector.
   // It will be segmented into a 442x156 matrix by the
   // SuperSegmentationAlpide.
-  // Pixel Array is just a longer version of the biasing but starts in phi at
-  // biasPhi2.
   using namespace its3c::pixelarray;
-  double pixelArrayPhi1 = constants::tile::readout::width / mR * o2m::Rad2Deg;
-  double pixelArrayPhi2 = width / mR * o2m::Rad2Deg + pixelArrayPhi1;
-  auto pixelArray = new TGeoTubeSeg(mRmin, mRmax, length / 2.,
-                                    pixelArrayPhi1, pixelArrayPhi2);
+  double pixelArrayPhi = width / mR * o2m::Rad2Deg;
+  auto pixelArray = new TGeoTubeSeg(mRmin, mRmax, length / 2., 0, pixelArrayPhi);
   mPixelArray = new TGeoVolume(its3TGeo::getITS3PixelArrayPattern(mNLayer), pixelArray, mSilicon);
   mPixelArray->SetLineColor(color);
   mPixelArray->RegisterYourself();
@@ -123,8 +119,9 @@ void ITS3Layer::createTile()
   mTile->AddNode(readoutVol, 0, zMoveReadout);
 
   // Pixel Array is just a longer version of the biasing but starts in phi at
-  // biasPhi2.
-  mTile->AddNode(mPixelArray, 0);
+  // readoutPhi2.
+  auto phiRotPixelArray = new TGeoRotation(Form("its3PhiPixelArrayOffset_%d", mNLayer), readoutPhi2, 0, 0);
+  mTile->AddNode(mPixelArray, 0, phiRotPixelArray);
 
   // Biasing
   double biasPhi1 = constants::pixelarray::width / mR * o2m::Rad2Deg + readoutPhi2;
@@ -191,7 +188,7 @@ void ITS3Layer::createRSU()
 
   // Rotation for top half and vertical mirroring
   double phi = width / mR * o2m::Rad2Deg;
-  auto rot = new TGeoRotation("", 0, 0, -phi);
+  auto rot = new TGeoRotation(Form("its3RotHalfBarrel_%d", mNLayer), 0, 0, -phi);
   rot->ReflectY(true);
 
   // Upper Left
@@ -270,7 +267,7 @@ void ITS3Layer::createChip()
 
   auto phiOffset = constants::segment::width / mR * o2m::Rad2Deg;
   for (unsigned int i{0}; i < constants::nSegments[mNLayer]; ++i) {
-    auto rot = new TGeoRotation("", 0, 0, phiOffset * i);
+    auto rot = new TGeoRotation(Form("its3PhiSegmentOffset_%d_%d", mNLayer, i), 0, 0, phiOffset * i);
     mChip->AddNode(mSegment, i, rot);
   }
 
@@ -372,8 +369,8 @@ void ITS3Layer::createLayerImpl()
   // The offset is the right angle triangle of the middle radius with the
   // transverse axis.
   double phiOffset = std::asin(constants::equatorialGap / 2. / mR) * o2m::Rad2Deg;
-  auto rotTop = new TGeoRotation("", 0, 0, +phiOffset);
-  auto rotBot = new TGeoRotation("", 0, 0, phiOffset + 180);
+  auto rotTop = new TGeoRotation(Form("its3CarbonPhiOffsetTop_%d", mNLayer), 0, 0, +phiOffset);
+  auto rotBot = new TGeoRotation(Form("its3CarbonPhiOffsetBot_%d", mNLayer), 0, 0, phiOffset + 180);
 
   mLayer->AddNode(mCarbonForm, 0, rotTop);
   mLayer->AddNode(mCarbonForm, 1, rotBot);

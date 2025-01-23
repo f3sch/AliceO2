@@ -44,8 +44,8 @@ class ITS3Layer
     kTile,
     kRSU,
     kSegment,
-    kCarbonForm,
     kChip,
+    kCarbonForm,
     kLayer,
     kAll,
   };
@@ -110,7 +110,7 @@ class ITS3Layer
   TGeoVolumeAssembly* mCarbonForm{nullptr};
   TGeoVolumeAssembly* mLayer{nullptr};
 
-  ClassDef(ITS3Layer, 2);
+  ClassDef(ITS3Layer, 3);
 };
 } // namespace o2::its3
 

@@ -41,6 +41,7 @@ constexpr auto nRows{SegmentationSuperAlpide::mNRows};
 constexpr auto nCols{SegmentationSuperAlpide::mNCols};
 constexpr auto fLength{SegmentationSuperAlpide::mLength};
 constexpr auto fWidth{SegmentationSuperAlpide::mWidth};
+std::array<SegmentationSuperAlpide, 3> mSuperSegmentations{0, 1, 2};
 
 TH2* DrawReverseBins(TH2* h)
 {
@@ -140,10 +141,10 @@ void CheckSuperAlpideSegmentTrans()
       g_arc_inner->AddPoint(x_inner, y_inner);
       g_arc_outer->AddPoint(x_outer, y_outer);
       // Test Segmentation
-      SuperSegmentations[iLayer].curvedToFlat(x_inner, y_inner, x_inner_flat, y_inner_flat);
-      SuperSegmentations[iLayer].flatToCurved(x_inner_flat, y_inner_flat, x_inner_curved, y_inner_curved);
-      SuperSegmentations[iLayer].curvedToFlat(x_outer, y_outer, x_outer_flat, y_outer_flat);
-      SuperSegmentations[iLayer].flatToCurved(x_outer_flat, y_outer_flat, x_outer_curved, y_outer_curved);
+      mSuperSegmentations[iLayer].curvedToFlat(x_inner, y_inner, x_inner_flat, y_inner_flat);
+      mSuperSegmentations[iLayer].flatToCurved(x_inner_flat, y_inner_flat, x_inner_curved, y_inner_curved);
+      mSuperSegmentations[iLayer].curvedToFlat(x_outer, y_outer, x_outer_flat, y_outer_flat);
+      mSuperSegmentations[iLayer].flatToCurved(x_outer_flat, y_outer_flat, x_outer_curved, y_outer_curved);
       g_arc_inner_flat->AddPoint(x_inner_flat, y_inner_flat);
       g_arc_outer_flat->AddPoint(x_outer_flat, y_outer_flat);
       h_f2c_res->Fill(x_inner - x_inner_curved, y_inner - y_inner_curved);
@@ -201,10 +202,9 @@ void CheckSuperAlpideSegmentTrans()
       for (int iCol{0}; iCol < nCols; ++iCol) {
         float xRow{0}, zCol{0};
         int iiRow{0}, iiCol{0};
-        auto v1 =
-          SuperSegmentations[iLayer].detectorToLocal(iRow, iCol, xRow, zCol);
-        auto v2 = SuperSegmentations[iLayer].localToDetector(xRow, zCol, iiRow,
-                                                             iiCol);
+        auto v1 = mSuperSegmentations[iLayer].detectorToLocal(iRow, iCol, xRow, zCol);
+        auto v2 = mSuperSegmentations[iLayer].localToDetector(xRow, zCol, iiRow,
+                                                              iiCol);
         // Info("L2D",
         //      "iRow=%d, iCol=%d --d2l(%s)--> xRow=%f, zCol=%f --l2d(%s)--> "
         //      "iiRow=%d, iiCol=%d",

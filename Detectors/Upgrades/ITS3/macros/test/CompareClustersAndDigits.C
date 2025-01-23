@@ -97,6 +97,8 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
   std::vector<HitVec*> hitVecPool;
   std::vector<MC2HITS_map> mc2hitVec;
 
+  std::array<o2::its3::SegmentationSuperAlpide, 3> mSuperSegmentations{0, 1, 2};
+
   // Geometry
   o2::base::GeometryManager::loadGeometry(inputGeom);
   auto gman = o2::its::GeometryTGeo::Instance();
@@ -282,9 +284,9 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
       o2::math_utils::Point3D<float> locHMiddle;
       if (isIB) {
         float xFlat{0.}, yFlat{0.};
-        o2::its3::SuperSegmentations[layer].curvedToFlat(locHEnd.X(), locHEnd.Y(), xFlat, yFlat);
+        mSuperSegmentations[layer].curvedToFlat(locHEnd.X(), locHEnd.Y(), xFlat, yFlat);
         locHEnd.SetXYZ(xFlat, yFlat, locHEnd.Z());
-        o2::its3::SuperSegmentations[layer].curvedToFlat(locHStart.X(), locHStart.Y(), xFlat, yFlat);
+        mSuperSegmentations[layer].curvedToFlat(locHStart.X(), locHStart.Y(), xFlat, yFlat);
         locHStart.SetXYZ(xFlat, yFlat, locHStart.Z());
       }
       locHMiddle.SetXYZ(0.5f * (locHEnd.X() + locHStart.X()), 0.5f * (locHEnd.Y() + locHStart.Y()), 0.5f * (locHEnd.Z() + locHStart.Z()));
@@ -292,10 +294,10 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
       int rowHS, colHS, rowHM, colHM, rowHE, colHE, colC, rowC;
       bool v1, v2, v3, v4;
       if (isIB) {
-        v1 = o2::its3::SuperSegmentations[layer].localToDetector(locHStart.X(), locHStart.Z(), rowHS, colHS);
-        v2 = o2::its3::SuperSegmentations[layer].localToDetector(locHMiddle.X(), locHMiddle.Z(), rowHM, colHM);
-        v3 = o2::its3::SuperSegmentations[layer].localToDetector(locHEnd.X(), locHEnd.Z(), rowHE, colHE);
-        v4 = o2::its3::SuperSegmentations[layer].localToDetector(locC.X(), locC.Z(), rowC, colC);
+        v1 = mSuperSegmentations[layer].localToDetector(locHStart.X(), locHStart.Z(), rowHS, colHS);
+        v2 = mSuperSegmentations[layer].localToDetector(locHMiddle.X(), locHMiddle.Z(), rowHM, colHM);
+        v3 = mSuperSegmentations[layer].localToDetector(locHEnd.X(), locHEnd.Z(), rowHE, colHE);
+        v4 = mSuperSegmentations[layer].localToDetector(locC.X(), locC.Z(), rowC, colC);
       } else {
         v1 = o2::itsmft::SegmentationAlpide::localToDetector(locHStart.X(), locHStart.Z(), rowHS, colHS);
         v2 = o2::itsmft::SegmentationAlpide::localToDetector(locHMiddle.X(), locHMiddle.Z(), rowHM, colHM);

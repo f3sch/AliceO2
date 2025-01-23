@@ -82,6 +82,7 @@ void CreateDictionariesITS3(bool saveDeltas = false,
   std::vector<HitVec*> hitVecPool;
   std::vector<MC2HITS_map> mc2hitVec;
   o2::its3::TopologyDictionary clusDictOld;
+  std::array<o2::its3::SegmentationSuperAlpide, 3> mSuperSegmentations{0, 1, 2};
   if (!clusDictFile.empty()) {
     clusDictOld.readFromFile(clusDictFile);
     LOGP(info, "Loaded external cluster dictionary with {} entries from {}", clusDictOld.getSize(), clusDictFile);
@@ -274,9 +275,9 @@ void CreateDictionariesITS3(bool saveDeltas = false,
                 int layer = gman->getLayer(chipID);
                 if (isIB) {
                   float xFlat{0.}, yFlat{0.};
-                  o2::its3::SuperSegmentations[layer].curvedToFlat(xyzLocM.X(), xyzLocM.Y(), xFlat, yFlat);
+                  mSuperSegmentations[layer].curvedToFlat(xyzLocM.X(), xyzLocM.Y(), xFlat, yFlat);
                   xyzLocM.SetCoordinates(xFlat, yFlat, xyzLocM.Z());
-                  o2::its3::SuperSegmentations[layer].curvedToFlat(locC.X(), locC.Y(), xFlat, yFlat);
+                  mSuperSegmentations[layer].curvedToFlat(locC.X(), locC.Y(), xFlat, yFlat);
                   locC.SetCoordinates(xFlat, yFlat, locC.Z());
                 }
                 dX = xyzLocM.X() - locC.X();

@@ -51,6 +51,7 @@ void CheckDigitsITS3(std::string digifile = "it3digits.root", std::string hitfil
   using o2::itsmft::Hit;
 
   using o2::itsmft::SegmentationAlpide;
+  std::array<its3::SegmentationSuperAlpide, 3> mSuperSegmentations{0, 1, 2};
 
   TFile* f = TFile::Open("CheckDigits.root", "recreate");
   TNtuple* nt = new TNtuple("ntd", "digit ntuple", "id:x:y:z:rowD:colD:rowH:colH:xlH:zlH:xlcH:zlcH:dx:dz");
@@ -165,8 +166,8 @@ void CheckDigitsITS3(std::string digifile = "it3digits.root", std::string hitfil
       if (isIB) {
         // ITS3 IB
         float xFlat{0.f}, yFlat{0.f};
-        its3::SuperSegmentations[layer].detectorToLocal(ix, iz, xFlat, z);
-        its3::SuperSegmentations[layer].flatToCurved(xFlat, 0., x, y);
+        mSuperSegmentations[layer].detectorToLocal(ix, iz, xFlat, z);
+        mSuperSegmentations[layer].flatToCurved(xFlat, 0., x, y);
       } else {
         // ITS2 OB
         SegmentationAlpide::detectorToLocal(ix, iz, x, z);
@@ -202,12 +203,12 @@ void CheckDigitsITS3(std::string digifile = "it3digits.root", std::string hitfil
 
       if (isIB) {
         float xFlat{0.}, yFlat{0.};
-        its3::SuperSegmentations[layer].curvedToFlat(xyzLocM.X(), xyzLocM.Y(), xFlat, yFlat);
+        mSuperSegmentations[layer].curvedToFlat(xyzLocM.X(), xyzLocM.Y(), xFlat, yFlat);
         xyzLocM.SetCoordinates(xFlat, yFlat, xyzLocM.Z());
-        its3::SuperSegmentations[layer].curvedToFlat(locD.X(), locD.Y(), xFlat, yFlat);
+        mSuperSegmentations[layer].curvedToFlat(locD.X(), locD.Y(), xFlat, yFlat);
         locD.SetCoordinates(xFlat, yFlat, locD.Z());
-        if (auto v1 = !its3::SuperSegmentations[layer].localToDetector(xyzLocM.X(), xyzLocM.Z(), row, col),
-            v2 = !its3::SuperSegmentations[layer].detectorToLocal(row, col, xlc, zlc);
+        if (auto v1 = !mSuperSegmentations[layer].localToDetector(xyzLocM.X(), xyzLocM.Z(), row, col),
+            v2 = !mSuperSegmentations[layer].detectorToLocal(row, col, xlc, zlc);
             v1 || v2) {
           continue;
         }
@@ -223,7 +224,7 @@ void CheckDigitsITS3(std::string digifile = "it3digits.root", std::string hitfil
 
       (isIB) ? ++nDigitFilledIB : ++nDigitFilledOB;
     } // end loop on digits array
-  }   // end loop on ROFRecords array
+  } // end loop on ROFRecords array
 
   auto canvXY = new TCanvas("canvXY", "", 1600, 1600);
   canvXY->Divide(2, 2);

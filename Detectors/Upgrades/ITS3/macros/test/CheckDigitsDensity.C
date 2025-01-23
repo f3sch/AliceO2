@@ -64,7 +64,7 @@ void CheckDigitsDensity(int nEvents = 10000, std::string digitFileName = "it3dig
 {
   gROOT->SetBatch(batch);
   LOGP(debug, "Checking Digit ITS3 Density");
-  // Vars
+  std::array<SSAlpide, 3> mSuperSegmentations{0, 1, 2};
 
   // Geometry
   o2::base::GeometryManager::loadGeometry(geomFileName);
@@ -103,8 +103,8 @@ void CheckDigitsDensity(int nEvents = 10000, std::string digitFileName = "it3dig
       // goto curved coordinates
       float x{0.f}, y{0.f}, z{0.f};
       float xFlat{0.f}, yFlat{0.f};
-      its3::SuperSegmentations[layer].detectorToLocal(row, col, xFlat, z);
-      its3::SuperSegmentations[layer].flatToCurved(xFlat, 0., x, y);
+      mSuperSegmentations[layer].detectorToLocal(row, col, xFlat, z);
+      mSuperSegmentations[layer].flatToCurved(xFlat, 0., x, y);
       const o2::math_utils::Point3D<double> locD(x, y, z);
       const auto gloD = gman->getMatrixL2G(id)(locD); // convert to global
       const auto R = std::hypot(gloD.X(), gloD.Y());
