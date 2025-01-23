@@ -18,11 +18,11 @@
 #include "TGeoVolume.h"
 #include "TGeoCompositeShape.h"
 
+#include "Framework/Logger.h"
 #include "CommonConstants/MathConstants.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "ITS3Base/SpecsV2.h"
 #include "ITS3Simulation/ITS3Layer.h"
-#include "fairlogger/Logger.h"
 
 namespace o2m = o2::constants::math;
 namespace its3c = o2::its3::constants;
@@ -30,13 +30,6 @@ namespace its3c = o2::its3::constants;
 namespace o2::its3
 {
 using its3TGeo = o2::its::GeometryTGeo;
-
-void ITS3Layer::init()
-{
-  mR = its3c::radii[mNLayer];
-  mRmin = its3c::radiiInner[mNLayer];
-  mRmax = its3c::radiiOuter[mNLayer];
-}
 
 void ITS3Layer::getMaterials(bool create)
 {
@@ -59,11 +52,11 @@ TGeoMedium* ITS3Layer::getMaterial(const char* matName, bool create)
     } else { // create dummy
       auto matDummy = gGeoManager->GetMaterial("MAT_DUMMY$");
       if (matDummy == nullptr) {
-        LOGP(info, "Created Dummy material");
+        LOGP(warn, "Created Dummy material");
         matDummy = new TGeoMaterial("MAT_DUMMY$", 26.98, 13, 2.7);
       }
       mat = new TGeoMedium(matName, 1, matDummy);
-      LOGP(info, "Created medium {}", matName);
+      LOGP(warn, "Created medium {}", matName);
     }
   }
   return mat;
@@ -76,12 +69,10 @@ void ITS3Layer::createLayer(TGeoVolume* motherVolume)
   createLayerImpl();
   mBuilt = true;
 
-  LOGP(debug, "ITS3-Layer: Created Layer {} with mR={} (minR={}, maxR={})", mNLayer, mR, mRmin, mRmax);
   if (motherVolume == nullptr) {
     return;
   }
   // Add it to motherVolume
-  LOGP(debug, "  `-> Attaching to motherVolume '{}'", motherVolume->GetName());
   auto* trans = new TGeoTranslation(0, 0, -constants::segment::lengthSensitive / 2.);
   motherVolume->AddNode(mLayer, 0, trans);
 }
