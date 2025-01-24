@@ -297,8 +297,8 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
     rowS = 0;
   }
 
-  int maxNrows{innerBarrel ? SegmentationSuperAlpide::mNRows : Segmentation::NRows};
-  int maxNcols{innerBarrel ? SegmentationSuperAlpide::mNCols : Segmentation::NCols};
+  const int maxNrows{innerBarrel ? SegmentationSuperAlpide::mNRows : Segmentation::NRows};
+  const int maxNcols{innerBarrel ? SegmentationSuperAlpide::mNCols : Segmentation::NCols};
   if (rowE >= maxNrows) {
     rowE = maxNrows - 1;
   }
