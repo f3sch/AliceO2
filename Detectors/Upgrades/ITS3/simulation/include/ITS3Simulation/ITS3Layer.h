@@ -96,7 +96,7 @@ class ITS3Layer
 
   uint8_t mNLayer{0}; // Layer number
   double mR{0};       // Middle Radius
-  double mRmin{};     // Minimum Radius
+  double mRmin{0};    // Minimum Radius
   double mRmax{0};    // Maximum Radius
 
   // Individual pieces

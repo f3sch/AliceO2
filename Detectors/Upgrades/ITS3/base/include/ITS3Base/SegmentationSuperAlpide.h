@@ -70,7 +70,7 @@ class SegmentationSuperAlpide
   static constexpr float mSensorLayerThickness{constants::thickness};
   static constexpr float mSensorLayerThicknessEff{constants::effThickness};
   static constexpr float mSensorLayerThicknessCorr{constants::corrThickness};
-  static constexpr std::array<float, constants::nLayers> mRadii{constants::radii};
+  static constexpr std::array<float, constants::nLayers> mRadii{constants::radiiF};
 
   /// Transformation from the curved surface to a flat surface
   /// \param xCurved Detector local curved coordinate x in cm with respect to

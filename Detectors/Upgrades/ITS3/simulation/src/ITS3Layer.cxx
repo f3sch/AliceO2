@@ -73,7 +73,7 @@ void ITS3Layer::createLayer(TGeoVolume* motherVolume)
     return;
   }
   // Add it to motherVolume
-  auto* trans = new TGeoTranslation(0, 0, -constants::segment::lengthSensitive / 2.);
+  auto* trans = new TGeoTranslation(0, 0, -constants::segment::lengthSensitive / 2. - constants::rsu::databackbone::length / 2. + constants::tile::powerswitches::length / 2.);
   motherVolume->AddNode(mLayer, 0, trans);
 }
 
@@ -293,7 +293,7 @@ void ITS3Layer::createCarbonForm()
   mCarbonForm->VisibleDaughters();
   double dRadius = -1;
   if (mNLayer < 2) {
-    dRadius = constants::radii[mNLayer + 1] - constants::radii[mNLayer] - constants::thickness;
+    dRadius = constants::radii[mNLayer + 1] - constants::radii[mNLayer] - constants::thickness - constants::metalstack::thickness;
   } else {
     dRadius = 0.7; // TODO: lack of carbon foam radius for layer 2, use 0.7mm as a temporary value
   }
@@ -409,8 +409,7 @@ void ITS3Layer::buildPartial(TGeoVolume* motherVolume, TGeoMatrix* mat, BuildLev
     case BuildLevel::kLayer:
       [[fallthrough]];
     default:
-      createLayerImpl();
-      motherVolume->AddNode(mLayer, 0, mat);
+      createLayer(motherVolume);
   }
   LOGP(info, "Partially built ITS3-{}-{}", mNLayer, getName(level));
 }
