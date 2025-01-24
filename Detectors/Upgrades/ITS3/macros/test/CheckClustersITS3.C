@@ -42,7 +42,7 @@
 void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
                        const std::string& hitfile = "o2sim_HitsIT3.root",
                        const std::string& inputGeom = "",
-                       std::string dictfile = "./ccdb/IT3/Calib/ClusterDictionary/snapshot.root",
+                       std::string dictfile = "../ccdb/IT3/Calib/ClusterDictionary/snapshot.root",
                        bool batch = false)
 {
   gROOT->SetBatch(batch);
@@ -66,7 +66,7 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
   ULong_t cPattValid{0}, cPattInvalid{0}, cLabelInvalid{0}, cNoMC{0};
 
   TFile fout("CheckClusters.root", "recreate");
-  TNtuple nt("ntc", "cluster ntuple", "ev:lab:hlx:hlz:hgx:hgz:tx:tz:cgx:cgy:cgz:clx:cly:clz:dx:dy:dz:ex:ez:patid:rof:npx:id");
+  TNtuple nt("ntc", "cluster ntuple", "ev:lab:hlx:hlz:hgx:hgz:tx:tz:cgx:cgy:cgz:clx:cly:clz:dx:dy:dz:ex:ez:patid:rof:npx:id:eta:row:col");
 
   // Geometry
   o2::base::GeometryManager::loadGeometry(inputGeom);
@@ -252,8 +252,10 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
         mSuperSegmentations[layer].curvedToFlat(locC.X(), locC.Y(), xFlatSta, yFlatSta);
         locC.SetXYZ(xFlatSta, yFlatSta, locC.Z());
       }
+      float theta = std::acos(gloC.Z() / gloC.Rho());
+      float eta = -std::log(std::tan(theta / 2));
 
-      std::array<float, 23> data = {(float)lab.getEventID(), (float)trID,
+      std::array<float, 26> data = {(float)lab.getEventID(), (float)trID,
                                     locH.X(), locH.Z(),
                                     gloH.X(), gloH.Z(),
                                     dltx / dlty, dltz / dlty,
@@ -261,7 +263,7 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
                                     locC.X(), locC.Y(), locC.Z(),
                                     locC.X() - locH.X(), locC.Y() - locH.Y(), locC.Z() - locH.Z(),
                                     errX, errZ, (float)pattID,
-                                    (float)rofRec.getROFrame(), (float)npix, (float)chipID};
+                                    (float)rofRec.getROFrame(), (float)npix, (float)chipID, eta, (float)cluster.getRow(), (float)cluster.getCol()};
       nt.Fill(data.data());
     }
   }
@@ -292,6 +294,18 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
   canvdXdZ->cd(4)->SetLogz();
   nt.Draw("dx:dz>>h_dx_vs_dz_OB_z(1000, -0.01, 0.01, 1000, -0.01, 0.01)", "id >= 3456 && abs(cgz) < 2", "colz");
   canvdXdZ->SaveAs("it3clusters_dx_vs_dz.pdf");
+
+  auto canvCHXZ = new TCanvas("canvCHXZ", "", 1600, 1600);
+  canvCHXZ->Divide(2, 2);
+  canvCHXZ->cd(1);
+  nt.Draw("(cgx-hgx)*10000:eta>>h_chx_IB(101,-1.4,1.4,101,-50,50)", "id<3456", "prof");
+  canvCHXZ->cd(2);
+  nt.Draw("(cgx-hgx)*10000:eta>>h_chx_OB(101,-1.4,1.4,101,-50,50)", "id>=3456", "prof");
+  canvCHXZ->cd(3);
+  nt.Draw("(cgz-hgz)*10000:eta>>h_chz_IB(101,-1.4,1.4,101,-50,50)", "id<3456", "prof");
+  canvCHXZ->cd(4);
+  nt.Draw("(cgz-hgz)*10000:eta>>h_chz_OB(101,-1.4,1.4,101,-50,50)", "id>=3456", "prof");
+  canvCgXCgY->SaveAs("it3clusters_xz_eta.pdf");
 
   auto c1 = new TCanvas("p1", "pullX");
   c1->cd();
