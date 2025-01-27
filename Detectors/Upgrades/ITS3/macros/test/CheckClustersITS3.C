@@ -66,7 +66,7 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
   ULong_t cPattValid{0}, cPattInvalid{0}, cLabelInvalid{0}, cNoMC{0};
 
   TFile fout("CheckClusters.root", "recreate");
-  TNtuple nt("ntc", "cluster ntuple", "ev:lab:hlx:hlz:hgx:hgz:tx:tz:cgx:cgy:cgz:clx:cly:clz:dx:dy:dz:ex:ez:patid:rof:npx:id:eta:row:col");
+  TNtuple nt("ntc", "cluster ntuple", "ev:lab:hlx:hlz:hgx:hgz:tx:tz:cgx:cgy:cgz:clx:cly:clz:dx:dy:dz:ex:ez:patid:rof:npx:id:eta:row:col:lay");
 
   // Geometry
   o2::base::GeometryManager::loadGeometry(inputGeom);
@@ -255,7 +255,7 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
       float theta = std::acos(gloC.Z() / gloC.Rho());
       float eta = -std::log(std::tan(theta / 2));
 
-      std::array<float, 26> data = {(float)lab.getEventID(), (float)trID,
+      std::array<float, 27> data = {(float)lab.getEventID(), (float)trID,
                                     locH.X(), locH.Z(),
                                     gloH.X(), gloH.Z(),
                                     dltx / dlty, dltz / dlty,
@@ -263,7 +263,7 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
                                     locC.X(), locC.Y(), locC.Z(),
                                     locC.X() - locH.X(), locC.Y() - locH.Y(), locC.Z() - locH.Z(),
                                     errX, errZ, (float)pattID,
-                                    (float)rofRec.getROFrame(), (float)npix, (float)chipID, eta, (float)cluster.getRow(), (float)cluster.getCol()};
+                                    (float)rofRec.getROFrame(), (float)npix, (float)chipID, eta, (float)cluster.getRow(), (float)cluster.getCol(), (float)layer};
       nt.Fill(data.data());
     }
   }
