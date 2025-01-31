@@ -14,6 +14,7 @@
 
 #include "ITSMFTBase/SegmentationAlpide.h"
 #include "ITS3Simulation/Digitizer.h"
+#include "ITS3Base/ITS3Params.h"
 #include "MathUtils/Cartesian.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 #include "DetectorsRaw/HBFUtils.h"
@@ -43,12 +44,39 @@ void Digitizer::init()
     }
   }
 
-  if (mParams.getAlpSimResponse() == nullptr) {
-    std::string responseFile = "$(O2_ROOT)/share/Detectors/ITSMFT/data/AlpideResponseData/AlpideResponseData.root";
-    LOGP(info, "Loading AlpideSimRespnse from file: {}", responseFile);
-    auto file = TFile::Open(responseFile.data());
-    mAlpSimResp = (o2::itsmft::AlpideSimResponse*)file->Get("response0"); // We use by default the alpide response for Vbb=0V
-    mParams.setAlpSimResponse(mAlpSimResp);
+  if (!mParams.hasResponseFunctions()) {
+    auto loadSetResponseFunc = [&](const char* fileIB, const char* fileOB, const char* name) {
+      const auto& nameIB = ITS3Params::Instance().responseFunctionIB;
+      const auto& nameOB = ITS3Params::Instance().responseFunctionOB;
+      LOGP(info, "Loading response function for {}: IB={}:{} / OB={}:{}", name, nameIB, fileIB, nameOB, fileOB);
+      auto fIB = TFile::Open(fileIB);
+      if (fIB->IsZombie() || !fIB->IsOpen()) {
+        LOGP(fatal, "Cannot open file {}", fileIB);
+      }
+      auto fOB = TFile::Open(fileIB);
+      if (fOB->IsZombie() || !fOB->IsOpen()) {
+        LOGP(fatal, "Cannot open file {}", fileOB);
+      }
+      mParams.setIBSimResponse(mSimRespIB = fIB->Get<o2::itsmft::AlpideSimResponse>(nameIB.c_str()));
+      mParams.setOBSimResponse(mSimRespOB = fOB->Get<o2::itsmft::AlpideSimResponse>(nameOB.c_str()));
+      fIB->Close();
+      fOB->Close();
+    };
+
+    if (const auto& func = ITS3Params::Instance().chipResponseFunction; func == "Alpide") {
+      constexpr const char* responseFile = "$(O2_ROOT)/share/Detectors/ITSMFT/data/AlpideResponseData/AlpideResponseData.root";
+      loadSetResponseFunc(responseFile, responseFile, "Alpide");
+      mSimRespIBShift = mSimRespIB->getDepthMax() - SegmentationSuperAlpide::mSensorLayerThickness / 2.f;
+      mSimRespOBShift = mSimRespOB->getDepthMax() - Segmentation::SensorLayerThickness / 2.f;
+    } else if (func == "APTS") {
+      constexpr const char* responseFileIB = "$(O2_ROOT)/share/Detectors/Upgrades/ITS3/data/ITS3ChipResponseData/APTSResponseData.root";
+      constexpr const char* responseFileOB = "$(O2_ROOT)/share/Detectors/ITSMFT/data/AlpideResponseData/AlpideResponseData.root";
+      loadSetResponseFunc(responseFileIB, responseFileOB, "APTS");
+      mSimRespIBShift = mSimRespIB->getDepthMax() - 10.e-4f;
+      mSimRespOBShift = mSimRespOB->getDepthMax() - Segmentation::SensorLayerThickness / 2.f;
+    } else {
+      LOGP(fatal, "ResponseFunction '{}' not implemented!", func);
+    }
   }
   mParams.print();
   mIRFirstSampledTF = o2::raw::HBFUtils::Instance().getFirstSampledTFIR();
@@ -326,8 +354,8 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
   // take into account that the AlpideSimResponse depth defintion has different min/max boundaries
   // although the max should coincide with the surface of the epitaxial layer, which in the chip
   // local coordinates has Y = +SensorLayerThickness/2
-  float thickness = innerBarrel ? SegmentationSuperAlpide::mSensorLayerThickness : Segmentation::SensorLayerThickness;
-  xyzLocS.SetY(xyzLocS.Y() + mAlpSimResp->getDepthMax() - thickness / 2.);
+  xyzLocS.SetY(xyzLocS.Y() + ((innerBarrel) ? mSimRespIBShift : mSimRespOBShift));
+
   // collect charge in evey pixel which might be affected by the hit
   for (int iStep = nSteps; iStep--;) {
     // Get the pixel ID
@@ -349,9 +377,9 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
     }
     bool flipCol = false, flipRow = false;
     // note that response needs coordinates along column row (locX) (locZ) then depth (locY)
-    double rowMax{0.5f * (innerBarrel ? SegmentationSuperAlpide::mPitchRow : Segmentation::PitchRow)};
-    double colMax{0.5f * (innerBarrel ? SegmentationSuperAlpide::mPitchCol : Segmentation::PitchCol)};
-    auto rspmat = mAlpSimResp->getResponse(xyzLocS.X() - cRowPix, xyzLocS.Z() - cColPix, xyzLocS.Y(), flipRow, flipCol, rowMax, colMax);
+    float rowMax{0.5f * (innerBarrel ? SegmentationSuperAlpide::mPitchRow : Segmentation::PitchRow)};
+    float colMax{0.5f * (innerBarrel ? SegmentationSuperAlpide::mPitchCol : Segmentation::PitchCol)};
+    auto rspmat = ((innerBarrel) ? mSimRespIB : mSimRespOB)->getResponse(xyzLocS.X() - cRowPix, xyzLocS.Z() - cColPix, xyzLocS.Y(), flipRow, flipCol, rowMax, colMax);
 
     xyzLocS += step;
     if (rspmat == nullptr) {
