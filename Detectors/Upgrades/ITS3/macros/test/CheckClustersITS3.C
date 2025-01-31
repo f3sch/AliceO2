@@ -25,7 +25,7 @@
 #define ENABLE_UPGRADES
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSMFTBase/SegmentationAlpide.h"
-#include "ITS3Base/SegmentationSuperAlpide.h"
+#include "ITS3Base/SegmentationMosaix.h"
 #include "ITS3Base/SpecsV2.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "DataFormatsITSMFT/CompCluster.h"
@@ -50,7 +50,7 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
   using namespace o2::base;
   using namespace o2::its;
 
-  using SuperSegmentation = o2::its3::SegmentationSuperAlpide;
+  using MosaixSegmentation = o2::its3::SegmentationMosaix;
   using Segmentation = o2::itsmft::SegmentationAlpide;
   using o2::itsmft::CompClusterExt;
   using o2::itsmft::Hit;
@@ -58,7 +58,7 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
   using MC2ROF = o2::itsmft::MC2ROFRecord;
   using HitVec = std::vector<Hit>;
   using MC2HITS_map = std::unordered_map<uint64_t, int>; // maps (track_ID<<32 + chip_ID) to entry in the hit vector
-  std::array<SuperSegmentation, 3> mSuperSegmentations{0, 1, 2};
+  std::array<MosaixSegmentation, 3> mMosaixSegmentations{0, 1, 2};
 
   std::vector<HitVec*> hitVecPool;
   std::vector<MC2HITS_map> mc2hitVec;
@@ -185,8 +185,8 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
         locC = dict.getClusterCoordinates(cluster);
         errX = dict.getErrX(pattID);
         errZ = dict.getErrZ(pattID);
-        errX *= (isIB) ? SuperSegmentation::mPitchRow : Segmentation::PitchRow;
-        errZ *= (isIB) ? SuperSegmentation::mPitchCol : Segmentation::PitchCol;
+        errX *= (isIB) ? MosaixSegmentation::mPitchRow : Segmentation::PitchRow;
+        errZ *= (isIB) ? MosaixSegmentation::mPitchCol : Segmentation::PitchCol;
         npix = dict.getNpixels(pattID);
         ++cPattValid;
       }
@@ -235,21 +235,16 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
       } else {
         // compare in local flat coordinates
         float xFlatEnd{0.}, yFlatEnd{0.};
-        mSuperSegmentations[layer].curvedToFlat(locH.X(), locH.Y(), xFlatEnd, yFlatEnd);
+        mMosaixSegmentations[layer].curvedToFlat(locH.X(), locH.Y(), xFlatEnd, yFlatEnd);
         locH.SetXYZ(xFlatEnd, yFlatEnd, locH.Z());
         float xFlatSta{0.}, yFlatSta{0.};
-        mSuperSegmentations[layer].curvedToFlat(locHsta.X(), locHsta.Y(), xFlatSta, yFlatSta);
+        mMosaixSegmentations[layer].curvedToFlat(locHsta.X(), locHsta.Y(), xFlatSta, yFlatSta);
         locHsta.SetXYZ(xFlatSta, yFlatSta, locHsta.Z());
-        // recalculate x/y in flat
-        // x0 = xFlatSta, dltx = xFlatEnd - x0;
-        // y0 = yFlatSta, dlty = yFlatEnd - y0;
-        // r = (0.5 * (SuperSegmentation::mSensorLayerThickness - SuperSegmentation::mSensorLayerThicknessEff) - y0) / dlty;
-        // locH.SetXYZ(x0 + r * dltx, y0 + r * dlty, z0 + r * dltz);
 
         // not really precise, but okish
         locH.SetXYZ(0.5f * (locH.X() + locHsta.X()), 0.5f * (locH.Y() + locHsta.Y()), 0.5f * (locH.Z() + locHsta.Z()));
 
-        mSuperSegmentations[layer].curvedToFlat(locC.X(), locC.Y(), xFlatSta, yFlatSta);
+        mMosaixSegmentations[layer].curvedToFlat(locC.X(), locC.Y(), xFlatSta, yFlatSta);
         locC.SetXYZ(xFlatSta, yFlatSta, locC.Z());
       }
       float theta = std::acos(gloC.Z() / gloC.Rho());

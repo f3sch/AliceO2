@@ -9,12 +9,12 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-/// \file SegmentationSuperAlpide.h
-/// \brief Definition of the SegmentationSuperAlpide class
+/// \file SegmentationMosaix.h
+/// \brief Definition of the SegmentationMosaix class
 /// \author felix.schlepper@cern.ch
 
-#ifndef ALICEO2_ITS3_SEGMENTATIONSUPERALPIDE_H_
-#define ALICEO2_ITS3_SEGMENTATIONSUPERALPIDE_H_
+#ifndef ALICEO2_ITS3_SEGMENTATIONMOSAIX_H_
+#define ALICEO2_ITS3_SEGMENTATIONMOSAIX_H_
 
 #include "MathUtils/Cartesian.h"
 #include "ITS3Base/SpecsV2.h"
@@ -26,7 +26,7 @@ namespace o2::its3
 {
 
 /// Segmentation and response for pixels in ITS3 upgrade
-class SegmentationSuperAlpide
+class SegmentationMosaix
 {
   // This class defines the segmenation of the pixelArray in the tile. We define
   // two coordinate systems, one width x,z detector local coordianates (cm) and
@@ -53,12 +53,12 @@ class SegmentationSuperAlpide
   // |           |          |
   // x----------------------x
  public:
-  ~SegmentationSuperAlpide() = default;
-  SegmentationSuperAlpide(const SegmentationSuperAlpide&) = default;
-  SegmentationSuperAlpide(SegmentationSuperAlpide&&) = delete;
-  SegmentationSuperAlpide& operator=(const SegmentationSuperAlpide&) = default;
-  SegmentationSuperAlpide& operator=(SegmentationSuperAlpide&&) = delete;
-  constexpr SegmentationSuperAlpide(int layer) : mLayer{layer} {}
+  ~SegmentationMosaix() = default;
+  SegmentationMosaix(const SegmentationMosaix&) = default;
+  SegmentationMosaix(SegmentationMosaix&&) = delete;
+  SegmentationMosaix& operator=(const SegmentationMosaix&) = default;
+  SegmentationMosaix& operator=(SegmentationMosaix&&) = delete;
+  constexpr SegmentationMosaix(int layer) : mLayer{layer} {}
 
   static constexpr int mNCols{constants::pixelarray::nCols};
   static constexpr int mNRows{constants::pixelarray::nRows};

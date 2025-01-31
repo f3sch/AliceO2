@@ -27,7 +27,7 @@
 #define ENABLE_UPGRADES
 #include "ITSBase/GeometryTGeo.h"
 #include "DataFormatsITSMFT/Digit.h"
-#include "ITS3Base/SegmentationSuperAlpide.h"
+#include "ITS3Base/SegmentationMosaix.h"
 #include "ITSMFTBase/SegmentationAlpide.h"
 #include "ITSMFTSimulation/Hit.h"
 #include "MathUtils/Utils.h"
@@ -51,7 +51,7 @@ void CheckDigitsITS3(std::string digifile = "it3digits.root", std::string hitfil
   using o2::itsmft::Hit;
 
   using o2::itsmft::SegmentationAlpide;
-  std::array<its3::SegmentationSuperAlpide, 3> mSuperSegmentations{0, 1, 2};
+  std::array<its3::SegmentationMosaix, 3> mMosaixSegmentations{0, 1, 2};
 
   TFile* f = TFile::Open("CheckDigits.root", "recreate");
   TNtuple* nt = new TNtuple("ntd", "digit ntuple", "id:x:y:z:rowD:colD:rowH:colH:xlH:zlH:xlcH:zlcH:dx:dz");
@@ -166,8 +166,8 @@ void CheckDigitsITS3(std::string digifile = "it3digits.root", std::string hitfil
       if (isIB) {
         // ITS3 IB
         float xFlat{0.f}, yFlat{0.f};
-        mSuperSegmentations[layer].detectorToLocal(ix, iz, xFlat, z);
-        mSuperSegmentations[layer].flatToCurved(xFlat, 0., x, y);
+        mMosaixSegmentations[layer].detectorToLocal(ix, iz, xFlat, z);
+        mMosaixSegmentations[layer].flatToCurved(xFlat, 0., x, y);
       } else {
         // ITS2 OB
         SegmentationAlpide::detectorToLocal(ix, iz, x, z);
@@ -203,12 +203,12 @@ void CheckDigitsITS3(std::string digifile = "it3digits.root", std::string hitfil
 
       if (isIB) {
         float xFlat{0.}, yFlat{0.};
-        mSuperSegmentations[layer].curvedToFlat(xyzLocM.X(), xyzLocM.Y(), xFlat, yFlat);
+        mMosaixSegmentations[layer].curvedToFlat(xyzLocM.X(), xyzLocM.Y(), xFlat, yFlat);
         xyzLocM.SetCoordinates(xFlat, yFlat, xyzLocM.Z());
-        mSuperSegmentations[layer].curvedToFlat(locD.X(), locD.Y(), xFlat, yFlat);
+        mMosaixSegmentations[layer].curvedToFlat(locD.X(), locD.Y(), xFlat, yFlat);
         locD.SetCoordinates(xFlat, yFlat, locD.Z());
-        if (auto v1 = !mSuperSegmentations[layer].localToDetector(xyzLocM.X(), xyzLocM.Z(), row, col),
-            v2 = !mSuperSegmentations[layer].detectorToLocal(row, col, xlc, zlc);
+        if (auto v1 = !mMosaixSegmentations[layer].localToDetector(xyzLocM.X(), xyzLocM.Z(), row, col),
+            v2 = !mMosaixSegmentations[layer].detectorToLocal(row, col, xlc, zlc);
             v1 || v2) {
           continue;
         }

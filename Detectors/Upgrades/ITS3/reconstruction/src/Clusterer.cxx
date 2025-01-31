@@ -12,15 +12,15 @@
 /// \file Clusterer.cxx
 /// \brief Implementation of the ITS cluster finder
 
-#include "ITS3Reconstruction/Clusterer.h"
+#include <algorithm>
 
-#include <TTree.h>
 #include "Framework/Logger.h"
-#include "ITS3Base/SegmentationSuperAlpide.h"
+#include "ITS3Reconstruction/Clusterer.h"
+#include "ITS3Base/SegmentationMosaix.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 #include "CommonDataFormat/InteractionRecord.h"
 
-#include <algorithm>
+#include "TTree.h"
 
 #ifdef WITH_OPENMP
 #include <omp.h>
@@ -334,7 +334,7 @@ void Clusterer::ClustererThread::initChip(const ChipPixelData* curChipData, uint
   size = itsmft::SegmentationAlpide::NRows + 2;
   int chipId = curChipData->getChipID();
   if (its3::constants::detID::isDetITS3(chipId)) {
-    size = its3::SegmentationSuperAlpide::mNRows + 2;
+    size = its3::SegmentationMosaix::mNRows + 2;
   }
 
   delete[] column1;

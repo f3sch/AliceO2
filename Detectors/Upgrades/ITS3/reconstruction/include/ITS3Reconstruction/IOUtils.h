@@ -16,14 +16,13 @@
 #include "ITS3Reconstruction/TopologyDictionary.h"
 #include "ITStracking/TimeFrame.h"
 #include "ITStracking/IOUtils.h"
-#include "ITS3Base/SegmentationSuperAlpide.h"
+#include "ITS3Base/SegmentationMosaix.h"
 #include "ITS3Base/SpecsV2.h"
 
 namespace o2::its3::ioutils
 {
-using SSAlpide = o2::its3::SegmentationSuperAlpide;
-constexpr float DefClusErrorRow = o2::its3::SegmentationSuperAlpide::mPitchRow * 0.5;
-constexpr float DefClusErrorCol = o2::its3::SegmentationSuperAlpide::mPitchCol * 0.5;
+constexpr float DefClusErrorRow = o2::its3::SegmentationMosaix::mPitchRow * 0.5;
+constexpr float DefClusErrorCol = o2::its3::SegmentationMosaix::mPitchCol * 0.5;
 constexpr float DefClusError2Row = DefClusErrorRow * DefClusErrorRow;
 constexpr float DefClusError2Col = DefClusErrorCol * DefClusErrorCol;
 

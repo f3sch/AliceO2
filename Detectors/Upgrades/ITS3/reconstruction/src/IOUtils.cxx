@@ -16,8 +16,6 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "ITS3Reconstruction/TopologyDictionary.h"
 #include "ITSBase/GeometryTGeo.h"
-#include "ITSMFTBase/SegmentationAlpide.h"
-#include "ITS3Base/SegmentationSuperAlpide.h"
 #include "ITS3Base/SpecsV2.h"
 #include "ITStracking/TrackingConfigParam.h"
 #include "Framework/Logger.h"

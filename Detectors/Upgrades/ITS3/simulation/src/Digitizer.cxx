@@ -66,7 +66,7 @@ void Digitizer::init()
     if (const auto& func = ITS3Params::Instance().chipResponseFunction; func == "Alpide") {
       constexpr const char* responseFile = "$(O2_ROOT)/share/Detectors/ITSMFT/data/AlpideResponseData/AlpideResponseData.root";
       loadSetResponseFunc(responseFile, responseFile, "Alpide");
-      mSimRespIBShift = mSimRespIB->getDepthMax() - SegmentationSuperAlpide::mSensorLayerThickness / 2.f;
+      mSimRespIBShift = mSimRespIB->getDepthMax() - SegmentationMosaix::mSensorLayerThickness / 2.f;
       mSimRespOBShift = mSimRespOB->getDepthMax() - Segmentation::SensorLayerThickness / 2.f;
     } else if (func == "APTS") {
       constexpr const char* responseFileIB = "$(O2_ROOT)/share/Detectors/Upgrades/ITS3/data/ITS3ChipResponseData/";
@@ -170,7 +170,7 @@ void Digitizer::fillOutputContainer(uint32_t frameLast)
     for (size_t iChip{0}; iChip < mChips.size(); ++iChip) {
       auto& chip = mChips[iChip];
       if (constants::detID::isDetITS3(iChip)) { // Check if this is a chip of ITS3
-        chip.addNoise(mROFrameMin, mROFrameMin, &mParams, SegmentationSuperAlpide::mNRows, SegmentationSuperAlpide::mNCols);
+        chip.addNoise(mROFrameMin, mROFrameMin, &mParams, SegmentationMosaix::mNRows, SegmentationMosaix::mNCols);
       } else {
         chip.addNoise(mROFrameMin, mROFrameMin, &mParams);
       }
@@ -265,8 +265,8 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
   if (innerBarrel) {
     // transform the point on the curved surface to a flat one
     float xFlatE{0.f}, yFlatE{0.f}, xFlatS{0.f}, yFlatS{0.f};
-    mSuperSegmentations[layer].curvedToFlat(xyzLocS.X(), xyzLocS.Y(), xFlatS, yFlatS);
-    mSuperSegmentations[layer].curvedToFlat(xyzLocE.X(), xyzLocE.Y(), xFlatE, yFlatE);
+    mIBSegmentations[layer].curvedToFlat(xyzLocS.X(), xyzLocS.Y(), xFlatS, yFlatS);
+    mIBSegmentations[layer].curvedToFlat(xyzLocE.X(), xyzLocE.Y(), xFlatE, yFlatE);
     // update the local coordinates with the flattened ones
     xyzLocS.SetXYZ(xFlatS, yFlatS, xyzLocS.Z());
     xyzLocE.SetXYZ(xFlatE, yFlatE, xyzLocE.Z());
@@ -282,14 +282,14 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
   int rowS = -1, colS = -1, rowE = -1, colE = -1, nSkip = 0;
   if (innerBarrel) {
     // get entrance pixel row and col
-    while (!mSuperSegmentations[layer].localToDetector(xyzLocS.X(), xyzLocS.Z(), rowS, colS)) { // guard-ring ?
+    while (!mIBSegmentations[layer].localToDetector(xyzLocS.X(), xyzLocS.Z(), rowS, colS)) { // guard-ring ?
       if (++nSkip >= nSteps) {
         return; // did not enter to sensitive matrix
       }
       xyzLocS += step;
     }
     // get exit pixel row and col
-    while (!mSuperSegmentations[layer].localToDetector(xyzLocE.X(), xyzLocE.Z(), rowE, colE)) { // guard-ring ?
+    while (!mIBSegmentations[layer].localToDetector(xyzLocE.X(), xyzLocE.Z(), rowE, colE)) { // guard-ring ?
       if (++nSkip >= nSteps) {
         return; // did not enter to sensitive matrix
       }
@@ -325,8 +325,8 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
     rowS = 0;
   }
 
-  const int maxNrows{innerBarrel ? SegmentationSuperAlpide::mNRows : Segmentation::NRows};
-  const int maxNcols{innerBarrel ? SegmentationSuperAlpide::mNCols : Segmentation::NCols};
+  const int maxNrows{innerBarrel ? SegmentationMosaix::mNRows : Segmentation::NRows};
+  const int maxNcols{innerBarrel ? SegmentationMosaix::mNCols : Segmentation::NCols};
   if (rowE >= maxNrows) {
     rowE = maxNrows - 1;
   }
@@ -360,13 +360,13 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
   for (int iStep = nSteps; iStep--;) {
     // Get the pixel ID
     if (innerBarrel) {
-      mSuperSegmentations[layer].localToDetector(xyzLocS.X(), xyzLocS.Z(), row, col);
+      mIBSegmentations[layer].localToDetector(xyzLocS.X(), xyzLocS.Z(), row, col);
     } else {
       Segmentation::localToDetector(xyzLocS.X(), xyzLocS.Z(), row, col);
     }
     if (row != rowPrev || col != colPrev) { // update pixel and coordinates of its center
       if (innerBarrel) {
-        if (!mSuperSegmentations[layer].detectorToLocal(row, col, cRowPix, cColPix)) {
+        if (!mIBSegmentations[layer].detectorToLocal(row, col, cRowPix, cColPix)) {
           continue;
         }
       } else if (!Segmentation::detectorToLocal(row, col, cRowPix, cColPix)) {
@@ -377,8 +377,8 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
     }
     bool flipCol = false, flipRow = false;
     // note that response needs coordinates along column row (locX) (locZ) then depth (locY)
-    float rowMax{0.5f * (innerBarrel ? SegmentationSuperAlpide::mPitchRow : Segmentation::PitchRow)};
-    float colMax{0.5f * (innerBarrel ? SegmentationSuperAlpide::mPitchCol : Segmentation::PitchCol)};
+    float rowMax{0.5f * (innerBarrel ? SegmentationMosaix::mPitchRow : Segmentation::PitchRow)};
+    float colMax{0.5f * (innerBarrel ? SegmentationMosaix::mPitchCol : Segmentation::PitchCol)};
     auto rspmat = ((innerBarrel) ? mSimRespIB : mSimRespOB)->getResponse(xyzLocS.X() - cRowPix, xyzLocS.Z() - cColPix, xyzLocS.Y(), flipRow, flipCol, rowMax, colMax);
 
     xyzLocS += step;
