@@ -69,7 +69,7 @@ void Digitizer::init()
       mSimRespIBShift = mSimRespIB->getDepthMax() - SegmentationSuperAlpide::mSensorLayerThickness / 2.f;
       mSimRespOBShift = mSimRespOB->getDepthMax() - Segmentation::SensorLayerThickness / 2.f;
     } else if (func == "APTS") {
-      constexpr const char* responseFileIB = "$(O2_ROOT)/share/Detectors/Upgrades/ITS3/data/ITS3ChipResponseData/APTSResponseData.root";
+      constexpr const char* responseFileIB = "$(O2_ROOT)/share/Detectors/Upgrades/ITS3/data/ITS3ChipResponseData/";
       constexpr const char* responseFileOB = "$(O2_ROOT)/share/Detectors/ITSMFT/data/AlpideResponseData/AlpideResponseData.root";
       loadSetResponseFunc(responseFileIB, responseFileOB, "APTS");
       mSimRespIBShift = mSimRespIB->getDepthMax() - 10.e-4f;
