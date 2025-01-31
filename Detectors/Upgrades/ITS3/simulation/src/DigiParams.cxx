@@ -12,28 +12,29 @@
 /// \file DigiParams.cxx
 /// \brief Implementation of the ITS3 digitization steering params
 
-#include <fairlogger/Logger.h> // for LOG
+#include "Framework/Logger.h"
 #include "ITS3Simulation/DigiParams.h"
-#include <cassert>
 
 ClassImp(o2::its3::DigiParams);
 
-using namespace o2::its3;
+namespace o2::its3
+{
 
-//______________________________________________
 void DigiParams::print() const
 {
   // print settings
-  printf("ITS3 DigiParams settings:\n");
-  printf("Continuous readout             : %s\n", isContinuous() ? "ON" : "OFF");
-  printf("Readout Frame Length(ns)       : %f\n", getROFrameLength());
-  printf("Strobe delay (ns)              : %f\n", getStrobeDelay());
-  printf("Strobe length (ns)             : %f\n", getStrobeLength());
-  printf("Threshold (N electrons)        : %d\n", getChargeThreshold());
-  printf("Min N electrons to account     : %d\n", getMinChargeToAccount());
-  printf("Number of charge sharing steps : %d\n", getNSimSteps());
-  printf("ELoss to N electrons factor    : %e\n", getEnergyToNElectrons());
-  printf("Noise level per pixel          : %e\n", getNoisePerPixel());
-  printf("Charge time-response:\n");
+  LOGF(info, "ITS3 DigiParams settings:\n");
+  LOGF(info, "Continuous readout             : %s\n", isContinuous() ? "ON" : "OFF");
+  LOGF(info, "Readout Frame Length(ns)       : %f\n", getROFrameLength());
+  LOGF(info, "Strobe delay (ns)              : %f\n", getStrobeDelay());
+  LOGF(info, "Strobe length (ns)             : %f\n", getStrobeLength());
+  LOGF(info, "Threshold (N electrons)        : %d\n", getChargeThreshold());
+  LOGF(info, "Min N electrons to account     : %d\n", getMinChargeToAccount());
+  LOGF(info, "Number of charge sharing steps : %d\n", getNSimSteps());
+  LOGF(info, "ELoss to N electrons factor    : %e\n", getEnergyToNElectrons());
+  LOGF(info, "Noise level per pixel          : %e\n", getNoisePerPixel());
+  LOGF(info, "Charge time-response:\n");
   getSignalShape().print();
 }
+
+} // namespace o2::its3
