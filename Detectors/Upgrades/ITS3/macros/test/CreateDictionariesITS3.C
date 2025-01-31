@@ -34,7 +34,7 @@
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTBase/SegmentationAlpide.h"
-#include "ITS3Base/SegmentationSuperAlpide.h"
+#include "ITS3Base/SegmentationMosaix.h"
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/ClusterTopology.h"
 #include "ITS3Reconstruction/TopologyDictionary.h"
@@ -67,7 +67,6 @@ void CreateDictionariesITS3(bool saveDeltas = false,
   using namespace o2::base;
   using namespace o2::its;
 
-  using o2::its3::SegmentationSuperAlpide;
   using Segmentation = o2::itsmft::SegmentationAlpide;
   using o2::its3::BuildTopologyDictionary;
   using o2::itsmft::ClusterTopology;
@@ -82,7 +81,7 @@ void CreateDictionariesITS3(bool saveDeltas = false,
   std::vector<HitVec*> hitVecPool;
   std::vector<MC2HITS_map> mc2hitVec;
   o2::its3::TopologyDictionary clusDictOld;
-  std::array<o2::its3::SegmentationSuperAlpide, 3> mSuperSegmentations{0, 1, 2};
+  std::array<o2::its3::SegmentationMosaix, 3> mMosaixSegmentations{0, 1, 2};
   if (!clusDictFile.empty()) {
     clusDictOld.readFromFile(clusDictFile);
     LOGP(info, "Loaded external cluster dictionary with {} entries from {}", clusDictOld.getSize(), clusDictFile);
@@ -275,15 +274,15 @@ void CreateDictionariesITS3(bool saveDeltas = false,
                 int layer = gman->getLayer(chipID);
                 if (isIB) {
                   float xFlat{0.}, yFlat{0.};
-                  mSuperSegmentations[layer].curvedToFlat(xyzLocM.X(), xyzLocM.Y(), xFlat, yFlat);
+                  mMosaixSegmentations[layer].curvedToFlat(xyzLocM.X(), xyzLocM.Y(), xFlat, yFlat);
                   xyzLocM.SetCoordinates(xFlat, yFlat, xyzLocM.Z());
-                  mSuperSegmentations[layer].curvedToFlat(locC.X(), locC.Y(), xFlat, yFlat);
+                  mMosaixSegmentations[layer].curvedToFlat(locC.X(), locC.Y(), xFlat, yFlat);
                   locC.SetCoordinates(xFlat, yFlat, locC.Z());
                 }
                 dX = xyzLocM.X() - locC.X();
                 dZ = xyzLocM.Z() - locC.Z();
-                dX /= (isIB) ? o2::its3::SegmentationSuperAlpide::mPitchRow : o2::itsmft::SegmentationAlpide::PitchRow;
-                dZ /= (isIB) ? o2::its3::SegmentationSuperAlpide::mPitchCol : o2::itsmft::SegmentationAlpide::PitchCol;
+                dX /= (isIB) ? o2::its3::SegmentationMosaix::mPitchRow : o2::itsmft::SegmentationAlpide::PitchRow;
+                dZ /= (isIB) ? o2::its3::SegmentationMosaix::mPitchCol : o2::itsmft::SegmentationAlpide::PitchCol;
                 if (saveDeltas) {
                   nt->Fill(topology.getHash(), dX, dZ);
                 }

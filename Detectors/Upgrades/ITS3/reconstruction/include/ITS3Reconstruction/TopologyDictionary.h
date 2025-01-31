@@ -17,7 +17,6 @@
 
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 #include "DataFormatsITSMFT/ClusterPattern.h"
-#include "ITS3Base/SegmentationSuperAlpide.h"
 
 namespace o2::its3
 {
@@ -33,11 +32,11 @@ class TopologyDictionary
 
   /// constexpr for the definition of the groups of rare topologies.
   /// The attritbution of the group ID is stringly dependent on the following parameters: it must be a power of 2.
-  static constexpr int RowClassSpan = 4;                                                                    ///< Row span of the classes of rare topologies
-  static constexpr int ColClassSpan = 4;                                                                    ///< Column span of the classes of rare topologies
-  static constexpr int MaxNumberOfRowClasses = 1 + (itsmft::ClusterPattern::MaxRowSpan - 1) / RowClassSpan; ///< Maximum number of row classes for the groups of rare topologies
-  static constexpr int MaxNumberOfColClasses = 1 + (itsmft::ClusterPattern::MaxColSpan - 1) / ColClassSpan; ///< Maximum number of col classes for the groups of rare topologies
-  static constexpr int NumberOfRareGroups = MaxNumberOfRowClasses * MaxNumberOfColClasses;                  ///< Number of entries corresponding to groups of rare topologies (those whos matrix exceed the max number of bytes are empty).
+  static constexpr int RowClassSpan = 4;                                                                      ///< Row span of the classes of rare topologies
+  static constexpr int ColClassSpan = 4;                                                                      ///< Column span of the classes of rare topologies
+  static constexpr int MaxNumberOfRowClasses = 1 + ((itsmft::ClusterPattern::MaxRowSpan - 1) / RowClassSpan); ///< Maximum number of row classes for the groups of rare topologies
+  static constexpr int MaxNumberOfColClasses = 1 + ((itsmft::ClusterPattern::MaxColSpan - 1) / ColClassSpan); ///< Maximum number of col classes for the groups of rare topologies
+  static constexpr int NumberOfRareGroups = MaxNumberOfRowClasses * MaxNumberOfColClasses;                    ///< Number of entries corresponding to groups of rare topologies (those whos matrix exceed the max number of bytes are empty).
   /// Prints the dictionary
   friend std::ostream& operator<<(std::ostream& os, const its3::TopologyDictionary& dictionary);
   /// Prints the dictionary in a binary file

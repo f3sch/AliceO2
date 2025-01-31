@@ -25,7 +25,7 @@
 #include "ITSMFTSimulation/AlpideSimResponse.h"
 #include "ITSMFTSimulation/Hit.h"
 #include "ITSBase/GeometryTGeo.h"
-#include "ITS3Base/SegmentationSuperAlpide.h"
+#include "ITS3Base/SegmentationMosaix.h"
 #include "ITS3Simulation/DigiParams.h"
 #include "DataFormatsITSMFT/Digit.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
@@ -106,7 +106,7 @@ class Digitizer : public TObject
   uint32_t mEventROFrameMin = 0xffffffff; ///< lowest RO frame for processed events (w/o automatic noise ROFs)
   uint32_t mEventROFrameMax = 0;          ///< highest RO frame forfor processed events (w/o automatic noise ROFs)
 
-  const std::array<o2::its3::SegmentationSuperAlpide, 3> mSuperSegmentations{0, 1, 2};
+  const std::array<o2::its3::SegmentationMosaix, 3> mIBSegmentations{0, 1, 2};
 
   o2::itsmft::AlpideSimResponse* mSimRespIB = nullptr; // simulated response for IB
   o2::itsmft::AlpideSimResponse* mSimRespOB = nullptr; // simulated response for OB

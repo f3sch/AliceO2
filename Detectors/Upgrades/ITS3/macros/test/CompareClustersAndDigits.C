@@ -31,7 +31,7 @@
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 #include "DetectorsCommonDataFormats/DetectorNameConf.h"
-#include "ITS3Base/SegmentationSuperAlpide.h"
+#include "ITS3Base/SegmentationMosaix.h"
 #include "ITS3Base/SpecsV2.h"
 #include "ITS3Reconstruction/TopologyDictionary.h"
 #include "ITSBase/GeometryTGeo.h"
@@ -86,7 +86,6 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
 
   using namespace o2::base;
   using o2::itsmft::Hit;
-  using SuperSegmentation = o2::its3::SegmentationSuperAlpide;
   using Segmentation = o2::itsmft::SegmentationAlpide;
   using o2::itsmft::CompClusterExt;
   using ROFRec = o2::itsmft::ROFRecord;
@@ -97,7 +96,7 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
   std::vector<HitVec*> hitVecPool;
   std::vector<MC2HITS_map> mc2hitVec;
 
-  std::array<o2::its3::SegmentationSuperAlpide, 3> mSuperSegmentations{0, 1, 2};
+  std::array<o2::its3::SegmentationMosaix, 3> mMosaixSegmentations{0, 1, 2};
 
   // Geometry
   o2::base::GeometryManager::loadGeometry(inputGeom);
@@ -190,7 +189,7 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
   std::vector<Data> data(nChips);
   for (int iChip{0}; iChip < nChips; ++iChip) {
     auto& dat = data[iChip];
-    int col{o2::its3::SegmentationSuperAlpide::mNCols}, row{o2::its3::SegmentationSuperAlpide::mNRows};
+    int col{o2::its3::SegmentationMosaix::mNCols}, row{o2::its3::SegmentationMosaix::mNRows};
     if (!o2::its3::constants::detID::isDetITS3(iChip)) {
       col = o2::itsmft::SegmentationAlpide::NCols;
       row = o2::itsmft::SegmentationAlpide::NRows;
@@ -284,9 +283,9 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
       o2::math_utils::Point3D<float> locHMiddle;
       if (isIB) {
         float xFlat{0.}, yFlat{0.};
-        mSuperSegmentations[layer].curvedToFlat(locHEnd.X(), locHEnd.Y(), xFlat, yFlat);
+        mMosaixSegmentations[layer].curvedToFlat(locHEnd.X(), locHEnd.Y(), xFlat, yFlat);
         locHEnd.SetXYZ(xFlat, yFlat, locHEnd.Z());
-        mSuperSegmentations[layer].curvedToFlat(locHStart.X(), locHStart.Y(), xFlat, yFlat);
+        mMosaixSegmentations[layer].curvedToFlat(locHStart.X(), locHStart.Y(), xFlat, yFlat);
         locHStart.SetXYZ(xFlat, yFlat, locHStart.Z());
       }
       locHMiddle.SetXYZ(0.5f * (locHEnd.X() + locHStart.X()), 0.5f * (locHEnd.Y() + locHStart.Y()), 0.5f * (locHEnd.Z() + locHStart.Z()));
@@ -294,10 +293,10 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
       int rowHS, colHS, rowHM, colHM, rowHE, colHE, colC, rowC;
       bool v1, v2, v3, v4;
       if (isIB) {
-        v1 = mSuperSegmentations[layer].localToDetector(locHStart.X(), locHStart.Z(), rowHS, colHS);
-        v2 = mSuperSegmentations[layer].localToDetector(locHMiddle.X(), locHMiddle.Z(), rowHM, colHM);
-        v3 = mSuperSegmentations[layer].localToDetector(locHEnd.X(), locHEnd.Z(), rowHE, colHE);
-        v4 = mSuperSegmentations[layer].localToDetector(locC.X(), locC.Z(), rowC, colC);
+        v1 = mMosaixSegmentations[layer].localToDetector(locHStart.X(), locHStart.Z(), rowHS, colHS);
+        v2 = mMosaixSegmentations[layer].localToDetector(locHMiddle.X(), locHMiddle.Z(), rowHM, colHM);
+        v3 = mMosaixSegmentations[layer].localToDetector(locHEnd.X(), locHEnd.Z(), rowHE, colHE);
+        v4 = mMosaixSegmentations[layer].localToDetector(locC.X(), locC.Z(), rowC, colC);
       } else {
         v1 = o2::itsmft::SegmentationAlpide::localToDetector(locHStart.X(), locHStart.Z(), rowHS, colHS);
         v2 = o2::itsmft::SegmentationAlpide::localToDetector(locHMiddle.X(), locHMiddle.Z(), rowHM, colHM);
