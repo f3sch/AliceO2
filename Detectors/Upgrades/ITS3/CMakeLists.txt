@@ -11,9 +11,10 @@
 
 #add_compile_options(-O0 -g -fPIC)
 
-add_subdirectory(macros)
+add_subdirectory(data)
 add_subdirectory(simulation)
 add_subdirectory(alignment)
 add_subdirectory(base)
 add_subdirectory(workflow)
 add_subdirectory(reconstruction)
+add_subdirectory(macros)
