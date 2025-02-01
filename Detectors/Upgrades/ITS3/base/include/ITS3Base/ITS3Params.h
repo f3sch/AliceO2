@@ -27,8 +27,6 @@ struct ITS3Params : public o2::conf::ConfigurableParamHelper<ITS3Params> {
   // Chip studies
   bool useDeadChannelMap{false};               // Query for a dead channel map to study disabling individual tiles
   std::string chipResponseFunction{"APTS"};    // Chip response function one of "Alpide", "APTS" or "Mosaix" (not yet available)
-  std::string responseFunctionIB{"response0"}; // Chip response function name for IB
-  std::string responseFunctionOB{"response1"}; // Chip response function name for 0B
 
   O2ParamDef(ITS3Params, "ITS3Params");
 };

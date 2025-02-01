@@ -45,33 +45,31 @@ void Digitizer::init()
   }
 
   if (!mParams.hasResponseFunctions()) {
-    auto loadSetResponseFunc = [&](const char* fileIB, const char* fileOB, const char* name) {
-      const auto& nameIB = ITS3Params::Instance().responseFunctionIB;
-      const auto& nameOB = ITS3Params::Instance().responseFunctionOB;
-      LOGP(info, "Loading response function for {}: IB={}:{} / OB={}:{}", name, nameIB, fileIB, nameOB, fileOB);
-      auto fIB = TFile::Open(fileIB);
+    auto loadSetResponseFunc = [&](const char* name, const char* fileIB, const char* nameIB, const char* fileOB, const char* nameOB) {
+      LOGP(info, "Loading response function for {}: IB={}:{} ; OB={}:{}", name, nameIB, fileIB, nameOB, fileOB);
+      auto fIB = TFile::Open(fileIB, "READ");
       if (fIB->IsZombie() || !fIB->IsOpen()) {
         LOGP(fatal, "Cannot open file {}", fileIB);
       }
-      auto fOB = TFile::Open(fileIB);
+      auto fOB = TFile::Open(fileIB, "READ");
       if (fOB->IsZombie() || !fOB->IsOpen()) {
         LOGP(fatal, "Cannot open file {}", fileOB);
       }
-      mParams.setIBSimResponse(mSimRespIB = fIB->Get<o2::itsmft::AlpideSimResponse>(nameIB.c_str()));
-      mParams.setOBSimResponse(mSimRespOB = fOB->Get<o2::itsmft::AlpideSimResponse>(nameOB.c_str()));
+      mParams.setIBSimResponse(mSimRespIB = fIB->Get<o2::itsmft::AlpideSimResponse>(nameIB));
+      mParams.setOBSimResponse(mSimRespOB = fOB->Get<o2::itsmft::AlpideSimResponse>(nameOB));
       fIB->Close();
       fOB->Close();
     };
 
     if (const auto& func = ITS3Params::Instance().chipResponseFunction; func == "Alpide") {
       constexpr const char* responseFile = "$(O2_ROOT)/share/Detectors/ITSMFT/data/AlpideResponseData/AlpideResponseData.root";
-      loadSetResponseFunc(responseFile, responseFile, "Alpide");
+      loadSetResponseFunc("Alpide", responseFile, "response0", responseFile, "response1");
       mSimRespIBShift = mSimRespIB->getDepthMax() - SegmentationMosaix::mSensorLayerThickness / 2.f;
       mSimRespOBShift = mSimRespOB->getDepthMax() - Segmentation::SensorLayerThickness / 2.f;
     } else if (func == "APTS") {
-      constexpr const char* responseFileIB = "$(O2_ROOT)/share/Detectors/Upgrades/ITS3/data/ITS3ChipResponseData/";
+      constexpr const char* responseFileIB = "$(O2_ROOT)/share/Detectors/Upgrades/ITS3/data/ITS3ChipResponseData/APTSResponseData.root";
       constexpr const char* responseFileOB = "$(O2_ROOT)/share/Detectors/ITSMFT/data/AlpideResponseData/AlpideResponseData.root";
-      loadSetResponseFunc(responseFileIB, responseFileOB, "APTS");
+      loadSetResponseFunc("APTS", responseFileIB, "response1", responseFileOB, "response1");
       mSimRespIBShift = mSimRespIB->getDepthMax() - 10.e-4f;
       mSimRespOBShift = mSimRespOB->getDepthMax() - Segmentation::SensorLayerThickness / 2.f;
     } else {
