@@ -16,11 +16,10 @@
 #ifndef ALICEO2_ITS3_SEGMENTATIONMOSAIX_H_
 #define ALICEO2_ITS3_SEGMENTATIONMOSAIX_H_
 
+#include <type_traits>
+
 #include "MathUtils/Cartesian.h"
 #include "ITS3Base/SpecsV2.h"
-#include "Rtypes.h"
-
-#include <type_traits>
 
 namespace o2::its3
 {
@@ -68,9 +67,6 @@ class SegmentationMosaix
   static constexpr float mPitchCol{constants::pixelarray::length / static_cast<float>(mNCols)};
   static constexpr float mPitchRow{constants::pixelarray::width / static_cast<float>(mNRows)};
   static constexpr float mSensorLayerThickness{constants::thickness};
-  static constexpr float mSensorLayerThicknessEff{constants::effThickness};
-  static constexpr float mSensorLayerThicknessCorr{constants::corrThickness};
-  static constexpr std::array<float, constants::nLayers> mRadii{constants::radiiF};
 
   /// Transformation from the curved surface to a flat surface
   /// \param xCurved Detector local curved coordinate x in cm with respect to
@@ -86,8 +82,8 @@ class SegmentationMosaix
     // MUST align the flat surface with the curved surface with the original pixel array is on
     float dist = std::hypot(xCurved, yCurved);
     float phi = std::atan2(yCurved, xCurved);
-    xFlat = (mRadii[mLayer] * phi) - constants::pixelarray::width / 2.;
-    yFlat = dist - mRadii[mLayer];
+    xFlat = (getRadius() * phi) - mWidth / 2.f;
+    yFlat = dist - getRadius();
   }
 
   /// Transformation from the flat surface to a curved surface
@@ -103,9 +99,9 @@ class SegmentationMosaix
   void flatToCurved(float xFlat, float yFlat, float& xCurved, float& yCurved) const noexcept
   {
     // MUST align the flat surface with the curved surface with the original pixel array is on
-    float dist = yFlat + mRadii[mLayer];
-    xCurved = dist * std::cos((xFlat + constants::pixelarray::width / 2.) / mRadii[mLayer]);
-    yCurved = dist * std::sin((xFlat + constants::pixelarray::width / 2.) / mRadii[mLayer]);
+    float dist = yFlat + getRadius();
+    xCurved = dist * std::cos((xFlat + mWidth / 2.f) / getRadius());
+    yCurved = dist * std::sin((xFlat + mWidth / 2.f) / getRadius());
   }
 
   /// Transformation from Geant detector centered local coordinates (cm) to
@@ -132,9 +128,8 @@ class SegmentationMosaix
   // Same as localToDetector w.o. checks.
   void localToDetectorUnchecked(float const xRow, float const zCol, int& iRow, int& iCol) const noexcept
   {
-    namespace cp = constants::pixelarray;
-    iRow = std::floor((cp::width / 2. - xRow) / mPitchRow);
-    iCol = std::floor((zCol + cp::length / 2.) / mPitchCol);
+    iRow = std::floor((mWidth / 2. - xRow) / mPitchRow);
+    iCol = std::floor((zCol + mLength / 2.) / mPitchCol);
   }
 
   /// Transformation from Detector cell coordinates to Geant detector centered
@@ -160,9 +155,8 @@ class SegmentationMosaix
   // We position ourself in the middle of the pixel.
   void detectorToLocalUnchecked(int const iRow, int const iCol, float& xRow, float& zCol) const noexcept
   {
-    namespace cp = constants::pixelarray;
-    xRow = -(iRow + 0.5) * mPitchRow + cp::width / 2.;
-    zCol = (iCol + 0.5) * mPitchCol - cp::length / 2.;
+    xRow = -(static_cast<float>(iRow) + 0.5f) * mPitchRow + mWidth / 2.f;
+    zCol = (static_cast<float>(iCol) + 0.5f) * mPitchCol - mLength / 2.f;
   }
 
   bool detectorToLocal(int const row, int const col, math_utils::Point3D<float>& loc) const noexcept
@@ -192,6 +186,11 @@ class SegmentationMosaix
     } else { // compares in rows/cols
       return !static_cast<bool>(row < 0 || row >= static_cast<int>(mNRows) || col < 0 || col >= static_cast<int>(mNCols));
     }
+  }
+
+  float getRadius() const noexcept
+  {
+    return static_cast<float>(constants::radii[mLayer]);
   }
 
   int mLayer{0}; ///< chip layer
