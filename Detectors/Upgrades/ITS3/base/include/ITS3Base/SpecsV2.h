@@ -121,12 +121,9 @@ constexpr std::array<unsigned int, nLayers> nSegments{3, 4, 5};
 constexpr double epitaxialThickness{10 * mu};                                                                                         // eptixial layer (charge collection)
 constexpr double psubThickness{40 * mu};                                                                                              // silicon substrate
 constexpr double thickness{epitaxialThickness + psubThickness};                                                                       // physical thickness of chip
-constexpr double effThickness{epitaxialThickness / 2.0 + psubThickness};                                                              // effective physical thickness
-constexpr double corrThickness{effThickness - thickness / 2.0};                                                                       // correction to get into the epitxial layer
-constexpr std::array<double, nLayers> radii{19.0006 * mm, 25.228 * mm, 31.4554 * mm};                                                 // middle radius e.g. inner radius+thickness/2.
-constexpr std::array<float, nLayers> radiiF{19.0006 * mm, 25.228 * mm, 31.4554 * mm};                                                 // middle radius e.g. inner radius+thickness/2.
+constexpr std::array<double, nLayers> radii{19.0006 * mm, 25.228 * mm, 31.4554 * mm};                                                 // middle radius
 constexpr std::array<double, nLayers> radiiInner{radii[0] - thickness / 2.0, radii[1] - thickness / 2.0, radii[2] - thickness / 2.0}; // inner radius
-constexpr std::array<double, nLayers> radiiOuter{radii[0] + thickness / 2.0, radii[1] + thickness / 2.0, radii[2] + thickness / 2.0}; // inner radius
+constexpr std::array<double, nLayers> radiiOuter{radii[0] + thickness / 2.0, radii[1] + thickness / 2.0, radii[2] + thickness / 2.0}; // outer radius
 namespace detID
 {
 constexpr unsigned int mDetIDs{2 * 12 * 12 * 12};                //< 2 Hemispheres * (3,4,5=12 segments in a layer) * 12 RSUs in a segment * 12 Tiles in a RSU
