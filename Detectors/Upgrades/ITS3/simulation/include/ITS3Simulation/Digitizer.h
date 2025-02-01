@@ -111,6 +111,8 @@ class Digitizer : public TObject
   o2::itsmft::AlpideSimResponse* mSimRespIB = nullptr; // simulated response for IB
   o2::itsmft::AlpideSimResponse* mSimRespOB = nullptr; // simulated response for OB
   float mSimRespIBShift{0.};                           // adjusting the Y-shift in the IB response function to match sensor local coord.
+  float mSimRespIBScaleX{1.};                          // scale x-local coordinate to response function x-coordinate
+  float mSimRespIBScaleZ{1.};                          // scale z-local coordinate to response function z-coordinate
   float mSimRespOBShift{0.};                           // adjusting the Y-shift in the OB response function to match sensor local coord.
 
   const o2::its::GeometryTGeo* mGeometry = nullptr; ///< ITS3 geometry

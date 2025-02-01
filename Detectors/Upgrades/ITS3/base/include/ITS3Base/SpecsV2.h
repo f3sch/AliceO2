@@ -35,6 +35,27 @@ constexpr int nRows{442};
 constexpr int nPixels{nRows * nCols};
 constexpr EColor color{kGreen};
 constexpr double area{width * length};
+namespace pixels
+{
+namespace apts
+{
+constexpr double pitchX{15.0 * mu};
+constexpr double pitchZ{15.0 * mu};
+} // namespace apts
+namespace moss
+{
+namespace top
+{
+constexpr double pitchX{22.5 * mu};
+constexpr double pitchZ{22.5 * mu};
+} // namespace top
+namespace bot
+{
+constexpr double pitchX{18.0 * mu};
+constexpr double pitchZ{18.0 * mu};
+} // namespace bot
+} // namespace moss
+} // namespace pixels
 } // namespace pixelarray
 namespace tile
 {

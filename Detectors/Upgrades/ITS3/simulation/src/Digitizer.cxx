@@ -48,11 +48,11 @@ void Digitizer::init()
     auto loadSetResponseFunc = [&](const char* name, const char* fileIB, const char* nameIB, const char* fileOB, const char* nameOB) {
       LOGP(info, "Loading response function for {}: IB={}:{} ; OB={}:{}", name, nameIB, fileIB, nameOB, fileOB);
       auto fIB = TFile::Open(fileIB, "READ");
-      if (fIB->IsZombie() || !fIB->IsOpen()) {
+      if (!fIB || fIB->IsZombie() || !fIB->IsOpen()) {
         LOGP(fatal, "Cannot open file {}", fileIB);
       }
-      auto fOB = TFile::Open(fileIB, "READ");
-      if (fOB->IsZombie() || !fOB->IsOpen()) {
+      auto fOB = TFile::Open(fileOB, "READ");
+      if (!fOB || fOB->IsZombie() || !fOB->IsOpen()) {
         LOGP(fatal, "Cannot open file {}", fileOB);
       }
       mParams.setIBSimResponse(mSimRespIB = fIB->Get<o2::itsmft::AlpideSimResponse>(nameIB));
@@ -72,11 +72,15 @@ void Digitizer::init()
       loadSetResponseFunc("APTS", responseFileIB, "response1", responseFileOB, "response1");
       mSimRespIBShift = mSimRespIB->getDepthMax() - 10.e-4f;
       mSimRespOBShift = mSimRespOB->getDepthMax() - Segmentation::SensorLayerThickness / 2.f;
+      mSimRespIBScaleX = 0.5 * constants::pixelarray::pixels::apts::pitchX / SegmentationMosaix::mPitchRow;
+      mSimRespIBScaleZ = 0.5 * constants::pixelarray::pixels::apts::pitchZ / SegmentationMosaix::mPitchCol;
     } else {
       LOGP(fatal, "ResponseFunction '{}' not implemented!", func);
     }
   }
   mParams.print();
+  LOGP(info, "IBShift = {} ; OBShift = {}", mSimRespIBShift, mSimRespOBShift);
+  LOGP(info, "IB-Scale: X={} ; Z={}", mSimRespIBScaleX, mSimRespIBScaleZ);
   mIRFirstSampledTF = o2::raw::HBFUtils::Instance().getFirstSampledTFIR();
 }
 
@@ -375,9 +379,17 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
     }
     bool flipCol = false, flipRow = false;
     // note that response needs coordinates along column row (locX) (locZ) then depth (locY)
-    float rowMax{0.5f * (innerBarrel ? SegmentationMosaix::mPitchRow : Segmentation::PitchRow)};
-    float colMax{0.5f * (innerBarrel ? SegmentationMosaix::mPitchCol : Segmentation::PitchCol)};
-    auto rspmat = ((innerBarrel) ? mSimRespIB : mSimRespOB)->getResponse(xyzLocS.X() - cRowPix, xyzLocS.Z() - cColPix, xyzLocS.Y(), flipRow, flipCol, rowMax, colMax);
+    float rowMax{}, colMax{};
+    const AlpideRespSimMat* rspmat{nullptr};
+    if (innerBarrel) {
+      rowMax = 0.5 * SegmentationMosaix::mPitchRow;
+      colMax = 0.5 * SegmentationMosaix::mPitchCol;
+      rspmat = mSimRespIB->getResponse(mSimRespIBScaleX * (xyzLocS.X() - cRowPix), mSimRespIBScaleZ * (xyzLocS.Z() - cColPix), xyzLocS.Y(), flipRow, flipCol, rowMax, colMax);
+    } else {
+      rowMax = 0.5 * Segmentation::PitchRow;
+      colMax = 0.5 * Segmentation::PitchCol;
+      rspmat = mSimRespOB->getResponse(xyzLocS.X() - cRowPix, xyzLocS.Z() - cColPix, xyzLocS.Y(), flipRow, flipCol, rowMax, colMax);
+    }
 
     xyzLocS += step;
     if (rspmat == nullptr) {
