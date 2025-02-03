@@ -189,7 +189,7 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
   std::vector<Data> data(nChips);
   for (int iChip{0}; iChip < nChips; ++iChip) {
     auto& dat = data[iChip];
-    int col{o2::its3::SegmentationMosaix::mNCols}, row{o2::its3::SegmentationMosaix::mNRows};
+    int col{o2::its3::SegmentationMosaix::NCols}, row{o2::its3::SegmentationMosaix::NRows};
     if (!o2::its3::constants::detID::isDetITS3(iChip)) {
       col = o2::itsmft::SegmentationAlpide::NCols;
       row = o2::itsmft::SegmentationAlpide::NRows;

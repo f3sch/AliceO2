@@ -115,7 +115,7 @@ void CheckDigitsDensity(int nEvents = 10000, std::string digitFileName = "it3dig
   std::unique_ptr<TFile> oFile(TFile::Open("checkDigitsDensity.root", "RECREATE"));
   checkFile(oFile);
   for (const auto& h : hists) {
-    h->Scale(1. / (Mosaix::mPitchCol * Mosaix::mPitchRow * nEvents));
+    h->Scale(1. / (Mosaix::PitchCol * Mosaix::PitchRow * nEvents));
     h->ProjectionX()->Write();
     h->Write();
   }

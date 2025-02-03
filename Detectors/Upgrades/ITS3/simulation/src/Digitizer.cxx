@@ -22,6 +22,7 @@
 #include "Framework/Logger.h"
 
 #include <TRandom.h>
+#include <algorithm>
 #include <vector>
 #include <numeric>
 
@@ -64,7 +65,7 @@ void Digitizer::init()
     if (const auto& func = ITS3Params::Instance().chipResponseFunction; func == "Alpide") {
       constexpr const char* responseFile = "$(O2_ROOT)/share/Detectors/ITSMFT/data/AlpideResponseData/AlpideResponseData.root";
       loadSetResponseFunc("Alpide", responseFile, "response0", responseFile, "response1");
-      mSimRespIBShift = mSimRespIB->getDepthMax() - SegmentationMosaix::mSensorLayerThickness / 2.f + 10.e-4f; // TODO why this offset?
+      mSimRespIBShift = mSimRespIB->getDepthMax() - SegmentationMosaix::SensorLayerThickness / 2.f + 10.e-4f; // TODO why this offset?
       mSimRespOBShift = mSimRespOB->getDepthMax() - SegmentationAlpide::SensorLayerThickness / 2.f;
     } else if (func == "APTS") {
       constexpr const char* responseFileIB = "$(O2_ROOT)/share/Detectors/Upgrades/ITS3/data/ITS3ChipResponseData/APTSResponseData.root";
@@ -72,8 +73,8 @@ void Digitizer::init()
       loadSetResponseFunc("APTS", responseFileIB, "response1", responseFileOB, "response1");
       mSimRespIBShift = mSimRespIB->getDepthMax() - 10.e-4f;
       mSimRespOBShift = mSimRespOB->getDepthMax() - SegmentationAlpide::SensorLayerThickness / 2.f;
-      mSimRespIBScaleX = 0.5 * constants::pixelarray::pixels::apts::pitchX / SegmentationMosaix::mPitchRow;
-      mSimRespIBScaleZ = 0.5 * constants::pixelarray::pixels::apts::pitchZ / SegmentationMosaix::mPitchCol;
+      mSimRespIBScaleX = 0.5 * constants::pixelarray::pixels::apts::pitchX / SegmentationMosaix::PitchRow;
+      mSimRespIBScaleZ = 0.5 * constants::pixelarray::pixels::apts::pitchZ / SegmentationMosaix::PitchCol;
     } else {
       LOGP(fatal, "ResponseFunction '{}' not implemented!", func);
     }
@@ -172,7 +173,7 @@ void Digitizer::fillOutputContainer(uint32_t frameLast)
     for (size_t iChip{0}; iChip < mChips.size(); ++iChip) {
       auto& chip = mChips[iChip];
       if (constants::detID::isDetITS3(iChip)) { // Check if this is a chip of ITS3
-        chip.addNoise(mROFrameMin, mROFrameMin, &mParams, SegmentationMosaix::mNRows, SegmentationMosaix::mNCols);
+        chip.addNoise(mROFrameMin, mROFrameMin, &mParams, SegmentationMosaix::NRows, SegmentationMosaix::NCols);
       } else {
         chip.addNoise(mROFrameMin, mROFrameMin, &mParams);
       }
@@ -323,20 +324,16 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
   }
   rowS -= AlpideRespSimMat::NPix / 2;
   rowE += AlpideRespSimMat::NPix / 2;
-  if (rowS < 0) {
-    rowS = 0;
-  }
+  rowS = std::max(rowS, 0);
 
-  const int maxNrows{innerBarrel ? SegmentationMosaix::mNRows : SegmentationAlpide::NRows};
-  const int maxNcols{innerBarrel ? SegmentationMosaix::mNCols : SegmentationAlpide::NCols};
+  const int maxNrows{innerBarrel ? SegmentationMosaix::NRows : SegmentationAlpide::NRows};
+  const int maxNcols{innerBarrel ? SegmentationMosaix::NCols : SegmentationAlpide::NCols};
   if (rowE >= maxNrows) {
     rowE = maxNrows - 1;
   }
   colS -= AlpideRespSimMat::NPix / 2;
   colE += AlpideRespSimMat::NPix / 2;
-  if (colS < 0) {
-    colS = 0;
-  }
+  colS = std::max(colS, 0);
   if (colE >= maxNcols) {
     colE = maxNcols - 1;
   }
@@ -382,8 +379,8 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
     float rowMax{}, colMax{};
     const AlpideRespSimMat* rspmat{nullptr};
     if (innerBarrel) {
-      rowMax = 0.5 * SegmentationMosaix::mPitchRow;
-      colMax = 0.5 * SegmentationMosaix::mPitchCol;
+      rowMax = 0.5 * SegmentationMosaix::PitchRow;
+      colMax = 0.5 * SegmentationMosaix::PitchCol;
       rspmat = mSimRespIB->getResponse(mSimRespIBScaleX * (xyzLocS.X() - cRowPix), mSimRespIBScaleZ * (xyzLocS.Z() - cColPix), xyzLocS.Y(), flipRow, flipCol, rowMax, colMax);
     } else {
       rowMax = 0.5 * SegmentationAlpide::PitchRow;

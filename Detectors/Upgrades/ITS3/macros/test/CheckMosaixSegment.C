@@ -50,8 +50,8 @@ void CheckMosaixSegment(bool isTestDetectorToLocal = false,
                         bool isTestLocalToGlobal = false)
 {
   using namespace o2::its3;
-  static constexpr unsigned int mNCols{SegmentationMosaix::mNCols};
-  static constexpr unsigned int mNRows{SegmentationMosaix::mNRows};
+  static constexpr unsigned int mNCols{SegmentationMosaix::NCols};
+  static constexpr unsigned int mNRows{SegmentationMosaix::NRows};
   static constexpr unsigned int nPixels{mNCols * mNRows};
   std::array<SegmentationMosaix, 3> mMosaixSegmentations{0, 1, 2};
 

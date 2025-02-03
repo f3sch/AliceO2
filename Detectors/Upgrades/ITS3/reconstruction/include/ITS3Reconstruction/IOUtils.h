@@ -21,8 +21,8 @@
 
 namespace o2::its3::ioutils
 {
-constexpr float DefClusErrorRow = o2::its3::SegmentationMosaix::mPitchRow * 0.5;
-constexpr float DefClusErrorCol = o2::its3::SegmentationMosaix::mPitchCol * 0.5;
+constexpr float DefClusErrorRow = o2::its3::SegmentationMosaix::PitchRow * 0.5;
+constexpr float DefClusErrorCol = o2::its3::SegmentationMosaix::PitchCol * 0.5;
 constexpr float DefClusError2Row = DefClusErrorRow * DefClusErrorRow;
 constexpr float DefClusError2Col = DefClusErrorCol * DefClusErrorCol;
 
