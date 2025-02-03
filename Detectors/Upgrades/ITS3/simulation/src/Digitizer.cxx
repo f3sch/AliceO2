@@ -26,7 +26,7 @@
 #include <numeric>
 
 using o2::itsmft::Hit;
-using Segmentation = o2::itsmft::SegmentationAlpide;
+using SegmentationAlpide = o2::itsmft::SegmentationAlpide;
 using o2::itsmft::AlpideRespSimMat;
 using o2::itsmft::PreDigit;
 
@@ -64,14 +64,14 @@ void Digitizer::init()
     if (const auto& func = ITS3Params::Instance().chipResponseFunction; func == "Alpide") {
       constexpr const char* responseFile = "$(O2_ROOT)/share/Detectors/ITSMFT/data/AlpideResponseData/AlpideResponseData.root";
       loadSetResponseFunc("Alpide", responseFile, "response0", responseFile, "response1");
-      mSimRespIBShift = mSimRespIB->getDepthMax() - SegmentationMosaix::mSensorLayerThickness / 2.f;
-      mSimRespOBShift = mSimRespOB->getDepthMax() - Segmentation::SensorLayerThickness / 2.f;
+      mSimRespIBShift = mSimRespIB->getDepthMax() - SegmentationMosaix::mSensorLayerThickness / 2.f + 10.e-4f; // TODO why this offset?
+      mSimRespOBShift = mSimRespOB->getDepthMax() - SegmentationAlpide::SensorLayerThickness / 2.f;
     } else if (func == "APTS") {
       constexpr const char* responseFileIB = "$(O2_ROOT)/share/Detectors/Upgrades/ITS3/data/ITS3ChipResponseData/APTSResponseData.root";
       constexpr const char* responseFileOB = "$(O2_ROOT)/share/Detectors/ITSMFT/data/AlpideResponseData/AlpideResponseData.root";
       loadSetResponseFunc("APTS", responseFileIB, "response1", responseFileOB, "response1");
       mSimRespIBShift = mSimRespIB->getDepthMax() - 10.e-4f;
-      mSimRespOBShift = mSimRespOB->getDepthMax() - Segmentation::SensorLayerThickness / 2.f;
+      mSimRespOBShift = mSimRespOB->getDepthMax() - SegmentationAlpide::SensorLayerThickness / 2.f;
       mSimRespIBScaleX = 0.5 * constants::pixelarray::pixels::apts::pitchX / SegmentationMosaix::mPitchRow;
       mSimRespIBScaleZ = 0.5 * constants::pixelarray::pixels::apts::pitchZ / SegmentationMosaix::mPitchCol;
     } else {
@@ -299,14 +299,14 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
     }
   } else {
     // get entrance pixel row and col
-    while (!Segmentation::localToDetector(xyzLocS.X(), xyzLocS.Z(), rowS, colS)) { // guard-ring ?
+    while (!SegmentationAlpide::localToDetector(xyzLocS.X(), xyzLocS.Z(), rowS, colS)) { // guard-ring ?
       if (++nSkip >= nSteps) {
         return; // did not enter to sensitive matrix
       }
       xyzLocS += step;
     }
     // get exit pixel row and col
-    while (!Segmentation::localToDetector(xyzLocE.X(), xyzLocE.Z(), rowE, colE)) { // guard-ring ?
+    while (!SegmentationAlpide::localToDetector(xyzLocE.X(), xyzLocE.Z(), rowE, colE)) { // guard-ring ?
       if (++nSkip >= nSteps) {
         return; // did not enter to sensitive matrix
       }
@@ -327,8 +327,8 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
     rowS = 0;
   }
 
-  const int maxNrows{innerBarrel ? SegmentationMosaix::mNRows : Segmentation::NRows};
-  const int maxNcols{innerBarrel ? SegmentationMosaix::mNCols : Segmentation::NCols};
+  const int maxNrows{innerBarrel ? SegmentationMosaix::mNRows : SegmentationAlpide::NRows};
+  const int maxNcols{innerBarrel ? SegmentationMosaix::mNCols : SegmentationAlpide::NCols};
   if (rowE >= maxNrows) {
     rowE = maxNrows - 1;
   }
@@ -364,14 +364,14 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
     if (innerBarrel) {
       mIBSegmentations[layer].localToDetector(xyzLocS.X(), xyzLocS.Z(), row, col);
     } else {
-      Segmentation::localToDetector(xyzLocS.X(), xyzLocS.Z(), row, col);
+      SegmentationAlpide::localToDetector(xyzLocS.X(), xyzLocS.Z(), row, col);
     }
     if (row != rowPrev || col != colPrev) { // update pixel and coordinates of its center
       if (innerBarrel) {
         if (!mIBSegmentations[layer].detectorToLocal(row, col, cRowPix, cColPix)) {
           continue;
         }
-      } else if (!Segmentation::detectorToLocal(row, col, cRowPix, cColPix)) {
+      } else if (!SegmentationAlpide::detectorToLocal(row, col, cRowPix, cColPix)) {
         continue; // should not happen
       }
       rowPrev = row;
@@ -386,8 +386,8 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
       colMax = 0.5 * SegmentationMosaix::mPitchCol;
       rspmat = mSimRespIB->getResponse(mSimRespIBScaleX * (xyzLocS.X() - cRowPix), mSimRespIBScaleZ * (xyzLocS.Z() - cColPix), xyzLocS.Y(), flipRow, flipCol, rowMax, colMax);
     } else {
-      rowMax = 0.5 * Segmentation::PitchRow;
-      colMax = 0.5 * Segmentation::PitchCol;
+      rowMax = 0.5 * SegmentationAlpide::PitchRow;
+      colMax = 0.5 * SegmentationAlpide::PitchCol;
       rspmat = mSimRespOB->getResponse(xyzLocS.X() - cRowPix, xyzLocS.Z() - cColPix, xyzLocS.Y(), flipRow, flipCol, rowMax, colMax);
     }
 
