@@ -37,10 +37,10 @@ constexpr float PI = 3.14159274101257324e+00f;
 constexpr float Rad2Deg = 180.f / PI;
 constexpr float Deg2Rad = 1. / Rad2Deg;
 
-constexpr auto nRows{SegmentationMosaix::mNRows};
-constexpr auto nCols{SegmentationMosaix::mNCols};
-constexpr auto fLength{SegmentationMosaix::mLength};
-constexpr auto fWidth{SegmentationMosaix::mWidth};
+constexpr auto nRows{SegmentationMosaix::NRows};
+constexpr auto nCols{SegmentationMosaix::NCols};
+constexpr auto fLength{SegmentationMosaix::Length};
+constexpr auto fWidth{SegmentationMosaix::Width};
 const std::array<SegmentationMosaix, 3> mMosaixSegmentations{0, 1, 2};
 
 TH2* DrawReverseBins(TH2* h)

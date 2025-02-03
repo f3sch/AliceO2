@@ -281,8 +281,8 @@ void CreateDictionariesITS3(bool saveDeltas = false,
                 }
                 dX = xyzLocM.X() - locC.X();
                 dZ = xyzLocM.Z() - locC.Z();
-                dX /= (isIB) ? o2::its3::SegmentationMosaix::mPitchRow : o2::itsmft::SegmentationAlpide::PitchRow;
-                dZ /= (isIB) ? o2::its3::SegmentationMosaix::mPitchCol : o2::itsmft::SegmentationAlpide::PitchCol;
+                dX /= (isIB) ? o2::its3::SegmentationMosaix::PitchRow : o2::itsmft::SegmentationAlpide::PitchRow;
+                dZ /= (isIB) ? o2::its3::SegmentationMosaix::PitchCol : o2::itsmft::SegmentationAlpide::PitchCol;
                 if (saveDeltas) {
                   nt->Fill(topology.getHash(), dX, dZ);
                 }

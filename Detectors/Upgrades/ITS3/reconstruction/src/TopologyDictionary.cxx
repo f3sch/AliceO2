@@ -145,8 +145,8 @@ math_utils::Point3D<T> TopologyDictionary::getClusterCoordinates(const itsmft::C
   } else {
     auto layer = its3::constants::detID::getDetID2Layer(cl.getSensorID());
     mIBSegmentations[layer].detectorToLocalUnchecked(cl.getRow(), cl.getCol(), locCl);
-    locCl.SetX(locCl.X() + this->getXCOG(cl.getPatternID()) * its3::SegmentationMosaix::mPitchRow);
-    locCl.SetZ(locCl.Z() + this->getZCOG(cl.getPatternID()) * its3::SegmentationMosaix::mPitchCol);
+    locCl.SetX(locCl.X() + this->getXCOG(cl.getPatternID()) * its3::SegmentationMosaix::PitchRow);
+    locCl.SetZ(locCl.Z() + this->getZCOG(cl.getPatternID()) * its3::SegmentationMosaix::PitchCol);
     float xCurved{0.f}, yCurved{0.f};
     mIBSegmentations[layer].flatToCurved(locCl.X(), locCl.Y(), xCurved, yCurved);
     locCl.SetXYZ(xCurved, yCurved, locCl.Z());

@@ -59,14 +59,14 @@ class SegmentationMosaix
   SegmentationMosaix& operator=(SegmentationMosaix&&) = delete;
   constexpr SegmentationMosaix(int layer) : mLayer{layer} {}
 
-  static constexpr int mNCols{constants::pixelarray::nCols};
-  static constexpr int mNRows{constants::pixelarray::nRows};
-  static constexpr int nPixels{mNCols * mNRows};
-  static constexpr float mLength{constants::pixelarray::length};
-  static constexpr float mWidth{constants::pixelarray::width};
-  static constexpr float mPitchCol{constants::pixelarray::length / static_cast<float>(mNCols)};
-  static constexpr float mPitchRow{constants::pixelarray::width / static_cast<float>(mNRows)};
-  static constexpr float mSensorLayerThickness{constants::thickness};
+  static constexpr int NCols{constants::pixelarray::nCols};
+  static constexpr int NRows{constants::pixelarray::nRows};
+  static constexpr int NPixels{NCols * NRows};
+  static constexpr float Length{constants::pixelarray::length};
+  static constexpr float Width{constants::pixelarray::width};
+  static constexpr float PitchCol{constants::pixelarray::length / static_cast<float>(NCols)};
+  static constexpr float PitchRow{constants::pixelarray::width / static_cast<float>(NRows)};
+  static constexpr float SensorLayerThickness{constants::thickness};
 
   /// Transformation from the curved surface to a flat surface
   /// \param xCurved Detector local curved coordinate x in cm with respect to
@@ -82,7 +82,7 @@ class SegmentationMosaix
     // MUST align the flat surface with the curved surface with the original pixel array is on
     float dist = std::hypot(xCurved, yCurved);
     float phi = std::atan2(yCurved, xCurved);
-    xFlat = (getRadius() * phi) - mWidth / 2.f;
+    xFlat = (getRadius() * phi) - Width / 2.f;
     yFlat = dist - getRadius();
   }
 
@@ -100,8 +100,8 @@ class SegmentationMosaix
   {
     // MUST align the flat surface with the curved surface with the original pixel array is on
     float dist = yFlat + getRadius();
-    xCurved = dist * std::cos((xFlat + mWidth / 2.f) / getRadius());
-    yCurved = dist * std::sin((xFlat + mWidth / 2.f) / getRadius());
+    xCurved = dist * std::cos((xFlat + Width / 2.f) / getRadius());
+    yCurved = dist * std::sin((xFlat + Width / 2.f) / getRadius());
   }
 
   /// Transformation from Geant detector centered local coordinates (cm) to
@@ -128,8 +128,8 @@ class SegmentationMosaix
   // Same as localToDetector w.o. checks.
   void localToDetectorUnchecked(float const xRow, float const zCol, int& iRow, int& iCol) const noexcept
   {
-    iRow = std::floor((mWidth / 2. - xRow) / mPitchRow);
-    iCol = std::floor((zCol + mLength / 2.) / mPitchCol);
+    iRow = std::floor((Width / 2. - xRow) / PitchRow);
+    iCol = std::floor((zCol + Length / 2.) / PitchCol);
   }
 
   /// Transformation from Detector cell coordinates to Geant detector centered
@@ -155,8 +155,8 @@ class SegmentationMosaix
   // We position ourself in the middle of the pixel.
   void detectorToLocalUnchecked(int const iRow, int const iCol, float& xRow, float& zCol) const noexcept
   {
-    xRow = -(static_cast<float>(iRow) + 0.5f) * mPitchRow + mWidth / 2.f;
-    zCol = (static_cast<float>(iCol) + 0.5f) * mPitchCol - mLength / 2.f;
+    xRow = -(static_cast<float>(iRow) + 0.5f) * PitchRow + Width / 2.f;
+    zCol = (static_cast<float>(iCol) + 0.5f) * PitchCol - Length / 2.f;
   }
 
   bool detectorToLocal(int const row, int const col, math_utils::Point3D<float>& loc) const noexcept
@@ -184,7 +184,7 @@ class SegmentationMosaix
       namespace cp = constants::pixelarray;
       return !static_cast<bool>(row <= -cp::width / 2. || cp::width / 2. <= row || col <= -cp::length / 2. || cp::length / 2. <= col);
     } else { // compares in rows/cols
-      return !static_cast<bool>(row < 0 || row >= static_cast<int>(mNRows) || col < 0 || col >= static_cast<int>(mNCols));
+      return !static_cast<bool>(row < 0 || row >= static_cast<int>(NRows) || col < 0 || col >= static_cast<int>(NCols));
     }
   }
 

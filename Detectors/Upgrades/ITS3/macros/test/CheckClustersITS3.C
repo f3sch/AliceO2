@@ -185,8 +185,8 @@ void CheckClustersITS3(const std::string& clusfile = "o2clus_its.root",
         locC = dict.getClusterCoordinates(cluster);
         errX = dict.getErrX(pattID);
         errZ = dict.getErrZ(pattID);
-        errX *= (isIB) ? MosaixSegmentation::mPitchRow : Segmentation::PitchRow;
-        errZ *= (isIB) ? MosaixSegmentation::mPitchCol : Segmentation::PitchCol;
+        errX *= (isIB) ? MosaixSegmentation::PitchRow : Segmentation::PitchRow;
+        errZ *= (isIB) ? MosaixSegmentation::PitchCol : Segmentation::PitchCol;
         npix = dict.getNpixels(pattID);
         ++cPattValid;
       }
