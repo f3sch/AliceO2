@@ -80,8 +80,8 @@ void CheckDigitsDensity(int nEvents = 10000, std::string digitFileName = "it3dig
   digitTree->SetBranchAddress("IT3Digit", &digitArrayPtr);
   std::array<TH2F*, 3> hists;
   for (int i{3}; i--;) {
-    double rmin = its3::constants::radii[i] - its3::constants::thickness;
-    double rmax = its3::constants::radii[i] + its3::constants::thickness;
+    double rmin = its3::constants::radiiInner[i];
+    double rmax = its3::constants::radiiOuter[i];
     hists[i] = new TH2F(Form("h_digits_dens_L%d", i), Form("Digit Density L%d in %d Events; Z_{Glo} [cm]; R_{Glo} [cm]", i, nEvents), 100, -15, 15, 100, rmin, rmax);
   }
 

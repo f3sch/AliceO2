@@ -66,7 +66,7 @@ class SegmentationMosaix
   static constexpr float Width{constants::pixelarray::width};
   static constexpr float PitchCol{constants::pixelarray::length / static_cast<float>(NCols)};
   static constexpr float PitchRow{constants::pixelarray::width / static_cast<float>(NRows)};
-  static constexpr float SensorLayerThickness{constants::thickness};
+  static constexpr float SensorLayerThickness{constants::totalThickness};
 
   /// Transformation from the curved surface to a flat surface
   /// \param xCurved Detector local curved coordinate x in cm with respect to
@@ -79,11 +79,14 @@ class SegmentationMosaix
   /// the center of the sensitive volume.
   void curvedToFlat(const float xCurved, const float yCurved, float& xFlat, float& yFlat) const noexcept
   {
-    // MUST align the flat surface with the curved surface with the original pixel array is on
+    // MUST align the flat surface with the curved surface with the original pixel array is on and account for metal
+    // stack
     float dist = std::hypot(xCurved, yCurved);
     float phi = std::atan2(yCurved, xCurved);
     xFlat = (getRadius() * phi) - Width / 2.f;
-    yFlat = dist - getRadius();
+    // the y position is in the silicon volume however we need the chip volume (silicon+metalstack)
+    // this is accounted by a y shift
+    yFlat = dist - getRadius() + static_cast<float>(constants::nominalYShift);
   }
 
   /// Transformation from the flat surface to a curved surface
@@ -98,8 +101,11 @@ class SegmentationMosaix
   /// the center of the sensitive volume.
   void flatToCurved(float xFlat, float yFlat, float& xCurved, float& yCurved) const noexcept
   {
-    // MUST align the flat surface with the curved surface with the original pixel array is on
-    float dist = yFlat + getRadius();
+    // MUST align the flat surface with the curved surface with the original pixel array is on and account for metal
+    // stack
+    // the y position is in the chip volume however we need the silicon volume
+    // this is accounted by a -y shift
+    float dist = yFlat + getRadius() - static_cast<float>(constants::nominalYShift);
     xCurved = dist * std::cos((xFlat + Width / 2.f) / getRadius());
     yCurved = dist * std::sin((xFlat + Width / 2.f) / getRadius());
   }
@@ -190,7 +196,7 @@ class SegmentationMosaix
 
   float getRadius() const noexcept
   {
-    return static_cast<float>(constants::radii[mLayer]);
+    return static_cast<float>(constants::radiiMiddle[mLayer]);
   }
 
   int mLayer{0}; ///< chip layer

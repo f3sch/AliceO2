@@ -134,30 +134,36 @@ constexpr double length{segment::length};
 constexpr double width{segment::width};
 constexpr EColor color{kBlack};
 } // namespace metalstack
+namespace silicon
+{
+constexpr double thickness{45 * mu};                                    // thickness of silicion
+constexpr double radiusInner{(thickness + metalstack::thickness) / 2.}; // inner silicion radius correction
+constexpr double radiusOuter{(thickness - metalstack::thickness) / 2.}; // outer silicion radius correction
+} // namespace silicon
 constexpr unsigned int nLayers{3};
 constexpr unsigned int nTotLayers{7};
 constexpr unsigned int nSensorsIB{2 * nLayers};
 constexpr double equatorialGap{1 * mm};
 constexpr std::array<unsigned int, nLayers> nSegments{3, 4, 5};
-constexpr double epitaxialThickness{10 * mu};                                                                                         // eptixial layer (charge collection)
-constexpr double psubThickness{40 * mu};                                                                                              // silicon substrate
-constexpr double thickness{epitaxialThickness + psubThickness};                                                                       // physical thickness of chip
-constexpr std::array<double, nLayers> radii{19.0006 * mm, 25.228 * mm, 31.4554 * mm};                                                 // middle radius
-constexpr std::array<double, nLayers> radiiInner{radii[0] - thickness / 2.0, radii[1] - thickness / 2.0, radii[2] - thickness / 2.0}; // inner radius
-constexpr std::array<double, nLayers> radiiOuter{radii[0] + thickness / 2.0, radii[1] + thickness / 2.0, radii[2] + thickness / 2.0}; // outer radius
+constexpr double totalThickness{silicon::thickness + metalstack::thickness};                                                                                         // total chip thickness
+constexpr std::array<double, nLayers> radii{19.0006 * mm, 25.228 * mm, 31.4554 * mm};                                                                                // nominal radius
+constexpr std::array<double, nLayers> radiiInner{radii[0] - silicon::radiusInner, radii[1] - silicon::radiusInner, radii[2] - silicon::radiusInner};                 // inner silicon radius
+constexpr std::array<double, nLayers> radiiOuter{radii[0] + silicon::radiusOuter, radii[1] + silicon::radiusOuter, radii[2] + silicon::radiusOuter};                 // outer silicon radius
+constexpr std::array<double, nLayers> radiiMiddle{(radiiInner[0] + radiiOuter[0]) / 2., (radiiInner[1] + radiiOuter[1]) / 2., (radiiInner[2] + radiiOuter[2]) / 2.}; // middle silicon radius
+constexpr double nominalYShift{-metalstack::thickness / 2.};                                                                                                         // shift to position in silicion volume to the chip volume (silicon+metalstack)
 namespace detID
 {
-constexpr unsigned int mDetIDs{2 * 12 * 12 * 12};                //< 2 Hemispheres * (3,4,5=12 segments in a layer) * 12 RSUs in a segment * 12 Tiles in a RSU
-constexpr unsigned int l0IDStart{0};                             //< Start DetID layer 0
-constexpr unsigned int l0IDEnd{2 * 3 * 12 * 12 - 1};             //< End First DetID layer 0; inclusive range
-constexpr unsigned int l0IDTot{2 * 3 * 12 * 12};                 //< Total DetID in Layer 0
-constexpr unsigned int l1IDStart{l0IDEnd + 1};                   //< Start DetID layer 1
-constexpr unsigned int l1IDEnd{l1IDStart + 2 * 4 * 12 * 12 - 1}; //< End First DetID layer 1; inclusive range
-constexpr unsigned int l1IDTot{2 * 4 * 12 * 12};                 //< Total DetID in Layer 1
-constexpr unsigned int l2IDStart{l1IDEnd + 1};                   //< Start DetID layer 2
-constexpr unsigned int l2IDEnd{l2IDStart + 2 * 5 * 12 * 12 - 1}; //< End First DetID layer 2; inclusive range
-constexpr unsigned int l2IDTot{2 * 5 * 12 * 12};                 //< Total DetID in Layer 2
-constexpr unsigned int nChips{l2IDEnd + 1};                      //< number of Chips (PixelArrays) in IB
+constexpr unsigned int mDetIDs{2 * 12 * 12 * 12};                  //< 2 Hemispheres * (3,4,5=12 segments in a layer) * 12 RSUs in a segment * 12 Tiles in a RSU
+constexpr unsigned int l0IDStart{0};                               //< Start DetID layer 0
+constexpr unsigned int l0IDEnd{(2 * 3 * 12 * 12) - 1};             //< End First DetID layer 0; inclusive range
+constexpr unsigned int l0IDTot{2 * 3 * 12 * 12};                   //< Total DetID in Layer 0
+constexpr unsigned int l1IDStart{l0IDEnd + 1};                     //< Start DetID layer 1
+constexpr unsigned int l1IDEnd{l1IDStart + (2 * 4 * 12 * 12) - 1}; //< End First DetID layer 1; inclusive range
+constexpr unsigned int l1IDTot{2 * 4 * 12 * 12};                   //< Total DetID in Layer 1
+constexpr unsigned int l2IDStart{l1IDEnd + 1};                     //< Start DetID layer 2
+constexpr unsigned int l2IDEnd{l2IDStart + (2 * 5 * 12 * 12) - 1}; //< End First DetID layer 2; inclusive range
+constexpr unsigned int l2IDTot{2 * 5 * 12 * 12};                   //< Total DetID in Layer 2
+constexpr unsigned int nChips{l2IDEnd + 1};                        //< number of Chips (PixelArrays) in IB
 
 template <typename T = int>
 inline T getDetID2Layer(T detID)

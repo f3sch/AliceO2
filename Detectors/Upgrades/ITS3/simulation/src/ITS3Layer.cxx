@@ -73,7 +73,7 @@ void ITS3Layer::createLayer(TGeoVolume* motherVolume)
     return;
   }
   // Add it to motherVolume
-  auto* trans = new TGeoTranslation(0, 0, -constants::segment::lengthSensitive / 2. - constants::rsu::databackbone::length / 2. + constants::tile::powerswitches::length / 2.);
+  auto* trans = new TGeoTranslation(0, 0, -constants::segment::lengthSensitive / 2.);
   motherVolume->AddNode(mLayer, 0, trans);
 }
 
@@ -83,8 +83,6 @@ void ITS3Layer::createPixelArray()
     return;
   }
   // A pixel array is pure silicon and the sensitive part of our detector.
-  // It will be segmented into a 442x156 matrix by the
-  // SuperSegmentationAlpide.
   using namespace its3c::pixelarray;
   double pixelArrayPhi = width / mR * o2m::Rad2Deg;
   auto pixelArray = new TGeoTubeSeg(mRmin, mRmax, length / 2., 0, pixelArrayPhi);
@@ -293,7 +291,7 @@ void ITS3Layer::createCarbonForm()
   mCarbonForm->VisibleDaughters();
   double dRadius = -1;
   if (mNLayer < 2) {
-    dRadius = constants::radii[mNLayer + 1] - constants::radii[mNLayer] - constants::thickness - constants::metalstack::thickness;
+    dRadius = constants::radii[mNLayer + 1] - constants::radii[mNLayer] - constants::totalThickness;
   } else {
     dRadius = 0.7; // TODO: lack of carbon foam radius for layer 2, use 0.7mm as a temporary value
   }

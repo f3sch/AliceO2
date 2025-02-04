@@ -186,8 +186,7 @@ void CheckMosaixSegment(bool isTestDetectorToLocal = false,
     TArc* arc[3];
     h_xCurved_yCurved->Draw("colz");
     for (int i = 0; i < 3; i++) {
-      arc[i] = new TArc(-0, 0, constants::radii[i] + constants::thickness / 2., -5, 40);
-      arc[i]->SetLineColor(kRed);
+      arc[i] = new TArc(-0, 0, constants::radiiOuter[i], -5, 40);
       arc[i]->SetFillStyle(0);
     }
 

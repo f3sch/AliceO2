@@ -185,7 +185,7 @@ void CheckDigitsITS3(std::string digifile = "it3digits.root", std::string hitfil
       const auto* mc2hit = &mc2hitVec[lab.getEventID()];
       const auto& hitEntry = mc2hit->find(key);
       if (hitEntry == mc2hit->end()) {
-        LOGP(error, "Failed to find MC hit entry for Tr {} chipID {}", trID, chipID);
+        LOGP(debug, "Failed to find MC hit entry for Tr {} chipID {}", trID, chipID);
         continue;
       }
 
@@ -197,7 +197,7 @@ void CheckDigitsITS3(std::string digifile = "it3digits.root", std::string hitfil
       auto xyzLocE = gman->getMatrixL2G(chipID) ^ (hit.GetPos()); // inverse conversion from global to local
       auto xyzLocS = gman->getMatrixL2G(chipID) ^ (hit.GetPosStart());
       o2::math_utils::Vector3D<float> xyzLocM;
-      xyzLocM.SetCoordinates(0.5 * (xyzLocE.X() + xyzLocS.X()), 0.5 * (xyzLocE.Y() + xyzLocS.Y()), 0.5 * (xyzLocE.Z() + xyzLocS.Z()));
+      xyzLocM.SetCoordinates(0.5f * (xyzLocE.X() + xyzLocS.X()), 0.5f * (xyzLocE.Y() + xyzLocS.Y()), 0.5f * (xyzLocE.Z() + xyzLocS.Z()));
       float xlc = 0., zlc = 0.;
       int row = 0, col = 0;
 

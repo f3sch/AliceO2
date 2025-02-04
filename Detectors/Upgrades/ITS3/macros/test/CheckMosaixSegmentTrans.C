@@ -89,8 +89,8 @@ void CheckMosaixSegmentTrans()
   gStyle->SetOptStat(1111111);
 
   for (int iLayer{0}; iLayer < 3; ++iLayer) {
-    float r_inner = constants::radii[iLayer] - constants::thickness / 2.;
-    float r_outer = constants::radii[iLayer] + constants::thickness / 2.;
+    float r_inner = constants::radiiInner[iLayer];
+    float r_outer = constants::radiiOuter[iLayer];
     float phiReadout_inner =
       constants::tile::readout::width / r_inner * Rad2Deg;
     float phiReadout_outer =
@@ -203,13 +203,11 @@ void CheckMosaixSegmentTrans()
         float xRow{0}, zCol{0};
         int iiRow{0}, iiCol{0};
         auto v1 = mMosaixSegmentations[iLayer].detectorToLocal(iRow, iCol, xRow, zCol);
-        auto v2 = mMosaixSegmentations[iLayer].localToDetector(xRow, zCol, iiRow,
-                                                               iiCol);
-        // Info("L2D",
-        //      "iRow=%d, iCol=%d --d2l(%s)--> xRow=%f, zCol=%f --l2d(%s)--> "
-        //      "iiRow=%d, iiCol=%d",
-        //      iRow, iCol, v1 ? "good" : "bad", xRow, zCol, v2 ? "good" :
-        //      "bad", iiRow, iiCol);
+        auto v2 = mMosaixSegmentations[iLayer].localToDetector(xRow, zCol, iiRow, iiCol);
+        Info("L2D",
+             "iRow=%d, iCol=%d --d2l(%s)--> xRow=%f, zCol=%f --l2d(%s)--> "
+             "iiRow=%d, iiCol=%d",
+             iRow, iCol, v1 ? "good" : "bad", xRow, zCol, v2 ? "good" : "bad", iiRow, iiCol);
         if (!v1 || !v2) {
           Error("LOOP", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx Layer %d", iLayer);
           return;
