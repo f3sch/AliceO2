@@ -23,16 +23,16 @@ namespace o2::its3
 void DigiParams::print() const
 {
   // print settings
-  LOGF(info, "ITS3 DigiParams settings:\n");
-  LOGF(info, "Continuous readout             : %s\n", isContinuous() ? "ON" : "OFF");
-  LOGF(info, "Readout Frame Length(ns)       : %f\n", getROFrameLength());
-  LOGF(info, "Strobe delay (ns)              : %f\n", getStrobeDelay());
-  LOGF(info, "Strobe length (ns)             : %f\n", getStrobeLength());
-  LOGF(info, "Threshold (N electrons)        : %d\n", getChargeThreshold());
-  LOGF(info, "Min N electrons to account     : %d\n", getMinChargeToAccount());
-  LOGF(info, "Number of charge sharing steps : %d\n", getNSimSteps());
-  LOGF(info, "ELoss to N electrons factor    : %e\n", getEnergyToNElectrons());
-  LOGF(info, "Noise level per pixel          : %e\n", getNoisePerPixel());
+  LOGF(info, "ITS3 DigiParams settings:");
+  LOGF(info, "Continuous readout             : %s", isContinuous() ? "ON" : "OFF");
+  LOGF(info, "Readout Frame Length(ns)       : %f", getROFrameLength());
+  LOGF(info, "Strobe delay (ns)              : %f", getStrobeDelay());
+  LOGF(info, "Strobe length (ns)             : %f", getStrobeLength());
+  LOGF(info, "Threshold (N electrons)        : %d", getChargeThreshold());
+  LOGF(info, "Min N electrons to account     : %d", getMinChargeToAccount());
+  LOGF(info, "Number of charge sharing steps : %d", getNSimSteps());
+  LOGF(info, "ELoss to N electrons factor    : %e", getEnergyToNElectrons());
+  LOGF(info, "Noise level per pixel          : %e", getNoisePerPixel());
   LOGF(info, "Charge time-response:\n");
   getSignalShape().print();
 }
