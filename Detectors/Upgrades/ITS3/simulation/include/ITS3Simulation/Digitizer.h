@@ -106,14 +106,14 @@ class Digitizer : public TObject
   uint32_t mEventROFrameMin = 0xffffffff; ///< lowest RO frame for processed events (w/o automatic noise ROFs)
   uint32_t mEventROFrameMax = 0;          ///< highest RO frame forfor processed events (w/o automatic noise ROFs)
 
-  const std::array<o2::its3::SegmentationMosaix, 3> mIBSegmentations{0, 1, 2};
+  static constexpr std::array<o2::its3::SegmentationMosaix, 3> mIBSegmentations{0, 1, 2};
 
   o2::itsmft::AlpideSimResponse* mSimRespIB = nullptr; // simulated response for IB
   o2::itsmft::AlpideSimResponse* mSimRespOB = nullptr; // simulated response for OB
-  float mSimRespIBShift{0.};                           // adjusting the Y-shift in the IB response function to match sensor local coord.
-  float mSimRespIBScaleX{1.};                          // scale x-local coordinate to response function x-coordinate
-  float mSimRespIBScaleZ{1.};                          // scale z-local coordinate to response function z-coordinate
-  float mSimRespOBShift{0.};                           // adjusting the Y-shift in the OB response function to match sensor local coord.
+  float mSimRespIBShift{0.f};                          // adjusting the Y-shift in the IB response function to match sensor local coord.
+  float mSimRespIBScaleX{1.f};                         // scale x-local coordinate to response function x-coordinate
+  float mSimRespIBScaleZ{1.f};                         // scale z-local coordinate to response function z-coordinate
+  float mSimRespOBShift{0.f};                          // adjusting the Y-shift in the OB response function to match sensor local coord.
 
   const o2::its::GeometryTGeo* mGeometry = nullptr; ///< ITS3 geometry
 
