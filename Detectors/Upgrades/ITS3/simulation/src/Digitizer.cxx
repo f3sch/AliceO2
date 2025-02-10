@@ -65,13 +65,13 @@ void Digitizer::init()
     if (const auto& func = ITS3Params::Instance().chipResponseFunction; func == "Alpide") {
       constexpr const char* responseFile = "$(O2_ROOT)/share/Detectors/ITSMFT/data/AlpideResponseData/AlpideResponseData.root";
       loadSetResponseFunc("Alpide", responseFile, "response0", responseFile, "response1");
-      mSimRespIBShift = mSimRespIB->getDepthMax() - SegmentationMosaix::SensorLayerThickness / 2.f + 10.e-4f; // TODO why this offset?
+      mSimRespIBShift = mSimRespIB->getDepthMax() - SegmentationMosaix::SensorLayerThickness / 2.f + 10.e-4f;
       mSimRespOBShift = mSimRespOB->getDepthMax() - SegmentationAlpide::SensorLayerThickness / 2.f;
     } else if (func == "APTS") {
       constexpr const char* responseFileIB = "$(O2_ROOT)/share/Detectors/Upgrades/ITS3/data/ITS3ChipResponseData/APTSResponseData.root";
       constexpr const char* responseFileOB = "$(O2_ROOT)/share/Detectors/ITSMFT/data/AlpideResponseData/AlpideResponseData.root";
       loadSetResponseFunc("APTS", responseFileIB, "response1", responseFileOB, "response1");
-      mSimRespIBShift = mSimRespIB->getDepthMax() - 10.e-4f;
+      mSimRespIBShift = mSimRespIB->getDepthMax() - 6.5e-4f;
       mSimRespOBShift = mSimRespOB->getDepthMax() - SegmentationAlpide::SensorLayerThickness / 2.f;
       mSimRespIBScaleX = 0.5 * constants::pixelarray::pixels::apts::pitchX / SegmentationMosaix::PitchRow;
       mSimRespIBScaleZ = 0.5 * constants::pixelarray::pixels::apts::pitchZ / SegmentationMosaix::PitchCol;
@@ -328,15 +328,13 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
 
   const int maxNrows{innerBarrel ? SegmentationMosaix::NRows : SegmentationAlpide::NRows};
   const int maxNcols{innerBarrel ? SegmentationMosaix::NCols : SegmentationAlpide::NCols};
-  if (rowE >= maxNrows) {
-    rowE = maxNrows - 1;
-  }
+
+  rowE = std::min(rowE, maxNrows - 1);
   colS -= AlpideRespSimMat::NPix / 2;
   colE += AlpideRespSimMat::NPix / 2;
   colS = std::max(colS, 0);
-  if (colE >= maxNcols) {
-    colE = maxNcols - 1;
-  }
+  colE = std::min(colE, maxNcols - 1);
+
   int rowSpan = rowE - rowS + 1, colSpan = colE - colS + 1; // size of plaquet where some response is expected
   float respMatrix[rowSpan][colSpan];                       // response accumulated here
   std::fill(&respMatrix[0][0], &respMatrix[0][0] + rowSpan * colSpan, 0.f);
@@ -379,12 +377,12 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
     float rowMax{}, colMax{};
     const AlpideRespSimMat* rspmat{nullptr};
     if (innerBarrel) {
-      rowMax = 0.5 * SegmentationMosaix::PitchRow;
-      colMax = 0.5 * SegmentationMosaix::PitchCol;
+      rowMax = 0.5f * SegmentationMosaix::PitchRow;
+      colMax = 0.5f * SegmentationMosaix::PitchCol;
       rspmat = mSimRespIB->getResponse(mSimRespIBScaleX * (xyzLocS.X() - cRowPix), mSimRespIBScaleZ * (xyzLocS.Z() - cColPix), xyzLocS.Y(), flipRow, flipCol, rowMax, colMax);
     } else {
-      rowMax = 0.5 * SegmentationAlpide::PitchRow;
-      colMax = 0.5 * SegmentationAlpide::PitchCol;
+      rowMax = 0.5f * SegmentationAlpide::PitchRow;
+      colMax = 0.5f * SegmentationAlpide::PitchCol;
       rspmat = mSimRespOB->getResponse(xyzLocS.X() - cRowPix, xyzLocS.Z() - cColPix, xyzLocS.Y(), flipRow, flipCol, rowMax, colMax);
     }
 
