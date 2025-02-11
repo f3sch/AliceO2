@@ -71,10 +71,11 @@ void Digitizer::init()
       constexpr const char* responseFileIB = "$(O2_ROOT)/share/Detectors/Upgrades/ITS3/data/ITS3ChipResponseData/APTSResponseData.root";
       constexpr const char* responseFileOB = "$(O2_ROOT)/share/Detectors/ITSMFT/data/AlpideResponseData/AlpideResponseData.root";
       loadSetResponseFunc("APTS", responseFileIB, "response1", responseFileOB, "response1");
-      mSimRespIBShift = mSimRespIB->getDepthMax() - 6.5e-4f;
+      mSimRespIBShift = mSimRespIB->getDepthMax() + (float)constants::pixelarray::pixels::apts::responseYShift;
       mSimRespOBShift = mSimRespOB->getDepthMax() - SegmentationAlpide::SensorLayerThickness / 2.f;
-      mSimRespIBScaleX = 0.5 * constants::pixelarray::pixels::apts::pitchX / SegmentationMosaix::PitchRow;
-      mSimRespIBScaleZ = 0.5 * constants::pixelarray::pixels::apts::pitchZ / SegmentationMosaix::PitchCol;
+      mSimRespIBScaleX = 0.5f * constants::pixelarray::pixels::apts::pitchX / SegmentationMosaix::PitchRow;
+      mSimRespIBScaleZ = 0.5f * constants::pixelarray::pixels::apts::pitchZ / SegmentationMosaix::PitchCol;
+      mSimRespIBOrientation = true;
     } else {
       LOGP(fatal, "ResponseFunction '{}' not implemented!", func);
     }
@@ -401,7 +402,7 @@ void Digitizer::processHit(const o2::itsmft::Hit& hit, uint32_t& maxFr, int evID
         if (colDest < 0 || colDest >= colSpan) {
           continue;
         }
-        respMatrix[rowDest][colDest] += rspmat->getValue(irow, icol, flipRow, flipCol);
+        respMatrix[rowDest][colDest] += rspmat->getValue(irow, icol, ((innerBarrel && mSimRespIBOrientation) ? !flipRow : flipRow), flipCol);
       }
     }
   }

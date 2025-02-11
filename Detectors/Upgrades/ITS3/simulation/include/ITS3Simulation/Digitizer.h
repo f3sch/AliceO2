@@ -110,6 +110,7 @@ class Digitizer : public TObject
 
   o2::itsmft::AlpideSimResponse* mSimRespIB = nullptr; // simulated response for IB
   o2::itsmft::AlpideSimResponse* mSimRespOB = nullptr; // simulated response for OB
+  bool mSimRespIBOrientation{false};                   // wether the orientation in the IB response function is flipped
   float mSimRespIBShift{0.f};                          // adjusting the Y-shift in the IB response function to match sensor local coord.
   float mSimRespIBScaleX{1.f};                         // scale x-local coordinate to response function x-coordinate
   float mSimRespIBScaleZ{1.f};                         // scale z-local coordinate to response function z-coordinate
