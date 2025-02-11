@@ -66,9 +66,10 @@ class SegmentationMosaix
   static constexpr float LengthH{Length / 2.f};
   static constexpr float Width{constants::pixelarray::width};
   static constexpr float WidthH{Width / 2.f};
-  static constexpr float PitchCol{constants::pixelarray::length / static_cast<float>(NCols)};
-  static constexpr float PitchRow{constants::pixelarray::width / static_cast<float>(NRows)};
+  static constexpr float PitchCol{constants::pixelarray::pixels::mosaix::pitchZ};
+  static constexpr float PitchRow{constants::pixelarray::pixels::mosaix::pitchX};
   static constexpr float SensorLayerThickness{constants::totalThickness};
+  static constexpr float NominalYShift{constants::nominalYShift};
 
   /// Transformation from the curved surface to a flat surface
   /// \param xCurved Detector local curved coordinate x in cm with respect to
@@ -88,7 +89,7 @@ class SegmentationMosaix
     xFlat = (mRadius * phi) - WidthH;
     // the y position is in the silicon volume however we need the chip volume (silicon+metalstack)
     // this is accounted by a y shift
-    yFlat = dist + (static_cast<float>(constants::nominalYShift) - mRadius);
+    yFlat = dist - mRadius + NominalYShift;
   }
 
   /// Transformation from the flat surface to a curved surface
@@ -107,7 +108,7 @@ class SegmentationMosaix
     // stack
     // the y position is in the chip volume however we need the silicon volume
     // this is accounted by a -y shift
-    float dist = yFlat + (mRadius - static_cast<float>(constants::nominalYShift));
+    float dist = yFlat - NominalYShift + mRadius;
     xCurved = dist * std::cos((xFlat + WidthH) / mRadius);
     yCurved = dist * std::sin((xFlat + WidthH) / mRadius);
   }
@@ -173,7 +174,7 @@ class SegmentationMosaix
     if (!detectorToLocal(row, col, xRow, zCol)) {
       return false;
     }
-    loc.SetCoordinates(xRow, 0., zCol);
+    loc.SetCoordinates(xRow, NominalYShift, zCol);
     return true;
   }
 
@@ -181,7 +182,7 @@ class SegmentationMosaix
   {
     float xRow{0.}, zCol{0.};
     detectorToLocalUnchecked(row, col, xRow, zCol);
-    loc.SetCoordinates(xRow, 0., zCol);
+    loc.SetCoordinates(xRow, NominalYShift, zCol);
   }
 
  private:
