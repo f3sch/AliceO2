@@ -21,6 +21,11 @@
 
 #include <array>
 
+// This files defines the design specifications of the chip.
+// Each TGeoShape has the following properties
+// length: dimension in z-axis
+// width: dimension in xy-axes
+// color: for visulisation
 namespace o2::its3::constants
 {
 constexpr double cm{1e+2}; // This is the default unit of TGeo so we use this as scale
@@ -35,27 +40,6 @@ constexpr int nRows{442};
 constexpr int nPixels{nRows * nCols};
 constexpr EColor color{kGreen};
 constexpr double area{width * length};
-namespace pixels
-{
-namespace apts
-{
-constexpr double pitchX{15.0 * mu};
-constexpr double pitchZ{15.0 * mu};
-} // namespace apts
-namespace moss
-{
-namespace top
-{
-constexpr double pitchX{22.5 * mu};
-constexpr double pitchZ{22.5 * mu};
-} // namespace top
-namespace bot
-{
-constexpr double pitchX{18.0 * mu};
-constexpr double pitchZ{18.0 * mu};
-} // namespace bot
-} // namespace moss
-} // namespace pixels
 } // namespace pixelarray
 namespace tile
 {
@@ -112,7 +96,7 @@ constexpr EColor color{kCyan};
 } // namespace rec
 constexpr unsigned int nRSUs{12};
 constexpr unsigned int nTilesPerSegment{nRSUs * rsu::nTiles};
-constexpr double length{nRSUs * rsu::length + lec::length + rec::length};
+constexpr double length{(nRSUs * rsu::length) + lec::length + rec::length};
 constexpr double lengthSensitive{nRSUs * rsu::length};
 } // namespace segment
 namespace carbonfoam
@@ -136,9 +120,9 @@ constexpr EColor color{kBlack};
 } // namespace metalstack
 namespace silicon
 {
-constexpr double thickness{45 * mu};                                    // thickness of silicion
-constexpr double radiusInner{(thickness + metalstack::thickness) / 2.}; // inner silicion radius correction
-constexpr double radiusOuter{(thickness - metalstack::thickness) / 2.}; // outer silicion radius correction
+constexpr double thickness{45 * mu};                                     // thickness of silicon
+constexpr double thicknessIn{(thickness + metalstack::thickness) / 2.};  // inner silicon thickness
+constexpr double thicknessOut{(thickness - metalstack::thickness) / 2.}; // outer silicon thickness
 } // namespace silicon
 constexpr unsigned int nLayers{3};
 constexpr unsigned int nTotLayers{7};
@@ -147,10 +131,42 @@ constexpr double equatorialGap{1 * mm};
 constexpr std::array<unsigned int, nLayers> nSegments{3, 4, 5};
 constexpr double totalThickness{silicon::thickness + metalstack::thickness};                                                                                         // total chip thickness
 constexpr std::array<double, nLayers> radii{19.0006 * mm, 25.228 * mm, 31.4554 * mm};                                                                                // nominal radius
-constexpr std::array<double, nLayers> radiiInner{radii[0] - silicon::radiusInner, radii[1] - silicon::radiusInner, radii[2] - silicon::radiusInner};                 // inner silicon radius
-constexpr std::array<double, nLayers> radiiOuter{radii[0] + silicon::radiusOuter, radii[1] + silicon::radiusOuter, radii[2] + silicon::radiusOuter};                 // outer silicon radius
+constexpr std::array<double, nLayers> radiiInner{radii[0] - silicon::thicknessIn, radii[1] - silicon::thicknessIn, radii[2] - silicon::thicknessIn};                 // inner silicon radius
+constexpr std::array<double, nLayers> radiiOuter{radii[0] + silicon::thicknessOut, radii[1] + silicon::thicknessOut, radii[2] + silicon::thicknessOut};              // outer silicon radius
 constexpr std::array<double, nLayers> radiiMiddle{(radiiInner[0] + radiiOuter[0]) / 2., (radiiInner[1] + radiiOuter[1]) / 2., (radiiInner[2] + radiiOuter[2]) / 2.}; // middle silicon radius
-constexpr double nominalYShift{-metalstack::thickness / 2.};                                                                                                         // shift to position in silicion volume to the chip volume (silicon+metalstack)
+/*constexpr double nominalYShift{-metalstack::thickness / 2.};                                                                                                         // shift to position in silicion volume to the chip volume (silicon+metalstack)*/
+constexpr double nominalYShift{0}; // shift to position in silicion volume to the chip volume (silicon+metalstack)
+
+// extra information of pixels and their response functions
+namespace pixelarray::pixels
+{
+namespace mosaix
+{
+constexpr double pitchX{width / static_cast<double>(nRows)};
+constexpr double pitchZ{length / static_cast<double>(nCols)};
+} // namespace mosaix
+namespace apts
+{
+constexpr double pitchX{15.0 * mu};
+constexpr double pitchZ{15.0 * mu};
+constexpr double responseUpperLimit{10 * mu};
+constexpr double responseYShift{responseUpperLimit - silicon::thicknessOut};
+} // namespace apts
+namespace moss
+{
+namespace top
+{
+constexpr double pitchX{22.5 * mu};
+constexpr double pitchZ{22.5 * mu};
+} // namespace top
+namespace bot
+{
+constexpr double pitchX{18.0 * mu};
+constexpr double pitchZ{18.0 * mu};
+} // namespace bot
+} // namespace moss
+} // namespace pixelarray::pixels
+
 namespace detID
 {
 constexpr unsigned int mDetIDs{2 * 12 * 12 * 12};                  //< 2 Hemispheres * (3,4,5=12 segments in a layer) * 12 RSUs in a segment * 12 Tiles in a RSU
