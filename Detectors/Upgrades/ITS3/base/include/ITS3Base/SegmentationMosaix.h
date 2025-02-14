@@ -32,6 +32,16 @@ class SegmentationMosaix
   // the more natural row,col layout: Also all the transformation between these
   // two. The class provides the transformation from the tile to TGeo
   // coordinates.
+  // In fact there exist three coordinate systems and one is transient.
+  // 1. The curved coordinate system. The chip's local coordinate system is
+  //    defined with its center at the the mid-point of the tube.
+  // 2. The flat coordinate system. This is the tube segment projected onto a flat
+  //    surface. In the projection we implicitly assume that the inner and outer
+  //    stretch does not depend on the radius.
+  //    Additionally, there is a difference between the flat geometrical center
+  //    and the phyiscal center defined by the metal layer.
+  // 3. The detector coordinate system. Defined by the row and column segmentation
+  //    defined at the upper edge in the flat coord.
 
   // row,col=0
   // |
@@ -71,7 +81,13 @@ class SegmentationMosaix
   static constexpr float SensorLayerThickness{constants::totalThickness};
   static constexpr float NominalYShift{constants::nominalYShift};
 
-  /// Transformation from the curved surface to a flat surface
+  /// Transformation from the curved surface to a flat surface.
+  /// Additionally a shift in the flat coordinates must be applied because
+  /// the center of the TGeoShap when projected will be higher than the
+  /// physical thickness of the chip (we add an additional hull to account for
+  /// the copper metal interconnection which is in reality part of the chip but in our
+  /// simulation the silicon and metal layer are separated). Thus we shift the projected center
+  /// down by this difference to align the coordinate systems.
   /// \param xCurved Detector local curved coordinate x in cm with respect to
   /// the center of the sensitive volume.
   /// \param yCurved Detector local curved coordinate y in cm with respect to
@@ -93,7 +109,7 @@ class SegmentationMosaix
   }
 
   /// Transformation from the flat surface to a curved surface
-  /// It works only if the detector is not rototraslated
+  /// It works only if the detector is not rototraslated.
   /// \param xFlat Detector local flat coordinate x in cm with respect to
   /// the center of the sensitive volume.
   /// \param yFlat Detector local flat coordinate y in cm with respect to
