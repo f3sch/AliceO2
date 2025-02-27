@@ -255,13 +255,14 @@ void CheckClusterSize(std::string clusFileName = "o2clus_its.root",
 
       auto pattId = cluster.getPatternID();
       auto id = cluster.getSensorID();
+      auto ib = o2::its3::constants::detID::isDetITS3(id);
       int clusterSize{-1};
-      if (pattId == o2::itsmft::CompCluster::InvalidPatternID || dict.isGroup(pattId)) {
+      if (pattId == o2::itsmft::CompCluster::InvalidPatternID || dict.isGroup(pattId, ib)) {
         o2::itsmft::ClusterPattern patt(pattIt);
         clusterSize = patt.getNPixels();
         continue;
       } else {
-        clusterSize = dict.getNpixels(pattId);
+        clusterSize = dict.getNpixels(pattId, ib);
       }
 
       const auto& label = (clusLabArr->getLabels(clEntry))[0];
