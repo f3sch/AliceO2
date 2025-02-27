@@ -135,7 +135,6 @@ constexpr std::array<double, nLayers> radiiInner{radii[0] - silicon::thicknessIn
 constexpr std::array<double, nLayers> radiiOuter{radii[0] + silicon::thicknessOut, radii[1] + silicon::thicknessOut, radii[2] + silicon::thicknessOut};              // outer silicon radius
 constexpr std::array<double, nLayers> radiiMiddle{(radiiInner[0] + radiiOuter[0]) / 2., (radiiInner[1] + radiiOuter[1]) / 2., (radiiInner[2] + radiiOuter[2]) / 2.}; // middle silicon radius
 constexpr double nominalYShift{-metalstack::thickness / 2.};                                                                                                         // shift to position in silicion volume to the chip volume (silicon+metalstack)
-/*constexpr double nominalYShift{0}; // shift to position in silicion volume to the chip volume (silicon+metalstack)*/
 
 // extra information of pixels and their response functions
 namespace pixelarray::pixels

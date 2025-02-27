@@ -260,7 +260,7 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
       const auto pattID = cluster.getPatternID();
       const auto isIB = o2::its3::constants::detID::isDetITS3(chipID);
       const auto layer = gman->getLayer(chipID);
-      if (pattID == o2::itsmft::CompCluster::InvalidPatternID || dict.isGroup(pattID)) {
+      if (pattID == o2::itsmft::CompCluster::InvalidPatternID || dict.isGroup(pattID, isIB)) {
         continue;
       }
       const auto& lab = (clusLabArr->getLabels(clEntry))[0];
@@ -316,7 +316,7 @@ void CompareClustersAndDigits(std::string clusfile = "o2clus_it3.root",
       data[chipID].cog->AddPoint(colC, rowC);
 
       constexpr float delta = 1e-2;
-      const auto& patt = dict.getPattern(cluster.getPatternID());
+      const auto& patt = dict.getPattern(cluster.getPatternID(), isIB);
       auto box = new TBox(
         cluster.getCol() - delta - 0.5,
         cluster.getRow() - delta - 0.5,
