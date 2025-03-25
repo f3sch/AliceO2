@@ -76,7 +76,8 @@ void SVertexer::process(const o2::globaltracking::RecoContainer& recoData, o2::f
 #else
       int iThread = 0;
 #endif
-      checkV0(seedP, seedN, itp, itn, iThread);
+      auto status = checkV0(seedP, seedN, itp, itn, iThread);
+      debugTree(SVDebug::CheckV0, "checkV0", "seedP=", seedP.gid, "seedN=", seedN.gid, "status=", status, "itp=", itp, "itn=", itn, "fitstat=", mFitterV0[0].getFitStatus());
     }
   }
 
@@ -259,6 +260,16 @@ void SVertexer::produceOutput(o2::framework::ProcessingContext& pc)
 //__________________________________________________________________
 void SVertexer::init()
 {
+  if (mDebugFlags) {
+    LOG(info) << mDebugFlags;
+    mDebugStream = std::make_unique<utils::TreeStreamRedirector>("svertexer_debug.root", "RECREATE");
+  }
+}
+
+//__________________________________________________________________
+void SVertexer::finalize()
+{
+  mDebugStream.reset();
 }
 
 //__________________________________________________________________
@@ -481,7 +492,8 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
         }
         // unconstrained TPC tracks require special treatment: there is no point in checking DCA to mean vertex since it is not precise,
         // but we need to create a clone of TPC track constrained to this particular vertex time.
-        if (processTPCTrack(mTPCTracksArray[tvid], tvid, iv)) {
+        if (auto p = processTPCTrack(mTPCTracksArray[tvid], tvid, iv); p != ProcessTPCTrackStatus::Constrained) {
+          debugTree(SVDebug::TPCCandPool, "processTPCTrack", "trkid=", tvid, "colid=", iv, "status=", p);
           continue;
         }
       }
@@ -574,49 +586,44 @@ void SVertexer::buildT2V(const o2::globaltracking::RecoContainer& recoData) // a
   }
 
   LOG(info) << "Collected " << mTracksPool[POS].size() << " positive and " << mTracksPool[NEG].size() << " negative seeds";
+
+#ifdef SVERTEXER_DEBUG
+  // unassigned tracks
+  const auto& vtref = vtxRefs[nv];
+  int it = vtref.getFirstEntry(), itLim = it + vtref.getEntries();
+  for (; it < itLim; it++) {
+    auto tvid = trackIndex[it];
+    if (!recoData.isTrackSourceLoaded(tvid.getSource())) {
+      continue;
+    }
+    debugTree(SVDebug::Unassigned, "unassigned", "trkid=", tvid);
+  }
+#endif
 }
 
 //__________________________________________________________________
-bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread)
+SVertexer::CheckV0Status SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, int iN, int ithread)
 {
   auto& fitterV0 = mFitterV0[ithread];
-  // Fast rough cuts on pairs before feeding to DCAFitter, tracks are not in the same Frame or at same X
-  bool isTPConly = (seedP.gid.getSource() == GIndex::TPC || seedN.gid.getSource() == GIndex::TPC);
+  bool isTPCOnlyPos = seedP.gid.getSource() == GIndex::TPC;
+  bool isTPCOnlyNeg = seedN.gid.getSource() == GIndex::TPC;
+  bool isTPConly = (isTPCOnlyPos || isTPCOnlyNeg);
   if (mSVParams->mTPCTrackPhotonTune && isTPConly) {
     // Check if Tgl is close enough
     if (std::abs(seedP.getTgl() - seedN.getTgl()) > mSVParams->maxV0TglAbsDiff) {
-      LOG(debug) << "RejTgl";
-      return false;
+      return CheckV0Status::RejTPCTgl;
     }
-    // Check in transverse plane
-    float sna, csa;
-    o2::math_utils::CircleXYf_t trkPosCircle;
-    seedP.getCircleParams(mBz, trkPosCircle, sna, csa);
-    o2::math_utils::CircleXYf_t trkEleCircle;
-    seedN.getCircleParams(mBz, trkEleCircle, sna, csa);
-    // Does the radius of both tracks compare to their absolute circle center distance
-    float c2c = std::hypot(trkPosCircle.xC - trkEleCircle.xC,
-                           trkPosCircle.yC - trkEleCircle.yC);
-    float r2r = trkPosCircle.rC + trkEleCircle.rC;
-    float dcr = c2c - r2r;
-    if (std::abs(dcr) > mSVParams->mTPCTrackD2R) {
-      LOG(debug) << "RejD2R " << c2c << " " << r2r << " " << dcr;
-      return false;
+    if (isTPCOnlyPos && isTPCOnlyNeg) {
+      // Check if tpc only prongs extrapolate to a similar beamspot region
+      if (std::abs(seedP.trk2beam - seedN.trk2beam) > mSVParams->maxV0BeamAbsDiff) {
+        return CheckV0Status::RejTPC2Beam;
+      }
     }
-    // Will the conversion point look somewhat reasonable
-    float r1_r = trkPosCircle.rC / r2r;
-    float r2_r = trkEleCircle.rC / r2r;
-    float dR = std::hypot(r2_r * trkPosCircle.xC + r1_r * trkEleCircle.xC, r2_r * trkPosCircle.yC + r1_r * trkEleCircle.yC);
-    if (dR > mSVParams->mTPCTrackDR) {
-      LOG(debug) << "RejDR" << dR;
-      return false;
-    }
-
     // Setup looser cuts for the DCAFitter
     fitterV0.setMaxDZIni(mSVParams->mTPCTrackMaxDZIni);
     fitterV0.setMaxDXYIni(mSVParams->mTPCTrackMaxDXYIni);
     fitterV0.setMaxChi2(mSVParams->mTPCTrackMaxChi2);
-    fitterV0.setCollinear(true);
+    fitterV0.setCollinear(mSVParams->mTPCUseCollinearFit);
   }
 
   // feed DCAFitter
@@ -630,27 +637,23 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   }
 
   if (nCand == 0) { // discard this pair
-    LOG(debug) << "RejDCAFitter";
-    return false;
+    return CheckV0Status::RejFitter;
   }
   const auto& v0XYZ = fitterV0.getPCACandidate();
   // validate V0 radial position
   // check closeness to the beam-line
   float dxv0 = v0XYZ[0] - mMeanVertex.getX(), dyv0 = v0XYZ[1] - mMeanVertex.getY(), r2v0 = dxv0 * dxv0 + dyv0 * dyv0;
   if (r2v0 < mMinR2ToMeanVertex) {
-    LOG(debug) << "RejMinR2ToMeanVertex";
-    return false;
+    return CheckV0Status::RejMinR2ToMeanVertex;
   }
   float rv0 = std::sqrt(r2v0), drv0P = rv0 - seedP.minR, drv0N = rv0 - seedN.minR;
-  if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->maxV0ToProngsRDiff ||
-      drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->maxV0ToProngsRDiff) {
-    LOG(debug) << "RejCausality " << drv0P << " " << drv0N;
-    return false;
+  if (drv0P > mSVParams->causalityRTolerance || drv0P < -mSVParams->getMaxV0ToProngsRDiff(isTPConly) ||
+      drv0N > mSVParams->causalityRTolerance || drv0N < -mSVParams->getMaxV0ToProngsRDiff(isTPConly)) {
+    return CheckV0Status::RejCausality;
   }
   const int cand = 0;
   if (!fitterV0.isPropagateTracksToVertexDone(cand) && !fitterV0.propagateTracksToVertex(cand)) {
-    LOG(debug) << "RejProp failed";
-    return false;
+    return CheckV0Status::RejProp;
   }
   const auto& trPProp = fitterV0.getTrack(0, cand);
   const auto& trNProp = fitterV0.getTrack(1, cand);
@@ -664,12 +667,10 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   std::array<float, 3> pV0 = {pP[0] + pN[0], pP[1] + pN[1], pP[2] + pN[2]};
   float pt2V0 = pV0[0] * pV0[0] + pV0[1] * pV0[1], prodXYv0 = dxv0 * pV0[0] + dyv0 * pV0[1], tDCAXY = prodXYv0 / pt2V0;
   if (pt2V0 < mMinPt2V0) { // pt cut
-    LOG(debug) << "RejPt2 " << pt2V0;
-    return false;
+    return CheckV0Status::RejPt2;
   }
   if (pV0[2] * pV0[2] / pt2V0 > mMaxTgl2V0) { // tgLambda cut
-    LOG(debug) << "RejTgL " << pV0[2] * pV0[2] / pt2V0;
-    return false;
+    return CheckV0Status::RejTgl;
   }
   float p2V0 = pt2V0 + pV0[2] * pV0[2], ptV0 = std::sqrt(pt2V0);
   // apply mass selections
@@ -720,9 +721,8 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
   bool rejectIfNotCascade = false;
 
   if (!goodHyp && mSVParams->checkV0Hypothesis) {
-    LOG(debug) << "RejHypo";
     if (!checkFor3BodyDecays && !checkForCascade) {
-      return false;
+      return CheckV0Status::RejHypo;
     } else {
       rejectAfter3BodyCheck = true;
     }
@@ -735,7 +735,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     if (dca2 > mMaxDCAXY2ToMeanVertexV0Casc || cosPAXY < mSVParams->minCosPAXYMeanVertexCascV0) {
       LOG(debug) << "Rej for cascade DCAXY2: " << dca2 << " << cosPAXY: " << cosPAXY;
       if (!checkFor3BodyDecays) {
-        return false;
+        return CheckV0Status::RejCascade;
       } else {
         rejectAfter3BodyCheck = true;
       }
@@ -757,10 +757,10 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
       if (mSVParams->mTPCTrackPhotonTune && isTPConly) {
         // Check for looser cut for tpc-only photons only
         if (dca2 > mSVParams->mTPCTrackMaxDCAXY2ToMeanVertex) {
-          return false;
+          return CheckV0Status::RejTPCDCA2;
         }
       } else {
-        return false;
+        return CheckV0Status::RejDCA2;
       }
     }
   }
@@ -793,7 +793,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     bestCosPA = cosPA;
   }
   if (!candFound) {
-    return false;
+    return CheckV0Status::RejNoCand;
   }
   if (bestCosPA < mSVParams->minCosPACascV0) {
     rejectAfter3BodyCheck = true;
@@ -809,7 +809,7 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     n3bodyDecays += check3bodyDecays(v0Idxnew, v0new, rv0, pV0, p2V0, iP, POS, vlist, ithread);
   }
   if (rejectAfter3BodyCheck) {
-    return false;
+    return CheckV0Status::RejNoCandNo3Body;
   }
 
   // check cascades
@@ -838,7 +838,9 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     }
     if (photonOnly) {
       mV0sIdxTmp[ithread].back().setPhotonOnly();
-      mV0sIdxTmp[ithread].back().setCollinear();
+      if (mSVParams->mTPCUseCollinearFit) {
+        mV0sIdxTmp[ithread].back().setCollinear();
+      }
     }
 
     if (mSVParams->createFullV0s) {
@@ -852,7 +854,10 @@ bool SVertexer::checkV0(const TrackCand& seedP, const TrackCand& seedN, int iP, 
     }
   }
 
-  return mV0sIdxTmp[ithread].size() - nV0Ini != 0;
+  if (mV0sIdxTmp[ithread].size() - nV0Ini != 0) {
+    return CheckV0Status::OK;
+  }
+  return CheckV0Status::None;
 }
 
 //__________________________________________________________________
@@ -1277,14 +1282,14 @@ void SVertexer::setNThreads(int n)
 }
 
 //______________________________________________
-bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int vtxid)
+SVertexer::ProcessTPCTrackStatus SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int vtxid)
 {
   if (mSVParams->mTPCTrackMaxX > 0. && trTPC.getX() > mSVParams->mTPCTrackMaxX) {
-    return true;
+    return ProcessTPCTrackStatus::RejMaxX;
   }
   // if TPC trackis unconstrained, try to create in the tracks pool a clone constrained to vtxid vertex time.
-  if (trTPC.hasBothSidesClusters()) { // this is effectively constrained track
-    return false;                     // let it be processed as such
+  if (trTPC.hasBothSidesClusters()) {          // this is effectively constrained track
+    return ProcessTPCTrackStatus::Constrained; // let it be processed as such
   }
   const auto& vtx = mPVertices[vtxid];
   auto twe = vtx.getTimeStamp();
@@ -1306,29 +1311,18 @@ bool SVertexer::processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int 
   auto err = correctTPCTrack(trLoc, trTPC, twe.getTimeStamp(), twe.getTimeStampError());
   if (err < 0) {
     mTracksPool[posneg].pop_back(); // discard
-    return true;
+    return ProcessTPCTrackStatus::RejCorr;
   }
 
   if (mSVParams->mTPCTrackPhotonTune) {
-    // require minimum of tpc clusters
-    bool dCls = trTPC.getNClusters() < mSVParams->mTPCTrackMinNClusters;
-    // check track z cuts
-    bool dDPV = std::abs(trLoc.getX() * trLoc.getTgl() - trLoc.getZ() + vtx.getZ()) > mSVParams->mTPCTrack2Beam;
-    // check track transveres cuts
-    float sna{0}, csa{0};
-    o2::math_utils::CircleXYf_t trkCircle;
-    trLoc.getCircleParams(mBz, trkCircle, sna, csa);
-    float cR = std::hypot(trkCircle.xC, trkCircle.yC);
-    float drd2 = std::sqrt(cR * cR - trkCircle.rC * trkCircle.rC);
-    bool dRD2 = drd2 > mSVParams->mTPCTrackXY2Radius;
-
-    if (dCls || dDPV || dRD2) {
+    trLoc.trk2beam = (trLoc.getX() * trLoc.getTgl()) - trLoc.getZ() + vtx.getZ();
+    if (std::abs(trLoc.trk2beam) > mSVParams->mTPCTrack2Beam) { // check track z cut
       mTracksPool[posneg].pop_back();
-      return true;
+      return ProcessTPCTrackStatus::Rej2Beam;
     }
   }
 
-  return true;
+  return ProcessTPCTrackStatus::OK;
 }
 
 //______________________________________________

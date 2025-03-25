@@ -96,6 +96,7 @@ void SecondaryVertexingSpec::init(InitContext& ic)
   mVertexer.setEnable3BodyDecays(mEnable3BodyVertices);
   mVertexer.setNThreads(ic.options().get<int>("threads"));
   mVertexer.setUseMC(mUseMC);
+  mVertexer.setDebug(ic.options().get<std::string>("debug"));
   if (mEnableStrangenessTracking) {
     mStrTracker.setCorrType(o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrLUT);
     mStrTracker.setConfigParams(&o2::strangeness_tracking::StrangenessTrackingParamConfig::Instance());
@@ -131,6 +132,7 @@ void SecondaryVertexingSpec::run(ProcessingContext& pc)
 
 void SecondaryVertexingSpec::endOfStream(EndOfStreamContext& ec)
 {
+  mVertexer.finalize();
   LOGF(info, "Secondary vertexing total timing: Cpu: %.3e Real: %.3e s in %d slots, nThreads = %d",
        mTimer.CpuTime(), mTimer.RealTime(), mTimer.Counter() - 1, mVertexer.getNThreads());
 }
@@ -243,6 +245,7 @@ DataProcessorSpec getSecondaryVertexingSpec(GTrackID::mask_t src, bool enableCas
 {
   std::vector<OutputSpec> outputs;
   Options opts{
+    {"debug", VariantType::String, "", {"Request debug output"}},
     {"material-lut-path", VariantType::String, "", {"Path of the material LUT file"}},
     {"threads", VariantType::Int, 1, {"Number of threads"}}};
   auto dataRequest = std::make_shared<DataRequest>();

@@ -93,20 +93,19 @@ struct SVertexerParams : public o2::conf::ConfigurableParamHelper<SVertexerParam
 
   // Cuts for TPC only tracks
   bool mExcludeTPCtracks = false;            // don't loop over TPC tracks if true (if loaded, dEdx info is used instead)
+  bool mTPCUseCollinearFit = true;          // use for TPC-only prongs collinear fit
   float mTPCTrackMaxX = -1.;                 // don't use TPC standalone tracks with X exceeding this;
   float mTPCTrack2Beam = 21.f;               // straight line for TPC track back to beamline
   bool mTPCTrackPhotonTune = true;           // use TPC-only photon tuning
-  int mTPCTrackMinNClusters = -1;            // minimum number of clusters
-  float mTPCTrackXY2Radius = 90.f;           // check for realistic conversion point, e.g., in material
-  float mTPCTrackD2R = 4.f;                  // check for maximal distance of pairs and their radii
-  float mTPCTrackDR = 90.f;                  // check if preliminary conversion point can lie somewhere reasonable
   float minTPCdEdx = 250;                    // starting from this dEdx value, tracks with p > minMomTPCdEdx are always accepted
   float minMomTPCdEdx = 0.8;                 // minimum p for tracks with dEdx > mMinTPCdEdx to be accepted
-  float maxV0TglAbsDiff = 0.3;               ///< max absolute difference in Tgl for V0 for photons only
+  float maxV0TglAbsDiff = 0.2;               ///< max absolute difference in Tgl for V0 for photons only
+  float maxV0BeamAbsDiff = 5.;               ///< max absolute difference in beamline extrapolation for V0 for photons only
   float mTPCTrackMaxChi2 = 4.;               ///< max DCA from prongs to vertex for photon TPC-only track only
   float mTPCTrackMaxDZIni = 8.;              ///< don't consider as a seed (circles intersection) if Z distance exceeds this, for photon TPC-only track only
   float mTPCTrackMaxDXYIni = 8.;             ///< don't consider as a seed (circles intersection) if XY distance exceeds this, for photon TPC-only track only
   float mTPCTrackMaxDCAXY2ToMeanVertex = 2.; ///< max DCA^2 of V0 from beam line (mean vertex) for prompt V0 candidates, for photon TPC-only track only
+  float maxTPCV0ToProngsRDiff = 90.;         ///< V0 radius cannot be lower than this ammount wrt minR of TPC-only contributors
 
   uint8_t mITSSAminNclu = 6;             // global requirement of at least this many ITS clusters if no TPC info present (N.B.: affects all secondary vertexing)
   uint8_t mITSSAminNcluCascades = 6;     // require at least this many ITS clusters if no TPC info present for cascade finding.
@@ -141,6 +140,9 @@ struct SVertexerParams : public o2::conf::ConfigurableParamHelper<SVertexerParam
   float pidCutsH4L3body[SVertex3Hypothesis::NPIDParams] = {0.0025, 14, 0.07, 0.5};  // H4L -> t p pi-
   float pidCutsHe4L3body[SVertex3Hypothesis::NPIDParams] = {0.0025, 14, 0.07, 0.5}; // He4L -> He3 p pi-
   float pidCutsHe5L3body[SVertex3Hypothesis::NPIDParams] = {0.0025, 14, 0.07, 0.5}; // He5L -> He4 p pi-
+
+  // convienince getters
+  float getMaxV0ToProngsRDiff(bool isTPConly) const { return (isTPConly) ? maxTPCV0ToProngsRDiff : maxV0ToProngsRDiff; }
 
   O2ParamDef(SVertexerParams, "svertexer");
 };

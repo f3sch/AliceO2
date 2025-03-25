@@ -9,7 +9,8 @@
 # granted to it by virtue of its status as an Intergovernmental Organization
 # or submit itself to any jurisdiction.
 
-# add_compile_options(-O0 -g -fPIC)
+# add_compile_options(-O0 -g -fPIC -fno-omit-frame-pointer)
+add_compile_definitions(SVERTEXER_DEBUG=1)
 
 add_subdirectory(StrangenessTracking)
 

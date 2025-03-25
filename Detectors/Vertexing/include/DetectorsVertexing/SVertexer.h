@@ -32,11 +32,16 @@
 #include "DetectorsVertexing/SVertexHypothesis.h"
 #include "StrangenessTracking/StrangenessTracker.h"
 #include "DataFormatsTPC/TrackTPC.h"
-#include <numeric>
-#include <algorithm>
 #include "GPUO2InterfaceRefit.h"
 #include "TPCFastTransform.h"
 #include "DataFormatsTPC/PIDResponse.h"
+#include "CommonUtils/TreeStreamRedirector.h"
+#include "CommonUtils/EnumFlags.h"
+
+#include <numeric>
+#include <algorithm>
+#include <span>
+#include <memory>
 
 namespace o2
 {
@@ -104,6 +109,7 @@ class SVertexer
     bool hasTPC = false;
     int8_t nITSclu = -1;
     bool compatibleProton = false; // dE/dx compatibility with proton hypothesis (FIXME: use better, uint8_t compat mask?)
+    float trk2beam = 0.;
     bool hasITS() const
     {
       return nITSclu > 0;
@@ -117,6 +123,7 @@ class SVertexer
   void setEnableCascades(bool v) { mEnableCascades = v; }
   void setEnable3BodyDecays(bool v) { mEnable3BodyDecays = v; }
   void init();
+  void finalize();
   void process(const o2::globaltracking::RecoContainer& recoTracks, o2::framework::ProcessingContext& pc);
   void produceOutput(o2::framework::ProcessingContext& pc);
   int getNV0s() const { return mNV0s; }
@@ -150,17 +157,47 @@ class SVertexer
   std::array<size_t, 3> getNFitterCalls() const;
   void setSources(GIndex::mask_t src) { mSrc = src; }
 
+  void setDebug(const std::string& s) { mDebugFlags.set(s); }
+
  private:
   template <class TVI, class TCI, class T3I, class TR>
-  void extractPVReferences(const TVI& v0s, TR& vtx2V0Refs, const TCI& cascades, TR& vtx2CascRefs, const T3I& vtxs3, TR& vtx2body3Refs);
-  bool checkV0(const TrackCand& seed0, const TrackCand& seed1, int iP, int iN, int ithread);
+  void
+    extractPVReferences(const TVI& v0s, TR& vtx2V0Refs, const TCI& cascades, TR& vtx2CascRefs, const T3I& vtxs3, TR& vtx2body3Refs);
+
+  enum class CheckV0Status : uint8_t {
+    None = 0,
+    OK,
+    RejTPCTgl,
+    RejTPC2Beam,
+    RejTPCDCA2,
+    RejFitter,
+    RejMinR2ToMeanVertex,
+    RejCausality,
+    RejProp,
+    RejPt2,
+    RejTgl,
+    RejHypo,
+    RejCascade,
+    RejDCA2,
+    RejNoCand,
+    RejNoCandNo3Body,
+  };
+  CheckV0Status checkV0(const TrackCand& seed0, const TrackCand& seed1, int iP, int iN, int ithread);
   int checkCascades(const V0Index& v0Idx, const V0& v0, float rv0, std::array<float, 3> pV0, float p2V0, int avoidTrackID, int posneg, VBracket v0vlist, int ithread);
   int check3bodyDecays(const V0Index& v0Idx, const V0& v0, float rv0, std::array<float, 3> pV0, float p2V0, int avoidTrackID, int posneg, VBracket v0vlist, int ithread);
   void setupThreads();
   void buildT2V(const o2::globaltracking::RecoContainer& recoTracks);
   void updateTimeDependentParams();
   bool acceptTrack(const GIndex gid, const o2::track::TrackParCov& trc) const;
-  bool processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int vtxid);
+
+  enum class ProcessTPCTrackStatus : uint8_t {
+    Constrained,
+    OK,
+    RejMaxX,
+    RejCorr,
+    Rej2Beam,
+  };
+  ProcessTPCTrackStatus processTPCTrack(const o2::tpc::TrackTPC& trTPC, GIndex gid, int vtxid);
   float correctTPCTrack(TrackCand& trc, const o2::tpc::TrackTPC& tTPC, float tmus, float tmusErr) const;
 
   uint64_t getPairIdx(GIndex id1, GIndex id2) const
@@ -224,6 +261,57 @@ class SVertexer
   bool mEnableCascades = true;
   bool mEnable3BodyDecays = false;
   bool mUseMC = false;
+
+  /// Debug information
+  enum class SVDebug : uint8_t {
+    TPCCandPool, // check which TPC tracks do not go into the pool
+    Unassigned,  // check unassigned tracks
+    CheckV0,     // checkV0 status
+  };
+  utils::EnumFlags<SVDebug> mDebugFlags;
+  std::unique_ptr<utils::TreeStreamRedirector> mDebugStream;
+
+#ifdef SVERTEXER_DEBUG
+  template <bool log = true, typename... Args>
+    requires(sizeof...(Args) % 2 == 0 && sizeof...(Args) > 0)
+  void debugTree(SVDebug f, const char* tname, Args&&... args)
+  {
+    static struct LogLogThrottler {
+      size_t evCount{0};
+      size_t nextLog{1};
+      bool needToLog()
+      {
+        if (++evCount > nextLog) {
+          nextLog *= 2;
+          return true;
+        }
+        return false;
+      }
+    } logger;
+    if (mDebugFlags[f]) {
+      LOG_IF(info, logger.needToLog()) << "debugTree: " << tname << " dumped entries " << logger.evCount;
+      auto& stream = (*mDebugStream) << tname;
+      [&]<std::size_t... I>(std::index_sequence<I...>) {
+        const char* names[] = {std::get<2 * I>(std::forward_as_tuple(args...))...};
+        auto values = std::forward_as_tuple(std::get<2 * I + 1>(std::forward_as_tuple(args...))...);
+        ((stream << names[I] << [](auto&& val) -> decltype(auto) {
+           if constexpr (std::is_enum_v<std::decay_t<decltype(val)>>) {
+             return static_cast<std::underlying_type_t<std::decay_t<decltype(val)>>>(val);
+           } else {
+             return val;
+           }
+         }(std::get<I>(values))),
+         ...);
+      }(std::make_index_sequence<sizeof...(Args) / 2>{});
+      stream << "\n";
+    }
+  }
+#else // turn this into a no-op
+  template <typename... Args>
+  void debugTree(SVDebug f, const char* tname, Args&&... args)
+  {
+  }
+#endif
 };
 
 } // namespace vertexing
