@@ -34,6 +34,8 @@ BOOST_AUTO_TEST_CASE(Flags_test)
 
   // Test default initialization
   EFlags flags;
+  BOOST_TEST(flags.None == 0);
+  BOOST_TEST(flags.All == 31);
   BOOST_TEST(flags.value() == 0);
   BOOST_TEST(!flags.any());
 

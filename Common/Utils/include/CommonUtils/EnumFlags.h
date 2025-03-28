@@ -154,14 +154,14 @@ struct FlagsHelper final {
     }
     return values;
   }
-  static constexpr auto Values{getValues(std::make_index_sequence<MaxScan - MinScan - MarginScan>())};              // Enum Values
-  static constexpr auto count() noexcept { return Values.size(); }                                                  // Number of enum members
-  static constexpr auto Min_v{Values.front()};                                                                      // Enum first entry
-  static constexpr auto Max_v{Values.back()};                                                                       // Enum last entry
-  static constexpr auto Min_u_v{static_cast<size_t>(Min_v)};                                                        // Enum first entry as size_t
-  static constexpr auto Max_u_v{static_cast<size_t>(Max_v)};                                                        // Enum last entry as size_t
-  static constexpr bool isContinuous() noexcept { return (Max_u_v - Min_u_v + 1) == count(); }                      // Is the enum continuous
-  static constexpr uint64_t MaxRep{(Max_u_v >= 64) ? std::numeric_limits<uint64_t>::max() : (1ULL << Max_u_v) - 1}; // largest representable value
+  static constexpr auto Values{getValues(std::make_index_sequence<MaxScan - MinScan - MarginScan>())}; // Enum Values
+  static constexpr auto count() noexcept { return Values.size(); }                                     // Number of enum members
+  static constexpr auto Min_v{Values.front()};                                                         // Enum first entry
+  static constexpr auto Max_v{Values.back()};                                                          // Enum last entry
+  static constexpr auto Min_u_v{static_cast<size_t>(Min_v)};                                           // Enum first entry as size_t
+  static constexpr auto Max_u_v{static_cast<size_t>(Max_v)};                                           // Enum last entry as size_t
+  static constexpr bool isContinuous() noexcept { return (Max_u_v - Min_u_v + 1) == count(); }         // Is the enum continuous
+  static constexpr auto MaxRep{((1 << (Max_u_v - Min_u_v + 1)) - 1) << Min_u_v};                       // largest representable value
 
   template <E e>
   static constexpr std::string_view getName()
