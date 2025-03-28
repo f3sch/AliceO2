@@ -141,6 +141,20 @@ BOOST_AUTO_TEST_CASE(Flags_test)
       BOOST_TEST(flags.test(TestEnum::Bit4));
     }
 
+    { // test with different delimiter
+      std::string str = "Bit4,TestEnum::Bit2 , Bit1 ";
+      flags.set(str);
+      BOOST_TEST(flags.test(TestEnum::Bit1));
+      BOOST_TEST(flags.test(TestEnum::Bit2));
+      BOOST_TEST(!flags.test(TestEnum::Bit3));
+      BOOST_TEST(flags.test(TestEnum::Bit4));
+    }
+
+    { // throw test with mixed delimiter
+      std::string str = "Bit4|TestEnum::Bit2 , Bit1 ";
+      BOOST_CHECK_THROW(flags.set(str), std::invalid_argument);
+    }
+
     { // test throw
       std::string str = "Invalid";
       BOOST_CHECK_THROW(flags.set(str), std::invalid_argument);

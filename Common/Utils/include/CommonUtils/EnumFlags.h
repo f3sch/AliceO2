@@ -668,7 +668,7 @@ class EnumFlags
         throw std::out_of_range("Values exceeds enum range.");
       }
       mBits = static_cast<U>(v);
-    } else if (std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isalnum(c) != 0 || c == '|' || c == ' ' || c == ':'; })) {
+    } else if (std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isalnum(c) != 0 || c == '|' || c == ' ' || c == ':' || c == ','; })) {
       std::string cs{s};
       std::transform(cs.begin(), cs.end(), cs.begin(), [](unsigned char c) { return std::tolower(c); });
       if (cs == H::All) {
@@ -676,7 +676,8 @@ class EnumFlags
       } else if (cs == H::None) {
         mBits = None;
       } else {
-        for (const auto& tok : Str::tokenize(s, '|')) {
+        char token = (s.find(',') != std::string::npos) ? ',' : '|';
+        for (const auto& tok : Str::tokenize(s, token)) {
           if (auto e = H::fromString(tok)) {
             mBits |= to_bit(*e);
           } else {
