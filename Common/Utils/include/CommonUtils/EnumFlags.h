@@ -398,7 +398,7 @@ class EnumFlags
   // Sets flags from a string representation.
   // This can be either from a number representation (binary or digits) or
   // a concatenation of the enums members name e.g., 'Enum1|Enum2|...'
-  void set(const std::string& s="", int base = 2)
+  void set(const std::string& s = "", int base = 2)
   {
     // on throw restore previous state and rethrow
     const U prev = mBits;
