@@ -184,7 +184,7 @@ class SegmentationMosaix
     zCol = (static_cast<float>(iCol) + 0.5f) * PitchCol - LengthH;
   }
 
-   bool detectorToLocal(int const row, int const col, math_utils::Point3D<float>& loc) const noexcept
+  bool detectorToLocal(int const row, int const col, math_utils::Point3D<float>& loc) const noexcept
   {
     float xRow{0.}, zCol{0.};
     if (!detectorToLocal(row, col, xRow, zCol)) {
@@ -194,7 +194,7 @@ class SegmentationMosaix
     return true;
   }
 
-   void detectorToLocalUnchecked(int const row, int const col, math_utils::Point3D<float>& loc) const noexcept
+  void detectorToLocalUnchecked(int const row, int const col, math_utils::Point3D<float>& loc) const noexcept
   {
     float xRow{0.}, zCol{0.};
     detectorToLocalUnchecked(row, col, xRow, zCol);
