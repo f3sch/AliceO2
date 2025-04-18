@@ -870,7 +870,7 @@ void countTrackletsInROFsHandler(const IndexTableUtils* utils,
   for (int iLayer = 0; iLayer < nLayers - 1; ++iLayer) {
     gpu::computeLayerTrackletsMultiROFKernel<true><<<o2::gpu::CAMath::Min(nBlocks, GPU_BLOCKS),
                                                      o2::gpu::CAMath::Min(nThreads, GPU_THREADS)>>>(
-                                                       utils,
+      utils,
       multMask,
       iLayer,
       startROF,
