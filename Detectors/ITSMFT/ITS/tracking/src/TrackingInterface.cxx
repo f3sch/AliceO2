@@ -438,6 +438,11 @@ void ITSTrackingInterface::finaliseCCDB(ConcreteDataMatcher& matcher, void* obj)
   }
 }
 
+void ITSTrackingInterface::printSummary() const
+{
+  mTracker->printSummary();
+}
+
 void ITSTrackingInterface::setTraitsFromProvider(VertexerTraits* vertexerTraits,
                                                  TrackerTraits* trackerTraits,
                                                  TimeFrame* frame)

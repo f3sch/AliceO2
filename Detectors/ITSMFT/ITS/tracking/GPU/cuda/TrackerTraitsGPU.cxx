@@ -11,10 +11,7 @@
 ///
 
 #include <array>
-#include <sstream>
-#include <iostream>
 #include <unistd.h>
-#include <thread>
 
 #include "DataFormatsITS/TrackITS.h"
 
@@ -38,26 +35,6 @@ void TrackerTraitsGPU<nLayers>::initialiseTimeFrame(const int iteration)
   mTimeFrameGPU->loadROframeClustersDevice(iteration);
   mTimeFrameGPU->createUsedClustersDevice(iteration);
   mTimeFrameGPU->loadIndexTableUtils(iteration);
-}
-
-template <int nLayers>
-void TrackerTraitsGPU<nLayers>::computeLayerTracklets(const int iteration, int, int)
-{
-}
-
-template <int nLayers>
-void TrackerTraitsGPU<nLayers>::computeLayerCells(const int iteration)
-{
-}
-
-template <int nLayers>
-void TrackerTraitsGPU<nLayers>::findCellsNeighbours(const int iteration)
-{
-}
-
-template <int nLayers>
-void TrackerTraitsGPU<nLayers>::extendTracks(const int iteration)
-{
 }
 
 template <int nLayers>
@@ -260,7 +237,7 @@ void TrackerTraitsGPU<nLayers>::findCellsNeighboursHybrid(const int iteration)
 };
 
 template <int nLayers>
-void TrackerTraitsGPU<nLayers>::findRoads(const int iteration)
+void TrackerTraitsGPU<nLayers>::findRoadsHybrid(const int iteration)
 {
   auto& conf = o2::its::ITSGpuTrackingParamConfig::Instance();
   for (int startLevel{mTrkParams[iteration].CellsPerRoad()}; startLevel >= mTrkParams[iteration].CellMinimumLevel(); --startLevel) {

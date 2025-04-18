@@ -723,10 +723,7 @@ void TrackerTraits::extendTracks(const int iteration)
 
 void TrackerTraits::findShortPrimaries()
 {
-  if (!mTrkParams[0].FindShortTracks) {
-    return;
-  }
-  auto propagator = o2::base::Propagator::Instance();
+  const auto propagator = o2::base::Propagator::Instance();
   mTimeFrame->fillPrimaryVerticesXandAlpha();
 
   for (auto& cell : mTimeFrame->getCells()[0]) {

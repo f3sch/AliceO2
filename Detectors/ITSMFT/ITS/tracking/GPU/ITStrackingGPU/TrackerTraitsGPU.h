@@ -17,6 +17,7 @@
 #include "ITStracking/Definitions.h"
 #include "ITStracking/TrackerTraits.h"
 #include "ITStrackingGPU/TimeFrameGPU.h"
+#include "Framework/Logger.h"
 
 namespace o2
 {
@@ -24,28 +25,28 @@ namespace its
 {
 
 template <int nLayers = 7>
-class TrackerTraitsGPU : public TrackerTraits
+class TrackerTraitsGPU final : public TrackerTraits
 {
  public:
   TrackerTraitsGPU() = default;
   ~TrackerTraitsGPU() override = default;
 
-  // void computeLayerCells() final;
-  void adoptTimeFrame(TimeFrame* tf) override;
-  void initialiseTimeFrame(const int iteration) override;
-  void computeLayerTracklets(const int iteration, int, int) final;
-  void computeLayerCells(const int iteration) override;
-  void setBz(float) override;
-  void findCellsNeighbours(const int iteration) override;
-  void findRoads(const int iteration) override;
+  void adoptTimeFrame(TimeFrame* tf) final;
+  void initialiseTimeFrame(const int iteration) final;
+  void setBz(float) final;
 
-  // Methods to get CPU execution from traits
-  void initialiseTimeFrameHybrid(const int iteration) override { initialiseTimeFrame(iteration); };
-  void computeTrackletsHybrid(const int iteration, int, int) override;
-  void computeCellsHybrid(const int iteration) override;
-  void findCellsNeighboursHybrid(const int iteration) override;
+  void computeLayerTracklets(const int iteration, int, int) final { LOGP(fatal, "computeLayerTracklers must never be called from Hybrid traits!"); };
+  void computeLayerCells(const int iteration) final { LOGP(fatal, "computeLayerCells must never be called from Hybrid traits!"); };
+  void findCellsNeighbours(const int iteration) final { LOGP(fatal, "findCellsNeighbours must never be called from Hybrid traits!"); };
+  void findRoads(const int iteration) final { LOGP(fatal, "findRoads must never be called from Hybrid traits!"); };
+  void extendTracks(const int iteration) final { LOGP(fatal, "extendTracks must never be called from Hybrid traits!"); };
+  void findShortPrimaries() final { LOGP(fatal, "findShortPrimaries must never be called from Hybrid traits!"); };
 
-  void extendTracks(const int iteration) override;
+  void initialiseTimeFrameHybrid(const int iteration) final { initialiseTimeFrame(iteration); };
+  void computeTrackletsHybrid(const int iteration, int, int) final;
+  void computeCellsHybrid(const int iteration) final;
+  void findCellsNeighboursHybrid(const int iteration) final;
+  void findRoadsHybrid(const int iteration) final;
 
   // TimeFrameGPU information forwarding
   int getTFNumberOfClusters() const override;

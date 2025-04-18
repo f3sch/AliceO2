@@ -51,20 +51,21 @@ class TrackerTraits
  public:
   virtual ~TrackerTraits() = default;
   virtual void adoptTimeFrame(TimeFrame* tf);
+
   virtual void initialiseTimeFrame(const int iteration);
   virtual void computeLayerTracklets(const int iteration, int iROFslice, int iVertex);
   virtual void computeLayerCells(const int iteration);
   virtual void findCellsNeighbours(const int iteration);
   virtual void findRoads(const int iteration);
-  virtual void initialiseTimeFrameHybrid(const int iteration) { LOGP(error, "initialiseTimeFrameHybrid: this method should never be called with CPU traits"); }
-  virtual void computeTrackletsHybrid(const int iteration, int, int) { LOGP(error, "computeTrackletsHybrid: this method should never be called with CPU traits"); }
-  virtual void computeCellsHybrid(const int iteration) { LOGP(error, "computeCellsHybrid: this method should never be called with CPU traits"); }
-  virtual void findCellsNeighboursHybrid(const int iteration) { LOGP(error, "findCellsNeighboursHybrid: this method should never be called with CPU traits"); }
-  virtual void findRoadsHybrid(const int iteration) { LOGP(error, "findRoadsHybrid: this method should never be called with CPU traits"); }
-  virtual void findTracksHybrid(const int iteration) { LOGP(error, "findTracksHybrid: this method should never be called with CPU traits"); }
-  virtual void findTracks() { LOGP(error, "findTracks: this method is deprecated."); }
   virtual void extendTracks(const int iteration);
   virtual void findShortPrimaries();
+
+  virtual void initialiseTimeFrameHybrid(const int iteration) { LOGP(fatal, "initialiseTimeFrameHybrid: this method should never be called with CPU traits"); }
+  virtual void computeTrackletsHybrid(const int iteration, int, int) { LOGP(fatal, "computeTrackletsHybrid: this method should never be called with CPU traits"); }
+  virtual void computeCellsHybrid(const int iteration) { LOGP(fatal, "computeCellsHybrid: this method should never be called with CPU traits"); }
+  virtual void findCellsNeighboursHybrid(const int iteration) { LOGP(fatal, "findCellsNeighboursHybrid: this method should never be called with CPU traits"); }
+  virtual void findRoadsHybrid(const int iteration) { LOGP(fatal, "findRoadsHybrid: this method should never be called with CPU traits"); }
+
   virtual void setBz(float bz);
   virtual bool trackFollowing(TrackITSExt* track, int rof, bool outward, const int iteration);
   virtual void processNeighbours(int iLayer, int iLevel, const std::vector<CellSeed>& currentCellSeed, const std::vector<int>& currentCellId, std::vector<CellSeed>& updatedCellSeed, std::vector<int>& updatedCellId);

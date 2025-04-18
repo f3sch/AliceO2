@@ -50,20 +50,17 @@ class TrackerTraits;
 
 class Tracker
 {
+  using LogFunc = std::function<void(const std::string& s)>;
 
  public:
   Tracker(TrackerTraits* traits);
 
-  Tracker(const Tracker&) = delete;
-  Tracker& operator=(const Tracker&) = delete;
-  ~Tracker();
-
   void adoptTimeFrame(TimeFrame& tf);
 
   void clustersToTracks(
-    std::function<void(std::string s)> = [](std::string s) { std::cout << s << std::endl; }, std::function<void(std::string s)> = [](std::string s) { std::cerr << s << std::endl; });
+    LogFunc = [](std::string s) { std::cout << s << std::endl; }, LogFunc = [](std::string s) { std::cerr << s << std::endl; });
   void clustersToTracksHybrid(
-    std::function<void(std::string s)> = [](std::string s) { std::cout << s << std::endl; }, std::function<void(std::string s)> = [](std::string s) { std::cerr << s << std::endl; });
+    LogFunc = [](std::string s) { std::cout << s << std::endl; }, LogFunc = [](std::string s) { std::cerr << s << std::endl; });
   std::vector<TrackITSExt>& getTracks();
 
   void setParameters(const std::vector<TrackingParameters>&);
@@ -74,15 +71,25 @@ class Tracker
   bool isMatLUT() const;
   void setNThreads(int n);
   int getNThreads() const;
-  std::uint32_t mTimeFrameCounter = 0;
+  void printSummary() const;
 
  private:
+  enum TrackerType : uint8_t { CPU = 0,
+                               Hybrid,
+                               NSize };
+  template <TrackerType>
+  void clusterToTracksImpl(LogFunc, LogFunc);
+  static constexpr const char* sTrackerNames[TrackerType::NSize] = {"CPU", "Hybrid"};
+
+  // CPU
   void initialiseTimeFrame(int& iteration);
   void computeTracklets(int& iteration, int& iROFslice, int& iVertex);
   void computeCells(int& iteration);
   void findCellsNeighbours(int& iteration);
   void findRoads(int& iteration);
-
+  void findShortPrimaries();
+  void extendTracks(int& iteration);
+  // Hyrbid
   void initialiseTimeFrameHybrid(int& iteration);
   void computeTrackletsHybrid(int& iteration, int& iROFslice, int& iVertex);
   void computeCellsHybrid(int& iteration);
@@ -90,17 +97,13 @@ class Tracker
   void findRoadsHybrid(int& iteration);
   void findTracksHybrid(int& iteration);
 
-  void findShortPrimaries();
-  void findTracks();
-  void extendTracks(int& iteration);
-
   // MC interaction
   void computeRoadsMClabels();
   void computeTracksMClabels();
   void rectifyClusterIndices();
 
   template <typename... T>
-  float evaluateTask(void (Tracker::*)(T...), const char*, std::function<void(std::string s)> logger, T&&... args);
+  float evaluateTask(void (Tracker::*)(T...), const char*, LogFunc logger, T&&... args);
 
   TrackerTraits* mTraits = nullptr; /// Observer pointer, not owned by this class
   TimeFrame* mTimeFrame = nullptr;  /// Observer pointer, not owned by this class
@@ -108,7 +111,8 @@ class Tracker
   std::vector<TrackingParameters> mTrkParams;
   o2::gpu::GPUChainITS* mRecoChain = nullptr;
 
-  unsigned int mNumberOfRuns{0};
+  unsigned int mNumberOfDroppedTFs{0};
+  unsigned int mTimeFrameCounter{0};
 };
 
 inline void Tracker::setParameters(const std::vector<TrackingParameters>& trkPars)
@@ -117,8 +121,7 @@ inline void Tracker::setParameters(const std::vector<TrackingParameters>& trkPar
 }
 
 template <typename... T>
-float Tracker::evaluateTask(void (Tracker::*task)(T...), const char* taskName, std::function<void(std::string s)> logger,
-                            T&&... args)
+float Tracker::evaluateTask(void (Tracker::*task)(T...), const char* taskName, LogFunc logger, T&&... args)
 {
   float diff{0.f};
 
