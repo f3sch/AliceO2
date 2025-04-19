@@ -22,6 +22,7 @@ struct TrackMCStudyConfig : o2::conf::ConfigurableParamHelper<TrackMCStudyConfig
   float minPtMC = 0.05;
   float maxTglMC = 1.5;
   float maxRMC = 33.;
+  float minRMC = 0.;
   float maxPosTglMC = 2.;
   float maxPVZOffset = 15.;
   float decayMotherMaxT = 1.0f; // max TOF in ns for mother particles to study
@@ -31,6 +32,7 @@ struct TrackMCStudyConfig : o2::conf::ConfigurableParamHelper<TrackMCStudyConfig
   float rejectClustersResStat = 0.;
   float maxTPCRefExtrap = 2;                   // max dX to extrapolate the track ref when extrapolating track true posions
   int decayPDG[5] = {310, 3122, 411, 421, -1}; // decays to study, must end by -1
+  std::string mcParticleFilter;                // only accept these mc particle (comma separated), leave empty to accetable all species
   O2ParamDef(TrackMCStudyConfig, "trmcconf");
 };
 } // namespace o2::trackstudy

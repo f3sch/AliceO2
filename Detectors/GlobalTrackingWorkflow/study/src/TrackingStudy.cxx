@@ -94,7 +94,7 @@ class TrackingStudySpec : public Task
   bool mUseMC{false}; ///< MC flag
   std::unique_ptr<o2::utils::TreeStreamRedirector> mDBGOut;
   std::unique_ptr<o2::utils::TreeStreamRedirector> mDBGOutVtx;
-  std::unique_ptr<o2::gpu::GPUO2InterfaceRefit> mTPCRefitter; ///< TPC refitter used for TPC tracks refit during the reconstruction
+  std::unique_ptr<o2::gpu::GPUO2InterfaceRefit> mTPCRefitter;     ///< TPC refitter used for TPC tracks refit during the reconstruction
   std::vector<float> mTBinClOccAft, mTBinClOccBef, mTBinClOccWgh; ///< TPC occupancy histo: i-th entry is the integrated occupancy for ~1 orbit starting/preceding from the TB = i*mNTPCOccBinLength
   std::unique_ptr<TF1> mOccWghFun;
   float mITSROFrameLengthMUS = 0.f;
@@ -356,9 +356,9 @@ void TrackingStudySpec::process(o2::globaltracking::RecoContainer& recoData)
     dst.ts.setTimeStampError(src.ttimeE);
     dst.nClITS = src.nClITS;
     dst.nClTPC = src.nClTPC;
-    dst.pattITS = src.pattITS;
+    dst.pattClITS = src.pattITS;
     if (src.q2ptITS == 0. && dst.nClITS > 0) {
-      dst.pattITS |= 0x1 << 7;
+      dst.pattClITS |= 0x1 << 7;
     }
     dst.lowestPadRow = src.rowMinTPC;
     if (this->mUseMC) {

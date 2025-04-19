@@ -21,17 +21,30 @@
 #include "ReconstructionDataFormats/PrimaryVertex.h"
 #include <array>
 #include <vector>
+#include <bit>
+#include <format>
 
 namespace o2::trackstudy
 {
-struct MCTrackInfo {
 
-  inline float getMCTimeMUS() const { return bcInTF * o2::constants::lhc::LHCBunchSpacingMUS; }
-  inline bool hasITSHitOnLr(int i) const { return (pattITSCl & ((0x1 << i) & 0x7f)) != 0; }
+struct ITSTrackInfo {
+  inline bool hasITSHitOnLr(int i) const { return (pattClITS & ((0x1 << i) & 0x7f)) != 0; }
   int getNITSClusCont() const;
   int getNITSClusForAB() const;
   int getLowestITSLayer() const;
   int getHighestITSLayer() const;
+  int getNITSClusTrackable() const noexcept { return std::popcount(pattClITS); }
+
+  std::string getPattString() const { return std::format("{:07b}", pattClITS); }
+
+  uint8_t nClITS = 0;
+  uint8_t pattClITS = 0;
+
+  ClassDefNV(ITSTrackInfo, 1);
+};
+
+struct MCTrackInfo : public ITSTrackInfo {
+  inline float getMCTimeMUS() const { return bcInTF * o2::constants::lhc::LHCBunchSpacingMUS; }
 
   o2::track::TrackPar track{};
   o2::MCCompLabel label{};
@@ -41,21 +54,20 @@ struct MCTrackInfo {
   int pdg = 0;
   int pdgParent = 0;
   int parentEntry = -1;
-  int16_t nTPCCl = 0;
-  int16_t nTPCClShared = 0;
+  uint16_t nTPCCl = 0;
+  uint16_t nTPCClShared = 0;
   int8_t parentDecID = -1;
-  uint8_t minTPCRow = -1;
-  uint8_t maxTPCRow = 0;
+  int8_t minTPCRow = -1;
+  int8_t maxTPCRow = 0;
   uint8_t nUsedPadRows = 0;
   uint8_t maxTPCRowInner = 0; // highest row in the sector containing the lowest one
-  uint8_t minTPCRowSect = -1;
-  uint8_t maxTPCRowSect = -1;
-  int8_t nITSCl = 0;
-  int8_t pattITSCl = 0;
-  ClassDefNV(MCTrackInfo, 4);
+  int8_t minTPCRowSect = -1;
+  int8_t maxTPCRowSect = -1;
+  uint8_t nITSClInv = 0;
+  ClassDefNV(MCTrackInfo, 5);
 };
 
-struct RecTrack {
+struct RecTrack : public ITSTrackInfo {
   enum FakeFlag {
     FakeITS = 0x1 << 0,
     FakeTPC = 0x1 << 1,
@@ -71,19 +83,23 @@ struct RecTrack {
   o2::MCEventLabel pvLabel{};
   short pvID = -1;
   uint8_t flags = 0;
-  uint8_t nClITS = 0;
   uint8_t nClTPC = 0;
-  uint8_t pattITS = 0;
   int8_t lowestPadRow = -1;
+  o2::dataformats::PrimaryVertex pv;
+  o2::track::TrackParCov pvtrack{};
 
+  bool isFake() const { return flags != 0; }
   bool isFakeGLO() const { return flags & FakeGLO; }
   bool isFakeITS() const { return flags & FakeITS; }
   bool isFakeTPC() const { return flags & FakeTPC; }
   bool isFakeTRD() const { return flags & FakeTRD; }
   bool isFakeTOF() const { return flags & FakeTOF; }
   bool isFakeITSTPC() const { return flags & FakeITSTPC; }
+  bool isFakeITSTPCTRD() const { return flags & FakeITSTPCTRD; }
 
-  ClassDefNV(RecTrack, 1);
+  float getTrack2Beam() const { return (pvID >= 0) ? pvtrack.getX() * pvtrack.getTgl() - pvtrack.getZ() + pv.getZ() : -9999.f; };
+
+  ClassDefNV(RecTrack, 3);
 };
 
 struct TrackPairInfo {

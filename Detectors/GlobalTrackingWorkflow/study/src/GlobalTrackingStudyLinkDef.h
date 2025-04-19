@@ -27,6 +27,7 @@
 #pragma link C++ class std::vector < o2::trackstudy::RecTrack> + ;
 #pragma link C++ class o2::trackstudy::TrackFamily + ;
 #pragma link C++ class std::vector < o2::trackstudy::TrackFamily> + ;
+#pragma link C++ class o2::trackstudy::ITSTrackInfo + ;
 #pragma link C++ class o2::trackstudy::MCTrackInfo + ;
 #pragma link C++ class std::vector < o2::trackstudy::MCTrackInfo> + ;
 #pragma link C++ class o2::trackstudy::RecPV + ;

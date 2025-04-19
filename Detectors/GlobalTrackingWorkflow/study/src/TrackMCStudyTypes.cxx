@@ -17,14 +17,14 @@ namespace o2::trackstudy
 RecTrack TrackFamily::dummyRecTrack;
 
 // get longest number of clusters on consecutive layers
-int MCTrackInfo::getNITSClusCont() const
+int ITSTrackInfo::getNITSClusCont() const
 {
-  if (nITSCl < 2) {
-    return nITSCl;
+  if (nClITS < 2) {
+    return nClITS;
   }
   int longest = 0, current = 0;
   for (int i = 0; i < 7; i++) {
-    if (pattITSCl & (0x1 << i)) {
+    if (pattClITS & (0x1 << i)) {
       if (++current > longest) {
         longest = current;
       }
@@ -36,12 +36,12 @@ int MCTrackInfo::getNITSClusCont() const
 }
 
 // check how many clusters ITS-TPC afterburner could see (consecutively occupied layers starting from the last one)
-int MCTrackInfo::getNITSClusForAB() const
+int ITSTrackInfo::getNITSClusForAB() const
 {
   int ncl = 0;
-  if (nITSCl) {
+  if (nClITS) {
     for (int i = 6; i > 2; i--) {
-      if (pattITSCl & (0x1 << i)) {
+      if (pattClITS & (0x1 << i)) {
         ncl++;
       } else {
         break;
@@ -52,11 +52,11 @@ int MCTrackInfo::getNITSClusForAB() const
 }
 
 // lowest ITS layer with cluster
-int MCTrackInfo::getLowestITSLayer() const
+int ITSTrackInfo::getLowestITSLayer() const
 {
-  if (nITSCl) {
+  if (nClITS) {
     for (int i = 0; i < 7; i++) {
-      if (pattITSCl & (0x1 << i)) {
+      if (pattClITS & (0x1 << i)) {
         return i;
       }
     }
@@ -65,11 +65,11 @@ int MCTrackInfo::getLowestITSLayer() const
 }
 
 // highest ITS layer with cluster
-int MCTrackInfo::getHighestITSLayer() const
+int ITSTrackInfo::getHighestITSLayer() const
 {
-  if (nITSCl) {
+  if (nClITS) {
     for (int i = 7; i--;) {
-      if (pattITSCl & (0x1 << i)) {
+      if (pattClITS & (0x1 << i)) {
         return i;
       }
     }
