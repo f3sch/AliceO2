@@ -10,6 +10,7 @@
 // or submit itself to any jurisdiction.
 
 #include <gsl/span>
+#include <nlohmann/json.hpp>
 
 #include "TRDBase/Geometry.h"
 #include "TRDBase/TrackletTransformer.h"
@@ -22,8 +23,6 @@
 #include "DataFormatsTRD/TriggerRecord.h"
 #include "DataFormatsTRD/Digit.h"
 
-#include "ITStracking/json.h"
-
 using json = nlohmann::json;
 
 namespace o2
@@ -34,7 +33,7 @@ namespace trd
 class TRDEventDisplayFeedSpec : public o2::framework::Task
 {
  public:
-  TRDEventDisplayFeedSpec(int nEventsMax) : mNeventsMax(nEventsMax){};
+  TRDEventDisplayFeedSpec(int nEventsMax) : mNeventsMax(nEventsMax) {};
   ~TRDEventDisplayFeedSpec() override = default;
   void init(o2::framework::InitContext& ic) override;
   void run(o2::framework::ProcessingContext& pc) override;
