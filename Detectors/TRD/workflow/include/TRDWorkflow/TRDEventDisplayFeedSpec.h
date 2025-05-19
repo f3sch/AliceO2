@@ -33,7 +33,7 @@ namespace trd
 class TRDEventDisplayFeedSpec : public o2::framework::Task
 {
  public:
-  TRDEventDisplayFeedSpec(int nEventsMax) : mNeventsMax(nEventsMax) {};
+  TRDEventDisplayFeedSpec(int nEventsMax) : mNeventsMax(nEventsMax){};
   ~TRDEventDisplayFeedSpec() override = default;
   void init(o2::framework::InitContext& ic) override;
   void run(o2::framework::ProcessingContext& pc) override;
