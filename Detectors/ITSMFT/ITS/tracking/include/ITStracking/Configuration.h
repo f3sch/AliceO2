@@ -26,36 +26,8 @@
 #include "DetectorsBase/Propagator.h"
 #include "ITStracking/Constants.h"
 
-namespace o2
+namespace o2::its
 {
-namespace its
-{
-
-enum class TrackingMode {
-  Sync,
-  Async,
-  Cosmics,
-  Unset, // Special value to leave a default in case we want to override via Configurable Params
-};
-
-std::string asString(TrackingMode mode);
-std::ostream& operator<<(std::ostream& os, TrackingMode v);
-
-template <typename Param>
-class Configuration : public Param
-{
- public:
-  static Configuration<Param>& getInstance()
-  {
-    static Configuration<Param> instance;
-    return instance;
-  }
-  Configuration(const Configuration<Param>&) = delete;
-  const Configuration<Param>& operator=(const Configuration<Param>&) = delete;
-
- private:
-  Configuration() = default;
-};
 
 struct TrackingParameters {
   int CellMinimumLevel() const noexcept { return MinTrackLength - constants::ClustersPerCell + 1; }
@@ -166,7 +138,44 @@ struct TimeFrameGPUParameters {
   int maxGPUMemoryGB = -1;
 };
 
-} // namespace its
-} // namespace o2
+class TrackingMode
+{
+ public:
+  enum Type {
+    Unset = -1, // Special value to leave a default in case we want to override via Configurable Params
+    Sync = 0,
+    Async = 1,
+    Cosmics = 2,
+    Off = 3,
+    //
+    NFirst = Unset,
+    NLast = Off,
+    NModes = NLast - NFirst,
+  };
+
+  static Type fromString(std::string_view str);
+  static std::string toString(Type mode);
+
+  static std::vector<TrackingParameters> getTrackingParameters(Type mode);
+  static std::vector<VertexingParameters> getVertexingParameters(Type mode);
+
+ private:
+  static constexpr bool iequals(std::string_view a, std::string_view b)
+  {
+    return std::equal(a.begin(), a.end(), b.begin(), b.end(),
+                      [](char x, char y) { return std::tolower(x) == std::tolower(y); });
+  }
+
+ public:
+  // pure static class
+  TrackingMode() = delete;
+  TrackingMode(const TrackingMode&) = delete;
+  TrackingMode(TrackingMode&&) = delete;
+  TrackingMode& operator=(const TrackingMode&) = delete;
+  TrackingMode& operator=(TrackingMode&&) = delete;
+  ~TrackingMode() = delete;
+};
+
+} // namespace o2::its
 
 #endif /* TRACKINGITSU_INCLUDE_CONFIGURATION_H_ */
