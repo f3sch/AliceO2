@@ -24,15 +24,15 @@ namespace o2::its3::reco_workflow
 {
 
 framework::WorkflowSpec getWorkflow(bool useMC,
-				    its::TrackingMode::Type trmode,
-				    o2::gpu::GPUDataTypes::DeviceType dtype,
-				    bool useGPUWorkflow,
-				    bool upstreamDigits,
-				    bool upstreamClusters,
-				    bool disableRootOutput,
-				    bool useGeom,
-				    int useTrig,
-				    bool overrideBeamPosition);
+                                    its::TrackingMode::Type trmode,
+                                    o2::gpu::GPUDataTypes::DeviceType dtype,
+                                    bool useGPUWorkflow,
+                                    bool upstreamDigits,
+                                    bool upstreamClusters,
+                                    bool disableRootOutput,
+                                    bool useGeom,
+                                    int useTrig,
+                                    bool overrideBeamPosition);
 }
 
 #endif
