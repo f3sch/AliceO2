@@ -270,10 +270,10 @@ struct compare_track_chi2 {
 };
 
 GPUdii() gpuSpan<const Vertex> getPrimaryVertices(const int rof,
-                                                const int* roframesPV,
-                                                const int nROF,
-                                                const uint8_t* mask,
-                                                const Vertex* vertices)
+                                                  const int* roframesPV,
+                                                  const int nROF,
+                                                  const uint8_t* mask,
+                                                  const Vertex* vertices)
 {
   const int start_pv_id = roframesPV[rof];
   const int stop_rof = rof >= nROF - 1 ? nROF : rof + 1;
@@ -293,10 +293,10 @@ GPUdii() gpuSpan<const Vertex> getPrimaryVertices(const int romin,
 };
 
 GPUdii() gpuSpan<const Cluster> getClustersOnLayer(const int rof,
-                                                 const int totROFs,
-                                                 const int layer,
-                                                 const int** roframesClus,
-                                                 const Cluster** clusters)
+                                                   const int totROFs,
+                                                   const int layer,
+                                                   const int** roframesClus,
+                                                   const Cluster** clusters)
 {
   if (rof < 0 || rof >= totROFs) {
     return gpuSpan<const Cluster>();
