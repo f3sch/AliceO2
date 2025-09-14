@@ -188,7 +188,7 @@ struct TimeFrame {
   auto getNumberOfUsedExtendedClusters() const { return mNExtendedUsedClusters; }
 
   /// memory management
-  void setMemoryPool(std::shared_ptr<BoundedMemoryResource>& pool);
+  void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool);
   auto& getMemoryPool() const noexcept { return mMemoryPool; }
   bool checkMemory(unsigned long max) { return getArtefactsMemory() < max; }
   unsigned long getArtefactsMemory() const;

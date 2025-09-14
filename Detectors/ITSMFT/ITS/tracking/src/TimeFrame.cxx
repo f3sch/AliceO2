@@ -575,36 +575,32 @@ void TimeFrame<nLayers>::printSliceInfo(const int startROF, const int sliceSize)
     LOG(info) << "Number of seeding vertices: " << getPrimaryVertices(iROF).size();
     int iVertex{0};
     for (auto& v : getPrimaryVertices(iROF)) {
-      LOG(info) << "\t vertex " << iVertex++ << ": x=" << v.getX() << " " << " y=" << v.getY() << " z=" << v.getZ() << " has " << v.getNContributors() << " contributors.";
+      LOG(info) << "\t vertex " << iVertex++ << ": x=" << v.getX() << " "
+                << " y=" << v.getY() << " z=" << v.getZ() << " has " << v.getNContributors() << " contributors.";
     }
   }
 }
 
 template <int nLayers>
-void TimeFrame<nLayers>::setMemoryPool(std::shared_ptr<BoundedMemoryResource>& pool)
+void TimeFrame<nLayers>::setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
 {
   mMemoryPool = pool;
 
-  auto initVector = [&]<typename T>(bounded_vector<T>& vec) {
-    auto alloc = vec.get_allocator().resource();
-    if (alloc != mMemoryPool.get()) {
-      vec = bounded_vector<T>(mMemoryPool.get());
-    }
+  auto initVector = [&]<typename T>(bounded_vector<T> & vec)
+  {
+    bounded_vector<T> tmp(std::pmr::polymorphic_allocator<T>{mMemoryPool.get()});
+    vec.swap(tmp);
   };
-  auto initArrays = [&]<typename T, size_t S>(std::array<bounded_vector<T>, S>& arr) {
+  auto initArrays = [&]<typename T, size_t S>(std::array<bounded_vector<T>, S> & arr)
+  {
     for (size_t i{0}; i < S; ++i) {
-      auto alloc = arr[i].get_allocator().resource();
-      if (alloc != mMemoryPool.get()) {
-        arr[i] = bounded_vector<T>(mMemoryPool.get());
-      }
+      initVector(arr[i]);
     }
   };
-  auto initVectors = [&]<typename T>(std::vector<bounded_vector<T>>& vec) {
+  auto initVectors = [&]<typename T>(std::vector<bounded_vector<T>> & vec)
+  {
     for (size_t i{0}; i < vec.size(); ++i) {
-      auto alloc = vec[i].get_allocator().resource();
-      if (alloc != mMemoryPool.get()) {
-        vec[i] = bounded_vector<T>(mMemoryPool.get());
-      }
+      initVector(vec[i]);
     }
   };
 
