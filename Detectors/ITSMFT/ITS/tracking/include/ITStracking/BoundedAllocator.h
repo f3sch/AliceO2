@@ -22,6 +22,8 @@
 #include <new>
 #include <vector>
 
+#include "ITStracking/ExternalAllocator.h"
+
 #include "GPUCommonLogger.h"
 
 namespace o2::its
@@ -56,6 +58,7 @@ class BoundedMemoryResource final : public std::pmr::memory_resource
 
   BoundedMemoryResource(size_t maxBytes = std::numeric_limits<size_t>::max(), std::pmr::memory_resource* upstream = std::pmr::get_default_resource())
     : mMaxMemory(maxBytes), mUpstream(upstream) {}
+  BoundedMemoryResource(ExternalAllocator* alloc) : mAdaptor(std::make_unique<ExternalAllocatorAdaptor>(alloc)), mUpstream(mAdaptor.get()) {}
 
   void* do_allocate(size_t bytes, size_t alignment) final
   {
@@ -117,7 +120,8 @@ class BoundedMemoryResource final : public std::pmr::memory_resource
   std::atomic<size_t> mMaxMemory{std::numeric_limits<size_t>::max()};
   std::atomic<size_t> mCountThrow{0};
   std::atomic<size_t> mUsedMemory{0};
-  std::pmr::memory_resource* mUpstream;
+  std::unique_ptr<ExternalAllocatorAdaptor> mAdaptor{nullptr};
+  std::pmr::memory_resource* mUpstream{nullptr};
 };
 
 template <typename T>
@@ -170,7 +174,7 @@ inline void clearResizeBoundedVector(bounded_vector<T>& vec, size_t sz, std::pmr
 }
 
 template <typename T>
-void clearResizeBoundedVector(std::vector<bounded_vector<T>>& vec, size_t size, std::pmr::memory_resource* mr)
+inline void clearResizeBoundedVector(std::vector<bounded_vector<T>>& vec, size_t size, std::pmr::memory_resource* mr)
 {
   vec.clear();
   vec.reserve(size);
