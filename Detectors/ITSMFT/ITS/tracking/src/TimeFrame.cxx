@@ -585,12 +585,10 @@ void TimeFrame<nLayers>::setMemoryPool(std::shared_ptr<BoundedMemoryResource> po
 {
   mMemoryPool = pool;
 
-  auto initVector = [&]<typename T>(bounded_vector<T> & vec, bool useExternal = false)
-  {
+  auto initVector = [&]<typename T>(bounded_vector<T>& vec, bool useExternal = false) {
     vec = bounded_vector<T>(std::pmr::polymorphic_allocator<T>{(useExternal) ? mExtMemoryPool.get() : mMemoryPool.get()});
   };
-  auto initContainers = [&]<typename Container>(Container & container, bool useExternal = false)
-  {
+  auto initContainers = [&]<typename Container>(Container& container, bool useExternal = false) {
     for (auto& v : container) {
       initVector(v, useExternal);
     }

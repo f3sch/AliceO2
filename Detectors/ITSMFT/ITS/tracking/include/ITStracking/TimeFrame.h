@@ -252,7 +252,7 @@ struct TimeFrame {
   BoundedMemoryResource* getMaybeExternalHostResource(bool force = false) { return (hasExternalHostAllocator() && !force) ? mExtMemoryPool.get() : mMemoryPool.get(); }
   // Propagator
   const o2::base::PropagatorImpl<float>* getDevicePropagator() const { return mPropagatorDevice; }
-  virtual void setDevicePropagator(const o2::base::PropagatorImpl<float>*){};
+  virtual void setDevicePropagator(const o2::base::PropagatorImpl<float>*) {};
 
   template <typename... T>
   void addClusterToLayer(int layer, T&&... args);
