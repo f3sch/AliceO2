@@ -35,11 +35,6 @@ namespace o2::its3::align
 class MisAlignmentHits
 {
  public:
-  enum class PropMethod {
-    Propagator,
-    Line,
-  };
-
   void init();
 
   std::optional<o2::itsmft::Hit> processHit(int iEvent, const o2::itsmft::Hit& hit);
@@ -50,7 +45,6 @@ class MisAlignmentHits
  private:
   Deformations mDeformations;
   std::unique_ptr<ROOT::Math::Minimizer> mMinimizer;
-  PropMethod mMethod{PropMethod::Line};
   o2::its::GeometryTGeo* mGeo{nullptr};
   std::unique_ptr<o2::steer::MCKinematicsReader> mMCReader;
 
@@ -120,11 +114,6 @@ class MisAlignmentHits
 
   bool deformHit(WorkingHit::HitType t);
 
-  auto getDeformation(unsigned int id, double u, double v) const
-  {
-    return mDeformations.getDeformation(id, u, v);
-  }
-
   // Mimize function assuming a straight line
   // given in the parametric representation by y_v = t * d_x + x_s
   // assuming no offset is needed
@@ -150,30 +139,6 @@ class MisAlignmentHits
   };
   StraightLine mLine{this};
   void prepareLineMethod(WorkingHit::HitType from);
-
-  // Mimize function using the MCTrack
-  class Propagator : public ROOT::Math::IBaseFunctionMultiDim
-  {
-   public:
-    Propagator(const MisAlignmentHits* m) : mMis(m) {}
-
-    o2::track::TrackPar mTrack;
-    float mBz;
-    unsigned int mSensorID;
-    double mRadius;
-    const MisAlignmentHits* mMis;
-
-    double mPhiTot;
-    double mPhi1;
-
-    unsigned int NDim() const override { return 3; }
-    ROOT::Math::IBaseFunctionMultiDim* Clone() const override { return nullptr; }
-
-   private:
-    double DoEval(const double* x) const override;
-  };
-  Propagator mPropagator{this};
-  bool preparePropagatorMethod(WorkingHit::HitType from);
 
   enum Stats : uint8_t {
     kHitTotal = 0,
@@ -204,8 +169,6 @@ class MisAlignmentHits
     kMinimizerEDM,
     kMinimizerLimit,
     kMinimizerOther,
-    kPropTrackNull,
-    kPropPDGNull,
     kALL,
   };
   std::array<ULong64_t, Stats::kALL> mStats;

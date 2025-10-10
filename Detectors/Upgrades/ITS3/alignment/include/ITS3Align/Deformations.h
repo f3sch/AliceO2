@@ -14,6 +14,7 @@
 
 #include "ITS3Align/MisalignmentParameters.h"
 #include "MathUtils/LegendrePols.h"
+#include "GPUCommonMath.h"
 
 #include <filesystem>
 
@@ -26,57 +27,31 @@ class Deformations
   // init deformations from the parameter file
   void init(const std::filesystem::path&);
 
-  double getDeformationX(unsigned int id, double u, double v) const { return getDeformation<0>(id, u, v); }
-  double getDeformationY(unsigned int id, double u, double v) const { return getDeformation<1>(id, u, v); }
-  double getDeformationZ(unsigned int id, double u, double v) const { return getDeformation<2>(id, u, v); }
-  double getDeformation(unsigned int id, unsigned int axis, double u, double v) const
+  std::tuple<double, double, double> getDeformation(unsigned int id, double radius, double phi, double z, double u, double v, double fac = 1.0) const
   {
-    if (axis == 0) {
-      return mLegX[id](u, v);
-    } else if (axis == 1) {
-      return mLegY[id](u, v);
-    } else {
-      return mLegZ[id](u, v);
-    }
+    // Calculate f_def(phi,z) = ((r+dr)*cos(phi), (r+dr)*sin(phi), z)^T + (dx, dy, dz)^T
+    const double dr = mLegendre[id](u, v);
+    const double drr = radius + dr * fac;
+    double sn, cs;
+    o2::gpu::GPUCommonMath::SinCosd(phi, sn, cs);
+    const auto& global = mParams.getGlobal(id);
+    return {drr * cs + global.getX() * fac, drr * sn + global.getY() * fac, z + global.getZ() * fac};
   }
-  std::array<double, 3> getDeformation(unsigned int id, double u, double v) const
+
+  double getDeformation(unsigned int id, double u, double v)
   {
-    return {getDeformation<0>(id, u, v),
-            getDeformation<1>(id, u, v),
-            getDeformation<2>(id, u, v)};
+    return mLegendre[id](u, v);
   }
-  std::array<unsigned int, 3> getOrders(unsigned int id) const
-  {
-    return {mLegX[id].NOrder(), mLegY[id].NOrder(), mLegZ[id].NOrder()};
-  }
-  const o2::math_utils::Legendre2DPolynominal& getLegendre(unsigned int id, unsigned int axis) const
-  {
-    if (axis == 0) {
-      return mLegX[id];
-    } else if (axis == 1) {
-      return mLegY[id];
-    } else {
-      return mLegZ[id];
-    }
-  }
+
+  const o2::math_utils::Legendre2DPolynominal& getLegendre(unsigned int id) { return mLegendre[id]; }
+
+  unsigned int getOrder(unsigned int id) { return mLegendre[id].NOrder(); }
 
  private:
-  template <int axis>
-  double getDeformation(unsigned int id, double u, double v) const
-  {
-    if constexpr (axis == 0) {
-      return mLegX[id](u, v);
-    } else if constexpr (axis == 1) {
-      return mLegY[id](u, v);
-    } else {
-      return mLegZ[id](u, v);
-    }
-  }
+  MisalignmentParameters mParams;
 
-  // 3 Legendre polynominals to model deformations in x,y,z; parameterized by normalized phi (u) and z (v) coordinates
-  std::array<o2::math_utils::Legendre2DPolynominal, 6> mLegX;
-  std::array<o2::math_utils::Legendre2DPolynominal, 6> mLegY;
-  std::array<o2::math_utils::Legendre2DPolynominal, 6> mLegZ;
+  // Legendre polynominals to model deformations in radius; parameterized by normalized phi (u) and z (v) coordinates
+  std::array<o2::math_utils::Legendre2DPolynominal, 6> mLegendre;
 };
 
 } // namespace o2::its3::align

@@ -41,6 +41,11 @@ class DescriptorInnerBarrelITS3 : public o2::its::DescriptorInnerBarrel
   void createServices(TGeoVolume* dest);
   void configure() {}
 
+  // Alignables
+  void addAlignableVolumesLayer(int idLayer, int wrapperLayerId, TString& parentPath, int& lastUID) const;
+  void addAlignableVolumesCarbonForm(int idLayer, int iHalfBarrel, TString& parentPath, int& lastUID) const;
+  void addAlignableVolumesChip(int idLayer, int iHalfBarrel, TString& parentPath, int& lastUID) const;
+
  protected:
   int mNumLayers{constants::nLayers};
 

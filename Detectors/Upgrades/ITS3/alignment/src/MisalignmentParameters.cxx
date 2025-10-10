@@ -30,6 +30,20 @@ MisalignmentParameters::MisalignmentParameters()
   SetTitle("ITS3 MisalignmentParameters");
 }
 
+MisalignmentParameters& MisalignmentParameters::operator=(const MisalignmentParameters& o)
+{
+  if (this != &o) {
+    SetName(o.GetName());
+    SetTitle(o.GetTitle());
+    mGlobal = o.mGlobal;
+    for (unsigned int s{0}; s < constants::nSensorsIB; ++s) {
+      o.mLegCoeff[s].Print();
+      setMatrix(mLegCoeff[s], o.mLegCoeff[s]);
+    }
+  }
+  return *this;
+}
+
 bool MisalignmentParameters::store(const std::string& file) const
 {
   std::unique_ptr<TFile> fOut(TFile::Open(file.c_str(), "RECREATE"));
@@ -43,6 +57,7 @@ bool MisalignmentParameters::store(const std::string& file) const
 
 MisalignmentParameters* MisalignmentParameters::load(const std::string& file)
 {
+  LOGP(info, "Loading Parameters from {}", file);
   std::unique_ptr<TFile> fIn(TFile::Open(file.c_str(), "READ"));
   auto p = fIn->Get<MisalignmentParameters>("ccdb_object");
   if (p == nullptr) {
@@ -54,27 +69,13 @@ MisalignmentParameters* MisalignmentParameters::load(const std::string& file)
 void MisalignmentParameters::printParams(unsigned int detID) const
 {
   LOGP(info, "Parameters for ID={}:", detID);
-  LOGP(info, " - Global Trans: X={} Y={} Z={}", getGloTransX(detID), getGloTransY(detID), getGloTransZ(detID));
-  LOGP(info, " - Global Rots: X={} Y={} Z={}", getGloRotX(detID), getGloRotY(detID), getGloRotZ(detID));
+  const auto& glo = mGlobal[detID];
+  LOGP(info, " - Global Trans: X={} Y={} Z={}", glo.getX(), glo.getY(), glo.getZ());
+  LOGP(info, " - Global Rots: Phi={} Psi={} Theta={}", glo.getPhi(), glo.getPsi(), glo.getTheta());
   if (constants::detID::isDetITS3(detID)) {
     auto sensorID = constants::detID::getSensorID(detID);
-    LOGP(info, " - Legendre Pol X:");
-    getLegendreCoeffX(sensorID).Print();
-    LOGP(info, " - Legendre Pol Y:");
-    getLegendreCoeffY(sensorID).Print();
-    LOGP(info, " - Legendre Pol Z:");
-    getLegendreCoeffZ(sensorID).Print();
+    mLegCoeff[sensorID].Print();
   }
-}
-
-void MisalignmentParameters::printLegendreParams(unsigned int sensorID) const
-{
-  LOGP(info, " - Legendre Pol X:");
-  getLegendreCoeffX(sensorID).Print();
-  LOGP(info, " - Legendre Pol Y:");
-  getLegendreCoeffY(sensorID).Print();
-  LOGP(info, " - Legendre Pol Z:");
-  getLegendreCoeffZ(sensorID).Print();
 }
 
 } // namespace o2::its3::align
