@@ -21,6 +21,8 @@
 #include "ITSMFTReconstruction/ClustererParam.h"
 #include "DetectorsCommonDataFormats/DetectorNameConf.h"
 #include "DataFormatsITSMFT/PhysTrigger.h"
+#include "ITSMFTReconstruction/ChipMappingITS.h"
+#include "ITSMFTReconstruction/ChipMappingMFT.h"
 
 using namespace o2::framework;
 
@@ -29,25 +31,28 @@ namespace o2
 namespace itsmft
 {
 
-EntropyDecoderSpec::EntropyDecoderSpec(o2::header::DataOrigin orig, int verbosity, bool getDigits)
-  : mOrigin(orig), mCTFCoder(o2::ctf::CTFCoderBase::OpType::Decoder, orig == o2::header::gDataOriginITS ? o2::detectors::DetID::ITS : o2::detectors::DetID::MFT), mGetDigits(getDigits)
+template <int N>
+EntropyDecoderSpec<N>::EntropyDecoderSpec(int verbosity, bool getDigits)
+  : mCTFCoder(o2::ctf::CTFCoderBase::OpType::Decoder, N), mGetDigits(getDigits)
 {
   assert(orig == o2::header::gDataOriginITS || orig == o2::header::gDataOriginMFT);
-  mDetPrefix = orig == o2::header::gDataOriginITS ? "_ITS" : "_MFT";
+  mDetPrefix = Origin == o2::header::gDataOriginITS ? "_ITS" : "_MFT";
   mTimer.Stop();
   mTimer.Reset();
   mCTFCoder.setVerbosity(verbosity);
   mCTFCoder.setDictBinding(std::string("ctfdict") + mDetPrefix);
 }
 
-void EntropyDecoderSpec::init(o2::framework::InitContext& ic)
+template <int N>
+void EntropyDecoderSpec<N>::init(o2::framework::InitContext& ic)
 {
   mCTFCoder.init<CTF>(ic);
   mMaskNoise = ic.options().get<bool>("mask-noise");
   mUseClusterDictionary = !ic.options().get<bool>("ignore-cluster-dictionary");
 }
 
-void EntropyDecoderSpec::run(ProcessingContext& pc)
+template <int N>
+void EntropyDecoderSpec<N>::run(ProcessingContext& pc)
 {
   if (pc.services().get<o2::framework::TimingInfo>().globalRunNumberChanged) {
     mTimer.Reset();
@@ -63,33 +68,105 @@ void EntropyDecoderSpec::run(ProcessingContext& pc)
   // this produces weird memory problems in unrelated devices, to be understood
   // auto& trigs = pc.outputs().make<std::vector<o2::itsmft::PhysTrigger>>(OutputRef{"phystrig"}); // dummy output
 
-  auto& rofs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(OutputRef{"ROframes"});
-  if (mGetDigits) {
-    auto& digits = pc.outputs().make<std::vector<o2::itsmft::Digit>>(OutputRef{"Digits"});
-    if (buff.size()) {
-      iosize = mCTFCoder.decode(o2::itsmft::CTF::getImage(buff.data()), rofs, digits, mNoiseMap, mPattIdConverter);
+  if constexpr (DPLAlpideParam<N>::supportsStaggering()) {
+    // for now we need to 'mock' the staggered output and sort ordering ourselves
+    std::vector<o2::itsmft::ROFRecord> rofs;
+    std::vector<o2::itsmft::Digit> digits;
+    std::vector<o2::itsmft::CompClusterExt> clusters;
+    std::vector<unsigned char> patterns;
+    // do the actual read
+    if (mGetDigits) {
+      if (buff.size()) {
+        iosize = mCTFCoder.decode(o2::itsmft::CTF::getImage(buff.data()), rofs, digits, mNoiseMap, mPattIdConverter);
+      }
+      mTimer.Stop();
+      LOG(info) << "Decoded " << digits.size() << " digits in " << rofs.size() << " RO frames, (" << iosize.asString() << ") in " << mTimer.CpuTime() - cput << " s";
+    } else {
+      if (buff.size()) {
+        iosize = mCTFCoder.decode(o2::itsmft::CTF::getImage(buff.data()), rofs, clusters, patterns, mNoiseMap, mPattIdConverter);
+      }
+      mTimer.Stop();
+      LOG(info) << "Decoded " << clusters.size() << " clusters in " << rofs.size() << " RO frames, (" << iosize.asString() << ") in " << mTimer.CpuTime() - cput << " s";
     }
-    mTimer.Stop();
-    LOG(info) << "Decoded " << digits.size() << " digits in " << rofs.size() << " RO frames, (" << iosize.asString() << ") in " << mTimer.CpuTime() - cput << " s";
+    std::array<std::vector<o2::itsmft::ROFRecord>, NLayers> rofsPerLayer;
+    std::array<std::vector<o2::itsmft::Digit>, NLayers> digitsPerLayer;
+    std::array<std::vector<o2::itsmft::CompClusterExt>, NLayers> clustersPerLayer;
+    std::array<std::vector<unsigned char>, NLayers> patternsPerLayer;
+    std::array<std::vector<int>, NLayers> firstEntries;
+    std::array<std::vector<int>, NLayers> nEntries;
+    for (int iLayer{0}; iLayer < NLayers; ++iLayer) {
+      rofsPerLayer[iLayer] = rofs;
+      firstEntries[iLayer].resize(rofs.size(), 0);
+      nEntries[iLayer].resize(rofs.size(), 0);
+    }
+    // now we need to filter the data per layer
+    // TODO implement also for cluster input
+    for (size_t iROF{0}; iROF < rofs.size(); ++iROF) {
+      const auto& rof = rofs[iROF];
+      for (int iEntry{rof.getFirstEntry()}; iEntry < (rof.getFirstEntry() + rof.getNEntries()); ++iEntry) {
+        const auto& dig = digits[iEntry];
+        int lay = ChipMappingITS::getLayer(dig.getChipIndex());
+        digitsPerLayer[lay].push_back(dig);
+        ++(nEntries[lay][iROF]);
+      }
+    }
+    for (int iLayer{0}; iLayer < NLayers; ++iLayer) {
+      std::exclusive_scan(nEntries[iLayer].begin(), nEntries[iLayer].end(), firstEntries[iLayer].begin(), 0);
+      for (int iROF{0}; iROF < rofs.size(); ++iROF) {
+        rofsPerLayer[iLayer][iROF].setFirstEntry(firstEntries[iLayer][iROF]);
+        rofsPerLayer[iLayer][iROF].setNEntries(nEntries[iLayer][iROF]);
+      }
+    }
+    for (uint32_t iLayer{0}; iLayer < NLayers; ++iLayer) {
+      pc.outputs().snapshot(OutputRef{"ROframes", iLayer}, rofsPerLayer[iLayer]);
+      if (mGetDigits) {
+        pc.outputs().snapshot(OutputRef{"Digits", iLayer}, digitsPerLayer[iLayer]);
+      } else {
+        pc.outputs().snapshot(OutputRef{"compClusters", iLayer}, clustersPerLayer[iLayer]);
+        pc.outputs().snapshot(OutputRef{"patterns", iLayer}, patternsPerLayer[iLayer]);
+      }
+    }
   } else {
-    auto& compcl = pc.outputs().make<std::vector<o2::itsmft::CompClusterExt>>(OutputRef{"compClusters"});
-    auto& patterns = pc.outputs().make<std::vector<unsigned char>>(OutputRef{"patterns"});
-    if (buff.size()) {
-      iosize = mCTFCoder.decode(o2::itsmft::CTF::getImage(buff.data()), rofs, compcl, patterns, mNoiseMap, mPattIdConverter);
+    auto& rofs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(OutputRef{"ROframes", 0});
+    if (mGetDigits) {
+      auto& digits = pc.outputs().make<std::vector<o2::itsmft::Digit>>(OutputRef{"Digits", 0});
+      if (buff.size()) {
+        iosize = mCTFCoder.decode(o2::itsmft::CTF::getImage(buff.data()), rofs, digits, mNoiseMap, mPattIdConverter);
+      }
+      mTimer.Stop();
+      LOG(info) << "Decoded " << digits.size() << " digits in " << rofs.size() << " RO frames, (" << iosize.asString() << ") in " << mTimer.CpuTime() - cput << " s";
+    } else {
+      auto& compcl = pc.outputs().make<std::vector<o2::itsmft::CompClusterExt>>(OutputRef{"compClusters", 0});
+      auto& patterns = pc.outputs().make<std::vector<unsigned char>>(OutputRef{"patterns", 0});
+      if (buff.size()) {
+        iosize = mCTFCoder.decode(o2::itsmft::CTF::getImage(buff.data()), rofs, compcl, patterns, mNoiseMap, mPattIdConverter);
+      }
+      mTimer.Stop();
+      LOG(info) << "Decoded " << compcl.size() << " clusters in " << rofs.size() << " RO frames, (" << iosize.asString() << ") in " << mTimer.CpuTime() - cput << " s";
     }
-    mTimer.Stop();
-    LOG(info) << "Decoded " << compcl.size() << " clusters in " << rofs.size() << " RO frames, (" << iosize.asString() << ") in " << mTimer.CpuTime() - cput << " s";
+    // hack: output empty messages to avoid dropping the TF
+    for (uint32_t iLayer{1}; iLayer < NLayers; ++iLayer) {
+      pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(OutputRef{"ROframes", iLayer});
+      if (mGetDigits) {
+        pc.outputs().make<std::vector<o2::itsmft::Digit>>(OutputRef{"Digits", iLayer});
+      } else {
+        pc.outputs().make<std::vector<o2::itsmft::CompClusterExt>>(OutputRef{"compClusters", iLayer});
+        pc.outputs().make<std::vector<unsigned char>>(OutputRef{"patterns", iLayer});
+      }
+    }
   }
   pc.outputs().snapshot({"ctfrep", 0}, iosize);
-}
+} // namespace itsmft
 
-void EntropyDecoderSpec::endOfStream(EndOfStreamContext& ec)
+template <int N>
+void EntropyDecoderSpec<N>::endOfStream(EndOfStreamContext& ec)
 {
   LOGF(info, "%s Entropy Decoding total timing: Cpu: %.3e Real: %.3e s in %d slots",
-       mOrigin.as<std::string>(), mTimer.CpuTime(), mTimer.RealTime(), mTimer.Counter() - 1);
+       Origin.as<std::string>(), mTimer.CpuTime(), mTimer.RealTime(), mTimer.Counter() - 1);
 }
 
-void EntropyDecoderSpec::updateTimeDependentParams(ProcessingContext& pc)
+template <int N>
+void EntropyDecoderSpec<N>::updateTimeDependentParams(ProcessingContext& pc)
 {
   if (pc.services().get<o2::framework::TimingInfo>().globalRunNumberChanged) { // this params need to be queried only once
     if (mMaskNoise) {
@@ -102,15 +179,16 @@ void EntropyDecoderSpec::updateTimeDependentParams(ProcessingContext& pc)
   mCTFCoder.updateTimeDependentParams(pc, true);
 }
 
-void EntropyDecoderSpec::finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj)
+template <int N>
+void EntropyDecoderSpec<N>::finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj)
 {
-  if (matcher == ConcreteDataMatcher(mOrigin, "NOISEMAP", 0)) {
+  if (matcher == ConcreteDataMatcher(Origin, "NOISEMAP", 0)) {
     mNoiseMap = (o2::itsmft::NoiseMap*)obj;
-    LOG(info) << mOrigin.as<std::string>() << " noise map updated";
+    LOG(info) << Origin.as<std::string>() << " noise map updated";
     return;
   }
-  if (matcher == ConcreteDataMatcher(mOrigin, "CLUSDICT", 0)) {
-    LOG(info) << mOrigin.as<std::string>() << " cluster dictionary updated" << (!mUseClusterDictionary ? " but its using is disabled" : "");
+  if (matcher == ConcreteDataMatcher(Origin, "CLUSDICT", 0)) {
+    LOG(info) << Origin.as<std::string>() << " cluster dictionary updated" << (!mUseClusterDictionary ? " but its using is disabled" : "");
     mPattIdConverter.setDictionary((const TopologyDictionary*)obj);
     return;
   }
@@ -119,42 +197,52 @@ void EntropyDecoderSpec::finaliseCCDB(o2::framework::ConcreteDataMatcher& matche
   }
 }
 
-DataProcessorSpec getEntropyDecoderSpec(o2::header::DataOrigin orig, int verbosity, bool getDigits, unsigned int sspec)
+template <int N>
+DataProcessorSpec getEntropyDecoderSpec(int verbosity, bool getDigits, unsigned int sspec)
 {
+  using EntropyDecoder = EntropyDecoderSpec<N>;
+
+  std::string det = EntropyDecoder::Origin.template as<std::string>();
+  std::string nm = "_" + det;
+  std::vector<InputSpec> inputs;
+  inputs.emplace_back(std::string("ctf") + nm, EntropyDecoder::Origin, "CTFDATA", sspec, Lifetime::Timeframe);
+  inputs.emplace_back(std::string("noise") + nm, EntropyDecoder::Origin, "NOISEMAP", 0, Lifetime::Condition, ccdbParamSpec(fmt::format("{}/Calib/NoiseMap", det)));
+  inputs.emplace_back(std::string("cldict") + nm, EntropyDecoder::Origin, "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec(fmt::format("{}/Calib/ClusterDictionary", det)));
+  inputs.emplace_back(std::string("ctfdict") + nm, EntropyDecoder::Origin, "CTFDICT", 0, Lifetime::Condition, ccdbParamSpec(fmt::format("{}/Calib/CTFDictionaryTree", det)));
+  inputs.emplace_back(std::string("trigoffset"), "CTP", "Trig_Offset", 0, Lifetime::Condition, ccdbParamSpec("CTP/Config/TriggerOffsets"));
+
   std::vector<OutputSpec> outputs;
   // this is a special dummy input which makes sense only in sync workflows
 
   // this produces weird memory problems in unrelated devices, to be understood
   // outputs.emplace_back(OutputSpec{{"phystrig"}, orig, "PHYSTRIG", 0, Lifetime::Timeframe});
 
-  if (getDigits) {
-    outputs.emplace_back(OutputSpec{{"Digits"}, orig, "DIGITS", 0, Lifetime::Timeframe});
-    outputs.emplace_back(OutputSpec{{"ROframes"}, orig, "DIGITSROF", 0, Lifetime::Timeframe});
-  } else {
-    outputs.emplace_back(OutputSpec{{"compClusters"}, orig, "COMPCLUSTERS", 0, Lifetime::Timeframe});
-    outputs.emplace_back(OutputSpec{{"ROframes"}, orig, "CLUSTERSROF", 0, Lifetime::Timeframe});
-    outputs.emplace_back(OutputSpec{{"patterns"}, orig, "PATTERNS", 0, Lifetime::Timeframe});
+  for (uint32_t iLayer{0}; iLayer < EntropyDecoder::NLayers; ++iLayer) {
+    if (getDigits) {
+      outputs.emplace_back(OutputSpec{{"Digits"}, EntropyDecoder::Origin, "DIGITS", iLayer, Lifetime::Timeframe});
+      outputs.emplace_back(OutputSpec{{"ROframes"}, EntropyDecoder::Origin, "DIGITSROF", iLayer, Lifetime::Timeframe});
+    } else {
+      outputs.emplace_back(OutputSpec{{"compClusters"}, EntropyDecoder::Origin, "COMPCLUSTERS", iLayer, Lifetime::Timeframe});
+      outputs.emplace_back(OutputSpec{{"ROframes"}, EntropyDecoder::Origin, "CLUSTERSROF", iLayer, Lifetime::Timeframe});
+      outputs.emplace_back(OutputSpec{{"patterns"}, EntropyDecoder::Origin, "PATTERNS", iLayer, Lifetime::Timeframe});
+    }
   }
-  outputs.emplace_back(OutputSpec{{"ctfrep"}, orig, "CTFDECREP", 0, Lifetime::Timeframe});
-  std::string nm = orig == o2::header::gDataOriginITS ? "_ITS" : "_MFT";
-  std::vector<InputSpec> inputs;
-  inputs.emplace_back(std::string("ctf") + nm, orig, "CTFDATA", sspec, Lifetime::Timeframe);
-  inputs.emplace_back(std::string("noise") + nm, orig, "NOISEMAP", 0, Lifetime::Condition, ccdbParamSpec(fmt::format("{}/Calib/NoiseMap", orig.as<std::string>())));
-  inputs.emplace_back(std::string("cldict") + nm, orig, "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec(fmt::format("{}/Calib/ClusterDictionary", orig.as<std::string>())));
-  inputs.emplace_back(std::string("ctfdict") + nm, orig, "CTFDICT", 0, Lifetime::Condition, ccdbParamSpec(fmt::format("{}/Calib/CTFDictionaryTree", orig.as<std::string>())));
-  inputs.emplace_back(std::string("trigoffset"), "CTP", "Trig_Offset", 0, Lifetime::Condition, ccdbParamSpec("CTP/Config/TriggerOffsets"));
+  outputs.emplace_back(OutputSpec{{"ctfrep"}, EntropyDecoder::Origin, "CTFDECREP", 0, Lifetime::Timeframe});
 
   return DataProcessorSpec{
-    EntropyDecoderSpec::getName(orig),
-    inputs,
-    outputs,
-    AlgorithmSpec{adaptFromTask<EntropyDecoderSpec>(orig, verbosity, getDigits)},
-    Options{
+    .name = EntropyDecoder::DeviceName,
+    .inputs = inputs,
+    .outputs = outputs,
+    .algorithm = AlgorithmSpec{adaptFromTask<EntropyDecoder>(verbosity, getDigits)},
+    .options = Options{
       {"ctf-dict", VariantType::String, "ccdb", {"CTF dictionary: empty or ccdb=CCDB, none=no external dictionary otherwise: local filename"}},
       {"mask-noise", VariantType::Bool, false, {"apply noise mask to digits or clusters (involves reclusterization)"}},
       {"ignore-cluster-dictionary", VariantType::Bool, false, {"do not use cluster dictionary, always store explicit patterns"}},
-      {"ans-version", VariantType::String, {"version of ans entropy coder implementation to use"}}}};
+      {"and-version", VariantType::String, {"version of and entropy coder implementation to use"}}}};
 }
+
+framework::DataProcessorSpec getITSEntropyDecoderSpec(int verbosity, bool getDigits, unsigned int sspec) { return getEntropyDecoderSpec<o2::detectors::DetID::ITS>(verbosity, getDigits, sspec); }
+framework::DataProcessorSpec getMFTEntropyDecoderSpec(int verbosity, bool getDigits, unsigned int sspec) { return getEntropyDecoderSpec<o2::detectors::DetID::MFT>(verbosity, getDigits, sspec); }
 
 } // namespace itsmft
 } // namespace o2

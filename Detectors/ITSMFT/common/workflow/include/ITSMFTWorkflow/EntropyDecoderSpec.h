@@ -20,49 +20,45 @@
 #include "Headers/DataHeader.h"
 #include "ITSMFTReconstruction/CTFCoder.h"
 #include "DataFormatsITSMFT/NoiseMap.h"
+#include "ITSMFTBase/DPLAlpideParam.h"
 #include "ITSMFTReconstruction/LookUp.h"
 #include <TStopwatch.h>
-#include <memory>
 
-namespace o2
-{
-namespace itsmft
+namespace o2::itsmft
 {
 
+template <int N>
 class EntropyDecoderSpec : public o2::framework::Task
 {
  public:
-  EntropyDecoderSpec(o2::header::DataOrigin orig, int verbosity, bool getDigits = false);
+  static constexpr o2::header::DataOrigin Origin{N == o2::detectors::DetID::ITS ? o2::header::gDataOriginITS : o2::header::gDataOriginMFT};
+  static constexpr int NLayers{o2::itsmft::DPLAlpideParam<N>::getNLayers()};
+  static constexpr const char* DeviceName{N == o2::detectors::DetID::ITS ? "its-entropy-decoder" : "mft-entropy-decoder"};
+
+  EntropyDecoderSpec(int verbosity, bool getDigits = false);
   ~EntropyDecoderSpec() override = default;
   void init(o2::framework::InitContext& ic) final;
   void run(o2::framework::ProcessingContext& pc) final;
   void endOfStream(o2::framework::EndOfStreamContext& ec) final;
   void finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj) final;
 
-  static auto getName(o2::header::DataOrigin orig) { return std::string{orig == o2::header::gDataOriginITS ? ITSDeviceName : MFTDeviceName}; }
-
  private:
   void updateTimeDependentParams(o2::framework::ProcessingContext& pc);
 
-  static constexpr std::string_view ITSDeviceName = "its-entropy-decoder";
-  static constexpr std::string_view MFTDeviceName = "mft-entropy-decoder";
-  o2::header::DataOrigin mOrigin = o2::header::gDataOriginInvalid;
   o2::itsmft::CTFCoder mCTFCoder;
   const NoiseMap* mNoiseMap = nullptr;
   LookUp mPattIdConverter;
   bool mGetDigits{false};
   bool mMaskNoise{false};
   bool mUseClusterDictionary{true};
-  std::string mDetPrefix{};
-
-  std::string mCTFDictPath{};
+  std::string mDetPrefix;
+  std::string mCTFDictPath;
   TStopwatch mTimer;
 };
 
-/// create a processor spec
-framework::DataProcessorSpec getEntropyDecoderSpec(o2::header::DataOrigin orig, int verbosity, bool getDigits, unsigned int sspec);
+framework::DataProcessorSpec getITSEntropyDecoderSpec(int verbosity, bool getDigits, unsigned int sspec);
+framework::DataProcessorSpec getMFTEntropyDecoderSpec(int verbosity, bool getDigits, unsigned int sspec);
 
-} // namespace itsmft
-} // namespace o2
+} // namespace o2::itsmft
 
 #endif
