@@ -58,18 +58,19 @@ void convertCompactClusters(gsl::span<const itsmft::CompClusterExt> clusters,
   }
 }
 
-int loadROFrameDataITS3(its::TimeFrame<7>* tf,
-                        gsl::span<const o2::itsmft::ROFRecord> rofs,
-                        gsl::span<const itsmft::CompClusterExt> clusters,
-                        gsl::span<const unsigned char>::iterator& pattIt,
-                        const its3::TopologyDictionary* dict,
-                        const dataformats::MCTruthContainer<MCCompLabel>* mcLabels)
+void loadROFrameDataITS3(its::TimeFrame<7>* tf,
+                         gsl::span<const o2::itsmft::ROFRecord> rofs,
+                         gsl::span<const itsmft::CompClusterExt> clusters,
+                         gsl::span<const unsigned char>::iterator& pattIt,
+                         const its3::TopologyDictionary* dict,
+                         int layer,
+                         const dataformats::MCTruthContainer<MCCompLabel>* mcLabels)
 {
   auto geom = its::GeometryTGeo::Instance();
   geom->fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L, o2::math_utils::TransformType::L2G));
 
-  tf->resetROFrameData(rofs.size());
-  tf->prepareROFrameData(rofs, clusters);
+  tf->resetROFrameData(layer);
+  tf->prepareROFrameData(clusters, layer);
 
   its::bounded_vector<uint8_t> clusterSizeVec(clusters.size(), tf->getMemoryPool().get());
 
@@ -83,7 +84,7 @@ int loadROFrameDataITS3(its::TimeFrame<7>* tf,
       float sigmaY2{0}, sigmaZ2{0}, sigmaYZ{0};
       uint8_t clusterSize{0};
       auto locXYZ = extractClusterData(c, pattIt, dict, sigmaY2, sigmaZ2, clusterSize);
-      clusterSizeVec.push_back(clusterSize);
+      clusterSizeVec[clusterId] = std::clamp(clusterSize, uint8_t(0), uint8_t(255));
 
       // Transformation to the local --> global
       auto gloXYZ = geom->getMatrixL2G(sensorID) * locXYZ;
@@ -102,23 +103,14 @@ int loadROFrameDataITS3(its::TimeFrame<7>* tf,
       tf->addClusterToLayer(layer, gloXYZ.x(), gloXYZ.y(), gloXYZ.z(), tf->getUnsortedClusters()[layer].size());
       tf->addClusterExternalIndexToLayer(layer, clusterId);
     }
-    for (unsigned int iL{0}; iL < tf->getUnsortedClusters().size(); ++iL) {
-      tf->mROFramesClusters[iL][iRof + 1] = tf->getUnsortedClusters()[iL].size();
-    }
+    tf->getROFrameClusters(layer, iRof + 1) = tf->getUnsortedClusters()[layer].size();
   }
 
-  tf->setClusterSize(clusterSizeVec);
-
-  for (auto& v : tf->mNTrackletsPerCluster) {
-    v.resize(tf->getUnsortedClusters()[1].size());
-  }
-  for (auto& v : tf->mNTrackletsPerClusterSum) {
-    v.resize(tf->getUnsortedClusters()[1].size() + 1);
-  }
+  tf->setClusterSize(layer, clusterSizeVec);
 
   if (mcLabels != nullptr) {
-    tf->mClusterLabels = mcLabels;
+    tf->getClusterLabelsContainer()[layer] = mcLabels;
   }
-  return tf->mNrof;
 }
+
 } // namespace o2::its3::ioutils

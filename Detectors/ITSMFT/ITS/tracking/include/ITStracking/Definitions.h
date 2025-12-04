@@ -16,29 +16,48 @@
 #define TRACKINGITS_DEFINITIONS_H_
 
 #include <type_traits>
+#include <cstdint>
+#include <tuple>
 
+#include "SimulationDataFormat/MCCompLabel.h"
+#include "CommonDataFormat/TimeStamp.h"
 #include "ReconstructionDataFormats/Vertex.h"
-
-#ifdef CA_DEBUG
-#define CA_DEBUGGER(x) x
-#else
-#define CA_DEBUGGER(x) \
-  do {                 \
-  } while (0)
-#endif
 
 namespace o2::its
 {
 
-enum class TrackletMode {
-  Layer0Layer1 = 0,
-  Layer1Layer2 = 2
-};
-
-using Vertex = o2::dataformats::Vertex<o2::dataformats::TimeStamp<int>>;
-
 template <bool IsConst, typename T>
-using maybe_const = typename std::conditional<IsConst, const T, T>::type;
+using maybe_const = std::conditional_t<IsConst, const T, T>;
+
+// Time estimates are given in BC
+// error needs to cover maximum 1 orbit
+// this is an asymmetric error defining an interval [time, time+error)
+using TimeEstBC = o2::dataformats::TimeStampWithError<uint32_t, uint16_t>;
+using Vertex = o2::dataformats::Vertex<TimeEstBC>;
+// MC vertex label with purity
+using VertexLabel = std::pair<o2::MCCompLabel, float>;
+
+// simple implemnetion of logging with exp. backoff
+struct LogLogThrottler {
+  uint64_t evCount{0};
+  uint64_t nextLog{1};
+  int32_t iteration{-1};
+  int32_t layer{-1};
+  bool needToLog(int32_t iter, int32_t lay)
+  {
+    if (iteration != iter || layer != lay) {
+      iteration = iter;
+      layer = lay;
+      evCount = 0;
+      nextLog = 1;
+    }
+    if (++evCount > nextLog) {
+      nextLog *= 2;
+      return true;
+    }
+    return false;
+  }
+};
 
 } // namespace o2::its
 

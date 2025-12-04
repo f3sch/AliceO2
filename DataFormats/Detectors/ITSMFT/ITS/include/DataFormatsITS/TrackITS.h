@@ -16,11 +16,13 @@
 #ifndef ALICEO2_ITS_TRACKITS_H
 #define ALICEO2_ITS_TRACKITS_H
 
+#include <cstdint>
 #include <vector>
 
 #include "GPUCommonDef.h"
 #include "ReconstructionDataFormats/Track.h"
 #include "CommonDataFormat/RangeReference.h"
+#include "CommonDataFormat/TimeStamp.h"
 
 namespace o2
 {
@@ -35,12 +37,12 @@ namespace its
 class TrackITS : public o2::track::TrackParCov
 {
   enum UserBits {
-    kNextROF = 1 << 28,
     kSharedClusters = 1 << 29
   };
 
   using Cluster = o2::itsmft::Cluster;
   using ClusRefs = o2::dataformats::RangeRefComp<4>;
+  using Timestamp = o2::dataformats::TimeStampWithError<uint32_t, uint16_t>;
 
  public:
   using o2::track::TrackParCov::TrackParCov; // inherit base constructors
@@ -93,6 +95,9 @@ class TrackITS : public o2::track::TrackParCov
 
   bool isBetter(const TrackITS& best, float maxChi2) const;
 
+  auto& getTimeStamp() { return mTime; }
+  const auto& getTimeStamp() const { return mTime; }
+
   GPUhdi() o2::track::TrackParCov& getParamIn() { return *this; }
   GPUhdi() const o2::track::TrackParCov& getParamIn() const { return *this; }
 
@@ -122,8 +127,6 @@ class TrackITS : public o2::track::TrackParCov
   }
   int getNFakeClusters() const;
 
-  void setNextROFbit(bool toggle = true) { mClusterSizes = toggle ? (mClusterSizes | kNextROF) : (mClusterSizes & ~kNextROF); }
-  bool hasHitInNextROF() const { return mClusterSizes & kNextROF; }
   void setSharedClusters(bool toggle = true) { mClusterSizes = toggle ? (mClusterSizes | kSharedClusters) : (mClusterSizes & ~kSharedClusters); }
   bool hasSharedClusters() const { return mClusterSizes & kSharedClusters; }
 
@@ -157,9 +160,10 @@ class TrackITS : public o2::track::TrackParCov
   ClusRefs mClusRef;                ///< references on clusters
   float mChi2 = 0.;                 ///< Chi2 for this track
   uint32_t mPattern = 0;            ///< layers pattern
-  unsigned int mClusterSizes = 0u;
+  uint32_t mClusterSizes = 0u;      ///< packed clamped cluster size
+  Timestamp mTime;                  ///< track time stamp with error in BC, defined asymmetrical start + range in BCs
 
-  ClassDefNV(TrackITS, 6);
+  ClassDefNV(TrackITS, 7);
 };
 
 class TrackITSExt : public TrackITS
@@ -169,15 +173,13 @@ class TrackITSExt : public TrackITS
   static constexpr int MaxClusters = 16; /// Prepare for overlaps and new detector configurations
   using TrackITS::TrackITS;              // inherit base constructors
 
-  GPUh() TrackITSExt(o2::track::TrackParCov&& parCov, short ncl, float chi2,
-                     o2::track::TrackParCov&& outer, std::array<int, MaxClusters> cls)
+  GPUh() TrackITSExt(o2::track::TrackParCov&& parCov, short ncl, float chi2, o2::track::TrackParCov&& outer, std::array<int, MaxClusters> cls)
     : TrackITS(parCov, chi2, outer), mIndex{cls}
   {
     setNumberOfClusters(ncl);
   }
 
-  GPUh() TrackITSExt(o2::track::TrackParCov& parCov, short ncl, float chi2, std::uint32_t rof,
-                     o2::track::TrackParCov& outer, std::array<int, MaxClusters> cls)
+  GPUh() TrackITSExt(o2::track::TrackParCov& parCov, short ncl, float chi2, o2::track::TrackParCov& outer, std::array<int, MaxClusters> cls)
     : TrackITS(parCov, chi2, outer), mIndex{cls}
   {
     setNumberOfClusters(ncl);
@@ -212,7 +214,7 @@ class TrackITSExt : public TrackITS
 
  private:
   std::array<int, MaxClusters> mIndex = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; ///< Indices of associated clusters
-  ClassDefNV(TrackITSExt, 2);
+  ClassDefNV(TrackITSExt, 3);
 };
 } // namespace its
 } // namespace o2

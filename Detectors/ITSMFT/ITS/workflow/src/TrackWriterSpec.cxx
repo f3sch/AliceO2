@@ -16,73 +16,32 @@
 #include "ITSWorkflow/TrackWriterSpec.h"
 #include "DPLUtils/MakeRootTreeWriterSpec.h"
 #include "DataFormatsITS/TrackITS.h"
-#include "DataFormatsITSMFT/ROFRecord.h"
+#include "ITStracking/Definitions.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
-#include "ITStracking/Definitions.h"
-#include "ITStracking/TrackingConfigParam.h"
+
+namespace o2::its
+{
 
 using namespace o2::framework;
-
-namespace o2
-{
-namespace its
-{
-
 template <typename T>
 using BranchDefinition = MakeRootTreeWriterSpec::BranchDefinition<T>;
 using LabelsType = std::vector<o2::MCCompLabel>;
-using ROFRecLblT = std::vector<o2::itsmft::MC2ROFRecord>;
-using namespace o2::header;
 
 DataProcessorSpec getTrackWriterSpec(bool useMC)
 {
-  // Spectators for logging
-  // this is only to restore the original behavior
-  const auto writeContLabels = VertexerParamConfig::Instance().outputContLabels && useMC;
-  auto tracksSize = std::make_shared<int>(0);
-  auto tracksSizeGetter = [tracksSize](std::vector<o2::its::TrackITS> const& tracks) {
-    *tracksSize = tracks.size();
-  };
-  auto logger = [tracksSize](std::vector<o2::itsmft::ROFRecord> const& rofs) {
-    LOG(info) << "ITSTrackWriter pulled " << *tracksSize << " tracks, in " << rofs.size() << " RO frames";
+  auto logger = [](std::vector<o2::its::TrackITS> const& tracks) {
+    LOG(info) << "ITSTrackWriter pulled " << tracks.size() << " tracks";
   };
   return MakeRootTreeWriterSpec("its-track-writer",
                                 "o2trac_its.root",
-                                MakeRootTreeWriterSpec::TreeAttributes{"o2sim", "Tree with ITS tracks"},
-                                BranchDefinition<std::vector<o2::its::TrackITS>>{InputSpec{"tracks", "ITS", "TRACKS", 0},
-                                                                                 "ITSTrack",
-                                                                                 tracksSizeGetter},
-                                BranchDefinition<std::vector<int>>{InputSpec{"trackClIdx", "ITS", "TRACKCLSID", 0},
-                                                                   "ITSTrackClusIdx"},
-                                BranchDefinition<std::vector<Vertex>>{InputSpec{"vertices", "ITS", "VERTICES", 0},
-                                                                      "Vertices"},
-                                BranchDefinition<std::vector<o2::itsmft::ROFRecord>>{InputSpec{"vtxROF", "ITS", "VERTICESROF", 0},
-                                                                                     "VerticesROF"},
-                                BranchDefinition<std::vector<o2::itsmft::ROFRecord>>{InputSpec{"ROframes", "ITS", "ITSTrackROF", 0},
-                                                                                     "ITSTracksROF",
-                                                                                     logger},
-                                BranchDefinition<LabelsType>{InputSpec{"labels", "ITS", "TRACKSMCTR", 0},
-                                                             "ITSTrackMCTruth",
-                                                             (useMC ? 1 : 0), // one branch if mc labels enabled
-                                                             ""},
-                                BranchDefinition<LabelsType>{InputSpec{"labelsVertices", "ITS", "VERTICESMCTR", 0},
-                                                             "ITSVertexMCTruth",
-                                                             (useMC ? 1 : 0), // one branch if mc labels enabled
-                                                             ""},
-                                BranchDefinition<LabelsType>{InputSpec{"labelsVerticesContributors", "ITS", "VERTICESMCTRCONT", 0},
-                                                             "ITSVertexMCTruthCont",
-                                                             (writeContLabels ? 1 : 0), // one branch if
-                                                                                        // requested
-                                                             ""},
-                                BranchDefinition<ROFRecLblT>{InputSpec{"MC2ROframes", "ITS", "ITSTrackMC2ROF", 0},
-                                                             "ITSTracksMC2ROF",
-                                                             (useMC ? 1 : 0), // one branch if mc labels enabled
-                                                             ""},
-                                BranchDefinition<std::vector<float>>{InputSpec{"purityVertices", "ITS", "VERTICESMCPUR", 0},
-                                                                     "ITSVertexMCPurity", (useMC ? 1 : 0), // one branch if mc labels enabled
-                                                                     ""})();
+                                MakeRootTreeWriterSpec::TreeAttributes{.name = "o2sim", .title = "Tree with ITS tracks"},
+                                BranchDefinition<std::vector<o2::its::TrackITS>>{InputSpec{"tracks", "ITS", "TRACKS", 0}, "ITSTrack", logger},
+                                BranchDefinition<std::vector<int>>{InputSpec{"trackClIdx", "ITS", "TRACKCLSID", 0}, "ITSTrackClusIdx"},
+                                BranchDefinition<std::vector<Vertex>>{InputSpec{"vertices", "ITS", "VERTICES", 0}, "ITSVertices"},
+                                BranchDefinition<LabelsType>{InputSpec{"labels", "ITS", "TRACKSMCTR", 0}, "ITSTrackMCTruth", (useMC ? 1 : 0), ""},
+                                BranchDefinition<LabelsType>{InputSpec{"labelsVertices", "ITS", "VERTICESMCTR", 0}, "ITSVertexMCTruth", (useMC ? 1 : 0), ""},
+                                BranchDefinition<std::vector<float>>{InputSpec{"purityVertices", "ITS", "VERTICESMCPUR", 0}, "ITSVertexMCPurity", (useMC ? 1 : 0), ""})();
 }
 
-} // namespace its
-} // namespace o2
+} // namespace o2::its

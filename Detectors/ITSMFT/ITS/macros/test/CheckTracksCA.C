@@ -47,35 +47,36 @@
 using namespace std;
 
 // chi2 PDF with amplitude A, degrees of freedom k, scale s
-Double_t chi2_pdf(Double_t* x, Double_t* par)
+static Double_t chi2_pdf(const Double_t* x, const Double_t* par)
 {
   const Double_t xx = x[0];
   const Double_t A = par[0];
   const Double_t k = par[1];
   const Double_t s = par[2];
-  if (xx <= 0.0 || k <= 0.0 || s <= 0.0)
+  if (xx <= 0.0 || k <= 0.0 || s <= 0.0) {
     return 0.0;
+  }
   const Double_t coef = 1.0 / (TMath::Power(2.0 * s, k * 0.5) * TMath::Gamma(k * 0.5));
-  return A * coef * TMath::Power(xx, k * 0.5 - 1.0) * TMath::Exp(-xx / (2.0 * s));
+  return A * coef * TMath::Power(xx, (k * 0.5) - 1.0) * TMath::Exp(-xx / (2.0 * s));
 }
 
 struct ParticleInfo {
-  int event;
-  int pdg;
-  float pt;
-  float eta;
-  float phi;
-  int mother;
-  int first;
+  int event{};
+  int pdg{};
+  float pt{};
+  float eta{};
+  float phi{};
+  int mother{};
+  int first{};
   float pvx{};
   float pvy{};
   float pvz{};
-  float dcaxy;
-  float dcaz;
+  float dcaxy{};
+  float dcaz{};
   unsigned short clusters = 0u;
   unsigned char isReco = 0u;
   unsigned char isFake = 0u;
-  bool isPrimary = 0u;
+  bool isPrimary = false;
   unsigned char storedStatus = 2; /// not stored = 2, fake = 1, good = 0
   o2::its::TrackITS track;
   o2::MCTrack mcTrack;
@@ -88,9 +89,9 @@ void CheckTracksCA(bool doEffStud = true,
                    bool doPullStud = false,
                    bool createOutput = false,
                    std::string tracfile = "o2trac_its.root",
-                   std::string magfile = "o2sim_grp.root",
+                   std::string magfile = "sgn_grp.root",
                    std::string clusfile = "o2clus_its.root",
-                   std::string kinefile = "o2sim_Kine.root")
+                   std::string kinefile = "sgn_Kine.root")
 {
 
   using namespace o2::itsmft;
@@ -106,10 +107,10 @@ void CheckTracksCA(bool doEffStud = true,
 
   // MC tracks
   TFile* file0 = TFile::Open(kinefile.data());
-  TTree* mcTree = (TTree*)gFile->Get("o2sim");
-  mcTree->SetBranchStatus("*", 0); // disable all branches
-  mcTree->SetBranchStatus("MCTrack*", 1);
-  mcTree->SetBranchStatus("MCEventHeader*", 1);
+  auto* mcTree = (TTree*)gFile->Get("o2sim");
+  mcTree->SetBranchStatus("*", false); // disable all branches
+  mcTree->SetBranchStatus("MCTrack*", true);
+  mcTree->SetBranchStatus("MCEventHeader*", true);
 
   std::vector<o2::MCTrack>* mcArr = nullptr;
   mcTree->SetBranchAddress("MCTrack", &mcArr);
@@ -118,17 +119,17 @@ void CheckTracksCA(bool doEffStud = true,
 
   // Clusters
   TFile::Open(clusfile.data());
-  TTree* clusTree = (TTree*)gFile->Get("o2sim");
-  std::vector<CompClusterExt>* clusArr = nullptr;
-  clusTree->SetBranchAddress("ITSClusterComp", &clusArr);
-
-  // Cluster MC labels
-  o2::dataformats::MCTruthContainer<o2::MCCompLabel>* clusLabArr = nullptr;
-  clusTree->SetBranchAddress("ITSClusterMCTruth", &clusLabArr);
+  auto* clusTree = (TTree*)gFile->Get("o2sim");
+  std::array<std::vector<CompClusterExt>*, 7> clusArr{};
+  std::array<o2::dataformats::MCTruthContainer<o2::MCCompLabel>*, 7> clusLabArr{};
+  for (int iLayer{0}; iLayer < 7; ++iLayer) {
+    clusTree->SetBranchAddress(Form("ITSClusterComp_%d", iLayer), &(clusArr[iLayer]));
+    clusTree->SetBranchAddress(Form("ITSClusterMCTruth_%d", iLayer), &(clusLabArr[iLayer]));
+  }
 
   // Reconstructed tracks
   TFile* file1 = TFile::Open(tracfile.data());
-  TTree* recTree = (TTree*)gFile->Get("o2sim");
+  auto* recTree = (TTree*)gFile->Get("o2sim");
   std::vector<TrackITS>* recArr = nullptr;
   recTree->SetBranchAddress("ITSTrack", &recArr);
   // Track MC labels
@@ -147,7 +148,7 @@ void CheckTracksCA(bool doEffStud = true,
     hZvertex->Fill(mcEvent->GetZ());
     for (unsigned int mcI{0}; mcI < mcArr->size(); ++mcI) {
       const auto part = mcArr->at(mcI);
-      if (!o2::O2DatabasePDG::Instance()->GetParticle(part.GetPdgCode())) {
+      if (!o2::O2DatabasePDG::Instance()->GetParticle(part.GetPdgCode()) || !part.hasHits()) {
         continue;
       }
       info[n][mcI].event = n;
@@ -162,42 +163,50 @@ void CheckTracksCA(bool doEffStud = true,
       info[n][mcI].mcTrack = part;
     }
   }
-  std::cout << "done." << std::endl;
+  std::cout << "done." << '\n';
 
-  std::cout << "** Creating particle/clusters correspondance ... " << std::flush;
+  std::cout << "** Creating particle/clusters correspondence ... " << std::flush;
   for (int frame = 0; frame < clusTree->GetEntriesFast(); frame++) { // Cluster frames
-    if (!clusTree->GetEvent(frame))
+    if (!clusTree->GetEvent(frame)) {
       continue;
+    }
 
-    for (unsigned int iClus{0}; iClus < clusArr->size(); ++iClus) {
-      auto lab = (clusLabArr->getLabels(iClus))[0];
-      if (!lab.isValid() || lab.getSourceID() != 0 || !lab.isCorrect())
-        continue;
+    for (int iLayer{0}; iLayer < 7; ++iLayer) {
+      for (unsigned int iClus{0}; iClus < (clusArr[iLayer])->size(); ++iClus) {
+        o2::MCCompLabel lab;
+        for (const auto& lbl : ((clusLabArr[iLayer])->getLabels(iClus))) {
+          if (lbl.isValid() && lbl.getSourceID() == 0 && lbl.isCorrect()) {
+            lab = lbl;
+            break;
+          }
+        }
+        if (!lab.isValid()) {
+          continue;
+        }
 
-      int trackID, evID, srcID;
-      bool fake;
-      lab.get(trackID, evID, srcID, fake);
-      if (evID < 0 || evID >= (int)info.size()) {
-        std::cout << "Cluster MC label eventID out of range" << std::endl;
-        continue;
+        int trackID = 0, evID = 0, srcID = 0;
+        bool fake = false;
+        lab.get(trackID, evID, srcID, fake);
+        if (evID < 0 || evID >= (int)info.size()) {
+          std::cout << "Cluster MC label eventID out of range" << '\n';
+          continue;
+        }
+        if (trackID < 0 || trackID >= (int)info[evID].size()) {
+          std::cout << "Cluster MC label trackID out of range" << '\n';
+          continue;
+        }
+        info[evID][trackID].clusters |= 1 << iLayer;
       }
-      if (trackID < 0 || trackID >= (int)info[evID].size()) {
-        std::cout << "Cluster MC label trackID out of range" << std::endl;
-        continue;
-      }
-
-      const CompClusterExt& c = (*clusArr)[iClus];
-      auto layer = gman->getLayer(c.getSensorID());
-      info[evID][trackID].clusters |= 1 << layer;
     }
   }
-  std::cout << "done." << std::endl;
+  std::cout << "done." << '\n';
 
   std::cout << "** Analysing tracks ... " << std::flush;
   int unaccounted{0}, good{0}, fakes{0}, total{0};
   for (int frame = 0; frame < recTree->GetEntriesFast(); frame++) { // Cluster frames
-    if (!recTree->GetEvent(frame))
+    if (!recTree->GetEvent(frame)) {
       continue;
+    }
     total += trkLabArr->size();
     for (unsigned int iTrack{0}; iTrack < trkLabArr->size(); ++iTrack) {
       auto lab = trkLabArr->at(iTrack);
@@ -205,8 +214,8 @@ void CheckTracksCA(bool doEffStud = true,
         unaccounted++;
         continue;
       }
-      int trackID, evID, srcID;
-      bool fake;
+      int trackID = 0, evID = 0, srcID = 0;
+      bool fake = false;
       lab.get(trackID, evID, srcID, fake);
       if (evID < 0 || evID >= (int)info.size()) {
         unaccounted++;
@@ -232,13 +241,13 @@ void CheckTracksCA(bool doEffStud = true,
       good += !fake;
     }
   }
-  std::cout << "done." << std::endl;
+  std::cout << "done." << '\n';
 
-  std::cout << "** Some statistics:" << std::endl;
-  std::cout << "\t- Total number of tracks: " << total << std::endl;
-  std::cout << "\t- Total number of tracks not corresponding to particles: " << unaccounted << " (" << unaccounted * 100. / total << "%)" << std::endl;
-  std::cout << "\t- Total number of fakes: " << fakes << " (" << fakes * 100. / total << "%)" << std::endl;
-  std::cout << "\t- Total number of good: " << good << " (" << good * 100. / total << "%)" << std::endl;
+  std::cout << "** Some statistics:" << '\n';
+  std::cout << "\t- Total number of tracks: " << total << '\n';
+  std::cout << "\t- Total number of tracks not corresponding to particles: " << unaccounted << " (" << unaccounted * 100. / total << "%)" << '\n';
+  std::cout << "\t- Total number of fakes: " << fakes << " (" << fakes * 100. / total << "%)" << '\n';
+  std::cout << "\t- Total number of good: " << good << " (" << good * 100. / total << "%)" << '\n';
 
   TFile* file{nullptr};
   if (createOutput) {
@@ -250,8 +259,9 @@ void CheckTracksCA(bool doEffStud = true,
     const int nb = 100;
     double xbins[nb + 1], ptcutl = 0.01, ptcuth = 10.;
     double a = std::log(ptcuth / ptcutl) / nb;
-    for (int i = 0; i <= nb; i++)
+    for (int i = 0; i <= nb; i++) {
       xbins[i] = ptcutl * std::exp(i * a);
+    }
     TH1D* num = new TH1D("num", ";#it{p}_{T} (GeV/#it{c});Efficiency (fake-track rate)", nb, xbins);
     num->Sumw2();
     TH1D* numEta = new TH1D("numEta", ";#eta;Number of tracks", 60, -3, 3);
@@ -270,8 +280,8 @@ void CheckTracksCA(bool doEffStud = true,
     TH1D* den = new TH1D("den", ";#it{p}_{T} (GeV/#it{c});Den", nb, xbins);
     den->Sumw2();
 
-    for (auto& evInfo : info) {
-      for (auto& part : evInfo) {
+    for (const auto& evInfo : info) {
+      for (const auto& part : evInfo) {
         if ((part.clusters & 0x7f) != 0x7f) {
           // part.clusters != 0x3f && part.clusters != 0x3f << 1 &&
           // part.clusters != 0x1f && part.clusters != 0x1f << 1 && part.clusters != 0x1f << 2 &&
@@ -302,7 +312,10 @@ void CheckTracksCA(bool doEffStud = true,
       }
     }
 
-    TCanvas* c1 = new TCanvas;
+    den->Print();
+    num->Print();
+
+    auto* c1 = new TCanvas;
     c1->SetLogx();
     c1->SetGridx();
     c1->SetGridy();
@@ -322,10 +335,13 @@ void CheckTracksCA(bool doEffStud = true,
     clone->Divide(clone, den, 1, 1, "b");
     clone->SetLineColor(3);
     clone->Draw("histesame");
-    TCanvas* c2 = new TCanvas;
-    c2->SetGridx();
-    c2->SetGridy();
-    hZvertex->DrawClone();
+    c1->Draw();
+    // c1->SaveAs("its_eff.png");
+    // TCanvas* c2 = new TCanvas;
+    // c2->SetGridx();
+    // c2->SetGridy();
+    // hZvertex->DrawClone();
+    // c2->SaveAs("its_zvtx.png");
 
     if (createOutput) {
       sum->Write("total");

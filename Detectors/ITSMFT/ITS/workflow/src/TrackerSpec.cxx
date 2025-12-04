@@ -14,9 +14,9 @@
 #include "Framework/ControlService.h"
 #include "Framework/ConfigParamRegistry.h"
 #include "Framework/CCDBParamSpec.h"
+#include "ITSMFTBase/DPLAlpideParam.h"
 #include "ITSWorkflow/TrackerSpec.h"
 #include "ITStracking/Definitions.h"
-#include "ITStracking/TrackingConfigParam.h"
 
 namespace o2
 {
@@ -41,8 +41,7 @@ void TrackerDPL::init(InitContext& ic)
   mTimer.Reset();
   o2::base::GRPGeomHelper::instance().setRequest(mGGCCDBRequest);
   mChainITS.reset(mRecChain->AddChain<o2::gpu::GPUChainITS>());
-  mITSTrackingInterface.setTraitsFromProvider(mChainITS->GetITSVertexerTraits(),
-                                              mChainITS->GetITSTrackerTraits(),
+  mITSTrackingInterface.setTraitsFromProvider(mChainITS->GetITSTrackerTraits(),
                                               mChainITS->GetITSTimeframe());
 }
 
@@ -80,11 +79,16 @@ void TrackerDPL::end()
 
 DataProcessorSpec getTrackerSpec(bool useMC, bool useGeom, int trgType, TrackingMode::Type trMode, const bool overrBeamEst, o2::gpu::GPUDataTypes::DeviceType dType)
 {
+  using Param = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>;
   std::vector<InputSpec> inputs;
-
-  inputs.emplace_back("compClusters", "ITS", "COMPCLUSTERS", 0, Lifetime::Timeframe);
-  inputs.emplace_back("patterns", "ITS", "PATTERNS", 0, Lifetime::Timeframe);
-  inputs.emplace_back("ROframes", "ITS", "CLUSTERSROF", 0, Lifetime::Timeframe);
+  for (int iLayer = 0; iLayer < Param::getNLayers(); ++iLayer) {
+    inputs.emplace_back("compClusters", "ITS", "COMPCLUSTERS", iLayer, Lifetime::Timeframe);
+    inputs.emplace_back("patterns", "ITS", "PATTERNS", iLayer, Lifetime::Timeframe);
+    inputs.emplace_back("ROframes", "ITS", "CLUSTERSROF", iLayer, Lifetime::Timeframe);
+    if (useMC) {
+      inputs.emplace_back("itsmclabels", "ITS", "CLUSTERSMCTR", iLayer, Lifetime::Timeframe);
+    }
+  }
   if (trgType == 1) {
     inputs.emplace_back("phystrig", "ITS", "PHYSTRIG", 0, Lifetime::Timeframe);
   } else if (trgType == 2) {
@@ -110,34 +114,25 @@ DataProcessorSpec getTrackerSpec(bool useMC, bool useGeom, int trgType, Tracking
   std::vector<OutputSpec> outputs;
   outputs.emplace_back("ITS", "TRACKS", 0, Lifetime::Timeframe);
   outputs.emplace_back("ITS", "TRACKCLSID", 0, Lifetime::Timeframe);
-  outputs.emplace_back("ITS", "ITSTrackROF", 0, Lifetime::Timeframe);
   outputs.emplace_back("ITS", "VERTICES", 0, Lifetime::Timeframe);
-  outputs.emplace_back("ITS", "VERTICESROF", 0, Lifetime::Timeframe);
   outputs.emplace_back("ITS", "IRFRAMES", 0, Lifetime::Timeframe);
-
   if (useMC) {
-    inputs.emplace_back("itsmclabels", "ITS", "CLUSTERSMCTR", 0, Lifetime::Timeframe);
-    inputs.emplace_back("ITSMC2ROframes", "ITS", "CLUSTERSMC2ROF", 0, Lifetime::Timeframe);
     outputs.emplace_back("ITS", "VERTICESMCTR", 0, Lifetime::Timeframe);
     outputs.emplace_back("ITS", "VERTICESMCPUR", 0, Lifetime::Timeframe);
     outputs.emplace_back("ITS", "TRACKSMCTR", 0, Lifetime::Timeframe);
-    outputs.emplace_back("ITS", "ITSTrackMC2ROF", 0, Lifetime::Timeframe);
-    if (VertexerParamConfig::Instance().outputContLabels) {
-      outputs.emplace_back("ITS", "VERTICESMCTRCONT", 0, Lifetime::Timeframe);
-    }
   }
 
   return DataProcessorSpec{
-    "its-tracker",
-    inputs,
-    outputs,
-    AlgorithmSpec{adaptFromTask<TrackerDPL>(ggRequest,
-                                            useMC,
-                                            trgType,
-                                            trMode,
-                                            overrBeamEst,
-                                            dType)},
-    Options{}};
+    .name = "its-tracker",
+    .inputs = inputs,
+    .outputs = outputs,
+    .algorithm = AlgorithmSpec{adaptFromTask<TrackerDPL>(ggRequest,
+                                                         useMC,
+                                                         trgType,
+                                                         trMode,
+                                                         overrBeamEst,
+                                                         dType)},
+    .options = Options{}};
 }
 
 } // namespace its

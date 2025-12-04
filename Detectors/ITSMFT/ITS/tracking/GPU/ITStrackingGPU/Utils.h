@@ -360,41 +360,13 @@ GPUdii() const int4 getBinsRect(const Cluster& currentCluster, const int layerIn
               utils->getPhiBinIndex(math_utils::getNormalizedPhi(phiRangeMax))};
 }
 
-GPUdii() gpuSpan<const Vertex> getPrimaryVertices(const int rof,
-                                                  const int* roframesPV,
-                                                  const int nROF,
-                                                  const uint8_t* mask,
-                                                  const Vertex* vertices)
-{
-  const int start_pv_id = roframesPV[rof];
-  const int stop_rof = rof >= nROF - 1 ? nROF : rof + 1;
-  size_t delta = mask[rof] ? roframesPV[stop_rof] - start_pv_id : 0; // return empty span if ROF is excluded
-  return gpuSpan<const Vertex>(&vertices[start_pv_id], delta);
-};
-
-GPUdii() gpuSpan<const Vertex> getPrimaryVertices(const int romin,
-                                                  const int romax,
-                                                  const int* roframesPV,
-                                                  const int nROF,
-                                                  const Vertex* vertices)
-{
-  const int start_pv_id = roframesPV[romin];
-  const int stop_rof = romax >= nROF - 1 ? nROF : romax + 1;
-  return gpuSpan<const Vertex>(&vertices[start_pv_id], roframesPV[stop_rof] - roframesPV[romin]);
-};
-
 GPUdii() gpuSpan<const Cluster> getClustersOnLayer(const int rof,
-                                                   const int totROFs,
                                                    const int layer,
                                                    const int** roframesClus,
                                                    const Cluster** clusters)
 {
-  if (rof < 0 || rof >= totROFs) {
-    return gpuSpan<const Cluster>();
-  }
   const int start_clus_id{roframesClus[layer][rof]};
-  const int stop_rof = rof >= totROFs - 1 ? totROFs : rof + 1;
-  const unsigned int delta = roframesClus[layer][stop_rof] - start_clus_id;
+  const unsigned int delta = roframesClus[layer][rof + 1] - start_clus_id;
   return gpuSpan<const Cluster>(&(clusters[layer][start_clus_id]), delta);
 }
 

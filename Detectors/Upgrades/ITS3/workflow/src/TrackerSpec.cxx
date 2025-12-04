@@ -57,8 +57,7 @@ void TrackerDPL::init(InitContext& ic)
   mTimer.Reset();
   o2::base::GRPGeomHelper::instance().setRequest(mGGCCDBRequest);
   mChainITS.reset(mRecChain->AddChain<o2::gpu::GPUChainITS>());
-  mITS3TrackingInterface.setTraitsFromProvider(mChainITS->GetITSVertexerTraits(),
-                                               mChainITS->GetITSTrackerTraits(),
+  mITS3TrackingInterface.setTraitsFromProvider(mChainITS->GetITSTrackerTraits(),
                                                mChainITS->GetITSTimeframe());
 }
 

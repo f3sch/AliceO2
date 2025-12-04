@@ -15,23 +15,18 @@
 #pragma link off all classes;
 #pragma link off all functions;
 
+#pragma link C++ class std::vector < o2::its::Vertex> + ;
+
 #pragma link C++ class o2::its::Tracklet + ;
 #pragma link C++ class std::vector < o2::its::Tracklet> + ;
 
 #pragma link C++ class o2::its::Cluster + ;
 #pragma link C++ class std::vector < o2::its::Cluster> + ;
 
+#pragma link C++ class o2::its::LinearizedTrack + ;
+
 #pragma link C++ class o2::its::TrackingFrameInfo + ;
 #pragma link C++ class std::vector < o2::its::TrackingFrameInfo> + ;
-
-#pragma link C++ class o2::its::Line + ;
-#pragma link C++ class std::vector < o2::its::Line> + ;
-
-#pragma link C++ class o2::its::ClusterLines + ;
-#pragma link C++ class std::vector < o2::its::ClusterLines> + ;
-
-#pragma link C++ class o2::its::VertexerParamConfig + ;
-#pragma link C++ class o2::conf::ConfigurableParamHelper < o2::its::VertexerParamConfig> + ;
 
 #pragma link C++ class o2::its::TrackerParamConfig + ;
 #pragma link C++ class o2::conf::ConfigurableParamHelper < o2::its::TrackerParamConfig> + ;

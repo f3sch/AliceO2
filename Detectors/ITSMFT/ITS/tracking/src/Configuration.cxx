@@ -24,8 +24,7 @@ using namespace o2::its;
 
 std::string TrackingParameters::asString() const
 {
-  std::string str = std::format("NZb:{} NPhB:{} NROFIt:{} DRof:{} PerVtx:{} DropFail:{} ClSh:{} TtklMinPt:{:.2f} MinCl:{}",
-                                ZBins, PhiBins, nROFsPerIterations, DeltaROF, PerPrimaryVertexProcessing, DropTFUponFailure, ClusterSharing, TrackletMinPt, MinTrackLength);
+  std::string str = std::format("NZb:{} NPhB:{} PerVtx:{} DropFail:{} ClSh:{} TrklMinPt:{:.2f} MinCl:{}", ZBins, PhiBins, PerPrimaryVertexProcessing, DropTFUponFailure, ClusterSharing, TrackletMinPt, MinTrackLength);
   bool first = true;
   for (int il = NLayers; il >= MinTrackLength; il--) {
     int slot = NLayers - il;
@@ -41,15 +40,14 @@ std::string TrackingParameters::asString() const
   for (size_t i = 0; i < SystErrorY2.size(); i++) {
     str += std::format("{:.2e}/{:.2e} ", SystErrorY2[i], SystErrorZ2[i]);
   }
-  if (std::numeric_limits<size_t>::max() != MaxMemory) {
-    str += std::format(" MemLimit {:.2f} GB", double(MaxMemory) / constants::GB);
+  str += std::format(" TimeSlices:{}", NTimeSlices);
+  if (std::any_of(DeltaROF.begin(), DeltaROF.end(), [](auto b) { return b != 0; })) {
+    str += " DeltaROF:[";
+    for (int il = 0; il < NLayers; ++il) {
+      str += std::to_string(DeltaROF[il]) + ",";
+    }
+    str[str.length() - 1] = ']';
   }
-  return str;
-}
-
-std::string VertexingParameters::asString() const
-{
-  std::string str = std::format("NZb:{} NPhB:{} DRof:{} ClsCont:{} MaxTrkltCls:{} ZCut:{} PhCut:{}", ZBins, PhiBins, deltaRof, clusterContributorsCut, maxTrackletsPerCluster, zCut, phiCut);
   if (std::numeric_limits<size_t>::max() != MaxMemory) {
     str += std::format(" MemLimit {:.2f} GB", double(MaxMemory) / constants::GB);
   }
@@ -100,86 +98,125 @@ std::string TrackingMode::toString(TrackingMode::Type mode)
   return ""; // not reachable
 }
 
-std::vector<TrackingParameters> TrackingMode::getTrackingParameters(TrackingMode::Type mode)
+std::vector<RecoIteration> TrackingMode::getRecoIterations(TrackingMode::Type mode)
 {
   const auto& tc = o2::its::TrackerParamConfig::Instance();
-  std::vector<TrackingParameters> trackParams;
+  std::vector<RecoIteration> recoIterations;
+
+  // set the size and name
+  if (mode == TrackingMode::Async) {
+    recoIterations.resize(tc.doUPCIteration ? 5 : 4);
+    recoIterations[0].name = "ASYNC_SEED";
+    recoIterations[1].name = "ASYNC_LONG";
+    recoIterations[2].name = "ASYNC_LONG_RETRY";
+    recoIterations[3].name = "ASYNC_REST";
+    if (tc.doUPCIteration) {
+      recoIterations[4].name = "ASYNC_UPC";
+    }
+  } else if (mode == TrackingMode::Sync) {
+    recoIterations.resize(2);
+    recoIterations[0].name = "SYNC_TIGHT";
+  } else if (mode == TrackingMode::Cosmics) {
+    // in case of cosmics we do not do the seeding step
+    recoIterations.resize(1);
+    recoIterations[0].name = "COSMICS";
+  } else {
+    LOGP(fatal, "Unsupported ITS tracking mode {} ", toString(mode));
+  }
+
+  // always done in any first two iterations (unless cosmics)
+  recoIterations[0].steps.set(RecoIterationSteps::kInitMemory);
+  if (mode != TrackingMode::Cosmics) {
+    recoIterations[1].steps.set(RecoIterationSteps::kInitMemory);
+
+    // standards steps to configure seeding
+    recoIterations[0].steps.set(RecoIterationSteps::kRunTrackleting, RecoIterationSteps::kRunCellFinding, RecoIterationSteps::kRunCellSeeding, RecoIterationSteps::kUpdateClusters);
+    recoIterations[0].params.NLayers = 3;       // only do cell finding up until the third layer
+    recoIterations[0].params.UseDiamond = true; // use the blown up diamond constrain to (e.g. luminous region)
+    recoIterations[0].params.NSigmaCut = 5.f;
+    recoIterations[0].params.CorrType = o2::base::PropagatorF::MatCorrType::USEMatCorrNONE; // do not use material
+    recoIterations[0].params.SeedingDCATolerance = tc.seedingDCATolerance;
+    recoIterations[0].params.SeedingDCAMaxPull = tc.seedingDCAMaxPull;
+    recoIterations[0].params.SeedingMaxChi2Iter = tc.seedingMaxChi2Iter;
+    recoIterations[0].params.SeedingTukeyStartIter = tc.seedingTukeyStartIter;
+    recoIterations[0].params.SeedingMinWghTrk = tc.seedingMinWghTrk;
+    recoIterations[0].params.SeedingMaxFitIter = tc.seedingMaxFitIter;
+    recoIterations[0].params.SeedingMinTracksIter = tc.seedingMinTracksIter;
+    recoIterations[0].params.SeedingDBScanMinPt = tc.seedingDBScanMinPt;
+    recoIterations[0].params.SeedingDBScanEpsZ = tc.seedingDBScanEpsZ;
+    recoIterations[0].params.SeedingDBScanEpsT = tc.seedingDBScanEpsT;
+    recoIterations[0].params.PerPrimaryVertexProcessing = false;
+
+    if (tc.seedingUseMCTruth) {
+      recoIterations[0].name = "MC_SEEDING";
+      recoIterations[0].steps.reset();
+      recoIterations[0].steps.set(RecoIterationSteps::kRunTruthSeeding);
+    }
+  }
 
   if (mode == TrackingMode::Async) {
-    trackParams.resize(tc.doUPCIteration ? 4 : 3);
-    trackParams[1].TrackletMinPt = 0.2f;
-    trackParams[1].CellDeltaTanLambdaSigma *= 2.;
-    trackParams[2].TrackletMinPt = 0.1f;
-    trackParams[2].CellDeltaTanLambdaSigma *= 4.;
+    recoIterations[2].params.TrackletMinPt = 0.2f;
+    recoIterations[3].params.TrackletMinPt = 0.1f;
 
-    trackParams[0].MinPt[0] = 1.f / 12; // 7cl
-    trackParams[1].MinPt[0] = 1.f / 12; // 7cl
+    recoIterations[1].params.MinPt[0] = 1.f / 12; // 7cl
+    recoIterations[2].params.MinPt[0] = 1.f / 12; // 7cl
 
-    trackParams[2].MinTrackLength = 4;
-    trackParams[2].MinPt[0] = 1.f / 12; // 7cl
-    trackParams[2].MinPt[1] = 1.f / 5;  // 6cl
-    trackParams[2].MinPt[2] = 1.f / 1;  // 5cl
-    trackParams[2].MinPt[3] = 1.f / 6;  // 4cl
+    recoIterations[3].params.MinTrackLength = 4;
+    recoIterations[3].params.MinPt[0] = 1.f / 12; // 7cl
+    recoIterations[3].params.MinPt[1] = 1.f / 5;  // 6cl
+    recoIterations[3].params.MinPt[2] = 1.f / 1;  // 5cl
+    recoIterations[3].params.MinPt[3] = 1.f / 6;  // 4cl
 
-    trackParams[2].StartLayerMask = (1 << 6) + (1 << 3);
+    recoIterations[3].params.StartLayerMask = (1 << 6) + (1 << 3);
+
     if (tc.doUPCIteration) {
-      trackParams[3].MinTrackLength = 4;
-      trackParams[3].TrackletMinPt = 0.1f;
-      trackParams[3].CellDeltaTanLambdaSigma *= 4.;
-      trackParams[3].DeltaROF = 0; // UPC specific setting
+      recoIterations[4].params.MinTrackLength = 4;
+      recoIterations[4].params.TrackletMinPt = 0.1f;
     }
-    for (size_t ip = 0; ip < trackParams.size(); ip++) {
-      auto& param = trackParams[ip];
-      param.ZBins = 64;
-      param.PhiBins = 32;
-      param.CellsPerClusterLimit = 1.e3f;
-      param.TrackletsPerClusterLimit = 1.e3f;
+    for (size_t ip = 0; ip < recoIterations.size(); ip++) {
+      // the seeding step is configured outside of this loop beforehand
+      if (ip > 0) {
+        recoIterations[ip].steps.set(RecoIterationSteps::kRunTrackleting, RecoIterationSteps::kRunCellFinding, RecoIterationSteps::kRunCellNeighborFinding, RecoIterationSteps::kRunRoadFinding);
+        if (ip == 1) {
+          recoIterations[ip].steps.set(RecoIterationSteps::kUpdateClusters, RecoIterationSteps::kUpdateVertexTable);
+        }
+      }
+      recoIterations[ip].params.ZBins = 64;
+      recoIterations[ip].params.PhiBins = 32;
       // check if something was overridden via configurable params
       if (ip < tc.MaxIter) {
         if (tc.startLayerMask[ip] > 0) {
-          trackParams[2].StartLayerMask = tc.startLayerMask[ip];
+          recoIterations[2].params.StartLayerMask = tc.startLayerMask[ip];
         }
         if (tc.minTrackLgtIter[ip] > 0) {
-          param.MinTrackLength = tc.minTrackLgtIter[ip];
+          recoIterations[ip].params.MinTrackLength = tc.minTrackLgtIter[ip];
         }
         for (int ilg = tc.MaxTrackLength; ilg >= tc.MinTrackLength; ilg--) {
-          int lslot0 = (tc.MaxTrackLength - ilg), lslot = lslot0 + ip * (tc.MaxTrackLength - tc.MinTrackLength + 1);
+          int lslot0 = (tc.MaxTrackLength - ilg), lslot = lslot0 + (static_cast<int>(ip) * (tc.MaxTrackLength - tc.MinTrackLength + 1));
           if (tc.minPtIterLgt[lslot] > 0.) {
-            param.MinPt[lslot0] = tc.minPtIterLgt[lslot];
+            recoIterations[ip].params.MinPt[lslot0] = tc.minPtIterLgt[lslot];
           }
         }
       }
     }
   } else if (mode == TrackingMode::Sync) {
-    trackParams.resize(1);
-    trackParams[0].ZBins = 64;
-    trackParams[0].PhiBins = 32;
-    trackParams[0].MinTrackLength = 4;
+    recoIterations[0].params.ZBins = 64;
+    recoIterations[0].params.PhiBins = 32;
+    recoIterations[0].params.MinTrackLength = 4;
   } else if (mode == TrackingMode::Cosmics) {
-    trackParams.resize(1);
-    trackParams[0].MinTrackLength = 4;
-    trackParams[0].CellDeltaTanLambdaSigma *= 10;
-    trackParams[0].PhiBins = 4;
-    trackParams[0].ZBins = 16;
-    trackParams[0].PVres = 1.e5f;
-    trackParams[0].MaxChi2ClusterAttachment = 60.;
-    trackParams[0].MaxChi2NDF = 40.;
-    trackParams[0].TrackletsPerClusterLimit = 100.;
-    trackParams[0].CellsPerClusterLimit = 100.;
-  } else {
-    LOGP(fatal, "Unsupported ITS tracking mode {} ", toString(mode));
-  }
-
-  float bFactor = std::abs(o2::base::Propagator::Instance()->getNominalBz()) / 5.0066791;
-  float bFactorTracklets = bFactor < 0.01 ? 1. : bFactor; // for tracklets only
-  int nROFsPerIterations = tc.nROFsPerIterations > 0 ? tc.nROFsPerIterations : -1;
-
-  if (tc.nOrbitsPerIterations > 0) {
-    /// code to be used when the number of ROFs per orbit is known, this gets priority over the number of ROFs per iteration
+    recoIterations[0].params.MinTrackLength = 4;
+    recoIterations[0].params.PhiBins = 4;
+    recoIterations[0].params.ZBins = 16;
+    recoIterations[0].params.MaxChi2ClusterAttachment = 60.;
+    recoIterations[0].params.MaxChi2NDF = 40.;
   }
 
   // global parameters set for every iteration
-  for (auto& p : trackParams) {
+  float bFactor = std::abs(o2::base::Propagator::Instance()->getNominalBz()) / 5.0066791f;
+  float bFactorTracklets = bFactor < 0.01f ? 1.f : bFactor; // for tracklets only
+  for (auto& reco : recoIterations) {
+    auto& p = reco.params;
+
     // adjust pT settings to actual mag. field
     p.TrackletMinPt *= bFactorTracklets;
     for (int ilg = tc.MaxTrackLength; ilg >= tc.MinTrackLength; ilg--) {
@@ -189,7 +226,7 @@ std::vector<TrackingParameters> TrackingMode::getTrackingParameters(TrackingMode
     p.ReseedIfShorter = tc.reseedIfShorter;
     p.ShiftRefToCluster = tc.shiftRefToCluster;
     p.createArtefactLabels = tc.createArtefactLabels;
-
+    p.NTimeSlices = tc.nTimeSlices;
     p.PrintMemory = tc.printMemory;
     p.MaxMemory = tc.maxMemory;
     p.DropTFUponFailure = tc.dropTFUponFailure;
@@ -205,28 +242,22 @@ std::vector<TrackingParameters> TrackingMode::getTrackingParameters(TrackingMode
       p.CorrType = o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrLUT;
     }
 
-    if (p.NLayers == 7) {
-      for (int i{0}; i < 7; ++i) {
-        p.SystErrorY2[i] = tc.sysErrY2[i] > 0 ? tc.sysErrY2[i] : p.SystErrorY2[i];
-        p.SystErrorZ2[i] = tc.sysErrZ2[i] > 0 ? tc.sysErrZ2[i] : p.SystErrorZ2[i];
-      }
+    for (int i{0}; i < tc.MaxTrackLength; ++i) {
+      p.SystErrorY2[i] = tc.sysErrY2[i] > 0 ? tc.sysErrY2[i] : p.SystErrorY2[i];
+      p.SystErrorZ2[i] = tc.sysErrZ2[i] > 0 ? tc.sysErrZ2[i] : p.SystErrorZ2[i];
+      p.DeltaROF[i] = tc.deltaROF[i];
     }
-    p.DeltaROF = tc.deltaRof;
+
     p.DoUPCIteration = tc.doUPCIteration;
     p.MaxChi2ClusterAttachment = tc.maxChi2ClusterAttachment > 0 ? tc.maxChi2ClusterAttachment : p.MaxChi2ClusterAttachment;
     p.MaxChi2NDF = tc.maxChi2NDF > 0 ? tc.maxChi2NDF : p.MaxChi2NDF;
     p.PhiBins = tc.LUTbinsPhi > 0 ? tc.LUTbinsPhi : p.PhiBins;
     p.ZBins = tc.LUTbinsZ > 0 ? tc.LUTbinsZ : p.ZBins;
-    p.PVres = tc.pvRes > 0 ? tc.pvRes : p.PVres;
     p.NSigmaCut *= tc.nSigmaCut > 0 ? tc.nSigmaCut : 1.f;
-    p.CellDeltaTanLambdaSigma *= tc.deltaTanLres > 0 ? tc.deltaTanLres : 1.f;
     p.TrackletMinPt *= tc.minPt > 0 ? tc.minPt : 1.f;
-    p.nROFsPerIterations = nROFsPerIterations;
     p.PerPrimaryVertexProcessing = tc.perPrimaryVertexProcessing;
-    for (int iD{0}; iD < 3; ++iD) {
-      p.Diamond[iD] = tc.diamondPos[iD];
-    }
-    p.UseDiamond = tc.useDiamond;
+    std::copy(tc.diamondPos, tc.diamondPos + 3, p.Diamond);
+    std::copy(tc.diamondCov, tc.diamondCov + 6, p.DiamondCov);
     if (tc.useTrackFollower > 0) {
       p.UseTrackFollower = true;
       // Bit 0: Allow for mixing of top&bot extension --> implies Bits 1&2 set
@@ -235,76 +266,21 @@ std::vector<TrackingParameters> TrackingMode::getTrackingParameters(TrackingMode
       p.UseTrackFollowerMix = ((tc.useTrackFollower & (1 << 0)) != 0);
       p.UseTrackFollowerTop = ((tc.useTrackFollower & (1 << 1)) != 0);
       p.UseTrackFollowerBot = ((tc.useTrackFollower & (1 << 2)) != 0);
-      p.TrackFollowerNSigmaCutZ = tc.trackFollowerNSigmaZ;
-      p.TrackFollowerNSigmaCutPhi = tc.trackFollowerNSigmaPhi;
-    }
-    if (tc.cellsPerClusterLimit >= 0) {
-      p.CellsPerClusterLimit = tc.cellsPerClusterLimit;
-    }
-    if (tc.trackletsPerClusterLimit >= 0) {
-      p.TrackletsPerClusterLimit = tc.trackletsPerClusterLimit;
     }
     if (tc.findShortTracks >= 0) {
       p.FindShortTracks = tc.findShortTracks;
     }
   }
 
-  if (trackParams.size() > tc.nIterations) {
-    trackParams.resize(tc.nIterations);
+  // opt. suppress layer iterations
+  if (tc.nIterations >= 0 && tc.nIterations < recoIterations.size()) {
+    recoIterations.resize(tc.nIterations);
   }
 
-  return trackParams;
+  return recoIterations;
 }
 
-std::vector<VertexingParameters> TrackingMode::getVertexingParameters(TrackingMode::Type mode)
+std::string RecoIteration::asString() const
 {
-  const auto& vc = o2::its::VertexerParamConfig::Instance();
-  std::vector<VertexingParameters> vertParams;
-  if (mode == TrackingMode::Async) {
-    vertParams.resize(2); // The number of actual iterations will be set as a configKeyVal to allow for pp/PbPb choice
-    vertParams[1].phiCut = 0.015f;
-    vertParams[1].tanLambdaCut = 0.015f;
-    vertParams[1].vertPerRofThreshold = 0;
-    vertParams[1].deltaRof = 0;
-  } else if (mode == TrackingMode::Sync) {
-    vertParams.resize(1);
-  } else if (mode == TrackingMode::Cosmics) {
-    vertParams.resize(1);
-  } else {
-    LOGP(fatal, "Unsupported ITS vertexing mode {} ", toString(mode));
-  }
-
-  // global parameters set for every iteration
-  for (auto& p : vertParams) {
-    p.SaveTimeBenchmarks = vc.saveTimeBenchmarks;
-    p.PrintMemory = vc.printMemory;
-    p.MaxMemory = vc.maxMemory;
-    p.DropTFUponFailure = vc.dropTFUponFailure;
-    p.nIterations = vc.nIterations;
-    p.deltaRof = vc.deltaRof;
-    p.allowSingleContribClusters = vc.allowSingleContribClusters;
-    p.trackletSigma = vc.trackletSigma;
-    p.maxZPositionAllowed = vc.maxZPositionAllowed;
-    p.clusterContributorsCut = vc.clusterContributorsCut;
-    p.phiSpan = vc.phiSpan;
-    p.nThreads = vc.nThreads;
-    p.ZBins = vc.ZBins;
-    p.PhiBins = vc.PhiBins;
-
-    p.useTruthSeeding = vc.useTruthSeeding;
-    p.outputContLabels = vc.outputContLabels;
-  }
-  // set for now outside to not disturb status quo
-  vertParams[0].vertNsigmaCut = vc.vertNsigmaCut;
-  vertParams[0].vertRadiusSigma = vc.vertRadiusSigma;
-  vertParams[0].maxTrackletsPerCluster = vc.maxTrackletsPerCluster;
-  vertParams[0].lowMultBeamDistCut = vc.lowMultBeamDistCut;
-  vertParams[0].zCut = vc.zCut;
-  vertParams[0].phiCut = vc.phiCut;
-  vertParams[0].pairCut = vc.pairCut;
-  vertParams[0].clusterCut = vc.clusterCut;
-  vertParams[0].histPairCut = vc.histPairCut;
-  vertParams[0].tanLambdaCut = vc.tanLambdaCut;
-
-  return vertParams;
+  return std::format("recoIter:{}[{}] {}", name, steps.string(), params.asString());
 }

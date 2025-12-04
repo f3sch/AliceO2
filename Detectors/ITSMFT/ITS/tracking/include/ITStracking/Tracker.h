@@ -51,49 +51,47 @@ class GPUChainITS;
 namespace its
 {
 
-template <int nLayers>
+template <int NLayers>
 class Tracker
 {
   using LogFunc = std::function<void(const std::string& s)>;
 
  public:
-  Tracker(TrackerTraits<nLayers>* traits);
+  Tracker(TrackerTraits<NLayers>* traits);
 
-  void adoptTimeFrame(TimeFrame<nLayers>& tf);
+  void adoptTimeFrame(TimeFrame<NLayers>& tf);
 
-  void clustersToTracks(
-    const LogFunc& = [](const std::string& s) { std::cout << s << '\n'; },
-    const LogFunc& = [](const std::string& s) { std::cerr << s << '\n'; });
-
-  void setParameters(const std::vector<TrackingParameters>& p) { mTrkParams = p; }
+  void clustersToTracks(const LogFunc& info, const LogFunc& error);
+  const auto& getParameters() const { return mRecoParams; }
+  void setParameters(const std::vector<RecoIteration>& p) { mRecoParams = p; }
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool) { mMemoryPool = pool; }
-  std::vector<TrackingParameters>& getParameters() { return mTrkParams; }
   void setBz(float bz) { mTraits->setBz(bz); }
   bool isMatLUT() const { return mTraits->isMatLUT(); }
   void setNThreads(int n, std::shared_ptr<tbb::task_arena>& arena) { mTraits->setNThreads(n, arena); }
   void printSummary() const;
 
  private:
-  void initialiseTimeFrame(int iteration) { mTraits->initialiseTimeFrame(iteration); }
-  void computeTracklets(int iteration, int iROFslice, int iVertex) { mTraits->computeLayerTracklets(iteration, iROFslice, iVertex); }
+  void initialiseTimeFrame(int iteration) { mTraits->initialiseTimeFrame(mRecoParams[iteration]); }
+  void computeTracklets(int iteration, int iSlice, int iVertex) { mTraits->computeLayerTracklets(iteration, iSlice, iVertex); }
   void computeCells(int iteration) { mTraits->computeLayerCells(iteration); }
+  void findCellSeeds(int iteration) { mTraits->findCellSeeds(iteration); }
   void findCellsNeighbours(int iteration) { mTraits->findCellsNeighbours(iteration); }
   void findRoads(int iteration) { mTraits->findRoads(iteration); }
-  void findShortPrimaries() { mTraits->findShortPrimaries(); }
+  void findShortPrimaries(int iteration) { mTraits->findShortPrimaries(iteration); }
   void extendTracks(int iteration) { mTraits->extendTracks(iteration); }
+  void computeTruthSeeding(int) { mTraits->computeTruthSeeding(); }
 
-  // MC interaction
-  void computeRoadsMClabels();
   void computeTracksMClabels();
   void rectifyClusterIndices();
+  void sortTracks();
 
   template <typename... T, typename... F>
   float evaluateTask(void (Tracker::*task)(T...), std::string_view taskName, int iteration, LogFunc logger, F&&... args);
 
-  TrackerTraits<nLayers>* mTraits = nullptr; /// Observer pointer, not owned by this class
-  TimeFrame<nLayers>* mTimeFrame = nullptr;  /// Observer pointer, not owned by this class
+  TrackerTraits<NLayers>* mTraits = nullptr; /// Observer pointer, not owned by this class
+  TimeFrame<NLayers>* mTimeFrame = nullptr;  /// Observer pointer, not owned by this class
 
-  std::vector<TrackingParameters> mTrkParams;
+  std::vector<RecoIteration> mRecoParams;
   o2::gpu::GPUChainITS* mRecoChain = nullptr;
 
   unsigned int mNumberOfDroppedTFs{0};
@@ -102,26 +100,28 @@ class Tracker
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
 
   enum State {
-    TFInit = 0,
-    Trackleting,
-    Celling,
-    Neighbouring,
-    Roading,
-    NStates,
+    kTFInit = 0,
+    kTrackleting,
+    kCelling,
+    kSeeding,
+    kNeighbouring,
+    kRoading,
+    kTruthSeeding,
+    kNStates,
   };
-  State mCurState{TFInit};
-  static constexpr std::array<const char*, NStates> StateNames{"TimeFrame initialisation", "Tracklet finding", "Cell finding", "Neighbour finding", "Road finding"};
+  State mCurState{kTFInit};
+  static constexpr std::array<const char*, kNStates> StateNames{"TimeFrame initialisation", "Tracklet finding", "Cell finding", "Seeding", "Neighbour finding", "Road finding", "TruthSeeding"};
 };
 
-template <int nLayers>
+template <int NLayers>
 template <typename... T, typename... F>
-float Tracker<nLayers>::evaluateTask(void (Tracker<nLayers>::*task)(T...), std::string_view taskName, int iteration, LogFunc logger, F&&... args)
+float Tracker<NLayers>::evaluateTask(void (Tracker<NLayers>::*task)(T...), std::string_view taskName, int iteration, LogFunc logger, F&&... args)
 {
   float diff{0.f};
 
   if constexpr (constants::DoTimeBenchmarks) {
     auto start = std::chrono::high_resolution_clock::now();
-    (this->*task)(std::forward<F>(args)...);
+    (this->*task)(iteration, std::forward<F>(args)...);
     auto end = std::chrono::high_resolution_clock::now();
 
     std::chrono::duration<double, std::milli> diff_t{end - start};
@@ -135,7 +135,7 @@ float Tracker<nLayers>::evaluateTask(void (Tracker<nLayers>::*task)(T...), std::
     }
     logger(sstream.str());
 
-    if (mTrkParams[0].SaveTimeBenchmarks) {
+    if (mRecoParams[iteration].params.SaveTimeBenchmarks) {
       std::string taskNameStr(taskName);
       std::transform(taskNameStr.begin(), taskNameStr.end(), taskNameStr.begin(),
                      [](unsigned char c) { return std::tolower(c); });
@@ -146,7 +146,7 @@ float Tracker<nLayers>::evaluateTask(void (Tracker<nLayers>::*task)(T...), std::
     }
 
   } else {
-    (this->*task)(std::forward<F>(args)...);
+    (this->*task)(iteration, std::forward<F>(args)...);
   }
 
   return diff;

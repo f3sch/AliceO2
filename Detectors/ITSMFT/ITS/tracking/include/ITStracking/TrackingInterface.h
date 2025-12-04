@@ -17,8 +17,6 @@
 #include "ITStracking/TimeFrame.h"
 #include "ITStracking/Tracker.h"
 #include "ITStracking/TrackerTraits.h"
-#include "ITStracking/Vertexer.h"
-#include "ITStracking/VertexerTraits.h"
 #include "ITStracking/BoundedAllocator.h"
 #include "DataFormatsParameters/GRPObject.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
@@ -35,8 +33,6 @@ namespace o2::its
 class ITSTrackingInterface
 {
   static constexpr int NLayers{7};
-  using VertexerN = Vertexer<NLayers>;
-  using VertexerTraitsN = VertexerTraits<NLayers>;
   using TrackerN = Tracker<NLayers>;
   using TrackerTraitsN = TrackerTraits<NLayers>;
   using TimeFrameN = TimeFrame<NLayers>;
@@ -69,11 +65,10 @@ class ITSTrackingInterface
   virtual void finaliseCCDB(framework::ConcreteDataMatcher& matcher, void* obj);
 
   // Custom
-  void setTraitsFromProvider(VertexerTraitsN*, TrackerTraitsN*, TimeFrameN*);
+  void setTraitsFromProvider(TrackerTraitsN*, TimeFrameN*);
   void setTrackingMode(TrackingMode::Type mode = TrackingMode::Unset) { mMode = mode; }
 
   auto getTracker() const { return mTracker.get(); }
-  auto getVertexer() const { return mVertexer.get(); }
 
   TimeFrameN* mTimeFrame = nullptr;
 
@@ -81,6 +76,7 @@ class ITSTrackingInterface
   virtual void loadROF(gsl::span<const itsmft::ROFRecord>& trackROFspan,
                        gsl::span<const itsmft::CompClusterExt> clusters,
                        gsl::span<const unsigned char>::iterator& pattIt,
+                       int layer,
                        const dataformats::MCTruthContainer<MCCompLabel>* mcLabels);
 
  private:
@@ -88,12 +84,12 @@ class ITSTrackingInterface
   bool mRunVertexer = true;
   bool mCosmicsProcessing = false;
   int mUseTriggers = 0;
+  std::vector<o2::framework::InputSpec> mFilter;
   TrackingMode::Type mMode = TrackingMode::Unset;
   bool mOverrideBeamEstimation = false;
   const o2::itsmft::TopologyDictionary* mDict = nullptr;
   std::unique_ptr<TrackerN> mTracker = nullptr;
-  std::unique_ptr<VertexerN> mVertexer = nullptr;
-  const o2::dataformats::MeanVertexObject* mMeanVertex;
+  const o2::dataformats::MeanVertexObject* mMeanVertex = nullptr;
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   std::shared_ptr<tbb::task_arena> mTaskArena;
 };

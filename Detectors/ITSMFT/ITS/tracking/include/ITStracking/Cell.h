@@ -16,6 +16,9 @@
 #ifndef TRACKINGITSU_INCLUDE_CACELL_H_
 #define TRACKINGITSU_INCLUDE_CACELL_H_
 
+#include <cstdint>
+
+#include "ReconstructionDataFormats/Track.h"
 #include "ITStracking/Constants.h"
 #include "GPUCommonDef.h"
 

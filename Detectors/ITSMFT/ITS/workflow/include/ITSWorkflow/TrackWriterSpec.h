@@ -16,16 +16,13 @@
 
 #include "Framework/DataProcessorSpec.h"
 
-namespace o2
-{
-namespace its
+namespace o2::its
 {
 
 /// create a processor spec
 /// write ITS tracks to ROOT file
 o2::framework::DataProcessorSpec getTrackWriterSpec(bool useMC);
 
-} // namespace its
-} // namespace o2
+} // namespace o2::its
 
 #endif /* O2_ITS_TRACKWRITER */

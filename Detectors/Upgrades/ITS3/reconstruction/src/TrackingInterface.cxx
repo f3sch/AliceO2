@@ -35,12 +35,9 @@ void ITS3TrackingInterface::updateTimeDependentParams(framework::ProcessingConte
     geom->fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::T2L, o2::math_utils::TransformType::T2GRot, o2::math_utils::TransformType::T2G));
     initialise();
     if (pc.services().get<const o2::framework::DeviceSpec>().inputTimesliceId == 0) { // print settings only for the 1st pipeling
-      o2::its::VertexerParamConfig::Instance().printKeyValues();
       o2::its::TrackerParamConfig::Instance().printKeyValues();
-      const auto& trParams = getTracker()->getParameters();
-      for (size_t it = 0; it < trParams.size(); it++) {
-        const auto& par = trParams[it];
-        LOGP(info, "recoIter#{} : {}", it, par.asString());
+      for (const auto& par : getTracker()->getParameters()) {
+        LOGP(info, "{}", par.asString());
       }
     }
   }
@@ -77,9 +74,10 @@ void ITS3TrackingInterface::finaliseCCDB(framework::ConcreteDataMatcher& matcher
 void ITS3TrackingInterface::loadROF(gsl::span<const itsmft::ROFRecord>& trackROFspan,
                                     gsl::span<const itsmft::CompClusterExt> clusters,
                                     gsl::span<const unsigned char>::iterator& pattIt,
+                                    int layer,
                                     const dataformats::MCTruthContainer<MCCompLabel>* mcLabels)
 {
-  ioutils::loadROFrameDataITS3(mTimeFrame, trackROFspan, clusters, pattIt, mDict, mcLabels);
+  ioutils::loadROFrameDataITS3(mTimeFrame, trackROFspan, clusters, pattIt, mDict, layer, mcLabels);
 }
 
 } // namespace o2::its3

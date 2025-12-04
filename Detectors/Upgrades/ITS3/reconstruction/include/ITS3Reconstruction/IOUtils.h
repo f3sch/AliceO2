@@ -71,11 +71,12 @@ void convertCompactClusters(gsl::span<const itsmft::CompClusterExt> clusters,
                             std::vector<o2::BaseCluster<float>>& output,
                             const its3::TopologyDictionary* dict);
 
-int loadROFrameDataITS3(its::TimeFrame<7>* tf,
-                        gsl::span<const o2::itsmft::ROFRecord> rofs,
-                        gsl::span<const itsmft::CompClusterExt> clusters,
-                        gsl::span<const unsigned char>::iterator& pattIt,
-                        const its3::TopologyDictionary* dict,
-                        const dataformats::MCTruthContainer<MCCompLabel>* mcLabels = nullptr);
+void loadROFrameDataITS3(its::TimeFrame<7>* tf,
+                         gsl::span<const o2::itsmft::ROFRecord> rofs,
+                         gsl::span<const itsmft::CompClusterExt> clusters,
+                         gsl::span<const unsigned char>::iterator& pattIt,
+                         const its3::TopologyDictionary* dict,
+                         int layer,
+                         const dataformats::MCTruthContainer<MCCompLabel>* mcLabels = nullptr);
 
 } // namespace o2::its3::ioutils

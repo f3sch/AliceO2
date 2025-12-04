@@ -9,20 +9,18 @@
 # granted to it by virtue of its status as an Intergovernmental Organization
 # or submit itself to any jurisdiction.
 
+# add_compile_options(-O0 -g -fPIC -fsanitize=address)
+# add_link_options(-fsanitize=address)
 o2_add_library(ITStracking
                TARGETVARNAME targetName
-               SOURCES src/ClusterLines.cxx
-                       src/Cluster.cxx
+               SOURCES src/Cluster.cxx
+                       src/Seeding.cxx
                        src/Configuration.cxx
                        src/TimeFrame.cxx
                        src/IOUtils.cxx
                        src/Tracker.cxx
                        src/TrackerTraits.cxx
                        src/TrackingConfigParam.cxx
-                       src/ClusterLines.cxx
-                       src/Vertexer.cxx
-                       src/VertexerTraits.cxx
-                       src/Smoother.cxx
                PUBLIC_LINK_LIBRARIES
                        O2::GPUCommon
                        Microsoft.GSL::GSL
@@ -45,11 +43,12 @@ o2_add_library(ITSTrackingInterface
                        O2::ITStracking
                        O2::Framework
                        O2::GPUTracking)
+# target_compile_options(${targetName} PRIVATE -O0 -g -fPIC -fno-omit-frame-pointer)
 
 o2_target_root_dictionary(ITStracking
-                          HEADERS include/ITStracking/ClusterLines.h
-                                  include/ITStracking/Tracklet.h
+                          HEADERS include/ITStracking/Tracklet.h
                                   include/ITStracking/Cluster.h
+                                  include/ITStracking/Seeding.h
                                   include/ITStracking/TrackingConfigParam.h
                           LINKDEF src/TrackingLinkDef.h)
 

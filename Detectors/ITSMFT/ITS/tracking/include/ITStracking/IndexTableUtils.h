@@ -34,18 +34,18 @@ class IndexTableUtils
  public:
   template <class T>
   void setTrackingParameters(const T& params);
-  float getInverseZCoordinate(const int layerIndex) const;
-  GPUhdi() int getZBinIndex(const int, const float) const;
-  GPUhdi() int getPhiBinIndex(const float) const;
-  GPUhdi() int getBinIndex(const int, const int) const;
-  GPUhdi() int countRowSelectedBins(const int*, const int, const int, const int) const;
+  float getInverseZCoordinate(const int layerIndex) const noexcept;
+  GPUhdi() int getZBinIndex(const int, const float) const noexcept;
+  GPUhdi() int getPhiBinIndex(const float) const noexcept;
+  GPUhdi() int getBinIndex(const int, const int) const noexcept;
+  GPUhdi() int countRowSelectedBins(const int*, const int, const int, const int) const noexcept;
   GPUhdi() void print() const;
 
-  GPUhdi() int getNzBins() const { return mNzBins; }
-  GPUhdi() int getNphiBins() const { return mNphiBins; }
-  GPUhdi() float getLayerZ(int i) const { return mLayerZ[i]; }
-  GPUhdi() void setNzBins(const int zBins) { mNzBins = zBins; }
-  GPUhdi() void setNphiBins(const int phiBins) { mNphiBins = phiBins; }
+  GPUhdi() int getNzBins() const noexcept { return mNzBins; }
+  GPUhdi() int getNphiBins() const noexcept { return mNphiBins; }
+  GPUhdi() float getLayerZ(int i) const noexcept { return mLayerZ[i]; }
+  GPUhdi() void setNzBins(const int zBins) noexcept { mNzBins = zBins; }
+  GPUhdi() void setNphiBins(const int phiBins) noexcept { mNphiBins = phiBins; }
 
  private:
   int mNzBins = 0;
@@ -71,36 +71,34 @@ inline void IndexTableUtils<nLayers>::setTrackingParameters(const T& params)
 }
 
 template <int nLayers>
-inline float IndexTableUtils<nLayers>::getInverseZCoordinate(const int layerIndex) const
+inline float IndexTableUtils<nLayers>::getInverseZCoordinate(const int layerIndex) const noexcept
 {
   return 0.5f * mNzBins / mLayerZ[layerIndex];
 }
 
 template <int nLayers>
-GPUhdi() int IndexTableUtils<nLayers>::getZBinIndex(const int layerIndex, const float zCoordinate) const
+GPUhdi() int IndexTableUtils<nLayers>::getZBinIndex(const int layerIndex, const float zCoordinate) const noexcept
 {
   return (zCoordinate + mLayerZ[layerIndex]) * mInverseZBinSize[layerIndex];
 }
 
 template <int nLayers>
-GPUhdi() int IndexTableUtils<nLayers>::getPhiBinIndex(const float currentPhi) const
+GPUhdi() int IndexTableUtils<nLayers>::getPhiBinIndex(const float currentPhi) const noexcept
 {
   return (currentPhi * mInversePhiBinSize);
 }
 
 template <int nLayers>
-GPUhdi() int IndexTableUtils<nLayers>::getBinIndex(const int zIndex, const int phiIndex) const
+GPUhdi() int IndexTableUtils<nLayers>::getBinIndex(const int zIndex, const int phiIndex) const noexcept
 {
-  return o2::gpu::GPUCommonMath::Min(phiIndex * mNzBins + zIndex, mNzBins * mNphiBins - 1);
+  return o2::gpu::GPUCommonMath::Min((phiIndex * mNzBins) + zIndex, (mNzBins * mNphiBins) - 1);
 }
 
 template <int nLayers>
-GPUhdi() int IndexTableUtils<nLayers>::countRowSelectedBins(const int* indexTable, const int phiBinIndex,
-                                                            const int minZBinIndex, const int maxZBinIndex) const
+GPUhdi() int IndexTableUtils<nLayers>::countRowSelectedBins(const int* indexTable, const int phiBinIndex, const int minZBinIndex, const int maxZBinIndex) const noexcept
 {
   const int firstBinIndex{getBinIndex(minZBinIndex, phiBinIndex)};
   const int maxBinIndex{firstBinIndex + maxZBinIndex - minZBinIndex + 1};
-
   return indexTable[maxBinIndex] - indexTable[firstBinIndex];
 }
 

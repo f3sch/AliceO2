@@ -14,7 +14,6 @@
 #include "Framework/Logger.h"
 #include "ITStracking/TrackingConfigParam.h"
 
-O2ParamImpl(o2::its::VertexerParamConfig);
 O2ParamImpl(o2::its::TrackerParamConfig);
 O2ParamImpl(o2::its::ITSGpuTrackingParamConfig);
 

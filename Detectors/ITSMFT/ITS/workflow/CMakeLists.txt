@@ -14,7 +14,6 @@ o2_add_library(ITSWorkflow
                SOURCES src/RecoWorkflow.cxx
                        src/ClusterWriterWorkflow.cxx
                        src/TrackerSpec.cxx
-                       src/CookedTrackerSpec.cxx
                        src/TrackWriterSpec.cxx
                        src/TrackReaderSpec.cxx
                        src/VertexReaderSpec.cxx

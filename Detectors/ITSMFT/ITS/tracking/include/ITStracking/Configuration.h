@@ -16,14 +16,11 @@
 #ifndef TRACKINGITSU_INCLUDE_CONFIGURATION_H_
 #define TRACKINGITSU_INCLUDE_CONFIGURATION_H_
 
-#ifndef GPUCA_GPUCODE_DEVICE
-#include <array>
 #include <limits>
 #include <vector>
-#include <cmath>
-#endif
 
 #include "DetectorsBase/Propagator.h"
+#include "CommonUtils/EnumFlags.h"
 #include "ITStracking/Constants.h"
 
 namespace o2::its
@@ -37,7 +34,7 @@ struct TrackingParameters {
   std::string asString() const;
 
   int NLayers = 7;
-  int DeltaROF = 0;
+  std::vector<int> DeltaROF = {0, 0, 0, 0, 0, 0, 0}; // Delta in BC to define search window
   std::vector<float> LayerZ = {16.333f + 1, 16.333f + 1, 16.333f + 1, 42.140f + 1, 42.140f + 1, 73.745f + 1, 73.745f + 1};
   std::vector<float> LayerRadii = {2.33959f, 3.14076f, 3.91924f, 19.6213f, 24.5597f, 34.388f, 39.3329f};
   std::vector<float> LayerxX0 = {5.e-3f, 5.e-3f, 5.e-3f, 1.e-2f, 1.e-2f, 1.e-2f, 1.e-2f};
@@ -46,22 +43,18 @@ struct TrackingParameters {
   std::vector<float> SystErrorZ2 = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
   int ZBins{256};
   int PhiBins{128};
-  int nROFsPerIterations = -1;
   bool UseDiamond = false;
   float Diamond[3] = {0.f, 0.f, 0.f};
+  float DiamondCov[6] = {25.e-6f, 0.f, 0.f, 25.e-6f, 0.f, 36.f};
 
   /// General parameters
   bool AllowSharingFirstCluster = false;
   int ClusterSharing = 0;
   int MinTrackLength = 7;
   float NSigmaCut = 5;
-  float PVres = 1.e-2f;
+  int NTimeSlices{1};
   /// Trackleting cuts
   float TrackletMinPt = 0.3f;
-  float TrackletsPerClusterLimit = 2.f;
-  /// Cell finding cuts
-  float CellDeltaTanLambdaSigma = 0.007f;
-  float CellsPerClusterLimit = 2.f;
   /// Fitter parameters
   o2::base::PropagatorImpl<float>::MatCorrType CorrType = o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrNONE;
   float MaxChi2ClusterAttachment = 60.f;
@@ -80,8 +73,21 @@ struct TrackingParameters {
   bool UseTrackFollowerTop = false;
   bool UseTrackFollowerBot = false;
   bool UseTrackFollowerMix = false;
-  float TrackFollowerNSigmaCutZ = 1.f;
-  float TrackFollowerNSigmaCutPhi = 1.f;
+
+  /// Seeding parameters
+  float SeedingDCATolerance{0.8f};         // maximum allowed DCA to meanvertex for track to enter pool
+  float SeedingDCAMaxPull{3.f};            // maximum allowed initial pull on DCA to meanvertex
+  float SeedingMaxChi2Iter{3.f};           // maximum chi2 change required to end iteration
+  float SeedingTukeyStartIter{5.f};        // start value for tukey scaling for iteration
+  float SeedingMinWghTrk{0.01f};           // minimum weight a track has to have to be accounted
+  float SeedingMinPtTrk{0.05};             // minimum pt for cells to enter pool
+  int SeedingMinContrib{8};                // minimum number of contributors to account seeding vertex for rolling average
+  int SeedingMaxFitIter{3};                // maximum iterations for fit
+  int SeedingMinTracksIter{20};            // minimum tracks needed for one iteration
+  int SeedingDBScanMinPt{50};              // DBSCAN: minimum number of cluster points
+  float SeedingDBScanEpsZ{0.01f};          // DBSCAN: maximum epsilon z
+  float SeedingDBScanEpsT{10.f};           // DBSCAN: maximum epsilon t (BC)
+  float SeedingVertexExtraErr2[6] = {0.f}; // impose additional errors on seeding vertices
 
   bool createArtefactLabels{false};
 
@@ -90,61 +96,25 @@ struct TrackingParameters {
   bool DropTFUponFailure = false;
 };
 
-struct VertexingParameters {
-  std::string asString() const;
-
-  int nIterations = 1;         // Number of vertexing passes to perform
-  int vertPerRofThreshold = 0; // Maximum number of vertices per ROF to trigger second a round
-  bool allowSingleContribClusters = false;
-  std::vector<float> LayerZ = {16.333f + 1, 16.333f + 1, 16.333f + 1, 42.140f + 1, 42.140f + 1, 73.745f + 1, 73.745f + 1};
-  std::vector<float> LayerRadii = {2.33959f, 3.14076f, 3.91924f, 19.6213f, 24.5597f, 34.388f, 39.3329f};
-  int ZBins{1};
-  int PhiBins{128};
-  int deltaRof = 0;
-  float zCut = 0.002f;
-  float phiCut = 0.005f;
-  float pairCut = 0.04f;
-  float clusterCut = 0.8f;
-  float histPairCut = 0.04f;
-  float tanLambdaCut = 0.002f;     // tanLambda = deltaZ/deltaR
-  float lowMultBeamDistCut = 0.1f; // XY cut for low-multiplicity pile up
-  int vertNsigmaCut = 6;           // N sigma cut for vertex XY
-  float vertRadiusSigma = 0.33f;   // sigma of vertex XY
-  float trackletSigma = 0.01f;     // tracklet to vertex sigma
-  float maxZPositionAllowed = 25.f;
-  int clusterContributorsCut = 16;
-  int maxTrackletsPerCluster = 2e3;
-  int phiSpan = -1;
-  int zSpan = -1;
-  bool SaveTimeBenchmarks = false;
-
-  bool useTruthSeeding = false; // overwrite found vertices with MC events
-  bool outputContLabels = false;
-
-  int nThreads = 1;
-  bool PrintMemory = false; // print allocator usage in epilog report
-  size_t MaxMemory = std::numeric_limits<size_t>::max();
-  bool DropTFUponFailure = false;
+enum class RecoIterationSteps : uint16_t {
+  /// which steps should be run
+  kRunTrackleting,         // run the trackleting step
+  kRunCellFinding,         // run the cell finding step (connect tracklets)
+  kRunCellSeeding,         // run the cell seeding step (use cells to find seeding vertices)
+  kRunCellNeighborFinding, // run the cell neighbor finding step (connect cells)
+  kRunRoadFinding,         // run the road finding step (resolve ambiguities to find best roads/tracks)
+  kRunTruthSeeding,        // run truth seeding (imposing MC event information as seeding vertices)
+  /// extra steps
+  kUpdateVertexTable, // update the vertex table for the current pool of vertices
+  kUpdateClusters,    // update the cluster position wrt current beam constraint
+  kInitMemory,        // initialize all vectors to use memory resource
 };
 
-struct TimeFrameGPUParameters {
+struct RecoIteration {
+  TrackingParameters params;
+  utils::EnumFlags<RecoIterationSteps> steps;
+  std::string name;
   std::string asString() const;
-
-  size_t tmpCUBBufferSize = 1e5; // In average in pp events there are required 4096 bytes
-  size_t maxTrackletsPerCluster = 1e2;
-  size_t clustersPerLayerCapacity = 2.5e5;
-  size_t clustersPerROfCapacity = 1.5e3;
-  size_t validatedTrackletsCapacity = 1e3;
-  size_t cellsLUTsize = validatedTrackletsCapacity;
-  size_t maxNeighboursSize = 1e2;
-  size_t neighboursLUTsize = maxNeighboursSize;
-  size_t maxRoadPerRofSize = 1e3; // pp!
-  size_t maxLinesCapacity = 1e2;
-  size_t maxVerticesCapacity = 5e4;
-  size_t nMaxROFs = 1e3;
-  size_t nTimeFrameChunks = 3;
-  size_t nROFsPerChunk = 768; // pp defaults
-  int maxGPUMemoryGB = -1;
 };
 
 namespace TrackingMode
@@ -160,9 +130,7 @@ enum Type : int8_t {
 Type fromString(std::string_view str);
 std::string toString(Type mode);
 
-std::vector<TrackingParameters> getTrackingParameters(Type mode);
-std::vector<VertexingParameters> getVertexingParameters(Type mode);
-
+std::vector<RecoIteration> getRecoIterations(Type mode);
 }; // namespace TrackingMode
 
 } // namespace o2::its
