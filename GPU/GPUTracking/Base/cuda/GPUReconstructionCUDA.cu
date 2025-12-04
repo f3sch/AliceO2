@@ -91,15 +91,10 @@ int32_t GPUReconstructionCUDA::GPUChkErrInternal(const int64_t error, const char
 
 GPUReconstruction* GPUReconstruction_Create_CUDA(const GPUSettingsDeviceBackend& cfg) { return new GPUReconstructionCUDA(cfg); }
 
-void GPUReconstructionCUDA::GetITSTraits(std::unique_ptr<o2::its::TrackerTraits<7>>* trackerTraits, std::unique_ptr<o2::its::VertexerTraits<7>>* vertexerTraits, std::unique_ptr<o2::its::TimeFrame<7>>* timeFrame)
+void GPUReconstructionCUDA::GetITSTraits(std::unique_ptr<o2::its::TrackerTraits<7>>* trackerTraits, std::unique_ptr<o2::its::TimeFrame<7>>* timeFrame)
 {
   if (trackerTraits) {
     trackerTraits->reset(new o2::its::TrackerTraitsGPU);
-  }
-  if (vertexerTraits) {
-    vertexerTraits->reset(new o2::its::VertexerTraits<7>);
-    // TODO gpu-code to be implemented then remove line above and uncomment line below
-    // vertexerTraits->reset(new o2::its::VertexerTraitsGPU<7>);
   }
   if (timeFrame) {
     timeFrame->reset(new o2::its::gpu::TimeFrameGPU);
@@ -333,9 +328,9 @@ int32_t GPUReconstructionCUDA::InitDevice_Runtime()
       }
     }
 
-#ifndef __HIPCC__ // CUDA
+#ifndef __HIPCC__                                                      // CUDA
     dummyInitKernel<<<mMultiprocessorCount, 256>>>(mDeviceMemoryBase); // TODO: Can't we just use the CUDA version and hipify will take care of the rest?
-#else // HIP
+#else                                                                  // HIP
     hipLaunchKernelGGL(HIP_KERNEL_NAME(dummyInitKernel), dim3(mMultiprocessorCount), dim3(256), 0, 0, mDeviceMemoryBase);
 #endif
 
@@ -374,7 +369,7 @@ int32_t GPUReconstructionCUDA::InitDevice_Runtime()
 #endif
     mDeviceConstantMem = (GPUConstantMem*)devPtrConstantMem;
 
-    GPUInfo("CUDA Initialisation successfull (Device %d: %s (Frequency %d, Cores %d), %ld / %ld bytes host / global memory, Stack frame %d, Constant memory %ld)", mDeviceId, deviceProp.name, deviceClockRate, deviceProp.multiProcessorCount, (int64_t)mHostMemorySize, (int64_t)mDeviceMemorySize, (int32_t)GPUCA_GPU_STACK_SIZE, (int64_t)gGPUConstantMemBufferSize);
+    GPUInfo("CUDA Initialisation successful (Device %d: %s (Frequency %d, Cores %d), %ld / %ld bytes host / global memory, Stack frame %d, Constant memory %ld)", mDeviceId, deviceProp.name, deviceClockRate, deviceProp.multiProcessorCount, (int64_t)mHostMemorySize, (int64_t)mDeviceMemorySize, (int32_t)GPUCA_GPU_STACK_SIZE, (int64_t)gGPUConstantMemBufferSize);
   } else {
     GPUReconstructionCUDA* master = dynamic_cast<GPUReconstructionCUDA*>(mMaster);
     mDeviceId = master->mDeviceId;
@@ -388,7 +383,7 @@ int32_t GPUReconstructionCUDA::InitDevice_Runtime()
     mInternals = master->mInternals;
     GPUChkErr(cudaSetDevice(mDeviceId));
 
-    GPUInfo("CUDA Initialisation successfull (from master)");
+    GPUInfo("CUDA Initialisation successful (from master)");
   }
 
   for (uint32_t i = 0; i < mEvents.size(); i++) {

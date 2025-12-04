@@ -17,30 +17,20 @@
 
 #if !defined(GPUCA_STANDALONE)
 #include "ITStracking/TrackerTraits.h"
-#include "ITStracking/VertexerTraits.h"
 #include "ITStracking/TimeFrame.h"
 #if defined(__CUDACC__) || defined(__HIPCC__)
 #include "ITStrackingGPU/TrackerTraitsGPU.h"
-#include "ITStrackingGPU/VertexerTraitsGPU.h"
 #include "ITStrackingGPU/TimeFrameGPU.h"
 #endif
 #else
 namespace o2::its
 {
 template <int32_t>
-class VertexerTraits
-{
-};
-template <int32_t>
 class TrackerTraits
 {
 };
 template <int32_t>
 class TimeFrame
-{
-};
-template <int32_t NLayers>
-class VertexerTraitsGPU : public VertexerTraits<NLayers>
 {
 };
 template <int32_t NLayers = 7>

@@ -54,23 +54,15 @@ int32_t GPUChainITS::Init() { return 0; }
 o2::its::TrackerTraits<7>* GPUChainITS::GetITSTrackerTraits()
 {
   if (mITSTrackerTraits == nullptr) {
-    mRec->GetITSTraits(&mITSTrackerTraits, nullptr, nullptr);
+    mRec->GetITSTraits(&mITSTrackerTraits, nullptr);
   }
   return mITSTrackerTraits.get();
-}
-
-o2::its::VertexerTraits<7>* GPUChainITS::GetITSVertexerTraits()
-{
-  if (mITSVertexerTraits == nullptr) {
-    mRec->GetITSTraits(nullptr, &mITSVertexerTraits, nullptr);
-  }
-  return mITSVertexerTraits.get();
 }
 
 o2::its::TimeFrame<7>* GPUChainITS::GetITSTimeframe()
 {
   if (mITSTimeFrame == nullptr) {
-    mRec->GetITSTraits(nullptr, nullptr, &mITSTimeFrame);
+    mRec->GetITSTraits(nullptr, &mITSTimeFrame);
   }
 #if !defined(GPUCA_STANDALONE)
   if (mITSTimeFrame->isGPU()) {

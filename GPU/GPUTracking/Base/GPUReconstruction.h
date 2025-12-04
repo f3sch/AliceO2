@@ -118,7 +118,7 @@ class GPUReconstruction
                                      TRD_SPACEPOINT = 17,
                                      TRD_TRIGGERRECORDS = 18,
                                      TF_SETTINGS = 19 };
-  static constexpr const char* const IOTYPENAMES[] = {"TPC HLT Clusters", "TPC Sector Tracks", "TPC Sector Track Clusters", "TPC Cluster MC Labels", "TPC Track MC Informations", "TPC Tracks", "TPC Track Clusters", "TRD Tracks", "TRD Tracklets",
+  static constexpr const char* const IOTYPENAMES[] = {"TPC HLT Clusters", "TPC Sector Tracks", "TPC Sector Track Clusters", "TPC Cluster MC Labels", "TPC Track MC Information", "TPC Tracks", "TPC Track Clusters", "TRD Tracks", "TRD Tracklets",
                                                       "TPC Raw Clusters", "TPC Native Clusters", "TRD Tracklet MC Labels", "TPC Compressed Clusters", "TPC Digit", "TPC ZS Page", "TPC Native Clusters MC Labels", "TPC Digit MC Labeels",
                                                       "TRD Spacepoints", "TRD Triggerrecords", "TF Settings"};
   static uint32_t getNIOTypeMultiplicity(InOutPointerType type) { return (type == CLUSTER_DATA || type == SECTOR_OUT_TRACK || type == SECTOR_OUT_CLUSTER || type == RAW_CLUSTERS || type == TPC_DIGIT || type == TPC_DIGIT_MC) ? NSECTORS : 1; }
@@ -192,7 +192,7 @@ class GPUReconstruction
   GPUMemorySizeScalers* MemoryScalers() { return mMemoryScalers.get(); }
 
   // Helpers to fetch processors from other shared libraries
-  virtual void GetITSTraits(std::unique_ptr<o2::its::TrackerTraits<7>>* trackerTraits, std::unique_ptr<o2::its::VertexerTraits<7>>* vertexerTraits, std::unique_ptr<o2::its::TimeFrame<7>>* timeFrame);
+  virtual void GetITSTraits(std::unique_ptr<o2::its::TrackerTraits<7>>* trackerTraits, std::unique_ptr<o2::its::TimeFrame<7>>* timeFrame);
   bool slavesExist() { return mSlaves.size() || mMaster; }
   int slaveId() { return mSlaveId; }
 

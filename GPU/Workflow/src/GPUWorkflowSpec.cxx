@@ -1214,9 +1214,14 @@ Inputs GPURecoWorkflowSpec::inputs()
   }
 
   if (mSpecConfig.runITSTracking) {
-    inputs.emplace_back("compClusters", "ITS", "COMPCLUSTERS", 0, Lifetime::Timeframe);
-    inputs.emplace_back("patterns", "ITS", "PATTERNS", 0, Lifetime::Timeframe);
-    inputs.emplace_back("ROframes", "ITS", "CLUSTERSROF", 0, Lifetime::Timeframe);
+    for (uint32_t iLayer{0}; iLayer < 7; ++iLayer) {
+      inputs.emplace_back("compClusters", "ITS", "COMPCLUSTERS", iLayer, Lifetime::Timeframe);
+      inputs.emplace_back("patterns", "ITS", "PATTERNS", iLayer, Lifetime::Timeframe);
+      inputs.emplace_back("ROframes", "ITS", "CLUSTERSROF", iLayer, Lifetime::Timeframe);
+      if (mSpecConfig.processMC) {
+        inputs.emplace_back("itsmclabels", "ITS", "CLUSTERSMCTR", iLayer, Lifetime::Timeframe);
+      }
+    }
     if (mSpecConfig.itsTriggerType == 1) {
       inputs.emplace_back("phystrig", "ITS", "PHYSTRIG", 0, Lifetime::Timeframe);
     } else if (mSpecConfig.itsTriggerType == 2) {
@@ -1233,10 +1238,6 @@ Inputs GPURecoWorkflowSpec::inputs()
       if (mSpecConfig.itsOverrBeamEst) {
         inputs.emplace_back("meanvtx", "GLO", "MEANVERTEX", 0, Lifetime::Condition, ccdbParamSpec("GLO/Calib/MeanVertex", {}, 1));
       }
-    }
-    if (mSpecConfig.processMC) {
-      inputs.emplace_back("itsmclabels", "ITS", "CLUSTERSMCTR", 0, Lifetime::Timeframe);
-      inputs.emplace_back("ITSMC2ROframes", "ITS", "CLUSTERSMC2ROF", 0, Lifetime::Timeframe);
     }
   }
 
