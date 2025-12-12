@@ -116,7 +116,7 @@ class TrackerTraits
 
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   std::shared_ptr<tbb::task_arena> mTaskArena;
-  dbscan::DBSCAN mDBScan;
+  dbscan::DBSCAN mDBScan{};
 
  protected:
   o2::gpu::GPUChainITS* mChain = nullptr;

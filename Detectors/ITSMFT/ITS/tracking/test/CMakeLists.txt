@@ -20,3 +20,9 @@ o2_add_test(roflookuptables
             COMPONENT_NAME its-tracking
             LABELS "its;tracking"
             PUBLIC_LINK_LIBRARIES O2::ITStracking)
+
+o2_add_test(utils
+            SOURCES testUtils.cxx
+            COMPONENT_NAME its-tracking
+            LABELS "its;tracking"
+            PUBLIC_LINK_LIBRARIES O2::ITStracking)

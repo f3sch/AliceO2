@@ -24,7 +24,7 @@ using namespace o2::its;
 
 std::string TrackingParameters::asString() const
 {
-  std::string str = std::format("NZb:{} NPhB:{} PerVtx:{} DropFail:{} ClSh:{} TrklMinPt:{:.2f} MinCl:{}", ZBins, PhiBins, PerPrimaryVertexProcessing, DropTFUponFailure, ClusterSharing, TrackletMinPt, MinTrackLength);
+  std::string str = std::format("NZb:{} NPhB:{} PerVtx:{} DropFail:{} ClSh:{} TrklMinPt:{:.2f} MinCl:{} NSigma:{}", ZBins, PhiBins, PerPrimaryVertexProcessing, DropTFUponFailure, ClusterSharing, TrackletMinPt, MinTrackLength, NSigmaCut);
   bool first = true;
   for (int il = NLayers; il >= MinTrackLength; il--) {
     int slot = NLayers - il;

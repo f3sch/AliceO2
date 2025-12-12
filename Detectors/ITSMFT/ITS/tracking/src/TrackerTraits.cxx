@@ -18,6 +18,7 @@
 #include <oneapi/tbb/parallel_sort.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <iterator>
 #include <limits>
 #include <ranges>
@@ -40,6 +41,7 @@
 #include "ITStracking/BoundedAllocator.h"
 #include "ITStracking/IndexTableUtils.h"
 #include "ITStracking/Tracklet.h"
+#include "ITStracking/Utils.h"
 #include "ReconstructionDataFormats/Track.h"
 
 /// optimization output
@@ -58,7 +60,7 @@ namespace o2::its
 {
 namespace
 {
-utils::TreeStreamRedirector* sDBGOut{nullptr};
+o2::utils::TreeStreamRedirector* sDBGOut{nullptr};
 }
 
 struct PassMode {
@@ -570,8 +572,9 @@ void TrackerTraits<NLayers>::findCellSeeds(const int iteration)
         int rof = mTimeFrame->getClusterROF(i, cls[i]);
         int rofStartBC = mTimeFrame->getROFOverlapTableView().getLayer(i).getROFStartInBC(rof);
         int rofEndBC = mTimeFrame->getROFOverlapTableView().getLayer(i).getROFEndInBC(rof);
-        startBC = o2::gpu::CAMath::Min(startBC, rofStartBC);
-        endBC = o2::gpu::CAMath::Max(endBC, rofEndBC);
+        // if the start/end of the cluster is after/before the current bracket need to enlarge
+        startBC = (rofStartBC <= startBC) ? rofStartBC : o2::gpu::CAMath::Max(startBC, rofStartBC);
+        endBC = (rofEndBC >= endBC) ? rofEndBC : o2::gpu::CAMath::Min(endBC, rofEndBC);
       }
       if (endBC - startBC < 0) { // this should not happen
         ltracks[iCell].markDead();
@@ -946,10 +949,10 @@ void TrackerTraits<NLayers>::processNeighbours(int iteration, int iLayer, int iL
         if (neighbourCell.getSecondTrackletIndex() != currentCell.getFirstTrackletIndex()) {
           continue;
         }
-        if (mTimeFrame->isClusterUsed(iLayer - 1, neighbourCell.getFirstClusterIndex())) {
+        if (currentCell.getLevel() - 1 != neighbourCell.getLevel()) {
           continue;
         }
-        if (currentCell.getLevel() - 1 != neighbourCell.getLevel()) {
+        if (mTimeFrame->isClusterUsed(iLayer - 1, neighbourCell.getFirstClusterIndex())) {
           continue;
         }
 
@@ -1143,15 +1146,17 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
       }
 
       deepVectorClear(trackSeeds);
+      // sort tracks in quality (accounting for 1. length; 2. chi2)
+      // needed since then tracks with shared clusters can be marked/discarded
       tbb::parallel_sort(tracks.begin(), tracks.end(), [](const auto& a, const auto& b) {
-        return a.getChi2() < b.getChi2();
+        return a.isBetter(b);
       });
     });
 
     for (auto& track : tracks) {
       int nShared = 0;
       bool isFirstShared{false};
-      int firstLayer{-1}, firstCluster{-1};
+      int firstLayer{constants::UnusedIndex}, firstCluster{constants::UnusedIndex};
       for (int iLayer{0}; iLayer < mRecoParams[iteration].params.NLayers; ++iLayer) {
         if (track.getClusterIndex(iLayer) == constants::UnusedIndex) {
           continue;
@@ -1172,20 +1177,32 @@ void TrackerTraits<NLayers>::findRoads(const int iteration)
 
       // here we can do the calculation of the time bracket simply
       // by checkig in which rofs the clusters are
-      int bcStart{0}, bcEnd{std::numeric_limits<int>::max()};
+      std::array<utils::Bracket, NLayers> brackets;
+      brackets.fill(utils::InvalidBracket);
+      for (int iLayer{0}; iLayer < mRecoParams[iteration].params.NLayers; ++iLayer) {
+        if (track.getClusterIndex(iLayer) == constants::UnusedIndex) {
+          continue;
+        }
+        int currentROF = mTimeFrame->getClusterROF(iLayer, track.getClusterIndex(iLayer));
+        // need to account for the imposed delay
+        int bcClsSta = mTimeFrame->getROFOverlapTableView().getLayer(iLayer).getROFStartInBC(currentROF, true);
+        int bcClsEnd = mTimeFrame->getROFOverlapTableView().getLayer(iLayer).getROFEndInBC(currentROF, true);
+        brackets[iLayer] = utils::Bracket{bcClsSta, bcClsEnd};
+        LOGP(debug, "\tlay:{} bcClsSta={} bcClsEnd={}", iLayer, bcClsSta, bcClsEnd);
+      }
+      const auto best = utils::computeSmallestBracket(brackets);
+      if (best == utils::InvalidBracket) {
+        continue; // track has an impossible span, discard
+      }
+      // mark used clusters for the next iteration
       for (int iLayer{0}; iLayer < mRecoParams[iteration].params.NLayers; ++iLayer) {
         if (track.getClusterIndex(iLayer) == constants::UnusedIndex) {
           continue;
         }
         mTimeFrame->markUsedCluster(iLayer, track.getClusterIndex(iLayer));
-        int currentROF = mTimeFrame->getClusterROF(iLayer, track.getClusterIndex(iLayer));
-        int bcClsSta = mTimeFrame->getROFOverlapTableView().getLayer(iLayer).getROFStartInBC(currentROF);
-        int bcClsEnd = mTimeFrame->getROFOverlapTableView().getLayer(iLayer).getROFEndInBC(currentROF);
-        bcStart = std::max(bcStart, bcClsSta);
-        bcEnd = std::min(bcEnd, bcClsEnd);
       }
-      track.getTimeStamp().setTimeStamp(bcStart);
-      track.getTimeStamp().setTimeStampError(bcEnd - bcStart + 1);
+      track.getTimeStamp().setTimeStamp(best.first);
+      track.getTimeStamp().setTimeStampError(best.second - best.first + 1);
       track.setUserField(0);
       track.getParamOut().setUserField(0);
       mTimeFrame->getTracks().emplace_back(track);

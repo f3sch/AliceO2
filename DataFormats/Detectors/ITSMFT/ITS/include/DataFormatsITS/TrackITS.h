@@ -37,7 +37,7 @@ namespace its
 class TrackITS : public o2::track::TrackParCov
 {
   enum UserBits {
-    kSharedClusters = 1 << 29
+    kSharedClusters = 1 << 28
   };
 
   using Cluster = o2::itsmft::Cluster;
@@ -93,7 +93,7 @@ class TrackITS : public o2::track::TrackParCov
 
   GPUhdi() void setChi2(float chi2) { mChi2 = chi2; }
 
-  bool isBetter(const TrackITS& best, float maxChi2) const;
+  bool isBetter(const TrackITS& best, float maxChi2 = o2::constants::math::VeryBig) const;
 
   auto& getTimeStamp() { return mTime; }
   const auto& getTimeStamp() const { return mTime; }
