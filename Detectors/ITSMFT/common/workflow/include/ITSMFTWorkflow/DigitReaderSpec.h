@@ -42,7 +42,7 @@ class DigitReader : public Task
   static constexpr o2::detectors::DetID ID{N == o2::detectors::DetID::ITS ? o2::detectors::DetID::ITS : o2::detectors::DetID::MFT};
   static constexpr o2::header::DataOrigin Origin{N == o2::detectors::DetID::ITS ? o2::header::gDataOriginITS : o2::header::gDataOriginMFT};
   static constexpr int NLayers{o2::itsmft::DPLAlpideParam<N>::getNLayers()};
-  static constexpr int RLayers = o2::itsmft::DPLAlpideParam<N>::supportsStaggering() ? NLayers: 1;
+  static constexpr int RLayers = o2::itsmft::DPLAlpideParam<N>::supportsStaggering() ? NLayers : 1;
 
   DigitReader() = delete;
   DigitReader(bool useMC, bool useCalib, bool triggerOut);

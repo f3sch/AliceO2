@@ -103,10 +103,10 @@ DataProcessorSpec getDigitWriterSpec(bool mctruth, bool dec, bool calib)
     return static_cast<size_t>(dh->subSpecification);
   };
   auto getName = [](std::string base, size_t index) -> std::string {
-	  if constexpr (o2::itsmft::DPLAlpideParam<N>::supportsStaggering()){
-    return base += "_" + std::to_string(index);
-	  }
-	  return base;
+    if constexpr (o2::itsmft::DPLAlpideParam<N>::supportsStaggering()) {
+      return base += "_" + std::to_string(index);
+    }
+    return base;
   };
   return MakeRootTreeWriterSpec((detStr + "DigitWriter" + (dec ? "_dec" : "")).c_str(),
                                 (detStrL + "digits.root").c_str(),
