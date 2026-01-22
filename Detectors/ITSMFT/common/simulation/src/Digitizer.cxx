@@ -112,9 +112,9 @@ void Digitizer::process(const std::vector<Hit>* hits, int evID, int srcID, int l
   // opt. apply a filter on the layer of the processed hits
 
   LOG(debug) << "Digitizing " << mGeometry->getName() << ":" << layer << " hits of entry " << evID << " from source "
-            << srcID << " at time " << mEventTime << " ROFrame= " << mNewROFrame << ")"
-            << " cont.mode: " << isContinuous()
-            << " Min/Max ROFrames " << mROFrameMin << "/" << mROFrameMax;
+             << srcID << " at time " << mEventTime << " ROFrame= " << mNewROFrame << ")"
+             << " cont.mode: " << isContinuous()
+             << " Min/Max ROFrames " << mROFrameMin << "/" << mROFrameMax;
 
   // is there something to flush ?
   if (mNewROFrame > mROFrameMin) {
