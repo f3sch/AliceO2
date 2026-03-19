@@ -135,13 +135,12 @@ void STFDecoder<Mapping>::init(InitContext& ic)
   if (mDoStaggering) {
     Mapping map;
     for (uint32_t iLayer{0}; iLayer < mLayers; ++iLayer) {
-      auto& filter = mRawFilter.emplace_back();
+      std::vector<o2::framework::InputSpec> filter;
       for (const auto feeID : map.getLayer2FEEIDs(iLayer)) {
         filter.emplace_back("filter", ConcreteDataMatcher{Mapping::getOrigin(), o2::header::gDataDescriptionRawData, (o2::header::DataHeader::SubSpecificationType)feeID});
       }
+      mDecoder[iLayer]->setInputFilter(filter);
     }
-  } else {
-    mRawFilter.push_back({InputSpec{"filter", ConcreteDataTypeMatcher{Mapping::getOrigin(), o2::header::gDataDescriptionRawData}}});
   }
 }
 
@@ -201,9 +200,9 @@ void STFDecoder<Mapping>::run(ProcessingContext& pc)
     }
 
     try {
-      mDecoder[iLayer]->startNewTF(pc.inputs(), mRawFilter[iLayer]);
-
+      mDecoder[iLayer]->startNewTF(pc.inputs());
       mDecoder[iLayer]->setDecodeNextAuto(false);
+
       o2::InteractionRecord lastIR{};
       int nTriggersProcessed = mDecoder[iLayer]->getNROFsProcessed();
       static long lastErrReportTS = 0;
