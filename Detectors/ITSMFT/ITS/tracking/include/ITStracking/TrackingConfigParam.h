@@ -36,7 +36,7 @@ struct VertexerParamConfig : public o2::conf::ConfigurableParamHelper<VertexerPa
   float duplicateZCut = 0.7985643f;
   float finalSelectionZCut = 0.2932624f;
   float duplicateDistance2Cut = 0.0223001f;
-  float tanLambdaCut = 0.002f;         // tanLambda = deltaZ/deltaR
+  float tanLambdaCut = 0.002f;        // tanLambda = deltaZ/deltaR
   float vertNsigmaCut = 5.8762583f;   // N sigma cut for vertex XY
   float vertRadiusSigma = 0.0343575f; // sigma of vertex XY
   float trackletSigma = 0.0143798f;   // tracklet to vertex sigma
