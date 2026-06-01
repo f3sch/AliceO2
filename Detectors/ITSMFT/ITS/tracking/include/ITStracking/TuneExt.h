@@ -29,7 +29,7 @@ struct TrackletMC final {
   float dr{constants::UnsetValue};
   float dz{constants::UnsetValue};
   float dPhi{constants::UnsetValue};
-  bool ok{false};                   // truth
+  bool ok{false}; // truth
   /// below only metrics valid if ok
   bool prim{false};                 // primary
   float dXY{constants::UnsetValue}; // transverse distance to event
