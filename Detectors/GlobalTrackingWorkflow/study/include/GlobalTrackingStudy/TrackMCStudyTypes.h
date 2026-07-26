@@ -19,8 +19,11 @@
 #include "CommonConstants/LHCConstants.h"
 #include "CommonDataFormat/TimeStamp.h"
 #include "ReconstructionDataFormats/PrimaryVertex.h"
+#include "ReconstructionDataFormats/V0.h"
 #include "SimulationDataFormat/TrackReference.h"
 #include <array>
+#include <cmath>
+#include <cstdint>
 #include <vector>
 
 namespace o2::trackstudy
@@ -318,6 +321,201 @@ struct MCVertex {
   std::vector<RecPV> recVtx{};
   std::vector<float> occTPCV{};
   ClassDefNV(MCVertex, 2);
+};
+
+/// State of one prong of a MC decay with respect to the SVertexer seeds pool.
+/// A prong which was reconstructed but never made it into the pool can never form a V0,
+/// whatever the pair cuts do, so this has to be checked before interpreting SVCheck::rejV0.
+struct SVProngInfo {
+  o2::dataformats::VtxTrackIndex gid; // reco track used as this prong, unset if not reconstructed
+  int32_t poolEntry = -1;             // entry in the SVertexer seeds pool, -1 if not seeded
+  int8_t poolSide = -1;               // SVertexer::POS / SVertexer::NEG
+  int32_t vBrMin = -1;                // vertex bracket of the seed
+  int32_t vBrMax = -1;
+  float minR = -1.f;   // lowest radial point of the seed, used by the causality cut
+  uint8_t seedRej = 0; // SVertexer::SeedRej, why the track never entered the pool
+  int8_t nITSclu = -1;
+  bool hasTPC = false;
+
+  bool isReconstructed() const { return gid.isSourceSet(); }
+  bool isSeeded() const { return poolEntry >= 0; }
+
+  ClassDefNV(SVProngInfo, 1);
+};
+
+/// Why a MC decay was or was not reconstructed as a V0 by the SVertexer.
+/// stage says how far the decay got, and only if it reached CutRejected is rejV0 meaningful.
+struct SVCheck {
+  enum Stage : int8_t {
+    NotChecked = -1,  // SV checking disabled or decay not eligible
+    NoProngs,         // at least one prong has no reconstructed track at all
+    NotSeeded,        // a prong was reconstructed but rejected before the seeds pool, see prong seedRej
+    SameCharge,       // prongs did not end up as one positive and one negative seed
+    NoBracketOverlap, // seeds share no primary vertex, so the pair is never even tried
+    CutRejected,      // the pair was tried and rejected, see rejV0
+    Found             // the pair passes the SVertexer selection
+  };
+  std::array<SVProngInfo, 2> prongs{};
+  int foundSVID = -1;           // reconstructed V0 matched to this decay by MC labels, -1 if none
+  int8_t stage = NotChecked;    // Stage
+  uint8_t rejV0 = 0;            // SVertexer::V0Rej, only if stage == CutRejected
+  bool pairInReco = false;      // the reconstruction built a V0 out of exactly the two prongs replayed
+  bool replayConsistent = true; // false if the replay verdict differs from pairInReco
+
+  bool isReconstructed() const { return foundSVID >= 0; }
+
+  bool isFound() const { return stage == Found; }
+  bool bothProngsReconstructed() const { return prongs[0].isReconstructed() && prongs[1].isReconstructed(); }
+  bool bothProngsSeeded() const { return prongs[0].isSeeded() && prongs[1].isSeeded(); }
+
+  ClassDefNV(SVCheck, 1);
+};
+
+/// A reconstructed V0 together with the MC origin of its prongs, to study the composition of
+/// the sample: which V0s are real decays and which are combinatorial.
+struct RecSVInfo {
+  enum Kind : int8_t {
+    Unknown = -1,     // MC information unavailable for at least one prong
+    TrueDecay,        // both prongs are daughters of the same MC mother
+    DifferentMothers, // prongs come from unrelated MC particles, i.e. combinatorial
+    FakeProng         // at least one prong track has a fake MC label
+  };
+  o2::dataformats::V0 v0;
+  o2::dataformats::V0Index v0ID{};
+  std::array<o2::MCCompLabel, 2> prongLbl{};
+  std::array<int, 2> prongPDG{0, 0};
+  int mcMotherPDG = 0;       // PDG of the common mother, 0 if there is none
+  int mcMotherEntry = -1;    // entry in the decays pool of mcMotherDecID, -1 if not checked
+  int8_t mcMotherDecID = -1; // which decay type the pool of mcMotherEntry refers to
+  int8_t kind = Unknown;     // Kind
+
+  bool isTrueDecay() const { return kind == TrueDecay; }
+  bool isCheckedDecay() const { return mcMotherEntry >= 0; }
+
+  ClassDefNV(RecSVInfo, 1);
+};
+
+/// One reconstructed representation of an exact truth conversion daughter.
+/// rejection is exclusive: Accepted means that this track contributes to the efficiency
+/// denominator, while every other value identifies the first failed eligibility requirement.
+struct GammaConvTrackInfo {
+  enum Rejection : uint8_t {
+    Accepted,
+    WrongSign,
+    NoITSorTPC,
+    NoTPC,
+    DirtyLabel
+  };
+  RecTrack track{};
+  std::vector<int> pvIDs{}; // all reconstructed collisions compatible with this exact track ID
+  uint16_t mcMask = 0;      // AOD-equivalent MC track-label mask
+  uint8_t rejection = Accepted;
+  bool inReferencePV = false;
+
+  bool isEligible() const { return rejection == Accepted; }
+
+  ClassDefNV(GammaConvTrackInfo, 2);
+};
+
+/// One row per selected truth photon conversion. The row contains the exact daughter labels,
+/// every reconstructed representation of each daughter, and the exact raw-V0 matching result.
+struct GammaConvInfo {
+  enum Leg : uint8_t {
+    Positron,
+    Electron,
+    NLegs
+  };
+  enum PairType : uint8_t {
+    PairITSTPCITSTPC,
+    PairITSTPCTPCOnly,
+    PairTPCOnlyTPCOnly,
+    PairContainsITSOnly,
+    PairOther,
+    NPairTypes
+  };
+  enum TerminalReason : uint8_t {
+    V0Stored,
+    BothLegsFoundNoV0,
+    NeitherLegEligible,
+    NoEligiblePositron,
+    NoEligibleElectron
+  };
+
+  o2::MCCompLabel photonLabel{};
+  std::array<o2::MCCompLabel, NLegs> daughterLabels{};
+  std::array<std::vector<GammaConvTrackInfo>, NLegs> tracks{};
+  std::array<float, 3> trueConversionXYZ{};
+  float photonPt = 0.f;
+  float photonEta = 0.f;
+  float photonPhi = 0.f;
+  int referencePV = -1;
+  int referencePVNumContrib = -1;
+  uint8_t terminalReason = NeitherLegEligible;
+  bool bothLegsFoundAnywhere = false;
+  bool bothLegsFoundInReferencePV = false;
+  bool rawV0FoundUsingAnywhereEligiblePair = false;
+  bool rawV0FoundUsingReferenceEligiblePair = false;
+  // These flags are filled once per pair category, matching the O2Physics
+  // EligiblePairType histograms without selecting a single track clone.
+  std::array<bool, NPairTypes> referenceEligiblePairTypes{};
+  std::array<bool, NPairTypes> rawV0FoundUsingReferenceEligiblePairTypes{};
+
+  float getTrueConversionRadius() const { return std::hypot(trueConversionXYZ[0], trueConversionXYZ[1]); }
+
+  ClassDefNV(GammaConvInfo, 2);
+};
+
+/// The three cuts SVertexer::processTPCTrack applies to TPC-only seeds under mTPCTrackPhotonTune,
+/// recorded as the continuous variables behind them so that the thresholds can be studied rather
+/// than only their outcome. One record per (TPC track, primary vertex): the SVertexer builds a
+/// separate time-constrained clone of the track for every compatible vertex, and dz2Beam depends on
+/// the vertex Z, so the same gid legitimately appears several times with different values.
+struct TPCTuneInfo {
+  enum Stage : uint8_t {
+    RejMaxX,     // dropped by mTPCTrackMaxX before anything else is computed
+    BothSides,   // has clusters on both sides, treated as constrained, the tune never applies
+    RejTimeCorr, // the drift correction to the vertex time failed
+    Evaluated    // all three cut variables are filled
+  };
+  o2::dataformats::VtxTrackIndex gid{};
+  // A soft conversion electron loops in the TPC and is usually reconstructed as several track
+  // segments, all carrying this same label. Efficiencies per track and per MC particle therefore
+  // differ a lot, and only the latter is what a V0 sees: the prong survives if any segment does.
+  o2::MCCompLabel mcLabel{};
+  int vtxID = -1;
+  float x = 0.f;         // track X, the mTPCTrackMaxX variable
+  float zCorr = -999.f;  // Z after the drift correction to the vertex time
+  float zPool = -999.f;  // Z of the corresponding SVertexer seed, -999 if the track was rejected
+  float dz2Beam = -1.f;  // |x*tgl - zCorr + vtxZ|, cut against mTPCTrack2Beam       (dDPV)
+  float cR = -1.f;       // distance of the helix centre from the beam line
+  float rC = -1.f;       // helix radius
+  float drd2Sq = 0.f;    // cR^2 - rC^2, cut against mTPCTrackXY2Radius^2            (dRD2)
+  int16_t nClusters = -1;// cut against mTPCTrackMinNClusters                        (dCls)
+  int mcPdg = 0;
+  int mcMotherPdg = 0;
+  // Truth kinematics of the track, needed to compare this sample like-for-like against the dec22
+  // prongs: collectGammaConversions applies no daughter cuts, while the dec22 daughters must pass
+  // acceptMCCharged and have a reconstructed partner, so the two samples are not the same tracks.
+  float mcPt = -1.f;
+  float mcR = -1.f; // production radius of the track, i.e. the conversion radius for a prong
+  uint8_t stage = RejMaxX;
+  bool accepted = false;  // the track survived all three cuts and stayed in the seeds pool
+  bool isSignal = false;  // daughter of a photon passing the trmcconf.gamma* fiducial selection
+  bool labelFake = false;
+  // vtxID is the MC collision the track really comes from. A TPC-only track has a wide time
+  // bracket and is tried against many vertices, so most records of a genuine conversion prong are
+  // wrong-collision hypotheses which dz2Beam is meant to reject. Efficiencies must be quoted on
+  // the correct-vertex records only, otherwise the association combinatorics look like a loss.
+  bool isCorrectPV = false;
+
+  // SVertexer takes sqrt(cR^2 - rC^2), which is NaN whenever the helix encloses the beam line.
+  // NaN > threshold is false, so such tracks silently pass the cut. Kept signed here so that the
+  // population can be counted instead of disappearing.
+  bool isDrd2Undefined() const { return drd2Sq < 0.f; }
+  float getDrd2() const { return drd2Sq >= 0.f ? std::sqrt(drd2Sq) : -1.f; }
+  bool isEvaluated() const { return stage == Evaluated; }
+
+  ClassDefNV(TPCTuneInfo, 4);
 };
 
 } // namespace o2::trackstudy

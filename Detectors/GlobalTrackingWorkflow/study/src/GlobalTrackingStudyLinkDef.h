@@ -43,6 +43,19 @@
 #pragma link C++ class o2::trackstudy::ITSHitInfo + ;
 #pragma link C++ class std::vector < o2::trackstudy::ITSHitInfo> + ;
 
+#pragma link C++ class o2::trackstudy::SVProngInfo + ;
+#pragma link C++ class std::vector < o2::trackstudy::SVProngInfo> + ;
+#pragma link C++ class o2::trackstudy::SVCheck + ;
+#pragma link C++ class std::vector < o2::trackstudy::SVCheck> + ;
+#pragma link C++ class o2::trackstudy::RecSVInfo + ;
+#pragma link C++ class std::vector < o2::trackstudy::RecSVInfo> + ;
+#pragma link C++ class o2::trackstudy::GammaConvTrackInfo + ;
+#pragma link C++ class std::vector < o2::trackstudy::GammaConvTrackInfo> + ;
+#pragma link C++ class o2::trackstudy::GammaConvInfo + ;
+#pragma link C++ class std::vector < o2::trackstudy::GammaConvInfo> + ;
+#pragma link C++ class o2::trackstudy::TPCTuneInfo + ;
+#pragma link C++ class std::vector < o2::trackstudy::TPCTuneInfo> + ;
+
 #pragma link C++ class o2::checkresid::Point + ;
 #pragma link C++ class std::vector < o2::checkresid::Point> + ;
 #pragma link C++ class o2::checkresid::Track + ;

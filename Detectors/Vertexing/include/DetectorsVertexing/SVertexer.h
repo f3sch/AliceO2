@@ -34,6 +34,7 @@
 #include "DataFormatsTPC/TrackTPC.h"
 #include <numeric>
 #include <algorithm>
+#include <unordered_map>
 #include "GPUO2InterfaceRefit.h"
 #include "DataFormatsTPC/PIDResponse.h"
 
@@ -95,6 +96,48 @@ class SVertexer
     NHyp3body
   };
 
+  /// Outcome of checkV0: either the pair was accepted (RejNone) or the cut which discarded it.
+  enum V0Rej : uint8_t {
+    RejNone,           // accepted
+    RejTglDiff,        // TPC-only photon tune: |tgl_P - tgl_N| too large
+    RejD2R,            // TPC-only photon tune: circle center distance vs radii sum
+    RejDR,             // TPC-only photon tune: implausible conversion point
+    RejDCAFitter,      // DCAFitter found no candidate
+    RejMinR2ToMeanVtx, // V0 too close to the beam line
+    RejCausality,      // V0 radius incompatible with prongs innermost radii
+    RejProp,           // propagation of prongs to the PCA failed
+    RejPt2,            // V0 pT below threshold
+    RejTglV0,          // V0 tgLambda above threshold
+    RejHypo,           // no accepted V0 mass hypothesis
+    RejDCAXYCascV0,    // DCAXY / cosPAXY to mean vertex, loose cascade-V0 cuts
+    RejDCAXYCosPAXY,   // DCAXY / cosPAXY to mean vertex, nominal cuts
+    RejCosPA,          // no PV of the overlap bracket passes the cosPA cut
+    RejAfter3Body,     // demoted earlier, then dropped at the post-3-body stage
+    RejNotCascade,     // kept only as a cascade V0, but no cascade used it
+    NRejV0
+  };
+  static constexpr std::array<const char*, NRejV0> V0RejNames{
+    "None", "TglDiff", "D2R", "DR", "DCAFitter", "MinR2ToMeanVtx", "Causality", "Prop", "Pt2",
+    "TglV0", "Hypo", "DCAXYCascV0", "DCAXYCosPAXY", "CosPA", "After3Body", "NotCascade"};
+  static_assert(V0RejNames.size() == NRejV0, "V0Rej names out of sync with the enum");
+
+  /// Reasons for which a track never enters the seeds pool in buildT2V.
+  enum SeedRej : uint8_t {
+    SeedRejNone,
+    SeedRejSourceNotLoaded,
+    SeedRejExcludedTPC,
+    SeedRejTPCMaxX,
+    SeedRejTPCTimeCorr,
+    SeedRejTPCPhotonTune,
+    SeedRejAcceptTrack,
+    SeedRejShortITSOnly,
+    NSeedRej
+  };
+  static constexpr std::array<const char*, NSeedRej> SeedRejNames{
+    "None", "SourceNotLoaded", "ExcludedTPC", "TPCMaxX", "TPCTimeCorr", "TPCPhotonTune",
+    "AcceptTrack", "ShortITSOnly"};
+  static_assert(SeedRejNames.size() == NSeedRej, "SeedRej names out of sync with the enum");
+
   static constexpr int POS = 0, NEG = 1;
   struct TrackCand : o2::track::TrackParCov {
     GIndex gid{};
@@ -118,6 +161,21 @@ class SVertexer
   void init();
   void process(const o2::globaltracking::RecoContainer& recoTracks, o2::framework::ProcessingContext& pc);
   void produceOutput(o2::framework::ProcessingContext& pc);
+
+  /// Prepare the pools of positive/negative seeds for the given reco data
+  void prepareSeeds(const o2::globaltracking::RecoContainer& recoTracks);
+
+  /// Seeds accepted by prepareSeeds/buildT2V
+  const std::array<std::vector<TrackCand>, 2>& getTracksPool() const { return mTracksPool; }
+
+  /// Apply the full V0 selection to a pair of seeds
+  V0Rej checkV0(const TrackCand& seed0, const TrackCand& seed1, int iP, int iN, int ithread);
+
+  /// Collect per seed rejection info
+  void setCollectSeedRejections(bool v) { mCollectSeedRej = v; }
+  bool getCollectSeedRejections() const { return mCollectSeedRej; }
+  const auto& getSeedRejMap() const { return mSeedRejMap; }
+
   int getNV0s() const { return mNV0s; }
   int getNCascades() const { return mNCascades; }
   int getN3Bodies() const { return mN3Bodies; }
@@ -152,7 +210,6 @@ class SVertexer
  private:
   template <class TVI, class TCI, class T3I, class TR>
   void extractPVReferences(const TVI& v0s, TR& vtx2V0Refs, const TCI& cascades, TR& vtx2CascRefs, const T3I& vtxs3, TR& vtx2body3Refs);
-  bool checkV0(const TrackCand& seed0, const TrackCand& seed1, int iP, int iN, int ithread);
   int checkCascades(const V0Index& v0Idx, const V0& v0, float rv0, std::array<float, 3> pV0, float p2V0, int avoidTrackID, int posneg, VBracket v0vlist, int ithread);
   int check3bodyDecays(const V0Index& v0Idx, const V0& v0, float rv0, std::array<float, 3> pV0, float p2V0, int avoidTrackID, int posneg, VBracket v0vlist, int ithread);
   void setupThreads();
@@ -186,6 +243,7 @@ class SVertexer
   std::vector<std::vector<Decay3BodyIndex>> m3bodyIdxTmp;
   std::array<std::vector<TrackCand>, 2> mTracksPool{}; // pools of positive and negative seeds sorted in min VtxID
   std::array<std::vector<int>, 2> mVtxFirstTrack{};    // 1st pos. and neg. track of the pools for each vertex
+  std::unordered_map<GIndex, uint8_t> mSeedRejMap;     // SeedRej reason per track dropped by buildT2V, filled only if mCollectSeedRej
 
   o2::dataformats::VertexBase mMeanVertex{{0., 0., 0.}, {0.1 * 0.1, 0., 0.1 * 0.1, 0., 0., 6. * 6.}};
   const SVertexerParams* mSVParams = nullptr;
@@ -223,6 +281,8 @@ class SVertexer
   bool mEnableCascades = true;
   bool mEnable3BodyDecays = false;
   bool mUseMC = false;
+  bool mUpdatedOnce = false;    ///< time-independent part of updateTimeDependentParams was already done for this instance
+  bool mCollectSeedRej = false; ///< fill mSeedRejMap in buildT2V
 };
 
 } // namespace vertexing
