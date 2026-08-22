@@ -234,7 +234,7 @@ void MatLayerCylSet::finalizeStructures()
   o2::gpu::FlatObject::resizeArray(get()->mR2Intervals, 0, nR2Int);
   o2::gpu::FlatObject::resizeArray(get()->mInterval2LrID, 0, nR2Int);
   get()->mR2Intervals[0] = get()->mRMin2;
-  get()->mR2Intervals[1] = get()->mRMax2;
+  get()->mR2Intervals[1] = getLayer(0).getRMax2();
   get()->mInterval2LrID[0] = 0;
   auto& nRIntervals = get()->mNRIntervals;
   nRIntervals = 1;
@@ -319,14 +319,17 @@ void MatLayerCylSet::initLayerVoxelLU()
   if (LayerRMax < get()->mRMax) {
     LOG(fatal) << "Cannot initialized layer voxel lookup due to dimension problem (fix constants in MatLayerCylSet.h)";
   }
+  // the top bit of an entry carries the ambiguity flag, so the interval index has one bit less
+  if (get()->mNRIntervals > VoxelSegmentMask) {
+    LOG(fatal) << "Too many R intervals (" << get()->mNRIntervals << ") to pack into a layer voxel lookup entry";
+  }
   for (int voxel = 0; voxel < NumVoxels; ++voxel) {
     // check the 2 extremes of this voxel "covering"
     const auto lowerR = voxel * VoxelRDelta;
     const auto upperR = lowerR + VoxelRDelta;
     const auto lowerSegment = searchSegment(lowerR * lowerR);
     const auto upperSegment = searchSegment(upperR * upperR);
-    mLayerVoxelLU[2 * voxel] = lowerSegment;
-    mLayerVoxelLU[2 * voxel + 1] = upperSegment;
+    mLayerVoxelLU[voxel] = uint16_t(lowerSegment) | (lowerSegment != upperSegment ? VoxelAmbiguousBit : uint16_t{0});
   }
   mInitializedLayerVoxelLU = true;
 }
@@ -477,7 +480,10 @@ GPUd() MatBudget MatLayerCylSet::getMatBudget(float x0, float y0, float z0, floa
           tEndPhi = cross2;
           checkMorePhi = false;
         } else { // last phi slice still not reached
-          tEndPhi = ray.crossRadial(lr, (stepPhiID > 0 ? phiID + 1 : phiID) % nphiSlices);
+          const int boundaryPhiID = stepPhiID > 0 ? phiID + 1 : phiID;
+          // phiID may be offset by one revolution to handle wrapping, but never by more.
+          const int wrappedBoundaryPhiID = boundaryPhiID < nphiSlices ? boundaryPhiID : boundaryPhiID - nphiSlices;
+          tEndPhi = ray.crossRadial(lr, wrappedBoundaryPhiID);
           if (tEndPhi == Ray::InvalidT) {
             break; // ray parallel to radial line, abandon check for phi bin change
           }
@@ -490,6 +496,8 @@ GPUd() MatBudget MatLayerCylSet::getMatBudget(float x0, float y0, float z0, floa
         }
         auto zID = lr.getZBinID(ray.getZ(tStartPhi));
         auto zIDLast = lr.getZBinID(ray.getZ(tEndPhi));
+        const int wrappedPhiID = phiID < nphiSlices ? phiID : phiID - nphiSlices;
+        const auto* cellRow = lr.getCellRow(wrappedPhiID);
         // check if Zbins are crossed
 
 #ifdef _DBG_LOC_
@@ -512,7 +520,7 @@ GPUd() MatBudget MatLayerCylSet::getMatBudget(float x0, float y0, float z0, floa
             }
             // account materials of this step
             float step = tEndZ > tStartZ ? tEndZ - tStartZ : tStartZ - tEndZ; // the real step is ray.getDist(tEnd-tStart), will rescale all later
-            const auto& cell = lr.getCell(phiID % nphiSlices, zID);
+            const auto& cell = cellRow[zID];
             rval.meanRho += cell.meanRho * step;
             rval.meanX2X0 += cell.meanX2X0 * step;
             rval.length += step;
@@ -523,7 +531,7 @@ GPUd() MatBudget MatLayerCylSet::getMatBudget(float x0, float y0, float z0, floa
             printf(
               "Lr#%3d / cross#%d : account %f<t<%f at phiSlice %d | Zbin: %3d (%3d) |[%+e %+e +%e]:[%+e %+e %+e] "
               "Step: %.3e StrpCor: %.3e\n",
-              lrID, ic, tEndZ, tStartZ, phiID % nphiSlices, zID, zIDLast,
+              lrID, ic, tEndZ, tStartZ, wrappedPhiID, zID, zIDLast,
               pos0[0], pos0[1], pos0[2], pos1[0], pos1[1], pos1[2], step, ray.getDist(step));
 #endif
 
@@ -532,7 +540,7 @@ GPUd() MatBudget MatLayerCylSet::getMatBudget(float x0, float y0, float z0, floa
           } while (checkMoreZ);
         } else {
           float step = tEndPhi > tStartPhi ? tEndPhi - tStartPhi : tStartPhi - tEndPhi; // the real step is |ray.getDist(tEnd-tStart)|, will rescale all later
-          const auto& cell = lr.getCell(phiID % nphiSlices, zID);
+          const auto& cell = cellRow[zID];
           rval.meanRho += cell.meanRho * step;
           rval.meanX2X0 += cell.meanX2X0 * step;
           rval.length += step;
@@ -543,7 +551,7 @@ GPUd() MatBudget MatLayerCylSet::getMatBudget(float x0, float y0, float z0, floa
           printf(
             "Lr#%3d / cross#%d : account %f<t<%f at phiSlice %d | Zbin: %3d ----- |[%+e %+e +%e]:[%+e %+e %+e]"
             "Step: %.3e StrpCor: %.3e\n",
-            lrID, ic, tEndPhi, tStartPhi, phiID % nphiSlices, zID,
+            lrID, ic, tEndPhi, tStartPhi, wrappedPhiID, zID,
             pos0[0], pos0[1], pos0[2], pos1[0], pos1[1], pos1[2], step, ray.getDist(step));
 #endif
         }
@@ -581,12 +589,25 @@ GPUd() bool MatLayerCylSet::getLayersRange(const Ray& ray, short& lmin, short& l
     return false;
   }
   int lmxInt, lmnInt;
-  if (!mInitializedLayerVoxelLU) {
+#ifdef GPUCA_GPUCODE
+  // On the device the voxel table is always present
+  constexpr bool haveVoxelLU = true;
+#else
+  const bool haveVoxelLU = mInitializedLayerVoxelLU;
+#endif
+  if (!haveVoxelLU) {
     lmxInt = rmax2 < getRMax2() ? searchSegment(rmax2, 0) : get()->mNRIntervals - 2;
     lmnInt = rmin2 >= getRMin2() ? searchSegment(rmin2, 0, lmxInt + 1) : 0;
   } else {
-    lmxInt = rmax2 < getRMax2() ? searchLayerFast(rmax2, 0) : get()->mNRIntervals - 2;
-    lmnInt = rmin2 >= getRMin2() ? searchLayerFast(rmin2, 0, lmxInt + 1) : 0;
+    // The two lookups are independent so overlapping the pair is worth the clumsier shape.
+    const bool useMax = rmax2 < getRMax2();
+    const bool useMin = rmin2 >= getRMin2();
+    const int ixMax = useMax ? voxelIndex(rmax2) : 0;
+    const int ixMin = useMin ? voxelIndex(rmin2) : 0;
+    const uint16_t eMax = mLayerVoxelLU[ixMax];
+    const uint16_t eMin = mLayerVoxelLU[ixMin];
+    lmxInt = useMax ? resolveLayerRange(rmax2, ixMax, eMax) : get()->mNRIntervals - 2;
+    lmnInt = useMin ? resolveLayerRange(rmin2, ixMin, eMin) : 0;
   }
 
   const auto* interval2LrID = get()->mInterval2LrID;
@@ -605,11 +626,19 @@ GPUd() bool MatLayerCylSet::getLayersRange(const Ray& ray, short& lmin, short& l
 GPUd() int MatLayerCylSet::searchLayerFast(float r2, int low, int high) const
 {
   // we can avoid the sqrt .. at the cost of more memory in the lookup
-  const auto index = 2 * int(o2::gpu::CAMath::Sqrt(r2) * InvVoxelRDelta);
-  const auto layersfirst = mLayerVoxelLU[index];
-  const auto layerslast = mLayerVoxelLU[index + 1];
-  if (layersfirst != layerslast) {
-    // this means the voxel is undecided and we revert to search
+  const auto index = voxelIndex(r2);
+  return resolveLayerRange(r2, index, mLayerVoxelLU[index]);
+}
+
+GPUd() int MatLayerCylSet::resolveLayerRange(float r2, int voxel, uint16_t entry) const
+{
+  const int layersfirst = entry & VoxelSegmentMask;
+  if (entry & VoxelAmbiguousBit) {
+    // Recreate the upper candidate only for the small fraction of undecided voxels.
+    // Keep the operations identical to initLayerVoxelLU so boundary behaviour is unchanged.
+    const auto lowerR = voxel * VoxelRDelta;
+    const auto upperR = lowerR + VoxelRDelta;
+    const auto layerslast = searchSegment(upperR * upperR);
     return searchSegment(r2, layersfirst, layerslast + 1);
   }
   return layersfirst;
