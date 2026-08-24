@@ -27,6 +27,14 @@ std::pair<double, double> computeUV(double gloX, double gloY, double gloZ, int s
 TrackSlopes computeTrackSlopes(double snp, double tgl);
 std::vector<double> legendrePols(int order, double x);
 
+// First and second derivatives dP_n/dx, d^2P_n/dx^2 for n = 0..order.
+std::vector<double> legendrePolsD1(int order, double x);
+std::vector<double> legendrePolsD2(int order, double x);
+
+// Jacobian factor of the angular normalisation used by computeUV: c_phi = du/dphi = 2 / (phiBorder2 - phiBorder1).
+// Needed to convert derivatives with respect to the normalised u back to derivatives with respect to the azimuth phi.
+double phiScale(double radius);
+
 } // namespace o2::its3::align
 
 #endif

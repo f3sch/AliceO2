@@ -69,16 +69,30 @@ MisalignmentModel loadMisalignmentModel(const std::string& jsonPath)
     if (item.contains("inextensional")) {
       const auto& inex = item["inextensional"];
       sensor.hasInextensional = true;
-      if (inex.contains("modes")) {
-        for (const auto& [key, val] : inex["modes"].items()) {
-          sensor.inextensional.modes[std::stoi(key)] = val.get<std::array<double, 4>>();
+      // {"f": {"1": ..., "2": ...}, "g": {...}, "h": {"2_1": ..., "4_2": ...}}
+      if (inex.contains("f")) {
+        for (const auto& [key, val] : inex["f"].items()) {
+          sensor.inextensional.f[std::stoi(key)] = val.get<double>();
         }
       }
-      if (inex.contains("alpha")) {
-        sensor.inextensional.alpha = inex["alpha"].get<double>();
+      if (inex.contains("g")) {
+        for (const auto& [key, val] : inex["g"].items()) {
+          sensor.inextensional.g[std::stoi(key)] = val.get<double>();
+        }
       }
-      if (inex.contains("beta")) {
-        sensor.inextensional.beta = inex["beta"].get<double>();
+      if (inex.contains("h")) {
+        for (const auto& [key, val] : inex["h"].items()) {
+          const auto sep = key.find('_');
+          if (sep == std::string::npos) {
+            LOGP(fatal, "Inextensional h key '{}' for sensor {} must be of the form '<k>_<l>' in {}", key, id, jsonPath);
+          }
+          const int k = std::stoi(key.substr(0, sep));
+          const int l = std::stoi(key.substr(sep + 1));
+          if (l < 1) {
+            LOGP(fatal, "Inextensional h key '{}' for sensor {}: l must be >= 1 (l = 0 is spanned by g) in {}", key, id, jsonPath);
+          }
+          sensor.inextensional.h[{k, l}] = val.get<double>();
+        }
       }
     }
   }
@@ -119,31 +133,47 @@ MisalignmentShift evaluateInextensionalShift(const SensorMisalignment& sensor, c
   }
 
   const double r = constants::radii[frame.layerID];
-  const double phi = std::atan2(r * std::sin(frame.alpha), r * std::cos(frame.alpha));
-  const double z = frame.z;
+  const double gloX = frame.x * std::cos(frame.alpha);
+  const double gloY = frame.x * std::sin(frame.alpha);
+  const auto [u, v] = computeUV(gloX, gloY, frame.z, frame.sensorID, r);
+  const double cPhi = phiScale(r);
+  const double zOverR = frame.z / r;
   const auto& inex = sensor.inextensional;
 
-  double uz = 0., uphi = 0., ur = 0.;
-  for (const auto& [n, coeffs] : inex.modes) {
-    const double a_n = coeffs[0], b_n = coeffs[1], c_n = coeffs[2], d_n = coeffs[3];
-    const double sn = std::sin(n * phi);
-    const double cn = std::cos(n * phi);
-    const int n2 = n * n;
-
-    const double fn = (a_n * cn) + (b_n * sn);
-    const double fpn = (-n * a_n * sn) + (n * b_n * cn);
-    const double fppn = (-n2 * a_n * cn) - (n2 * b_n * sn);
-    const double gn = (c_n * cn) + (d_n * sn);
-    const double gpn = (-n * c_n * sn) + (n * d_n * cn);
-
-    uz += fn;
-    uphi += -(z / r) * fpn + gn;
-    ur += (z / r) * fppn - gpn;
+  int maxK = 0;
+  for (const auto& [k, val] : inex.f) {
+    maxK = std::max(maxK, k);
+  }
+  for (const auto& [k, val] : inex.g) {
+    maxK = std::max(maxK, k);
+  }
+  int maxKh = 0, maxL = 0;
+  for (const auto& [kl, val] : inex.h) {
+    maxKh = std::max(maxKh, kl.first);
+    maxL = std::max(maxL, kl.second);
   }
 
-  uz += inex.alpha * phi;
-  uphi += -(z / r) * inex.alpha + inex.beta * phi;
-  ur += -inex.beta;
+  const auto pu = legendrePols(std::max(maxK, maxKh), u);
+  const auto pu1 = legendrePolsD1(maxK, u);
+  const auto pu2 = legendrePolsD2(maxK, u);
+
+  // u_z = f, u_phi = -(z/r) f' + g, u_r = (z/r) f'' - g'
+  double uz = 0., uphi = 0., ur = 0.;
+  for (const auto& [k, fk] : inex.f) {
+    uz += fk * pu[k];
+    uphi += -zOverR * cPhi * fk * pu1[k];
+    ur += zOverR * cPhi * cPhi * fk * pu2[k];
+  }
+  for (const auto& [k, gk] : inex.g) {
+    uphi += gk * pu[k];
+    ur += -cPhi * gk * pu1[k];
+  }
+  if (!inex.h.empty()) {
+    const auto pv = legendrePols(maxL, v);
+    for (const auto& [kl, hkl] : inex.h) {
+      ur += hkl * pu[kl.first] * pv[kl.second];
+    }
+  }
 
   shift.dy = -uphi + (slopes.dydx * ur);
   shift.dz = -uz + (slopes.dzdx * ur);

@@ -51,4 +51,37 @@ std::vector<double> legendrePols(int order, double x)
   return p;
 }
 
+std::vector<double> legendrePolsD1(int order, double x)
+{
+  // P'_0 = 0, P'_1 = 1, P'_{n+1} = (2n+1) P_n + P'_{n-1}
+  const auto p = legendrePols(order, x);
+  std::vector<double> d(order + 1, 0.);
+  if (order > 0) {
+    d[1] = 1.;
+  }
+  for (int n = 1; n < order; ++n) {
+    d[n + 1] = ((2 * n + 1) * p[n]) + d[n - 1];
+  }
+  return d;
+}
+
+std::vector<double> legendrePolsD2(int order, double x)
+{
+  // P''_0 = P''_1 = 0, P''_{n+1} = (2n+1) P'_n + P''_{n-1}
+  const auto d1 = legendrePolsD1(order, x);
+  std::vector<double> d(order + 1, 0.);
+  for (int n = 1; n < order; ++n) {
+    d[n + 1] = ((2 * n + 1) * d1[n]) + d[n - 1];
+  }
+  return d;
+}
+
+double phiScale(double radius)
+{
+  // computeUV maps [phiBorder1, phiBorder2] -> [-1, 1]; the span is the same
+  // for the top and bottom half-shells: pi - 2 asin(gap / 2r).
+  const double span = TMath::Pi() - (2. * std::asin(constants::equatorialGap / 2. / radius));
+  return 2. / span;
+}
+
 } // namespace o2::its3::align

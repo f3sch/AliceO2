@@ -74,36 +74,48 @@ void LegendreDOFSet::fillDerivatives(const DerivativeContext& ctx, Eigen::Ref<Ei
 void InextensionalDOFSet::fillDerivatives(const DerivativeContext& ctx, Eigen::Ref<Eigen::MatrixXd> out) const
 {
   validateDerivativeOutput(*this, out);
-  if (ctx.layerID < 0) {
+  if (ctx.sensorID < 0 || ctx.layerID < 0) {
     throw std::invalid_argument("InextensionalDOFSet requires an ITS3 measurement context");
   }
 
   const double r = o2::its3::constants::radii[ctx.layerID];
-  const double phi = std::atan2(r * std::sin(ctx.measAlpha), r * std::cos(ctx.measAlpha));
-  const double z = ctx.measZ;
+  const double gloX = ctx.measX * std::cos(ctx.measAlpha);
+  const double gloY = ctx.measX * std::sin(ctx.measAlpha);
+  const auto [u, v] = o2::its3::align::computeUV(gloX, gloY, ctx.measZ, ctx.sensorID, r);
+  const double cPhi = o2::its3::align::phiScale(r);
+  const double zOverR = ctx.measZ / r;
 
-  for (int n = 2; n <= mMaxOrder; ++n) {
-    const double sn = std::sin(n * phi);
-    const double cn = std::cos(n * phi);
-    const double n2 = static_cast<double>(n * n);
-    const int off = modeOffset(n);
+  // The residual derivative for a mode with displacement M = (M_r, M_phi, M_z)
+  // along the local (r, phi, z) directions is
+  //   row0 = dydx * M_r - M_phi,   row1 = dzdx * M_r - M_z
+  // (cf. the rigid-body case, where M = (1,0,0) gives (dydx, dzdx)).
+  const auto fill = [&out, &ctx](int idx, double mR, double mPhi, double mZ) {
+    out(0, idx) = (ctx.dydx * mR) - mPhi;
+    out(1, idx) = (ctx.dzdx * mR) - mZ;
+  };
 
-    out(0, off + 0) = -(z / r) * (n * sn + ctx.dydx * n2 * cn);
-    out(1, off + 0) = -cn - ctx.dzdx * (z / r) * n2 * cn;
+  const int order = std::max(mMaxOrder, hasExtensional() ? mExtOrderPhi : 0);
+  const auto pu = o2::its3::align::legendrePols(order, u);
+  const auto pu1 = o2::its3::align::legendrePolsD1(mMaxOrder, u);
+  const auto pu2 = o2::its3::align::legendrePolsD2(mMaxOrder, u);
 
-    out(0, off + 1) = (z / r) * (n * cn - ctx.dydx * n2 * sn);
-    out(1, off + 1) = -sn * (1. + ctx.dzdx * (z / r) * n2);
-
-    out(0, off + 2) = -cn + ctx.dydx * n * sn;
-    out(1, off + 2) = ctx.dzdx * n * sn;
-
-    out(0, off + 3) = -sn - ctx.dydx * n * cn;
-    out(1, off + 3) = -ctx.dzdx * n * cn;
+  for (int k = 0; k <= mMaxOrder; ++k) {
+    // f_k: u_z = P_k, u_phi = -(z/r) c P'_k, u_r = (z/r) c^2 P''_k
+    fill(fIdx(k),
+         zOverR * cPhi * cPhi * pu2[k],
+         -zOverR * cPhi * pu1[k],
+         pu[k]);
+    // g_k: u_phi = P_k, u_r = -c P'_k
+    fill(gIdx(k), -cPhi * pu1[k], pu[k], 0.);
   }
 
-  out(0, alphaIdx()) = z / r;
-  out(1, alphaIdx()) = -phi;
-
-  out(0, betaIdx()) = -phi - ctx.dydx;
-  out(1, betaIdx()) = -ctx.dzdx;
+  if (hasExtensional()) {
+    const auto pv = o2::its3::align::legendrePols(mExtOrderZ, v);
+    for (int k = 0; k <= mExtOrderPhi; ++k) {
+      for (int l = 1; l <= mExtOrderZ; ++l) {
+        // h_{k,l}: strictly radial u_r = P_k(u) P_l(v)
+        fill(hIdx(k, l), pu[k] * pv[l], 0., 0.);
+      }
+    }
+  }
 }
