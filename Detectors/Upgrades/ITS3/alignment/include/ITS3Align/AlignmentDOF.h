@@ -21,6 +21,8 @@
 
 #include <Eigen/Dense>
 
+#include "ITS3Align/AlignmentLabel.h"
+
 struct DerivativeContext {
   int sensorID{-1};
   int layerID{-1};
@@ -62,7 +64,7 @@ class DOFSet
   }
 
  protected:
-  DOFSet(int n) : mFree(n, true) {}
+  DOFSet(int n) : mFree(n, true) { GlobalLabel::checkDOFCount(n); }
   std::vector<bool> mFree;
 };
 
