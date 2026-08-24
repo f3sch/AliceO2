@@ -602,7 +602,7 @@ GPUd() bool MatLayerCylSet::getLayersRange(const Ray& ray, short& lmin, short& l
     // The two lookups are independent so overlapping the pair is worth the clumsier shape.
     const bool useMax = rmax2 < getRMax2();
     const bool useMin = rmin2 >= getRMin2();
-    const int ixMax = useMax ? voxelIndex(rmax2) : 0;
+    const int ixMax = useMax ? voxelIndex(rmax2) : [NumVoxels-1];
     const int ixMin = useMin ? voxelIndex(rmin2) : 0;
     const uint16_t eMax = mLayerVoxelLU[ixMax];
     const uint16_t eMin = mLayerVoxelLU[ixMin];
