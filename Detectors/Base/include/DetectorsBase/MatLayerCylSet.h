@@ -148,7 +148,7 @@ class MatLayerCylSet : public o2::gpu::FlatObject
   static constexpr uint16_t VoxelAmbiguousBit = 0x8000u;
   static constexpr uint16_t VoxelSegmentMask = 0x7fffu;
 
-  uint16_t mLayerVoxelLU[NumVoxels]; //! first interval based on known radius, plus the ambiguity flag (static dimension for easy copy to GPU)
+  uint16_t mLayerVoxelLU[NumVoxels];     //! first interval based on known radius, plus the ambiguity flag (static dimension for easy copy to GPU)
   bool mInitializedLayerVoxelLU = false; //! if the voxels have been initialized
 
   ClassDefNV(MatLayerCylSet, 1);
