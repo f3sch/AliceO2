@@ -880,11 +880,17 @@ void TrackingStudySpec::doResidStudy()
     std::array<TrackingCluster, 8> cl;
     std::array<const TrackingCluster*, 8> clArr{nullptr};
     dataformats::VertexBase pv;
-    float ip[2];
+    float ip[2]{0.f, 0.f};
+    // The MC vertex always defines the reference point of the impact
+    // parameters. Whether it *also* enters the track fit is a separate
+    // question, controlled by addPVAsCluster: constraining the fit to the same
+    // vertex the DCA is measured against compresses the DCA distribution, so
+    // for pointing-resolution studies the constraint must be switched off
+    // while the reference point stays defined.
+    const auto& eve = mMCReader.getMCEventHeader(lbl.getSourceID(), lbl.getEventID());
+    pv.setXYZ(eve.GetX(), eve.GetY(), eve.GetZ());
     if (mParams->addPVAsCluster) {
-      const auto& eve = mMCReader.getMCEventHeader(lbl.getSourceID(), lbl.getEventID());
       auto trFitOut = iTrack.getParamIn();
-      pv.setXYZ(eve.GetX(), eve.GetY(), eve.GetZ());
       if (!prop->propagateToDCA(pv, trFitOut, bz, base::Propagator::MAX_STEP, mParams->CorrType)) {
         return;
       }
@@ -927,9 +933,9 @@ void TrackingStudySpec::doResidStudy()
         }
         auto phi = i == 0 ? tInt.getPhi() : tInt.getPhiPos();
         o2::math_utils::bringTo02Pi(phi);
-        if (clArr[0]) {
-          getImpactParams(tInt, pv, ip, bz);
-        }
+        // pv is always set, so the DCA no longer depends on the PV being
+        // part of the fit (it used to be gated on clArr[0])
+        getImpactParams(tInt, pv, ip, bz);
         (*mDBGOut) << "res"
                    << "dYInt=" << clArr[i]->getY() - tInt.getY()
                    << "dZInt=" << clArr[i]->getZ() - tInt.getZ()
@@ -979,7 +985,7 @@ void TrackingStudySpec::doMisalignmentStudy()
 
   int goodRefit{0}, notPassedSel{0}, fitFail{0}, fitFailMis{0};
   o2::dataformats::VertexBase pv;
-  float ip[2];
+  float ip[2]{0.f, 0.f};
   float chi2{0};
   auto writeTree = [&](const char* treeName,
                        const std::array<const TrackingCluster*, 8>& clArr,
@@ -1009,9 +1015,11 @@ void TrackingStudySpec::doMisalignmentStudy()
           if (mcTrkAtX.rotate(tInt.getAlpha()) && prop->PropagateToXBxByBz(mcTrkAtX, tInt.getX())) {
             auto phi = i == 0 ? tInt.getPhi() : tInt.getPhiPos();
             o2::math_utils::bringTo02Pi(phi);
-            if (clArr[0]) {
-              getImpactParams(tInt, pv, ip, prop->getNominalBz());
-            }
+            // pv is always set, so the DCA no longer depends on the PV being
+            // part of the fit (it used to be gated on clArr[0], which left
+            // dcaXY/dcaZ holding the previous track's values when the PV
+            // pseudo-cluster was disabled)
+            getImpactParams(tInt, pv, ip, prop->getNominalBz());
             (*mDBGOut) << treeName
                        << "trk=" << tInt
                        << "mcTrk=" << mcTrkAtX
@@ -1052,12 +1060,14 @@ void TrackingStudySpec::doMisalignmentStudy()
     // ideal clusters
     std::array<TrackingCluster, 8> cl;
     std::array<const TrackingCluster*, 8> clArr{nullptr};
+    // see the note in doRefits(): the MC vertex always defines the DCA
+    // reference point, addPVAsCluster only decides whether it constrains the fit
+    const auto& eve = mMCReader.getMCEventHeader(lbl.getSourceID(), lbl.getEventID());
+    pv.setXYZ(eve.GetX(), eve.GetY(), eve.GetZ());
     if (mParams->addPVAsCluster) {
-      const auto& eve = mMCReader.getMCEventHeader(lbl.getSourceID(), lbl.getEventID());
       auto trFitOut = iTrack.getParamIn();
-      pv.setXYZ(eve.GetX(), eve.GetY(), eve.GetZ());
       if (!prop->propagateToDCA(pv, trFitOut, prop->getNominalBz(), base::Propagator::MAX_STEP, mParams->CorrType)) {
-        return;
+        continue; // skip this track, not the rest of the study
       }
       pv.setSigmaX(20e-4f);
       pv.setSigmaY(20e-4f);
