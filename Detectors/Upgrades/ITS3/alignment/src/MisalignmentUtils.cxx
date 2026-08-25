@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <string>
 #include <vector>
 #include <array>
 
@@ -93,6 +94,16 @@ MisalignmentModel loadMisalignmentModel(const std::string& jsonPath)
           }
           sensor.inextensional.h[{k, l}] = val.get<double>();
         }
+      }
+      // An "inextensional" block that yields no coefficients would silently
+      // produce a zero displacement field, i.e. a misalignment study that
+      // looks identical to the ideal one. Most likely cause: a file still in
+      // the old Fourier schema ("modes"/"alpha"/"beta").
+      const auto& parsed = sensor.inextensional;
+      if (parsed.f.empty() && parsed.g.empty() && parsed.h.empty()) {
+        LOGP(fatal, "Sensor {}: 'inextensional' block in {} contains none of the expected "
+                    "keys 'f', 'g', 'h' - no deformation would be applied. Keys present: {}",
+             id, jsonPath, [&inex] { std::string s; for (const auto& [k, v] : inex.items()) { s += (s.empty() ? "" : ", ") + k; } return s; }());
       }
     }
   }
