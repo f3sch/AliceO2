@@ -1033,18 +1033,25 @@ void TrackingStudySpec::doMisalignmentStudy()
     // Track-level row, lay = -1: the impact parameters with respect to the MC
     // vertex. With addPVAsCluster the PV pseudo-cluster occupies slot 0 and
     // supplies this row. Without it slot 0 is empty, so the row is emitted here
-    // from the innermost valid track state; otherwise every DCA histogram
-    // downstream (all of which select lay == -1) would come out empty.
+    // from the innermost track state; otherwise every DCA histogram downstream
+    // (all of which select lay == -1) would come out empty.
+    //
+    // The interpolation at slot i deliberately excludes the cluster of slot i
+    // (that is what makes dY/dZ unbiased residuals), so it must be updated with
+    // that cluster before the impact parameters are taken. Without the update a
+    // misalignment confined to the innermost layer is invisible here by
+    // construction: the state would be built from the outer layers alone and
+    // would be bit-identical to the ideal one.
     if (!clArr[0]) {
       for (int i = 1; i <= 7; ++i) {
         if (!clArr[i]) {
           continue;
         }
-        const auto tInt = align::interpolateTrackParCov(extrapInw[i], extrapOut[i]);
-        if (!tInt.isValid()) {
+        auto tFull = align::interpolateTrackParCov(extrapInw[i], extrapOut[i]);
+        if (!tFull.isValid() || !tFull.update(*clArr[i])) {
           continue;
         }
-        writeRow(tInt, 0.f, 0.f, -1);
+        writeRow(tFull, 0.f, 0.f, -1);
         break;
       }
     }
