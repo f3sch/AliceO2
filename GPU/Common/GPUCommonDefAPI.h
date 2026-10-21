@@ -309,5 +309,5 @@
   #define GPUCA_THREAD_INFO_PROVIDE
 #endif
 
-// clang-format on
+    // clang-format on
 #endif
