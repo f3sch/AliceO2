@@ -3725,16 +3725,16 @@ class MeasurementSinkTask : public Task
       truth.r = measurement.r;
       truth.z = measurement.z;
       const auto all = labels.getLabels(measurement.clusterIndex);
-      truth.firstLabelCounts = !all.empty() && all[0].isValid() && !all[0].isNoise() && all[0].isCorrect() && all[0].getSourceID() == 0;
+      static_cast<workflow::RowParticles&>(truth) = workflow::rowParticles(std::span<const o2::MCCompLabel>{all.data(), all.size()});
+      // The particle table: each particle the rows carry, once.
       for (const auto& label : all) {
         if (!carriesParticle(label)) {
           continue;
         }
         const auto id = label.getTrackEventSourceID(); // source, event and track in one word
-        if (truth.carries(id) || truth.count == TruthRow::kMaxParticles) {
-          continue;
+        if (!truth.carries(id)) {
+          continue; // past the rule's kMaxParticles
         }
-        truth.particles[truth.count++] = id;
         if (!particles.contains(id)) {
           const auto* mc = mKinematics->getTrack(label);
           const o2::MCTrack* mother = nullptr;

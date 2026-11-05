@@ -61,9 +61,9 @@ const std::vector<std::uint32_t> kClusters{7U, 3U, 11U};
 
 std::vector<TruthRow> someRows()
 {
-  return {{.particles = {5U, 9U}, .count = 2, .layer = 0, .firstLabelCounts = true},
-          {.particles = {9U}, .count = 1, .layer = 1, .firstLabelCounts = false},
-          {.count = 0, .layer = 6, .firstLabelCounts = false}}; // noise
+  return {{{.particles = {5U, 9U}, .count = 2, .firstLabelCounts = true}, 0},
+          {{.particles = {9U}, .count = 1, .firstLabelCounts = false}, 1},
+          {{.count = 0, .firstLabelCounts = false}, 6}}; // noise
 }
 
 const ParticleTable kParticles{{5U, {.pt = 0.25F, .primary = true, .eta = -0.5F, .phi = 1.5F, .origin = ParticleOrigin::kPhysicalPrimary, .pdg = 211}},

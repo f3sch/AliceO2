@@ -43,9 +43,7 @@
 namespace o2::gtrk::study
 {
 
-/// Whether \a label names a particle the truth counts: valid, not noise, and
-/// not the QED background, which counts as noise.
-[[nodiscard]] inline bool carriesParticle(const o2::MCCompLabel& label) { return label.isValid() && !label.isNoise() && label.getSourceID() != o2::steer::QEDSOURCEID; }
+using workflow::carriesParticle;
 
 /// Whether a primary's measurement lies on its first outward helix pass.
 template <DetectorLayout Det>

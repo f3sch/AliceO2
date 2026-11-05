@@ -55,6 +55,7 @@
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/LinkHoles.h"
+#include "GenericTracking/Workflow/TrackLabel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -73,27 +74,21 @@
 namespace o2::gtrk::study
 {
 
-/// What the comparison knows about one measurement: the particles among its
-/// signal labels, its layer and where it is.
-struct TruthRow {
-  static constexpr std::size_t kMaxParticles = 4;
-  std::array<std::uint64_t, kMaxParticles> particles{}; ///< the first `count` are valid
-  std::uint8_t count = 0;
+/// What the comparison knows about one measurement: the particles its labels
+/// carry (the label rule's, TrackLabel.h), its layer and where it is.
+struct TruthRow : workflow::RowParticles {
   LayerID layer = 0;
   /// The measurement's global radius and z [cm], which a findable chain's
   /// steps are tested with (LinkHoles.h).
   Scalar r = 0.F;
   Scalar z = 0.F;
-  /// Whether `particles[0]` is the cluster's first label and O2's QA counts it
-  /// (`CheckTracksCA.C`: valid, correct, from the signal): O2's findable
-  /// reads only that one.
-  bool firstLabelCounts = false;
-
-  [[nodiscard]] bool carries(std::uint64_t particle) const
-  {
-    return std::find(particles.begin(), particles.begin() + count, particle) != particles.begin() + count;
-  }
 };
+
+// The label rule is the workflow's, shared with the O2-format adaptors.
+using workflow::goodParticle;
+using workflow::kNoTrackParticle;
+using workflow::majorityParticle;
+using workflow::MajorityParticle;
 
 /// Where a particle comes from.
 enum class ParticleOrigin : std::uint8_t {
@@ -350,19 +345,6 @@ struct TrackScore {
   /// more bin than `productionEdges`.
   std::array<std::vector<DecayCounts>, kDecayFamilies> decays;
 };
-
-/// The particle every row of \a track carries -- a good track's, by O2's rule
-/// -- or kNoTrackParticle for a fake.
-inline constexpr std::uint64_t kNoTrackParticle = std::numeric_limits<std::uint64_t>::max();
-[[nodiscard]] std::uint64_t goodParticle(std::span<const TruthRow> rows, std::span<const std::uint32_t> track);
-
-/// The particle most rows of \a track carry, the first such in track order,
-/// and on how many: a fake's label; kNoTrackParticle and 0 on noise only.
-struct MajorityParticle {
-  std::uint64_t particle = kNoTrackParticle;
-  std::uint32_t carried = 0U;
-};
-[[nodiscard]] MajorityParticle majorityParticle(std::span<const TruthRow> rows, std::span<const std::uint32_t> track);
 
 /// \a tracks scored against \a truth.
 [[nodiscard]] TrackScore scoreTracks(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks, const ComparisonSettings& settings);

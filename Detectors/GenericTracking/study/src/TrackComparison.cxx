@@ -690,36 +690,6 @@ std::unordered_map<std::uint64_t, ParticleLayers> particleLayers(std::span<const
   return result;
 }
 
-std::uint64_t goodParticle(std::span<const TruthRow> rows, std::span<const std::uint32_t> track)
-{
-  if (track.empty()) {
-    return kNoTrackParticle;
-  }
-  const auto& first = rows[track.front()];
-  for (std::uint8_t i = 0; i < first.count; ++i) {
-    const auto candidate = first.particles[i];
-    if (std::ranges::all_of(track, [&](std::uint32_t row) { return rows[row].carries(candidate); })) {
-      return candidate;
-    }
-  }
-  return kNoTrackParticle;
-}
-
-MajorityParticle majorityParticle(std::span<const TruthRow> rows, std::span<const std::uint32_t> track)
-{
-  MajorityParticle result;
-  for (const auto row : track) {
-    for (std::uint8_t i = 0; i < rows[row].count; ++i) {
-      const auto candidate = rows[row].particles[i];
-      const auto carried = static_cast<std::uint32_t>(std::ranges::count_if(track, [&](std::uint32_t other) { return rows[other].carries(candidate); }));
-      if (carried > result.carried) {
-        result = {.particle = candidate, .carried = carried};
-      }
-    }
-  }
-  return result;
-}
-
 TrackScore scoreTracks(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks, const ComparisonSettings& settings)
 {
   const auto particles = particlesOf(rows, truth, settings);
