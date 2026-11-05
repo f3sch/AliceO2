@@ -1116,6 +1116,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
                                                  records.clusters,
                                                  records.count,
                                                  records.outwardState,
+                                                 records.chi2,
                                                  std::as_const(selected.selected).data(),
                                                  tracks.view(),
                                                  0U,

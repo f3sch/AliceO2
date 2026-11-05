@@ -55,12 +55,13 @@ struct TrackOf {
   // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
   template <template <class> class C>
   struct RecordT {
-    MEMLAYOUT_APPLY(RecordT, state, outwardState, timePS, widthPS, chi2, ndf, status, clusters, count, iteration, addedOutward, addedInward, kinks, kinkCluster)
+    MEMLAYOUT_APPLY(RecordT, state, outwardState, timePS, widthPS, chi2, outwardChi2, ndf, status, clusters, count, iteration, addedOutward, addedInward, kinks, kinkCluster)
     C<BoundTrackState> state;
     C<BoundTrackState> outwardState;
     C<std::uint32_t> timePS;
     C<std::uint32_t> widthPS;
-    C<Scalar> chi2;
+    C<Scalar> chi2;        ///< the inward pass's
+    C<Scalar> outwardChi2; ///< the outward pass's, which `outwardState` ends
     C<std::int16_t> ndf;
     C<PropagationStatus> status; ///< the refit's: kOk, or why it failed
     C<ClusterList<K>> clusters;
@@ -89,7 +90,8 @@ template <typename Columns, std::size_t K>
 
 /// Write \a fit of the rows \a clusters, \a count of them, as track \a track
 /// of \a tracks with the time box \a box (`trackTimeBox`): every column but
-/// the iteration and the clusters an extension added, which the caller knows.
+/// the iteration and the clusters an extension added, which the caller knows
+/// (and the outward chi2 after `fitInward`, which has none).
 template <typename Tracks, std::size_t K>
 GPUhdi() GPUAlwaysInline() void writeFit(const Tracks& tracks, std::uint32_t track, const TrackFitResult& fit, const ClusterList<K>& clusters, std::uint8_t count,
                                          const TimeEstPS& box)
@@ -99,6 +101,7 @@ GPUhdi() GPUAlwaysInline() void writeFit(const Tracks& tracks, std::uint32_t tra
   tracks.timePS[track] = box.start;
   tracks.widthPS[track] = box.width;
   tracks.chi2[track] = fit.chi2;
+  tracks.outwardChi2[track] = fit.outwardChi2;
   tracks.ndf[track] = fit.ndf;
   tracks.status[track] = fit.status;
   tracks.clusters[track] = clusters;
@@ -119,7 +122,8 @@ class TrackRefitElement
   using View = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::View;
 
   TrackRefitElement(const TimeFrame<Det>* frame, const TrackingGeometry<Det>* geometry, const Material* material, const Propagator& propagator,
-                    const ClusterList<kMaxClusters>* clusters, const std::uint8_t* count, const BoundTrackState* outward, const std::uint32_t* selected,
+                    const ClusterList<kMaxClusters>* clusters, const std::uint8_t* count, const BoundTrackState* outward, const Scalar* outwardChi2,
+                    const std::uint32_t* selected,
                     View tracks, std::uint32_t offset, std::uint8_t iteration, KinkBudget kinks)
     : mFrame(frame),
       mGeometry(geometry),
@@ -128,6 +132,7 @@ class TrackRefitElement
       mClusters(clusters),
       mCount(count),
       mOutward(outward),
+      mOutwardChi2(outwardChi2),
       mSelected(selected),
       mTracks(tracks),
       mOffset(offset),
@@ -146,6 +151,7 @@ class TrackRefitElement
     const auto fit = fitInward(mPropagator, *mGeometry, *mMaterial, RowChain<Det>{.frame = mFrame, .rows = rows.index}, static_cast<int>(count),
                                mOutward[record], mKinks);
     writeFit(mTracks, track, fit, rows, count, trackTimeBox(mFrame->measurements(), rows, count));
+    mTracks.outwardChi2[track] = mOutwardChi2[record];
     mTracks.iteration[track] = mIteration;
     mTracks.addedOutward[track] = 0U;
     mTracks.addedInward[track] = 0U;
@@ -159,6 +165,7 @@ class TrackRefitElement
   const ClusterList<kMaxClusters>* mClusters = nullptr;
   const std::uint8_t* mCount = nullptr;
   const BoundTrackState* mOutward = nullptr;
+  const Scalar* mOutwardChi2 = nullptr; ///< the road fit's, whose end state `mOutward` is
   const std::uint32_t* mSelected = nullptr;
   View mTracks;
   std::uint32_t mOffset = 0U;
@@ -201,7 +208,7 @@ class TrackRefit
       mTracks.resize(offset + selected.size());
       const auto records = selection.records();
       const TrackRefitElement<Det, Material> element{
-        &frame, &geometry, &material, propagator, records.clusters, records.count, records.outwardState,
+        &frame, &geometry, &material, propagator, records.clusters, records.count, records.outwardState, records.chi2,
         selected.data(), mTracks.view(), offset, iteration, kinkBudget(parameters)};
       forEach(static_cast<std::uint32_t>(selected.size()), element);
       return StageStatus::kComplete;

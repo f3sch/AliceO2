@@ -258,6 +258,7 @@ BOOST_AUTO_TEST_CASE(TracksCompareTheirStates)
       view.timePS[row] = 0U;
       view.widthPS[row] = 0U;
       view.chi2[row] = 0.F;
+      view.outwardChi2[row] = 0.F;
       view.ndf[row] = 0;
       view.status[row] = PropagationStatus::kOk;
       view.count[row] = 0U;
