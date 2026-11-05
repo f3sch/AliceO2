@@ -24,6 +24,7 @@ gtrk_workflow_test(disc-chain-pulls testDiscChainPulls.cxx O2::MFTBase O2::MathU
 gtrk_workflow_test(tracker-memory-pool testTrackerMemoryPool.cxx)
 gtrk_workflow_test(grid-config testGridConfig.cxx)
 gtrk_workflow_test(cluster-shape-band testClusterShapeBand.cxx)
+gtrk_workflow_test(o2-parameters testO2Parameters.cxx O2::ReconstructionDataFormats)
 if(ENABLE_UPGRADES)
   gtrk_workflow_test(trk testTrkChainPulls.cxx O2::MathUtils)
 endif()
