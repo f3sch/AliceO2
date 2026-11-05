@@ -14,12 +14,13 @@
 # devices that make the tracking's measurements, each detector's in its own
 # unit, ALICE 3's (TRK.cxx) with the upgrades, and the tracking device
 # (TrackerDevice.h), one unit per detector, each instantiating the tracker.
-set(sources src/Clusters.cxx src/Placement.cxx src/RecoParam.cxx src/ITS.cxx src/MFT.cxx src/TrackerITS.cxx src/TrackerMFT.cxx)
+set(sources src/Clusters.cxx src/Placement.cxx src/RecoParam.cxx src/ITS.cxx src/MFT.cxx src/TrackerITS.cxx src/TrackerMFT.cxx src/AdaptorITS.cxx
+            src/AdaptorMFT.cxx)
 set(trackerUnits src/TrackerITS.cxx src/TrackerMFT.cxx)
 set(publicLibraries O2::GTrkTracking O2::Framework O2::CommonUtils O2::DataFormatsCalibration O2::DetectorsBase
                     O2::DataFormatsITSMFT O2::ITSBase O2::MFTBase O2::DetectorsRaw ROOT::Core)
 set(privateLibraries O2::ITSMFTBase O2::DataFormatsITS O2::DataFormatsMFT O2::SimulationDataFormat O2::CommonConstants
-                     O2::MathUtils ROOT::Geom ROOT::RIO ROOT::Tree)
+                     O2::MathUtils O2::ReconstructionDataFormats ROOT::Geom ROOT::RIO ROOT::Tree)
 if(ENABLE_UPGRADES)
   list(APPEND sources src/TRK.cxx src/TrackerTRKFT3.cxx)
   list(APPEND trackerUnits src/TrackerTRKFT3.cxx)
@@ -53,6 +54,10 @@ o2_add_executable(reco-workflow
                   SOURCES src/gtrk-reco-workflow.cxx
                   COMPONENT_NAME gtrk
                   PUBLIC_LINK_LIBRARIES O2::GTrkWorkflow O2::DetectorsRaw O2::ITSMFTWorkflow)
+o2_add_executable(adaptor-workflow
+                  SOURCES src/gtrk-adaptor-workflow.cxx
+                  COMPONENT_NAME gtrk
+                  PUBLIC_LINK_LIBRARIES O2::GTrkWorkflow)
 if(ENABLE_UPGRADES)
   o2_add_executable(alice3-reco-workflow
                     SOURCES src/gtrk-alice3-reco-workflow.cxx
