@@ -59,12 +59,8 @@ IterationParameters<Det> parameters()
 template <DetectorLayout Det>
 std::size_t linkIndex(LayerID from, LayerID to)
 {
-  for (std::size_t link = 0; link < nLinks<Det>; ++link) {
-    if (Det::layerLinks[link].from == from && Det::layerLinks[link].to == to) {
-      return link;
-    }
-  }
-  return nLinks<Det>;
+  const auto link = linkOf<Det>(from, to);
+  return link == kNoLink ? nLinks<Det> : link;
 }
 
 Scalar phiDifference(Scalar a, Scalar b) { return o2::gpu::CAMath::Abs(o2::math_utils::detail::toPMPi<Scalar>(a - b)); }

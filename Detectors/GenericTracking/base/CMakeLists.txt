@@ -9,17 +9,15 @@
 # granted to it by virtue of its status as an Intergovernmental Organization
 # or submit itself to any jurisdiction.
 
-# The base: what the tracking, the workflow, the study and the tools share and
-# what includes no tracking code -- the geometry and time model (Base/, the
-# detectors' layouts in Detectors/), the bounded allocator, the SoA columns,
-# the host algorithms, the lanes, the portable math and the capacity
+# The base: what includes no tracking code -- the geometry and time model
+# (Base/, the detectors' layouts in Detectors/), the bounded allocator, the SoA
+# columns, the host algorithms, the lanes, the portable math and the capacity
 # estimator. Header code but for the three sources; host only.
 o2_add_library(GTrkBase
                SOURCES src/BoundedAllocator.cxx
                        src/CapacityEstimator.cxx
                        src/LayerEnvelopes.cxx
                PUBLIC_LINK_LIBRARIES O2::GPUCommon
-               PRIVATE_LINK_LIBRARIES O2::FrameworkLogger
                TARGETVARNAME targetName)
 
 # o2_add_library installs the headers of include/<library name> only.

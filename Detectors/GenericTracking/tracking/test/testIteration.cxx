@@ -540,4 +540,24 @@ BOOST_AUTO_TEST_CASE(AVertexBelongsToTheBoxItMeets)
   BOOST_TEST(vertexTimeCompatible(frame, TimeEstPS{.start = 500U, .width = 500U}));
 }
 
+/// A point time -- a vertex -- in the picosecond two touching frames may
+/// leave between them lies in neither: containment is quantised to 1 ps.
+BOOST_AUTO_TEST_CASE(APointInTheGapBetweenFramesLiesInNeither)
+{
+  constexpr std::int64_t kGapFrameBC = 198;
+  std::int64_t gaps = 0;
+  for (std::int64_t k = 0; k < 600; ++k) {
+    const auto box = frameBox(k * kGapFrameBC, (k + 1) * kGapFrameBC, 0);
+    const auto next = frameBox((k + 1) * kGapFrameBC, (k + 2) * kGapFrameBC, 0);
+    if (next.lower() == box.upper()) {
+      continue;
+    }
+    ++gaps;
+    const TimeEstPS point{.start = box.upper(), .width = 0U};
+    BOOST_TEST(!vertexTimeCompatible(box, point));
+    BOOST_TEST(!vertexTimeCompatible(next, point));
+  }
+  BOOST_TEST(gaps > 0);
+}
+
 } // namespace o2::gtrk

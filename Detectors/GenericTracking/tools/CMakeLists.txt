@@ -16,7 +16,7 @@
 # upgrades splits them off.
 o2_add_library(GTrkTools
                SOURCES src/Material.cxx
-               PUBLIC_LINK_LIBRARIES O2::GTrkWorkflow O2::GTrkTracking Boost::program_options
+               PUBLIC_LINK_LIBRARIES O2::GTrkBase
                PRIVATE_LINK_LIBRARIES O2::TRKBase O2::DetectorsBase ROOT::Geom
                TARGETVARNAME targetName)
 
@@ -27,14 +27,14 @@ install(DIRECTORY include/GenericTracking DESTINATION ${CMAKE_INSTALL_INCLUDEDIR
 o2_add_executable(layer-links
                   SOURCES src/layerLinks.cxx
                   COMPONENT_NAME gtrk
-                  PUBLIC_LINK_LIBRARIES O2::GTrkTools O2::DetectorsBase)
+                  PUBLIC_LINK_LIBRARIES O2::GTrkTools O2::GTrkWorkflow O2::DetectorsBase Boost::program_options)
 
 o2_add_executable(import-geometry
                   SOURCES src/importGeometry.cxx
                   COMPONENT_NAME gtrk
-                  PUBLIC_LINK_LIBRARIES O2::GTrkTools O2::TRKBase O2::FT3Base O2::MathUtils)
+                  PUBLIC_LINK_LIBRARIES O2::GTrkTools O2::GTrkWorkflow O2::TRKBase O2::FT3Base O2::MathUtils Boost::program_options)
 
 o2_add_executable(build-matlut
                   SOURCES src/buildMatLUT.cxx
                   COMPONENT_NAME gtrk
-                  PUBLIC_LINK_LIBRARIES O2::GTrkTools O2::DetectorsBase ROOT::Geom)
+                  PUBLIC_LINK_LIBRARIES O2::GTrkTools O2::GTrkWorkflow O2::DetectorsBase ROOT::Geom Boost::program_options)

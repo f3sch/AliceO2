@@ -260,13 +260,11 @@ MixedInputPoint mixedHelixPoint(LayerID layer, double phiAtOrigin, double slope,
 
 std::uint16_t mixedLink(LayerID from, LayerID to)
 {
-  for (std::size_t link = 0; link < nLinks<Mixed>; ++link) {
-    if (Mixed::layerLinks[link].from == from && Mixed::layerLinks[link].to == to) {
-      return static_cast<std::uint16_t>(link);
-    }
+  const auto link = linkOf<Mixed>(from, to);
+  if (link == kNoLink) {
+    BOOST_FAIL("no link " << int(from) << " -> " << int(to));
   }
-  BOOST_FAIL("no link " << int(from) << " -> " << int(to));
-  return 0U;
+  return static_cast<std::uint16_t>(link);
 }
 
 class MixedFixture

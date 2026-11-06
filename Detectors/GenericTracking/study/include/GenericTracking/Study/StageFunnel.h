@@ -283,36 +283,6 @@ template <typename LayerOf>
   return (static_cast<std::uint64_t>(source) << 32U) | static_cast<std::uint64_t>(target);
 }
 
-/// No link of the layout.
-inline constexpr std::size_t kNoLink = std::numeric_limits<std::size_t>::max();
-
-/// Per (from, to) layer pair, the first link of Det's table joining them;
-/// kNoLink for none.
-template <DetectorLayout Det>
-inline constexpr auto kLinkIndex = [] {
-  constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
-  std::array<std::size_t, kLayers * kLayers> result{};
-  result.fill(kNoLink);
-  for (std::size_t link = 0; link < nLinks<Det>; ++link) {
-    auto& at = result[(static_cast<std::size_t>(Det::layerLinks[link].from) * kLayers) + Det::layerLinks[link].to];
-    if (at == kNoLink) {
-      at = link;
-    }
-  }
-  return result;
-}();
-
-/// The first link of Det's table from layer \a from to layer \a to; kNoLink
-/// for none or a layer outside the layout.
-template <DetectorLayout Det>
-[[nodiscard]] constexpr std::size_t linkOf(LayerID from, LayerID to)
-{
-  constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
-  const auto fromIndex = static_cast<std::size_t>(from);
-  const auto toIndex = static_cast<std::size_t>(to);
-  return fromIndex < kLayers && toIndex < kLayers ? kLinkIndex<Det>[(fromIndex * kLayers) + toIndex] : kNoLink;
-}
-
 template <DetectorLayout Det, typename Controller>
 class StageFunnel
 {

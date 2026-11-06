@@ -253,12 +253,11 @@ BOOST_AUTO_TEST_CASE(ALinkSkipsALayerOnlyWhenTheTracedGeometrySaysSo)
   // then the pair's (LinkHoles.h).
   static_assert(std::ranges::none_of(skipFlags<ITS>(), [](bool skips) { return skips; }));
   const auto skips = []<typename Det>(LayerID from, LayerID to) {
-    for (std::size_t link = 0; link < nLinks<Det>; ++link) {
-      if (Det::layerLinks[link].from == from && Det::layerLinks[link].to == to) {
-        return Det::layerLinks[link].skipsLayer;
-      }
+    const auto link = linkOf<Det>(from, to);
+    if (link == kNoLink) {
+      throw std::logic_error("link not present");
     }
-    throw std::logic_error("link not present");
+    return Det::layerLinks[link].skipsLayer;
   };
   for (const auto& [from, to] : std::array<std::pair<LayerID, LayerID>, 4>{{{5, 7}, {5, 8}, {5, 9}, {7, 9}}}) {
     BOOST_TEST(!skips.template operator()<detectors::MFT>(from, to));

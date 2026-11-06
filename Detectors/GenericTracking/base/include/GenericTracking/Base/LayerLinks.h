@@ -17,9 +17,10 @@
 /// adjacency again. Everything here is a constexpr function of that table:
 ///
 ///  - the links leaving and entering each layer, as index lists;
-///  - a topological order of the layers, which is the order the level sweep
-///    visits them in -- a table with a cycle does not compile;
-///  - each layer's depth, and the longest chain, which bounds the level.
+///  - a topological order of the layers -- a table with a cycle does not
+///    compile;
+///  - each layer's depth, and the longest chain, which bounds the level;
+///  - the first link joining two layers (`linkOf`).
 ///
 /// The index lists do not depend on the order the table is written in. The
 /// tool emits it sorted by `(from, to)` only so that it reads well.
@@ -33,6 +34,7 @@
 #include <array>
 #include <cstddef>
 #include <iterator>
+#include <limits>
 
 namespace o2::gtrk
 {
@@ -132,8 +134,8 @@ consteval std::array<LayerID, static_cast<std::size_t>(Detector<Det>::nLayers)> 
 
 } // namespace detail
 
-/// The layers in an order where every link points forward: the order the CA's
-/// level sweep visits cells grouped by their source layer in, in one pass.
+/// The layers in an order where every link points forward, so that one pass
+/// over them sees every link's source layer before its target.
 template <DetectorLayout Det>
 inline constexpr auto layerOrder = detail::checkedLayerOrder<Det>();
 
@@ -180,6 +182,36 @@ inline constexpr LayerDepthGroups<Det> layerDepthGroups = [] {
   result.groups[result.count] = LayerDepthGroups<Det>::kLayers;
   return result;
 }();
+
+/// No link of the layout.
+inline constexpr std::size_t kNoLink = std::numeric_limits<std::size_t>::max();
+
+/// Per (from, to) layer pair, the first link of Det's table joining them;
+/// kNoLink for none.
+template <DetectorLayout Det>
+inline constexpr auto kLinkIndex = [] {
+  constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
+  std::array<std::size_t, kLayers * kLayers> result{};
+  result.fill(kNoLink);
+  for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+    auto& at = result[(static_cast<std::size_t>(Det::layerLinks[link].from) * kLayers) + Det::layerLinks[link].to];
+    if (at == kNoLink) {
+      at = link;
+    }
+  }
+  return result;
+}();
+
+/// The first link of Det's table from layer \a from to layer \a to; kNoLink
+/// for none or a layer outside the layout.
+template <DetectorLayout Det>
+[[nodiscard]] constexpr std::size_t linkOf(LayerID from, LayerID to)
+{
+  constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
+  const auto fromIndex = static_cast<std::size_t>(from);
+  const auto toIndex = static_cast<std::size_t>(to);
+  return fromIndex < kLayers && toIndex < kLayers ? kLinkIndex<Det>[(fromIndex * kLayers) + toIndex] : kNoLink;
+}
 
 /// The most layers any path through the links visits, the deepest layer's
 /// depth + 1, which bounds a cell's level at `maxChainLayers - 2`.

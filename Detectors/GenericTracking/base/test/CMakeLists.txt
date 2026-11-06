@@ -13,3 +13,15 @@ o2_add_test(bounded-allocator
             COMPONENT_NAME generic-tracking
             LABELS "generic-tracking"
             PUBLIC_LINK_LIBRARIES O2::GTrkBase)
+
+o2_add_test(portable-math
+            SOURCES testPortableMath.cxx
+            COMPONENT_NAME generic-tracking
+            LABELS "generic-tracking"
+            PUBLIC_LINK_LIBRARIES O2::GTrkBase)
+
+o2_add_test(time-est-ps
+            SOURCES testTimeEstPS.cxx
+            COMPONENT_NAME generic-tracking
+            LABELS "generic-tracking"
+            PUBLIC_LINK_LIBRARIES O2::GTrkBase O2::CommonConstants)

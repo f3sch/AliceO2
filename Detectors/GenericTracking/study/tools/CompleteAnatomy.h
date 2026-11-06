@@ -7160,8 +7160,8 @@ class CompleteAnatomy
     if (nominal.status != PropagationStatus::kOk) {
       return 0U;
     }
-    const auto link = study::linkOf<Det>(target, step.layer);
-    if (link == study::kNoLink) {
+    const auto link = linkOf<Det>(target, step.layer);
+    if (link == kNoLink) {
       return 0U;
     }
     const auto point = frame.measurement(row);
@@ -7383,8 +7383,8 @@ class CompleteAnatomy
     // (`pairCutLoss`; this schedule's iterations pair through it), and the
     // direct-pair rule on the pair itself (`segmentLeavesHole`).
     for (std::size_t i = 0; i + 1U < road.size(); ++i) {
-      const auto link = study::linkOf<Det>(layerOf(road[i]), layerOf(road[i + 1U]));
-      if (link == study::kNoLink) {
+      const auto link = linkOf<Det>(layerOf(road[i]), layerOf(road[i + 1U]));
+      if (link == kNoLink) {
         return kGraphLambda;
       }
       if (!linkTaken(parameters, link)) {
@@ -7458,9 +7458,9 @@ class CompleteAnatomy
       const auto b = timedPointAt(columns, road[i + 1U]);
       const auto c = timedPointAt(columns, road[i + 2U]);
       const auto middle = layerOf(road[i + 1U]);
-      const auto firstLink = study::linkOf<Det>(layerOf(road[i]), middle);
-      const auto second = study::linkOf<Det>(middle, layerOf(road[i + 2U]));
-      if (firstLink == study::kNoLink || second == study::kNoLink) {
+      const auto firstLink = linkOf<Det>(layerOf(road[i]), middle);
+      const auto second = linkOf<Det>(middle, layerOf(road[i + 2U]));
+      if (firstLink == kNoLink || second == kNoLink) {
         return kGraphLambda;
       }
       // A link admits sources from a z range (`LayerLink::sourceMin/Max`,

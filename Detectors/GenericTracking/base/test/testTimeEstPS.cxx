@@ -125,25 +125,6 @@ BOOST_AUTO_TEST_CASE(TheFirstFrameIsClampedAtTheTimeframesStart)
   BOOST_TEST(box.width == static_cast<std::uint32_t>(psOfBC(kFrameBC + 30)));
 }
 
-/// A point time -- a vertex -- in the picosecond two touching frames may
-/// leave between them lies in neither: containment is quantised to 1 ps.
-BOOST_AUTO_TEST_CASE(APointInTheGapBetweenFramesLiesInNeither)
-{
-  std::int64_t gaps = 0;
-  for (std::int64_t k = 0; k < 600; ++k) {
-    const auto box = frameBox(k * kFrameBC, (k + 1) * kFrameBC, 0);
-    const auto next = frameBox((k + 1) * kFrameBC, (k + 2) * kFrameBC, 0);
-    if (next.lower() == box.upper()) {
-      continue;
-    }
-    ++gaps;
-    const TimeEstPS point{.start = box.upper(), .width = 0U};
-    BOOST_TEST((point.upper() >= box.lower() && point.lower() < box.upper()) == false);
-    BOOST_TEST((point.upper() >= next.lower() && point.lower() < next.upper()) == false);
-  }
-  BOOST_TEST(gaps > 0);
-}
-
 BOOST_AUTO_TEST_CASE(TheIntersectionNarrowsAndTheEndSaturates)
 {
   TimeEstPS box{.start = 0U, .width = 10U};

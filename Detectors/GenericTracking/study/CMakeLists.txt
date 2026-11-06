@@ -33,7 +33,7 @@ o2_add_library(GTrkStudy
                        src/TrackingInput.cxx
                        src/TrackingQA.cxx
                PUBLIC_LINK_LIBRARIES ${studyLibraries}
-               PRIVATE_LINK_LIBRARIES O2::ITSMFTSimulation O2::DataFormatsTRKFT3 O2::DataFormatsITS O2::DataFormatsMFT O2::Steer
+               PRIVATE_LINK_LIBRARIES O2::ITSMFTSimulation O2::DataFormatsTRKFT3 O2::DataFormatsITS O2::DataFormatsMFT O2::Steer O2::DetectorsRaw
                                       ROOT::Core ROOT::RIO ROOT::Tree
                TARGETVARNAME targetName)
 gtrk_study_o3(${targetName})
@@ -68,31 +68,32 @@ o2_add_executable(study-workflow
 o2_add_executable(track-bench
                   SOURCES tools/trackBench.cxx tools/trackBenchITS.cxx tools/trackBenchMFT.cxx tools/trackBenchTRKFT3.cxx
                   COMPONENT_NAME gtrk
-                  PUBLIC_LINK_LIBRARIES O2::GTrkStudy O2::Steer O2::CCDB
+                  PUBLIC_LINK_LIBRARIES O2::GTrkStudy O2::Steer O2::CCDB Boost::program_options
                   TARGETVARNAME benchTarget)
 gtrk_study_o3(${benchTarget})
 
 o2_add_executable(fit-bench
                   SOURCES tools/fitBench.cxx
                   COMPONENT_NAME gtrk
-                  PUBLIC_LINK_LIBRARIES O2::GTrkStudy
+                  PUBLIC_LINK_LIBRARIES O2::GTrkStudy Boost::program_options
                   TARGETVARNAME fitBenchTarget)
 gtrk_study_o3(${fitBenchTarget})
 
 o2_add_executable(check-matlut
                   SOURCES tools/checkMatLUT.cxx
                   COMPONENT_NAME gtrk
-                  PUBLIC_LINK_LIBRARIES O2::GTrkStudy O2::DetectorsBase O2::Steer ROOT::Geom ROOT::RIO ROOT::Tree)
+                  PUBLIC_LINK_LIBRARIES O2::GTrkStudy O2::DetectorsBase O2::Steer ROOT::Geom ROOT::RIO ROOT::Tree Boost::program_options)
 
 o2_add_executable(cluster-closure
                   SOURCES tools/clusterClosure.cxx
                   COMPONENT_NAME gtrk
                   PUBLIC_LINK_LIBRARIES O2::GTrkStudy O2::ITSBase O2::MFTBase O2::DataFormatsITSMFT O2::TRKBase O2::FT3Base
-                                        O2::TRKReconstruction O2::DataFormatsTRKFT3 O2::DetectorsRaw O2::CommonUtils ROOT::RIO ROOT::Tree)
+                                        O2::TRKReconstruction O2::DataFormatsTRKFT3 O2::DetectorsRaw O2::CommonUtils ROOT::RIO ROOT::Tree
+                                        Boost::program_options)
 
 o2_add_executable(check-hits
                   SOURCES tools/checkHits.cxx
                   COMPONENT_NAME gtrk
-                  PUBLIC_LINK_LIBRARIES O2::GTrkStudy)
+                  PUBLIC_LINK_LIBRARIES O2::GTrkStudy Boost::program_options)
 
 add_subdirectory(test)

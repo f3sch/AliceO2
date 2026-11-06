@@ -55,12 +55,11 @@ struct GeneratedHelixFixture {
 
   [[nodiscard]] static std::size_t linkOf(LayerID from, LayerID to)
   {
-    for (std::size_t link = 0; link < nLinks<Det>; ++link) {
-      if (Det::layerLinks[link].from == from && Det::layerLinks[link].to == to) {
-        return link;
-      }
+    const auto link = o2::gtrk::linkOf<Det>(from, to);
+    if (link == kNoLink) {
+      throw std::out_of_range("no link between the requested detector layers");
     }
-    throw std::out_of_range("no link between the requested detector layers");
+    return link;
   }
 
   /// \a kinkSigma is the iteration's kink allowance, 1 for none.

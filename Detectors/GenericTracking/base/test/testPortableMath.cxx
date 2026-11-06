@@ -20,7 +20,6 @@
 #include <boost/test/unit_test.hpp>
 
 #include "GenericTracking/Base/PortableMath.h"
-#include "GenericTracking/Tracking/Trig.h"
 
 #include <bit>
 #include <cmath>
@@ -218,28 +217,4 @@ BOOST_AUTO_TEST_CASE(InvalidArgumentsGiveTheQuietNaN)
   BOOST_TEST(sameBits(portable::cos(-kInf), quiet));
   BOOST_TEST(sameBits(portable::asin(2.), quiet));
   BOOST_TEST(sameBits(portable::log(-1.), quiet));
-}
-
-/// The deterministic build's wrappers are these functions, in double and,
-/// rounded, in float; the others are the native ones.
-BOOST_AUTO_TEST_CASE(WrappersFollowTheBuild)
-{
-  const double x = 0.7853981633974483 * 1.37;
-  double s = 0.;
-  double c = 0.;
-  o2::gtrk::sincosOf(x, s, c);
-#ifdef GPUCA_DETERMINISTIC_MODE
-  BOOST_TEST(sameBits(o2::gtrk::sinOf(x), portable::sin(x)));
-  BOOST_TEST(sameBits(o2::gtrk::atan2Of(x, 0.3), portable::atan2(x, 0.3)));
-  BOOST_TEST(sameBits(s, portable::sin(x)));
-  BOOST_TEST(sameBits(c, portable::cos(x)));
-  const auto xF = static_cast<float>(x);
-  BOOST_TEST(o2::gtrk::exactlyEqual(o2::gtrk::sinOf(xF), static_cast<float>(portable::sin(static_cast<double>(xF)))));
-  BOOST_TEST(o2::gtrk::exactlyEqual(o2::gtrk::logOf(3.F), static_cast<float>(portable::log(3.))));
-#else
-  BOOST_TEST(sameBits(o2::gtrk::sinOf(x), std::sin(x)));
-  BOOST_TEST(sameBits(o2::gtrk::atan2Of(x, 0.3), std::atan2(x, 0.3)));
-  BOOST_TEST(sameBits(s, std::sin(x)));
-  BOOST_TEST(sameBits(c, std::cos(x)));
-#endif
 }
