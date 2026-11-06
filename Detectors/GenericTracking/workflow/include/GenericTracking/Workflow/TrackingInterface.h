@@ -20,8 +20,8 @@
 /// device's, which requests them; the interface makes no request of its own.
 ///
 /// Per timeframe, in this order:
-/// - `configure` when `needsConfiguration`: the first timeframe, or a new
-///   shipped beam line;
+/// - `configureFor`: `configure` on the first timeframe and for a new shipped
+///   beam line;
 /// - `checkInput`: the columns, the grid offsets, the variances, the seeds;
 /// - `vertices`: the input seeds, or the own vertexer's;
 /// - `track`: plan and run;
@@ -162,9 +162,18 @@ class TrackingInterface
 
   [[nodiscard]] bool configured() const { return mTracker != nullptr; }
 
-  /// Whether the trackers must be (re)built for \a shipped: the first
-  /// timeframe, or a new beam line.
-  [[nodiscard]] bool needsConfiguration(const MeasurementGeometry<Det>& shipped) const { return !mTracker || shipped.beamLine != mBeamLine; }
+  /// `configure` from \a conditions (Conditions.h's, with the material LUT)
+  /// if the trackers are not built for \a shipped: on the first timeframe,
+  /// and for a new beam line. Whether it did.
+  template <class Conditions>
+  bool configureFor(const Conditions& conditions, const MeasurementGeometry<Det>& shipped)
+  {
+    if (mTracker && shipped.beamLine == mBeamLine) {
+      return false;
+    }
+    configure(trackingConditions(conditions), shipped);
+    return true;
+  }
 
   /// On the first call the geometry, the material's budgets and scattering
   /// table and the tracking geometry, from \a conditions; on every call the
@@ -363,12 +372,8 @@ class TrackingInterface
   /// The timeframes dropped so far (dropTFUponFailure).
   [[nodiscard]] std::size_t droppedTimeframes() const { return mDropped; }
 
-  /// On a GPU, what the timeframe's device calls did; valid until endTimeframe.
-  [[nodiscard]] const typename Device::TimeframeReport* deviceReport() const { return mDevice ? &mDeviceReport : nullptr; }
-
   [[nodiscard]] Controller& tracker() { return *mTracker; }
   [[nodiscard]] const Controller& tracker() const { return *mTracker; }
-  [[nodiscard]] bool hasVertexer() const { return mVertexing != nullptr; }
   [[nodiscard]] const Geometry<Det>& geometry() const { return *mGeometry; }
   [[nodiscard]] const TrackingGeometry<Det>& tracking() const { return *mTracking; }
   [[nodiscard]] const Material& material() const { return *mMaterial; }

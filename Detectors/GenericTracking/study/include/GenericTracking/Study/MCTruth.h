@@ -10,9 +10,8 @@
 // or submit itself to any jurisdiction.
 
 /// \file MCTruth.h
-/// \brief The study's MC label rules: which labels carry a particle, a
-///        primary's first outward pass, a particle's origin, its collision
-///        and IDs, a triplet's common particle.
+/// \brief The study's MC label rules: a primary's first outward pass, a
+///        particle's origin, its collision, a triplet's common particle.
 
 #ifndef GTRK_STUDY_MCTRUTH_H_
 #define GTRK_STUDY_MCTRUTH_H_
@@ -99,20 +98,6 @@ template <DetectorLayout Det>
 /// The collision of a packed particle identity (`study::TruthRow`'s
 /// particles): its source and event, the bits above the track's.
 [[nodiscard]] inline std::uint64_t collisionOf(std::uint64_t particle) { return particle >> o2::MCCompLabel::nbitsTrackID; }
-
-/// The track, event and source IDs a packed particle identity holds (the
-/// sink packs them as `o2::MCCompLabel` does, `getTrackEventSourceID()`).
-struct ParticleIds {
-  int track = 0;
-  int event = 0;
-  int source = 0;
-};
-[[nodiscard]] inline ParticleIds particleIds(std::uint64_t particle)
-{
-  return {.track = static_cast<int>(particle & o2::MCCompLabel::maskTrackID),
-          .event = static_cast<int>((particle >> o2::MCCompLabel::nbitsTrackID) & o2::MCCompLabel::maskEvID),
-          .source = static_cast<int>((particle >> (o2::MCCompLabel::nbitsTrackID + o2::MCCompLabel::nbitsEvID)) & o2::MCCompLabel::maskSrcID)};
-}
 
 /// The particle a triplet's three rows \a triple of \a rows share: the first
 /// of the middle row's labels the other two also carry; none if no label is

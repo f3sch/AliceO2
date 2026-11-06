@@ -4318,11 +4318,11 @@ class CompleteAnatomy
   /// none (nullptr) for another source or a particle without hits.
   [[nodiscard]] const std::vector<const study::HitSegment*>* segmentsOf(std::uint64_t particle) const
   {
-    const auto ids = particleIds(particle);
-    if (ids.source != 0) {
+    const auto label = workflow::labelOfParticle(particle);
+    if (label.getSourceID() != 0) {
       return nullptr;
     }
-    const auto found = mSegmentsOf.find(segmentKey(ids.event, ids.track));
+    const auto found = mSegmentsOf.find(segmentKey(label.getEventID(), label.getTrackID()));
     return found != mSegmentsOf.end() ? &found->second : nullptr;
   }
 
@@ -5269,8 +5269,10 @@ class CompleteAnatomy
   /// the kinematics file).
   [[nodiscard]] std::optional<std::uint64_t> motherOf(std::uint64_t particle) const
   {
-    const auto [track, event, source] = particleIds(particle);
-    if (source != 0 || event < 0 || static_cast<std::size_t>(event) >= mMothers.size()) {
+    const auto label = workflow::labelOfParticle(particle);
+    const int track = label.getTrackID();
+    const int event = label.getEventID();
+    if (label.getSourceID() != 0 || event < 0 || static_cast<std::size_t>(event) >= mMothers.size()) {
       return std::nullopt;
     }
     const auto& mothers = mMothers[static_cast<std::size_t>(event)];
@@ -5280,8 +5282,8 @@ class CompleteAnatomy
     if (mothers[static_cast<std::size_t>(track)] < 0) {
       return study::kNoTrackParticle;
     }
-    // The mother is of the same event and source: only the track's bits change.
-    return static_cast<std::uint64_t>(mothers[static_cast<std::size_t>(track)]) | (particle & ~std::uint64_t{o2::MCCompLabel::maskTrackID});
+    // The mother is of the same event and source.
+    return o2::MCCompLabel(mothers[static_cast<std::size_t>(track)], event, label.getSourceID()).getTrackEventSourceID();
   }
   /// A stranger's row against \a particle: every label of the row, the
   /// closest relation of any (a row is unrelated only if all its labels are).

@@ -19,7 +19,6 @@
 #ifndef GTRK_WORKFLOW_TRACKLABEL_H_
 #define GTRK_WORKFLOW_TRACKLABEL_H_
 
-#include "SimulationDataFormat/DigitizationContext.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
 #include <algorithm>
@@ -32,9 +31,9 @@
 namespace o2::gtrk::workflow
 {
 
-/// Whether \a label names a particle the truth counts: valid, not noise, and
-/// not the QED background, which counts as noise.
-[[nodiscard]] inline bool carriesParticle(const o2::MCCompLabel& label) { return label.isValid() && !label.isNoise() && label.getSourceID() != o2::steer::QEDSOURCEID; }
+/// Whether \a label names a particle the truth counts: O2's valid, which is
+/// set and not noise, the QED background counting as noise.
+[[nodiscard]] inline bool carriesParticle(const o2::MCCompLabel& label) { return label.isValid(); }
 
 /// The particles one measurement's cluster carries, each identified by its
 /// source, event and track in one word (`MCCompLabel::getTrackEventSourceID`).
@@ -58,7 +57,7 @@ struct RowParticles {
 [[nodiscard]] inline RowParticles rowParticles(std::span<const o2::MCCompLabel> labels)
 {
   RowParticles row;
-  row.firstLabelCounts = !labels.empty() && labels[0].isValid() && !labels[0].isNoise() && labels[0].isCorrect() && labels[0].getSourceID() == 0;
+  row.firstLabelCounts = !labels.empty() && labels[0].isValid() && labels[0].isCorrect() && labels[0].getSourceID() == 0;
   for (const auto& label : labels) {
     if (!carriesParticle(label)) {
       continue;
@@ -70,6 +69,15 @@ struct RowParticles {
     row.particles[row.count++] = id;
   }
   return row;
+}
+
+/// The label of \a particle, a `getTrackEventSourceID()` word, with the
+/// fake flag \a fake: the inverse of the word's packing.
+[[nodiscard]] inline o2::MCCompLabel labelOfParticle(std::uint64_t particle, bool fake = false)
+{
+  using L = o2::MCCompLabel;
+  return {static_cast<int>(particle & L::maskTrackID), static_cast<int>((particle >> L::nbitsTrackID) & L::maskEvID),
+          static_cast<int>((particle >> (L::nbitsTrackID + L::nbitsEvID)) & L::maskSrcID), fake};
 }
 
 /// No particle: a fake's good particle, or noise only.

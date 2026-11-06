@@ -39,6 +39,7 @@
 
 #include <cstdint>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace o2::gtrk
@@ -278,23 +279,27 @@ struct RecoParam : public o2::conf::ConfigurableParamPromoter<RecoParam<N>, Reco
 template <int N>
 RecoParam<N> RecoParam<N>::sInstance;
 
-/// A detector layout's parameter.
+/// A detector layout's O2 detector: its parameter's, its data origin's
+/// (DataSpecs.h's `detectorOrigin`).
 template <DetectorLayout Det>
-struct RecoParamOf;
+struct DetIDOf;
 template <>
-struct RecoParamOf<detectors::ITS> {
-  using type = RecoParam<o2::detectors::DetID::ITS>;
+struct DetIDOf<detectors::ITS> : std::integral_constant<o2::detectors::DetID::ID, o2::detectors::DetID::ITS> {
 };
 template <>
-struct RecoParamOf<detectors::MFT> {
-  using type = RecoParam<o2::detectors::DetID::MFT>;
+struct DetIDOf<detectors::MFT> : std::integral_constant<o2::detectors::DetID::ID, o2::detectors::DetID::MFT> {
 };
 #ifdef ENABLE_UPGRADES
 template <>
-struct RecoParamOf<detectors::TRKFT3> {
-  using type = RecoParam<o2::detectors::DetID::TRK>;
+struct DetIDOf<detectors::TRKFT3> : std::integral_constant<o2::detectors::DetID::ID, o2::detectors::DetID::TRK> {
 };
 #endif
+
+/// A detector layout's parameter.
+template <DetectorLayout Det>
+struct RecoParamOf {
+  using type = RecoParam<DetIDOf<Det>::value>;
+};
 
 /// The settings of \a Det's parameter.
 template <DetectorLayout Det>

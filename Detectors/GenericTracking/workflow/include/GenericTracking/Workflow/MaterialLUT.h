@@ -34,6 +34,7 @@
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Workflow/DataSpecs.h"
 
 #include "DetectorsBase/MatLayerCylSet.h"
 #include "Framework/CCDBParamSpec.h"
@@ -46,23 +47,25 @@
 #include <fairlogger/Logger.h>
 
 #include <concepts>
+#include <string>
 #include <vector>
 
 namespace o2::gtrk::workflow
 {
 
+/// The data origin of \a Det's material LUT: the detector's, but the ITS's,
+/// O2's global one, GLO.
+template <DetectorLayout Det>
+[[nodiscard]] o2::header::DataOrigin materialLutOrigin()
+{
+  return std::same_as<Det, detectors::ITS> ? o2::header::DataOrigin{"GLO"} : detectorOrigin<Det>();
+}
+
 /// The CCDB path of \a Det's material LUT.
 template <DetectorLayout Det>
-[[nodiscard]] constexpr const char* materialLutPath()
+[[nodiscard]] std::string materialLutPath()
 {
-  if constexpr (std::same_as<Det, detectors::ITS>) {
-    return "GLO/Param/MatLUT";
-  } else if constexpr (std::same_as<Det, detectors::MFT>) {
-    return "MFT/Param/MatLUT";
-  } else {
-    static_assert(std::same_as<Det, detectors::TRKFT3>, "a material LUT for the ITS, the MFT and TRKFT3 only");
-    return "TRK/Param/MatLUT";
-  }
+  return materialLutOrigin<Det>().template as<std::string>() + "/Param/MatLUT";
 }
 
 /// \a Det's material LUT as a condition input (see above).
@@ -74,7 +77,7 @@ class MaterialCondition
   /// constructor, so that the LUT's input follows the others.
   static void declare(std::vector<o2::framework::InputSpec>& inputs)
   {
-    inputs.emplace_back(kBinding, origin(), "MATLUT", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(materialLutPath<Det>()));
+    inputs.emplace_back(kBinding, materialLutOrigin<Det>(), "MATLUT", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(materialLutPath<Det>()));
   }
 
   /// At the top of the device's run: delivers a new one through finaliseCCDB.
@@ -83,7 +86,7 @@ class MaterialCondition
   /// Whether \a matcher is the LUT, which is then taken.
   bool finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj)
   {
-    if (!(matcher == o2::framework::ConcreteDataMatcher(origin(), "MATLUT", 0))) {
+    if (!(matcher == o2::framework::ConcreteDataMatcher(materialLutOrigin<Det>(), "MATLUT", 0))) {
       return false;
     }
     mLut = o2::base::MatLayerCylSet::rectifyPtrFromFile(static_cast<o2::base::MatLayerCylSet*>(obj));
@@ -96,17 +99,6 @@ class MaterialCondition
 
  private:
   static constexpr const char* kBinding = "gtrkMatLUT";
-
-  [[nodiscard]] static o2::header::DataOrigin origin()
-  {
-    if constexpr (std::same_as<Det, detectors::ITS>) {
-      return o2::header::DataOrigin{"GLO"};
-    } else if constexpr (std::same_as<Det, detectors::MFT>) {
-      return o2::header::DataOrigin{"MFT"};
-    } else {
-      return o2::header::DataOrigin{"TRK"};
-    }
-  }
 
   const o2::base::MatLayerCylSet* mLut = nullptr;
 };

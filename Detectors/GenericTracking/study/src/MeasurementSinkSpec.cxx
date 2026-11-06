@@ -120,8 +120,6 @@ using Controller = Tracker<Det, o2::base::MatLayerCylSet>;
 /// reports per iteration.
 using Funnel = StageFunnel<Det, Controller>;
 using Vertexing = VertexingPass<Det, o2::base::MatLayerCylSet>;
-template <class T>
-using ConstSpan = gsl::span<const T>;
 
 /// One tracklet's bytes across its columns.
 constexpr std::size_t kTrackletBytes = Tracklet{}.apply([](const auto&... field) { return (sizeof(field) + ... + 0U); });
@@ -544,9 +542,6 @@ template <typename McOf>
   result.erase(duplicates.begin(), duplicates.end());
   return result;
 }
-
-using workflow::columnBinding;
-std::string columnBinding(MeasurementColumn column) { return workflow::columnBinding(static_cast<std::uint32_t>(column)); }
 
 std::string histogramText(const std::array<std::uint64_t, kCountBins>& histogram)
 {
@@ -3120,11 +3115,10 @@ class MeasurementSinkTask : public Task
     mConditions->finaliseCCDB(matcher, obj);
   }
 
-  /// The trackers (TrackingInterface.h) for the shipped beam line and grid,
-  /// and the study's observers on the tracker, again whenever they change.
-  void configureTracking(const workflow::MeasurementGeometry<Det>& shipped)
+  /// The study's observers on the tracker, again whenever the interface
+  /// builds one (TrackingInterface.h's `configureFor`).
+  void observeTracker()
   {
-    mInterface.configure(workflow::trackingConditions(*mConditions), shipped);
     auto& tracker = mInterface.tracker();
     // The iteration lines and the stage truth's times read the profile.
     tracker.setProfiling(true);
@@ -3160,14 +3154,12 @@ class MeasurementSinkTask : public Task
     // The tracking's timeframe ends on every way out of this one.
     const auto ended = mInterface.endTimeframeOnExit();
     // The trackers are built for the timeframe's beam line and grid, again when they change.
-    const auto shipped = pc.inputs().get<workflow::MeasurementGeometry<Det>>("measurementGeometry");
-    if (mInterface.needsConfiguration(shipped)) {
-      configureTracking(shipped);
+    const auto input = workflow::readTimeframe<Det>(pc, mWithVertices);
+    if (mInterface.configureFor(*mConditions, input.shipped)) {
+      observeTracker();
     }
-    const auto vertices = mWithVertices ? pc.inputs().get<gsl::span<VertexSeed>>("vertices") : gsl::span<const VertexSeed>{};
-    const auto columns = makeMeasurementColumns<ConstSpan>(
-      [&]<class T>(std::type_identity<T>, MeasurementColumn column) { return pc.inputs().get<gsl::span<T>>(columnBinding(column).c_str()); });
-    const auto offsets = pc.inputs().get<gsl::span<std::uint32_t>>(columnBinding(kColGridOffsets).c_str());
+    const auto& columns = input.columns;
+    const auto offsets = input.offsets;
 
     const auto view = measurementView(columns);
 
@@ -3176,9 +3168,7 @@ class MeasurementSinkTask : public Task
 
     const auto& param = recoParam<Det>();
     const auto& geometry = mInterface.grid();
-    if (const char* invalid = workflow::TrackingInterface<Det>::checkInput(columns, std::span<const std::uint32_t>{offsets.data(), offsets.size()},
-                                                                         static_cast<std::size_t>(geometry.bucketCount()),
-                                                                         std::span<const VertexSeed>{vertices.data(), vertices.size()})) {
+    if (const char* invalid = workflow::TrackingInterface<Det>::checkInput(columns, offsets, static_cast<std::size_t>(geometry.bucketCount()), input.seeds)) {
       LOGP(fatal, "{}", invalid);
       return;
     }
@@ -3214,14 +3204,14 @@ class MeasurementSinkTask : public Task
       }
     }
     if (!bucketsValid || !positionsExact) {
-      LOGP(error, "measurements do not match their grid buckets, bucket time order or geometry");
+      LOGP(fatal, "measurements do not match their grid buckets, bucket time order or geometry");
       return;
     }
 
-    const Frame frame{view, geometry, std::span<const Frame::Index>{offsets.data(), offsets.size()}};
+    const Frame frame{view, geometry, offsets};
     // The vertex list: the input's, or the own vertexer's, which keeps its
     // triplets' claims for the QA with MC.
-    const auto found = mInterface.vertices(frame, std::span<const VertexSeed>{vertices.data(), vertices.size()}, mUseMC);
+    const auto found = mInterface.vertices(frame, input.seeds, mUseMC);
     if (found.dropped) {
       ++mTimeframe;
       return;
@@ -3232,8 +3222,6 @@ class MeasurementSinkTask : public Task
       LOGP(info, "vertexer: {} vertices from {} candidates of {} triplets in {:.4f} s", seeds.size(), pass->found.candidates, pass->found.triplets, found.seconds);
     }
     LOGP(info, "bound {} measurements over {} columns, {} layers and {} buckets", n, kNMeasurementColumns, Frame::kLayerCount, geometry.bucketCount());
-    LOGP(info, "  bucket layout valid      {}", bucketsValid ? "yes" : "NO");
-    LOGP(info, "  positions match geometry {}", positionsExact ? "yes" : "NO");
     for (std::size_t layer = 0; layer < Frame::kLayerCount; ++layer) {
       const auto rows = frame.grid().layerRows(static_cast<LayerID>(layer));
       LOGP(info, "  layer {:>2}  {:>9} measurements  [{:>9}, {:>9})", layer, rows.size(), rows.begin, rows.end);
@@ -3277,7 +3265,7 @@ class MeasurementSinkTask : public Task
       for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
         depths.push_back(mInterface.geometry().measurementDepth(static_cast<LayerID>(layer)));
       }
-      writeTrackingInput(mDumpInput, view, n, std::span<const std::uint32_t>{offsets.data(), offsets.size()}, seeds, mInterface.beamLine(), mInterface.frames(), depths);
+      writeTrackingInput(mDumpInput, view, n, offsets, seeds, mInterface.beamLine(), mInterface.frames(), depths);
       LOGP(info, "tracking input written to {} and {}.ini", mDumpInput, mDumpInput);
       if (mUseMC) {
         writeTrackingTruth(mDumpInput + ".truth", std::span<const std::uint32_t>{columns.clusterIndex.data(), n}, comparisonRows, comparisonParticles);
@@ -4491,15 +4479,7 @@ class MeasurementSinkTask : public Task
 template <>
 DataProcessorSpec getMeasurementSinkSpec<Det>(bool useMC, bool withVertices, TrackerProducts products)
 {
-  std::vector<InputSpec> inputs;
-  inputs.reserve(kNMeasurementParts + 6U);
-  for (std::uint32_t column = 0; column < kNMeasurementParts; ++column) {
-    inputs.emplace_back(columnBinding(column), workflow::gDataOrigin, workflow::description<Det>(workflow::kMeasurements), column, Lifetime::Timeframe);
-  }
-  inputs.emplace_back("measurementGeometry", workflow::gDataOrigin, workflow::description<Det>(workflow::kMeasurementGeometry), 0, Lifetime::Timeframe);
-  if (withVertices) {
-    inputs.emplace_back("vertices", workflow::gDataOrigin, workflow::description<Det>(workflow::kVertices), 0, Lifetime::Timeframe);
-  }
+  auto inputs = workflow::measurementInputs<Det>(withVertices);
   if (useMC) {
     inputs.emplace_back("labels", workflow::gDataOrigin, workflow::description<Det>(workflow::kClustersMCTruth), 0, Lifetime::Timeframe);
   }

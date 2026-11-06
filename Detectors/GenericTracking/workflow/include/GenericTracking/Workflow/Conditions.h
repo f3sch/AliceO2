@@ -95,10 +95,9 @@ class Conditions<Det, WithMaterial>
   explicit Conditions(std::vector<o2::framework::InputSpec>& inputs)
     : mRequest(std::make_shared<o2::base::GRPGeomRequest>(false, true, false, true, false, o2::base::GRPGeomRequest::None, inputs))
   {
-    inputs.emplace_back("geomTGeo", origin(), "GEOMTGEO", 0, o2::framework::Lifetime::Condition,
-                        o2::framework::ccdbParamSpec(kITS ? "ITS/Config/Geometry" : "MFT/Config/Geometry"));
-    inputs.emplace_back("alpideParam", origin(), "ALPIDEPARAM", 0, o2::framework::Lifetime::Condition,
-                        o2::framework::ccdbParamSpec(kITS ? "ITS/Config/AlpideParam" : "MFT/Config/AlpideParam"));
+    const auto detector = origin().template as<std::string>();
+    inputs.emplace_back("geomTGeo", origin(), "GEOMTGEO", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(detector + "/Config/Geometry"));
+    inputs.emplace_back("alpideParam", origin(), "ALPIDEPARAM", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(detector + "/Config/AlpideParam"));
     MaterialConditionOf<Det, WithMaterial>::declare(inputs);
   }
 

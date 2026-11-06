@@ -15,15 +15,14 @@
 ///
 /// Two steps, so that the second can be tested without a dictionary:
 ///
-/// - `localClusters` gives each compact cluster the local position and errors
-///   O2's own trackers give it -- `its::ioutils::extractClusterData` and
-///   `mft::ioutils::loadROFrameData` branch identically: the dictionary's
-///   position and `Err2X`/`Err2Z` for a common topology, the pattern's centre
-///   of gravity with the dictionary's errors for a group, and the pattern's
-///   centre of gravity with half-pitch errors for an invalid pattern ID; and
-///   the pattern's row and column spans, the dictionary's or the stream's. The
-///   branches are repeated here with the same dictionary calls; the closure in
-///   `o2-gtrk-cluster-closure` is what holds them to O2's result.
+/// - `localClusters` gives each compact cluster the local position, errors
+///   and pixel count of O2's ITS/MFT decode, `itsmft::ioutils::extractClusterData`:
+///   the dictionary's position and `Err2X`/`Err2Z` for a common topology, the
+///   pattern's centre of gravity with the dictionary's errors for a group, and
+///   the pattern's centre of gravity with half-pitch errors for an invalid
+///   pattern ID; and the pattern's row and column spans, the dictionary's or
+///   the stream's. The closure in `o2-gtrk-cluster-closure` holds them to
+///   O2's result.
 /// - `toClusters` maps them into our sensor frame (Placement.h) and gives each
 ///   its readout frame as its time box (TimeEstPS.h), in O2's cluster order, so
 ///   that a cluster's index here is its index in O2's cluster arrays and the
@@ -73,7 +72,8 @@ struct LocalCluster {
 
 /// Every compact cluster's local position and errors, in order, reading the
 /// patterns of the group and invalid ones as it goes. Throws
-/// std::runtime_error if the patterns run out before a cluster's pattern.
+/// std::runtime_error for a pattern ID beyond \a dictionary; patterns that
+/// run out before a cluster's fail gsl::span's bounds check.
 [[nodiscard]] std::vector<LocalCluster> localClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const unsigned char> patterns,
                                                       const o2::itsmft::TopologyDictionary& dictionary);
 

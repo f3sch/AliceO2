@@ -54,6 +54,7 @@
 #include "Framework/Task.h"
 #include "Framework/TimingInfo.h"
 #include "ITSBase/GeometryTGeo.h"
+#include "ITSMFTTracking/ROFViews.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
 
@@ -79,16 +80,11 @@ namespace o2::gtrk::workflow
 namespace adaptor
 {
 
-/// A particle's identity as O2's label: source, event and track, the fake
-/// flag unless \a good; O2's noise label for no particle.
+/// A particle's label, the fake flag unless \a good; O2's noise label for no
+/// particle.
 [[nodiscard]] inline o2::MCCompLabel labelOf(std::uint64_t particle, bool good)
 {
-  if (particle == kNoTrackParticle) {
-    return o2::MCCompLabel(true);
-  }
-  using L = o2::MCCompLabel;
-  return {static_cast<int>(particle & L::maskTrackID), static_cast<int>((particle >> L::nbitsTrackID) & L::maskEvID),
-          static_cast<int>((particle >> (L::nbitsTrackID + L::nbitsEvID)) & L::maskSrcID), !good};
+  return particle == kNoTrackParticle ? o2::MCCompLabel(true) : labelOfParticle(particle, !good);
 }
 
 /// A timeframe's clusters as the adaptor needs them: each one's readout frame
@@ -294,10 +290,12 @@ class AdaptorTask : public o2::framework::Task
     auto& vertexROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{origin, "VERTICESROF", 0});
 
     const auto length = static_cast<std::int64_t>(timing.lengthBC);
-    const auto offset = static_cast<std::int64_t>(timing.firstStartBC); // the delay and the bias
     const auto delay = static_cast<std::int64_t>(AlpideParam::Instance().getROFDelayInBC(0));
-    // ROFViews::getROF: the frame of a time's lower edge, 0 before the first.
-    const auto frameOf = [&](std::int64_t bc) { return bc <= offset ? std::int64_t{0} : (bc - offset) / length; };
+    using BC = o2::itsmft::tracking::ROFTimingLayer::BCType;
+    // ITS's frame of a time: its lower edge's, 0 before the first.
+    const o2::itsmft::tracking::ROFTimingLayer rofTiming{.mROFLength = static_cast<BC>(length),
+                                                         .mROFDelay = static_cast<BC>(delay),
+                                                         .mROFBias = static_cast<BC>(AlpideParam::Instance().getROFBiasInBC(0))};
 
     // A cluster in more than one track's innermost place: ITS's shared flag.
     std::vector<std::uint8_t> innermost(clusterIndex.empty() ? 0U : *std::ranges::max_element(clusterIndex) + 1U, 0U);
@@ -345,7 +343,7 @@ class AdaptorTask : public o2::framework::Task
       const float half = std::min(static_cast<float>(time.upper - time.lower) / 2.F, static_cast<float>(length) / 2.F);
       const float centre = static_cast<float>(time.lower + time.upper) / 2.F;
       out.track.getTimeStamp() = o2::its::TimeStamp(centre, half);
-      out.frame = frameOf(centre < half ? 0 : static_cast<std::int64_t>(std::floor(centre - half)));
+      out.frame = rofTiming.getROF(out.track.getTimeStamp());
     }
     // ITS's order: by the time's lower edge, the tracker's order within.
     std::ranges::stable_sort(converted, {}, [](const Converted& c) { return c.track.getTimeStamp().getTimeStamp() - c.track.getTimeStamp().getTimeStampError(); });
@@ -373,7 +371,7 @@ class AdaptorTask : public o2::framework::Task
       frameCount = std::max(frameCount, c.frame + 1);
     }
     for (const auto& vertex : vertices) {
-      frameCount = std::max(frameCount, frameOf(vertex.getTimeStamp().lower()) + 1);
+      frameCount = std::max(frameCount, static_cast<std::int64_t>(rofTiming.getROF(vertex.getTimeStamp().lower())) + 1);
     }
     for (auto* frameRecords : {&trackROFs, &vertexROFs}) {
       frameRecords->resize(static_cast<std::size_t>(frameCount));
@@ -415,7 +413,7 @@ class AdaptorTask : public o2::framework::Task
     }
     std::fill(entries.begin(), entries.end(), 0);
     for (const auto& vertex : vertices) {
-      ++entries[static_cast<std::size_t>(frameOf(vertex.getTimeStamp().lower()))];
+      ++entries[rofTiming.getROF(vertex.getTimeStamp().lower())];
     }
     std::exclusive_scan(entries.begin(), entries.end(), entries.begin(), 0);
     for (std::size_t i = 0; i < vertexROFs.size(); ++i) {

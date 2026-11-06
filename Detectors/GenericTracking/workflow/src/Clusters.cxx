@@ -16,68 +16,44 @@
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
-#include "ITSMFTBase/SegmentationAlpide.h"
+#include "ITSMFTTracking/IOUtils.h"
+
+#include <gsl/span>
 
 #include <cstdint>
-#include <stdexcept>
 
 namespace o2::gtrk::alice
 {
-
-namespace
-{
-
-using Segmentation = o2::itsmft::SegmentationAlpide;
-
-// O2's trackers' errors for a cluster without a valid pattern ID: half a pitch.
-constexpr float kDefaultError2Row = (Segmentation::PitchRow * 0.5F) * (Segmentation::PitchRow * 0.5F);
-constexpr float kDefaultError2Column = (Segmentation::PitchCol * 0.5F) * (Segmentation::PitchCol * 0.5F);
-
-} // namespace
 
 std::vector<LocalCluster> localClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const unsigned char> patterns,
                                         const o2::itsmft::TopologyDictionary& dictionary)
 {
   std::vector<LocalCluster> result;
   result.reserve(clusters.size());
-  auto pattern = patterns.begin();
-  const auto readPattern = [&pattern, &patterns]() {
-    if (pattern == patterns.end()) {
-      throw std::runtime_error("cluster patterns ran out");
-    }
-    return o2::itsmft::ClusterPattern{pattern};
-  };
+  const gsl::span<const unsigned char> stream{patterns.data(), patterns.size()};
+  auto pattern = stream.begin();
   for (const auto& cluster : clusters) {
-    LocalCluster local{.chip = cluster.getSensorID(), .x = 0.F, .z = 0.F, .sigma2X = kDefaultError2Row, .sigma2Z = kDefaultError2Column, .nPixels = 0U};
-    o2::math_utils::Point3D<float> position;
-    // The pattern's spans: a common topology's from the dictionary, a group's
-    // and an invalid ID's from the stream.
+    const auto read = pattern;
+    const auto decoded = o2::itsmft::ioutils::extractClusterData<float>(cluster, pattern, &dictionary);
+    LocalCluster local{.chip = cluster.getSensorID(),
+                       .x = decoded.coordinates.X(),
+                       .z = decoded.coordinates.Z(),
+                       .sigma2X = decoded.sig2Row,
+                       .sigma2Z = decoded.sig2Col,
+                       .nPixels = decoded.nPixels};
     const auto spans = [&local](const o2::itsmft::ClusterPattern& patt) {
       local.rowSpan = static_cast<std::uint8_t>(patt.getRowSpan());
       local.colSpan = static_cast<std::uint8_t>(patt.getColumnSpan());
     };
-    const auto id = cluster.getPatternID();
-    if (id != o2::itsmft::CompCluster::InvalidPatternID) {
-      local.sigma2X = dictionary.getErr2X(id);
-      local.sigma2Z = dictionary.getErr2Z(id);
-      if (!dictionary.isGroup(id)) {
-        position = dictionary.getClusterCoordinates(cluster);
-        local.nPixels = static_cast<std::uint32_t>(dictionary.getNpixels(id));
-        spans(dictionary.getPattern(id));
-      } else {
-        const auto patt = readPattern();
-        position = o2::itsmft::TopologyDictionary::getClusterCoordinates(cluster, patt);
-        local.nPixels = static_cast<std::uint32_t>(patt.getNPixels());
-        spans(patt);
-      }
+    // The pattern's spans: a group's and an invalid ID's from the stream,
+    // read again where the decode read it; a common topology's from the
+    // dictionary.
+    if (pattern != read) {
+      auto again = read;
+      spans(o2::itsmft::ClusterPattern{again});
     } else {
-      const auto patt = readPattern();
-      position = o2::itsmft::TopologyDictionary::getClusterCoordinates(cluster, patt, false);
-      local.nPixels = static_cast<std::uint32_t>(patt.getNPixels());
-      spans(patt);
+      spans(dictionary.getPattern(cluster.getPatternID()));
     }
-    local.x = position.X();
-    local.z = position.Z();
     result.push_back(local);
   }
   return result;

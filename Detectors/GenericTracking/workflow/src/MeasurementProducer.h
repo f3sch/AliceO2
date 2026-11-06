@@ -234,8 +234,8 @@ class MeasurementProducerTask : public o2::framework::Task
     const auto payloadBytes = n * kMeasurementRowBytes + offsets.size() * sizeof(std::uint32_t);
     LOGP(info,
          "{} measurements in {} blocks and {} buckets over {} layers, {} columns, "
-         "{} MB, {:.3f} s",
-         n, grid.blockCount(), grid.bucketCount(), Detector<Det>::nLayers, kNMeasurementColumns, payloadBytes / 1000000U, elapsed.count());
+         "{} MB, {:.3f} s, about the beam line {}",
+         n, grid.blockCount(), grid.bucketCount(), Detector<Det>::nLayers, kNMeasurementColumns, payloadBytes / 1000000U, elapsed.count(), describe(mBeamLine));
   }
 
  private:
@@ -263,7 +263,7 @@ o2::framework::DataProcessorSpec getMeasurementProducerSpec()
   std::vector<InputSpec> inputs{InputSpec{"clusters", gDataOrigin, description<Det>(kClusters), 0, Lifetime::Timeframe}};
   auto conditions = std::make_shared<Conditions<Det>>(inputs);
   if constexpr (Conditions<Det>::kMeanVertex) {
-    inputs.emplace_back("meanVertex", "GLO", "MEANVERTEX", 0, Lifetime::Condition, ccdbParamSpec("GLO/Calib/MeanVertex"));
+    inputs.emplace_back("meanVertex", "GLO", "MEANVERTEX", 0, Lifetime::Condition, ccdbParamSpec("GLO/Calib/MeanVertex", {}, 1));
   }
   // A pass testing the shapes takes the detector's band.
   const bool shapes = testsShapes(recoParam<Det>());

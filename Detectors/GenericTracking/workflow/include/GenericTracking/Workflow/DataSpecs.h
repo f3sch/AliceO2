@@ -10,7 +10,8 @@
 // or submit itself to any jurisdiction.
 
 /// \file DataSpecs.h
-/// \brief The origin and descriptions the GTRK devices exchange.
+/// \brief The origin and descriptions the GTRK devices exchange, and the
+///        tracking's input as its consumers bind it.
 ///
 /// One place, so that a producer and a consumer cannot disagree about a
 /// spelling that the framework only checks at run time.
@@ -25,32 +26,39 @@
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Tracking/Measurement.h"
+#include "GenericTracking/Tracking/PairCut.h"
+#include "GenericTracking/Workflow/GridConfig.h"
+#include "GenericTracking/Workflow/RecoParam.h"
 
+#include "DetectorsCommonDataFormats/DetID.h"
+#include "Framework/InputRecord.h"
+#include "Framework/InputSpec.h"
+#include "Framework/Lifetime.h"
+#include "Framework/ProcessingContext.h"
 #include "Headers/DataHeader.h"
 
+#include <gsl/span>
+
 #include <cctype>
-#include <concepts>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <vector>
 
 namespace o2::gtrk::workflow
 {
 
 inline constexpr o2::header::DataOrigin gDataOrigin{"GTRK"};
 
-/// \a Det's data origin: its readers' and its conditions' (`Conditions<Det>::origin()`).
+/// \a Det's data origin, its O2 detector's: its readers' and its conditions'
+/// (`Conditions<Det>::origin()`).
 template <DetectorLayout Det>
-[[nodiscard]] o2::header::DataOrigin detectorOrigin()
+[[nodiscard]] constexpr o2::header::DataOrigin detectorOrigin()
 {
-  if constexpr (std::same_as<Det, detectors::ITS>) {
-    return o2::header::DataOrigin{"ITS"};
-  } else if constexpr (std::same_as<Det, detectors::MFT>) {
-    return o2::header::DataOrigin{"MFT"};
-  } else {
-    static_assert(std::same_as<Det, detectors::TRKFT3>, "the ITS, the MFT and TRKFT3 only");
-    return o2::header::DataOrigin{"TRK"};
-  }
+  return o2::detectors::DetID::getDataOrigin(DetIDOf<Det>::value);
 }
 
 // A detector's messages are GTRK/<DET><kind>, <DET> its data origin
@@ -105,6 +113,52 @@ template <DetectorLayout Det>
   o2::header::DataDescription result;
   result.runtimeInit((detectorOrigin<Det>().template as<std::string>() + std::string{kind}).c_str());
   return result;
+}
+
+/// The measurement message's inputs: its columns, its grid offsets and what
+/// they are relative to (MEASGEO); \a withVertices, the native seeds too.
+template <DetectorLayout Det>
+[[nodiscard]] std::vector<o2::framework::InputSpec> measurementInputs(bool withVertices)
+{
+  using o2::framework::Lifetime;
+  std::vector<o2::framework::InputSpec> inputs;
+  inputs.reserve(kNMeasurementParts + 2U);
+  for (std::uint32_t part = 0; part < kNMeasurementParts; ++part) {
+    inputs.emplace_back(columnBinding(part), gDataOrigin, description<Det>(kMeasurements), part, Lifetime::Timeframe);
+  }
+  inputs.emplace_back("measurementGeometry", gDataOrigin, description<Det>(kMeasurementGeometry), 0, Lifetime::Timeframe);
+  if (withVertices) {
+    inputs.emplace_back("vertices", gDataOrigin, description<Det>(kVertices), 0, Lifetime::Timeframe);
+  }
+  return inputs;
+}
+
+/// A read-only span of a timeframe's message.
+template <class T>
+using MessageSpan = gsl::span<const T>;
+
+/// The timeframe's inputs of `measurementInputs`, valid while its message is.
+template <DetectorLayout Det>
+struct TimeframeInput {
+  MeasurementGeometry<Det> shipped; ///< the producer's beam line and grid
+  memlayout::Wrapper<MeasurementT, MessageSpan, memlayout::Layout::soa> columns;
+  std::span<const std::uint32_t> offsets; ///< the grid's prefix offsets
+  std::span<const VertexSeed> seeds;      ///< the native seeds; empty without them
+};
+
+/// The timeframe's inputs of `measurementInputs` from \a pc.
+template <DetectorLayout Det>
+[[nodiscard]] TimeframeInput<Det> readTimeframe(o2::framework::ProcessingContext& pc, bool withVertices)
+{
+  auto& inputs = pc.inputs();
+  const auto offsets = inputs.get<gsl::span<std::uint32_t>>(columnBinding(kColGridOffsets).c_str());
+  const auto seeds = withVertices ? inputs.get<gsl::span<VertexSeed>>("vertices") : gsl::span<const VertexSeed>{};
+  return {.shipped = inputs.get<MeasurementGeometry<Det>>("measurementGeometry"),
+          .columns = makeMeasurementColumns<MessageSpan>([&]<class T>(std::type_identity<T>, MeasurementColumn column) {
+            return inputs.get<gsl::span<T>>(columnBinding(static_cast<std::uint32_t>(column)).c_str());
+          }),
+          .offsets = {offsets.data(), offsets.size()},
+          .seeds = {seeds.data(), seeds.size()}};
 }
 
 /// Detector \a Det's device \a role: gtrk-<det>-<role>.

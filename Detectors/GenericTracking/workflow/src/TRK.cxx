@@ -317,7 +317,7 @@ class TrkClusterConverterTask : public Task
   }
 
  private:
-  bool mUseMC = true;
+  bool mUseMC;
   TrkDictionaryConditions mDictionaries;
 };
 

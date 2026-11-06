@@ -45,14 +45,10 @@
 #include "Framework/TimingInfo.h"
 #include "Framework/TypeTraits.h"
 
-#include <gsl/span>
-
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <span>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -102,27 +98,19 @@ class TrackerTask : public o2::framework::Task
     auto& contributors = pc.outputs().make<std::vector<std::uint32_t>>(Output{gDataOrigin, description<Det>(kVertexContributors), 0});
     const auto ended = mInterface.endTimeframeOnExit();
 
-    const auto shipped = pc.inputs().get<MeasurementGeometry<Det>>("measurementGeometry");
-    if (mInterface.needsConfiguration(shipped)) {
-      mInterface.configure(trackingConditions(*mConditions), shipped);
-    }
-    const auto input = mWithVertices ? pc.inputs().get<gsl::span<VertexSeed>>("vertices") : gsl::span<const VertexSeed>{};
-    const std::span<const VertexSeed> seeds{input.data(), input.size()};
-    const auto columns = makeMeasurementColumns<ConstSpan>(
-      [&]<class T>(std::type_identity<T>, MeasurementColumn column) { return pc.inputs().get<gsl::span<T>>(columnBinding(static_cast<std::uint32_t>(column)).c_str()); });
-    const auto offsets = pc.inputs().get<gsl::span<std::uint32_t>>(columnBinding(kColGridOffsets).c_str());
-    const std::span<const std::uint32_t> offsetSpan{offsets.data(), offsets.size()};
-    if (const char* invalid = TrackingInterface<Det>::checkInput(columns, offsetSpan, static_cast<std::size_t>(mInterface.grid().bucketCount()), seeds)) {
+    const auto input = readTimeframe<Det>(pc, mWithVertices);
+    mInterface.configureFor(*mConditions, input.shipped);
+    if (const char* invalid = TrackingInterface<Det>::checkInput(input.columns, input.offsets, static_cast<std::size_t>(mInterface.grid().bucketCount()), input.seeds)) {
       LOGP(fatal, "{}", invalid);
       return;
     }
-    if (columns.loc0.empty()) {
+    if (input.columns.loc0.empty()) {
       LOGP(info, "{}: the timeframe at orbit {}: no measurements, empty products", Det::name, orbit);
       return;
     }
 
-    const TimeFrame<Det> frame{measurementView(columns), mInterface.grid(), offsetSpan};
-    const auto found = mInterface.vertices(frame, seeds, false);
+    const TimeFrame<Det> frame{measurementView(input.columns), mInterface.grid(), input.offsets};
+    const auto found = mInterface.vertices(frame, input.seeds, false);
     if (found.dropped) {
       return;
     }
@@ -154,9 +142,6 @@ class TrackerTask : public o2::framework::Task
   }
 
  private:
-  template <class T>
-  using ConstSpan = gsl::span<const T>;
-
   bool mWithVertices = false;
   TrackingInterface<Det> mInterface;
   std::shared_ptr<RunConditions> mConditions; ///< the run's field, geometry, MeanVertex and material LUT (Conditions.h)
@@ -166,15 +151,7 @@ template <DetectorLayout Det>
 o2::framework::DataProcessorSpec getTrackerSpec(bool withVertices)
 {
   using namespace o2::framework;
-  std::vector<InputSpec> inputs;
-  inputs.reserve(kNMeasurementParts + 2U);
-  for (std::uint32_t column = 0; column < kNMeasurementParts; ++column) {
-    inputs.emplace_back(columnBinding(column), gDataOrigin, description<Det>(kMeasurements), column, Lifetime::Timeframe);
-  }
-  inputs.emplace_back("measurementGeometry", gDataOrigin, description<Det>(kMeasurementGeometry), 0, Lifetime::Timeframe);
-  if (withVertices) {
-    inputs.emplace_back("vertices", gDataOrigin, description<Det>(kVertices), 0, Lifetime::Timeframe);
-  }
+  auto inputs = measurementInputs<Det>(withVertices);
   auto conditions = std::make_shared<Conditions<Det, true>>(inputs);
   return DataProcessorSpec{
     .name = deviceName<Det>("tracker"),
