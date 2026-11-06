@@ -26,7 +26,6 @@
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/Follow.h"
 #include "GenericTracking/Tracking/Iteration.h"
-#include "GenericTracking/Tracking/LayerMaterial.h"
 #include "GenericTracking/Tracking/SensorCells.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
 

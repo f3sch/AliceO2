@@ -99,18 +99,16 @@ template <DetectorLayout Det>
 }
 
 /// Iteration \a iteration of \a tracker over \a slice alone
-/// (`Tracker::runSlice`), the slice planned as `planTimeframe` plans its
-/// slices: with the frame's bounds and their gate.
+/// (`Tracker::runSlice`), with the frame's bounds and the windows of
+/// \a vertices as `planTimeframe` plans them, the slice planned as it plans
+/// its slices.
 template <typename Tracker, DetectorLayout Det>
 [[nodiscard]] auto runSlice(Tracker& tracker, std::size_t iteration, const TimeFrame<Det>& frame, const typename TimeFrame<Det>::TimeSlice& slice,
-                            std::span<const VertexSeed> vertices, const VertexWindowParameters<Det>& vertexWindows)
+                            std::span<const VertexSeed> vertices)
 {
-  const auto bounds = frameBounds(frame);
-  TimeframePlan<Det> plan;
-  plan.layerMaxWidthPS = bounds.widthPS;
-  plan.layerTargetBounds = bounds.target;
-  const auto slicePlan = planSlice(frame, slice, sliceReach(bounds, frame.grid().geometry()).gatePS());
-  return tracker.runSlice(iteration, frame, plan, slicePlan, vertices, vertexWindows);
+  const auto plan = tracker.planTimeframe(frame, vertices, frame.grid().geometry().blockCount(), 0);
+  const auto slicePlan = planSlice(frame, slice, sliceReach(frameBounds(frame), frame.grid().geometry()).gatePS());
+  return tracker.runSlice(iteration, frame, plan, slicePlan, vertices, plan.vertexWindows[iteration]);
 }
 
 } // namespace o2::gtrk::test

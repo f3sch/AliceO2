@@ -149,7 +149,6 @@ struct TrackletRunSummary {
   std::array<std::uint64_t, nLinks<Det>> truePairsKept{};
   TruthBreakdown truthBreakdown{};
   TruthBreakdown truthBreakdownKept{};
-  double seconds = 0.;
   // Triplets: a true triplet is two MC-true pairs (a, b) and (b, c) of one
   // particle, a row being every particle's it carries among its labels.
   std::uint64_t firstTracklets = 0U;
@@ -169,7 +168,6 @@ struct TrackletRunSummary {
   std::array<double, kPtBins> curvaturePullSumByPt{};
   std::array<double, kPtBins> curvaturePullSum2ByPt{};
   std::size_t tripletHighWater = 0U;
-  double tripletSeconds = 0.;
   // What the triplets that are not MC-true are.
   std::uint64_t notTrueCombinatorial = 0U; ///< a, b, c not one particle
   std::uint64_t notTrueSecondary = 0U;
@@ -201,7 +199,6 @@ struct TrackletRunSummary {
   std::uint64_t chained = 0U;        ///< of those, swept: with a predecessor
   std::uint64_t slices = 0U;
   std::size_t neighbourHighWater = 0U;
-  double neighbourSeconds = 0.;
 };
 
 /// A true triplet as the owning slice found it.
@@ -949,8 +946,6 @@ class StageTruth
     auto& chainKept = mChainKept;
     const auto& slice = *observation.slice;
     const auto& run = *observation.result;
-    summary.seconds += run.trackletSeconds;
-    summary.tripletSeconds += run.tripletSeconds;
     const auto truePairIndex = [&](Frame::Index source, Frame::Index target) {
       const auto key = pairKey(source, target);
       const auto found = std::ranges::lower_bound(truePairs, key, {}, &TruePair::key);
@@ -1041,7 +1036,6 @@ class StageTruth
     const auto& neighbours = *run.neighbours;
     const auto* const from = neighbours.view().from;
     const auto neighbourOffsets = neighbours.offsets();
-    summary.neighbourSeconds += run.neighbourSeconds;
     summary.tripletsWorked += triplets.size();
     // The triplets with predecessors.
     for (std::size_t triplet = 0; triplet + 1U < neighbourOffsets.size(); ++triplet) {
@@ -1189,8 +1183,9 @@ class StageTruth
     summary.poolHighWater = tracker.memoryHighWater();
 
     const auto label = fmt::format("iteration {}, {}", mIteration, vertexSource == VertexSource::kBeamLine ? "beam line" : "vertex list");
-    const double timePerSourceNS = summary.sources == 0U ? 0. : 1.e9 * summary.seconds / static_cast<double>(summary.sources);
-    LOGP(info, "tracklets, {}: {} sources, {} accepted, {:.3f} s, {:.1f} ns/source", label, summary.sources, summary.tracklets, summary.seconds,
+    const double trackletSeconds = observed.summary->seconds(profile::Phase::kTracklets);
+    const double timePerSourceNS = summary.sources == 0U ? 0. : 1.e9 * trackletSeconds / static_cast<double>(summary.sources);
+    LOGP(info, "tracklets, {}: {} sources, {} accepted, {:.3f} s, {:.1f} ns/source", label, summary.sources, summary.tracklets, trackletSeconds,
          timePerSourceNS);
     const auto allTracklets = summary.tracklets + summary.haloSourceTracklets;
     const double haloTrackletFraction = allTracklets == 0U ? 0. : static_cast<double>(summary.haloSourceTracklets) / static_cast<double>(allTracklets);
@@ -1217,9 +1212,10 @@ class StageTruth
       }
     }
 
-    const double timePerFirstNS = summary.firstTracklets == 0U ? 0. : 1.e9 * summary.tripletSeconds / static_cast<double>(summary.firstTracklets);
+    const double tripletSeconds = observed.summary->seconds(profile::Phase::kTriplets);
+    const double timePerFirstNS = summary.firstTracklets == 0U ? 0. : 1.e9 * tripletSeconds / static_cast<double>(summary.firstTracklets);
     LOGP(info, "triplets, {}: {} from {} first tracklets, {:.3f} s, {:.1f} ns/first tracklet", label, summary.triplets, summary.firstTracklets,
-         summary.tripletSeconds, timePerFirstNS);
+         tripletSeconds, timePerFirstNS);
     LOGP(info, "  arena high-water {} records ({:.1f} MB); halo-owned triplets, within the slice gate: {} ({:.3f}%)", summary.tripletHighWater,
          static_cast<double>(summary.tripletHighWater * sizeof(Triplet)) / 1.e6, summary.haloTriplets,
          percent(summary.haloTriplets, summary.triplets + summary.haloTriplets));
@@ -1249,9 +1245,10 @@ class StageTruth
       logTripletCurvature(summary);
     }
 
-    const double neighbourPerTripletNS = summary.tripletsWorked == 0U ? 0. : 1.e9 * summary.neighbourSeconds / static_cast<double>(summary.tripletsWorked);
+    const double neighbourSeconds = observed.summary->seconds(profile::Phase::kNeighbours);
+    const double neighbourPerTripletNS = summary.tripletsWorked == 0U ? 0. : 1.e9 * neighbourSeconds / static_cast<double>(summary.tripletsWorked);
     LOGP(info, "neighbours, {}: {} from {} triplets worked, {:.3f} s, {:.1f} ns/triplet", label, summary.neighbours, summary.tripletsWorked,
-         summary.neighbourSeconds, neighbourPerTripletNS);
+         neighbourSeconds, neighbourPerTripletNS);
     LOGP(info, "  arena high-water {} records ({:.1f} MB); swept {:.2f}% of the triplets", summary.neighbourHighWater,
          static_cast<double>(summary.neighbourHighWater * sizeof(Neighbour)) / 1.e6, percent(summary.chained, summary.tripletsWorked));
     LOGP(info, "  predecessors per triplet, max {}: {}", summary.maxNeighbours, histogramText(summary.neighbourHistogram));
@@ -3129,6 +3126,8 @@ class MeasurementSinkTask : public Task
   {
     mInterface.configure(workflow::trackingConditions(*mConditions), shipped);
     auto& tracker = mInterface.tracker();
+    // The iteration lines and the stage truth's times read the profile.
+    tracker.setProfiling(true);
     // The host tracker's stages: into its stage truth, every iteration
     // against the clusters it found free; with MC into its stage funnel, read
     // by the text reports and the QA's seeded.

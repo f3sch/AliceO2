@@ -29,7 +29,6 @@
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
-#include "GenericTracking/Tracking/LayerMaterial.h"
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/Tracker.h"

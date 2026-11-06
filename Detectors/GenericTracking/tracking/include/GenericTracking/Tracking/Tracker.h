@@ -103,16 +103,12 @@ class Tracker
   using Records = StageOutput<SelectionRecordOf<kMaxClusters>::template RecordT>;
 
   /// A slice's tracklets, the triplets built from them with their levels and
-  /// each triplet's predecessors, all valid until the next run, with the wall time of each stage: from the
-  /// profile, so zero with profiling off (`setProfiling`).
+  /// each triplet's predecessors, all valid until the next run.
   struct Result {
     StageStatus status = StageStatus::kComplete;
     const Tracklets* tracklets = nullptr;
     const Triplets* triplets = nullptr;
     const Neighbours* neighbours = nullptr;
-    double trackletSeconds = 0.;
-    double tripletSeconds = 0.;
-    double neighbourSeconds = 0.; ///< the end index and the neighbour stage
   };
 
   using Phase = profile::Phase;
@@ -409,8 +405,7 @@ class Tracker
     return runIterations(frame, plan, &from, mIterations.size());
   }
 
-  /// Profile every `run` (the default), or leave the profiles empty: the
-  /// switch that measures what profiling itself costs.
+  /// Profile every `run`, or leave the profiles empty (the default).
   void setProfiling(bool enabled) { mProfiling = enabled; }
 
   /// The tracker's arena, its stages' and loops' threads: for a pass that
@@ -424,8 +419,8 @@ class Tracker
   /// One slice of iteration \a iteration, tracklets to levels, reading the used
   /// mask as `beginTimeframe` and the selections since left it: \a slicePlan,
   /// one of \a plan's slices (or planned alike), with \a plan's frame-wide
-  /// bounds. \a vertexWindows are `vertexWindows(iteration, vertices)`,
-  /// derived once per timeframe; a beam-line iteration does not read them.
+  /// bounds. \a vertexWindows are \a plan's for the iteration (`planTimeframe`);
+  /// a beam-line iteration does not read them.
   [[nodiscard]] Result runSlice(std::size_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, const SlicePlan<Det>& slicePlan,
                                 std::span<const VertexSeed> vertices, const VertexWindows& vertexWindows)
   {
@@ -493,12 +488,6 @@ class Tracker
   [[nodiscard]] std::size_t stagingHighWater() const { return mStagingHighWater; }
   [[nodiscard]] std::size_t stagingPredictionMisses() const { return mStagingPredictionMisses; }
   [[nodiscard]] std::size_t memoryHighWater() const { return mMemoryPool->getPeakMemory(); }
-  /// The per-vertex window bounds of iteration \a iteration for one
-  /// timeframe's vertex list.
-  [[nodiscard]] VertexWindows vertexWindows(std::size_t iteration, std::span<const VertexSeed> vertices) const
-  {
-    return vertexWindowParameters<Det>(mIterations[iteration], mWindowSettings[iteration], vertices);
-  }
 
  private:
   /// Throws std::invalid_argument for iteration \a iteration of \a iterations
@@ -536,18 +525,6 @@ class Tracker
   }
 
   [[nodiscard]] const IterationParameters<Det>& parameters() const { return mIterations[mIteration]; }
-
-  /// The stages' times so far in the profile open on this thread, tracklets
-  /// to levels; zeros without one.
-  [[nodiscard]] static std::array<double, 3> stageSeconds()
-  {
-    const auto* context = profile::current();
-    if (context == nullptr) {
-      return {};
-    }
-    const auto& times = *context->profile;
-    return {times[Phase::kTracklets].seconds, times[Phase::kTriplets].seconds, times[Phase::kNeighbours].seconds};
-  }
 
   /// \a site's staging for the timeframe, in \a backend: what the estimator
   /// learned from the timeframes before.
@@ -929,15 +906,7 @@ class Tracker
                                        const VertexWindows& vertexWindows, bool countRoads)
   {
     assert(iteration < mIterations.size() && mUsed.size() == frame.size());
-    // The stages' times come from the profile open on this thread: `run`'s,
-    // or, for `runSlice` outside it, one of the slice's own.
-    profile::Profile sliceProfile;
-    std::optional<profile::Activation> activation;
-    if (mProfiling && profile::current() == nullptr) {
-      activation.emplace(sliceProfile, mMemoryPool.get(), mTrace);
-    }
     const profile::Zone zone{Phase::kSlices};
-    const auto before = stageSeconds();
     mIteration = iteration;
     const StageStatus status = guardOutOfMemory([&] {
       auto result = StageStatus::kComplete;
@@ -976,7 +945,6 @@ class Tracker
       }
       return runNeighbours(frame, owner, countRoads);
     });
-    const auto after = stageSeconds();
     if (status == StageStatus::kComplete) {
       mTrackletHighWater = std::max<std::size_t>(mTrackletHighWater, mScratch.tracklets().size());
       mStagingHighWater = std::max(mStagingHighWater, mTrackletStage.stagingCapacity());
@@ -985,10 +953,7 @@ class Tracker
     return {.status = status,
             .tracklets = complete ? &mScratch.tracklets() : nullptr,
             .triplets = complete ? &mScratch.triplets() : nullptr,
-            .neighbours = complete ? &mScratch.neighbours() : nullptr,
-            .trackletSeconds = after[0] - before[0],
-            .tripletSeconds = after[1] - before[1],
-            .neighbourSeconds = after[2] - before[2]};
+            .neighbours = complete ? &mScratch.neighbours() : nullptr};
   }
 
   /// The triplet stage, its staged triplets kept only where they are on a
@@ -1270,7 +1235,7 @@ class Tracker
   const Material* mMaterial = nullptr;
   Propagator mPropagator;
   profile::Trace* mTrace = nullptr;
-  bool mProfiling = true;
+  bool mProfiling = false;
   CapacityEstimator mEstimator;
   std::size_t mRows = 0U;                                        ///< the timeframe's measurement rows
   std::array<std::size_t, CapacityEstimator::kSites> mGranted{}; ///< per stage, the staging granted per thread

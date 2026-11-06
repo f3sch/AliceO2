@@ -263,43 +263,36 @@ template <typename CountIn>
   return excessF * excessF < k2 * static_cast<Scalar>(sidebands) ? 0 : excess;
 }
 
-/// A candidate's z0 variance [cm^2]: its r-z
-/// line's (\a fit's `varZ0Line`), the scattering before and at its first
-/// point \a a (on \a firstLayer) at its own momentum -- the pair cut's
-/// `sourceScattering` from the fit's z0 at the pass's pT floor, scaled by the
-/// curvature: the transverse momentum goes as the circle's radius, so
-/// (R_min / R)^2 of the floor's, none for a straight line; without a field
-/// the momentum is unknown and the floor's is taken -- and the beam's
-/// transverse spread \a varTransverse: the collision lies off the axis the
-/// line is extrapolated to, which moves z0 by the slope times that. The
-/// scattering's displacement across the track becomes one along z at the
-/// beam line by g = sqrt(1 + slope^2).
-template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar candidateVarZ0(const PairPoint& a, const VertexCandidateFit& fit, const ScatteringTable<Det>& table,
-                                                               const PairCut& cut, LayerID firstLayer, Scalar varTransverse)
-{
-  const VertexSeed from{.z = fit.z0};
-  const Scalar atFloor = sourceScattering<Det>(table, cut, from, firstLayer, a);
-  const Scalar halfRMin = 0.5F * cut.twoRMin;
-  const Scalar scale = halfRMin > 0.F && fit.radius > 0.F ? (halfRMin / fit.radius) * (halfRMin / fit.radius) : 1.F;
-  const Scalar slope = a.r > 0.F ? (a.z - fit.z0) / a.r : 0.F;
-  return fit.varZ0Line + (atFloor * scale * (1.F + (slope * slope))) + (slope * slope * varTransverse);
-}
-
 /// The vertexer's candidate errors with the scattering of the pass's
-/// material and the beam's transverse spread (`candidateVarZ0`). A
-/// candidate's first point is taken on layer 0: the vertexing pass's links
-/// join the three innermost layers, so every
-/// triplet starts there. A pass on other layers has to pass its first layer
-/// here, or its own layer's scattering is left out.
+/// material and the beam's transverse spread.
 template <DetectorLayout Det>
 struct ScatteringErrors {
   const ScatteringTable<Det>* table = nullptr;
   PairCut cut;
   Scalar varTransverse = 0.F;
+  /// A candidate's z0 variance [cm^2]: its r-z line's (\a fit's
+  /// `varZ0Line`), the scattering before and at its first point \a a at its
+  /// own momentum -- the pair cut's `sourceScattering` from the fit's z0 at
+  /// the pass's pT floor, scaled by the curvature: the transverse momentum
+  /// goes as the circle's radius, so (R_min / R)^2 of the floor's, none for a
+  /// straight line; without a field the momentum is unknown and the floor's
+  /// is taken -- and the beam's transverse spread: the collision lies off the
+  /// axis the line is extrapolated to, which moves z0 by the slope times
+  /// that. The scattering's displacement across the track becomes one along
+  /// z at the beam line by g = sqrt(1 + slope^2).
+  ///
+  /// \a a is taken on layer 0: the vertexing pass's links join the three
+  /// innermost layers, so every triplet starts there. A pass on other layers
+  /// has to take its first layer here, or its own layer's scattering is left
+  /// out.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar operator()(const PairPoint& a, const VertexCandidateFit& fit) const
   {
-    return candidateVarZ0<Det>(a, fit, *table, cut, LayerID{0}, varTransverse);
+    const VertexSeed from{.z = fit.z0};
+    const Scalar atFloor = sourceScattering<Det>(*table, cut, from, LayerID{0}, a);
+    const Scalar halfRMin = 0.5F * cut.twoRMin;
+    const Scalar scale = halfRMin > 0.F && fit.radius > 0.F ? (halfRMin / fit.radius) * (halfRMin / fit.radius) : 1.F;
+    const Scalar slope = a.r > 0.F ? (a.z - fit.z0) / a.r : 0.F;
+    return fit.varZ0Line + (atFloor * scale * (1.F + (slope * slope))) + (slope * slope * varTransverse);
   }
 };
 

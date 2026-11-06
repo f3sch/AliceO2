@@ -55,13 +55,7 @@ struct TimedPoint {
   TimeEstPS time; ///< the time box
 };
 
-template <typename Row>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() TimedPoint timedPoint(const Row& row)
-{
-  return {.point = pairPoint(row), .time = timeBox(row)};
-}
-
-/// The same for row \a row of \a columns, reading only the columns it holds.
+/// Row \a row of \a columns as a `TimedPoint`, reading only the columns it holds.
 template <typename Columns>
 [[nodiscard]] GPUhdi() GPUAlwaysInline() TimedPoint timedPointAt(const Columns& columns, std::uint32_t row)
 {

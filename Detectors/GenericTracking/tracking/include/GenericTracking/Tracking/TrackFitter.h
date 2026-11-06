@@ -588,18 +588,6 @@ template <bool LastStepAllowance, CrossingRule Rule = CrossingRule::kFirstAhead,
   }
 }
 
-/// The same with the host's choice at run time, where the iteration has the
-/// allowance (`takesLastStepAllowance`), on the host, for the studies that
-/// repeat the road fit's (StageFunnel, the bench, the anatomies); the stages
-/// choose at compile time.
-template <typename Parameters, typename Prop, DetectorLayout Det, typename Material, typename Chain>
-[[nodiscard]] RoadFitResult fitRoad(const Parameters& parameters, const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material,
-                                    const Chain& measurements, int n)
-{
-  return takesLastStepAllowance(parameters) ? fitRoad<true>(parameters, prop, geometry, material, measurements, n)
-                                            : fitRoad<false>(parameters, prop, geometry, material, measurements, n);
-}
-
 } // namespace o2::gtrk
 
 #endif // GTRK_TRACKING_TRACKFITTER_H_

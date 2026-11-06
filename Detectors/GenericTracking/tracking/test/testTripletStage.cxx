@@ -609,8 +609,8 @@ std::size_t checkAgainstBruteForce(const IterationParameters<Layout>& parameters
     const LayerID middleLayer = parameters.linkTargets[firstLink];
     const std::uint32_t middleRow = trackletView.target[firstIndex];
     if (sources.contains(middleLayer, middleRow)) {
-      const auto first = timedPoint(frame.measurement(trackletView.source[firstIndex]));
-      const auto middle = timedPoint(frame.measurement(middleRow));
+      const auto first = timedPointAt(frame.measurements(), trackletView.source[firstIndex]);
+      const auto middle = timedPointAt(frame.measurements(), middleRow);
       const auto middleElement = sources.element(middleLayer, middleRow);
       for (auto candidateIndex = tracklets.offsets()[middleElement]; candidateIndex < tracklets.offsets()[middleElement + 1U]; ++candidateIndex) {
         const std::size_t secondLink = trackletView.link[candidateIndex];
@@ -620,7 +620,7 @@ std::size_t checkAgainstBruteForce(const IterationParameters<Layout>& parameters
             trackletView.lambda[candidateIndex] > trackletView.lambda[firstIndex] + halfWidth) {
           continue;
         }
-        const auto third = timedPoint(frame.measurement(trackletView.target[candidateIndex]));
+        const auto third = timedPointAt(frame.measurements(), trackletView.target[candidateIndex]);
         TripletFitResult fit;
         if (tripletCompatible(parameters, middleLayer, first, middle, third, fit)) {
           brute.emplace_back(firstIndex, candidateIndex);
@@ -679,7 +679,6 @@ SliceRun runTripletSlices(const SliceFixture& fixture, std::int32_t widthBlocks,
   BOOST_TEST(requiredHalo > configuredHalo);
 
   Controller tracker{iterationSettings(), SliceFixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
-  const auto vertexWindows = tracker.vertexWindows(0U, {});
   const auto blockCount = fixture.geometry.blockCount();
   const auto width = std::max(1, widthBlocks);
   const auto shift = firstBoundary > 0 ? std::min(firstBoundary, width - 1) : 0;
@@ -689,7 +688,7 @@ SliceRun runTripletSlices(const SliceFixture& fixture, std::int32_t widthBlocks,
     const auto end = std::min(blockCount, begin + firstWidth);
     const Frame::TimeSlice slice{*fixture.frame, {.begin = begin, .end = end}, haloPS};
     BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-    const auto trackletResult = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, vertexWindows);
+    const auto trackletResult = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
     BOOST_REQUIRE(trackletResult.status == StageStatus::kComplete);
     BOOST_REQUIRE(trackletResult.tracklets != nullptr);
     const auto& tracklets = *trackletResult.tracklets;
@@ -753,7 +752,7 @@ BOOST_AUTO_TEST_CASE(TripletsMatchBruteForceAndAllTrueHelicesAreFound)
   const auto scattering = scatteringTable<Det>(material);
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-  const auto trackletResult = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+  const auto trackletResult = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
   BOOST_REQUIRE(trackletResult.status == StageStatus::kComplete);
   BOOST_REQUIRE(trackletResult.tracklets != nullptr);
   const auto& tracklets = *trackletResult.tracklets;
@@ -801,7 +800,7 @@ BOOST_AUTO_TEST_CASE(MultipleContinuationsDiscPathAndPostLambdaRejection)
   const auto scattering = scatteringTable<Mixed>(material);
   MixedController tracker{mixedIterationSettings(), MixedFixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-  const auto trackletResult = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+  const auto trackletResult = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
   BOOST_REQUIRE(trackletResult.status == StageStatus::kComplete);
   BOOST_REQUIRE(trackletResult.tracklets != nullptr);
   const auto& tracklets = *trackletResult.tracklets;
@@ -896,9 +895,9 @@ BOOST_AUTO_TEST_CASE(MultipleContinuationsDiscPathAndPostLambdaRejection)
   }
   BOOST_TEST(forwardThirdAt < forwardDiscAt);
 
-  const auto first = timedPoint(fixture.frame->measurement(trackletView.source[lateFirst]));
-  const auto middle = timedPoint(fixture.frame->measurement(trackletView.target[lateFirst]));
-  const auto third = timedPoint(fixture.frame->measurement(trackletView.target[lateSecond]));
+  const auto first = timedPointAt(fixture.frame->measurements(), trackletView.source[lateFirst]);
+  const auto middle = timedPointAt(fixture.frame->measurements(), trackletView.target[lateFirst]);
+  const auto third = timedPointAt(fixture.frame->measurements(), trackletView.target[lateSecond]);
   const Scalar halfWidth = tripletLambdaHalfWidth(parameters, link23, LayerID{2}, first.point, middle.point, targetBounds[LayerID{3}]);
   BOOST_TEST(trackletView.lambda[lateSecond] >= trackletView.lambda[lateFirst] - halfWidth);
   BOOST_TEST(trackletView.lambda[lateSecond] <= trackletView.lambda[lateFirst] + halfWidth);

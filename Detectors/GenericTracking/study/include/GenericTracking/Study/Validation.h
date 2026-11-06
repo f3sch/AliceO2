@@ -30,6 +30,7 @@
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
+#include "GenericTracking/Tracking/TrackFitter.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Tracking/TripletCut.h"
 #include "GenericTracking/Tracking/TripletFit.h"
@@ -111,6 +112,17 @@ enum class FitRefusal : std::uint8_t { kTime,
                                        kTaken };
 inline constexpr std::size_t kFitRefusals = 6U;
 inline constexpr std::array<std::string_view, kFitRefusals> kFitRefusalNames{"time", "chi2", "propagation", "pT floor", "beam line", "taken"};
+
+/// The road fit (`o2::gtrk::fitRoad`) with the host's choice at run time,
+/// where the iteration has the allowance (`takesLastStepAllowance`), for the
+/// studies that repeat it; the stages choose at compile time.
+template <typename Parameters, typename Prop, DetectorLayout Det, typename Material, typename Chain>
+[[nodiscard]] RoadFitResult fitRoad(const Parameters& parameters, const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material,
+                                    const Chain& measurements, int n)
+{
+  return takesLastStepAllowance(parameters) ? o2::gtrk::fitRoad<true>(parameters, prop, geometry, material, measurements, n)
+                                            : o2::gtrk::fitRoad<false>(parameters, prop, geometry, material, measurements, n);
+}
 
 /// The road fit stage's tests on the road of \a rows of \a frame, innermost
 /// first, in its order (RoadFit.h, `fitRows`): its boxes share no time, the

@@ -393,7 +393,8 @@ BOOST_AUTO_TEST_CASE(TheLastStepTakesTheAllowanceNotAFreeDirection)
   constexpr UniformMaterial material{.x2X0PerCm = 0.01F, .rho = 0.F};
   auto iteration = parameters();
   const auto road = [&](const std::array<Measurement, kLayers>& chain) {
-    return fitRoad(iteration, kPropagator, trackingGeometry(), material, chain.data(), static_cast<int>(kLayers));
+    return takesLastStepAllowance(iteration) ? fitRoad<true>(iteration, kPropagator, trackingGeometry(), material, chain.data(), static_cast<int>(kLayers))
+                                             : fitRoad<false>(iteration, kPropagator, trackingGeometry(), material, chain.data(), static_cast<int>(kLayers));
   };
   const auto inside = kinkedChain(kLayers - 2U, 0.014);
   const auto beyond = kinkedChain(kLayers - 2U, 0.08);
@@ -423,7 +424,7 @@ BOOST_AUTO_TEST_CASE(TheStageEmitsOneRecordPerRoad)
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scatteringTable<Det>(material), std::make_shared<BoundedMemoryResource>(), 2U, 2};
   const Frame::TimeSlice slice{*fixture.frame, fixture.geometry.allBlocks(), 0};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-  const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+  const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
   BOOST_REQUIRE(run.status == StageStatus::kComplete);
   RoadCount count;
   count.setMemoryPool(std::make_shared<BoundedMemoryResource>());
@@ -487,7 +488,7 @@ BOOST_AUTO_TEST_CASE(TheStageDropsRoadsBelowTheFloorOfTheirClusterCount)
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scatteringTable<Det>(material), std::make_shared<BoundedMemoryResource>(), 2U, 2};
   const Frame::TimeSlice slice{*fixture.frame, fixture.geometry.allBlocks(), 0};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-  const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+  const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
   BOOST_REQUIRE(run.status == StageStatus::kComplete);
   const auto serial = [](RoadCount::Index elements, const auto& body) {
     for (RoadCount::Index element = 0; element < elements; ++element) {
@@ -538,7 +539,7 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scatteringTable<Det>(material), std::make_shared<BoundedMemoryResource>(), 2U, 2};
   const Frame::TimeSlice slice{*fixture.frame, fixture.geometry.allBlocks(), 0};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-  const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+  const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
   BOOST_REQUIRE(run.status == StageStatus::kComplete);
   const auto serial = [](RoadCount::Index elements, const auto& body) {
     for (RoadCount::Index element = 0; element < elements; ++element) {
@@ -606,7 +607,7 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scatteringTable<Det>(material), std::make_shared<BoundedMemoryResource>(), 2U, 2};
   const Frame::TimeSlice slice{*fixture.frame, fixture.geometry.allBlocks(), 0};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-  const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+  const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
   BOOST_REQUIRE(run.status == StageStatus::kComplete);
   const auto serial = [](std::uint32_t elements, const auto& body) {
     for (std::uint32_t element = 0; element < elements; ++element) {

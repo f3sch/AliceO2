@@ -21,12 +21,12 @@
 #include "ToyBarrel4Disc8.h"
 #include "ToyBarrel8.h"
 #include "GenericTracking/Tracking/Iteration.h"
-#include "GenericTracking/Tracking/LayerMaterial.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
 
 #include "GridTestSupport.h"
+#include "UniformMaterial.h"
 
 #include <algorithm>
 #include <array>

@@ -251,7 +251,7 @@ BOOST_AUTO_TEST_CASE(RoadsOnTheDeepBarrelMatchTheirHandCount)
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
   const Frame::TimeSlice slice{*fixture.frame, fixture.geometry.allBlocks(), 0};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-  const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+  const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
   BOOST_REQUIRE(run.status == StageStatus::kComplete);
   BOOST_REQUIRE(parameters.minRoadStartLevel == 2U);
   const auto counted = countRoads(run, parameters, slice.core, parameters.minRoadStartLevel);
@@ -371,7 +371,7 @@ BOOST_AUTO_TEST_CASE(RoadsMatchABruteForceWalkAndOnlyTheCoresAreCounted)
   for (const auto& [begin, end] : std::array<std::array<std::int32_t, 2>, 4>{{{0, blockCount}, {0, 20}, {20, 35}, {35, blockCount}}}) {
     const Frame::TimeSlice slice{*fixture.frame, {.begin = begin, .end = end}, haloPS};
     BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-    const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+    const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
     BOOST_REQUIRE(run.status == StageStatus::kComplete);
     BOOST_TEST_CONTEXT("core blocks " << begin << "-" << end)
     {
@@ -434,7 +434,7 @@ BOOST_AUTO_TEST_CASE(AStartLayerMaskKeepsExactlyTheRoadsStartingOnIt)
   const std::int64_t haloPS = sliceReach(frameBounds(*fixture.frame), fixture.geometry).haloPS();
   const Frame::TimeSlice slice{*fixture.frame, {.begin = 0, .end = fixture.geometry.blockCount()}, haloPS};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-  const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+  const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
   BOOST_REQUIRE(run.status == StageStatus::kComplete);
   const auto all = countRoads(run, parameters, slice.core, parameters.minRoadStartLevel);
   const auto tracklets = run.tracklets->view();
@@ -480,7 +480,7 @@ std::vector<RoadClusters> roadsOfSlicing(const Fixture& fixture, std::int32_t wi
     const auto end = std::min(blockCount, begin + (begin == 0 ? firstWidth : widthBlocks));
     const Frame::TimeSlice slice{*fixture.frame, {.begin = begin, .end = end}, haloPS};
     BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-    const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+    const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
     BOOST_REQUIRE(run.status == StageStatus::kComplete);
     const auto counted = countRoads(run, parameters, slice.core, parameters.minRoadStartLevel);
     const auto tracklets = run.tracklets->view();

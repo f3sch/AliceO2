@@ -35,6 +35,7 @@
 #include "GenericTracking/Tracking/SearchWindow.h"
 #include "GenericTracking/Tracking/TripletCut.h"
 #include "GenericTracking/Study/Validation.h"
+#include "UniformMaterial.h"
 
 #include <algorithm>
 #include <array>

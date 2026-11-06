@@ -175,15 +175,6 @@ using LayerBudget = std::array<double, static_cast<std::size_t>(Detector<Det>::n
   return std::abs(position) * total / (axisMax - axisMin);
 }
 
-/// The same `x/X0` for every layer, when no LUT is loaded.
-template <DetectorLayout Det>
-[[nodiscard]] inline LayerBudget<Det> uniformLayerMaterial(double x2X0)
-{
-  LayerBudget<Det> budget;
-  budget.fill(x2X0);
-  return budget;
-}
-
 /// Each layer's average normal-incidence `x/X0` from the LUT.
 ///
 /// Sampled as `sampledBudget` does, over the stave length or the disc's radii.

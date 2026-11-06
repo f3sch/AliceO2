@@ -163,7 +163,7 @@ struct GridSlice {
 
 /// Azimuth of a global position, in [0, 2pi).
 ///
-/// This and `transverseRadius` are computed once per measurement, by the
+/// This and the transverse radius are computed once per measurement, by the
 /// producer from the float position it ships, and shipped beside it: the
 /// producer bins by them and the tracker cuts on them, so a row's bucket and
 /// the exact cut applied to it read the same numbers, and no row lands on the

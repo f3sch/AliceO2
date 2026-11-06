@@ -242,7 +242,7 @@ void buildNeighbours(const Fixture& fixture, const IterationParameters<Det>& par
 {
   const Frame::TimeSlice slice{*fixture.frame, fixture.geometry.allBlocks(), 0};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-  const auto result = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+  const auto result = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   tracklets = result.tracklets;
   triplets = result.triplets;
@@ -267,7 +267,7 @@ BOOST_AUTO_TEST_CASE(NeighboursMatchBruteForceAndEveryTrueChainIsLinked)
   const auto parameters = iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scattering);
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-  const auto result = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+  const auto result = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   const auto& tracklets = *result.tracklets;
   const auto& triplets = *result.triplets;
@@ -304,10 +304,10 @@ BOOST_AUTO_TEST_CASE(NeighboursMatchBruteForceAndEveryTrueChainIsLinked)
       }
       ++candidates;
       const auto first = tripletView.first[from];
-      const auto a = timedPoint(fixture.frame->measurement(trackletView.source[first]));
-      const auto b = timedPoint(fixture.frame->measurement(trackletView.source[shared]));
-      const auto c = timedPoint(fixture.frame->measurement(trackletView.target[shared]));
-      const auto d = timedPoint(fixture.frame->measurement(trackletView.target[last]));
+      const auto a = timedPointAt(fixture.frame->measurements(), trackletView.source[first]);
+      const auto b = timedPointAt(fixture.frame->measurements(), trackletView.source[shared]);
+      const auto c = timedPointAt(fixture.frame->measurements(), trackletView.target[shared]);
+      const auto d = timedPointAt(fixture.frame->measurements(), trackletView.target[last]);
       const LayerID secondLayer = parameters.linkSources[trackletView.link[shared]];
       const LayerID thirdLayer = parameters.linkTargets[trackletView.link[shared]];
       if (!neighbourCurvatureCompatible(parameters, tripletView.curvature[from], tripletView.varCurvature[from], tripletView.curvature[to],
@@ -495,7 +495,7 @@ SlicingResult runSlicing(const Fixture& fixture, std::int32_t widthBlocks, std::
     const auto end = std::min(blockCount, begin + (begin == 0 ? firstWidth : widthBlocks));
     const Frame::TimeSlice slice{*fixture.frame, {.begin = begin, .end = end}, haloPS};
     BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-    const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+    const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
     BOOST_REQUIRE(run.status == StageStatus::kComplete);
     const auto& tracklets = *run.tracklets;
     const auto& triplets = *run.triplets;

@@ -16,10 +16,10 @@
 #define GTRK_TEST_GENERATEDHELIXFIXTURE_H_
 
 #include "GenericTracking/Tracking/Iteration.h"
-#include "GenericTracking/Tracking/LayerMaterial.h"
 #include "GenericTracking/Tracking/TripletCut.h"
 
 #include "GridTestSupport.h"
+#include "UniformMaterial.h"
 
 #include <cmath>
 #include <cstddef>

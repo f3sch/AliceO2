@@ -28,7 +28,7 @@ namespace o2::gtrk
 {
 
 /// Whether \a triplet's innermost row is the slice's own: in the core of its
-/// first tracklet's source layer (`RoadBase`).
+/// first tracklet's source layer.
 [[nodiscard]] GPUhdi() GPUAlwaysInline() bool roadOwned(TrackletConstView tracklets, TripletConstView triplets, const LayerID* linkSources,
                                                         const MeasurementRange* core, std::uint32_t triplet)
 {

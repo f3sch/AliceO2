@@ -22,8 +22,8 @@
 #include "GenericTracking/Base/Geometry.h"
 #include "ToyBarrel4Disc8.h"
 #include "ToyBarrel3.h"
+#include "GenericTracking/Tracking/BeamConstraint.h"
 #include "GenericTracking/Tracking/Material.h"
-#include "GenericTracking/Tracking/Perigee.h"
 #include "GenericTracking/Tracking/TrackFitter.h"
 
 #include "ReconstructionDataFormats/PID.h"

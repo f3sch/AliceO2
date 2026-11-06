@@ -162,7 +162,7 @@ BOOST_AUTO_TEST_CASE(OneSliceMatchesSerialWithHaloSourcesInsideTheGate)
   const auto memory = std::make_shared<BoundedMemoryResource>();
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, memory, 1U};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-  const auto result = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+  const auto result = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   BOOST_REQUIRE(result.tracklets != nullptr);
   BOOST_REQUIRE(result.tracklets->size() > 0U);
@@ -218,7 +218,7 @@ BOOST_AUTO_TEST_CASE(EndTimeframeGivesTheMemoryBack)
       const auto before = memory->getUsedMemory();
       for (int timeframe = 0; timeframe < 3; ++timeframe) {
         BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-        const auto result = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+        const auto result = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
         BOOST_REQUIRE(result.status == StageStatus::kComplete);
         BOOST_TEST(result.tracklets->size() > 0U);
         BOOST_TEST(memory->getUsedMemory() > before);
@@ -241,7 +241,7 @@ BOOST_AUTO_TEST_CASE(OutOfMemoryIsReturnedAsAStatus)
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scatteringTable<Det>(material),
                      std::make_shared<BoundedMemoryResource>(fixture.frame->size()), 1U};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
-  const auto result = test::runSlice(tracker, 0U, *fixture.frame, slice, {}, tracker.vertexWindows(0U, {}));
+  const auto result = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
   BOOST_REQUIRE(result.status == StageStatus::kOutOfMemory);
   BOOST_TEST(result.tracklets == nullptr);
 }
