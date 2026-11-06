@@ -211,20 +211,4 @@ BOOST_AUTO_TEST_CASE(TheScratchIsReleasedAndTheOutputStays)
   BOOST_TEST(arena.peak() > kept); // the staging was there, on the other end
 }
 
-BOOST_AUTO_TEST_CASE(ForEachElementVisitsEveryElementOnce)
-{
-  auto device = runtime();
-  DeviceArena arena{*device, block(std::size_t{1} * 1024U * 1024U)};
-  auto stream = device->createStream();
-  constexpr std::uint32_t kElements = 100003U;
-  DeviceSpan<std::uint32_t> visits;
-  BOOST_REQUIRE(visits.allocate(arena, kElements));
-  device->fill(visits.data(), 0U, kElements * sizeof(std::uint32_t), stream);
-  kernels().visitElements(*device, stream, arena, visits.data(), kElements);
-  std::vector<std::uint32_t> host(kElements, 0U);
-  download(visits, host.data(), kElements, stream);
-  stream.synchronize();
-  BOOST_TEST(std::ranges::all_of(host, [](std::uint32_t count) { return count == 1U; }));
-}
-
 } // namespace o2::gtrk

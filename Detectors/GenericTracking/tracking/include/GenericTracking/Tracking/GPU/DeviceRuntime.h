@@ -51,8 +51,6 @@ struct DeviceProperties {
   std::string name;
   std::string architecture;
   int warpSize = 0;
-  int computeUnits = 0;
-  std::size_t globalMemoryBytes = 0;
 };
 
 /// Every call runs on the device current on the calling thread: the one

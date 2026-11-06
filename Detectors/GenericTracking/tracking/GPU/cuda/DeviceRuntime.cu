@@ -42,6 +42,12 @@ std::unique_ptr<DeviceTracker<detectors::TRKFT3, o2::base::MatLayerCylSet>> make
 namespace
 {
 
+#ifdef GTRK_BACKEND_HIP
+constexpr std::string_view kBackend = "HIP";
+#else
+constexpr std::string_view kBackend = "CUDA";
+#endif
+
 class Runtime final : public DeviceRuntime
 {
  public:
@@ -56,20 +62,11 @@ class Runtime final : public DeviceRuntime
     mProperties.architecture = "sm_" + std::to_string((properties.major * 10) + properties.minor);
 #endif
     mProperties.warpSize = properties.warpSize;
-    mProperties.computeUnits = properties.multiProcessorCount;
-    mProperties.globalMemoryBytes = properties.totalGlobalMem;
   }
 
   ~Runtime() final = default;
 
-  [[nodiscard]] const char* backend() const noexcept final
-  {
-#ifdef GTRK_BACKEND_HIP
-    return "HIP";
-#else
-    return "CUDA";
-#endif
-  }
+  [[nodiscard]] const char* backend() const noexcept final { return kBackend.data(); }
   [[nodiscard]] const DeviceProperties& properties() const noexcept final { return mProperties; }
 
   void copyToDevice(void* to, const void* from, std::size_t bytes, DeviceStream& stream) final { copy(to, from, bytes, cudaMemcpyHostToDevice, stream); }
@@ -119,11 +116,6 @@ class Runtime final : public DeviceRuntime
 
 std::unique_ptr<DeviceRuntime> makeRuntime(int device) { return std::make_unique<Runtime>(device); }
 
-#ifdef GTRK_BACKEND_HIP
-constexpr std::string_view kBackend = "HIP";
-#else
-constexpr std::string_view kBackend = "CUDA";
-#endif
 /// When the library is loaded: O2's GPU backend of the same name links it.
 [[maybe_unused]] const bool registered = (registerRuntimeFactory(kBackend, &makeRuntime), true);
 

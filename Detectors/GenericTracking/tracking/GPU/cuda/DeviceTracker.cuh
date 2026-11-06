@@ -670,7 +670,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   struct LayeredNeighbours {
     NeighbourStage<Det> body;
     const Index* layerBoundaries;
-    std::array<LayerID, kLayerCount> layerOrder = ::o2::gtrk::layerOrder<Det>;
+    std::array<LayerID, kLayerCount> layerOrder = ::o2::gtrk::layerDepthGroups<Det>.order;
   };
 
   /// The plan's device part, in the timeframe scope: every slice's source map and core ranges, once for every
@@ -1140,10 +1140,12 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     // the follow left them.
     Index keptCount = trackCount;
     if (dropsAfterFollow(hostParameters) && trackCount != 0U) {
+      auto scratch = mArena.scope(ArenaEnd::kScratch);
       DeviceSpan<Index> kept;
       status = algorithms::selectIndices(
         *mRuntime, mArena, mStream, trackCount,
-        tracker_detail::KeptAfterFollow<Det>{parameters, std::as_const(tracks).view().count, std::as_const(tracks).view().state}, kept, keptCount);
+        tracker_detail::KeptAfterFollow<Det>{parameters, std::as_const(tracks).view().count, std::as_const(tracks).view().state}, kept, keptCount,
+        ArenaEnd::kScratch);
       ++report.readbacks;
       if (status != StageStatus::kComplete) {
         return status;

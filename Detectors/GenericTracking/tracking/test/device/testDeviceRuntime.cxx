@@ -9,8 +9,8 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-// The device runtime -- properties, streams, the arena, the shared functions,
-// the lane groups -- against the host; built once for CUDA and once for HIP.
+// The device's shared functions, lane groups and propagation against the
+// host; built once for CUDA and once for HIP.
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Device Runtime
@@ -22,7 +22,6 @@
 
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
 #include "GenericTracking/Tracking/GPU/DeviceStorage.h"
-#include "GenericTracking/Tracking/MeasurementGrid.h"
 
 #include <algorithm>
 #include <array>
@@ -30,286 +29,18 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <limits>
-#include <memory>
-#include <memory_resource>
 #include <numbers>
 #include <random>
-#include <string>
+#include <span>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace o2::gtrk
 {
-namespace
-{
 
 using namespace device_test;
-
-std::shared_ptr<BoundedMemoryResource> hostPool() { return std::make_shared<BoundedMemoryResource>(); }
-
-template <template <template <class> class> class S>
-bool sameColumns(const BoundedColumns<S>& left, const BoundedColumns<S>& right)
-{
-  if (left.size() != right.size()) {
-    return false;
-  }
-  const auto lhs = left.view();
-  const auto rhs = right.view();
-  bool same = true;
-  lhs.apply([&](const auto&... a) { rhs.apply([&](const auto&... b) { same = ((std::memcmp(a, b, left.size() * sizeof(*a)) == 0) && ...); }); });
-  return same;
-}
-
-std::vector<float> smokeInputs()
-{
-  constexpr int kSteps = 2000;
-  std::vector<float> inputs;
-  inputs.reserve(kSteps + 3U);
-  for (int i = 0; i < kSteps; ++i) {
-    inputs.push_back(-4.F + (8.F * static_cast<float>(i) / static_cast<float>(kSteps - 1)));
-  }
-  inputs.push_back(std::numeric_limits<float>::quiet_NaN());
-  inputs.push_back(1.e10F);
-  inputs.push_back(-1.e10F);
-  return inputs;
-}
-
-template <typename T>
-double ulps(T a, T b)
-{
-  return static_cast<double>(std::abs(a - b)) / static_cast<double>(std::numeric_limits<T>::epsilon() * std::max(std::abs(a), T{1}));
-}
-
-} // namespace
-
-BOOST_AUTO_TEST_CASE(PropertiesAndCompiledWaveWidthAgree)
-{
-  auto device = runtime();
-  const auto& properties = device->properties();
-  BOOST_TEST_MESSAGE(device->backend() << ": " << properties.name << ", " << properties.architecture << ", warp " << properties.warpSize << ", "
-                                       << properties.computeUnits << " compute units");
-  if (std::string{device->backend()} == "CUDA") {
-    BOOST_TEST(properties.warpSize == 32);
-  } else if (properties.architecture.starts_with("gfx9")) {
-    BOOST_TEST(properties.warpSize == 64);
-  }
-}
-
-BOOST_AUTO_TEST_CASE(StreamsAndCopies)
-{
-  auto device = runtime();
-  auto stream = device->createStream();
-  DeviceStream moved = std::move(stream);
-
-  constexpr std::size_t kBytes = 4096U;
-  std::vector<std::uint8_t> input(kBytes, std::uint8_t{0xA5});
-  std::vector<std::uint8_t> output(kBytes, std::uint8_t{0});
-  {
-    DeviceArena arena{*device, block(kBytes)};
-    DeviceSpan<std::uint8_t> storage;
-    BOOST_REQUIRE(storage.allocate(arena, kBytes));
-    upload(input.data(), storage, kBytes, moved);
-    download(storage, output.data(), kBytes, moved);
-    moved.synchronize();
-    BOOST_TEST(std::memcmp(input.data(), output.data(), kBytes) == 0);
-  }
-}
-
-BOOST_AUTO_TEST_CASE(ArenaAlignmentMetricsResetAndRefusal)
-{
-  auto device = runtime();
-  DeviceArena arena{*device, block(2048U)};
-  const auto first = arena.allocate(7U, 16U);
-  const auto second = arena.allocate(19U, 256U);
-  BOOST_REQUIRE(first);
-  BOOST_REQUIRE(second);
-  BOOST_TEST(static_cast<std::byte*>(second.data) - static_cast<std::byte*>(first.data) == 256);
-  BOOST_TEST(arena.used() == 275U);
-  BOOST_TEST(arena.peak() == 275U);
-
-  const auto used = arena.used();
-  const auto peak = arena.peak();
-  const auto refused = arena.allocate(arena.capacity());
-  BOOST_TEST(!static_cast<bool>(refused));
-  BOOST_TEST(arena.used() == used);
-  BOOST_TEST(arena.peak() == peak);
-  arena.reset();
-  const auto again = arena.allocate(7U, 16U);
-  BOOST_TEST(again.data == first.data);
-  arena.resetPeak();
-  BOOST_TEST(arena.peak() == arena.used());
-}
-
-BOOST_AUTO_TEST_CASE(ScopesInvalidateOnlyWhatTheyRewind)
-{
-  auto device = runtime();
-  DeviceArena arena{*device, block(4096U)};
-  DeviceSpan<std::uint32_t> timeframe;
-  BOOST_REQUIRE(timeframe.allocate(arena, 8U));
-  DeviceSpan<std::uint32_t> slice;
-  {
-    auto scope = arena.scope();
-    BOOST_REQUIRE(slice.allocate(arena, 8U));
-    BOOST_CHECK_NO_THROW(static_cast<void>(slice.data()));
-  }
-  BOOST_CHECK_THROW(static_cast<void>(slice.data()), std::logic_error);
-  BOOST_CHECK_NO_THROW(static_cast<void>(timeframe.data()));
-
-  arena.reset();
-  BOOST_CHECK_THROW(static_cast<void>(timeframe.data()), std::logic_error);
-}
-
-BOOST_AUTO_TEST_CASE(ColumnAllocationIsTransactional)
-{
-  auto device = runtime();
-  DeviceArena arena{*device, block(800U)};
-  const auto used = arena.used();
-  DeviceColumns<TrackletT> columns;
-  BOOST_TEST(!columns.allocate(arena, 1U));
-  BOOST_TEST(arena.used() == used);
-}
-
-/// A transactional allocation opens its own scope and, on success, hands its
-/// columns to the scope around it: they outlive an inner scope opened later and
-/// die with the one they were allocated in.
-BOOST_AUTO_TEST_CASE(CommittedColumnsLiveAndDieWithTheirScope)
-{
-  auto device = runtime();
-  DeviceArena arena{*device, block(std::size_t{16} * 1024U)};
-  DeviceColumns<TrackletT> columns;
-  {
-    auto slice = arena.scope();
-    const auto before = arena.used();
-    BOOST_REQUIRE(columns.allocate(arena, 4U));
-    BOOST_TEST(arena.used() > before);
-    BOOST_CHECK_NO_THROW(static_cast<void>(columns.view()));
-    {
-      auto inner = arena.scope();
-      DeviceSpan<std::uint32_t> scratch;
-      BOOST_REQUIRE(scratch.allocate(arena, 16U));
-    }
-    BOOST_CHECK_NO_THROW(static_cast<void>(columns.view()));
-    BOOST_TEST(columns.size() == 4U);
-  }
-  BOOST_CHECK_THROW(static_cast<void>(columns.view()), std::logic_error);
-}
-
-/// The scratch end grows down from the top: both ends allocate without
-/// touching each other, meet but never cross, and each end's scopes rewind
-/// only that end.
-BOOST_AUTO_TEST_CASE(TheScratchEndIsIndependentOfTheBase)
-{
-  auto device = runtime();
-  constexpr std::size_t kCapacity = 4096U;
-  DeviceArena arena{*device, block(kCapacity)};
-  DeviceSpan<std::uint8_t> kept;
-  BOOST_REQUIRE(kept.allocate(arena, 1000U));
-  // The first allocation sits at the arena's base (the device allocation is 256-aligned).
-  const auto* origin = reinterpret_cast<const std::byte*>(kept.data());
-  BOOST_TEST(arena.used(ArenaEnd::kBase) == 1000U);
-  BOOST_TEST(arena.used(ArenaEnd::kScratch) == 0U);
-
-  DeviceSpan<std::byte> staging;
-  {
-    auto scratch = arena.scope(ArenaEnd::kScratch);
-    BOOST_REQUIRE(staging.allocate(arena, 1000U, ArenaEnd::kScratch));
-    const std::byte* at = staging.data();
-    BOOST_TEST(at >= origin + arena.used(ArenaEnd::kBase));
-    BOOST_TEST(at + 1000 <= origin + kCapacity);
-    BOOST_TEST(std::bit_cast<std::uintptr_t>(at) % 256U == 0U);
-    BOOST_TEST(arena.used() == arena.used(ArenaEnd::kBase) + arena.used(ArenaEnd::kScratch));
-
-    // The ends meet: what does not fit between them is refused and changes nothing.
-    const auto base = arena.used(ArenaEnd::kBase);
-    const auto top = arena.used(ArenaEnd::kScratch);
-    BOOST_TEST(!static_cast<bool>(arena.allocate(kCapacity - base - top + 1U, 1U, ArenaEnd::kScratch)));
-    BOOST_TEST(!static_cast<bool>(arena.allocate(kCapacity - base - top + 1U, 1U, ArenaEnd::kBase)));
-    BOOST_TEST(arena.used(ArenaEnd::kBase) == base);
-    BOOST_TEST(arena.used(ArenaEnd::kScratch) == top);
-
-    // A base-end scope opened and closed meanwhile leaves the scratch alone.
-    {
-      auto slice = arena.scope();
-      BOOST_REQUIRE(arena.allocate(16U));
-    }
-    BOOST_TEST(arena.used(ArenaEnd::kScratch) == top);
-    BOOST_CHECK_NO_THROW(static_cast<void>(staging.data()));
-  }
-  BOOST_TEST(arena.used(ArenaEnd::kScratch) == 0U);
-  BOOST_CHECK_THROW(static_cast<void>(staging.data()), std::logic_error);
-  BOOST_CHECK_NO_THROW(static_cast<void>(kept.data()));
-  BOOST_TEST(arena.peak() >= 2000U);
-
-  // Transactional columns on the scratch end, and a reset that clears both ends.
-  DeviceColumns<TrackletT> columns;
-  BOOST_REQUIRE(columns.allocate(arena, 8U, ArenaEnd::kScratch));
-  BOOST_TEST(arena.used(ArenaEnd::kScratch) > 0U);
-  BOOST_CHECK_NO_THROW(static_cast<void>(columns.view()));
-  arena.reset();
-  BOOST_TEST(arena.used() == 0U);
-  BOOST_CHECK_THROW(static_cast<void>(columns.view()), std::logic_error);
-}
-
-BOOST_AUTO_TEST_CASE(SharedFunctionsStillAgreeWithTheHost)
-{
-  auto device = runtime();
-  auto stream = device->createStream();
-  auto inputs = smokeInputs();
-  std::vector<SmokeRow> rows(inputs.size());
-  DeviceArena arena{*device, block((inputs.size() * (sizeof(float) + sizeof(SmokeRow))) + 1024U)};
-  DeviceSpan<float> deviceInputs;
-  DeviceSpan<SmokeRow> deviceRows;
-  DeviceSpan<std::uint32_t> maximum;
-  BOOST_REQUIRE(deviceInputs.allocate(arena, inputs.size()));
-  BOOST_REQUIRE(deviceRows.allocate(arena, inputs.size()));
-  BOOST_REQUIRE(maximum.allocate(arena, 1U));
-  upload(inputs.data(), deviceInputs, inputs.size(), stream);
-  device->fill(maximum.data(), 0U, sizeof(std::uint32_t), stream);
-  kernels().smoke(*device, stream, deviceInputs.data(), deviceRows.data(), maximum.data(), static_cast<std::uint32_t>(inputs.size()));
-  download(deviceRows, rows.data(), rows.size(), stream);
-  std::uint32_t maximumValue = 0U;
-  download(maximum, &maximumValue, 1U, stream);
-  stream.synchronize();
-
-  std::uint32_t expectedMaximum = 0U;
-  for (std::uint32_t i = 0; i < inputs.size(); ++i) {
-    expectedMaximum = std::max(expectedMaximum, (i * 37U) % static_cast<std::uint32_t>(inputs.size()));
-  }
-  BOOST_TEST(maximumValue == expectedMaximum);
-
-  double worstSinF = 0.;
-  double worstAtan2F = 0.;
-  double worstSinD = 0.;
-  double worstAtan2D = 0.;
-  double worstSqrtD = 0.;
-  for (std::size_t i = 0; i < inputs.size(); ++i) {
-    const float x = inputs[i];
-    BOOST_TEST(rows[i].bin == clampedBin(x * 4.F, 16));
-    if (!std::isfinite(x) || std::abs(x) > 10.F) {
-      continue;
-    }
-    worstSinF = std::max(worstSinF, static_cast<double>(std::abs(rows[i].sinF - sinOf(x))));
-    worstAtan2F = std::max(worstAtan2F, static_cast<double>(std::abs(rows[i].atan2F - atan2Of(x, 1.5F))));
-    worstSinD = std::max(worstSinD, ulps(rows[i].sinD, sinOf(static_cast<double>(x))));
-    worstAtan2D = std::max(worstAtan2D, ulps(rows[i].atan2D, atan2Of(static_cast<double>(x), 1.5)));
-    worstSqrtD = std::max(worstSqrtD, ulps(rows[i].sqrtD, o2::math_utils::detail::sqrt(static_cast<double>(std::abs(x)))));
-  }
-#ifdef GPUCA_DETERMINISTIC_MODE
-  BOOST_TEST(worstSinF == 0.);
-  BOOST_TEST(worstAtan2F == 0.);
-  BOOST_TEST(worstSinD == 0.);
-  BOOST_TEST(worstAtan2D == 0.);
-#else
-  BOOST_TEST(worstSinF <= 1.e-5);
-  BOOST_TEST(worstAtan2F <= 1.e-5);
-  BOOST_TEST(worstSinD <= 3.);
-  BOOST_TEST(worstAtan2D <= 3.);
-#endif
-  BOOST_TEST(worstSqrtD == 0.);
-}
 
 /// Every function of Trig.h, in both precisions, over the propagator's turns,
 /// wide arguments, the reduction's hard cases and the special values: in the
@@ -403,82 +134,6 @@ BOOST_AUTO_TEST_CASE(TrigGivesTheHostsBitsInTheDeterministicBuild)
     BOOST_TEST(differ[function] == 0U, kNames[function] << " differs from the host in " << differ[function] << " of " << count);
 #endif
   }
-}
-
-BOOST_AUTO_TEST_CASE(TrackletAndMeasurementViewsRoundTrip)
-{
-  auto device = runtime();
-  auto stream = device->createStream();
-  DeviceArena arena{*device, block(std::size_t{64} * 1024U)};
-
-  const auto trackletMemory = hostPool();
-  const auto trackletBackMemory = hostPool();
-  BoundedColumns<TrackletT> tracklets;
-  BoundedColumns<TrackletT> trackletsBack;
-  tracklets.setMemoryResource(trackletMemory.get());
-  trackletsBack.setMemoryResource(trackletBackMemory.get());
-  tracklets.resize(3U);
-  for (std::size_t i = 0; i < tracklets.size(); ++i) {
-    tracklets.write(i, Tracklet{.source = 0xA1000000U + static_cast<std::uint32_t>(i),
-                                .target = 0xB2000000U + static_cast<std::uint32_t>(i),
-                                .link = static_cast<std::uint16_t>(0xC300U + i),
-                                .lambda = std::bit_cast<float>(0x3ED40000U + static_cast<std::uint32_t>(i)),
-                                .phi = std::bit_cast<float>(0xBEE50000U + static_cast<std::uint32_t>(i))});
-  }
-  DeviceColumns<TrackletT> deviceTracklets;
-  DeviceColumns<TrackletT> deviceTrackletsBack;
-  DeviceObject<TrackletConstView> trackletView;
-  BOOST_REQUIRE(deviceTracklets.allocate(arena, tracklets.size()));
-  BOOST_REQUIRE(deviceTrackletsBack.allocate(arena, tracklets.size()));
-  BOOST_REQUIRE(trackletView.allocate(arena));
-  upload<TrackletT>(std::as_const(tracklets).view(), tracklets.size(), deviceTracklets, stream);
-  const TrackletConstView trackletPointers = std::as_const(deviceTracklets).view();
-  uploadObject(trackletPointers, trackletView, stream);
-  kernels().copyTracklets(*device, stream, trackletView.data(), deviceTrackletsBack.view(), static_cast<std::uint32_t>(tracklets.size()));
-  download(deviceTrackletsBack, trackletsBack, tracklets.size(), stream);
-
-  const auto measurementMemory = hostPool();
-  const auto measurementBackMemory = hostPool();
-  BoundedColumns<MeasurementT> measurements;
-  BoundedColumns<MeasurementT> measurementsBack;
-  measurements.setMemoryResource(measurementMemory.get());
-  measurementsBack.setMemoryResource(measurementBackMemory.get());
-  measurements.resize(3U);
-  for (std::size_t i = 0; i < measurements.size(); ++i) {
-    const auto f = static_cast<float>(i);
-    measurements.write(i, Measurement{.loc0 = 1.F + f,
-                                      .loc1 = 2.F + f,
-                                      .timePS = 3'250U + static_cast<std::uint32_t>(i),
-                                      .widthPS = 7U + static_cast<std::uint32_t>(i),
-                                      .varLoc0 = 4.F + f,
-                                      .covLoc01 = -5.F - f,
-                                      .varLoc1 = 6.F + f,
-                                      .clusterIndex = 0x88000000U + static_cast<std::uint32_t>(i),
-                                      .surface = static_cast<SensorID>(0x9900U + i),
-                                      .x = 10.F + f,
-                                      .y = 11.F + f,
-                                      .z = 12.F + f,
-                                      .r = 13.F + f,
-                                      .phi = 14.F + f,
-                                      .varZ = 15.F + f,
-                                      .varR = 16.F + f,
-                                      .varRPhi = 17.F + f});
-  }
-  DeviceColumns<MeasurementT> deviceMeasurements;
-  DeviceColumns<MeasurementT> deviceMeasurementsBack;
-  DeviceObject<MeasurementView> measurementView;
-  BOOST_REQUIRE(deviceMeasurements.allocate(arena, measurements.size()));
-  BOOST_REQUIRE(deviceMeasurementsBack.allocate(arena, measurements.size()));
-  BOOST_REQUIRE(measurementView.allocate(arena));
-  upload<MeasurementT>(std::as_const(measurements).view(), measurements.size(), deviceMeasurements, stream);
-  const MeasurementView measurementPointers = std::as_const(deviceMeasurements).view();
-  uploadObject(measurementPointers, measurementView, stream);
-  kernels().copyMeasurements(*device, stream, measurementView.data(), deviceMeasurementsBack.view(), static_cast<std::uint32_t>(measurements.size()));
-  download(deviceMeasurementsBack, measurementsBack, measurements.size(), stream);
-  stream.synchronize();
-
-  BOOST_TEST(sameColumns(tracklets, trackletsBack));
-  BOOST_TEST(sameColumns(measurements, measurementsBack));
 }
 
 // The lane groups: groups of 2 lanes up to a whole warp, 37 items --

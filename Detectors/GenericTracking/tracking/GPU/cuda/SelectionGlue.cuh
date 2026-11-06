@@ -356,11 +356,13 @@ template <std::size_t K, typename RecordView>
   result.slots = slotAll;
   result.readbacks += rounds.changingSweeps + 1U;
 
-  // The accepted ranks, best first, as record indices.
+  // The accepted ranks, best first, on the scratch end, then as record
+  // indices.
+  auto scratch = arena.scope(ArenaEnd::kScratch);
   DeviceSpan<Index> acceptedRanks;
   Index tracks = 0U;
-  const StageStatus compacted =
-    algorithms::selectIndices(runtime, arena, stream, uniqueCount, detail::IsAccepted{.accepted = std::as_const(accepted).data()}, acceptedRanks, tracks);
+  const StageStatus compacted = algorithms::selectIndices(runtime, arena, stream, uniqueCount, detail::IsAccepted{.accepted = std::as_const(accepted).data()},
+                                                          acceptedRanks, tracks, ArenaEnd::kScratch);
   ++result.readbacks;
   if (compacted != StageStatus::kComplete) {
     return compacted;

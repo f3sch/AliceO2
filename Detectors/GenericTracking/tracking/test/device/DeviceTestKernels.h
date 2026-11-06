@@ -35,8 +35,6 @@
 #include "FlatObject.h"
 #include "UniformMaterial.h"
 
-#include <memlayout/wrapper.h>
-
 #include <cstddef>
 #include <algorithm>
 #include <array>
@@ -47,16 +45,6 @@
 
 namespace o2::gtrk
 {
-
-struct SmokeRow {
-  float sinF = 0.F;
-  float atan2F = 0.F;
-  double sinD = 0.;
-  double atan2D = 0.;
-  double sqrtD = 0.;
-  std::int32_t bin = 0;
-  std::uint32_t maxOf = 0U;
-};
 
 /// Every function of Trig.h at one argument pair, in both precisions: in
 /// the deterministic build the host's bits (PortableMath.h).
@@ -99,8 +87,6 @@ GPUhdi() TrigRow trigRow(double y, double x)
   row.logF = logOf(xF);
   return row;
 }
-
-using MeasurementMutableView = memlayout::Wrapper<MeasurementT, memlayout::pointer, memlayout::Layout::soa>;
 
 /// What a flat synthetic run reports:
 /// the run's report and the elements it listed.
@@ -168,7 +154,6 @@ struct RoadGlueResult {
   std::vector<std::uint32_t> roads;
   std::vector<std::uint32_t> starts;
   std::vector<std::uint32_t> offsets;
-  std::uint32_t sweeps = 0U;
   std::uint32_t chained = 0U;
 };
 
@@ -260,11 +245,8 @@ GPUhdi() std::array<std::uint64_t, 2> run(const Group& group, std::uint32_t item
 } // namespace lane_group_script
 
 struct DeviceTestEntry {
-  void (*smoke)(DeviceRuntime&, DeviceStream&, const float*, SmokeRow*, std::uint32_t*, std::uint32_t) = nullptr;
   /// trigRow of every (ys[i], xs[i]) on the device.
   void (*trig)(DeviceRuntime&, DeviceStream&, const double* ys, const double* xs, TrigRow* rows, std::uint32_t count) = nullptr;
-  void (*copyTracklets)(DeviceRuntime&, DeviceStream&, const TrackletConstView*, TrackletView, std::uint32_t) = nullptr;
-  void (*copyMeasurements)(DeviceRuntime&, DeviceStream&, const MeasurementView*, MeasurementMutableView, std::uint32_t) = nullptr;
   /// GpuStage<TrackletT> over the synthetic generator, its output prepared in
   /// the caller's scope of \a arena and, if complete, downloaded to \a result.
   StageStatus (*runSynthetic)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t elements, std::size_t stagingCapacity,
@@ -279,8 +261,6 @@ struct DeviceTestEntry {
   /// chunks of at most \a maxChunkPairs pairs (0: the arena decides).
   StageStatus (*runFlatSynthetic)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t divisor, std::uint32_t elements, bool listedRun,
                                   std::size_t maxChunkPairs, StageOutput<TrackletT>& result, FlatRunInfo& info) = nullptr;
-  /// GpuStage::forEachElement adding one to visits[e] for every element.
-  void (*visitElements)(DeviceRuntime&, DeviceStream&, DeviceArena&, std::uint32_t* visits, std::uint32_t elements) = nullptr;
   /// The device tracker for the ToyBarrel8 fixtures.
   std::unique_ptr<DeviceTracker<detectors::ToyBarrel8, UniformMaterial>> (*makeToyBarrel8Tracker)(DeviceRuntime&, DeviceBlock arena) = nullptr;
   /// The slice's glue passes on host inputs copied to the device, their
@@ -317,12 +297,6 @@ struct DeviceTestEntry {
   /// \a object ported to the device and its values read there; false if the
   /// arena refused it.
   bool (*flatObject)(DeviceRuntime&, DeviceStream&, DeviceArena&, const ToyFlatObject& object, std::vector<std::int32_t>& readBack) = nullptr;
-  /// A slice's road counts, starts and offsets
-  /// on host inputs copied to the device: the triplets with their final
-  /// levels, the neighbours, the chained triplets and the core rows per layer.
-  StageStatus (*roadGlue)(DeviceRuntime&, DeviceStream&, DeviceArena&, const IterationParameters<ToyBarrel8Det>&, const StageOutput<TrackletT>& tracklets,
-                          const StageOutput<TripletT>& triplets, const StageOutput<NeighbourT>& neighbours, std::span<const std::uint32_t> chained,
-                          const std::array<MeasurementRange, kToyBarrel8Layers>& core, std::uint32_t maxSweeps, RoadGlueResult& result) = nullptr;
   /// O2's material LUT ported with DeviceFlatObject, and getMatBudget of each
   /// segment (x0, y0, z0, x1, y1, z1) evaluated on the device: its mean
   /// density, mean X/X0 and length.
@@ -337,10 +311,12 @@ struct DeviceTestEntry {
   /// `lane_group_script::run` for \a items items in groups of \a lanes lanes
   /// (`forEachGroup`, `WarpGroup`): two words per lane, item by item.
   StageStatus (*laneGroups)(DeviceRuntime&, DeviceStream&, DeviceArena&, std::uint32_t lanes, std::uint32_t items, std::vector<std::uint64_t>&) = nullptr;
-  /// Independently scheduled ordered counts on a supplied final graph.
-  StageStatus (*orderedRoadGlue)(DeviceRuntime&, DeviceStream&, DeviceArena&, const IterationParameters<ToyBarrel8Det>&, const StageOutput<TrackletT>&,
-                                 const StageOutput<TripletT>&, const StageOutput<NeighbourT>&, std::span<const std::uint32_t>,
-                                 const std::array<MeasurementRange, kToyBarrel8Layers>&, std::uint32_t, RoadGlueResult&) = nullptr;
+  /// A slice's road counts, independently scheduled ordered counts, then its
+  /// starts and offsets, on host inputs copied to the device: the triplets
+  /// with their final levels, the neighbours and the core rows per layer.
+  StageStatus (*orderedRoadGlue)(DeviceRuntime&, DeviceStream&, DeviceArena&, const IterationParameters<ToyBarrel8Det>&, const StageOutput<TrackletT>& tracklets,
+                                 const StageOutput<TripletT>& triplets, const StageOutput<NeighbourT>& neighbours,
+                                 const std::array<MeasurementRange, kToyBarrel8Layers>& core, RoadGlueResult& result) = nullptr;
 };
 
 const DeviceTestEntry* testKernelsCUDA();

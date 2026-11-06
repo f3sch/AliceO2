@@ -21,10 +21,8 @@
 #include "RoadGlue.cuh"
 #include "SelectionGlue.cuh"
 #include "SliceGlue.cuh"
-#include "FixedPointReferences.h"
 
 #include "GenericTracking/Tracking/GPU/MaterialPort.h"
-#include "GenericTracking/Tracking/MeasurementGrid.h"
 #include "GenericTracking/Tracking/Trig.h"
 
 #include "DetectorsBase/MatLayerCylSet.h"
@@ -43,25 +41,6 @@ namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
 namespace
 {
 
-constexpr std::int32_t kSmokeBins = 16;
-constexpr std::uint32_t kSmokeStride = 37U;
-
-GPUg() void smokeKernel(const float* inputs, SmokeRow* rows, std::uint32_t* maximum, std::uint32_t count)
-{
-  for (std::uint32_t i = (blockIdx.x * blockDim.x) + threadIdx.x; i < count; i += blockDim.x * gridDim.x) {
-    const float x = inputs[i];
-    SmokeRow row;
-    row.sinF = sinOf(x);
-    row.atan2F = atan2Of(x, 1.5F);
-    row.sinD = sinOf(static_cast<double>(x));
-    row.atan2D = atan2Of(static_cast<double>(x), 1.5);
-    row.sqrtD = o2::math_utils::detail::sqrt(static_cast<double>(x < 0.F ? -x : x));
-    row.bin = clampedBin(x * 4.F, kSmokeBins);
-    rows[i] = row;
-    o2::gpu::CAMath::AtomicMax(maximum, (i * kSmokeStride) % count);
-  }
-}
-
 GPUg() void trigKernel(const double* ys, const double* xs, TrigRow* rows, std::uint32_t count)
 {
   for (std::uint32_t i = (blockIdx.x * blockDim.x) + threadIdx.x; i < count; i += blockDim.x * gridDim.x) {
@@ -69,33 +48,7 @@ GPUg() void trigKernel(const double* ys, const double* xs, TrigRow* rows, std::u
   }
 }
 
-template <typename SourceView, typename TargetView>
-GPUdi() void copyRow(const SourceView& source, TargetView& target, std::uint32_t row)
-{
-  auto from = source[row];
-  auto to = target[row];
-  from.apply([&](const auto&... input) { to.apply([&](auto&... output) { ((output = input), ...); }); });
-}
-
-template <typename SourceView, typename TargetView>
-GPUg() void copyRowsKernel(const SourceView* source, TargetView target, std::uint32_t rows)
-{
-  for (std::uint32_t row = (blockIdx.x * blockDim.x) + threadIdx.x; row < rows; row += blockDim.x * gridDim.x) {
-    copyRow(*source, target, row);
-  }
-}
-
 cudaStream_t streamOf(DeviceRuntime& runtime, DeviceStream& stream) { return static_cast<cudaStream_t>(runtime.nativeStream(stream)); }
-
-void runSmoke(DeviceRuntime& runtime, DeviceStream& stream, const float* inputs, SmokeRow* rows, std::uint32_t* maximum, std::uint32_t count)
-{
-  if (count == 0U) {
-    return;
-  }
-  const auto shape = gpu::launchFor(count);
-  smokeKernel<<<shape.blocks, shape.threads, 0U, streamOf(runtime, stream)>>>(inputs, rows, maximum, count);
-  checkLaunch();
-}
 
 void runTrig(DeviceRuntime& runtime, DeviceStream& stream, const double* ys, const double* xs, TrigRow* rows, std::uint32_t count)
 {
@@ -104,26 +57,6 @@ void runTrig(DeviceRuntime& runtime, DeviceStream& stream, const double* ys, con
   }
   const auto shape = gpu::launchFor(count);
   trigKernel<<<shape.blocks, shape.threads, 0U, streamOf(runtime, stream)>>>(ys, xs, rows, count);
-  checkLaunch();
-}
-
-void copyTracklets(DeviceRuntime& runtime, DeviceStream& stream, const TrackletConstView* source, TrackletView target, std::uint32_t rows)
-{
-  if (rows == 0U) {
-    return;
-  }
-  const auto shape = gpu::launchFor(rows);
-  copyRowsKernel<<<shape.blocks, shape.threads, 0U, streamOf(runtime, stream)>>>(source, target, rows);
-  checkLaunch();
-}
-
-void copyMeasurements(DeviceRuntime& runtime, DeviceStream& stream, const MeasurementView* source, MeasurementMutableView target, std::uint32_t rows)
-{
-  if (rows == 0U) {
-    return;
-  }
-  const auto shape = gpu::launchFor(rows);
-  copyRowsKernel<<<shape.blocks, shape.threads, 0U, streamOf(runtime, stream)>>>(source, target, rows);
   checkLaunch();
 }
 
@@ -257,16 +190,6 @@ StageStatus runFlatSynthetic(DeviceRuntime& runtime, DeviceStream& stream, Devic
     stream.synchronize();
   }
   return status;
-}
-
-struct Visit {
-  std::uint32_t* visits = nullptr;
-  GPUdi() void operator()(std::uint32_t element) const { atomicAdd(visits + element, 1U); }
-};
-
-void visitElements(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& /*arena*/, std::uint32_t* visits, std::uint32_t elements)
-{
-  algorithms::forEach(runtime, stream, elements, Visit{.visits = visits});
 }
 
 struct PropagateProbe {
@@ -637,43 +560,6 @@ bool runFlatObject(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& ar
   return true;
 }
 
-/// The successor flags and the road counts of \a tripletCount triplets by
-/// sweeps to the fixed point (test/FixedPointReferences.h's `fixedPointRoads` up to
-/// its numbering): SuccessorMark and RoadBase over every triplet, then
-/// RoadCountUpdate swept; a count past 32 bits is kIndexOverflow. The
-/// reference for the device's ordered counts. \a linkSources and \a core are
-/// device arrays (per link, per layer); \a maxSweeps is the levels' bound.
-/// \a sweeps and \a readbacks count the count sweeps.
-[[nodiscard]] StageStatus fixedPointRoadCounts(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, TrackletConstView tracklets,
-                                               TripletConstView triplets, std::uint32_t tripletCount, const std::uint32_t* neighbourOffsets,
-                                               const std::uint32_t* from, const std::uint32_t* chained, std::uint32_t chainedCount, const LayerID* linkSources,
-                                               const MeasurementRange* core, std::uint32_t maxSweeps, DeviceSpan<std::uint32_t>& successorAbove,
-                                               DeviceSpan<std::uint32_t>& roads, std::uint32_t& sweeps, std::uint32_t& readbacks)
-{
-  sweeps = 0U;
-  readbacks = 0U;
-  if (!successorAbove.allocate(arena, tripletCount) || !roads.allocate(arena, tripletCount)) {
-    return StageStatus::kOutOfMemory;
-  }
-  const std::size_t bytes = std::size_t{tripletCount} * sizeof(std::uint32_t);
-  runtime.fill(successorAbove.data(), 0U, bytes, stream);
-  runtime.fill(roads.data(), 0U, bytes, stream);
-  algorithms::forEach(runtime, stream, tripletCount, SuccessorMark{neighbourOffsets, from, triplets.level, successorAbove.data()});
-  algorithms::forEach(runtime, stream, tripletCount, RoadBase{tracklets, triplets, linkSources, core, roads.data()});
-  if (chainedCount == 0U) {
-    return StageStatus::kComplete;
-  }
-  const auto swept = algorithms::sweepToFixedPoint<2U>(runtime, arena, stream, maxSweeps, [&](std::uint32_t* flags) {
-    algorithms::forEach(runtime, stream, chainedCount, RoadCountUpdate{chained, neighbourOffsets, from, triplets.level, roads.data(), flags, flags + 1});
-  });
-  sweeps = swept.changingSweeps;
-  if (swept.status != StageStatus::kComplete) {
-    return swept.status;
-  }
-  readbacks = swept.changingSweeps + 1U;
-  return swept.flags[1] != 0U ? StageStatus::kIndexOverflow : StageStatus::kComplete;
-}
-
 struct CountAtLevel {
   TrackletConstView tracklets;
   TripletConstView triplets;
@@ -700,11 +586,9 @@ struct CountAtLevel {
   }
 };
 
-template <bool Ordered>
-StageStatus runRoadGlue(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const IterationParameters<Toy>& parameters,
-                        const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, const StageOutput<NeighbourT>& neighbours,
-                        std::span<const std::uint32_t> chained, const std::array<MeasurementRange, kToyLayers>& core, std::uint32_t maxSweeps,
-                        RoadGlueResult& result)
+StageStatus runOrderedRoadGlue(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const IterationParameters<Toy>& parameters,
+                               const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, const StageOutput<NeighbourT>& neighbours,
+                               const std::array<MeasurementRange, kToyLayers>& core, RoadGlueResult& result)
 {
   auto scope = arena.scope();
   const auto tripletCount = triplets.size();
@@ -713,11 +597,9 @@ StageStatus runRoadGlue(DeviceRuntime& runtime, DeviceStream& stream, DeviceAren
   DeviceColumns<TripletT> deviceTriplets;
   DeviceSpan<std::uint32_t> offsets;
   DeviceColumns<NeighbourT> from;
-  DeviceSpan<std::uint32_t> deviceChained;
   DeviceSpan<MeasurementRange> deviceCore;
   if (!deviceParameters.allocate(arena) || !deviceTracklets.allocate(arena, tracklets.size()) || !deviceTriplets.allocate(arena, tripletCount) ||
-      !offsets.allocate(arena, neighbours.offsets().size()) || !from.allocate(arena, neighbours.size()) || !deviceChained.allocate(arena, chained.size()) ||
-      !deviceCore.allocate(arena, kToyLayers)) {
+      !offsets.allocate(arena, neighbours.offsets().size()) || !from.allocate(arena, neighbours.size()) || !deviceCore.allocate(arena, kToyLayers)) {
     return StageStatus::kOutOfMemory;
   }
   uploadObject(parameters, deviceParameters, stream);
@@ -725,43 +607,29 @@ StageStatus runRoadGlue(DeviceRuntime& runtime, DeviceStream& stream, DeviceAren
   upload<TripletT>(triplets.view(), tripletCount, deviceTriplets, stream);
   upload(neighbours.offsets().data(), offsets, neighbours.offsets().size(), stream);
   upload<NeighbourT>(neighbours.view(), neighbours.size(), from, stream);
-  upload(chained.data(), deviceChained, chained.size(), stream);
   upload(core.data(), deviceCore, kToyLayers, stream);
 
-  DeviceSpan<std::uint32_t> successorAbove;
-  DeviceSpan<std::uint32_t> roads;
-  std::uint32_t readbacks = 0U;
-  auto status = StageStatus::kComplete;
-  if constexpr (Ordered) {
-    road_glue::OrderedCounts counts;
-    status = counts.prepare(runtime, arena, stream, tripletCount);
-    if (status != StageStatus::kComplete) {
-      return status;
-    }
-    // Deliberately use supplied final levels, not neighbour fitting or the
-    // production layer boundaries. Replay models a complete staging retry.
-    std::uint32_t highest = 0U;
-    for (std::uint32_t element = 0U; element < tripletCount; ++element) {
-      highest = std::max(highest, triplets.view().level[element]);
-    }
-    for (int attempt = 0; attempt < 2; ++attempt) {
-      for (std::uint32_t level = 1U; level <= highest; ++level) {
-        algorithms::forEach(runtime, stream, tripletCount,
-                            CountAtLevel{std::as_const(deviceTracklets).view(), std::as_const(deviceTriplets).view(), offsets.data(),
-                                         std::as_const(from).view().from, counts.view(road_glue::linkSourcesOf(deviceParameters.data()), deviceCore.data()), level});
-      }
-    }
-    status = counts.summarize(runtime, stream, std::as_const(deviceTriplets).view(), tripletCount, result.chained);
-    result.sweeps = 0U;
-    successorAbove = counts.successorAbove;
-    roads = counts.roads;
-  } else {
-    result.chained = static_cast<std::uint32_t>(chained.size());
-    status =
-      fixedPointRoadCounts(runtime, arena, stream, std::as_const(deviceTracklets).view(), std::as_const(deviceTriplets).view(), tripletCount, offsets.data(),
-                           std::as_const(from).view().from, deviceChained.data(), static_cast<std::uint32_t>(chained.size()),
-                           road_glue::linkSourcesOf(deviceParameters.data()), deviceCore.data(), maxSweeps, successorAbove, roads, result.sweeps, readbacks);
+  road_glue::OrderedCounts counts;
+  auto status = counts.prepare(runtime, arena, stream, tripletCount);
+  if (status != StageStatus::kComplete) {
+    return status;
   }
+  // Deliberately use supplied final levels, not neighbour fitting or the
+  // production layer boundaries. Replay models a complete staging retry.
+  std::uint32_t highest = 0U;
+  for (std::uint32_t element = 0U; element < tripletCount; ++element) {
+    highest = std::max(highest, triplets.view().level[element]);
+  }
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    for (std::uint32_t level = 1U; level <= highest; ++level) {
+      algorithms::forEach(runtime, stream, tripletCount,
+                          CountAtLevel{std::as_const(deviceTracklets).view(), std::as_const(deviceTriplets).view(), offsets.data(),
+                                       std::as_const(from).view().from, counts.view(road_glue::linkSourcesOf(deviceParameters.data()), deviceCore.data()), level});
+    }
+  }
+  status = counts.summarize(runtime, stream, std::as_const(deviceTriplets).view(), tripletCount, result.chained);
+  const DeviceSpan<std::uint32_t>& successorAbove = counts.successorAbove;
+  const DeviceSpan<std::uint32_t>& roads = counts.roads;
   if (status != StageStatus::kComplete) {
     stream.synchronize();
     return status;
@@ -927,14 +795,10 @@ namespace o2::gtrk
 #ifdef GTRK_BACKEND_HIP
 const DeviceTestEntry* testKernelsHIP()
 {
-  static const DeviceTestEntry entry{.smoke = &gpu::hip::runSmoke,
-                                     .trig = &gpu::hip::runTrig,
-                                     .copyTracklets = &gpu::hip::copyTracklets,
-                                     .copyMeasurements = &gpu::hip::copyMeasurements,
+  static const DeviceTestEntry entry{.trig = &gpu::hip::runTrig,
                                      .runSynthetic = &gpu::hip::runSynthetic,
                                      .runSyntheticListed = &gpu::hip::runSyntheticListed,
                                      .runFlatSynthetic = &gpu::hip::runFlatSynthetic,
-                                     .visitElements = &gpu::hip::visitElements,
                                      .makeToyBarrel8Tracker = &gpu::hip::makeToyBarrel8Tracker,
                                      .permutation = &gpu::hip::runPermutation,
                                      .pathBounds = &gpu::hip::runPathBounds,
@@ -947,25 +811,20 @@ const DeviceTestEntry* testKernelsHIP()
                                      .copyColumns = &gpu::hip::runCopyColumns,
                                      .gatherChunks = &gpu::hip::runGatherChunks,
                                      .flatObject = &gpu::hip::runFlatObject,
-                                     .roadGlue = &gpu::hip::runRoadGlue<false>,
                                      .matBudgets = &gpu::hip::runMatBudgets,
                                      .selectionGlue = &gpu::hip::runSelectionGlue,
                                      .propagation = &gpu::hip::runPropagation,
                                      .laneGroups = &gpu::hip::runLaneGroups,
-                                     .orderedRoadGlue = &gpu::hip::runRoadGlue<true>};
+                                     .orderedRoadGlue = &gpu::hip::runOrderedRoadGlue};
   return &entry;
 }
 #else
 const DeviceTestEntry* testKernelsCUDA()
 {
-  static const DeviceTestEntry entry{.smoke = &gpu::cuda::runSmoke,
-                                     .trig = &gpu::cuda::runTrig,
-                                     .copyTracklets = &gpu::cuda::copyTracklets,
-                                     .copyMeasurements = &gpu::cuda::copyMeasurements,
+  static const DeviceTestEntry entry{.trig = &gpu::cuda::runTrig,
                                      .runSynthetic = &gpu::cuda::runSynthetic,
                                      .runSyntheticListed = &gpu::cuda::runSyntheticListed,
                                      .runFlatSynthetic = &gpu::cuda::runFlatSynthetic,
-                                     .visitElements = &gpu::cuda::visitElements,
                                      .makeToyBarrel8Tracker = &gpu::cuda::makeToyBarrel8Tracker,
                                      .permutation = &gpu::cuda::runPermutation,
                                      .pathBounds = &gpu::cuda::runPathBounds,
@@ -978,12 +837,11 @@ const DeviceTestEntry* testKernelsCUDA()
                                      .copyColumns = &gpu::cuda::runCopyColumns,
                                      .gatherChunks = &gpu::cuda::runGatherChunks,
                                      .flatObject = &gpu::cuda::runFlatObject,
-                                     .roadGlue = &gpu::cuda::runRoadGlue<false>,
                                      .matBudgets = &gpu::cuda::runMatBudgets,
                                      .selectionGlue = &gpu::cuda::runSelectionGlue,
                                      .propagation = &gpu::cuda::runPropagation,
                                      .laneGroups = &gpu::cuda::runLaneGroups,
-                                     .orderedRoadGlue = &gpu::cuda::runRoadGlue<true>};
+                                     .orderedRoadGlue = &gpu::cuda::runOrderedRoadGlue};
   return &entry;
 }
 #endif

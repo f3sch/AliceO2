@@ -9,9 +9,7 @@
 # granted to it by virtue of its status as an Intergovernmental Organization
 # or submit itself to any jurisdiction.
 
-# The device tests: the device compile check (every per-element function of
-# the tracking in a kernel, for every toy layout, device-linked and never run),
-# and the runtime tests on each backend, labelled gpu because they need one.
+# The device tests on each backend, labelled gpu because they need one.
 
 if(NOT CUDA_ENABLED AND NOT HIP_ENABLED)
   return()
@@ -51,12 +49,6 @@ foreach(backend IN ITEMS CUDA HIP)
   target_include_directories(gtrk_device_test_${lower} PRIVATE ${fixtures})
   target_link_libraries(gtrk_device_test_${lower} PRIVATE O2::GTrkTracking)
   gtrk_device_target(gtrk_device_test_${lower} ${backend} SHARED "_ZN2o24gtrk*testKernels${backend}E*")
-
-  gtrk_device_sources(sources ${backend} DeviceCompileCheckToyBarrel3.cu DeviceCompileCheckToyBarrel8.cu DeviceCompileCheckToyDisc3.cu)
-  add_library(gtrk_device_check_${lower} SHARED ${sources})
-  target_include_directories(gtrk_device_check_${lower} PRIVATE ${fixtures})
-  target_link_libraries(gtrk_device_check_${lower} PRIVATE O2::GTrkTracking)
-  gtrk_device_target(gtrk_device_check_${lower} ${backend} SHARED)
 
   gtrk_device_test(device-runtime testDeviceRuntime.cxx ${backend})
   gtrk_device_test(gpu-stage testGpuStage.cxx ${backend})

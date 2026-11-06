@@ -216,11 +216,11 @@ template <DetectorLayout Det>
     algorithms::forEach(runtime, stream, size,
                         path_detail::MeasurementPaths<Det, Forward>{tracklets, offsets, sources, parameters, layer, prefix.data(), bounds.suffix.data()});
   };
-  for (const auto layer : layerOrder<Det>) {
+  for (const auto layer : layerDepthGroups<Det>.order) {
     sweep.template operator()<true>(layer);
   }
-  for (auto order = layerOrder<Det>.size(); order-- > 0U;) {
-    sweep.template operator()<false>(layerOrder<Det>[order]);
+  for (auto order = layerDepthGroups<Det>.order.size(); order-- > 0U;) {
+    sweep.template operator()<false>(layerDepthGroups<Det>.order[order]);
   }
   algorithms::forEach(runtime, stream, count, path_detail::PackPrefix{prefix.data(), bounds.prefix.data()});
   return StageStatus::kComplete;
@@ -264,12 +264,12 @@ template <DetectorLayout Det>
       triplets, permutation, tripletOffsets, bounds.layerElements.data(), layer, prefix.data(), bounds.suffix.data());
     checkLaunch();
   };
-  for (const auto layer : layerOrder<Det>) {
+  for (const auto layer : layerDepthGroups<Det>.order) {
     sweep.template operator()<true>(layer);
   }
   algorithms::forEach(runtime, stream, trackletCount, path_detail::PackPrefix{prefix.data(), bounds.prefix.data()});
-  for (auto order = layerOrder<Det>.size(); order-- > 0U;) {
-    sweep.template operator()<false>(layerOrder<Det>[order]);
+  for (auto order = layerDepthGroups<Det>.order.size(); order-- > 0U;) {
+    sweep.template operator()<false>(layerDepthGroups<Det>.order[order]);
   }
   return StageStatus::kComplete;
 }

@@ -112,23 +112,11 @@ StageStatus compare(const IterationParameters<Det>& iteration, const Graph& inpu
   host.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   const auto hostStatus =
     fixedPointRoads(host, kSerial, iteration.linkSources, cores.data(), roadStartRule(iteration), *input.tracklets, *input.triplets, *input.neighbours);
+  BOOST_TEST_MESSAGE("host: " << host.starts().size() << " starts, " << host.roadCount() << " roads, status " << static_cast<int>(hostStatus));
   Device device;
-  RoadGlueResult onDevice;
-  const auto deviceStatus = kernels().roadGlue(*device.runtime, device.stream, *device.arena, iteration, *input.tracklets, *input.triplets, *input.neighbours,
-                                               input.chained, cores, input.triplets->size(), onDevice);
-  BOOST_TEST_MESSAGE("host: " << host.starts().size() << " starts, " << host.roadCount() << " roads, status " << static_cast<int>(hostStatus) << "; device "
-                              << onDevice.sweeps << " count sweeps");
-  BOOST_TEST((deviceStatus == hostStatus));
-  if (hostStatus == StageStatus::kComplete && deviceStatus == StageStatus::kComplete) {
-    BOOST_TEST(std::ranges::equal(onDevice.successorAbove, host.successorAbove()));
-    BOOST_TEST(std::ranges::equal(onDevice.roads, host.roads()));
-    BOOST_TEST(std::ranges::equal(onDevice.starts, host.starts()));
-    BOOST_TEST(std::ranges::equal(onDevice.offsets, host.roadOffsets()));
-  }
-  BOOST_TEST(device.arena->used() == 0U);
   RoadGlueResult ordered;
-  const auto orderedStatus = kernels().orderedRoadGlue(*device.runtime, device.stream, *device.arena, iteration, *input.tracklets, *input.triplets,
-                                                       *input.neighbours, input.chained, cores, input.triplets->size(), ordered);
+  const auto orderedStatus =
+    kernels().orderedRoadGlue(*device.runtime, device.stream, *device.arena, iteration, *input.tracklets, *input.triplets, *input.neighbours, cores, ordered);
   BOOST_TEST((orderedStatus == hostStatus));
   BOOST_TEST(ordered.chained == input.chained.size());
   if (hostStatus == StageStatus::kComplete && orderedStatus == StageStatus::kComplete) {
@@ -136,7 +124,6 @@ StageStatus compare(const IterationParameters<Det>& iteration, const Graph& inpu
     BOOST_TEST(std::ranges::equal(ordered.roads, host.roads()));
     BOOST_TEST(std::ranges::equal(ordered.starts, host.starts()));
     BOOST_TEST(std::ranges::equal(ordered.offsets, host.roadOffsets()));
-    BOOST_TEST(ordered.sweeps == 0U);
   }
   BOOST_TEST(device.arena->used() == 0U);
   return hostStatus;

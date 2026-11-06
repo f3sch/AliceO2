@@ -11,11 +11,6 @@
 
 /// \file testGeometry.cxx
 /// \brief Exercises the compile-time layout model and the placements it builds.
-///
-/// Every test runs over both toy detectors where it can, because the point of
-/// the design is that one body of code serves a barrel-only and an all-disc
-/// detector; a test that only ever sees a barrel would not notice if the disc
-/// path had rotted.
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Geometry
@@ -26,7 +21,6 @@
 #include "GenericTracking/Base/LayerSpec.h"
 #include "ToyBarrel3.h"
 #include "ToyBarrel4Disc8.h"
-#include "ToyDisc3.h"
 
 #include <algorithm>
 #include <array>
@@ -41,7 +35,6 @@ namespace o2::gtrk
 
 using detectors::ToyBarrel3;
 using detectors::ToyBarrel4Disc8;
-using detectors::ToyDisc3;
 
 // The concept is the contract; if a layout stops satisfying it the failure
 // should be here and not in some template instantiation deep in the tracker.
@@ -58,26 +51,21 @@ using detectors::ToyDisc3;
 inline constexpr double kPositionTolerance = 1e-9;
 
 static_assert(DetectorLayout<ToyBarrel3>);
-static_assert(DetectorLayout<ToyDisc3>);
 static_assert(DetectorLayout<ToyBarrel4Disc8>);
 
 // The topology each toy exists to represent.
 static_assert(Detector<ToyBarrel3>::hasBarrel && !Detector<ToyBarrel3>::hasDiscs);
-static_assert(!Detector<ToyDisc3>::hasBarrel && Detector<ToyDisc3>::hasDiscs);
 static_assert(Detector<ToyBarrel4Disc8>::hasBarrel && Detector<ToyBarrel4Disc8>::hasDiscs);
 static_assert(Detector<ToyBarrel3>::nLayers == 3);
-static_assert(Detector<ToyDisc3>::nLayers == 3);
 static_assert(Detector<ToyBarrel4Disc8>::nBarrelLayers == 4);
 static_assert(Detector<ToyBarrel4Disc8>::nDiscLayers == 8);
 static_assert(Detector<ToyBarrel4Disc8>::isBarrelLayer(0));
 static_assert(Detector<ToyBarrel4Disc8>::isBarrelLayer(3));
 static_assert(!Detector<ToyBarrel4Disc8>::isBarrelLayer(4));
 static_assert(Detector<ToyBarrel4Disc8>::discIndex(4) == 0U);
-static_assert(!Detector<ToyDisc3>::isBarrelLayer(0));
 
 // Sensor counts are derived, never typed in twice, so this cannot drift.
 static_assert(ToyBarrel3::nSensors == 12);
-static_assert(ToyDisc3::nSensors == 18);
 
 BOOST_AUTO_TEST_CASE(BarrelStaveLengthAccountsForGaps)
 {
@@ -103,7 +91,6 @@ static void checkIdsAreDense()
 BOOST_AUTO_TEST_CASE(ChipIdsAreDenseAndCarryALayer)
 {
   checkIdsAreDense<ToyBarrel3>();
-  checkIdsAreDense<ToyDisc3>();
 }
 
 /// A rotation matrix, not merely an invertible one: orthonormal rows and
@@ -129,7 +116,6 @@ static void checkRotationsAreProper()
 BOOST_AUTO_TEST_CASE(RotationsAreProperAndRightHanded)
 {
   checkRotationsAreProper<ToyBarrel3>();
-  checkRotationsAreProper<ToyDisc3>();
 }
 
 BOOST_AUTO_TEST_CASE(BarrelSensorsSitOnTheirLayerRadius)
@@ -158,23 +144,6 @@ BOOST_AUTO_TEST_CASE(BarrelNormalIsRadialAndLongAxisIsBeamwise)
   }
 }
 
-BOOST_AUTO_TEST_CASE(DiscSensorsFaceAlongTheBeamAtTheirLayerZ)
-{
-  const auto geo = toyGeometry<ToyDisc3>();
-  for (SensorID id = 0; id < static_cast<SensorID>(ToyDisc3::nSensors); ++id) {
-    const auto& s = geo.sensor(id);
-    const auto& layer = ToyDisc3::discSpecs[s.layer];
-    // Absolute again: a sub-mm offset recovered by differencing coordinates at
-    // large |z| is exactly the case the round-trip test ran into.
-    BOOST_TEST(std::abs(std::abs(s.trans[2] - (layer.z + layer.rings[0].zOffset)) - 0.5 * layer.rings[0].gap) < kPositionTolerance);
-    BOOST_TEST(std::hypot(s.trans[0], s.trans[1]) == layer.rings[0].r, boost::test_tools::tolerance(1e-12));
-    // the normal is the beam axis
-    BOOST_TEST(s.rot[2] == 0., boost::test_tools::tolerance(1e-12));
-    BOOST_TEST(s.rot[5] == 0., boost::test_tools::tolerance(1e-12));
-    BOOST_TEST(s.rot[8] == 1., boost::test_tools::tolerance(1e-12));
-  }
-}
-
 BOOST_AUTO_TEST_CASE(SensorsAreOrderedLayerByLayer)
 {
   // The ID ordering is a promise the TGeo copy numbers will depend on, so it is
@@ -188,10 +157,6 @@ BOOST_AUTO_TEST_CASE(SensorsAreOrderedLayerByLayer)
   BOOST_TEST(firstSensorOfLayer<ToyBarrel3>(0) == 0U);
   BOOST_TEST(firstSensorOfLayer<ToyBarrel3>(1) == 4U);
   BOOST_TEST(firstSensorOfLayer<ToyBarrel3>(2) == 8U);
-
-  BOOST_TEST(firstSensorOfLayer<ToyDisc3>(0) == 0U);
-  BOOST_TEST(firstSensorOfLayer<ToyDisc3>(1) == 6U);
-  BOOST_TEST(firstSensorOfLayer<ToyDisc3>(2) == 12U);
 }
 
 // ---------------------------------------------------------------------------

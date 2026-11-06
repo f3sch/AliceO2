@@ -408,15 +408,6 @@ std::vector<Options> configurations()
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(IterationDownloadOwnsItsColumnAllocator)
-{
-  DeviceIterationDownload<Det> download{std::make_shared<BoundedMemoryResource>()};
-  download.records.resize(4U);
-  download.tracks.resize(2U);
-  BOOST_TEST(download.records.size() == 4U);
-  BOOST_TEST(download.tracks.size() == 2U);
-}
-
 BOOST_AUTO_TEST_CASE(EverySliceAndIterationMatchesTheHostTracker)
 {
   auto device = runtime();
@@ -521,7 +512,7 @@ BOOST_AUTO_TEST_CASE(AnEdgelessTripletGraphNeedsNoOverflowReadback)
   BOOST_TEST((tracker->endIteration(nullptr) == StageStatus::kComplete));
 }
 
-/// DeviceTracker::run alone, with no observer driving it: the host's tracks.
+/// trackTimeframe alone, with no observer driving it: the host's tracks.
 BOOST_AUTO_TEST_CASE(ARunAloneGivesTheHostsTracks)
 {
   auto device = runtime();

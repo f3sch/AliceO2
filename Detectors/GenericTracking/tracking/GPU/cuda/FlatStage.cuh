@@ -74,7 +74,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <vector>
 
 namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE::flat
 {
@@ -236,25 +235,6 @@ struct AddCounts {
   }
 };
 
-/// A chunk's accepted records into the output's rows from \a at.
-template <template <template <class> class> class S>
-struct AppendChunk {
-  typename DeviceColumns<S>::ConstView from;
-  typename DeviceColumns<S>::View into;
-  std::uint32_t at;
-  GPUdi() void operator()(std::uint32_t k) const
-  {
-    from.apply([&](const auto*... source) { into.apply([&](auto*... target) { ((target[at + k] = source[k]), ...); }); });
-  }
-};
-
-/// A chunk's accepted records, kept on the base end until the assembly.
-template <template <template <class> class> class S>
-struct AcceptedChunk {
-  DeviceColumns<S> columns;
-  std::uint32_t rows = 0U;
-};
-
 } // namespace detail
 
 /// The stage \a adapter describes over the \a listedCount listed elements,
@@ -324,9 +304,10 @@ template <template <template <class> class> class S, typename Adapter>
   // at most one accepted record a pair on the base end; the contexts of the
   // chunk's elements and their run bounds beside.
   const std::size_t perPair = sizeof(CandidatePair) + 4U + 1U + 4U + 8U + adapter.pairBytes() + sizeof(Record);
-  std::vector<detail::AcceptedChunk<S>> chunks;
+  DeviceColumnChunks<S> chunks;
+  DeviceColumns<S> accepted;
   std::uint32_t a = 0U;
-  while (a < total || (total == 0U && chunks.empty())) {
+  while (a < total || (total == 0U && report.chunks == 0U)) {
     auto chunkScope = arena.scope(ArenaEnd::kScratch);
     ++report.chunks;
     // The chunk: the rest of the list, halved until what it needs -- with the
@@ -388,18 +369,16 @@ template <template <template <class> class> class S, typename Adapter>
       ++report.readbacks;
     }
 
-    detail::AcceptedChunk<S> accepted;
-    accepted.rows = selectedCount;
-    if (!accepted.columns.allocate(arena, std::max<std::size_t>(selectedCount, 1U), ArenaEnd::kBase)) {
+    if (!accepted.allocate(arena, selectedCount, ArenaEnd::kBase)) {
       return StageStatus::kOutOfMemory;
     }
     algorithms::forEach(runtime, stream, selectedCount,
                         detail::EmitPairs<S, Adapter>{adapter, listed, pairs.data(), selectedCount > 0U ? selected.data() : nullptr, selectedCount, sourceBegin,
-                                                      accepted.columns.view(), runStart.data(), runEnd.data()});
+                                                      accepted.view(), runStart.data(), runEnd.data()});
     algorithms::forEach(runtime, stream, sourceCount,
                         detail::AddCounts{listed, sourceBegin, runStart.data(), runEnd.data(), counts, words.data() + 2U,
                                           static_cast<std::uint32_t>(DeviceStageOutput<S>::kMaxPerElement)});
-    chunks.push_back(accepted);
+    chunks.adopt(accepted);
     a = b;
     if (total == 0U) {
       break;
@@ -418,30 +397,19 @@ template <template <template <class> class> class S, typename Adapter>
   if (hostWords[2] != 0U) {
     return StageStatus::kOrdinalOverflow;
   }
-  std::uint64_t recordSum = 0U;
-  for (const auto& chunk : chunks) {
-    recordSum += chunk.rows;
-  }
-  if (recordSum > std::numeric_limits<Index>::max()) {
+  if (chunks.rows() > std::numeric_limits<Index>::max()) {
     return StageStatus::kIndexOverflow;
   }
-  const auto records = static_cast<Index>(recordSum);
-  if (chunks.size() == 1U) {
-    output.adoptOutput(chunks.front().columns, records);
+  const auto records = static_cast<Index>(chunks.rows());
+  if (report.chunks == 1U) {
+    output.adoptOutput(accepted, records);
     return StageStatus::kComplete;
   }
   if (!output.allocateOutput(arena, std::max<Index>(records, 1U))) {
     return StageStatus::kOutOfMemory;
   }
   output.setSize(records);
-  std::uint32_t at = 0U;
-  for (const auto& chunk : chunks) {
-    if (chunk.rows == 0U) {
-      continue;
-    }
-    algorithms::forEach(runtime, stream, chunk.rows, detail::AppendChunk<S>{chunk.columns.view(), output.view(), at});
-    at += chunk.rows;
-  }
+  chunks.gather(output.output(), 0U, stream);
   return StageStatus::kComplete;
 }
 

@@ -67,10 +67,9 @@ function(gtrk_device_target target backend type)
   target_include_directories(${target} PRIVATE "${CMAKE_SOURCE_DIR}" "${GTRK_DEVICE_HEADERS}")
   string(TOLOWER "${backend}" backend_namespace)
   target_compile_definitions(${target} PRIVATE GTRK_BACKEND_NAMESPACE=${backend_namespace} GTRK_BACKEND_${backend})
-  # The architecture's launch parameters, as set_target_gpu_arch gives them,
-  # but private: a test links both backends.
-  detect_gpu_arch("${backend}")
-  target_compile_definitions(${target} PRIVATE GPUCA_GPUTYPE_${TARGET_ARCH})
+  set_target_gpu_arch("${backend}" ${target})
+  # The architecture's parameters (GPUCA_WARP_SIZE): GPUDefParametersWrapper.h.
+  target_link_libraries(${target} PRIVATE O2::GPUTracking)
   set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
   if(type STREQUAL "SHARED")
     target_link_libraries(${target} PRIVATE O2::GPUTracking${backend}ExternalProvider)

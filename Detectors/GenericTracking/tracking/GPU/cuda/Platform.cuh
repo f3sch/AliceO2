@@ -34,6 +34,7 @@
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 
 #include "GPUCommonHelpers.h"
+#include "GPUDefParametersWrapper.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -41,14 +42,8 @@
 namespace o2::gtrk::gpu
 {
 
-#if defined(GPUCA_GPUTYPE_VEGA) || defined(GPUCA_GPUTYPE_MI100) || defined(GPUCA_GPUTYPE_MI210) || defined(GPUCA_GPUTYPE_MI300)
-inline constexpr int kWarpSize = 64;
-#elif defined(GPUCA_GPUTYPE_RDNA) || defined(GPUCA_GPUTYPE_BLACKWELL) || defined(GPUCA_GPUTYPE_HOPPER) || defined(GPUCA_GPUTYPE_ADA) || \
-  defined(GPUCA_GPUTYPE_AMPERE) || defined(GPUCA_GPUTYPE_TURING) || defined(GPUCA_GPUTYPE_PASCAL)
-inline constexpr int kWarpSize = 32;
-#else
-#error "No supported GPUCA_GPUTYPE_* selected for the GTRK device backend"
-#endif
+inline constexpr int kWarpSize = GPUCA_WARP_SIZE;
+static_assert(kWarpSize > 0, "no GPUCA_GPUTYPE_* with a warp size");
 
 /// Every kernel launches blocks of this size (launchFor); on HIP it is also
 /// their launch bounds (GTRK_KERNEL_BOUNDS). Two warps of 32, one wavefront of

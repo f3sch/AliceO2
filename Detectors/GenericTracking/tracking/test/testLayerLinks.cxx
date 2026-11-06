@@ -23,7 +23,6 @@
 #include "ToyBarrel3.h"
 #include "ToyBarrel4Disc8.h"
 #include "ToyBarrel8.h"
-#include "ToyDisc3.h"
 #include "GenericTracking/Tracking/GridSizing.h"
 #include "GenericTracking/Tracking/LinkHoles.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
@@ -47,7 +46,6 @@ using detectors::ITS;
 using detectors::ToyBarrel3;
 using detectors::ToyBarrel4Disc8;
 using detectors::ToyBarrel8;
-using detectors::ToyDisc3;
 
 /// Whether `directPairRange` leaves anything.
 bool directPairPossible(std::uint64_t holes, std::uint64_t barrels, const LayerSpan* spans, LayerID target, Scalar ra, Scalar za, Scalar low, Scalar high)
@@ -220,7 +218,6 @@ BOOST_AUTO_TEST_CASE(ABarrelChainIsOrderedByItsNumbering)
 {
   static_assert(layerOrder<ToyBarrel3> == std::array<LayerID, 3>{0, 1, 2});
   static_assert(maxChainLayers<ToyBarrel3> == 3);
-  static_assert(layerOrder<ToyDisc3> == std::array<LayerID, 3>{0, 1, 2});
   // The deep chain of the level tests: six triplets in a row.
   static_assert(layerOrder<ToyBarrel8> == std::array<LayerID, 8>{0, 1, 2, 3, 4, 5, 6, 7});
   static_assert(maxChainLayers<ToyBarrel8> == 8);

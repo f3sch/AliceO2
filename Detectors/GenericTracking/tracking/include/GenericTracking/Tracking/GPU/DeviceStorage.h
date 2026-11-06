@@ -321,6 +321,13 @@ class DeviceColumnChunks
     return true;
   }
 
+  /// \a columns, all their rows, as the next chunk, where they were allocated.
+  void adopt(const DeviceColumns<S>& columns)
+  {
+    mChunks.push_back(columns);
+    mRows += columns.size();
+  }
+
   /// Copy every chunk, in the order appended, into \a destination from row
   /// \a destinationOffset.
   void gather(DeviceColumns<S>& destination, std::size_t destinationOffset, DeviceStream& stream) const
