@@ -1,0 +1,34 @@
+// Copyright 2019-2020 CERN and copyright holders of ALICE O2.
+// See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
+// All rights not expressly granted are reserved.
+//
+// This software is distributed under the terms of the GNU General Public
+// License v3 (GPL Version 3), copied verbatim in the file "COPYING".
+//
+// In applying this license CERN does not waive the privileges and immunities
+// granted to it by virtue of its status as an Intergovernmental Organization
+// or submit itself to any jurisdiction.
+
+/// \file TrackerITS.cxx
+/// \brief The ITS's tracking device (TrackerDevice.h): one unit per detector,
+///        each instantiating the tracker, and its tracking inside the GPU
+///        reconstruction (GPURecoTracking.h).
+
+#include "GenericTracking/Detectors/ITS.h"
+#include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
+#include "GenericTracking/Workflow/TrackerDevice.h"
+
+#include "ITSROFSelection.h"
+
+#include <concepts>
+
+namespace o2::gtrk
+{
+
+// The tracker takes the ITS's frame selection, which must be the one seen here.
+static_assert(std::same_as<workflow::FrameSelectionOf<detectors::ITS>::type, workflow::ITSFrameSelection>);
+
+template o2::framework::DataProcessorSpec workflow::getTrackerSpec<detectors::ITS>(bool withVertices);
+template std::unique_ptr<workflow::GPURecoTracking> workflow::makeGPURecoTrackingOf<detectors::ITS>();
+
+} // namespace o2::gtrk
