@@ -60,12 +60,12 @@ template <typename Geometry, typename Chain>
 /// With `mean` the state takes mu (outward q/p / mu, inward q/p mu); with
 /// `variance` the step's q/p variance grows by the linearised v (outward
 /// (q/p)^2 v / mu^4, inward (q/p)^2 v).
-struct BetheHeitlerPropagator : Propagator {
+struct RadiationPropagator : Propagator {
   bool mean = true;
   bool variance = true;
 };
 
-inline void applyRadiation(const BetheHeitlerPropagator& prop, Scalar x2X0, PropagationDirection direction, BoundTrackState& state, Scalar& varQOverP)
+inline void applyRadiation(const RadiationPropagator& prop, Scalar x2X0, PropagationDirection direction, BoundTrackState& state, Scalar& varQOverP)
 {
   constexpr Scalar kLn3OverLn2 = 1.5849625F;
   const Scalar mu = std::exp(-x2X0);
@@ -80,10 +80,10 @@ inline void applyRadiation(const BetheHeitlerPropagator& prop, Scalar x2X0, Prop
   }
 }
 
-/// The Bethe-Heitler propagator for every step: itself, as `stepPropagator`
+/// The radiation propagator for every step: itself, as `stepPropagator`
 /// gives a `Propagator`.
 template <typename Geometry, typename Chain>
-[[nodiscard]] const BetheHeitlerPropagator& stepPropagator(const BetheHeitlerPropagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, int /*from*/, int /*to*/)
+[[nodiscard]] const RadiationPropagator& stepPropagator(const RadiationPropagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, int /*from*/, int /*to*/)
 {
   return prop; // NOLINT(bugprone-return-const-ref-from-parameter)
 }

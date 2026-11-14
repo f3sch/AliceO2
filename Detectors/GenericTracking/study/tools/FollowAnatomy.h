@@ -149,9 +149,6 @@ class FollowAnatomy
     if (parameters.followEnd) {
       throw std::runtime_error("--follow-steps and --follow-stops cannot replay an iteration with iterationFollowEnd");
     }
-    if (parameters.radiationScale > 0.F) {
-      throw std::runtime_error("--follow-steps and --follow-stops cannot replay an iteration with iterationRadiationScale");
-    }
     // The follow as the iteration ran it: the beam line, the greedy choice
     // and the end decisions on the density and the beam line.
     withBools(
