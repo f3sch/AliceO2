@@ -108,6 +108,7 @@
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -959,6 +960,13 @@ class CompleteAnatomy
     if (mKeepFollowLoss) {
       followOracle(iteration, parameters, frame, geometry, material, propagator);
     }
+    if (mKeepRetry) {
+      mGoodAtEnd.clear();
+      for (const auto& [particle, track] : goodTrack) {
+        mGoodAtEnd.insert(particle);
+      }
+      retryStudy(iteration, chosen, parameters, frame, geometry, material, propagator);
+    }
     if (mPairSample != 0U) {
       pairStudy(stage, floor, parameters, frame);
     }
@@ -1641,6 +1649,208 @@ class CompleteAnatomy
         }
       });
     });
+  }
+
+  /// One record of a retry round (`retryStudy`) and what it became.
+  struct RetryRow {
+    std::uint32_t iteration = 0U;
+    std::uint64_t particle = study::kNoTrackParticle;       ///< the kept chain's good particle; none for a fake or a cut
+    std::uint64_t recordParticle = study::kNoTrackParticle; ///< the record's good particle
+    std::int8_t outcome = kOracleFitFailed;                 ///< an OracleOutcome
+    bool truncated = false;                                 ///< its follow's rows taken by a retried record ranked before it
+  };
+
+  /// A second selection round in \a iteration on the rows its length cut
+  /// released, to measure what one would give: the records the selection
+  /// pruned that conflict with nothing the iteration left (its kept tracks'
+  /// rows and the earlier iterations'), selected greedily by the quality
+  /// key, refitted inward, followed on the mask they and the iteration
+  /// leave, the extension refitted as the follow does, all or nothing, and
+  /// cut by the length and the pT floor. The follow's added rows go to the
+  /// record ranked first; a later record whose walk took one is cut as the
+  /// record alone. Not replayed: the follow's bidding, the refit's prefix
+  /// second chance and trim, the crossing rule; the later iterations run on
+  /// the mask without the round.
+  template <typename Observation, typename Material>
+  void retryStudy(const Observation& iteration, const std::vector<std::uint8_t>& chosen, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator)
+  {
+    if (!parameters.follow || iteration.followUsed.empty() || iteration.used.empty()) {
+      return;
+    }
+    const auto records = iteration.selection->records();
+    const auto shared = parameters.sharedInnermost;
+    std::vector<std::uint32_t> candidates;
+    for (std::size_t record = 0; record < chosen.size(); ++record) {
+      if (chosen[record] == 0U && !selection::conflicts(records.clusters[record], records.count[record], iteration.used.data(), shared)) {
+        candidates.push_back(static_cast<std::uint32_t>(record));
+      }
+    }
+    const auto key = [&](std::uint32_t record) { return selection::qualityKey(records.count[record], records.kinks[record], records.chi2[record]); };
+    std::ranges::stable_sort(candidates, {}, key);
+    std::vector<std::uint8_t> mask(iteration.used.begin(), iteration.used.end());
+    std::vector<std::uint32_t> accepted;
+    for (const auto record : candidates) {
+      if (selection::conflicts(records.clusters[record], records.count[record], mask.data(), shared)) {
+        continue;
+      }
+      accepted.push_back(record);
+      for (std::uint32_t position = 0; position < records.count[record]; ++position) {
+        mask[records.clusters[record].index[position]] = static_cast<std::uint8_t>(selection::shareable(position, shared) ? kShared : kExclusive);
+      }
+    }
+    const auto minimum = static_cast<std::size_t>(parameters.minClustersAfterFollow);
+    const bool kinkSteps = parameters.kinkScale2 > 1.F && parameters.maxKinks != 0U;
+    const auto cut = [&](std::size_t count, bool good, const BoundTrackState& state) {
+      if (count < minimum) {
+        return kOracleShort;
+      }
+      if (!keptAfterFollow(parameters, static_cast<std::uint32_t>(count), state)) {
+        return kOraclePtFloor;
+      }
+      return good ? kOracleKept : kOracleKeptWrong;
+    };
+    // Per accepted record: its chain after the follow (empty where the
+    // inward fit failed), how many of its rows the record's, its state.
+    struct Walked {
+      std::vector<std::uint32_t> chain;
+      std::size_t kept = 0U;
+      BoundTrackState recordState{};
+      BoundTrackState chainState{};
+      bool extensionRefused = false;
+      bool fitted = false;
+    };
+    std::vector<Walked> walked(accepted.size());
+    withFollowStage(iteration, parameters, frame, geometry, material, propagator, mask.data(), iteration.trackOffset, [&](const auto& stage) {
+      o2::gtrk::detail::parallelFor(*mArena, 0U, accepted.size(), 64, [&](std::size_t a, std::size_t b) {
+        for (std::size_t i = a; i < b; ++i) {
+          const auto record = accepted[i];
+          const auto count = static_cast<std::size_t>(records.count[record]);
+          ClusterList<kMaxClusters> road{};
+          for (std::size_t k = 0; k < kMaxClusters; ++k) {
+            road.index[k] = k < count ? records.clusters[record].index[k] : kNoRow;
+          }
+          const auto& outer = records.outwardState[record];
+          const auto fit = fitInward(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = road.index}, static_cast<int>(count), outer, kinkBudget(parameters));
+          if (fit.status != PropagationStatus::kOk) {
+            continue;
+          }
+          auto& w = walked[i];
+          w.fitted = true;
+          w.recordState = fit.state;
+          FollowProposal<kMaxClusters> proposal{};
+          follow::KinkSteps steps{};
+          stage.follow(fit.state, outer, road, static_cast<std::uint32_t>(count), proposal, steps, follow::NoObserver{});
+          const auto keptOut = kinkSteps ? follow::keptWithWitnesses(proposal.outwardCount, steps.outwardWitnessed) : proposal.outwardCount;
+          const auto keptIn = kinkSteps ? follow::keptWithWitnesses(proposal.inwardCount, steps.inwardWitnessed) : proposal.inwardCount;
+          for (auto k = static_cast<std::size_t>(keptIn); k-- > 0U;) {
+            w.chain.push_back(proposal.inward[k]);
+          }
+          // A replaced end goes with the outward rows that replace it (`FollowProposal`).
+          w.kept = count - (proposal.replacedEnd != kNoRow && keptOut != 0U ? 1U : 0U);
+          w.chain.insert(w.chain.end(), road.index, road.index + w.kept);
+          w.chain.insert(w.chain.end(), proposal.outward, proposal.outward + keptOut);
+          w.chainState = fit.state;
+          if (w.chain.size() > w.kept) {
+            const auto refit = fitMeasurements(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = w.chain.data()}, static_cast<int>(w.chain.size()), kinkBudget(parameters));
+            if (follow::passesRoadChi2(parameters, refit)) {
+              w.chainState = refit.state;
+            } else {
+              w.extensionRefused = true;
+            }
+          }
+        }
+      });
+    });
+    // The follow's rows to the record ranked first, then the cut.
+    std::vector<std::uint8_t> claimed(iteration.used.size(), 0U);
+    for (std::size_t i = 0; i < accepted.size(); ++i) {
+      const auto record = accepted[i];
+      const auto count = static_cast<std::size_t>(records.count[record]);
+      const std::span<const std::uint32_t> recordRows{records.clusters[record].index, count};
+      RetryRow row{.iteration = static_cast<std::uint32_t>(iteration.iteration), .recordParticle = study::goodParticle(mTruth->rows, recordRows)};
+      const auto& w = walked[i];
+      if (!w.fitted) {
+        mRetryRows.push_back(row);
+        continue;
+      }
+      const auto added = [&](std::uint32_t r) { return std::ranges::find(recordRows, r) == recordRows.end(); };
+      const bool extended = !w.extensionRefused && w.chain.size() > w.kept;
+      row.truncated = extended && std::ranges::any_of(w.chain, [&](std::uint32_t r) { return added(r) && claimed[r] != 0U; });
+      if (extended && !row.truncated) {
+        const auto good = study::goodParticle(mTruth->rows, w.chain);
+        row.outcome = static_cast<std::int8_t>(cut(w.chain.size(), good != study::kNoTrackParticle, w.chainState));
+        row.particle = row.outcome == kOracleKept ? good : study::kNoTrackParticle;
+        if (row.outcome == kOracleKept || row.outcome == kOracleKeptWrong) {
+          for (const auto r : w.chain) {
+            claimed[r] = 1U;
+          }
+        }
+      } else {
+        const auto alone = cut(count, row.recordParticle != study::kNoTrackParticle, w.recordState);
+        row.outcome = static_cast<std::int8_t>(w.extensionRefused && (alone == kOracleShort || alone == kOraclePtFloor) ? kOracleRefused : alone);
+        row.particle = row.outcome == kOracleKept ? row.recordParticle : study::kNoTrackParticle;
+      }
+      mRetryRows.push_back(row);
+    }
+    mRetryCandidates.resize(iteration.iteration + 1U, 0U);
+    mRetryCandidates[iteration.iteration] = candidates.size();
+  }
+
+  /// Keep `retryStudy`'s rows, for `printRetry`.
+  void keepRetry() { mKeepRetry = true; }
+
+  /// `retryStudy` per iteration and in total: the pruned records the length
+  /// cut freed, those the round selects, what they became; the good ones
+  /// split by whether the run found their particle anyway, those it did not
+  /// by origin and pT, the class's apart.
+  void printRetry() const
+  {
+    if (!mKeepRetry) {
+      return;
+    }
+    static constexpr std::array<const char*, 6> kOutcome{"kept good", "kept, a fake", "short", "extension refused, short", "pT floor", "inward fit failed"};
+    std::map<std::uint32_t, std::array<std::size_t, 8>> byIteration; // outcomes, truncated, recovered
+    std::unordered_set<std::uint64_t> recovered;
+    std::unordered_set<std::uint64_t> anyway;
+    std::size_t fakes = 0U;
+    for (const auto& row : mRetryRows) {
+      auto& n = byIteration[row.iteration];
+      ++n[static_cast<std::size_t>(row.outcome)];
+      n[6] += row.truncated ? 1U : 0U;
+      fakes += row.outcome == kOracleKeptWrong ? 1U : 0U;
+      if (row.outcome == kOracleKept) {
+        if (mGoodAtEnd.contains(row.particle)) {
+          anyway.insert(row.particle);
+        } else {
+          ++n[7];
+          recovered.insert(row.particle);
+        }
+      }
+    }
+    std::string text = "  retry round on the rows the length cut released (the pruned records free at the iteration's end, greedy by the quality key, followed, refitted, cut; no bidding, prefix, trim or crossing rule; later iterations unchanged):";
+    text += "\n    iteration: freed pruned records | selected | kept good / kept, a fake / short / extension refused, short / pT floor / inward fit failed | follow truncated by an earlier retry | good of a particle the run missed";
+    for (const auto& [it, n] : byIteration) {
+      std::size_t selected = 0U;
+      for (std::size_t k = 0; k < kOutcome.size(); ++k) {
+        selected += n[k];
+      }
+      text += std::format("\n    {}: {} | {} | {} / {} / {} / {} / {} / {} | {} | {}", it, it < mRetryCandidates.size() ? mRetryCandidates[it] : 0U, selected, n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7]);
+    }
+    text += std::format("\n    distinct particles kept good: the run missed {}, found anyway {}; fakes {}", recovered.size(), anyway.size(), fakes);
+    std::map<std::string, std::size_t> kinds;
+    for (const auto particle : recovered) {
+      const auto found = mTruth->particles.find(particle);
+      const auto* const origin = found == mTruth->particles.end() ? "unknown" : found->second.origin == study::ParticleOrigin::kPhysicalPrimary ? "physical primary"
+                                                                              : found->second.origin == study::ParticleOrigin::kDecay           ? "decay daughter"
+                                                                                                                                                : "material";
+      const auto* const inClass = mIndex.contains(particle) ? "the class" : "outside the class";
+      ++kinds[std::format("{} | {} | pT {}", origin, inClass, kPathPtNames[std::min(pathPtBin(particle), kPathPtNames.size() - 1U)])];
+    }
+    text += "\n    the missed particles kept good, by origin | class | pT [GeV]:";
+    for (const auto& [kind, n] : kinds) {
+      text += std::format("\n      {}: {}", kind, n);
+    }
+    std::cout << text << '\n';
   }
 
   /// The follow oracle's columns of \a row (`followOracle`), comma separated.
@@ -8665,6 +8875,10 @@ class CompleteAnatomy
   std::uint32_t mPairSample = 0U;                              ///< `keepPairLoss`; 0: no pair study
   std::map<std::tuple<std::uint32_t, std::size_t, std::uint8_t>, PairLossRow> mPairLoss; ///< `pairStudy`, by class particle, link and leg
   bool mKeepFollowLoss = false;                                ///< `keepFollowLoss`
+  bool mKeepRetry = false;                                     ///< `keepRetry`
+  std::vector<RetryRow> mRetryRows;                            ///< `retryStudy`, every iteration
+  std::vector<std::size_t> mRetryCandidates;                   ///< per iteration: `retryStudy`'s freed pruned records
+  std::unordered_set<std::uint64_t> mGoodAtEnd;                ///< the particles with a good track after the last iteration seen
   std::vector<FollowLossRow> mFollowLossRows;                  ///< `followLoss`, every iteration
   std::unordered_map<std::uint32_t, std::string> mLastDropWhy; ///< per findable: the last verdict of `replayDropped`
   std::vector<std::uint32_t> mMinClusters;                     ///< per iteration: its seeds' length
