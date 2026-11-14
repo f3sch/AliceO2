@@ -35,7 +35,6 @@
 #include "MathUtils/detail/trigonometric.h"
 
 #include <cstdint>
-#include <type_traits>
 
 namespace o2::gtrk
 {
@@ -107,51 +106,6 @@ template <typename Point>
 }
 template <typename Point>
 const Propagator& pointPropagator(const Propagator&& prop, const TrackingSurface& surface, const Point& point) = delete;
-
-/// A propagator whose steps add bremsstrahlung's spread to the momentum's
-/// variance (`applyRadiation`, TrackFitter.h): Bethe-Heitler's variance of the
-/// retained energy fraction times \a radiationScale, for every species alike,
-/// the mean untouched. An iteration takes it with a positive
-/// `iterationRadiationScale` (`PropagatorOf`).
-struct RadiationPropagator : Propagator {
-  Scalar radiationScale = 0.F;
-};
-
-/// The propagator an iteration's stages fit and transport with: with
-/// \a Radiation the radiation's, else the plain one.
-template <bool Radiation>
-using PropagatorOf = std::conditional_t<Radiation, RadiationPropagator, Propagator>;
-
-/// \a base as `PropagatorOf<Radiation>`, with \a scale for the radiation.
-template <bool Radiation>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() PropagatorOf<Radiation> propagatorOf(const Propagator& base, [[maybe_unused]] Scalar scale)
-{
-  if constexpr (Radiation) {
-    RadiationPropagator prop;
-    static_cast<Propagator&>(prop) = base;
-    prop.radiationScale = scale;
-    return prop;
-  } else {
-    return base;
-  }
-}
-
-/// The radiation propagator for every step and point: itself, so that the
-/// steps keep its type.
-template <typename Geometry, typename Chain>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() const RadiationPropagator& stepPropagator(const RadiationPropagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, int /*from*/, int /*to*/)
-{
-  return prop; // NOLINT(bugprone-return-const-ref-from-parameter)
-}
-template <typename Geometry, typename Chain>
-const RadiationPropagator& stepPropagator(const RadiationPropagator&& prop, const Geometry& geometry, const Chain& measurements, int from, int to) = delete;
-template <typename Point>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() const RadiationPropagator& pointPropagator(const RadiationPropagator& prop, const TrackingSurface& /*surface*/, const Point& /*point*/)
-{
-  return prop; // NOLINT(bugprone-return-const-ref-from-parameter)
-}
-template <typename Point>
-const RadiationPropagator& pointPropagator(const RadiationPropagator&& prop, const TrackingSurface& surface, const Point& point) = delete;
 
 namespace detail
 {

@@ -523,13 +523,13 @@ struct NoObserver {
 
 /// What a step's search reads: the iteration, the frame and its grid, the
 /// sensors, the material, the field and the used mask.
-template <DetectorLayout Det, typename Material, typename Prop = Propagator>
+template <DetectorLayout Det, typename Material>
 struct StepContext {
   const IterationParameters<Det>* parameters = nullptr;
   const TimeFrame<Det>* frame = nullptr;
   const TrackingGeometry<Det>* geometry = nullptr;
   const Material* material = nullptr;
-  const Prop* propagator = nullptr;
+  const Propagator* propagator = nullptr;
   const std::uint8_t* used = nullptr;
 };
 
@@ -578,8 +578,8 @@ using ChildOf = std::conditional_t<EndDensity, DensityChild, Child>;
 /// the grid's order. \a Inlined: the transport of each row inlined
 /// (`updateCandidate`). The body, inlined where it is called; the follow
 /// calls `visit`.
-template <bool Scaled, bool Own = false, bool EndDensity = false, bool Inlined = false, DetectorLayout Det, typename Material, typename Prop, typename Group, typename Report, typename Step>
-GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det, Material, Prop>& context, const BoundTrackState& state, const CovarianceFactors& factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& window, std::uint64_t holes, Scalar noiseScale, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
+template <bool Scaled, bool Own = false, bool EndDensity = false, bool Inlined = false, DetectorLayout Det, typename Material, typename Group, typename Report, typename Step>
+GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det, Material>& context, const BoundTrackState& state, const CovarianceFactors& factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& window, std::uint64_t holes, Scalar noiseScale, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
 {
   const auto& parameters = *context.parameters;
   const auto& frame = *context.frame;
@@ -650,8 +650,8 @@ GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det, Material, Pro
 
 /// `visitInline`, never inlined on the device: one copy for each call site,
 /// which the kernels then do not absorb.
-template <bool Scaled, bool Own = false, bool EndDensity = false, DetectorLayout Det, typename Material, typename Prop, typename Group, typename Report, typename Step>
-GPUhdnii() void visit(const StepContext<Det, Material, Prop>& context, const BoundTrackState& state, const CovarianceFactors& factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& window, std::uint64_t holes, Scalar noiseScale, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
+template <bool Scaled, bool Own = false, bool EndDensity = false, DetectorLayout Det, typename Material, typename Group, typename Report, typename Step>
+GPUhdnii() void visit(const StepContext<Det, Material>& context, const BoundTrackState& state, const CovarianceFactors& factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& window, std::uint64_t holes, Scalar noiseScale, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
 {
   visitInline<Scaled, Own, EndDensity>(context, state, factors, r, z, layer, direction, window, holes, noiseScale, counter, group, report, step, own);
 }
@@ -909,7 +909,7 @@ struct Target {
 /// the gate. Its own step saw only the rows outside; the beam line is the
 /// evidence beyond the last row inward, where the strangers of the vertex
 /// detector -- QED pairs in Pb-Pb -- pass the step alone.
-template <DetectorLayout Det, typename Material, bool BeamLine = false, bool DecidesEnd = false, bool Greedy = false, bool EndDensity = false, bool BeamEnd = false, bool Radiation = false>
+template <DetectorLayout Det, typename Material, bool BeamLine = false, bool DecidesEnd = false, bool Greedy = false, bool EndDensity = false, bool BeamEnd = false>
 class FollowStage
 {
  public:
@@ -923,7 +923,7 @@ class FollowStage
   using Branch = follow::BranchOf<kMaxClusters, EndDensity>;
   using Child = follow::ChildOf<EndDensity>;
 
-  FollowStage(const IterationParameters<Det>* parameters, const TimeFrame<Det>* frame, const TrackingGeometry<Det>* geometry, const Material* material, const PropagatorOf<Radiation>& propagator, TrackView tracks, const std::uint8_t* used, const std::uint32_t* maxCandidateWidthPS, SensorCellsView cells, Proposal* proposals, follow::KinkSteps* kinkSteps, bool inward, std::uint32_t trackOffset, const BoundTrackState* endStarts = nullptr)
+  FollowStage(const IterationParameters<Det>* parameters, const TimeFrame<Det>* frame, const TrackingGeometry<Det>* geometry, const Material* material, const Propagator& propagator, TrackView tracks, const std::uint8_t* used, const std::uint32_t* maxCandidateWidthPS, SensorCellsView cells, Proposal* proposals, follow::KinkSteps* kinkSteps, bool inward, std::uint32_t trackOffset, const BoundTrackState* endStarts = nullptr)
     : mParameters(parameters),
       mFrame(frame),
       mGeometry(geometry),
@@ -1296,7 +1296,7 @@ class FollowStage
   }
 
   /// What a step's search reads (`follow::visit`).
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() follow::StepContext<Det, Material, PropagatorOf<Radiation>> context() const { return {.parameters = mParameters, .frame = mFrame, .geometry = mGeometry, .material = mMaterial, .propagator = &mPropagator, .used = mUsed}; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() follow::StepContext<Det, Material> context() const { return {.parameters = mParameters, .frame = mFrame, .geometry = mGeometry, .material = mMaterial, .propagator = &mPropagator, .used = mUsed}; }
 
   /// The window of a step from \a state (its covariance \a factors) to
   /// \a target: the track's time \a box, narrowed to the prediction
@@ -1664,7 +1664,7 @@ class FollowStage
   const TimeFrame<Det>* mFrame = nullptr;
   const TrackingGeometry<Det>* mGeometry = nullptr;
   const Material* mMaterial = nullptr;
-  PropagatorOf<Radiation> mPropagator;
+  Propagator mPropagator;
   TrackView mTracks;
   const std::uint8_t* mUsed = nullptr;
   const std::uint32_t* mMaxCandidateWidthPS = nullptr;
@@ -1708,7 +1708,7 @@ namespace follow
 /// three left, a degree of freedom -- or is as long as a chain can be, or the
 /// fit refuses them. Not with a kink allowance: the road fit takes its last
 /// step with it (`fitOutward`'s LastStepAllowance), this one does not.
-template <DetectorLayout Det, typename Material, bool Radiation = false>
+template <DetectorLayout Det, typename Material>
 struct EndFit {
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using TrackView = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::ConstView;
@@ -1717,7 +1717,7 @@ struct EndFit {
   const TimeFrame<Det>* frame = nullptr;
   const TrackingGeometry<Det>* geometry = nullptr;
   const Material* material = nullptr;
-  PropagatorOf<Radiation> propagator;
+  Propagator propagator;
   TrackView tracks;
   BoundTrackState* starts = nullptr;
   std::uint32_t trackOffset = 0U;
@@ -1860,7 +1860,7 @@ template <DetectorLayout Det, typename Fit>
 /// the longest first, and the first the refit accepts is kept; a prefix
 /// that would keep a kink step without its witness (`keptWithWitnesses`)
 /// is not tried.
-template <DetectorLayout Det, typename Material, CrossingRule Rule = CrossingRule::kFirstAhead, bool Prefix = false, bool Radiation = false>
+template <DetectorLayout Det, typename Material, CrossingRule Rule = CrossingRule::kFirstAhead, bool Prefix = false>
 struct Refit {
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using TrackView = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::View;
@@ -1869,7 +1869,7 @@ struct Refit {
   const TimeFrame<Det>* frame = nullptr;
   const TrackingGeometry<Det>* geometry = nullptr;
   const Material* material = nullptr;
-  PropagatorOf<Radiation> propagator;
+  Propagator propagator;
   TrackView tracks;
   FollowProposal<kMaxClusters>* proposals = nullptr;
   const ClusterList<kMaxClusters>* rows = nullptr;
@@ -1971,18 +1971,18 @@ struct Refit {
 /// track stays as the refit left it. The row dropped is not marked: it is free for the
 /// iterations after. Not with `followEnd`, whose replaced end goes with the
 /// outward rows.
-template <DetectorLayout Det, typename Material, CrossingRule Rule = CrossingRule::kFirstAhead, bool Radiation = false>
+template <DetectorLayout Det, typename Material, CrossingRule Rule = CrossingRule::kFirstAhead>
 struct TrimAmbiguous {
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using TrackView = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::View;
 
   /// The search of the step's rows, as a nominal step makes it.
-  FollowStage<Det, Material, false, false, false, false, false, Radiation> search;
+  FollowStage<Det, Material> search;
   const IterationParameters<Det>* parameters = nullptr;
   const TimeFrame<Det>* frame = nullptr;
   const TrackingGeometry<Det>* geometry = nullptr;
   const Material* material = nullptr;
-  PropagatorOf<Radiation> propagator;
+  Propagator propagator;
   TrackView tracks;
   FollowProposal<kMaxClusters>* proposals = nullptr;
   /// Each proposal's kink steps, where the iteration takes them.
@@ -2149,36 +2149,29 @@ void runSequence(const Launch& launch, const Inputs<Det, Material>& in)
   // again where it has followEnd, on its own tracks
   // only.
   const bool end = choices.followEnd && !in.earlier;
-  // The iteration's radiation variance (`PropagatorOf`) in every pass that
-  // fits or transports.
-  const bool radiation = choices.radiationScale > 0.F;
   if (end) {
-    withBools(
-      [&]<bool Radiation>(std::bool_constant<Radiation>) {
-        launch.pass(Phase::kFollowPropose, elements,
-                    EndFit<Det, Material, Radiation>{
-                      .parameters = in.parameters,
-                      .frame = in.frame,
-                      .geometry = in.geometry,
-                      .material = in.material,
-                      .propagator = propagatorOf<Radiation>(in.propagator, choices.radiationScale),
-                      .tracks = in.constTracks,
-                      .starts = in.endStarts,
-                      .trackOffset = in.trackOffset,
-                    });
-      },
-      radiation);
+    launch.pass(Phase::kFollowPropose, elements,
+                EndFit<Det, Material>{
+                  .parameters = in.parameters,
+                  .frame = in.frame,
+                  .geometry = in.geometry,
+                  .material = in.material,
+                  .propagator = in.propagator,
+                  .tracks = in.constTracks,
+                  .starts = in.endStarts,
+                  .trackOffset = in.trackOffset,
+                });
   }
   // The iteration's choice among the passing rows, its end decisions on the
   // last row's density and against the beam line (with the beam line only).
   withBools(
-    [&]<bool BeamLine, bool DecidesEnd, bool Greedy, bool EndDensity, bool BeamEnd, bool Radiation>(std::bool_constant<BeamLine>, std::bool_constant<DecidesEnd>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>, std::bool_constant<Radiation>) {
+    [&]<bool BeamLine, bool DecidesEnd, bool Greedy, bool EndDensity, bool BeamEnd>(std::bool_constant<BeamLine>, std::bool_constant<DecidesEnd>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>) {
       if constexpr (BeamLine || !BeamEnd) {
-        const FollowStage<Det, Material, BeamLine, DecidesEnd, Greedy, EndDensity, BeamEnd, Radiation> stage{in.parameters, in.frame, in.geometry, in.material, propagatorOf<Radiation>(in.propagator, choices.radiationScale), in.constTracks, in.used, in.maxCandidateWidthPS, in.cells, in.proposals, in.steps, in.inward, in.trackOffset, DecidesEnd ? in.endStarts : nullptr};
+        const FollowStage<Det, Material, BeamLine, DecidesEnd, Greedy, EndDensity, BeamEnd> stage{in.parameters, in.frame, in.geometry, in.material, in.propagator, in.constTracks, in.used, in.maxCandidateWidthPS, in.cells, in.proposals, in.steps, in.inward, in.trackOffset, DecidesEnd ? in.endStarts : nullptr};
         launch.propose(Phase::kFollowPropose, elements, stage);
       }
     },
-    choices.beamConstraint, end, choices.followGreedy, Follow<Det>::endDensity(choices), choices.followBeamEnd, radiation);
+    choices.beamConstraint, end, choices.followGreedy, Follow<Det>::endDensity(choices), choices.followBeamEnd);
   launch.pass(Phase::kFollowResolve, elements, Bid<kMaxClusters>{in.proposals, in.bids, in.trackOffset, in.trackCount});
   launch.pass(Phase::kFollowResolve, elements, Resolve<kMaxClusters>{in.proposals, in.bids, in.trackOffset, in.trackCount, in.earlier});
   if (in.steps != nullptr) {
@@ -2187,30 +2180,26 @@ void runSequence(const Launch& launch, const Inputs<Det, Material>& in)
   launch.pass(Phase::kFollowResolve, elements, Combine<kMaxClusters>{in.constTracks.clusters, in.constTracks.count, in.proposals, in.rows, in.counts, in.trackOffset});
   // The iteration's choice of crossing and of
   // the prefix.
-  withCrossingRule(choices.crossingRule, [&]<CrossingRule Rule>(std::integral_constant<CrossingRule, Rule>) { withBools([&]<bool Prefix, bool Radiation>(std::bool_constant<Prefix>, std::bool_constant<Radiation>) { launch.pass(Phase::kFollowRefit, elements, Refit<Det, Material, Rule, Prefix, Radiation>{in.parameters, in.frame, in.geometry, in.material, propagatorOf<Radiation>(in.propagator, choices.radiationScale), in.tracks, in.proposals, in.rows, in.counts, in.trackOffset, in.earlier, in.steps}); }, choices.followPrefix, radiation); });
+  withCrossingRule(choices.crossingRule, [&]<CrossingRule Rule>(std::integral_constant<CrossingRule, Rule>) { withBools([&]<bool Prefix>(std::bool_constant<Prefix>) { launch.pass(Phase::kFollowRefit, elements, Refit<Det, Material, Rule, Prefix>{in.parameters, in.frame, in.geometry, in.material, in.propagator, in.tracks, in.proposals, in.rows, in.counts, in.trackOffset, in.earlier, in.steps}); }, choices.followPrefix); });
   // The ambiguous last rows trimmed, on the iteration's own
   // tracks, before the marks.
   if (choices.followTrimMargin > 0.F && !end && !in.earlier) {
-    withBools([&]<bool Radiation>(std::bool_constant<Radiation>) {
-      const auto propagator = propagatorOf<Radiation>(in.propagator, choices.radiationScale);
-      const FollowStage<Det, Material, false, false, false, false, false, Radiation> search{in.parameters, in.frame, in.geometry, in.material, propagator, in.constTracks, in.used, in.maxCandidateWidthPS, in.cells, nullptr, nullptr, false, in.trackOffset};
-      withCrossingRule(choices.crossingRule, [&]<CrossingRule Rule>(std::integral_constant<CrossingRule, Rule>) {
-        launch.pass(Phase::kFollowRefit, elements,
-                    TrimAmbiguous<Det, Material, Rule, Radiation>{
-                      .search = search,
-                      .parameters = in.parameters,
-                      .frame = in.frame,
-                      .geometry = in.geometry,
-                      .material = in.material,
-                      .propagator = propagator,
-                      .tracks = in.tracks,
-                      .proposals = in.proposals,
-                      .steps = in.steps,
-                      .trackOffset = in.trackOffset,
-                    });
-      });
-    },
-              radiation);
+    const FollowStage<Det, Material> search{in.parameters, in.frame, in.geometry, in.material, in.propagator, in.constTracks, in.used, in.maxCandidateWidthPS, in.cells, nullptr, nullptr, false, in.trackOffset};
+    withCrossingRule(choices.crossingRule, [&]<CrossingRule Rule>(std::integral_constant<CrossingRule, Rule>) {
+      launch.pass(Phase::kFollowRefit, elements,
+                  TrimAmbiguous<Det, Material, Rule>{
+                    .search = search,
+                    .parameters = in.parameters,
+                    .frame = in.frame,
+                    .geometry = in.geometry,
+                    .material = in.material,
+                    .propagator = in.propagator,
+                    .tracks = in.tracks,
+                    .proposals = in.proposals,
+                    .steps = in.steps,
+                    .trackOffset = in.trackOffset,
+                  });
+    });
   }
   launch.pass(Phase::kFollowMark, elements, Mark<kMaxClusters>{in.proposals, in.used});
 }

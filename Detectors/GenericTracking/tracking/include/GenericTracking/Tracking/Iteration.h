@@ -146,10 +146,6 @@ struct IterationSettings {
   /// Gaussian density g [cm^-2] above which the unconfirmed drop keeps a nominal last row.
   double followEndMaxSqrtDet = 0.;
   double followKeepDensity = 0.;
-  /// The scale of the radiation variance its fits and its follow add to q/p
-  /// (`RadiationPropagator`): 0, none, the plain propagator; above, its own
-  /// instantiation of every stage that fits or transports.
-  double radiationScale = 0.;
   /// Whether the inward walk's last row, where a nominal step took it, is
   /// refused above the gate against that step's prediction updated with the
   /// beam line (`FollowStage`'s BeamEnd); requires the follow and the beam constraint. False, the
@@ -363,8 +359,6 @@ struct IterationParameters {
   /// `IterationSettings::followEndMaxSqrtDet` and `followKeepDensity`.
   Scalar followEndMaxSqrtDet = 0.F;
   Scalar followKeepDensity = 0.F;
-  /// `IterationSettings::radiationScale`.
-  Scalar radiationScale = 0.F;
   /// `IterationSettings::followTrimMargin`.
   Scalar followTrimMargin = 0.F;
   /// `IterationSettings::followBeamEnd`, set only with the follow and the beam
@@ -516,7 +510,6 @@ template <DetectorLayout Det>
   parameters.followKeepChi2 = static_cast<Scalar>(std::max(settings.followKeepChi2, 0.));
   parameters.followEndMaxSqrtDet = static_cast<Scalar>(std::max(settings.followEndMaxSqrtDet, 0.));
   parameters.followKeepDensity = static_cast<Scalar>(std::max(settings.followKeepDensity, 0.));
-  parameters.radiationScale = static_cast<Scalar>(settings.radiationScale);
   parameters.followTrimMargin = settings.follow ? static_cast<Scalar>(std::max(settings.followTrimMargin, 0.)) : 0.F;
   parameters.followBeamEnd = settings.follow && settings.beamConstraint && settings.followBeamEnd;
   parameters.shapeTest = settings.shapeTest;
