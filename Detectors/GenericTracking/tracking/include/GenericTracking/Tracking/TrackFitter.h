@@ -422,9 +422,9 @@ GPUdi() void applyJacobian(const SolenoidJacobian& jac, Scalar (&x)[kNBoundParam
 /// allowed, and P_inf -> F P_inf F^T, which no noise reaches.
 GPUdi() void transportDiffuse(const SolenoidJacobian& jac, const StepNoise& noise, DiffuseFactors& c)
 {
-  constexpr int M = kNBoundParams + 5;
-  Scalar y[kNBoundParams][M]{};
-  Scalar w[M]{};
+  constexpr int kColumns = kNBoundParams + 5;
+  Scalar y[kNBoundParams][kColumns]{};
+  Scalar w[kColumns]{};
   factorColumnsOf(c.star, y, w);
   for (int k = 0; k < kNBoundParams; ++k) {
     Scalar column[kNBoundParams];
@@ -475,9 +475,9 @@ GPUdi() void transportDiffuse(const SolenoidJacobian& jac, const StepNoise& nois
 /// direction.
 GPUdi() bool diffuseUpdate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams], Scalar r, Scalar v, BoundTrackState& state)
 {
-  constexpr int R = DiffuseFactors::kMaxRank;
+  constexpr int kRank = DiffuseFactors::kMaxRank;
   // g = S^T h, K = S g / |g|^2.
-  Scalar g[R]{};
+  Scalar g[kRank]{};
   Scalar g2 = 0.F;
   for (int j = 0; j < c.rank; ++j) {
     for (int i = 0; i < kNBoundParams; ++i) {
@@ -497,7 +497,7 @@ GPUdi() bool diffuseUpdate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams], 
   }
   // H = I - 2 u u^T / |u|^2 with g^T H = (-+|g|, 0, ...): S H's first column
   // carries h, the others are orthogonal to it.
-  Scalar u[R]{};
+  Scalar u[kRank]{};
   for (int j = 0; j < c.rank; ++j) {
     u[j] = g[j];
   }
@@ -507,25 +507,25 @@ GPUdi() bool diffuseUpdate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams], 
   for (int j = 0; j < c.rank; ++j) {
     u2 += u[j] * u[j];
   }
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (auto& row : c.root) {
     Scalar su = 0.F;
     for (int j = 0; j < c.rank; ++j) {
-      su += c.root[i][j] * u[j];
+      su += row[j] * u[j];
     }
     const Scalar scale = 2.F * su / u2;
     for (int j = 0; j < c.rank; ++j) {
-      c.root[i][j] -= scale * u[j];
+      row[j] -= scale * u[j];
     }
     for (int j = 0; j + 1 < c.rank; ++j) {
-      c.root[i][j] = c.root[i][j + 1];
+      row[j] = row[j + 1];
     }
-    c.root[i][c.rank - 1] = 0.F;
+    row[c.rank - 1] = 0.F;
   }
   --c.rank;
 
-  constexpr int M = kNBoundParams + 1;
-  Scalar y[kNBoundParams][M]{};
-  Scalar w[M]{};
+  constexpr int kColumns = kNBoundParams + 1;
+  Scalar y[kNBoundParams][kColumns]{};
+  Scalar w[kColumns]{};
   factorColumnsOf(c.star, y, w);
   for (int k = 0; k < kNBoundParams; ++k) {
     Scalar hy = 0.F;

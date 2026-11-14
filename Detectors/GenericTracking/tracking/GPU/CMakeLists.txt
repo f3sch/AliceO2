@@ -91,6 +91,12 @@ function(gtrk_device_target target backend type)
       # links as they are.
       set_target_properties(${target} PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON)
       target_link_options(${target} PRIVATE $<DEVICE_LINK:-dlto>)
+      # The link compiles the provider's IR, and nvcc does not hand it the
+      # compile's --fmad false: without contraction there too, or the
+      # material differs from the host's in the deterministic mode.
+      if(GPUCA_DETERMINISTIC_MODE GREATER_EQUAL ${GPUCA_DETERMINISTIC_MODE_MAP_NO_FAST_MATH})
+        target_link_options(${target} PRIVATE "$<DEVICE_LINK:SHELL:-Xnvlink -Xnvvm=-fma=0>")
+      endif()
     endif()
     target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Werror=cross-execution-space-call>)
   else()

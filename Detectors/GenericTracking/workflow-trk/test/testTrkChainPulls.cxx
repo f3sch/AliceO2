@@ -313,10 +313,9 @@ struct BarrelChain {
   /// chords of the chain without scattering.
   bool generate(bool scatter, std::mt19937& rng, std::span<const LayerID> layers, std::size_t minMeasurements)
   {
-    std::normal_distribution<double> gauss(0., 1.);
     Scalar spanX2X0 = 0.F;
     if (scatter) {
-      if (!generate(false, rng, layers, minMeasurements)) {
+      if (!trace(false, rng, layers, minMeasurements, 0.F)) {
         return false;
       }
       for (std::size_t k = 1; k < truth.size(); ++k) {
@@ -325,6 +324,14 @@ struct BarrelChain {
         spanX2X0 += static_cast<Scalar>(kX2X0PerCm) * std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
       }
     }
+    return trace(scatter, rng, layers, minMeasurements, spanX2X0);
+  }
+
+  /// The chain as `generate` describes it, with the span's material
+  /// \a spanX2X0 given.
+  bool trace(bool scatter, std::mt19937& rng, std::span<const LayerID> layers, std::size_t minMeasurements, Scalar spanX2X0)
+  {
+    std::normal_distribution<double> gauss(0., 1.);
     truth.resize(1);
     std::size_t next = 0;
     while (next < layers.size()) {
