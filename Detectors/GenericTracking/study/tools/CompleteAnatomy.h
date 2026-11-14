@@ -955,6 +955,9 @@ class CompleteAnatomy
         mFollowLossRows[i].why = why != mLastDropWhy.end() ? why->second : std::string{"not replayed"};
       }
     }
+    if (mKeepFollowLoss) {
+      followOracle(iteration, parameters, frame, geometry, material, propagator);
+    }
   }
 
   /// Why a class particle's own records lost the selection:
@@ -1216,6 +1219,24 @@ class CompleteAnatomy
     std::int8_t afterWrong = -1;      ///< the track's rows after that wrong row in the chain (0: it is the last)
     std::int8_t ownAfterWrong = -1;   ///< of them, the particle's own
     std::string why;                  ///< dropped: `replayDropped`'s verdict
+    /// The follow oracle (`followOracle`): the record; what the iteration's
+    /// follow left of its track before the length cut -- its rows, of them
+    /// not the particle's, and how the cut took it (`OracleOutcome`); whether
+    /// the replay without the oracle took the same rows; each walk's
+    /// outcome, rows added and of them not the particle's, by `OracleWalk`;
+    /// and the fit of the particle's own rows of its leg, their count and
+    /// outcome. -1: not made.
+    std::uint32_t record = 0U;
+    std::int8_t realCount = -1;
+    std::int8_t realWrong = -1;
+    std::int8_t realOutcome = -1;
+    std::int8_t replayAgrees = -1;
+    std::array<std::int8_t, 4> oracleOutcome{-1, -1, -1, -1};
+    std::array<std::int8_t, 4> oracleAdded{-1, -1, -1, -1};
+    std::array<std::int8_t, 4> oracleWrong{-1, -1, -1, -1};
+    std::uint8_t oracleRefused = 0U; ///< a bit per walk whose extension the refit refused
+    std::int8_t legFitRows = -1;
+    std::int8_t legFitOutcome = -1;
   };
 
   /// `FollowLossRow` of \a index in \a iteration.
@@ -1227,6 +1248,7 @@ class CompleteAnatomy
     const auto count = records.count[record];
     FollowLossRow row;
     row.index = index;
+    row.record = record;
     row.iteration = static_cast<std::uint32_t>(iteration.iteration);
     row.stage = stage;
     row.recordCount = count;
@@ -1321,6 +1343,264 @@ class CompleteAnatomy
     return row;
   }
 
+  /// What the length cut after the follow makes of a walk or a fit (the
+  /// follow oracle's): kept with the particle's rows only, kept with
+  /// another's, short of the length, refused by the refit's chi2 or its
+  /// failure (a walk: its extension refused and the record alone not kept
+  /// either), below the pT floor; a fit failing, for the own leg's fit.
+  enum OracleOutcome : std::int8_t { kOracleKept,
+                                     kOracleKeptWrong,
+                                     kOracleShort,
+                                     kOracleRefused,
+                                     kOraclePtFloor,
+                                     kOracleFitFailed };
+  /// The follow oracle's walks: from the record's fitted states, as the
+  /// replay makes it; with the starts' momentum the MC's at the record's
+  /// innermost and outermost rows; with the MC's momentum change between
+  /// the particle's consecutive own rows of its leg given to every step from
+  /// an own row (`LossInjector`); both.
+  enum OracleWalk : std::uint8_t { kOracleFitted,
+                                   kOracleStart,
+                                   kOracleLoss,
+                                   kOracleBoth,
+                                   kOracleWalks };
+
+  /// The follow oracle's observer: before each step from a row of the
+  /// particle's own with another of its leg next the way the walk goes, the
+  /// state's q/p scaled by the ratio of the MC |p| at the two -- the momentum
+  /// lost outward, or had inward, between them -- so that the step's
+  /// prediction, navigation and search see it. The walk passes the state it
+  /// goes on with, a non-const object that the observer's view declares
+  /// const: the oracle changes it, which a tracking observer never does.
+  struct LossInjector : follow::NoObserver {
+    const std::unordered_map<std::uint32_t, std::array<Scalar, 2>>* ratios = nullptr; ///< by row: outward, inward; 0 for none
+    std::uint32_t outerFrom = kNoRow;
+    std::uint32_t innerFrom = kNoRow;
+    mutable std::uint32_t from = kNoRow;
+    mutable std::size_t direction = 0U;
+    void begin(PropagationDirection walk) const
+    {
+      direction = walk == PropagationDirection::kForward ? 0U : 1U;
+      from = direction == 0U ? outerFrom : innerFrom;
+    }
+    void step(LayerID /*layer*/, const BoundTrackState& state, const CovarianceFactors& /*factors*/, std::uint32_t /*rows*/) const
+    {
+      const auto ratio = ratios->find(from);
+      if (ratio != ratios->end() && ratio->second[direction] > 0.F) {
+        const_cast<BoundTrackState&>(state).par[kQOverP] *= ratio->second[direction]; // NOLINT(cppcoreguidelines-pro-type-const-cast): the oracle's change, see above
+      }
+    }
+    void taken(std::uint32_t row, Scalar /*chi2*/, bool /*kinked*/) const { from = row; }
+  };
+
+  /// The follow oracle of \a iteration's `FollowLossRow`s: what the
+  /// iteration's follow left of the record's track before the length cut
+  /// (Tracker.h `followEndClusters`), and the cut's verdict; the follow
+  /// again from the record's fitted states on the mask the follow read, as
+  /// `replayDropped` walks it (no bidding: whether its rows are the
+  /// iteration's says how far the replay holds), then with the MC's
+  /// momentum given to it (`OracleWalk`), each judged as the follow's refit
+  /// and the length cut would (`OracleOutcome`); and the fit of the
+  /// particle's own rows of the record's leg, a row a layer in path order,
+  /// judged the same. An optimistic diagnostic of what a momentum-aware
+  /// follow could keep, not a bound: the oracle knows the true rows' momentum,
+  /// not the radiation point between two rows.
+  template <typename Observation, typename Material>
+  void followOracle(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator)
+  {
+    std::vector<std::size_t> rows;
+    for (auto i = mFollowLossRows.size(); i-- > 0U && mFollowLossRows[i].iteration == iteration.iteration;) {
+      rows.push_back(i);
+    }
+    if (rows.empty() || !parameters.follow || iteration.followUsed.empty()) {
+      return;
+    }
+    const auto records = iteration.selection->records();
+    const auto selected = iteration.selection->selected();
+    std::unordered_map<std::uint32_t, std::uint32_t> trackOf; // a selected record's place among the iteration's tracks
+    for (std::size_t track = 0; track < selected.size(); ++track) {
+      trackOf.emplace(static_cast<std::uint32_t>(selected[track]), static_cast<std::uint32_t>(track));
+    }
+    const bool kinkSteps = parameters.kinkScale2 > 1.F && parameters.maxKinks != 0U;
+    const auto minimum = static_cast<std::size_t>(parameters.minClustersAfterFollow);
+    // The cut's verdict on a track of \a count rows, \a wrong of them not
+    // the particle's, in \a state: the length, then the pT floor.
+    const auto cut = [&](std::size_t count, std::size_t wrong, const BoundTrackState& state) {
+      if (count < minimum) {
+        return kOracleShort;
+      }
+      if (!keptAfterFollow(parameters, static_cast<std::uint32_t>(count), state)) {
+        return kOraclePtFloor;
+      }
+      return wrong != 0U ? kOracleKeptWrong : kOracleKept;
+    };
+    // The verdict on \a chain, \a wrong of its rows not the particle's and
+    // \a kept of them the record's rows it keeps: the extension refitted as
+    // the follow does, all or nothing -- refused, the record stays as it was
+    // (\a record rows, \a recordWrong not the particle's, in \a recordState)
+    // and is cut alone, kOracleRefused if that drops it -- then the cut; and
+    // whether the refit refused the extension.
+    const auto judge = [&](const std::vector<std::uint32_t>& chain, std::size_t wrong, std::size_t kept, std::size_t record, std::size_t recordWrong, const BoundTrackState& recordState) {
+      if (chain.size() > kept) {
+        const auto refit = fitMeasurements(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = chain.data()}, static_cast<int>(chain.size()), kinkBudget(parameters));
+        if (!follow::passesRoadChi2(parameters, refit)) {
+          const auto alone = cut(record, recordWrong, recordState);
+          return std::pair{alone == kOracleShort || alone == kOraclePtFloor ? kOracleRefused : alone, true};
+        }
+        return std::pair{cut(chain.size(), wrong, refit.state), false};
+      }
+      return std::pair{cut(record, recordWrong, recordState), false};
+    };
+    withFollowStage(iteration, parameters, frame, geometry, material, propagator, iteration.followUsed.data(), iteration.trackOffset, [&](const auto& stage) {
+      o2::gtrk::detail::parallelFor(*mArena, 0U, rows.size(), 8, [&](std::size_t a, std::size_t b) {
+        for (std::size_t i = a; i < b; ++i) {
+          auto& row = mFollowLossRows[rows[i]];
+          const auto particle = mFindable[row.index];
+          const auto record = row.record;
+          const auto count = static_cast<std::size_t>(records.count[record]);
+          ClusterList<kMaxClusters> road{};
+          for (std::size_t k = 0; k < kMaxClusters; ++k) {
+            road.index[k] = k < count ? records.clusters[record].index[k] : kNoRow;
+          }
+          const auto notOwn = [&](std::uint32_t r) { return !mTruth->rows[r].carries(particle); };
+          // What the iteration's follow left.
+          std::vector<std::uint32_t> real;
+          if (const auto track = trackOf.find(record); track != trackOf.end() && track->second < iteration.followEndCount.size()) {
+            const auto at = track->second;
+            const auto n = iteration.followEndCount[at];
+            real.assign(iteration.followEndClusters[at].index, iteration.followEndClusters[at].index + n);
+            const auto wrong = static_cast<std::size_t>(std::ranges::count_if(real, notOwn));
+            row.realCount = static_cast<std::int8_t>(n);
+            row.realWrong = static_cast<std::int8_t>(wrong);
+            row.realOutcome = static_cast<std::int8_t>(n < minimum ? kOracleShort : (!keptAfterFollow(parameters, n, iteration.followEndState[at]) ? kOraclePtFloor : (wrong != 0U ? kOracleKeptWrong : kOracleKept)));
+            std::ranges::sort(real);
+          }
+          const auto recordWrong = static_cast<std::size_t>(std::count_if(road.index, road.index + count, notOwn));
+          const auto& own = mRowsOf.at(particle);
+          const bool ordered = !mLegs.empty() && mTimed[row.index] != 0U;
+          // The fit of the particle's own rows of the record's leg.
+          if (ordered) {
+            const auto& legs = mLegs[row.index];
+            const auto last = std::ranges::find(own, road.index[count - 1U]);
+            if (last != own.end()) {
+              const auto leg = legs[static_cast<std::size_t>(last - own.begin())];
+              std::vector<std::uint32_t> chain;
+              std::uint64_t layers = 0U;
+              for (std::size_t k = 0; k < own.size() && chain.size() < kMaxClusters; ++k) {
+                const auto bit = std::uint64_t{1} << mTruth->rows[own[k]].layer;
+                if (legs[k] == leg && (layers & bit) == 0U) {
+                  chain.push_back(own[k]);
+                  layers |= bit;
+                }
+              }
+              row.legFitRows = static_cast<std::int8_t>(chain.size());
+              if (chain.size() < minimum) {
+                row.legFitOutcome = kOracleShort;
+              } else {
+                const auto legFit = fitMeasurements(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = chain.data()}, static_cast<int>(chain.size()), kinkBudget(parameters));
+                row.legFitOutcome = static_cast<std::int8_t>(legFit.status != PropagationStatus::kOk ? kOracleFitFailed : (!follow::passesRoadChi2(parameters, legFit) ? kOracleRefused : (keptAfterFollow(parameters, static_cast<std::uint32_t>(chain.size()), legFit.state) ? kOracleKept : kOraclePtFloor)));
+              }
+            }
+          }
+          const auto& outer = records.outwardState[record];
+          const auto fit = fitInward(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = road.index}, static_cast<int>(count), outer, kinkBudget(parameters));
+          if (fit.status != PropagationStatus::kOk) {
+            continue;
+          }
+          // The MC |p| at the particle's rows, and each row's ratio to its
+          // next own row of its leg outward and inward.
+          std::vector<float> momentum(own.size(), -1.F);
+          for (std::size_t k = 0; k < own.size(); ++k) {
+            if (const auto* hit = segmentOfRow(particle, frame, own[k]); hit != nullptr) {
+              momentum[k] = static_cast<float>(std::hypot(hit->momentum[0], hit->momentum[1], hit->momentum[2]));
+            }
+          }
+          std::unordered_map<std::uint32_t, std::array<Scalar, 2>> ratios;
+          if (ordered) {
+            const auto& legs = mLegs[row.index];
+            const auto ratio = [&](std::size_t k, std::size_t j) { return momentum[k] > 0.F && momentum[j] > 0.F ? momentum[k] / momentum[j] : 0.F; };
+            for (std::size_t k = 0; k < own.size(); ++k) {
+              std::array<Scalar, 2> both{0.F, 0.F};
+              for (std::size_t j = k + 1U; j < own.size(); ++j) {
+                if (legs[j] == legs[k]) {
+                  both[0] = ratio(k, j);
+                  break;
+                }
+              }
+              for (std::size_t j = k; j-- > 0U;) {
+                if (legs[j] == legs[k]) {
+                  both[1] = ratio(k, j);
+                  break;
+                }
+              }
+              ratios[own[k]] = both;
+            }
+          }
+          const auto momentumAt = [&](std::uint32_t r) {
+            const auto at = std::ranges::find(own, r);
+            return at == own.end() ? -1.F : momentum[static_cast<std::size_t>(at - own.begin())];
+          };
+          const auto withMomentum = [](BoundTrackState state, float p) {
+            if (p > 0.F) {
+              state.par[kQOverP] = std::copysign(1.F / p, state.par[kQOverP]);
+            }
+            return state;
+          };
+          const auto innerMC = withMomentum(fit.state, momentumAt(road.index[0]));
+          const auto outerMC = withMomentum(outer, momentumAt(road.index[count - 1U]));
+          for (std::size_t walk = 0; walk < kOracleWalks; ++walk) {
+            const bool start = walk == kOracleStart || walk == kOracleBoth;
+            const bool loss = walk == kOracleLoss || walk == kOracleBoth;
+            if (loss && !ordered) {
+              continue;
+            }
+            FollowProposal<kMaxClusters> proposal{};
+            follow::KinkSteps steps{};
+            const auto& inner = start ? innerMC : fit.state;
+            const auto& outerStart = start ? outerMC : outer;
+            if (loss) {
+              const LossInjector injector{{}, &ratios, road.index[count - 1U], road.index[0]};
+              stage.follow(inner, outerStart, road, static_cast<std::uint32_t>(count), proposal, steps, injector);
+            } else {
+              stage.follow(inner, outerStart, road, static_cast<std::uint32_t>(count), proposal, steps, follow::NoObserver{});
+            }
+            const auto keptOut = kinkSteps ? follow::keptWithWitnesses(proposal.outwardCount, steps.outwardWitnessed) : proposal.outwardCount;
+            const auto keptIn = kinkSteps ? follow::keptWithWitnesses(proposal.inwardCount, steps.inwardWitnessed) : proposal.inwardCount;
+            std::vector<std::uint32_t> chain;
+            for (auto k = static_cast<std::size_t>(keptIn); k-- > 0U;) {
+              chain.push_back(proposal.inward[k]);
+            }
+            // A replaced end goes with the outward rows that replace it (`FollowProposal`).
+            const auto kept = count - (proposal.replacedEnd != kNoRow && keptOut != 0U ? 1U : 0U);
+            chain.insert(chain.end(), road.index, road.index + kept);
+            chain.insert(chain.end(), proposal.outward, proposal.outward + keptOut);
+            const auto wrong = static_cast<std::size_t>(std::ranges::count_if(chain, notOwn));
+            const auto [outcome, refused] = judge(chain, wrong, kept, count, recordWrong, fit.state);
+            row.oracleOutcome[walk] = static_cast<std::int8_t>(outcome);
+            row.oracleRefused = static_cast<std::uint8_t>(row.oracleRefused | (refused ? 1U << walk : 0U));
+            row.oracleAdded[walk] = static_cast<std::int8_t>(chain.size() - kept);
+            row.oracleWrong[walk] = static_cast<std::int8_t>(wrong);
+            if (walk == kOracleFitted && row.realCount >= 0) {
+              auto left = refused ? std::vector<std::uint32_t>(road.index, road.index + count) : chain;
+              std::ranges::sort(left);
+              row.replayAgrees = left == real ? 1 : 0;
+            }
+          }
+        }
+      });
+    });
+  }
+
+  /// The follow oracle's columns of \a row (`followOracle`), comma separated.
+  [[nodiscard]] static std::string oracleColumns(const FollowLossRow& row)
+  {
+    std::string text = std::format("{},{},{},{},{}", static_cast<int>(row.realCount), static_cast<int>(row.realWrong), static_cast<int>(row.realOutcome), static_cast<int>(row.replayAgrees), static_cast<int>(row.oracleRefused));
+    for (std::size_t walk = 0; walk < kOracleWalks; ++walk) {
+      text += std::format(",{},{},{}", static_cast<int>(row.oracleOutcome[walk]), static_cast<int>(row.oracleAdded[walk]), static_cast<int>(row.oracleWrong[walk]));
+    }
+    return text + std::format(",{},{}", static_cast<int>(row.legFitRows), static_cast<int>(row.legFitOutcome));
+  }
+
   /// Keep `followLoss`'s rows, for `writeFollowLoss`.
   void keepFollowLoss() { mKeepFollowLoss = true; }
 
@@ -1333,11 +1613,13 @@ class CompleteAnatomy
       throw std::runtime_error("cannot write " + csv);
     }
     out << "particle,pdg,motherPdg,pt,eta,dxy,fate,furthest,iteration,stage,recordCount,minAfter,legLayers,beyond,pLegFirst,pRecordLast,pLegLast,rLegLast,"
-           "maxDrop,maxDropLayer,maxDropWhere,trackCount,wrong,wrongLayer,wrongBefore,ownOnWrongLayer,pBeforeWrong,pAtWrong,afterWrong,ownAfterWrong,why\n";
+           "maxDrop,maxDropLayer,maxDropWhere,trackCount,wrong,wrongLayer,wrongBefore,ownOnWrongLayer,pBeforeWrong,pAtWrong,afterWrong,ownAfterWrong,"
+           "realCount,realWrong,realOutcome,replayAgrees,refused,fitted,fittedAdded,fittedWrong,start,startAdded,startWrong,loss,lossAdded,lossWrong,both,bothAdded,bothWrong,"
+           "legFitRows,legFitOutcome,why\n";
     for (const auto& row : mFollowLossRows) {
       const auto particle = mFindable[row.index];
       const auto& truth = mTruth->particles.at(particle);
-      out << std::format("{},{},{},{:.4f},{:.3f},{:.5f},{},{},{},{},{},{},{},{},{:.5g},{:.5g},{:.5g},{:.4g},{:.4g},{},{},{},{},{},{},{},{:.5g},{:.5g},{},{},\"{}\"\n", particle, truth.pdg, truth.motherPdg, truth.pt, truth.eta, row.dxy, static_cast<int>(mFate[row.index]), static_cast<int>(mFurthest[row.index]), row.iteration, static_cast<int>(row.stage), static_cast<int>(row.recordCount), static_cast<int>(row.minAfter), static_cast<int>(row.legLayers), static_cast<int>(row.beyond), row.pLegFirst, row.pRecordLast, row.pLegLast, row.rLegLast, row.maxDrop, static_cast<int>(row.maxDropLayer), static_cast<int>(row.maxDropWhere), static_cast<int>(row.trackCount), static_cast<int>(row.wrong), static_cast<int>(row.wrongLayer), static_cast<int>(row.wrongBefore), static_cast<int>(row.ownOnWrongLayer), row.pBeforeWrong, row.pAtWrong, static_cast<int>(row.afterWrong), static_cast<int>(row.ownAfterWrong), row.why);
+      out << std::format("{},{},{},{:.4f},{:.3f},{:.5f},{},{},{},{},{},{},{},{},{:.5g},{:.5g},{:.5g},{:.4g},{:.4g},{},{},{},{},{},{},{},{:.5g},{:.5g},{},{},{},\"{}\"\n", particle, truth.pdg, truth.motherPdg, truth.pt, truth.eta, row.dxy, static_cast<int>(mFate[row.index]), static_cast<int>(mFurthest[row.index]), row.iteration, static_cast<int>(row.stage), static_cast<int>(row.recordCount), static_cast<int>(row.minAfter), static_cast<int>(row.legLayers), static_cast<int>(row.beyond), row.pLegFirst, row.pRecordLast, row.pLegLast, row.rLegLast, row.maxDrop, static_cast<int>(row.maxDropLayer), static_cast<int>(row.maxDropWhere), static_cast<int>(row.trackCount), static_cast<int>(row.wrong), static_cast<int>(row.wrongLayer), static_cast<int>(row.wrongBefore), static_cast<int>(row.ownOnWrongLayer), row.pBeforeWrong, row.pAtWrong, static_cast<int>(row.afterWrong), static_cast<int>(row.ownAfterWrong), oracleColumns(row), row.why);
     }
   }
 
