@@ -304,7 +304,7 @@ const Scans* mftScans()
 
 /// Without material the MFT's chains fit with unit pulls. A rare fit
 /// loses a variance: with nothing to scatter on, q/p is fixed far
-/// below what a float covariance holds (kChainQOverPSpread, Seed.h). No track
+/// below what float resolves against the position. No track
 /// crosses no material, so that one is reported, not asserted.
 BOOST_AUTO_TEST_CASE(MftPullsWithoutMaterialAreUnit)
 {

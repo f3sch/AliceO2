@@ -486,10 +486,8 @@ BOOST_AUTO_TEST_CASE(ChainSeedRecoversTheGeneratingHelix)
     BOOST_TEST_CONTEXT("q/p " << qOverP)
     {
       BOOST_REQUIRE(chain.built);
-      const auto scalarResult = makeChainSeed<Scalar>(chain.propagator, chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
-      const auto exactResult = makeChainSeed<ExactScalar>(chain.propagator, chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
-      const auto& reference = scalarResult.state;
-      const auto& exact = exactResult.state;
+      const auto reference = makeChainSeed<Scalar>(chain.propagator, chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
+      const auto exact = makeChainSeed<ExactScalar>(chain.propagator, chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
       const auto& truth = chain.truth[0];
       BOOST_TEST(reference.surface == truth.surface);
       BOOST_TEST(std::abs(reference.loc0() - truth.loc0()) < 1e-4F);
@@ -503,7 +501,6 @@ BOOST_AUTO_TEST_CASE(ChainSeedRecoversTheGeneratingHelix)
       BOOST_TEST(std::abs(reference.phi() - exact.phi()) < 5e-6F);
       BOOST_TEST(std::abs(reference.theta() - exact.theta()) < 5e-6F);
       BOOST_TEST(std::abs(reference.qOverP() - exact.qOverP()) < 5e-4F);
-      BOOST_TEST(std::abs(scalarResult.qOverPSigma - exactResult.qOverPSigma) < 1e-3F);
     }
   }
 }
@@ -514,8 +511,8 @@ BOOST_AUTO_TEST_CASE(ChainSeedOfAStraightTrackHasNoCurvature)
 {
   const BarrelChain<4> chain(0.F);
   BOOST_REQUIRE(chain.built);
-  const auto reference = makeChainSeed<Scalar>(chain.propagator, chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size())).state;
-  const auto exact = makeChainSeed<ExactScalar>(chain.propagator, chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size())).state;
+  const auto reference = makeChainSeed<Scalar>(chain.propagator, chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
+  const auto exact = makeChainSeed<ExactScalar>(chain.propagator, chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
   BOOST_TEST(std::isfinite(reference.qOverP()));
   BOOST_TEST(std::abs(reference.qOverP()) < 1e-3F);
   BOOST_TEST(std::abs(reference.phi() - chain.truth[0].phi()) < 1e-5F);
@@ -534,9 +531,8 @@ BOOST_AUTO_TEST_CASE(ChainSeedOfAStraightTrackHasNoCurvature)
 /// unit.
 ///
 /// With material, and scattering in the truth to match it. Without material
-/// the points fix q/p to 1e-4, which no prior both non-informative and
-/// representable in a float covariance can reach: see kChainQOverPSpread. A
-/// real track crosses about 1.5e-3 X0 per cm here, what the material LUT
+/// the points fix q/p to 1e-4, far below what float resolves against the
+/// position. A real track crosses about 1.5e-3 X0 per cm here, what the material LUT
 /// reports for the barrel, and is scattering-limited long before that.
 ///
 /// Both passes are checked: the inward state against the mid-plane of the

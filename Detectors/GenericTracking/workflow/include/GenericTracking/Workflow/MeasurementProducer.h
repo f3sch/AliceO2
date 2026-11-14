@@ -44,6 +44,7 @@
 
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <optional>
 #include <cstddef>
 #include <cstdint>
@@ -193,8 +194,16 @@ class MeasurementProducerTask : public o2::framework::Task
     std::vector<ClusterShapeBand::Interval> slopes(band != nullptr ? n : 0U);
     for (std::size_t i = 0; i < n; ++i) {
       const auto& cluster = clusters[clusterOf(i)];
+      // The tracking takes every measurement as a point with a positive
+      // covariance: none of its steps tests for one that is not.
+      const Scalar varLoc0 = localVariance(cluster.sigmaXLocal);
+      const Scalar varLoc1 = localVariance(cluster.sigmaYLocal);
+      if (!std::isfinite(cluster.xLocal) || !std::isfinite(cluster.yLocal) || !std::isfinite(varLoc0) || !std::isfinite(varLoc1) || !(varLoc0 > 0.F) || !(varLoc1 > 0.F)) {
+        LOGP(fatal, "a {} cluster on chip {} is not a measurement: local position ({}, {}), sigmas ({}, {})", Det::name, cluster.chipID, cluster.xLocal, cluster.yLocal, cluster.sigmaXLocal, cluster.sigmaYLocal);
+        return;
+      }
       const auto point = gridPoint<Det>(*mGeometry, cluster.chipID, static_cast<double>(cluster.xLocal), static_cast<double>(cluster.yLocal), mBeamLine.x, mBeamLine.y);
-      const auto variances = pointVariances<Det>(*mGeometry, cluster.chipID, static_cast<double>(cluster.xLocal), point, localVariance(cluster.sigmaXLocal), 0.F, localVariance(cluster.sigmaYLocal));
+      const auto variances = pointVariances<Det>(*mGeometry, cluster.chipID, static_cast<double>(cluster.xLocal), point, varLoc0, 0.F, varLoc1);
       // Every frame's record where its layer's frames have theirs, every
       // lengthBC from BC 0: the boxes, the blocks and the slices' reach follow them.
       const auto& frames = mFrames[point.layer];

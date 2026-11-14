@@ -1386,8 +1386,8 @@ void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFa
     if (examples < kExamples) {
       ++examples;
       const auto seed = makeChainSeed(propagator, tracking, RowChain<Det>{.frame = &frame, .rows = rows.data()}, n);
-      const auto qOverP = static_cast<double>(std::abs(seed.state.qOverP()));
-      const double seedPt = qOverP > 0. ? std::abs(std::sin(static_cast<double>(seed.state.theta()))) / qOverP : 0.;
+      const auto qOverP = static_cast<double>(std::abs(seed.qOverP()));
+      const double seedPt = qOverP > 0. ? std::abs(std::sin(static_cast<double>(seed.theta()))) / qOverP : 0.;
       std::string layers;
       for (int i = 0; i < n; ++i) {
         const auto m = frame.measurement(rows[static_cast<std::size_t>(i)]);
@@ -1396,7 +1396,7 @@ void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFa
       LOGP(info,
            "    true chain {:#x}: {} {} at index {} of {}; pdg {} (mother {}, process {}), {} at ({:.2f}, {:.2f}, {:.2f}); MC pT {:.3f}, eta {:.3f}; seed pT "
            "{:.3f}, theta {:.4f}; {}; layers{}; hits{}",
-           failure.id, kPasses[static_cast<std::size_t>(fit.failedPass)], kStatuses[static_cast<std::size_t>(fit.status)], to, n, truth.pdg, truth.motherPdg, static_cast<int>(truth.process), truth.primary ? "primary" : "secondary", truth.vx, truth.vy, truth.vz, truth.pt, truth.eta, seedPt, seed.state.theta(), kKindNames[kind], layers, hits);
+           failure.id, kPasses[static_cast<std::size_t>(fit.failedPass)], kStatuses[static_cast<std::size_t>(fit.status)], to, n, truth.pdg, truth.motherPdg, static_cast<int>(truth.process), truth.primary ? "primary" : "secondary", truth.vx, truth.vy, truth.vz, truth.pt, truth.eta, seedPt, seed.theta(), kKindNames[kind], layers, hits);
     }
   }
   LOGP(info, "  true chains whose fit fails: {}; primary {}, secondary {}", failures.size(), byPrimary[0], byPrimary[1]);

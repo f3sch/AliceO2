@@ -351,9 +351,6 @@ GPUhdi() GPUAlwaysInline() void spatialChi2(T a, T b, T d, T residualLoc0, T res
 
 // ---- the three-point seed ----
 
-/// The prior on a three-point seed, whose q/p is known to a factor of a few.
-GPUhdi() GPUAlwaysInline() void setDiffuseSeedCovariance(BoundTrackState& seed) { setDiffuseCovariance(seed, 3.F * o2::gpu::GPUCommonMath::Abs(seed.qOverP())); }
-
 /// Construct a state on the first of three ordered measurement surfaces.
 ///
 /// The signed transverse curvature is twice the oriented triangle area over
@@ -417,7 +414,6 @@ GPUdi() BoundTrackState makeThreePointSeed(const Prop& prop, const Measurement& 
   seed.par[kQOverP] = static_cast<Scalar>(curvature * sinTheta / field);
   seed.surface = first.surface;
   seed.surfacePhi = firstSurface.surfacePhi;
-  setDiffuseSeedCovariance(seed);
   return seed;
 }
 
