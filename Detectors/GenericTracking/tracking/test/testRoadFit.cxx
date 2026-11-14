@@ -128,10 +128,9 @@ BOOST_AUTO_TEST_CASE(TheBeamLineConstrainsAPrimarysOuterRoad)
     const auto fit = fitMeasurements(kPropagator, tracking, kNoMaterial, RowChain<Det>{.frame = fixture.frame.get(), .rows = rows.data()}, 4);
     BOOST_REQUIRE(fit.status == PropagationStatus::kOk);
     const auto innermost = pairPointAt(fixture.frame->measurements(), rows[0]);
-    const auto layer = tracking.surface(fit.state.surface).layer;
     const auto& plane = tracking.planeOf(fit.state);
     auto constrained = fit.state;
-    const auto update = updateWithBeamLine(kPropagator, iteration, plane, layer, innermost, constrained);
+    const auto update = updateWithBeamLine(kPropagator, iteration, kNoMaterial, plane, innermost, constrained);
     BOOST_REQUIRE(update.ok);
     BOOST_TEST(update.chi2 < 0.01F);
     BOOST_TEST(constrained.variance(kQOverP) < 0.5F * fit.state.variance(kQOverP));
@@ -142,7 +141,7 @@ BOOST_AUTO_TEST_CASE(TheBeamLineConstrainsAPrimarysOuterRoad)
       moved.beamX = -distance * std::sin(phi0);
       moved.beamY = distance * std::cos(phi0);
       auto state = fit.state;
-      const auto result = updateWithBeamLine(kPropagator, moved, plane, layer, innermost, state);
+      const auto result = updateWithBeamLine(kPropagator, moved, kNoMaterial, plane, innermost, state);
       BOOST_REQUIRE(result.ok);
       return result.chi2;
     };

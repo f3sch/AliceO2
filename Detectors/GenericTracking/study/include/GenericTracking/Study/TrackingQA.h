@@ -151,7 +151,7 @@ struct ParticleExtras {
   /// own part, a FitLoss, kOther if the fit takes it; kQANotObserved
   /// otherwise.
   std::uint8_t raisedFit = kQANotObserved;
-  std::uint8_t outwardLayers = 0U;      ///< the layers of its MC hits' outward leg (`outwardLayers`)
+  std::uint8_t outwardLayers = 0U; ///< the layers of its MC hits' outward leg (`outwardLayers`)
   /// Its outward leg as the stages could join it (StageFunnel.h `LegLinks`):
   /// the leg's layers with a measurement, the longest chain along them the
   /// layout's links join and one iteration whose pT_min it clears takes, the
@@ -283,9 +283,8 @@ struct QAResolution {
   /// on the plane through the vertex
   /// along the beam, normal to the track's transverse direction there; the
   /// fit's sigma of each (J C J^T), and the scattering's between the vertex
-  /// and the innermost measurement, from the material LUT along the straight
-  /// segment between them (`vertexApproach`); NaN where the propagation
-  /// failed.
+  /// and the innermost measurement as the beam-line update takes it
+  /// (`vertexApproach`); NaN where the propagation failed.
   std::array<float, 2> dca{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
   std::array<float, 2> dcaSigma{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
   std::array<float, 2> dcaScattering{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
@@ -294,8 +293,9 @@ struct QAResolution {
   /// crossing made of the particle's own; `dca` less it is the fit's error
   /// there, carried.
   std::array<float, 2> dcaTrue{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
-  /// The scattering as the beam-line update takes it (`beamScattering`).
-  std::array<float, 2> dcaScatteringBeam{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
+  /// The scattering as the pair cuts take it from the vertex to the source
+  /// (`sourceScattering`, the source's layer whole), at the track's momentum.
+  std::array<float, 2> dcaScatteringSource{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
   /// The particle's production point's distance from that vertex [cm]: 0
   /// for one made at the collision, a heavy-flavour decay's daughter's
   /// flight otherwise, whose d0 is its own and not a residual.

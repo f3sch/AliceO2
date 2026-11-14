@@ -63,12 +63,6 @@ struct ScatteringLayer {
   Scalar high = 0.F;
   Scalar x2X0 = 0.F;    ///< x/X0 at normal incidence
   Scalar logX2X0 = 0.F; ///< ln(x/X0); 0 without material
-  /// A layer's material between its slab's side towards the interaction
-  /// point and its sensors (`innerMaterial`): x/X0 at normal incidence, and
-  /// its position (radius, or signed z); none for a passive scatterer, or a
-  /// table without them (`withInnerShares`).
-  Scalar innerX2X0 = 0.F;
-  Scalar innerPosition = 0.F;
 };
 
 /// `(0.0136 GeV)^2 x (1 + 0.038 ln(x / beta^2))^2`: Highland's theta0^2
@@ -197,21 +191,6 @@ template <DetectorLayout Det>
   return table;
 }
 
-/// \a table with each layer's inner share (`ScatteringLayer::innerX2X0`,
-/// `innerPosition`): \a x2X0 and \a position per layer.
-template <DetectorLayout Det>
-[[nodiscard]] inline ScatteringTable<Det> withInnerShares(ScatteringTable<Det> table, std::span<const double> x2X0, std::span<const double> position)
-{
-  if (x2X0.size() != ScatteringTable<Det>::kLayerCount || position.size() != ScatteringTable<Det>::kLayerCount) {
-    throw std::invalid_argument("withInnerShares: one inner share per layer");
-  }
-  for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
-    table.layers[layer].innerX2X0 = static_cast<Scalar>(x2X0[layer]);
-    table.layers[layer].innerPosition = static_cast<Scalar>(position[layer]);
-  }
-  return table;
-}
-
 /// The cut parameters of one iteration, the same for every layer pair and
 /// every vertex.
 struct PairCut {
@@ -321,11 +300,11 @@ namespace detail
 
 /// Whether the line from \a vertex through \a source, of slope \a slope in
 /// r and \a dz from the vertex to the source, crosses \a scatterer before
-/// the source -- the source's own layer, \a own, always -- and if so the
-/// lever factor of a kink at \a position (the scatterer's, or for the own
-/// layer its inner share's) in \a lever: `r^2` for a barrel, `dz^2` times
-/// \a discFactor for a disc.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool crossingBeforeSource(const ScatteringLayer& scatterer, Scalar position, bool barrel, bool own, const VertexSeed& vertex, const PairPoint& source, Scalar dz, Scalar slope, Scalar absDz, Scalar discFactor, Scalar& lever)
+/// the source -- the source's own layer, \a own, always -- and if so its
+/// term of `sourceScattering`'s sum in \a term: Highland's factor at
+/// \a logBeta2 (`highlandK`) times the lever factor, `r^2` for a barrel,
+/// `dz^2` times \a discFactor for a disc.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool crossedBeforeSource(const ScatteringLayer& scatterer, bool barrel, bool own, const VertexSeed& vertex, const PairPoint& source, Scalar dz, Scalar slope, Scalar absDz, Scalar discFactor, Scalar logBeta2, Scalar& term)
 {
   if (barrel) {
     if (!own) {
@@ -334,10 +313,11 @@ namespace detail
         return false;
       }
     }
-    lever = position * position;
+    const Scalar lever = scatterer.position * scatterer.position;
+    term = highlandK(scatterer, logBeta2) * lever;
     return true;
   }
-  const Scalar dzLayer = position - vertex.z;
+  const Scalar dzLayer = scatterer.position - vertex.z;
   if (!own) {
     if (!(dzLayer * dz > 0.F) || !(o2::gpu::GPUCommonMath::Abs(dzLayer) < absDz)) {
       return false;
@@ -347,18 +327,7 @@ namespace detail
       return false;
     }
   }
-  lever = dzLayer * dzLayer * discFactor;
-  return true;
-}
-
-/// `crossingBeforeSource`'s scatterer whole, its term of `sourceScattering`'s
-/// sum in \a term.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool crossedBeforeSource(const ScatteringLayer& scatterer, bool barrel, bool own, const VertexSeed& vertex, const PairPoint& source, Scalar dz, Scalar slope, Scalar absDz, Scalar discFactor, Scalar logBeta2, Scalar& term)
-{
-  Scalar lever = 0.F;
-  if (!crossingBeforeSource(scatterer, scatterer.position, barrel, own, vertex, source, dz, slope, absDz, discFactor, lever)) {
-    return false;
-  }
+  const Scalar lever = dzLayer * dzLayer * discFactor;
   term = highlandK(scatterer, logBeta2) * lever;
   return true;
 }
@@ -407,63 +376,6 @@ template <DetectorLayout Det>
     }
   }
   return sum * g * cut.invBetaMomentum2;
-}
-
-/// The variance a fitted state on \a source's measurement takes, in
-/// `sourceScattering`'s units, from the scattering between \a vertex and
-/// it: the layers and passives the line crosses before the source's layer,
-/// and of the source's own layer only its inner share (`innerX2X0` at
-/// `innerPosition`): the rest lies beyond the sensors, where the fit has
-/// taken it. Highland's formula for the material crossed as a whole, its
-/// logarithm at the path's total x/X0 (as the fit takes its span,
-/// `SpanMaterial`), its variance shared by the scatterers in proportion to
-/// their x/X0, each at its lever arm. The beam-line update's
-/// (`updateWithBeamLine`); the pair cuts take `sourceScattering`, whose own
-/// layer is whole by design: its far side moves the target.
-template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar beamScattering(const ScatteringTable<Det>& table, const PairCut& cut, const VertexSeed& vertex, LayerID sourceLayer, const PairPoint& source)
-{
-  if (!(source.r > 0.F)) {
-    return 0.F;
-  }
-  const Scalar dz = source.z - vertex.z;
-  const Scalar slope = dz / source.r;
-  const Scalar g = o2::gpu::GPUCommonMath::Sqrt(1.F + (slope * slope));
-  const Scalar absDz = o2::gpu::GPUCommonMath::Abs(dz);
-  const Scalar invAbsDz = absDz > 0.F ? 1.F / absDz : 0.F;
-  const Scalar discFactor = source.r * source.r * source.r * invAbsDz * invAbsDz * invAbsDz;
-  // A disc's path factor, 1 / |cos theta| = g / |slope|.
-  const Scalar discPath = o2::gpu::GPUCommonMath::Abs(slope) > 0.F ? g / o2::gpu::GPUCommonMath::Abs(slope) : 0.F;
-
-  Scalar moment = 0.F;  // sum of x lever
-  Scalar crossed = 0.F; // the path's x/X0
-  Scalar lever = 0.F;
-  const auto add = [&](Scalar x, bool barrel) {
-    moment += x * lever;
-    crossed += x * (barrel ? g : discPath);
-  };
-  for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
-    const auto id = static_cast<LayerID>(layer);
-    const auto& scatterer = table.layers[layer];
-    const bool barrel = Detector<Det>::isBarrelLayer(id);
-    const bool own = id == sourceLayer;
-    if (detail::crossingBeforeSource(scatterer, own ? scatterer.innerPosition : scatterer.position, barrel, own, vertex, source, dz, slope, absDz, discFactor, lever)) {
-      add(own ? scatterer.innerX2X0 : scatterer.x2X0, barrel);
-    }
-  }
-  if constexpr (ScatteringTable<Det>::kPassiveCount > 0) {
-    for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
-      const auto& passive = table.passives[i];
-      if (detail::crossingBeforeSource(passive.at, passive.at.position, passive.barrel, false, vertex, source, dz, slope, absDz, discFactor, lever)) {
-        add(passive.at.x2X0, passive.barrel);
-      }
-    }
-  }
-  if (!(crossed > 0.F)) {
-    return 0.F;
-  }
-  const Scalar highland = 1.F + (0.038F * (logOf(crossed) - cut.logBeta2));
-  return highland > 0.F ? 0.0136F * 0.0136F * highland * highland * moment * g * cut.invBetaMomentum2 : 0.F;
 }
 
 /// `T = sum_p theta_p^2 (s_j - s_p)^2` over the passive scatterers the line

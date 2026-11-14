@@ -656,20 +656,23 @@ GPUg() void matBudgetKernel(const o2::base::MatLayerCylSet* lut, const float* se
   for (std::uint32_t i = (blockIdx.x * blockDim.x) + threadIdx.x; i < count; i += blockDim.x * gridDim.x) {
     const float* s = segments + (6U * i);
     const auto budget = lut->getMatBudget(s[0], s[1], s[2], s[3], s[4], s[5]);
-    result[(3U * i) + 0U] = budget.meanRho;
-    result[(3U * i) + 1U] = budget.meanX2X0;
-    result[(3U * i) + 2U] = budget.length;
+    const auto moment = lut->getMatMoment(s[0], s[1], s[2], s[3], s[4], s[5]);
+    result[(5U * i) + 0U] = budget.meanRho;
+    result[(5U * i) + 1U] = budget.meanX2X0;
+    result[(5U * i) + 2U] = budget.length;
+    result[(5U * i) + 3U] = moment.x2X0;
+    result[(5U * i) + 4U] = moment.x2X0T2;
   }
 }
 
-StageStatus runMatBudgets(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const o2::base::MatLayerCylSet& lut, std::span<const std::array<float, 6>> segments, std::vector<std::array<float, 3>>& result)
+StageStatus runMatBudgets(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const o2::base::MatLayerCylSet& lut, std::span<const std::array<float, 6>> segments, std::vector<std::array<float, 5>>& result)
 {
   auto scope = arena.scope();
   DeviceFlatObject<o2::base::MatLayerCylSet> device;
   DeviceSpan<float> deviceSegments;
   DeviceSpan<float> deviceResult;
   const auto count = static_cast<std::uint32_t>(segments.size());
-  if (!device.upload(arena, lut, stream) || !deviceSegments.allocate(arena, 6U * std::size_t{count}) || !deviceResult.allocate(arena, 3U * std::size_t{count})) {
+  if (!device.upload(arena, lut, stream) || !deviceSegments.allocate(arena, 6U * std::size_t{count}) || !deviceResult.allocate(arena, 5U * std::size_t{count})) {
     return StageStatus::kOutOfMemory;
   }
   upload(segments.data()->data(), deviceSegments, 6U * std::size_t{count}, stream);
@@ -677,7 +680,7 @@ StageStatus runMatBudgets(DeviceRuntime& runtime, DeviceStream& stream, DeviceAr
   matBudgetKernel<<<shape.blocks, shape.threads, 0U, nativeStream(runtime, stream)>>>(device.data(), deviceSegments.data(), count, deviceResult.data());
   checkLaunch();
   result.resize(count);
-  download(deviceResult, result.data()->data(), 3U * std::size_t{count}, stream);
+  download(deviceResult, result.data()->data(), 5U * std::size_t{count}, stream);
   stream.synchronize();
   return StageStatus::kComplete;
 }

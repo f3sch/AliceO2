@@ -1093,13 +1093,11 @@ class FollowStage
   {
     if constexpr (BeamLine) {
       BoundTrackState constrained = inner;
-      const auto& plane = mGeometry->planeOf(inner);
-      const LayerID layer = mGeometry->surface(inner.surface).layer;
-      const auto point = pairPointAt(mFrame->measurements(), innermost);
-      const auto update = updateWithBeamLine(mPropagator, *mParameters, plane, layer, point, constrained);
+      const auto prediction = predictBeamLine(mPropagator, *mParameters, *mMaterial, mGeometry->planeOf(inner), pairPointAt(mFrame->measurements(), innermost), inner);
+      const auto update = updateWithBeamLine(*mParameters, prediction, constrained);
       if (update.ok && !(update.chi2 <= mParameters->beamChi2Max) && mParameters->kinkScale2 > 1.F) {
         constrained = inner;
-        static_cast<void>(updateWithBeamLine(mPropagator, *mParameters, plane, layer, point, constrained, mParameters->kinkScale2));
+        static_cast<void>(updateWithBeamLine(*mParameters, prediction, constrained, mParameters->kinkScale2));
       }
       return constrained;
     } else {
@@ -1281,8 +1279,7 @@ class FollowStage
       return false;
     }
     covarianceFromFactors(carried, predicted.cov);
-    const LayerID layer = mGeometry->surface(measurement.surface).layer;
-    if (!updateWithBeamLine(mPropagator, *mParameters, plane, layer, pairPointAt(mFrame->measurements(), row), predicted).ok) {
+    if (!updateWithBeamLine(mPropagator, *mParameters, *mMaterial, plane, pairPointAt(mFrame->measurements(), row), predicted).ok) {
       return false;
     }
     const auto v00 = static_cast<ExactScalar>(predicted.variance(kLoc0)) + static_cast<ExactScalar>(measurement.varLoc0);
@@ -1594,8 +1591,7 @@ class FollowStage
         if (direction == PropagationDirection::kBackward) {
           BoundTrackState constrained = probe.state;
           covarianceFromFactors(probe.factors, constrained.cov);
-          const LayerID layer = mGeometry->surface(constrained.surface).layer;
-          const auto beam = updateWithBeamLine(mPropagator, *mParameters, mGeometry->planeOf(constrained), layer, pairPointAt(mFrame->measurements(), probe.rows[probe.count - 1U]), constrained);
+          const auto beam = updateWithBeamLine(mPropagator, *mParameters, *mMaterial, mGeometry->planeOf(constrained), pairPointAt(mFrame->measurements(), probe.rows[probe.count - 1U]), constrained);
           chi2 = beam.chi2;
           return beam.ok && beam.chi2 <= mParameters->beamChi2Max;
         }

@@ -457,13 +457,13 @@ class VertexStudy
     const auto score = stageScore();
     const auto made = makeup(score.vertices, score.claimedBy);
     out << "frame,timePS,widthPS,zUM,contributors,collision,trueZUM,collisionFrame,findable,inner,strongest,trueShare,pairShare,noParticle,dense,own,"
-           "other,dcaUM,chi2RZ,radiusM,shared,reuseClaim,reuseWindow\n";
+           "other,dcaUM,chi2RZ,radiusM,shared,reuseClaim,reuseWindow,sigmaZUM\n";
     for (std::size_t v = 0; v < score.vertices.size(); ++v) {
       const auto& vertex = score.vertices[v];
       const auto& seed = mStageVertices[v];
       const auto* collision = vertex.collision < 0 ? nullptr : &mCollisions[static_cast<std::size_t>(vertex.collision)];
       const auto& m = made[v];
-      out << std::format("{},{},{},{:.1f},{},{},{:.1f},{},{},{},{:d},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.2f},{:.3f},{:.3f},{:.1f},{:.4f},{:.4f}\n", vertex.frame, seed.timePS, seed.widthPS, vertex.zUM, vertex.contributors, vertex.collision, collision == nullptr ? 0. : collision->z * 1.e4, collision == nullptr ? -1 : collision->frame, collision == nullptr ? 0U : collision->findable, collision == nullptr ? 0U : collision->inner, m.strongest, m.shares[0], m.shares[1], m.shares[2], m.shares[3], m.shares[4], m.shares[5], m.dcaUM, m.chi2RZ, m.radiusM, m.shared, m.reuseClaim, m.reuseWindow);
+      out << std::format("{},{},{},{:.1f},{},{},{:.1f},{},{},{},{:d},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.2f},{:.3f},{:.3f},{:.1f},{:.4f},{:.4f},{:.2f}\n", vertex.frame, seed.timePS, seed.widthPS, vertex.zUM, vertex.contributors, vertex.collision, collision == nullptr ? 0. : collision->z * 1.e4, collision == nullptr ? -1 : collision->frame, collision == nullptr ? 0U : collision->findable, collision == nullptr ? 0U : collision->inner, m.strongest, m.shares[0], m.shares[1], m.shares[2], m.shares[3], m.shares[4], m.shares[5], m.dcaUM, m.chi2RZ, m.radiusM, m.shared, m.reuseClaim, m.reuseWindow, std::sqrt(static_cast<double>(seed.varZ)) * 1.e4);
     }
   }
 
