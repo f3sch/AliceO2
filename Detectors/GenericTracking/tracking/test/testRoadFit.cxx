@@ -340,18 +340,20 @@ BOOST_AUTO_TEST_CASE(KinksLeaveTheFitADegreeOfFreedom)
   BOOST_TEST(detail::kinkBudgetFor(two, 7).max == 2);
   BOOST_TEST(detail::kinkBudgetFor(KinkBudget{}, 7).max == 0);
 
-  // The second and third clusters thrown far to either side: each inner step
-  // of the outward pass is a kink while the budget lasts.
+  // The fourth and fifth clusters thrown far to either side: each step after
+  // the start (`startPass`) with a measurement after it is a kink while the
+  // budget lasts. The start's own measurements are never tested: they
+  // determine the state, nothing is there yet to test them against.
   const auto iteration = parameters();
   auto chain = kinkedChain(kLayers - 1U, 0.);
-  chain[1].loc0 += 40.F * std::sqrt(chain[1].varLoc0);
-  chain[2].loc0 -= 40.F * std::sqrt(chain[2].varLoc0);
+  chain[3].loc0 += 40.F * std::sqrt(chain[3].varLoc0);
+  chain[4].loc0 -= 40.F * std::sqrt(chain[4].varLoc0);
   const KinkBudget budget{.max = 2, .gate = iteration.kinkChi2Min};
+  const auto six = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), 6, kNoCut.data(), budget);
+  BOOST_TEST(six.kinks == 2U);
   const auto five = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), 5, kNoCut.data(), budget);
-  BOOST_TEST(five.kinks == 2U);
-  const auto four = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), 4, kNoCut.data(), budget);
-  BOOST_TEST(four.kinks == 1U);
-  const auto fit = fitMeasurements(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), 4, budget);
+  BOOST_TEST(five.kinks == 1U);
+  const auto fit = fitMeasurements(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), 5, budget);
   BOOST_REQUIRE((fit.status == PropagationStatus::kOk));
   BOOST_TEST(fit.outwardKinks <= 1U);
   BOOST_TEST(fit.kinks <= 1U);

@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 
 /// \file Seed.h
-/// \brief Whole-chain seed helices and the diffuse priors for the uniform-solenoid track model.
+/// \brief Whole-chain seed helices for the uniform-solenoid track model.
 
 #ifndef GTRK_TRACKING_SEED_H_
 #define GTRK_TRACKING_SEED_H_
@@ -47,84 +47,14 @@ GPUdi() void relativePosition(const TrackingSurface& surface, const Measurement&
 
 } // namespace detail
 
-/// The q/p prior on a whole-chain seed: the wider of kChainQOverPSpread
-/// times |q/p| and kChainPriorOverResolution times the resolution the chain's
-/// measurements alone give.
-///
-/// Diffuse has to mean wide against what the chain determines, and a chain
-/// determines q/p very differently with its length. Three points fix it to
-/// tens of percent, and there a factor of a few is what diffuse means. Ten
-/// layers over a metre fix it to a few percent where scattering limits it,
-/// under one at high pT -- and a factor of three is then not diffuse but out
-/// of range: an inward pass opens with a 20 cm step, the q/p uncertainty
-/// becomes a position variance of hundreds of cm^2 against a 2.5e-6 cm^2
-/// cluster, and the float covariance cannot come back from it. 0.3 keeps the
-/// prior ten or more times wider than a scattering-limited resolution; the
-/// second term keeps short chains as diffuse as a three-point seed. Without
-/// any material ten points fix q/p to 1e-4, which no prior both
-/// non-informative and representable in float reaches, but no track crosses
-/// no material.
-inline constexpr Scalar kChainQOverPSpread = 0.3F;
-inline constexpr Scalar kChainPriorOverResolution = 30.F;
-
-/// A direction's diffuse prior: a three-point seed fixes the direction to
-/// milliradians; 0.1 rad is two orders looser.
-inline constexpr Scalar kDiffuseAngleVariance = 1e-2F;
-
-/// Set the deliberately diffuse diagonal covariance used by both fit passes.
-///
-/// The seed parameters come from the chain's own measurements, but their
-/// covariance is not estimated from those same points. The measurements are
-/// consumed by the filter with this broad prior instead.
-///
-/// **Diffuse means a hundred times the measurement, not a million**: a q/p
-/// variance of 1e4 cannot be reduced to 2e-2 in float -- P - K H P returns
-/// negative variances. So each prior is sized against what the measurements
-/// determine, and q/p relative to the seed's own estimate: a fixed large width
-/// stops being representable, a fixed small one stops being diffuse for a
-/// 50 MeV track.
-///
-/// \a qOverPSigma is that width, and it belongs to where the estimate came
-/// from: see kChainQOverPSpread.
-GPUhdi() GPUAlwaysInline() void setDiffuseCovariance(BoundTrackState& seed, Scalar qOverPSigma)
-{
-  for (auto& value : seed.cov) {
-    value = 0.F;
-  }
-  // A sensor is about a centimetre, so 1 mm is generous against a cluster
-  // resolution of tens of microns.
-  seed.variance(kLoc0) = 1e-2F;
-  seed.variance(kLoc1) = 1e-2F;
-  seed.variance(kPhi) = kDiffuseAngleVariance;
-  seed.variance(kTheta) = kDiffuseAngleVariance;
-  seed.variance(kQOverP) = o2::gpu::GPUCommonMath::Max(qOverPSigma * qOverPSigma, 1e-2F);
-}
-
-/// Free a state's direction, as a kink in the fit does:
-/// `phi` and `theta` get the diffuse prior and lose their covariances with
-/// every other parameter; position and q/p keep theirs.
-GPUhdi() GPUAlwaysInline() void freeDirection(BoundTrackState& state)
-{
-  state.decorrelate(kPhi, kTheta);
-  state.variance(kPhi) = kDiffuseAngleVariance;
-  state.variance(kTheta) = kDiffuseAngleVariance;
-}
-
-/// A whole-chain seed and the q/p width of its prior, which both fit passes
-/// need.
-struct ChainSeed {
-  BoundTrackState state;
-  Scalar qOverPSigma = 0.F;
-};
-
 /// Construct a state on the first surface of an ordered chain from a helix
 /// fitted through all \a n of its measurements.
 ///
-/// This is the fit's outward seed, and its q/p width that of both passes'
-/// priors. The filter linearises each step about its own filtered state
-/// (TrackFitter.h, `filterStep`), so the seed only has to start it on the
-/// right helix: a three-point seed's curvature, fixed over the first few
-/// centimetres, is not that once the chain is long.
+/// This is the outward pass's reference: the fit takes its values as the
+/// point it linearises about, never as information (TrackFitter.h,
+/// `startPass`), so it carries no covariance. It only has to start the
+/// reference on the right helix: a three-point seed's curvature, fixed over
+/// the first few centimetres, is not that once the chain is long.
 ///
 /// Transverse: Karimaki's circle fit (NIM A 305 (1991) 187) about the first
 /// measurement. It is closed form -- sums over the points and one atan2 -- and
@@ -143,7 +73,7 @@ struct ChainSeed {
 /// \a measurements is anything indexed by `[i]` giving a `Measurement`: an
 /// array, or rows read from the frame's columns.
 template <typename T = Scalar, typename Prop, DetectorLayout Det, typename Chain>
-GPUdi() ChainSeed makeChainSeed(const Prop& prop, const TrackingGeometry<Det>& geometry, const Chain& measurements, int n)
+GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<Det>& geometry, const Chain& measurements, int n)
 {
   // Everything is relative to the first measurement: the circle is fitted
   // about it, and sums of large absolute coordinates would cancel.
@@ -176,7 +106,6 @@ GPUdi() ChainSeed makeChainSeed(const Prop& prop, const TrackingGeometry<Det>& g
   // their first transform on the CPU; avoid a larger device register frame.
   constexpr auto kCachePoints = static_cast<std::size_t>(Detector<Det>::nLayers);
   T cachedPositions[kCachePoints][3];
-  T cachedVarLoc0[kCachePoints];
   const bool cachePoints = n >= 0 && std::cmp_less_equal(n, kCachePoints);
 #endif
   for (int i = 0; i < n; ++i) {
@@ -190,7 +119,6 @@ GPUdi() ChainSeed makeChainSeed(const Prop& prop, const TrackingGeometry<Det>& g
       for (int axis = 0; axis < 3; ++axis) {
         cachedPositions[i][axis] = p[axis];
       }
-      cachedVarLoc0[i] = static_cast<T>(measurement.varLoc0);
     }
 #endif
     if (i == 1) {
@@ -258,19 +186,16 @@ GPUdi() ChainSeed makeChainSeed(const Prop& prop, const TrackingGeometry<Det>& g
   T meanZ = T(0);
   T cSS = T(0);
   T cSZ = T(0);
-  T sumVarLoc0 = T(0);
   for (int i = 0; i < n; ++i) {
     T p[3]{};
 #ifndef GPUCA_GPUCODE
     if (cachePoints) {
-      sumVarLoc0 += cachedVarLoc0[i];
       for (int axis = 0; axis < 3; ++axis) {
         p[axis] = cachedPositions[i][axis];
       }
     } else
 #endif
     {
-      sumVarLoc0 += static_cast<T>(measurements[i].varLoc0);
       detail::relativePosition<T>(geometry.planeOf(measurements[i]), measurements[i], origin, p);
     }
     arc += detail::transverseArc<T>(curvature, p[0] - previous[0], p[1] - previous[1]);
@@ -323,8 +248,7 @@ GPUdi() ChainSeed makeChainSeed(const Prop& prop, const TrackingGeometry<Det>& g
     local[1] += pointFromSurface[i] * static_cast<T>(firstSurface.axis1[i]);
   }
 
-  ChainSeed seed;
-  auto& state = seed.state;
+  BoundTrackState state;
   state.par[kLoc0] = static_cast<Scalar>(local[0]);
   state.par[kLoc1] = static_cast<Scalar>(local[1]);
   state.par[kPhi] = static_cast<Scalar>(phi);
@@ -332,14 +256,7 @@ GPUdi() ChainSeed makeChainSeed(const Prop& prop, const TrackingGeometry<Det>& g
   state.par[kQOverP] = static_cast<Scalar>(curvature * sinTheta / field);
   state.surface = measurements[0].surface;
   state.surfacePhi = firstSurface.surfacePhi;
-
-  // The measurement-limited curvature resolution over the chain's own arc,
-  // Gluckstern's equal-spacing form; scattering only widens it.
-  const T inv = T(1) / static_cast<T>(n);
-  const T curvatureSigma = o2::math_utils::detail::sqrt(sumVarLoc0 * inv) * o2::math_utils::detail::sqrt(T(720) / (static_cast<T>(n) + T(4))) / (arc * arc);
-  seed.qOverPSigma = static_cast<Scalar>(o2::gpu::GPUCommonMath::Max(static_cast<T>(kChainQOverPSpread) * o2::gpu::GPUCommonMath::Abs(curvature), static_cast<T>(kChainPriorOverResolution) * curvatureSigma) * sinTheta / field);
-  setDiffuseCovariance(state, seed.qOverPSigma);
-  return seed;
+  return state;
 }
 
 } // namespace o2::gtrk

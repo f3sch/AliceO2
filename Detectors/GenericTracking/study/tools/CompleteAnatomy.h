@@ -4465,6 +4465,9 @@ class CompleteAnatomy
     std::uint32_t row = 0U;
     BoundTrackState state;
     Scalar chi2 = 0.F;
+    /// Whether the pass's start has determined the state: before, the
+    /// covariance written is the determined part alone (DiffuseFactors).
+    bool determined = true;
   };
   struct InwardRun {
     PropagationStatus status = PropagationStatus::kOk;
@@ -4481,28 +4484,34 @@ class CompleteAnatomy
     const RowChain<Det> chain{.frame = &frame, .rows = rows.data()};
     const auto budget = o2::gtrk::detail::kinkBudgetFor(kinkBudget(parameters), n);
     BoundTrackState state = seed;
-    CovarianceFactors factors;
     if (record) {
-      out.history.push_back({.row = rows[static_cast<std::size_t>(n - 1)], .state = seed, .chi2 = 0.F});
+      out.history.push_back({.row = rows[static_cast<std::size_t>(n - 1)], .state = seed, .chi2 = 0.F, .determined = false});
     }
-    const auto first = o2::gtrk::detail::startOnMeasurement(state, factors, chain[n - 1]);
-    if (!updateUsable(first, factors)) {
+    o2::gtrk::detail::DiffuseFactors start;
+    if (n < o2::gtrk::detail::kPassStart || !o2::gtrk::detail::startDiffuse(chain[n - 1], state, start)) {
       out.status = PropagationStatus::kNotFinite;
       out.failedIndex = n - 1;
       return out;
     }
-    Scalar chi2 = first.chi2;
+    CovarianceFactors factors;
+    Scalar chi2 = 0.F;
     int kinks = 0;
     // The pass's reference, from its seed on the first measurement (`runPass`).
     BoundTrackState reference = state;
     for (int step = 1; step < n; ++step) {
       const int index = n - 1 - step;
       const auto& stepProp = stepPropagator(propagator, geometry, chain, index + 1, index);
+      const bool starting = start.rank > 0;
       out.before = state;
-      covarianceFromFactors(factors, out.before.cov);
+      covarianceFromFactors(starting ? start.star : factors, out.before.cov);
       const Scalar before = chi2;
       BoundTrackState nextReference;
-      const auto status = o2::gtrk::detail::kinkStep(stepProp, geometry, material, chain[index], PropagationDirection::kBackward, state, factors, chi2, budget, step < n - 1, kinks, reference, nextReference);
+      // The start (`startPass`), then the filter.
+      auto status = starting ? o2::gtrk::detail::diffuseStep(stepProp, geometry, material, chain[index], PropagationDirection::kBackward, state, start, chi2, reference, nextReference)
+                             : o2::gtrk::detail::kinkStep(stepProp, geometry, material, chain[index], PropagationDirection::kBackward, state, factors, chi2, budget, step < n - 1, kinks, reference, nextReference);
+      if (status == PropagationStatus::kOk && starting && start.rank == 0) {
+        factors = start.star;
+      }
       if (status != PropagationStatus::kOk) {
         out.status = status;
         out.failedIndex = index;
@@ -4511,10 +4520,16 @@ class CompleteAnatomy
       }
       reference = nextReference;
       if (record) {
-        InwardStep one{.row = rows[static_cast<std::size_t>(index)], .state = state, .chi2 = chi2 - before};
-        covarianceFromFactors(factors, one.state.cov);
+        InwardStep one{.row = rows[static_cast<std::size_t>(index)], .state = state, .chi2 = chi2 - before, .determined = start.rank == 0};
+        covarianceFromFactors(one.determined ? factors : start.star, one.state.cov);
         out.history.push_back(one);
       }
+    }
+    if (start.rank > 0) {
+      // A direction the measurements left undetermined (`startPass`).
+      out.status = PropagationStatus::kNotFinite;
+      out.failedIndex = 0;
+      out.failedStep = n - 1;
     }
     return out;
   }
@@ -4616,12 +4631,12 @@ class CompleteAnatomy
                                    kInwardControl,
                                    kInwardKinds };
   static constexpr std::array<const char*, kInwardKinds> kInwardKindNames{"failing, own rows", "failing, wrong rows", "control"};
-  /// The seeds the failing inward passes are tried again from: as the fit has
-  /// it, the outward end state with its own
-  /// covariance and that times 100, and the diffuse seed with the MC truth's
+  /// The references the failing inward passes are tried again from: as the
+  /// fit has it (the outward end state), and that with the MC truth's
   /// momentum and direction at the outermost row, its q/p alone, its
-  /// direction alone.
-  static constexpr std::array<const char*, 6> kSeedNames{"as the fit (diffuse)", "the outward covariance", "the outward covariance x 100", "MC momentum and direction, diffuse", "MC q/p only, diffuse", "MC direction only, diffuse"};
+  /// direction alone. The pass takes no prior, so only the reference's values
+  /// can differ.
+  static constexpr std::array<const char*, 4> kSeedNames{"as the fit", "MC momentum and direction", "MC q/p only", "MC direction only"};
 
   /// A particle's charge [e] from its PDG code, by O2's particle table as
   /// the sink takes it (`Charge()` in thirds); 0 for a code it does not know.
@@ -4651,9 +4666,7 @@ class CompleteAnatomy
       ++mInwardMismatch[kind];
       return;
     }
-    const auto chainSeed = makeChainSeed(propagator, geometry, chain, n);
-    BoundTrackState seed = fit.outwardState;
-    setDiffuseCovariance(seed, chainSeed.qOverPSigma);
+    const BoundTrackState seed = fit.outwardState;
     const auto run = runInward(seed, rows, parameters, frame, geometry, material, propagator, true);
     if ((run.status == PropagationStatus::kOk) != (kind == kInwardControl)) {
       ++mInwardMismatch[kind];
@@ -4698,11 +4711,13 @@ class CompleteAnatomy
           ++mChargeAgree[kind][(static_cast<double>(state.qOverP()) * truthQOverP) > 0. ? 0U : 1U];
         }
         by.ratio.push_back(p / pTrue);
-        by.pullQOverP.push_back((static_cast<double>(state.qOverP()) - truthQOverP) / sigmaQOverP);
         const double dphi = std::remainder(static_cast<double>(state.phi()) - phiTrue, 2. * std::numbers::pi);
         by.dphi.push_back(1e3 * dphi);
-        by.pullPhi.push_back(dphi / sigmaPhi);
-        by.relSigma.push_back(sigmaQOverP * p);
+        if (one.determined) {
+          by.pullQOverP.push_back((static_cast<double>(state.qOverP()) - truthQOverP) / sigmaQOverP);
+          by.pullPhi.push_back(dphi / sigmaPhi);
+          by.relSigma.push_back(sigmaQOverP * p);
+        }
       }
       // Both crossings of this step's plane from the state it started from:
       // whether the one the solve takes is the particle's.
@@ -4786,23 +4801,16 @@ class CompleteAnatomy
     const auto* outer = segmentOfRow(particle, frame, rows.back());
     for (std::size_t variant = 0; variant < kSeedNames.size(); ++variant) {
       BoundTrackState other = seed;
-      if (variant == 1U || variant == 2U) {
-        other = fit.outwardState;
-        if (variant == 2U) {
-          for (auto& value : other.cov) {
-            value *= 100.F;
-          }
-        }
-      } else if (variant >= 3U) {
+      if (variant >= 1U) {
         if (outer == nullptr) {
           ++mSeedOutcomes[variant][3];
           continue;
         }
         const double pTrue = std::hypot(outer->momentum[0], outer->momentum[1], outer->momentum[2]);
-        if (variant != 5U) {
+        if (variant != 3U) {
           other.par[kQOverP] = static_cast<Scalar>(charge != 0 ? static_cast<double>(charge) * kChargeSign / pTrue : (seed.qOverP() < 0.F ? -1. : 1.) / pTrue);
         }
-        if (variant != 4U) {
+        if (variant != 2U) {
           other.par[kPhi] = static_cast<Scalar>(std::atan2(outer->momentum[1], outer->momentum[0]));
           other.par[kTheta] = static_cast<Scalar>(std::atan2(std::hypot(outer->momentum[0], outer->momentum[1]), outer->momentum[2]));
         }
@@ -4817,12 +4825,11 @@ class CompleteAnatomy
     }
   }
 
-  /// The crossing rules and the seeds compared: the refit of the same rows as `follow::Refit` takes it, under
-  /// each `CrossingRule`, from the diffuse seed as production and from the
-  /// outward end state with its own covariance.
+  /// The crossing rules compared: the refit of the same rows as `follow::Refit` takes it, under
+  /// each `CrossingRule`.
   static constexpr std::array<CrossingRule, 3> kCrossingRules{CrossingRule::kFirstAhead, CrossingRule::kNearerCentre, CrossingRule::kInsideFirst};
   static constexpr std::array<const char*, 3> kCrossingRuleNames{"the first ahead (default)", "nearer the centre", "inside first"};
-  static constexpr std::array<const char*, 2> kRuleSeedNames{"diffuse seed", "outward covariance"};
+  static constexpr std::array<const char*, 1> kRuleSeedNames{"as the fit"};
   enum RuleOutcome : std::uint8_t { kRuleOutward,
                                     kRuleInward,
                                     kRuleChi2,
@@ -4852,7 +4859,7 @@ class CompleteAnatomy
       BoundTrackState state;
       Scalar chi2 = 0.F;
     };
-    const auto refit = [&]<CrossingRule Rule>(bool outwardCovariance) {
+    const auto refit = [&]<CrossingRule Rule>() {
       Outcome out;
       const auto one = fitMeasurements<Rule>(propagator, geometry, material, chain, n, kinkBudget(parameters));
       if (one.failedPass == FitPass::kOutward) {
@@ -4860,17 +4867,8 @@ class CompleteAnatomy
       }
       out.state = one.state;
       out.chi2 = one.chi2;
-      int ndf = one.ndf;
-      bool ok = one.status == PropagationStatus::kOk;
-      if (outwardCovariance) {
-        std::int16_t failed = -1;
-        std::int16_t kinkAt = -1;
-        int kinks = 0;
-        out.state = BoundTrackState{};
-        ok = o2::gtrk::detail::runPass<Rule>(propagator, geometry, material, chain, n, PropagationDirection::kBackward, one.outwardState, out.state, out.chi2, failed, kinkBudget(parameters), kinks, kinkAt, NoFitObserver{}) == PropagationStatus::kOk;
-        ndf = (2 * n) - kNBoundParams - (2 * kinks);
-      }
-      if (!ok) {
+      const int ndf = one.ndf;
+      if (one.status != PropagationStatus::kOk) {
         out.outcome = kRuleInward;
         return out;
       }
@@ -4878,9 +4876,9 @@ class CompleteAnatomy
       return out;
     };
     for (std::size_t seed = 0; seed < kRuleSeedNames.size(); ++seed) {
-      std::array<Outcome, kCrossingRules.size()> outcomes { refit.template operator()<kCrossingRules[0]>(seed == 1U),
-                                                            refit.template operator()<kCrossingRules[1]>(seed == 1U),
-                                                            refit.template operator()<kCrossingRules[2]>(seed == 1U) };
+      std::array<Outcome, kCrossingRules.size()> outcomes { refit.template operator()<kCrossingRules[0]>(),
+                                                            refit.template operator()<kCrossingRules[1]>(),
+                                                            refit.template operator()<kCrossingRules[2]>() };
       for (std::size_t rule = 0; rule < kCrossingRules.size(); ++rule) {
         auto& tally = mRuleTallies[kind][rule][seed];
         const auto& one = outcomes[rule];
@@ -5600,11 +5598,28 @@ class CompleteAnatomy
   };
 
   /// The evidence of \a rows: the outward filter
-  /// from the chain's seed (`makeChainSeed`), its covariance times \a scale,
+  /// from the chain's seed (`makeChainSeed`) with the evidence's own prior
+  /// (`evidencePrior`) times \a scale,
   /// each step's innovation density (-chi2/2 - log sqrt|V| - log 2 pi), plus
   /// half the seed's log-determinant and 5/2 log 2 pi; no kinks. \a running,
   /// where given, gets the sum after each row (without the seed's terms).
   /// NaN where a step fails.
+  /// The prior an evidence integrates over -- the fit takes none, but a
+  /// marginal likelihood needs one: diagonal, 1 mm on the position, 0.1 rad on
+  /// the angles, 30 % on q/p (at least 0.1 (GeV/c)^-1), all variances times
+  /// \a scale.
+  static void evidencePrior(BoundTrackState& state, double scale)
+  {
+    for (auto& value : state.cov) {
+      value = 0.F;
+    }
+    const auto qOverP = 0.3 * std::abs(static_cast<double>(state.qOverP()));
+    const std::array<double, kNBoundParams> variances{1e-2, 1e-2, 1e-2, 1e-2, std::max(qOverP * qOverP, 1e-2)};
+    for (int i = 0; i < kNBoundParams; ++i) {
+      state.variance(i) = static_cast<Scalar>(variances[static_cast<std::size_t>(i)] * scale);
+    }
+  }
+
   template <typename Material>
   [[nodiscard]] double chainEvidence(const std::vector<std::uint32_t>& rows, double scale, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, std::vector<double>* running = nullptr) const
   {
@@ -5614,10 +5629,8 @@ class CompleteAnatomy
       return nan;
     }
     const RowChain<Det> chain{.frame = &frame, .rows = rows.data()};
-    BoundTrackState state = makeChainSeed(propagator, geometry, chain, n).state;
-    for (auto& value : state.cov) {
-      value = static_cast<Scalar>(static_cast<double>(value) * scale);
-    }
+    BoundTrackState state = makeChainSeed(propagator, geometry, chain, n);
+    evidencePrior(state, scale);
     // log|P0| by Cholesky, in double.
     std::array<double, static_cast<std::size_t>(kNBoundParams) * kNBoundParams> l{}; // NOLINT(misc-const-correctness): written through at(), which the check does not follow
     const auto at = [](int row, int column) { return (static_cast<std::size_t>(row) * kNBoundParams) + static_cast<std::size_t>(column); };
@@ -6300,14 +6313,9 @@ class CompleteAnatomy
       out.farMargin = static_cast<float>(centre + radius - distance);
       out.nearMargin = static_cast<float>(distance - (centre - radius));
     };
-    const auto chainSeed = makeChainSeed(propagator, geometry, chain, n);
     const bool forward = fit.failedPass == FitPass::kOutward;
-    BoundTrackState seed = chainSeed.state;
-    if (!forward) {
-      // `inwardPass`'s seed: the outward pass's end state.
-      seed = fit.outwardState;
-      setDiffuseCovariance(seed, chainSeed.qOverPSigma);
-    }
+    // `inwardPass`'s seed: the outward pass's end state.
+    const BoundTrackState seed = forward ? makeChainSeed(propagator, geometry, chain, n) : fit.outwardState;
     // `runPass` up to the failing measurement.
     const auto direction = forward ? PropagationDirection::kForward : PropagationDirection::kBackward;
     const int first = forward ? 0 : n - 1;
@@ -6319,7 +6327,10 @@ class CompleteAnatomy
       const auto measurement = chain[first];
       out.startMiss = std::hypot(seed.loc0() - measurement.loc0, seed.loc1() - measurement.loc1);
     }
-    o2::gtrk::detail::startOnMeasurement(state, factors, chain[first]);
+    o2::gtrk::detail::DiffuseFactors start;
+    if (n < o2::gtrk::detail::kPassStart || !o2::gtrk::detail::startDiffuse(chain[first], state, start)) {
+      return out;
+    }
     Scalar chi2 = 0.F;
     int kinks = 0;
     // The pass's reference, which each step propagates (`filterStep`).
@@ -6336,7 +6347,13 @@ class CompleteAnatomy
         return out;
       }
       BoundTrackState nextReference;
-      if (o2::gtrk::detail::kinkStep(stepProp, geometry, material, chain[index], direction, state, factors, chi2, budget, step < n - 1, kinks, reference, nextReference) != PropagationStatus::kOk) {
+      // The start (`startPass`), then the filter.
+      if (start.rank > 0) {
+        if (o2::gtrk::detail::diffuseStep(stepProp, geometry, material, chain[index], direction, state, start, chi2, reference, nextReference) != PropagationStatus::kOk) {
+          return out;
+        }
+        factors = start.star;
+      } else if (o2::gtrk::detail::kinkStep(stepProp, geometry, material, chain[index], direction, state, factors, chi2, budget, step < n - 1, kinks, reference, nextReference) != PropagationStatus::kOk) {
         return out;
       }
       reference = nextReference;
