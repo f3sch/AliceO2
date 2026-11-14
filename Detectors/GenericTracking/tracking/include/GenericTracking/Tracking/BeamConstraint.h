@@ -21,9 +21,9 @@
 /// loc1 along the beam: z0), and its variance is the beam's width squared
 /// plus the scattering between: a kink theta_k at distance s_k from the beam
 /// moves the d0 the state predicts by theta_k s_k, so the sum
-/// `sum_k theta_k^2 s_k^2` over the layers and the passive scatterers inside,
-/// and the surface's own layer, as the pair windows take it
-/// (`sourceScattering`), at the track's own momentum. The update is the
+/// `sum_k theta_k^2 s_k^2` over the material between the beam and the
+/// measurement, from the material LUT (`beamScattering`), at the track's own
+/// momentum. The update is the
 /// Kalman update of that one coordinate, made on the surface: the scattering
 /// between is in the measurement's variance, not in the state's.
 ///
@@ -114,36 +114,76 @@ GPUhdi() GPUAlwaysInline() TrackingSurface beamLinePlane(Scalar x, Scalar y, Sca
   return plane;
 }
 
-/// \a state, on \a surface of layer \a layer, updated with the iteration's
-/// beam line; \a innermost is the state's measurement as the pair cut reads
-/// it (the corrected beam frame), whose line from the track's z0 sets the
-/// scattering's path. The state is left as it was if the update cannot be
-/// made: the propagation to the plane failed, or the residual's variance is
-/// not positive. \a scatteringScale multiplies the scattering term: 1 but
-/// for the kink allowance.
-template <DetectorLayout Det>
-GPUdi() BeamLineUpdate updateWithBeamLine(const Propagator& prop, const IterationParameters<Det>& parameters, const TrackingSurface& surface, LayerID layer, const PairPoint& innermost, BoundTrackState& state, Scalar scatteringScale = 1.F)
+/// The variance [cm^2] of the d0 a state on \a innermost's measurement
+/// predicts, from the scattering on the straight segment from the beam point
+/// (\a beamX, \a beamY, \a z0) to \a innermost (as the pair cuts read it,
+/// about the corrected beam line, \a beamX and \a beamY added back): Highland's
+/// formula for the segment's whole x/X0 at the track's \a momentum and \a mass,
+/// the variance shared by its parts in proportion to their x/X0, each kink at
+/// its transverse distance from the beam point, t R at the fraction t of the
+/// way (\a material's `getMatMoment`): theta0^2 R^2 (int t^2 dx) / X, over
+/// sin^2(theta) for the displacement across the track.
+template <typename Material>
+GPUdi() Scalar beamScattering(const Material& material, Scalar beamX, Scalar beamY, Scalar z0, const PairPoint& innermost, Scalar momentum, Scalar mass, Scalar sinTheta)
+{
+  const auto moment = material.getMatMoment(beamX, beamY, z0, innermost.x + beamX, innermost.y + beamY, innermost.z);
+  if (!(moment.x2X0 > 0.F) || !(sinTheta * sinTheta > 0.F)) {
+    return 0.F;
+  }
+  const Scalar theta0 = highlandTheta0(moment.x2X0, moment.x2X0, momentum, mass);
+  return theta0 * theta0 * innermost.r * innermost.r * moment.x2X0T2 / (moment.x2X0 * sinTheta * sinTheta);
+}
+
+/// What the beam-line update predicts of a state: the d0 at the beam line,
+/// its derivatives with respect to the state's parameters, and the scattering
+/// between (`beamScattering`), which a kink allowance's second update scales.
+struct BeamLinePrediction {
+  bool ok = false;
+  Scalar d0 = 0.F;
+  Scalar derivatives[kNBoundParams]{};
+  Scalar scattering = 0.F; ///< [cm^2]
+};
+
+/// The prediction for \a state on \a surface, whose measurement is
+/// \a innermost (as the pair cut reads it): not ok if the propagation to the
+/// beam line's plane fails.
+template <DetectorLayout Det, typename Material>
+GPUdi() BeamLinePrediction predictBeamLine(const Propagator& prop, const IterationParameters<Det>& parameters, const Material& material, const TrackingSurface& surface, const PairPoint& innermost, const BoundTrackState& state)
 {
   using Math = o2::gpu::GPUCommonMath;
-  BeamLineUpdate result;
+  BeamLinePrediction prediction;
   const auto plane = beamLinePlane(parameters.beamX, parameters.beamY, perigeePhi(prop, state, surface));
   SolenoidJacobian jacobian;
   BoundTrackState predicted;
   const auto status = jacobianAnalytic(prop, state, surface, plane, PropagationDirection::kBackward, jacobian, &predicted);
   if (status != PropagationStatus::kOk && status != PropagationStatus::kOutOfBounds) {
-    return result;
+    return prediction;
   }
-
   Scalar sinTheta = 0.F;
   Scalar cosTheta = 0.F;
   sincosOf(state.theta(), sinTheta, cosTheta);
-  const Scalar momentum = 1.F / Math::Abs(state.qOverP());
-  const Scalar betaPT = betaMomentum(momentum, prop.massGeV) * Math::Abs(sinTheta);
-  PairCut ownMomentum;
-  ownMomentum.invBetaMomentum2 = 1.F / (betaPT * betaPT);
-  ownMomentum.logBeta2 = logOf(momentum * momentum / ((momentum * momentum) + (prop.massGeV * prop.massGeV)));
-  const VertexSeed origin{.z = predicted.loc1()};
-  const Scalar scattering = scatteringScale * beamScattering<Det>(parameters.scattering, ownMomentum, origin, layer, innermost);
+  prediction.ok = true;
+  prediction.d0 = predicted.loc0();
+  for (int i = 0; i < kNBoundParams; ++i) {
+    prediction.derivatives[i] = jacobian.loc0[i];
+  }
+  prediction.scattering = beamScattering(material, parameters.beamX, parameters.beamY, predicted.loc1(), innermost, 1.F / Math::Abs(state.qOverP()), prop.massGeV, sinTheta);
+  return prediction;
+}
+
+/// \a state updated with the iteration's beam line as \a prediction, made
+/// for it, has it; \a scatteringScale multiplies the scattering term: 1 but
+/// for the kink allowance. The state is left as it was if the update cannot
+/// be made: the prediction failed, or the residual's variance is not
+/// positive.
+template <DetectorLayout Det>
+GPUdi() BeamLineUpdate updateWithBeamLine(const IterationParameters<Det>& parameters, const BeamLinePrediction& prediction, BoundTrackState& state, Scalar scatteringScale = 1.F)
+{
+  BeamLineUpdate result;
+  if (!prediction.ok) {
+    return result;
+  }
+  const Scalar scattering = scatteringScale * prediction.scattering;
 
   // H is the Jacobian's loc0 row; u = C H^T, s = H C H^T + V. In double: the
   // update subtracts u u^T / s from a covariance whose entries span orders of
@@ -151,17 +191,17 @@ GPUdi() BeamLineUpdate updateWithBeamLine(const Propagator& prop, const Iteratio
   ExactScalar u[kNBoundParams]{};
   for (int i = 0; i < kNBoundParams; ++i) {
     for (int j = 0; j < kNBoundParams; ++j) {
-      u[i] += static_cast<ExactScalar>(state.covAt(i, j)) * static_cast<ExactScalar>(jacobian.loc0[j]);
+      u[i] += static_cast<ExactScalar>(state.covAt(i, j)) * static_cast<ExactScalar>(prediction.derivatives[j]);
     }
   }
   ExactScalar variance = static_cast<ExactScalar>(parameters.beamVarTransverse) + static_cast<ExactScalar>(scattering);
   for (int j = 0; j < kNBoundParams; ++j) {
-    variance += static_cast<ExactScalar>(jacobian.loc0[j]) * u[j];
+    variance += static_cast<ExactScalar>(prediction.derivatives[j]) * u[j];
   }
   if (!(variance > 0.)) {
     return result;
   }
-  const auto residual = -static_cast<ExactScalar>(predicted.loc0());
+  const auto residual = -static_cast<ExactScalar>(prediction.d0);
   for (int i = 0; i < kNBoundParams; ++i) {
     state.par[i] = static_cast<Scalar>(static_cast<ExactScalar>(state.par[i]) + (u[i] * residual / variance));
     for (int j = 0; j <= i; ++j) {
@@ -174,6 +214,14 @@ GPUdi() BeamLineUpdate updateWithBeamLine(const Propagator& prop, const Iteratio
   result.variance = static_cast<Scalar>(variance);
   result.scattering = scattering;
   return result;
+}
+
+/// \a state, on \a surface, updated with the iteration's beam line: the
+/// prediction (`predictBeamLine`) and the update with it.
+template <DetectorLayout Det, typename Material>
+GPUdi() BeamLineUpdate updateWithBeamLine(const Propagator& prop, const IterationParameters<Det>& parameters, const Material& material, const TrackingSurface& surface, const PairPoint& innermost, BoundTrackState& state)
+{
+  return updateWithBeamLine(parameters, predictBeamLine(prop, parameters, material, surface, innermost, state), state);
 }
 
 } // namespace o2::gtrk

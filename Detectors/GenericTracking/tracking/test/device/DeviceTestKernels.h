@@ -289,10 +289,11 @@ struct DeviceTestEntry {
   /// arena refused it.
   /// \a object uploaded, read back; uploaded again elsewhere from the kept image, read back into \a moved.
   bool (*flatObject)(DeviceRuntime&, DeviceStream&, DeviceArena&, const ToyFlatObject& object, std::vector<std::int32_t>& readBack, std::vector<std::int32_t>& moved) = nullptr;
-  /// O2's material LUT ported with DeviceFlatObject, and getMatBudget of each
-  /// segment (x0, y0, z0, x1, y1, z1) evaluated on the device: its mean
-  /// density, mean X/X0 and length.
-  StageStatus (*matBudgets)(DeviceRuntime&, DeviceStream&, DeviceArena&, const o2::base::MatLayerCylSet& lut, std::span<const std::array<float, 6>> segments, std::vector<std::array<float, 3>>& result) = nullptr;
+  /// O2's material LUT ported with DeviceFlatObject, and getMatBudget and
+  /// getMatMoment of each segment (x0, y0, z0, x1, y1, z1) evaluated on the
+  /// device: its mean density, mean X/X0 and length; X/X0 and its second
+  /// moment.
+  StageStatus (*matBudgets)(DeviceRuntime&, DeviceStream&, DeviceArena&, const o2::base::MatLayerCylSet& lut, std::span<const std::array<float, 6>> segments, std::vector<std::array<float, 5>>& result) = nullptr;
   /// The selection glue over \a records into a copy of \a mask, in an arena
   /// scope closed on return.
   StageStatus (*selectionGlue)(DeviceRuntime&, DeviceStream&, DeviceArena&, const ToyBarrel8Records& records, std::span<const std::uint8_t> mask, std::uint32_t sharedInnermost, SelectionGlueResult& result) = nullptr;

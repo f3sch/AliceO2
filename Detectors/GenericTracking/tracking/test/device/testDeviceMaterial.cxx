@@ -63,28 +63,49 @@ BOOST_AUTO_TEST_CASE(TheLutGivesTheHostsBudgetsOnTheDevice)
     const float z = longitudinal(random);
     segment = {x, y, z, x + step(random), y + step(random), z + step(random)};
   }
-  Device device;
-  std::vector<std::array<float, 3>> onDevice;
+  // The arena holds the LUT's flat buffer and the segments.
+  Device device{lut->getFlatBufferSize() + kArenaBytes};
+  std::vector<std::array<float, 5>> onDevice;
   BOOST_REQUIRE((kernels().matBudgets(*device.runtime, device.stream, *device.arena, *lut, segments, onDevice) == StageStatus::kComplete));
+  // Per quantity (mean density, x/X0, length, the moment's x/X0 and its
+  // second moment): the host's values, and the largest difference.
+  std::array<std::vector<float>, 5> hosts;
   std::size_t differing = 0U;
   std::size_t nonZero = 0U;
-  double worst = 0.;
-  const auto relative = [](float host, float device) { return host == device ? 0. : std::abs(static_cast<double>(device) - static_cast<double>(host)) / std::abs(static_cast<double>(host)); };
   for (std::size_t i = 0; i < segments.size(); ++i) {
     const auto& s = segments[i];
-    const auto host = lut->getMatBudget(s[0], s[1], s[2], s[3], s[4], s[5]);
-    nonZero += host.meanX2X0 > 0.F ? 1U : 0U;
-    const bool same = std::bit_cast<std::uint32_t>(host.meanRho) == std::bit_cast<std::uint32_t>(onDevice[i][0]) && std::bit_cast<std::uint32_t>(host.meanX2X0) == std::bit_cast<std::uint32_t>(onDevice[i][1]) && std::bit_cast<std::uint32_t>(host.length) == std::bit_cast<std::uint32_t>(onDevice[i][2]);
+    const auto budget = lut->getMatBudget(s[0], s[1], s[2], s[3], s[4], s[5]);
+    const auto moment = lut->getMatMoment(s[0], s[1], s[2], s[3], s[4], s[5]);
+    const std::array<float, 5> host{budget.meanRho, budget.meanX2X0, budget.length, moment.x2X0, moment.x2X0T2};
+    nonZero += budget.meanX2X0 > 0.F ? 1U : 0U;
+    bool same = true;
+    for (std::size_t q = 0; q < host.size(); ++q) {
+      hosts[q].push_back(host[q]);
+      same = same && std::bit_cast<std::uint32_t>(host[q]) == std::bit_cast<std::uint32_t>(onDevice[i][q]);
+    }
     differing += same ? 0U : 1U;
-    worst = std::max({worst, relative(host.meanX2X0, onDevice[i][1]), relative(host.length, onDevice[i][2])});
   }
-  BOOST_TEST_MESSAGE(runtime()->backend() << ": " << segments.size() << " segments, " << nonZero << " through material, " << differing << " differing, worst relative difference " << worst);
+  // A difference against the quantity's mean over the segments: fast math
+  // moves where a segment crosses a cell boundary, which on a sliver of a
+  // cell is all of a budget near zero.
+  double worst = 0.;
+  for (std::size_t q = 0; q < hosts.size(); ++q) {
+    double mean = 0.;
+    for (const float v : hosts[q]) {
+      mean += std::abs(static_cast<double>(v));
+    }
+    mean /= static_cast<double>(hosts[q].size());
+    for (std::size_t i = 0; i < segments.size(); ++i) {
+      const double difference = std::abs(static_cast<double>(onDevice[i][q]) - static_cast<double>(hosts[q][i]));
+      worst = std::max(worst, mean > 0. ? difference / mean : difference);
+    }
+  }
+  BOOST_TEST_MESSAGE(runtime()->backend() << ": " << segments.size() << " segments, " << nonZero << " through material, " << differing << " differing, worst difference over the mean " << worst);
   BOOST_TEST(nonZero > 0U);
 #ifdef GPUCA_DETERMINISTIC_MODE
   BOOST_TEST(differing == 0U);
 #else
-  // Fast math moves where a segment crosses a cell of the LUT, by a small
-  // fraction of a budget; a port that is wrong is off by far more.
+  // A port that is wrong is off by far more.
   BOOST_TEST(worst < 1.e-2);
 #endif
 }

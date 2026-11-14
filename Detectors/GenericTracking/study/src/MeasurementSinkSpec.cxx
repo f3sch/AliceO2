@@ -3400,7 +3400,7 @@ class MeasurementSinkTask : public Task
     // event's segments ordered by track once.
     std::unordered_map<std::uint64_t, std::uint8_t> outward;
     std::unordered_map<std::uint64_t, std::uint64_t> outwardMasks;
-    std::unordered_map<std::uint64_t, std::vector<float>> legMomenta; // --species-oracle
+    std::unordered_map<std::uint64_t, std::vector<float>> legMomenta;  // --species-oracle
     std::unordered_map<std::uint64_t, std::vector<LayerID>> legLayers; // the funnel's LegLinks
     if (mHits) {
       std::unordered_map<int, std::vector<std::uint64_t>> byEvent;
@@ -4127,13 +4127,10 @@ class MeasurementSinkTask : public Task
   /// vertex's z z0; their sigmas J C J^T, J the analytic Jacobian; and the
   /// scattering between the vertex and \a row, the innermost measurement:
   /// the fit's last update is on its sensor, so what lies before the sensor
-  /// -- of its own stave too -- is in no covariance yet. From the material
-  /// LUT along the straight segment between them, Highland's formula for its
-  /// whole x/X0, the variance shared by its parts in proportion to their
-  /// x/X0, each kink at its transverse distance r_i from the vertex: d0's
-  /// theta0^2 sum(x_i r_i^2) / X / sin^2(theta), z0's that over
-  /// sin^2(theta). And the same as the beam-line update takes it
-  /// (`beamScattering`). Left NaN where the propagation fails. And \a truth's
+  /// -- of its own stave too -- is in no covariance yet: as the beam-line
+  /// update takes it (`beamScattering`, from the beam line at the vertex's
+  /// z), z0's that over sin(theta); and as the pair cuts take it
+  /// (`sourceScattering`). Left NaN where the propagation fails. And \a truth's
   /// production point's distance from the vertex, and the MC state
   /// \a crossing (the state less its residuals) carried to the same plane.
   void vertexApproach(const Frame& frame, const BoundTrackState& state, std::uint64_t particle, Frame::Index row, const Propagator& propagator, const ParticleTruth& truth, const StateTruth& crossing, QAResolution& entry) const
@@ -4166,38 +4163,21 @@ class MeasurementSinkTask : public Task
     entry.dca = {predicted.loc0(), static_cast<float>(static_cast<double>(predicted.loc1()) - header.GetZ())};
     entry.dcaSigma = {static_cast<float>(std::sqrt(std::max(variance(jacobian.loc0), 0.))), static_cast<float>(std::sqrt(std::max(variance(jacobian.loc1), 0.)))};
     {
-      const auto m = frame.measurement(row);
-      const std::array<double, 3> from{header.GetX(), header.GetY(), header.GetZ()};
-      const std::array<double, 3> to{static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z)};
-      // Parts much shorter than a stave's material layers.
-      constexpr int kParts = 200;
-      double total = 0.;
-      double weighted = 0.; // sum of x_i r_i^2
-      for (int i = 0; i < kParts; ++i) {
-        std::array<double, 3> a{};
-        std::array<double, 3> b{};
-        for (std::size_t c = 0; c < 3U; ++c) {
-          a[c] = from[c] + ((to[c] - from[c]) * i / kParts);
-          b[c] = from[c] + ((to[c] - from[c]) * (i + 1) / kParts);
-        }
-        const double x = mInterface.material().getMatBudget(static_cast<float>(a[0]), static_cast<float>(a[1]), static_cast<float>(a[2]), static_cast<float>(b[0]), static_cast<float>(b[1]), static_cast<float>(b[2])).meanX2X0;
-        const double r = std::hypot(0.5 * (a[0] + b[0]) - from[0], 0.5 * (a[1] + b[1]) - from[1]);
-        total += x;
-        weighted += x * r * r;
-      }
-      const double theta0 = static_cast<double>(highlandTheta0(static_cast<Scalar>(total), static_cast<Scalar>(total), momentum, propagator.massGeV));
-      const double d0 = total > 0. ? theta0 * std::sqrt(weighted / total) / sinTheta : 0.;
-      entry.dcaScattering = {static_cast<float>(d0), static_cast<float>(d0 / sinTheta)};
-    }
-    {
+      // The beam-line update's scattering (`beamScattering`), from the beam
+      // line at the vertex's z; and the pair cuts' (`sourceScattering`), at
+      // the track's own momentum.
+      const auto& beam = mInterface.beamLine();
+      const auto point = pairPointAt(frame.measurements(), row);
+      const Scalar variance = beamScattering(mInterface.material(), static_cast<Scalar>(beam.x), static_cast<Scalar>(beam.y), static_cast<Scalar>(header.GetZ()), point, momentum, propagator.massGeV, static_cast<Scalar>(sinTheta));
+      entry.dcaScattering = {std::sqrt(variance), static_cast<float>(static_cast<double>(std::sqrt(variance)) / sinTheta)};
       PairCut ownMomentum;
       const Scalar betaPT = betaMomentum(momentum, propagator.massGeV) * static_cast<Scalar>(sinTheta);
       ownMomentum.invBetaMomentum2 = 1.F / (betaPT * betaPT);
       ownMomentum.logBeta2 = std::log(momentum * momentum / ((momentum * momentum) + (propagator.massGeV * propagator.massGeV)));
       const VertexSeed vertex{.z = static_cast<Scalar>(header.GetZ())};
       const auto layer = mInterface.tracking().surface(state.surface).layer;
-      const Scalar beam = beamScattering<Det>(mInterface.scattering(), ownMomentum, vertex, layer, pairPointAt(frame.measurements(), row));
-      entry.dcaScatteringBeam = {std::sqrt(beam), static_cast<float>(static_cast<double>(std::sqrt(beam)) / sinTheta)};
+      const Scalar fromSource = sourceScattering<Det>(mInterface.scattering(), ownMomentum, vertex, layer, point);
+      entry.dcaScatteringSource = {std::sqrt(fromSource), static_cast<float>(static_cast<double>(std::sqrt(fromSource)) / sinTheta)};
     }
     BoundTrackState mc = state;
     for (std::size_t i = 0; i < 5U; ++i) {

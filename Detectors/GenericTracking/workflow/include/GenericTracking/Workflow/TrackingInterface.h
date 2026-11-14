@@ -439,24 +439,12 @@ class TrackingInterface
     }
     const auto budget = layerMaterial<Det>(*mMaterial);
     const auto passiveBudget = passiveMaterial<Det>(*mMaterial);
-    // Each sensor's silicon centre: a curved sensor's placement is its axis.
-    std::vector<SensorCentre> centres;
-    centres.reserve(mGeometry->sensors().size());
-    for (const auto& sensor : mGeometry->sensors()) {
-      const auto& spec = Geometry<Det>::layerSpec(sensor.layer);
-      double local[3];
-      spec.unrolledToFrame(0., 0., 0.5 * (spec.surfaceMin() + spec.surfaceMax()), local);
-      SensorCentre centre{.layer = sensor.layer};
-      sensor.toGlobal(local, centre.centre);
-      centres.push_back(centre);
-    }
-    const auto inner = innerMaterial<Det>(*mMaterial, centres);
-    mScattering = withInnerShares<Det>(scatteringTable<Det>(budget, passiveBudget), inner.x2X0, inner.position);
+    mScattering = scatteringTable<Det>(budget, passiveBudget);
     std::string layers;
     for (std::size_t layer = 0; layer < budget.size(); ++layer) {
-      layers += fmt::format(" {}: {:.3f} % (inner {:.3f} % at {:.3f} cm)", layer, 100. * budget[layer], 100. * inner.x2X0[layer], inner.position[layer]);
+      layers += fmt::format(" {}: {:.3f} %", layer, 100. * budget[layer]);
     }
-    LOGP(info, "layer budgets, x/X0 across each layer's band, and its share before its sensors (LUT):{}", layers);
+    LOGP(info, "layer budgets, x/X0 across each layer's band (LUT):{}", layers);
     std::size_t passiveIndex = 0U;
     for (const double x2X0 : passiveBudget) {
       const auto& passive = mScattering.passives[passiveIndex];

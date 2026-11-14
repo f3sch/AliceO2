@@ -1126,9 +1126,8 @@ class CompleteAnatomy
         continue;
       }
       const auto& plane = geometry.planeOf(inward.state);
-      const LayerID layer = geometry.surface(inward.state.surface).layer;
-      const auto point = pairPointAt(frame.measurements(), road.front());
-      const auto updated = [&](BoundTrackState state, Scalar scale) { return updateWithBeamLine(propagator, parameters, plane, layer, point, state, scale); };
+      const auto prediction = predictBeamLine(propagator, parameters, material, plane, pairPointAt(frame.measurements(), road.front()), inward.state);
+      const auto updated = [&](BoundTrackState state, Scalar scale) { return updateWithBeamLine(parameters, prediction, state, scale); };
       const auto nominal = updated(inward.state, 1.F);
       if (nominal.ok) {
         entry.chi2 = nominal.chi2;
@@ -4080,8 +4079,7 @@ class CompleteAnatomy
           }
           BoundTrackState state = fit.state;
           const auto& plane = geometry.planeOf(state);
-          const LayerID layer = geometry.surface(state.surface).layer;
-          const auto update = updateWithBeamLine(propagator, parameters, plane, layer, pairPointAt(frame.measurements(), innermost), state);
+          const auto update = updateWithBeamLine(propagator, parameters, material, plane, pairPointAt(frame.measurements(), innermost), state);
           return update.ok ? static_cast<double>(update.chi2) : -1.;
         };
         std::optional<decltype(fitOf({}))> fitAll;
@@ -4260,7 +4258,7 @@ class CompleteAnatomy
             if (at != walk.steps.end() && std::next(at) != walk.steps.end()) {
               BoundTrackState after = std::next(at)->state;
               covarianceFromFactors(std::next(at)->factors, after.cov);
-              const auto update = updateWithBeamLine(propagator, parameters, geometry.planeOf(after), geometry.surface(after.surface).layer, pairPointAt(frame.measurements(), last), after);
+              const auto update = updateWithBeamLine(propagator, parameters, material, geometry.planeOf(after), pairPointAt(frame.measurements(), last), after);
               if (update.ok) {
                 endBeam = static_cast<double>(update.chi2);
                 endBeamPasses = update.chi2 <= parameters.beamChi2Max ? 1 : 0;
@@ -6239,7 +6237,7 @@ class CompleteAnatomy
   /// nominal scattering): the chi2 and sqrt|V|, V = H P H^T + R the
   /// residual's predicted covariance. With
   /// \a beamLine the prediction is first updated with the beam line
-  /// (`updateWithBeamLine`, the scattering inside the row's layer): the row
+  /// (`updateWithBeamLine`, the scattering between the beam and the row): the row
   /// against the beam line as the walk's reference. Without
   /// it also |V| as the follow's EndDensity has it, the product of the
   /// update's float innovations, and from the carried factors in double
@@ -6302,7 +6300,7 @@ class CompleteAnatomy
       factorDet = (w00 * w11) - (w01 * w01);
     }
     covarianceFromFactors(carried, predicted.cov);
-    if (beamLine != nullptr && !updateWithBeamLine(propagator, *beamLine, geometry.planeOf(measurement), mTruth->rows[row].layer, pairPointAt(frame.measurements(), row), predicted).ok) {
+    if (beamLine != nullptr && !updateWithBeamLine(propagator, *beamLine, material, geometry.planeOf(measurement), pairPointAt(frame.measurements(), row), predicted).ok) {
       return {};
     }
     const auto [chi2, det] = innovation(predicted, measurement);
@@ -7751,7 +7749,7 @@ class CompleteAnatomy
           continue;
         }
         BoundTrackState input = roadFit.state;
-        static_cast<void>(updateWithBeamLine(propagator, parameters, geometry.planeOf(input), geometry.surface(input.surface).layer, pairPointAt(frame.measurements(), road.front()), input));
+        static_cast<void>(updateWithBeamLine(propagator, parameters, material, geometry.planeOf(input), pairPointAt(frame.measurements(), road.front()), input));
         CovarianceFactors inputFactors = factorCovariance(input.cov);
         const bool quiet = worst[index] < 2.F;
         // Produced within 50 um of the axis, 2.5 of the beam's widths.
@@ -7917,7 +7915,7 @@ class CompleteAnatomy
             if (ok[1]) {
               covarianceFromFactors(factors, predicted[1].cov);
               predicted[2] = predicted[1];
-              ok[2] = updateWithBeamLine(propagator, parameters, plane, static_cast<LayerID>(target), pairPointAt(frame.measurements(), row), predicted[2]).ok;
+              ok[2] = updateWithBeamLine(propagator, parameters, material, plane, pairPointAt(frame.measurements(), row), predicted[2]).ok;
             }
           }
           if (segment != nullptr) {
@@ -8419,7 +8417,7 @@ class CompleteAnatomy
       if (references) {
         covarianceFromFactors(noBeamFactors, noBeam.cov);
         joint = noBeam;
-        references = updateWithBeamLine(propagator, parameters, plane, mTruth->rows[row].layer, pairPointAt(frame.measurements(), row), joint).ok;
+        references = updateWithBeamLine(propagator, parameters, material, plane, pairPointAt(frame.measurements(), row), joint).ok;
       }
     }
     const auto chi2Of = [&](BoundTrackState state) {

@@ -49,6 +49,17 @@ struct UniformMaterial {
     budget.length = len;
     return budget;
   }
+
+  /// As MatLayerCylSet::getMatMoment: on uniform material the integral of
+  /// t^2 dx/X0 is a third of the x/X0.
+  [[nodiscard]] GPUdi() o2::base::MatMoment getMatMoment(float x0, float y0, float z0, float x1, float y1, float z1) const
+  {
+    const float dx = x1 - x0;
+    const float dy = y1 - y0;
+    const float dz = z1 - z0;
+    const float x = x2X0PerCm * o2::gpu::GPUCommonMath::Sqrt(dx * dx + dy * dy + dz * dz);
+    return {.x2X0 = x, .x2X0T2 = x / 3.F};
+  }
 };
 
 /// The same `x/X0` for every layer, as `layerMaterial` gives a `LayerBudget`

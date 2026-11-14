@@ -138,14 +138,12 @@ template <DetectorLayout Det, typename Material>
     return false;
   }
   BoundTrackState state = inward.state;
-  const auto& plane = geometry.planeOf(state);
-  const LayerID layer = geometry.surface(state.surface).layer;
-  const auto point = pairPointAt(frame.measurements(), rows[0]);
-  auto update = updateWithBeamLine(propagator, parameters, plane, layer, point, state);
+  const auto prediction = predictBeamLine(propagator, parameters, material, geometry.planeOf(state), pairPointAt(frame.measurements(), rows[0]), state);
+  auto update = updateWithBeamLine(parameters, prediction, state);
   if (update.ok && !(update.chi2 <= parameters.beamChi2Max) && parameters.kinkScale2 > 1.F) {
     // The kink allowance: the scattering inside scaled by it.
     state = inward.state;
-    update = updateWithBeamLine(propagator, parameters, plane, layer, point, state, parameters.kinkScale2);
+    update = updateWithBeamLine(parameters, prediction, state, parameters.kinkScale2);
   }
   chi2 = update.chi2;
   return update.ok && update.chi2 <= parameters.beamChi2Max;
