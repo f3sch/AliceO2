@@ -1198,12 +1198,12 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     // the beam constraint fits on the stage that also tests the beam line,
     // and one with innerTrim fits a refused road again without its innermost
     // clusters, as the host.
-    const auto run = [&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim>() {
-      using Fit = RoadRowsFit<Det, Material, BeamLine, NominalOnly, LastStepAllowance, InnerTrim>;
-      const tracker_detail::CapturedRoadFit<Fit, kMaxClusters> fit{.fit = Fit{parameters, mFrame.data(), mGeometry.data(), mMaterial.data(), mPropagator}, .roads = std::as_const(roads).view()};
+    const auto run = [&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim, bool Radiation>() {
+      using Fit = RoadRowsFit<Det, Material, BeamLine, NominalOnly, LastStepAllowance, InnerTrim, Radiation>;
+      const tracker_detail::CapturedRoadFit<Fit, kMaxClusters> fit{.fit = Fit{parameters, mFrame.data(), mGeometry.data(), mMaterial.data(), propagatorOf<Radiation>(mPropagator, hostParameters.radiationScale)}, .roads = std::as_const(roads).view()};
       return mRecordStage.run(records, fit, order, static_cast<Index>(roads.size()));
     };
-    const StageStatus status = withBools([&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim>(std::bool_constant<BeamLine>, std::bool_constant<LastStepAllowance>, std::bool_constant<InnerTrim>) { return run.template operator()<BeamLine, LastStepAllowance, InnerTrim>(); }, hostParameters.beamConstraint, takesLastStepAllowance(hostParameters), hostParameters.innerTrim != 0U);
+    const StageStatus status = withBools([&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim, bool Radiation>(std::bool_constant<BeamLine>, std::bool_constant<LastStepAllowance>, std::bool_constant<InnerTrim>, std::bool_constant<Radiation>) { return run.template operator()<BeamLine, LastStepAllowance, InnerTrim, Radiation>(); }, hostParameters.beamConstraint, takesLastStepAllowance(hostParameters), hostParameters.innerTrim != 0U, hostParameters.radiationScale > 0.F);
     mIterationReport.readbacks += mRecordStage.stagingPredictionMissed() ? 2U : 1U;
     return status;
   }
@@ -1252,8 +1252,12 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     if (!tracks.allocate(mArena, trackCount) || !proposals.allocate(mArena, followCount) || !kinkSteps.allocate(mArena, kinkStepCount) || !followRows.allocate(mArena, followCount) || !followCounts.allocate(mArena, followCount) || !endStarts.allocate(mArena, hostParameters.followEnd ? trackCount : 0U)) {
       return StageStatus::kOutOfMemory;
     }
-    const TrackRefitElement<Det, Material> refit{mFrame.data(), mGeometry.data(), mMaterial.data(), mPropagator, records.clusters, records.count, records.outwardState, records.chi2, std::as_const(selected.selected).data(), tracks.view(), 0U, static_cast<std::uint8_t>(mIteration), kinkBudget(hostParameters)};
-    algorithms::forEach(*mRuntime, mStream, trackCount, refit);
+    withBools(
+      [&]<bool Radiation>(std::bool_constant<Radiation>) {
+        const TrackRefitElement<Det, Material, Radiation> refit{mFrame.data(), mGeometry.data(), mMaterial.data(), propagatorOf<Radiation>(mPropagator, hostParameters.radiationScale), records.clusters, records.count, records.outwardState, records.chi2, std::as_const(selected.selected).data(), tracks.view(), 0U, static_cast<std::uint8_t>(mIteration), kinkBudget(hostParameters)};
+        algorithms::forEach(*mRuntime, mStream, trackCount, refit);
+      },
+      hostParameters.radiationScale > 0.F);
 
     // The follow, the host's sequence
     // (`follow::runSequence`), its bids in the rounds' slots. The host's
