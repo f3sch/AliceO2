@@ -71,6 +71,7 @@
 #include "GenericTracking/Tracking/TripletCut.h"
 #include "GenericTracking/Study/Validation.h"
 #include "GenericTracking/Study/MCTruth.h"
+#include "GenericTracking/Study/SpeciesOracle.h"
 #include "GenericTracking/Study/StageFunnel.h"
 #include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackComparison.h"
@@ -958,6 +959,9 @@ class CompleteAnatomy
     if (mKeepFollowLoss) {
       followOracle(iteration, parameters, frame, geometry, material, propagator);
     }
+    if (mPairSample != 0U) {
+      pairStudy(stage, floor, parameters, frame);
+    }
   }
 
   /// Why a class particle's own records lost the selection:
@@ -1188,6 +1192,14 @@ class CompleteAnatomy
     }
   }
 
+  /// The fits the oracle judges its chains with: the tracking's; with
+  /// Bethe-Heitler's bremsstrahlung (`RadiationPropagator`) its mean alone,
+  /// its variance alone, both.
+  enum OracleFit : std::uint8_t { kOracleFitNominal,
+                                  kOracleFitMean,
+                                  kOracleFitVariance,
+                                  kOracleFitRadiation,
+                                  kOracleFits };
   /// A class particle's selected record that ended dropped or kept as a fake
   /// in an iteration, against the MC: the particle's leg of the record's last row in path
   /// order, its |p| at each own row (the hit's entrance), where it dropped
@@ -1235,6 +1247,13 @@ class CompleteAnatomy
     std::array<std::int8_t, 4> oracleAdded{-1, -1, -1, -1};
     std::array<std::int8_t, 4> oracleWrong{-1, -1, -1, -1};
     std::uint8_t oracleRefused = 0U; ///< a bit per walk whose extension the refit refused
+    /// By `OracleFit`: the verdict on the own leg's rows, its fitted pT over
+    /// the true one, and the verdicts on the `kOracleBoth` walk's chain and on
+    /// the rows the iteration's follow left, each fitted whole and cut.
+    std::array<std::int8_t, kOracleFits> legFits{-1, -1, -1, -1};
+    std::array<float, kOracleFits> legPtRatio{-1.F, -1.F, -1.F, -1.F};
+    std::array<std::int8_t, kOracleFits> bothFits{-1, -1, -1, -1};
+    std::array<std::int8_t, kOracleFits> realFits{-1, -1, -1, -1};
     std::int8_t legFitRows = -1;
     std::int8_t legFitOutcome = -1;
   };
@@ -1451,6 +1470,39 @@ class CompleteAnatomy
       }
       return std::pair{cut(record, recordWrong, recordState), false};
     };
+    // The fits of `OracleFit`, and the verdict of each on \a chain, \a wrong
+    // of its rows not the particle's, fitted whole: failing, above the road's
+    // chi2, then the cut; \a ptRatio, if given, gets its fitted pT over
+    // \a truePt.
+    const auto radiation = [&](bool mean, bool variance) {
+      RadiationPropagator prop;
+      static_cast<Propagator&>(prop) = propagator;
+      prop.mean = mean;
+      prop.variance = variance;
+      return prop;
+    };
+    const std::array<RadiationPropagator, kOracleFits - 1U> radiations{radiation(true, false), radiation(false, true), radiation(true, true)};
+    const auto fitVerdicts = [&](const std::vector<std::uint32_t>& chain, std::size_t wrong, double truePt, std::array<std::int8_t, kOracleFits>& verdicts, std::array<float, kOracleFits>* ptRatio) {
+      const auto one = [&](const auto& prop, std::size_t model) {
+        const auto fit = fitMeasurements(prop, geometry, material, RowChain<Det>{.frame = &frame, .rows = chain.data()}, static_cast<int>(chain.size()), kinkBudget(parameters));
+        if (fit.status != PropagationStatus::kOk) {
+          verdicts[model] = kOracleFitFailed;
+          return;
+        }
+        if (ptRatio != nullptr && fit.state.qOverP() != 0.F) {
+          (*ptRatio)[model] = static_cast<float>(std::abs(std::sin(fit.state.theta()) / fit.state.qOverP()) / truePt);
+        }
+        verdicts[model] = static_cast<std::int8_t>(!follow::passesRoadChi2(parameters, fit) ? kOracleRefused : cut(chain.size(), wrong, fit.state));
+      };
+      if (chain.size() < 3U) {
+        verdicts.fill(kOracleShort);
+        return;
+      }
+      one(propagator, kOracleFitNominal);
+      for (std::size_t model = 1U; model < kOracleFits; ++model) {
+        one(radiations[model - 1U], model);
+      }
+    };
     withFollowStage(iteration, parameters, frame, geometry, material, propagator, iteration.followUsed.data(), iteration.trackOffset, [&](const auto& stage) {
       o2::gtrk::detail::parallelFor(*mArena, 0U, rows.size(), 8, [&](std::size_t a, std::size_t b) {
         for (std::size_t i = a; i < b; ++i) {
@@ -1463,6 +1515,7 @@ class CompleteAnatomy
             road.index[k] = k < count ? records.clusters[record].index[k] : kNoRow;
           }
           const auto notOwn = [&](std::uint32_t r) { return !mTruth->rows[r].carries(particle); };
+          const auto truePt = static_cast<double>(mTruth->particles.at(particle).pt);
           // What the iteration's follow left.
           std::vector<std::uint32_t> real;
           if (const auto track = trackOf.find(record); track != trackOf.end() && track->second < iteration.followEndCount.size()) {
@@ -1470,6 +1523,7 @@ class CompleteAnatomy
             const auto n = iteration.followEndCount[at];
             real.assign(iteration.followEndClusters[at].index, iteration.followEndClusters[at].index + n);
             const auto wrong = static_cast<std::size_t>(std::ranges::count_if(real, notOwn));
+            fitVerdicts(real, wrong, truePt, row.realFits, nullptr);
             row.realCount = static_cast<std::int8_t>(n);
             row.realWrong = static_cast<std::int8_t>(wrong);
             row.realOutcome = static_cast<std::int8_t>(n < minimum ? kOracleShort : (!keptAfterFollow(parameters, n, iteration.followEndState[at]) ? kOraclePtFloor : (wrong != 0U ? kOracleKeptWrong : kOracleKept)));
@@ -1494,12 +1548,8 @@ class CompleteAnatomy
                 }
               }
               row.legFitRows = static_cast<std::int8_t>(chain.size());
-              if (chain.size() < minimum) {
-                row.legFitOutcome = kOracleShort;
-              } else {
-                const auto legFit = fitMeasurements(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = chain.data()}, static_cast<int>(chain.size()), kinkBudget(parameters));
-                row.legFitOutcome = static_cast<std::int8_t>(legFit.status != PropagationStatus::kOk ? kOracleFitFailed : (!follow::passesRoadChi2(parameters, legFit) ? kOracleRefused : (keptAfterFollow(parameters, static_cast<std::uint32_t>(chain.size()), legFit.state) ? kOracleKept : kOraclePtFloor)));
-              }
+              fitVerdicts(chain, 0U, truePt, row.legFits, &row.legPtRatio);
+              row.legFitOutcome = row.legFits[kOracleFitNominal];
             }
           }
           const auto& outer = records.outwardState[record];
@@ -1580,6 +1630,9 @@ class CompleteAnatomy
             row.oracleRefused = static_cast<std::uint8_t>(row.oracleRefused | (refused ? 1U << walk : 0U));
             row.oracleAdded[walk] = static_cast<std::int8_t>(chain.size() - kept);
             row.oracleWrong[walk] = static_cast<std::int8_t>(wrong);
+            if (walk == kOracleBoth) {
+              fitVerdicts(chain, wrong, truePt, row.bothFits, nullptr);
+            }
             if (walk == kOracleFitted && row.realCount >= 0) {
               auto left = refused ? std::vector<std::uint32_t>(road.index, road.index + count) : chain;
               std::ranges::sort(left);
@@ -1598,7 +1651,149 @@ class CompleteAnatomy
     for (std::size_t walk = 0; walk < kOracleWalks; ++walk) {
       text += std::format(",{},{},{}", static_cast<int>(row.oracleOutcome[walk]), static_cast<int>(row.oracleAdded[walk]), static_cast<int>(row.oracleWrong[walk]));
     }
-    return text + std::format(",{},{}", static_cast<int>(row.legFitRows), static_cast<int>(row.legFitOutcome));
+    text += std::format(",{},{}", static_cast<int>(row.legFitRows), static_cast<int>(row.legFitOutcome));
+    for (std::size_t model = 0; model < kOracleFits; ++model) {
+      text += std::format(",{},{:.4g},{},{}", static_cast<int>(row.legFits[model]), row.legPtRatio[model], static_cast<int>(row.bothFits[model]), static_cast<int>(row.realFits[model]));
+    }
+    return text;
+  }
+
+  /// A class particle's link on one of its legs as the pair cut judged it
+  /// (`pairStudy`): the iterations that judged it, of them refusing it by the
+  /// curvature or by another test; the curvature's smallest normalised
+  /// excess, (curvature - bound) / sigma, over the iterations refusing it by
+  /// the curvature, and there the pair's circle through the beam line as a
+  /// pT (the iteration's floor times bound / curvature); the MC |p| at the
+  /// rows of that pair (refused by the curvature), else of the leg's first
+  /// pair on the link; the production point's distance from the beam line.
+  struct PairLossRow {
+    std::uint32_t index = 0U;
+    std::size_t link = 0U;
+    std::uint8_t leg = 0U;
+    std::uint16_t judged = 0U;
+    std::uint16_t curvature = 0U;
+    std::uint16_t other = 0U;
+    float minExcess = std::numeric_limits<float>::infinity();
+    float circlePt = -1.F;
+    float pFrom = -1.F;
+    float pTo = -1.F;
+    float dxy = 0.F;
+  };
+
+  /// The pair cut on every sampled class particle's consecutive pairs in
+  /// an iteration (`--anatomy-pair-loss`): two own rows of one leg in
+  /// path order on a link the iteration takes, the segment crossing no other
+  /// layer the leg has a row on; each link once an iteration, its pairs'
+  /// furthest test. Beam-line iterations without the displaced test, for the
+  /// particles not found before whose pT clears \a floor; a particle is
+  /// sampled if its ID is a multiple of `mPairSample`.
+  template <typename Stage>
+  void pairStudy(const Stage& stage, double floor, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame)
+  {
+    if (parameters.vertexSource != VertexSource::kBeamLine || parameters.impactMax > 0.F || mLegs.empty()) {
+      return;
+    }
+    for (std::uint32_t index = 0; index < mFindable.size(); ++index) {
+      const auto particle = mFindable[index];
+      if (particle % mPairSample != 0U || stage[index] == kSeedFoundBefore || mTimed[index] == 0U) {
+        continue;
+      }
+      const auto& truth = mTruth->particles.at(particle);
+      if (static_cast<double>(truth.pt) < floor) {
+        continue;
+      }
+      const auto& own = mRowsOf.at(particle);
+      const auto& legs = mLegs[index];
+      // Per link, its pairs' furthest test and the curvature's smallest excess.
+      struct Judged {
+        study::PairLoss furthest = study::PairLoss::kLinkNotTaken;
+        float excess = std::numeric_limits<float>::infinity();
+        float circlePt = -1.F;
+        std::uint32_t from = kNoRow; ///< the pair refused with the smallest excess, else the first
+        std::uint32_t to = kNoRow;
+      };
+      std::map<std::pair<std::size_t, std::uint8_t>, Judged> links; // by link and leg
+      for (std::size_t k = 0; k < own.size(); ++k) {
+        std::uint64_t legLayers = 0U;
+        for (std::size_t j = 0; j < own.size(); ++j) {
+          legLayers |= legs[j] == legs[k] ? std::uint64_t{1} << mTruth->rows[own[j]].layer : 0U;
+        }
+        const auto& a = mTruth->rows[own[k]];
+        for (std::size_t j = k + 1U; j < own.size(); ++j) {
+          const auto& b = mTruth->rows[own[j]];
+          if (legs[j] != legs[k]) {
+            continue;
+          }
+          const auto link = linkOf<Det>(a.layer, b.layer);
+          if (link == kNoLink || !linkTaken(parameters, link) || segmentLeavesHole(linkHoleLayers<Det>(a.layer, b.layer) & legLayers, parameters.barrelLayers, parameters.layerSpans, a.r, a.z, b.r, b.z)) {
+            continue;
+          }
+          const auto verdict = study::pairCutLoss(frame, parameters, mBeamLine, link, own[k], own[j]);
+          auto& one = links[{link, legs[k]}];
+          if (one.from == kNoRow) {
+            one.from = own[k];
+            one.to = own[j];
+          }
+          one.furthest = std::max(one.furthest, verdict.loss);
+          if (verdict.loss == study::PairLoss::kCurvature && verdict.terms.varCurvature > 0.F) {
+            const auto excess = static_cast<float>((verdict.terms.curvature - verdict.terms.bound) / std::sqrt(verdict.terms.varCurvature));
+            if (excess < one.excess) {
+              one.excess = excess;
+              one.circlePt = verdict.terms.curvature > 0.F ? static_cast<float>(floor * static_cast<double>(verdict.terms.bound / verdict.terms.curvature)) : -1.F;
+              one.from = own[k];
+              one.to = own[j];
+            }
+          }
+        }
+      }
+      const auto momentum = [&](std::uint32_t row) {
+        const auto* hit = segmentOfRow(particle, frame, row);
+        return hit != nullptr ? static_cast<float>(std::hypot(hit->momentum[0], hit->momentum[1], hit->momentum[2])) : -1.F;
+      };
+      for (const auto& [key, one] : links) {
+        auto [at, inserted] = mPairLoss.try_emplace({index, key.first, key.second});
+        auto& row = at->second;
+        if (inserted) {
+          row.index = index;
+          row.link = key.first;
+          row.leg = key.second;
+          row.pFrom = momentum(one.from);
+          row.pTo = momentum(one.to);
+          row.dxy = static_cast<float>(std::hypot(truth.vx - parameters.beamX, truth.vy - parameters.beamY));
+        }
+        ++row.judged;
+        if (one.furthest == study::PairLoss::kCurvature) {
+          ++row.curvature;
+          if (one.excess < row.minExcess) {
+            row.minExcess = one.excess;
+            row.circlePt = one.circlePt;
+            row.pFrom = momentum(one.from);
+            row.pTo = momentum(one.to);
+          }
+        } else if (one.furthest != study::PairLoss::kElsewhere) {
+          ++row.other;
+        }
+      }
+    }
+  }
+
+  /// Keep `pairStudy`'s rows of every \a sample-th particle, for `writePairLoss`.
+  void keepPairLoss(std::uint32_t sample) { mPairSample = std::max(sample, 1U); }
+
+  /// `pairStudy`'s rows as a CSV, with each particle's truth and its fate.
+  void writePairLoss(const std::string& csv) const
+  {
+    std::ofstream out(csv);
+    if (!out) {
+      throw std::runtime_error("cannot write " + csv);
+    }
+    out << "particle,pdg,motherPdg,pt,eta,dxy,fate,from,to,leg,judged,curvature,other,minExcess,circlePt,p,pFrom,pTo\n";
+    for (const auto& [key, row] : mPairLoss) {
+      const auto particle = mFindable[row.index];
+      const auto& truth = mTruth->particles.at(particle);
+      const double p = static_cast<double>(truth.pt) * std::cosh(static_cast<double>(truth.eta));
+      out << std::format("{},{},{},{:.4f},{:.3f},{:.5f},{},{},{},{},{},{},{},{:.4g},{:.4g},{:.5g},{:.5g},{:.5g}\n", particle, truth.pdg, truth.motherPdg, truth.pt, truth.eta, row.dxy, static_cast<int>(mFate[row.index]), static_cast<int>(Det::layerLinks[row.link].from), static_cast<int>(Det::layerLinks[row.link].to), static_cast<int>(row.leg), row.judged, row.curvature, row.other, row.minExcess, row.circlePt, p, row.pFrom, row.pTo);
+    }
   }
 
   /// Keep `followLoss`'s rows, for `writeFollowLoss`.
@@ -1615,7 +1810,7 @@ class CompleteAnatomy
     out << "particle,pdg,motherPdg,pt,eta,dxy,fate,furthest,iteration,stage,recordCount,minAfter,legLayers,beyond,pLegFirst,pRecordLast,pLegLast,rLegLast,"
            "maxDrop,maxDropLayer,maxDropWhere,trackCount,wrong,wrongLayer,wrongBefore,ownOnWrongLayer,pBeforeWrong,pAtWrong,afterWrong,ownAfterWrong,"
            "realCount,realWrong,realOutcome,replayAgrees,refused,fitted,fittedAdded,fittedWrong,start,startAdded,startWrong,loss,lossAdded,lossWrong,both,bothAdded,bothWrong,"
-           "legFitRows,legFitOutcome,why\n";
+           "legFitRows,legFitOutcome,legFit0,legPt0,bothFit0,realFit0,legFit1,legPt1,bothFit1,realFit1,legFit2,legPt2,bothFit2,realFit2,legFit3,legPt3,bothFit3,realFit3,why\n";
     for (const auto& row : mFollowLossRows) {
       const auto particle = mFindable[row.index];
       const auto& truth = mTruth->particles.at(particle);
@@ -8463,6 +8658,8 @@ class CompleteAnatomy
   std::vector<std::string> mRecordLoss;                        ///< per findable: `recordLosses`' verdict, its last record never selected
   bool mKeepBeamLine = false;                                  ///< `keepBeamLine`
   std::vector<BeamLineRow> mBeamLineRows;                      ///< `beamLineStudy`, every iteration
+  std::uint32_t mPairSample = 0U;                              ///< `keepPairLoss`; 0: no pair study
+  std::map<std::tuple<std::uint32_t, std::size_t, std::uint8_t>, PairLossRow> mPairLoss; ///< `pairStudy`, by class particle, link and leg
   bool mKeepFollowLoss = false;                                ///< `keepFollowLoss`
   std::vector<FollowLossRow> mFollowLossRows;                  ///< `followLoss`, every iteration
   std::unordered_map<std::uint32_t, std::string> mLastDropWhy; ///< per findable: the last verdict of `replayDropped`
