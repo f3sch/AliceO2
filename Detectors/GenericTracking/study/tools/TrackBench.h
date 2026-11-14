@@ -166,6 +166,8 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   bool anatomyFindable = false;    ///< --anatomy-findable
   std::string anatomyBeamLine;     ///< --anatomy-beam-line
   std::string anatomyFollowLoss;   ///< --anatomy-follow-loss
+  std::string anatomyPairLoss;     ///< --anatomy-pair-loss
+  std::uint32_t anatomyPairSample = 1U; ///< --anatomy-pair-sample
   int truthWalkIteration = -1;     ///< --truth-walk-iteration: the iteration of the truth walk (-1: the first holding the class's mask)
   std::string hits;                ///< --hits: the MC hits (sgn_Hits<det>.root) the steps are held to
   std::string ft3Hits;             ///< --ft3-hits: FT3's MC hits beside TRK's
@@ -1651,6 +1653,12 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     if (!options.anatomyFollowLoss.empty()) {
       completeAnatomy->keepFollowLoss();
     }
+    if (!options.anatomyPairLoss.empty()) {
+      if (options.hits.empty()) {
+        throw std::runtime_error("--anatomy-pair-loss needs --hits");
+      }
+      completeAnatomy->keepPairLoss(options.anatomyPairSample);
+    }
     if (!options.stepAnatomy.empty() || !options.hits.empty()) {
       completeAnatomy->open(options.stepAnatomy, options.hits, options.hits.empty() ? std::string{} : options.ft3Hits);
     }
@@ -2160,6 +2168,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       }
       if (!options.anatomyFollowLoss.empty()) {
         completeAnatomy->writeFollowLoss(options.anatomyFollowLoss);
+      }
+      if (!options.anatomyPairLoss.empty()) {
+        completeAnatomy->writePairLoss(options.anatomyPairLoss);
       }
     }
     if (funnel) {
