@@ -1193,7 +1193,7 @@ class CompleteAnatomy
   }
 
   /// The fits the oracle judges its chains with: the tracking's; with
-  /// Bethe-Heitler's bremsstrahlung (`RadiationPropagator`) its mean alone,
+  /// Bethe-Heitler's bremsstrahlung (`BetheHeitlerPropagator`) its mean alone,
   /// its variance alone, both.
   enum OracleFit : std::uint8_t { kOracleFitNominal,
                                   kOracleFitMean,
@@ -1475,13 +1475,13 @@ class CompleteAnatomy
     // chi2, then the cut; \a ptRatio, if given, gets its fitted pT over
     // \a truePt.
     const auto radiation = [&](bool mean, bool variance) {
-      RadiationPropagator prop;
+      BetheHeitlerPropagator prop;
       static_cast<Propagator&>(prop) = propagator;
       prop.mean = mean;
       prop.variance = variance;
       return prop;
     };
-    const std::array<RadiationPropagator, kOracleFits - 1U> radiations{radiation(true, false), radiation(false, true), radiation(true, true)};
+    const std::array<BetheHeitlerPropagator, kOracleFits - 1U> radiations{radiation(true, false), radiation(false, true), radiation(true, true)};
     const auto fitVerdicts = [&](const std::vector<std::uint32_t>& chain, std::size_t wrong, double truePt, std::array<std::int8_t, kOracleFits>& verdicts, std::array<float, kOracleFits>* ptRatio) {
       const auto one = [&](const auto& prop, std::size_t model) {
         const auto fit = fitMeasurements(prop, geometry, material, RowChain<Det>{.frame = &frame, .rows = chain.data()}, static_cast<int>(chain.size()), kinkBudget(parameters));
@@ -3224,13 +3224,13 @@ class CompleteAnatomy
   void withFollowStage(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const std::uint8_t* used, std::uint32_t first, const Body& body)
   {
     withBools(
-      [&]<bool BeamLine, bool Greedy, bool EndDensity, bool BeamEnd>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>) {
+      [&]<bool BeamLine, bool Greedy, bool EndDensity, bool BeamEnd, bool Radiation>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>, std::bool_constant<Radiation>) {
         if constexpr (BeamLine || !BeamEnd) {
-          const FollowStage<Det, Material, BeamLine, false, Greedy, EndDensity, BeamEnd> stage{&parameters, &frame, &geometry, &material, propagator, iteration.tracks->view(), used, mMaxWidthPS.data(), mCells.view(), nullptr, nullptr, parameters.sharedInnermost == 0U, first};
+          const FollowStage<Det, Material, BeamLine, false, Greedy, EndDensity, BeamEnd, Radiation> stage{&parameters, &frame, &geometry, &material, propagatorOf<Radiation>(propagator, parameters.radiationScale), iteration.tracks->view(), used, mMaxWidthPS.data(), mCells.view(), nullptr, nullptr, parameters.sharedInnermost == 0U, first};
           body(stage);
         }
       },
-      parameters.beamConstraint, parameters.followGreedy, Follow<Det>::endDensity(parameters), parameters.followBeamEnd);
+      parameters.beamConstraint, parameters.followGreedy, Follow<Det>::endDensity(parameters), parameters.followBeamEnd, parameters.radiationScale > 0.F);
   }
 
   /// Both walks through the stage's sequencing: outward first, its narrowed
