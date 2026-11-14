@@ -181,6 +181,7 @@ inline void checkRecoParam(const RecoSettings& param)
   check("iterationShapeTest", param.iterationShapeTest.size(), 1U);
   check("iterationFollowEndMaxSqrtDet", param.iterationFollowEndMaxSqrtDet.size(), 1U);
   check("iterationFollowKeepDensity", param.iterationFollowKeepDensity.size(), 1U);
+  check("iterationRadiationScale", param.iterationRadiationScale.size(), 1U);
   check("iterationFollowTrimMargin", param.iterationFollowTrimMargin.size(), 1U);
   check("iterationMinClustersAfterFollow", param.iterationMinClustersAfterFollow.size(), 1U);
   check("iterationBeamConstraint", param.iterationBeamConstraint.size(), 1U);
@@ -234,6 +235,10 @@ inline void checkRecoParam(const RecoSettings& param)
   if (followBeamEnd && !(follow && beamConstraint)) {
     throw std::invalid_argument(std::format("GTRKReco<DET>.iterationFollowBeamEnd of iteration {} needs its iterationFollow and iterationBeamConstraint", iteration));
   }
+  const double radiationScale = entryDouble(param.iterationRadiationScale, defaults.radiationScale);
+  if (!(radiationScale >= 0.) || !std::isfinite(radiationScale)) {
+    throw std::invalid_argument(std::format("GTRKReco<DET>.iterationRadiationScale of iteration {} is {}", iteration, radiationScale));
+  }
   const int innerTrim = entry(param.iterationInnerTrim, defaults.innerTrim);
   if (innerTrim < 0) {
     throw std::invalid_argument(std::format("GTRKReco<DET>.iterationInnerTrim of iteration {} is {}", iteration, innerTrim));
@@ -271,6 +276,7 @@ inline void checkRecoParam(const RecoSettings& param)
     .followKeepChi2 = entryDouble(param.iterationFollowKeepChi2, defaults.followKeepChi2),
     .followEndMaxSqrtDet = entryDouble(param.iterationFollowEndMaxSqrtDet, defaults.followEndMaxSqrtDet),
     .followKeepDensity = entryDouble(param.iterationFollowKeepDensity, defaults.followKeepDensity),
+    .radiationScale = radiationScale,
     .followBeamEnd = followBeamEnd,
     .followTrimMargin = entryDouble(param.iterationFollowTrimMargin, defaults.followTrimMargin),
     .minClustersAfterFollow = std::max(entry(param.iterationMinClustersAfterFollow, defaults.minClustersAfterFollow), 0),

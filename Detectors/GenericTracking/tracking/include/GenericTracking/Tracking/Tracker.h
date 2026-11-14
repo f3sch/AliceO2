@@ -992,15 +992,16 @@ class Tracker
     const auto& fitted = mIterations[owner];
     std::optional<profile::Zone> setup{std::in_place, Phase::kRoadFitSetup};
     records.prepare(roads);
-    const auto run = [&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim>() {
-      const RoadFitStage<Det, Material, BeamLine, NominalOnly, LastStepAllowance, InnerTrim> stage{fitted, frame, *mGeometry, *mMaterial, mPropagator, mScratch.tracklets(), mScratch.triplets(), mRoads.walk(mScratch.triplets(), mScratch.neighbours())};
+    const auto run = [&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim, bool Radiation>() {
+      const RoadFitStage<Det, Material, BeamLine, NominalOnly, LastStepAllowance, InnerTrim, Radiation> stage{fitted, frame, *mGeometry, *mMaterial, propagatorOf<Radiation>(mPropagator, fitted.radiationScale), mScratch.tracklets(), mScratch.triplets(), mRoads.walk(mScratch.triplets(), mScratch.neighbours())};
       setup.reset();
       return mRecordStage.run(records, fitChunk(static_cast<Index>(roads)), stage);
     };
     // An iteration with a kink allowance takes it on the fit's last step
     // (against the road-end fakes); one with innerTrim fits a refused road
-    // again without its innermost clusters.
-    return withBools([&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim>(std::bool_constant<BeamLine>, std::bool_constant<LastStepAllowance>, std::bool_constant<InnerTrim>) { return run.template operator()<BeamLine, LastStepAllowance, InnerTrim>(); }, fitted.beamConstraint, takesLastStepAllowance(fitted), fitted.innerTrim != 0U);
+    // again without its innermost clusters; one with a radiation scale fits
+    // with the radiation's variance.
+    return withBools([&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim, bool Radiation>(std::bool_constant<BeamLine>, std::bool_constant<LastStepAllowance>, std::bool_constant<InnerTrim>, std::bool_constant<Radiation>) { return run.template operator()<BeamLine, LastStepAllowance, InnerTrim, Radiation>(); }, fitted.beamConstraint, takesLastStepAllowance(fitted), fitted.innerTrim != 0U, fitted.radiationScale > 0.F);
   }
 
   /// The slice's roads, fitted, into the selection. With \a sharesNext, the graph

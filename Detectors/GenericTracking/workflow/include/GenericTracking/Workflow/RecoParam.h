@@ -221,6 +221,9 @@ struct RecoSettings {
   /// density [cm^-2] above which the unconfirmed drop keeps a last row; 0, off, by default.
   std::vector<double> iterationFollowEndMaxSqrtDet;
   std::vector<double> iterationFollowKeepDensity;
+  /// Each iteration's scale of the radiation variance (Bethe-Heitler's, for
+  /// every species) its fits and its follow add to q/p; 0, none, by default.
+  std::vector<double> iterationRadiationScale;
   /// The Delta chi2 below which each iteration's follow trims a track's
   /// last outward row where it is one of two rows or more passing the gate
   /// and the track keeps the cuts after the follow without it: the other
