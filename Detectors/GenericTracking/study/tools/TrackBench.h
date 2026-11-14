@@ -166,6 +166,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   bool anatomyFindable = false;    ///< --anatomy-findable
   std::string anatomyBeamLine;     ///< --anatomy-beam-line
   std::string anatomyFollowLoss;   ///< --anatomy-follow-loss
+  bool anatomyRetry = false;       ///< --anatomy-retry
   std::string anatomyPairLoss;     ///< --anatomy-pair-loss
   std::uint32_t anatomyPairSample = 1U; ///< --anatomy-pair-sample
   int truthWalkIteration = -1;     ///< --truth-walk-iteration: the iteration of the truth walk (-1: the first holding the class's mask)
@@ -1653,6 +1654,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     if (!options.anatomyFollowLoss.empty()) {
       completeAnatomy->keepFollowLoss();
     }
+    if (options.anatomyRetry) {
+      completeAnatomy->keepRetry();
+    }
     if (!options.anatomyPairLoss.empty()) {
       if (options.hits.empty()) {
         throw std::runtime_error("--anatomy-pair-loss needs --hits");
@@ -2163,6 +2167,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         return std::pair{stages->longest[static_cast<std::size_t>(study::FunnelStage::kRoads)], static_cast<int>(stages->fitLoss)};
       });
       completeAnatomy->printRecordLosses();
+      completeAnatomy->printRetry();
       if (!options.anatomyBeamLine.empty()) {
         completeAnatomy->writeBeamLine(options.anatomyBeamLine);
       }

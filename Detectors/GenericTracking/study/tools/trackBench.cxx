@@ -131,6 +131,8 @@ static int run(int argc, char** argv)
      "with --complete-anatomy: a CSV of the beam-line test on the class's own roads, every iteration with the beam constraint, against the MC") //
     ("anatomy-follow-loss", bpo::value(&options.anatomyFollowLoss)->default_value(""),
      "with --complete-anatomy and --hits: a CSV of the class's selected records dropped or kept as a fake, against the MC momentum along the leg") //
+    ("anatomy-retry", bpo::bool_switch(&options.anatomyRetry),
+     "with --complete-anatomy: a second selection round on the rows each iteration's length cut released, replayed and scored") //
     ("anatomy-pair-loss", bpo::value(&options.anatomyPairLoss)->default_value(""),
      "with --complete-anatomy and --hits: a CSV of the pair cut on the class's consecutive own pairs, by particle and link, against the MC momentum") //
     ("anatomy-pair-sample", bpo::value(&options.anatomyPairSample)->default_value(1U),
