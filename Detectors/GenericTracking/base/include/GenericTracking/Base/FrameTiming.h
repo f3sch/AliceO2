@@ -39,11 +39,12 @@ struct FrameTiming {
 
   /// Whether \a box is exactly one of these frames, as `frameBox` makes it
   /// with no margin: its start a frame's start and its width the length, each
-  /// rounded down from BC. A box widened by a margin is not.
+  /// rounded down from BC. A box widened by a margin is not, and no box is a
+  /// frame of a timing without frames (no length).
   [[nodiscard]] constexpr bool isFrame(const TimeEstPS& box) const
   {
     const std::int64_t startBC = bcOfPS(box.start);
-    return startBC >= firstStartBC && (startBC - firstStartBC) % lengthBC == 0 && box.start == psOfBC(startBC) && box.width == psOfBC(lengthBC);
+    return lengthBC > 0 && startBC >= firstStartBC && (startBC - firstStartBC) % lengthBC == 0 && box.start == psOfBC(startBC) && box.width == psOfBC(lengthBC);
   }
 
   friend constexpr bool operator==(const FrameTiming&, const FrameTiming&) = default;

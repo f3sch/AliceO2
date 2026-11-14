@@ -160,11 +160,10 @@ struct DiscChain {
   /// scattering.
   bool generate(bool scatter, std::mt19937& rng)
   {
-    std::normal_distribution<double> gauss(0., 1.);
     const auto x2X0PerCm = static_cast<Scalar>(setup.x2X0PerCm);
     Scalar spanX2X0 = 0.F;
     if (scatter) {
-      if (!generate(false, rng)) {
+      if (!trace(false, rng, 0.F)) {
         return false;
       }
       for (std::size_t k = 1; k < truth.size(); ++k) {
@@ -175,6 +174,15 @@ struct DiscChain {
         spanX2X0 += x2X0PerCm * std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
       }
     }
+    return trace(scatter, rng, spanX2X0);
+  }
+
+  /// The chain as `generate` describes it, with the span's material
+  /// \a spanX2X0 given.
+  bool trace(bool scatter, std::mt19937& rng, Scalar spanX2X0)
+  {
+    std::normal_distribution<double> gauss(0., 1.);
+    const auto x2X0PerCm = static_cast<Scalar>(setup.x2X0PerCm);
     truth.resize(1);
     for (std::size_t step = 1; step < setup.layers.size(); ++step) {
       const auto& from = tracking->surface(truth.back().surface);

@@ -392,7 +392,7 @@ struct BarrelChain {
   {
     Scalar spanX2X0 = 0.F;
     if (x2X0PerCm > 0.F && rng != nullptr) {
-      generate(qOverP, 0.F, nullptr, rho);
+      trace(qOverP, 0.F, nullptr, rho, 0.F);
       if (!built) {
         return;
       }
@@ -404,6 +404,13 @@ struct BarrelChain {
         spanX2X0 += x2X0PerCm * std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
       }
     }
+    trace(qOverP, x2X0PerCm, rng, rho, spanX2X0);
+  }
+
+  /// The chain as `generate` describes it, with the span's material
+  /// \a spanX2X0 given.
+  void trace(Scalar qOverP, Scalar x2X0PerCm, std::mt19937* rng, Scalar rho, Scalar spanX2X0)
+  {
     built = false;
     truth[0] = BoundTrackState{};
     truth[0].par[kPhi] = 0.12F; // along the stave tilt, so the track leaves the sensor

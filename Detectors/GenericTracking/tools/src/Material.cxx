@@ -60,7 +60,7 @@ void forEachOnNavigators(std::size_t count, int threads, const std::function<voi
   // into it (TGeoVoxelFinder::GetCheckList); several threads would rebuild the
   // same voxels at once.
   TIter volumes(gGeoManager->GetListOfVolumes());
-  while (auto* volume = static_cast<TGeoVolume*>(volumes())) {
+  while (auto* volume = dynamic_cast<TGeoVolume*>(volumes())) {
     auto* voxels = volume->GetVoxels();
     if (voxels != nullptr && voxels->NeedRebuild()) {
       voxels->Voxelize();
