@@ -154,7 +154,7 @@ KinkedRates kinkedRates(const Case& c, double ptGeV, double minPtGeV, double kin
     // The hard kink: theta0 of the middle layer at the track's momentum, as
     // Helix::scatter draws it, times kinkTheta0, on both angles.
     const double cosine = 1. / std::sqrt(1. + (b.slope * b.slope));
-    const auto k = static_cast<double>(parameters.scattering.layers[c.layers[1]].k);
+    const auto k = static_cast<double>(highlandK(parameters.scattering.layers[c.layers[1]], 0.F));
     const double theta0 = std::sqrt(k / cosine) * cosine / ptGeV;
     State kinkedState = b;
     const double sign = (draw % 2 == 0) ? 1. : -1.;

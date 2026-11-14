@@ -308,10 +308,23 @@ struct BarrelChain {
 
   /// The rest of the chain from truth[0], scattering if \a scatter: each step
   /// to the layer of \a layers, after the last one crossed, that the track
-  /// crosses first; false if fewer than \a minMeasurements remain.
+  /// crosses first; false if fewer than \a minMeasurements remain. The kicks'
+  /// Highland logarithm is at the span's material (`SpanMaterial`): the
+  /// chords of the chain without scattering.
   bool generate(bool scatter, std::mt19937& rng, std::span<const LayerID> layers, std::size_t minMeasurements)
   {
     std::normal_distribution<double> gauss(0., 1.);
+    Scalar spanX2X0 = 0.F;
+    if (scatter) {
+      if (!generate(false, rng, layers, minMeasurements)) {
+        return false;
+      }
+      for (std::size_t k = 1; k < truth.size(); ++k) {
+        const auto a = globalOf(truth[k - 1]);
+        const auto b = globalOf(truth[k]);
+        spanX2X0 += static_cast<Scalar>(kX2X0PerCm) * std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+      }
+    }
     truth.resize(1);
     std::size_t next = 0;
     while (next < layers.size()) {
@@ -349,7 +362,7 @@ struct BarrelChain {
         surfaceToGlobal(tracking->planeOf(outgoing), outgoing.loc0(), outgoing.loc1(), a);
         surfaceToGlobal(tracking->planeOf(*unkicked), unkicked->loc0(), unkicked->loc1(), b);
         const Scalar chord = std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-        theta0Half = highlandTheta0(0.5F * static_cast<Scalar>(kX2X0PerCm) * chord, betaMomentum(1.F / std::abs(outgoing.qOverP()), propagator.massGeV));
+        theta0Half = highlandTheta0(0.5F * static_cast<Scalar>(kX2X0PerCm) * chord, spanX2X0, 1.F / std::abs(outgoing.qOverP()), propagator.massGeV);
         kick(outgoing);
       }
       auto crossed = cross(outgoing, layer);

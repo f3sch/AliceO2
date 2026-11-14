@@ -319,15 +319,16 @@ BOOST_AUTO_TEST_CASE(HighlandReproducesASensorByHand)
   const Scalar x2X0 = 0.0125F / 9.37F;
   BOOST_TEST(std::abs(static_cast<double>(x2X0) - 1.334e-3) < 1e-5);
 
-  const Scalar t0 = highlandTheta0(x2X0, 1.F);
+  // A step alone (its own logarithm) of a massless particle: beta = 1.
+  const Scalar t0 = highlandTheta0(x2X0, x2X0, 1.F, 0.F);
   BOOST_TEST(std::abs(static_cast<double>(t0) - 3.718e-4) < 1e-6);
 
   // 1/p scaling, and two sensors -- the overlap case -- 46 % wider.
-  BOOST_TEST(std::abs(static_cast<double>(highlandTheta0(x2X0, 10.F)) - 3.718e-5) < 1e-7);
-  const auto ratio = static_cast<double>(highlandTheta0(2.F * x2X0, 1.F)) / static_cast<double>(t0);
+  BOOST_TEST(std::abs(static_cast<double>(highlandTheta0(x2X0, x2X0, 10.F, 0.F)) - 3.718e-5) < 1e-7);
+  const auto ratio = static_cast<double>(highlandTheta0(2.F * x2X0, 2.F * x2X0, 1.F, 0.F)) / static_cast<double>(t0);
   BOOST_TEST(std::abs(ratio - 1.46) < 0.01);
 
-  BOOST_TEST(std::abs(static_cast<double>(highlandTheta0(0.F, 1.F))) < 1e-12);
+  BOOST_TEST(std::abs(static_cast<double>(highlandTheta0(0.F, 0.F, 1.F, 0.F))) < 1e-12);
 }
 
 BOOST_AUTO_TEST_CASE(ScatteringProjectsOntoTheTwoAngles)

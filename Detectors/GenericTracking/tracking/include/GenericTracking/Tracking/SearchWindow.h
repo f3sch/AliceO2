@@ -264,7 +264,7 @@ template <DetectorLayout Det>
 /// at normal incidence in the seed's layer alone. It sizes the grid's cells;
 /// the pair queries take the pair cut's own table (`sourceKinkBound` in
 /// `PairCut.h`).
-[[nodiscard]] inline double uniformSourceKink(const SearchWindowParams& params) { return static_cast<double>(highlandTheta0(static_cast<Scalar>(params.materialX2X0), betaMomentum(static_cast<Scalar>(params.minPtGeV), static_cast<Scalar>(params.massGeV)))); }
+[[nodiscard]] inline double uniformSourceKink(const SearchWindowParams& params) { return static_cast<double>(highlandTheta0(static_cast<Scalar>(params.materialX2X0), static_cast<Scalar>(params.materialX2X0), static_cast<Scalar>(params.minPtGeV), static_cast<Scalar>(params.massGeV))); }
 
 /// How far the scattering before the seed moves the target's second
 /// coordinate, in one standard deviation [cm], for vertices in \a vertexZ and

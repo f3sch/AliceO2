@@ -309,12 +309,11 @@ template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
   surfaceToGlobal(to, output.loc0(), output.loc1(), end);
   const auto step = detail::stepMaterial(material, start, end);
   const Scalar momentum = 1.F / o2::gpu::CAMath::Abs(input.qOverP());
-  const Scalar betaP = betaMomentum(momentum, propagator.massGeV);
   // As filterStep: the nearer half's noise before the transport, at the
   // direction the step leaves with.
-  const auto before = scatteringNoise(detail::scaledTheta0<Scaled>(highlandTheta0(step.nearerX2X0, betaP), noiseScale), input.theta());
+  const auto before = scatteringNoise(detail::scaledTheta0<Scaled>(highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, momentum, propagator.massGeV), noiseScale), input.theta());
   outputFactors = inputFactors;
-  return detail::transportStep<Scaled>(propagator, step, betaP, before, direction, jacobian, output, outputFactors, noiseScale) == PropagationStatus::kOk;
+  return detail::transportStep<Scaled>(propagator, step, momentum, before, direction, jacobian, output, outputFactors, noiseScale) == PropagationStatus::kOk;
 }
 
 /// `transportCandidateInline`, never inlined on the device: the one copy

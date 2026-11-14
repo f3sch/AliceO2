@@ -155,11 +155,26 @@ struct DiscChain {
   /// as on the MFT, whose faces each cover part of the circle; the chord of a
   /// kick then runs to the next measurement, as the fit's does. False if
   /// fewer than `setup.minMeasurements` remain, or a kick moves the track off
-  /// the sensor it was aimed at.
+  /// the sensor it was aimed at. The kicks' Highland logarithm is at the
+  /// span's material (`SpanMaterial`): the chords of the chain without
+  /// scattering.
   bool generate(bool scatter, std::mt19937& rng)
   {
     std::normal_distribution<double> gauss(0., 1.);
     const auto x2X0PerCm = static_cast<Scalar>(setup.x2X0PerCm);
+    Scalar spanX2X0 = 0.F;
+    if (scatter) {
+      if (!generate(false, rng)) {
+        return false;
+      }
+      for (std::size_t k = 1; k < truth.size(); ++k) {
+        Scalar a[3]{};
+        Scalar b[3]{};
+        surfaceToGlobal(tracking->surface(truth[k - 1].surface), truth[k - 1].loc0(), truth[k - 1].loc1(), a);
+        surfaceToGlobal(tracking->surface(truth[k].surface), truth[k].loc0(), truth[k].loc1(), b);
+        spanX2X0 += x2X0PerCm * std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+      }
+    }
     truth.resize(1);
     for (std::size_t step = 1; step < setup.layers.size(); ++step) {
       const auto& from = tracking->surface(truth.back().surface);
@@ -184,7 +199,7 @@ struct DiscChain {
         surfaceToGlobal(from, outgoing.loc0(), outgoing.loc1(), a);
         surfaceToGlobal(tracking->surface(unkicked), probe.loc0(), probe.loc1(), b);
         const Scalar chord = std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-        theta0Half = highlandTheta0(0.5F * x2X0PerCm * chord, betaMomentum(1.F / std::abs(outgoing.qOverP()), propagator.massGeV));
+        theta0Half = highlandTheta0(0.5F * x2X0PerCm * chord, spanX2X0, 1.F / std::abs(outgoing.qOverP()), propagator.massGeV);
         kick(outgoing);
       }
       const auto id = crossed(outgoing, from, step);

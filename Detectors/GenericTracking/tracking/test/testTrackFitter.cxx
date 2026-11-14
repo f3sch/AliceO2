@@ -381,13 +381,29 @@ struct BarrelChain {
   /// models it (`StepMaterial`): each step's material in two thin scatterers,
   /// the half behind the sensor just left kicked on leaving it, the half in
   /// front of the sensor reached kicked on arrival, both with the Highland
-  /// theta0 of half the step's chord. truth[k] is the state at the mid-plane
+  /// theta0 of half the step's chord, its logarithm at the span's material
+  /// (`SpanMaterial`), the chain's chords of the track without scattering.
+  /// truth[k] is the state at the mid-plane
   /// of sensor k: after the kick in front of it, before the one behind it,
   /// which is what both passes estimate there. With \a rho [g/cm^3] the
   /// track loses the fit's mean energy over each step's chord on reaching the
   /// next sensor, without straggling.
   void generate(Scalar qOverP, Scalar x2X0PerCm = 0.F, std::mt19937* rng = nullptr, Scalar rho = 0.F)
   {
+    Scalar spanX2X0 = 0.F;
+    if (x2X0PerCm > 0.F && rng != nullptr) {
+      generate(qOverP, 0.F, nullptr, rho);
+      if (!built) {
+        return;
+      }
+      for (std::size_t k = 1; k < truth.size(); ++k) {
+        Scalar a[3]{};
+        Scalar b[3]{};
+        surfaceToGlobal(tracking.surface(truth[k - 1].surface), truth[k - 1].loc0(), truth[k - 1].loc1(), a);
+        surfaceToGlobal(tracking.surface(truth[k].surface), truth[k].loc0(), truth[k].loc1(), b);
+        spanX2X0 += x2X0PerCm * std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+      }
+    }
     built = false;
     truth[0] = BoundTrackState{};
     truth[0].par[kPhi] = 0.12F; // along the stave tilt, so the track leaves the sensor
@@ -417,7 +433,7 @@ struct BarrelChain {
         surfaceToGlobal(from, outgoing.loc0(), outgoing.loc1(), a);
         surfaceToGlobal(tracking.surface(unkicked), probe.loc0(), probe.loc1(), b);
         const Scalar chord = std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-        theta0Half = highlandTheta0(0.5F * x2X0PerCm * chord, betaMomentum(1.F / std::abs(outgoing.qOverP()), propagator.massGeV));
+        theta0Half = highlandTheta0(0.5F * x2X0PerCm * chord, spanX2X0, 1.F / std::abs(outgoing.qOverP()), propagator.massGeV);
         kick(outgoing, theta0Half); // behind the sensor just left
       }
       const auto id = crossedSensor(outgoing, from, static_cast<LayerID>(layer));

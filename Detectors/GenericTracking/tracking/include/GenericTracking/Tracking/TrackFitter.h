@@ -123,19 +123,46 @@ namespace detail
 /// With a layer's material
 /// attributed from half-gap to half-gap, the two halves are the stave just
 /// left and the stave about to be reached.
+///
+/// Each half's Highland logarithm is taken at the scatterer it is a part of
+/// (`highlandTheta0`): its own material for a step alone, as a candidate's
+/// step in the follow; the fitted span's for a fit's step (`SpanMaterial`).
 struct StepMaterial {
-  Scalar nearerX2X0 = 0.F;  ///< x/X0 from the start to the midpoint
-  Scalar fartherX2X0 = 0.F; ///< x/X0 from the midpoint to the end
-  Scalar xRho = 0.F;        ///< [g/cm^2] over the whole step
+  Scalar nearerX2X0 = 0.F;     ///< x/X0 from the start to the midpoint
+  Scalar fartherX2X0 = 0.F;    ///< x/X0 from the midpoint to the end
+  Scalar nearerLogX2X0 = 0.F;  ///< x/X0 the nearer half's logarithm is taken at
+  Scalar fartherLogX2X0 = 0.F; ///< x/X0 the farther half's logarithm is taken at
+  Scalar xRho = 0.F;           ///< [g/cm^2] over the whole step
 };
 
+/// A step's material from \a material's LUT, each half's logarithm at its own.
 template <typename Material>
 GPUdi() StepMaterial stepMaterial(const Material& material, const Scalar start[3], const Scalar end[3])
 {
   const Scalar mid[3] = {0.5F * (start[0] + end[0]), 0.5F * (start[1] + end[1]), 0.5F * (start[2] + end[2])};
   const auto nearer = material.getMatBudget(start[0], start[1], start[2], mid[0], mid[1], mid[2]);
   const auto farther = material.getMatBudget(mid[0], mid[1], mid[2], end[0], end[1], end[2]);
-  return {.nearerX2X0 = nearer.meanX2X0, .fartherX2X0 = farther.meanX2X0, .xRho = (nearer.meanRho * nearer.length) + (farther.meanRho * farther.length)};
+  return {.nearerX2X0 = nearer.meanX2X0, .fartherX2X0 = farther.meanX2X0, .nearerLogX2X0 = nearer.meanX2X0, .fartherLogX2X0 = farther.meanX2X0, .xRho = (nearer.meanRho * nearer.length) + (farther.meanRho * farther.length)};
+}
+
+/// A fit's material: \a lut's, with every step's Highland logarithm at
+/// \a spanX2X0, the material of the fitted span (`spanX2X0`). The scattering
+/// a fit takes over its span is the span's deflection, which Highland's
+/// formula gives for the span as a whole; each step takes its share
+/// (`highlandTheta0`). Both passes of a fit take the same span.
+template <typename Material>
+struct SpanMaterial {
+  const Material* lut = nullptr;
+  Scalar spanX2X0 = 0.F;
+};
+
+template <typename Material>
+GPUdi() StepMaterial stepMaterial(const SpanMaterial<Material>& material, const Scalar start[3], const Scalar end[3])
+{
+  auto step = stepMaterial(*material.lut, start, end);
+  step.nearerLogX2X0 = material.spanX2X0;
+  step.fartherLogX2X0 = material.spanX2X0;
+  return step;
 }
 
 /// The mass hypothesis's energy loss over a step's \a xRho [g/cm^2], O2's
@@ -175,9 +202,9 @@ template <bool Scaled>
 /// half's (StepMaterial). With \a Scaled, \a noiseScale multiplies the
 /// farther half's theta0 (`scaledTheta0`).
 template <bool Scaled, typename Prop>
-GPUdi() PropagationStatus stepNoise(const Prop& prop, const StepMaterial& step, Scalar betaP, const ScatteringNoise& before, PropagationDirection direction, BoundTrackState& state, StepNoise& noise, Scalar noiseScale)
+GPUdi() PropagationStatus stepNoise(const Prop& prop, const StepMaterial& step, Scalar momentum, const ScatteringNoise& before, PropagationDirection direction, BoundTrackState& state, StepNoise& noise, Scalar noiseScale)
 {
-  const auto after = scatteringNoise(scaledTheta0<Scaled>(highlandTheta0(step.fartherX2X0, betaP), noiseScale), state.theta());
+  const auto after = scatteringNoise(scaledTheta0<Scaled>(highlandTheta0(step.fartherX2X0, step.fartherLogX2X0, momentum, prop.massGeV), noiseScale), state.theta());
   noise = StepNoise{.phiBefore = before.phi, .thetaBefore = before.theta, .phiAfter = after.phi, .thetaAfter = after.theta};
   if (!applyEnergyLoss(prop, step.xRho, direction, state, noise.qOverPAfter)) {
     return PropagationStatus::kStopped;
@@ -192,10 +219,10 @@ GPUdi() PropagationStatus stepNoise(const Prop& prop, const StepMaterial& step, 
 /// and the follow's (`transportCandidate`) both end so; each takes the nearer
 /// half's noise before its propagation.
 template <bool Scaled, typename Prop>
-GPUdi() PropagationStatus transportStep(const Prop& prop, const StepMaterial& step, Scalar betaP, const ScatteringNoise& before, PropagationDirection direction, const SolenoidJacobian& jacobian, BoundTrackState& state, CovarianceFactors& factors, Scalar noiseScale)
+GPUdi() PropagationStatus transportStep(const Prop& prop, const StepMaterial& step, Scalar momentum, const ScatteringNoise& before, PropagationDirection direction, const SolenoidJacobian& jacobian, BoundTrackState& state, CovarianceFactors& factors, Scalar noiseScale)
 {
   StepNoise noise;
-  const auto status = stepNoise<Scaled>(prop, step, betaP, before, direction, state, noise, noiseScale);
+  const auto status = stepNoise<Scaled>(prop, step, momentum, before, direction, state, noise, noiseScale);
   if (status != PropagationStatus::kOk) {
     return status;
   }
@@ -238,11 +265,10 @@ GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<D
 
   const auto step = stepMaterial(material, start, end);
   const Scalar momentum = 1.F / o2::gpu::GPUCommonMath::Abs(prediction.qOverP());
-  const Scalar betaP = betaMomentum(momentum, prop.massGeV);
   // The nearer half before the transport (StepMaterial), at the direction on
   // the surface the step leaves; the farther half after it.
-  const auto before = scatteringNoise(scaledTheta0<Scaled>(highlandTheta0(step.nearerX2X0, betaP), noiseScale), leaving);
-  const auto noiseStatus = stepNoise<Scaled>(prop, step, betaP, before, direction, prediction, noise, noiseScale);
+  const auto before = scatteringNoise(scaledTheta0<Scaled>(highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, momentum, prop.massGeV), noiseScale), leaving);
+  const auto noiseStatus = stepNoise<Scaled>(prop, step, momentum, before, direction, prediction, noise, noiseScale);
   if (noiseStatus != PropagationStatus::kOk) {
     return noiseStatus;
   }
@@ -829,6 +855,29 @@ GPUdi() void inwardPass(const Prop& prop, const TrackingGeometry<Det>& geometry,
   fit.ndf = static_cast<std::int16_t>(fit.ndf - (2 * kinks));
 }
 
+/// The material of a fit's span: \a material's LUT along the straight
+/// segments between consecutive measurements of \a measurements, the first
+/// \a n, which are what the fit's steps read; the fit's material
+/// (`SpanMaterial`) for both passes.
+template <DetectorLayout Det, typename Material, typename Chain>
+GPUdi() SpanMaterial<Material> spanMaterial(const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n)
+{
+  SpanMaterial<Material> span{.lut = &material};
+  Scalar previous[3]{};
+  for (int i = 0; i < n; ++i) {
+    const auto measurement = measurements[i];
+    Scalar point[3];
+    surfaceToGlobal(geometry.planeOf(measurement), measurement.loc0, measurement.loc1, point);
+    if (i > 0) {
+      span.spanX2X0 += material.getMatBudget(previous[0], previous[1], previous[2], point[0], point[1], point[2]).meanX2X0;
+    }
+    previous[0] = point[0];
+    previous[1] = point[1];
+    previous[2] = point[2];
+  }
+  return span;
+}
+
 } // namespace detail
 
 /// Fit an ordered chain containing one measurement per logical layer.
@@ -840,7 +889,8 @@ GPUdi() void inwardPass(const Prop& prop, const TrackingGeometry<Det>& geometry,
 /// filter; each about a reference trajectory of its own, started there and
 /// never updated by its filter (`filterStep`). The inward filter takes no
 /// covariance from the outward one, so no measurement's weight is counted
-/// twice in the returned state.
+/// twice in the returned state. Both take the scattering of the chain's span
+/// as a whole (`SpanMaterial`), as `fitInward` and `fitOutward` do.
 ///
 /// The measurements' times are boxes, which the fit does not take: the
 /// track's time is their intersection, set by the refit (TrackRefit.h).
@@ -853,16 +903,17 @@ GPUdi() TrackFitResult fitMeasurements(const Prop& prop, const TrackingGeometry<
 {
   TrackFitResult fit{.ndf = static_cast<std::int16_t>((2 * n) - kNBoundParams)};
   const auto seed = makeChainSeed(prop, geometry, measurements, n);
+  const auto span = detail::spanMaterial(geometry, material, measurements, n);
   int outwardKinks = 0;
   std::int16_t outwardKinkMeasurement = -1;
-  auto status = detail::runPass<Rule>(prop, geometry, material, measurements, n, PropagationDirection::kForward, seed, fit.outwardState, fit.outwardChi2, fit.failedMeasurement, kinkBudget, outwardKinks, outwardKinkMeasurement, observe);
+  auto status = detail::runPass<Rule>(prop, geometry, span, measurements, n, PropagationDirection::kForward, seed, fit.outwardState, fit.outwardChi2, fit.failedMeasurement, kinkBudget, outwardKinks, outwardKinkMeasurement, observe);
   fit.outwardKinks = static_cast<std::uint8_t>(outwardKinks);
   if (status != PropagationStatus::kOk) {
     fit.status = status;
     fit.failedPass = FitPass::kOutward;
     return fit;
   }
-  detail::inwardPass<Rule>(prop, geometry, material, measurements, n, kinkBudget, observe, fit);
+  detail::inwardPass<Rule>(prop, geometry, span, measurements, n, kinkBudget, observe, fit);
   return fit;
 }
 
@@ -875,7 +926,7 @@ GPUdi() TrackFitResult fitInward(const Prop& prop, const TrackingGeometry<Det>& 
 {
   TrackFitResult fit{.ndf = static_cast<std::int16_t>((2 * n) - kNBoundParams)};
   fit.outwardState = outwardState;
-  detail::inwardPass<Rule>(prop, geometry, material, measurements, n, kinkBudget, observe, fit);
+  detail::inwardPass<Rule>(prop, geometry, detail::spanMaterial(geometry, material, measurements, n), measurements, n, kinkBudget, observe, fit);
   return fit;
 }
 
@@ -909,6 +960,7 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
 {
   const auto budget = detail::kinkBudgetFor(kinkBudget, n);
   BoundTrackState state = makeChainSeed(prop, geometry, measurements, n);
+  const auto span = detail::spanMaterial(geometry, material, measurements, n);
   CovarianceFactors factors;
   RoadFitResult result;
   BoundTrackState reference;
@@ -917,7 +969,7 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
   // increments, rounds as in the refit's outward pass.
   int taken = 0;
   std::int16_t failed = -1;
-  if (detail::startPass<Rule>(prop, geometry, material, measurements, n, PropagationDirection::kForward, state, factors, result.chi2, reference, taken, failed, NoFitObserver{}) != PropagationStatus::kOk) {
+  if (detail::startPass<Rule>(prop, geometry, span, measurements, n, PropagationDirection::kForward, state, factors, result.chi2, reference, taken, failed, NoFitObserver{}) != PropagationStatus::kOk) {
     // The steps tried, the failing one included. Not a measurement of this
     // road (a negative or NaN chi2 would pass the cut below and rank
     // first): counted with the propagation failures.
@@ -948,7 +1000,7 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
       if (index == n - 1) {
         int taken = kinks;
         bool refused = false;
-        const auto status = detail::allowanceStep<Rule>(stepProp, geometry, material, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, budget, lastStepScale, taken, refused, reference, nextReference);
+        const auto status = detail::allowanceStep<Rule>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, budget, lastStepScale, taken, refused, reference, nextReference);
         if (status != PropagationStatus::kOk) {
           countWork(WorkCounter::kRoadPropagation);
           result.status = RoadFitStatus::kPropagationFailed;
@@ -963,7 +1015,7 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
         continue;
       }
     }
-    const auto status = detail::kinkStep<Rule>(stepProp, geometry, material, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, budget, index < n - 1, kinks, reference, nextReference);
+    const auto status = detail::kinkStep<Rule>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, budget, index < n - 1, kinks, reference, nextReference);
     if (status != PropagationStatus::kOk) {
       countWork(WorkCounter::kRoadPropagation);
       result.status = RoadFitStatus::kPropagationFailed;

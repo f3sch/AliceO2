@@ -283,7 +283,7 @@ class TrackletStage
     // Apart from the context, as the vertex cache (its passives are indexed at run time).
     BetweenSource<Det> between;
     if constexpr (BeamLine) {
-      between = betweenSource<Det>(mParameters->scattering, mVertices[cachedVertices[0].vertexIndex], source.point);
+      between = betweenSource<Det>(mParameters->scattering, mVertices[cachedVertices[0].vertexIndex], source.point, mParameters->pairCut.logBeta2);
     }
     const MeasurementView columns = mFrame->measurements();
     forEachQuery(source, [&](const QueryContext& query) {

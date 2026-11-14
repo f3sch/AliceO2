@@ -33,6 +33,7 @@
 #include <cmath>
 #include <cstddef>
 #include <numbers>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -173,82 +174,194 @@ using LayerBudget = std::array<double, static_cast<std::size_t>(Detector<Det>::n
   return std::abs(position) * total / (axisMax - axisMin);
 }
 
+/// A layer's slab, the band its material is read across (`layerMaterial`):
+/// from half-way to the layer inside it to half-way to the layer outside it,
+/// the neighbours of the same kind (discs: of the same endcap); the innermost
+/// takes the same half-gap on both sides, and a passive scatterer's band is
+/// its own. \a low below \a high: radii for a barrel layer, signed z for a
+/// disc (discs are numbered by increasing z).
+struct LayerSlab {
+  double low = 0.;
+  double high = 0.;
+};
+
+template <DetectorLayout Det>
+[[nodiscard]] inline LayerSlab layerSlab(LayerID id)
+{
+  constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
+  const auto layer = static_cast<std::size_t>(id);
+  const bool barrel = Detector<Det>::isBarrelLayer(id);
+
+  // The half-gaps to the neighbours of the same kind and, for discs, side.
+  const auto neighbour = [&](int step) -> double {
+    const auto other = static_cast<int>(layer) + step;
+    if (other < 0 || std::cmp_greater_equal(other, kLayers)) {
+      return 0.;
+    }
+    const auto otherId = static_cast<LayerID>(other);
+    if (Detector<Det>::isBarrelLayer(otherId) != barrel) {
+      return 0.;
+    }
+    if (!barrel && discZ<Det>(otherId) * discZ<Det>(id) < 0.) {
+      return 0.;
+    }
+    return barrel ? layerDistance<Det>(otherId) : discZ<Det>(otherId);
+  };
+  const double here = barrel ? layerDistance<Det>(id) : discZ<Det>(id);
+  const double below = neighbour(-1);
+  const double above = neighbour(+1);
+  double low = !exactlyEqual(below, 0.) ? 0.5 * (below + here) : 0.;
+  double high = !exactlyEqual(above, 0.) ? 0.5 * (above + here) : 0.;
+  if (barrel) {
+    low = !exactlyEqual(below, 0.) ? low : 0.5 * here;
+    high = !exactlyEqual(above, 0.) ? high : here + (here - low);
+  } else {
+    if (exactlyEqual(below, 0.)) {
+      low = here - (high - here);
+    }
+    if (exactlyEqual(above, 0.)) {
+      high = here + (here - low);
+    }
+  }
+
+  // A passive scatterer's band is its own (PassiveSpec): the slab stops at
+  // it, so its material is counted once, at its own lever arm.
+  if constexpr (Detector<Det>::nPassives > 0) {
+    for (std::size_t i = 0; i < static_cast<std::size_t>(Detector<Det>::nPassives); ++i) {
+      const auto& passive = Detector<Det>::passive(i);
+      if ((passive.kind == PassiveSpec::Kind::kBarrel) != barrel) {
+        continue;
+      }
+      const double slabLow = std::min(low, high);
+      const double slabHigh = std::max(low, high);
+      if (passive.bandHigh <= here && passive.bandHigh > slabLow) {
+        low = passive.bandHigh;
+        high = slabHigh;
+      } else if (passive.bandLow >= here && passive.bandLow < slabHigh) {
+        low = slabLow;
+        high = passive.bandLow;
+      }
+    }
+    // The outermost barrel layer's open side mirrors its inner side as the
+    // passives left it: where its gap inward is a passive's, its slab is its
+    // own silicon, and does not reach material beyond the last layer.
+    if (barrel && exactlyEqual(above, 0.)) {
+      high = here + (here - low);
+    }
+  }
+  return {.low = std::min(low, high), .high = std::max(low, high)};
+}
+
 /// Each layer's average normal-incidence `x/X0` from the LUT.
 ///
-/// Sampled as `sampledBudget` does, over the stave length or the disc's radii.
-/// A disc's neighbours are the discs of the same endcap; the innermost takes
-/// the same half-gap on both sides.
+/// Sampled as `sampledBudget` does, over the stave length or the disc's radii,
+/// across the layer's slab (`layerSlab`).
 template <DetectorLayout Det>
 [[nodiscard]] inline LayerBudget<Det> layerMaterial(const o2::base::MatLayerCylSet& lut)
 {
   constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
-
   LayerBudget<Det> budget{};
   for (std::size_t layer = 0; layer < kLayers; ++layer) {
     const auto id = static_cast<LayerID>(layer);
     const bool barrel = Detector<Det>::isBarrelLayer(id);
-
-    // The half-gaps to the neighbours of the same kind and, for discs, side.
-    const auto neighbour = [&](int step) -> double {
-      const auto other = static_cast<int>(layer) + step;
-      if (other < 0 || std::cmp_greater_equal(other, kLayers)) {
-        return 0.;
-      }
-      const auto otherId = static_cast<LayerID>(other);
-      if (Detector<Det>::isBarrelLayer(otherId) != barrel) {
-        return 0.;
-      }
-      if (!barrel && discZ<Det>(otherId) * discZ<Det>(id) < 0.) {
-        return 0.;
-      }
-      return barrel ? layerDistance<Det>(otherId) : discZ<Det>(otherId);
-    };
     const double here = barrel ? layerDistance<Det>(id) : discZ<Det>(id);
-    const double below = neighbour(-1);
-    const double above = neighbour(+1);
-    double low = !exactlyEqual(below, 0.) ? 0.5 * (below + here) : 0.;
-    double high = !exactlyEqual(above, 0.) ? 0.5 * (above + here) : 0.;
-    if (barrel) {
-      low = !exactlyEqual(below, 0.) ? low : 0.5 * here;
-      high = !exactlyEqual(above, 0.) ? high : here + (here - low);
-    } else {
-      // Discs are numbered by increasing z, so "below" is the smaller z.
-      if (exactlyEqual(below, 0.)) {
-        low = here - (high - here);
-      }
-      if (exactlyEqual(above, 0.)) {
-        high = here + (here - low);
-      }
-    }
-
-    // A passive scatterer's band is its own (PassiveSpec): the slab stops at
-    // it, so its material is counted once, at its own lever arm.
-    if constexpr (Detector<Det>::nPassives > 0) {
-      for (std::size_t i = 0; i < static_cast<std::size_t>(Detector<Det>::nPassives); ++i) {
-        const auto& passive = Detector<Det>::passive(i);
-        if ((passive.kind == PassiveSpec::Kind::kBarrel) != barrel) {
-          continue;
-        }
-        const double slabLow = std::min(low, high);
-        const double slabHigh = std::max(low, high);
-        if (passive.bandHigh <= here && passive.bandHigh > slabLow) {
-          low = passive.bandHigh;
-          high = slabHigh;
-        } else if (passive.bandLow >= here && passive.bandLow < slabHigh) {
-          low = slabLow;
-          high = passive.bandLow;
-        }
-      }
-      // The outermost barrel layer's open side mirrors its inner side as the
-      // passives left it: where its gap inward is a passive's, its slab is its
-      // own silicon, and does not reach material beyond the last layer.
-      if (barrel && exactlyEqual(above, 0.)) {
-        high = here + (here - low);
-      }
-    }
-    budget[layer] = sampledBudget(lut, barrel, low, high, secondMin<Det>(id), secondMax<Det>(id), here);
+    const auto slab = layerSlab<Det>(id);
+    budget[layer] = sampledBudget(lut, barrel, slab.low, slab.high, secondMin<Det>(id), secondMax<Det>(id), here);
   }
   return budget;
+}
+
+/// The part of each layer's material between its slab's side towards the
+/// interaction point (`layerSlab`) and its sensors: what a track crosses
+/// before the measurement on the layer, which a state fitted there does not
+/// carry. Per layer, the average over its sensors, \a centres (`SensorCentre`:
+/// each one's layer and the centre of its silicon, on a curved sensor's
+/// cylinder), of the LUT along the line from the centre towards the beam line -- radial at the
+/// centre's z for a barrel sensor; for a disc's, along the ray from the
+/// nominal vertex, scaled to normal incidence, as `sampledBudget` reads a disc
+/// (the LUT is traced by radius) -- to the slab's inner side: its normal
+/// incidence `x/X0`, and the position of its material, x/X0-weighted (radius,
+/// or signed z).
+template <DetectorLayout Det>
+struct InnerShares {
+  LayerBudget<Det> x2X0{};
+  LayerBudget<Det> position{};
+};
+
+/// A sensor for `innerMaterial`: its layer and the centre of its silicon [cm].
+struct SensorCentre {
+  LayerID layer = kInvalidLayerID;
+  double centre[3]{};
+};
+
+template <DetectorLayout Det>
+[[nodiscard]] inline InnerShares<Det> innerMaterial(const o2::base::MatLayerCylSet& lut, std::span<const SensorCentre> sensors)
+{
+  constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
+  // Parts of each line, for the material's position.
+  constexpr int kParts = 32;
+  LayerBudget<Det> x{};
+  LayerBudget<Det> moment{};
+  std::array<int, kLayers> count{};
+  for (const auto& sensor : sensors) {
+    const auto layer = static_cast<std::size_t>(sensor.layer);
+    if (layer >= kLayers) {
+      continue;
+    }
+    const auto id = static_cast<LayerID>(layer);
+    const bool barrel = Detector<Det>::isBarrelLayer(id);
+    const auto slab = layerSlab<Det>(id);
+    const double cx = sensor.centre[0];
+    const double cy = sensor.centre[1];
+    const double cz = sensor.centre[2];
+    const double r = std::hypot(cx, cy);
+    // The line's far end at the slab's inner side, and the scale to normal incidence.
+    double end[3];
+    double scale = 1.;
+    if (barrel) {
+      const double f = r > 0. ? slab.low / r : 0.;
+      end[0] = cx * f;
+      end[1] = cy * f;
+      end[2] = cz;
+    } else {
+      const double inner = cz > 0. ? slab.low : slab.high;
+      const double f = std::abs(cz) > 0. ? inner / cz : 0.;
+      end[0] = cx * f;
+      end[1] = cy * f;
+      end[2] = inner;
+      const double length = std::hypot(r, cz);
+      scale = length > 0. ? std::abs(cz) / length : 0.;
+    }
+    double total = 0.;
+    double weighted = 0.;
+    for (int part = 0; part < kParts; ++part) {
+      double a[3];
+      double b[3];
+      const double s0 = static_cast<double>(part) / kParts;
+      const double s1 = static_cast<double>(part + 1) / kParts;
+      a[0] = cx + ((end[0] - cx) * s0);
+      a[1] = cy + ((end[1] - cy) * s0);
+      a[2] = cz + ((end[2] - cz) * s0);
+      b[0] = cx + ((end[0] - cx) * s1);
+      b[1] = cy + ((end[1] - cy) * s1);
+      b[2] = cz + ((end[2] - cz) * s1);
+      const auto budget = lut.getMatBudget(static_cast<float>(a[0]), static_cast<float>(a[1]), static_cast<float>(a[2]), static_cast<float>(b[0]), static_cast<float>(b[1]), static_cast<float>(b[2]));
+      const double xi = static_cast<double>(budget.meanX2X0) * scale;
+      total += xi;
+      weighted += xi * (barrel ? std::hypot(0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1])) : 0.5 * (a[2] + b[2]));
+    }
+    x[layer] += total;
+    moment[layer] += weighted;
+    ++count[layer];
+  }
+  InnerShares<Det> shares;
+  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+    const auto id = static_cast<LayerID>(layer);
+    const double nominal = Detector<Det>::isBarrelLayer(id) ? layerDistance<Det>(id) : discZ<Det>(id);
+    shares.x2X0[layer] = count[layer] > 0 ? x[layer] / count[layer] : 0.;
+    shares.position[layer] = x[layer] > 0. ? moment[layer] / x[layer] : nominal;
+  }
+  return shares;
 }
 
 template <DetectorLayout Det>

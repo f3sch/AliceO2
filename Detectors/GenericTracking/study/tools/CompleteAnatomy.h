@@ -4960,6 +4960,8 @@ class CompleteAnatomy
     const int n = static_cast<int>(rows.size());
     const RowChain<Det> chain{.frame = &frame, .rows = rows.data()};
     const auto budget = o2::gtrk::detail::kinkBudgetFor(kinkBudget(parameters), n);
+    // The fit's material: its span's (`fitInward`).
+    const auto span = o2::gtrk::detail::spanMaterial(geometry, material, chain, n);
     BoundTrackState state = seed;
     if (record) {
       out.history.push_back({.row = rows[static_cast<std::size_t>(n - 1)], .state = seed, .chi2 = 0.F, .determined = false});
@@ -4984,8 +4986,8 @@ class CompleteAnatomy
       const Scalar before = chi2;
       BoundTrackState nextReference;
       // The start (`startPass`), then the filter.
-      auto status = starting ? o2::gtrk::detail::diffuseStep(stepProp, geometry, material, chain[index], PropagationDirection::kBackward, state, start, chi2, reference, nextReference)
-                             : o2::gtrk::detail::kinkStep(stepProp, geometry, material, chain[index], PropagationDirection::kBackward, state, factors, chi2, budget, step < n - 1, kinks, reference, nextReference);
+      auto status = starting ? o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, start, chi2, reference, nextReference)
+                             : o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, factors, chi2, budget, step < n - 1, kinks, reference, nextReference);
       if (status == PropagationStatus::kOk && starting && start.rank == 0) {
         factors = start.star;
       }
@@ -6798,6 +6800,8 @@ class CompleteAnatomy
     const int first = forward ? 0 : n - 1;
     const int increment = forward ? 1 : -1;
     const auto budget = o2::gtrk::detail::kinkBudgetFor(kinkBudget(parameters), n);
+    // The fit's material: its span's (`fitMeasurements`).
+    const auto span = o2::gtrk::detail::spanMaterial(geometry, material, chain, n);
     BoundTrackState state = seed;
     CovarianceFactors factors;
     {
@@ -6826,11 +6830,11 @@ class CompleteAnatomy
       BoundTrackState nextReference;
       // The start (`startPass`), then the filter.
       if (start.rank > 0) {
-        if (o2::gtrk::detail::diffuseStep(stepProp, geometry, material, chain[index], direction, state, start, chi2, reference, nextReference) != PropagationStatus::kOk) {
+        if (o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], direction, state, start, chi2, reference, nextReference) != PropagationStatus::kOk) {
           return out;
         }
         factors = start.star;
-      } else if (o2::gtrk::detail::kinkStep(stepProp, geometry, material, chain[index], direction, state, factors, chi2, budget, step < n - 1, kinks, reference, nextReference) != PropagationStatus::kOk) {
+      } else if (o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], direction, state, factors, chi2, budget, step < n - 1, kinks, reference, nextReference) != PropagationStatus::kOk) {
         return out;
       }
       reference = nextReference;
@@ -8166,15 +8170,17 @@ class CompleteAnatomy
 
   static float midOf(const study::HitSegment& one, std::size_t i) { return static_cast<float>(0.5 * (one.start[i] + one.end[i])); }
 
-  /// Highland's theta0 at \a p for the LUT's x/X0 between two crossings, and that x/X0.
+  /// Highland's theta0 at \a p for the LUT's x/X0 between two crossings, the
+  /// step alone (its own logarithm, `highlandTheta0`), and that x/X0.
   template <typename Material>
   static std::pair<double, double> theta0Between(const Material& material, const Propagator& propagator, const study::HitSegment& a, const study::HitSegment& b, double p)
   {
     const auto budget = material.getMatBudget(midOf(a, 0), midOf(a, 1), midOf(a, 2), midOf(b, 0), midOf(b, 1), midOf(b, 2));
     const auto x2x0 = static_cast<double>(budget.meanX2X0);
     const auto mass = static_cast<double>(propagator.massGeV);
-    const double betaP = p * p / std::sqrt((p * p) + (mass * mass));
-    return {x2x0 > 0. ? 0.0136 / betaP * std::sqrt(x2x0) * (1. + (0.038 * std::log(x2x0))) : 0., x2x0};
+    const double beta2 = p * p / ((p * p) + (mass * mass));
+    const double betaP = p * std::sqrt(beta2);
+    return {x2x0 > 0. ? 0.0136 / betaP * std::sqrt(x2x0) * (1. + (0.038 * std::log(x2x0 / beta2))) : 0., x2x0};
   }
 
   /// The true kinks from crossing \a a to crossing \a b, theta and the

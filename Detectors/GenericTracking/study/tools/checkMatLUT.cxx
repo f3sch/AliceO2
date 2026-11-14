@@ -216,9 +216,10 @@ void measure(Step& step, int pieces, const o2::base::MatLayerCylSet& lut, TGeoNa
   }
 }
 
-/// Highland's theta0, the tracking's formula (`Tracking/Material.h`,
-/// `highlandTheta0`) in double; x/X0 <= 0 gives 0.
-double highland(double x2X0, double betaP) { return x2X0 > 0. ? 0.0136 / betaP * std::sqrt(x2X0) * (1. + (0.038 * std::log(x2X0))) : 0.; }
+/// Highland's theta0 of \a x2X0 alone, its logarithm at its own material, at
+/// \a betaP = beta p and \a beta2 = beta^2: the tracking's formula
+/// (`Tracking/Material.h`, `highlandTheta0`) in double; x/X0 <= 0 gives 0.
+double highland(double x2X0, double betaP, double beta2) { return x2X0 > 0. ? 0.0136 / betaP * std::sqrt(x2X0) * (1. + (0.038 * std::log(x2X0 / beta2))) : 0.; }
 
 /// beta p of momentum \a p and \a mass [GeV], the tracking's `betaMomentum` in double.
 double betaMomentum(const std::array<double, 3>& momentum, double mass)
@@ -428,10 +429,13 @@ void report(const Options& options, const std::vector<Step>& steps)
       continue;
     }
     const double betaP = betaMomentum(step.a.p, step.mass);
+    const double p2 = (step.a.p[0] * step.a.p[0]) + (step.a.p[1] * step.a.p[1]) + (step.a.p[2] * step.a.p[2]);
+    const double beta2 = p2 / (p2 + (step.mass * step.mass));
     const double dTheta = polar(step.b.p) - polar(step.a.p);
-    // the fit's two halves
-    const double geoTheta = std::hypot(highland(step.geo[0], betaP), highland(step.geo[1], betaP));
-    const double lutTheta = std::hypot(highland(step.lut[0], betaP), highland(step.lut[1], betaP));
+    // the step's two halves, each alone (the follow's steps; a fit takes its
+    // span's logarithm, `SpanMaterial`)
+    const double geoTheta = std::hypot(highland(step.geo[0], betaP, beta2), highland(step.geo[1], betaP, beta2));
+    const double lutTheta = std::hypot(highland(step.lut[0], betaP, beta2), highland(step.lut[1], betaP, beta2));
     if (geoTheta > 0. && lutTheta > 0.) {
       s.pullGeo.push_back(dTheta / geoTheta);
       s.pullLut.push_back(dTheta / lutTheta);
