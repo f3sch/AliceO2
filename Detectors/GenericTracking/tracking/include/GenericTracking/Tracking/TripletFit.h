@@ -484,7 +484,7 @@ template <DetectorLayout Det>
   if (!(sineTheta > 0.F)) {
     return 0.F;
   }
-  const Scalar material = table.layers[static_cast<std::size_t>(middleLayer)].k;
+  const Scalar material = highlandK(table.layers[static_cast<std::size_t>(middleLayer)], cut.logBeta2);
   if (Detector<Det>::isBarrelLayer(middleLayer)) {
     return material * sineTheta * cut.invBetaMomentum2;
   }
@@ -500,10 +500,10 @@ template <DetectorLayout Det>
     return 0.F;
   }
   if (passive.barrel) {
-    return passive.at.k * sineTheta * cut.invBetaMomentum2;
+    return highlandK(passive.at, cut.logBeta2) * sineTheta * cut.invBetaMomentum2;
   }
   const Scalar cosineTheta = o2::gpu::GPUCommonMath::Sqrt(o2::gpu::GPUCommonMath::Max(0.F, 1.F - sineTheta * sineTheta));
-  return cosineTheta > 0.F ? passive.at.k * sineTheta * sineTheta * cut.invBetaMomentum2 / cosineTheta : 0.F;
+  return cosineTheta > 0.F ? highlandK(passive.at, cut.logBeta2) * sineTheta * sineTheta * cut.invBetaMomentum2 / cosineTheta : 0.F;
 }
 
 /// Calls \a visit(variance, t) for each passive scatterer the straight segment

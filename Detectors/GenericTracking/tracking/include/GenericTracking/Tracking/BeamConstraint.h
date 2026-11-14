@@ -137,11 +137,13 @@ GPUdi() BeamLineUpdate updateWithBeamLine(const Propagator& prop, const Iteratio
   Scalar sinTheta = 0.F;
   Scalar cosTheta = 0.F;
   sincosOf(state.theta(), sinTheta, cosTheta);
-  const Scalar betaPT = betaMomentum(1.F / Math::Abs(state.qOverP()), prop.massGeV) * Math::Abs(sinTheta);
+  const Scalar momentum = 1.F / Math::Abs(state.qOverP());
+  const Scalar betaPT = betaMomentum(momentum, prop.massGeV) * Math::Abs(sinTheta);
   PairCut ownMomentum;
   ownMomentum.invBetaMomentum2 = 1.F / (betaPT * betaPT);
+  ownMomentum.logBeta2 = logOf(momentum * momentum / ((momentum * momentum) + (prop.massGeV * prop.massGeV)));
   const VertexSeed origin{.z = predicted.loc1()};
-  const Scalar scattering = scatteringScale * sourceScattering<Det>(parameters.scattering, ownMomentum, origin, layer, innermost);
+  const Scalar scattering = scatteringScale * beamScattering<Det>(parameters.scattering, ownMomentum, origin, layer, innermost);
 
   // H is the Jacobian's loc0 row; u = C H^T, s = H C H^T + V. In double: the
   // update subtracts u u^T / s from a covariance whose entries span orders of

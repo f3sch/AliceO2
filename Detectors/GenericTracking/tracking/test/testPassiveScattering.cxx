@@ -204,7 +204,7 @@ Crossings follow(double pt, double phi, double cotTheta, double charge, double v
     const double sinTheta = 1. / std::sqrt(1. + (cotTheta * cotTheta));
     const double pathFactor = 1. / sinTheta;
     const double p = pt / sinTheta;
-    const double theta0 = std::sqrt(detail::highlandFactor(stop.x2X0) * pathFactor) / p;
+    const double theta0 = std::sqrt(detail::highlandFactor(stop.x2X0, 1.) * pathFactor) / p;
     phi += gauss(rng) * theta0 / sinTheta;
     const double theta = std::atan2(1., cotTheta) + (gauss(rng) * theta0);
     cotTheta = std::cos(theta) / std::sin(theta);
@@ -369,8 +369,8 @@ BOOST_AUTO_TEST_CASE(ThePipeIsInTheTable)
   const auto nominal = scatteringTable<Det>(uniformLayerMaterial<Det>(kLayerX2X0));
   BOOST_TEST(nominal.passives[0].barrel);
   BOOST_TEST(nominal.passives[0].at.position == 3.F);
-  BOOST_TEST(nominal.passives[0].at.k == static_cast<Scalar>(detail::highlandFactor(0.01)));
-  BOOST_TEST(table(0.02).passives[0].at.k == static_cast<Scalar>(detail::highlandFactor(0.02)));
+  BOOST_TEST(nominal.passives[0].at.x2X0 == 0.01F);
+  BOOST_TEST(table(0.02).passives[0].at.x2X0 == 0.02F);
   BOOST_TEST(nominalPassiveMaterial<Det>()[0] == 0.01);
   BOOST_CHECK_THROW(static_cast<void>(scatteringTable<Det>(uniformLayerMaterial<Det>(kLayerX2X0), std::array<double, 2>{0.01, 0.01})), std::invalid_argument);
 }

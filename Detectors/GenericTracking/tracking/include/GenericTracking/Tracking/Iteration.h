@@ -470,7 +470,9 @@ template <DetectorLayout Det>
 }
 
 /// Derive one iteration's parameters. \a scattering is built once per run
-/// from the per-layer material and is the same for every iteration. \a alike,
+/// from the per-layer material and is the same for every iteration; the
+/// iteration's cuts take its Highland factors at their beta
+/// (`PairCut::logBeta2`). \a alike,
 /// where given, is an earlier iteration's parameters from the same beam spot
 /// and table with equal `settings.windows`: the links' windows and bounds
 /// depend on those alone and are taken from it instead of derived again.
@@ -541,13 +543,13 @@ template <DetectorLayout Det>
       parameters.betweenBound[link] = alike->betweenBound[link];
       parameters.tripletBounds[link] = alike->tripletBounds[link];
     } else {
-      parameters.windows[link] = layerPairWindow<Det>(pair.from, pair.to, settings.windows, beamSpot, scattering);
-      const double between = betweenKinkBound<Det>(scattering, settings.windows, pair.from, pair.to, beamSpot);
+      parameters.windows[link] = layerPairWindow<Det>(pair.from, pair.to, settings.windows, beamSpot, parameters.scattering);
+      const double between = betweenKinkBound<Det>(parameters.scattering, settings.windows, pair.from, pair.to, beamSpot);
       parameters.passiveBetween[link] = between > 0.;
       parameters.betweenBound[link] = conservativeScalarBound(between * between);
       parameters.tripletBounds[link] = tripletLinkBounds<Det>(pair.from, pair.to, static_cast<double>(parameters.windows[link].phiHalfWidth));
     }
-    parameters.betweenPassives[link] = passivesBetween<Det>(scattering, pair.from, pair.to);
+    parameters.betweenPassives[link] = passivesBetween<Det>(parameters.scattering, pair.from, pair.to);
     parameters.holeLayers[link] = settings.skipLinks ? 0U : linkHoleLayers<Det>(pair.from, pair.to);
     parameters.sourceMin[link] = displaced ? -std::numeric_limits<Scalar>::infinity() : static_cast<Scalar>(pair.sourceMin);
     parameters.sourceMax[link] = displaced ? std::numeric_limits<Scalar>::infinity() : static_cast<Scalar>(pair.sourceMax);

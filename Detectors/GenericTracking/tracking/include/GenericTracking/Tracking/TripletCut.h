@@ -312,6 +312,7 @@ template <DetectorLayout Det>
   }
   PairCut cut = nominal;
   cut.invBetaMomentum2 = own;
+  cut.logBeta2 = logOf(momentum * momentum / ((momentum * momentum) + nominal.mass2));
   TripletFitFactor factor;
   TripletFitResult refit;
   return makeTripletFitFactor(terms, first, middle, third, tripletScattering(parameters.scattering, cut, middleLayer, first, middle, third, terms.sineTheta, middleScale), factor) && fitTriplet(factor, refit) && refit.chi2 <= nominal.nSigma * nominal.nSigma;

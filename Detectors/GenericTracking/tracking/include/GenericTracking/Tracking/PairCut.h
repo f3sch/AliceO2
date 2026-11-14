@@ -53,15 +53,33 @@ namespace o2::gtrk
 /// A layer as multiple scattering sees it: where it is, how far it extends,
 /// and how much it scatters.
 ///
-/// `k` is the Highland factor at normal incidence, `(0.0136 GeV)^2 x (1 +
-/// 0.038 ln x)^2` for the layer's average `x = x/X0`, so that a crossing's
-/// `theta0^2` is `k` times the path factor over `p^2`.
+/// Its material is the layer's average `x = x/X0` at normal incidence, and
+/// with it `ln x`, so that the Highland factor at a beta, `highlandK`, takes
+/// no logarithm per scatterer: a crossing's `theta0^2` is that factor times
+/// the path factor over `(beta p)^2`.
 struct ScatteringLayer {
   Scalar position = 0.F; ///< barrel radius, or disc z [cm]
   Scalar low = 0.F;      ///< extent along the other axis: stave z, or disc r [cm]
   Scalar high = 0.F;
-  Scalar k = 0.F; ///< [GeV^2]
+  Scalar x2X0 = 0.F;    ///< x/X0 at normal incidence
+  Scalar logX2X0 = 0.F; ///< ln(x/X0); 0 without material
+  /// A layer's material between its slab's side towards the interaction
+  /// point and its sensors (`innerMaterial`): x/X0 at normal incidence, and
+  /// its position (radius, or signed z); none for a passive scatterer, or a
+  /// table without them (`withInnerShares`).
+  Scalar innerX2X0 = 0.F;
+  Scalar innerPosition = 0.F;
 };
+
+/// `(0.0136 GeV)^2 x (1 + 0.038 ln(x / beta^2))^2`: Highland's theta0^2
+/// (beta p)^2 at normal incidence for \a scatterer's x = x/X0, at
+/// \a logBeta2 = ln(beta^2) (`highlandTheta0`); 0 without material or where
+/// the logarithm turns it negative.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar highlandK(const ScatteringLayer& scatterer, Scalar logBeta2)
+{
+  const Scalar highland = 1.F + (0.038F * (scatterer.logX2X0 - logBeta2));
+  return scatterer.x2X0 > 0.F && highland > 0.F ? 0.0136F * 0.0136F * scatterer.x2X0 * highland * highland : 0.F;
+}
 
 /// A passive scatterer as multiple scattering sees it (`PassiveSpec`): a
 /// layer's fields, and its kind, which device code cannot read off the
@@ -102,14 +120,13 @@ struct ScatteringTable {
 namespace detail
 {
 
-/// `(0.0136 GeV)^2 x (1 + 0.038 ln x)^2`: Highland's theta0^2 p^2 at normal
-/// incidence for \a x = x/X0, 0 where the logarithm turns it negative.
-[[nodiscard]] inline double highlandFactor(double x)
+/// `highlandK` for \a x = x/X0 and \a beta2 = beta^2, in double.
+[[nodiscard]] inline double highlandFactor(double x, double beta2)
 {
-  if (!(x > 0.)) {
+  if (!(x > 0.) || !(beta2 > 0.)) {
     return 0.;
   }
-  const double highland = 1. + (0.038 * std::log(x));
+  const double highland = 1. + (0.038 * std::log(x / beta2));
   return highland > 0. ? 0.0136 * 0.0136 * x * highland * highland : 0.;
 }
 
@@ -138,7 +155,8 @@ template <DetectorLayout Det>
       .position = static_cast<Scalar>(Detector<Det>::isBarrelLayer(id) ? layerDistance<Det>(id) : discZ<Det>(id)),
       .low = static_cast<Scalar>(secondMin<Det>(id)),
       .high = static_cast<Scalar>(secondMax<Det>(id)),
-      .k = static_cast<Scalar>(detail::highlandFactor(x2X0[layer])),
+      .x2X0 = static_cast<Scalar>(x2X0[layer]),
+      .logX2X0 = x2X0[layer] > 0. ? static_cast<Scalar>(std::log(x2X0[layer])) : 0.F,
     };
   }
   if constexpr (Detector<Det>::nPassives > 0) {
@@ -147,13 +165,15 @@ template <DetectorLayout Det>
     }
     for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
       const auto& spec = Detector<Det>::passive(i);
+      const double x = passiveX2X0.empty() ? spec.x2X0 : passiveX2X0[i];
       table.passives[i] = {
         .at =
           {
             .position = static_cast<Scalar>(spec.position),
             .low = static_cast<Scalar>(spec.low),
             .high = static_cast<Scalar>(spec.high),
-            .k = static_cast<Scalar>(detail::highlandFactor(passiveX2X0.empty() ? spec.x2X0 : passiveX2X0[i])),
+            .x2X0 = static_cast<Scalar>(x),
+            .logX2X0 = x > 0. ? static_cast<Scalar>(std::log(x)) : 0.F,
           },
         .barrel = spec.kind == PassiveSpec::Kind::kBarrel,
       };
@@ -177,6 +197,21 @@ template <DetectorLayout Det>
   return table;
 }
 
+/// \a table with each layer's inner share (`ScatteringLayer::innerX2X0`,
+/// `innerPosition`): \a x2X0 and \a position per layer.
+template <DetectorLayout Det>
+[[nodiscard]] inline ScatteringTable<Det> withInnerShares(ScatteringTable<Det> table, std::span<const double> x2X0, std::span<const double> position)
+{
+  if (x2X0.size() != ScatteringTable<Det>::kLayerCount || position.size() != ScatteringTable<Det>::kLayerCount) {
+    throw std::invalid_argument("withInnerShares: one inner share per layer");
+  }
+  for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
+    table.layers[layer].innerX2X0 = static_cast<Scalar>(x2X0[layer]);
+    table.layers[layer].innerPosition = static_cast<Scalar>(position[layer]);
+  }
+  return table;
+}
+
 /// The cut parameters of one iteration, the same for every layer pair and
 /// every vertex.
 struct PairCut {
@@ -191,7 +226,18 @@ struct PairCut {
   /// no field.
   Scalar momentumCurvature = 0.F;
   Scalar mass2 = 0.F; ///< the mass hypothesis squared [GeV^2], for beta
+  /// ln(beta^2) of the momentum `invBetaMomentum2` is at, for the Highland
+  /// factors' logarithm (`highlandK`); 0, beta = 1, with no pT cut.
+  Scalar logBeta2 = 0.F;
 };
+
+/// ln(beta^2) at pT_min for the mass hypothesis: the least of an iteration's
+/// tracks, at which its cuts take the scattering (`invBetaMomentumMin2`).
+[[nodiscard]] inline double logBeta2Min(const SearchWindowParams& params)
+{
+  const double pt2 = params.minPtGeV * params.minPtGeV;
+  return params.minPtGeV > 0. ? std::log(pt2 / (pt2 + (params.massGeV * params.massGeV))) : 0.;
+}
 
 [[nodiscard]] inline PairCut pairCut(const SearchWindowParams& params)
 {
@@ -203,6 +249,7 @@ struct PairCut {
     .maxCurvature = static_cast<Scalar>(maxCurvature(params)),
     .momentumCurvature = static_cast<Scalar>(std::abs(static_cast<double>(o2::constants::math::B2C) * params.bzKiloGauss)),
     .mass2 = static_cast<Scalar>(params.massGeV * params.massGeV),
+    .logBeta2 = static_cast<Scalar>(logBeta2Min(params)),
   };
 }
 
@@ -274,9 +321,11 @@ namespace detail
 
 /// Whether the line from \a vertex through \a source, of slope \a slope in
 /// r and \a dz from the vertex to the source, crosses \a scatterer before
-/// the source -- the source's own layer, \a own, always -- and if so its
-/// term of `sourceScattering`'s sum in \a term.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool crossedBeforeSource(const ScatteringLayer& scatterer, bool barrel, bool own, const VertexSeed& vertex, const PairPoint& source, Scalar dz, Scalar slope, Scalar absDz, Scalar discFactor, Scalar& term)
+/// the source -- the source's own layer, \a own, always -- and if so the
+/// lever factor of a kink at \a position (the scatterer's, or for the own
+/// layer its inner share's) in \a lever: `r^2` for a barrel, `dz^2` times
+/// \a discFactor for a disc.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool crossingBeforeSource(const ScatteringLayer& scatterer, Scalar position, bool barrel, bool own, const VertexSeed& vertex, const PairPoint& source, Scalar dz, Scalar slope, Scalar absDz, Scalar discFactor, Scalar& lever)
 {
   if (barrel) {
     if (!own) {
@@ -285,10 +334,10 @@ namespace detail
         return false;
       }
     }
-    term = scatterer.k * scatterer.position * scatterer.position;
+    lever = position * position;
     return true;
   }
-  const Scalar dzLayer = scatterer.position - vertex.z;
+  const Scalar dzLayer = position - vertex.z;
   if (!own) {
     if (!(dzLayer * dz > 0.F) || !(o2::gpu::GPUCommonMath::Abs(dzLayer) < absDz)) {
       return false;
@@ -298,7 +347,19 @@ namespace detail
       return false;
     }
   }
-  term = scatterer.k * dzLayer * dzLayer * discFactor;
+  lever = dzLayer * dzLayer * discFactor;
+  return true;
+}
+
+/// `crossingBeforeSource`'s scatterer whole, its term of `sourceScattering`'s
+/// sum in \a term.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool crossedBeforeSource(const ScatteringLayer& scatterer, bool barrel, bool own, const VertexSeed& vertex, const PairPoint& source, Scalar dz, Scalar slope, Scalar absDz, Scalar discFactor, Scalar logBeta2, Scalar& term)
+{
+  Scalar lever = 0.F;
+  if (!crossingBeforeSource(scatterer, scatterer.position, barrel, own, vertex, source, dz, slope, absDz, discFactor, lever)) {
+    return false;
+  }
+  term = highlandK(scatterer, logBeta2) * lever;
   return true;
 }
 
@@ -312,7 +373,8 @@ namespace detail
 /// `theta_k s_k (s_j - s_i)` and the curvature cross product by
 /// `theta_k s_k d`, so this one sum serves both tests. The source's direction
 /// from the vertex sets the path through each layer, the lever arm and the
-/// momentum `p = pT g`; the Highland logarithm stays at normal incidence.
+/// momentum `p = pT g`; the Highland logarithm stays at normal incidence, at
+/// the cut's beta (`PairCut::logBeta2`).
 template <DetectorLayout Det>
 [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar sourceScattering(const ScatteringTable<Det>& table, const PairCut& cut, const VertexSeed& vertex, LayerID sourceLayer, const PairPoint& source)
 {
@@ -332,19 +394,76 @@ template <DetectorLayout Det>
   Scalar term = 0.F;
   for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
     const auto id = static_cast<LayerID>(layer);
-    if (detail::crossedBeforeSource(table.layers[layer], Detector<Det>::isBarrelLayer(id), id == sourceLayer, vertex, source, dz, slope, absDz, discFactor, term)) {
+    if (detail::crossedBeforeSource(table.layers[layer], Detector<Det>::isBarrelLayer(id), id == sourceLayer, vertex, source, dz, slope, absDz, discFactor, cut.logBeta2, term)) {
       sum += term;
     }
   }
   if constexpr (ScatteringTable<Det>::kPassiveCount > 0) {
     for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
       const auto& passive = table.passives[i];
-      if (detail::crossedBeforeSource(passive.at, passive.barrel, false, vertex, source, dz, slope, absDz, discFactor, term)) {
+      if (detail::crossedBeforeSource(passive.at, passive.barrel, false, vertex, source, dz, slope, absDz, discFactor, cut.logBeta2, term)) {
         sum += term;
       }
     }
   }
   return sum * g * cut.invBetaMomentum2;
+}
+
+/// The variance a fitted state on \a source's measurement takes, in
+/// `sourceScattering`'s units, from the scattering between \a vertex and
+/// it: the layers and passives the line crosses before the source's layer,
+/// and of the source's own layer only its inner share (`innerX2X0` at
+/// `innerPosition`): the rest lies beyond the sensors, where the fit has
+/// taken it. Highland's formula for the material crossed as a whole, its
+/// logarithm at the path's total x/X0 (as the fit takes its span,
+/// `SpanMaterial`), its variance shared by the scatterers in proportion to
+/// their x/X0, each at its lever arm. The beam-line update's
+/// (`updateWithBeamLine`); the pair cuts take `sourceScattering`, whose own
+/// layer is whole by design: its far side moves the target.
+template <DetectorLayout Det>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar beamScattering(const ScatteringTable<Det>& table, const PairCut& cut, const VertexSeed& vertex, LayerID sourceLayer, const PairPoint& source)
+{
+  if (!(source.r > 0.F)) {
+    return 0.F;
+  }
+  const Scalar dz = source.z - vertex.z;
+  const Scalar slope = dz / source.r;
+  const Scalar g = o2::gpu::GPUCommonMath::Sqrt(1.F + (slope * slope));
+  const Scalar absDz = o2::gpu::GPUCommonMath::Abs(dz);
+  const Scalar invAbsDz = absDz > 0.F ? 1.F / absDz : 0.F;
+  const Scalar discFactor = source.r * source.r * source.r * invAbsDz * invAbsDz * invAbsDz;
+  // A disc's path factor, 1 / |cos theta| = g / |slope|.
+  const Scalar discPath = o2::gpu::GPUCommonMath::Abs(slope) > 0.F ? g / o2::gpu::GPUCommonMath::Abs(slope) : 0.F;
+
+  Scalar moment = 0.F;  // sum of x lever
+  Scalar crossed = 0.F; // the path's x/X0
+  Scalar lever = 0.F;
+  const auto add = [&](Scalar x, bool barrel) {
+    moment += x * lever;
+    crossed += x * (barrel ? g : discPath);
+  };
+  for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
+    const auto id = static_cast<LayerID>(layer);
+    const auto& scatterer = table.layers[layer];
+    const bool barrel = Detector<Det>::isBarrelLayer(id);
+    const bool own = id == sourceLayer;
+    if (detail::crossingBeforeSource(scatterer, own ? scatterer.innerPosition : scatterer.position, barrel, own, vertex, source, dz, slope, absDz, discFactor, lever)) {
+      add(own ? scatterer.innerX2X0 : scatterer.x2X0, barrel);
+    }
+  }
+  if constexpr (ScatteringTable<Det>::kPassiveCount > 0) {
+    for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
+      const auto& passive = table.passives[i];
+      if (detail::crossingBeforeSource(passive.at, passive.at.position, passive.barrel, false, vertex, source, dz, slope, absDz, discFactor, lever)) {
+        add(passive.at.x2X0, passive.barrel);
+      }
+    }
+  }
+  if (!(crossed > 0.F)) {
+    return 0.F;
+  }
+  const Scalar highland = 1.F + (0.038F * (logOf(crossed) - cut.logBeta2));
+  return highland > 0.F ? 0.0136F * 0.0136F * highland * highland * moment * g * cut.invBetaMomentum2 : 0.F;
 }
 
 /// `T = sum_p theta_p^2 (s_j - s_p)^2` over the passive scatterers the line
@@ -404,7 +523,7 @@ template <DetectorLayout Det>
       }
       // theta_p^2 pT^2 = k (path factor) / g^2, with p = pT g.
       const Scalar lever = sTarget - sPassive;
-      sum += scatterer.k * pathFactor / (g * g) * lever * lever;
+      sum += highlandK(scatterer, cut.logBeta2) * pathFactor / (g * g) * lever * lever;
     }
     return sum * cut.invBetaMomentum2;
   }
@@ -435,6 +554,7 @@ template <DetectorLayout Det>
   const auto nearest = [&](double z) { return nearestApart(vertexZ, {.low = z, .high = z}); };
   const double sourceFar = farthestApart(vertexZ, sourceZ);
   const double g = std::sqrt(1. + (sourceFar * sourceFar / (rMin * rMin)));
+  const auto logBeta2 = static_cast<Scalar>(logBeta2Min(params));
 
   double sum = 0.;
   // A scatterer that is not the source's own layer, at its largest: false
@@ -461,7 +581,7 @@ template <DetectorLayout Det>
   };
   for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
     const auto id = static_cast<LayerID>(layer);
-    const auto k = static_cast<double>(table.layers[layer].k);
+    const auto k = static_cast<double>(highlandK(table.layers[layer], logBeta2));
     const auto position = static_cast<double>(table.layers[layer].position);
     const bool barrel = Detector<Det>::isBarrelLayer(id);
     if (id != from) {
@@ -487,7 +607,7 @@ template <DetectorLayout Det>
   if constexpr (ScatteringTable<Det>::kPassiveCount > 0) {
     for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
       const auto& passive = table.passives[i];
-      if (!addOther(static_cast<double>(passive.at.k), static_cast<double>(passive.at.position), passive.barrel)) {
+      if (!addOther(static_cast<double>(highlandK(passive.at, logBeta2)), static_cast<double>(passive.at.position), passive.barrel)) {
         return std::numeric_limits<double>::infinity();
       }
     }
@@ -554,7 +674,7 @@ template <DetectorLayout Det>
       const auto position = static_cast<double>(passive.at.position);
       const double sPassive = passive.barrel ? position : nearest(position);
       const double lever = std::max(targetFar - sPassive, 0.);
-      sum += static_cast<double>(passive.at.k) * lever * lever;
+      sum += static_cast<double>(highlandK(passive.at, static_cast<Scalar>(logBeta2Min(params)))) * lever * lever;
     }
     return std::sqrt(sum * betaMomentumFactor(params)) / params.minPtGeV;
   }
@@ -575,9 +695,10 @@ struct BetweenSource {
   Scalar bound[kCount]{};
 };
 
-/// The source's part of `betweenScattering` through \a vertex.
+/// The source's part of `betweenScattering` through \a vertex, its Highland
+/// factors at \a logBeta2 (the cut's, `PairCut::logBeta2`).
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() BetweenSource<Det> betweenSource(const ScatteringTable<Det>& table, const VertexSeed& vertex, const PairPoint& source)
+[[nodiscard]] GPUhdi() BetweenSource<Det> betweenSource(const ScatteringTable<Det>& table, const VertexSeed& vertex, const PairPoint& source, Scalar logBeta2)
 {
   BetweenSource<Det> result;
   if constexpr (ScatteringTable<Det>::kPassiveCount > 0) {
@@ -616,7 +737,7 @@ template <DetectorLayout Det>
         result.bound[i] = o2::gpu::GPUCommonMath::Abs(dzPassive);
       }
       result.admitted |= std::uint64_t{1U} << i;
-      result.weight[i] = scatterer.k * pathFactor / (g * g);
+      result.weight[i] = highlandK(scatterer, logBeta2) * pathFactor / (g * g);
       result.sPassive[i] = sPassive;
     }
   }

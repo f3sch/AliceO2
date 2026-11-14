@@ -99,7 +99,7 @@ struct GeneratedHelixFixture {
     const double cosine = 1. / std::sqrt(1. + (at.slope * at.slope));
     const double sine = std::abs(at.slope) * cosine;
     const double path = Detector<Det>::isBarrelLayer(layer) ? 1. / cosine : 1. / sine;
-    const auto k = static_cast<double>(parameters.scattering.layers[layer].k);
+    const auto k = static_cast<double>(highlandK(parameters.scattering.layers[layer], 0.F));
     const double theta0 = std::sqrt(k * path) * cosine / ptGeV;
     State kinked = at;
     kinked.slope = std::tan(std::atan(at.slope) + (normal(generator) * theta0));

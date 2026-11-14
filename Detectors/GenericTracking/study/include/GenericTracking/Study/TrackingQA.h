@@ -283,10 +283,19 @@ struct QAResolution {
   /// on the plane through the vertex
   /// along the beam, normal to the track's transverse direction there; the
   /// fit's sigma of each (J C J^T), and the scattering's between the vertex
-  /// and the innermost measurement; NaN where the propagation failed.
+  /// and the innermost measurement, from the material LUT along the straight
+  /// segment between them (`vertexApproach`); NaN where the propagation
+  /// failed.
   std::array<float, 2> dca{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
   std::array<float, 2> dcaSigma{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
   std::array<float, 2> dcaScattering{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
+  /// The MC state on the innermost measurement's plane carried to the same
+  /// plane, d0 and z0 [cm]: what the scattering between the vertex and that
+  /// crossing made of the particle's own; `dca` less it is the fit's error
+  /// there, carried.
+  std::array<float, 2> dcaTrue{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
+  /// The scattering as the beam-line update takes it (`beamScattering`).
+  std::array<float, 2> dcaScatteringBeam{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
   /// The particle's production point's distance from that vertex [cm]: 0
   /// for one made at the collision, a heavy-flavour decay's daughter's
   /// flight otherwise, whose d0 is its own and not a residual.

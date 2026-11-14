@@ -28,26 +28,39 @@ namespace o2::gtrk
 /// divides by.
 GPUhdi() GPUAlwaysInline() Scalar betaMomentum(Scalar momentumGeV, Scalar massGeV) { return momentumGeV * momentumGeV / o2::gpu::GPUCommonMath::Sqrt((momentumGeV * momentumGeV) + (massGeV * massGeV)); }
 
-/// Highland's scattering angle for a step, in radians.
+/// Highland's scattering angle for \a x2X0 of material, in radians (PDG,
+/// eq. 34.16, z = 1):
 ///
-/// theta0 = (13.6 MeV / beta c p) z sqrt(x/X0) [1 + 0.038 ln(x/X0)], with z = 1
-/// and \a betaMomentumGeV = beta p from the mass hypothesis (`betaMomentum`).
-/// 13.6 MeV is 0.0136 in the GeV this state is parameterised in. O2's
-/// `correctForMaterial` leaves out the logarithmic term.
+/// theta0 = (13.6 MeV / beta c p) sqrt(x/X0) [1 + 0.038 ln(X/X0 / beta^2)]
 ///
-/// The logarithmic correction turns negative below x/X0 = exp(-1/0.038), about
-/// 4e-12, which is far outside anything a detector produces but is guarded
-/// because a negative sigma is worse than a zero one.
-GPUhdi() GPUAlwaysInline() Scalar highlandTheta0(Scalar x2X0, Scalar betaMomentumGeV)
+/// with beta and p from \a momentumGeV and the mass hypothesis \a massGeV.
+/// 13.6 MeV is 0.0136 in the GeV this state is parameterised in. The
+/// logarithm is taken at \a logX2X0: the whole scatterer the deflection is
+/// taken over. Highland's formula is the width of the central part of the
+/// deflection of a scatterer as a whole, whose single scatters give it tails
+/// beyond a Gaussian's; the steps of a thicker scatterer each taken with its
+/// own logarithm, their variances added, give a deflection too narrow for the
+/// whole (Lynch and Dahl, NIM B 58 (1991) 6: the formula is applied to the
+/// total thickness). A step that is a part of \a logX2X0 takes its share of
+/// the whole's variance, in proportion to its \a x2X0. A step alone passes
+/// its own material for both. O2's `correctForMaterial` leaves out the
+/// logarithmic term.
+///
+/// The logarithmic correction turns negative below X/X0 / beta^2 =
+/// exp(-1/0.038), about 4e-12, which is far outside anything a detector
+/// produces but is guarded because a negative sigma is worse than a zero one.
+GPUhdi() GPUAlwaysInline() Scalar highlandTheta0(Scalar x2X0, Scalar logX2X0, Scalar momentumGeV, Scalar massGeV)
 {
-  if (x2X0 <= 0.F || betaMomentumGeV <= 0.F) {
+  if (x2X0 <= 0.F || logX2X0 <= 0.F || momentumGeV <= 0.F) {
     return 0.F;
   }
-  const Scalar corr = 1.F + 0.038F * logOf(x2X0);
+  const Scalar energy2 = (momentumGeV * momentumGeV) + (massGeV * massGeV);
+  const Scalar beta2 = momentumGeV * momentumGeV / energy2;
+  const Scalar corr = 1.F + 0.038F * logOf(logX2X0 / beta2);
   if (corr <= 0.F) {
     return 0.F;
   }
-  return (0.0136F / betaMomentumGeV) * o2::gpu::GPUCommonMath::Sqrt(x2X0) * corr;
+  return (0.0136F / (momentumGeV * o2::gpu::GPUCommonMath::Sqrt(beta2))) * o2::gpu::GPUCommonMath::Sqrt(x2X0) * corr;
 }
 
 /// O2's mean Bethe-Bloch for silicon, `o2::track::BetheBlochSolidOpt`, at

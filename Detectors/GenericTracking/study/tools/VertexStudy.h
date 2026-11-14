@@ -883,6 +883,9 @@ class VertexStudy
     const double nx = -chordY / chord;
     const double ny = chordX / chord;
     double varScattering = 0.;
+    // Highland's factor of a scatterer at the candidate's beta, p = pT g.
+    const double momentum2 = out.ptGeV * out.ptGeV * g * g;
+    const auto factor = [&](const ScatteringLayer& scatterer) { return static_cast<double>(highlandK(scatterer, static_cast<Scalar>(std::log(momentum2 / (momentum2 + mass2))))); };
     const auto kick = [&](double rs, double k) {
       if (!(rs < radii[2]) || !(k > 0.)) {
         return;
@@ -907,14 +910,14 @@ class VertexStudy
       };
       for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
         if (Detector<Det>::isBarrelLayer(static_cast<LayerID>(layer)) && crosses(table.layers[layer])) {
-          kick(static_cast<double>(table.layers[layer].position), static_cast<double>(table.layers[layer].k));
+          kick(static_cast<double>(table.layers[layer].position), factor(table.layers[layer]));
         }
       }
       if constexpr (ScatteringTable<Det>::kPassiveCount > 0) {
         for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
           const auto& passive = table.passives[i];
           if (passive.barrel && crosses(passive.at)) {
-            kick(static_cast<double>(passive.at.position), static_cast<double>(passive.at.k));
+            kick(static_cast<double>(passive.at.position), factor(passive.at));
           }
         }
       }

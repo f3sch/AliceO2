@@ -277,7 +277,8 @@ struct ScatteringErrors {
   /// A candidate's z0 variance [cm^2]: its r-z line's (\a fit's
   /// `varZ0Line`), the scattering before and at its first point \a a at its
   /// own momentum -- the pair cut's `sourceScattering` from the fit's z0 at
-  /// the pass's pT floor, scaled by the curvature: the transverse momentum
+  /// the pass's pT floor, its logarithm at the candidate's own beta, scaled by
+  /// the curvature: the transverse momentum
   /// goes as the circle's radius, so (R_min / R)^2 of the floor's, none for a
   /// straight line; without a field the momentum is unknown and the floor's
   /// is taken -- and the beam's transverse spread: the collision lies off the
@@ -292,10 +293,16 @@ struct ScatteringErrors {
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar operator()(const PairPoint& a, const VertexCandidateFit& fit) const
   {
     const VertexSeed from{.z = fit.z0};
-    const Scalar atFloor = sourceScattering<Det>(*table, cut, from, LayerID{0}, a);
     const Scalar halfRMin = 0.5F * cut.twoRMin;
     const Scalar scale = halfRMin > 0.F && fit.radius > 0.F ? (halfRMin / fit.radius) * (halfRMin / fit.radius) : 1.F;
     const Scalar slope = a.r > 0.F ? (a.z - fit.z0) / a.r : 0.F;
+    // The Highland logarithm at the candidate's own beta: p = |B2C Bz| R g.
+    PairCut own = cut;
+    if (halfRMin > 0.F && fit.radius > 0.F) {
+      const Scalar momentum = cut.momentumCurvature * fit.radius * o2::gpu::GPUCommonMath::Sqrt(1.F + (slope * slope));
+      own.logBeta2 = logOf(momentum * momentum / ((momentum * momentum) + cut.mass2));
+    }
+    const Scalar atFloor = sourceScattering<Det>(*table, own, from, LayerID{0}, a);
     return fit.varZ0Line + (atFloor * scale * (1.F + (slope * slope))) + (slope * slope * varTransverse);
   }
 };
