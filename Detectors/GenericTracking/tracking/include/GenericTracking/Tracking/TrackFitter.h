@@ -102,6 +102,12 @@ struct NoFitObserver {
 /// to set the two apart (SpeciesOracle.h).
 GPUhdi() GPUAlwaysInline() Scalar lossMassGeV(const Propagator& prop) { return prop.massGeV; }
 
+/// The bremsstrahlung a fit step adds to its energy loss over \a x2X0
+/// radiation lengths: none for the tracking's propagator. A QA oracle's
+/// propagator type overloads it (SpeciesOracle.h) to change \a state's q/p
+/// and add to the step's q/p variance \a varQOverP.
+GPUhdi() GPUAlwaysInline() void applyRadiation(const Propagator& /*prop*/, Scalar /*x2X0*/, PropagationDirection /*direction*/, BoundTrackState& /*state*/, Scalar& /*varQOverP*/) {}
+
 namespace detail
 {
 
@@ -176,6 +182,7 @@ GPUdi() PropagationStatus stepNoise(const Prop& prop, const StepMaterial& step, 
   if (!applyEnergyLoss(prop, step.xRho, direction, state, noise.qOverPAfter)) {
     return PropagationStatus::kStopped;
   }
+  applyRadiation(prop, step.nearerX2X0 + step.fartherX2X0, direction, state, noise.qOverPAfter);
   return PropagationStatus::kOk;
 }
 
