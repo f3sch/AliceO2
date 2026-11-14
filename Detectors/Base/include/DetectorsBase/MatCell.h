@@ -48,6 +48,12 @@ struct MatCell {
   ClassDefNV(MatCell, 1);
 };
 
+/// The x/X0 on a segment and its second moment along it (MatLayerCylSet::getMatMoment).
+struct MatMoment {
+  float x2X0 = 0.f;   ///< x/X0 on the segment
+  float x2X0T2 = 0.f; ///< the integral of t^2 dx/X0, t = 0 at the segment's start and 1 at its end
+};
+
 struct MatBudget : MatCell {
 
   // small struct to hold <X/X0>, <rho> and length traversed by track in the voxel

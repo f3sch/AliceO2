@@ -109,6 +109,9 @@ class MatLayerCylSet : public o2::gpu::FlatObject
 
 #endif // !GPUCA_ALIGPUCODE
   GPUd() MatBudget getMatBudget(float x0, float y0, float z0, float x1, float y1, float z1) const;
+  /// The x/X0 on the line between the points and its second moment along it: the integral of t^2 dx/X0, with
+  /// t the fraction of the way from the first point (0) to the second (1).
+  GPUd() MatMoment getMatMoment(float x0, float y0, float z0, float x1, float y1, float z1) const;
 
   GPUd() int searchSegment(float val, int low = -1, int high = -1) const;
 

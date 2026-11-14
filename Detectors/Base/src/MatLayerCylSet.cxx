@@ -439,19 +439,16 @@ std::size_t MatLayerCylSet::estimateFlatBufferSize() const
 #endif // ! GPUCA_GPUCODE
 
 //_________________________________________________________________________________________________
-GPUd() MatBudget MatLayerCylSet::getMatBudget(float x0, float y0, float z0, float x1, float y1, float z1) const
+namespace
 {
-  // get material budget traversed on the line between point0 and point1
-  MatBudget rval;
-  Ray ray(x0, y0, z0, x1, y1, z1);
-  short lmin, lmax; // get innermost and outermost relevant layer
-  if (ray.isTooShort() || !getLayersRange(ray, lmin, lmax)) {
-    rval.length = ray.getDist();
-    return rval;
-  }
+/// The cells \a set's layers \a lmin to \a lmax hold along \a ray, each passed to \a account with the ray's
+/// parameters where the path in it starts and ends and their distance (to be scaled by the ray's length).
+template <typename Account>
+GPUd() void forEachCell(const MatLayerCylSet& set, Ray& ray, short lmin, short lmax, Account& account)
+{
   short lrID = lmax;
   while (lrID >= lmin) { // go from outside to inside
-    const auto& lr = getLayer(lrID);
+    const auto& lr = set.getLayer(lrID);
     int nphiSlices = lr.getNPhiSlices();
     int nc = ray.crossLayer(lr); // determines how many crossings this ray has with this tubular layer
     for (int ic = nc; ic--;) {
@@ -520,10 +517,7 @@ GPUd() MatBudget MatLayerCylSet::getMatBudget(float x0, float y0, float z0, floa
             }
             // account materials of this step
             float step = tEndZ > tStartZ ? tEndZ - tStartZ : tStartZ - tEndZ; // the real step is ray.getDist(tEnd-tStart), will rescale all later
-            const auto& cell = cellRow[zID];
-            rval.meanRho += cell.meanRho * step;
-            rval.meanX2X0 += cell.meanX2X0 * step;
-            rval.length += step;
+            account(cellRow[zID], tStartZ, tEndZ, step);
 
 #ifdef _DBG_LOC_
             float pos0[3] = {ray.getPos(tStartZ, 0), ray.getPos(tStartZ, 1), ray.getPos(tStartZ, 2)};
@@ -540,10 +534,7 @@ GPUd() MatBudget MatLayerCylSet::getMatBudget(float x0, float y0, float z0, floa
           } while (checkMoreZ);
         } else {
           float step = tEndPhi > tStartPhi ? tEndPhi - tStartPhi : tStartPhi - tEndPhi; // the real step is |ray.getDist(tEnd-tStart)|, will rescale all later
-          const auto& cell = cellRow[zID];
-          rval.meanRho += cell.meanRho * step;
-          rval.meanX2X0 += cell.meanX2X0 * step;
-          rval.length += step;
+          account(cellRow[zID], tStartPhi, tEndPhi, step);
 
 #ifdef _DBG_LOC_
           float pos0[3] = {ray.getPos(tStartPhi, 0), ray.getPos(tStartPhi, 1), ray.getPos(tStartPhi, 2)};
@@ -563,6 +554,45 @@ GPUd() MatBudget MatLayerCylSet::getMatBudget(float x0, float y0, float z0, floa
     }
     lrID--;
   } // loop over layers
+}
+
+/// getMatBudget's sums.
+struct BudgetSum {
+  MatBudget& rval;
+  GPUd() void operator()(const MatCell& cell, float, float, float step)
+  {
+    rval.meanRho += cell.meanRho * step;
+    rval.meanX2X0 += cell.meanX2X0 * step;
+    rval.length += step;
+  }
+};
+
+/// getMatMoment's sums: on a cell's path between the ray's parameters a and b, the integral of t^2 is
+/// (b^3 - a^3) / 3 = (b - a) (a^2 + ab + b^2) / 3, taken positive whichever way the path runs.
+struct MomentSum {
+  MatMoment& rval;
+  GPUd() void operator()(const MatCell& cell, float a, float b, float step)
+  {
+    const float x = cell.meanX2X0 * step;
+    rval.x2X0 += x;
+    rval.x2X0T2 += x * ((a * a) + (a * b) + (b * b)) / 3.f;
+  }
+};
+} // namespace
+
+//_________________________________________________________________________________________________
+GPUd() MatBudget MatLayerCylSet::getMatBudget(float x0, float y0, float z0, float x1, float y1, float z1) const
+{
+  // get material budget traversed on the line between point0 and point1
+  MatBudget rval;
+  Ray ray(x0, y0, z0, x1, y1, z1);
+  short lmin, lmax; // get innermost and outermost relevant layer
+  if (ray.isTooShort() || !getLayersRange(ray, lmin, lmax)) {
+    rval.length = ray.getDist();
+    return rval;
+  }
+  BudgetSum sum{rval};
+  forEachCell(*this, ray, lmin, lmax, sum);
 
   if (rval.length != 0.f) {
     rval.meanRho /= rval.length;                                       // average
@@ -573,6 +603,23 @@ GPUd() MatBudget MatLayerCylSet::getMatBudget(float x0, float y0, float z0, floa
 #ifdef _DBG_LOC_
   printf("<rho> = %e, x2X0 = %e  | step = %e\n", rval.meanRho, rval.meanX2X0, rval.length);
 #endif
+  return rval;
+}
+
+//_________________________________________________________________________________________________
+GPUd() MatMoment MatLayerCylSet::getMatMoment(float x0, float y0, float z0, float x1, float y1, float z1) const
+{
+  // the material budget on the line between point0 and point1, and its second moment along it
+  MatMoment rval;
+  Ray ray(x0, y0, z0, x1, y1, z1);
+  short lmin, lmax;
+  if (ray.isTooShort() || !getLayersRange(ray, lmin, lmax)) {
+    return rval;
+  }
+  MomentSum sum{rval};
+  forEachCell(*this, ray, lmin, lmax, sum);
+  rval.x2X0 *= ray.getDist();
+  rval.x2X0T2 *= ray.getDist();
   return rval;
 }
 
