@@ -29,6 +29,7 @@
 #include "CommonConstants/PhysicsConstants.h"
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
@@ -48,6 +49,41 @@ struct OraclePropagator : Propagator {
 /// gives a `Propagator`.
 template <typename Geometry, typename Chain>
 [[nodiscard]] const OraclePropagator& stepPropagator(const OraclePropagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, int /*from*/, int /*to*/)
+{
+  return prop; // NOLINT(bugprone-return-const-ref-from-parameter)
+}
+
+/// A propagator whose fit steps take Bethe-Heitler's bremsstrahlung as one
+/// Gaussian, for every species alike: over t = x/X0 the retained energy
+/// fraction z has the mean mu = e^-t and the variance
+/// v = e^(-t ln3 / ln2) - mu^2; outward q/p becomes q/p / z, inward q/p z.
+/// With `mean` the state takes mu (outward q/p / mu, inward q/p mu); with
+/// `variance` the step's q/p variance grows by the linearised v (outward
+/// (q/p)^2 v / mu^4, inward (q/p)^2 v).
+struct RadiationPropagator : Propagator {
+  bool mean = true;
+  bool variance = true;
+};
+
+inline void applyRadiation(const RadiationPropagator& prop, Scalar x2X0, PropagationDirection direction, BoundTrackState& state, Scalar& varQOverP)
+{
+  constexpr Scalar kLn3OverLn2 = 1.5849625F;
+  const Scalar mu = std::exp(-x2X0);
+  const Scalar v = std::exp(-x2X0 * kLn3OverLn2) - (mu * mu);
+  const Scalar u = state.par[kQOverP];
+  const bool outward = direction == PropagationDirection::kForward;
+  if (prop.variance) {
+    varQOverP += outward ? u * u * v / (mu * mu * mu * mu) : u * u * v;
+  }
+  if (prop.mean) {
+    state.par[kQOverP] = outward ? u / mu : u * mu;
+  }
+}
+
+/// The radiation propagator for every step: itself, as `stepPropagator`
+/// gives a `Propagator`.
+template <typename Geometry, typename Chain>
+[[nodiscard]] const RadiationPropagator& stepPropagator(const RadiationPropagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, int /*from*/, int /*to*/)
 {
   return prop; // NOLINT(bugprone-return-const-ref-from-parameter)
 }
