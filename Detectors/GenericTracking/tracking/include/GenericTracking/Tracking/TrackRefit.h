@@ -23,7 +23,6 @@
 
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
-#include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Base/Columns.h"
 #include "GenericTracking/Tracking/Iteration.h"
@@ -114,14 +113,14 @@ GPUhdi() GPUAlwaysInline() void writeFit(const Tracks& tracks, std::uint32_t tra
 /// fit's outward state (`fitInward`), and the track's time from their boxes;
 /// the pass may take the iteration's kinks. Its frame, geometry and material
 /// are pointers, which may be a device's.
-template <DetectorLayout Det, typename Material, bool Radiation = false>
+template <DetectorLayout Det, typename Material>
 class TrackRefitElement
 {
  public:
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using View = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::View;
 
-  TrackRefitElement(const TimeFrame<Det>* frame, const TrackingGeometry<Det>* geometry, const Material* material, const PropagatorOf<Radiation>& propagator, const ClusterList<kMaxClusters>* clusters, const std::uint8_t* count, const BoundTrackState* outward, const Scalar* outwardChi2, const std::uint32_t* selected, View tracks, std::uint32_t offset, std::uint8_t iteration, KinkBudget kinks)
+  TrackRefitElement(const TimeFrame<Det>* frame, const TrackingGeometry<Det>* geometry, const Material* material, const Propagator& propagator, const ClusterList<kMaxClusters>* clusters, const std::uint8_t* count, const BoundTrackState* outward, const Scalar* outwardChi2, const std::uint32_t* selected, View tracks, std::uint32_t offset, std::uint8_t iteration, KinkBudget kinks)
     : mFrame(frame),
       mGeometry(geometry),
       mMaterial(material),
@@ -157,7 +156,7 @@ class TrackRefitElement
   const TimeFrame<Det>* mFrame = nullptr;
   const TrackingGeometry<Det>* mGeometry = nullptr;
   const Material* mMaterial = nullptr;
-  PropagatorOf<Radiation> mPropagator;
+  Propagator mPropagator;
   const ClusterList<kMaxClusters>* mClusters = nullptr;
   const std::uint8_t* mCount = nullptr;
   const BoundTrackState* mOutward = nullptr;
@@ -201,12 +200,8 @@ class TrackRefit
       const auto offset = static_cast<std::uint32_t>(mTracks.size());
       mTracks.resize(offset + selected.size());
       const auto records = selection.records();
-      withBools(
-        [&]<bool Radiation>(std::bool_constant<Radiation>) {
-          const TrackRefitElement<Det, Material, Radiation> element{&frame, &geometry, &material, propagatorOf<Radiation>(propagator, parameters.radiationScale), records.clusters, records.count, records.outwardState, records.chi2, selected.data(), mTracks.view(), offset, iteration, kinkBudget(parameters)};
-          forEach(static_cast<std::uint32_t>(selected.size()), element);
-        },
-        parameters.radiationScale > 0.F);
+      const TrackRefitElement<Det, Material> element{&frame, &geometry, &material, propagator, records.clusters, records.count, records.outwardState, records.chi2, selected.data(), mTracks.view(), offset, iteration, kinkBudget(parameters)};
+      forEach(static_cast<std::uint32_t>(selected.size()), element);
       return StageStatus::kComplete;
     });
   }

@@ -108,22 +108,6 @@ GPUhdi() GPUAlwaysInline() Scalar lossMassGeV(const Propagator& prop) { return p
 /// and add to the step's q/p variance \a varQOverP.
 GPUhdi() GPUAlwaysInline() void applyRadiation(const Propagator& /*prop*/, Scalar /*x2X0*/, PropagationDirection /*direction*/, BoundTrackState& /*state*/, Scalar& /*varQOverP*/) {}
 
-/// The radiation propagator's: over the step's t = x/X0 the retained energy
-/// fraction z has the mean mu = e^-t and the variance
-/// v = e^(-t ln3 / ln2) - mu^2 (Bethe-Heitler); outward q/p becomes q/p / z,
-/// inward q/p z, linearised about mu: \a varQOverP grows by the scale times
-/// (q/p)^2 v / mu^4 outward, (q/p)^2 v inward. The mean is left as it is.
-GPUhdi() GPUAlwaysInline() void applyRadiation(const RadiationPropagator& prop, Scalar x2X0, PropagationDirection direction, BoundTrackState& state, Scalar& varQOverP)
-{
-  using Math = o2::gpu::CAMath;
-  constexpr Scalar kLn3OverLn2 = 1.5849625F;
-  const Scalar mu = Math::Exp(-x2X0);
-  const Scalar mu2 = mu * mu;
-  const Scalar v = Math::Exp(-x2X0 * kLn3OverLn2) - mu2;
-  const Scalar u = state.qOverP();
-  varQOverP += prop.radiationScale * u * u * (direction == PropagationDirection::kForward ? v / (mu2 * mu2) : v);
-}
-
 namespace detail
 {
 
@@ -692,8 +676,8 @@ GPUdi() PropagationStatus kinkStep(const Prop& prop, const TrackingGeometry<Det>
 /// \a noiseScale, as the extension's kink step, and counted in \a kinks;
 /// \a refused if the increment is still beyond the gate. It frees no
 /// parameter.
-template <CrossingRule Rule = CrossingRule::kFirstAhead, DetectorLayout Det, typename Material, typename Prop>
-GPUdi() PropagationStatus allowanceStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, const KinkBudget& budget, Scalar noiseScale, int& kinks, bool& refused, const BoundTrackState& reference, BoundTrackState& nextReference)
+template <CrossingRule Rule = CrossingRule::kFirstAhead, DetectorLayout Det, typename Material>
+GPUdi() PropagationStatus allowanceStep(const Propagator& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, const KinkBudget& budget, Scalar noiseScale, int& kinks, bool& refused, const BoundTrackState& reference, BoundTrackState& nextReference)
 {
   refused = false;
   if (kinks >= budget.max) {
