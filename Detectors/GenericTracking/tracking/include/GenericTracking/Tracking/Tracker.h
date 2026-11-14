@@ -272,6 +272,9 @@ class Tracker
     mFollowStart = {};
     mFollowStartCount = {};
     mFollowUsed = {};
+    mFollowEndClusters = {};
+    mFollowEndCount = {};
+    mFollowEndState = {};
   }
 
   /// The used mask, per row: what the selection has taken so far.
@@ -458,6 +461,13 @@ class Tracker
     /// With the follow, the used mask as the follow read it, before its
     /// rows and the length cut; empty without.
     std::span<const std::uint8_t> followUsed;
+    /// With the follow, each selected record's track as the follow and its
+    /// refit left it, before the length cut and the pT floor after the follow
+    /// drop any (one per selected record, in its order): its rows, their
+    /// count and its state; empty without the follow.
+    std::span<const ClusterList<kMaxClusters>> followEndClusters;
+    std::span<const std::uint8_t> followEndCount;
+    std::span<const BoundTrackState> followEndState;
   };
   using IterationObserver = std::function<void(const Tracker&, const IterationObservation&)>;
 
@@ -723,6 +733,12 @@ class Tracker
           summary.status = runFollow(mFollow, mIterations[iteration], frame, plan, trackOffset, false, summary.tracksFollowed, summary.clustersFollowedOutward, summary.clustersFollowedInward);
         }
         followed = summary.status == StageStatus::kComplete;
+        if (started && followed) {
+          const auto view = std::as_const(mRefit.tracks()).view();
+          mFollowEndClusters.assign(view.clusters + trackOffset, view.clusters + mRefit.size());
+          mFollowEndCount.assign(view.count + trackOffset, view.count + mRefit.size());
+          mFollowEndState.assign(view.state + trackOffset, view.state + mRefit.size());
+        }
       }
     }
     if (lengthCut && summary.status == StageStatus::kComplete) {
@@ -749,6 +765,9 @@ class Tracker
                                   .followStart = started ? std::span<const BoundTrackState>{mFollowStart} : std::span<const BoundTrackState>{},
                                   .followStartCount = started ? std::span<const std::uint8_t>{mFollowStartCount} : std::span<const std::uint8_t>{},
                                   .followUsed = started ? std::span<const std::uint8_t>{mFollowUsed} : std::span<const std::uint8_t>{},
+                                  .followEndClusters = started && followed ? std::span<const ClusterList<kMaxClusters>>{mFollowEndClusters} : std::span<const ClusterList<kMaxClusters>>{},
+                                  .followEndCount = started && followed ? std::span<const std::uint8_t>{mFollowEndCount} : std::span<const std::uint8_t>{},
+                                  .followEndState = started && followed ? std::span<const BoundTrackState>{mFollowEndState} : std::span<const BoundTrackState>{},
                                 });
     }
     releaseIterationStorage();
@@ -1194,6 +1213,10 @@ class Tracker
   std::vector<BoundTrackState> mFollowStart;
   std::vector<std::uint8_t> mFollowStartCount;
   std::vector<std::uint8_t> mFollowUsed;
+  /// What the follow left, before the length cut, for an iteration observer only.
+  std::vector<ClusterList<kMaxClusters>> mFollowEndClusters;
+  std::vector<std::uint8_t> mFollowEndCount;
+  std::vector<BoundTrackState> mFollowEndState;
   SensorCells<Det> mSensorCells;
   BoundedVector<std::uint8_t> mUsed;
   BoundedVector<std::uint8_t> mUsedBeforeSelection; ///< with a length after the follow (`dropShortTracks`)
