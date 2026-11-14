@@ -2171,7 +2171,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
   for (std::size_t reason = 0; reason < kPairLosses; ++reason) {
     cuts += fmt::format(" {} {}", kPairLossNames[reason], trackletLostPairs[reason]);
   }
-  LOGP(info, "    the tracklet losses' adjacent-layer pairs of their own their iteration did not keep, by the first test each fails:{}; none recorded {}", cuts, trackletLostNone);
+  LOGP(info, "    the tracklet losses' consecutive pairs' links their iteration took and did not keep, by the furthest test:{}; none recorded {}", cuts, trackletLostNone);
   for (std::size_t why = 0; why < kWhys; ++why) {
     if (whys[why] == 0U) {
       continue;
@@ -2537,8 +2537,8 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
     std::array<std::uint64_t, kCountSlots> notFindableByChain{};
     std::array<std::uint64_t, kLosses> losses{};
     std::uint64_t lostAtRoadsRaised = 0U;
-    // Of those lost at the tracklet stage: their adjacent-layer pairs of their
-    // own the first iteration did not keep, by the first test each fails (the
+    // Of those lost at the tracklet stage: their consecutive pairs' links the
+    // first iteration took and did not keep, by the furthest test (the
     // funnel's); and the particles with none recorded (from the vertex list).
     std::array<std::uint64_t, kPairLosses> trackletLossPairs{};
     std::uint64_t trackletLossNone = 0U;
@@ -2860,7 +2860,7 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
        "shorter than both tracks together: tracklets {}, triplets {}, neighbours {}, roads {}, road fit {}, none {}; "
        "below the first iteration's pT_min {}; not findable {}",
        splits[kSplitTracklets], splits[kSplitTriplets], splits[kSplitNeighbours], splits[kSplitRoads], splits[kSplitFit], splits[kSplitElse], splits[kSplitBelowFirst], splits[kSplitNotFindable]);
-  LOGP(info, "    the tracklet splits' adjacent-layer pairs of their own the first iteration did not keep, by the first test:{}", describeLostPairs(splitLostPairs, splitLostNone));
+  LOGP(info, "    the tracklet splits' consecutive pairs' links the first iteration took and did not keep, by the furthest test:{}", describeLostPairs(splitLostPairs, splitLostNone));
   for (std::size_t index = 0; index < sets.size(); ++index) {
     const auto& set = sets[index];
     const auto& losses = set.losses;
@@ -3401,6 +3401,7 @@ class MeasurementSinkTask : public Task
     std::unordered_map<std::uint64_t, std::uint8_t> outward;
     std::unordered_map<std::uint64_t, std::uint64_t> outwardMasks;
     std::unordered_map<std::uint64_t, std::vector<float>> legMomenta; // --species-oracle
+    std::unordered_map<std::uint64_t, std::vector<LayerID>> legLayers; // the funnel's LegLinks
     if (mHits) {
       std::unordered_map<int, std::vector<std::uint64_t>> byEvent;
       for (const auto& [id, truth] : particles) {
@@ -3430,6 +3431,12 @@ class MeasurementSinkTask : public Task
           const auto& truth = particles.at(id);
           const auto leg = outwardLeg(crossings, {static_cast<double>(truth.vx), static_cast<double>(truth.vy), static_cast<double>(truth.vz)});
           outward[id] = outwardLayers(leg);
+          if (funnel != nullptr) {
+            auto& layers = legLayers[id];
+            for (const auto& crossing : leg) {
+              layers.push_back(crossing.layer);
+            }
+          }
           if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
             if (std::cmp_greater_equal(outward[id], comparisonSettings<Det>().minLayers)) {
               for (const auto& crossing : leg) {
@@ -3493,6 +3500,15 @@ class MeasurementSinkTask : public Task
       }
       if (verdict.has_value() && verdict->pairLoss.has_value()) {
         extra.pairLoss = static_cast<std::uint8_t>(*verdict->pairLoss);
+      }
+      if (const auto leg = legLayers.find(id); leg != legLayers.end()) {
+        if (const auto links = funnel->legLinks(id, leg->second); links.has_value()) {
+          extra.legRows = links->rows;
+          extra.legLinked = links->linked;
+          extra.legTaken = links->taken;
+          extra.legAbsent = links->absent;
+          extra.legNotTaken = links->notTaken;
+        }
       }
     }
     stream(*mQAOutput, trackingQA(rows, particles, ours, kinematics, funnel != nullptr ? funnel->seededBy() : SeededBy{}, extras, theirs, workflow::iterationCount(recoParam<Det>()), comparisonSettings<Det>()));
