@@ -129,8 +129,9 @@ struct ParticleExtras {
   /// The stage funnel's first stage without a chain of its own as long as the
   /// minimum, a FunnelStage (StageFunnel.h), kFound if found.
   std::uint8_t lostAt = kQANotObserved;
-  /// Of its adjacent-layer pairs no iteration kept, the test most fail first,
-  /// a PairLoss (StageFunnel.h), over the iterations whose pT_min it clears;
+  /// Of its consecutive pairs' links no iteration kept, the test most fail
+  /// first, a PairLoss (StageFunnel.h), over the iterations whose pT_min it
+  /// clears and that take the link;
   /// kQANotObserved if none was lost.
   std::uint8_t pairLoss = kQANotObserved;
   /// Lost at the roads: why its chain of neighbours gave no road of its own,
@@ -151,6 +152,16 @@ struct ParticleExtras {
   /// otherwise.
   std::uint8_t raisedFit = kQANotObserved;
   std::uint8_t outwardLayers = 0U;      ///< the layers of its MC hits' outward leg (`outwardLayers`)
+  /// Its outward leg as the stages could join it (StageFunnel.h `LegLinks`):
+  /// the leg's layers with a measurement, the longest chain along them the
+  /// layout's links join and one iteration whose pT_min it clears takes, the
+  /// first consecutive pair no link joins and the first no such iteration
+  /// takes (100 x from + to, -1 for none); 0 and -1 without the MC hits.
+  std::uint8_t legRows = 0U;
+  std::uint8_t legLinked = 0U;
+  std::uint8_t legTaken = 0U;
+  std::int32_t legAbsent = -1;
+  std::int32_t legNotTaken = -1;
   std::uint64_t expectedLayerMask = 0U; ///< full-length reference: detector layers, or ALICE3 outward MC traversal
 };
 
