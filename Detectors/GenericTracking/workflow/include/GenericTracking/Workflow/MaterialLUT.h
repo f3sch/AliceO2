@@ -14,7 +14,7 @@
 ///
 /// | detector | CCDB path |
 /// |---|---|
-/// | ITS | `GLO/Param/MatLUT` (O2's) |
+/// | ITS | `GLO/Param/MatLUT` (O2's, or `o2-gtrk-build-matlut -d ITS`) |
 /// | MFT | `MFT/Param/MatLUT` (`o2-gtrk-build-matlut -d MFT`) |
 /// | TRKFT3 | `TRK/Param/MatLUT` (`o2-gtrk-build-matlut -d TRKFT3`, one LUT for TRK and FT3) |
 ///

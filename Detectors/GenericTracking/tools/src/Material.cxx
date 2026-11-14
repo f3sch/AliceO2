@@ -21,6 +21,7 @@
 #include <TGeoNavigator.h>
 #include <TGeoNode.h>
 #include <TGeoVolume.h>
+#include <TGeoVoxelFinder.h>
 
 #include <algorithm>
 #include <array>
@@ -55,6 +56,17 @@ void forEachOnNavigators(std::size_t count, int threads, const std::function<voi
     return;
   }
   gGeoManager->SetMaxThreads(threads);
+  // TGeo voxelizes a volume whose voxels need a rebuild when it first looks
+  // into it (TGeoVoxelFinder::GetCheckList); several threads would rebuild the
+  // same voxels at once.
+  TIter volumes(gGeoManager->GetListOfVolumes());
+  while (auto* volume = static_cast<TGeoVolume*>(volumes())) {
+    auto* voxels = volume->GetVoxels();
+    if (voxels != nullptr && voxels->NeedRebuild()) {
+      voxels->Voxelize();
+      volume->FindOverlaps();
+    }
+  }
   std::atomic<std::size_t> next{0};
   std::vector<std::thread> workers;
   workers.reserve(static_cast<std::size_t>(threads));

@@ -10,12 +10,13 @@
 // or submit itself to any jurisdiction.
 
 /// \file buildMatLUT.cxx
-/// \brief Build the tracking material LUT from an o2sim geometry for the MFT
-///        or the ALICE 3 barrel tracker.
+/// \brief Build the tracking material LUT from an o2sim geometry for the ITS,
+///        the MFT or the ALICE 3 barrel tracker.
 
 #include "GenericTracking/Tools/Material.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Base/Geometry.h"
+#include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 
 #include "DetectorsBase/GeometryManager.h"
@@ -25,6 +26,7 @@
 
 #include <boost/program_options.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -33,6 +35,7 @@
 #include <iostream>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -291,6 +294,116 @@ std::vector<LUTLayer> trkBands(int threads)
   return trkLayers(std::span{chips}.first(static_cast<std::size_t>(kBarrel)), walls, faces, chipThickness);
 }
 
+/// The ITS's region, from the loaded geometry: the layers' silicon hulls
+/// (o2::its::GeometryTGeo's chips).
+///
+/// The fit takes a step's material in two halves about its midpoint, the
+/// nearer half's kink at the stave the step leaves, the farther half's at the
+/// stave it reaches (TrackFitter.h, `StepMaterial`). A LUT layer holds its
+/// material evenly across its radii, so a band across the middle of a gap
+/// gives part of each stave's material to the other. The bands end at the
+/// middle of each gap between two layers' radii, where a step between them
+/// near normal incidence has its midpoint and where `layerMaterial` splits
+/// the gaps, and at the edges of the passive scatterers' bands (the beam
+/// pipe's, kAliceBerylliumPipe), which `passiveMaterial` reads as their own.
+/// The rest of a gap is cut into equal bands no wider than kItsGapDr, as a
+/// band spreads what it holds over its radii, which an inclined track turns
+/// into a spread along z.
+///
+/// Over a layer's hull the material lies on both sides of the sensors: the
+/// flex cable on a sensor's inner face (and an outer barrel stave's power bus
+/// under it), the cold plate on its outer face. A hull is cut into equal parts
+/// no thicker than kItsHullPart, about the layers of a module on one side of
+/// its sensor, so that a segment ending on a sensor reads mostly the material
+/// on its own side; and its cells in r-phi are narrow enough that a stave,
+/// flat and so at an angle alpha to the radial direction (cos alpha = rMin /
+/// rMax), changes its radius by at most half a part across one. Along z,
+/// every band to where a line from the beam line at z = 0 through the end of
+/// the outermost layer, the longest, reaches at \a rMax, and
+/// to the passives' ends: a step between two sensors stays within the larger
+/// of their layers' |z|, and a prediction onto the outermost layer's nominal
+/// radius from the end of one of its sensors goes on along such a line.
+inline constexpr float kItsHullPart = 0.025F; ///< a hull's parts at most [cm]
+inline constexpr float kItsGapDr = 0.5F;      ///< a gap's bands at most [cm]
+inline constexpr float kItsGapDrPhi = 0.5F;   ///< a gap's cells in r-phi [cm]
+inline constexpr float kItsDz = 1.F;          ///< every band's cells along z [cm]
+
+std::vector<LUTLayer> itsLayers(std::span<const o2::gtrk::LayerEnvelope> envelopes, std::span<const o2::gtrk::PassiveSpec> passives, float rMax)
+{
+  std::vector<LUTLayer> layers;
+  const auto& outermost = envelopes[envelopes.size() - 1];
+  float zMax = static_cast<float>(std::max(-outermost.zMin, outermost.zMax) * rMax / outermost.rMin);
+  for (const auto& passive : passives) {
+    zMax = std::max(zMax, static_cast<float>(std::max(-passive.low, passive.high)));
+  }
+  std::vector<float> cuts;
+  for (const auto& passive : passives) {
+    cuts.push_back(static_cast<float>(passive.bandLow));
+    cuts.push_back(static_cast<float>(passive.bandHigh));
+  }
+  std::ranges::sort(cuts);
+  // [inner, outer] in equal bands no wider than maxDr; the cells in r-phi of
+  // each by drPhi(its thickness)
+  const auto addEqual = [&](float inner, float outer, float maxDr, const auto& drPhi) {
+    if (outer < inner) {
+      throw std::runtime_error("ITS material LUT: radial range " + std::to_string(inner) + " .. " + std::to_string(outer) + " cm is reversed");
+    }
+    if (!(outer > inner)) {
+      return;
+    }
+    const auto bands = std::max(1, static_cast<int>(std::ceil((outer - inner) / maxDr)));
+    const float thickness = (outer - inner) / static_cast<float>(bands);
+    for (int band = 0; band < bands; ++band) {
+      const float low = band == 0 ? inner : inner + ((outer - inner) * static_cast<float>(band) / static_cast<float>(bands));
+      const float high = band + 1 == bands ? outer : inner + ((outer - inner) * static_cast<float>(band + 1) / static_cast<float>(bands));
+      layers.push_back({.rMin = low, .rMax = high, .zMax = zMax, .dz = kItsDz, .drPhi = drPhi(thickness)});
+    }
+  };
+  const auto gapDrPhi = [](float /*thickness*/) { return kItsGapDrPhi; };
+  const auto addGap = [&](float inner, float outer) {
+    float low = inner;
+    for (const float cut : cuts) {
+      if (cut > low && cut < outer) {
+        addEqual(low, cut, kItsGapDr, gapDrPhi);
+        low = cut;
+      }
+    }
+    addEqual(low, outer, kItsGapDr, gapDrPhi);
+  };
+  float previous = 0.F;
+  for (std::size_t layer = 0; layer < envelopes.size(); ++layer) {
+    const auto rMin = static_cast<float>(envelopes[layer].rMin);
+    const auto rMaxHull = static_cast<float>(envelopes[layer].rMax);
+    if (layer > 0) {
+      const auto middle = static_cast<float>(0.5 * (envelopes[layer - 1].position + envelopes[layer].position));
+      addGap(previous, middle);
+      previous = middle;
+    }
+    addGap(previous, rMin);
+    const float tanAlpha = std::sqrt((rMaxHull * rMaxHull) - (rMin * rMin)) / rMin;
+    addEqual(rMin, rMaxHull, kItsHullPart, [tanAlpha](float thickness) { return 0.5F * thickness / tanAlpha; });
+    previous = rMaxHull;
+  }
+  addGap(previous, rMax);
+  return layers;
+}
+
+/// The ITS's bands from the loaded geometry, its hulls printed (the LUT's
+/// provenance in its log). They end beyond the last layer where
+/// `layerMaterial` stops reading its slab: the last layer's radius mirrored
+/// across it from the middle of the gap below.
+std::vector<LUTLayer> itsBands()
+{
+  using ITS = o2::gtrk::detectors::ITS;
+  const o2::gtrk::Geometry<ITS> geometry(o2::gtrk::alice::placeChecked<ITS>());
+  const auto envelopes = o2::gtrk::PlacedEnvelopes<ITS>::all();
+  std::cout << o2::gtrk::describeEnvelopes(envelopes, o2::gtrk::Detector<ITS>::nBarrelLayers);
+  const auto& last = envelopes[envelopes.size() - 1];
+  const auto& below = envelopes[envelopes.size() - 2];
+  const auto rMax = static_cast<float>(last.position + (0.5 * (last.position - below.position)));
+  return itsLayers(envelopes, ITS::passives, rMax);
+}
+
 int run(int argc, char** argv)
 {
   std::string output;
@@ -301,17 +414,17 @@ int run(int argc, char** argv)
   float maxRelativeDifference = 0.05F;
 
   bpo::options_description opts("Build the GTRK material-budget LUT");
-  opts.add_options()                                                                                           //
-    ("help,h", "print this help")                                                                              //
-    ("output,o", bpo::value(&output)->default_value("gtrk_matlut.root"), "output LUT file")                    //
-    ("trials,n", bpo::value(&trials)->default_value(10), "lines per cell axis")                                //
-    ("detector,d", bpo::value(&detector)->required(),                                                          //
-     "MFT: the MFT's region; TRKFT3: the ALICE 3 tracker's, from --geometry (the ITS takes O2's CCDB MatLUT)") //
-    ("geometry,g", bpo::value(&geometryFile)->required(),                                                      //
-     "an o2sim geometry file (o2sim_geometry-aligned.root)")                                                   //
-    ("threads,j", bpo::value(&threads)->default_value(-1),                                                     //
-     "fill threads; negative uses NTHREADS_MATBUD")                                                            //
-    ("max-relative-difference", bpo::value(&maxRelativeDifference)->default_value(0.05F),                      //
+  opts.add_options()                                                                        //
+    ("help,h", "print this help")                                                           //
+    ("output,o", bpo::value(&output)->default_value("gtrk_matlut.root"), "output LUT file") //
+    ("trials,n", bpo::value(&trials)->default_value(10), "lines per cell axis")             //
+    ("detector,d", bpo::value(&detector)->required(),                                       //
+     "ITS, MFT or TRKFT3: the detector's region, from --geometry")                          //
+    ("geometry,g", bpo::value(&geometryFile)->required(),                                   //
+     "an o2sim geometry file (o2sim_geometry-aligned.root)")                                //
+    ("threads,j", bpo::value(&threads)->default_value(-1),                                  //
+     "fill threads; negative uses NTHREADS_MATBUD")                                         //
+    ("max-relative-difference", bpo::value(&maxRelativeDifference)->default_value(0.05F),   //
      "maximum relative difference when merging adjacent phi slices");
 
   bpo::variables_map vm;
@@ -327,8 +440,8 @@ int run(int argc, char** argv)
               << opts << '\n';
     return 1;
   }
-  if (detector != "MFT" && detector != "TRKFT3") {
-    std::cerr << "error: --detector is MFT or TRKFT3" << (detector == "ITS" ? " (the ITS takes O2's CCDB MatLUT)" : "") << "\n\n"
+  if (detector != "ITS" && detector != "MFT" && detector != "TRKFT3") {
+    std::cerr << "error: --detector is ITS, MFT or TRKFT3\n\n"
               << opts << '\n';
     return 1;
   }
@@ -336,14 +449,18 @@ int run(int argc, char** argv)
 
   o2::base::GeometryManager::loadGeometry(geometryFile);
   std::span<const LUTLayer> layers;
-  std::vector<LUTLayer> trk;
+  std::vector<LUTLayer> bands;
   float radialCheck = 0.F;
-  if (detector == "MFT") {
+  if (detector == "ITS") {
+    bands = itsBands();
+    layers = bands;
+    radialCheck = bands.back().rMax;
+  } else if (detector == "MFT") {
     layers = kMftLayers;
     radialCheck = 20.F;
   } else {
-    trk = trkBands(threads);
-    layers = trk;
+    bands = trkBands(threads);
+    layers = bands;
     radialCheck = kTrkRMax;
   }
 
