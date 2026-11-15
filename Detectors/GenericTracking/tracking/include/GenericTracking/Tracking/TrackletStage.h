@@ -286,7 +286,8 @@ class TrackletStage
       between = betweenSource<Det>(mParameters->scattering, mVertices[cachedVertices[0].vertexIndex], source.point, mParameters->pairCut.logBeta2);
     }
     const MeasurementView columns = mFrame->measurements();
-    forEachQuery(source, [&](const QueryContext& query) {
+    // Every query: the body never stops the walk, so whether it did says nothing.
+    static_cast<void>(forEachQuery(source, [&](const QueryContext& query) {
       // One candidate of the query, against the vertices' second-coordinate
       // \a intervals, or nullptr when the query took the whole window.
       const auto visitTarget = [&](const SecondRange* intervals) {
@@ -315,7 +316,7 @@ class TrackletStage
         mFrame->grid().visitCandidates(query.targetLayer, query.window, runs, runCount, mTargetBlocks, visitTarget(intervals), share);
       }
       return false;
-    });
+    }));
   }
 
   /// Whether \a sourceElement has a query: `prepare` and some out-link's
