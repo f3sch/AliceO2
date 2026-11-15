@@ -51,7 +51,7 @@ GPUdi() void relativePosition(const TrackingSurface& surface, const Measurement&
 /// fitted through all \a n of its measurements.
 ///
 /// This is the outward pass's start: the fit takes its values as the point
-/// its first steps linearise about, never as information (TrackFitter.h,
+/// its first steps linearise about, never as information (KFTrackFitter.h,
 /// `startPass`), so it carries no covariance; with one measurement left out
 /// it gives each outward step its reference momentum (`PassReference`). It
 /// only has to start the pass on the right helix: a three-point seed's

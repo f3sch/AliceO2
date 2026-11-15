@@ -18,7 +18,7 @@
 ///    factored and analytic versions to;
 ///  - the joint double-precision measurement update, `testMeasurementUpdate`'s
 ///    reference for the factorised float one;
-///  - the three-point seed, `testTrackFitter`'s;
+///  - the three-point seed, `testKFTrackFitter`'s;
 ///  - the point-only triplet and neighbour overloads only the tests call
 ///    (Validation.h holds those the studies call).
 

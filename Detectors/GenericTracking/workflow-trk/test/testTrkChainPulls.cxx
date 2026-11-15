@@ -47,9 +47,9 @@
 #include "GenericTracking/WorkflowTRK/TRK.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/LayerMaterial.h"
 #include "GenericTracking/Tracking/Material.h"
-#include "GenericTracking/Tracking/TrackFitter.h"
 
 #include "CommonUtils/ConfigurableParam.h"
 #include "DetectorsBase/GeometryManager.h"

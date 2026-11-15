@@ -26,12 +26,12 @@
 #include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Base/Columns.h"
 #include "GenericTracking/Tracking/Iteration.h"
+#include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/Selection.h"
 #include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
-#include "GenericTracking/Tracking/TrackFitter.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
 #include <memlayout/wrapper.h>

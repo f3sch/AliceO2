@@ -67,7 +67,7 @@
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/SensorCells.h"
 #include "GenericTracking/Tracking/Parallel.h"
-#include "GenericTracking/Tracking/TrackFitter.h"
+#include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/TripletCut.h"
 #include "GenericTracking/Study/Validation.h"
 #include "GenericTracking/Study/MCTruth.h"
@@ -5148,7 +5148,7 @@ class CompleteAnatomy
   /// index and the step it failed at, the state the failing step started
   /// from, and with \a record each state: the seed, then each filtered one
   /// with its row and increment, the covariance written. It is the backward
-  /// loop of `detail::runPass` (`TrackFitter.h`), recording; kept in step
+  /// loop of `detail::runPass` (`KFTrackFitter.h`), recording; kept in step
   /// with it, a difference counted as a mismatch (`mInwardMismatch`).
   struct InwardStep {
     std::uint32_t row = 0U;

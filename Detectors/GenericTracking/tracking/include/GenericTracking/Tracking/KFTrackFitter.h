@@ -9,11 +9,11 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-/// \file TrackFitter.h
+/// \file KFTrackFitter.h
 /// \brief Independent outward and inward Kalman filters over a chain, each step linearised about its filtered state and the pass's reference momentum.
 
-#ifndef GTRK_TRACKING_TRACKFITTER_H_
-#define GTRK_TRACKING_TRACKFITTER_H_
+#ifndef GTRK_TRACKING_KFTRACKFITTER_H_
+#define GTRK_TRACKING_KFTRACKFITTER_H_
 
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Base/LayerLinks.h"
@@ -1180,4 +1180,4 @@ template <bool LastStepAllowance, CrossingRule Rule = CrossingRule::kFirstAhead,
 
 } // namespace o2::gtrk
 
-#endif // GTRK_TRACKING_TRACKFITTER_H_
+#endif // GTRK_TRACKING_KFTRACKFITTER_H_

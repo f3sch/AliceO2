@@ -15,10 +15,10 @@
 /// A track through a stack of discs at small angle to the beam has a short
 /// transverse arc, so its chain determines q/p poorly, and the fit takes its
 /// scattering at the pass's reference momentum, which is no better
-/// determined. testTrackFitter's pull tests
+/// determined. testKFTrackFitter's pull tests
 /// run on the barrel, where q/p is well determined; these run where it is not.
 ///
-/// The chains are generated as `BarrelChain` in testTrackFitter.cxx does:
+/// The chains are generated as `BarrelChain` in testKFTrackFitter.cxx does:
 /// a straight line from the origin picks the first disc's sensor, then the
 /// helix scatters at every sensor but the last as a thin scatterer carrying
 /// the material of the step outward of it -- the Highland theta0 of the chord
@@ -38,8 +38,8 @@
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Detectors/MFT.h"
+#include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Material.h"
-#include "GenericTracking/Tracking/TrackFitter.h"
 #include "UniformMaterial.h"
 
 #include "DetectorsBase/GeometryManager.h"
@@ -353,7 +353,7 @@ BOOST_AUTO_TEST_CASE(MftPullsWithoutMaterialAreUnit)
 }
 
 /// The MFT with scattering: the fit takes its scattering at the pass's
-/// reference momentum (TrackFitter.h, `predictStep`), the helix through the
+/// reference momentum (KFTrackFitter.h, `predictStep`), the helix through the
 /// chain outward and the outward fit's end inward, which the MFT alone
 /// determines poorly. Where a chain's reference lies above the particle's
 /// momentum its scattering is too small, and the pulls grow tails beyond

@@ -22,9 +22,9 @@
 #ifndef GTRK_STUDY_SPECIESORACLE_H_
 #define GTRK_STUDY_SPECIESORACLE_H_
 
+#include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/RoadFit.h"
-#include "GenericTracking/Tracking/TrackFitter.h"
 
 #include "CommonConstants/PhysicsConstants.h"
 

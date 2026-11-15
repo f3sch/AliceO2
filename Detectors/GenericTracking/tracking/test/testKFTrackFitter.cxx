@@ -9,11 +9,11 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-/// \file testTrackFitter.cxx
+/// \file testKFTrackFitter.cxx
 /// \brief Seeding, the whole-chain seed and bidirectional fitting.
 
 #define BOOST_TEST_DYN_LINK
-#define BOOST_TEST_MODULE Test GTRK Track Fitter
+#define BOOST_TEST_MODULE Test GTRK KF Track Fitter
 #include <boost/test/unit_test.hpp>
 #include <numbers>
 
@@ -23,8 +23,8 @@
 #include "ToyBarrel4Disc8.h"
 #include "ToyBarrel3.h"
 #include "GenericTracking/Tracking/BeamConstraint.h"
+#include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Material.h"
-#include "GenericTracking/Tracking/TrackFitter.h"
 
 #include "ReconstructionDataFormats/PID.h"
 #include "ReconstructionDataFormats/Track.h"
