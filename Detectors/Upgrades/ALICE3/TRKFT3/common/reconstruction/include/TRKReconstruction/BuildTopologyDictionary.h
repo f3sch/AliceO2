@@ -14,11 +14,17 @@
 ///
 /// Each cluster is accounted with its particle's crossing of the chip: the
 /// ends of its path through the silicon. Per layer, build first scans the
-/// depth: the local y, on a grid of depthStep, at which the residuals'
-/// widths across and along, added in quadrature, are smallest. It then cuts
-/// every crossing at that depth: a pattern with at least minCount residuals
-/// gets its own entry; a group takes the widths of its rare patterns, else of
-/// the rare patterns with the same span class on the axis, else of the layer.
+/// depth: the local y, on a grid of depthStep, at which the residuals' core
+/// widths (normalised MAD) across and along, added in quadrature, are
+/// smallest. It then cuts every crossing at that depth and keeps the
+/// residuals within two spans of the centre of gravity on both axes (farther,
+/// the crossing is not what made the cluster: another particle, a delta ray).
+/// A pattern with at least minCount of them gets its own entry; a group takes
+/// its rare patterns', else the rare patterns' with the same span class on the
+/// axis, else the layer's. An entry's offset is the residuals' median, its
+/// width their root mean square about it: the variance a fit adds, which the
+/// MAD misses both ways (a single pixel's flat residuals, a sharp core with
+/// tails).
 
 #ifndef ALICEO2_TRKFT3_BUILDTOPOLOGYDICTIONARY_H
 #define ALICEO2_TRKFT3_BUILDTOPOLOGYDICTIONARY_H
@@ -68,6 +74,8 @@ class BuildTopologyDictionary
     float dx = 0.f;       ///< end - start
     float dy = 0.f;
     float dz = 0.f;
+    float xReach = 0.f; ///< two spans across: the residuals kept
+    float zReach = 0.f; ///< along
   };
   struct LayerInput {
     std::unordered_map<std::string, uint32_t> patternIndex; ///< the pattern's bytes -> index

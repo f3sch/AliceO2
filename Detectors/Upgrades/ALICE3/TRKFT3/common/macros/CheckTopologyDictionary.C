@@ -20,10 +20,13 @@
 /// crossed it (pieces of one crossing).
 ///
 /// With training timeframes the dictionary is built from them and written to
-/// \a dictionaryFile, else read from it. On the check timeframes it prints per
-/// layer the pulls residual / width without and with the offsets (median and
-/// normalised MAD) and writes per entry the residuals' count, median and
-/// width beside the entry's (tree "entries" in \a output).
+/// \a dictionaryFile, else read from it. On the check timeframes it takes the
+/// residuals within two spans of the centre of gravity, as the builder does,
+/// prints per layer the pulls residual / width without and with the offsets
+/// (median and root mean square about it; the core, normalised MAD, beside)
+/// and the share beyond two spans, and writes per entry the residuals' count,
+/// median and root mean square beside the entry's (tree "entries" in
+/// \a output).
 ///
 ///   root -b -q 'CheckTopologyDictionary.C+("TRK", "TRKTopologyDictionary.root", {"tf7", "tf8"}, {"tf2", "tf3"})'
 
@@ -89,6 +92,20 @@ std::pair<float, float> medianAndWidth(std::vector<float>& values)
   std::vector<float> deviations(values.size());
   std::ranges::transform(values, deviations.begin(), [m](float v) { return std::abs(v - m); });
   return {m, 1.4826f * median(deviations)};
+}
+
+/// The median of \a values and their root mean square about it, which it reorders.
+std::pair<float, float> medianAndRms(std::vector<float>& values)
+{
+  if (values.empty()) {
+    return {0.f, 0.f};
+  }
+  const float m = medianAndWidth(values).first;
+  double sum = 0.;
+  for (const float v : values) {
+    sum += static_cast<double>(v - m) * static_cast<double>(v - m);
+  }
+  return {m, static_cast<float>(std::sqrt(sum / static_cast<double>(values.size())))};
 }
 
 /// The o2sim tree of \a path, held open by \a file.
@@ -260,6 +277,7 @@ void check(const std::string& dictionaryFile, const std::vector<std::string>& ti
   const int nLayers = dictionary->getNumberOfLayers();
   dictionary->setApplyOffsets(false);
   std::vector<std::map<int, std::array<std::vector<float>, 2>>> residuals(nLayers);
+  std::vector<std::array<std::size_t, 2>> beyond(nLayers, {0, 0}); // beyond two spans, of all
   for (const auto& directory : timeframes) {
     forEachCluster<DetID>(directory, [&](const auto& cluster, const auto* pattern, const auto& start, const auto& end) {
       const int layer = Dictionary::layerOf(cluster);
@@ -271,9 +289,19 @@ void check(const std::string& dictionaryFile, const std::vector<std::string>& ti
       const auto a = Dictionary::localToFlat(cluster, start), b = Dictionary::localToFlat(cluster, end);
       const float t = b.Y() != a.Y() ? (position.Y() - a.Y()) / (b.Y() - a.Y()) : -1.f;
       if (t >= 0.f && t <= 1.f) {
+        const float x = a.X() + (t * (b.X() - a.X())) - position.X(), z = a.Z() + (t * (b.Z() - a.Z())) - position.Z();
+        const bool vd = cluster.subDetID == 0;
+        const float xReach = 2.f * static_cast<float>(pattern[0]) * (vd ? o2::trk::SegmentationChip::PitchRowVD : o2::trk::SegmentationChip::PitchRowMLOT);
+        const float zReach = 2.f * static_cast<float>(pattern[1]) * (vd ? o2::trk::SegmentationChip::PitchColVD : o2::trk::SegmentationChip::PitchColMLOT);
+        // Without the offsets the position is the centre of gravity.
+        ++beyond[layer][1];
+        if (!(std::abs(x) < xReach && std::abs(z) < zReach)) {
+          ++beyond[layer][0];
+          return;
+        }
         auto& entry = residuals[layer][id];
-        entry[0].push_back(a.X() + (t * (b.X() - a.X())) - position.X());
-        entry[1].push_back(a.Z() + (t * (b.Z() - a.Z())) - position.Z());
+        entry[0].push_back(x);
+        entry[1].push_back(z);
       }
     });
   }
@@ -294,7 +322,8 @@ void check(const std::string& dictionaryFile, const std::vector<std::string>& ti
     entries->Branch(fmt::format("{}EntryOffset", a).c_str(), &tEntryOffset[axis]);
     entries->Branch(fmt::format("{}EntryWidth", a).c_str(), &tEntryWidth[axis]);
   }
-  LOGP(info, "pulls residual / width per layer, median and normalised MAD, without | with the offsets (the dictionary's: {})", applied ? "applied" : "not applied");
+  LOGP(info, "pulls residual / width per layer within two spans, median, root mean square and core (normalised MAD), without | with the offsets (the dictionary's: {})",
+       applied ? "applied" : "not applied");
   for (int layer = 0; layer < nLayers; ++layer) {
     std::array<std::vector<float>, 2> pulls, offsetPulls;
     for (auto& [id, values] : residuals[layer]) {
@@ -305,7 +334,7 @@ void check(const std::string& dictionaryFile, const std::vector<std::string>& ti
           pulls[axis].push_back(r / width[axis]);
           offsetPulls[axis].push_back((r - offset[axis]) / width[axis]);
         }
-        std::tie(tMedian[axis], tWidth[axis]) = medianAndWidth(values[axis]);
+        std::tie(tMedian[axis], tWidth[axis]) = medianAndRms(values[axis]);
         tEntryOffset[axis] = offset[axis];
         tEntryWidth[axis] = width[axis];
       }
@@ -315,12 +344,15 @@ void check(const std::string& dictionaryFile, const std::vector<std::string>& ti
       tCount = static_cast<int>(values[0].size());
       entries->Fill();
     }
-    const auto [x, xWidth] = medianAndWidth(pulls[0]);
-    const auto [z, zWidth] = medianAndWidth(pulls[1]);
-    const auto [xo, xoWidth] = medianAndWidth(offsetPulls[0]);
-    const auto [zo, zoWidth] = medianAndWidth(offsetPulls[1]);
-    LOGP(info, "  layer {:2}, {:9} residuals: across {:6.3f} {:5.3f} | {:6.3f} {:5.3f}, along {:6.3f} {:5.3f} | {:6.3f} {:5.3f}", layer, pulls[0].size(), x, xWidth, xo,
-         xoWidth, z, zWidth, zo, zoWidth);
+    const auto xoCore = medianAndWidth(offsetPulls[0]).second;
+    const auto zoCore = medianAndWidth(offsetPulls[1]).second;
+    const auto [x, xWidth] = medianAndRms(pulls[0]);
+    const auto [z, zWidth] = medianAndRms(pulls[1]);
+    const auto [xo, xoWidth] = medianAndRms(offsetPulls[0]);
+    const auto [zo, zoWidth] = medianAndRms(offsetPulls[1]);
+    LOGP(info, "  layer {:2}, {:9} residuals ({:.2f} % beyond two spans): across {:6.3f} {:5.3f} | {:6.3f} {:5.3f} (core {:5.3f}), along {:6.3f} {:5.3f} | {:6.3f} {:5.3f} (core {:5.3f})",
+         layer, pulls[0].size(), beyond[layer][1] > 0 ? 100. * static_cast<double>(beyond[layer][0]) / static_cast<double>(beyond[layer][1]) : 0., x, xWidth, xo, xoWidth, xoCore, z,
+         zWidth, zo, zoWidth, zoCore);
   }
   out->Write();
   LOGP(info, "written to {}", output);
