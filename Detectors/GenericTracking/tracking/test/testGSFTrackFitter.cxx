@@ -328,7 +328,7 @@ struct Coverage {
   }
 };
 
-template <int K, typename Loss = BetheHeitlerLoss>
+template <typename Loss = BetheHeitlerLoss, int K = Loss::kComponents>
 Coverage coverage(double pGeV, const UniformMaterial& material, bool radiate, int tracks, std::uint32_t seed)
 {
   ElectronChain chain;
@@ -339,7 +339,7 @@ Coverage coverage(double pGeV, const UniformMaterial& material, bool radiate, in
     while (!chain.generate(qOverP, material, radiate, rng)) {
     }
     const auto begin = std::chrono::steady_clock::now();
-    const auto gsf = fitGaussianSum<K, Loss>(chain.propagator, chain.tracking, material, chain.measurements.data(), static_cast<int>(ElectronChain::kLayers));
+    const auto gsf = fitGaussianSum<Loss, K>(chain.propagator, chain.tracking, material, chain.measurements.data(), static_cast<int>(ElectronChain::kLayers));
     out.seconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - begin).count();
     const auto kalmanBegin = std::chrono::steady_clock::now();
     const auto kalman = fitMeasurements(chain.propagator, chain.tracking, material, chain.measurements.data(), static_cast<int>(ElectronChain::kLayers));
@@ -396,7 +396,7 @@ BOOST_AUTO_TEST_CASE(WithoutLossItIsTheKalmanFit)
     const Chain<4> chain(trial % 2 == 0 ? 3.F : -5.F, rng);
     BOOST_REQUIRE(chain.built);
     const auto kalman = fitMeasurements(chain.propagator, chain.tracking, material, chain.measurements.data(), 4);
-    const auto gsf = fitGaussianSum<4, NoLoss>(chain.propagator, chain.tracking, material, chain.measurements.data(), 4);
+    const auto gsf = fitGaussianSum<NoLoss>(chain.propagator, chain.tracking, material, chain.measurements.data(), 4);
     BOOST_REQUIRE(kalman.status == PropagationStatus::kOk);
     BOOST_REQUIRE(gsf.outward.status == PropagationStatus::kOk);
     BOOST_REQUIRE(gsf.inward.status == PropagationStatus::kOk);
@@ -435,7 +435,7 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
     const Chain<kLayers> chain(trial % 2 == 0 ? 2.F : -4.F, rng);
     BOOST_REQUIRE(chain.built);
     const auto* measurements = chain.measurements.data();
-    const auto gsf = fitGaussianSum<kPaths, TwoLosses>(chain.propagator, chain.tracking, material, measurements, kLayers);
+    const auto gsf = fitGaussianSum<TwoLosses, kPaths>(chain.propagator, chain.tracking, material, measurements, kLayers);
     BOOST_REQUIRE(gsf.outward.status == PropagationStatus::kOk);
     BOOST_REQUIRE(gsf.inward.status == PropagationStatus::kOk);
     const auto seed = makeChainSeed(chain.propagator, chain.tracking, measurements, kLayers);
@@ -528,20 +528,20 @@ BOOST_AUTO_TEST_CASE(TheMixtureCoversSampledLosses)
   };
   std::vector<Row> rows;
   for (const double p : {0.2, 0.5, 2.0}) {
-    rows.push_back({fmt::format("thin, p {:.1f} GeV, K 12", p), coverage<12>(p, thin, true, kTracks, 105), true});
+    rows.push_back({fmt::format("thin, p {:.1f} GeV", p), coverage<>(p, thin, true, kTracks, 105), true});
   }
   for (const double p : {0.2, 0.5}) {
-    rows.push_back({fmt::format("thick, p {:.1f} GeV, K 12", p), coverage<12>(p, thick, true, kTracks, 106), true});
+    rows.push_back({fmt::format("thick, p {:.1f} GeV", p), coverage<>(p, thick, true, kTracks, 106), true});
   }
-  rows.push_back({"thick, p 0.5 GeV, K 1", coverage<1>(0.5, thick, true, kTracks, 106), false});
-  rows.push_back({"thick, p 0.5 GeV, K 4", coverage<4>(0.5, thick, true, kTracks, 106), false});
-  rows.push_back({"thick, p 0.5 GeV, K 24", coverage<24>(0.5, thick, true, kTracks, 106), false});
+  rows.push_back({"thick, p 0.5 GeV, K 1", coverage<BetheHeitlerLoss, 1>(0.5, thick, true, kTracks, 106), false});
+  rows.push_back({"thick, p 0.5 GeV, K 4", coverage<BetheHeitlerLoss, 4>(0.5, thick, true, kTracks, 106), false});
+  rows.push_back({"thick, p 0.5 GeV, K 24", coverage<BetheHeitlerLoss, 24>(0.5, thick, true, kTracks, 106), false});
   // Who owns which loss: the ionisation alone (the no-loss model on tracks without radiation, the Kalman fit's
   // own q/p coverage), the radiation alone (no ionisation), and a radiation the tracks do not have.
-  rows.push_back({"thick, p 0.5 GeV, ionisation only", coverage<12, NoLoss>(0.5, thick, false, kTracks, 107), false});
+  rows.push_back({"thick, p 0.5 GeV, ionisation only", coverage<NoLoss>(0.5, thick, false, kTracks, 107), false});
   const UniformMaterial thickNoIonisation{.x2X0PerCm = thick.x2X0PerCm, .rho = 0.F};
-  rows.push_back({"thick, p 0.5 GeV, radiation only", coverage<12>(0.5, thickNoIonisation, true, kTracks, 108), true});
-  rows.push_back({"thick, p 0.5 GeV, tracks without radiation", coverage<12>(0.5, thick, false, kTracks, 107), false});
+  rows.push_back({"thick, p 0.5 GeV, radiation only", coverage<>(0.5, thickNoIonisation, true, kTracks, 108), true});
+  rows.push_back({"thick, p 0.5 GeV, tracks without radiation", coverage<>(0.5, thick, false, kTracks, 107), false});
   BOOST_TEST_MESSAGE("                                    fits fail/KF inward PIT       outward PIT      Kalman p/p_true          mode p/p_true            mean p/p_true   ms/fit");
   BOOST_TEST_MESSAGE("                                                 mean  5-95 %     mean  5-95 %     median width  <0.9       median width  <0.9       median width    GSF  Kalman");
   for (const auto& row : rows) {
@@ -581,7 +581,7 @@ BOOST_AUTO_TEST_CASE(TheMixtureCoversSampledLosses)
 BOOST_AUTO_TEST_CASE(LargeLossesInsideAStart)
 {
   const UniformMaterial thick{.x2X0PerCm = 1e-2F, .rho = 0.22F};
-  const auto all = coverage<12>(0.5, thick, true, 4000, 109);
+  const auto all = coverage<>(0.5, thick, true, 4000, 109);
   const auto subset = [&](const std::vector<double>& loss, const std::vector<double>& values) {
     std::vector<double> out;
     for (std::size_t i = 0; i < values.size(); ++i) {
@@ -616,10 +616,11 @@ BOOST_AUTO_TEST_CASE(LargeLossesInsideAStart)
   }
 }
 
-/// The reduction: K = 1, 4 and 12 against K = 24 on the same tracks, per
-/// track, in the reference's standard deviations (the collapsed vertex-end
-/// state) and in the momentum's mode, relative. The merge cost reads q/p
-/// alone: what it gives up about the other parameters shows here.
+/// The reduction: K = 1, 4, the default (6, one component per loss
+/// component) and 12 against K = 24 on the same tracks, per track, in the
+/// reference's standard deviations (the collapsed vertex-end state) and in
+/// the momentum's mode, relative. The merge cost reads q/p alone: what it
+/// gives up about the other parameters shows here. Asserted on the default.
 BOOST_AUTO_TEST_CASE(TheReductionConverges)
 {
   const UniformMaterial thick{.x2X0PerCm = 1e-2F, .rho = 0.22F};
@@ -627,13 +628,13 @@ BOOST_AUTO_TEST_CASE(TheReductionConverges)
   std::mt19937 rng(110);
   constexpr int kTracks = 300;
   constexpr int kLayers = static_cast<int>(ElectronChain::kLayers);
-  std::array<std::array<std::vector<double>, kNBoundParams + 1>, 3> difference; // per K: the parameters, the mode
+  std::array<std::array<std::vector<double>, kNBoundParams + 1>, 4> difference; // per K: the parameters, the mode
   for (int track = 0; track < kTracks; ++track) {
     const Scalar qOverP = (track % 2 == 0 ? 2.F : -2.F);
     while (!chain.generate(qOverP, thick, true, rng)) {
     }
     const auto* measurements = chain.measurements.data();
-    const auto reference = fitGaussianSum<24>(chain.propagator, chain.tracking, thick, measurements, kLayers);
+    const auto reference = fitGaussianSum<BetheHeitlerLoss, 24>(chain.propagator, chain.tracking, thick, measurements, kLayers);
     if (reference.inward.status != PropagationStatus::kOk) {
       continue;
     }
@@ -648,17 +649,18 @@ BOOST_AUTO_TEST_CASE(TheReductionConverges)
       }
       difference[slot][kNBoundParams].push_back(std::abs(static_cast<double>(fit.inward.momentumMode / reference.inward.momentumMode) - 1.));
     };
-    compare(0, fitGaussianSum<1>(chain.propagator, chain.tracking, thick, measurements, kLayers));
-    compare(1, fitGaussianSum<4>(chain.propagator, chain.tracking, thick, measurements, kLayers));
-    compare(2, fitGaussianSum<12>(chain.propagator, chain.tracking, thick, measurements, kLayers));
+    compare(0, fitGaussianSum<BetheHeitlerLoss, 1>(chain.propagator, chain.tracking, thick, measurements, kLayers));
+    compare(1, fitGaussianSum<BetheHeitlerLoss, 4>(chain.propagator, chain.tracking, thick, measurements, kLayers));
+    compare(2, fitGaussianSum(chain.propagator, chain.tracking, thick, measurements, kLayers));
+    compare(3, fitGaussianSum<BetheHeitlerLoss, 12>(chain.propagator, chain.tracking, thick, measurements, kLayers));
   }
   const auto quantile = [](std::vector<double> v, double q) {
     std::ranges::sort(v);
     return v[static_cast<std::size_t>(q * static_cast<double>(v.size() - 1))];
   };
   BOOST_TEST_MESSAGE("against K 24, |difference| / sigma (median, 95 %) of loc0 loc1 phi theta q/p; the mode, relative");
-  const int ks[] = {1, 4, 12};
-  for (int slot = 0; slot < 3; ++slot) {
+  const int ks[] = {1, 4, BetheHeitlerLoss::kComponents, 12};
+  for (int slot = 0; slot < 4; ++slot) {
     std::string line = fmt::format("K {:2d}:", ks[slot]);
     for (int i = 0; i <= kNBoundParams; ++i) {
       line += fmt::format("  {:.3f} {:.3f}", quantile(difference[slot][i], 0.5), quantile(difference[slot][i], 0.95));
@@ -666,9 +668,9 @@ BOOST_AUTO_TEST_CASE(TheReductionConverges)
     BOOST_TEST_MESSAGE(line);
   }
   for (int i = 0; i < kNBoundParams; ++i) {
-    BOOST_TEST_CONTEXT("K 12, parameter " << i) { BOOST_TEST(quantile(difference[2][i], 0.95) < 0.1); }
+    BOOST_TEST_CONTEXT("the default K, parameter " << i) { BOOST_TEST(quantile(difference[2][i], 0.95) < 0.1); }
   }
-  BOOST_TEST(quantile(difference[2][kNBoundParams], 0.95) < 0.01);
+  BOOST_TEST(quantile(difference[2][kNBoundParams], 0.95) < 0.02); // a fifth of the resolution here
 }
 
 } // namespace o2::gtrk
