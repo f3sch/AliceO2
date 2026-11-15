@@ -131,7 +131,7 @@ GPUhdi() GPUAlwaysInline() Scalar logistic(Scalar x) { return 1.F / (1.F + o2::g
 /// (or a negative or NaN thickness).
 GPUdi() int betheHeitlerMixture(Scalar x2X0, BetheHeitlerComponent (&mixture)[kBetheHeitlerComponents])
 {
-  if (!(x2X0 >= 0.F && x2X0 <= kBetheHeitlerMaxX2X0)) {
+  if (!(x2X0 >= 0.F && x2X0 <= kBetheHeitlerMaxX2X0)) { // NOLINT(readability-simplify-boolean-expr): a NaN thickness fails both comparisons
     return 0;
   }
   if (x2X0 < detail::kBetheHeitlerNoLossX2X0) {
@@ -153,8 +153,8 @@ GPUdi() int betheHeitlerMixture(Scalar x2X0, BetheHeitlerComponent (&mixture)[kB
                   .variance = o2::gpu::GPUCommonMath::Exp(detail::betheHeitlerPolynomial(range, k, 2, x2X0))};
     sum += mixture[k].weight;
   }
-  for (int k = 0; k < kBetheHeitlerComponents; ++k) {
-    mixture[k].weight /= sum;
+  for (auto& component : mixture) {
+    component.weight /= sum;
   }
   return kBetheHeitlerComponents;
 }

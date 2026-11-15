@@ -805,11 +805,11 @@ class Vertexer
     // A candidate's and a source's reach (`claimReach`), and the farthest of
     // the frame's, which bounds the scans for them.
     const auto reachOf = [&](std::uint64_t weight) { return claimReach(weight, static_cast<Scalar>(claim), mSettings.clipNSigma); };
-    Scalar farthest = static_cast<Scalar>(claim);
+    auto farthest = static_cast<Scalar>(claim);
     for (const auto& candidate : segment) {
       farthest = std::max(farthest, reachOf(candidate.weight));
     }
-    Scalar farthestSource = static_cast<Scalar>(claim);
+    auto farthestSource = static_cast<Scalar>(claim);
     for (const auto& source : sources) {
       farthestSource = std::max(farthestSource, reachOf(source.weight));
     }

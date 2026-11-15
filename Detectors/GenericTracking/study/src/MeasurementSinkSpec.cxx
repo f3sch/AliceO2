@@ -3381,7 +3381,7 @@ class MeasurementSinkTask : public Task
         .width = static_cast<float>(kNSPerPS * static_cast<double>(vertex.widthPS)),
         .contributors = found.contributors[v],
         .fake = collision < 0,
-        .best = collision >= 0 && score.perCollision[static_cast<std::size_t>(collision)].vertex == static_cast<std::int64_t>(v),
+        .best = collision >= 0 && std::cmp_equal(score.perCollision[static_cast<std::size_t>(collision)].vertex, v),
       });
     }
     const double startNS = static_cast<double>(orbit) * o2::constants::lhc::LHCOrbitNS;

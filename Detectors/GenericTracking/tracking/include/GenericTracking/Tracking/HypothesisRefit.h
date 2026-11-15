@@ -51,7 +51,7 @@ namespace o2::gtrk
 /// one's times (q/p)^2), the estimate the mixture's posterior is skewed about.
 template <int K = BetheHeitlerLoss::kComponents>
 struct HypothesisFit {
-  o2::track::PID pid{};
+  o2::track::PID pid;
   BoundTrackState innermost{}; ///< on the innermost measurement, the inward pass's end
   BoundTrackState perigee{};   ///< on `perigeePlane`
   TrackingSurface perigeePlane{};

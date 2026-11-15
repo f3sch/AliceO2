@@ -203,7 +203,7 @@ Coverage coverage(double pGeV, const UniformMaterial& material, bool radiate, in
   std::mt19937 rng(seed);
   Coverage out;
   for (int track = 0; track < tracks; ++track) {
-    const Scalar qOverP = static_cast<Scalar>((track % 2 == 0 ? 1. : -1.) / pGeV);
+    const auto qOverP = static_cast<Scalar>((track % 2 == 0 ? 1. : -1.) / pGeV);
     while (!chain.generate(qOverP, material, radiate, rng)) {
     }
     const auto begin = std::chrono::steady_clock::now();
@@ -466,7 +466,7 @@ BOOST_AUTO_TEST_CASE(LargeLossesInsideAStart)
   BOOST_TEST_MESSAGE("                       tracks  inward PIT      outward PIT     vertex end p/p_true: Kalman / GSF mode       last plane p/p_true: Kalman / GSF mode");
   BOOST_TEST_MESSAGE("                               mean 5-95 %     mean 5-95 %     median width >10 % off                       median width >10 % off");
   for (const auto& [label, loss] : {std::pair<const char*, const std::vector<double>*>{"all", nullptr}, {"lost > 20 % in rows 0-2", &all.innerLoss}, {"lost > 20 % in rows 5-7", &all.outerLoss}}) {
-    const auto pick = [&](const std::vector<double>& values) { return loss == nullptr ? values : subset(*loss, values); };
+    const auto pick = [&, selected = loss](const std::vector<double>& values) { return selected == nullptr ? values : subset(*selected, values); };
     const auto pit = pick(all.pit);
     const auto outwardPit = pick(all.outwardPit);
     const auto kalman = pick(all.kalmanRatio);
