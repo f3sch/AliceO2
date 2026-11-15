@@ -91,7 +91,7 @@ struct RecoSettings {
   /// The rest are the vertexer's knobs (VertexStage.h, VertexerSettings).
   bool vertexer = false;
   double vertexerMinPtGeV = 0.5;
-  double vertexerMaxChi2RZ = 5.;   ///< a triplet's r-z line chi2 cut, 0 for none
+  double vertexerMaxChi2RZ = 5.;   ///< a triplet's r-z kink chi2 cut, with its scattering at its own momentum; 0 for none
   double vertexerMaxDcaCM = 0.02;  ///< its circle's transverse distance to the beam axis [cm], 0 for none
   int vertexerWindowUM = 150;      ///< a peak's window [um]
   int vertexerClaimUM = 2000;      ///< the half-width a vertex claims around its peak [um]

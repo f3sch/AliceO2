@@ -62,6 +62,11 @@ class VertexingPass
   {
   }
 
+  /// Called with each slice's pass output, its triplets, before the vertexer
+  /// takes them -- as the tracker's slice observer, without roads (the bench's
+  /// vertex study).
+  void setSliceObserver(typename Pass::SliceObserver observer) { mSliceObserver = std::move(observer); }
+
   /// The pass's memory back to the pool, after the caller has read `find`'s
   /// result.
   void endTimeframe() noexcept { mPass.endTimeframe(); }
@@ -95,6 +100,9 @@ class VertexingPass
       if (result.status != StageStatus::kComplete) {
         return result;
       }
+      if (mSliceObserver) {
+        mSliceObserver(mPass, {.iteration = 0U, .frame = &frame, .slice = &planned.slice, .result = &slice});
+      }
       const auto tracklets = slice.tracklets->view();
       const auto triplets = slice.triplets->view();
       const auto found = mVertexer.find(frame.measurements(), tracklets, triplets, slice.triplets->size(), &mPass.arena(), keepClaims, errors, mMemoryPool.get(), ownedFrames(frame.grid().geometry(), planned.slice.coreBlocks));
@@ -112,6 +120,7 @@ class VertexingPass
  private:
   Pass mPass;
   Vertexer mVertexer;
+  typename Pass::SliceObserver mSliceObserver;
   std::shared_ptr<BoundedMemoryResource> mMemoryPool; ///< the pass's, for the vertexer's work arrays
 };
 

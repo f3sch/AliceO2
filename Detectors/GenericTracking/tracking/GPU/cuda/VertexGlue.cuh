@@ -27,7 +27,7 @@
 ///       the whole 64-bit excess; the centre from the scans; the claims, their
 ///       z's sums and the box by integer atomics, one set per frame and round;
 ///       then the round's vertices own the measurements of their frames'
-///       triplets within the claim -- the cut ones too -- and the free
+///       triplets within their reach -- the cut ones too -- and the free
 ///       candidates with an owned one are dropped, each
 ///       measurement a slot per frame, (frame << 32) | row, sorted and unique;
 ///       with `aloneMinContributors` the lower minimum, a second sweep at it
@@ -338,8 +338,10 @@ struct SourceColumns {
   const std::uint64_t* sortedKeys = nullptr;
   const Index* frameBegin = nullptr;
   Index frames = 0U;
+  const std::uint64_t* weights = nullptr;
   Index* sourceSlots = nullptr;
   long long* sourceZ = nullptr;
+  std::uint64_t* sourceWeight = nullptr;
   Index* sourceFrame = nullptr;
   GPUdi() void operator()(Index source) const
   {
@@ -347,6 +349,7 @@ struct SourceColumns {
     const std::uint64_t key = sourceKeys[triplet];
     slotsOf(key, triplet, sourceSlots + (3U * source));
     sourceZ[source] = vertexKeyZUM(key);
+    sourceWeight[source] = weights[triplet];
     const std::int64_t frame = vertexKeyFrame(key);
     const Index f = o2::gpu::CAAlgo::partitionPoint(Index{0}, frames, [&](Index g) { return vertexKeyFrame(sortedKeys[frameBegin[g]]) < frame; });
     sourceFrame[source] = f < frames && vertexKeyFrame(sortedKeys[frameBegin[f]]) == frame ? f : kNoIndex;
@@ -493,12 +496,14 @@ struct Centre {
   }
 };
 
-/// Each free candidate of a frame with a peak, within the claim of its
-/// centre: claimed for the round's vertex, counted, its box taken.
+/// Each free candidate of a frame with a peak, within its reach of the
+/// centre (`claimReach`): claimed for the round's vertex, counted, its box
+/// taken.
 struct Claim {
   Candidates candidates;
   std::int32_t* claims = nullptr;
   float claim = 0.F;
+  float nSigma = 0.F;
   std::int32_t vertexBase = 0; ///< the round's first vertex number: round * frames
   Round round;
   GPUdi() void operator()(Index i) const
@@ -510,7 +515,7 @@ struct Claim {
     if (round.bestIndex[f] == kNoIndex) {
       return;
     }
-    if (!withinZ(candidates.z[i], round.centre[f], claim)) {
+    if (!withinZ(candidates.z[i], round.centre[f], claimReach(candidates.weight[i], claim, nSigma))) {
       return;
     }
     claims[i] = vertexBase + static_cast<std::int32_t>(f);
@@ -520,19 +525,21 @@ struct Claim {
   }
 };
 
-/// Each source of a frame with a vertex this round, within its claim: its
-/// measurements owned.
+/// Each source of a frame with a vertex this round, within its reach of the
+/// centre: its measurements owned.
 struct Own {
   const Index* sourceSlots = nullptr;
   const long long* sourceZ = nullptr;
+  const std::uint64_t* sourceWeight = nullptr;
   const Index* sourceFrame = nullptr;
   std::uint8_t* ownedSlots = nullptr;
   float claim = 0.F;
+  float nSigma = 0.F;
   Round round;
   GPUdi() void operator()(Index source) const
   {
     const Index f = sourceFrame[source];
-    if (f == kNoIndex || round.bestIndex[f] == kNoIndex || !withinZ(sourceZ[source], round.centre[f], claim)) {
+    if (f == kNoIndex || round.bestIndex[f] == kNoIndex || !withinZ(sourceZ[source], round.centre[f], claimReach(sourceWeight[source], claim, nSigma))) {
       return;
     }
     for (Index k = 0; k < 3U; ++k) {
@@ -865,9 +872,10 @@ template <DetectorLayout Det>
   DeviceSpan<std::uint8_t> ownedSlots;
   DeviceSpan<Index> sourceSlots;
   DeviceSpan<long long> sourceZ;
+  DeviceSpan<std::uint64_t> sourceWeight;
   DeviceSpan<Index> sourceFrame;
   DeviceSpan<Index> candidateSlots;
-  if (!uniqueSlots.allocate(arena, slotCount) || !ownedSlots.allocate(arena, slotCount) || !sourceSlots.allocate(arena, slotEntries) || !sourceZ.allocate(arena, sourceCount) || !sourceFrame.allocate(arena, sourceCount) || !candidateSlots.allocate(arena, 3U * count)) {
+  if (!uniqueSlots.allocate(arena, slotCount) || !ownedSlots.allocate(arena, slotCount) || !sourceSlots.allocate(arena, slotEntries) || !sourceZ.allocate(arena, sourceCount) || !sourceWeight.allocate(arena, sourceCount) || !sourceFrame.allocate(arena, sourceCount) || !candidateSlots.allocate(arena, 3U * count)) {
     return StageStatus::kOutOfMemory;
   }
   algorithms::forEach(runtime, stream, slotCount, GatherSlots{std::as_const(slotStarts).data(), std::as_const(sortedSlotKeys).data(), uniqueSlots.data()});
@@ -881,8 +889,10 @@ template <DetectorLayout Det>
                         .sortedKeys = std::as_const(sortedKeys).data(),
                         .frameBegin = std::as_const(frameBegin).data(),
                         .frames = frames,
+                        .weights = std::as_const(weights).data(),
                         .sourceSlots = sourceSlots.data(),
                         .sourceZ = sourceZ.data(),
+                        .sourceWeight = sourceWeight.data(),
                         .sourceFrame = sourceFrame.data(),
                       });
   algorithms::forEach(runtime, stream, count,
@@ -949,6 +959,7 @@ template <DetectorLayout Det>
                             .candidates = candidates,
                             .claims = claims.data(),
                             .claim = static_cast<float>(claim),
+                            .nSigma = settings.clipNSigma,
                             .vertexBase = static_cast<std::int32_t>((rounds.size() - 1U) * frames),
                             .round = roundView,
                           });
@@ -956,9 +967,11 @@ template <DetectorLayout Det>
                           Own{
                             .sourceSlots = std::as_const(sourceSlots).data(),
                             .sourceZ = std::as_const(sourceZ).data(),
+                            .sourceWeight = std::as_const(sourceWeight).data(),
                             .sourceFrame = std::as_const(sourceFrame).data(),
                             .ownedSlots = ownedSlots.data(),
                             .claim = static_cast<float>(claim),
+                            .nSigma = settings.clipNSigma,
                             .round = roundView,
                           });
       algorithms::forEach(runtime, stream, count, DropOwned{std::as_const(candidateSlots).data(), std::as_const(ownedSlots).data(), claims.data()});

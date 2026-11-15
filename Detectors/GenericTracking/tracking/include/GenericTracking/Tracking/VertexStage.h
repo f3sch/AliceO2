@@ -18,10 +18,11 @@
 /// The vertexing pass is an iteration at the beam line whose links stay
 /// within the innermost layers (`IterationSettings::layerMask`); it stops at
 /// its triplets. Each triplet becomes a candidate: the z at the beam
-/// line of the straight line through its points in r-z, if that line's chi2
-/// and the transverse distance of the circle through its points to the beam
-/// axis pass their cuts. The candidates are made cluster-disjoint:
-/// greedily by their r-z chi2, the lower
+/// line of the straight line through its points in r-z, if the kink of its
+/// dip angle at the middle point -- over the points' z errors and the
+/// scattering at the triplet's own momentum -- and the transverse distance of
+/// the circle through its points to the beam axis pass their cuts. The
+/// candidates are made cluster-disjoint: greedily by their r-z chi2, the lower
 /// triplet first on ties, a candidate is kept only if none of its clusters
 /// is already kept's -- one measurement counts once, so a particle's second
 /// triplet where sensors overlap, and the many triplets one fake tracklet
@@ -32,9 +33,11 @@
 /// the claim's reach on both sides, wins if it holds `minContributors` (a
 /// frame where none does: `aloneMinContributors`, its rounds rerun) and
 /// stands out of the sidebands by `significance` of their Poisson spread;
-/// it claims every free candidate within the claim of its centre, and its z
-/// is their mean. A found vertex owns the measurements of every triplet of
-/// its frame within the claim of its centre -- those the cuts rejected too --
+/// it claims every free candidate within its reach of its centre -- the
+/// claim, or the candidate's own z0 error where that is wider (`claimReach`)
+/// -- and its z is their mean. A found vertex owns the measurements of every
+/// triplet of its frame within that triplet's reach of its centre -- those
+/// the cuts rejected too --
 /// and the frame's later rounds drop the free candidates with an owned
 /// measurement before they count anything: a dense
 /// collision's measurements, recombined into triplets of several of its
@@ -58,6 +61,7 @@
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/PairCut.h"
+#include "GenericTracking/Tracking/TripletFit.h"
 
 #ifndef GPUCA_GPUCODE_DEVICE
 #include "GenericTracking/Base/BoundedAllocator.h"
@@ -79,14 +83,18 @@ namespace o2::gtrk
 
 /// The vertexer's knobs.
 struct VertexerSettings {
-  /// The r-z straight line's chi2 on the points' z errors (1 dof) above
-  /// which a triplet is no candidate; 0 for no cut.
+  /// The chi2 (1 dof) of a triplet's dip-angle kink at its middle point --
+  /// on the points' z errors and the scattering at the triplet's own
+  /// momentum (`vertexCandidate`) -- above which it is no candidate; 0 for
+  /// no cut.
   Scalar maxChi2RZ = 5.F;
   /// The transverse distance of the circle through a triplet's points to
   /// the beam axis above which it is no candidate [cm]; 0 for no cut.
   Scalar maxDcaCM = 0.02F;
-  std::int32_t windowUM = 150;       ///< w: a peak's window [um]
-  std::int32_t claimUM = 2000;       ///< the half-width around a peak's centre its vertex claims [um]
+  std::int32_t windowUM = 150; ///< w: a peak's window [um]
+  /// The half-width around a peak's centre its vertex claims [um], for a
+  /// candidate whose own z0 error does not reach farther (`claimReach`).
+  std::int32_t claimUM = 2000;
   std::uint32_t minContributors = 4; ///< the least candidates a peak's window must hold
   /// The least candidates a peak's window must hold in a frame whose rounds
   /// at `minContributors` found no vertex: such a frame runs its rounds again
@@ -98,7 +106,8 @@ struct VertexerSettings {
   /// A vertex's z and its error from its claimed candidates within this many
   /// of their own and the mean's errors of their weighted mean, grown from the
   /// core within the window: its own tails
-  /// in, a neighbouring collision's candidates in the claim out. The run's
+  /// in, a neighbouring collision's candidates in the claim out. Also the
+  /// candidates' own errors a vertex's reach takes (`claimReach`). The run's
   /// `windowNSigma`.
   Scalar clipNSigma = 3.F;
 };
@@ -108,7 +117,7 @@ struct VertexerSettings {
 inline constexpr std::int64_t kVertexZOffsetUM = std::int64_t{1} << 31U;
 
 /// What the map measures of one triplet: its sort key (accepted ones), its
-/// r-z line's chi2 -- the deduplication's order -- and z at the beam line
+/// r-z kink's chi2 -- the deduplication's order -- and z at the beam line
 /// [cm], that z's variance from the points' z errors alone, the weighted
 /// least squares' intercept [cm^2], and its circle's radius [cm], infinite
 /// (1e30) for a straight line: the error model's momentum.
@@ -137,10 +146,16 @@ struct BeamTerm {
 /// offset), into \a key unless degenerate -- the candidates of one readout frame
 /// share the frame's start -- with what else it
 /// measures (`VertexCandidateFit`) into \a fit.
-/// \a term, if given, receives the triplet's BeamTerm whenever its circle
-/// is computed, before the transverse cut decides: a beam line off by more
+/// The r-z test is the kink of the dip angle at the middle point, each chord
+/// with its own derivative, over its variance from the points' z errors and
+/// the scattering between the outer points at the triplet's own momentum
+/// (\a errors' `kinkScattering`): a soft particle's triplet bends by its
+/// scattering, which the points' errors alone do not allow.
+/// \a term, if given, receives the triplet's BeamTerm whenever it passes the
+/// r-z test, before the transverse cut decides: a beam line off by more
 /// than the cut still needs every triplet's say.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() VertexCandidateStatus vertexCandidate(const PairPoint& a, const PairPoint& b, const PairPoint& c, std::uint32_t middlePS, const VertexerSettings& settings, VertexCandidateFit& fit, BeamTerm* term = nullptr)
+template <typename Errors>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() VertexCandidateStatus vertexCandidate(const PairPoint& a, const PairPoint& b, const PairPoint& c, std::uint32_t middlePS, const VertexerSettings& settings, const Errors& errors, VertexCandidateFit& fit, BeamTerm* term = nullptr)
 {
   using o2::gpu::GPUCommonMath;
   const PairPoint points[3] = {a, b, c};
@@ -165,7 +180,9 @@ struct BeamTerm {
     srr += weights[i] * dr * dr;
     srz += weights[i] * dr * (points[i].z - zMean);
   }
-  if (!(srr > 0.F)) {
+  const Scalar d1 = b.r - a.r;
+  const Scalar d2 = c.r - b.r;
+  if (!(srr > 0.F) || !(d1 > 0.F) || !(d2 > 0.F)) {
     return VertexCandidateStatus::kDegenerate;
   }
   fit.varZ0Line = (1.F / sw) + (rMean * rMean / srr);
@@ -182,16 +199,7 @@ struct BeamTerm {
     return VertexCandidateStatus::kDegenerate;
   }
   fit.key = (static_cast<std::uint64_t>(middlePS) << 32U) | static_cast<std::uint64_t>(zKey);
-  Scalar chi2 = 0.F;
-  for (int i = 0; i < 3; ++i) {
-    const Scalar residual = points[i].z - zMean - (slope * (points[i].r - rMean));
-    chi2 += weights[i] * residual * residual;
-  }
-  fit.chi2RZ = chi2;
   fit.z0 = z0;
-  if (settings.maxChi2RZ > 0.F && chi2 > settings.maxChi2RZ) {
-    return VertexCandidateStatus::kChi2RZ;
-  }
   {
     // The circle through the three points in x-y, about the middle one: A and
     // C the outer points from it, U the centre from it; a straight line when
@@ -230,6 +238,20 @@ struct BeamTerm {
       // A line's signed distance from a point p is d - (p x t): along (t_y, -t_x).
       nx = length > 0.F ? dy / length : 0.F;
       ny = length > 0.F ? -dx / length : 0.F;
+    }
+    // The dip angles' difference atan(t2) - atan(t1) and its derivatives
+    // 1 / (1 + t^2) along each chord.
+    const Scalar t1 = (b.z - a.z) / d1;
+    const Scalar t2 = (c.z - b.z) / d2;
+    const Scalar kink = GPUCommonMath::ATan2(t2 - t1, 1.F + (t1 * t2));
+    const Scalar a1 = 1.F / (1.F + (t1 * t1));
+    const Scalar a2 = 1.F / (1.F + (t2 * t2));
+    const Scalar middle = (a1 / d1) + (a2 / d2);
+    const Scalar varPoints = (a1 * a1 * a.varZ / (d1 * d1)) + (middle * middle * b.varZ) + (a2 * a2 * c.varZ / (d2 * d2));
+    const Scalar variance = varPoints + errors.kinkScattering(a, b, c, fit.radius);
+    fit.chi2RZ = kink * kink / (variance > 1.e-30F ? variance : 1.e-30F);
+    if (settings.maxChi2RZ > 0.F && fit.chi2RZ > settings.maxChi2RZ) {
+      return VertexCandidateStatus::kChi2RZ;
     }
     if (term != nullptr) {
       term->nx = nx;
@@ -305,6 +327,29 @@ struct ScatteringErrors {
     const Scalar atFloor = sourceScattering<Det>(*table, own, from, LayerID{0}, a);
     return fit.varZ0Line + (atFloor * scale * (1.F + (slope * slope))) + (slope * slope * varTransverse);
   }
+
+  /// The variance of the dip-angle kink at the middle point \a b of the
+  /// triplet \a a, \a b, \a c from its scattering (`tripletScattering`: the
+  /// middle point's layer and the passives between the outer points) at the
+  /// triplet's own momentum: pT = |B2C Bz| \a radius, the pass floor's
+  /// 1 / (beta pT)^2 scaled to the triplet's and the Highland logarithm at
+  /// its own beta; none for a straight line; without a field the floor's.
+  /// \a b is taken on layer 1, as `operator()` takes \a a on layer 0.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar kinkScattering(const PairPoint& a, const PairPoint& b, const PairPoint& c, Scalar radius) const
+  {
+    PairCut own = cut;
+    if (cut.momentumCurvature > 0.F && cut.invBetaMomentum2 > 0.F) {
+      if (!(radius < 1.e29F)) {
+        return 0.F;
+      }
+      const Scalar pt = cut.momentumCurvature * radius;
+      const Scalar slope = (c.z - a.z) / (c.r - a.r);
+      const Scalar momentum2 = pt * pt * (1.F + (slope * slope));
+      own.invBetaMomentum2 = (1.F + (cut.mass2 / (pt * pt))) / (pt * pt);
+      own.logBeta2 = logOf(momentum2 / (momentum2 + cut.mass2));
+    }
+    return tripletScattering<Det>(*table, own, LayerID{1}, a, b, c, detail::referenceSinTheta(a, c));
+  }
 };
 
 /// A candidate's weight in its vertex's mean: 2^32 / its z0 variance in um^2,
@@ -334,6 +379,18 @@ inline constexpr Scalar kVertexWeightScale = 4294967296.F;
   const auto zf = static_cast<Scalar>(z);
   const Scalar distance = zf > centre ? zf - centre : centre - zf;
   return distance <= halfWidth;
+}
+
+/// The half-width [um] about a vertex's centre within which it claims a
+/// candidate of \a weight (`candidateWeight`), or owns a triplet's
+/// measurements: the fixed \a claim, or \a nSigma of the candidate's own z0
+/// error where that reaches farther. A claim narrow enough to keep two
+/// collisions apart is narrower than a soft particle's candidates spread by
+/// their scattering; these still go to their collision's vertex.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar claimReach(std::uint64_t weight, Scalar claim, Scalar nSigma)
+{
+  const Scalar own = nSigma * o2::gpu::GPUCommonMath::Sqrt(kVertexWeightScale / static_cast<Scalar>(weight > 0U ? weight : 1U));
+  return own > claim ? own : claim;
 }
 
 /// The weighted mean [um] of a vertex's selected candidates and its variance
@@ -439,7 +496,7 @@ GPUhdi() GPUAlwaysInline() VertexCandidateStatus measureCandidate(const Measurem
   const auto pa = pairPointAt(measurements, rows[0]);
   const auto pb = pairPointAt(measurements, rows[1]);
   const auto pc = pairPointAt(measurements, rows[2]);
-  const auto status = vertexCandidate(pa, pb, pc, measurements.timePS[rows[1]], settings, fit, term);
+  const auto status = vertexCandidate(pa, pb, pc, measurements.timePS[rows[1]], settings, errors, fit, term);
   weight = candidateWeight(errors(pa, fit));
   box = timeBoxAt(measurements, rows[0]);
   box += timeBoxAt(measurements, rows[1]);
@@ -608,7 +665,7 @@ class Vertexer
     BoundedVector<Source> sources(resource);
     for (std::size_t t = 0; t < tripletCount; ++t) {
       if (status[t] != VertexCandidateStatus::kDegenerate && owned.owns(vertexKeyFrame(keys[t]))) {
-        sources.push_back({.key = keys[t], .triplet = static_cast<std::uint32_t>(t)});
+        sources.push_back({.key = keys[t], .triplet = static_cast<std::uint32_t>(t), .weight = weights[t]});
       }
     }
     std::ranges::stable_sort(sources, {}, &Source::key);
@@ -716,6 +773,7 @@ class Vertexer
   struct Source {
     std::uint64_t key = 0U;
     std::uint32_t triplet = 0U;
+    std::uint64_t weight = 0U; ///< its z0 error's (`candidateWeight`), for its reach
     std::array<std::uint32_t, 3> slots{};
   };
 
@@ -727,7 +785,7 @@ class Vertexer
   /// The rounds of one frame's \a segment, sorted by z, claiming into
   /// \a claims (kClaimFree, kClaimDropped, else the vertex's index in \a found);
   /// \a found sorted by z at the end. After each vertex, the measurements of
-  /// the frame's \a sources (sorted by z) within its claim become owned in
+  /// the frame's \a sources (sorted by z) within their reach become owned in
   /// \a ownedSlots, and the free candidates with an owned one are dropped.
   /// A frame whose rounds find no vertex runs them again at
   /// `aloneMinContributors` when that is the lower minimum; nothing was
@@ -744,6 +802,17 @@ class Vertexer
     const auto at = [&](std::int64_t value) { return static_cast<std::size_t>(std::ranges::lower_bound(z, value) - z.begin()); };
     const std::int64_t window = mSettings.windowUM;
     const std::int64_t claim = mSettings.claimUM;
+    // A candidate's and a source's reach (`claimReach`), and the farthest of
+    // the frame's, which bounds the scans for them.
+    const auto reachOf = [&](std::uint64_t weight) { return claimReach(weight, static_cast<Scalar>(claim), mSettings.clipNSigma); };
+    Scalar farthest = static_cast<Scalar>(claim);
+    for (const auto& candidate : segment) {
+      farthest = std::max(farthest, reachOf(candidate.weight));
+    }
+    Scalar farthestSource = static_cast<Scalar>(claim);
+    for (const auto& source : sources) {
+      farthestSource = std::max(farthestSource, reachOf(source.weight));
+    }
     // The test (2W - S)^2 >= 2 k^2 S, with W the window's count and S the
     // two sidebands': the excess over the sidebands' mean against k times its
     // root, squared.
@@ -786,15 +855,15 @@ class Vertexer
       }
       const auto members = static_cast<std::int64_t>(count[windowEnd] - count[best]);
       const Scalar centre = static_cast<Scalar>(sum) / static_cast<Scalar>(members);
-      // Claim within the claim's reach.
+      // Claim each free candidate within its reach.
       const auto id = static_cast<std::int32_t>(found.size());
       Found vertex;
       BoundedVector<std::int64_t> claimed(resource);
       BoundedVector<std::uint64_t> claimedWeight(resource);
       std::uint32_t earliest = std::numeric_limits<std::uint32_t>::max();
       std::uint32_t latest = 0U;
-      for (auto i = at(static_cast<std::int64_t>(centre) - claim - 1); i < n && static_cast<Scalar>(z[i]) <= centre + static_cast<Scalar>(claim); ++i) {
-        if (claims[i] != kClaimFree || !withinZ(z[i], centre, static_cast<Scalar>(claim))) {
+      for (auto i = at(static_cast<std::int64_t>(centre - farthest) - 1); i < n && static_cast<Scalar>(z[i]) <= centre + farthest; ++i) {
+        if (claims[i] != kClaimFree || !withinZ(z[i], centre, reachOf(segment[i].weight))) {
           continue;
         }
         claims[i] = id;
@@ -842,12 +911,11 @@ class Vertexer
       vertex.seed = vertexSeedOf({.weightSum = weightSum, .weightedZSum = weightedZSum, .scatterSum = scatterSum, .count = selectedCount, .earliestPS = earliest, .latestPS = latest}, mBeamSpot);
       found.push_back(vertex);
       // The vertex owns the measurements of the frame's triplets within
-      // its claim; the free candidates with an owned one are dropped before
+      // their reach; the free candidates with an owned one are dropped before
       // the next round counts.
       const auto sourceZ = [](const Source& source) { return vertexKeyZUM(source.key); };
-      const auto reach = static_cast<std::int64_t>(centre);
-      for (auto it = std::ranges::lower_bound(sources, reach - claim - 1, {}, sourceZ); it != sources.end() && sourceZ(*it) <= reach + claim + 1; ++it) {
-        if (withinZ(sourceZ(*it), centre, static_cast<Scalar>(claim))) {
+      for (auto it = std::ranges::lower_bound(sources, static_cast<std::int64_t>(centre - farthestSource) - 1, {}, sourceZ); it != sources.end() && static_cast<Scalar>(sourceZ(*it)) <= centre + farthestSource; ++it) {
+        if (withinZ(sourceZ(*it), centre, reachOf(it->weight))) {
           for (const auto slot : it->slots) {
             ownedSlots[slot] = 1U;
           }
