@@ -244,6 +244,10 @@ struct QATrack {
   std::uint8_t iteration = 0U;
   bool fake = false;
   bool clone = false;
+  /// Its measurements that do not carry the particle most of them carry
+  /// (`majorityParticle`): 0 on a good track, all of them on noise only.
+  std::uint8_t wrongClusters = 0U;
+  bool complete = false; ///< a good track and `completeTrack`
   float chi2 = 0.F; ///< the fit's; TMath::Prob(chi2, ndf) is its probability
   std::int32_t ndf = 0;
   bool fitValid = true;
@@ -273,6 +277,7 @@ struct QAResolution {
   std::uint8_t iteration = 0U;
   std::uint8_t kinks = 0U;
   std::uint8_t clusters = 0U;
+  bool complete = false; ///< `completeTrack`
   std::uint8_t layer = 0U;         ///< the innermost measurement's, where the state is
   std::array<float, 5> residual{}; ///< loc0, loc1, phi, theta, q/p
   std::array<float, 5> sigma{};
@@ -378,6 +383,10 @@ void stream(o2::utils::TreeStreamRedirector& output, const TrackingQA& qa);
 /// Write the same track schema for a comparison tracker, without duplicating
 /// the generated-particle tree. Truth and clone rules are those of trackingQA().
 void streamTracks(o2::utils::TreeStreamRedirector& output, std::span<const QATrack> tracks, const char* tree = "tracks");
+
+/// Whether \a track has a measurement on every layer its particle, whose
+/// layers are \a particle, has one on (TrackBreakdown's complete).
+[[nodiscard]] bool completeTrack(std::span<const TruthRow> rows, std::span<const std::uint32_t> track, const ParticleLayers& particle);
 
 /// \a entries into \a output's `resolution` tree.
 void streamResolution(o2::utils::TreeStreamRedirector& output, std::span<const QAResolution> entries);

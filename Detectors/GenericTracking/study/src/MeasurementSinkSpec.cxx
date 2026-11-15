@@ -3338,6 +3338,7 @@ class MeasurementSinkTask : public Task
     std::vector<QAResolution> resolution;
     std::vector<QAOracle> oracle;
     const Propagator propagator = mInterface.propagator();
+    const auto particleChains = particleLayers(rows, comparisonSettings<Det>());
     for (std::size_t track = 0; track < tracks.size(); ++track) {
       const auto& state = view.state[track];
       const auto theta = static_cast<double>(state.theta());
@@ -3384,6 +3385,7 @@ class MeasurementSinkTask : public Task
       if (mSpeciesOracle) {
         speciesOracle(frame, view, track, particle, *innermost, propagator, entry, oracle);
       }
+      entry.complete = completeTrack(rows, ours[track], particleChains.at(particle));
       resolution.push_back(entry);
     }
     // Each particle's decay geometry and the funnel's verdict,

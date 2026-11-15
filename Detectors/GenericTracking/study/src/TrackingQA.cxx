@@ -208,6 +208,7 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
   }
   std::ranges::stable_sort(order, {}, [&](std::size_t track) { return kinematics[track].iteration; });
   std::unordered_map<std::uint64_t, std::uint64_t> foundBy;
+  const auto chains = particleLayers(rows, settings);
   qa.tracks.resize(tracks.size());
   for (const auto track : order) {
     const auto& k = kinematics[track];
@@ -219,6 +220,7 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
       .phi = wrapPhi(static_cast<double>(k.phi)),
       .iteration = k.iteration,
       .fake = particle == kNoTrackParticle,
+      .wrongClusters = particle == kNoTrackParticle ? static_cast<std::uint8_t>(tracks[track].size() - majorityParticle(rows, tracks[track]).carried) : std::uint8_t{0U},
       .chi2 = k.chi2,
       .ndf = k.ndf,
       .fitValid = k.fitValid,
@@ -228,6 +230,7 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
       record.layerMask |= std::uint64_t{1} << rows[row].layer;
     }
     if (!record.fake) {
+      record.complete = completeTrack(rows, tracks[track], chains.at(particle));
       if (const auto extra = extras.find(particle); extra != extras.end()) {
         record.expectedLayerMask = extra->second.expectedLayerMask;
       }
@@ -256,7 +259,7 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
   }
 
   // The findable, by either rule.
-  for (const auto& [id, layers] : particleLayers(rows, settings)) {
+  for (const auto& [id, layers] : chains) {
     const auto found = truth.find(id);
     if (found == truth.end()) {
       continue;
@@ -301,14 +304,23 @@ void stream(o2::utils::TreeStreamRedirector& output, const TrackingQA& qa)
 void streamTracks(o2::utils::TreeStreamRedirector& output, std::span<const QATrack> tracks, const char* tree)
 {
   for (const auto& t : tracks) {
-    output << tree << "pt=" << t.pt << "eta=" << t.eta << "phi=" << t.phi << "iteration=" << t.iteration << "fake=" << t.fake << "clone=" << t.clone << "chi2=" << t.chi2 << "ndf=" << t.ndf << "expectedLayerMask=" << t.expectedLayerMask << "layerMask=" << t.layerMask << "fitValid=" << t.fitValid << "mcParticle=" << t.mcParticle << "ptGen=" << t.ptGen << "etaGen=" << t.etaGen << "origin=" << t.origin << "dInvPtRel=" << t.invPtResidual << "\n";
+    output << tree << "pt=" << t.pt << "eta=" << t.eta << "phi=" << t.phi << "iteration=" << t.iteration << "fake=" << t.fake << "clone=" << t.clone << "wrongClusters=" << t.wrongClusters << "complete=" << t.complete << "chi2=" << t.chi2 << "ndf=" << t.ndf << "expectedLayerMask=" << t.expectedLayerMask << "layerMask=" << t.layerMask << "fitValid=" << t.fitValid << "mcParticle=" << t.mcParticle << "ptGen=" << t.ptGen << "etaGen=" << t.etaGen << "origin=" << t.origin << "dInvPtRel=" << t.invPtResidual << "\n";
   }
+}
+
+bool completeTrack(std::span<const TruthRow> rows, std::span<const std::uint32_t> track, const ParticleLayers& particle)
+{
+  std::uint64_t layers = 0U;
+  for (const auto row : track) {
+    layers |= std::uint64_t{1} << rows[row].layer;
+  }
+  return (particle.layers & ~layers) == 0U;
 }
 
 void streamResolution(o2::utils::TreeStreamRedirector& output, std::span<const QAResolution> entries)
 {
   for (const auto& r : entries) {
-    output << "resolution" << "pt=" << r.pt << "eta=" << r.eta << "phi=" << r.phi << "charge=" << r.charge << "pdg=" << r.pdg << "origin=" << r.origin << "iteration=" << r.iteration << "kinks=" << r.kinks << "clusters=" << r.clusters << "layer=" << r.layer << "dLoc0=" << r.residual[0] << "dLoc1=" << r.residual[1] << "dPhi=" << r.residual[2] << "dTheta=" << r.residual[3] << "dQOverP=" << r.residual[4] << "sLoc0=" << r.sigma[0] << "sLoc1=" << r.sigma[1] << "sPhi=" << r.sigma[2] << "sTheta=" << r.sigma[3] << "sQOverP=" << r.sigma[4] << "fitPt=" << r.fitPt << "dPtRel=" << r.ptResidual << "sPt=" << r.ptSigma << "dD0=" << r.dca[0] << "dZ0=" << r.dca[1] << "sD0=" << r.dcaSigma[0] << "sZ0=" << r.dcaSigma[1] << "scatD0=" << r.dcaScattering[0] << "scatZ0=" << r.dcaScattering[1] << "d0True=" << r.dcaTrue[0] << "z0True=" << r.dcaTrue[1] << "scatD0Source=" << r.dcaScatteringSource[0] << "scatZ0Source=" << r.dcaScatteringSource[1] << "productionOffset=" << r.productionOffset << "\n";
+    output << "resolution" << "pt=" << r.pt << "eta=" << r.eta << "phi=" << r.phi << "charge=" << r.charge << "pdg=" << r.pdg << "origin=" << r.origin << "iteration=" << r.iteration << "kinks=" << r.kinks << "clusters=" << r.clusters << "complete=" << r.complete << "layer=" << r.layer << "dLoc0=" << r.residual[0] << "dLoc1=" << r.residual[1] << "dPhi=" << r.residual[2] << "dTheta=" << r.residual[3] << "dQOverP=" << r.residual[4] << "sLoc0=" << r.sigma[0] << "sLoc1=" << r.sigma[1] << "sPhi=" << r.sigma[2] << "sTheta=" << r.sigma[3] << "sQOverP=" << r.sigma[4] << "fitPt=" << r.fitPt << "dPtRel=" << r.ptResidual << "sPt=" << r.ptSigma << "dD0=" << r.dca[0] << "dZ0=" << r.dca[1] << "sD0=" << r.dcaSigma[0] << "sZ0=" << r.dcaSigma[1] << "scatD0=" << r.dcaScattering[0] << "scatZ0=" << r.dcaScattering[1] << "d0True=" << r.dcaTrue[0] << "z0True=" << r.dcaTrue[1] << "scatD0Source=" << r.dcaScatteringSource[0] << "scatZ0Source=" << r.dcaScatteringSource[1] << "productionOffset=" << r.productionOffset << "\n";
   }
 }
 
