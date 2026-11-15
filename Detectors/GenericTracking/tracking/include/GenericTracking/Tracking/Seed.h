@@ -51,10 +51,11 @@ GPUdi() void relativePosition(const TrackingSurface& surface, const Measurement&
 /// fitted through all \a n of its measurements.
 ///
 /// This is the outward pass's start: the fit takes its values as the point
-/// its first steps linearise about, never as information (TrackFitter.h,
-/// `startPass`), so it carries no covariance. It only has to start the
-/// pass on the right helix: a three-point seed's curvature, fixed over
-/// the first few centimetres, is not that once the chain is long.
+/// its first steps linearise about and its q/p as the pass's reference
+/// momentum for the material, never as information (TrackFitter.h,
+/// `startPass`, `predictStep`), so it carries no covariance. It only has to
+/// start the pass on the right helix: a three-point seed's curvature, fixed
+/// over the first few centimetres, is not that once the chain is long.
 ///
 /// Transverse: Karimaki's circle fit (NIM A 305 (1991) 187) about the first
 /// measurement. It is closed form -- sums over the points and one atan2 -- and

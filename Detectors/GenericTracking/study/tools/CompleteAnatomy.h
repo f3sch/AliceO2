@@ -5186,6 +5186,8 @@ class CompleteAnatomy
     }
     CovarianceFactors factors;
     Scalar chi2 = 0.F;
+    // The pass's reference momentum (`startPass`).
+    Scalar reference = seed.qOverP();
     int kinks = 0;
     for (int step = 1; step < n; ++step) {
       const int index = n - 1 - step;
@@ -5195,8 +5197,8 @@ class CompleteAnatomy
       covarianceFromFactors(starting ? start.star : factors, out.before.cov);
       const Scalar before = chi2;
       // The start (`startPass`), then the filter.
-      auto status = starting ? o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, start, chi2)
-                             : o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, factors, chi2, budget, step < n - 1, kinks);
+      auto status = starting ? o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, start, chi2, reference)
+                             : o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, factors, chi2, reference, budget, step < n - 1, kinks);
       if (status == PropagationStatus::kOk && starting && start.rank == 0) {
         factors = start.star;
       }
@@ -7026,6 +7028,8 @@ class CompleteAnatomy
       return out;
     }
     Scalar chi2 = 0.F;
+    // The pass's reference momentum (`startPass`).
+    Scalar reference = seed.qOverP();
     int kinks = 0;
     for (int step = 1; step < n; ++step) {
       const int index = first + (step * increment);
@@ -7040,11 +7044,11 @@ class CompleteAnatomy
       }
       // The start (`startPass`), then the filter.
       if (start.rank > 0) {
-        if (o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], direction, state, start, chi2) != PropagationStatus::kOk) {
+        if (o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], direction, state, start, chi2, reference) != PropagationStatus::kOk) {
           return out;
         }
         factors = start.star;
-      } else if (o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], direction, state, factors, chi2, budget, step < n - 1, kinks) != PropagationStatus::kOk) {
+      } else if (o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], direction, state, factors, chi2, reference, budget, step < n - 1, kinks) != PropagationStatus::kOk) {
         return out;
       }
     }

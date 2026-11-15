@@ -14,7 +14,8 @@
 ///
 /// A track through a stack of discs at small angle to the beam has a short
 /// transverse arc, so its chain determines q/p poorly, and the fit takes its
-/// scattering at its filtered momentum. testTrackFitter's pull tests
+/// scattering at the pass's reference momentum, which is no better
+/// determined. testTrackFitter's pull tests
 /// run on the barrel, where q/p is well determined; these run where it is not.
 ///
 /// The chains are generated as `BarrelChain` in testTrackFitter.cxx does:
@@ -247,7 +248,7 @@ struct DiscChain {
 using namespace test::pulls;
 
 /// How many of MftPullsWithScatteringAreUnit's checks are expected to fail.
-constexpr unsigned kMftExpectedFailures = 58;
+constexpr unsigned kMftExpectedFailures = 47;
 
 template <DetectorLayout Det>
 PullPoint pullsAt(DiscChain<Det>& chain, double ptGeV, double eta, bool withMaterial, int trials, std::uint32_t seed)
@@ -351,12 +352,13 @@ BOOST_AUTO_TEST_CASE(MftPullsWithoutMaterialAreUnit)
   }
 }
 
-/// The MFT with scattering: the fit takes its scattering at the filtered
-/// momentum, which the MFT alone determines poorly. Where that momentum
-/// runs away the scattering vanishes, and the low-pT angle and q/p pulls
-/// grow tails; where its error is as large as itself (from 1 GeV at the
-/// largest |eta|), its spread makes the scattering, and the errors, too
-/// large on average. The failures are expected; fewer pass, more fail.
+/// The MFT with scattering: the fit takes its scattering at the pass's
+/// reference momentum (TrackFitter.h, `predictStep`), the helix through the
+/// chain outward and the outward fit's end inward, which the MFT alone
+/// determines poorly. Where a chain's reference lies above the particle's
+/// momentum its scattering is too small, and the pulls grow tails beyond
+/// cores near one, most at low pT and the largest |eta|. The failures are
+/// expected; fewer pass, more fail.
 BOOST_AUTO_TEST_CASE(MftPullsWithScatteringAreUnit, *boost::unit_test::expected_failures(kMftExpectedFailures))
 {
   const auto* scans = mftScans();
