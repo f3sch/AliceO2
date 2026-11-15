@@ -72,6 +72,10 @@ struct GSFMixture {
   BoundTrackState state[Capacity]{};
   CovarianceFactors factors[Capacity]{};
   Scalar chi2[Capacity]{}; ///< each component's summed chi2 increments
+  /// Each component's reference q/p, the momentum its steps take the material
+  /// at (`predictStep`): the pass's seed's, scaled with each loss the
+  /// component took, carried by each accepted step.
+  Scalar reference[Capacity]{};
 };
 
 /// One pass of the filter: its end mixture on the pass's last measurement,
@@ -121,6 +125,13 @@ GPUhdi() BetheHeitlerComponent momentsOf(const BetheHeitlerComponent (&component
   }
   const Scalar variance = second - (mean * mean);
   return {.weight = 1.F, .mean = mean, .variance = variance > 0.F ? variance : 0.F};
+}
+
+/// The factor a loss component scales q/p by: 1 / z along the momentum, z
+/// against it (`applyBetheHeitler`); a component's reference q/p takes it too.
+GPUhdi() Scalar lossScale(const BetheHeitlerComponent& component, PropagationDirection direction)
+{
+  return direction == PropagationDirection::kForward ? 1.F / component.mean : component.mean;
 }
 
 /// A loss component on a diffuse covariance (`DiffuseFactors`): the
@@ -304,6 +315,7 @@ GPUdi() void reduce(GSFMixture<N>& from, GSFMixture<K>& to)
       }
       mergeInto(weight[bestA], weight[bestB], from.state[bestA], from.factors[bestA], from.state[bestB], from.factors[bestB]);
       from.chi2[bestA] = ((weight[bestA] * from.chi2[bestA]) + (weight[bestB] * from.chi2[bestB])) / (weight[bestA] + weight[bestB]);
+      from.reference[bestA] = ((weight[bestA] * from.reference[bestA]) + (weight[bestB] * from.reference[bestB])) / (weight[bestA] + weight[bestB]);
       weight[bestA] += weight[bestB];
       merged[bestA] = true;
       logVariance[bestA] = o2::gpu::GPUCommonMath::Log(from.factors[bestA].diagonal[kQOverP]);
@@ -327,6 +339,7 @@ GPUdi() void reduce(GSFMixture<N>& from, GSFMixture<K>& to)
     to.state[slot] = from.state[k];
     to.factors[slot] = from.factors[k];
     to.chi2[slot] = from.chi2[k];
+    to.reference[slot] = from.reference[k];
   }
 }
 
@@ -352,6 +365,7 @@ GPUdi() bool takeRadiation(Scalar x2X0, PropagationDirection direction, GSFMixtu
         branched.state[slot] = mixture.state[k];
         branched.factors[slot] = mixture.factors[k];
         branched.chi2[slot] = mixture.chi2[k];
+        branched.reference[slot] = mixture.reference[k] * lossScale(loss[j], direction);
         branched.logWeight[slot] = mixture.logWeight[k] + o2::gpu::GPUCommonMath::Log(loss[j].weight);
         if (!applyBetheHeitler(loss[j], direction, branched.state[slot], branched.factors[slot])) {
           return false;
@@ -365,13 +379,15 @@ GPUdi() bool takeRadiation(Scalar x2X0, PropagationDirection direction, GSFMixtu
 
 /// One component's step: the Kalman prediction on its own trajectory and the
 /// update (`filterStep`'s arithmetic), with the update's ln det S for its
-/// likelihood: \a logLikelihood = -(chi2 + ln det S) / 2.
+/// likelihood: \a logLikelihood = -(chi2 + ln det S) / 2. The component's
+/// reference q/p \a referenceQOverP moves with an accepted step only.
 template <CrossingRule Rule, DetectorLayout Det, typename Material, typename Prop>
-GPUdi() PropagationStatus componentStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, Scalar& logLikelihood)
+GPUdi() PropagationStatus componentStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, Scalar& referenceQOverP, Scalar& logLikelihood)
 {
   SolenoidJacobian jacobian;
   StepNoise noise;
-  const auto predicted = detail::predictStep<false, Rule>(prop, geometry, material, measurement, direction, state, jacobian, noise, 1.F);
+  Scalar nextReference = referenceQOverP;
+  const auto predicted = detail::predictStep<false, Rule>(prop, geometry, material, measurement, direction, state, nextReference, jacobian, noise, 1.F);
   if (predicted != PropagationStatus::kOk) {
     return predicted;
   }
@@ -383,6 +399,7 @@ GPUdi() PropagationStatus componentStep(const Prop& prop, const TrackingGeometry
   if (!updateUsable(update, factors)) {
     return PropagationStatus::kNotFinite;
   }
+  referenceQOverP = nextReference;
   chi2 += update.chi2;
   logLikelihood = -0.5F * (update.chi2 + o2::gpu::GPUCommonMath::Log(determinant));
   return PropagationStatus::kOk;
@@ -390,14 +407,16 @@ GPUdi() PropagationStatus componentStep(const Prop& prop, const TrackingGeometry
 
 /// One branch's step in the diffuse start: the Kalman diffuse step
 /// (`diffuseStep`'s arithmetic), with the update's terms of -2 ln of the
-/// diffuse likelihood added to \a density (`updateDiffuse`). Never inlined
-/// on the device, as `diffuseStep`.
+/// diffuse likelihood added to \a density (`updateDiffuse`); the branch's
+/// reference q/p \a referenceQOverP moves with an accepted step only. Never
+/// inlined on the device, as `diffuseStep`.
 template <CrossingRule Rule, DetectorLayout Det, typename Material, typename Prop>
-GPUdnii() PropagationStatus diffuseBranchStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, DiffuseFactors& c, Scalar& chi2, Scalar& density)
+GPUdnii() PropagationStatus diffuseBranchStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, DiffuseFactors& c, Scalar& chi2, Scalar& referenceQOverP, Scalar& density)
 {
   SolenoidJacobian jacobian;
   StepNoise noise;
-  const auto predicted = detail::predictStep<false, Rule>(prop, geometry, material, measurement, direction, state, jacobian, noise, 1.F);
+  Scalar nextReference = referenceQOverP;
+  const auto predicted = detail::predictStep<false, Rule>(prop, geometry, material, measurement, direction, state, nextReference, jacobian, noise, 1.F);
   if (predicted != PropagationStatus::kOk) {
     return predicted;
   }
@@ -407,12 +426,14 @@ GPUdnii() PropagationStatus diffuseBranchStep(const Prop& prop, const TrackingGe
   }
   if (c.rank > 0) {
     o2::math_utils::detail::bringToPMPi<Scalar>(state.par[kPhi]);
+    referenceQOverP = nextReference;
     return PropagationStatus::kOk;
   }
   if (!positiveDiagonal(c.star)) {
     return PropagationStatus::kNotFinite;
   }
   detail::canonicalizeDirection(state, c.star);
+  referenceQOverP = nextReference;
   return PropagationStatus::kOk;
 }
 
@@ -444,6 +465,7 @@ struct DiffuseMixture {
   BoundTrackState state[Capacity]{};
   DiffuseFactors factors[Capacity]{};
   Scalar chi2[Capacity]{};
+  Scalar reference[Capacity]{}; ///< as `GSFMixture::reference`
 };
 
 GPUhdi() constexpr int power(int base, int exponent) { return exponent == 0 ? 1 : base * power(base, exponent - 1); }
@@ -475,6 +497,7 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
   DiffuseMixture<S> branches;
   branches.size = 1;
   branches.state[0] = seed;
+  branches.reference[0] = seed.qOverP(); // the pass's reference, as `startPass`'s
   taken = 0;
   if (n < kPassStart || !startDiffuse(measurements[first], branches.state[0], branches.factors[0])) {
     failedMeasurement = static_cast<std::int16_t>(first);
@@ -507,6 +530,7 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
             branched.state[slot] = branches.state[b];
             branched.factors[slot] = branches.factors[b];
             branched.chi2[slot] = branches.chi2[b];
+            branched.reference[slot] = branches.reference[b] * lossScale(loss[j], direction);
             branched.logWeight[slot] = branches.logWeight[b] + o2::gpu::GPUCommonMath::Log(loss[j].weight);
             if (!applyLossDiffuse(loss[j], direction, branched.state[slot], branched.factors[slot])) {
               failedMeasurement = static_cast<std::int16_t>(previous);
@@ -522,6 +546,7 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
             failedMeasurement = static_cast<std::int16_t>(previous);
             return PropagationStatus::kNotFinite;
           }
+          branches.reference[b] *= lossScale(moments, direction);
         }
       }
     }
@@ -530,7 +555,7 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
     PropagationStatus failure = PropagationStatus::kOk;
     for (int b = 0; b < branches.size; ++b) {
       Scalar density = 0.F;
-      const auto status = diffuseBranchStep<Rule>(stepProp, geometry, material, measurements[index], direction, branches.state[b], branches.factors[b], branches.chi2[b], density);
+      const auto status = diffuseBranchStep<Rule>(stepProp, geometry, material, measurements[index], direction, branches.state[b], branches.factors[b], branches.chi2[b], branches.reference[b], density);
       if (status != PropagationStatus::kOk) {
         failure = status;
         continue;
@@ -539,6 +564,7 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
       branches.state[kept] = branches.state[b];
       branches.factors[kept] = branches.factors[b];
       branches.chi2[kept] = branches.chi2[b];
+      branches.reference[kept] = branches.reference[b];
       ++kept;
     }
     branches.size = kept;
@@ -559,6 +585,7 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
     determined.state[b] = branches.state[b];
     determined.factors[b] = branches.factors[b].star;
     determined.chi2[b] = branches.chi2[b];
+    determined.reference[b] = branches.reference[b];
   }
   reduce(determined, mixture);
   return PropagationStatus::kOk;
@@ -720,7 +747,7 @@ GPUdi() void runPass(const Prop& prop, const TrackingGeometry<Det>& geometry, co
     PropagationStatus failure = PropagationStatus::kOk;
     for (int k = 0; k < mixture.size; ++k) {
       Scalar logLikelihood = 0.F;
-      const auto status = componentStep<Rule>(stepProp, geometry, material, measurements[index], direction, mixture.state[k], mixture.factors[k], mixture.chi2[k], logLikelihood);
+      const auto status = componentStep<Rule>(stepProp, geometry, material, measurements[index], direction, mixture.state[k], mixture.factors[k], mixture.chi2[k], mixture.reference[k], logLikelihood);
       if (status != PropagationStatus::kOk) {
         failure = status;
         continue;
@@ -729,6 +756,7 @@ GPUdi() void runPass(const Prop& prop, const TrackingGeometry<Det>& geometry, co
       mixture.state[kept] = mixture.state[k];
       mixture.factors[kept] = mixture.factors[k];
       mixture.chi2[kept] = mixture.chi2[k];
+      mixture.reference[kept] = mixture.reference[k];
       ++kept;
     }
     mixture.size = kept;
