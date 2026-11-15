@@ -318,7 +318,7 @@ BOOST_AUTO_TEST_CASE(AKinkRecoversAScatteredRoadWithTwoDegreesOfFreedom)
   BOOST_TEST(fit.kinkMeasurement == static_cast<std::int16_t>(kKink - 1U));
   BOOST_TEST(fit.ndf == static_cast<std::int16_t>((2 * static_cast<int>(kLayers)) - 5 - 2));
   BOOST_TEST(fit.outwardChi2 == kinked.chi2);
-  // Not zero: both passes linearise about one helix through every cluster,
+  // Not zero: both passes start from one helix through every cluster,
   // which a 50 mrad kink leaves; a scatter of milliradians barely moves it.
   BOOST_TEST(fit.chi2 <= study::roadChi2Cut(iteration, kLayers, fit.kinks));
 

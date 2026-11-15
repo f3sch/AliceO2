@@ -177,16 +177,11 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
   return true;
 }
 
-/// Analytic Jacobian of a propagation, evaluated at a **reference** state.
+/// Analytic Jacobian of a propagation, evaluated at the state it propagates.
 ///
-/// The reference, not the filtered state. A Kalman filter that linearises
-/// about its own estimate is an *extended* filter, and its linearisation point
-/// carries whatever error the filter currently has; linearising about a
-/// reference trajectory allows the fitter to evaluate transport independently
-/// of its measurement updates. The caller chooses the linearisation state;
-/// this routine returns the exact propagated reference and its Jacobian.
-/// The reference filter uses them for the affine prediction
-/// f(reference) + F (state - reference).
+/// The caller chooses the linearisation state -- the fit its filtered state
+/// (TrackFitter.h, `predictStep`); this routine returns the exact propagated
+/// state and its Jacobian there.
 ///
 /// The derivation, for a uniform Bz. With `b = Bz * B2C` and `kp = (q/p) b`,
 /// the turn angle is `psi = kp * s` - **independent of theta**, because the

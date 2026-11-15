@@ -5187,8 +5187,6 @@ class CompleteAnatomy
     CovarianceFactors factors;
     Scalar chi2 = 0.F;
     int kinks = 0;
-    // The pass's reference, from its seed on the first measurement (`runPass`).
-    BoundTrackState reference = state;
     for (int step = 1; step < n; ++step) {
       const int index = n - 1 - step;
       const auto& stepProp = stepPropagator(propagator, geometry, chain, index + 1, index);
@@ -5196,10 +5194,9 @@ class CompleteAnatomy
       out.before = state;
       covarianceFromFactors(starting ? start.star : factors, out.before.cov);
       const Scalar before = chi2;
-      BoundTrackState nextReference;
       // The start (`startPass`), then the filter.
-      auto status = starting ? o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, start, chi2, reference, nextReference)
-                             : o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, factors, chi2, budget, step < n - 1, kinks, reference, nextReference);
+      auto status = starting ? o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, start, chi2)
+                             : o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, factors, chi2, budget, step < n - 1, kinks);
       if (status == PropagationStatus::kOk && starting && start.rank == 0) {
         factors = start.star;
       }
@@ -5209,7 +5206,6 @@ class CompleteAnatomy
         out.failedStep = step;
         return out;
       }
-      reference = nextReference;
       if (record) {
         InwardStep one{.row = rows[static_cast<std::size_t>(index)], .state = state, .chi2 = chi2 - before, .determined = start.rank == 0};
         covarianceFromFactors(one.determined ? factors : start.star, one.state.cov);
@@ -7031,30 +7027,26 @@ class CompleteAnatomy
     }
     Scalar chi2 = 0.F;
     int kinks = 0;
-    // The pass's reference, which each step propagates (`filterStep`).
-    BoundTrackState reference = state;
     for (int step = 1; step < n; ++step) {
       const int index = first + (step * increment);
       const auto& stepProp = stepPropagator(propagator, geometry, chain, index - increment, index);
       if (index == failed) {
         out.step = step;
-        BoundTrackState probe = reference;
-        out.state = propagate(stepProp, probe, geometry.planeOf(reference), geometry.planeOf(chain[index]), direction).status;
-        margins(reference);
+        BoundTrackState probe = state;
+        out.state = propagate(stepProp, probe, geometry.planeOf(state), geometry.planeOf(chain[index]), direction).status;
+        margins(state);
         out.replayed = true;
         return out;
       }
-      BoundTrackState nextReference;
       // The start (`startPass`), then the filter.
       if (start.rank > 0) {
-        if (o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], direction, state, start, chi2, reference, nextReference) != PropagationStatus::kOk) {
+        if (o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], direction, state, start, chi2) != PropagationStatus::kOk) {
           return out;
         }
         factors = start.star;
-      } else if (o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], direction, state, factors, chi2, budget, step < n - 1, kinks, reference, nextReference) != PropagationStatus::kOk) {
+      } else if (o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], direction, state, factors, chi2, budget, step < n - 1, kinks) != PropagationStatus::kOk) {
         return out;
       }
-      reference = nextReference;
     }
     return out;
   }
