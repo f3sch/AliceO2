@@ -64,6 +64,7 @@
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Follow.h"
 #include "GenericTracking/Tracking/GSFTrackFitter.h"
+#include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/NeighbourCut.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/SensorCells.h"
@@ -318,7 +319,7 @@ class CompleteAnatomy
       throw std::runtime_error("cannot write " + csv);
     }
     *mGsfCsv << "particle,pdg,pt,eta,n,k,layer,pass,x2X0,pTrue,qOverPTrue,legLoss,kfOk,kfQOverP,kfSigma,kfChi2,gsfOk,gsfQOverP,gsfSigma,gsfModeQOverP,gsfModeP,"
-                "gsfMedianP,gsfPit,gsfComponents,gsfM2LogL\n";
+                "gsfMedianP,gsfPit,gsfComponents,gsfM2LogL,kfD0Pull,gsfD0Pull\n";
   }
 
   /// The CSV of every follow walk's end, written after each iteration
@@ -5557,10 +5558,48 @@ class CompleteAnatomy
                                 kfOk ? std::sqrt(static_cast<double>(kf.variance(kQOverP))) : nan, static_cast<double>(outward ? kalman.outwardChi2 : kalman.chi2), gsfOk ? 1 : 0,
                                 gsfOk ? static_cast<double>(pass.collapsed.qOverP()) : nan, gsfOk ? std::sqrt(static_cast<double>(pass.collapsed.variance(kQOverP))) : nan,
                                 gsfOk ? static_cast<double>(pass.qOverPMode) : nan, gsfOk ? static_cast<double>(pass.momentumMode) : nan, medianP, pit, pass.mixture.size,
-                                static_cast<double>(pass.minusTwoLogLikelihood));
+                                static_cast<double>(pass.minusTwoLogLikelihood), nan, nan);
         ++leg.lines;
       }
     }
+    // The production vertex (pass 2, k and layer -1): the refit under the
+    // electron hypothesis (`refitWithHypothesis`) carried to the perigee plane
+    // about the true vertex, and the electron-mass Kalman fit carried alike,
+    // against the MC's momentum at production; the d0 pulls about the vertex.
+    const RowChain<Det> rows{.frame = &frame, .rows = chain.data()};
+    const auto refit = refitWithHypothesis<K>(prop, geometry, material, rows, n, o2::track::PID{o2::track::PID::Electron}, truth.vx, truth.vy);
+    const auto kalman = fitMeasurements(prop, geometry, material, rows, n);
+    const auto& innermostSurface = geometry.planeOf(rows[0]);
+    bool kfOk = kalman.status == PropagationStatus::kOk;
+    BoundTrackState kf = kalman.state;
+    double x2X0 = nan;
+    if (kfOk) {
+      auto factors = factorCovariance(kf.cov);
+      const auto plane = o2::gtrk::detail::hypothesis::perigeePlaneOf(prop, kf, innermostSurface, truth.vx, truth.vy);
+      x2X0 = o2::gtrk::detail::hypothesis::segmentRadiation(prop, material, kf, innermostSurface, plane);
+      kfOk = o2::gtrk::detail::hypothesis::carryInward(prop, material, innermostSurface, plane, kf, factors) == PropagationStatus::kOk;
+      covarianceFromFactors(factors, kf.cov);
+    }
+    const bool gsfOk = refit.status == PropagationStatus::kOk;
+    const double pTrue = static_cast<double>(truth.pt) * std::cosh(static_cast<double>(truth.eta));
+    const double truthQOverP = static_cast<double>(leg.charge) * kChargeSign / pTrue;
+    double pit = nan;
+    if (gsfOk) {
+      pit = 0.;
+      for (int c = 0; c < refit.perigeeMixture.size; ++c) {
+        const double m = refit.perigeeMixture.state[c].qOverP();
+        const double sigma = std::sqrt(static_cast<double>(refit.perigeeMixture.state[c].variance(kQOverP)));
+        pit += std::exp(static_cast<double>(refit.perigeeMixture.logWeight[c])) * 0.5 * std::erfc(-(truthQOverP - m) / (sigma * std::numbers::sqrt2));
+      }
+    }
+    const auto d0Pull = [](const BoundTrackState& state) { return static_cast<double>(state.loc0()) / std::sqrt(static_cast<double>(state.variance(kLoc0))); };
+    leg.text += std::format("{},{},{:.5f},{:.4f},{},-1,-1,2,{:.5g},{:.6g},{:.6g},{:.5g},{},{:.6g},{:.4g},{:.4g},{},{:.6g},{:.4g},{:.6g},{:.6g},{},{:.5g},{},{:.5g},{:.4g},{:.4g}\n", leg.particle, truth.pdg,
+                            static_cast<double>(truth.pt), static_cast<double>(truth.eta), n, x2X0, pTrue, truthQOverP, leg.legLoss, kfOk ? 1 : 0, kfOk ? static_cast<double>(kf.qOverP()) : nan,
+                            kfOk ? std::sqrt(static_cast<double>(kf.variance(kQOverP))) : nan, static_cast<double>(kalman.chi2), gsfOk ? 1 : 0,
+                            gsfOk ? static_cast<double>(refit.perigee.qOverP()) : nan, gsfOk ? std::sqrt(static_cast<double>(refit.perigee.variance(kQOverP))) : nan, nan,
+                            gsfOk ? static_cast<double>(refit.perigeeMomentum) : nan, nan, pit, refit.perigeeMixture.size, static_cast<double>(refit.chi2), kfOk ? d0Pull(kf) : nan,
+                            gsfOk ? d0Pull(refit.perigee) : nan);
+    ++leg.lines;
   }
 
   /// One refit's inward pass against the truth: its states

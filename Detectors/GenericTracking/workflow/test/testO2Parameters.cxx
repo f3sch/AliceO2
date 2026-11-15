@@ -218,6 +218,13 @@ BOOST_AUTO_TEST_CASE(BarrelParametersAreTheStatesPointMomentumAndCharge)
       BOOST_TEST(std::abs(pxyz[i] - mom[i]) <= 1e-5 * (1. + std::hypot(mom[0], mom[1], mom[2])));
     }
     BOOST_TEST(t.getSign() == (s.qOverP() > 0.F ? 1 : -1));
+    // The species hypothesis rides along, the parameters untouched.
+    const auto electron = toTrackParCov(s, p, alpha, kBz, o2::track::PID{o2::track::PID::Electron});
+    BOOST_TEST(t.getPID().getID() == o2::track::PID::Pion);
+    BOOST_TEST(electron.getPID().getID() == o2::track::PID::Electron);
+    BOOST_TEST(electron.getY() == t.getY());
+    BOOST_TEST(electron.getQ2Pt() == t.getQ2Pt());
+    BOOST_TEST(electron.getSigma1Pt2() == t.getSigma1Pt2());
   }
   // Both branches were taken: the frame turns for states moving inward.
   BOOST_TEST(inward > 100U);

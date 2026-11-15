@@ -152,8 +152,11 @@ inline Jacobian forwardJacobian(const BoundTrackState& state, const Shift& s)
 /// \a state, bound to \a plane, as O2's barrel parameters in the frame of
 /// angle \a alpha (`frameAlpha`): x and y the point's coordinates in that
 /// frame, z, snp = sin(phi - alpha), tgl = cot(theta), q/pt = (q/p) /
-/// sin(theta). The field \a bzKiloGauss enters the covariance only.
-[[nodiscard]] inline o2::track::TrackParCov toTrackParCov(const BoundTrackState& state, const TrackingSurface& plane, double alpha, double bzKiloGauss)
+/// sin(theta). The field \a bzKiloGauss enters the covariance only. \a pid is
+/// the track's species hypothesis, which O2's propagation reads for its
+/// energy loss: the tracking's own, a pion; a refit's under another
+/// hypothesis, that one (HypothesisRefit.h).
+[[nodiscard]] inline o2::track::TrackParCov toTrackParCov(const BoundTrackState& state, const TrackingSurface& plane, double alpha, double bzKiloGauss, o2::track::PID pid = o2::track::PID::Pion)
 {
   const double ca = std::cos(alpha);
   const double sa = std::sin(alpha);
@@ -169,7 +172,7 @@ inline Jacobian forwardJacobian(const BoundTrackState& state, const Shift& s)
     o2Cov[i] = static_cast<float>(cov[i]);
   }
   const o2::track::TrackParCov::params_t par{static_cast<float>((-sa * s.r[0]) + (ca * s.r[1])), static_cast<float>(s.r[2]), static_cast<float>(std::sin(phi - alpha)), static_cast<float>(std::cos(theta) / sinTheta), static_cast<float>(qOverP / sinTheta)};
-  return {static_cast<float>((ca * s.r[0]) + (sa * s.r[1])), static_cast<float>(alpha), par, o2Cov};
+  return {static_cast<float>((ca * s.r[0]) + (sa * s.r[1])), static_cast<float>(alpha), par, o2Cov, 1, pid};
 }
 
 /// \a state, bound to \a plane, as O2's forward parameters at the point's z:

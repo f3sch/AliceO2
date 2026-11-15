@@ -20,8 +20,8 @@
 #include "GenericTracking/Tracking/GSFTrackFitter.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Propagator.h"
+#include "ElectronChain.h"
 #include "ToyBarrel4Disc8.h"
-#include "ToyBarrel8.h"
 #include "UniformMaterial.h"
 
 #include <fmt/format.h>
@@ -39,6 +39,8 @@ namespace o2::gtrk
 {
 namespace
 {
+
+using test::ElectronChain;
 
 /// No radiation: one component, z = 1, no variance.
 struct NoLoss {
@@ -113,140 +115,6 @@ struct Chain {
       m.clusterIndex = static_cast<std::uint32_t>(layer);
     }
     built = true;
-  }
-};
-
-/// An electron through ToyBarrel8's eight layers (2-16 cm) on uniform
-/// material, as the filter models it: on each step the scattering in two
-/// kicks of half the chord's Highland theta0 (behind the sensor left, in
-/// front of the sensor reached, the logarithm at the span's material), the
-/// ionisation over the chord on reaching the next sensor (its mean and the
-/// straggling the filter takes, Gaussian in q/p), and at each
-/// plane the radiation of the half-gap before it, then of the half-gap after
-/// it, each fraction z drawn from Bethe and Heitler's model itself (-ln z
-/// Gamma-distributed with shape t / ln 2), not from the mixture. truth[i] is
-/// the state on plane i after the half-gap before it: what the outward pass
-/// ends with on the last plane and the inward one on the first. The chords
-/// are those of the track without material.
-struct ElectronChain {
-  static constexpr std::size_t kLayers = 8;
-  using Barrel = detectors::ToyBarrel8;
-  Geometry<Barrel> geometry = toyGeometry<Barrel>();
-  TrackingGeometry<Barrel> tracking{geometry};
-  Propagator propagator;
-  std::array<BoundTrackState, kLayers> truth;
-  std::array<Measurement, kLayers> measurements;
-  /// Each plane's retained fractions: of the half-gap before it, after it.
-  std::array<double, kLayers> before{};
-  std::array<double, kLayers> after{};
-  Scalar sigma = 5e-4F;
-
-  ElectronChain() { propagator.massGeV = 0.000511F; }
-
-  /// The share of the momentum radiated between rows \a first and \a last.
-  [[nodiscard]] double radiatedBetween(std::size_t first, std::size_t last) const
-  {
-    double kept = 1.;
-    for (std::size_t i = first; i < last; ++i) {
-      kept *= after[i] * before[i + 1];
-    }
-    return 1. - kept;
-  }
-
-  [[nodiscard]] bool cross(BoundTrackState& state, LayerID layer) const
-  {
-    const auto& from = tracking.surface(state.surface);
-    for (SensorID id = firstSensorOfLayer<Barrel>(layer); id < firstSensorOfLayer<Barrel>(static_cast<LayerID>(layer + 1)); ++id) {
-      BoundTrackState probe = state;
-      if (propagate(propagator, probe, from, tracking.surface(id), PropagationDirection::kForward).status == PropagationStatus::kOk) {
-        state = probe;
-        return true;
-      }
-    }
-    return false;
-  }
-
-  static Scalar fraction(double x2X0, std::mt19937& rng)
-  {
-    if (!(x2X0 > 0.)) {
-      return 1.F;
-    }
-    std::gamma_distribution<double> gamma(x2X0 / std::numbers::ln2, 1.);
-    return static_cast<Scalar>(std::exp(-gamma(rng)));
-  }
-
-  /// A track of \a qOverP; false if it does not reach every layer.
-  bool generate(Scalar qOverP, const UniformMaterial& material, bool radiate, std::mt19937& rng)
-  {
-    BoundTrackState start{};
-    start.par[kPhi] = 0.05F;
-    start.par[kTheta] = 1.55F;
-    start.par[kQOverP] = qOverP;
-    start.surface = firstSensorOfLayer<Barrel>(0);
-    // The chords without material.
-    std::array<Scalar, kLayers> chord{};
-    BoundTrackState state = start;
-    Scalar previous[3];
-    surfaceToGlobal(tracking.surface(state.surface), state.loc0(), state.loc1(), previous);
-    for (std::size_t layer = 1; layer < kLayers; ++layer) {
-      if (!cross(state, static_cast<LayerID>(layer))) {
-        return false;
-      }
-      Scalar point[3];
-      surfaceToGlobal(tracking.surface(state.surface), state.loc0(), state.loc1(), point);
-      chord[layer] = std::hypot(point[0] - previous[0], point[1] - previous[1], point[2] - previous[2]);
-      std::copy(point, point + 3, previous);
-    }
-    Scalar span = 0.F;
-    for (const Scalar c : chord) {
-      span += material.x2X0PerCm * c;
-    }
-    std::normal_distribution<double> gauss;
-    const auto kick = [&](BoundTrackState& s, Scalar theta0) {
-      const auto sinTheta = std::sin(s.theta());
-      s.par[kTheta] += static_cast<Scalar>(gauss(rng)) * theta0;
-      s.par[kPhi] += static_cast<Scalar>(gauss(rng)) * theta0 / sinTheta;
-    };
-    const auto halfGap = [&](std::size_t layer) { return 0.5 * static_cast<double>(material.x2X0PerCm * chord[layer]); };
-    before.fill(1.);
-    after.fill(1.);
-    state = start;
-    for (std::size_t layer = 0; layer < kLayers; ++layer) {
-      if (layer > 0) {
-        const Scalar theta0 = highlandTheta0(0.5F * material.x2X0PerCm * chord[layer], span, 1.F / std::abs(state.qOverP()), propagator.massGeV);
-        kick(state, theta0);
-        if (!cross(state, static_cast<LayerID>(layer))) {
-          return false;
-        }
-        Scalar variance = 0.F;
-        if (!detail::applyEnergyLoss(propagator, material.rho * chord[layer], PropagationDirection::kForward, state, variance)) {
-          return false;
-        }
-        state.par[kQOverP] += static_cast<Scalar>(gauss(rng)) * std::sqrt(variance); // the straggling the filter takes
-        kick(state, theta0);
-        if (radiate) {
-          before[layer] = fraction(halfGap(layer), rng);
-          state.par[kQOverP] /= static_cast<Scalar>(before[layer]);
-        }
-      }
-      truth[layer] = state;
-      auto& m = measurements[layer];
-      m = Measurement{};
-      m.surface = state.surface;
-      m.loc0 = state.loc0() + static_cast<Scalar>(gauss(rng)) * sigma;
-      m.loc1 = state.loc1() + static_cast<Scalar>(gauss(rng)) * sigma;
-      m.varLoc0 = sigma * sigma;
-      m.varLoc1 = sigma * sigma;
-      m.clusterIndex = static_cast<std::uint32_t>(layer);
-      if (radiate && layer + 1 < kLayers) {
-        after[layer] = fraction(halfGap(layer + 1), rng);
-        state.par[kQOverP] /= static_cast<Scalar>(after[layer]);
-      }
-      if (!isFiniteScalar(state.qOverP()) || std::abs(state.qOverP()) > 50.F) {
-        return false;
-      }
-    }
-    return true;
   }
 };
 
