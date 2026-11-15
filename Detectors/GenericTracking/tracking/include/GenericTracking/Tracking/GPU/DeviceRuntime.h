@@ -60,6 +60,8 @@ struct DeviceProperties {
   std::string architecture;
   int warpSize = 0;
   int residentThreads = 0; ///< the multiprocessors' threads at once, all of them
+  int multiprocessors = 0;
+  std::size_t freeMemoryBytes = 0; ///< the device's free memory when the runtime was made
 };
 
 /// Every call runs on the device current on the calling thread: the one

@@ -242,7 +242,7 @@ o2::framework::DataProcessorSpec getTrackerSpec(bool withVertices)
     .inputs = inputs,
     .outputs = trackerOutputs<Det>(),
     .algorithm = AlgorithmSpec{adaptFromTask<TrackerTask<Det>>(withVertices, conditions)},
-    .options = Options{{"gtrk-gpu-backend", VariantType::String, "", {"the GPU backend to track on, cuda or hip; the host if empty"}}, {"gtrk-gpu-device", VariantType::Int, 0, {"the GPU backend's device index"}}, {"gtrk-gpu-arena-mb", VariantType::Int, 0, {"the device tracker's arena in O2's GPU pool [MB]; required with a GPU backend"}}},
+    .options = Options{{"gtrk-gpu-backend", VariantType::String, "", {"the GPU backend to track on, cuda or hip; the host if empty"}}, {"gtrk-gpu-device", VariantType::Int, 0, {"the GPU backend's device index"}}, {"gtrk-gpu-arena-mb", VariantType::Int, 0, {"the device tracker's arena in O2's GPU pool [MB]; 0: the whole device"}}},
   };
 }
 

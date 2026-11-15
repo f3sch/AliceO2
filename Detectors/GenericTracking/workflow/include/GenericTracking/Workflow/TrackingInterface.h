@@ -112,7 +112,7 @@ template <class Conditions>
 struct TrackingDevice {
   std::string backend;     ///< empty: the host; else "cuda" or "hip"
   int device = 0;          ///< the backend's device index
-  std::size_t arenaMB = 0; ///< the device tracker's arena in O2's GPU pool [MB]
+  std::size_t arenaMB = 0; ///< the device tracker's arena in O2's GPU pool [MB]; 0: the whole device
 };
 
 template <DetectorLayout Det>
@@ -138,15 +138,11 @@ class TrackingInterface
     if (mDeviceOptions.backend.empty()) {
       return;
     }
-    if (mDeviceOptions.arenaMB == 0U) {
-      LOGP(fatal, "--gtrk-gpu-backend {}: --gtrk-gpu-arena-mb, the device tracker's arena, is required", mDeviceOptions.backend);
-      return;
-    }
     const std::array<std::size_t, 1> arena{mDeviceOptions.arenaMB << 20U};
     mContext = std::make_unique<DeviceContext>(mDeviceOptions.backend, mDeviceOptions.device, arena);
     mBlock = mContext->block(0U);
     const auto& properties = mContext->runtime().properties();
-    LOGP(info, "the tracking on {} device {}: {} ({}), arena {} MB", mContext->runtime().backend(), mDeviceOptions.device, properties.name, properties.architecture, mDeviceOptions.arenaMB);
+    LOGP(info, "the tracking on {} device {}: {} ({}), arena {} MB{}", mContext->runtime().backend(), mDeviceOptions.device, properties.name, properties.architecture, mBlock.bytes >> 20U, mDeviceOptions.arenaMB == 0U ? " (the whole device)" : "");
   }
 
   /// The tracking on \a reconstruction's GPU, which its owner initialised

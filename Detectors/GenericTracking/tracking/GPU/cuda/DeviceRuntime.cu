@@ -123,6 +123,14 @@ class Runtime final : public DeviceRuntime
 #endif
     mProperties.warpSize = properties.warpSize;
     mProperties.residentThreads = properties.multiProcessorCount * properties.maxThreadsPerMultiProcessor;
+    mProperties.multiprocessors = properties.multiProcessorCount;
+    // The free memory is the current device's: ask \a device's, then leave the current one as it was.
+    int current = 0;
+    GPUChkErrS(cudaGetDevice(&current));
+    GPUChkErrS(cudaSetDevice(device));
+    std::size_t total = 0;
+    GPUChkErrS(cudaMemGetInfo(&mProperties.freeMemoryBytes, &total));
+    GPUChkErrS(cudaSetDevice(current));
   }
 
   ~Runtime() final = default;

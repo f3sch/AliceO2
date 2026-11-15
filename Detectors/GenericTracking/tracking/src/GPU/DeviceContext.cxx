@@ -38,6 +38,26 @@ std::string upperCase(std::string_view backend)
   std::ranges::transform(type, type.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
   return type;
 }
+
+/// The whole of \a backend's \a device: its free memory but the reserve O2's
+/// GPU reconstruction keeps where it takes a whole device itself
+/// (GPUReconstructionCUDA, which HIP does not offer): 40 MB a multiprocessor,
+/// and 512 MB more on a device of 10 GB or more. Read by a runtime of its own
+/// before the reconstruction allocates anything.
+std::size_t wholeDevice(const std::string& backend, int device)
+{
+  const auto factory = runtimeFactory(backend);
+  if (factory == nullptr) {
+    throw std::runtime_error(std::format("GPU backend {}: no GenericTracking runtime (O2's GPUTracking{} does not link GTrkTracking{})", backend, backend, backend));
+  }
+  const auto properties = factory(device)->properties();
+  constexpr std::size_t kMB = std::size_t{1} << 20U;
+  const std::size_t reserve = (40U * kMB * static_cast<std::size_t>(properties.multiprocessors)) + (properties.freeMemoryBytes >= (10U << 10U) * kMB ? 512U * kMB : 0U);
+  if (properties.freeMemoryBytes <= reserve) {
+    throw std::runtime_error(std::format("GPU backend {}: device {} has {} MB free, not more than O2's reserve", backend, device, properties.freeMemoryBytes / kMB));
+  }
+  return properties.freeMemoryBytes - reserve;
+}
 } // namespace
 
 DeviceContext::DeviceContext(std::string_view backend, int device, std::span<const std::size_t> blockBytes)
@@ -50,7 +70,7 @@ DeviceContext::DeviceContext(std::string_view backend, int device, std::span<con
   }
   mChain = mReconstruction->AddChain<GPUChainGenericTracking>();
   for (const auto bytes : blockBytes) {
-    static_cast<void>(mChain->AddBlock(bytes));
+    static_cast<void>(mChain->AddBlock(bytes == 0U ? wholeDevice(type, device) : bytes));
   }
   const o2::gpu::GPUSettingsGRP grp;
   o2::gpu::GPUSettingsProcessing processing;
