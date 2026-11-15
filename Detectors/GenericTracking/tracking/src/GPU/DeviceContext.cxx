@@ -12,7 +12,6 @@
 #include "GenericTracking/Tracking/GPU/DeviceContext.h"
 
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
-#include "GenericTracking/Tracking/GPU/RuntimeFactory.h"
 
 #include "GPUO2ExternalUser.h" // first of O2's GPU headers outside GPU/
 #include "GPUChainGenericTracking.h"
@@ -23,6 +22,7 @@
 #include <algorithm>
 #include <cctype>
 #include <format>
+#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -39,18 +39,25 @@ std::string upperCase(std::string_view backend)
   return type;
 }
 
-/// The whole of \a backend's \a device: its free memory but the reserve O2's
-/// GPU reconstruction keeps where it takes a whole device itself
+/// GenericTracking's runtime on \a device, made by \a reconstruction's backend.
+std::unique_ptr<DeviceRuntime> runtimeOf(o2::gpu::GPUReconstruction& reconstruction, const std::string& backend, int device)
+{
+  std::unique_ptr<DeviceRuntime> runtime;
+  reconstruction.GetGenericTrackingRuntime(&runtime, device);
+  if (runtime == nullptr) {
+    throw std::runtime_error(std::format("GPU backend {}: no GenericTracking runtime (O2's GPUTracking{} is built without GTrkTracking{})", backend, backend, backend));
+  }
+  return runtime;
+}
+
+/// The whole of \a device: its free memory but the reserve O2's GPU
+/// reconstruction keeps where it takes a whole device itself
 /// (GPUReconstructionCUDA, which HIP does not offer): 40 MB a multiprocessor,
 /// and 512 MB more on a device of 10 GB or more. Read by a runtime of its own
 /// before the reconstruction allocates anything.
-std::size_t wholeDevice(const std::string& backend, int device)
+std::size_t wholeDevice(o2::gpu::GPUReconstruction& reconstruction, const std::string& backend, int device)
 {
-  const auto factory = runtimeFactory(backend);
-  if (factory == nullptr) {
-    throw std::runtime_error(std::format("GPU backend {}: no GenericTracking runtime (O2's GPUTracking{} does not link GTrkTracking{})", backend, backend, backend));
-  }
-  const auto properties = factory(device)->properties();
+  const auto properties = runtimeOf(reconstruction, backend, device)->properties();
   constexpr std::size_t kMB = std::size_t{1} << 20U;
   const std::size_t reserve = (40U * kMB * static_cast<std::size_t>(properties.multiprocessors)) + (properties.freeMemoryBytes >= (10U << 10U) * kMB ? 512U * kMB : 0U);
   if (properties.freeMemoryBytes <= reserve) {
@@ -70,7 +77,7 @@ DeviceContext::DeviceContext(std::string_view backend, int device, std::span<con
   }
   mChain = mReconstruction->AddChain<GPUChainGenericTracking>();
   for (const auto bytes : blockBytes) {
-    static_cast<void>(mChain->AddBlock(bytes == 0U ? wholeDevice(type, device) : bytes));
+    static_cast<void>(mChain->AddBlock(bytes == 0U ? wholeDevice(*mReconstruction, type, device) : bytes));
   }
   const o2::gpu::GPUSettingsGRP grp;
   o2::gpu::GPUSettingsProcessing processing;
@@ -83,13 +90,7 @@ DeviceContext::DeviceContext(std::string_view backend, int device, std::span<con
   if (mReconstruction->Init() != 0) {
     throw std::runtime_error(std::format("GPU backend {}: device {} does not initialise", type, device));
   }
-  // The backend library registered its runtime when O2's GPU backend, which
-  // links it, was loaded.
-  const auto factory = runtimeFactory(type);
-  if (factory == nullptr) {
-    throw std::runtime_error(std::format("GPU backend {}: no GenericTracking runtime (O2's GPUTracking{} does not link GTrkTracking{})", type, type, type));
-  }
-  mRuntime = factory(device);
+  mRuntime = runtimeOf(*mReconstruction, type, device);
 }
 
 DeviceContext::DeviceContext(o2::gpu::GPUReconstruction& reconstruction) : mReconstruction(&reconstruction)
@@ -101,12 +102,7 @@ DeviceContext::DeviceContext(o2::gpu::GPUReconstruction& reconstruction) : mReco
   if (processing.memoryAllocationStrategy != o2::gpu::GPUMemoryResource::ALLOCATION_GLOBAL || processing.keepDisplayMemory || processing.disableMemoryReuse) {
     throw std::runtime_error("GenericTracking: the GPU reconstruction's pool cannot lend its memory (it needs the global allocation, without keepDisplayMemory or disableMemoryReuse)");
   }
-  const std::string type = o2::gpu::gpudatatypes::DEVICE_TYPE_NAMES[reconstruction.GetDeviceType()];
-  const auto factory = runtimeFactory(type);
-  if (factory == nullptr) {
-    throw std::runtime_error(std::format("GPU backend {}: no GenericTracking runtime (O2's GPUTracking{} does not link GTrkTracking{})", type, type, type));
-  }
-  mRuntime = factory(reconstruction.GetDeviceId());
+  mRuntime = runtimeOf(reconstruction, o2::gpu::gpudatatypes::DEVICE_TYPE_NAMES[reconstruction.GetDeviceType()], reconstruction.GetDeviceId());
 }
 
 DeviceContext::~DeviceContext() = default;

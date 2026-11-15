@@ -45,6 +45,11 @@ template <int>
 class TimeFrame;
 } // namespace o2::its
 
+namespace o2::gtrk
+{
+class DeviceRuntime;
+} // namespace o2::gtrk
+
 namespace o2::gpu
 {
 class GPUChain;
@@ -200,6 +205,7 @@ class GPUReconstruction
 
   // Helpers to fetch processors from other shared libraries
   virtual void GetITSTraits(std::unique_ptr<o2::its::TrackerTraits<7>>* trackerTraits, std::unique_ptr<o2::its::VertexerTraits<7>>* vertexerTraits, std::unique_ptr<o2::its::TimeFrame<7>>* timeFrame);
+  virtual void GetGenericTrackingRuntime(std::unique_ptr<o2::gtrk::DeviceRuntime>* runtime, int32_t device); // GenericTracking's runtime on a device, none without a GPU backend; also before Init
   bool slavesExist() { return mSlaves.size() || mMaster; }
   int slaveId() { return mSlaveId; }
 

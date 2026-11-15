@@ -22,7 +22,6 @@
 #include "SelectionGlue.cuh"
 #include "SliceGlue.cuh"
 
-#include "GenericTracking/Tracking/GPU/MaterialPort.h"
 #include "GenericTracking/Tracking/Trig.h"
 
 #include "DetectorsBase/MatLayerCylSet.h"

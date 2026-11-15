@@ -13,9 +13,10 @@
 /// \brief The device memory of GenericTracking's device trackers.
 ///
 /// A holder, as O2's GPUChainITS: the trackers run outside the chain, on
-/// their backend's runtime (RuntimeFactory.h). The chain sets aside one
-/// permanent block of the reconstruction's device pool per tracker, of the
-/// size its creator asks for before Init, and hands it out after Init.
+/// their backend's runtime (GPUReconstruction::GetGenericTrackingRuntime).
+/// The chain sets aside one permanent block of the reconstruction's device
+/// pool per tracker, of the size its creator asks for before Init, and hands
+/// it out after Init.
 /// DeviceContext's alone: include GPUO2ExternalUser.h before it.
 
 #ifndef GTRK_TRACKING_GPU_GPUCHAINGENERICTRACKING_H_

@@ -13,9 +13,10 @@
 /// \brief A GPU backend's runtime: streams, copies, fills and the device
 ///        trackers, vendor-neutral.
 ///
-/// Made for the device O2's GPU reconstruction initialised, by the factory
-/// its backend library registered (RuntimeFactory.h); the device memory is
-/// the reconstruction's pool, of which each tracker gets a block.
+/// Made for the device O2's GPU reconstruction initialised, by the
+/// reconstruction's backend (GPUReconstruction::GetGenericTrackingRuntime);
+/// the device memory is the reconstruction's pool, of which each tracker gets
+/// a block.
 
 #ifndef GTRK_TRACKING_GPU_DEVICERUNTIME_H_
 #define GTRK_TRACKING_GPU_DEVICERUNTIME_H_
@@ -25,7 +26,6 @@
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
 #include "GenericTracking/Tracking/GPU/DeviceStream.h"
-#include "GenericTracking/Tracking/GPU/RuntimeFactory.h"
 
 namespace o2::base
 {

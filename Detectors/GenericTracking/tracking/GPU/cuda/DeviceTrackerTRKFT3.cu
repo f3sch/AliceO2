@@ -17,7 +17,6 @@
 #include "DeviceTracker.cuh"
 
 #include "GenericTracking/Detectors/TRKFT3.h"
-#include "GenericTracking/Tracking/GPU/MaterialPort.h"
 
 #include "DetectorsBase/MatLayerCylSet.h"
 

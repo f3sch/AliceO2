@@ -104,6 +104,17 @@ void GPUReconstructionCUDA::GetITSTraits(std::unique_ptr<o2::its::TrackerTraits<
   }
 }
 
+#if !defined(GPUCA_STANDALONE)
+#include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
+namespace o2::gtrk::gpu::cuda
+{
+std::unique_ptr<DeviceRuntime> makeRuntime(int32_t device); // GTrkTrackingCUDA's
+} // namespace o2::gtrk::gpu::cuda
+void GPUReconstructionCUDA::GetGenericTrackingRuntime(std::unique_ptr<o2::gtrk::DeviceRuntime>* runtime, int32_t device) { *runtime = o2::gtrk::gpu::cuda::makeRuntime(device); }
+#else
+void GPUReconstructionCUDA::GetGenericTrackingRuntime(std::unique_ptr<o2::gtrk::DeviceRuntime>* /*runtime*/, int32_t /*device*/) {}
+#endif
+
 int32_t GPUReconstructionCUDA::InitDevice_Runtime()
 {
 #ifndef __HIPCC__ // CUDA

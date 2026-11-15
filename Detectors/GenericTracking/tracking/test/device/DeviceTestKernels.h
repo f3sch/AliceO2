@@ -143,13 +143,6 @@ class ToyFlatObject : public o2::gpu::FlatObject
   std::int32_t mCount = 0;
 };
 
-/// Defined in DeviceTestHost.cxx, a host translation unit.
-template <>
-struct FlatObjectPort<ToyFlatObject> {
-  static std::size_t bufferBytes(const ToyFlatObject& source);
-  static void image(const ToyFlatObject& source, char* futureBuffer, FlatObjectImage& image);
-};
-
 using ToyBarrel8Det = detectors::ToyBarrel8;
 inline constexpr std::size_t kToyBarrel8Layers = static_cast<std::size_t>(Detector<ToyBarrel8Det>::nLayers);
 

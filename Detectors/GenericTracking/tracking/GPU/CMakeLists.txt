@@ -13,42 +13,23 @@
 # relocatable device code, device-linked with O2's out-of-line device
 # functions (MatLayerCylSet's LUT query and what it calls, from O2's GPU
 # external provider) into one shared library per backend, which O2's GPU
-# backend links; loaded with it, the library registers its runtime
-# (RuntimeFactory.h).
+# backend links and asks for the runtime
+# (GPUReconstruction::GetGenericTrackingRuntime).
 
 if(NOT CUDA_ENABLED AND NOT HIP_ENABLED)
   return()
 endif()
 
-# gtrk_hipify(<output-variable> <source.cu>...): one .hip in the build tree
-# per .cu source; only the .cu files are translated, so the headers they
-# include stay vendor-neutral.
-function(gtrk_hipify output)
-  set(generated)
-  foreach(source IN LISTS ARGN)
-    get_filename_component(absolute "${source}" ABSOLUTE)
-    get_filename_component(name "${source}" NAME_WE)
-    set(hip "${CMAKE_CURRENT_BINARY_DIR}/hipified/${name}.hip")
-    add_custom_command(OUTPUT "${hip}"
-                       COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/hipified"
-                       COMMAND ${hip_HIPIFY_PERL_EXECUTABLE} -quiet-warnings "-o=${hip}" "${absolute}"
-                       DEPENDS "${absolute}"
-                       COMMENT "Hipifying ${source}"
-                       VERBATIM)
-    list(APPEND generated "${hip}")
-  endforeach()
-  set(${output} ${generated} PARENT_SCOPE)
-endfunction()
-
-# gtrk_device_sources(<output-variable> <CUDA|HIP> <source.cu>...): the
-# sources as written for CUDA, hipified for HIP.
-function(gtrk_device_sources output backend)
-  set(sources ${ARGN})
+# gtrk_device_library(<name> <CUDA|HIP> <source.cu>...): an O2 library of
+# the sources as written for CUDA, hipified for HIP; its target in
+# <name>_TARGET.
+function(gtrk_device_library name backend)
   if(backend STREQUAL "HIP")
-    gtrk_hipify(sources ${ARGN})
-    set_source_files_properties(${sources} PROPERTIES LANGUAGE HIP)
+    o2_add_hipified_library(${name} SOURCES ${ARGN} TARGETVARNAME target)
+  else()
+    o2_add_library(${name} SOURCES ${ARGN} TARGETVARNAME target)
   endif()
-  set(${output} ${sources} PARENT_SCOPE)
+  set(${name}_TARGET ${target} PARENT_SCOPE)
 endfunction()
 
 # gtrk_device_target(<target> <CUDA|HIP> <SHARED|OBJECT> [<exported symbol pattern>...]):
@@ -119,12 +100,11 @@ foreach(backend IN ITEMS CUDA HIP)
     continue()
   endif()
   string(TOLOWER ${backend} lower)
+  string(LENGTH ${lower} lower_length)
 
   # One device tracker per layout and unit, compiled in parallel.
-  gtrk_device_sources(sources ${backend} cuda/DeviceRuntime.cu cuda/DeviceTrackerITS.cu cuda/DeviceTrackerMFT.cu cuda/DeviceTrackerTRKFT3.cu)
-  o2_add_library(GTrkTracking${backend}
-                 SOURCES ${sources}
-                 PUBLIC_LINK_LIBRARIES O2::GTrkTracking
-                 TARGETVARNAME targetName)
-  gtrk_device_target(${targetName} ${backend} SHARED)
+  gtrk_device_library(GTrkTracking${backend} ${backend} cuda/DeviceRuntime.cu cuda/DeviceTrackerITS.cu cuda/DeviceTrackerMFT.cu cuda/DeviceTrackerTRKFT3.cu)
+  set(target ${GTrkTracking${backend}_TARGET})
+  target_link_libraries(${target} PUBLIC O2::GTrkTracking)
+  gtrk_device_target(${target} ${backend} SHARED "_ZN2o24gtrk3gpu${lower_length}${lower}11makeRuntimeEi")
 endforeach()
