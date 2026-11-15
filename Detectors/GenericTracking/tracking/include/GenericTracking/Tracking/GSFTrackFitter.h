@@ -757,9 +757,10 @@ GPUdi() void runPass(const Prop& prop, const TrackingGeometry<Det>& geometry, co
 /// linearised from the chain's helix (`makeChainSeed`), the inward one from
 /// the outward pass's collapsed end state, values only. Both take the
 /// scattering of the chain's span as the Kalman fit does (`SpanMaterial`).
-/// At most \a K components after each reduction; \a Loss the radiation
-/// model.
-template <int K, typename Loss = BetheHeitlerLoss, CrossingRule Rule = CrossingRule::kFirstAhead, typename Prop, DetectorLayout Det, typename Material, typename Chain>
+/// \a Loss the radiation model; at most \a K components after each
+/// reduction, by default as many as one loss has (a plane's mixture keeps one
+/// component per loss component; more changes nothing measurable).
+template <typename Loss = BetheHeitlerLoss, int K = Loss::kComponents, CrossingRule Rule = CrossingRule::kFirstAhead, typename Prop, DetectorLayout Det, typename Material, typename Chain>
 GPUdi() GSFFitResult<K> fitGaussianSum(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n)
 {
   GSFFitResult<K> fit;
