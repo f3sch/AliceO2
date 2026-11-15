@@ -170,13 +170,18 @@ GPUhdi() GPUAlwaysInline() T updateUD(T (&upper)[kBoundUpperSize], T (&diagonal)
 /// Sequential Estimation"): from the last column to the first, a's entry in
 /// each column is absorbed into that column's pivot, and what is left of a,
 /// with the remaining weight, goes on to the columns before. Every pivot
-/// grows, so the update never subtracts. \a a is overwritten.
+/// grows, so the update never subtracts. A zero pivot that stays zero (a
+/// diffuse filter's factors, `DiffuseFactors`) passes the update on
+/// unchanged. \a a is overwritten.
 template <typename T>
 GPUhdi() GPUAlwaysInline() void rankOneUpdateUD(T (&upper)[kBoundUpperSize], T (&diagonal)[kNBoundParams], T c, T (&a)[kNBoundParams])
 {
   for (int column = kNBoundParams - 1; column >= 0; --column) {
     const T entry = a[column];
     const T pivot = diagonal[column] + (c * entry * entry);
+    if (!(pivot > T(0))) {
+      continue;
+    }
     const T gain = c * entry / pivot;
     c *= diagonal[column] / pivot;
     diagonal[column] = pivot;
