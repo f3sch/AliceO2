@@ -5187,7 +5187,7 @@ class CompleteAnatomy
     CovarianceFactors factors;
     Scalar chi2 = 0.F;
     // The pass's reference momentum (`startPass`).
-    Scalar reference = seed.qOverP();
+    o2::gtrk::detail::PassReference reference{.qOverP = seed.qOverP()};
     int kinks = 0;
     for (int step = 1; step < n; ++step) {
       const int index = n - 1 - step;
@@ -5197,8 +5197,13 @@ class CompleteAnatomy
       covarianceFromFactors(starting ? start.star : factors, out.before.cov);
       const Scalar before = chi2;
       // The start (`startPass`), then the filter.
-      auto status = starting ? o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, start, chi2, reference)
-                             : o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, factors, chi2, reference, budget, step < n - 1, kinks);
+      const Scalar stepReference = o2::gtrk::detail::referenceFor(propagator, geometry, chain, n, index, PropagationDirection::kBackward, reference);
+      Scalar carried = stepReference;
+      auto status = starting ? o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, start, chi2, carried)
+                             : o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], PropagationDirection::kBackward, state, factors, chi2, carried, budget, step < n - 1, kinks);
+      if (status == PropagationStatus::kOk) {
+        o2::gtrk::detail::advanceReference(reference, n, PropagationDirection::kBackward, stepReference, carried);
+      }
       if (status == PropagationStatus::kOk && starting && start.rank == 0) {
         factors = start.star;
       }
@@ -7029,7 +7034,7 @@ class CompleteAnatomy
     }
     Scalar chi2 = 0.F;
     // The pass's reference momentum (`startPass`).
-    Scalar reference = seed.qOverP();
+    o2::gtrk::detail::PassReference reference{.qOverP = seed.qOverP()};
     int kinks = 0;
     for (int step = 1; step < n; ++step) {
       const int index = first + (step * increment);
@@ -7043,14 +7048,17 @@ class CompleteAnatomy
         return out;
       }
       // The start (`startPass`), then the filter.
+      const Scalar stepReference = o2::gtrk::detail::referenceFor(propagator, geometry, chain, n, index, direction, reference);
+      Scalar carried = stepReference;
       if (start.rank > 0) {
-        if (o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], direction, state, start, chi2, reference) != PropagationStatus::kOk) {
+        if (o2::gtrk::detail::diffuseStep(stepProp, geometry, span, chain[index], direction, state, start, chi2, carried) != PropagationStatus::kOk) {
           return out;
         }
         factors = start.star;
-      } else if (o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], direction, state, factors, chi2, reference, budget, step < n - 1, kinks) != PropagationStatus::kOk) {
+      } else if (o2::gtrk::detail::kinkStep(stepProp, geometry, span, chain[index], direction, state, factors, chi2, carried, budget, step < n - 1, kinks) != PropagationStatus::kOk) {
         return out;
       }
+      o2::gtrk::detail::advanceReference(reference, n, direction, stepReference, carried);
     }
     return out;
   }

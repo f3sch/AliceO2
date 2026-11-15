@@ -300,7 +300,7 @@ GPUdi() PropagationStatus transportStep(const Prop& prop, const StepMaterial& st
 
 /// A filter step's prediction: \a state carried to \a measurement's plane,
 /// linearised about the filtered state's position and direction and the
-/// pass's reference momentum \a referenceQOverP (`startPass`). That point is
+/// pass's reference momentum \a referenceQOverP (PassReference). That point is
 /// propagated exactly, the Jacobian and the material -- the scattering and the
 /// mean energy loss with its straggling -- are taken along it, and the
 /// prediction adds the Jacobian's q/p column times the filtered q/p's
@@ -820,26 +820,79 @@ GPUdi() bool startDiffuse(const Measurement& measurement, BoundTrackState& state
   return c.star.diagonal[kLoc1] > 0.F && c.star.diagonal[kLoc0] > 0.F;
 }
 
+/// \a measurements without the one at \a skip, for a helix through the
+/// others (`leaveOneOutQOverP`).
+template <typename Chain>
+struct SkipChain {
+  const Chain* chain;
+  int skip;
+  GPUdi() auto operator[](int i) const { return (*chain)[i < skip ? i : i + 1]; }
+};
+
+/// The q/p of the helix through every measurement of the chain but the one
+/// at \a index (`makeChainSeed`), on the chain's first measurement.
+template <typename Prop, DetectorLayout Det, typename Chain>
+GPUdi() Scalar leaveOneOutQOverP(const Prop& prop, const TrackingGeometry<Det>& geometry, const Chain& measurements, int n, int index)
+{
+  return makeChainSeed(prop, geometry, SkipChain<Chain>{.chain = &measurements, .skip = index}, n - 1).qOverP();
+}
+
+/// A pass's reference momentum (`predictStep`) as the pass goes. Outward,
+/// the step to a measurement takes the helix through every other measurement
+/// of the chain (`leaveOneOutQOverP`), carried by \a lossScale, the energy
+/// loss's fraction of the momentum so far: a measurement then never sets the
+/// scattering its own step is tested with. A wrong measurement drawn into
+/// the helix bends it, and the low momentum's scattering would open the gate
+/// wide enough to take that measurement. A chain of the fewest measurements a
+/// pass takes leaves no helix without one of them; it, and the inward pass,
+/// take \a qOverP, the start state's q/p (the outward pass's end for the
+/// inward one) carried through the energy loss.
+struct PassReference {
+  Scalar qOverP = 0.F;
+  Scalar lossScale = 1.F;
+};
+
+/// Whether the pass over \a n measurements in \a direction takes the
+/// leave-one-out reference (PassReference).
+GPUdi() bool leavesOneOut(int n, PropagationDirection direction) { return direction == PropagationDirection::kForward && n > kPassStart; }
+
+/// The reference momentum of the step to the measurement at \a index
+/// (PassReference).
+template <typename Prop, DetectorLayout Det, typename Chain>
+GPUdi() Scalar referenceFor(const Prop& prop, const TrackingGeometry<Det>& geometry, const Chain& measurements, int n, int index, PropagationDirection direction, const PassReference& reference)
+{
+  return leavesOneOut(n, direction) ? leaveOneOutQOverP(prop, geometry, measurements, n, index) * reference.lossScale : reference.qOverP;
+}
+
+/// \a reference after a step that took \a before and carried it through its
+/// energy loss to \a after.
+GPUdi() void advanceReference(PassReference& reference, int n, PropagationDirection direction, Scalar before, Scalar after)
+{
+  if (!leavesOneOut(n, direction)) {
+    reference.qOverP = after;
+  } else if (before != 0.F) {
+    reference.lossScale *= after / before;
+  }
+}
+
 /// A pass's start, with nothing known but what its measurements determine
 /// (`startDiffuse`, then `diffuseStep`) until nothing is undetermined: the
 /// first fixes the position, the next two the direction and q/p, the third's
 /// second coordinate the first the chi2 tests -- three measurements, unless a
 /// coordinate carries no undetermined direction. Ends with \a state, its
 /// \a factors and \a chi2 on the last measurement it took, their count in
-/// \a taken, and the pass's reference momentum \a referenceQOverP there:
-/// \a state's q/p as the pass begins -- the seed's, a helix through every
-/// measurement for the outward pass, the outward pass's end for the inward
-/// one -- carried through the energy loss (`predictStep`). \a observe sees
-/// each measurement's increment. A pass whose measurements leave a direction
+/// \a taken, and the pass's \a reference momentum (PassReference) there,
+/// from \a state's q/p as the pass begins. \a observe sees each
+/// measurement's increment. A pass whose measurements leave a direction
 /// undetermined determines no state.
 template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer>
-GPUdi() PropagationStatus startPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, Scalar& referenceQOverP, int& taken, std::int16_t& failedMeasurement, const Observer& observe)
+GPUdi() PropagationStatus startPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, PassReference& reference, int& taken, std::int16_t& failedMeasurement, const Observer& observe)
 {
   const int first = direction == PropagationDirection::kForward ? 0 : n - 1;
   const int increment = direction == PropagationDirection::kForward ? 1 : -1;
   DiffuseFactors c;
   taken = 0;
-  referenceQOverP = state.qOverP();
+  reference = PassReference{.qOverP = state.qOverP()};
   if (n < kPassStart || !startDiffuse(measurements[first], state, c)) {
     failedMeasurement = static_cast<std::int16_t>(first);
     return PropagationStatus::kNotFinite;
@@ -850,11 +903,14 @@ GPUdi() PropagationStatus startPass(const Prop& prop, const TrackingGeometry<Det
     const int index = first + (taken * increment);
     const Scalar before = chi2;
     const auto& stepProp = stepPropagator(prop, geometry, measurements, index - increment, index);
-    const auto status = diffuseStep<Rule>(stepProp, geometry, material, measurements[index], direction, state, c, chi2, referenceQOverP);
+    const Scalar stepReference = referenceFor(prop, geometry, measurements, n, index, direction, reference);
+    Scalar carried = stepReference;
+    const auto status = diffuseStep<Rule>(stepProp, geometry, material, measurements[index], direction, state, c, chi2, carried);
     if (status != PropagationStatus::kOk) {
       failedMeasurement = static_cast<std::int16_t>(index);
       return status;
     }
+    advanceReference(reference, n, direction, stepReference, carried);
     observe(direction, index, chi2 - before);
   }
   if (c.rank != 0) {
@@ -880,7 +936,7 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
 
   BoundTrackState state = seed;
   CovarianceFactors factors;
-  Scalar reference = 0.F;
+  PassReference reference;
   int taken = 0;
   const auto started = startPass<Rule>(prop, geometry, material, measurements, n, direction, state, factors, chi2, reference, taken, failedMeasurement, observe);
   if (started != PropagationStatus::kOk) {
@@ -891,11 +947,14 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
     const Scalar before = chi2;
     const int kinksBefore = kinks;
     const auto& stepProp = stepPropagator(prop, geometry, measurements, index - increment, index);
-    const auto status = kinkStep<Rule>(stepProp, geometry, material, measurements[index], direction, state, factors, chi2, reference, budget, step < n - 1, kinks);
+    const Scalar stepReference = referenceFor(prop, geometry, measurements, n, index, direction, reference);
+    Scalar carried = stepReference;
+    const auto status = kinkStep<Rule>(stepProp, geometry, material, measurements[index], direction, state, factors, chi2, carried, budget, step < n - 1, kinks);
     if (status != PropagationStatus::kOk) {
       failedMeasurement = static_cast<std::int16_t>(index);
       return status;
     }
+    advanceReference(reference, n, direction, stepReference, carried);
     if (kinks != kinksBefore) {
       kinkMeasurement = static_cast<std::int16_t>(index);
     }
@@ -1036,7 +1095,7 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
   countWork(WorkCounter::kRoadStepsPossible, static_cast<std::uint64_t>(n - 1));
   // The start as `runPass` takes it, so that the kink gate, which reads the
   // increments, rounds as in the refit's outward pass.
-  Scalar reference = 0.F;
+  detail::PassReference reference;
   int taken = 0;
   std::int16_t failed = -1;
   if (detail::startPass<Rule>(prop, geometry, span, measurements, n, PropagationDirection::kForward, state, factors, result.chi2, reference, taken, failed, NoFitObserver{}) != PropagationStatus::kOk) {
@@ -1065,11 +1124,13 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
     }
     countWork(WorkCounter::kRoadSteps);
     const auto& stepProp = stepPropagator(prop, geometry, measurements, index - 1, index);
+    const Scalar stepReference = detail::referenceFor(prop, geometry, measurements, n, index, PropagationDirection::kForward, reference);
+    Scalar carried = stepReference;
     if constexpr (LastStepAllowance) {
       if (index == n - 1) {
         int taken = kinks;
         bool refused = false;
-        const auto status = detail::allowanceStep<Rule>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, reference, budget, lastStepScale, taken, refused);
+        const auto status = detail::allowanceStep<Rule>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, carried, budget, lastStepScale, taken, refused);
         if (status != PropagationStatus::kOk) {
           countWork(WorkCounter::kRoadPropagation);
           result.status = RoadFitStatus::kPropagationFailed;
@@ -1084,12 +1145,13 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
         continue;
       }
     }
-    const auto status = detail::kinkStep<Rule>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, reference, budget, index < n - 1, kinks);
+    const auto status = detail::kinkStep<Rule>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, carried, budget, index < n - 1, kinks);
     if (status != PropagationStatus::kOk) {
       countWork(WorkCounter::kRoadPropagation);
       result.status = RoadFitStatus::kPropagationFailed;
       return result;
     }
+    detail::advanceReference(reference, n, PropagationDirection::kForward, stepReference, carried);
   }
   result.kinks = static_cast<std::uint8_t>(kinks + allowed);
   covarianceFromFactors(factors, state.cov);
