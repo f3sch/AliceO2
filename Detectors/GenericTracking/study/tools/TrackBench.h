@@ -1109,7 +1109,12 @@ void writeCloneJoins(const std::string& path, const typename TrackRefit<Det>::Tr
           .secondCentre = secondCentre,
           .secondHalfWidth = 1.e4F,
         };
-        follow::predictedWindow<false>(propagator, parameters, geometry, material, state, factors, target, PropagationDirection::kForward, prediction, window, 1.F);
+        // The follow's step: no window, no search; its rows take the window's material.
+        detail::StepMaterial traversed;
+        if (!follow::predictedWindow<false>(propagator, parameters, geometry, material, state, factors, target, PropagationDirection::kForward, prediction, window, 1.F, nullptr, &traversed)) {
+          out << std::format("S {} nopred\n", static_cast<int>(target));
+          break;
+        }
         bool inWindow = false;
         std::uint32_t wrongPassing = 0U;
         Scalar wrongBest = std::numeric_limits<Scalar>::infinity();
@@ -1125,7 +1130,7 @@ void writeCloneJoins(const std::string& path, const typename TrackRefit<Det>::Tr
           BoundTrackState updated;
           CovarianceFactors updatedFactors;
           Scalar chi2 = 0.F;
-          if (follow::updateCandidate<false>(propagator, geometry, material, measurementAt(frame, candidate), PropagationDirection::kForward, state, factors, updated, updatedFactors, chi2, 1.F) && chi2 <= parameters.clusterChi2Max) {
+          if (follow::updateCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, measurementAt(frame, candidate), PropagationDirection::kForward, state, factors, updated, updatedFactors, chi2, 1.F) && chi2 <= parameters.clusterChi2Max) {
             ++wrongPassing;
             wrongBest = std::min(wrongBest, chi2);
           }
@@ -1133,7 +1138,7 @@ void writeCloneJoins(const std::string& path, const typename TrackRefit<Det>::Tr
         BoundTrackState updated;
         CovarianceFactors updatedFactors;
         Scalar chi2 = 0.F;
-        if (!follow::updateCandidate<false>(propagator, geometry, material, measurementAt(frame, row), PropagationDirection::kForward, state, factors, updated, updatedFactors, chi2, 1.F)) {
+        if (!follow::updateCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, measurementAt(frame, row), PropagationDirection::kForward, state, factors, updated, updatedFactors, chi2, 1.F)) {
           out << std::format("S {} noupdate {} {}\n", static_cast<int>(target), inWindow ? 1 : 0, wrongPassing);
           break;
         }

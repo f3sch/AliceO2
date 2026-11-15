@@ -295,24 +295,31 @@ class FollowAnatomy
     }
   }
 
-  /// The prediction of \a row from \a state and \a factors in \a direction:
-  /// the update's chi2, the two pulls on the row's own plane, the
-  /// prediction's two widths and the row's two errors; NaN where it fails.
+  /// The prediction of \a row from \a state and \a factors in \a direction,
+  /// as the follow's step makes it (its window's material,
+  /// `follow::windowMaterial`): the update's chi2, the two pulls on the row's
+  /// own plane, the prediction's two widths and the row's two errors; NaN
+  /// where it fails.
   [[nodiscard]] std::array<Scalar, 7> predict(const Context& context, const BoundTrackState& state, const CovarianceFactors& factors, std::uint32_t row, PropagationDirection direction) const
   {
     constexpr Scalar kNaN = std::numeric_limits<Scalar>::quiet_NaN();
     std::array<Scalar, 7> result{};
     result.fill(kNaN);
     const auto measurement = measurementAt(*context.frame, row);
+    detail::StepMaterial traversed;
+    if (!follow::windowMaterial(*context.propagator, *context.parameters, *context.geometry, *context.material, state, factors, context.geometry->planeOf(measurement).layer, direction, traversed)) {
+      return result;
+    }
+    const detail::GivenMaterial material{traversed};
     BoundTrackState updated;
     CovarianceFactors updatedFactors;
     Scalar chi2 = 0.F;
-    if (follow::updateCandidate<false>(*context.propagator, *context.geometry, *context.material, measurement, direction, state, factors, updated, updatedFactors, chi2, 1.F)) {
+    if (follow::updateCandidate<false>(*context.propagator, *context.geometry, material, measurement, direction, state, factors, updated, updatedFactors, chi2, 1.F)) {
       result[0] = chi2;
     }
     BoundTrackState predicted;
     CovarianceFactors predictedFactors;
-    if (follow::transportCandidate<false>(*context.propagator, *context.geometry, *context.material, context.geometry->planeOf(measurement), direction, state, factors, predicted, predictedFactors, 1.F)) {
+    if (follow::transportCandidate<false>(*context.propagator, *context.geometry, material, context.geometry->planeOf(measurement), direction, state, factors, predicted, predictedFactors, 1.F)) {
       covarianceFromFactors(predictedFactors, predicted.cov);
       result[1] = (measurement.loc0 - predicted.loc0()) / std::sqrt(predicted.variance(kLoc0) + measurement.varLoc0);
       result[2] = (measurement.loc1 - predicted.loc1()) / std::sqrt(predicted.variance(kLoc1) + measurement.varLoc1);
