@@ -1038,7 +1038,7 @@ class FollowStage
       CandidateWindow window;
       Scalar reach[2]{};
       detail::StepMaterial traversed;
-      if (!targetWindow<false>(state, factors, box, target, direction, 1.F, window, reach, traversed)) {
+      if (!targetWindow<false>(state, factors, box, target, direction, 1.F, window, reach, traversed, SoloGroup{})) {
         return {};
       }
       follow::Passing passing;
@@ -1325,9 +1325,11 @@ class FollowStage
   /// \a target: the track's time \a box, narrowed to the prediction
   /// (`follow::predictedWindow`, with \a Scaled the step's scattering scaled
   /// by \a scale), its \a reach and the material it crossed, \a traversed,
-  /// beside. False where the prediction fails.
-  template <bool Scaled>
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool targetWindow(const BoundTrackState& state, const CovarianceFactors& factors, const TimeEstPS& box, const follow::Target& target, PropagationDirection direction, Scalar scale, CandidateWindow& window, Scalar (&reach)[2], detail::StepMaterial& traversed) const
+  /// beside. False where the prediction fails. Every lane of \a group makes
+  /// the same window; they look its material up together
+  /// (`detail::GroupMaterial`).
+  template <bool Scaled, typename Group>
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool targetWindow(const BoundTrackState& state, const CovarianceFactors& factors, const TimeEstPS& box, const follow::Target& target, PropagationDirection direction, Scalar scale, CandidateWindow& window, Scalar (&reach)[2], detail::StepMaterial& traversed, const Group& group) const
   {
     Scalar phiCentre = 0.F;
     Scalar secondCentre = 0.F;
@@ -1341,7 +1343,12 @@ class FollowStage
       .secondCentre = secondCentre,
       .secondHalfWidth = follow::kOpenBound,
     };
-    return follow::predictedWindow<Scaled>(mPropagator, *mParameters, *mGeometry, *mMaterial, state, factors, target.layer, direction, target.prediction, window, scale, reach, &traversed);
+    if constexpr (Group::kLanes == 1U) {
+      return follow::predictedWindow<Scaled>(mPropagator, *mParameters, *mGeometry, *mMaterial, state, factors, target.layer, direction, target.prediction, window, scale, reach, &traversed);
+    } else {
+      const detail::GroupMaterial<Material, Group> material{.lut = mMaterial, .group = &group};
+      return follow::predictedWindow<Scaled>(mPropagator, *mParameters, *mGeometry, material, state, factors, target.layer, direction, target.prediction, window, scale, reach, &traversed);
+    }
   }
 
   /// The layers a step from \a state may reach in \a direction, into
@@ -1396,16 +1403,17 @@ class FollowStage
   /// \a search(target, window, traversed) with the material the window
   /// crossed, whether it found a row there; a target
   /// without one crossed in a sensor is a hole, counted on the branch, past
-  /// the iteration's holes the pass ends. Whether a search found a row.
-  template <typename Observer, typename Search>
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool overTargets(Branch& branch, const TimeEstPS& box, PropagationDirection direction, const follow::Target* targets, std::uint32_t nTargets, const Observer& observe, const Search& search) const
+  /// the iteration's holes the pass ends. Whether a search found a row. The
+  /// lanes of \a group make each window together (`targetWindow`).
+  template <typename Observer, typename Group, typename Search>
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool overTargets(Branch& branch, const TimeEstPS& box, PropagationDirection direction, const follow::Target* targets, std::uint32_t nTargets, const Observer& observe, const Group& group, const Search& search) const
   {
     for (std::uint32_t t = 0; t < nTargets; ++t) {
       const auto& target = targets[t]; // NOLINT(clang-analyzer-security.ArrayBound): nTargets <= maxDegree<Det> (`targetsOf`)
       CandidateWindow window;
       Scalar reach[2]{};
       detail::StepMaterial traversed;
-      if (!targetWindow<false>(branch.state, branch.factors, box, target, direction, 1.F, window, reach, traversed)) {
+      if (!targetWindow<false>(branch.state, branch.factors, box, target, direction, 1.F, window, reach, traversed, group)) {
         continue;
       }
       observe.target(target.layer, window);
@@ -1437,7 +1445,7 @@ class FollowStage
   template <typename Observer, typename Group>
   [[nodiscard]] GPUhdi() bool nominal(Branch& branch, const TimeEstPS& box, PropagationDirection direction, const follow::Target* targets, std::uint32_t nTargets, Child& child, bool& nearMiss, const Observer& observe, const Group& group) const
   {
-    return overTargets(branch, box, direction, targets, nTargets, observe, [&](const follow::Target& target, const CandidateWindow& window, const detail::StepMaterial& traversed) {
+    return overTargets(branch, box, direction, targets, nTargets, observe, group, [&](const follow::Target& target, const CandidateWindow& window, const detail::StepMaterial& traversed) {
       std::uint32_t passing = 0U;
       std::uint32_t firstLane = 0U; // \a child holds the first passing row on this lane
       Confirmed confirmed;
@@ -1503,7 +1511,7 @@ class FollowStage
   template <typename Group>
   [[nodiscard]] GPUhdi() bool witnessOf(Branch& branch, const TimeEstPS& box, PropagationDirection direction, const follow::Target* targets, std::uint32_t nTargets, follow::Witness& witness, WorkCounter counter, const Group& group) const
   {
-    return overTargets(branch, box, direction, targets, nTargets, follow::NoObserver{}, [&](const follow::Target& target, const CandidateWindow& window, const detail::StepMaterial& traversed) {
+    return overTargets(branch, box, direction, targets, nTargets, follow::NoObserver{}, group, [&](const follow::Target& target, const CandidateWindow& window, const detail::StepMaterial& traversed) {
       follow::Witness own;
       follow::visit<false, DecidesEnd>(
         context(), branch.state, branch.factors, 0.F, 0.F, target.layer, direction, window, traversed, 0U, 1.F, counter, group, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},
@@ -1565,7 +1573,7 @@ class FollowStage
       CandidateWindow window;
       Scalar reach[2]{};
       detail::StepMaterial traversed;
-      if (!targetWindow<true>(branch.state, branch.factors, box, target, direction, scale, window, reach, traversed)) {
+      if (!targetWindow<true>(branch.state, branch.factors, box, target, direction, scale, window, reach, traversed, group)) {
         continue;
       }
       Scalar bestScore = 0.F;
