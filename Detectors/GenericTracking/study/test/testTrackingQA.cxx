@@ -123,6 +123,18 @@ BOOST_AUTO_TEST_CASE(TheFindableAndTheIterationsThatFoundAndSeededThem)
   BOOST_TEST(material->origin == static_cast<std::uint8_t>(ParticleOrigin::kMaterial));
 }
 
+BOOST_AUTO_TEST_CASE(CompleteGoodTracks)
+{
+  const Toy toy;
+  // Particle 1 on two of its three layers, particle 2 on all three, a fake.
+  const TrackRows tracks{{0, 1}, {3, 4, 5}, {8, 5}};
+  const std::vector<TrackKinematics> kinematics{{.iteration = 0}, {.iteration = 0}, {.iteration = 0}};
+  const auto qa = trackingQA(toy.rows, toy.truth, tracks, kinematics, toy.seeded, {}, nullptr, 2, toy.settings);
+  BOOST_TEST(!qa.tracks[0].complete);
+  BOOST_TEST(qa.tracks[1].complete);
+  BOOST_TEST(!qa.tracks[2].complete);
+}
+
 BOOST_AUTO_TEST_CASE(FakesAndClonesInIterationOrder)
 {
   const Toy toy;
@@ -134,6 +146,9 @@ BOOST_AUTO_TEST_CASE(FakesAndClonesInIterationOrder)
   BOOST_TEST((!qa.tracks[1].fake && !qa.tracks[1].clone));
   BOOST_TEST((qa.tracks[2].fake && !qa.tracks[2].clone));
   BOOST_TEST((!qa.tracks[3].fake && !qa.tracks[3].clone));
+  // The fake's majority is particle 4, the first of the tie; row 5 is wrong.
+  BOOST_TEST(qa.tracks[2].wrongClusters == 1U);
+  BOOST_TEST((qa.tracks[0].wrongClusters == 0U && qa.tracks[1].wrongClusters == 0U && qa.tracks[3].wrongClusters == 0U));
   BOOST_TEST(qa.tracks[2].iteration == 0U);
   BOOST_TEST(qa.tracks[3].chi2 == 3.5F);
   BOOST_TEST(qa.tracks[3].ndf == 4);
