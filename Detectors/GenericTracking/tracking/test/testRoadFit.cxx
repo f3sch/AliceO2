@@ -378,9 +378,9 @@ BOOST_AUTO_TEST_CASE(TheLastStepTakesTheAllowanceNotAFreeDirection)
   // within the gate. A kink inside the allowance passes and frees no degree of
   // freedom; one far beyond it -- a wrong last cluster -- does not, where a
   // freed direction would take any.
-  // The scattering is taken at the filtered state's momentum, the chain's
-  // 1.5 GeV, not the whole-chain circle's 1.29 the kink itself bends
-  // 0.014 rad is inside the allowance there.
+  // The scattering is taken at the pass's reference momentum, the
+  // whole-chain circle's 1.29 GeV, which the kink itself bends below the
+  // chain's 1.5: 0.014 rad is inside the allowance there.
   constexpr UniformMaterial material{.x2X0PerCm = 0.01F, .rho = 0.F};
   auto iteration = parameters();
   const auto road = [&](const std::array<Measurement, kLayers>& chain) { return takesLastStepAllowance(iteration) ? fitRoad<true>(iteration, kPropagator, trackingGeometry(), material, chain.data(), static_cast<int>(kLayers)) : fitRoad<false>(iteration, kPropagator, trackingGeometry(), material, chain.data(), static_cast<int>(kLayers)); };
