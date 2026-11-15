@@ -9144,23 +9144,23 @@ class CompleteAnatomy
   std::vector<std::uint8_t> mTimed;
   /// The path order's outcome, [not in the class, the class][timed as the distance had it, reordered, kept, first row on a layer changed].
   std::array<std::array<std::size_t, 4>, 2> mPathCounts{};
-  std::string mPathLines;                                      ///< `pathReport`'s, the last iteration's
-  std::vector<std::vector<std::uint8_t>> mSeedStage;           ///< per iteration, per findable: a SeedStage
-  std::vector<std::uint8_t> mFurthest;                         ///< per findable: its furthest SeedStage over the iterations
-  std::vector<std::string> mRecordLoss;                        ///< per findable: `recordLosses`' verdict, its last record never selected
-  bool mKeepBeamLine = false;                                  ///< `keepBeamLine`
-  std::vector<BeamLineRow> mBeamLineRows;                      ///< `beamLineStudy`, every iteration
-  std::uint32_t mPairSample = 0U;                              ///< `keepPairLoss`; 0: no pair study
+  std::string mPathLines;                                                                ///< `pathReport`'s, the last iteration's
+  std::vector<std::vector<std::uint8_t>> mSeedStage;                                     ///< per iteration, per findable: a SeedStage
+  std::vector<std::uint8_t> mFurthest;                                                   ///< per findable: its furthest SeedStage over the iterations
+  std::vector<std::string> mRecordLoss;                                                  ///< per findable: `recordLosses`' verdict, its last record never selected
+  bool mKeepBeamLine = false;                                                            ///< `keepBeamLine`
+  std::vector<BeamLineRow> mBeamLineRows;                                                ///< `beamLineStudy`, every iteration
+  std::uint32_t mPairSample = 0U;                                                        ///< `keepPairLoss`; 0: no pair study
   std::map<std::tuple<std::uint32_t, std::size_t, std::uint8_t>, PairLossRow> mPairLoss; ///< `pairStudy`, by class particle, link and leg
-  bool mKeepFollowLoss = false;                                ///< `keepFollowLoss`
-  bool mKeepRetry = false;                                     ///< `keepRetry`
-  std::vector<RetryRow> mRetryRows;                            ///< `retryStudy`, every iteration
-  std::vector<std::size_t> mRetryCandidates;                   ///< per iteration: `retryStudy`'s freed pruned records
-  std::unordered_set<std::uint64_t> mGoodAtEnd;                ///< the particles with a good track after the last iteration seen
-  std::vector<FollowLossRow> mFollowLossRows;                  ///< `followLoss`, every iteration
-  std::unordered_map<std::uint32_t, std::string> mLastDropWhy; ///< per findable: the last verdict of `replayDropped`
-  std::vector<std::uint32_t> mMinClusters;                     ///< per iteration: its seeds' length
-  std::vector<std::map<std::string, std::size_t>> mDropped;    ///< per iteration: `replayDropped`'s lines
+  bool mKeepFollowLoss = false;                                                          ///< `keepFollowLoss`
+  bool mKeepRetry = false;                                                               ///< `keepRetry`
+  std::vector<RetryRow> mRetryRows;                                                      ///< `retryStudy`, every iteration
+  std::vector<std::size_t> mRetryCandidates;                                             ///< per iteration: `retryStudy`'s freed pruned records
+  std::unordered_set<std::uint64_t> mGoodAtEnd;                                          ///< the particles with a good track after the last iteration seen
+  std::vector<FollowLossRow> mFollowLossRows;                                            ///< `followLoss`, every iteration
+  std::unordered_map<std::uint32_t, std::string> mLastDropWhy;                           ///< per findable: the last verdict of `replayDropped`
+  std::vector<std::uint32_t> mMinClusters;                                               ///< per iteration: its seeds' length
+  std::vector<std::map<std::string, std::size_t>> mDropped;                              ///< per iteration: `replayDropped`'s lines
   /// `inwardStudy`'s: per kind and state, the truth
   /// comparisons; the passes replayed and those the replay did not
   /// reproduce; the failing passes from other seeds; the failing steps'

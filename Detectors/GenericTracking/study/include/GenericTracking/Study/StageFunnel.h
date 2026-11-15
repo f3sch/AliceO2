@@ -1531,7 +1531,7 @@ class StageFunnel
   std::vector<Particle> mParticles;
   std::vector<std::bitset<Det::layerLinks.size()>> mTakenLinks; ///< per iteration, the layout links it takes
   std::array<LayerSpan, Detector<Det>::nLayers> mSpans{};       ///< every layer's span, set at the first iteration
-  detail::TaskArena mArena; ///< lostPairReasons' threads: every core
+  detail::TaskArena mArena;                                     ///< lostPairReasons' threads: every core
   std::unordered_map<std::uint64_t, std::uint32_t> mIndex;
   std::vector<std::uint32_t> mRowOffsets;
   std::vector<std::uint32_t> mRowParticles;
