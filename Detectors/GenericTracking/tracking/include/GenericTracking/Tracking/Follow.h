@@ -40,7 +40,7 @@
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/SensorCells.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
-#include "GenericTracking/Tracking/TrackFitter.h"
+#include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Tracking/Trig.h"

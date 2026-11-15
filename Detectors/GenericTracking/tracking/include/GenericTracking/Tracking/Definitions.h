@@ -147,7 +147,7 @@ enum class FitPass : std::uint8_t { kNone = 0,
                                     kOutward,
                                     kInward };
 
-/// The road fit's outcome (TrackFitter.h, `fitOutward`): accepted, refused by
+/// The road fit's outcome (KFTrackFitter.h, `fitOutward`): accepted, refused by
 /// its cuts, or a propagation failed on the way.
 enum class RoadFitStatus : std::uint8_t { kAccepted = 0,
                                           kRejected,

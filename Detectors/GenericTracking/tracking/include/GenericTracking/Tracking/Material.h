@@ -66,7 +66,7 @@ GPUhdi() GPUAlwaysInline() Scalar highlandTheta0(Scalar x2X0, Scalar logX2X0, Sc
 /// O2's mean Bethe-Bloch for silicon, `o2::track::BetheBlochSolidOpt`, at
 /// \a betaGamma, in GeV / (g/cm^2): its constants and its arithmetic, for
 /// host and device alike, where O2's is device-only in a GPU translation
-/// unit. testTrackFitter.cxx's `TheEnergyLossIsO2s` holds it to O2's.
+/// unit. testKFTrackFitter.cxx's `TheEnergyLossIsO2s` holds it to O2's.
 GPUhdi() GPUAlwaysInline() Scalar betheBlochSolid(Scalar betaGamma)
 {
   constexpr Scalar kK = 0.307075e-3F; // [GeV cm^2 / g]

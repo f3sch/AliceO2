@@ -299,7 +299,7 @@ std::vector<LUTLayer> trkBands(int threads)
 ///
 /// The fit takes a step's material in two halves about its midpoint, the
 /// nearer half's kink at the stave the step leaves, the farther half's at the
-/// stave it reaches (TrackFitter.h, `StepMaterial`). A LUT layer holds its
+/// stave it reaches (KFTrackFitter.h, `StepMaterial`). A LUT layer holds its
 /// material evenly across its radii, so a band across the middle of a gap
 /// gives part of each stave's material to the other. The bands end at the
 /// middle of each gap between two layers' radii, where a step between them

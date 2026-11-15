@@ -49,7 +49,7 @@ struct SolenoidJacobian {
 
 /// A step's process noise, as variances, in the order a filter step adds it:
 /// the multiple scattering of the material nearer the surface left, before
-/// the transport, and that of the rest after it (TrackFitter.h,
+/// the transport, and that of the rest after it (KFTrackFitter.h,
 /// StepMaterial); then the energy-loss straggling on q/p.
 struct StepNoise {
   Scalar phiBefore = 0.F;   ///< theta0^2 / sin^2(theta) of the nearer half
@@ -180,7 +180,7 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
 /// Analytic Jacobian of a propagation, evaluated at the state it propagates.
 ///
 /// The caller chooses the linearisation state -- the fit its filtered state
-/// (TrackFitter.h, `predictStep`); this routine returns the exact propagated
+/// (KFTrackFitter.h, `predictStep`); this routine returns the exact propagated
 /// state and its Jacobian there.
 ///
 /// The derivation, for a uniform Bz. With `b = Bz * B2C` and `kp = (q/p) b`,

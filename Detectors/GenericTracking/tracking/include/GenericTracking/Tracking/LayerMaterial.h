@@ -14,7 +14,7 @@
 ///
 /// Host-side setup, once per run: the averages the pair cuts and search
 /// windows are set up from; the fit and the follow query the LUT itself
-/// (TrackFitter.h, Follow.h). A layer's budget is the
+/// (KFTrackFitter.h, Follow.h). A layer's budget is the
 /// average `x/X0` of segments crossing it at normal incidence, from half-way
 /// to the layer inside it to half-way to the layer outside, so that all
 /// material between layers is attributed to the nearer one -- except a
