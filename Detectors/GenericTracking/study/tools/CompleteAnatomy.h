@@ -4318,7 +4318,7 @@ class CompleteAnatomy
             return out;
           }
           const LayerID layer = mTruth->rows[row].layer;
-          const auto taken = oneStep(row, step->state, step->factors, direction, frame, geometry, material, propagator);
+          const auto taken = oneStep(row, step->state, step->factors, direction, parameters, frame, geometry, material, propagator);
           out.chi2 = taken.valid ? taken.chi2 : -1.;
           out.sqrtDet = taken.valid ? taken.sqrtDet : -1.;
           out.floatDet = taken.valid ? taken.floatDet : -1.;
@@ -4411,7 +4411,7 @@ class CompleteAnatomy
               const auto fit = fitOf(rest);
               if (fit.status == PropagationStatus::kOk) {
                 const auto& state = outward ? fit.outwardState : fit.state;
-                const auto at = oneStep(last, state, factorCovariance(state.cov), direction, frame, geometry, material, propagator);
+                const auto at = oneStep(last, state, factorCovariance(state.cov), direction, parameters, frame, geometry, material, propagator);
                 lastEvidence.rest = at.valid ? at.chi2 : -1.;
                 if (!outward) {
                   lastEvidence.beamWithout = beamOf(fit, rest.front());
@@ -4425,7 +4425,7 @@ class CompleteAnatomy
                 const auto& fit = all();
                 if (fit.status == PropagationStatus::kOk) {
                   const auto& state = outward ? fit.outwardState : fit.state;
-                  const auto at = oneStep(walk.dropped, state, factorCovariance(state.cov), direction, frame, geometry, material, propagator);
+                  const auto at = oneStep(walk.dropped, state, factorCovariance(state.cov), direction, parameters, frame, geometry, material, propagator);
                   droppedEvidence.rest = at.valid ? at.chi2 : -1.;
                   if (!outward) {
                     std::vector<std::uint32_t> with{walk.dropped};
@@ -4480,7 +4480,7 @@ class CompleteAnatomy
             for (std::size_t s = 0; s < walk.steps.size(); ++s) {
               const auto& step = walk.steps[s];
               const auto referenced = [&](std::uint32_t row) {
-                const auto update = oneStep(row, step.state, step.factors, PropagationDirection::kBackward, frame, geometry, material, propagator, &parameters);
+                const auto update = oneStep(row, step.state, step.factors, PropagationDirection::kBackward, parameters, frame, geometry, material, propagator, &parameters);
                 return update.valid ? update.chi2 : -2.;
               };
               const auto bestOther = [&](std::uint32_t besides) {
@@ -5048,7 +5048,11 @@ class CompleteAnatomy
       BoundTrackState output;
       CovarianceFactors outputFactors;
       Scalar chi2 = 0.F;
-      if (inner.status != RoadFitStatus::kAccepted || !follow::updateCandidate<false>(propagator, geometry, material, measurementAt(frame, outer), PropagationDirection::kForward, inner.state, factorCovariance(inner.state.cov), output, outputFactors, chi2, 1.F)) {
+      // The follow's step to the outer row's layer: its window's material.
+      detail::StepMaterial traversed;
+      if (inner.status != RoadFitStatus::kAccepted ||
+          !follow::windowMaterial(propagator, parameters, geometry, material, inner.state, factorCovariance(inner.state.cov), geometry.planeOf(measurementAt(frame, outer)).layer, PropagationDirection::kForward, traversed) ||
+          !follow::updateCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, measurementAt(frame, outer), PropagationDirection::kForward, inner.state, factorCovariance(inner.state.cov), output, outputFactors, chi2, 1.F)) {
         ++unfitted[population];
         continue;
       }
@@ -5063,7 +5067,7 @@ class CompleteAnatomy
       // The same step with its scattering scaled by the allowance, as the
       // follow's kink step takes it, against the follow's gate.
       Scalar scaled = 0.F;
-      if (follow::updateCandidate<true>(propagator, geometry, material, measurementAt(frame, outer), PropagationDirection::kForward, inner.state, factorCovariance(inner.state.cov), output, outputFactors, scaled, std::sqrt(parameters.kinkScale2))) {
+      if (follow::updateCandidate<true>(propagator, geometry, detail::GivenMaterial{traversed}, measurementAt(frame, outer), PropagationDirection::kForward, inner.state, factorCovariance(inner.state.cov), output, outputFactors, scaled, std::sqrt(parameters.kinkScale2))) {
         ++scaledChi2s[population][binOf(scaled)];
         scaledPass[population] += scaled <= parameters.clusterChi2Max ? 1U : 0U;
       }
@@ -5938,6 +5942,9 @@ class CompleteAnatomy
               auto& tally = local[std::format("{} | {} | {} | {} | {} | core {}", followed.population, iteration.iteration, ptName, direction == PropagationDirection::kForward ? "outward" : "inward", layerGroupOf(target.layer, parameters), std::min<std::size_t>(core, 9U))];
               ++tally.targets;
               const double boxArea = windowArea(parameters, target.layer, target.window);
+              // The window's material, which its candidates take.
+              detail::StepMaterial traversed;
+              const bool windowed = follow::windowMaterial(propagator, parameters, geometry, material, step.state, step.factors, target.layer, direction, traversed);
               struct Seen {
                 std::uint32_t row;
                 double chi2;
@@ -5956,7 +5963,7 @@ class CompleteAnatomy
                 const auto at = measurementAt(frame, candidate.row);
                 BoundTrackState predicted;
                 CovarianceFactors factors;
-                if (!follow::transportCandidate<false>(propagator, geometry, material, geometry.planeOf(at), direction, step.state, step.factors, predicted, factors, 1.F)) {
+                if (!windowed || !follow::transportCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, geometry.planeOf(at), direction, step.state, step.factors, predicted, factors, 1.F)) {
                   continue;
                 }
                 covarianceFromFactors(factors, predicted.cov);
@@ -6470,7 +6477,7 @@ class CompleteAnatomy
       if (candidate.layer != layer || skip(candidate.row)) {
         continue;
       }
-      const auto one = oneStep(candidate.row, step.state, step.factors, direction, frame, geometry, material, propagator);
+      const auto one = oneStep(candidate.row, step.state, step.factors, direction, parameters, frame, geometry, material, propagator);
       const auto measurement = frame.measurement(candidate.row);
       outside += one.valid && one.chi2 > gate && spatiallyCompatible(window, measurement.phi, secondCoordinate<Det>(layer, measurement.r, measurement.z)) ? 1U : 0U;
     }
@@ -6479,12 +6486,14 @@ class CompleteAnatomy
   }
 
   template <typename Material>
-  [[nodiscard]] OneStep oneStep(std::uint32_t row, const BoundTrackState& state, const CovarianceFactors& factors, PropagationDirection direction, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const IterationParameters<Det>* beamLine = nullptr) const
+  [[nodiscard]] OneStep oneStep(std::uint32_t row, const BoundTrackState& state, const CovarianceFactors& factors, PropagationDirection direction, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const IterationParameters<Det>* beamLine = nullptr) const
   {
     const auto measurement = measurementAt(frame, row);
     BoundTrackState predicted;
     CovarianceFactors carried;
-    if (!follow::transportCandidate<false>(propagator, geometry, material, geometry.planeOf(measurement), direction, state, factors, predicted, carried, 1.F)) {
+    detail::StepMaterial traversed;
+    if (!follow::windowMaterial(propagator, parameters, geometry, material, state, factors, geometry.planeOf(measurement).layer, direction, traversed) ||
+        !follow::transportCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, geometry.planeOf(measurement), direction, state, factors, predicted, carried, 1.F)) {
       return {};
     }
     double floatDet = -1.;
@@ -6630,7 +6639,7 @@ class CompleteAnatomy
           double sqrtDet = 0.;
         };
         const auto alternative = [&](std::uint32_t row) {
-          const auto one = row == kNoRow ? OneStep{} : oneStep(row, step.state, step.factors, direction, frame, geometry, material, propagator);
+          const auto one = row == kNoRow ? OneStep{} : oneStep(row, step.state, step.factors, direction, parameters, frame, geometry, material, propagator);
           return Alternative{.valid = one.valid, .chi2 = one.chi2, .sqrtDet = one.sqrtDet};
         };
         const auto taken = alternative(step.choice);
@@ -7989,7 +7998,9 @@ class CompleteAnatomy
           auto& pulls = mine.pulls[direction][layer][ptBin];
           BoundTrackState predicted;
           CovarianceFactors predictedFactors;
-          if (!follow::transportCandidate<false>(propagator, geometry, material, plane, dir, state, stateFactors, predicted, predictedFactors, 1.F)) {
+          detail::StepMaterial traversed;
+          if (!follow::windowMaterial(propagator, parameters, geometry, material, state, stateFactors, plane.layer, dir, traversed) ||
+              !follow::transportCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, plane, dir, state, stateFactors, predicted, predictedFactors, 1.F)) {
             ++pulls.fails;
             if (mWalkCsv) {
               csv += std::format("{},{},{},{:.4f},{:.3f},{},{},{},1,0,0,0,0,0,0,0,0,0,{:.3f},{:.3f},{}\n", direction, iteration, particle, pt, eta, pdg, static_cast<int>(fromLayer), static_cast<int>(layer), static_cast<double>(local), static_cast<double>(upstream), onLayer);
@@ -8150,11 +8161,14 @@ class CompleteAnatomy
               }
             }
           }
-          // The follow's construction takes the row, whatever its chi2.
+          // The follow's construction takes the row, whatever its chi2, with
+          // its step's window material.
           BoundTrackState output;
           CovarianceFactors outputFactors;
           Scalar chi2 = 0.F;
-          if (!follow::updateCandidate<false>(propagator, geometry, material, measurement, PropagationDirection::kBackward, input, inputFactors, output, outputFactors, chi2, 1.F)) {
+          detail::StepMaterial traversed;
+          if (!follow::windowMaterial(propagator, parameters, geometry, material, input, inputFactors, plane.layer, PropagationDirection::kBackward, traversed) ||
+              !follow::updateCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, measurement, PropagationDirection::kBackward, input, inputFactors, output, outputFactors, chi2, 1.F)) {
             break;
           }
           input = output;
@@ -8595,7 +8609,9 @@ class CompleteAnatomy
     const auto plane = geometry.planeOf(measurement);
     BoundTrackState predicted;
     CovarianceFactors predictedFactors;
-    if (!follow::transportCandidate<false>(propagator, geometry, material, plane, PropagationDirection::kBackward, step.state, step.factors, predicted, predictedFactors, 1.F)) {
+    detail::StepMaterial traversed;
+    if (!follow::windowMaterial(propagator, parameters, geometry, material, step.state, step.factors, plane.layer, PropagationDirection::kBackward, traversed) ||
+        !follow::transportCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, plane, PropagationDirection::kBackward, step.state, step.factors, predicted, predictedFactors, 1.F)) {
       return;
     }
     covarianceFromFactors(predictedFactors, predicted.cov);

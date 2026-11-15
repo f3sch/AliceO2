@@ -165,6 +165,19 @@ GPUdi() StepMaterial stepMaterial(const SpanMaterial<Material>& material, const 
   return step;
 }
 
+/// A step's material known before the step, not looked up: a follow step's
+/// window's (`follow::predictedWindow`), for every candidate the window
+/// holds. They leave the window's state for the same layer and end within
+/// the window about its nominal crossing, so they cross what it crossed.
+struct GivenMaterial {
+  StepMaterial step;
+};
+
+GPUdi() StepMaterial stepMaterial(const GivenMaterial& material, const Scalar* /*start*/, const Scalar* /*end*/)
+{
+  return material.step;
+}
+
 /// The mass hypothesis's energy loss over a step's \a xRho [g/cm^2], O2's
 /// way: taken at \a state's momentum and applied to it, the straggling's q/p
 /// variance returned in \a varQOverP for the step's noise (StepNoise). Lost
