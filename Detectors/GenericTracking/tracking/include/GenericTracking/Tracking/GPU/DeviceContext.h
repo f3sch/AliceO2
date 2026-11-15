@@ -51,7 +51,9 @@ class DeviceContext
 {
  public:
   /// \a backend ("cuda" or "hip", in any case) on \a device, with one block
-  /// of each of \a blockBytes; std::runtime_error if it cannot be had.
+  /// of each of \a blockBytes; std::runtime_error if it cannot be had. A
+  /// block of 0 bytes is the whole device (all of its free memory but O2's
+  /// reserve); one such block at most.
   DeviceContext(std::string_view backend, int device, std::span<const std::size_t> blockBytes);
   /// On \a reconstruction, initialised by its owner: its backend, the device
   /// it selected. std::runtime_error if it cannot lend its pool: not a GPU, or
