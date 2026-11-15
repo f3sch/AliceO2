@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 
 /// \file TrackFitter.h
-/// \brief Independent outward and inward Kalman filters over a chain.
+/// \brief Independent outward and inward Kalman filters over a chain, each step linearised about its filtered state.
 
 #ifndef GTRK_TRACKING_TRACKFITTER_H_
 #define GTRK_TRACKING_TRACKFITTER_H_
@@ -286,71 +286,47 @@ GPUdi() PropagationStatus transportStep(const Prop& prop, const StepMaterial& st
 }
 
 /// A filter step's prediction: \a state carried to \a measurement's plane,
-/// linearised about \a reference -- the pass's reference trajectory on the
-/// surface the step leaves, not the filtered state. The reference is
-/// propagated exactly, with the mean energy loss, and the Jacobian, the
-/// material and the scattering are taken along it; the state is predicted as
-/// `f(reference) + F (state - reference)`, so the transport and its noise do
-/// not depend on the measurements the pass has taken. The propagated
-/// reference is \a nextReference, \a jacobian and \a noise what carries a
-/// covariance along (`transportFactors`). \a Scaled, the step's scattering
-/// theta0 is multiplied by \a noiseScale, both halves.
+/// linearised about itself -- the filtered state the step starts from, as
+/// ACTS's Kalman filter. The state is propagated exactly, with the mean
+/// energy loss, and the Jacobian, the material and the scattering are taken
+/// along it. A reference trajectory that the filter never corrects lies off a
+/// scattered track by the deflections taken since it started; the transport's
+/// second-order terms about it then bias the fitted angles of a low-momentum
+/// track, most where long steps reach planes across the track (discs), and
+/// fall short of the outer planes near its turning point. \a jacobian and
+/// \a noise are what carries a covariance along (`transportFactors`).
+/// \a Scaled, the step's scattering theta0 is multiplied by \a noiseScale,
+/// both halves.
 template <bool Scaled, CrossingRule Rule, DetectorLayout Det, typename Material, typename Prop>
-GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, const BoundTrackState& reference, BoundTrackState& nextReference, SolenoidJacobian& jacobian, StepNoise& noise, Scalar noiseScale)
+GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, SolenoidJacobian& jacobian, StepNoise& noise, Scalar noiseScale)
 {
-  BoundTrackState prediction = reference;
-  const auto& from = geometry.planeOf(prediction);
+  const auto& from = geometry.planeOf(state);
   const auto& to = geometry.planeOf(measurement);
 
   Scalar start[3]{};
-  surfaceToGlobal(from, prediction.loc0(), prediction.loc1(), start);
-  const Scalar leaving = prediction.theta();
+  surfaceToGlobal(from, state.loc0(), state.loc1(), start);
+  const Scalar leaving = state.theta();
   // An intersection just outside the sensor's active area is still the point
   // to update at: the cluster is there, so the track was. Bounds are for
   // searches, not fits (`jacobianAnalytic` takes kOutOfBounds).
-  const auto jacobianStatus = jacobianAnalytic<Scalar, Rule>(prop, prediction, from, to, direction, jacobian, &prediction);
+  const auto jacobianStatus = jacobianAnalytic<Scalar, Rule>(prop, state, from, to, direction, jacobian, &state);
   if (jacobianStatus != PropagationStatus::kOk) {
     return jacobianStatus;
   }
 
   Scalar end[3]{};
-  surfaceToGlobal(to, prediction.loc0(), prediction.loc1(), end);
+  surfaceToGlobal(to, state.loc0(), state.loc1(), end);
 
   const auto step = stepMaterial(material, start, end);
-  const Scalar momentum = 1.F / o2::gpu::GPUCommonMath::Abs(prediction.qOverP());
+  const Scalar momentum = 1.F / o2::gpu::GPUCommonMath::Abs(state.qOverP());
   // The nearer half before the transport (StepMaterial), at the direction on
   // the surface the step leaves; the farther half after it.
   const auto before = scatteringNoise(scaledTheta0<Scaled>(highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, momentum, prop.massGeV), noiseScale), leaving);
-  const auto noiseStatus = stepNoise<Scaled>(prop, step, momentum, before, direction, prediction, noise, noiseScale);
-  if (noiseStatus != PropagationStatus::kOk) {
-    return noiseStatus;
-  }
-
-  nextReference = prediction;
-  Scalar delta[kNBoundParams];
-  for (int i = 0; i < kNBoundParams; ++i) {
-    delta[i] = state.par[i] - reference.par[i];
-  }
-  o2::math_utils::detail::bringToPMPi<Scalar>(delta[kPhi]);
-  const Scalar* rows[3] = {jacobian.loc0, jacobian.loc1, jacobian.phi};
-  for (int i = 0; i < 3; ++i) {
-    for (int j = 0; j < kNBoundParams; ++j) {
-      prediction.par[i] += rows[i][j] * delta[j];
-    }
-  }
-  // The theta and q/p rows of the Jacobian are the identity.
-  prediction.par[kTheta] += delta[kTheta];
-  prediction.par[kQOverP] += delta[kQOverP];
-  state = prediction;
-  return PropagationStatus::kOk;
+  return stepNoise<Scaled>(prop, step, momentum, before, direction, state, noise, noiseScale);
 }
 
 /// One step of a filter pass: \a state predicted on \a measurement's plane
-/// (`predictStep`) and updated with it. The propagated reference, its
-/// position moved onto the measurement after the update (as O2's ITS fit
-/// shifts its reference to the cluster), is \a nextReference, the next
-/// step's: its direction and momentum stay the propagated ones, never
-/// updated by the filter. The covariance is \a factors, the pass's
+/// (`predictStep`) and updated with it. The covariance is \a factors, the pass's
 /// (CovarianceFactors): `state.cov` is neither read nor written. \a Scaled,
 /// the step's scattering theta0 is multiplied by \a noiseScale, both halves:
 /// the kink allowance's last step (`allowanceStep`); the nominal step is its
@@ -359,11 +335,11 @@ GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<D
 /// device: one copy for each instantiation, not one in every fit of every
 /// stage variant.
 template <bool Scaled = false, CrossingRule Rule = CrossingRule::kFirstAhead, DetectorLayout Det, typename Material, typename Prop>
-GPUdnii() PropagationStatus filterStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, const BoundTrackState& reference, BoundTrackState& nextReference, [[maybe_unused]] Scalar noiseScale = 1.F)
+GPUdnii() PropagationStatus filterStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, [[maybe_unused]] Scalar noiseScale = 1.F)
 {
   SolenoidJacobian jacobian;
   StepNoise noise;
-  const auto predicted = predictStep<Scaled, Rule>(prop, geometry, material, measurement, direction, state, reference, nextReference, jacobian, noise, noiseScale);
+  const auto predicted = predictStep<Scaled, Rule>(prop, geometry, material, measurement, direction, state, jacobian, noise, noiseScale);
   if (predicted != PropagationStatus::kOk) {
     return predicted;
   }
@@ -374,8 +350,6 @@ GPUdnii() PropagationStatus filterStep(const Prop& prop, const TrackingGeometry<
   if (!updateUsable(update, factors)) {
     return PropagationStatus::kNotFinite;
   }
-  nextReference.par[kLoc0] = measurement.loc0;
-  nextReference.par[kLoc1] = measurement.loc1;
   chi2 += update.chi2;
   return PropagationStatus::kOk;
 }
@@ -655,11 +629,11 @@ GPUdi() bool updateDiffuse(DiffuseFactors& c, const Measurement& measurement, Bo
 /// \a chi2 gets only what the update tests. Once P_inf is gone, \a c's
 /// factors are the pass's. Never inlined on the device.
 template <CrossingRule Rule = CrossingRule::kFirstAhead, DetectorLayout Det, typename Material, typename Prop>
-GPUdnii() PropagationStatus diffuseStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, DiffuseFactors& c, Scalar& chi2, const BoundTrackState& reference, BoundTrackState& nextReference)
+GPUdnii() PropagationStatus diffuseStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, DiffuseFactors& c, Scalar& chi2)
 {
   SolenoidJacobian jacobian;
   StepNoise noise;
-  const auto predicted = predictStep<false, Rule>(prop, geometry, material, measurement, direction, state, reference, nextReference, jacobian, noise, 1.F);
+  const auto predicted = predictStep<false, Rule>(prop, geometry, material, measurement, direction, state, jacobian, noise, 1.F);
   if (predicted != PropagationStatus::kOk) {
     return predicted;
   }
@@ -667,8 +641,6 @@ GPUdnii() PropagationStatus diffuseStep(const Prop& prop, const TrackingGeometry
   if (!updateDiffuse(c, measurement, state, chi2)) {
     return PropagationStatus::kNotFinite;
   }
-  nextReference.par[kLoc0] = measurement.loc0;
-  nextReference.par[kLoc1] = measurement.loc1;
   if (c.rank > 0) {
     o2::math_utils::detail::bringToPMPi<Scalar>(state.par[kPhi]);
     return PropagationStatus::kOk;
@@ -719,17 +691,16 @@ GPUdi() void freeDirection(const CovarianceFactors& factors, DiffuseFactors& c)
 /// increment is beyond the gate, taken again from the surface before with the
 /// direction freed (`freeDirection`), and counted in \a kinks: the
 /// measurement then determines the direction and adds nothing to the chi2.
-/// The reference is the step's either way (`filterStep`).
 template <CrossingRule Rule = CrossingRule::kFirstAhead, DetectorLayout Det, typename Material, typename Prop>
-GPUdi() PropagationStatus kinkStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, const KinkBudget& budget, bool followed, int& kinks, const BoundTrackState& reference, BoundTrackState& nextReference)
+GPUdi() PropagationStatus kinkStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, const KinkBudget& budget, bool followed, int& kinks)
 {
   if (kinks >= budget.max || !followed) {
-    return filterStep<false, Rule>(prop, geometry, material, measurement, direction, state, factors, chi2, reference, nextReference);
+    return filterStep<false, Rule>(prop, geometry, material, measurement, direction, state, factors, chi2);
   }
   const BoundTrackState keptState = state;
   const CovarianceFactors keptFactors = factors;
   const Scalar keptChi2 = chi2;
-  auto status = filterStep<false, Rule>(prop, geometry, material, measurement, direction, state, factors, chi2, reference, nextReference);
+  auto status = filterStep<false, Rule>(prop, geometry, material, measurement, direction, state, factors, chi2);
   if (status != PropagationStatus::kOk || !(chi2 - keptChi2 > budget.gate)) {
     return status;
   }
@@ -737,7 +708,7 @@ GPUdi() PropagationStatus kinkStep(const Prop& prop, const TrackingGeometry<Det>
   chi2 = keptChi2;
   DiffuseFactors freed;
   freeDirection(keptFactors, freed);
-  status = diffuseStep<Rule>(prop, geometry, material, measurement, direction, state, freed, chi2, reference, nextReference);
+  status = diffuseStep<Rule>(prop, geometry, material, measurement, direction, state, freed, chi2);
   if (status == PropagationStatus::kOk && freed.rank != 0) {
     status = PropagationStatus::kNotFinite;
   }
@@ -756,23 +727,23 @@ GPUdi() PropagationStatus kinkStep(const Prop& prop, const TrackingGeometry<Det>
 /// \a refused if the increment is still beyond the gate. It frees no
 /// parameter.
 template <CrossingRule Rule = CrossingRule::kFirstAhead, DetectorLayout Det, typename Material>
-GPUdi() PropagationStatus allowanceStep(const Propagator& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, const KinkBudget& budget, Scalar noiseScale, int& kinks, bool& refused, const BoundTrackState& reference, BoundTrackState& nextReference)
+GPUdi() PropagationStatus allowanceStep(const Propagator& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, const KinkBudget& budget, Scalar noiseScale, int& kinks, bool& refused)
 {
   refused = false;
   if (kinks >= budget.max) {
-    return filterStep<false, Rule>(prop, geometry, material, measurement, direction, state, factors, chi2, reference, nextReference);
+    return filterStep<false, Rule>(prop, geometry, material, measurement, direction, state, factors, chi2);
   }
   const BoundTrackState keptState = state;
   const CovarianceFactors keptFactors = factors;
   const Scalar keptChi2 = chi2;
-  auto status = filterStep<false, Rule>(prop, geometry, material, measurement, direction, state, factors, chi2, reference, nextReference);
+  auto status = filterStep<false, Rule>(prop, geometry, material, measurement, direction, state, factors, chi2);
   if (status != PropagationStatus::kOk || !(chi2 - keptChi2 > budget.gate)) {
     return status;
   }
   state = keptState;
   factors = keptFactors;
   chi2 = keptChi2;
-  status = filterStep<true, Rule>(prop, geometry, material, measurement, direction, state, factors, chi2, reference, nextReference, noiseScale);
+  status = filterStep<true, Rule>(prop, geometry, material, measurement, direction, state, factors, chi2, noiseScale);
   if (status == PropagationStatus::kOk) {
     ++kinks;
     refused = !(chi2 - keptChi2 <= budget.gate);
@@ -807,12 +778,12 @@ GPUdi() bool startDiffuse(const Measurement& measurement, BoundTrackState& state
 /// first fixes the position, the next two the direction and q/p, the third's
 /// second coordinate the first the chi2 tests -- three measurements, unless a
 /// coordinate carries no undetermined direction. Ends with \a state, its
-/// \a factors, \a chi2 and the next step's \a reference on the last
-/// measurement it took, their count in \a taken; \a observe sees each
+/// \a factors and \a chi2 on the last measurement it took, their count in
+/// \a taken; \a observe sees each
 /// measurement's increment. A pass whose measurements leave a direction
 /// undetermined determines no state.
 template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer>
-GPUdi() PropagationStatus startPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, BoundTrackState& reference, int& taken, std::int16_t& failedMeasurement, const Observer& observe)
+GPUdi() PropagationStatus startPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, int& taken, std::int16_t& failedMeasurement, const Observer& observe)
 {
   const int first = direction == PropagationDirection::kForward ? 0 : n - 1;
   const int increment = direction == PropagationDirection::kForward ? 1 : -1;
@@ -823,19 +794,16 @@ GPUdi() PropagationStatus startPass(const Prop& prop, const TrackingGeometry<Det
     return PropagationStatus::kNotFinite;
   }
   chi2 = 0.F;
-  reference = state;
   observe(direction, first, 0.F);
   for (taken = 1; taken < n && c.rank > 0; ++taken) {
     const int index = first + (taken * increment);
     const Scalar before = chi2;
     const auto& stepProp = stepPropagator(prop, geometry, measurements, index - increment, index);
-    BoundTrackState nextReference;
-    const auto status = diffuseStep<Rule>(stepProp, geometry, material, measurements[index], direction, state, c, chi2, reference, nextReference);
+    const auto status = diffuseStep<Rule>(stepProp, geometry, material, measurements[index], direction, state, c, chi2);
     if (status != PropagationStatus::kOk) {
       failedMeasurement = static_cast<std::int16_t>(index);
       return status;
     }
-    reference = nextReference;
     observe(direction, index, chi2 - before);
   }
   if (c.rank != 0) {
@@ -849,9 +817,9 @@ GPUdi() PropagationStatus startPass(const Prop& prop, const TrackingGeometry<Det
 /// A filter pass from \a seed over the chain: its start (`startPass`), then
 /// the filter. Its covariance is carried as factors from the first update to
 /// the last (CovarianceFactors) and written to \a result's `cov` once, at
-/// the end. Its reference trajectory starts from \a seed's values on the
-/// first measurement (`filterStep`); a kink is not tested before the start
-/// has determined the state.
+/// the end. \a seed's values are the point its first steps linearise about
+/// (`startPass`); a kink is not tested before the start has determined the
+/// state.
 template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer>
 GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, PropagationDirection direction, BoundTrackState seed, BoundTrackState& result, Scalar& chi2, std::int16_t& failedMeasurement, const KinkBudget& passBudget, int& kinks, std::int16_t& kinkMeasurement, const Observer& observe)
 {
@@ -861,9 +829,8 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
 
   BoundTrackState state = seed;
   CovarianceFactors factors;
-  BoundTrackState reference;
   int taken = 0;
-  const auto started = startPass<Rule>(prop, geometry, material, measurements, n, direction, state, factors, chi2, reference, taken, failedMeasurement, observe);
+  const auto started = startPass<Rule>(prop, geometry, material, measurements, n, direction, state, factors, chi2, taken, failedMeasurement, observe);
   if (started != PropagationStatus::kOk) {
     return started;
   }
@@ -872,13 +839,11 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
     const Scalar before = chi2;
     const int kinksBefore = kinks;
     const auto& stepProp = stepPropagator(prop, geometry, measurements, index - increment, index);
-    BoundTrackState nextReference;
-    const auto status = kinkStep<Rule>(stepProp, geometry, material, measurements[index], direction, state, factors, chi2, budget, step < n - 1, kinks, reference, nextReference);
+    const auto status = kinkStep<Rule>(stepProp, geometry, material, measurements[index], direction, state, factors, chi2, budget, step < n - 1, kinks);
     if (status != PropagationStatus::kOk) {
       failedMeasurement = static_cast<std::int16_t>(index);
       return status;
     }
-    reference = nextReference;
     if (kinks != kinksBefore) {
       kinkMeasurement = static_cast<std::int16_t>(index);
     }
@@ -889,11 +854,10 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
   return PropagationStatus::kOk;
 }
 
-/// The inward pass of `fitMeasurements`: from the outward pass's end state
-/// as its reference, as ACTS's reverse filter starts from the forward one's
-/// (the whole-chain helix carried there unfitted misses the outermost rows
-/// at low momentum), independent of the outward pass's; its values only, so
-/// no measurement counts twice.
+/// The inward pass of `fitMeasurements`: from the outward pass's end state,
+/// as ACTS's reverse filter starts from the forward one's (the whole-chain
+/// helix carried there unfitted misses the outermost rows at low momentum);
+/// its values only, so no measurement counts twice.
 template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer>
 GPUdi() void inwardPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, const KinkBudget& kinkBudget, const Observer& observe, TrackFitResult& fit)
 {
@@ -936,11 +900,11 @@ GPUdi() SpanMaterial<Material> spanMaterial(const TrackingGeometry<Det>& geometr
 /// Fit an ordered chain containing one measurement per logical layer.
 ///
 /// Neither pass takes a prior: each starts with what its own first
-/// measurements determine (`startPass`). The outward one linearises about a
+/// measurements determine (`startPass`). The outward one starts from a
 /// helix fitted through every measurement of the chain (`makeChainSeed`),
-/// the inward one about the outward filter's end state, as ACTS's reverse
-/// filter; each about a reference trajectory of its own, started there and
-/// never updated by its filter (`filterStep`). The inward filter takes no
+/// the inward one from the outward filter's end state, as ACTS's reverse
+/// filter; each step linearises about the filtered state it starts from
+/// (`filterStep`). The inward filter takes no
 /// covariance from the outward one, so no measurement's weight is counted
 /// twice in the returned state. Both take the scattering of the chain's span
 /// as a whole (`SpanMaterial`), as `fitInward` and `fitOutward` do.
@@ -1016,13 +980,12 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
   const auto span = detail::spanMaterial(geometry, material, measurements, n);
   CovarianceFactors factors;
   RoadFitResult result;
-  BoundTrackState reference;
   countWork(WorkCounter::kRoadStepsPossible, static_cast<std::uint64_t>(n - 1));
   // The start as `runPass` takes it, so that the kink gate, which reads the
   // increments, rounds as in the refit's outward pass.
   int taken = 0;
   std::int16_t failed = -1;
-  if (detail::startPass<Rule>(prop, geometry, span, measurements, n, PropagationDirection::kForward, state, factors, result.chi2, reference, taken, failed, NoFitObserver{}) != PropagationStatus::kOk) {
+  if (detail::startPass<Rule>(prop, geometry, span, measurements, n, PropagationDirection::kForward, state, factors, result.chi2, taken, failed, NoFitObserver{}) != PropagationStatus::kOk) {
     // The steps tried, the failing one included. Not a measurement of this
     // road (a negative or NaN chi2 would pass the cut below and rank
     // first): counted with the propagation failures.
@@ -1048,12 +1011,11 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
     }
     countWork(WorkCounter::kRoadSteps);
     const auto& stepProp = stepPropagator(prop, geometry, measurements, index - 1, index);
-    BoundTrackState nextReference;
     if constexpr (LastStepAllowance) {
       if (index == n - 1) {
         int taken = kinks;
         bool refused = false;
-        const auto status = detail::allowanceStep<Rule>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, budget, lastStepScale, taken, refused, reference, nextReference);
+        const auto status = detail::allowanceStep<Rule>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, budget, lastStepScale, taken, refused);
         if (status != PropagationStatus::kOk) {
           countWork(WorkCounter::kRoadPropagation);
           result.status = RoadFitStatus::kPropagationFailed;
@@ -1068,13 +1030,12 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
         continue;
       }
     }
-    const auto status = detail::kinkStep<Rule>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, budget, index < n - 1, kinks, reference, nextReference);
+    const auto status = detail::kinkStep<Rule>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, budget, index < n - 1, kinks);
     if (status != PropagationStatus::kOk) {
       countWork(WorkCounter::kRoadPropagation);
       result.status = RoadFitStatus::kPropagationFailed;
       return result;
     }
-    reference = nextReference;
   }
   result.kinks = static_cast<std::uint8_t>(kinks + allowed);
   covarianceFromFactors(factors, state.cov);
