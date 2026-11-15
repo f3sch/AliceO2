@@ -151,28 +151,30 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::size_t gpuArenaMB = 0U;
   bool hostReference = false;
   bool rebin = false;
-  bool followStops = false;        ///< --follow-stops
-  bool completeAnatomy = false;    ///< --complete-anatomy
-  std::string stepAnatomy;         ///< --step-anatomy: the CSV of the replayed steps
-  std::string truthWalk;           ///< --truth-walk: the CSV of the truth walks' steps
-  std::string fateOut;             ///< --fate-out: the CSV of every class particle's fate
-  std::string breakdown;           ///< --breakdown: where the last run's tracks sit, a JSON line
-  std::string breakdownParticles;  ///< --breakdown-particles: the same per particle of the class, a CSV
-  std::string breakdownPopulation; ///< --breakdown-population: the class's particles, primary, decay or v0
-  std::string inwardHistory;       ///< --inward-history: the CSV of the inward refit's states
-  std::string endDecisions;        ///< --end-decisions: the CSV of every follow walk's end
-  std::string endEdits;            ///< --end-edits: with it, the CSV of each track's truth-free end edits
-  int anatomyPdg = 0;              ///< --anatomy-pdg
-  bool anatomyFindable = false;    ///< --anatomy-findable
-  std::string anatomyBeamLine;     ///< --anatomy-beam-line
-  std::string anatomyFollowLoss;   ///< --anatomy-follow-loss
-  bool anatomyRetry = false;       ///< --anatomy-retry
-  std::string anatomyPairLoss;     ///< --anatomy-pair-loss
+  bool followStops = false;             ///< --follow-stops
+  bool completeAnatomy = false;         ///< --complete-anatomy
+  std::string stepAnatomy;              ///< --step-anatomy: the CSV of the replayed steps
+  std::string truthWalk;                ///< --truth-walk: the CSV of the truth walks' steps
+  std::string fateOut;                  ///< --fate-out: the CSV of every class particle's fate
+  std::string breakdown;                ///< --breakdown: where the last run's tracks sit, a JSON line
+  std::string breakdownParticles;       ///< --breakdown-particles: the same per particle of the class, a CSV
+  std::string breakdownPopulation;      ///< --breakdown-population: the class's particles, primary, decay or v0
+  std::string inwardHistory;            ///< --inward-history: the CSV of the inward refit's states
+  std::string endDecisions;             ///< --end-decisions: the CSV of every follow walk's end
+  std::string endEdits;                 ///< --end-edits: with it, the CSV of each track's truth-free end edits
+  int anatomyPdg = 0;                   ///< --anatomy-pdg
+  bool anatomyFindable = false;         ///< --anatomy-findable
+  std::string anatomyBeamLine;          ///< --anatomy-beam-line
+  std::string anatomyFollowLoss;        ///< --anatomy-follow-loss
+  std::string anatomyGsf;               ///< --anatomy-gsf
+  std::string anatomyGsfVariant;        ///< --anatomy-gsf-variant
+  bool anatomyRetry = false;            ///< --anatomy-retry
+  std::string anatomyPairLoss;          ///< --anatomy-pair-loss
   std::uint32_t anatomyPairSample = 1U; ///< --anatomy-pair-sample
-  int truthWalkIteration = -1;     ///< --truth-walk-iteration: the iteration of the truth walk (-1: the first holding the class's mask)
-  std::string hits;                ///< --hits: the MC hits (sgn_Hits<det>.root) the steps are held to
-  std::string ft3Hits;             ///< --ft3-hits: FT3's MC hits beside TRK's
-  std::string kine;                ///< --kine: the MC kinematics (sgn_Kine.root), the anatomy's clutter test
+  int truthWalkIteration = -1;          ///< --truth-walk-iteration: the iteration of the truth walk (-1: the first holding the class's mask)
+  std::string hits;                     ///< --hits: the MC hits (sgn_Hits<det>.root) the steps are held to
+  std::string ft3Hits;                  ///< --ft3-hits: FT3's MC hits beside TRK's
+  std::string kine;                     ///< --kine: the MC kinematics (sgn_Kine.root), the anatomy's clutter test
 };
 
 /// The lines of one section of an INI file, `[name]` excluded.
@@ -1703,6 +1705,12 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         throw std::runtime_error("--inward-history needs --hits");
       }
       completeAnatomy->openInwardHistory(options.inwardHistory);
+    }
+    if (!options.anatomyGsf.empty()) {
+      if (options.hits.empty()) {
+        throw std::runtime_error("--anatomy-gsf needs --hits");
+      }
+      completeAnatomy->openGsfOracle(options.anatomyGsf, options.anatomyGsfVariant);
     }
     if (!options.endDecisions.empty()) {
       completeAnatomy->openEndDecisions(options.endDecisions);

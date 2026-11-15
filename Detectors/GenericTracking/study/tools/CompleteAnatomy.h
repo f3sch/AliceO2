@@ -63,6 +63,7 @@
 #include "GenericTracking/Tracking/BeamConstraint.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Follow.h"
+#include "GenericTracking/Tracking/GSFTrackFitter.h"
 #include "GenericTracking/Tracking/NeighbourCut.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/SensorCells.h"
@@ -77,6 +78,7 @@
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/TrackingInput.h"
 
+#include "CommonConstants/PhysicsConstants.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/O2DatabasePDG.h"
 #include "Steer/MCKinematicsReader.h"
@@ -300,6 +302,25 @@ class CompleteAnatomy
                    "qOverP,charge,stepRoot\n";
   }
 
+  /// The CSV of the Gaussian-sum filter's oracle (`gsfOracle`), written at
+  /// the first iteration, once the rows are in path order.
+  /// \a variant: `acts` (the filter as built: ACTS's loss model, the default
+  /// K), `six` (ACTS's six components at every thickness, without its no-loss
+  /// and one-Gaussian thresholds), `k12` (twelve components kept).
+  void openGsfOracle(const std::string& csv, const std::string& variant)
+  {
+    if (variant != "acts" && variant != "six" && variant != "k12") {
+      throw std::runtime_error("--anatomy-gsf-variant: acts, six or k12, not " + variant);
+    }
+    mGsfVariant = variant;
+    mGsfCsv = std::make_unique<std::ofstream>(csv);
+    if (!*mGsfCsv) {
+      throw std::runtime_error("cannot write " + csv);
+    }
+    *mGsfCsv << "particle,pdg,pt,eta,n,k,layer,pass,x2X0,pTrue,qOverPTrue,legLoss,kfOk,kfQOverP,kfSigma,kfChi2,gsfOk,gsfQOverP,gsfSigma,gsfModeQOverP,gsfModeP,"
+                "gsfMedianP,gsfPit,gsfComponents,gsfM2LogL\n";
+  }
+
   /// The CSV of every follow walk's end, written after each iteration
   /// (`endDecisions`).
   void openEndDecisions(const std::string& csv)
@@ -464,6 +485,16 @@ class CompleteAnatomy
       mKinksDone = true;
       phases.kinks = seconds(clock, now());
       clock = now();
+    }
+    if (mGsfCsv && mPathOrdered && !mGsfDone) {
+      if (mGsfVariant == "six") {
+        gsfOracle<SixComponentLoss, kBetheHeitlerComponents>(frame, geometry, material, propagator);
+      } else if (mGsfVariant == "k12") {
+        gsfOracle<BetheHeitlerLoss, 12>(frame, geometry, material, propagator);
+      } else {
+        gsfOracle<BetheHeitlerLoss, BetheHeitlerLoss::kComponents>(frame, geometry, material, propagator);
+      }
+      mGsfDone = true;
     }
     if (mCells.empty()) {
       mCells = SensorCells<Det>(geometry);
@@ -5344,6 +5375,194 @@ class CompleteAnatomy
   /// `mChargeAgree`).
   static constexpr double kChargeSign = 1.;
 
+  /// The Gaussian-sum filter against the MC on the class's own legs
+  /// (plans/105 S2): for every class particle with its rows in path order,
+  /// its first leg's own rows, one a layer (the first), at most
+  /// `kMaxClusters`; the electron hypothesis's Kalman fit and Gaussian-sum
+  /// fit of every prefix of at least `kPassStart` rows, the outward pass's
+  /// end on its last row, and of every such suffix, the inward pass's end on
+  /// its first; against the MC momentum where the particle enters that row's
+  /// chip. One CSV line per row and pass: the truth, each fit's q/p and its
+  /// standard deviation, the mixture's mode, the probability integral
+  /// transform of the true q/p under the mixture's marginal.
+  /// S2's comparison loss model (`--anatomy-gsf-variant six`): ACTS's six
+  /// components at every thickness up to its range, none of its thresholds
+  /// below (no loss below 1e-4, one Gaussian below 0.002).
+  struct SixComponentLoss {
+    static constexpr int kComponents = kBetheHeitlerComponents;
+    static constexpr Scalar kMaxX2X0 = kBetheHeitlerMaxX2X0;
+    static int mixture(Scalar x2X0, BetheHeitlerComponent (&components)[kComponents])
+    {
+      if (!(x2X0 >= 0.F && x2X0 <= kMaxX2X0)) {
+        return 0;
+      }
+      if (x2X0 == 0.F) {
+        components[0] = {.weight = 1.F, .mean = 1.F, .variance = 0.F};
+        return 1;
+      }
+      const int range = x2X0 < o2::gtrk::detail::kBetheHeitlerRangeSplitX2X0 ? 0 : 1;
+      Scalar sum = 0.F;
+      for (int k = 0; k < kComponents; ++k) {
+        components[k] = {.weight = o2::gtrk::detail::logistic(o2::gtrk::detail::betheHeitlerPolynomial(range, k, 0, x2X0)),
+                         .mean = o2::gtrk::detail::logistic(o2::gtrk::detail::betheHeitlerPolynomial(range, k, 1, x2X0)),
+                         .variance = std::exp(o2::gtrk::detail::betheHeitlerPolynomial(range, k, 2, x2X0))};
+        sum += components[k].weight;
+      }
+      for (auto& component : components) {
+        component.weight /= sum;
+      }
+      return kComponents;
+    }
+  };
+
+  template <typename Loss, int K, typename Material>
+  void gsfOracle(const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& base)
+  {
+    Propagator prop = base;
+    prop.massGeV = static_cast<Scalar>(o2::constants::physics::MassElectron);
+    const auto nan = std::numeric_limits<double>::quiet_NaN();
+    // Each particle's leg, its truth and its planes' radiation, serially (the
+    // charge from ROOT's particle table); then the fits in parallel, each
+    // particle's lines into its own text, written in the particles' order.
+    struct Leg {
+      std::uint64_t particle = 0U;
+      std::vector<std::uint32_t> chain;
+      int charge = 0;
+      std::vector<double> pTrue;
+      std::vector<double> x2X0;
+      double legLoss = 0.;
+      std::string text;
+      double gsfSeconds = 0.;
+      double kfSeconds = 0.;
+      std::size_t fits = 0U;
+      std::size_t lines = 0U;
+    };
+    std::vector<Leg> legsToFit;
+    for (std::size_t index = 0; index < mFindable.size(); ++index) {
+      if (mLegs.empty() || mTimed[index] == 0U) {
+        continue;
+      }
+      Leg leg{.particle = mFindable[index]};
+      const auto& own = mRowsOf.at(leg.particle);
+      const auto& legs = mLegs[index];
+      std::uint64_t layers = 0U;
+      for (std::size_t k = 0; k < own.size() && leg.chain.size() < kMaxClusters; ++k) {
+        const auto bit = std::uint64_t{1} << mTruth->rows[own[k]].layer;
+        if (legs[k] == legs[0] && (layers & bit) == 0U) {
+          leg.chain.push_back(own[k]);
+          layers |= bit;
+        }
+      }
+      leg.charge = chargeOf(mTruth->particles.at(leg.particle).pdg);
+      if (static_cast<int>(leg.chain.size()) < detail::kPassStart || leg.charge == 0) {
+        continue;
+      }
+      leg.pTrue.assign(leg.chain.size(), nan);
+      for (std::size_t k = 0; k < leg.chain.size(); ++k) {
+        if (const auto* hit = segmentOfRow(leg.particle, frame, leg.chain[k]); hit != nullptr) {
+          leg.pTrue[k] = std::hypot(hit->momentum[0], hit->momentum[1], hit->momentum[2]);
+        }
+      }
+      leg.legLoss = 1. - (leg.pTrue.back() / leg.pTrue.front());
+      legsToFit.push_back(std::move(leg));
+    }
+    o2::gtrk::detail::parallelFor(*mArena, 0U, legsToFit.size(), 4, [&](std::size_t begin, std::size_t end) {
+      for (std::size_t i = begin; i < end; ++i) {
+        gsfOracleLeg<Loss, K>(legsToFit[i], frame, geometry, material, prop);
+      }
+    });
+    double gsfSeconds = 0.;
+    double kfSeconds = 0.;
+    std::size_t fits = 0U;
+    std::size_t lines = 0U;
+    for (const auto& leg : legsToFit) {
+      *mGsfCsv << leg.text;
+      gsfSeconds += leg.gsfSeconds;
+      kfSeconds += leg.kfSeconds;
+      fits += leg.fits;
+      lines += leg.lines;
+    }
+    std::cout << std::format("anatomy: the Gaussian-sum oracle ({}) fitted {} particles' legs, {} rows and passes; per fit (both passes, one thread) the Gaussian-sum fit {:.3f} ms, the Kalman fit {:.4f} ms\n",
+                             mGsfVariant, legsToFit.size(), lines, 1e3 * gsfSeconds / static_cast<double>(std::max<std::size_t>(fits, 1U)), 1e3 * kfSeconds / static_cast<double>(std::max<std::size_t>(fits, 1U)));
+  }
+
+  /// `gsfOracle`'s fits of one leg, its lines into \a leg's text.
+  template <typename Loss, int K, typename Leg, typename Material>
+  void gsfOracleLeg(Leg& leg, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& prop) const
+  {
+    const auto nan = std::numeric_limits<double>::quiet_NaN();
+    const auto& truth = mTruth->particles.at(leg.particle);
+    const auto& chain = leg.chain;
+    const int n = static_cast<int>(chain.size());
+    const RowChain<Det> whole{.frame = &frame, .rows = chain.data()};
+    leg.x2X0.resize(chain.size());
+    for (int k = 0; k < n; ++k) {
+      leg.x2X0[static_cast<std::size_t>(k)] = o2::gtrk::detail::gsf::planeRadiation(geometry, material, whole, n, k);
+    }
+    for (int k = 0; k < n; ++k) {
+      for (const auto direction : {PropagationDirection::kForward, PropagationDirection::kBackward}) {
+        const bool outward = direction == PropagationDirection::kForward;
+        const int first = outward ? 0 : k;
+        const int count = outward ? k + 1 : n - k;
+        const double pTrue = leg.pTrue[static_cast<std::size_t>(k)];
+        if (count < detail::kPassStart || std::isnan(pTrue)) {
+          continue;
+        }
+        const RowChain<Det> rows{.frame = &frame, .rows = chain.data() + first};
+        const auto kfStart = std::chrono::steady_clock::now();
+        const auto kalman = fitMeasurements(prop, geometry, material, rows, count);
+        const auto gsfStart = std::chrono::steady_clock::now();
+        const auto gsf = fitGaussianSum<Loss, K>(prop, geometry, material, rows, count);
+        const auto gsfEnd = std::chrono::steady_clock::now();
+        leg.kfSeconds += std::chrono::duration<double>(gsfStart - kfStart).count();
+        leg.gsfSeconds += std::chrono::duration<double>(gsfEnd - gsfStart).count();
+        ++leg.fits;
+        const bool kfOk = outward ? kalman.failedPass != FitPass::kOutward : kalman.status == PropagationStatus::kOk;
+        const auto& kf = outward ? kalman.outwardState : kalman.state;
+        const auto& pass = outward ? gsf.outward : gsf.inward;
+        const bool gsfOk = pass.status == PropagationStatus::kOk;
+        const double truthQOverP = static_cast<double>(leg.charge) * kChargeSign / pTrue;
+        // The q/p marginal's distribution function; the PIT at the truth, the
+        // median by bisection between the components' 8-sigma ends.
+        const auto cdf = [&](double u) {
+          double sum = 0.;
+          for (int c = 0; c < pass.mixture.size; ++c) {
+            const double m = pass.mixture.state[c].qOverP();
+            const double sigma = std::sqrt(static_cast<double>(pass.mixture.state[c].variance(kQOverP)));
+            sum += std::exp(static_cast<double>(pass.mixture.logWeight[c])) * 0.5 * std::erfc(-(u - m) / (sigma * std::numbers::sqrt2));
+          }
+          return sum;
+        };
+        double pit = nan;
+        double medianP = nan;
+        if (gsfOk) {
+          pit = cdf(truthQOverP);
+          double low = std::numeric_limits<double>::max();
+          double high = -std::numeric_limits<double>::max();
+          for (int c = 0; c < pass.mixture.size; ++c) {
+            const double m = pass.mixture.state[c].qOverP();
+            const double sigma = std::sqrt(static_cast<double>(pass.mixture.state[c].variance(kQOverP)));
+            low = std::min(low, m - (8. * sigma));
+            high = std::max(high, m + (8. * sigma));
+          }
+          for (int step = 0; step < 100 && high - low > 1e-12 * std::abs(high); ++step) {
+            const double middle = 0.5 * (low + high);
+            (cdf(middle) < 0.5 ? low : high) = middle;
+          }
+          medianP = 1. / std::abs(0.5 * (low + high));
+        }
+        leg.text += std::format("{},{},{:.5f},{:.4f},{},{},{},{},{:.5g},{:.6g},{:.6g},{:.5g},{},{:.6g},{:.4g},{:.4g},{},{:.6g},{:.4g},{:.6g},{:.6g},{:.6g},{:.5g},{},{:.5g}\n", leg.particle, truth.pdg,
+                                static_cast<double>(truth.pt), static_cast<double>(truth.eta), n, k, static_cast<int>(mTruth->rows[chain[static_cast<std::size_t>(k)]].layer),
+                                outward ? 0 : 1, leg.x2X0[static_cast<std::size_t>(k)], pTrue, truthQOverP, leg.legLoss, kfOk ? 1 : 0, kfOk ? static_cast<double>(kf.qOverP()) : nan,
+                                kfOk ? std::sqrt(static_cast<double>(kf.variance(kQOverP))) : nan, static_cast<double>(outward ? kalman.outwardChi2 : kalman.chi2), gsfOk ? 1 : 0,
+                                gsfOk ? static_cast<double>(pass.collapsed.qOverP()) : nan, gsfOk ? std::sqrt(static_cast<double>(pass.collapsed.variance(kQOverP))) : nan,
+                                gsfOk ? static_cast<double>(pass.qOverPMode) : nan, gsfOk ? static_cast<double>(pass.momentumMode) : nan, medianP, pit, pass.mixture.size,
+                                static_cast<double>(pass.minusTwoLogLikelihood));
+        ++leg.lines;
+      }
+    }
+  }
+
   /// One refit's inward pass against the truth: its states
   /// to the CSV and the tables by step, the pass from other seeds, both roots
   /// of a failing step on a barrel plane.
@@ -8919,6 +9138,9 @@ class CompleteAnatomy
   /// `ruleStudy`'s, per kind, rule and seed.
   std::array<std::array<std::array<RuleTally, kRuleSeedNames.size()>, kCrossingRules.size()>, kInwardKinds> mRuleTallies{};
   std::unique_ptr<std::ofstream> mInwardCsv;
+  std::unique_ptr<std::ofstream> mGsfCsv;
+  std::string mGsfVariant = "acts";
+  bool mGsfDone = false;
   std::unique_ptr<std::ofstream> mEndCsv;  ///< `endDecisions`' CSV
   std::unique_ptr<std::ofstream> mEditCsv; ///< and its end edits'
   std::array<std::array<std::size_t, 2>, kInwardKinds> mChargeAgree{};
