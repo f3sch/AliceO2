@@ -285,7 +285,8 @@ BOOST_AUTO_TEST_CASE(WithoutLossItIsTheKalmanFit)
 /// Every loss path enumerated: each plane the filter branches at -- the two
 /// the start leaves, the one after it and the last -- takes one chosen loss
 /// component, each path is filtered alone with the same steps (the diffuse
-/// start's, then the filter's), and its weight is the product of its loss
+/// start's, then the filter's; its reference q/p the seed's scaled with each
+/// loss), and its weight is the product of its loss
 /// weights and its measurements' likelihoods (the start's diffuse one). The
 /// unreduced filter (capacity for every path) holds exactly these paths, in
 /// the order of the branching, with the normalised weights.
@@ -322,6 +323,7 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
         state[path] = outward ? seed : gsf.outward.collapsed;
         logWeight[path] = 0.;
         Scalar chi2 = 0.F;
+        Scalar reference = state[path].qOverP(); // the pass's seed's, scaled with each loss
         detail::DiffuseFactors diffuse;
         BOOST_REQUIRE(detail::startDiffuse(measurements[first], state[path], diffuse));
         int plane = first;
@@ -329,8 +331,9 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
           const auto loss = lossOf(b);
           logWeight[path] += std::log(static_cast<double>(loss.weight));
           BOOST_REQUIRE(detail::gsf::applyLossDiffuse(loss, direction, state[path], diffuse));
+          reference *= detail::gsf::lossScale(loss, direction);
           Scalar density = 0.F;
-          BOOST_REQUIRE((detail::gsf::diffuseBranchStep<kRule>(chain.propagator, chain.tracking, span, measurements[plane + increment], direction, state[path], diffuse, chi2, density) == PropagationStatus::kOk));
+          BOOST_REQUIRE((detail::gsf::diffuseBranchStep<kRule>(chain.propagator, chain.tracking, span, measurements[plane + increment], direction, state[path], diffuse, chi2, reference, density) == PropagationStatus::kOk));
           logWeight[path] -= 0.5 * static_cast<double>(density);
         }
         BOOST_REQUIRE(diffuse.rank == 0);
@@ -339,9 +342,10 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
           const auto loss = lossOf(b);
           logWeight[path] += std::log(static_cast<double>(loss.weight));
           BOOST_REQUIRE(applyBetheHeitler(loss, direction, state[path], factors[path]));
+          reference *= detail::gsf::lossScale(loss, direction);
           if (b + 1 < kBranchings) {
             Scalar logLikelihood = 0.F;
-            BOOST_REQUIRE((detail::gsf::componentStep<kRule>(chain.propagator, chain.tracking, span, measurements[plane + increment], direction, state[path], factors[path], chi2, logLikelihood) == PropagationStatus::kOk));
+            BOOST_REQUIRE((detail::gsf::componentStep<kRule>(chain.propagator, chain.tracking, span, measurements[plane + increment], direction, state[path], factors[path], chi2, reference, logLikelihood) == PropagationStatus::kOk));
             logWeight[path] += logLikelihood;
           }
         }

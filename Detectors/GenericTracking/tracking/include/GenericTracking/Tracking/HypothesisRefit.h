@@ -214,6 +214,7 @@ GPUdi() HypothesisFit<K> refitWithHypothesis(const Propagator& base, const Track
       mixture.state[kept] = mixture.state[k];
       mixture.factors[kept] = mixture.factors[k];
       mixture.chi2[kept] = mixture.chi2[k];
+      mixture.reference[kept] = mixture.reference[k];
       ++kept;
     }
     mixture.size = kept;
