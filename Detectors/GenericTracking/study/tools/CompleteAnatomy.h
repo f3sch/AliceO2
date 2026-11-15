@@ -1841,7 +1841,7 @@ class CompleteAnatomy
       return;
     }
     static constexpr std::array<const char*, 6> kOutcome{"kept good", "kept, a fake", "short", "extension refused, short", "pT floor", "inward fit failed"};
-    std::map<std::uint32_t, std::array<std::size_t, 8>> byIteration; // outcomes, truncated, recovered
+    std::map<std::uint32_t, std::array<std::size_t, 8>> byIteration; // NOLINT(misc-const-correctness): written in a dependent call the check does not see; outcomes, truncated, recovered
     std::unordered_set<std::uint64_t> recovered;
     std::unordered_set<std::uint64_t> anyway;
     std::size_t fakes = 0U;
@@ -1869,7 +1869,7 @@ class CompleteAnatomy
       text += std::format("\n    {}: {} | {} | {} / {} / {} / {} / {} / {} | {} | {}", it, it < mRetryCandidates.size() ? mRetryCandidates[it] : 0U, selected, n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7]);
     }
     text += std::format("\n    distinct particles kept good: the run missed {}, found anyway {}; fakes {}", recovered.size(), anyway.size(), fakes);
-    std::map<std::string, std::size_t> kinds;
+    std::map<std::string, std::size_t> kinds; // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     for (const auto particle : recovered) {
       const auto found = mTruth->particles.find(particle);
       const auto* const origin = found == mTruth->particles.end() ? "unknown" : found->second.origin == study::ParticleOrigin::kPhysicalPrimary ? "physical primary"
@@ -5394,7 +5394,7 @@ class CompleteAnatomy
     static constexpr Scalar kMaxX2X0 = kBetheHeitlerMaxX2X0;
     static int mixture(Scalar x2X0, BetheHeitlerComponent (&components)[kComponents])
     {
-      if (!(x2X0 >= 0.F && x2X0 <= kMaxX2X0)) {
+      if (!(x2X0 >= 0.F && x2X0 <= kMaxX2X0)) { // NOLINT(readability-simplify-boolean-expr): a NaN thickness fails both comparisons
         return 0;
       }
       if (x2X0 == 0.F) {

@@ -227,7 +227,8 @@ GPUdi() void mergeInto(Scalar wa, Scalar wb, BoundTrackState& a, CovarianceFacto
     difference[i] = a.par[i] - b.par[i];
   }
   o2::math_utils::detail::bringToPMPi<Scalar>(difference[kPhi]);
-  constexpr int kColumns = (2 * kNBoundParams) + 1;
+  constexpr int kDifference = 2 * kNBoundParams; // the column of d
+  constexpr int kColumns = kDifference + 1;
   Scalar y[kNBoundParams][kColumns]{};
   Scalar w[kColumns]{};
   for (int k = 0; k < kNBoundParams; ++k) {
@@ -239,9 +240,9 @@ GPUdi() void mergeInto(Scalar wa, Scalar wb, BoundTrackState& a, CovarianceFacto
     y[k][kNBoundParams + k] = 1.F;
     w[k] = sa * fa.diagonal[k];
     w[kNBoundParams + k] = sb * fb.diagonal[k];
-    y[k][2 * kNBoundParams] = difference[k];
+    y[k][kDifference] = difference[k];
   }
-  w[2 * kNBoundParams] = sa * sb;
+  w[kDifference] = sa * sb;
   factorColumns(y, w, fa);
   // a's mean moves towards b's by b's share of the difference.
   for (int i = 0; i < kNBoundParams; ++i) {
@@ -350,15 +351,15 @@ GPUdi() void reduce(GSFMixture<N>& from, GSFMixture<K>& to)
 template <typename Loss, int K>
 GPUdi() bool takeRadiation(Scalar x2X0, PropagationDirection direction, GSFMixture<K>& mixture)
 {
-  constexpr int M = Loss::kComponents;
+  constexpr int kLoss = Loss::kComponents;
   const int parts = lossParts<Loss>(x2X0);
-  BetheHeitlerComponent loss[M];
+  BetheHeitlerComponent loss[kLoss];
   const int m = Loss::mixture(x2X0 / static_cast<Scalar>(parts), loss);
   if (m <= 0) {
     return false;
   }
   for (int part = 0; part < parts; ++part) {
-    GSFMixture<K * M> branched;
+    GSFMixture<K * kLoss> branched;
     for (int k = 0; k < mixture.size; ++k) {
       for (int j = 0; j < m; ++j) {
         const int slot = branched.size++;
@@ -468,7 +469,14 @@ struct DiffuseMixture {
   Scalar reference[Capacity]{}; ///< as `GSFMixture::reference`
 };
 
-GPUhdi() constexpr int power(int base, int exponent) { return exponent == 0 ? 1 : base * power(base, exponent - 1); }
+GPUhdi() constexpr int power(int base, int exponent)
+{
+  int result = 1;
+  for (int i = 0; i < exponent; ++i) {
+    result *= base;
+  }
+  return result;
+}
 
 /// The start's branches: every loss path over the planes a start of
 /// `kPassStart` rows leaves.
@@ -490,11 +498,11 @@ inline constexpr int kStartBranches = power(Loss::kComponents, kPassStart - 1);
 template <typename Loss, CrossingRule Rule, typename Prop, DetectorLayout Det, typename Material, typename Lut, typename Chain, int K>
 GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Lut& lut, const Chain& measurements, int n, PropagationDirection direction, BoundTrackState seed, GSFMixture<K>& mixture, int& taken, std::int16_t& failedMeasurement, Scalar& minusTwoLogLikelihood)
 {
-  constexpr int M = Loss::kComponents;
-  constexpr int S = kStartBranches<Loss>;
+  constexpr int kLoss = Loss::kComponents;
+  constexpr int kBranches = kStartBranches<Loss>;
   const int first = direction == PropagationDirection::kForward ? 0 : n - 1;
   const int increment = direction == PropagationDirection::kForward ? 1 : -1;
-  DiffuseMixture<S> branches;
+  DiffuseMixture<kBranches> branches;
   branches.size = 1;
   branches.state[0] = seed;
   branches.reference[0] = seed.qOverP(); // the pass's reference, as `startPass`'s
@@ -515,15 +523,15 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
     const int index = previous + increment;
     const Scalar x2X0 = planeRadiation(geometry, lut, measurements, n, previous);
     const int parts = lossParts<Loss>(x2X0);
-    BetheHeitlerComponent loss[M];
+    BetheHeitlerComponent loss[kLoss];
     const int m = Loss::mixture(x2X0 / static_cast<Scalar>(parts), loss);
     if (m <= 0) {
       failedMeasurement = static_cast<std::int16_t>(previous);
       return PropagationStatus::kNotFinite;
     }
     for (int part = 0; part < parts; ++part) {
-      if (branches.size * m <= S) {
-        DiffuseMixture<S> branched;
+      if (branches.size * m <= kBranches) {
+        DiffuseMixture<kBranches> branched;
         for (int b = 0; b < branches.size; ++b) {
           for (int j = 0; j < m; ++j) {
             const int slot = branched.size++;
@@ -578,7 +586,7 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
     failedMeasurement = static_cast<std::int16_t>(first + ((n - 1) * increment));
     return PropagationStatus::kNotFinite;
   }
-  GSFMixture<S> determined;
+  GSFMixture<kBranches> determined;
   determined.size = branches.size;
   for (int b = 0; b < branches.size; ++b) {
     determined.logWeight[b] = branches.logWeight[b];

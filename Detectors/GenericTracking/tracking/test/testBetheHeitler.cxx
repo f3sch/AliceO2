@@ -44,13 +44,15 @@ namespace
 std::vector<double> thicknesses()
 {
   std::vector<double> t;
-  for (double x = 2e-5; x < 0.2; x *= 1.25) {
+  double x = 2e-5;
+  while (x < 0.2) {
     t.push_back(x);
+    x *= 1.25;
   }
   for (const double edge : {1e-4, 0.002, 0.0999, 0.1, 0.1001, 0.2}) {
     t.push_back(edge);
   }
-  std::sort(t.begin(), t.end());
+  std::ranges::sort(t);
   return t;
 }
 
@@ -132,7 +134,7 @@ BOOST_AUTO_TEST_CASE(TheRankOneUpdateIsTheDenseSum)
   for (int trial = 0; trial < 200; ++trial) {
     const auto start = randomCovariance(rng);
     double cov[kBoundCovSize];
-    std::copy(start.begin(), start.end(), cov);
+    std::ranges::copy(start, cov);
     double upper[kBoundUpperSize];
     double diagonal[kNBoundParams];
     detail::factorUD(cov, upper, diagonal);
