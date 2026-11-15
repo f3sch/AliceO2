@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 
 /// \file TrackFitter.h
-/// \brief Independent outward and inward Kalman filters over a chain, each step linearised about its filtered state.
+/// \brief Independent outward and inward Kalman filters over a chain, each step linearised about its filtered state and the pass's reference momentum.
 
 #ifndef GTRK_TRACKING_TRACKFITTER_H_
 #define GTRK_TRACKING_TRACKFITTER_H_
@@ -299,25 +299,27 @@ GPUdi() PropagationStatus transportStep(const Prop& prop, const StepMaterial& st
 }
 
 /// A filter step's prediction: \a state carried to \a measurement's plane,
-/// linearised about itself -- the filtered state the step starts from, as
-/// ACTS's Kalman filter. The state is propagated exactly and the Jacobian and
-/// the material are taken along it. A reference trajectory that the filter
-/// never corrects lies off a scattered track by the deflections taken since
-/// it started; the transport's second-order terms about it then bias the
-/// fitted angles of a low-momentum track, most where long steps reach planes
-/// across the track (discs), and fall short of the outer planes near its
-/// turning point.
+/// linearised about the filtered state's position and direction and the
+/// pass's reference momentum \a referenceQOverP (`startPass`). That point is
+/// propagated exactly, the Jacobian and the material -- the scattering and the
+/// mean energy loss with its straggling -- are taken along it, and the
+/// prediction adds the Jacobian's q/p column times the filtered q/p's
+/// difference from the reference; the step's energy loss carries the
+/// reference to the plane reached.
 ///
-/// The material's momentum dependence -- the scattering and the mean energy
-/// loss with its straggling -- is taken at \a referenceQOverP, the pass's
-/// reference momentum (`startPass`), and the step's energy loss carries it to
-/// the plane reached. The filtered q/p is only as precise as the measurements
-/// taken so far: after a pass's start it rests on three, which on a weakly
+/// The position and direction are the filtered state's: a reference
+/// trajectory that the filter never corrects lies off a scattered track by
+/// the deflections taken since it started, and the transport's second-order
+/// terms about it then bias the fitted angles of a low-momentum track, most
+/// where long steps reach planes across the track (discs). The momentum is
+/// the reference's: the filtered q/p is only as precise as the measurements
+/// taken so far, and after a pass's start it rests on three, which on a weakly
 /// bending track (planes along the beam) leave it far from the particle's
-/// momentum, and scattering evaluated there misweights every measurement
-/// that follows. \a jacobian and \a noise are what carries a covariance
-/// along (`transportFactors`). \a Scaled, the step's scattering theta0 is
-/// multiplied by \a noiseScale, both halves.
+/// momentum. Propagated at that curvature, the prediction's second-order
+/// error goes into the fitted angles, and scattering evaluated there
+/// misweights every measurement that follows. \a jacobian and \a noise are
+/// what carries a covariance along (`transportFactors`). \a Scaled, the
+/// step's scattering theta0 is multiplied by \a noiseScale, both halves.
 template <bool Scaled, CrossingRule Rule, DetectorLayout Det, typename Material, typename Prop>
 GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, Scalar& referenceQOverP, SolenoidJacobian& jacobian, StepNoise& noise, Scalar noiseScale)
 {
@@ -327,6 +329,8 @@ GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<D
   Scalar start[3]{};
   surfaceToGlobal(from, state.loc0(), state.loc1(), start);
   const Scalar leaving = state.theta();
+  const Scalar dQOverP = state.qOverP() - referenceQOverP;
+  state.par[kQOverP] = referenceQOverP;
   // An intersection just outside the sensor's active area is still the point
   // to update at: the cluster is there, so the track was. Bounds are for
   // searches, not fits (`jacobianAnalytic` takes kOutOfBounds).
@@ -334,6 +338,9 @@ GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<D
   if (jacobianStatus != PropagationStatus::kOk) {
     return jacobianStatus;
   }
+  // The filtered q/p again, so that the energy loss's fraction at the
+  // reference (`stepNoise`) scales it too.
+  state.par[kQOverP] += dQOverP;
 
   Scalar end[3]{};
   surfaceToGlobal(to, state.loc0(), state.loc1(), end);
@@ -343,7 +350,15 @@ GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<D
   // The nearer half before the transport (StepMaterial), at the direction on
   // the surface the step leaves; the farther half after it.
   const auto before = scatteringNoise(scaledTheta0<Scaled>(highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, momentum, prop.massGeV), noiseScale), leaving);
-  return stepNoise<Scaled>(prop, step, momentum, before, direction, state, referenceQOverP, noise, noiseScale);
+  const auto status = stepNoise<Scaled>(prop, step, momentum, before, direction, state, referenceQOverP, noise, noiseScale);
+  if (status != PropagationStatus::kOk) {
+    return status;
+  }
+  // The theta row of the Jacobian is the identity.
+  state.par[kLoc0] += jacobian.loc0[kQOverP] * dQOverP;
+  state.par[kLoc1] += jacobian.loc1[kQOverP] * dQOverP;
+  state.par[kPhi] += jacobian.phi[kQOverP] * dQOverP;
+  return PropagationStatus::kOk;
 }
 
 /// One step of a filter pass: \a state predicted on \a measurement's plane
