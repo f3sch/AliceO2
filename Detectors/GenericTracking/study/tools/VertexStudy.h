@@ -506,7 +506,7 @@ class VertexStudy
     std::uint32_t sharedFirst = 1U;  ///< triplets with this one's first tracklet, itself included
     std::uint32_t sharedSecond = 1U; ///< the same for its second tracklet
     std::uint64_t particle = 0U;     ///< the particle on all three, 0 for none
-    double chi2RZ = 0.;              ///< the straight line's chi2 in r-z on the points' z errors (1 dof)
+    double chi2RZ = 0.;              ///< the vertexer's r-z kink chi2, its scattering at its own momentum (`vertexCandidate`)
     double dcaXY = 0.;               ///< the circle through the three points: its distance of closest approach to the beam axis [cm]
     double radius = 0.;              ///< and its radius [cm], infinite for a straight line: the transverse momentum's order
     StageFit fit{};                  ///< the vertexer's measure of it, for the replay
@@ -617,12 +617,6 @@ class VertexStudy
       }
       const double det = (sw * swr2) - (swr * swr);
       const double z0 = ((swr2 * swz) - (swr * swrz)) / det;
-      const double slope = ((sw * swrz) - (swr * swz)) / det;
-      double chi2 = 0.;
-      for (const auto row : triple) {
-        const double residual = static_cast<double>(columns.z[row]) - z0 - (slope * static_cast<double>(columns.r[row]));
-        chi2 += residual * residual / std::max(static_cast<double>(columns.varZ[row]), 1.e-12);
-      }
       // The circle through the three points in x-y, and its distance to the axis.
       const double ax = columns.x[triple[0]];
       const double ay = columns.y[triple[0]];
@@ -652,7 +646,7 @@ class VertexStudy
         .sigmaZ0 = std::sqrt(swr2 / det),
         .straddles = frameIndex(columns.timePS[triple[0]]) != frame || frameIndex(columns.timePS[triple[2]]) != frame,
       };
-      candidate.chi2RZ = chi2;
+      candidate.chi2RZ = fit.chi2RZ;
       candidate.dcaXY = dca;
       candidate.radius = radius;
       candidate.sharedFirst = firstShared.at({triple[0], triple[1]});
@@ -1686,28 +1680,39 @@ class VertexStudy
       }
       const auto at = [&](std::int64_t value) { return static_cast<std::size_t>(std::ranges::lower_bound(z, value) - z.begin()); };
       const auto isFree = [&](std::size_t k) { return claimedBy[kept[k]] < 0 && dropped[kept[k]] == 0U; };
-      // The triplets of \a list within \a half of \a centre.
-      // As the vertexer's ownership (`withinZ`).
-      const auto within = [&](const std::vector<std::size_t>& list, Scalar centre, std::int64_t half, const auto& body) {
-        const auto reach = static_cast<std::int64_t>(centre);
-        for (auto it = std::ranges::lower_bound(list, reach - half - 1, {}, zOf); it != list.end() && zOf(*it) <= reach + half + 1; ++it) {
-          if (withinZ(zOf(*it), centre, static_cast<Scalar>(half))) {
+      // A candidate's reach (`claimReach`), and the farthest of a list's.
+      const auto reachOf = [&](std::size_t i) { return claimReach(mCandidates[i].fit.weight, static_cast<Scalar>(claim), s.clipNSigma); };
+      const auto farthestOf = [&](const std::vector<std::size_t>& list) {
+        auto farthest = static_cast<Scalar>(claim);
+        for (const auto i : list) {
+          farthest = std::max(farthest, reachOf(i));
+        }
+        return farthest;
+      };
+      const Scalar farthestKept = farthestOf(kept);
+      // The triplets of \a list (by z, reaching \a farthest at most) within
+      // their reach of \a centre, as the vertexer's ownership.
+      const auto within = [&](const std::vector<std::size_t>& list, Scalar centre, Scalar farthest, const auto& body) {
+        for (auto it = std::ranges::lower_bound(list, static_cast<std::int64_t>(centre - farthest) - 1, {}, zOf); it != list.end() && static_cast<Scalar>(zOf(*it)) <= centre + farthest; ++it) {
+          if (withinZ(zOf(*it), centre, reachOf(*it))) {
             body(*it);
           }
         }
       };
+      const Scalar farthestSources = farthestOf(sources);
+      const Scalar farthestAccepted = farthestOf(accepted);
       // The earlier pass's vertices first -- their claims
       // taken, their sources' rows owned, the free candidates on those rows
       // dropped -- as rounds before the first.
       if (variant.prior) {
         if (const auto found = mPriorVertices.find(mFrameTimes[static_cast<std::size_t>(mCandidates[begin].frame)]); found != mPriorVertices.end()) {
           for (const auto prior : found->second) {
-            for (auto k = at(static_cast<std::int64_t>(prior) - claim - 1); k < m && static_cast<Scalar>(z[k]) <= prior + static_cast<Scalar>(claim); ++k) {
-              if (isFree(k) && withinZ(z[k], prior, static_cast<Scalar>(claim))) {
+            for (auto k = at(static_cast<std::int64_t>(prior - farthestKept) - 1); k < m && static_cast<Scalar>(z[k]) <= prior + farthestKept; ++k) {
+              if (isFree(k) && withinZ(z[k], prior, reachOf(kept[k]))) {
                 dropped[kept[k]] = 1U;
               }
             }
-            within(sources, prior, claim, [&](std::size_t i) {
+            within(sources, prior, farthestSources, [&](std::size_t i) {
               for (const auto row : mCandidates[i].triple) {
                 if (rowPrior[row] == 0U) {
                   rowPrior[row] = 1U;
@@ -1779,9 +1784,8 @@ class VertexStudy
         std::vector<std::size_t> claimedIndex;
         std::uint32_t earliest = std::numeric_limits<std::uint32_t>::max();
         std::uint32_t latest = 0U;
-        for (auto k = at(static_cast<std::int64_t>(centre) - claim - 1); k < m && static_cast<Scalar>(z[k]) <= centre + static_cast<Scalar>(claim); ++k) {
-          const Scalar distance = static_cast<Scalar>(z[k]) > centre ? static_cast<Scalar>(z[k]) - centre : centre - static_cast<Scalar>(z[k]);
-          if (!isFree(k) || distance > static_cast<Scalar>(claim)) {
+        for (auto k = at(static_cast<std::int64_t>(centre - farthestKept) - 1); k < m && static_cast<Scalar>(z[k]) <= centre + farthestKept; ++k) {
+          if (!isFree(k) || !withinZ(z[k], centre, reachOf(kept[k]))) {
             continue;
           }
           const auto& fit = mCandidates[kept[k]].fit;
@@ -1838,14 +1842,14 @@ class VertexStudy
           reused += std::ranges::any_of(mCandidates[i].triple, [&](std::uint32_t row) { return rowSeen[row] != 0U; }) ? 1U : 0U;
         }
         vertex.reuse = vertex.contributors == 0U ? 0. : static_cast<double>(reused) / static_cast<double>(vertex.contributors);
-        within(accepted, centre, claim, [&](std::size_t i) {
+        within(accepted, centre, farthestAccepted, [&](std::size_t i) {
           for (const auto row : mCandidates[i].triple) {
             rowSeen[row] = 1U;
             touched.push_back(row);
           }
         });
         // The ownership, and the free candidates it drops.
-        within(sources, centre, claim, [&](std::size_t i) {
+        within(sources, centre, farthestSources, [&](std::size_t i) {
           for (const auto row : mCandidates[i].triple) {
             if (rowOwner[row] < 0) {
               rowOwner[row] = id;

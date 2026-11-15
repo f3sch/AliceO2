@@ -156,8 +156,8 @@ static int run(int argc, char** argv)
     ("funnel", bpo::bool_switch(&options.funnel), "the last run's stage funnel of the findable against the truth (observers; they add to the time)") //
     ("beam-width", bpo::value(&options.beamWidthCM)->default_value(0.),
      "the beam's transverse width the windows and the vertexer take [cm], instead of the dump's beam line's; 0 for the dump's") //
-    ("vertex-study", bpo::value(&options.vertexStudy)->default_value(-1),
-     "the last run's iteration whose triplets the vertex study takes, its vertexer against the truth and its replay; -1 for none") //
+    ("vertex-study", bpo::bool_switch(&options.vertexStudy),
+     "the vertex study on the last run's vertexing pass (GTRKReco<DET>.vertexer): its vertexer against the truth and its replay") //
     ("vertices-only", bpo::bool_switch(&options.verticesOnly),
      "the vertexing pass alone (GTRKReco<DET>.vertexer), no tracking: every run timed, the first's vertices against the MC collisions") //
     ("score-sources", bpo::value(&options.scoreSources)->multitoken(),

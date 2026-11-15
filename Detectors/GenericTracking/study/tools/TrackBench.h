@@ -112,7 +112,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   bool iterationTrees = false;
   bool digestStages = false;
   bool funnel = false;
-  int vertexStudy = -1;
+  bool vertexStudy = false;
   bool verticesOnly = false;     ///< --vertices-only: the vertexing pass alone, its vertices against the truth
   std::vector<int> scoreSources; ///< --score-sources: the score again over these MC sources' particles only; empty for none
   double beamWidthCM = 0.;       ///< --beam-width: the beam's transverse width the windows take, instead of the dump's
@@ -1597,16 +1597,37 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     throw std::runtime_error("--funnel needs the MC truth");
   }
   std::optional<study::StageFunnel<Det, Controller>> funnel;
-  // --vertex-study: the vertexer on one iteration's triplets against the
-  // truth, and its replay (VertexStudy.h).
-  if (options.vertexStudy >= 0 && (!truth || device || std::cmp_greater_equal(options.vertexStudy, settings.size()))) {
-    throw std::runtime_error("--vertex-study needs the MC truth, the host tracker and one of the configured iterations");
+  // --vertex-study: the vertexer on the vertexing pass's triplets against
+  // the truth, and its replay (VertexStudy.h).
+  if (options.vertexStudy && (!truth || device || vertexing == nullptr)) {
+    throw std::runtime_error("--vertex-study needs the MC truth, the host tracker and GTRKReco<DET>.vertexer");
   }
   std::optional<study::VertexStudy<Det, Controller>> vertexStudy;
+  if (options.vertexStudy) {
+    vertexing->setSliceObserver([&](const Controller& observed, const typename Controller::SliceObservation& slice) {
+      if (vertexStudy) {
+        vertexStudy->observeSlice(observed, slice);
+      }
+    });
+  }
+  const auto reportVertexStudy = [&] {
+    for (const auto& line : vertexStudy->report()) {
+      std::cout << line << '\n';
+    }
+    if (!options.vertexList.empty()) {
+      vertexStudy->writeStageVertices(options.vertexList);
+      std::cout << std::format("the vertexer's vertices written to {}\n", options.vertexList);
+    }
+    if (!options.vertexReplay.empty()) {
+      vertexStudy->writeReplay(options.vertexReplay);
+      std::cout << std::format("the replay's lists written to {}-{{vertices,collisions,dropped}}.csv and {}-owned.txt\n", options.vertexReplay, options.vertexReplay);
+    }
+    std::cout << std::format("peak RSS {:.2f} GB\n", static_cast<double>(maxRssBytes()) / 1.e9);
+  };
   if (options.verticesOnly && (!truth || device || !param.vertexer)) {
     throw std::runtime_error("--vertices-only needs the MC truth, the host and GTRKReco<DET>.vertexer");
   }
-  if (options.digestStages || !options.fitInputs.empty() || options.funnel || options.vertexStudy >= 0) {
+  if (options.digestStages || !options.fitInputs.empty() || options.funnel) {
     tracker.setSliceObserver([&](const Controller& observed, const typename Controller::SliceObservation& slice) {
       if (options.digestStages) {
         printStageDigests<Det>(slice);
@@ -1616,9 +1637,6 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       }
       if (funnel) {
         funnel->observeSlice(observed, slice);
-      }
-      if (vertexStudy) {
-        vertexStudy->observeSlice(observed, slice);
       }
     });
   }
@@ -1829,7 +1847,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   }
   const auto checkpointConditionsOf = [&](std::span<const VertexSeed> vertices) { return checkpointConditions(input.beamLine, vertices, blocksPerSlice, param.sliceHaloPS); };
   std::optional<typename Controller::Checkpoint> resumeFrom;
-  if (!options.resumeState.empty() && (device || kWorkCounters || options.funnel || completeAnatomy || studies.active() || seedingReal || options.digestStages || !options.fitInputs.empty() || options.vertexStudy >= 0 || options.verticesOnly)) {
+  if (!options.resumeState.empty() && (device || kWorkCounters || options.funnel || completeAnatomy || studies.active() || seedingReal || options.digestStages || !options.fitInputs.empty() || options.vertexStudy || options.verticesOnly)) {
     throw std::runtime_error("--resume-state runs the host tracker without observers");
   }
   // Clusters taken before the run, by their cluster
@@ -1875,9 +1893,8 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     captureFits = !options.fitInputs.empty() && last;
     funnel.reset();
     vertexStudy.reset();
-    if (options.vertexStudy >= 0 && last) {
-      const auto iteration = static_cast<std::size_t>(options.vertexStudy);
-      vertexStudy.emplace(frame, truth->rows, truth->particles, iteration, settings[iteration].windows.minPtGeV, comparison, workflow::vertexerSettings(param),
+    if (options.vertexStudy && last) {
+      vertexStudy.emplace(frame, truth->rows, truth->particles, 0U, param.vertexerMinPtGeV, comparison, workflow::vertexerSettings(param),
                           typename study::VertexStudy<Det, Controller>::Settings{
                             .windowUM = param.vertexerWindowUM,
                             .claimUM = param.vertexerClaimUM,
@@ -1947,6 +1964,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         }
         json << "}\n";
         json.flush();
+      }
+      if (vertexStudy) {
+        reportVertexStudy();
       }
       tracker.endTimeframe();
       continue;
@@ -2196,18 +2216,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       }
     }
     if (vertexStudy) {
-      for (const auto& line : vertexStudy->report()) {
-        std::cout << line << '\n';
-      }
-      if (!options.vertexList.empty()) {
-        vertexStudy->writeStageVertices(options.vertexList);
-        std::cout << std::format("the vertexer's vertices written to {}\n", options.vertexList);
-      }
-      if (!options.vertexReplay.empty()) {
-        vertexStudy->writeReplay(options.vertexReplay);
-        std::cout << std::format("the replay's lists written to {}-{{vertices,collisions,dropped}}.csv and {}-owned.txt\n", options.vertexReplay, options.vertexReplay);
-      }
-      std::cout << std::format("peak RSS {:.2f} GB\n", static_cast<double>(maxRssBytes()) / 1.e9);
+      reportVertexStudy();
     }
     if (options.tree) {
       study::report(std::cout, result.profile, profile::Phase::kRun, threads);
