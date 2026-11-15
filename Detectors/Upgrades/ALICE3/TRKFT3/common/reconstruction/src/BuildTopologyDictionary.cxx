@@ -14,6 +14,7 @@
 #include "TRKReconstruction/BuildTopologyDictionary.h"
 #include "DataFormatsITSMFT/ClusterPattern.h"
 #include "DataFormatsITSMFT/ClusterTopology.h"
+#include "TRKBase/SegmentationChip.h"
 #include <TFile.h>
 #include <fairlogger/Logger.h>
 #include <fmt/format.h>
@@ -53,10 +54,15 @@ std::pair<float, float> medianAndWidth(std::span<float> values, std::span<float>
   return {median, 1.4826f * medianOf(deviations.first(values.size()))};
 }
 
-std::pair<float, float> medianAndWidth(std::vector<float>& values)
+/// The median of \a values and their root mean square about it.
+std::pair<float, float> medianAndRms(std::vector<float>& values)
 {
-  std::vector<float> deviations(values.size());
-  return medianAndWidth(values, deviations);
+  const float median = medianOf(values);
+  double sum = 0.;
+  for (const float value : values) {
+    sum += static_cast<double>(value - median) * static_cast<double>(value - median);
+  }
+  return {median, static_cast<float>(std::sqrt(sum / static_cast<double>(values.size())))};
 }
 
 } // namespace
@@ -83,6 +89,9 @@ void BuildTopologyDictionary<DetID>::accountCluster(const ClusterType& cluster, 
     input.patterns.push_back(std::move(bytes));
   }
   const auto cog = Dictionary::centreOfGravity(cluster, pattern);
+  const bool vd = cluster.subDetID == 0;
+  const float pitchRow = vd ? o2::trk::SegmentationChip::PitchRowVD : o2::trk::SegmentationChip::PitchRowMLOT;
+  const float pitchCol = vd ? o2::trk::SegmentationChip::PitchColVD : o2::trk::SegmentationChip::PitchColMLOT;
   const auto a = Dictionary::localToFlat(cluster, start);
   const auto b = Dictionary::localToFlat(cluster, end);
   input.crossings.push_back({.pattern = index->second,
@@ -91,7 +100,9 @@ void BuildTopologyDictionary<DetID>::accountCluster(const ClusterType& cluster, 
                              .z0 = a.Z() - cog.Z(),
                              .dx = b.X() - a.X(),
                              .dy = b.Y() - a.Y(),
-                             .dz = b.Z() - a.Z()});
+                             .dz = b.Z() - a.Z(),
+                             .xReach = 2.f * static_cast<float>(pattern[0]) * pitchRow,
+                             .zReach = 2.f * static_cast<float>(pattern[1]) * pitchCol});
 }
 
 template <int DetID>
@@ -155,7 +166,7 @@ void BuildTopologyDictionary<DetID>::makeEntries(int layer, const LayerInput& in
   const auto nPatterns = input.patterns.size();
   const auto spansOf = [&input](uint32_t pattern) { return std::pair<int, int>{static_cast<unsigned char>(input.patterns[pattern][0]), static_cast<unsigned char>(input.patterns[pattern][1])}; };
 
-  // The residuals at the depth, by pattern.
+  // The residuals at the depth within two spans, by pattern.
   std::vector<std::vector<float>> residualsX(nPatterns), residualsZ(nPatterns);
   std::vector<float> layerX, layerZ;
   for (const auto& crossing : input.crossings) {
@@ -164,6 +175,9 @@ void BuildTopologyDictionary<DetID>::makeEntries(int layer, const LayerInput& in
       continue;
     }
     const float x = crossing.x0 + (t * crossing.dx), z = crossing.z0 + (t * crossing.dz);
+    if (!(std::abs(x) < crossing.xReach && std::abs(z) < crossing.zReach)) {
+      continue;
+    }
     residualsX[crossing.pattern].push_back(x);
     residualsZ[crossing.pattern].push_back(z);
     layerX.push_back(x);
@@ -194,8 +208,8 @@ void BuildTopologyDictionary<DetID>::makeEntries(int layer, const LayerInput& in
     itsmft::ClusterPattern::getCOG(rowSpan, colSpan, bytes + 2, cogRow, cogCol);
     entry.xCOG = -cogRow;
     entry.zCOG = cogCol;
-    std::tie(entry.xOffset, entry.xWidth) = medianAndWidth(residualsX[pattern]);
-    std::tie(entry.zOffset, entry.zWidth) = medianAndWidth(residualsZ[pattern]);
+    std::tie(entry.xOffset, entry.xWidth) = medianAndRms(residualsX[pattern]);
+    std::tie(entry.zOffset, entry.zWidth) = medianAndRms(residualsZ[pattern]);
     data.hashMap.emplace(itsmft::ClusterTopology::getCompleteHash(rowSpan, colSpan, bytes + 2), static_cast<int>(data.entries.size()));
     data.entries.push_back(std::move(entry));
   }
@@ -215,13 +229,13 @@ void BuildTopologyDictionary<DetID>::makeEntries(int layer, const LayerInput& in
     cx.insert(cx.end(), residualsX[pattern].begin(), residualsX[pattern].end());
     cz.insert(cz.end(), residualsZ[pattern].begin(), residualsZ[pattern].end());
   }
-  const auto wholeX = medianAndWidth(layerX), wholeZ = medianAndWidth(layerZ);
+  const auto wholeX = medianAndRms(layerX), wholeZ = medianAndRms(layerZ);
   const auto pooled = [this](std::vector<float>& group, std::vector<float>& spanClass, const std::pair<float, float>& whole) {
     if (group.size() >= mSettings.minCount) {
-      return medianAndWidth(group);
+      return medianAndRms(group);
     }
     if (spanClass.size() >= mSettings.minCount) {
-      return medianAndWidth(spanClass);
+      return medianAndRms(spanClass);
     }
     return whole;
   };

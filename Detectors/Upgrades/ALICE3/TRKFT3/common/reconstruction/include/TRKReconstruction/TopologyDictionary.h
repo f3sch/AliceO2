@@ -45,7 +45,7 @@ struct DictionaryEntry {
   std::vector<unsigned char> pattern; ///< row span, column span, pixel bits as the clusteriser streams them; empty for a group
   float xCOG = 0.f;                   ///< centre of gravity from the reference pixel across [pitches]
   float zCOG = 0.f;                   ///< along [pitches]
-  float xWidth = 0.f;                 ///< the residuals' width across [cm]
+  float xWidth = 0.f;                 ///< the residuals' root mean square about the offset across [cm]
   float zWidth = 0.f;                 ///< along [cm]
   float xOffset = 0.f;                ///< the residuals' median across [cm]
   float zOffset = 0.f;                ///< along [cm]
