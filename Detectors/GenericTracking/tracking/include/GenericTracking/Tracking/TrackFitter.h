@@ -178,6 +178,46 @@ GPUdi() StepMaterial stepMaterial(const GivenMaterial& material, const Scalar* /
   return material.step;
 }
 
+/// \a lut's material for a step that every lane of \a group takes alike,
+/// its two halves walked side by side: the group's first half of lanes walks
+/// the nearer half, the second the farther, and each lane takes the other
+/// half from its partner (`broadcast`). Each half is the lookup
+/// `stepMaterial` makes on the LUT, so the step's material is the same; the
+/// lanes walk the longer half's cells instead of both halves' in turn. A
+/// group of one lane walks both.
+template <typename Material, typename Group>
+struct GroupMaterial {
+  const Material* lut = nullptr;
+  const Group* group = nullptr;
+};
+
+template <typename Material, typename Group>
+GPUdi() StepMaterial stepMaterial(const GroupMaterial<Material, Group>& material, const Scalar start[3], const Scalar end[3])
+{
+  if constexpr (Group::kLanes == 1U) {
+    return stepMaterial(*material.lut, start, end);
+  } else {
+    const Scalar mid[3] = {0.5F * (start[0] + end[0]), 0.5F * (start[1] + end[1]), 0.5F * (start[2] + end[2])};
+    constexpr std::uint32_t kHalf = Group::kLanes / 2U;
+    const std::uint32_t lane = material.group->lane();
+    const bool farther = lane >= kHalf;
+    // One call, its arguments chosen per lane, so both halves walk together.
+    const Scalar* from = farther ? mid : start;
+    const Scalar* to = farther ? end : mid;
+    const auto walked = material.lut->getMatBudget(from[0], from[1], from[2], to[0], to[1], to[2]);
+    struct Half {
+      float x2X0;
+      float rho;
+      float length;
+    };
+    const Half own{.x2X0 = walked.meanX2X0, .rho = walked.meanRho, .length = walked.length};
+    const Half other = material.group->broadcast(own, lane ^ kHalf);
+    const Half& nearer = farther ? other : own;
+    const Half& away = farther ? own : other;
+    return {.nearerX2X0 = nearer.x2X0, .fartherX2X0 = away.x2X0, .nearerLogX2X0 = nearer.x2X0, .fartherLogX2X0 = away.x2X0, .xRho = (nearer.rho * nearer.length) + (away.rho * away.length)};
+  }
+}
+
 /// The mass hypothesis's energy loss over a step's \a xRho [g/cm^2], O2's
 /// way: taken at \a state's momentum and applied to it, the straggling's q/p
 /// variance returned in \a varQOverP for the step's noise (StepNoise). Lost
