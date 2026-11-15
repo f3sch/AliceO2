@@ -57,6 +57,17 @@ BOOST_AUTO_TEST_CASE(ClaimsDetermineCoverageSplitsFakesAndMerges)
   BOOST_TEST(score.fakes == 1U);
   BOOST_TEST(score.splits == 1U);
   BOOST_TEST(score.merged == 1U);
+  // The same per collision and per vertex.
+  BOOST_REQUIRE(score.perCollision.size() == 2U);
+  for (const auto& match : score.perCollision) {
+    const bool first = collisionOf(match.particle) == 0U;
+    BOOST_TEST(match.findable == 1U);
+    BOOST_TEST(match.vertex == (first ? 0 : -1));
+    BOOST_TEST(match.splits == (first ? 1U : 0U));
+    BOOST_TEST(match.merged == !first);
+  }
+  const std::int64_t first = collisionOf(score.perCollision[0].particle) == 0U ? 0 : 1;
+  BOOST_TEST(score.vertexCollision == (std::vector<std::int64_t>{first, first, -1}), boost::test_tools::per_element());
   BOOST_REQUIRE(score.residualsUM.size() == 1U);
   BOOST_TEST(score.residualsUM[0] == 100., boost::test_tools::tolerance(1e-6));
   BOOST_REQUIRE(score.pulls.size() == 1U);
@@ -76,6 +87,7 @@ BOOST_AUTO_TEST_CASE(TiesKeepTheFirstCollisionAndFirstVertex)
   const auto score = scoreVertexClaims(labels, contributors, wentTo);
   BOOST_TEST(score.collision == (std::vector<std::int64_t>{0, 0, -1}), boost::test_tools::per_element());
   BOOST_TEST(score.best == (std::vector<std::int64_t>{0, -1}), boost::test_tools::per_element());
+  BOOST_TEST(score.isMerged == (std::vector<bool>{false, true}), boost::test_tools::per_element());
   BOOST_TEST(score.fakes == 1U);
   BOOST_TEST(score.splits == 1U);
   BOOST_TEST(score.merged == 1U);

@@ -339,6 +339,20 @@ void streamMomenta(o2::utils::TreeStreamRedirector& output, std::span<const QAMo
   }
 }
 
+void streamCollisions(o2::utils::TreeStreamRedirector& output, std::span<const QACollision> entries)
+{
+  for (const auto& c : entries) {
+    output << "collisions" << "orbit=" << c.orbit << "zMC=" << c.zMC << "tMC=" << c.tMC << "b=" << c.b << "nch=" << c.nch << "findable=" << c.findable << "found=" << c.found << "merged=" << c.merged << "splits=" << c.splits << "z=" << c.z << "sigmaZ=" << c.sigmaZ << "t=" << c.t << "width=" << c.width << "contributors=" << c.contributors << "\n";
+  }
+}
+
+void streamVertices(o2::utils::TreeStreamRedirector& output, std::span<const QAVertex> entries)
+{
+  for (const auto& v : entries) {
+    output << "vertices" << "orbit=" << v.orbit << "z=" << v.z << "sigmaZ=" << v.sigmaZ << "t=" << v.t << "width=" << v.width << "contributors=" << v.contributors << "fake=" << v.fake << "best=" << v.best << "\n";
+  }
+}
+
 void streamRun(o2::utils::TreeStreamRedirector& output, int iterations, EtaRange eta, const ComparisonSettings& settings, std::size_t events, std::uint64_t fullLengthMask) { output << "run" << "iterations=" << iterations << "etaLow=" << eta.low << "etaHigh=" << eta.high << "minLayers=" << settings.minLayers << "minPtGeV=" << settings.minPtGeV << "minOutwardLayers=" << settings.minOutwardLayers << "events=" << static_cast<std::uint64_t>(events) << "fullLengthMask=" << fullLengthMask << "\n"; }
 
 } // namespace o2::gtrk::study

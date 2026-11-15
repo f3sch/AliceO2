@@ -62,6 +62,16 @@ struct VertexScore {
   std::size_t merged = 0U;
   std::vector<double> residualsUM; ///< |z - z_true| of each found collision's vertex [um]
   std::vector<double> pulls;       ///< (z - z_true) / its sigma z, the same vertices
+  /// Each collision with a measured primary and the vertices that are its.
+  struct CollisionMatch {
+    std::uint64_t particle = 0U; ///< one of its measured primaries: its MC event
+    std::uint32_t findable = 0U;
+    std::int64_t vertex = -1;  ///< its vertex (the one with the most contributors), -1 if missed
+    std::uint32_t splits = 0U; ///< its other vertices
+    bool merged = false;
+  };
+  std::vector<CollisionMatch> perCollision;
+  std::vector<std::int64_t> vertexCollision; ///< per vertex: its collision in perCollision, -1 for a fake
   /// A collision no vertex is the best of, and where its triplets went.
   struct Missed {
     double z = 0.; ///< the median production z of its primaries [cm]
@@ -83,12 +93,14 @@ struct VertexClaimsScore {
   std::uint32_t fakes = 0U;
   std::uint32_t splits = 0U;
   std::uint32_t merged = 0U;
+  std::vector<bool> isMerged; ///< per collision
 };
 
 [[nodiscard]] inline VertexClaimsScore scoreVertexClaims(std::span<const std::map<std::int64_t, std::uint32_t>> labels, std::span<const std::uint32_t> contributors, std::span<const std::map<std::int64_t, std::uint32_t>> wentTo)
 {
   VertexClaimsScore result;
   result.best.assign(wentTo.size(), -1);
+  result.isMerged.assign(wentTo.size(), false);
   for (std::size_t v = 0; v < labels.size(); ++v) {
     const auto collision = labels[v].empty() ? -1 : std::ranges::max_element(labels[v], {}, [](const auto& entry) { return entry.second; })->first;
     result.collision.push_back(collision);
@@ -105,6 +117,7 @@ struct VertexClaimsScore {
   for (std::size_t c = 0; c < wentTo.size(); ++c) {
     if (result.best[c] < 0 && !wentTo[c].empty()) {
       const auto top = std::ranges::max_element(wentTo[c], {}, [](const auto& entry) { return entry.second; })->first;
+      result.isMerged[c] = top >= 0;
       result.merged += top >= 0 ? 1U : 0U;
     }
   }
@@ -122,6 +135,7 @@ template <DetectorLayout Det>
   struct Collision {
     std::vector<double> productionZ;
     std::uint32_t findable = 0U;
+    std::uint64_t particle = 0U;
   };
   // The collisions with a measured primary, by `collisionOf` (the vertex
   // study's index takes every generator primary's).
@@ -134,7 +148,7 @@ template <DetectorLayout Det>
     }
     const auto [at, inserted] = index.try_emplace(collisionOf(particle), collisions.size());
     if (inserted) {
-      collisions.emplace_back();
+      collisions.push_back({.particle = particle});
     }
     auto& collision = collisions[at->second];
     collision.productionZ.push_back(static_cast<double>(info.vz));
@@ -169,6 +183,17 @@ template <DetectorLayout Det>
   score.fakes = assigned.fakes;
   score.splits = assigned.splits;
   score.merged = assigned.merged;
+  score.vertexCollision = assigned.collision;
+  for (std::size_t c = 0; c < collisions.size(); ++c) {
+    const auto splits = std::ranges::count(assigned.collision, static_cast<std::int64_t>(c));
+    score.perCollision.push_back({
+      .particle = collisions[c].particle,
+      .findable = collisions[c].findable,
+      .vertex = best[c],
+      .splits = static_cast<std::uint32_t>(splits > 0 ? splits - 1 : 0),
+      .merged = assigned.isMerged[c],
+    });
+  }
   for (std::size_t c = 0; c < collisions.size(); ++c) {
     auto& collision = collisions[c];
     score.findable += collision.findable;

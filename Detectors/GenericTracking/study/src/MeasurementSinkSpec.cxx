@@ -61,6 +61,7 @@
 #include "SimulationDataFormat/MCTrack.h"
 #include "SimulationDataFormat/O2DatabasePDG.h"
 #include "Steer/MCKinematicsReader.h"
+#include "CommonConstants/LHCConstants.h"
 
 #include "CommonUtils/StringUtils.h"
 #include "CommonUtils/TreeStreamRedirector.h"
@@ -2941,6 +2942,14 @@ class MeasurementSinkTask : public Task
         LOGP(fatal, "cannot open MC kinematics referenced by {}", contextFile);
         return;
       }
+      // Each MC event's collision time, for the vertex QA.
+      const auto& records = mContext->getEventRecords();
+      const auto& parts = mContext->getEventParts();
+      for (std::size_t collision = 0; collision < records.size() && collision < parts.size(); ++collision) {
+        for (const auto& part : parts[collision]) {
+          mCollisionTimeNS.try_emplace(eventKey(part.sourceID, part.entryID), records[collision].getTimeNS());
+        }
+      }
       const auto truthOutput = ic.options().get<std::string>("tracklet-truth-output");
       if (!truthOutput.empty()) {
         mTruthOutput.open(truthOutput, std::ios::out | std::ios::trunc);
@@ -3111,6 +3120,9 @@ class MeasurementSinkTask : public Task
         const auto score = scoreVertices<Det>(comparisonRows, comparisonParticles, pass->claims, pass->found);
         LOGP(info, "{}", describe(score));
         LOGP(info, "{}", describePulls(score));
+        if (mQAOutput) {
+          streamVertexQA(pc.services().get<o2::framework::TimingInfo>().firstTForbit, score, pass->found);
+        }
       }
     }
     if (mTrackerProducts == TrackerProducts::kDigests) {
@@ -3330,6 +3342,87 @@ class MeasurementSinkTask : public Task
   /// The tracker's tracks of this timeframe into the QA's trees;
   /// \a theirs O2's (`o2TrackRows`), none
   /// without --o2-tracks.
+  [[nodiscard]] static std::uint64_t eventKey(int source, int event) { return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(source)) << 32U) | static_cast<std::uint32_t>(event); }
+
+  /// The charged physical primaries the generator made in \a source's
+  /// \a event at |eta| < 0.5.
+  [[nodiscard]] std::uint32_t chargedPrimariesMidrapidity(int source, int event) const
+  {
+    const auto& tracks = mKinematics->getTracks(source, event);
+    std::uint32_t count = 0U;
+    for (const auto& track : tracks) {
+      if (std::abs(track.GetEta()) >= 0.5) {
+        continue;
+      }
+      const auto* pdg = o2::O2DatabasePDG::Instance()->GetParticle(track.GetPdgCode());
+      if (pdg != nullptr && pdg->Charge() != 0. && particleOrigin(track, tracks) == ParticleOrigin::kPhysicalPrimary) {
+        ++count;
+      }
+    }
+    return count;
+  }
+
+  /// The vertex QA's `collisions` and `vertices` trees of the timeframe at
+  /// \a orbit: \a score's collisions with their MC events, \a found's vertices.
+  void streamVertexQA(std::uint32_t orbit, const VertexScore& score, const VertexerResult& found)
+  {
+    constexpr double kNSPerPS = 1.e-3;
+    const auto middle = [&](const VertexSeed& vertex) { return static_cast<float>(kNSPerPS * (static_cast<double>(vertex.timePS) + (0.5 * static_cast<double>(vertex.widthPS)))); };
+    std::vector<QAVertex> vertices;
+    vertices.reserve(found.vertices.size());
+    for (std::size_t v = 0; v < found.vertices.size(); ++v) {
+      const auto& vertex = found.vertices[v];
+      const auto collision = score.vertexCollision[v];
+      vertices.push_back({
+        .orbit = orbit,
+        .z = static_cast<float>(vertex.z),
+        .sigmaZ = static_cast<float>(std::sqrt(static_cast<double>(vertex.varZ))),
+        .t = middle(vertex),
+        .width = static_cast<float>(kNSPerPS * static_cast<double>(vertex.widthPS)),
+        .contributors = found.contributors[v],
+        .fake = collision < 0,
+        .best = collision >= 0 && score.perCollision[static_cast<std::size_t>(collision)].vertex == static_cast<std::int64_t>(v),
+      });
+    }
+    const double startNS = static_cast<double>(orbit) * o2::constants::lhc::LHCOrbitNS;
+    std::vector<QACollision> collisions;
+    collisions.reserve(score.perCollision.size());
+    for (const auto& match : score.perCollision) {
+      const auto& label = mParticleLabels.at(match.particle);
+      const auto& header = mKinematics->getMCEventHeader(label.source, label.event);
+      QACollision entry{
+        .orbit = orbit,
+        .zMC = static_cast<float>(header.GetZ()),
+        .nch = chargedPrimariesMidrapidity(label.source, label.event),
+        .findable = match.findable,
+        .found = match.vertex >= 0,
+        .merged = match.merged,
+        .splits = match.splits,
+      };
+      if (const auto time = mCollisionTimeNS.find(eventKey(label.source, label.event)); time != mCollisionTimeNS.end()) {
+        entry.tMC = static_cast<float>(time->second - startNS);
+      }
+      if (header.hasInfo(o2::dataformats::MCInfoKeys::impactParameter)) {
+        bool valid = false;
+        const auto b = header.getInfo<double>(o2::dataformats::MCInfoKeys::impactParameter, valid);
+        if (valid) {
+          entry.b = static_cast<float>(b);
+        }
+      }
+      if (match.vertex >= 0) {
+        const auto& vertex = vertices[static_cast<std::size_t>(match.vertex)];
+        entry.z = vertex.z;
+        entry.sigmaZ = vertex.sigmaZ;
+        entry.t = vertex.t;
+        entry.width = vertex.width;
+        entry.contributors = vertex.contributors;
+      }
+      collisions.push_back(entry);
+    }
+    streamCollisions(*mQAOutput, collisions);
+    streamVertices(*mQAOutput, vertices);
+  }
+
   void streamQA(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& particles, const Funnel* funnel, const typename TrackRefit<Det>::Tracks& tracks, const TrackRows* theirs)
   {
     const auto view = tracks.view();
@@ -4325,6 +4418,7 @@ class MeasurementSinkTask : public Task
     std::optional<TruthHelix> mother{}; ///< the mother's at its own production
   };
   std::unordered_map<std::uint64_t, ParticleLabel> mParticleLabels;
+  std::unordered_map<std::uint64_t, double> mCollisionTimeNS; ///< by eventKey: the MC event's collision time [ns]
   bool mUseMC = true;
   bool mSpeciesOracle = false;                               ///< --species-oracle: the `oracle` QA tree
   bool mTruthReports = true;                                 ///< the stages' truth, the true roads' chi2 and the fakes' anatomy in the log; on unless --no-truth-reports, data runs too

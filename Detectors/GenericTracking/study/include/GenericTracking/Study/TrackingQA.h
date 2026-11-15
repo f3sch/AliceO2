@@ -248,7 +248,7 @@ struct QATrack {
   /// (`majorityParticle`): 0 on a good track, all of them on noise only.
   std::uint8_t wrongClusters = 0U;
   bool complete = false; ///< a good track and `completeTrack`
-  float chi2 = 0.F; ///< the fit's; TMath::Prob(chi2, ndf) is its probability
+  float chi2 = 0.F;      ///< the fit's; TMath::Prob(chi2, ndf) is its probability
   std::int32_t ndf = 0;
   bool fitValid = true;
   std::uint64_t expectedLayerMask = 0U;                  ///< zero when a full-length reference is unavailable
@@ -277,7 +277,7 @@ struct QAResolution {
   std::uint8_t iteration = 0U;
   std::uint8_t kinks = 0U;
   std::uint8_t clusters = 0U;
-  bool complete = false; ///< `completeTrack`
+  bool complete = false;           ///< `completeTrack`
   std::uint8_t layer = 0U;         ///< the innermost measurement's, where the state is
   std::array<float, 5> residual{}; ///< loc0, loc1, phi, theta, q/p
   std::array<float, 5> sigma{};
@@ -390,6 +390,46 @@ void streamTracks(o2::utils::TreeStreamRedirector& output, std::span<const QATra
 
 /// \a entries into \a output's `resolution` tree.
 void streamResolution(o2::utils::TreeStreamRedirector& output, std::span<const QAResolution> entries);
+
+/// An MC collision with a measured primary against the own vertexer's
+/// vertices (VertexQA.h's rule): an entry of the `collisions` tree. Times are
+/// from the timeframe's start [ns], positions [cm]; the vertex's fields NaN
+/// (contributors 0) when no vertex is the collision's.
+struct QACollision {
+  std::uint32_t orbit = 0U;                            ///< the timeframe's first orbit
+  float zMC = 0.F;                                     ///< the MC event's vertex
+  float tMC = std::numeric_limits<float>::quiet_NaN(); ///< the collision's time, NaN if not in the collision context
+  float b = std::numeric_limits<float>::quiet_NaN();   ///< impact parameter [fm], NaN if the generator gives none
+  std::uint32_t nch = 0U;                              ///< charged physical primaries at |eta| < 0.5, generated
+  std::uint32_t findable = 0U;                         ///< its findable primaries
+  bool found = false;
+  bool merged = false;
+  std::uint32_t splits = 0U;
+  float z = std::numeric_limits<float>::quiet_NaN();
+  float sigmaZ = std::numeric_limits<float>::quiet_NaN();
+  float t = std::numeric_limits<float>::quiet_NaN();     ///< the middle of the vertex's time box
+  float width = std::numeric_limits<float>::quiet_NaN(); ///< the time box's width
+  std::uint32_t contributors = 0U;
+};
+
+/// A vertex of the own vertexer: an entry of the `vertices` tree, units as
+/// QACollision's.
+struct QAVertex {
+  std::uint32_t orbit = 0U;
+  float z = 0.F;
+  float sigmaZ = 0.F;
+  float t = 0.F;
+  float width = 0.F;
+  std::uint32_t contributors = 0U;
+  bool fake = false; ///< no collision is its majority
+  bool best = false; ///< its collision's vertex (else a split or a fake)
+};
+
+/// \a entries into \a output's `collisions` tree.
+void streamCollisions(o2::utils::TreeStreamRedirector& output, std::span<const QACollision> entries);
+
+/// \a entries into \a output's `vertices` tree.
+void streamVertices(o2::utils::TreeStreamRedirector& output, std::span<const QAVertex> entries);
 
 /// The run's one entry of the `run` tree: what the macro's axes need,
 /// \a settings' findable rules (`minLayers`, `minPtGeV`, `minOutwardLayers`)
