@@ -136,9 +136,22 @@ struct ElectronChain {
   Propagator propagator;
   std::array<BoundTrackState, kLayers> truth;
   std::array<Measurement, kLayers> measurements;
+  /// Each plane's retained fractions: of the half-gap before it, after it.
+  std::array<double, kLayers> before{};
+  std::array<double, kLayers> after{};
   Scalar sigma = 5e-4F;
 
   ElectronChain() { propagator.massGeV = 0.000511F; }
+
+  /// The share of the momentum radiated between rows \a first and \a last.
+  [[nodiscard]] double radiatedBetween(std::size_t first, std::size_t last) const
+  {
+    double kept = 1.;
+    for (std::size_t i = first; i < last; ++i) {
+      kept *= after[i] * before[i + 1];
+    }
+    return 1. - kept;
+  }
 
   [[nodiscard]] bool cross(BoundTrackState& state, LayerID layer) const
   {
@@ -195,6 +208,8 @@ struct ElectronChain {
       s.par[kPhi] += static_cast<Scalar>(gauss(rng)) * theta0 / sinTheta;
     };
     const auto halfGap = [&](std::size_t layer) { return 0.5 * static_cast<double>(material.x2X0PerCm * chord[layer]); };
+    before.fill(1.);
+    after.fill(1.);
     state = start;
     for (std::size_t layer = 0; layer < kLayers; ++layer) {
       if (layer > 0) {
@@ -210,7 +225,8 @@ struct ElectronChain {
         state.par[kQOverP] += static_cast<Scalar>(gauss(rng)) * std::sqrt(variance); // the straggling the filter takes
         kick(state, theta0);
         if (radiate) {
-          state.par[kQOverP] /= fraction(halfGap(layer), rng);
+          before[layer] = fraction(halfGap(layer), rng);
+          state.par[kQOverP] /= static_cast<Scalar>(before[layer]);
         }
       }
       truth[layer] = state;
@@ -223,7 +239,8 @@ struct ElectronChain {
       m.varLoc1 = sigma * sigma;
       m.clusterIndex = static_cast<std::uint32_t>(layer);
       if (radiate && layer + 1 < kLayers) {
-        state.par[kQOverP] /= fraction(halfGap(layer + 1), rng);
+        after[layer] = fraction(halfGap(layer + 1), rng);
+        state.par[kQOverP] /= static_cast<Scalar>(after[layer]);
       }
       if (!isFiniteScalar(state.qOverP()) || std::abs(state.qOverP()) > 50.F) {
         return false;
@@ -267,6 +284,10 @@ struct Coverage {
   std::vector<double> modeRatio;   ///< of the momentum's mode
   std::vector<double> meanRatio;   ///< of the collapsed mean q/p
   std::vector<double> collapsedPull;
+  std::vector<double> outwardKalmanRatio; ///< on the last plane
+  std::vector<double> outwardModeRatio;
+  std::vector<double> innerLoss; ///< radiated between rows 0 and 2: the outward pass's start
+  std::vector<double> outerLoss; ///< between rows 5 and 7: the inward pass's start
   double seconds = 0.;
   double kalmanSeconds = 0.;
 
@@ -286,6 +307,15 @@ struct Coverage {
       n += (p < 0.05 || p > 0.95) ? 1. : 0.;
     }
     return n / static_cast<double>(values.size());
+  }
+  /// The share of momenta more than 10 % off, either way.
+  static double offOf(const std::vector<double>& ratios)
+  {
+    double n = 0.;
+    for (const double r : ratios) {
+      n += std::abs(r - 1.) > 0.1 ? 1. : 0.;
+    }
+    return n / static_cast<double>(ratios.size());
   }
   /// The share of momenta more than 10 % low.
   static double lowOf(const std::vector<double>& ratios)
@@ -331,6 +361,11 @@ Coverage coverage(double pGeV, const UniformMaterial& material, bool radiate, in
     out.modeRatio.push_back(static_cast<double>(gsf.inward.momentumMode) / p);
     out.meanRatio.push_back(1. / std::abs(static_cast<double>(gsf.inward.collapsed.qOverP())) / p);
     out.collapsedPull.push_back((static_cast<double>(gsf.inward.collapsed.qOverP()) - u) / std::sqrt(static_cast<double>(gsf.inward.collapsed.variance(kQOverP))));
+    const double pLast = 1. / std::abs(static_cast<double>(chain.truth[ElectronChain::kLayers - 1].qOverP()));
+    out.outwardKalmanRatio.push_back(1. / std::abs(static_cast<double>(kalman.outwardState.qOverP())) / pLast);
+    out.outwardModeRatio.push_back(static_cast<double>(gsf.outward.momentumMode) / pLast);
+    out.innerLoss.push_back(chain.radiatedBetween(0, 2));
+    out.outerLoss.push_back(chain.radiatedBetween(ElectronChain::kLayers - 3, ElectronChain::kLayers - 1));
   }
   return out;
 }
@@ -529,6 +564,111 @@ BOOST_AUTO_TEST_CASE(TheMixtureCoversSampledLosses)
       }
     }
   }
+}
+
+/// (iv) The start: tracks that radiated a fifth of their momentum or more
+/// between the rows a pass's start takes (rows 0-2 the outward pass's, near
+/// the vertex; rows 5-7 the inward pass's), reported apart. Selected by
+/// their true loss, so the probability integral transforms are not flat for
+/// them (they sit in the posterior's low tail) and are reported only; asserted:
+/// the momentum at each end beats the Kalman fit's on these tracks (fewer more
+/// than 10 % off: the Kalman fit errs low at the vertex end and high at the
+/// last plane). A loss inside a pass's own start leaves that pass calibrated
+/// at its far end (the start branches); a loss on the last rows a pass takes
+/// is beyond what its remaining measurements show (the inward pass at the
+/// vertex end, after a loss between the innermost rows): both fits keep most
+/// of it there.
+BOOST_AUTO_TEST_CASE(LargeLossesInsideAStart)
+{
+  const UniformMaterial thick{.x2X0PerCm = 1e-2F, .rho = 0.22F};
+  const auto all = coverage<12>(0.5, thick, true, 4000, 109);
+  const auto subset = [&](const std::vector<double>& loss, const std::vector<double>& values) {
+    std::vector<double> out;
+    for (std::size_t i = 0; i < values.size(); ++i) {
+      if (loss[i] > 0.2) {
+        out.push_back(values[i]);
+      }
+    }
+    return out;
+  };
+  BOOST_TEST_MESSAGE("                       tracks  inward PIT      outward PIT     vertex end p/p_true: Kalman / GSF mode       last plane p/p_true: Kalman / GSF mode");
+  BOOST_TEST_MESSAGE("                               mean 5-95 %     mean 5-95 %     median width >10 % off                       median width >10 % off");
+  for (const auto& [label, loss] : {std::pair<const char*, const std::vector<double>*>{"all", nullptr}, {"lost > 20 % in rows 0-2", &all.innerLoss}, {"lost > 20 % in rows 5-7", &all.outerLoss}}) {
+    const auto pick = [&](const std::vector<double>& values) { return loss == nullptr ? values : subset(*loss, values); };
+    const auto pit = pick(all.pit);
+    const auto outwardPit = pick(all.outwardPit);
+    const auto kalman = pick(all.kalmanRatio);
+    const auto mode = pick(all.modeRatio);
+    const auto outwardKalman = pick(all.outwardKalmanRatio);
+    const auto outwardMode = pick(all.outwardModeRatio);
+    const auto row = [&](const std::vector<double>& r) {
+      const auto [median, width] = medianWidth(r);
+      return fmt::format("{:.3f} {:.3f} {:4.1f} %", median, width, 100. * Coverage::offOf(r));
+    };
+    BOOST_TEST_MESSAGE(fmt::format("{:<24} {:5d}  {:.3f} {:4.1f} %    {:.3f} {:4.1f} %    {} / {}    {} / {}", label, pit.size(), Coverage::meanOf(pit), 100. * Coverage::tailsOf(pit),
+                                   Coverage::meanOf(outwardPit), 100. * Coverage::tailsOf(outwardPit), row(kalman), row(mode), row(outwardKalman), row(outwardMode)));
+    BOOST_TEST_CONTEXT(label)
+    {
+      BOOST_TEST(pit.size() > 100U);
+      BOOST_TEST(Coverage::offOf(mode) < Coverage::offOf(kalman));
+      BOOST_TEST(Coverage::offOf(outwardMode) < Coverage::offOf(outwardKalman));
+    }
+  }
+}
+
+/// The reduction: K = 1, 4 and 12 against K = 24 on the same tracks, per
+/// track, in the reference's standard deviations (the collapsed vertex-end
+/// state) and in the momentum's mode, relative. The merge cost reads q/p
+/// alone: what it gives up about the other parameters shows here.
+BOOST_AUTO_TEST_CASE(TheReductionConverges)
+{
+  const UniformMaterial thick{.x2X0PerCm = 1e-2F, .rho = 0.22F};
+  ElectronChain chain;
+  std::mt19937 rng(110);
+  constexpr int kTracks = 300;
+  constexpr int kLayers = static_cast<int>(ElectronChain::kLayers);
+  std::array<std::array<std::vector<double>, kNBoundParams + 1>, 3> difference; // per K: the parameters, the mode
+  for (int track = 0; track < kTracks; ++track) {
+    const Scalar qOverP = (track % 2 == 0 ? 2.F : -2.F);
+    while (!chain.generate(qOverP, thick, true, rng)) {
+    }
+    const auto* measurements = chain.measurements.data();
+    const auto reference = fitGaussianSum<24>(chain.propagator, chain.tracking, thick, measurements, kLayers);
+    if (reference.inward.status != PropagationStatus::kOk) {
+      continue;
+    }
+    const auto compare = [&](int slot, const auto& fit) {
+      BOOST_REQUIRE(fit.inward.status == PropagationStatus::kOk);
+      for (int i = 0; i < kNBoundParams; ++i) {
+        double d = static_cast<double>(fit.inward.collapsed.par[i]) - static_cast<double>(reference.inward.collapsed.par[i]);
+        if (i == kPhi) {
+          math_utils::detail::bringToPMPi<double>(d);
+        }
+        difference[slot][i].push_back(std::abs(d) / std::sqrt(static_cast<double>(reference.inward.collapsed.variance(i))));
+      }
+      difference[slot][kNBoundParams].push_back(std::abs(static_cast<double>(fit.inward.momentumMode / reference.inward.momentumMode) - 1.));
+    };
+    compare(0, fitGaussianSum<1>(chain.propagator, chain.tracking, thick, measurements, kLayers));
+    compare(1, fitGaussianSum<4>(chain.propagator, chain.tracking, thick, measurements, kLayers));
+    compare(2, fitGaussianSum<12>(chain.propagator, chain.tracking, thick, measurements, kLayers));
+  }
+  const auto quantile = [](std::vector<double> v, double q) {
+    std::ranges::sort(v);
+    return v[static_cast<std::size_t>(q * static_cast<double>(v.size() - 1))];
+  };
+  BOOST_TEST_MESSAGE("against K 24, |difference| / sigma (median, 95 %) of loc0 loc1 phi theta q/p; the mode, relative");
+  const int ks[] = {1, 4, 12};
+  for (int slot = 0; slot < 3; ++slot) {
+    std::string line = fmt::format("K {:2d}:", ks[slot]);
+    for (int i = 0; i <= kNBoundParams; ++i) {
+      line += fmt::format("  {:.3f} {:.3f}", quantile(difference[slot][i], 0.5), quantile(difference[slot][i], 0.95));
+    }
+    BOOST_TEST_MESSAGE(line);
+  }
+  for (int i = 0; i < kNBoundParams; ++i) {
+    BOOST_TEST_CONTEXT("K 12, parameter " << i) { BOOST_TEST(quantile(difference[2][i], 0.95) < 0.1); }
+  }
+  BOOST_TEST(quantile(difference[2][kNBoundParams], 0.95) < 0.01);
 }
 
 } // namespace o2::gtrk
