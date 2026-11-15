@@ -16,8 +16,8 @@
 ///
 /// The reconstruction (`o2::gpu::GPUReconstruction`) initialises the device
 /// and allocates the pool; `GPUChainGenericTracking` sets aside one block of
-/// it per tracker; the backend library loaded with the reconstruction's
-/// backend makes the runtime (RuntimeFactory.h). A tracker made on the
+/// it per tracker; the reconstruction's backend makes the runtime
+/// (GPUReconstruction::GetGenericTrackingRuntime). A tracker made on the
 /// context is destroyed before it.
 ///
 /// Or on the GPU reconstruction of a workflow that owns it (the TPC's), not

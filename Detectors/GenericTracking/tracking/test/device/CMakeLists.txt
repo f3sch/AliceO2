@@ -28,7 +28,7 @@ set_target_properties(gtrk_device_test_host PROPERTIES POSITION_INDEPENDENT_CODE
 function(gtrk_device_test name source backend)
   string(TOLOWER ${backend} lower)
   o2_add_test(${name}-${lower} SOURCES ${source} COMPONENT_NAME generic-tracking NAME generic-tracking-${name}-${lower}
-              PUBLIC_LINK_LIBRARIES O2::GTrkTracking${backend} gtrk::device_test_${lower} O2::GTrkTracking O2::GPUTracking
+              PUBLIC_LINK_LIBRARIES O2::GTrkTracking${backend} O2::GTrkDeviceTest${backend} O2::GTrkTracking O2::GPUTracking
               LABELS generic-tracking gpu ${ARGN} TARGETVARNAME target)
   if(target)
     target_include_directories(${target} PRIVATE ${fixtures})
@@ -42,13 +42,12 @@ foreach(backend IN ITEMS CUDA HIP)
   endif()
   string(TOLOWER ${backend} lower)
 
-  gtrk_device_sources(sources ${backend} DeviceTestKernels.cu)
-  add_library(gtrk_device_test_${lower} SHARED ${sources})
-  add_library(gtrk::device_test_${lower} ALIAS gtrk_device_test_${lower})
-  target_sources(gtrk_device_test_${lower} PRIVATE $<TARGET_OBJECTS:gtrk_device_test_host>)
-  target_include_directories(gtrk_device_test_${lower} PRIVATE ${fixtures})
-  target_link_libraries(gtrk_device_test_${lower} PRIVATE O2::GTrkTracking)
-  gtrk_device_target(gtrk_device_test_${lower} ${backend} SHARED "_ZN2o24gtrk*testKernels${backend}E*")
+  gtrk_device_library(GTrkDeviceTest${backend} ${backend} DeviceTestKernels.cu)
+  set(target ${GTrkDeviceTest${backend}_TARGET})
+  target_sources(${target} PRIVATE $<TARGET_OBJECTS:gtrk_device_test_host>)
+  target_include_directories(${target} PRIVATE ${fixtures})
+  target_link_libraries(${target} PRIVATE O2::GTrkTracking)
+  gtrk_device_target(${target} ${backend} SHARED "_ZN2o24gtrk*testKernels${backend}E*")
 
   gtrk_device_test(device-runtime testDeviceRuntime.cxx ${backend})
   gtrk_device_test(gpu-stage testGpuStage.cxx ${backend})

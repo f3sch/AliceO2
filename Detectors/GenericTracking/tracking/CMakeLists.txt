@@ -19,9 +19,8 @@ o2_add_library(GTrkTracking
                        src/GPU/DeviceArena.cxx
                        src/GPU/DeviceContext.cxx
                        src/GPU/GPUChainGenericTracking.cxx
-                       src/GPU/RuntimeFactory.cxx
                        src/GPU/DeviceStream.cxx
-                       src/GPU/MaterialPort.cxx
+                       src/GPU/DeviceStorage.cxx
                PUBLIC_LINK_LIBRARIES O2::GTrkBase O2::GPUCommon O2::CommonConstants O2::MathUtils O2::DetectorsBase
                PRIVATE_LINK_LIBRARIES TBB::tbb O2::GPUTracking
                TARGETVARNAME targetName)

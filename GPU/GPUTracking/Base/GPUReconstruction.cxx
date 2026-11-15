@@ -123,6 +123,8 @@ void GPUReconstruction::GetITSTraits(std::unique_ptr<o2::its::TrackerTraits<7>>*
   }
 }
 
+void GPUReconstruction::GetGenericTrackingRuntime(std::unique_ptr<o2::gtrk::DeviceRuntime>* /*runtime*/, int32_t /*device*/) {}
+
 int32_t GPUReconstruction::getHostThreadIndex()
 {
   return std::max<int32_t>(0, tbb::this_task_arena::current_thread_index());

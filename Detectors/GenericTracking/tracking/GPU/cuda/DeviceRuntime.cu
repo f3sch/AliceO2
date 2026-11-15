@@ -211,11 +211,10 @@ class Runtime final : public DeviceRuntime
   DeviceProperties mProperties;
 };
 
-std::unique_ptr<DeviceRuntime> makeRuntime(int device) { return std::make_unique<Runtime>(device); }
-
-/// When the library is loaded: O2's GPU backend of the same name links it.
-[[maybe_unused]] const bool registered = (registerRuntimeFactory(kBackend, &makeRuntime), true);
-
 } // namespace
+
+/// For O2's GPU backend of the same name, which links this library
+/// (GPUReconstruction::GetGenericTrackingRuntime).
+std::unique_ptr<DeviceRuntime> makeRuntime(std::int32_t device) { return std::make_unique<Runtime>(device); }
 
 } // namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
