@@ -248,7 +248,7 @@ struct DiscChain {
 using namespace test::pulls;
 
 /// How many of MftPullsWithScatteringAreUnit's checks are expected to fail.
-constexpr unsigned kMftExpectedFailures = 49;
+constexpr unsigned kMftExpectedFailures = 46;
 
 template <DetectorLayout Det>
 PullPoint pullsAt(DiscChain<Det>& chain, double ptGeV, double eta, bool withMaterial, int trials, std::uint32_t seed)
