@@ -263,8 +263,9 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundTrackState& sta
     path = -fromTarget[2] / cosTheta;
     const ExactScalar ell = path * sinTheta;
     psi = kappa * ell;
-    const auto sA = sinc<ExactScalar>(psi);
-    const auto sB = versine<ExactScalar>(psi);
+    ExactScalar sA = 0.;
+    ExactScalar sB = 0.;
+    sincVersine(psi, sA, sB);
     dxy[0] = ell * (dT[0] * sA + perp[0] * sB);
     dxy[1] = ell * (dT[1] * sA + perp[1] * sB);
     // sin(psi) = psi sinc(psi) and cos(psi) = 1 - psi versine(psi), from the

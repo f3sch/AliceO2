@@ -52,6 +52,22 @@ GPUhdi() GPUAlwaysInline() T versine(T x)
   return T(0.5) * x * h * h;
 }
 
+/// sinc(x) and versine(x) of one angle from one sincos of x / 2, h: sin(x) =
+/// 2 sin(h) cos(h) and 1 - cos(x) = 2 sin(h)^2, so sinc(x) = sinc(h) cos(h)
+/// and versine(x) = x sinc(h)^2 / 2, neither cancelling. One evaluation
+/// instead of the two sines `sinc` and `versine` take apart.
+template <typename T>
+GPUhdi() GPUAlwaysInline() void sincVersine(T x, T& sincX, T& versineX)
+{
+  const T h = x / T(2);
+  T s = T(0);
+  T c = T(1);
+  sincosOf(h, s, c);
+  const T sincH = o2::gpu::GPUCommonMath::Abs(h) < T(1e-4) ? T(1) - h * h / T(6) : s / h;
+  sincX = sincH * c;
+  versineX = T(0.5) * x * sincH * sincH;
+}
+
 /// d/dx of sinc, with a series where cos(x) - sinc(x) cancels.
 template <typename T>
 GPUhdi() GPUAlwaysInline() T dSinc(T x)

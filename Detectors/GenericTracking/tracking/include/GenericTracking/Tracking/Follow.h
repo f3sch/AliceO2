@@ -142,8 +142,11 @@ template <typename Prop, DetectorLayout Det>
       return result;
     }
     const ExactScalar transverse = path * sinTheta;
-    x += transverse * ((cosPhi * sinc<ExactScalar>(turn)) - (sinPhi * versine<ExactScalar>(turn)));
-    y += transverse * ((sinPhi * sinc<ExactScalar>(turn)) + (cosPhi * versine<ExactScalar>(turn)));
+    ExactScalar sincTurn = 0.;
+    ExactScalar versineTurn = 0.;
+    sincVersine(turn, sincTurn, versineTurn);
+    x += transverse * ((cosPhi * sincTurn) - (sinPhi * versineTurn));
+    y += transverse * ((sinPhi * sincTurn) + (cosPhi * versineTurn));
     z = static_cast<ExactScalar>(parameters.layerSpans[layer].position);
   } else {
     const auto radius = static_cast<ExactScalar>(parameters.layerSpans[layer].position);
