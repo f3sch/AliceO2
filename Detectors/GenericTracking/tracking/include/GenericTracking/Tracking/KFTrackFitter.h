@@ -539,8 +539,11 @@ GPUdi() void transportDiffuse(const SolenoidJacobian& jac, const StepNoise& nois
 /// direction: S is rotated (Householder) so that its first column alone
 /// carries it, and that column is dropped. No chi2. False, nothing changed,
 /// if h P_inf h is not positive: the coordinate carries no undetermined
-/// direction.
-GPUdi() bool diffuseUpdate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams], Scalar r, Scalar v, BoundTrackState& state)
+/// direction. With \a Density, ln(h P_inf h) is added to \a density: the
+/// coordinate's term of -2 ln of the diffuse likelihood (de Jong; Koopman
+/// and Durbin), which compares filters that differ in their P_inf.
+template <bool Density = false>
+GPUdi() bool diffuseUpdate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams], Scalar r, Scalar v, BoundTrackState& state, [[maybe_unused]] Scalar* density = nullptr)
 {
   constexpr int kRank = DiffuseFactors::kMaxRank;
   // g = S^T h, K = S g / |g|^2.
@@ -554,6 +557,9 @@ GPUdi() bool diffuseUpdate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams], 
   }
   if (!(g2 > 0.F)) {
     return false;
+  }
+  if constexpr (Density) {
+    *density += o2::gpu::GPUCommonMath::Log(g2);
   }
   Scalar gain[kNBoundParams]{};
   for (int i = 0; i < kNBoundParams; ++i) {
@@ -616,10 +622,14 @@ GPUdi() bool diffuseUpdate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams], 
 /// update if P_inf projects onto it (`diffuseUpdate`); otherwise -- P_inf
 /// gone, or orthogonal to h -- the filter's (Bierman, as
 /// `updateWithMeasurement`) on P_star, P_inf kept, its chi2 added to
-/// \a chi2. False for an innovation that is not positive.
-GPUdi() bool updateCoordinate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams], Scalar r, Scalar v, BoundTrackState& state, Scalar& chi2)
+/// \a chi2. False for an innovation that is not positive. With \a Density,
+/// the coordinate's term of -2 ln of the diffuse likelihood is added to
+/// \a density: `diffuseUpdate`'s, or ln F + v^2 / F of the filter's
+/// innovation F.
+template <bool Density = false>
+GPUdi() bool updateCoordinate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams], Scalar r, Scalar v, BoundTrackState& state, Scalar& chi2, [[maybe_unused]] Scalar* density = nullptr)
 {
-  if (c.rank > 0 && diffuseUpdate(c, h, r, v, state)) {
+  if (c.rank > 0 && diffuseUpdate<Density>(c, h, r, v, state, density)) {
     return true;
   }
   Scalar gain[kNBoundParams]{};
@@ -629,6 +639,9 @@ GPUdi() bool updateCoordinate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams
   }
   detail::applySpatialGain(state, gain, v);
   chi2 += v * v / innovation;
+  if constexpr (Density) {
+    *density += o2::gpu::GPUCommonMath::Log(innovation) + (v * v / innovation);
+  }
   return true;
 }
 
@@ -636,8 +649,10 @@ GPUdi() bool updateCoordinate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams
 /// whitens them: the first raw, the second conditioned on it. While P_inf
 /// has rank the first is the one P_inf projects more onto, so that it
 /// carries a direction of P_inf; the joint update does not depend on the
-/// order.
-GPUdi() bool updateDiffuse(DiffuseFactors& c, const Measurement& measurement, BoundTrackState& state, Scalar& chi2)
+/// order. With \a Density, each coordinate's term of -2 ln of the diffuse
+/// likelihood is added to \a density (`updateCoordinate`).
+template <bool Density = false>
+GPUdi() bool updateDiffuse(DiffuseFactors& c, const Measurement& measurement, BoundTrackState& state, Scalar& chi2, [[maybe_unused]] Scalar* density = nullptr)
 {
   int a = kLoc0;
   if (c.rank > 0) {
@@ -654,14 +669,14 @@ GPUdi() bool updateDiffuse(DiffuseFactors& c, const Measurement& measurement, Bo
   const Scalar variance[2] = {measurement.varLoc0, measurement.varLoc1};
   Scalar h[kNBoundParams]{};
   h[a] = 1.F;
-  if (!updateCoordinate(c, h, variance[a], value[a] - state.par[a], state, chi2)) {
+  if (!updateCoordinate<Density>(c, h, variance[a], value[a] - state.par[a], state, chi2, density)) {
     return false;
   }
   const Scalar correlation = measurement.covLoc01 / variance[a];
   h[a] = -correlation;
   h[b] = 1.F;
   const Scalar residual = (value[b] - correlation * value[a]) - (state.par[b] - correlation * state.par[a]);
-  return updateCoordinate(c, h, variance[b] - correlation * measurement.covLoc01, residual, state, chi2);
+  return updateCoordinate<Density>(c, h, variance[b] - correlation * measurement.covLoc01, residual, state, chi2, density);
 }
 
 /// A filter step (`filterStep`) on a diffuse covariance \a c: the prediction
