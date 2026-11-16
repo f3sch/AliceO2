@@ -2324,7 +2324,7 @@ class OriginZTally
 /// if a good track is its; each further good track of it is a **clone**.
 /// \a tracked, the comparisons, gets the tracks of a complete run first. The
 /// run is \a interface's; its timeframe ends with the caller's guard.
-void measureTracks(const Frame& frame, const RecoSettings& param, const VertexConstraint& beamSpot, std::span<const VertexSeed> vertices, std::span<const TruthRow> truthRows, const ParticleTable& truth, const Funnel* funnel, workflow::TrackingInterface<Det>& interface, const std::function<void(const TrackRefit<Det>::Tracks&)>& tracked = {}, const TrueCrossings& crossings = {})
+void measureTracks(const Frame& frame, const RecoSettings& param, const VertexConstraint& beamSpot, std::span<const VertexSeed> vertices, std::span<const TruthRow> truthRows, const ParticleTable& truth, const Funnel* funnel, const ComparisonSettings& findableRule, workflow::TrackingInterface<Det>& interface, const std::function<void(const TrackRefit<Det>::Tracks&)>& tracked = {}, const TrueCrossings& crossings = {})
 {
   const auto* label = interface.trackerLabel().c_str();
   const auto& tracking = interface.tracking();
@@ -2332,7 +2332,6 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
   const auto* scattering = &interface.scattering();
   // Findable by the comparison's rule (isFindable): the funnel's, the QA's.
   const auto first = workflow::iterationSettings(param, 0);
-  const auto findableRule = comparisonSettings<Det>();
   const auto minLayers = static_cast<std::uint32_t>(findableRule.minLayers);
   const auto iterations = static_cast<std::size_t>(workflow::iterationCount(param));
   auto& tracker = interface.tracker();
@@ -2964,6 +2963,7 @@ class MeasurementSinkTask : public Task
     }
 
     mTruthReports = !ic.options().get<bool>("no-truth-reports");
+    mFindableMinPtGeV = ic.options().get<double>("findable-min-pt");
     mSpeciesOracle = ic.options().get<bool>("species-oracle");
     // The MC truth QA's file.
     if (const auto qaOutput = ic.options().get<std::string>("qa-output"); !qaOutput.empty()) {
@@ -3209,7 +3209,7 @@ class MeasurementSinkTask : public Task
       for (std::size_t iteration = 0; iteration < minPtGeV.size(); ++iteration) {
         minPtGeV[iteration] = workflow::iterationSettings(param, static_cast<int>(iteration)).windows.minPtGeV;
       }
-      funnel.emplace(frame, comparisonRows, comparisonParticles, comparisonSettings<Det>(), vertexSeed(beamSpot), std::move(minPtGeV));
+      funnel.emplace(frame, comparisonRows, comparisonParticles, findableRule(), vertexSeed(beamSpot), std::move(minPtGeV));
       // The refused roads refitted for their reason, as the bench's funnel.
       funnel->setRoadFit(mInterface.tracking(), mInterface.material(), propagator);
     };
@@ -3228,7 +3228,7 @@ class MeasurementSinkTask : public Task
       };
     };
     makeFunnel(mObservers.funnel);
-    measureTracks(frame, param, beamSpot, seeds, comparisonRows, comparisonParticles, funnelOf(mObservers.funnel), mInterface, withDevice(withQA(comparisons())), crossingsOf);
+    measureTracks(frame, param, beamSpot, seeds, comparisonRows, comparisonParticles, funnelOf(mObservers.funnel), findableRule(), mInterface, withDevice(withQA(comparisons())), crossingsOf);
     if (mTruthOutput) {
       // The first iteration's.
       if (!mObservers.summaries.empty()) {
@@ -3250,7 +3250,7 @@ class MeasurementSinkTask : public Task
     const std::string name = mQAOutput->GetFile()->GetName();
     if (mInterface.configured()) {
       // The MC events: the signal source's, as the truth is.
-      streamRun(*mQAOutput, workflow::iterationCount(recoParam<Det>()), etaReach(PlacedEnvelopes<Det>::all()), comparisonSettings<Det>(), mKinematics ? mKinematics->getNEvents(0) : 0U, std::is_same_v<Det, detectors::TRKFT3> ? 0U : (std::uint64_t{1} << Detector<Det>::nLayers) - 1U);
+      streamRun(*mQAOutput, workflow::iterationCount(recoParam<Det>()), etaReach(PlacedEnvelopes<Det>::all()), findableRule(), mKinematics ? mKinematics->getNEvents(0) : 0U, std::is_same_v<Det, detectors::TRKFT3> ? 0U : (std::uint64_t{1} << Detector<Det>::nLayers) - 1U);
     }
     mQAOutput->Close();
     mQAOutput.reset();
@@ -3431,7 +3431,7 @@ class MeasurementSinkTask : public Task
     std::vector<QAResolution> resolution;
     std::vector<QAOracle> oracle;
     const Propagator propagator = mInterface.propagator();
-    const auto particleChains = particleLayers(rows, comparisonSettings<Det>());
+    const auto particleChains = particleLayers(rows, findableRule());
     for (std::size_t track = 0; track < tracks.size(); ++track) {
       const auto& state = view.state[track];
       const auto theta = static_cast<double>(state.theta());
@@ -3533,7 +3533,7 @@ class MeasurementSinkTask : public Task
             }
           }
           if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
-            if (std::cmp_greater_equal(outward[id], comparisonSettings<Det>().minLayers)) {
+            if (std::cmp_greater_equal(outward[id], findableRule().minLayers)) {
               for (const auto& crossing : leg) {
                 outwardMasks[id] |= std::uint64_t{1} << crossing.layer;
               }
@@ -3606,17 +3606,17 @@ class MeasurementSinkTask : public Task
         }
       }
     }
-    stream(*mQAOutput, trackingQA(rows, particles, ours, kinematics, funnel != nullptr ? funnel->seededBy() : SeededBy{}, extras, theirs, workflow::iterationCount(recoParam<Det>()), comparisonSettings<Det>()));
+    stream(*mQAOutput, trackingQA(rows, particles, ours, kinematics, funnel != nullptr ? funnel->seededBy() : SeededBy{}, extras, theirs, workflow::iterationCount(recoParam<Det>()), findableRule()));
     if (theirs != nullptr) {
       const auto nativeKinematics = mO2Tracks->kinematics(static_cast<long long>(mTimeframe));
-      const auto nativeQA = trackingQA(rows, particles, *theirs, nativeKinematics, {}, extras, nullptr, 1, comparisonSettings<Det>());
+      const auto nativeQA = trackingQA(rows, particles, *theirs, nativeKinematics, {}, extras, nullptr, 1, findableRule());
       streamTracks(*mQAOutput, nativeQA.tracks, "tracksO2");
     }
     streamResolution(*mQAOutput, resolution);
     streamOracle(*mQAOutput, oracle);
     if (!legMomenta.empty()) {
-      const auto settings = comparisonSettings<Det>();
-      const auto chains = particleLayers(rows, settings);
+      const auto rule = findableRule();
+      const auto chains = particleLayers(rows, rule);
       // Each followed particle's fakes (StageFunnel::report's label rule: the
       // particle most of a fake's measurements carry).
       std::unordered_map<std::uint64_t, std::pair<std::uint8_t, std::uint8_t>> fakes; // fewest wrong, its layer
@@ -3644,7 +3644,7 @@ class MeasurementSinkTask : public Task
       for (auto& [id, pAtLayer] : legMomenta) {
         const auto& truth = particles.at(id);
         const auto chain = chains.find(id);
-        if (chain == chains.end() || !isFindable(truth.pt, chain->second, settings)) {
+        if (chain == chains.end() || !isFindable(truth.pt, chain->second, rule)) {
           continue;
         }
         const auto& extra = extras.at(id);
@@ -4024,7 +4024,7 @@ class MeasurementSinkTask : public Task
   void compareWithO2(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& particles, const typename TrackRefit<Det>::Tracks& tracks, const TrackRows& theirs)
   {
     const TrackRows ours = trackRows(tracks);
-    for (const auto& line : compareTrackSets(rows, particles, ours, theirs, comparisonSettings<Det>(), "GTRK", "O2")) {
+    for (const auto& line : compareTrackSets(rows, particles, ours, theirs, findableRule(), "GTRK", "O2")) {
       LOGP(info, "{}", line);
     }
     // The rule held to O2's own: its track labels' fake flags.
@@ -4419,9 +4419,12 @@ class MeasurementSinkTask : public Task
   };
   std::unordered_map<std::uint64_t, ParticleLabel> mParticleLabels;
   std::unordered_map<std::uint64_t, double> mCollisionTimeNS; ///< by eventKey: the MC event's collision time [ns]
+  /// The findable rule of the QA, the comparisons and the funnel; it needs the geometry, so it is made where it is used.
+  [[nodiscard]] ComparisonSettings findableRule() const { return comparisonSettings<Det>(4, mFindableMinPtGeV); }
   bool mUseMC = true;
   bool mSpeciesOracle = false;                               ///< --species-oracle: the `oracle` QA tree
   bool mTruthReports = true;                                 ///< the stages' truth, the true roads' chi2 and the fakes' anatomy in the log; on unless --no-truth-reports, data runs too
+  double mFindableMinPtGeV = 0.1;                            ///< --findable-min-pt: the pT floor of findableRule()
   bool mWithVertices = true;                                 ///< the vertex list is an input
   TrackerProducts mTrackerProducts = TrackerProducts::kNone; ///< the tracking device's products, an input: compared, or digested
   workflow::TrackingInterface<Det> mInterface;               ///< the tracking: geometry, material, tracker, vertexer (TrackingInterface.h)
@@ -4479,7 +4482,7 @@ DataProcessorSpec getMeasurementSinkSpec<Det>(bool useMC, bool withVertices, Tra
     .inputs = inputs,
     .outputs = Outputs{},
     .algorithm = AlgorithmSpec{adaptFromTask<MeasurementSinkTask>(useMC, withVertices, products, conditions)},
-    .options = Options{{"collision-context", VariantType::String, "collisioncontext.root", {"collision context and MC-event mapping"}}, {"input-dir", VariantType::String, "none", {"input directory"}}, {"tracklet-truth-output", VariantType::String, "gtrk_tracklet_truth.csv", {"per-link pT and cot(theta) truth breakdown; empty disables"}}, {"dump-tracking-input", VariantType::String, "", {"write one timeframe's tracking input here, for o2-gtrk-track-bench"}}, {"dump-timeframe", VariantType::Int, 0, {"which timeframe --dump-tracking-input writes, counting from 0"}}, {"dump-only", VariantType::Bool, false, {"with --dump-tracking-input, the dumped timeframe is not tracked"}}, {"qa-output", VariantType::String, "", {"the MC truth QA as ROOT trees; empty disables"}}, {"species-oracle", VariantType::Bool, false, {"with --qa-output, refit every good track of e, mu, pi, K, p with its true mass: the oracle tree"}}, {"no-truth-reports", VariantType::Bool, false, {"with MC, no truth reports in the log (stages, true roads' chi2, fake anatomy): for the QA alone"}}, {"o2-tracks", VariantType::String, "", {"O2's tracks of the same clusters (o2trac_its.root, mfttracks.root), compared under one set of truth rules"}}, {"mc-hits", VariantType::String, hitFileName(), {"O2's MC hits, for the pulls, the true kinks and the QA's outward legs"}}},
+    .options = Options{{"collision-context", VariantType::String, "collisioncontext.root", {"collision context and MC-event mapping"}}, {"input-dir", VariantType::String, "none", {"input directory"}}, {"tracklet-truth-output", VariantType::String, "gtrk_tracklet_truth.csv", {"per-link pT and cot(theta) truth breakdown; empty disables"}}, {"dump-tracking-input", VariantType::String, "", {"write one timeframe's tracking input here, for o2-gtrk-track-bench"}}, {"dump-timeframe", VariantType::Int, 0, {"which timeframe --dump-tracking-input writes, counting from 0"}}, {"dump-only", VariantType::Bool, false, {"with --dump-tracking-input, the dumped timeframe is not tracked"}}, {"qa-output", VariantType::String, "", {"the MC truth QA as ROOT trees; empty disables"}}, {"species-oracle", VariantType::Bool, false, {"with --qa-output, refit every good track of e, mu, pi, K, p with its true mass: the oracle tree"}}, {"no-truth-reports", VariantType::Bool, false, {"with MC, no truth reports in the log (stages, true roads' chi2, fake anatomy): for the QA alone"}}, {"findable-min-pt", VariantType::Double, 0.1, {"the findable rule's pT floor [GeV]: the QA, the comparisons, the funnel"}}, {"o2-tracks", VariantType::String, "", {"O2's tracks of the same clusters (o2trac_its.root, mfttracks.root), compared under one set of truth rules"}}, {"mc-hits", VariantType::String, hitFileName(), {"O2's MC hits, for the pulls, the true kinks and the QA's outward legs"}}},
   };
   if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
     spec.options.push_back({"mc-ft3-hits", VariantType::String, "sgn_HitsFT3.root", {"O2's MC hits of FT3's discs, with --mc-hits TRK's"}});
