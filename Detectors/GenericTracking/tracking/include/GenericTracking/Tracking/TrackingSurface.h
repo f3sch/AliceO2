@@ -163,11 +163,12 @@ class TrackingGeometry
 
   /// The plane a state is bound to: its sensor's, or on a curved sensor the
   /// tangent plane at the state's angle.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() Plane planeOf(const BoundTrackState& state) const { return plane(state.surface, state.surfacePhi); }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Plane planeOf(const BoundParameters& state) const { return plane(state.surface, state.surfacePhi); }
 
   /// The plane a measurement is on: its sensor's, or on a curved sensor the
   /// tangent plane where it sits, at the angle its unrolled loc0 gives.
   template <typename M>
+    requires(!std::is_base_of_v<BoundParameters, M>)
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Plane planeOf(const M& measurement) const
   {
     if constexpr (Detector<Det>::hasCurvedSensors) {

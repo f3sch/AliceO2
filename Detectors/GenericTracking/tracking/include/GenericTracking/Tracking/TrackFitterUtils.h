@@ -73,7 +73,7 @@ GPUhdi() GPUAlwaysInline() Scalar lossMassGeV(const Propagator& prop) { return p
 /// radiation lengths: none for the tracking's propagator. A study's
 /// propagator type overloads it (the study's TruthFit.h) to change \a state's q/p
 /// and add to the step's q/p variance \a varQOverP.
-GPUhdi() GPUAlwaysInline() void applyRadiation(const Propagator& /*prop*/, Scalar /*x2X0*/, PropagationDirection /*direction*/, BoundTrackState& /*state*/, Scalar& /*varQOverP*/) {}
+GPUhdi() GPUAlwaysInline() void applyRadiation(const Propagator& /*prop*/, Scalar /*x2X0*/, PropagationDirection /*direction*/, BoundParameters& /*state*/, Scalar& /*varQOverP*/) {}
 
 namespace detail
 {
@@ -193,7 +193,7 @@ GPUdi() StepMaterial stepMaterial(const GroupMaterial<Material, Group>& material
 /// against it. False if the particle stopped. The mass is
 /// `lossMassGeV(prop)`, the propagator's hypothesis.
 template <typename Prop>
-GPUhdi() GPUAlwaysInline() bool applyEnergyLoss(const Prop& prop, Scalar xRho, PropagationDirection direction, Scalar& lossQOverP, BoundTrackState& state, Scalar& varQOverP)
+GPUhdi() GPUAlwaysInline() bool applyEnergyLoss(const Prop& prop, Scalar xRho, PropagationDirection direction, Scalar& lossQOverP, BoundParameters& state, Scalar& varQOverP)
 {
   varQOverP = 0.F;
   const auto loss = energyLoss(lossQOverP, lossMassGeV(prop), direction == PropagationDirection::kForward ? -xRho : xRho);
@@ -226,7 +226,7 @@ template <bool Scaled>
 /// nearer half's (StepMaterial). With \a Scaled, \a noiseScale multiplies
 /// the farther half's theta0 (`scaledTheta0`).
 template <bool Scaled, typename Prop>
-GPUdi() PropagationStatus stepNoise(const Prop& prop, const StepMaterial& step, Scalar momentum, const ScatteringNoise& before, PropagationDirection direction, BoundTrackState& state, Scalar& lossQOverP, StepNoise& noise, Scalar noiseScale)
+GPUdi() PropagationStatus stepNoise(const Prop& prop, const StepMaterial& step, Scalar momentum, const ScatteringNoise& before, PropagationDirection direction, BoundParameters& state, Scalar& lossQOverP, StepNoise& noise, Scalar noiseScale)
 {
   const auto after = scatteringNoise(scaledTheta0<Scaled>(highlandTheta0(step.fartherX2X0, step.fartherLogX2X0, momentum, prop.massGeV), noiseScale), state.theta());
   noise = StepNoise{.phiBefore = before.phi, .thetaBefore = before.theta, .phiAfter = after.phi, .thetaAfter = after.theta};
@@ -243,7 +243,7 @@ GPUdi() PropagationStatus stepNoise(const Prop& prop, const StepMaterial& step, 
 /// and the follow's (`transportCandidate`) both end so; each takes the nearer
 /// half's noise before its propagation.
 template <bool Scaled, typename Prop>
-GPUdi() PropagationStatus transportStep(const Prop& prop, const StepMaterial& step, Scalar momentum, const ScatteringNoise& before, PropagationDirection direction, const SolenoidJacobian& jacobian, BoundTrackState& state, CovarianceFactors& factors, Scalar noiseScale)
+GPUdi() PropagationStatus transportStep(const Prop& prop, const StepMaterial& step, Scalar momentum, const ScatteringNoise& before, PropagationDirection direction, const SolenoidJacobian& jacobian, BoundParameters& state, CovarianceFactors& factors, Scalar noiseScale)
 {
   StepNoise noise;
   Scalar lossQOverP = state.qOverP();

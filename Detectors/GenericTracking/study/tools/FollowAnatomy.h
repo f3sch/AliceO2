@@ -204,11 +204,11 @@ class FollowAnatomy
   struct Observer : follow::NoObserver {
     Recorder* recorder = nullptr;
     void begin(PropagationDirection direction) const { recorder->direction = direction == PropagationDirection::kForward ? 0U : 1U; }
-    void step(LayerID /*layer*/, const BoundTrackState& state, const CovarianceFactors& factors, std::uint32_t /*rows*/) const
+    void step(LayerID /*layer*/, const BoundParameters& state, const CovarianceFactors& factors, std::uint32_t /*rows*/) const
     {
       auto& step = recorder->steps.emplace_back();
       step.direction = recorder->direction;
-      step.state = state;
+      step.state = withCovariance(state, factors);
       step.factors = factors;
     }
     void target(LayerID layer, const CandidateWindow& /*window*/) const { recorder->steps.back().targets.push_back(layer); }

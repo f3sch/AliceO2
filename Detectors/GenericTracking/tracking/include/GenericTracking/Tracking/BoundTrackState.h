@@ -26,17 +26,18 @@
 namespace o2::gtrk
 {
 
-/// A track state on a sensor plane: the five geometric parameters. A track's
-/// time is its rows' box, kept beside it.
+/// The five geometric parameters of a track on a sensor plane, without their
+/// covariance: what propagation and the parameters' half of an update read
+/// and write, and what a search carries where the covariance travels as its
+/// factors (CovarianceFactors; the follow).
 ///
 /// The plane is the sensor `surface` names; on a curved sensor it is the
 /// sensor's tangent plane at the sensor-local angle `surfacePhi`
 /// (TrackingGeometry::planeOf). That angle
 /// names the frame, it is not a parameter: an update leaves it alone, and it
 /// has no covariance. On a flat sensor it is 0.
-struct BoundTrackState {
+struct BoundParameters {
   Scalar par[kNBoundParams]{};         ///< loc0, loc1, phi, theta, q/p
-  Scalar cov[kBoundCovSize]{};         ///< packed lower triangle; see covIndex()
   SensorID surface = kInvalidSensorID; ///< the sensor these parameters are bound to
   Scalar surfacePhi = 0.F;             ///< a curved sensor's tangent plane: its angle in the sensor [rad]
 
@@ -45,6 +46,12 @@ struct BoundTrackState {
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar phi() const { return par[kPhi]; }
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar theta() const { return par[kTheta]; }
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar qOverP() const { return par[kQOverP]; }
+};
+
+/// A track state on a sensor plane: its parameters (BoundParameters) and
+/// their covariance. A track's time is its rows' box, kept beside it.
+struct BoundTrackState : BoundParameters {
+  Scalar cov[kBoundCovSize]{}; ///< packed lower triangle; see covIndex()
 
   /// Covariance element (i, j).  Symmetric, so the caller never has to order
   /// the indices.

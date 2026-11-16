@@ -97,7 +97,7 @@ GPUhdi() GPUAlwaysInline() bool nearerPath(ExactScalar candidate, ExactScalar ch
 /// nominal radius or z is copied into IterationParameters on the host, so the
 /// runtime-indexed path reads no detector constexpr table on a device.
 template <typename Prop, DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() LayerCrossingPrediction predictLayerCrossing(const Prop& prop, const IterationParameters<Det>& parameters, const TrackingSurface& from, const BoundTrackState& state, LayerID layer, PropagationDirection direction)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() LayerCrossingPrediction predictLayerCrossing(const Prop& prop, const IterationParameters<Det>& parameters, const TrackingSurface& from, const BoundParameters& state, LayerID layer, PropagationDirection direction)
 {
   using Math = o2::gpu::CAMath;
   LayerCrossingPrediction result;
@@ -284,7 +284,7 @@ struct KinkSteps {
 /// `detail::filterStep` carries a fit's state (`detail::transportStep`):
 /// \a output and \a outputFactors. Unlike the fit, it takes the field at
 /// \a input (`pointPropagator`) and refuses a step beyond half a turn.
-/// `cov` of neither state is read or written. False if the step is not usable.
+/// False if the step is not usable.
 /// The follow's window carries the state to a layer's nominal surface with
 /// it (`predictedWindow`), and `updateCandidate` is this plus the update.
 /// With \a Scaled, \a noiseScale multiplies the step's theta0: the kink
@@ -293,7 +293,7 @@ struct KinkSteps {
 /// given, gets the step's material. The body, inlined where it is called;
 /// the follow calls `transportCandidate`.
 template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool transportCandidateInline(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundTrackState& input, const CovarianceFactors& inputFactors, BoundTrackState& output, CovarianceFactors& outputFactors, Scalar noiseScale, detail::StepMaterial* traversed = nullptr)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool transportCandidateInline(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& input, const CovarianceFactors& inputFactors, BoundParameters& output, CovarianceFactors& outputFactors, Scalar noiseScale, detail::StepMaterial* traversed = nullptr)
 {
   const auto& from = geometry.planeOf(input);
   const auto& propagator = pointPropagator(prop, from, input);
@@ -328,7 +328,7 @@ template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
 /// `FollowStage::passingOn` takes the body inline (`updateCandidate`'s
 /// \a Inlined).
 template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
-[[nodiscard]] GPUhdnii() bool transportCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundTrackState& input, const CovarianceFactors& inputFactors, BoundTrackState& output, CovarianceFactors& outputFactors, Scalar noiseScale, detail::StepMaterial* traversed = nullptr)
+[[nodiscard]] GPUhdnii() bool transportCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& input, const CovarianceFactors& inputFactors, BoundParameters& output, CovarianceFactors& outputFactors, Scalar noiseScale, detail::StepMaterial* traversed = nullptr)
 {
   return transportCandidateInline<Scaled>(prop, geometry, material, to, direction, input, inputFactors, output, outputFactors, noiseScale, traversed);
 }
@@ -339,12 +339,12 @@ template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
 /// kink allowance's step) and updated with it:
 /// \a output and \a outputFactors, and the update's \a chi2 -- and, with
 /// \a Determinant, its innovation covariance's determinant into
-/// \a determinant (the follow's EndDensity). `cov` of neither state is read
-/// or written. False if the step or the update is not usable. With
+/// \a determinant (the follow's EndDensity). False if the step or the
+/// update is not usable. With
 /// \a Inlined the transport is inlined (`transportCandidateInline`), else
 /// called.
 template <bool Scaled, bool Determinant = false, bool Inlined = false, typename Prop, DetectorLayout Det, typename Material>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool updateCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, const BoundTrackState& input, const CovarianceFactors& inputFactors, BoundTrackState& output, CovarianceFactors& outputFactors, Scalar& chi2, Scalar noiseScale, [[maybe_unused]] Scalar* determinant = nullptr)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool updateCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, const BoundParameters& input, const CovarianceFactors& inputFactors, BoundParameters& output, CovarianceFactors& outputFactors, Scalar& chi2, Scalar noiseScale, [[maybe_unused]] Scalar* determinant = nullptr)
 {
   bool carried = false;
   if constexpr (Inlined) {
@@ -386,7 +386,7 @@ inline constexpr Scalar kOpenBound = 1.e4F;
 /// where given, gets the material the state crossed to the plane: what the
 /// window's candidates take (`detail::GivenMaterial`).
 template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
-GPUhdi() bool predictedWindow(const Prop& prop, const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, const Material& material, const BoundTrackState& state, const CovarianceFactors& factors, LayerID target, PropagationDirection direction, const LayerCrossingPrediction& nominal, CandidateWindow& window, Scalar noiseScale, Scalar* reach = nullptr, detail::StepMaterial* traversed = nullptr)
+GPUhdi() bool predictedWindow(const Prop& prop, const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, const Material& material, const BoundParameters& state, const CovarianceFactors& factors, LayerID target, PropagationDirection direction, const LayerCrossingPrediction& nominal, CandidateWindow& window, Scalar noiseScale, Scalar* reach = nullptr, detail::StepMaterial* traversed = nullptr)
 {
   using Math = o2::gpu::CAMath;
   const bool barrel = ((parameters.barrelLayers >> target) & 1U) != 0U;
@@ -415,14 +415,15 @@ GPUhdi() bool predictedWindow(const Prop& prop, const IterationParameters<Det>& 
   }
   plane.bounds = {.halfX = kOpenBound, .halfY = kOpenBound};
   plane.layer = target;
-  BoundTrackState predicted;
+  BoundParameters predicted;
   CovarianceFactors predictedFactors;
   if (!transportCandidate<Scaled>(prop, geometry, material, plane, direction, state, factors, predicted, predictedFactors, noiseScale, traversed)) {
     return false;
   }
-  covarianceFromFactors(predictedFactors, predicted.cov);
-  const Scalar variance0 = predicted.variance(kLoc0) + parameters.followPositionVariance;
-  const Scalar variance1 = predicted.variance(kLoc1) + parameters.followPositionVariance;
+  Scalar predictedCov[kBoundCovSize]{};
+  covarianceFromFactors(predictedFactors, predictedCov);
+  const Scalar variance0 = predictedCov[varIndex(kLoc0)] + parameters.followPositionVariance;
+  const Scalar variance1 = predictedCov[varIndex(kLoc1)] + parameters.followPositionVariance;
   if (!(variance0 > 0.F) || !(variance1 > 0.F)) {
     return false;
   }
@@ -463,7 +464,7 @@ GPUhdi() bool predictedWindow(const Prop& prop, const IterationParameters<Det>& 
 /// where the step makes no window. For the studies that replay a step
 /// without its window.
 template <typename Prop, DetectorLayout Det, typename Material>
-[[nodiscard]] bool windowMaterial(const Prop& prop, const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, const Material& material, const BoundTrackState& state, const CovarianceFactors& factors, LayerID layer, PropagationDirection direction, detail::StepMaterial& traversed)
+[[nodiscard]] bool windowMaterial(const Prop& prop, const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, const Material& material, const BoundParameters& state, const CovarianceFactors& factors, LayerID layer, PropagationDirection direction, detail::StepMaterial& traversed)
 {
   const auto nominal = predictLayerCrossing(prop, parameters, geometry.planeOf(state), state, layer, direction);
   if (nominal.status != PropagationStatus::kOk) {
@@ -507,9 +508,9 @@ GPUhdi() GPUAlwaysInline() void windowCentre(const IterationParameters<Det>& par
 
 /// What a follow's observer sees (`FollowStage::follow`); the default sees
 /// nothing and compiles to nothing:
-///  - each direction's start, and each step: the layer it leaves, its state,
-///    its covariance's factors (the state's own `cov` is not kept up to
-///    date) and the rows the direction has taken;
+///  - each direction's start, and each step: the layer it leaves, its
+///    parameters, its covariance's factors and the rows the direction has
+///    taken;
 ///  - each target the step searches, with its window;
 ///  - each row the search visits, with its outcome (`visit`) and the update's
 ///    chi2 (0 where the update was not made);
@@ -525,7 +526,7 @@ GPUhdi() GPUAlwaysInline() void windowCentre(const IterationParameters<Det>& par
 ///    end.
 struct NoObserver {
   GPUhdi() GPUAlwaysInline() void begin(PropagationDirection /*direction*/) const {}
-  GPUhdi() GPUAlwaysInline() void step(LayerID /*layer*/, const BoundTrackState& /*state*/, const CovarianceFactors& /*factors*/, std::uint32_t /*rows*/) const {}
+  GPUhdi() GPUAlwaysInline() void step(LayerID /*layer*/, const BoundParameters& /*state*/, const CovarianceFactors& /*factors*/, std::uint32_t /*rows*/) const {}
   GPUhdi() GPUAlwaysInline() void target(LayerID /*layer*/, const CandidateWindow& /*window*/) const {}
   GPUhdi() GPUAlwaysInline() void candidate(LayerID /*layer*/, std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) const {}
   GPUhdi() GPUAlwaysInline() void lookahead(std::uint32_t /*passing*/) const {}
@@ -561,7 +562,7 @@ struct StepContext {
 struct Child {
   std::uint32_t row = std::numeric_limits<std::uint32_t>::max();
   Scalar chi2 = 0.F;
-  BoundTrackState state;
+  BoundParameters state;
   CovarianceFactors factors;
 };
 
@@ -604,7 +605,7 @@ using ChildOf = std::conditional_t<EndDensity, DensityChild, Child>;
 /// (`updateCandidate`). The body, inlined where it is called; the follow
 /// calls `visit`.
 template <bool Scaled, bool Own = false, bool EndDensity = false, bool Inlined = false, DetectorLayout Det, typename Material, typename Group, typename Report, typename Step>
-GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det, Material>& context, const BoundTrackState& state, const CovarianceFactors& factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& window, const detail::StepMaterial& traversed, std::uint64_t holes, Scalar noiseScale, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
+GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det, Material>& context, const BoundParameters& state, const CovarianceFactors& factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& window, const detail::StepMaterial& traversed, std::uint64_t holes, Scalar noiseScale, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
 {
   const auto& parameters = *context.parameters;
   const auto& frame = *context.frame;
@@ -676,25 +677,20 @@ GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det, Material>& co
 /// `visitInline`, never inlined on the device: one copy for each call site,
 /// which the kernels then do not absorb.
 template <bool Scaled, bool Own = false, bool EndDensity = false, DetectorLayout Det, typename Material, typename Group, typename Report, typename Step>
-GPUhdnii() void visit(const StepContext<Det, Material>& context, const BoundTrackState& state, const CovarianceFactors& factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& window, const detail::StepMaterial& traversed, std::uint64_t holes, Scalar noiseScale, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
+GPUhdnii() void visit(const StepContext<Det, Material>& context, const BoundParameters& state, const CovarianceFactors& factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& window, const detail::StepMaterial& traversed, std::uint64_t holes, Scalar noiseScale, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
 {
   visitInline<Scaled, Own, EndDensity>(context, state, factors, r, z, layer, direction, window, traversed, holes, noiseScale, counter, group, report, step, own);
 }
 
 /// \a candidate of lane \a from of \a group, on every lane: its row, chi2,
 /// parameters, surface and factors (and with \a EndDensity its determinant).
-/// Its covariance is \a origin's -- the state
-/// the step's updates started from: `transportCandidate` and the update carry
-/// the input's `cov` unchanged (the factors are the covariance), so every
-/// candidate of a step holds the same one and it is not sent.
 template <typename Group, typename Row>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() decltype(auto) shared(const Group& group, const Row& candidate, std::uint32_t from, const BoundTrackState& origin)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() decltype(auto) shared(const Group& group, const Row& candidate, std::uint32_t from)
 {
   if constexpr (Group::kLanes == 1U) {
     // The candidate itself: one lane has it already.
     static_cast<void>(group);
     static_cast<void>(from);
-    static_cast<void>(origin);
     return (candidate);
   } else {
     struct Wire {
@@ -725,9 +721,6 @@ template <typename Group, typename Row>
     out.chi2 = wire.chi2;
     for (int i = 0; i < kNBoundParams; ++i) {
       out.state.par[i] = wire.par[i];
-    }
-    for (int i = 0; i < kBoundCovSize; ++i) {
-      out.state.cov[i] = origin.cov[i];
     }
     out.state.surface = wire.surface;
     out.state.surfacePhi = wire.surfacePhi;
@@ -797,7 +790,7 @@ inline constexpr std::size_t maxDegree = [] {
 /// (the end decided again, `followEnd`; none otherwise).
 template <std::size_t K>
 struct Branch {
-  BoundTrackState state;
+  BoundParameters state;
   CovarianceFactors factors;
   std::uint32_t rows[K]{};
   Scalar lastChi2 = 0.F;
@@ -826,14 +819,14 @@ using BranchOf = std::conditional_t<EndDensity, DensityBranch<K>, Branch<K>>;
 /// rows the walk took. A row the unconfirmed drop or the layout's end removes makes the one
 /// before the last: entry 1.
 struct BeamEndHistory {
-  BoundTrackState state[2];
+  BoundParameters state[2];
   CovarianceFactors factors[2];
   bool kink[2] = {true, true};
   std::uint32_t taken = 0U;
 
   /// A step from \a from (its factors \a fromFactors) taking a row, by a
   /// kink step where \a kinked.
-  GPUhdi() GPUAlwaysInline() void remember(const BoundTrackState& from, const CovarianceFactors& fromFactors, bool kinked)
+  GPUhdi() GPUAlwaysInline() void remember(const BoundParameters& from, const CovarianceFactors& fromFactors, bool kinked)
   {
     state[1] = state[0];
     factors[1] = factors[0];
@@ -1026,7 +1019,7 @@ class FollowStage
   /// nominal step from there would see on that layer, \a own among them or
   /// not (`follow::TrimAmbiguous`). None where no link of the layout leads from
   /// the state's layer to \a layer, or the window cannot be made.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() follow::Passing passingOn(const BoundTrackState& state, const CovarianceFactors& factors, LayerID layer, std::uint32_t own, const TimeEstPS& box, PropagationDirection direction) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() follow::Passing passingOn(const BoundParameters& state, const CovarianceFactors& factors, LayerID layer, std::uint32_t own, const TimeEstPS& box, PropagationDirection direction) const
   {
     follow::Target targets[follow::maxDegree<Det>];
     const std::uint32_t nTargets = targetsOf(state, direction, targets);
@@ -1329,7 +1322,7 @@ class FollowStage
   /// the same window; they look its material up together
   /// (`detail::GroupMaterial`).
   template <bool Scaled, typename Group>
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool targetWindow(const BoundTrackState& state, const CovarianceFactors& factors, const TimeEstPS& box, const follow::Target& target, PropagationDirection direction, Scalar scale, CandidateWindow& window, Scalar (&reach)[2], detail::StepMaterial& traversed, const Group& group) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool targetWindow(const BoundParameters& state, const CovarianceFactors& factors, const TimeEstPS& box, const follow::Target& target, PropagationDirection direction, Scalar scale, CandidateWindow& window, Scalar (&reach)[2], detail::StepMaterial& traversed, const Group& group) const
   {
     Scalar phiCentre = 0.F;
     Scalar secondCentre = 0.F;
@@ -1353,7 +1346,7 @@ class FollowStage
 
   /// The layers a step from \a state may reach in \a direction, into
   /// \a targets, nearest crossing first; how many.
-  [[nodiscard]] GPUhdi() std::uint32_t targetsOf(const BoundTrackState& state, PropagationDirection direction, follow::Target* targets) const
+  [[nodiscard]] GPUhdi() std::uint32_t targetsOf(const BoundParameters& state, PropagationDirection direction, follow::Target* targets) const
   {
     const bool forward = direction == PropagationDirection::kForward;
     const LayerID current = mGeometry->surface(state.surface).layer;
@@ -1462,7 +1455,7 @@ class FollowStage
             if constexpr (Greedy) {
               // Every lane holds the best so far, each passing row shared as
               // it comes.
-              const auto one = follow::shared(group, candidate, from, branch.state);
+              const auto one = follow::shared(group, candidate, from);
               if (++passing == 1U || follow::beats(one.row, one.chi2, follow::Witness{.row = child.row, .chi2 = child.chi2})) {
                 child = one;
               }
@@ -1476,9 +1469,9 @@ class FollowStage
               continue;
             }
             if (passing == 2U) {
-              confirm(branch, box, direction, follow::shared(group, child, firstLane, branch.state), confirmed, observe, group);
+              confirm(branch, box, direction, follow::shared(group, child, firstLane), confirmed, observe, group);
             }
-            confirm(branch, box, direction, follow::shared(group, candidate, from, branch.state), confirmed, observe, group);
+            confirm(branch, box, direction, follow::shared(group, candidate, from), confirmed, observe, group);
           }
         },
         branch.own);
@@ -1492,7 +1485,7 @@ class FollowStage
       }
       if (passing == 1U) {
         if constexpr (Group::kLanes > 1U) {
-          child = follow::shared(group, child, firstLane, branch.state);
+          child = follow::shared(group, child, firstLane);
         }
       } else {
         countWork(WorkCounter::kFollowLookaheads);
@@ -1583,7 +1576,7 @@ class FollowStage
         [&](const Child& candidate) {
           for (auto lanes = group.ballot(candidate.row != ClusterList<kMaxClusters>::kNoCluster); lanes != 0U; lanes &= lanes - 1U) {
             nearMiss = true;
-            const Child taken = follow::shared(group, candidate, static_cast<std::uint32_t>(o2::gpu::CAMath::Ctz64(lanes)), branch.state);
+            const Child taken = follow::shared(group, candidate, static_cast<std::uint32_t>(o2::gpu::CAMath::Ctz64(lanes)));
             std::uint32_t next = ClusterList<kMaxClusters>::kNoCluster;
             Scalar witness = 0.F;
             const bool confirmed = confirmation<true>(branch, box, direction, taken, next, witness, WorkCounter::kFollowWitnessUpdates, group);
@@ -1628,8 +1621,7 @@ class FollowStage
     if (nTargets == 0U) {
       if constexpr (BeamLine && BeamLineConfirms) {
         if (direction == PropagationDirection::kBackward) {
-          BoundTrackState constrained = probe.state;
-          covarianceFromFactors(probe.factors, constrained.cov);
+          BoundTrackState constrained = withCovariance(probe.state, probe.factors);
           const auto beam = updateWithBeamLine(mPropagator, *mParameters, *mMaterial, mGeometry->planeOf(constrained), pairPointAt(mFrame->measurements(), probe.rows[probe.count - 1U]), constrained);
           chi2 = beam.chi2;
           return beam.ok && beam.chi2 <= mParameters->beamChi2Max;
@@ -1666,7 +1658,7 @@ class FollowStage
   /// crossing, as far from it as the layer's envelope \a reach lets the
   /// crossing move; a curved sensor is tested on its tangent plane at the
   /// crossing's angle.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool crossesSensor(const BoundTrackState& state, const follow::Target& target, const Scalar* reach, PropagationDirection direction) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool crossesSensor(const BoundParameters& state, const follow::Target& target, const Scalar* reach, PropagationDirection direction) const
   {
     countWork(WorkCounter::kFollowHoleTests);
     const auto& from = mGeometry->planeOf(state);
@@ -1686,7 +1678,7 @@ class FollowStage
         }
         plane = tangentPlane(surface, o2::gpu::CAMath::ATan2(along1, along0));
       }
-      BoundTrackState at = state;
+      BoundParameters at = state;
       const auto result = propagate(propagator, at, from, plane, direction);
       return result.status == PropagationStatus::kOk && !follow::beyondHalfTurn(curvature * static_cast<ExactScalar>(result.pathLength));
     });

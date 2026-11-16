@@ -1389,11 +1389,11 @@ class CompleteAnatomy
       direction = walk == PropagationDirection::kForward ? 0U : 1U;
       from = direction == 0U ? outerFrom : innerFrom;
     }
-    void step(LayerID /*layer*/, const BoundTrackState& state, const CovarianceFactors& /*factors*/, std::uint32_t /*rows*/) const
+    void step(LayerID /*layer*/, const BoundParameters& state, const CovarianceFactors& /*factors*/, std::uint32_t /*rows*/) const
     {
       const auto ratio = ratios->find(from);
       if (ratio != ratios->end() && ratio->second[direction] > 0.F) {
-        const_cast<BoundTrackState&>(state).par[kQOverP] *= ratio->second[direction]; // NOLINT(cppcoreguidelines-pro-type-const-cast): the oracle's change, see above
+        const_cast<BoundParameters&>(state).par[kQOverP] *= ratio->second[direction]; // NOLINT(cppcoreguidelines-pro-type-const-cast): the oracle's change, see above
       }
     }
     void taken(std::uint32_t row, Scalar /*chi2*/, bool /*kinked*/) const { from = row; }
@@ -3379,11 +3379,11 @@ class CompleteAnatomy
         *from = direction == PropagationDirection::kForward ? outerFrom : innerFrom;
       }
     }
-    void step(LayerID layer, const BoundTrackState& state, const CovarianceFactors& factors, std::uint32_t /*rows*/) const
+    void step(LayerID layer, const BoundParameters& state, const CovarianceFactors& factors, std::uint32_t /*rows*/) const
     {
       Step one;
       one.layer = layer;
-      one.state = state;
+      one.state = withCovariance(state, factors);
       one.factors = factors;
       one.from = *from;
       one.choice = kNoRow;

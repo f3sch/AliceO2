@@ -49,7 +49,7 @@ namespace detail
 /// -1, 1), whose factors are S U S and D -- U's entries in theta's row and
 /// column change sign. Phi wrapping and the accompanying half-turn are
 /// constant shifts and leave the covariance alone.
-GPUhdi() GPUAlwaysInline() void canonicalizeDirection(BoundTrackState& state, CovarianceFactors& factors)
+GPUhdi() GPUAlwaysInline() void canonicalizeDirection(BoundParameters& state, CovarianceFactors& factors)
 {
   math_utils::detail::bringToPMPi<Scalar>(state.par[kTheta]);
   if (state.theta() < 0.F) {
@@ -65,7 +65,7 @@ GPUhdi() GPUAlwaysInline() void canonicalizeDirection(BoundTrackState& state, Co
   math_utils::detail::bringToPMPi<Scalar>(state.par[kPhi]);
 }
 
-GPUhdi() GPUAlwaysInline() void applySpatialGain(BoundTrackState& state, const Scalar (&gain)[kNBoundParams], Scalar residual)
+GPUhdi() GPUAlwaysInline() void applySpatialGain(BoundParameters& state, const Scalar (&gain)[kNBoundParams], Scalar residual)
 {
   for (int i = 0; i < kNBoundParams; ++i) {
     state.par[i] += gain[i] * residual;
@@ -84,8 +84,17 @@ GPUhdi() GPUAlwaysInline() void applySpatialGain(BoundTrackState& state, const S
 
 GPUhdi() GPUAlwaysInline() void covarianceFromFactors(const CovarianceFactors& factors, Scalar (&cov)[kBoundCovSize]) { detail::covarianceFromUD(factors.upper, factors.diagonal, cov); }
 
+/// The state of \a parameters with the covariance \a factors describe.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() BoundTrackState withCovariance(const BoundParameters& parameters, const CovarianceFactors& factors)
+{
+  BoundTrackState state;
+  static_cast<BoundParameters&>(state) = parameters;
+  covarianceFromFactors(factors, state.cov);
+  return state;
+}
+
 /// Update of a bound state with (loc0, loc1), its covariance as factors: the
-/// factors themselves are updated (Bierman), and `state.cov` is not touched.
+/// factors themselves are updated (Bierman), and the state's parameters.
 ///
 /// The spatial measurement covariance is first whitened into two independent
 /// scalar observations: R = L D L^T, and applying L^-1 to measurement and
@@ -99,7 +108,7 @@ GPUhdi() GPUAlwaysInline() void covarianceFromFactors(const CovarianceFactors& f
 /// determinant over (loc0, loc1), det(H P H^T + R) [cm^4]: the product of the
 /// two innovations.
 template <bool Determinant = false>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() MeasurementUpdateResult updateWithMeasurement(BoundTrackState& state, CovarianceFactors& factors, const Measurement& measurement, [[maybe_unused]] Scalar* determinant = nullptr)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() MeasurementUpdateResult updateWithMeasurement(BoundParameters& state, CovarianceFactors& factors, const Measurement& measurement, [[maybe_unused]] Scalar* determinant = nullptr)
 {
   MeasurementUpdateResult result;
   result.residualLoc0 = measurement.loc0 - state.loc0();
