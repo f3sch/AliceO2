@@ -170,7 +170,7 @@ inline int AlpideSimResponse::getDepthBin(float pos) const
   /// get depth bin w/o checking for over/under flow. pos is with respect of the beginning
   /// of epitaxial layer
   int i = (mDptMax - pos) * mStepInvDpt;
-  return i < 0 ? 0 : i; // depth bin
+  return i < 0 ? 0 : (i < mNBinDpt ? i : mNBinDpt - 1); // depth bin; pos == mDptMin gives mNBinDpt
 }
 
 } // namespace itsmft
