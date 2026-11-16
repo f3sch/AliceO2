@@ -59,18 +59,22 @@ struct BeamLineUpdate {
 };
 
 /// The direction [rad] of a bound state's helix at its transverse closest
-/// approach to the z axis, without a virtual beam-line surface.
+/// approach to the line along the beam through (\a x, \a y), by default
+/// the z axis, without a virtual beam-line surface.
 ///
-/// With A = r.dot(direction) and B = r.dot(leftNormal), closest approach obeys
+/// With r the position from that line, A = r.dot(direction) and
+/// B = r.dot(leftNormal), closest approach obeys
 ///
 ///   kappa A cos(psi) + (1 + kappa B) sin(psi) = 0,
 ///
 /// solved for the turn psi; at zero curvature it is 0.
 template <typename Prop>
-[[nodiscard]] GPUdi() Scalar perigeePhi(const Prop& prop, const BoundTrackState& state, const TrackingSurface& surface)
+[[nodiscard]] GPUdi() Scalar perigeePhi(const Prop& prop, const BoundTrackState& state, const TrackingSurface& surface, Scalar x = 0.F, Scalar y = 0.F)
 {
   ExactScalar position[3]{};
   detail::boundToGlobal(surface, static_cast<ExactScalar>(state.loc0()), static_cast<ExactScalar>(state.loc1()), position);
+  position[0] -= static_cast<ExactScalar>(x);
+  position[1] -= static_cast<ExactScalar>(y);
 
   const auto phi = static_cast<ExactScalar>(state.phi());
   const auto theta = static_cast<ExactScalar>(state.theta());

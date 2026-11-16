@@ -159,29 +159,47 @@ GPUdi() int betheHeitlerMixture(Scalar x2X0, BetheHeitlerComponent (&mixture)[kB
   return kBetheHeitlerComponents;
 }
 
-/// One loss component applied to \a state and its covariance \a factors:
-/// along the momentum q/p -> q/p / z, against it (an inward pass undoing the
-/// loss) q/p -> q/p z, with z the component's mean and its variance carried
-/// to q/p to first order about it. The covariance's q/p row and column are
-/// scaled by the same factor, and the loss's variance added on q/p: along
-/// the momentum (q/p)^2 var(z) / z^4, against it (q/p)^2 var(z). Against the
-/// momentum q/p is linear in z, so the mean is exact there. False if the
-/// result is not finite or the factors not positive.
-GPUhdi() bool applyBetheHeitler(const BetheHeitlerComponent& component, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors)
+/// The factor a loss component scales q/p by: 1 / z along the momentum, z
+/// against it (an inward pass undoing the loss).
+GPUhdi() Scalar betheHeitlerScale(const BetheHeitlerComponent& component, PropagationDirection direction)
 {
-  const bool along = direction == PropagationDirection::kForward;
-  const Scalar scale = along ? 1.F / component.mean : component.mean;
+  return direction == PropagationDirection::kForward ? 1.F / component.mean : component.mean;
+}
+
+namespace detail
+{
+
+/// `applyBetheHeitler` on factors that may hold zero pivots (a diffuse
+/// filter's, which `rankOneUpdateUD` passes over): false only if q/p is not
+/// finite.
+GPUhdi() bool applyBetheHeitlerFactors(const BetheHeitlerComponent& component, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors)
+{
+  const Scalar scale = betheHeitlerScale(component, direction);
   const Scalar qOverP = state.par[kQOverP] * scale;
   state.par[kQOverP] = qOverP;
   for (int row = 0; row < kQOverP; ++row) {
-    factors.upper[detail::strictUpperIndex(row, kQOverP)] /= scale;
+    factors.upper[strictUpperIndex(row, kQOverP)] /= scale;
   }
   factors.diagonal[kQOverP] *= scale * scale;
-  const Scalar slope = along ? qOverP * scale : state.par[kQOverP] / scale;
+  const Scalar slope = direction == PropagationDirection::kForward ? qOverP * scale : qOverP / scale;
   Scalar unit[kNBoundParams]{};
   unit[kQOverP] = 1.F;
-  detail::rankOneUpdateUD(factors.upper, factors.diagonal, slope * slope * component.variance, unit);
-  return isFiniteScalar(qOverP) && positiveDiagonal(factors);
+  rankOneUpdateUD(factors.upper, factors.diagonal, slope * slope * component.variance, unit);
+  return isFiniteScalar(qOverP);
+}
+
+} // namespace detail
+
+/// One loss component applied to \a state and its covariance \a factors:
+/// q/p scaled by `betheHeitlerScale`, with z the component's mean and its
+/// variance carried to q/p to first order about it. The covariance's q/p row
+/// and column are scaled by the same factor, and the loss's variance added
+/// on q/p: along the momentum (q/p)^2 var(z) / z^4, against it (q/p)^2
+/// var(z). Against the momentum q/p is linear in z, so the mean is exact
+/// there. False if the result is not finite or the factors not positive.
+GPUhdi() bool applyBetheHeitler(const BetheHeitlerComponent& component, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors)
+{
+  return detail::applyBetheHeitlerFactors(component, direction, state, factors) && positiveDiagonal(factors);
 }
 
 } // namespace o2::gtrk

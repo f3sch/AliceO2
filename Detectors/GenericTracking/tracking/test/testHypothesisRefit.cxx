@@ -28,7 +28,6 @@
 #include <array>
 #include <cmath>
 #include <cstring>
-#include <numbers>
 #include <random>
 #include <vector>
 
@@ -38,17 +37,10 @@ namespace
 {
 
 using test::ElectronChain;
+using test::medianWidth;
 constexpr int kLayers = static_cast<int>(ElectronChain::kLayers);
 
 bool sameBits(const Scalar* a, const Scalar* b, int n) { return std::memcmp(a, b, sizeof(Scalar) * static_cast<std::size_t>(n)) == 0; }
-
-/// The median and half the 16-84 % width of \a values.
-std::pair<double, double> medianWidth(std::vector<double> values)
-{
-  std::ranges::sort(values);
-  const auto at = [&](double q) { return values[static_cast<std::size_t>(q * static_cast<double>(values.size() - 1))]; };
-  return {at(0.5), 0.5 * (at(0.84) - at(0.16))};
-}
 
 double standardDeviation(const std::vector<double>& values)
 {
@@ -174,12 +166,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
       continue;
     }
     const double u = chain.vertex.qOverP();
-    double cdf = 0.;
-    for (int c = 0; c < electron.perigeeMixture.size; ++c) {
-      const auto& state = electron.perigeeMixture.state[c];
-      cdf += std::exp(static_cast<double>(electron.perigeeMixture.logWeight[c])) * 0.5 * std::erfc(-(u - static_cast<double>(state.qOverP())) / (std::sqrt(static_cast<double>(state.variance(kQOverP))) * std::numbers::sqrt2));
-    }
-    pit.push_back(cdf);
+    pit.push_back(marginalCdf(electron.perigeeMixture, u));
     mode.push_back(electron.perigeeMomentum * std::abs(u));
     kalman.push_back(std::abs(u / static_cast<double>(carried.qOverP())));
     d0Pull.push_back(static_cast<double>(electron.perigee.loc0()) / std::sqrt(static_cast<double>(electron.perigee.variance(kLoc0))));
