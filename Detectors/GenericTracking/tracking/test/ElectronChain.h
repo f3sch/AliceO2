@@ -17,8 +17,8 @@
 
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Tracking/BeamConstraint.h"
-#include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Propagator.h"
+#include "GenericTracking/Tracking/TrackFitterUtils.h"
 #include "ToyBarrel8.h"
 #include "UniformMaterial.h"
 
@@ -27,6 +27,8 @@
 #include <cmath>
 #include <numbers>
 #include <random>
+#include <utility>
+#include <vector>
 
 namespace o2::gtrk::test
 {
@@ -148,7 +150,8 @@ struct ElectronChain {
         return false;
       }
       Scalar variance = 0.F;
-      if (!detail::applyEnergyLoss(propagator, material.rho * segment, PropagationDirection::kForward, start, variance)) {
+      Scalar lossQOverP = start.qOverP();
+      if (!detail::applyEnergyLoss(propagator, material.rho * segment, PropagationDirection::kForward, lossQOverP, start, variance)) {
         return false;
       }
       start.par[kQOverP] += static_cast<Scalar>(gauss(rng)) * std::sqrt(variance);
@@ -192,7 +195,8 @@ struct ElectronChain {
           return false;
         }
         Scalar variance = 0.F;
-        if (!detail::applyEnergyLoss(propagator, material.rho * chord[layer], PropagationDirection::kForward, state, variance)) {
+        Scalar lossQOverP = state.qOverP();
+        if (!detail::applyEnergyLoss(propagator, material.rho * chord[layer], PropagationDirection::kForward, lossQOverP, state, variance)) {
           return false;
         }
         state.par[kQOverP] += static_cast<Scalar>(gauss(rng)) * std::sqrt(variance); // the straggling the filter takes
@@ -222,6 +226,14 @@ struct ElectronChain {
     return true;
   }
 };
+
+/// The median and half the 16-84 % width of \a values.
+inline std::pair<double, double> medianWidth(std::vector<double> values)
+{
+  std::ranges::sort(values);
+  const auto at = [&](double q) { return values[static_cast<std::size_t>(q * static_cast<double>(values.size() - 1))]; };
+  return {at(0.5), 0.5 * (at(0.84) - at(0.16))};
+}
 
 } // namespace o2::gtrk::test
 

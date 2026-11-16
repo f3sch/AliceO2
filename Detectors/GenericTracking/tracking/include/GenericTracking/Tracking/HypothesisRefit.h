@@ -20,7 +20,7 @@
 /// on the innermost measurement and the state on the perigee plane about a
 /// transverse point (the beam spot or a vertex): the plane through that point
 /// along the beam, normal to the track's direction at its closest approach to
-/// the point (`beamLinePlane`, `perigeePhiAbout`); loc0 the transverse
+/// the point (`beamLinePlane`, `perigeePhi`); loc0 the transverse
 /// distance along the plane, the track's d0 where the track crosses the plane
 /// normally, loc1 the z. An electron's mixture components cross this one
 /// plane each at its own angle: its loc0 is the d0 to first order in the
@@ -46,9 +46,8 @@ namespace o2::gtrk
 /// A refit under a species hypothesis (`refitWithHypothesis`). For an
 /// electron the single states are the mixtures' collapses -- their mean and
 /// covariance, a Gaussian a vertexer can take -- and the momentum estimate
-/// apart: the mode of the momentum's density (`GSFPassResult::momentumMode`,
-/// not the inverse of the q/p marginal's mode: the density of p is the q/p
-/// one's times (q/p)^2), the estimate the mixture's posterior is skewed about.
+/// apart: the mode of the momentum's density (`GSFFitResult::momentumMode`),
+/// the estimate the mixture's posterior is skewed about.
 template <int K = BetheHeitlerLoss::kComponents>
 struct HypothesisFit {
   o2::track::PID pid;
@@ -64,9 +63,8 @@ struct HypothesisFit {
   /// plane; empty for another species.
   GSFMixture<K> innermostMixture{};
   GSFMixture<K> perigeeMixture{};
-  /// The inward pass's: the Kalman fit's chi2 and its degrees of freedom; for
-  /// an electron the pass's -2 ln likelihood (`GSFPassResult`) and the same
-  /// degrees of freedom.
+  /// The inward pass's chi2 and its degrees of freedom (TrackFitResult; an
+  /// electron's the mixture's, `GSFFitResult`).
   Scalar chi2 = 0.F;
   std::int16_t ndf = 0;
   PropagationStatus status = PropagationStatus::kOk;
@@ -108,34 +106,11 @@ GPUdi() PropagationStatus carryInward(const Propagator& prop, const Material& lu
   return o2::gtrk::detail::transportStep<false>(prop, step, momentum, before, PropagationDirection::kBackward, jacobian, state, factors, 1.F);
 }
 
-/// The direction [rad] of \a state's helix at its transverse closest
-/// approach to the line along the beam through (\a x, \a y): `perigeePhi`'s
-/// solution, the position taken from that point.
-GPUdi() Scalar perigeePhiAbout(const Propagator& prop, const BoundTrackState& state, const TrackingSurface& surface, Scalar x, Scalar y)
-{
-  ExactScalar position[3]{};
-  o2::gtrk::detail::boundToGlobal(surface, static_cast<ExactScalar>(state.loc0()), static_cast<ExactScalar>(state.loc1()), position);
-  position[0] -= static_cast<ExactScalar>(x);
-  position[1] -= static_cast<ExactScalar>(y);
-  ExactScalar sinPhi = 0.;
-  ExactScalar cosPhi = 0.;
-  ExactScalar sinTheta = 0.;
-  ExactScalar cosTheta = 0.;
-  sincosOf(static_cast<ExactScalar>(state.phi()), sinPhi, cosPhi);
-  sincosOf(static_cast<ExactScalar>(state.theta()), sinTheta, cosTheta);
-  const ExactScalar curvature = pointPropagator(prop, surface, state).curvature(static_cast<ExactScalar>(state.qOverP()), sinTheta);
-  const ExactScalar along = (position[0] * cosPhi) + (position[1] * sinPhi);
-  const ExactScalar across = (-position[0] * sinPhi) + (position[1] * cosPhi);
-  ExactScalar phi0 = static_cast<ExactScalar>(state.phi()) + atan2Of(-curvature * along, 1. + (curvature * across));
-  math_utils::detail::bringToPMPi<ExactScalar>(phi0);
-  return static_cast<Scalar>(phi0);
-}
-
 /// The perigee plane about (\a x, \a y) of \a state on \a surface: through
 /// the point along the beam, normal to the direction at closest approach to it.
 GPUdi() TrackingSurface perigeePlaneOf(const Propagator& prop, const BoundTrackState& state, const TrackingSurface& surface, Scalar x, Scalar y)
 {
-  return beamLinePlane(x, y, perigeePhiAbout(prop, state, surface, x, y));
+  return beamLinePlane(x, y, perigeePhi(prop, state, surface, x, y));
 }
 
 /// The radiation [x/X0] of the straight segment from \a state on \a surface
@@ -179,70 +154,49 @@ GPUdi() HypothesisFit<K> refitWithHypothesis(const Propagator& base, const Track
   }
   Propagator prop = base;
   prop.massGeV = pid.getMass();
-  const int innermostIndex = 0;
-  const auto& innermostSurface = geometry.planeOf(measurements[innermostIndex]);
+  const auto& innermostSurface = geometry.planeOf(measurements[0]);
+  // What both fits give alike (TrackFitResult), and the perigee plane from
+  // the innermost state; false if the fit failed.
+  const auto take = [&](const TrackFitResult& result, Scalar momentum) {
+    fit.status = result.status;
+    fit.failedPass = result.failedPass;
+    fit.failedMeasurement = result.failedMeasurement;
+    if (result.status != PropagationStatus::kOk) {
+      return false;
+    }
+    fit.innermost = result.state;
+    fit.innermostMomentum = momentum;
+    fit.chi2 = result.chi2;
+    fit.ndf = result.ndf;
+    fit.perigeePlane = detail::hypothesis::perigeePlaneOf(prop, result.state, innermostSurface, x, y);
+    return true;
+  };
   if (pid == o2::track::PID::Electron) {
     const auto gsf = fitGaussianSum<BetheHeitlerLoss, K, Rule>(prop, geometry, material, measurements, n);
-    const auto& inward = gsf.inward;
-    if (inward.status != PropagationStatus::kOk) {
-      fit.status = inward.status;
-      fit.failedPass = gsf.outward.status != PropagationStatus::kOk ? FitPass::kOutward : FitPass::kInward;
-      fit.failedMeasurement = inward.failedMeasurement;
+    if (!take(gsf.fit, gsf.momentumMode)) {
       return fit;
     }
-    fit.innermostMixture = inward.mixture;
-    fit.innermost = inward.collapsed;
-    fit.innermostMomentum = inward.momentumMode;
-    fit.chi2 = inward.minusTwoLogLikelihood;
-    fit.ndf = static_cast<std::int16_t>((2 * n) - kNBoundParams);
-    fit.perigeePlane = detail::hypothesis::perigeePlaneOf(prop, inward.collapsed, innermostSurface, x, y);
-    GSFMixture<K> mixture = inward.mixture;
-    const Scalar x2X0 = detail::hypothesis::segmentRadiation(prop, material, inward.collapsed, innermostSurface, fit.perigeePlane);
+    fit.innermostMixture = gsf.mixture;
+    GSFMixture<K> mixture = gsf.mixture;
+    const Scalar x2X0 = detail::hypothesis::segmentRadiation(prop, material, gsf.fit.state, innermostSurface, fit.perigeePlane);
     if (!(x2X0 >= 0.F) || !detail::gsf::takeRadiation<BetheHeitlerLoss>(x2X0, PropagationDirection::kBackward, mixture)) {
       fit.status = PropagationStatus::kNotFinite;
       return fit;
     }
-    int kept = 0;
-    PropagationStatus failure = PropagationStatus::kOk;
-    for (int k = 0; k < mixture.size; ++k) {
-      const auto status = detail::hypothesis::carryInward(prop, material, innermostSurface, fit.perigeePlane, mixture.state[k], mixture.factors[k]);
-      if (status != PropagationStatus::kOk) {
-        failure = status;
-        continue;
-      }
-      mixture.logWeight[kept] = mixture.logWeight[k];
-      mixture.state[kept] = mixture.state[k];
-      mixture.factors[kept] = mixture.factors[k];
-      mixture.chi2[kept] = mixture.chi2[k];
-      mixture.reference[kept] = mixture.reference[k];
-      ++kept;
-    }
-    mixture.size = kept;
-    if (kept == 0) {
-      fit.status = failure;
+    fit.status = detail::gsf::stepEach(mixture, [&](GSFComponent<CovarianceFactors>& component) {
+      return detail::hypothesis::carryInward(prop, material, innermostSurface, fit.perigeePlane, component.state, component.factors);
+    });
+    if (fit.status != PropagationStatus::kOk) {
       return fit;
     }
-    detail::gsf::normalise(mixture);
-    for (int k = 0; k < mixture.size; ++k) {
-      covarianceFromFactors(mixture.factors[k], mixture.state[k].cov);
-    }
+    detail::gsf::finishMixture(mixture, fit.perigee, fit.perigeeMomentum);
     fit.perigeeMixture = mixture;
-    fit.perigee = detail::gsf::collapse(mixture);
-    fit.perigeeMomentum = 1.F / o2::gpu::GPUCommonMath::Abs(detail::gsf::marginalMode<2>(mixture));
     return fit;
   }
   const auto kalman = fitMeasurements<Rule>(prop, geometry, material, measurements, n);
-  if (kalman.status != PropagationStatus::kOk) {
-    fit.status = kalman.status;
-    fit.failedPass = kalman.failedPass;
-    fit.failedMeasurement = kalman.failedMeasurement;
+  if (!take(kalman, 1.F / o2::gpu::GPUCommonMath::Abs(kalman.state.qOverP()))) {
     return fit;
   }
-  fit.innermost = kalman.state;
-  fit.innermostMomentum = 1.F / o2::gpu::GPUCommonMath::Abs(kalman.state.qOverP());
-  fit.chi2 = kalman.chi2;
-  fit.ndf = kalman.ndf;
-  fit.perigeePlane = detail::hypothesis::perigeePlaneOf(prop, kalman.state, innermostSurface, x, y);
   BoundTrackState state = kalman.state;
   auto factors = factorCovariance(state.cov);
   fit.status = detail::hypothesis::carryInward(prop, material, innermostSurface, fit.perigeePlane, state, factors);

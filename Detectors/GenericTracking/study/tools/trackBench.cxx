@@ -134,8 +134,6 @@ static int run(int argc, char** argv)
     ("anatomy-gsf", bpo::value(&options.anatomyGsf)->default_value(""),
      "with --complete-anatomy and --hits: a CSV of the Gaussian-sum filter and the Kalman fit, electron hypothesis, on every class particle's first "
      "leg of own rows, each prefix's outward and each suffix's inward end against the MC momentum (plans/105 S2)") //
-    ("anatomy-gsf-variant", bpo::value(&options.anatomyGsfVariant)->default_value("acts"),
-     "with --anatomy-gsf: acts (the filter as built), six (six loss components at every thickness, no thresholds), k12 (twelve components kept)") //
     ("anatomy-retry", bpo::bool_switch(&options.anatomyRetry),
      "with --complete-anatomy: a second selection round on the rows each iteration's length cut released, replayed and scored") //
     ("anatomy-pair-loss", bpo::value(&options.anatomyPairLoss)->default_value(""),

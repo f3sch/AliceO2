@@ -167,7 +167,6 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string anatomyBeamLine;          ///< --anatomy-beam-line
   std::string anatomyFollowLoss;        ///< --anatomy-follow-loss
   std::string anatomyGsf;               ///< --anatomy-gsf
-  std::string anatomyGsfVariant;        ///< --anatomy-gsf-variant
   bool anatomyRetry = false;            ///< --anatomy-retry
   std::string anatomyPairLoss;          ///< --anatomy-pair-loss
   std::uint32_t anatomyPairSample = 1U; ///< --anatomy-pair-sample
@@ -1710,7 +1709,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       if (options.hits.empty()) {
         throw std::runtime_error("--anatomy-gsf needs --hits");
       }
-      completeAnatomy->openGsfOracle(options.anatomyGsf, options.anatomyGsfVariant);
+      completeAnatomy->openGsfOracle(options.anatomyGsf);
     }
     if (!options.endDecisions.empty()) {
       completeAnatomy->openEndDecisions(options.endDecisions);

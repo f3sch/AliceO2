@@ -41,6 +41,7 @@ namespace
 {
 
 using test::ElectronChain;
+using test::medianWidth;
 
 /// No radiation: one component, z = 1, no variance.
 struct NoLoss {
@@ -118,28 +119,6 @@ struct Chain {
   }
 };
 
-/// The q/p marginal's distribution function at \a u: the probability
-/// integral transform of the truth.
-template <int K>
-double marginalCdf(const GSFMixture<K>& mixture, double u)
-{
-  double sum = 0.;
-  for (int k = 0; k < mixture.size; ++k) {
-    const double m = mixture.state[k].qOverP();
-    const double s = std::sqrt(static_cast<double>(mixture.state[k].cov[covIndex(kQOverP, kQOverP)]));
-    sum += std::exp(static_cast<double>(mixture.logWeight[k])) * 0.5 * std::erfc(-(u - m) / (s * std::numbers::sqrt2));
-  }
-  return sum;
-}
-
-/// The median and the robust width (half the 16-84 % range) of \a values.
-std::pair<double, double> medianWidth(std::vector<double> values)
-{
-  std::ranges::sort(values);
-  const auto at = [&](double q) { return values[static_cast<std::size_t>(q * static_cast<double>(values.size() - 1))]; };
-  return {at(0.5), 0.5 * (at(0.84) - at(0.16))};
-}
-
 /// What one configuration of fits gives against the truth on the vertex
 /// end (the inward pass on the first plane).
 struct Coverage {
@@ -216,22 +195,22 @@ Coverage coverage(double pGeV, const UniformMaterial& material, bool radiate, in
       ++out.kalmanFailed; // a track the fit's propagation cannot follow (a curler's turning point)
       continue;
     }
-    if (gsf.inward.status != PropagationStatus::kOk) {
+    if (gsf.fit.status != PropagationStatus::kOk) {
       ++out.failed;
       continue;
     }
     ++out.fits;
     const double u = chain.truth[0].qOverP();
     const double p = 1. / std::abs(u);
-    out.pit.push_back(marginalCdf(gsf.inward.mixture, u));
-    out.outwardPit.push_back(marginalCdf(gsf.outward.mixture, chain.truth[ElectronChain::kLayers - 1].qOverP()));
+    out.pit.push_back(marginalCdf(gsf.mixture, u));
+    out.outwardPit.push_back(marginalCdf(gsf.outwardMixture, chain.truth[ElectronChain::kLayers - 1].qOverP()));
     out.kalmanRatio.push_back(1. / std::abs(static_cast<double>(kalman.state.qOverP())) / p);
-    out.modeRatio.push_back(static_cast<double>(gsf.inward.momentumMode) / p);
-    out.meanRatio.push_back(1. / std::abs(static_cast<double>(gsf.inward.collapsed.qOverP())) / p);
-    out.collapsedPull.push_back((static_cast<double>(gsf.inward.collapsed.qOverP()) - u) / std::sqrt(static_cast<double>(gsf.inward.collapsed.variance(kQOverP))));
+    out.modeRatio.push_back(static_cast<double>(gsf.momentumMode) / p);
+    out.meanRatio.push_back(1. / std::abs(static_cast<double>(gsf.fit.state.qOverP())) / p);
+    out.collapsedPull.push_back((static_cast<double>(gsf.fit.state.qOverP()) - u) / std::sqrt(static_cast<double>(gsf.fit.state.variance(kQOverP))));
     const double pLast = 1. / std::abs(static_cast<double>(chain.truth[ElectronChain::kLayers - 1].qOverP()));
     out.outwardKalmanRatio.push_back(1. / std::abs(static_cast<double>(kalman.outwardState.qOverP())) / pLast);
-    out.outwardModeRatio.push_back(static_cast<double>(gsf.outward.momentumMode) / pLast);
+    out.outwardModeRatio.push_back(static_cast<double>(gsf.outwardMomentumMode) / pLast);
     out.innerLoss.push_back(chain.radiatedBetween(0, 2));
     out.outerLoss.push_back(chain.radiatedBetween(ElectronChain::kLayers - 3, ElectronChain::kLayers - 1));
   }
@@ -266,17 +245,16 @@ BOOST_AUTO_TEST_CASE(WithoutLossItIsTheKalmanFit)
     const auto kalman = fitMeasurements(chain.propagator, chain.tracking, material, chain.measurements.data(), 4);
     const auto gsf = fitGaussianSum<NoLoss>(chain.propagator, chain.tracking, material, chain.measurements.data(), 4);
     BOOST_REQUIRE(kalman.status == PropagationStatus::kOk);
-    BOOST_REQUIRE(gsf.outward.status == PropagationStatus::kOk);
-    BOOST_REQUIRE(gsf.inward.status == PropagationStatus::kOk);
-    BOOST_TEST(gsf.outward.mixture.size == 1);
-    BOOST_TEST(gsf.inward.mixture.size == 1);
-    BOOST_TEST(sameBits(gsf.outward.collapsed.par, kalman.outwardState.par, kNBoundParams));
-    BOOST_TEST(sameBits(gsf.outward.collapsed.cov, kalman.outwardState.cov, kBoundCovSize));
-    BOOST_TEST(sameBits(gsf.inward.collapsed.par, kalman.state.par, kNBoundParams));
-    BOOST_TEST(sameBits(gsf.inward.collapsed.cov, kalman.state.cov, kBoundCovSize));
-    BOOST_TEST(gsf.outward.mixture.chi2[0] == kalman.outwardChi2);
-    BOOST_TEST(gsf.inward.mixture.chi2[0] == kalman.chi2);
-    BOOST_TEST(gsf.inward.qOverPMode == kalman.state.qOverP());
+    BOOST_REQUIRE(gsf.fit.status == PropagationStatus::kOk);
+    BOOST_TEST(gsf.outwardMixture.size == 1);
+    BOOST_TEST(gsf.mixture.size == 1);
+    BOOST_TEST(sameBits(gsf.fit.outwardState.par, kalman.outwardState.par, kNBoundParams));
+    BOOST_TEST(sameBits(gsf.fit.outwardState.cov, kalman.outwardState.cov, kBoundCovSize));
+    BOOST_TEST(sameBits(gsf.fit.state.par, kalman.state.par, kNBoundParams));
+    BOOST_TEST(sameBits(gsf.fit.state.cov, kalman.state.cov, kBoundCovSize));
+    BOOST_TEST(gsf.fit.outwardChi2 == kalman.outwardChi2);
+    BOOST_TEST(gsf.fit.chi2 == kalman.chi2);
+    BOOST_TEST(gsf.fit.ndf == kalman.ndf);
     ++fits;
   }
   BOOST_TEST(fits == 50);
@@ -305,14 +283,13 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
     BOOST_REQUIRE(chain.built);
     const auto* measurements = chain.measurements.data();
     const auto gsf = fitGaussianSum<TwoLosses, kPaths>(chain.propagator, chain.tracking, material, measurements, kLayers);
-    BOOST_REQUIRE(gsf.outward.status == PropagationStatus::kOk);
-    BOOST_REQUIRE(gsf.inward.status == PropagationStatus::kOk);
+    BOOST_REQUIRE(gsf.fit.status == PropagationStatus::kOk);
     const auto seed = makeChainSeed(chain.propagator, chain.tracking, measurements, kLayers);
     const auto span = detail::spanMaterial(chain.tracking, material, measurements, kLayers);
     for (const auto direction : {PropagationDirection::kForward, PropagationDirection::kBackward}) {
       const bool outward = direction == PropagationDirection::kForward;
-      const auto& pass = outward ? gsf.outward : gsf.inward;
-      BOOST_REQUIRE(pass.mixture.size == kPaths);
+      const auto& mixture = outward ? gsf.outwardMixture : gsf.mixture;
+      BOOST_REQUIRE(mixture.size == kPaths);
       const int first = outward ? 0 : kLayers - 1;
       const int increment = outward ? 1 : -1;
       double logWeight[kPaths];
@@ -320,20 +297,29 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
       CovarianceFactors factors[kPaths];
       for (int path = 0; path < kPaths; ++path) {
         const auto lossOf = [&](int b) { return TwoLosses::kLosses[(path >> (kBranchings - 1 - b)) & 1]; };
-        state[path] = outward ? seed : gsf.outward.collapsed;
+        state[path] = outward ? seed : gsf.fit.outwardState;
         logWeight[path] = 0.;
         Scalar chi2 = 0.F;
-        Scalar reference = state[path].qOverP(); // the pass's seed's, scaled with each loss
+        // The pass's reference (PassReference), scaled with each loss.
+        detail::PassReference reference{.qOverP = state[path].qOverP()};
+        const auto scaleReference = [&](const BetheHeitlerComponent& loss) {
+          reference.qOverP *= betheHeitlerScale(loss, direction);
+          reference.lossScale *= betheHeitlerScale(loss, direction);
+        };
+        const auto referenceTo = [&](int index) { return detail::referenceFor(reference, kLayers, direction, [&] { return detail::leaveOneOutQOverP(chain.propagator, chain.tracking, measurements, kLayers, index); }); };
         detail::DiffuseFactors diffuse;
         BOOST_REQUIRE(detail::startDiffuse(measurements[first], state[path], diffuse));
         int plane = first;
         for (int b = 0; b < detail::kPassStart - 1; ++b, plane += increment) {
           const auto loss = lossOf(b);
           logWeight[path] += std::log(static_cast<double>(loss.weight));
-          BOOST_REQUIRE(detail::gsf::applyLossDiffuse(loss, direction, state[path], diffuse));
-          reference *= detail::gsf::lossScale(loss, direction);
+          BOOST_REQUIRE(detail::gsf::applyBetheHeitler(loss, direction, state[path], diffuse));
+          scaleReference(loss);
           Scalar density = 0.F;
-          BOOST_REQUIRE((detail::gsf::diffuseBranchStep<kRule>(chain.propagator, chain.tracking, span, measurements[plane + increment], direction, state[path], diffuse, chi2, reference, density) == PropagationStatus::kOk));
+          const Scalar stepReference = referenceTo(plane + increment);
+          Scalar carried = stepReference;
+          BOOST_REQUIRE((detail::diffuseStepBody<kRule, true>(chain.propagator, chain.tracking, span, measurements[plane + increment], direction, state[path], diffuse, chi2, carried, &density) == PropagationStatus::kOk));
+          detail::advanceReference(reference, kLayers, direction, stepReference, carried);
           logWeight[path] -= 0.5 * static_cast<double>(density);
         }
         BOOST_REQUIRE(diffuse.rank == 0);
@@ -342,10 +328,13 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
           const auto loss = lossOf(b);
           logWeight[path] += std::log(static_cast<double>(loss.weight));
           BOOST_REQUIRE(applyBetheHeitler(loss, direction, state[path], factors[path]));
-          reference *= detail::gsf::lossScale(loss, direction);
+          scaleReference(loss);
           if (b + 1 < kBranchings) {
             Scalar logLikelihood = 0.F;
-            BOOST_REQUIRE((detail::gsf::componentStep<kRule>(chain.propagator, chain.tracking, span, measurements[plane + increment], direction, state[path], factors[path], chi2, reference, logLikelihood) == PropagationStatus::kOk));
+            const Scalar stepReference = referenceTo(plane + increment);
+            Scalar carried = stepReference;
+            BOOST_REQUIRE((detail::filterStepBody<false, kRule, true>(chain.propagator, chain.tracking, span, measurements[plane + increment], direction, state[path], factors[path], chi2, carried, 1.F, &logLikelihood) == PropagationStatus::kOk));
+            detail::advanceReference(reference, kLayers, direction, stepReference, carried);
             logWeight[path] += logLikelihood;
           }
         }
@@ -361,15 +350,15 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
       }
       for (int path = 0; path < kPaths; ++path) {
         const double expected = std::exp(logWeight[path] - maxLog) / sum;
-        const double got = std::exp(static_cast<double>(pass.mixture.logWeight[path]));
+        const double got = std::exp(static_cast<double>(mixture.components[path].logWeight));
         worstWeight = std::max(worstWeight, std::abs(got - expected));
         for (int i = 0; i < kNBoundParams; ++i) {
           const double sigma = std::sqrt(static_cast<double>(state[path].variance(i)));
-          worstState = std::max(worstState, std::abs(static_cast<double>(pass.mixture.state[path].par[i] - state[path].par[i])) / sigma);
+          worstState = std::max(worstState, std::abs(static_cast<double>(mixture.components[path].state.par[i] - state[path].par[i])) / sigma);
         }
         for (int i = 0; i < kBoundCovSize; ++i) {
           const double scale = std::abs(static_cast<double>(state[path].cov[i])) + 1e-30;
-          worstState = std::max(worstState, std::abs(static_cast<double>(pass.mixture.state[path].cov[i] - state[path].cov[i])) / scale);
+          worstState = std::max(worstState, std::abs(static_cast<double>(mixture.components[path].state.cov[i] - state[path].cov[i])) / scale);
         }
       }
     }
@@ -507,19 +496,19 @@ BOOST_AUTO_TEST_CASE(TheReductionConverges)
     }
     const auto* measurements = chain.measurements.data();
     const auto reference = fitGaussianSum<BetheHeitlerLoss, 24>(chain.propagator, chain.tracking, thick, measurements, kLayers);
-    if (reference.inward.status != PropagationStatus::kOk) {
+    if (reference.fit.status != PropagationStatus::kOk) {
       continue;
     }
-    const auto compare = [&](int slot, const auto& fit) {
-      BOOST_REQUIRE(fit.inward.status == PropagationStatus::kOk);
+    const auto compare = [&](int slot, const auto& gsf) {
+      BOOST_REQUIRE(gsf.fit.status == PropagationStatus::kOk);
       for (int i = 0; i < kNBoundParams; ++i) {
-        double d = static_cast<double>(fit.inward.collapsed.par[i]) - static_cast<double>(reference.inward.collapsed.par[i]);
+        double d = static_cast<double>(gsf.fit.state.par[i]) - static_cast<double>(reference.fit.state.par[i]);
         if (i == kPhi) {
           math_utils::detail::bringToPMPi<double>(d);
         }
-        difference[slot][i].push_back(std::abs(d) / std::sqrt(static_cast<double>(reference.inward.collapsed.variance(i))));
+        difference[slot][i].push_back(std::abs(d) / std::sqrt(static_cast<double>(reference.fit.state.variance(i))));
       }
-      difference[slot][kNBoundParams].push_back(std::abs(static_cast<double>(fit.inward.momentumMode / reference.inward.momentumMode) - 1.));
+      difference[slot][kNBoundParams].push_back(std::abs(static_cast<double>(gsf.momentumMode / reference.momentumMode) - 1.));
     };
     compare(0, fitGaussianSum<BetheHeitlerLoss, 1>(chain.propagator, chain.tracking, thick, measurements, kLayers));
     compare(1, fitGaussianSum<BetheHeitlerLoss, 4>(chain.propagator, chain.tracking, thick, measurements, kLayers));

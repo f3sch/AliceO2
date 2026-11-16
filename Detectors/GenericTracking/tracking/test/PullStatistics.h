@@ -14,7 +14,7 @@
 #ifndef GTRK_TEST_PULLSTATISTICS_H_
 #define GTRK_TEST_PULLSTATISTICS_H_
 #include <boost/test/unit_test.hpp>
-#include "GenericTracking/Tracking/KFTrackFitter.h"
+#include "GenericTracking/Tracking/TrackFitterUtils.h"
 #include "MathUtils/detail/trigonometric.h"
 #include <fmt/format.h>
 #include <algorithm>

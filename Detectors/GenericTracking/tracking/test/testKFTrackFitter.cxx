@@ -458,7 +458,8 @@ struct BarrelChain {
         surfaceToGlobal(from, truth[layer - 1].loc0(), truth[layer - 1].loc1(), a);
         surfaceToGlobal(tracking.surface(id), truth[layer].loc0(), truth[layer].loc1(), b);
         Scalar variance = 0.F;
-        if (!detail::applyEnergyLoss(propagator, rho * std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), PropagationDirection::kForward, truth[layer], variance)) {
+        Scalar lossQOverP = truth[layer].qOverP();
+        if (!detail::applyEnergyLoss(propagator, rho * std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), PropagationDirection::kForward, lossQOverP, truth[layer], variance)) {
           return;
         }
       }
