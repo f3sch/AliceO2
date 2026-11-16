@@ -68,7 +68,7 @@ struct RadiationPropagator : Propagator {
   bool variance = true;
 };
 
-inline void applyRadiation(const RadiationPropagator& prop, Scalar x2X0, PropagationDirection direction, BoundTrackState& state, Scalar& varQOverP)
+inline void applyRadiation(const RadiationPropagator& prop, Scalar x2X0, PropagationDirection direction, BoundParameters& state, Scalar& varQOverP)
 {
   constexpr Scalar kLn3OverLn2 = 1.5849625F;
   const Scalar mu = std::exp(-x2X0);

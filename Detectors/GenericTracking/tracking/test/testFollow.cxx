@@ -422,17 +422,17 @@ BOOST_AUTO_TEST_CASE(UpdateRefusesAnIndefiniteCovariance)
   const UniformMaterial filled{.x2X0PerCm = 1.e-3F, .rho = 0.1F};
   Propagator massive = propagator;
   massive.massGeV = 0.13957F;
-  BoundTrackState separate;
+  BoundParameters separate;
   CovarianceFactors separateFactors;
   Scalar separateChi2 = 0.F;
   BOOST_REQUIRE(follow::updateCandidate<false>(massive, geometry, filled, measurement, PropagationDirection::kForward, state, factorCovariance(state.cov), separate, separateFactors, separateChi2, 1.F));
-  auto aliased = state;
+  BoundParameters aliased = state;
   auto aliasedFactors = factorCovariance(state.cov);
   Scalar aliasedChi2 = 0.F;
   BOOST_REQUIRE(follow::updateCandidate<false>(massive, geometry, filled, measurement, PropagationDirection::kForward, aliased, aliasedFactors, aliased, aliasedFactors, aliasedChi2, 1.F));
   // Bit identity is intentional, including floating-point encodings; these records have no padding.
   // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison)
-  BOOST_TEST(std::memcmp(&aliased, &separate, sizeof(BoundTrackState)) == 0);
+  BOOST_TEST(std::memcmp(&aliased, &separate, sizeof(BoundParameters)) == 0);
   // Bit identity is intentional, including floating-point encodings; these records have no padding.
   // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison)
   BOOST_TEST(std::memcmp(&aliasedFactors, &separateFactors, sizeof(CovarianceFactors)) == 0);

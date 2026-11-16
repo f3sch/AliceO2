@@ -207,7 +207,7 @@ GPUhdi() GPUAlwaysInline() CrossingPlace crossingPlace(const TrackingSurface& to
 /// (`CrossingRule`); the default takes the first root ahead, and the others
 /// are their own instantiations.
 template <CrossingRule Rule = CrossingRule::kFirstAhead>
-GPUdi() PropagationResult propagate(const Propagator& prop, BoundTrackState& state, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection dir, detail::PropagationTrig* referenceTrig = nullptr)
+GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& state, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection dir, detail::PropagationTrig* referenceTrig = nullptr)
 {
   using Math = o2::gpu::GPUCommonMath;
   PropagationResult res;

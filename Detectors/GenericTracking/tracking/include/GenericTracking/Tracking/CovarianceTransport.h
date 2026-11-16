@@ -201,13 +201,13 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
 /// input state and stored Jacobian are Scalar; ExactScalar is retained as a
 /// host-side validation oracle while the device path uses the Scalar default.
 template <typename T = Scalar, CrossingRule Rule = CrossingRule::kFirstAhead>
-GPUdi() PropagationStatus jacobianAnalytic(const Propagator& prop, const BoundTrackState& reference, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection dir, SolenoidJacobian& jac, BoundTrackState* propagatedState = nullptr, PropagationResult* propagatedResult = nullptr)
+GPUdi() PropagationStatus jacobianAnalytic(const Propagator& prop, const BoundParameters& reference, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection dir, SolenoidJacobian& jac, BoundParameters* propagatedState = nullptr, PropagationResult* propagatedResult = nullptr)
 {
   using Math = o2::gpu::GPUCommonMath;
 
   // The reference is propagated exactly; its path length and arrival
   // direction are what everything below is evaluated at.
-  BoundTrackState at = reference;
+  BoundParameters at = reference;
   detail::PropagationTrig direction;
   const auto res = propagate<Rule>(prop, at, from, to, dir, &direction);
   if (res.status != PropagationStatus::kOk && res.status != PropagationStatus::kOutOfBounds) {
