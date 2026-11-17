@@ -96,10 +96,12 @@ struct DecayDaughter {
 struct DecayVertexFitResult {
   DecayFitStatus status = DecayFitStatus::kNoStart;
   std::uint8_t iterations = 0U;
-  std::array<double, 3> vertex{};
-  /// Per daughter: phi, theta, q/p at the vertex.
+  std::array<double, 3> vertex{};              ///< the root's, `vertices[0]`
+  std::vector<std::array<double, 3>> vertices; ///< every vertex of the tree (DecayTopology)
+  /// Per daughter: phi, theta, q/p at its vertex.
   std::vector<std::array<double, 3>> momenta;
-  /// The covariance of (vertex, the daughters' momenta in order), (3 + 3N)^2.
+  /// The covariance of (the vertices, the daughters' momenta in order),
+  /// (3K + 3N)^2.
   std::vector<double> covariance;
   double chi2 = 0.;
   int ndf = 0;
@@ -189,24 +191,112 @@ namespace decay_fit_detail
   return best;
 }
 
+/// The closest points of two lines (a point and a unit direction each):
+/// their middle; none if they are parallel.
+[[nodiscard]] inline std::optional<std::array<double, 3>> closestOfLines(const std::array<double, 3>& a, const std::array<double, 3>& u, const std::array<double, 3>& b, const std::array<double, 3>& w)
+{
+  const std::array<double, 3> d{a[0] - b[0], a[1] - b[1], a[2] - b[2]};
+  const double uw = (u[0] * w[0]) + (u[1] * w[1]) + (u[2] * w[2]);
+  const double ud = (u[0] * d[0]) + (u[1] * d[1]) + (u[2] * d[2]);
+  const double wd = (w[0] * d[0]) + (w[1] * d[1]) + (w[2] * d[2]);
+  const double det = 1. - (uw * uw);
+  if (!(det > 0.)) {
+    return std::nullopt;
+  }
+  const double s = ((uw * wd) - ud) / det;
+  const double t = (wd - (uw * ud)) / det;
+  return std::array<double, 3>{0.5 * (a[0] + (s * u[0]) + b[0] + (t * w[0])), 0.5 * (a[1] + (s * u[1]) + b[1] + (t * w[1])), 0.5 * (a[2] + (s * u[2]) + b[2] + (t * w[2]))};
+}
+
+/// A daughter's direction (unit) and momentum vector from its innermost state.
+[[nodiscard]] inline std::array<double, 3> directionOf(const BoundTrackState& state)
+{
+  const double st = std::sin(state.theta());
+  return {std::cos(state.phi()) * st, std::sin(state.phi()) * st, std::cos(state.theta())};
+}
+
+/// Each vertex's start, the deepest first: two track daughters' helices'
+/// closest approach (`closestApproach`); otherwise the closest points of two
+/// lines -- a track's from its innermost point along its direction, a
+/// composite's from its own start along its daughters' summed momentum.
+[[nodiscard]] inline std::optional<std::vector<std::array<double, 3>>> treeStart(std::span<const DecayDaughter> daughters, const DecayTopology& topology)
+{
+  const int k = topology.vertices();
+  const int count = static_cast<int>(daughters.size());
+  std::vector<std::array<double, 3>> starts(static_cast<std::size_t>(k));
+  for (int w = k - 1; w >= 0; --w) {
+    std::vector<int> tracks;
+    for (int i = 0; i < count; ++i) {
+      if (topology.vertexOfDaughter(i) == w) {
+        tracks.push_back(i);
+      }
+    }
+    if (tracks.size() >= 2) {
+      const auto start = closestApproach(daughters[tracks[0]], daughters[tracks[1]]);
+      if (!start) {
+        return std::nullopt;
+      }
+      starts[w] = *start;
+      continue;
+    }
+    struct Line {
+      std::array<double, 3> point;
+      std::array<double, 3> direction;
+    };
+    std::vector<Line> lines;
+    for (const auto i : tracks) {
+      lines.push_back({positionOf(daughters[i].innermost, daughters[i].surface), directionOf(daughters[i].innermost)});
+    }
+    for (int child = w + 1; child < k; ++child) {
+      if (topology.parent[child] != w) {
+        continue;
+      }
+      std::array<double, 3> total{};
+      for (int i = 0; i < count; ++i) {
+        if (topology.under(i, child)) {
+          const auto u = directionOf(daughters[i].innermost);
+          const double p = 1. / std::abs(static_cast<double>(daughters[i].innermost.qOverP()));
+          for (int c = 0; c < 3; ++c) {
+            total[c] += p * u[c];
+          }
+        }
+      }
+      const double norm = std::hypot(total[0], total[1], total[2]);
+      lines.push_back({starts[child], {total[0] / norm, total[1] / norm, total[2] / norm}});
+    }
+    if (lines.size() < 2) {
+      return std::nullopt;
+    }
+    const auto start = closestOfLines(lines[0].point, lines[0].direction, lines[1].point, lines[1].direction);
+    if (!start) {
+      return std::nullopt;
+    }
+    starts[w] = *start;
+  }
+  return starts;
+}
+
 } // namespace decay_fit_detail
 
 /// The vertex of \a daughters (at least two) under \a variant, with
 /// \a material's material between each daughter's innermost measurement and
 /// the vertex, and under \a constraints: then every step is the constrained
-/// one (DecayConstraints.h), taken whole unless a helix misses its plane.
+/// one (DecayConstraints.h), taken whole unless a helix misses its plane;
+/// a tree (\a topology) has a vertex per composite, each daughter carried to
+/// the plane about its own, and the links always constrained.
 template <typename Material>
-[[nodiscard]] DecayVertexFitResult fitDecayVertex(std::span<const DecayDaughter> daughters, const Material& material, DecayFitVariant variant, const DecayConstraints& constraints = {})
+[[nodiscard]] DecayVertexFitResult fitDecayVertex(std::span<const DecayDaughter> daughters, const Material& material, DecayFitVariant variant, const DecayConstraints& constraints = {}, const DecayTopology& topology = {})
 {
   using namespace decay_fit_detail;
   constexpr int kDerivatives = 6; // vx, vy, vz, phi, theta, q/p
   DecayVertexFitResult result;
   const int count = static_cast<int>(daughters.size());
-  const int n = 3 + (3 * count);
+  const int k = topology.vertices();
+  const int n = (3 * k) + (3 * count);
   if (count < 2) {
     return result;
   }
-  const auto start = closestApproach(daughters[0], daughters[1]);
+  const auto start = treeStart(daughters, topology);
   if (!start) {
     return result;
   }
@@ -221,11 +311,12 @@ template <typename Material>
   result.carriedCovariance.resize(static_cast<std::size_t>(count));
   result.carryX2X0.resize(static_cast<std::size_t>(count));
 
-  // Each daughter carried to the perigee plane about (x, y).
-  const auto carry = [&](double x, double y) {
+  // Each daughter carried to the perigee plane about its vertex in \a at.
+  const auto carry = [&](const std::vector<double>& at) {
     for (int i = 0; i < count; ++i) {
       const auto& daughter = daughters[i];
-      const auto plane = detail::hypothesis::perigeePlaneOf(daughter.propagator, daughter.innermost, daughter.surface, static_cast<Scalar>(x), static_cast<Scalar>(y));
+      const int w = topology.vertexOfDaughter(i);
+      const auto plane = detail::hypothesis::perigeePlaneOf(daughter.propagator, daughter.innermost, daughter.surface, static_cast<Scalar>(at[3 * w]), static_cast<Scalar>(at[(3 * w) + 1]));
       BoundTrackState state = daughter.innermost;
       auto factors = factorCovariance(state.cov);
       PropagationStatus status = PropagationStatus::kOk;
@@ -282,16 +373,18 @@ template <typename Material>
     return DecayFitStatus::kOk;
   };
 
-  // The parameters: the vertex, then each daughter's phi, theta, q/p.
+  // The parameters: the vertices, then each daughter's phi, theta, q/p.
   std::vector<double> parameters(static_cast<std::size_t>(n));
-  std::copy(start->begin(), start->end(), parameters.begin());
-  if (const auto status = carry((*start)[0], (*start)[1]); status != DecayFitStatus::kOk) {
+  for (int w = 0; w < k; ++w) {
+    std::copy((*start)[w].begin(), (*start)[w].end(), parameters.begin() + (3 * w));
+  }
+  if (const auto status = carry(parameters); status != DecayFitStatus::kOk) {
     result.status = status;
     return result;
   }
   for (int i = 0; i < count; ++i) {
-    for (int k = 0; k < 3; ++k) {
-      parameters[3 + (3 * i) + k] = result.carried[i][k];
+    for (int c = 0; c < 3; ++c) {
+      parameters[(3 * k) + (3 * i) + c] = result.carried[i][c];
     }
   }
 
@@ -308,11 +401,12 @@ template <typename Material>
       const double fieldScale = static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
       using D = Dual<kDerivatives>;
       std::array<D, kDerivatives> in{};
-      const int q = 3 + (3 * i);
-      const std::array<int, kDerivatives> index{0, 1, 2, q, q + 1, q + 2};
-      for (int k = 0; k < kDerivatives; ++k) {
-        in[k].v = p[index[k]];
-        in[k].d[k] = 1.;
+      const int q = (3 * k) + (3 * i);
+      const int w = 3 * topology.vertexOfDaughter(i);
+      const std::array<int, kDerivatives> index{w, w + 1, w + 2, q, q + 1, q + 2};
+      for (int c = 0; c < kDerivatives; ++c) {
+        in[c].v = p[index[c]];
+        in[c].d[c] = 1.;
       }
       std::array<D, 5> predicted{};
       if (!predictOnPlane(in[0], in[1], in[2], in[3], in[4], in[5], fieldScale, measurements[i].plane, predicted)) {
@@ -356,7 +450,7 @@ template <typename Material>
   };
 
   // The constraints' values and rows at \a p.
-  const bool constrained = constraints.count() > 0;
+  const bool constrained = constraints.count(topology) > 0;
   std::vector<double> masses(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
     masses[i] = daughters[i].mass;
@@ -365,11 +459,16 @@ template <typename Material>
   std::vector<double> values;
   std::vector<double> rows;
   const auto constraintsAt = [&](const std::vector<double>& p) {
+    std::vector<std::array<double, 3>> vertices(static_cast<std::size_t>(k));
+    for (int w = 0; w < k; ++w) {
+      vertices[w] = {p[3 * w], p[(3 * w) + 1], p[(3 * w) + 2]};
+    }
     std::vector<std::array<double, 3>> momenta(static_cast<std::size_t>(count));
     for (int i = 0; i < count; ++i) {
-      momenta[i] = {p[3 + (3 * i)], p[4 + (3 * i)], p[5 + (3 * i)]};
+      const int q = (3 * k) + (3 * i);
+      momenta[i] = {p[q], p[q + 1], p[q + 2]};
     }
-    return evaluateConstraints(constraints, {p[0], p[1], p[2]}, momenta, masses, fieldScale, values, rows);
+    return evaluateConstraints(constraints, topology, vertices, momenta, masses, fieldScale, values, rows);
   };
 
   std::vector<double> normal(static_cast<std::size_t>(n * n));
@@ -377,11 +476,11 @@ template <typename Material>
   std::vector<double> factor;
   double chi2 = 0.;
   bool converged = false;
-  const int ndf = (2 * count) - 3 + constraints.count();
+  const int ndf = (2 * count) - (3 * k) + constraints.count(topology);
   for (int iteration = 0; iteration < kMaxSteps; ++iteration) {
     result.iterations = static_cast<std::uint8_t>(iteration + 1);
     if (variant != DecayFitVariant::kCarryOnce && iteration != 0) {
-      if (const auto status = carry(parameters[0], parameters[1]); status != DecayFitStatus::kOk) {
+      if (const auto status = carry(parameters); status != DecayFitStatus::kOk) {
         result.status = status;
         return result;
       }
@@ -419,8 +518,8 @@ template <typename Material>
     double scale = 1.;
     bool taken = false;
     for (int halving = 0; halving < kMaxSteps; ++halving, scale *= 0.5) {
-      for (int k = 0; k < n; ++k) {
-        trial[k] = parameters[k] + (scale * step[k]);
+      for (int j = 0; j < n; ++j) {
+        trial[j] = parameters[j] + (scale * step[j]);
       }
       if (evaluate(trial, trialChi2, nullptr, nullptr) && (constrained || trialChi2 < chi2)) {
         taken = true;
@@ -464,10 +563,14 @@ template <typename Material>
     result.covariance = choleskyInverse(factor, n);
   }
   std::copy_n(parameters.begin(), 3, result.vertex.begin());
+  result.vertices.resize(static_cast<std::size_t>(k));
+  for (int w = 0; w < k; ++w) {
+    std::copy_n(parameters.begin() + (3 * w), 3, result.vertices[w].begin());
+  }
   result.momenta.resize(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
-    for (int k = 0; k < 3; ++k) {
-      result.momenta[i][k] = parameters[3 + (3 * i) + k];
+    for (int c = 0; c < 3; ++c) {
+      result.momenta[i][c] = parameters[(3 * k) + (3 * i) + c];
     }
   }
   result.chi2 = chi2;

@@ -60,7 +60,32 @@ struct LinePosition {
   double s = 0.;                     ///< [cm]
 };
 
-/// The constraints a decay vertex fit takes.
+/// A decay tree's shape: which vertex each daughter leaves, and how the
+/// vertices hang together. Vertex 0 is the root's decay point; every other
+/// vertex v is the decay point of a composite made at its parent's vertex
+/// (`parent[v] < v`), whose momentum is the sum of its subtree's daughters'.
+/// Empty, one vertex for every daughter.
+struct DecayTopology {
+  std::vector<int> vertexOf; ///< per daughter
+  std::vector<int> parent;   ///< per vertex, -1 for the root
+  [[nodiscard]] int vertices() const { return parent.empty() ? 1 : static_cast<int>(parent.size()); }
+  [[nodiscard]] int vertexOfDaughter(int daughter) const { return vertexOf.empty() ? 0 : vertexOf[daughter]; }
+  /// Whether \a daughter's vertex is \a vertex or below it.
+  [[nodiscard]] bool under(int daughter, int vertex) const
+  {
+    for (int v = vertexOfDaughter(daughter); v >= 0; v = parent.empty() ? -1 : parent[v]) {
+      if (v == vertex) {
+        return true;
+      }
+    }
+    return false;
+  }
+};
+
+/// The constraints a decay vertex fit takes. Besides these, a tree's links
+/// always hold: every composite below the root flies from its parent's
+/// vertex to its own along its momentum, two equations (a neutral one in a
+/// line; a charged one is not taken yet).
 struct DecayConstraints {
   bool mass = false;
   double massGeV = 0.; ///< the mother's
@@ -68,15 +93,26 @@ struct DecayConstraints {
   std::array<double, 3> point{}; ///< where the mother was made [cm]
   bool collinear = false;        ///< two daughters only
   std::optional<LinePosition> position;
-  [[nodiscard]] int count() const { return (mass ? 1 : 0) + (production ? 2 : 0) + (collinear ? 2 : 0) + (position ? 1 : 0); }
+  /// Per vertex below the root, its composite's mass to hold [GeV]; 0 for none.
+  std::vector<double> compositeMasses;
+  [[nodiscard]] int count(const DecayTopology& topology = {}) const
+  {
+    int composites = 0;
+    for (const auto m : compositeMasses) {
+      composites += m > 0. ? 1 : 0;
+    }
+    return (mass ? 1 : 0) + (production ? 2 : 0) + (collinear ? 2 : 0) + (position ? 1 : 0) + composites + (2 * (topology.vertices() - 1));
+  }
 };
 
 namespace decay_fit_detail
 {
 
-/// The most daughters the constraints take, and so their derivatives' width.
+/// The most vertices and daughters the constraints take, and so their
+/// derivatives' width.
+inline constexpr int kMaxConstrainedVertices = 3;
 inline constexpr int kMaxConstrainedDaughters = 5;
-inline constexpr int kConstraintInputs = 3 + (3 * kMaxConstrainedDaughters);
+inline constexpr int kConstraintInputs = (3 * kMaxConstrainedVertices) + (3 * kMaxConstrainedDaughters);
 
 template <int N>
 Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
@@ -89,53 +125,76 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
   return r;
 }
 
-/// \a constraints' values at \a vertex and \a momenta (phi, theta, q/p each;
-/// unit charges) with the daughters' \a masses, and their rows of derivatives
-/// by (V, the momenta), 3 + 3N wide; false if the mother misses its plane or
-/// there are too many daughters.
-[[nodiscard]] inline bool evaluateConstraints(const DecayConstraints& constraints, const std::array<double, 3>& vertex, std::span<const std::array<double, 3>> momenta, std::span<const double> masses, double fieldScale, std::vector<double>& values, std::vector<double>& rows)
+/// \a constraints' values at \a vertices (\a topology's) and \a momenta (phi,
+/// theta, q/p each at its daughter's vertex; unit charges) with the
+/// daughters' \a masses, and their rows of derivatives by (the vertices, the
+/// momenta), 3K + 3N wide; false if the mother misses its plane, a charged
+/// composite is to be linked, or the tree is too large.
+[[nodiscard]] inline bool evaluateConstraints(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const std::array<double, 3>> vertices, std::span<const std::array<double, 3>> momenta, std::span<const double> masses, double fieldScale, std::vector<double>& values, std::vector<double>& rows)
 {
   using D = Dual<kConstraintInputs>;
   const int count = static_cast<int>(momenta.size());
-  const int width = 3 + (3 * count);
-  if (count > kMaxConstrainedDaughters || (constraints.collinear && count != 2)) {
+  const int k = topology.vertices();
+  const int width = (3 * k) + (3 * count);
+  if (count > kMaxConstrainedDaughters || k > kMaxConstrainedVertices || (constraints.collinear && count != 2)) {
     return false;
   }
   values.clear();
   rows.clear();
-  std::array<D, 3> v{};
-  for (int k = 0; k < 3; ++k) {
-    v[k].v = vertex[k];
-    v[k].d[k] = 1.;
+  std::vector<std::array<D, 3>> v(static_cast<std::size_t>(k));
+  for (int w = 0; w < k; ++w) {
+    for (int c = 0; c < 3; ++c) {
+      v[w][c].v = vertices[w][c];
+      v[w][c].d[(3 * w) + c] = 1.;
+    }
   }
-  std::array<D, 3> total{};
-  D energy{};
-  double charge = 0.;
+  // Every daughter's momentum vector, energy and charge.
+  std::vector<std::array<D, 3>> vectors(static_cast<std::size_t>(count));
+  std::vector<D> energies(static_cast<std::size_t>(count));
+  std::vector<double> charges(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
     std::array<D, 3> q{};
-    for (int k = 0; k < 3; ++k) {
-      q[k].v = momenta[i][k];
-      q[k].d[3 + (3 * i) + k] = 1.;
+    for (int c = 0; c < 3; ++c) {
+      q[c].v = momenta[i][c];
+      q[c].d[(3 * k) + (3 * i) + c] = 1.;
     }
-    const double sign = q[2].v > 0. ? 1. : -1.;
-    charge += sign;
-    const D p = D{sign} / q[2]; // |p| = 1 / |q/p|
+    charges[i] = q[2].v > 0. ? 1. : -1.;
+    const D p = D{charges[i]} / q[2]; // |p| = 1 / |q/p|
     const D pt = p * sin(q[1]);
-    const std::array<D, 3> vector{pt * cos(q[0]), pt * sin(q[0]), p * cos(q[1])};
-    for (int k = 0; k < 3; ++k) {
-      total[k] = total[k] + vector[k];
-    }
-    energy = energy + sqrt((p * p) + (masses[i] * masses[i]));
+    vectors[i] = {pt * cos(q[0]), pt * sin(q[0]), p * cos(q[1])};
+    energies[i] = sqrt((p * p) + (masses[i] * masses[i]));
   }
+  // A vertex's composite: its subtree's momentum, energy, charge.
+  const auto composite = [&](int vertex, std::array<D, 3>& total, D& energy, double& charge) {
+    total = {};
+    energy = D{};
+    charge = 0.;
+    for (int i = 0; i < count; ++i) {
+      if (topology.under(i, vertex)) {
+        for (int c = 0; c < 3; ++c) {
+          total[c] = total[c] + vectors[i][c];
+        }
+        energy = energy + energies[i];
+        charge += charges[i];
+      }
+    }
+  };
   const auto push = [&](const D& value) {
     values.push_back(value.v);
     for (int c = 0; c < width; ++c) {
       rows.push_back(value.d[c]);
     }
   };
-  if (constraints.mass) {
+  const auto massOf = [&](const std::array<D, 3>& total, const D& energy, double m) {
     const D p2 = (total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]);
-    push((energy * energy) - p2 + (-(constraints.massGeV * constraints.massGeV)));
+    return (energy * energy) - p2 + (-(m * m));
+  };
+  std::array<D, 3> total{};
+  D energy{};
+  double charge = 0.;
+  composite(0, total, energy, charge);
+  if (constraints.mass) {
+    push(massOf(total, energy, constraints.massGeV));
   }
   if (constraints.production) {
     const D pt = sqrt((total[0] * total[0]) + (total[1] * total[1]));
@@ -146,36 +205,69 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
     // The plane about C: normal to the mother's direction at its closest
     // approach to C, from the current values (`perigeePhi`).
     const double curvature = fieldScale * charge / pt.v;
-    const double dx = vertex[0] - constraints.point[0];
-    const double dy = vertex[1] - constraints.point[1];
+    const double dx = vertices[0][0] - constraints.point[0];
+    const double dy = vertices[0][1] - constraints.point[1];
     const double along = (dx * std::cos(phi.v)) + (dy * std::sin(phi.v));
     const double across = (-dx * std::sin(phi.v)) + (dy * std::cos(phi.v));
     const PerigeePlane plane{.x = constraints.point[0], .y = constraints.point[1], .phi = phi.v + std::atan2(-curvature * along, 1. + (curvature * across))};
     std::array<D, 5> crossing{};
-    if (!predictOnPlane(v[0], v[1], v[2], phi, theta, qOverP, fieldScale, plane, crossing)) {
+    if (!predictOnPlane(v[0][0], v[0][1], v[0][2], phi, theta, qOverP, fieldScale, plane, crossing)) {
       return false;
     }
     push(crossing[0]);
     push(crossing[1] + (-constraints.point[2]));
   }
+  // The links: each composite below the root flies from its parent's vertex
+  // to its own along its momentum P: the offset's components across P, on
+  // u1 = z x P / |z x P| (x where P is along z) and u2 = P x u1 / |P|.
+  for (int w = 1; w < k; ++w) {
+    composite(w, total, energy, charge);
+    if (charge != 0.) {
+      return false; // a charged composite's link is its helix: not taken yet
+    }
+    const int up = topology.parent[w];
+    std::array<D, 3> offset{};
+    for (int c = 0; c < 3; ++c) {
+      offset[c] = v[w][c] - v[up][c];
+    }
+    const D p = sqrt((total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]));
+    std::array<D, 3> u1{-total[1], total[0], D{}};
+    D across = sqrt((u1[0] * u1[0]) + (u1[1] * u1[1]));
+    if (across.v == 0.) {
+      u1 = {D{1.}, D{}, D{}};
+      across = D{1.};
+    }
+    for (auto& c : u1) {
+      c = c / across;
+    }
+    const std::array<D, 3> u2{((total[1] * u1[2]) - (total[2] * u1[1])) / p, ((total[2] * u1[0]) - (total[0] * u1[2])) / p, ((total[0] * u1[1]) - (total[1] * u1[0])) / p};
+    push((offset[0] * u1[0]) + (offset[1] * u1[1]) + (offset[2] * u1[2]));
+    push((offset[0] * u2[0]) + (offset[1] * u2[1]) + (offset[2] * u2[2]));
+  }
+  for (int w = 1; w < k && w - 1 < static_cast<int>(constraints.compositeMasses.size()); ++w) {
+    if (constraints.compositeMasses[w - 1] > 0.) {
+      composite(w, total, energy, charge);
+      push(massOf(total, energy, constraints.compositeMasses[w - 1]));
+    }
+  }
   if (constraints.collinear) {
     D dPhi{};
     dPhi.v = std::remainder(momenta[0][0] - momenta[1][0], 2. * std::numbers::pi);
-    dPhi.d[3] = 1.;
-    dPhi.d[6] = -1.;
+    dPhi.d[(3 * k)] = 1.;
+    dPhi.d[(3 * k) + 3] = -1.;
     D dTheta{};
     dTheta.v = momenta[0][1] - momenta[1][1];
-    dTheta.d[4] = 1.;
-    dTheta.d[7] = -1.;
+    dTheta.d[(3 * k) + 1] = 1.;
+    dTheta.d[(3 * k) + 4] = -1.;
     push(dPhi);
     push(dTheta);
   }
   if (constraints.position) {
     const auto& line = *constraints.position;
     D along{};
-    for (int k = 0; k < 3; ++k) {
-      along.v += (vertex[k] - line.origin[k]) * line.direction[k];
-      along.d[k] = line.direction[k];
+    for (int c = 0; c < 3; ++c) {
+      along.v += (vertices[0][c] - line.origin[c]) * line.direction[c];
+      along.d[c] = line.direction[c];
     }
     along.v -= line.s;
     push(along);

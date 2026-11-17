@@ -130,6 +130,7 @@ DecayVertexFitResult truthStart()
   DecayVertexFitResult start;
   start.status = DecayFitStatus::kOk;
   start.vertex = kVertex;
+  start.vertices = {kVertex};
   for (const auto& truth : kDaughters) {
     start.momenta.push_back({truth.phi, truth.theta, truth.qOverP});
   }
@@ -238,7 +239,7 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
         chi2 += fit.chi2;
         std::vector<double> values;
         std::vector<double> unused;
-        BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, fit.vertex, fit.momenta, masses, fieldScale, values, unused));
+        BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, fieldScale, values, unused));
         for (const auto value : values) {
           worst = std::max(worst, std::abs(value));
         }
@@ -333,7 +334,7 @@ BOOST_AUTO_TEST_CASE(CollinearDaughtersHoldTheirConstraint)
       chi2 += fit.chi2;
       std::vector<double> values;
       std::vector<double> unused;
-      BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, fit.vertex, fit.momenta, masses, fieldScale, values, unused));
+      BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, fieldScale, values, unused));
       for (const auto value : values) {
         worst = std::max(worst, std::abs(value));
       }
@@ -352,6 +353,97 @@ BOOST_AUTO_TEST_CASE(CollinearDaughtersHoldTheirConstraint)
   }
 }
 
+/// A cascade: a Xi- at kVertex into a Lambda and a pi-, the Lambda 2 cm on
+/// along its momentum into p pi-. Both fits as one tree (the Lambda's link
+/// constrained): exact inputs give both vertices back; smeared ones unit
+/// pulls on both and the chi2's mean at its ndf.
+BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
+{
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  const Truth proton{0.25, 1.2, 1. / 1.0};
+  const Truth pion{0.45, 1.25, -1. / 0.25};
+  const Truth bachelor{-0.3, 1.4, -1. / 0.4};
+  const auto vectorOf = [](const Truth& t) {
+    const double p = 1. / std::abs(t.qOverP);
+    return std::array<double, 3>{p * std::cos(t.phi) * std::sin(t.theta), p * std::sin(t.phi) * std::sin(t.theta), p * std::cos(t.theta)};
+  };
+  std::array<double, 3> lambda{};
+  for (const auto& t : {proton, pion}) {
+    const auto v = vectorOf(t);
+    for (int c = 0; c < 3; ++c) {
+      lambda[c] += v[c];
+    }
+  }
+  const double norm = std::hypot(lambda[0], lambda[1], lambda[2]);
+  const std::array<double, 3> second{kVertex[0] + (2. * lambda[0] / norm), kVertex[1] + (2. * lambda[1] / norm), kVertex[2] + (2. * lambda[2] / norm)};
+  const DecayTopology topology{.vertexOf = {1, 1, 0}, .parent = {-1, 0}};
+  const std::vector<DecayDaughter> exactStates{daughterOf(proton, prop, second), daughterOf(pion, prop, second), daughterOf(bachelor, prop, kVertex)};
+  const std::vector<RowsDaughter> exactRows{rowsOf(proton, prop, second), rowsOf(pion, prop, second), rowsOf(bachelor, prop, kVertex)};
+  const std::array<std::array<double, 3>, 2> truth{kVertex, second};
+
+  const auto exact = fitDecayVertex(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, DecayFitVariant::kNoMaterial, {}, topology);
+  BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
+  const auto exactFromRows = fitDecayRows(std::span<const RowsDaughter>{exactRows}, NoMaterial{}, exact, {}, topology);
+  BOOST_REQUIRE(exactFromRows.status == DecayFitStatus::kOk);
+  for (int w = 0; w < 2; ++w) {
+    for (int c = 0; c < 3; ++c) {
+      BOOST_TEST(std::abs(exact.vertices[w][c] - truth[w][c]) < 1e-4);         // float states: well below a micron
+      BOOST_TEST(std::abs(exactFromRows.vertices[w][c] - truth[w][c]) < 1e-4); // the rows' float crossings
+    }
+  }
+
+  std::mt19937 random{9090U};
+  std::normal_distribution<double> gauss;
+  constexpr int kTrials = 1000;
+  for (const bool rows : {false, true}) {
+    std::array<double, 6> sum{};
+    std::array<double, 6> sum2{};
+    double chi2 = 0.;
+    int fitted = 0;
+    int ndf = 0;
+    for (int trial = 0; trial < kTrials; ++trial) {
+      auto states = exactStates;
+      for (auto& daughter : states) {
+        for (int c = 0; c < 5; ++c) {
+          daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
+        }
+      }
+      auto own = exactRows;
+      for (auto& daughter : own) {
+        for (auto& position : daughter.positions) {
+          position[0] += gauss(random) * 5e-4;
+          position[1] += gauss(random) * 5e-4;
+        }
+      }
+      const auto free = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial, {}, topology);
+      const auto fit = rows ? fitDecayRows(std::span<const RowsDaughter>{own}, NoMaterial{}, free, {}, topology) : free;
+      if (fit.status != DecayFitStatus::kOk) {
+        continue;
+      }
+      ++fitted;
+      ndf = fit.ndf;
+      const int n = 6 + 9;
+      for (int k = 0; k < 6; ++k) {
+        const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covariance[k * n + k]);
+        sum[k] += pull;
+        sum2[k] += pull * pull;
+      }
+      chi2 += fit.chi2;
+    }
+    BOOST_TEST_MESSAGE("cascade" << (rows ? " rows" : " states") << ": fitted " << fitted << ", chi2 mean " << chi2 / fitted << " at ndf " << ndf);
+    BOOST_TEST(fitted >= kTrials - 5);
+    BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.1);
+    for (int k = 0; k < 6; ++k) {
+      const double mean = sum[k] / fitted;
+      const double width = std::sqrt((sum2[k] / fitted) - (mean * mean));
+      BOOST_TEST_MESSAGE("  vertex " << k / 3 << " coordinate " << k % 3 << ": pull mean " << mean << ", width " << width);
+      BOOST_TEST(std::abs(mean) < 0.12);
+      BOOST_TEST(std::abs(width - 1.) < 0.08);
+    }
+  }
+}
+
 BOOST_AUTO_TEST_CASE(ExactRowsGiveTheTruthBack)
 {
   Propagator prop;
@@ -361,7 +453,7 @@ BOOST_AUTO_TEST_CASE(ExactRowsGiveTheTruthBack)
     daughters.push_back(rowsOf(truth, prop));
   }
   auto start = truthStart();
-  start.vertex[0] += 0.01; // away from the truth, to find it again
+  start.vertices[0][0] += 0.01; // away from the truth, to find it again
   const auto fit = fitDecayRows(std::span<const RowsDaughter>{daughters}, NoMaterial{}, start);
   BOOST_REQUIRE(fit.status == DecayFitStatus::kOk);
   for (int k = 0; k < 3; ++k) {
