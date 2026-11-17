@@ -24,6 +24,17 @@
 ///   loc1 = C_z, two equations (`predictOnPlane`). The plane is the current
 ///   iterate's, as a measurement's.
 ///
+/// - Collinear daughters (a photon's conversion): the two daughters' momenta
+///   parallel at V, phi1 - phi2 = 0 and theta1 - theta2 = 0. A pair has a
+///   mass of at least 2 m_e, so a mass constraint cannot hold one; parallel
+///   momenta is the approximation (DecayTreeFitter's, CMS's colinearity).
+///
+/// - A prior on V along a line (soft): a photon converts where the material
+///   is, so the conversion point's position along the line from the
+///   collision towards the pair's first rows has the material's distribution
+///   there; two parallel daughters leave it otherwise unmeasured to first
+///   order (they separate only with the square of the distance).
+///
 /// The values and their derivatives by (V, the momenta) come from forward
 /// differentiation. A constrained step solves the normal equations with the
 /// constraints linearised, by Lagrange multipliers; its covariance is the
@@ -36,19 +47,32 @@
 
 #include <array>
 #include <cmath>
+#include <numbers>
+#include <optional>
 #include <span>
 #include <vector>
 
 namespace o2::gtrk::study
 {
 
+/// A Gaussian prior on V's position along a line: s = (V - origin) .
+/// direction, of \a mean and \a sigma.
+struct LinePrior {
+  std::array<double, 3> origin{};
+  std::array<double, 3> direction{}; ///< unit
+  double mean = 0.;                  ///< [cm]
+  double sigma = 0.;                 ///< [cm]
+};
+
 /// The constraints a decay vertex fit takes.
 struct DecayConstraints {
   bool mass = false;
   double massGeV = 0.; ///< the mother's
   bool production = false;
-  std::array<double, 3> point{}; ///< where the mother was made [cm]
-  [[nodiscard]] int count() const { return (mass ? 1 : 0) + (production ? 2 : 0); }
+  std::array<double, 3> point{};  ///< where the mother was made [cm]
+  bool collinear = false;         ///< two daughters only
+  std::optional<LinePrior> prior; ///< soft: no equation, a measurement of V
+  [[nodiscard]] int count() const { return (mass ? 1 : 0) + (production ? 2 : 0) + (collinear ? 2 : 0); }
 };
 
 namespace decay_fit_detail
@@ -78,7 +102,7 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
   using D = Dual<kConstraintInputs>;
   const int count = static_cast<int>(momenta.size());
   const int width = 3 + (3 * count);
-  if (count > kMaxConstrainedDaughters) {
+  if (count > kMaxConstrainedDaughters || (constraints.collinear && count != 2)) {
     return false;
   }
   values.clear();
@@ -138,7 +162,40 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
     push(crossing[0]);
     push(crossing[1] + (-constraints.point[2]));
   }
+  if (constraints.collinear) {
+    D dPhi{};
+    dPhi.v = std::remainder(momenta[0][0] - momenta[1][0], 2. * std::numbers::pi);
+    dPhi.d[3] = 1.;
+    dPhi.d[6] = -1.;
+    D dTheta{};
+    dTheta.v = momenta[0][1] - momenta[1][1];
+    dTheta.d[4] = 1.;
+    dTheta.d[7] = -1.;
+    push(dPhi);
+    push(dTheta);
+  }
   return true;
+}
+
+/// \a prior's chi2 at \a vertex, and with \a normal (n x n) and \a gradient
+/// its terms of the normal equations on V (the first three parameters).
+inline double addLinePrior(const LinePrior& prior, std::span<const double> vertex, std::vector<double>* normal, std::vector<double>* gradient, int n)
+{
+  double s = 0.;
+  for (int k = 0; k < 3; ++k) {
+    s += (vertex[k] - prior.origin[k]) * prior.direction[k];
+  }
+  const double residual = prior.mean - s;
+  const double weight = 1. / (prior.sigma * prior.sigma);
+  if (normal != nullptr) {
+    for (int a = 0; a < 3; ++a) {
+      (*gradient)[a] += prior.direction[a] * weight * residual;
+      for (int b = 0; b < 3; ++b) {
+        (*normal)[a * n + b] += prior.direction[a] * weight * prior.direction[b];
+      }
+    }
+  }
+  return residual * residual * weight;
 }
 
 /// The Gauss-Newton step under the hard constraints C step + c = 0 (\a rows

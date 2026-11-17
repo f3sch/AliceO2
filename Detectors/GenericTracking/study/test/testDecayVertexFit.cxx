@@ -257,6 +257,94 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
   }
 }
 
+/// A conversion-like pair -- one direction, opposite charges -- under the
+/// collinear constraint and a prior along the flight (its mean drawn about
+/// the truth with its sigma: the material's), on both fits: the constraint
+/// holds, the chi2's mean is its ndf, the vertex pulls are one. Without the
+/// prior the point along the flight is unmeasured to first order.
+BOOST_AUTO_TEST_CASE(CollinearDaughtersHoldTheirConstraint)
+{
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  prop.massGeV = static_cast<Scalar>(kPion);
+  const std::array<Truth, 2> pair{Truth{0.4, 1.3, 1. / 0.3}, Truth{0.4, 1.3, -1. / 0.5}};
+  std::vector<DecayDaughter> exactStates;
+  std::vector<RowsDaughter> exactRows;
+  for (const auto& truth : pair) {
+    exactStates.push_back(daughterOf(truth, prop, kDecay));
+    exactRows.push_back(rowsOf(truth, prop, kDecay));
+  }
+  std::mt19937 random{4242U};
+  std::normal_distribution<double> gauss;
+  constexpr int kTrials = 1000;
+  const double fieldScale = 20. * static_cast<double>(constants::math::B2C);
+  const std::array<double, 2> masses{kPion, kPion};
+  std::array<double, 3> direction{kDecay[0] - kPoint[0], kDecay[1] - kPoint[1], kDecay[2] - kPoint[2]};
+  const double distance = std::hypot(direction[0], direction[1], direction[2]);
+  for (auto& d : direction) {
+    d /= distance;
+  }
+  constexpr double kPriorSigma = 0.05;
+  for (const bool rows : {false, true}) {
+    std::array<double, 3> sum{};
+    std::array<double, 3> sum2{};
+    double chi2 = 0.;
+    double worst = 0.;
+    int fitted = 0;
+    int ndf = 0;
+    for (int trial = 0; trial < kTrials; ++trial) {
+      auto states = exactStates;
+      for (auto& daughter : states) {
+        for (int k = 0; k < 5; ++k) {
+          daughter.innermost.par[k] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(k, k))));
+        }
+      }
+      auto own = exactRows;
+      for (auto& daughter : own) {
+        for (auto& position : daughter.positions) {
+          position[0] += gauss(random) * 5e-4;
+          position[1] += gauss(random) * 5e-4;
+        }
+      }
+      DecayConstraints constraints{.collinear = true};
+      constraints.prior = LinePrior{.origin = kPoint, .direction = direction, .mean = distance + (gauss(random) * kPriorSigma), .sigma = kPriorSigma};
+      DecayConstraints priorOnly;
+      priorOnly.prior = constraints.prior;
+      const auto free = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial, priorOnly);
+      const auto fit = rows ? fitDecayRows(std::span<const RowsDaughter>{own}, NoMaterial{}, free, constraints) : fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial, constraints);
+      if (fit.status != DecayFitStatus::kOk) {
+        continue;
+      }
+      ++fitted;
+      ndf = fit.ndf;
+      const int n = 3 + 6;
+      for (int k = 0; k < 3; ++k) {
+        const double pull = (fit.vertex[k] - kDecay[k]) / std::sqrt(fit.covariance[k * n + k]);
+        sum[k] += pull;
+        sum2[k] += pull * pull;
+      }
+      chi2 += fit.chi2;
+      std::vector<double> values;
+      std::vector<double> unused;
+      BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, fit.vertex, fit.momenta, masses, fieldScale, values, unused));
+      for (const auto value : values) {
+        worst = std::max(worst, std::abs(value));
+      }
+    }
+    BOOST_TEST_MESSAGE("collinear" << (rows ? " rows" : " states") << ": fitted " << fitted << ", chi2 mean " << chi2 / fitted << " at ndf " << ndf << ", largest constraint residual " << worst);
+    BOOST_TEST(fitted >= kTrials - 5);
+    BOOST_TEST(worst < 1e-6);
+    BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.1);
+    for (int k = 0; k < 3; ++k) {
+      const double mean = sum[k] / fitted;
+      const double width = std::sqrt((sum2[k] / fitted) - (mean * mean));
+      BOOST_TEST_MESSAGE("  vertex " << k << ": pull mean " << mean << ", width " << width);
+      BOOST_TEST(std::abs(mean) < 0.12);
+      BOOST_TEST(std::abs(width - 1.) < 0.1);
+    }
+  }
+}
+
 BOOST_AUTO_TEST_CASE(ExactRowsGiveTheTruthBack)
 {
   Propagator prop;

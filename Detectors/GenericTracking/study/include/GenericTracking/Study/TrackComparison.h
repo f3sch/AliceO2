@@ -311,6 +311,9 @@ struct ParticleLayers {
 /// among whose labels it is.
 [[nodiscard]] std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> rowsOfParticles(std::span<const TruthRow> rows);
 
+/// The layers of the rows \a own (of \a rows) and their longest chain.
+[[nodiscard]] ParticleLayers chainLayers(std::span<const TruthRow> rows, std::span<const std::uint32_t> own, const ComparisonSettings& settings);
+
 /// Each particle the rows carry, with its layers and longest chain.
 [[nodiscard]] std::unordered_map<std::uint64_t, ParticleLayers> particleLayers(std::span<const TruthRow> rows, const ComparisonSettings& settings);
 

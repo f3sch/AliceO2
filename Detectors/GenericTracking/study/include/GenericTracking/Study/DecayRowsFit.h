@@ -72,6 +72,10 @@ struct RowsDaughter {
   std::vector<std::array<double, 2>> positions;  ///< loc0, loc1 on its plane [cm]
   std::vector<std::array<double, 3>> covariance; ///< var loc0, cov, var loc1 [cm^2]
   Propagator propagator;                         ///< the field, with the daughter's species' mass
+  /// An electron: its radiation on every step, the Bethe-Heitler mean loss
+  /// and, as the q/p kick's prior, its variance (a Gaussian in place of the
+  /// loss's density, which the Gaussian-sum fit keeps).
+  bool electron = false;
 };
 
 namespace decay_rows_detail
@@ -277,12 +281,23 @@ template <typename Material>
           }
           auto& here = rowModel[row];
           here.lossScale = loss.ok ? loss.momentumScale : 1.;
+          double radiationVariance = 0.;
+          if (daughter.electron) {
+            // z = E after / E before: E[z] = 2^-c, E[z^2] = 3^-c, c = t / ln 2;
+            // q/p scales by 1 / E[z], its variance (q/p)^2 var(z) / E[z]^4.
+            const double c = static_cast<double>(step.nearerX2X0 + step.fartherX2X0) / std::numbers::ln2;
+            const double meanZ = std::pow(2., -c);
+            const double varZ = std::pow(3., -c) - (meanZ * meanZ);
+            const double kAfter = state[5] * here.lossScale;
+            here.lossScale /= meanZ;
+            radiationVariance = kAfter * kAfter * varZ / (meanZ * meanZ * meanZ * meanZ);
+          }
           // Its slope by q/p, by a central difference of 1 %.
           const double h = 0.01 * state[5];
           const auto up = energyLoss(static_cast<Scalar>(state[5] + h), static_cast<Scalar>(mass), -step.xRho);
           const auto down = energyLoss(static_cast<Scalar>(state[5] - h), static_cast<Scalar>(mass), -step.xRho);
           here.lossSlope = loss.ok && up.ok && down.ok ? (static_cast<double>(up.momentumScale) - static_cast<double>(down.momentumScale)) / (2. * h) : 0.;
-          here.kickVariance = {farther * farther, farther * farther, loss.ok ? loss.varQOverP : 0.};
+          here.kickVariance = {farther * farther, farther * farther, (loss.ok ? loss.varQOverP : 0.) + radiationVariance};
         }
         // Chain the derivatives: d(to)/d(local) = d(to)/d(from) d(from)/d(local).
         std::vector<double> next(static_cast<std::size_t>(6 * local), 0.);
@@ -366,6 +381,9 @@ template <typename Material>
           }
         }
       }
+    }
+    if (constraints.prior) {
+      chi2 += addLinePrior(*constraints.prior, std::span<const double>{p.data(), 3}, normal, gradient, n);
     }
     return true;
   };
@@ -573,7 +591,7 @@ template <typename Material>
   for (const auto& daughter : daughters) {
     measurements += 2 * static_cast<int>(daughter.planes.size());
   }
-  result.ndf = measurements - (3 + (3 * count)) + constraints.count();
+  result.ndf = measurements - (3 + (3 * count)) + constraints.count() + (constraints.prior ? 1 : 0);
   result.carried = start.carried;
   result.carriedCovariance = start.carriedCovariance;
   result.carryX2X0 = start.carryX2X0;
