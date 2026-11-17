@@ -239,7 +239,7 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
         chi2 += fit.chi2;
         std::vector<double> values;
         std::vector<double> unused;
-        BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, fieldScale, values, unused));
+        BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, std::array<double, 2>{1., -1.}, fieldScale, values, unused));
         for (const auto value : values) {
           worst = std::max(worst, std::abs(value));
         }
@@ -334,7 +334,7 @@ BOOST_AUTO_TEST_CASE(CollinearDaughtersHoldTheirConstraint)
       chi2 += fit.chi2;
       std::vector<double> values;
       std::vector<double> unused;
-      BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, fieldScale, values, unused));
+      BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, std::array<double, 2>{1., -1.}, fieldScale, values, unused));
       for (const auto value : values) {
         worst = std::max(worst, std::abs(value));
       }
@@ -441,6 +441,49 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
       BOOST_TEST(std::abs(mean) < 0.12);
       BOOST_TEST(std::abs(width - 1.) < 0.08);
     }
+  }
+  // Sequential: the Lambda fitted first, then the Xi from the bachelor and the
+  // Lambda as a neutral pseudo-track.
+  std::array<double, 3> sum{};
+  std::array<double, 3> sum2{};
+  double chi2 = 0.;
+  int fitted = 0;
+  int ndf = 0;
+  for (int trial = 0; trial < kTrials; ++trial) {
+    auto states = exactStates;
+    for (auto& daughter : states) {
+      for (int c = 0; c < 5; ++c) {
+        daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
+      }
+    }
+    const auto lambdaFit = fitDecayVertex(std::span<const DecayDaughter>{states}.first(2), NoMaterial{}, DecayFitVariant::kNoMaterial);
+    if (lambdaFit.status != DecayFitStatus::kOk) {
+      continue;
+    }
+    const std::vector<DecayDaughter> xi{states[2], pseudoTrackOf(lambdaFit, 1.115683, prop)};
+    const auto fit = fitDecayVertex(std::span<const DecayDaughter>{xi}, NoMaterial{}, DecayFitVariant::kNoMaterial);
+    if (fit.status != DecayFitStatus::kOk) {
+      continue;
+    }
+    ++fitted;
+    ndf = fit.ndf;
+    const int n = 3 + 6;
+    for (int c = 0; c < 3; ++c) {
+      const double pull = (fit.vertex[c] - kVertex[c]) / std::sqrt(fit.covariance[c * n + c]);
+      sum[c] += pull;
+      sum2[c] += pull * pull;
+    }
+    chi2 += fit.chi2;
+  }
+  BOOST_TEST_MESSAGE("cascade sequential: fitted " << fitted << ", chi2 mean " << chi2 / fitted << " at ndf " << ndf);
+  BOOST_TEST(fitted >= kTrials - 5);
+  BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.15);
+  for (int c = 0; c < 3; ++c) {
+    const double mean = sum[c] / fitted;
+    const double width = std::sqrt((sum2[c] / fitted) - (mean * mean));
+    BOOST_TEST_MESSAGE("  Xi vertex coordinate " << c << ": pull mean " << mean << ", width " << width);
+    BOOST_TEST(std::abs(mean) < 0.12);
+    BOOST_TEST(std::abs(width - 1.) < 0.08);
   }
 }
 
