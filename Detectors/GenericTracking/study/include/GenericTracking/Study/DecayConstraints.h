@@ -29,11 +29,9 @@
 ///   mass of at least 2 m_e, so a mass constraint cannot hold one; parallel
 ///   momenta is the approximation (DecayTreeFitter's, CMS's colinearity).
 ///
-/// - A prior on V along a line (soft): a photon converts where the material
-///   is, so the conversion point's position along the line from the
-///   collision towards the pair's first rows has the material's distribution
-///   there; two parallel daughters leave it otherwise unmeasured to first
-///   order (they separate only with the square of the distance).
+/// - V's position along a line, s = (V - origin) . direction: one equation;
+///   a conversion's profile fixes its point along the flight with it
+///   (DecayProfile.h).
 ///
 /// The values and their derivatives by (V, the momenta) come from forward
 /// differentiation. A constrained step solves the normal equations with the
@@ -55,13 +53,11 @@
 namespace o2::gtrk::study
 {
 
-/// A Gaussian prior on V's position along a line: s = (V - origin) .
-/// direction, of \a mean and \a sigma.
-struct LinePrior {
+/// V at \a s along a line: (V - origin) . direction = s.
+struct LinePosition {
   std::array<double, 3> origin{};
   std::array<double, 3> direction{}; ///< unit
-  double mean = 0.;                  ///< [cm]
-  double sigma = 0.;                 ///< [cm]
+  double s = 0.;                     ///< [cm]
 };
 
 /// The constraints a decay vertex fit takes.
@@ -69,10 +65,10 @@ struct DecayConstraints {
   bool mass = false;
   double massGeV = 0.; ///< the mother's
   bool production = false;
-  std::array<double, 3> point{};  ///< where the mother was made [cm]
-  bool collinear = false;         ///< two daughters only
-  std::optional<LinePrior> prior; ///< soft: no equation, a measurement of V
-  [[nodiscard]] int count() const { return (mass ? 1 : 0) + (production ? 2 : 0) + (collinear ? 2 : 0); }
+  std::array<double, 3> point{}; ///< where the mother was made [cm]
+  bool collinear = false;        ///< two daughters only
+  std::optional<LinePosition> position;
+  [[nodiscard]] int count() const { return (mass ? 1 : 0) + (production ? 2 : 0) + (collinear ? 2 : 0) + (position ? 1 : 0); }
 };
 
 namespace decay_fit_detail
@@ -174,84 +170,112 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
     push(dPhi);
     push(dTheta);
   }
+  if (constraints.position) {
+    const auto& line = *constraints.position;
+    D along{};
+    for (int k = 0; k < 3; ++k) {
+      along.v += (vertex[k] - line.origin[k]) * line.direction[k];
+      along.d[k] = line.direction[k];
+    }
+    along.v -= line.s;
+    push(along);
+  }
   return true;
 }
 
-/// \a prior's chi2 at \a vertex, and with \a normal (n x n) and \a gradient
-/// its terms of the normal equations on V (the first three parameters).
-inline double addLinePrior(const LinePrior& prior, std::span<const double> vertex, std::vector<double>* normal, std::vector<double>* gradient, int n)
-{
-  double s = 0.;
-  for (int k = 0; k < 3; ++k) {
-    s += (vertex[k] - prior.origin[k]) * prior.direction[k];
-  }
-  const double residual = prior.mean - s;
-  const double weight = 1. / (prior.sigma * prior.sigma);
-  if (normal != nullptr) {
-    for (int a = 0; a < 3; ++a) {
-      (*gradient)[a] += prior.direction[a] * weight * residual;
-      for (int b = 0; b < 3; ++b) {
-        (*normal)[a * n + b] += prior.direction[a] * weight * prior.direction[b];
-      }
-    }
-  }
-  return residual * residual * weight;
-}
-
 /// The Gauss-Newton step under the hard constraints C step + c = 0 (\a rows
-/// C, m x n, \a values c), with the normal matrix's Cholesky factor
-/// \a factor (n x n) and its right-hand side \a gradient; with
-/// \a covariance, the constrained covariance too. False if the constraints
-/// are not independent.
-[[nodiscard]] inline bool constrainedStep(const std::vector<double>& factor, int n, const std::vector<double>& gradient, const std::vector<double>& rows, const std::vector<double>& values, std::vector<double>& step, std::vector<double>* covariance)
+/// C, m x n, \a values c) with the normal matrix \a normal (n x n) and its
+/// right-hand side \a gradient: the Lagrange system [[N, C^T], [C, 0]]
+/// [step; lambda] = [g; -c], solved by LU with partial pivoting, as N alone
+/// may be singular where the constraints fix its null direction (two parallel
+/// daughters along the flight). With \a covariance, the constrained
+/// covariance: the system's inverse's N block; with \a sensitivity (n x m),
+/// the parameters' derivatives by each constraint's value, the inverse's
+/// C^T block. False if the system is singular (an exactly zero pivot).
+[[nodiscard]] inline bool constrainedStep(const std::vector<double>& normal, int n, const std::vector<double>& gradient, const std::vector<double>& rows, const std::vector<double>& values, std::vector<double>& step, std::vector<double>* covariance, std::vector<double>* sensitivity = nullptr)
 {
   const int m = static_cast<int>(values.size());
-  step = gradient;
-  choleskySolve(factor, n, step); // N^-1 g
-  // Y = N^-1 C^T, column by column.
-  std::vector<double> y(static_cast<std::size_t>(n * m));
-  std::vector<double> column(static_cast<std::size_t>(n));
-  for (int j = 0; j < m; ++j) {
-    std::copy_n(rows.begin() + (static_cast<std::ptrdiff_t>(j) * n), n, column.begin());
-    choleskySolve(factor, n, column);
-    for (int i = 0; i < n; ++i) {
-      y[i * m + j] = column[i];
+  const int size = n + m;
+  std::vector<double> system(static_cast<std::size_t>(size * size), 0.);
+  for (int a = 0; a < n; ++a) {
+    for (int b = 0; b < n; ++b) {
+      system[a * size + b] = normal[a * n + b];
     }
   }
-  std::vector<double> s(static_cast<std::size_t>(m * m), 0.);
-  std::vector<double> r(static_cast<std::size_t>(m), 0.);
-  for (int a = 0; a < m; ++a) {
+  for (int j = 0; j < m; ++j) {
     for (int i = 0; i < n; ++i) {
-      r[a] += rows[a * n + i] * step[i];
-      for (int b = 0; b < m; ++b) {
-        s[a * m + b] += rows[a * n + i] * y[i * m + b];
+      system[(n + j) * size + i] = rows[j * n + i];
+      system[i * size + (n + j)] = rows[j * n + i];
+    }
+  }
+  // LU with partial pivoting, in place.
+  std::vector<int> pivot(static_cast<std::size_t>(size));
+  for (int k = 0; k < size; ++k) {
+    int best = k;
+    for (int i = k + 1; i < size; ++i) {
+      if (std::abs(system[i * size + k]) > std::abs(system[best * size + k])) {
+        best = i;
       }
     }
-    r[a] += values[a];
-  }
-  auto sFactor = s;
-  if (!cholesky(sFactor, m)) {
-    return false;
-  }
-  auto lambda = r;
-  choleskySolve(sFactor, m, lambda);
-  for (int i = 0; i < n; ++i) {
-    for (int j = 0; j < m; ++j) {
-      step[i] -= y[i * m + j] * lambda[j];
+    if (system[best * size + k] == 0.) {
+      return false;
+    }
+    pivot[k] = best;
+    if (best != k) {
+      for (int j = 0; j < size; ++j) {
+        std::swap(system[k * size + j], system[best * size + j]);
+      }
+    }
+    for (int i = k + 1; i < size; ++i) {
+      const double factor = system[i * size + k] / system[k * size + k];
+      system[i * size + k] = factor;
+      for (int j = k + 1; j < size; ++j) {
+        system[i * size + j] -= factor * system[k * size + j];
+      }
     }
   }
+  const auto solve = [&](std::vector<double>& b) {
+    for (int k = 0; k < size; ++k) {
+      std::swap(b[k], b[pivot[k]]);
+    }
+    for (int i = 0; i < size; ++i) {
+      for (int k = 0; k < i; ++k) {
+        b[i] -= system[i * size + k] * b[k];
+      }
+    }
+    for (int i = size - 1; i >= 0; --i) {
+      for (int k = i + 1; k < size; ++k) {
+        b[i] -= system[i * size + k] * b[k];
+      }
+      b[i] /= system[i * size + i];
+    }
+  };
+  std::vector<double> rhs(static_cast<std::size_t>(size), 0.);
+  std::copy(gradient.begin(), gradient.end(), rhs.begin());
+  for (int j = 0; j < m; ++j) {
+    rhs[n + j] = -values[j];
+  }
+  solve(rhs);
+  step.assign(rhs.begin(), rhs.begin() + n);
   if (covariance != nullptr) {
-    *covariance = choleskyInverse(factor, n);
-    const auto sInverse = choleskyInverse(sFactor, m);
-    for (int a = 0; a < n; ++a) {
-      for (int b = 0; b < n; ++b) {
-        double reduction = 0.;
-        for (int i = 0; i < m; ++i) {
-          for (int j = 0; j < m; ++j) {
-            reduction += y[a * m + i] * sInverse[i * m + j] * y[b * m + j];
-          }
-        }
-        (*covariance)[a * n + b] -= reduction;
+    covariance->assign(static_cast<std::size_t>(n * n), 0.);
+    for (int c = 0; c < n; ++c) {
+      std::vector<double> unit(static_cast<std::size_t>(size), 0.);
+      unit[c] = 1.;
+      solve(unit);
+      for (int r = 0; r < n; ++r) {
+        (*covariance)[r * n + c] = unit[r];
+      }
+    }
+  }
+  if (sensitivity != nullptr) {
+    sensitivity->assign(static_cast<std::size_t>(n * m), 0.);
+    for (int j = 0; j < m; ++j) {
+      std::vector<double> unit(static_cast<std::size_t>(size), 0.);
+      unit[n + j] = 1.;
+      solve(unit);
+      for (int r = 0; r < n; ++r) {
+        (*sensitivity)[r * m + j] = unit[r];
       }
     }
   }

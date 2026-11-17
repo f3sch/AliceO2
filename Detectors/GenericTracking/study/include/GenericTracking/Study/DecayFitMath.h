@@ -17,11 +17,13 @@
 #ifndef GTRK_STUDY_DECAYFITMATH_H_
 #define GTRK_STUDY_DECAYFITMATH_H_
 
+#include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -122,14 +124,21 @@ Dual<N> sqrt(const Dual<N>& a)
   const double root = std::sqrt(a.v);
   return chain(a, root, 0.5 / root);
 }
+/// Below these arguments sinc and asinc take their series, through the x^6
+/// term: there its first omitted term is below double's rounding, where the
+/// closed forms' derivatives lose digits to cancellation. sinc's omitted term
+/// is x^8 / 9!, asinc's 35 x^8 / 1152.
+inline const double kSincSeries = std::pow(362880. * std::numeric_limits<double>::epsilon(), 1. / 8.);
+inline const double kAsincSeries = std::pow((1152. / 35.) * std::numeric_limits<double>::epsilon(), 1. / 8.);
+
 /// sin(x) / x, 1 at 0.
 template <int N>
 Dual<N> sinc(const Dual<N>& a)
 {
   const double x = a.v;
-  if (std::abs(x) < 1e-4) {
+  if (std::abs(x) < kSincSeries) {
     const double x2 = x * x;
-    return chain(a, 1. - (x2 / 6.), -x / 3.);
+    return chain(a, 1. - (x2 / 6.) + (x2 * x2 / 120.) - (x2 * x2 * x2 / 5040.), x * (-(1. / 3.) + (x2 / 30.) - (x2 * x2 / 840.)));
   }
   return chain(a, std::sin(x) / x, (std::cos(x) / x) - (std::sin(x) / (x * x)));
 }
@@ -138,12 +147,33 @@ template <int N>
 Dual<N> asinc(const Dual<N>& a)
 {
   const double x = a.v;
-  if (std::abs(x) < 1e-4) {
+  if (std::abs(x) < kAsincSeries) {
     const double x2 = x * x;
-    return chain(a, 1. + (x2 / 6.), x / 3.);
+    return chain(a, 1. + (x2 / 6.) + (3. * x2 * x2 / 40.) + (5. * x2 * x2 * x2 / 112.), x * ((1. / 3.) + (3. * x2 / 10.) + (15. * x2 * x2 / 56.)));
   }
   const double root = std::sqrt(1. - (x * x));
   return chain(a, std::asin(x) / x, (1. / (x * root)) - (std::asin(x) / (x * x)));
+}
+
+/// The most Gauss-Newton iterations of a fit, and the most halvings of one
+/// step: double's mantissa bits. A fit that converges at least linearly gains
+/// a bit an iteration; a step halved that often no longer moves a double.
+inline constexpr int kMaxSteps = std::numeric_limits<double>::digits;
+
+/// Whether \a step moves the chi2 by less than the inputs can tell: its own
+/// metric step^T N step (\a normal, n x n) below the inputs' precision times
+/// the chi2 a fit of \a ndf degrees of freedom has, \a chi2 or its
+/// expectation \a ndf. The measurements -- states and rows -- are floats
+/// (`Scalar`), carried anew every iteration: the chi2 is not known better.
+[[nodiscard]] inline bool negligibleStep(const std::vector<double>& normal, int n, const std::vector<double>& step, double chi2, int ndf)
+{
+  double metric = 0.;
+  for (int a = 0; a < n; ++a) {
+    for (int b = 0; b < n; ++b) {
+      metric += step[a] * normal[a * n + b] * step[b];
+    }
+  }
+  return metric <= static_cast<double>(std::numeric_limits<Scalar>::epsilon()) * (chi2 + std::max(ndf, 0));
 }
 
 /// The plane's frame: its transverse origin and its normal's angle.
