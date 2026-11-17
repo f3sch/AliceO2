@@ -73,6 +73,8 @@
 #include "GenericTracking/Tracking/TripletCut.h"
 #include "GenericTracking/Study/Validation.h"
 #include "GenericTracking/Study/MCTruth.h"
+#include "GenericTracking/Study/ParticleChains.h"
+#include "GenericTracking/Study/StateTruth.h"
 #include "GenericTracking/Study/SpeciesOracle.h"
 #include "GenericTracking/Study/StageFunnel.h"
 #include "GenericTracking/Study/Statistics.h"
@@ -81,7 +83,6 @@
 
 #include "CommonConstants/PhysicsConstants.h"
 #include "SimulationDataFormat/MCCompLabel.h"
-#include "SimulationDataFormat/O2DatabasePDG.h"
 #include "Steer/MCKinematicsReader.h"
 
 #include <algorithm>
@@ -215,7 +216,9 @@ class CompleteAnatomy
 
   /// \a roadLayers: each iteration's `layerMask`, 0 for every layer (kept
   /// with every bit set, so that its readers test bits only).
-  CompleteAnatomy(const study::TrackingTruth& truth, std::uint64_t mask, double minPtGeV, std::vector<std::uint64_t> roadLayers, ClassCuts cuts = {})
+  /// \a particleChains: \a truth's particles in path order, timed with
+  /// \a hits if given; both must outlive the anatomy.
+  CompleteAnatomy(const study::TrackingTruth& truth, const study::ParticleChains& particleChains, const study::HitIndex* hits, std::uint64_t mask, double minPtGeV, std::vector<std::uint64_t> roadLayers, ClassCuts cuts = {})
     : mTruth(&truth),
       mMask(mask),
       mMinPtGeV(minPtGeV),
@@ -223,7 +226,7 @@ class CompleteAnatomy
         std::ranges::replace(roadLayers, std::uint64_t{0}, ~std::uint64_t{0});
         return std::move(roadLayers);
       }()),
-      mRowsOf(study::rowsOfParticles(truth.rows)),
+      mChains(&particleChains),
       mWalkIteration([&] {
         for (std::size_t i = 0; i < mRoadLayers.size(); ++i) {
           if ((mRoadLayers[i] & mask) == mask) {
@@ -231,10 +234,12 @@ class CompleteAnatomy
           }
         }
         return std::size_t{0};
-      }())
+      }()),
+      mHits(hits)
   {
     const auto chains = cuts.findable != nullptr ? study::particleLayers(truth.rows, *cuts.findable) : std::unordered_map<std::uint64_t, study::ParticleLayers>{};
-    for (auto& [particle, rows] : mRowsOf) {
+    for (const auto particle : particleChains.particles()) {
+      const auto& rows = particleChains.at(particle).rows;
       const auto found = truth.particles.find(particle);
       std::uint64_t layers = 0U;
       for (const auto row : rows) {
@@ -253,8 +258,8 @@ class CompleteAnatomy
       if (found != truth.particles.end() && found->second.origin == study::ParticleOrigin::kPhysicalPrimary && static_cast<double>(found->second.pt) >= minPtGeV && (layers & mMask) == mMask && (cuts.pdg == 0 || std::abs(found->second.pdg) == cuts.pdg) && (cuts.findable == nullptr || (chains.contains(particle) && study::isFindable(found->second.pt, chains.at(particle), *cuts.findable)))) {
         mIndex[particle] = static_cast<std::uint32_t>(mFindable.size());
         mFindable.push_back(particle);
+        mClassRows.push_back(&particleChains.at(particle));
       }
-      sortByTraversal(particle, rows);
     }
     mFate.assign(mFindable.size(), kNotFound);
     mReason.assign(mFindable.size(), 0U);
@@ -407,17 +412,17 @@ class CompleteAnatomy
       std::uint64_t crossed = 0U;
       int back = -1;
       int overlaps = -1;
-      const auto& own = mRowsOf.at(mFindable[index]);
+      const auto& own = rowsOf(mFindable[index]);
       for (const auto row : own) {
         crossed |= std::uint64_t{1} << mTruth->rows[row].layer;
       }
-      if (!mLegs.empty() && mTimed[index] != 0U) {
+      if (timedAt(index)) {
         back = 0;
         overlaps = 0;
         for (std::size_t k = 0; k < own.size(); ++k) {
-          back += mLegs[index][k] != 0U ? 1 : 0;
+          back += legsAt(index)[k] != 0U ? 1 : 0;
           for (std::size_t j = 0; j < k; ++j) {
-            overlaps += mLegs[index][j] == mLegs[index][k] && mTruth->rows[own[j]].layer == mTruth->rows[own[k]].layer ? 1 : 0;
+            overlaps += legsAt(index)[j] == legsAt(index)[k] && mTruth->rows[own[j]].layer == mTruth->rows[own[k]].layer ? 1 : 0;
           }
         }
       }
@@ -426,41 +431,15 @@ class CompleteAnatomy
     }
   }
 
-  /// The CSV of the replayed steps, if \a csv is given; the MC hits, if
-  /// \a hits is, which the steps and the true kinks are held to.
-  void open(const std::string& csv, const std::string& hits, const std::string& discHits = {})
+  /// The CSV of the replayed steps.
+  void open(const std::string& csv)
   {
-    if (!csv.empty()) {
-      mCsv = std::make_unique<std::ofstream>(csv);
-      if (!*mCsv) {
-        throw std::runtime_error("cannot write " + csv);
-      }
-      *mCsv << "kind,particle,iteration,layer,pt,pdg,labels,rowsOnLayer,chi2,r0,r1,v00,v01,v11,p00,p01,p11,hit,c0,c1,q0,q1,dphi,dtheta,pphi,ptheta,hitP,stateP,"
-               "startHit,sdphi,sdtheta,sphi,stheta,staveKink,stavePhiKink,staveTheta0,staveX2x0,ref,chi2NoBeam,qn0,qn1,pn00,pn11,chi2Joint,qj0,qj1,pj00,pj11\n";
+    mCsv = std::make_unique<std::ofstream>(csv);
+    if (!*mCsv) {
+      throw std::runtime_error("cannot write " + csv);
     }
-    if (!hits.empty()) {
-      if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
-        mHits = std::make_unique<study::HitFile>(hits, study::Chips::kTRK, discHits); // FT3's hits beside TRK's (the disc crossings)
-      } else if constexpr (std::is_same_v<Det, detectors::ITS>) {
-        mHits = std::make_unique<study::HitFile>(hits, study::Chips::kITS);
-      } else if constexpr (std::is_same_v<Det, detectors::MFT>) {
-        mHits = std::make_unique<study::HitFile>(hits, study::Chips::kMFT);
-      } else {
-        throw std::runtime_error("--hits: no MC hits for this detector");
-      }
-      // Every event read now: the truth walks look the segments up from
-      // several threads, which must find them and never read.
-      for (int event = 0; event < mHits->nEvents(); ++event) {
-        static_cast<void>(mHits->event(event));
-      }
-      // Each MC track's segments, for `segmentOf` (the path order looks up
-      // every row of every particle).
-      for (int event = 0; event < mHits->nEvents(); ++event) {
-        for (const auto& segment : mHits->event(event)) {
-          mSegmentsOf[segmentKey(event, segment.track)].push_back(&segment);
-        }
-      }
-    }
+    *mCsv << "kind,particle,iteration,layer,pt,pdg,labels,rowsOnLayer,chi2,r0,r1,v00,v01,v11,p00,p01,p11,hit,c0,c1,q0,q1,dphi,dtheta,pphi,ptheta,hitP,stateP,"
+             "startHit,sdphi,sdtheta,sphi,stheta,staveKink,stavePhiKink,staveTheta0,staveX2x0,ref,chi2NoBeam,qn0,qn1,pn00,pn11,chi2Joint,qj0,qj1,pj00,pj11\n";
   }
 
   template <typename Observation, typename Material>
@@ -471,7 +450,7 @@ class CompleteAnatomy
     const auto seconds = [](auto from, auto to) { return std::chrono::duration<double>(to - from).count(); };
     auto clock = now();
     if (mHits && !mPathOrdered) {
-      pathOrder(frame);
+      pathOrder();
       mPathOrdered = true;
     }
     if (mHits && !mKinksDone) {
@@ -567,7 +546,7 @@ class CompleteAnatomy
     mRoadFitRefusals.clear();
     for (std::uint32_t index = 0; index < mFindable.size(); ++index) {
       const auto particle = mFindable[index];
-      const auto& own = mRowsOf.at(particle);
+      const auto& own = rowsOf(particle);
       const auto good = goodTrack.find(particle);
       mLayersHeld[index] = 0U;
       if (good == goodTrack.end()) {
@@ -910,7 +889,7 @@ class CompleteAnatomy
         continue;
       }
       std::uint64_t free = 0U;
-      for (const auto row : mRowsOf.at(mFindable[index])) {
+      for (const auto row : rowsOf(mFindable[index])) {
         const auto bit = std::uint64_t{1} << mTruth->rows[row].layer;
         free |= (roadLayers & bit) != 0U && (mSnapshotUsed.empty() || mSnapshotUsed[row] == kFree) ? bit : 0U;
       }
@@ -1110,7 +1089,7 @@ class CompleteAnatomy
       }
       const auto particle = mFindable[index];
       std::vector<std::uint32_t> road;
-      for (const auto row : roadRows(mRowsOf.at(particle), iteration.iteration)) {
+      for (const auto row : roadRows(rowsOf(particle), iteration.iteration)) {
         if (mSnapshotUsed.empty() || mSnapshotUsed[row] == kFree) {
           road.push_back(row);
         }
@@ -1300,7 +1279,7 @@ class CompleteAnatomy
     row.minAfter = static_cast<std::uint8_t>(parameters.minClustersAfterFollow);
     const auto& truth = mTruth->particles.at(particle);
     row.dxy = std::hypot(truth.vx - parameters.beamX, truth.vy - parameters.beamY);
-    const auto& own = mRowsOf.at(particle);
+    const auto& own = rowsOf(particle);
     const auto momentum = [&](std::uint32_t at) {
       const auto* hit = segmentOfRow(particle, frame, at);
       return hit != nullptr ? static_cast<float>(std::hypot(hit->momentum[0], hit->momentum[1], hit->momentum[2])) : -1.F;
@@ -1314,10 +1293,10 @@ class CompleteAnatomy
         last = k;
       }
     }
-    const bool ordered = !mLegs.empty() && mTimed[index] != 0U && last < own.size();
+    const bool ordered = timedAt(index) && last < own.size();
     std::vector<std::size_t> leg; // own row positions on the record's leg, in path order
     if (ordered) {
-      const auto& legs = mLegs[index];
+      const auto& legs = legsAt(index);
       std::uint64_t layers = 0U;
       for (std::size_t k = 0; k < own.size(); ++k) {
         if (legs[k] == legs[last]) {
@@ -1556,11 +1535,11 @@ class CompleteAnatomy
             std::ranges::sort(real);
           }
           const auto recordWrong = static_cast<std::size_t>(std::count_if(road.index, road.index + count, notOwn));
-          const auto& own = mRowsOf.at(particle);
-          const bool ordered = !mLegs.empty() && mTimed[row.index] != 0U;
+          const auto& own = rowsOf(particle);
+          const bool ordered = timedAt(row.index);
           // The fit of the particle's own rows of the record's leg.
           if (ordered) {
-            const auto& legs = mLegs[row.index];
+            const auto& legs = legsAt(row.index);
             const auto last = std::ranges::find(own, road.index[count - 1U]);
             if (last != own.end()) {
               const auto leg = legs[static_cast<std::size_t>(last - own.begin())];
@@ -1593,7 +1572,7 @@ class CompleteAnatomy
           }
           std::unordered_map<std::uint32_t, std::array<Scalar, 2>> ratios;
           if (ordered) {
-            const auto& legs = mLegs[row.index];
+            const auto& legs = legsAt(row.index);
             const auto ratio = [&](std::size_t k, std::size_t j) { return momentum[k] > 0.F && momentum[j] > 0.F ? momentum[k] / momentum[j] : 0.F; };
             for (std::size_t k = 0; k < own.size(); ++k) {
               std::array<Scalar, 2> both{0.F, 0.F};
@@ -1918,20 +1897,20 @@ class CompleteAnatomy
   template <typename Stage>
   void pairStudy(const Stage& stage, double floor, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame)
   {
-    if (parameters.vertexSource != VertexSource::kBeamLine || parameters.impactMax > 0.F || mLegs.empty()) {
+    if (parameters.vertexSource != VertexSource::kBeamLine || parameters.impactMax > 0.F || !mPathOrdered || mFindable.empty()) {
       return;
     }
     for (std::uint32_t index = 0; index < mFindable.size(); ++index) {
       const auto particle = mFindable[index];
-      if (particle % mPairSample != 0U || stage[index] == kSeedFoundBefore || mTimed[index] == 0U) {
+      if (particle % mPairSample != 0U || stage[index] == kSeedFoundBefore || !timedAt(index)) {
         continue;
       }
       const auto& truth = mTruth->particles.at(particle);
       if (static_cast<double>(truth.pt) < floor) {
         continue;
       }
-      const auto& own = mRowsOf.at(particle);
-      const auto& legs = mLegs[index];
+      const auto& own = rowsOf(particle);
+      const auto& legs = legsAt(index);
       // Per link, its pairs' furthest test and the curvature's smallest excess.
       struct Judged {
         study::PairLoss furthest = study::PairLoss::kLinkNotTaken;
@@ -2117,12 +2096,12 @@ class CompleteAnatomy
           }
           // The particle's rows: second rows, and own rows free beyond the
           // record's outermost on its leg.
-          const auto& own = mRowsOf.at(particle);
+          const auto& own = rowsOf(particle);
           std::string seconds = "no second row";
           std::size_t beyondFree = 0U;
           std::size_t last = own.size();
-          if (!mLegs.empty() && mTimed[index] != 0U) {
-            const auto& legs = mLegs[index];
+          if (timedAt(index)) {
+            const auto& legs = legsAt(index);
             bool overlap = false;
             bool back = false;
             std::array<std::uint8_t, kLayers> legOnLayer{};
@@ -2187,10 +2166,10 @@ class CompleteAnatomy
             std::string firstWrong = "first wrong row: none outward";
             std::string cut = "cut before it: n/a";
             std::size_t wayBack = 0U;
-            if (!mLegs.empty() && mTimed[index] != 0U && last < own.size()) {
+            if (timedAt(index) && last < own.size()) {
               for (std::size_t k = 0; k < keptOut; ++k) {
                 const auto here = std::ranges::find(own, outRows[k]);
-                wayBack += here != own.end() && mLegs[index][static_cast<std::size_t>(here - own.begin())] > mLegs[index][last] ? 1U : 0U;
+                wayBack += here != own.end() && legsAt(index)[static_cast<std::size_t>(here - own.begin())] > legsAt(index)[last] ? 1U : 0U;
               }
             }
             for (std::size_t w = 0; w < keptOut; ++w) {
@@ -2218,7 +2197,7 @@ class CompleteAnatomy
                   own0 = std::format("own row {}", kOutcomeNames[static_cast<std::size_t>(at->outcome)]);
                 }
               }
-              if (!onLayer && !mLegs.empty() && mTimed[index] != 0U) {
+              if (!onLayer && timedAt(index)) {
                 // Own rows of the leg beyond the last own row the walk held.
                 std::size_t at = last;
                 for (std::size_t k = 0; k < w; ++k) {
@@ -2228,8 +2207,8 @@ class CompleteAnatomy
                 bool sameLeg = false;
                 bool later = false;
                 for (std::size_t k = at + 1U; at < own.size() && k < own.size(); ++k) {
-                  sameLeg = sameLeg || mLegs[index][k] == mLegs[index][at];
-                  later = later || mLegs[index][k] != mLegs[index][at];
+                  sameLeg = sameLeg || legsAt(index)[k] == legsAt(index)[at];
+                  later = later || legsAt(index)[k] != legsAt(index)[at];
                 }
                 own0 = sameLeg ? "no own row on its layer, own rows of its leg beyond" : (later ? "past its last on its leg, the way back beyond" : "past its last row");
               }
@@ -2260,8 +2239,8 @@ class CompleteAnatomy
               }
               std::uint32_t next = kNoTrack;
               bool laterLeg = false;
-              if (at < own.size() && !mLegs.empty() && mTimed[index] != 0U) {
-                const auto& legs = mLegs[index];
+              if (at < own.size() && timedAt(index)) {
+                const auto& legs = legsAt(index);
                 for (std::size_t k = at + 1U; k < own.size(); ++k) {
                   if (legs[k] == legs[at]) {
                     next = own[k];
@@ -2416,11 +2395,11 @@ class CompleteAnatomy
   /// per path position; kPathEnds without a timed path or a held row.
   [[nodiscard]] PathEnd pathEnd(std::uint32_t index, const std::vector<bool>& held) const
   {
-    if (mLegs.empty() || mTimed[index] == 0U) {
+    if (!timedAt(index)) {
       return kPathEnds;
     }
-    const auto& legs = mLegs[index];
-    const auto& rows = mRowsOf.at(mFindable[index]);
+    const auto& legs = legsAt(index);
+    const auto& rows = rowsOf(mFindable[index]);
     std::size_t last = rows.size();
     for (std::size_t k = 0; k < rows.size(); ++k) {
       last = held[k] ? k : last;
@@ -2453,7 +2432,7 @@ class CompleteAnatomy
   template <typename Observation, typename ReplayOf>
   void pathReport(const Observation& iteration, const std::unordered_map<std::uint64_t, std::uint32_t>& goodTrack, const ReplayOf& replayOf)
   {
-    if (mLegs.empty()) {
+    if (!mPathOrdered || mFindable.empty()) {
       return;
     }
     const auto view = iteration.tracks->view();
@@ -2470,12 +2449,12 @@ class CompleteAnatomy
       const auto particle = mFindable[index];
       auto& bin = bins[pathPtBin(particle)];
       ++bin.particles;
-      if (mTimed[index] == 0U) {
+      if (!timedAt(index)) {
         continue;
       }
       ++bin.timed;
-      const auto& rows = mRowsOf.at(particle);
-      const auto& legs = mLegs[index];
+      const auto& rows = rowsOf(particle);
+      const auto& legs = legsAt(index);
       std::uint64_t layers0 = 0U;
       std::uint64_t layers1 = 0U;
       bool overlap = false;
@@ -3505,17 +3484,11 @@ class CompleteAnatomy
   [[nodiscard]] double truePt(study::ParticleTable::const_iterator found) const { return found != mTruth->particles.end() ? static_cast<double>(found->second.pt) : 0.; }
   /// The production vertex in r-z [cm] of the particle \a found points to,
   /// the origin for none (the table's end): the reference of `pathDistance`.
-  [[nodiscard]] std::array<double, 2> vertexRZ(study::ParticleTable::const_iterator found) const
-  {
-    if (found == mTruth->particles.end()) {
-      return {0., 0.};
-    }
-    return {std::hypot(static_cast<double>(found->second.vx), static_cast<double>(found->second.vy)), static_cast<double>(found->second.vz)};
-  }
+  [[nodiscard]] std::array<double, 2> vertexRZ(study::ParticleTable::const_iterator found) const { return study::ParticleChains::vertexRZ(found != mTruth->particles.end() ? &found->second : nullptr); }
   /// How far \a row is from a particle's production \a vertex (`vertexRZ`)
   /// in r-z [cm]: the order of "further along the particle's path" for the
   /// fake transitions, the end decisions and the hole calls.
-  [[nodiscard]] double pathDistance(std::uint32_t row, const std::array<double, 2>& vertex) const { return std::hypot(static_cast<double>(mTruth->rows[row].r) - vertex[0], static_cast<double>(mTruth->rows[row].z) - vertex[1]); }
+  [[nodiscard]] double pathDistance(std::uint32_t row, const std::array<double, 2>& vertex) const { return study::ParticleChains::pathDistance(mTruth->rows, row, vertex); }
 
   /// Where the iteration's fakes came from: each fake track after the iteration, by its length, as an
   /// earlier track it was before -- a fake kept, a fake lengthened, a good
@@ -3545,7 +3518,7 @@ class CompleteAnatomy
     // The particle's own rows at the step (StepOutcome's names first, the
     // best outcome of its rows on the layer), and the refinements: no
     // own row there with own rows further along the particle's path (by
-    // `sortByTraversal`'s distance from its vertex) free or all held, or past
+    // the distance order's distance from its vertex, `ParticleChains`) free or all held, or past
     // its last one; its own row passing with the taken row's chi2 below,
     // equal to or above its own (the lookahead's choice); the walk's replay
     // not agreeing with the rows the iteration kept.
@@ -3639,7 +3612,7 @@ class CompleteAnatomy
       const auto taken = std::ranges::find(seen, row, &Candidate::row);
       // Every own row on the layer: the best outcome among them (passing
       // first, then by StepOutcome's order from the end).
-      const auto& ownRows = mRowsOf.at(particle);
+      const auto& ownRows = rowsOf(particle);
       bool onLayer = false;
       const Candidate* best = nullptr;
       for (const auto own : ownRows) {
@@ -3659,9 +3632,9 @@ class CompleteAnatomy
       // own leg are what the walk could still take.
       const auto inClassIndex = mIndex.find(particle);
       const auto fromAt = std::ranges::find(ownRows, step->from);
-      const bool pathKnown = inClassIndex != mIndex.end() && !mLegs.empty() && mTimed[inClassIndex->second] != 0U && fromAt != ownRows.end();
+      const bool pathKnown = inClassIndex != mIndex.end() && timedAt(inClassIndex->second) && fromAt != ownRows.end();
       if (!onLayer && pathKnown) {
-        const auto& legs = mLegs[inClassIndex->second];
+        const auto& legs = legsAt(inClassIndex->second);
         const auto from = static_cast<std::size_t>(fromAt - ownRows.begin());
         bool sameLeg = false;
         bool otherLeg = false;
@@ -4260,7 +4233,7 @@ class CompleteAnatomy
           if (at.count == 0U) {
             return {"noise", "-"};
           }
-          const auto& ownRows = mRowsOf.at(particle);
+          const auto& ownRows = rowsOf(particle);
           bool onLayer = false;
           bool freeOnLayer = false;
           for (const auto own : ownRows) {
@@ -4806,18 +4779,6 @@ class CompleteAnatomy
     mTransitionLines.push_back(text);
   }
 
-  /// \a particle's MC hit segments (`--hits`: the signal source's only);
-  /// none (nullptr) for another source or a particle without hits.
-  [[nodiscard]] const std::vector<const study::HitSegment*>* segmentsOf(std::uint64_t particle) const
-  {
-    const auto label = workflow::labelOfParticle(particle);
-    if (label.getSourceID() != 0) {
-      return nullptr;
-    }
-    const auto found = mSegmentsOf.find(segmentKey(label.getEventID(), label.getTrackID()));
-    return found != mSegmentsOf.end() ? &found->second : nullptr;
-  }
-
   /// The follow's hole calls against the MC hits: on
   /// the agreeing walks of the iteration's correct roads (every road row the
   /// road's particle's), each nominal target without a row, by direction and
@@ -4851,16 +4812,16 @@ class CompleteAnatomy
         continue;
       }
       std::uint64_t hitLayers = 0U;
-      const auto* segments = segmentsOf(particle);
-      if (segments == nullptr) {
+      const auto segments = mHits != nullptr ? mHits->segments(particle) : std::span<const study::HitSegment* const>{};
+      if (segments.empty()) {
         continue;
       }
-      for (const auto* segment : *segments) {
+      for (const auto* segment : segments) {
         hitLayers |= std::uint64_t{1} << geometry.surface(static_cast<SensorID>(segment->chip)).layer;
       }
       std::uint64_t rowLayers = 0U;
-      if (const auto rows = mRowsOf.find(particle); rows != mRowsOf.end()) {
-        for (const auto row : rows->second) {
+      if (const auto* rows = mChains->find(particle); rows != nullptr) {
+        for (const auto row : rows->rows) {
           rowLayers |= std::uint64_t{1} << mTruth->rows[row].layer;
         }
       }
@@ -4881,8 +4842,8 @@ class CompleteAnatomy
           }
         }
         bool beyond = false;
-        if (const auto rows = mRowsOf.find(particle); rows != mRowsOf.end()) {
-          for (const auto row : rows->second) {
+        if (const auto* rows = mChains->find(particle); rows != nullptr) {
+          for (const auto row : rows->rows) {
             beyond = beyond || (direction == 0U ? distance(row) > last + 0.5 : distance(row) < last - 0.5);
           }
         }
@@ -5353,11 +5314,7 @@ class CompleteAnatomy
 
   /// A particle's charge [e] from its PDG code, by O2's particle table as
   /// the sink takes it (`Charge()` in thirds); 0 for a code it does not know.
-  [[nodiscard]] static int chargeOf(int pdg)
-  {
-    const auto* particle = o2::O2DatabasePDG::Instance()->GetParticle(pdg);
-    return particle == nullptr ? 0 : static_cast<int>(std::lround(particle->Charge() / 3.));
-  }
+  [[nodiscard]] static int chargeOf(int pdg) { return static_cast<int>(std::lround(study::particleCharge(pdg))); }
   /// The sign relating the state's q/p to the charge: q/p = sign x charge / p
   /// (Propagator's curvature convention, checked by the control's agreement,
   /// `mChargeAgree`).
@@ -5397,12 +5354,12 @@ class CompleteAnatomy
     };
     std::vector<Leg> legsToFit;
     for (std::size_t index = 0; index < mFindable.size(); ++index) {
-      if (mLegs.empty() || mTimed[index] == 0U) {
+      if (!timedAt(index)) {
         continue;
       }
       Leg leg{.particle = mFindable[index]};
-      const auto& own = mRowsOf.at(leg.particle);
-      const auto& legs = mLegs[index];
+      const auto& own = rowsOf(leg.particle);
+      const auto& legs = legsAt(index);
       std::uint64_t layers = 0U;
       for (std::size_t k = 0; k < own.size() && leg.chain.size() < kMaxClusters; ++k) {
         const auto bit = std::uint64_t{1} << mTruth->rows[own[k]].layer;
@@ -5574,13 +5531,13 @@ class CompleteAnatomy
     const auto pt = static_cast<float>(truePt(found));
     const int pdg = found != mTruth->particles.end() ? found->second.pdg : 0;
     const auto index = mIndex.find(particle);
-    const auto& own = mRowsOf.at(particle);
+    const auto& own = rowsOf(particle);
     const auto legOf = [&](std::uint32_t row) -> int {
-      if (index == mIndex.end() || mLegs.empty() || mTimed[index->second] == 0U) {
+      if (index == mIndex.end() || !timedAt(index->second)) {
         return -1;
       }
       const auto at = std::ranges::find(own, row);
-      return at == own.end() ? -1 : static_cast<int>(mLegs[index->second][static_cast<std::size_t>(at - own.begin())]);
+      return at == own.end() ? -1 : static_cast<int>(legsAt(index->second)[static_cast<std::size_t>(at - own.begin())]);
     };
     const auto nan = std::numeric_limits<double>::quiet_NaN();
     const int charge = chargeOf(pdg);
@@ -6127,10 +6084,10 @@ class CompleteAnatomy
         if (index == mIndex.end()) {
           continue; // the class's particles: their rows by leg
         }
-        const auto& own = mRowsOf.at(particle);
-        const bool timed = !mLegs.empty() && mTimed[index->second] != 0U;
+        const auto& own = rowsOf(particle);
+        const bool timed = timedAt(index->second);
         const auto positionOf = [&](std::uint32_t row) -> std::size_t { return static_cast<std::size_t>(std::ranges::find(own, row) - own.begin()); };
-        const auto legAt = [&](std::size_t k) -> int { return !timed || k >= own.size() ? -1 : static_cast<int>(mLegs[index->second][k]); };
+        const auto legAt = [&](std::size_t k) -> int { return !timed || k >= own.size() ? -1 : static_cast<int>(legsAt(index->second)[k]); };
         const auto legOf = [&](std::uint32_t row) -> int { return legAt(positionOf(row)); };
         const std::string ptName = kPathPtNames[pathPtBin(particle)];
         bool clean = true;
@@ -6782,10 +6739,10 @@ class CompleteAnatomy
         if (index == mIndex.end()) {
           continue;
         }
-        const auto& own = mRowsOf.at(particle);
-        const bool timed = !mLegs.empty() && mTimed[index->second] != 0U;
+        const auto& own = rowsOf(particle);
+        const bool timed = timedAt(index->second);
         const auto positionOf = [&](std::uint32_t row) -> std::size_t { return static_cast<std::size_t>(std::ranges::find(own, row) - own.begin()); };
-        const auto legAt = [&](std::size_t k) -> int { return !timed || k >= own.size() ? -1 : static_cast<int>(mLegs[index->second][k]); };
+        const auto legAt = [&](std::size_t k) -> int { return !timed || k >= own.size() ? -1 : static_cast<int>(legsAt(index->second)[k]); };
         // The first wrong row: the outward walk first, as the follow runs.
         const Step* at = nullptr;
         PropagationDirection direction = PropagationDirection::kForward;
@@ -7059,7 +7016,7 @@ class CompleteAnatomy
       ++tally.particles;
       std::vector<std::uint32_t> distinct;
       bool otherHolder = false;
-      for (const auto row : mRowsOf.at(particle)) {
+      for (const auto row : rowsOf(particle)) {
         const auto track = holder[row];
         if (track == kNoTrack) {
           continue;
@@ -8113,17 +8070,6 @@ class CompleteAnatomy
     return kGraphPasses;
   }
 
-  /// \a rows of \a particle in the order it crossed them: by the distance
-  /// from its production vertex -- `pathOrder`'s fallback, which falls on a
-  /// looper's way back.
-  void sortByTraversal(std::uint64_t particle, std::vector<std::uint32_t>& rows) const
-  {
-    const auto found = mTruth->particles.find(particle);
-    const auto vertex = vertexRZ(found);
-    const auto distance = [&](std::uint32_t row) { return pathDistance(row, vertex); };
-    std::ranges::sort(rows, [&](std::uint32_t a, std::uint32_t b) { return distance(a) < distance(b) || (!(distance(b) < distance(a)) && a < b); });
-  }
-
   /// The ensemble without gate selection: every
   /// findable particle along its own rows inward from its true road, the
   /// rows taken whatever their chi2; at each target inner layer three
@@ -8154,7 +8100,7 @@ class CompleteAnatomy
       std::string& csv = mine.csv.emplace_back(a, std::string{}).second;
       for (auto index = static_cast<std::uint32_t>(a); index < b; ++index) {
         const auto particle = mFindable[index];
-        const auto& own = mRowsOf.at(particle);
+        const auto& own = rowsOf(particle);
         const auto road = roadRows(own, iteration);
         if (road.size() < 4U) {
           continue;
@@ -8443,15 +8389,21 @@ class CompleteAnatomy
     return {static_cast<double>(local[0]), static_cast<double>(local[1])};
   }
 
+  /// \a particle's rows in path order (`ParticleChains`).
+  [[nodiscard]] const std::vector<std::uint32_t>& rowsOf(std::uint64_t particle) const { return mChains->at(particle).rows; }
+  /// Whether findable \a index's rows are in time order, and their legs (empty if not).
+  [[nodiscard]] bool timedAt(std::size_t index) const { return mClassRows[index]->timed; }
+  [[nodiscard]] const std::vector<std::uint8_t>& legsAt(std::size_t index) const { return mClassRows[index]->legs; }
+
   /// The particle's first row on \a layer in its crossing order; none for a
   /// particle without rows (a fake's majority of noise rows).
   [[nodiscard]] std::uint32_t ownRowOn(std::uint64_t particle, LayerID layer) const
   {
-    const auto rows = mRowsOf.find(particle);
-    if (rows == mRowsOf.end()) {
+    const auto* rows = mChains->find(particle);
+    if (rows == nullptr) {
       return kNoTrack;
     }
-    for (const auto row : rows->second) {
+    for (const auto row : rows->rows) {
       if (mTruth->rows[row].layer == layer) {
         return row;
       }
@@ -8459,134 +8411,15 @@ class CompleteAnatomy
     return kNoTrack;
   }
 
-  /// The MC segment of \a particle on \a chip nearest \a near; none without the hits.
-  [[nodiscard]] const study::HitSegment* segmentOf(std::uint64_t particle, std::uint32_t chip, const Scalar near[3]) const
+  /// The path order's outcome (`ParticleChains`), counted for the class and
+  /// the others.
+  void pathOrder()
   {
-    const auto* segments = mHits ? segmentsOf(particle) : nullptr;
-    if (segments == nullptr) {
-      return nullptr;
-    }
-    const study::HitSegment* best = nullptr;
-    double bestDistance = std::numeric_limits<double>::infinity();
-    for (const auto* segment : *segments) {
-      if (segment->chip != chip) {
-        continue;
-      }
-      double d2 = 0.;
-      for (std::size_t i = 0; i < 3U; ++i) {
-        const double d = (0.5 * (segment->start[i] + segment->end[i])) - static_cast<double>(near[i]);
-        d2 += d * d;
-      }
-      if (d2 < bestDistance) {
-        bestDistance = d2;
-        best = segment;
-      }
-    }
-    return best;
-  }
-
-  [[nodiscard]] static std::uint64_t segmentKey(int event, int track) { return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(event)) << 32U) | static_cast<std::uint32_t>(track); }
-
-  /// The radial direction of \a segment: +1 outward, -1 inward; from its
-  /// ends, or where they are at one radius (a crossing at the turning point)
-  /// from its momentum.
-  [[nodiscard]] static int radialSign(const study::HitSegment& segment)
-  {
-    const double dr = std::hypot(segment.end[0], segment.end[1]) - std::hypot(segment.start[0], segment.start[1]);
-    if (std::abs(dr) > 1e-4) {
-      return dr > 0. ? 1 : -1;
-    }
-    const double along = (0.5 * (segment.start[0] + segment.end[0]) * segment.momentum[0]) + (0.5 * (segment.start[1] + segment.end[1]) * segment.momentum[1]);
-    return along >= 0. ? 1 : -1;
-  }
-
-  /// Every particle's rows in path order: by its MC
-  /// segments' time of flight, where every row has its segment; the distance
-  /// from the vertex the constructor sorted by falls on a looper's way back,
-  /// which comes nearer the vertex in r while it goes on in z and in time. A
-  /// particle with a row the hits do not have keeps the distance's order. For
-  /// the class, each row's leg (`mLegs`): 0 out to the first turning point, 1
-  /// back from it, 2 out again, ...: where the radius along the path turns.
-  void pathOrder(const TimeFrame<Det>& frame)
-  {
-    std::vector<std::pair<const std::uint64_t, std::vector<std::uint32_t>>*> all;
-    all.reserve(mRowsOf.size());
-    for (auto& entry : mRowsOf) {
-      all.push_back(&entry);
-    }
-    // Per particle: 0 timed, its order the distance's; 1 timed and
-    // reordered; 2 kept (a row without its segment); plus 4 where the first
-    // row on some layer changed.
-    std::vector<std::uint8_t> outcome(all.size(), 0U);
-    mLegs.assign(mFindable.size(), {});
-    mTimed.assign(mFindable.size(), 0U);
-    o2::gtrk::detail::parallelFor(*mArena, 0U, all.size(), 1024, [&](std::size_t a, std::size_t b) {
-      std::vector<std::pair<double, std::uint32_t>> keyed;
-      std::vector<int> signs;
-      for (std::size_t i = a; i < b; ++i) {
-        const auto particle = all[i]->first;
-        auto& rows = all[i]->second;
-        keyed.clear();
-        signs.clear();
-        for (const auto row : rows) {
-          const auto* segment = segmentOfRow(particle, frame, row);
-          if (segment == nullptr) {
-            break;
-          }
-          keyed.emplace_back(segment->time, row);
-          signs.push_back(radialSign(*segment));
-        }
-        if (keyed.size() != rows.size()) {
-          outcome[i] = 2U;
-          continue;
-        }
-        std::array<std::uint32_t, kLayers> firstBefore{};
-        firstBefore.fill(kNoTrack);
-        for (const auto row : rows) {
-          auto& first = firstBefore[mTruth->rows[row].layer];
-          first = first == kNoTrack ? row : first;
-        }
-        // Sorted by time, the row as the tie-break; the signs with them.
-        std::vector<std::size_t> order(rows.size());
-        std::iota(order.begin(), order.end(), std::size_t{0});
-        std::ranges::sort(order, [&](std::size_t x, std::size_t y) { return keyed[x] < keyed[y]; });
-        bool same = true;
-        for (std::size_t k = 0; k < rows.size(); ++k) {
-          same = same && rows[k] == keyed[order[k]].second;
-        }
-        std::vector<int> sortedSigns(rows.size());
-        for (std::size_t k = 0; k < rows.size(); ++k) {
-          rows[k] = keyed[order[k]].second;
-          sortedSigns[k] = signs[order[k]];
-        }
-        std::array<std::uint32_t, kLayers> firstAfter{};
-        firstAfter.fill(kNoTrack);
-        for (const auto row : rows) {
-          auto& first = firstAfter[mTruth->rows[row].layer];
-          first = first == kNoTrack ? row : first;
-        }
-        outcome[i] = static_cast<std::uint8_t>((same ? 0U : 1U) | (firstBefore != firstAfter ? 4U : 0U));
-        const auto index = mIndex.find(particle);
-        if (index == mIndex.end()) {
-          continue;
-        }
-        auto& legs = mLegs[index->second];
-        legs.resize(rows.size());
-        std::uint8_t leg = 0U;
-        for (std::size_t k = 0; k < rows.size(); ++k) {
-          if (k != 0U && sortedSigns[k] != sortedSigns[k - 1U] && leg < 255U) {
-            ++leg;
-          }
-          legs[k] = leg;
-        }
-        mTimed[index->second] = 1U;
-      }
-    });
-    for (std::size_t i = 0; i < all.size(); ++i) {
-      const bool inClass = mIndex.contains(all[i]->first);
-      auto& counts = mPathCounts[inClass ? 1U : 0U];
-      ++counts[(outcome[i] & 3U) == 2U ? 2U : (outcome[i] & 1U)];
-      counts[3] += (outcome[i] & 4U) != 0U ? 1U : 0U;
+    for (const auto particle : mChains->particles()) {
+      const auto outcome = mChains->at(particle).outcome;
+      auto& counts = mPathCounts[mIndex.contains(particle) ? 1U : 0U];
+      ++counts[(outcome & 3U) == 2U ? 2U : (outcome & 1U)];
+      counts[3] += (outcome & 4U) != 0U ? 1U : 0U;
     }
   }
 
@@ -8594,7 +8427,7 @@ class CompleteAnatomy
   {
     const auto point = frame.measurement(row);
     const Scalar near[3] = {point.x, point.y, point.z};
-    return segmentOf(particle, measurementAt(frame, row).surface, near);
+    return mHits != nullptr ? mHits->crossing(particle, measurementAt(frame, row).surface, {static_cast<double>(near[0]), static_cast<double>(near[1]), static_cast<double>(near[2])}) : nullptr;
   }
 
   static float midOf(const study::HitSegment& one, std::size_t i) { return static_cast<float>(0.5 * (one.start[i] + one.end[i])); }
@@ -8647,7 +8480,7 @@ class CompleteAnatomy
       // Every layer the particle crossed, the class's mask or not: a road
       // holds rows beyond the mask (the VD under a disc class), and its
       // "quiet" has to cover them.
-      for (const auto row : mRowsOf.at(particle)) {
+      for (const auto row : rowsOf(particle)) {
         const auto layer = mTruth->rows[row].layer;
         if (((seen >> layer) & 1U) != 0U) {
           mRepeated[index] = true;
@@ -8863,7 +8696,7 @@ class CompleteAnatomy
     covarianceFromFactors(step.factors, start.cov);
     const auto& truthRow = mTruth->rows[row];
     std::size_t onLayer = 0U;
-    for (const auto at : mRowsOf.at(particle)) {
+    for (const auto at : rowsOf(particle)) {
       onLayer += mTruth->rows[at].layer == truthRow.layer ? 1U : 0U;
     }
     const auto found = mTruth->particles.find(particle);
@@ -8937,7 +8770,8 @@ class CompleteAnatomy
   std::uint64_t mMask = 0U;
   double mMinPtGeV = 0.;
   std::vector<std::uint64_t> mRoadLayers;
-  std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> mRowsOf;
+  const study::ParticleChains* mChains = nullptr;
+  std::vector<const study::ParticleRows*> mClassRows; ///< per findable: its rows in `mChains`
   std::unordered_map<std::uint64_t, std::uint32_t> mIndex;
   std::vector<std::uint64_t> mFindable;
   std::vector<std::uint8_t> mFate;
@@ -9072,7 +8906,7 @@ class CompleteAnatomy
   static constexpr std::size_t kNoOwnNext = 7U;
   std::vector<std::uint8_t> mStopDetail; ///< for kKinkRefused and kKinkUnconfirmed: the outcome, plus 8 for the beam line
   std::unique_ptr<std::ofstream> mCsv;
-  std::unique_ptr<study::HitFile> mHits;
+  const study::HitIndex* mHits = nullptr;              ///< the MC hits, if given
   std::vector<std::vector<int>> mMothers;              ///< `openKine`'s: per MC event, each track's mother
   std::map<std::string, ClutterTally> mClutter;        ///< `clutterStudy`'s, by iteration, pT, walk and layers
   std::vector<DroppedWalks> mDroppedWalks;             ///< the observed iteration's dropped records' walks (`replayDropped`, for `clutterStudy`)
@@ -9081,12 +8915,7 @@ class CompleteAnatomy
   std::vector<std::vector<std::uint32_t>> mLayerLower; ///< per layer: its rows' time boxes' starts, sorted (`layerOccupancy`)
   std::vector<std::vector<std::uint32_t>> mLayerUpper; ///< and their ends
   std::vector<double> mLayerArea;                      ///< per layer: its sensors' area [cm2]
-  /// Each MC track's segments, by `segmentKey`.
-  std::unordered_map<std::uint64_t, std::vector<const study::HitSegment*>> mSegmentsOf;
   bool mPathOrdered = false;
-  /// Per findable: each row's leg in path order (`pathOrder`), parallel to its rows; whether its rows are in path order.
-  std::vector<std::vector<std::uint8_t>> mLegs;
-  std::vector<std::uint8_t> mTimed;
   /// The path order's outcome, [not in the class, the class][timed as the distance had it, reordered, kept, first row on a layer changed].
   std::array<std::array<std::size_t, 4>, 2> mPathCounts{};
   std::string mPathLines;                                                                ///< `pathReport`'s, the last iteration's

@@ -47,6 +47,7 @@
 #include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackingInput.h"
 #include "GenericTracking/Study/SpeciesOracle.h"
+#include "GenericTracking/Study/StateTruth.h"
 #include "GenericTracking/Study/TrackingQA.h"
 
 #include "Framework/DataProcessorSpec.h"
@@ -2928,6 +2929,9 @@ class MeasurementSinkTask : public Task
     // lost pairs and the tracks found incomplete, and the QA's outward legs.
     if (mUseMC) {
       mHits = openHits<Det>(ic.options().get<std::string>("mc-hits"), std::is_same_v<Det, detectors::TRKFT3> ? ic.options().get<std::string>("mc-ft3-hits") : "");
+      if (mHits) {
+        mHitIndex.emplace(*mHits);
+      }
     }
     if (mUseMC) {
       const auto contextFile = o2::utils::Str::concat_string(o2::utils::Str::rectifyDirectory(ic.options().get<std::string>("input-dir")), ic.options().get<std::string>("collision-context"));
@@ -3491,57 +3495,43 @@ class MeasurementSinkTask : public Task
     const double bz = mInterface.propagator().bzKiloGauss;
     const double beamX = mInterface.beamLine().x;
     const double beamY = mInterface.beamLine().y;
-    // Each signal particle's outward leg in its MC hits (TrackingQA.h), its
-    // event's segments ordered by track once.
+    // Each signal particle's outward leg in its MC hits (TrackingQA.h).
     std::unordered_map<std::uint64_t, std::uint8_t> outward;
     std::unordered_map<std::uint64_t, std::uint64_t> outwardMasks;
-    std::unordered_map<std::uint64_t, std::vector<float>> legMomenta;  // --species-oracle
+    std::map<std::uint64_t, std::vector<float>> legMomenta;            // --species-oracle; by particle, the tree's order
     std::unordered_map<std::uint64_t, std::vector<LayerID>> legLayers; // the funnel's LegLinks
     if (mHits) {
-      std::unordered_map<int, std::vector<std::uint64_t>> byEvent;
-      for (const auto& [id, truth] : particles) {
-        if (const auto label = mParticleLabels.find(id); label != mParticleLabels.end() && label->second.source == 0) {
-          byEvent[label->second.event].push_back(id);
-        }
-      }
-      const auto trackOf = [](const study::HitSegment* segment) { return segment->track; };
-      std::vector<const study::HitSegment*> segments;
       std::vector<HitCrossing> crossings;
-      for (const auto& [event, ids] : byEvent) {
-        segments.clear();
-        for (const auto& segment : mHits->event(event)) {
-          segments.push_back(&segment);
+      for (const auto& [id, truth] : particles) {
+        if (const auto label = mParticleLabels.find(id); label == mParticleLabels.end() || label->second.source != 0) {
+          continue;
         }
-        std::ranges::sort(segments, {}, trackOf);
-        for (const auto id : ids) {
-          crossings.clear();
-          for (const auto* segment : std::ranges::equal_range(segments, mParticleLabels[id].track, {}, trackOf)) {
-            crossings.push_back({
-              .time = segment->time,
-              .position = {0.5 * (segment->start[0] + segment->end[0]), 0.5 * (segment->start[1] + segment->end[1]), 0.5 * (segment->start[2] + segment->end[2])},
-              .layer = mInterface.geometry().sensor(segment->chip).layer,
-              .momentum = segment->momentum,
-            });
+        crossings.clear();
+        for (const auto* segment : mHitIndex->segments(id)) {
+          crossings.push_back({
+            .time = segment->time,
+            .position = {0.5 * (segment->start[0] + segment->end[0]), 0.5 * (segment->start[1] + segment->end[1]), 0.5 * (segment->start[2] + segment->end[2])},
+            .layer = mInterface.geometry().sensor(segment->chip).layer,
+            .momentum = segment->momentum,
+          });
+        }
+        const auto leg = outwardLeg(crossings, {static_cast<double>(truth.vx), static_cast<double>(truth.vy), static_cast<double>(truth.vz)});
+        outward[id] = outwardLayers(leg);
+        if (funnel != nullptr) {
+          auto& layers = legLayers[id];
+          for (const auto& crossing : leg) {
+            layers.push_back(crossing.layer);
           }
-          const auto& truth = particles.at(id);
-          const auto leg = outwardLeg(crossings, {static_cast<double>(truth.vx), static_cast<double>(truth.vy), static_cast<double>(truth.vz)});
-          outward[id] = outwardLayers(leg);
-          if (funnel != nullptr) {
-            auto& layers = legLayers[id];
+        }
+        if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
+          if (std::cmp_greater_equal(outward[id], findableRule().minLayers)) {
             for (const auto& crossing : leg) {
-              layers.push_back(crossing.layer);
+              outwardMasks[id] |= std::uint64_t{1} << crossing.layer;
             }
           }
-          if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
-            if (std::cmp_greater_equal(outward[id], findableRule().minLayers)) {
-              for (const auto& crossing : leg) {
-                outwardMasks[id] |= std::uint64_t{1} << crossing.layer;
-              }
-            }
-          }
-          if (mSpeciesOracle && (std::abs(truth.pdg) == 11 || (std::abs(truth.pdg) == 211 && id % 16U == 0U))) {
-            legMomenta[id] = momentaAlongLeg(leg);
-          }
+        }
+        if (mSpeciesOracle && (std::abs(truth.pdg) == 11 || (std::abs(truth.pdg) == 211 && id % 16U == 0U))) {
+          legMomenta[id] = momentaAlongLeg(leg);
         }
       }
     }
@@ -3729,21 +3719,19 @@ class MeasurementSinkTask : public Task
               .vz = static_cast<float>(mc->Vz()),
             };
           }
-          const auto* pdg = mc == nullptr ? nullptr : o2::O2DatabasePDG::Instance()->GetParticle(mc->GetPdgCode());
           auto& entry = mParticleLabels[id];
           entry = {
             .event = label.getEventID(),
             .track = label.getTrackID(),
             .source = label.getSourceID(),
-            .charge = pdg == nullptr ? 0. : pdg->Charge() / 3.,
+            .charge = mc == nullptr ? 0. : particleCharge(mc->GetPdgCode()),
             .pdg = mc == nullptr ? 0 : mc->GetPdgCode(),
           };
           if (mc != nullptr) {
             const auto helixOf = [](const o2::MCTrack& track, double charge) { return TruthHelix{.position = {track.Vx(), track.Vy(), track.Vz()}, .momentum = {track.Px(), track.Py(), track.Pz()}, .charge = charge}; };
             entry.helix = helixOf(*mc, entry.charge);
             if (mother != nullptr) {
-              const auto* motherPdg = o2::O2DatabasePDG::Instance()->GetParticle(mother->GetPdgCode());
-              entry.mother = helixOf(*mother, motherPdg == nullptr ? 0. : motherPdg->Charge() / 3.);
+              entry.mother = helixOf(*mother, particleCharge(mother->GetPdgCode()));
             }
           }
         }
@@ -4040,33 +4028,6 @@ class MeasurementSinkTask : public Task
   /// protons, and the rest.
   static constexpr std::array<const char*, kSpeciesCount> kSpecies{"electrons", "muons", "pions", "kaons", "protons", "others"};
 
-  /// The crossing of \a chip by \a particle nearest to \a near, from the MC
-  /// hits; none if the particle is not the signal's or crossed no such chip.
-  [[nodiscard]] const study::HitSegment* crossingOf(std::uint64_t particle, std::uint32_t chip, const std::array<double, 3>& near)
-  {
-    const auto found = mParticleLabels.find(particle);
-    if (found == mParticleLabels.end() || found->second.source != 0) {
-      return nullptr;
-    }
-    const study::HitSegment* best = nullptr;
-    double bestDistance = std::numeric_limits<double>::infinity();
-    for (const auto& segment : mHits->event(found->second.event)) {
-      if (segment.track != found->second.track || segment.chip != chip) {
-        continue;
-      }
-      double distance = 0.;
-      for (std::size_t i = 0; i < 3U; ++i) {
-        const double d = (0.5 * (segment.start[i] + segment.end[i])) - near[i];
-        distance += d * d;
-      }
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = &segment;
-      }
-    }
-    return best;
-  }
-
   /// The MC hits' crossings of a particle's rows' chips, in layer order, for
   /// trueAnatomy; an empty function without the hits, and an empty list where
   /// a row has no crossing of the particle's.
@@ -4085,7 +4046,7 @@ class MeasurementSinkTask : public Task
       const double mass = pdg == nullptr ? 0.13957 : pdg->Mass();
       for (const auto row : rows) {
         const auto m = frame.measurement(row);
-        const auto* segment = crossingOf(particle, m.surface, {static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z)});
+        const auto* segment = mHitIndex->crossing(particle, m.surface, {static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z)});
         if (segment == nullptr) {
           return std::vector<TrueCrossing>{};
         }
@@ -4103,65 +4064,16 @@ class MeasurementSinkTask : public Task
     };
   }
 
-  /// A fitted state against its particle's MC crossing of the state's
-  /// sensor, the one nearest the measurement at \a row.
-  struct StateTruth {
-    std::array<double, 5> residual{}; ///< fitted less true: loc0, loc1, phi, theta, q/p
-    std::array<double, 5> sigma{};    ///< the fit's
-    double pt = 0.;                   ///< the truth's [GeV]
-    double momentum = 0.;             ///< the truth's [GeV]
-    double fittedPt = 0.;             ///< [GeV]
-    double ptSigma = 0.;              ///< of fittedPt, J C J^T over theta and q/p [GeV]
-  };
-
-  /// The truth on the plane the state is bound to (TrackingGeometry::planeOf:
-  /// a flat sensor's own at its measurement depth, a curved sensor's tangent
-  /// plane at the state's angle): where the MC segment's normal coordinate is
-  /// zero; its direction and momentum there. None without the segment, for a
-  /// neutral particle or a segment along the plane.
+  /// \a state of \a particle against its MC crossing (`study::stateTruth`)
+  /// at the measurement at \a row; none without the hits' crossing, for a
+  /// neutral particle or before the geometry is configured.
   [[nodiscard]] std::optional<StateTruth> stateTruth(const Frame& frame, const BoundTrackState& state, std::uint64_t particle, Frame::Index row)
   {
-    const auto m = frame.measurement(row);
-    const auto* segment = crossingOf(particle, state.surface, {static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z)});
     const double charge = mParticleLabels[particle].charge;
-    if (segment == nullptr || exactlyEqual(charge, 0.) || !mInterface.configured()) {
+    if (!mInterface.configured()) {
       return std::nullopt;
     }
-    const TrackingSurface plane = mInterface.tracking().planeOf(state); // a copy: a curved sensor's is made on the spot
-    const auto local = [&](const std::array<double, 3>& global) {
-      std::array<double, 3> l{};
-      for (std::size_t i = 0; i < 3U; ++i) {
-        const double d = global[i] - static_cast<double>(plane.origin[i]);
-        l[0] += d * static_cast<double>(plane.axis0[i]);
-        l[1] += d * static_cast<double>(plane.axis1[i]);
-        l[2] += d * static_cast<double>(plane.normal[i]);
-      }
-      return l;
-    };
-    const auto start = local(segment->start);
-    const auto end = local(segment->end);
-    if (std::abs(start[2] - end[2]) < 1e-9) {
-      return std::nullopt;
-    }
-    const double t = start[2] / (start[2] - end[2]);
-    const auto& p = segment->momentum;
-    StateTruth truth;
-    truth.pt = std::hypot(p[0], p[1]);
-    const double momentum = std::hypot(truth.pt, p[2]);
-    truth.momentum = momentum;
-    truth.residual = {static_cast<double>(state.par[kLoc0]) - (start[0] + (t * (end[0] - start[0]))), static_cast<double>(state.par[kLoc1]) - (start[1] + (t * (end[1] - start[1]))), std::remainder(static_cast<double>(state.par[kPhi]) - std::atan2(p[1], p[0]), 2. * std::numbers::pi), static_cast<double>(state.par[kTheta]) - std::atan2(truth.pt, p[2]), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
-    for (int i = 0; i < 5; ++i) {
-      truth.sigma[static_cast<std::size_t>(i)] = std::sqrt(std::max(static_cast<double>(state.covAt(i, i)), 0.));
-    }
-    // pT = sin(theta) / |q/p|: d/dtheta = cos(theta) / |q/p|, d/d(q/p) = -pT / (q/p).
-    const auto theta = static_cast<double>(state.par[kTheta]);
-    const auto qOverP = static_cast<double>(state.par[kQOverP]);
-    truth.fittedPt = std::sin(theta) / std::abs(qOverP);
-    const double dTheta = std::cos(theta) / std::abs(qOverP);
-    const double dQOverP = -truth.fittedPt / qOverP;
-    const double variance = (dTheta * dTheta * static_cast<double>(state.covAt(kTheta, kTheta))) + (2. * dTheta * dQOverP * static_cast<double>(state.covAt(kTheta, kQOverP))) + (dQOverP * dQOverP * static_cast<double>(state.covAt(kQOverP, kQOverP)));
-    truth.ptSigma = std::sqrt(std::max(variance, 0.));
-    return truth;
+    return study::stateTruth(mInterface.tracking(), *mHitIndex, frame, state, particle, row, charge);
   }
 
   /// The oracle refits of good track \a track of \a particle
@@ -4180,7 +4092,7 @@ class MeasurementSinkTask : public Task
     // outermost measurement's sensor.
     float pOuter = std::numeric_limits<float>::quiet_NaN();
     const auto outer = frame.measurement(view.clusters[track].index[count - 1]);
-    if (const auto* segment = crossingOf(particle, outer.surface, {static_cast<double>(outer.x), static_cast<double>(outer.y), static_cast<double>(outer.z)}); segment != nullptr) {
+    if (const auto* segment = mHitIndex->crossing(particle, outer.surface, {static_cast<double>(outer.x), static_cast<double>(outer.y), static_cast<double>(outer.z)}); segment != nullptr) {
       pOuter = static_cast<float>(std::hypot(segment->momentum[0], segment->momentum[1], segment->momentum[2]));
     }
     for (std::size_t v = 0; v < kOracleVariants; ++v) {
@@ -4364,7 +4276,7 @@ class MeasurementSinkTask : public Task
           continue;
         }
         const auto chip = frame.measurement(*innermost).surface;
-        const auto* segment = crossingOf(particle, chip, point(*innermost));
+        const auto* segment = mHitIndex->crossing(particle, chip, point(*innermost));
         const double charge = mParticleLabels[particle].charge;
         if (segment == nullptr || exactlyEqual(charge, 0.)) {
           continue;
@@ -4406,6 +4318,7 @@ class MeasurementSinkTask : public Task
 
   std::unique_ptr<study::TrackFile> mO2Tracks; ///< O2's tracks of these clusters; none unless --o2-tracks
   std::unique_ptr<study::HitFile> mHits;       ///< O2's MC hits, with MC; none if the file is not there
+  std::optional<study::HitIndex> mHitIndex;    ///< mHits' segments by particle
   /// Every particle the comparison saw, as its MC label and charge.
   struct ParticleLabel {
     int event = -1;

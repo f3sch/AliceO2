@@ -1654,13 +1654,25 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     throw std::runtime_error("--end-edits needs --end-decisions");
   }
   std::optional<study::CompleteAnatomy<Det>> completeAnatomy;
+  // The anatomy's MC hits, and every particle's rows in path order.
+  std::unique_ptr<study::HitFile> hitFile;
+  std::optional<study::HitIndex> hitIndex;
+  std::optional<study::ParticleChains> particleChains;
   if (options.completeAnatomy) {
+    if (!options.hits.empty()) {
+      hitFile = std::make_unique<study::HitFile>(options.hits, study::chipsOf<Det>(), std::is_same_v<Det, detectors::TRKFT3> ? options.ft3Hits : std::string{});
+      hitIndex.emplace(*hitFile);
+    }
+    {
+      o2::gtrk::detail::TaskArena arena;
+      particleChains.emplace(study::ParticleChains::build(*truth, frame, hitIndex ? &*hitIndex : nullptr, arena));
+    }
     std::vector<std::uint64_t> roadLayers;
     roadLayers.reserve(settings.size());
     for (const auto& iteration : settings) {
       roadLayers.push_back(iteration.layerMask);
     }
-    completeAnatomy.emplace(*truth, options.findableAllLayers, options.findableMinPtGeV, std::move(roadLayers),
+    completeAnatomy.emplace(*truth, *particleChains, hitIndex ? &*hitIndex : nullptr, options.findableAllLayers, options.findableMinPtGeV, std::move(roadLayers),
                             typename study::CompleteAnatomy<Det>::ClassCuts{
                               .pdg = options.anatomyPdg,
                               .findable = options.anatomyFindable ? &comparison : nullptr,
@@ -1687,8 +1699,8 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       }
       completeAnatomy->keepPairLoss(options.anatomyPairSample);
     }
-    if (!options.stepAnatomy.empty() || !options.hits.empty()) {
-      completeAnatomy->open(options.stepAnatomy, options.hits, options.hits.empty() ? std::string{} : options.ft3Hits);
+    if (!options.stepAnatomy.empty()) {
+      completeAnatomy->open(options.stepAnatomy);
     }
     if (!options.truthWalk.empty()) {
       if (options.hits.empty()) {
