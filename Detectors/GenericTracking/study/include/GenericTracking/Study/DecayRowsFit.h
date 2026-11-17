@@ -78,6 +78,16 @@ struct RowsDaughter {
   bool electron = false;
 };
 
+/// A charged composite's own rows (a tracked Xi or Omega), from its decay
+/// vertex back -- its last row first --: walked from the vertex against its
+/// momentum, its state there its daughters' summed momentum and charge, a
+/// kick at the vertex and after every row but the last, the loss regained
+/// on the way back.
+struct RowsMother {
+  RowsDaughter rows; ///< its rows, its last row first; `propagator` with its mass
+  int vertex = 0;    ///< the vertex it decayed at
+};
+
 namespace decay_rows_detail
 {
 
@@ -191,7 +201,7 @@ using Free = std::array<decay_fit_detail::Dual<6>, 6>; ///< x, y, z, phi, theta,
 /// The vertex of \a daughters fitted from their rows, starting from \a start
 /// (the states' fit's solution), with \a material's material.
 template <typename Material>
-[[nodiscard]] DecayVertexFitResult fitDecayRows(std::span<const RowsDaughter> daughters, const Material& material, const DecayVertexFitResult& start, const DecayConstraints& constraints = {}, const DecayTopology& topology = {})
+[[nodiscard]] DecayVertexFitResult fitDecayRows(std::span<const RowsDaughter> daughters, const Material& material, const DecayVertexFitResult& start, const DecayConstraints& constraints = {}, const DecayTopology& topology = {}, std::span<const RowsMother> mothers = {})
 {
   using namespace decay_fit_detail;
   using namespace decay_rows_detail;
@@ -218,6 +228,12 @@ template <typename Material>
     firstOf[i] = n;
     n += 6 + (3 * (static_cast<int>(daughters[i].planes.size()) - 1));
   }
+  // Each mother's kicks: at its vertex, and after every row but the last.
+  std::vector<int> firstOfMother(mothers.size());
+  for (std::size_t j = 0; j < mothers.size(); ++j) {
+    firstOfMother[j] = n;
+    n += 3 * static_cast<int>(mothers[j].rows.planes.size());
+  }
   std::vector<double> parameters(static_cast<std::size_t>(n), 0.);
   for (int w = 0; w < vertexCount; ++w) {
     std::copy(start.vertices[w].begin(), start.vertices[w].end(), parameters.begin() + (3 * w));
@@ -235,6 +251,8 @@ template <typename Material>
     double lossScale = 1.;
   };
   std::vector<std::vector<RowMaterial>> model(static_cast<std::size_t>(count));
+  std::vector<std::vector<RowMaterial>> motherModel(mothers.size());
+  std::vector<std::array<double, 3>> motherVertexKick(mothers.size());
   std::vector<std::array<double, 3>> vertexKick(static_cast<std::size_t>(count)); ///< the kick at V's variances
 
   // The kicks without material: held at zero, out of the solve.
@@ -261,35 +279,16 @@ template <typename Material>
       std::ranges::fill(*normal, 0.);
       std::ranges::fill(*gradient, 0.);
     }
-    for (int i = 0; i < count; ++i) {
-      const auto& daughter = daughters[i];
-      const int rows = static_cast<int>(daughter.planes.size());
-      const double fieldScale = static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
-      const double mass = daughter.propagator.massGeV;
-      const int base = firstOf[i];
-      const int local = 9 + (3 * (rows - 1)); // V, the momentum, the kicks: this daughter's parameters
-      // index of local parameter -> global
-      std::vector<int> index(static_cast<std::size_t>(local));
-      const int at = 3 * topology.vertexOfDaughter(i);
-      index[0] = at;
-      index[1] = at + 1;
-      index[2] = at + 2;
-      for (int k = 0; k < local - 3; ++k) {
-        index[3 + k] = base + k;
-      }
-      auto& rowModel = model[i];
+    // One chain's walk: from \a state (its derivatives by the \a local
+    // parameters, \a index into the global ones) through its rows, the kick
+    // after row r at local index \a kickBase + 3 r; \a backward walks against
+    // the momentum (a mother's), regaining the loss.
+    const auto walk = [&](const RowsDaughter& chain, int local, const std::vector<int>& index, std::array<double, 6> state, std::vector<double> derivative, int kickBase, bool backward, std::vector<RowMaterial>& rowModel, std::array<double, 3>& firstKick) {
+      const int rows = static_cast<int>(chain.planes.size());
+      const double fieldScale = static_cast<double>(chain.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
+      const double mass = chain.propagator.massGeV;
       if (refresh) {
         rowModel.assign(static_cast<std::size_t>(rows), {});
-      }
-      // The free state leaving V, the momentum kicked there, and its
-      // derivatives by the local parameters (6 x local).
-      std::array<double, 6> state{p[at], p[at + 1], p[at + 2], p[base] + p[base + 3], p[base + 1] + p[base + 4], p[base + 2] + p[base + 5]};
-      std::vector<double> derivative(static_cast<std::size_t>(6 * local), 0.);
-      for (int k = 0; k < 6; ++k) {
-        derivative[k * local + k] = 1.;
-      }
-      for (int k = 3; k < 6; ++k) {
-        derivative[k * local + k + 3] = 1.;
       }
       double spanX2X0 = 0.;
       if (refresh) {
@@ -297,8 +296,8 @@ template <typename Material>
         for (int row = 1; row < rows; ++row) {
           Scalar a[3]{};
           Scalar b[3]{};
-          surfaceToGlobal(daughter.planes[row - 1], static_cast<Scalar>(daughter.positions[row - 1][0]), static_cast<Scalar>(daughter.positions[row - 1][1]), a);
-          surfaceToGlobal(daughter.planes[row], static_cast<Scalar>(daughter.positions[row][0]), static_cast<Scalar>(daughter.positions[row][1]), b);
+          surfaceToGlobal(chain.planes[row - 1], static_cast<Scalar>(chain.positions[row - 1][0]), static_cast<Scalar>(chain.positions[row - 1][1]), a);
+          surfaceToGlobal(chain.planes[row], static_cast<Scalar>(chain.positions[row][0]), static_cast<Scalar>(chain.positions[row][1]), b);
           spanX2X0 += material.getMatBudget(a[0], a[1], a[2], b[0], b[1], b[2]).meanX2X0;
         }
       }
@@ -310,7 +309,7 @@ template <typename Material>
         }
         Free to{};
         std::array<D, 2> loc{};
-        if (!crossToPlane(from, daughter.planes[row], fieldScale, to, loc)) {
+        if (!crossToPlane(from, chain.planes[row], fieldScale, to, loc)) {
           return false;
         }
         if (refresh) {
@@ -324,7 +323,7 @@ template <typename Material>
           }
           const double momentum = 1. / std::abs(state[5]);
           const double farther = highlandTheta0(step.fartherX2X0, step.fartherLogX2X0, static_cast<Scalar>(momentum), static_cast<Scalar>(mass));
-          const auto loss = energyLoss(static_cast<Scalar>(state[5]), static_cast<Scalar>(mass), -step.xRho);
+          const auto loss = energyLoss(static_cast<Scalar>(state[5]), static_cast<Scalar>(mass), backward ? step.xRho : -step.xRho);
           // The step's nearer half kicks at its start -- the previous row, or
           // the vertex --, its farther half at this row, with the loss's
           // straggling.
@@ -333,12 +332,12 @@ template <typename Material>
             rowModel[row - 1].kickVariance[0] += nearer * nearer;
             rowModel[row - 1].kickVariance[1] += nearer * nearer;
           } else {
-            vertexKick[i] = {nearer * nearer, nearer * nearer, 0.};
+            firstKick = {nearer * nearer, nearer * nearer, 0.};
           }
           auto& here = rowModel[row];
           here.lossScale = loss.ok ? loss.momentumScale : 1.;
           double radiationVariance = 0.;
-          if (daughter.electron) {
+          if (chain.electron) {
             // z = E after / E before: E[z] = 2^-c, E[z^2] = 3^-c, c = t / ln 2;
             // q/p scales by 1 / E[z], its variance (q/p)^2 var(z) / E[z]^4.
             const double c = static_cast<double>(step.nearerX2X0 + step.fartherX2X0) / std::numbers::ln2;
@@ -372,8 +371,8 @@ template <typename Material>
             h[a][c] = value;
           }
         }
-        const std::array<double, 2> residual{daughter.positions[row][0] - loc[0].v, daughter.positions[row][1] - loc[1].v};
-        const auto& cov = daughter.covariance[row];
+        const std::array<double, 2> residual{chain.positions[row][0] - loc[0].v, chain.positions[row][1] - loc[1].v};
+        const auto& cov = chain.covariance[row];
         const double det = (cov[0] * cov[2]) - (cov[1] * cov[1]);
         if (!(det > 0.)) {
           return false;
@@ -401,10 +400,124 @@ template <typename Material>
           derivative[5 * local + c] *= rowModel[row].lossScale;
         }
         if (row + 1 < rows) {
-          const int kick = 9 + (3 * row); // local index of this row's kick
+          const int kick = kickBase + (3 * row); // local index of this row's kick
           for (int k = 0; k < 3; ++k) {
             state[3 + k] += p[index[kick + k]];
             derivative[(3 + k) * local + kick + k] += 1.;
+          }
+        }
+      }
+      return true;
+    };
+
+    for (int i = 0; i < count; ++i) {
+      const auto& daughter = daughters[i];
+      const int rows = static_cast<int>(daughter.planes.size());
+      const int base = firstOf[i];
+      const int local = 9 + (3 * (rows - 1)); // V, the momentum, the kicks: this daughter's parameters
+      // index of local parameter -> global
+      std::vector<int> index(static_cast<std::size_t>(local));
+      const int at = 3 * topology.vertexOfDaughter(i);
+      index[0] = at;
+      index[1] = at + 1;
+      index[2] = at + 2;
+      for (int k = 0; k < local - 3; ++k) {
+        index[3 + k] = base + k;
+      }
+      // The free state leaving V, the momentum kicked there, and its
+      // derivatives by the local parameters (6 x local).
+      const std::array<double, 6> state{p[at], p[at + 1], p[at + 2], p[base] + p[base + 3], p[base + 1] + p[base + 4], p[base + 2] + p[base + 5]};
+      std::vector<double> derivative(static_cast<std::size_t>(6 * local), 0.);
+      for (int k = 0; k < 6; ++k) {
+        derivative[k * local + k] = 1.;
+      }
+      for (int k = 3; k < 6; ++k) {
+        derivative[k * local + k + 3] = 1.;
+      }
+      if (!walk(daughter, local, index, state, std::move(derivative), 9, false, model[i], vertexKick[i])) {
+        return false;
+      }
+    }
+
+    // The mothers: from their vertex back through their rows, their state
+    // there their daughters' summed momentum and charge, kicked there.
+    for (std::size_t j = 0; j < mothers.size(); ++j) {
+      const auto& mother = mothers[j];
+      const int w = mother.vertex;
+      std::vector<int> under;
+      for (int i = 0; i < count; ++i) {
+        if (topology.under(i, w)) {
+          under.push_back(i);
+        }
+      }
+      const int m = static_cast<int>(under.size());
+      const int rows = static_cast<int>(mother.rows.planes.size());
+      const int local = 3 + (3 * m) + (3 * rows); // V, the daughters' momenta, the kicks
+      std::vector<int> index(static_cast<std::size_t>(local));
+      for (int k = 0; k < 3; ++k) {
+        index[k] = (3 * w) + k;
+      }
+      for (int u = 0; u < m; ++u) {
+        for (int k = 0; k < 3; ++k) {
+          index[3 + (3 * u) + k] = firstOf[under[u]] + k;
+        }
+      }
+      for (int k = 0; k < 3 * rows; ++k) {
+        index[3 + (3 * m) + k] = firstOfMother[j] + k;
+      }
+      using DM = Dual<kConstraintInputs>;
+      std::array<DM, 3> total{};
+      double charge = 0.;
+      for (int u = 0; u < m; ++u) {
+        std::array<DM, 3> q{};
+        for (int k = 0; k < 3; ++k) {
+          q[k].v = p[firstOf[under[u]] + k];
+          q[k].d[(3 * u) + k] = 1.;
+        }
+        const double sign = q[2].v > 0. ? 1. : -1.;
+        charge += sign;
+        const DM pu = DM{sign} / q[2];
+        const DM ptu = pu * sin(q[1]);
+        total[0] = total[0] + (ptu * cos(q[0]));
+        total[1] = total[1] + (ptu * sin(q[0]));
+        total[2] = total[2] + (pu * cos(q[1]));
+      }
+      const DM pt = sqrt((total[0] * total[0]) + (total[1] * total[1]));
+      const DM pTotal = sqrt((pt * pt) + (total[2] * total[2]));
+      const std::array<DM, 3> direction{atan2(total[1], total[0]), atan2(pt, total[2]), DM{charge} / pTotal};
+      const int kickV = 3 + (3 * m);
+      std::array<double, 6> state{p[3 * w], p[(3 * w) + 1], p[(3 * w) + 2], 0., 0., 0.};
+      std::vector<double> derivative(static_cast<std::size_t>(6 * local), 0.);
+      for (int k = 0; k < 3; ++k) {
+        derivative[k * local + k] = 1.;
+        state[3 + k] = direction[k].v + p[index[kickV + k]];
+        for (int c = 0; c < 3 * m; ++c) {
+          derivative[(3 + k) * local + 3 + c] = direction[k].d[c];
+        }
+        derivative[(3 + k) * local + kickV + k] = 1.;
+      }
+      if (!walk(mother.rows, local, index, state, std::move(derivative), kickV + 3, true, motherModel[j], motherVertexKick[j])) {
+        return false;
+      }
+      // Its kicks' priors: at the vertex, then after its rows but the last.
+      for (int row = -1; row + 1 < rows; ++row) {
+        for (int k = 0; k < 3; ++k) {
+          const int at = firstOfMother[j] + 3 + (3 * row) + k;
+          double variance = row < 0 ? motherVertexKick[j][k] : motherModel[j][row].kickVariance[k];
+          if (k == 0) {
+            const double s = std::sin(direction[1].v);
+            variance /= s * s;
+          }
+          if (!(variance > 0.)) {
+            held[at] = 1;
+            continue;
+          }
+          held[at] = 0;
+          const double weightKick = 1. / variance;
+          chi2 += p[at] * p[at] * weightKick;
+          if (normal != nullptr) {
+            (*normal)[at * n + at] += weightKick;
+            (*gradient)[at] -= p[at] * weightKick;
           }
         }
       }
@@ -541,6 +654,9 @@ template <typename Material>
   int measurementCount = 0;
   for (const auto& daughter : daughters) {
     measurementCount += 2 * static_cast<int>(daughter.planes.size());
+  }
+  for (const auto& mother : mothers) {
+    measurementCount += 2 * static_cast<int>(mother.rows.planes.size());
   }
   const int ndf = measurementCount - ((3 * vertexCount) + (3 * count)) + constraints.count(topology);
   // Evaluated at \a p with the material along it, the held kicks at zero.

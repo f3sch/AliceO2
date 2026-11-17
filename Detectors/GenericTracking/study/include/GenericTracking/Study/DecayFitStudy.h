@@ -773,13 +773,25 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       const bool tree = !one.composites.empty();
       // A charged root's own rows (a tracked Xi, Omega): its Kalman fit with its
       // mass, the outward pass's end on its last row.
+      // For the rows' fit its rows directly, any number, its last row first.
       std::optional<DecayMother> trackedMother;
+      std::optional<RowsMother> trackedRows;
       if (tree && !one.refitFailed && particleCharge(mother.pdg) != 0. && motherMass > 0.) {
         if (const auto found = chainOf.find(mother.id); found != chainOf.end()) {
           const auto& own = *found->second;
           base.motherRows = static_cast<std::uint8_t>(std::min<std::size_t>(own.rows.size(), 255U));
           auto propagator = event.propagator;
           propagator.massGeV = static_cast<Scalar>(motherMass);
+          if (!own.rows.empty()) {
+            RowsMother byRows{.rows = {.propagator = propagator}, .vertex = 0};
+            for (auto at = own.rows.rbegin(); at != own.rows.rend(); ++at) {
+              const auto m = frame.measurement(*at);
+              byRows.rows.planes.push_back(geometry.planeOf(m));
+              byRows.rows.positions.push_back({m.loc0, m.loc1});
+              byRows.rows.covariance.push_back({m.varLoc0, m.covLoc01, m.varLoc1});
+            }
+            trackedRows = std::move(byRows);
+          }
           const RowChain<Det> rows{.frame = &frame, .rows = own.rows.data()};
           const auto ownFit = fitMeasurements(propagator, geometry, material, rows, static_cast<int>(own.rows.size()));
           if (ownFit.status == PropagationStatus::kOk) {
@@ -807,12 +819,15 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         // A tracked mother: its own rows in the tree, and in the sequential
         // fit's root (strangeness tracking as a fit).
-        if (trackedMother) {
-          for (const std::uint8_t set : {std::uint8_t{48}, std::uint8_t{50}, std::uint8_t{51}}) {
+        for (const std::uint8_t set : {std::uint8_t{48}, std::uint8_t{50}, std::uint8_t{51}}) {
+          if (trackedMother) {
             jobs.push_back({DecayFitVariant::kFull, set});
             if (one.topology.vertices() == 2) {
               jobs.push_back({DecayFitVariant::kSequential, set});
             }
+          }
+          if (trackedRows) {
+            jobs.push_back({DecayFitVariant::kRows, set});
           }
         }
       } else {
@@ -883,10 +898,11 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           constraints.compositeMasses = compositeMasses;
         }
         const auto& full = fits[static_cast<std::size_t>(DecayFitVariant::kFull)];
-        const bool wantMother = (job.constraints & 32U) != 0U && trackedMother.has_value();
-        const auto mothers = wantMother ? std::span<const DecayMother>{&*trackedMother, 1} : std::span<const DecayMother>{};
+        const bool wantMother = (job.constraints & 32U) != 0U;
+        const auto mothers = wantMother && trackedMother ? std::span<const DecayMother>{&*trackedMother, 1} : std::span<const DecayMother>{};
+        const auto rowsMothers = wantMother && trackedRows ? std::span<const RowsMother>{&*trackedRows, 1} : std::span<const RowsMother>{};
         const auto fitUnder = [&](const DecayConstraints& set) {
-          return job.variant == DecayFitVariant::kRows ? fitDecayRows(std::span<const RowsDaughter>{rowsDaughters}, material, full, set, one.topology) : fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, job.variant, set, one.topology, mothers);
+          return job.variant == DecayFitVariant::kRows ? fitDecayRows(std::span<const RowsDaughter>{rowsDaughters}, material, full, set, one.topology, rowsMothers) : fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, job.variant, set, one.topology, mothers);
         };
         DecayVertexFitResult outcome;
         // The sequential fit: the composite (vertex 1) from its daughters,
