@@ -101,16 +101,14 @@ class SensorPlaneGrid
     }
   }
 
-  /// The ray's first and last sensor crossings, t <= 0 for none.
-  void crossings(const double u[3], double nominalT, double& first, double& last) const
+  /// The ray's first and last sensor crossings, t <= 0 for none: the ray
+  /// along \a u from the nominal vertex, which crosses the layer's nominal
+  /// surface in the grid's azimuth bin \a phiBin at \a second.
+  void crossings(const double u[3], int phiBin, double second, double& first, double& last) const
   {
     first = -1.;
     last = -1.;
-    const double p[3] = {nominalT * u[0], nominalT * u[1], nominalT * u[2]};
-    double phi = std::atan2(p[1], p[0]);
-    phi = phi < 0. ? phi + (2. * std::numbers::pi) : phi;
-    const int ip = std::clamp(static_cast<int>(phi * kPhi / (2. * std::numbers::pi)), 0, kPhi - 1);
-    const double second = mBarrel ? p[2] : std::hypot(p[0], p[1]);
+    const int ip = std::clamp(phiBin, 0, kPhi - 1);
     const int is = std::clamp(static_cast<int>((second - mSecondMin) * mPerCm), 0, kSecond - 1);
     const auto take = [&](double t) {
       first = first <= 0. || t < first ? t : first;
@@ -297,21 +295,38 @@ inline void fillSurfaceMaterial(SurfaceMaterialMap<Det>& map, const o2::base::Ma
             }
             const double norm = std::sqrt((p[0] * p[0]) + (p[1] * p[1]) + (p[2] * p[2]));
             const double u[3] = {p[0] / norm, p[1] / norm, p[2] / norm};
+            // The ray keeps its azimuth; the sensors are looked up only on the
+            // layers between the own layer's pairs' ends, where a pair reads
+            // them.
+            const int phiBin = static_cast<int>(phi * Map::kPhiBins / (2. * std::numbers::pi));
+            const double axial = std::hypot(u[0], u[1]);
             for (int layer = 0; layer < kL; ++layer) {
               auto& at = crossing[layer];
               at.nominalT = nominal(static_cast<LayerID>(layer), u);
               at.onSensor = false;
               at.first = at.nominalT;
               at.last = at.nominalT;
-              if (at.nominalT > 0.) {
-                double first = -1.;
-                double last = -1.;
-                grids[layer]->crossings(u, at.nominalT, first, last);
-                if (first > 0.) {
-                  at.first = first;
-                  at.last = last;
-                  at.onSensor = true;
-                }
+            }
+            double lowest = crossing[own].nominalT;
+            double highest = crossing[own].nominalT;
+            for (const Half& h : mine) {
+              if (crossing[h.other].nominalT > 0.) {
+                lowest = std::min(lowest, crossing[h.other].nominalT);
+                highest = std::max(highest, crossing[h.other].nominalT);
+              }
+            }
+            for (int layer = 0; layer < kL; ++layer) {
+              auto& at = crossing[layer];
+              if (!(at.nominalT > 0.) || at.nominalT < lowest || at.nominalT > highest) {
+                continue;
+              }
+              double first = -1.;
+              double last = -1.;
+              grids[layer]->crossings(u, phiBin, Detector<Det>::isBarrelLayer(static_cast<LayerID>(layer)) ? at.nominalT * u[2] : at.nominalT * axial, first, last);
+              if (first > 0.) {
+                at.first = first;
+                at.last = last;
+                at.onSensor = true;
               }
             }
             const Crossing& here = crossing[own];
