@@ -1671,6 +1671,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       .rows = truth->rows,
       .particles = &truth->particles,
       .collisions = &truth->collisions,
+      .trees = &truth->trees,
       .hits = hitIndex ? &*hitIndex : nullptr,
       .chains = &*particleChains,
       .arena = studyArena.get(),

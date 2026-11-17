@@ -14,7 +14,8 @@
 ///        and an output, as `<module>:<source>:<path>` names them.
 ///
 /// Modules: `gsf` (GSFStudy.h), `species` (SpeciesFitStudy.h), `clusters`
-/// (ClusterPullStudy.h). Sources: `truth`, the particles' own rows,
+/// (ClusterPullStudy.h), `decaycensus`
+/// (DecayCensusStudy.h). Sources: `truth`, the particles' own rows,
 /// and `tracks`, the tracker's good tracks (StudyChains.h). The path's
 /// extension picks the format (RecordWriter.h). The bench and the sink both
 /// hold one of these for the run and hand it each timeframe.
@@ -23,6 +24,7 @@
 #define GTRK_STUDY_TRUTHSTUDIES_H_
 
 #include "GenericTracking/Study/ClusterPullStudy.h"
+#include "GenericTracking/Study/DecayCensusStudy.h"
 #include "GenericTracking/Study/GSFStudy.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/SpeciesFitStudy.h"
@@ -63,8 +65,8 @@ class TruthStudies
   {
     std::vector<std::string_view> paths;
     for (const auto& spec : specs) {
-      if (spec.module != "gsf" && spec.module != "species" && spec.module != "clusters") {
-        throw std::invalid_argument("truth study " + spec.module + ": the modules are gsf, species and clusters");
+      if (spec.module != "gsf" && spec.module != "species" && spec.module != "decaycensus" && spec.module != "clusters") {
+        throw std::invalid_argument("truth study " + spec.module + ": the modules are gsf, species, decaycensus and clusters");
       }
       if (!RecordWriter::writes(spec.path) || std::ranges::find(paths, spec.path) != paths.end()) {
         throw std::invalid_argument("truth study " + spec.module + ": its output " + spec.path + " is not a new .csv or .root path");
@@ -79,8 +81,10 @@ class TruthStudies
         study->module.template emplace<GSFStudy<Det>>(*study->writer);
       } else if (spec.module == "species") {
         study->module.template emplace<SpeciesFitStudy<Det>>(*study->writer);
-      } else {
+      } else if (spec.module == "clusters") {
         study->module.template emplace<ClusterPullStudy<Det>>(*study->writer);
+      } else {
+        study->module.template emplace<DecayCensusStudy<Det>>(*study->writer);
       }
     }
   }
@@ -139,7 +143,7 @@ class TruthStudies
   struct Study {
     ChainSource source = ChainSource::kTruth;
     std::unique_ptr<RecordWriter> writer;
-    std::variant<std::monostate, GSFStudy<Det>, SpeciesFitStudy<Det>, ClusterPullStudy<Det>> module;
+    std::variant<std::monostate, GSFStudy<Det>, SpeciesFitStudy<Det>, DecayCensusStudy<Det>, ClusterPullStudy<Det>> module;
   };
 
   void dispatch(const TruthEvent<Det>& event, std::span<const Chain> chains, ChainSource source)

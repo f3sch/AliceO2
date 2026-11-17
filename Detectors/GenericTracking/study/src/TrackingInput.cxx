@@ -71,13 +71,15 @@ static_assert(std::is_trivially_copyable_v<VertexSeed> && std::is_trivially_copy
 constexpr std::array<char, 8> kTruthMagic{'G', 'T', 'R', 'K', 'T', 'R', 'U', '1'};
 
 /// Bumped whenever the truth's layout below or a field's type changes.
-constexpr std::uint32_t kTruthVersion = 3U;
+constexpr std::uint32_t kTruthVersion = 4U;
 
 /// The truth's header; then the rows' cluster indices, particles
 /// (`TruthRow::kMaxParticles` per row), counts, layers and first-label flags,
 /// then the particles' identities, pT, primary flags, eta, phi, origins, PDG
 /// codes, mothers' PDG codes, production processes and vertices, by identity;
-/// then the collisions' identities and vertices, by identity.
+/// then the collisions' identities and vertices, by identity; then the decay
+/// trees' members' identities, PDG codes, processes, mothers, vertices,
+/// momenta and daughter ranges, by identity, and their daughters.
 struct TruthHeader {
   std::array<char, 8> magic = kTruthMagic;
   std::uint32_t version = kTruthVersion;
@@ -85,8 +87,26 @@ struct TruthHeader {
   std::uint64_t rows = 0U;
   std::uint64_t particles = 0U;
   std::uint64_t collisions = 0U;
+  std::uint64_t treeParticles = 0U;
+  std::uint64_t treeDaughters = 0U;
 };
 static_assert(std::has_unique_object_representations_v<TruthHeader>);
+
+/// Whether \a trees' members are sorted by identity, each once, and their
+/// daughter ranges lie in the daughters' list.
+[[nodiscard]] bool wellFormed(const DecayTrees& trees)
+{
+  for (std::size_t index = 0; index < trees.particles.size(); ++index) {
+    const auto& particle = trees.particles[index];
+    if (index != 0U && trees.particles[index - 1U].id >= particle.id) {
+      return false;
+    }
+    if (std::uint64_t{particle.firstDaughter} + particle.daughterCount > trees.daughters.size()) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /// A stream's view of an object's bytes.
 [[nodiscard]] const char* bytesOf(const void* data) { return static_cast<const char*>(data); }
@@ -266,10 +286,13 @@ TrackingInput readTrackingInput(const std::string& path)
   return input;
 }
 
-void writeTrackingTruth(const std::string& path, std::span<const std::uint32_t> clusterIndex, std::span<const TruthRow> rows, const ParticleTable& particles, const CollisionTable& collisions)
+void writeTrackingTruth(const std::string& path, std::span<const std::uint32_t> clusterIndex, std::span<const TruthRow> rows, const ParticleTable& particles, const CollisionTable& collisions, const DecayTrees& trees)
 {
   if (clusterIndex.size() != rows.size()) {
     throw std::runtime_error(std::format("tracking truth: {} rows for {} cluster indices", rows.size(), clusterIndex.size()));
+  }
+  if (!wellFormed(trees)) {
+    throw std::runtime_error("tracking truth: decay trees out of order or with daughters past their list");
   }
   // Field by field: a TruthRow has padding, which neither the file nor its
   // digest may hold.
@@ -335,11 +358,32 @@ void writeTrackingTruth(const std::string& path, std::span<const std::uint32_t> 
     collisionZ.push_back(vertex[2]);
   }
 
+  const auto treeColumn = [&](auto member) {
+    std::vector<std::remove_cvref_t<decltype(member(trees.particles.front()))>> column;
+    column.reserve(trees.particles.size());
+    for (const auto& particle : trees.particles) {
+      column.push_back(member(particle));
+    }
+    return column;
+  };
+  const auto treeIds = treeColumn([](const TreeParticle& p) { return p.id; });
+  const auto treePdg = treeColumn([](const TreeParticle& p) { return p.pdg; });
+  const auto treeProcess = treeColumn([](const TreeParticle& p) { return p.process; });
+  const auto treeMother = treeColumn([](const TreeParticle& p) { return p.mother; });
+  const auto treeVx = treeColumn([](const TreeParticle& p) { return p.vertex[0]; });
+  const auto treeVy = treeColumn([](const TreeParticle& p) { return p.vertex[1]; });
+  const auto treeVz = treeColumn([](const TreeParticle& p) { return p.vertex[2]; });
+  const auto treePx = treeColumn([](const TreeParticle& p) { return p.momentum[0]; });
+  const auto treePy = treeColumn([](const TreeParticle& p) { return p.momentum[1]; });
+  const auto treePz = treeColumn([](const TreeParticle& p) { return p.momentum[2]; });
+  const auto treeFirst = treeColumn([](const TreeParticle& p) { return p.firstDaughter; });
+  const auto treeCount = treeColumn([](const TreeParticle& p) { return p.daughterCount; });
+
   std::ofstream out{path, std::ios::binary | std::ios::trunc};
   if (!out) {
     throw std::runtime_error("tracking truth: cannot create " + path);
   }
-  const TruthHeader header{.rows = rows.size(), .particles = ids.size(), .collisions = collisionIds.size()};
+  const TruthHeader header{.rows = rows.size(), .particles = ids.size(), .collisions = collisionIds.size(), .treeParticles = trees.particles.size(), .treeDaughters = trees.daughters.size()};
   out.write(bytesOf(&header), sizeof(header));
   writeBlock(out, clusterIndex.data(), clusterIndex.size());
   writeBlock(out, rowParticles.data(), rowParticles.size());
@@ -362,6 +406,19 @@ void writeTrackingTruth(const std::string& path, std::span<const std::uint32_t> 
   writeBlock(out, collisionX.data(), collisionX.size());
   writeBlock(out, collisionY.data(), collisionY.size());
   writeBlock(out, collisionZ.data(), collisionZ.size());
+  writeBlock(out, treeIds.data(), treeIds.size());
+  writeBlock(out, treePdg.data(), treePdg.size());
+  writeBlock(out, treeProcess.data(), treeProcess.size());
+  writeBlock(out, treeMother.data(), treeMother.size());
+  writeBlock(out, treeVx.data(), treeVx.size());
+  writeBlock(out, treeVy.data(), treeVy.size());
+  writeBlock(out, treeVz.data(), treeVz.size());
+  writeBlock(out, treePx.data(), treePx.size());
+  writeBlock(out, treePy.data(), treePy.size());
+  writeBlock(out, treePz.data(), treePz.size());
+  writeBlock(out, treeFirst.data(), treeFirst.size());
+  writeBlock(out, treeCount.data(), treeCount.size());
+  writeBlock(out, trees.daughters.data(), trees.daughters.size());
   out.close();
   if (!out) {
     throw std::runtime_error("tracking truth: cannot write " + path);
@@ -437,6 +494,31 @@ TrackingTruth readTrackingTruth(const std::string& path, const TrackingInput& in
   if (std::ranges::any_of(origin, [](std::uint8_t value) { return value >= kParticleOrigins; })) {
     throw std::runtime_error("tracking truth: " + path + " has a particle of no known origin");
   }
+  const auto treeParticles = static_cast<std::size_t>(header.treeParticles);
+  std::vector<std::uint64_t> treeIds(treeParticles);
+  std::vector<std::int32_t> treePdg(treeParticles);
+  std::vector<std::uint8_t> treeProcess(treeParticles);
+  std::vector<std::uint64_t> treeMother(treeParticles);
+  std::vector<double> treeVx(treeParticles);
+  std::vector<double> treeVy(treeParticles);
+  std::vector<double> treeVz(treeParticles);
+  std::vector<double> treePx(treeParticles);
+  std::vector<double> treePy(treeParticles);
+  std::vector<double> treePz(treeParticles);
+  std::vector<std::uint32_t> treeFirst(treeParticles);
+  std::vector<std::uint32_t> treeCount(treeParticles);
+  readBlock(in, treeIds.data(), treeIds.size(), "the trees' identities");
+  readBlock(in, treePdg.data(), treePdg.size(), "the trees' PDG codes");
+  readBlock(in, treeProcess.data(), treeProcess.size(), "the trees' processes");
+  readBlock(in, treeMother.data(), treeMother.size(), "the trees' mothers");
+  readBlock(in, treeVx.data(), treeVx.size(), "the trees' production x");
+  readBlock(in, treeVy.data(), treeVy.size(), "the trees' production y");
+  readBlock(in, treeVz.data(), treeVz.size(), "the trees' production z");
+  readBlock(in, treePx.data(), treePx.size(), "the trees' px");
+  readBlock(in, treePy.data(), treePy.size(), "the trees' py");
+  readBlock(in, treePz.data(), treePz.size(), "the trees' pz");
+  readBlock(in, treeFirst.data(), treeFirst.size(), "the trees' first daughters");
+  readBlock(in, treeCount.data(), treeCount.size(), "the trees' daughter counts");
 
   TrackingTruth truth;
   truth.rows.resize(rows);
@@ -471,6 +553,24 @@ TrackingTruth readTrackingTruth(const std::string& path, const TrackingInput& in
   truth.collisions.reserve(collisions);
   for (std::size_t index = 0; index < collisions; ++index) {
     truth.collisions[collisionIds[index]] = {collisionX[index], collisionY[index], collisionZ[index]};
+  }
+  truth.trees.particles.reserve(treeParticles);
+  for (std::size_t index = 0; index < treeParticles; ++index) {
+    truth.trees.particles.push_back({
+      .id = treeIds[index],
+      .pdg = treePdg[index],
+      .process = treeProcess[index],
+      .mother = treeMother[index],
+      .vertex = {treeVx[index], treeVy[index], treeVz[index]},
+      .momentum = {treePx[index], treePy[index], treePz[index]},
+      .firstDaughter = treeFirst[index],
+      .daughterCount = treeCount[index],
+    });
+  }
+  truth.trees.daughters.resize(static_cast<std::size_t>(header.treeDaughters));
+  readBlock(in, truth.trees.daughters.data(), truth.trees.daughters.size(), "the trees' daughters");
+  if (!wellFormed(truth.trees)) {
+    throw std::runtime_error("tracking truth: " + path + " has decay trees out of order or with daughters past their list");
   }
   return truth;
 }
