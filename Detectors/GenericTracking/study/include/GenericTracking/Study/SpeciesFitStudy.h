@@ -38,6 +38,7 @@
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <format>
@@ -68,6 +69,7 @@ struct SpeciesFitRecord {
   std::uint8_t layer = 0U;    ///< the comparison row's
   std::uint8_t kinks = 0U;    ///< a track's own refit's; 0 for a truth chain
   std::uint8_t clusters = 0U; ///< the chain's rows
+  std::uint8_t layers = 0U;   ///< the distinct layers they are on
   /// The production point's distance from its collision's vertex [cm]: 0
   /// for a particle made at the collision.
   float productionOffset = std::numeric_limits<float>::quiet_NaN();
@@ -123,6 +125,7 @@ struct SpeciesFitRecord {
     visit("layer", layer);
     visit("kinks", kinks);
     visit("clusters", clusters);
+    visit("layers", layers);
     visit("productionOffset", productionOffset);
     visit("p", p);
     visit("pOuter", pOuter);
@@ -246,6 +249,11 @@ void SpeciesFitStudy<Det>::fitChain(const TruthEvent<Det>& event, const Chain& c
     .kinks = chain.track ? chain.track->kinks : std::uint8_t{0},
     .clusters = static_cast<std::uint8_t>(count),
   };
+  std::uint64_t layerBits = 0U;
+  for (const auto at : chain.rows) {
+    layerBits |= std::uint64_t{1} << event.rows[at].layer;
+  }
+  base.layers = static_cast<std::uint8_t>(std::popcount(layerBits));
   if (event.collisions != nullptr) {
     if (const auto vertex = event.collisions->find(collisionOf(chain.particle)); vertex != event.collisions->end()) {
       base.productionOffset = static_cast<float>(std::hypot(static_cast<double>(truth.vx) - vertex->second[0], static_cast<double>(truth.vy) - vertex->second[1], static_cast<double>(truth.vz) - vertex->second[2]));
