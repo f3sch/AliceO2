@@ -32,6 +32,8 @@ o2_add_library(GTrkStudy
                        src/TrackPulls.cxx
                        src/TrackingInput.cxx
                        src/TrackingQA.cxx
+                       src/RecordWriter.cxx
+                       src/StudyChains.cxx
                PUBLIC_LINK_LIBRARIES ${studyLibraries}
                PRIVATE_LINK_LIBRARIES O2::ITSMFTSimulation O2::DataFormatsTRKFT3 O2::DataFormatsITS O2::DataFormatsMFT O2::Steer O2::DetectorsRaw
                                       ROOT::Core ROOT::RIO ROOT::Tree

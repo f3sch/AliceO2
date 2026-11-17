@@ -42,6 +42,7 @@
 #include "GenericTracking/Workflow/RecoParam.h"
 #include "GenericTracking/Workflow/TrackingInterface.h"
 #include "GenericTracking/Study/TrackingInput.h"
+#include "GenericTracking/Study/TruthStudies.h"
 
 #include "CCDB/BasicCCDBManager.h"
 #include "DataFormatsParameters/GRPECSObject.h"
@@ -151,29 +152,31 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::size_t gpuArenaMB = 0U;
   bool hostReference = false;
   bool rebin = false;
-  bool followStops = false;             ///< --follow-stops
-  bool completeAnatomy = false;         ///< --complete-anatomy
-  std::string stepAnatomy;              ///< --step-anatomy: the CSV of the replayed steps
-  std::string truthWalk;                ///< --truth-walk: the CSV of the truth walks' steps
-  std::string fateOut;                  ///< --fate-out: the CSV of every class particle's fate
-  std::string breakdown;                ///< --breakdown: where the last run's tracks sit, a JSON line
-  std::string breakdownParticles;       ///< --breakdown-particles: the same per particle of the class, a CSV
-  std::string breakdownPopulation;      ///< --breakdown-population: the class's particles, primary, decay or v0
-  std::string inwardHistory;            ///< --inward-history: the CSV of the inward refit's states
-  std::string endDecisions;             ///< --end-decisions: the CSV of every follow walk's end
-  std::string endEdits;                 ///< --end-edits: with it, the CSV of each track's truth-free end edits
-  int anatomyPdg = 0;                   ///< --anatomy-pdg
-  bool anatomyFindable = false;         ///< --anatomy-findable
-  std::string anatomyBeamLine;          ///< --anatomy-beam-line
-  std::string anatomyFollowLoss;        ///< --anatomy-follow-loss
-  std::string anatomyGsf;               ///< --anatomy-gsf
-  bool anatomyRetry = false;            ///< --anatomy-retry
-  std::string anatomyPairLoss;          ///< --anatomy-pair-loss
-  std::uint32_t anatomyPairSample = 1U; ///< --anatomy-pair-sample
-  int truthWalkIteration = -1;          ///< --truth-walk-iteration: the iteration of the truth walk (-1: the first holding the class's mask)
-  std::string hits;                     ///< --hits: the MC hits (sgn_Hits<det>.root) the steps are held to
-  std::string ft3Hits;                  ///< --ft3-hits: FT3's MC hits beside TRK's
-  std::string kine;                     ///< --kine: the MC kinematics (sgn_Kine.root), the anatomy's clutter test
+  bool followStops = false;              ///< --follow-stops
+  bool completeAnatomy = false;          ///< --complete-anatomy
+  std::string stepAnatomy;               ///< --step-anatomy: the CSV of the replayed steps
+  std::string truthWalk;                 ///< --truth-walk: the CSV of the truth walks' steps
+  std::string fateOut;                   ///< --fate-out: the CSV of every class particle's fate
+  std::string breakdown;                 ///< --breakdown: where the last run's tracks sit, a JSON line
+  std::string breakdownParticles;        ///< --breakdown-particles: the same per particle of the class, a CSV
+  std::string breakdownPopulation;       ///< --breakdown-population: the class's particles, primary, decay or v0
+  std::string inwardHistory;             ///< --inward-history: the CSV of the inward refit's states
+  std::string endDecisions;              ///< --end-decisions: the CSV of every follow walk's end
+  std::string endEdits;                  ///< --end-edits: with it, the CSV of each track's truth-free end edits
+  int anatomyPdg = 0;                    ///< --anatomy-pdg
+  bool anatomyFindable = false;          ///< --anatomy-findable
+  std::string anatomyBeamLine;           ///< --anatomy-beam-line
+  std::string anatomyFollowLoss;         ///< --anatomy-follow-loss
+  bool anatomyRetry = false;             ///< --anatomy-retry
+  std::string anatomyPairLoss;           ///< --anatomy-pair-loss
+  std::uint32_t anatomyPairSample = 1U;  ///< --anatomy-pair-sample
+  int truthWalkIteration = -1;           ///< --truth-walk-iteration: the iteration of the truth walk (-1: the first holding the class's mask)
+  std::string hits;                      ///< --hits: the MC hits (sgn_Hits<det>.root), the anatomy's and the truth studies'
+  std::vector<std::string> truthStudies; ///< --truth-study: <module>:<source>:<path> each (TruthStudies.h)
+  std::string truthSelect;               ///< --truth-select: the truth studies' particles (parseChainSelection)
+  bool noTracking = false;               ///< --no-tracking: the truth studies of the truth source alone
+  std::string ft3Hits;                   ///< --ft3-hits: FT3's MC hits beside TRK's
+  std::string kine;                      ///< --kine: the MC kinematics (sgn_Kine.root), the anatomy's clutter test
 };
 
 /// The lines of one section of an INI file, `[name]` excluded.
@@ -1523,6 +1526,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   const auto geometry = workflow::makeGridGeometry<Det>(param, input.beamLine, frames, orbitsPerTimeframe);
   const auto* material = o2::base::MatLayerCylSet::rectifyPtrFromFile(ccdb.get<o2::base::MatLayerCylSet>(workflow::materialLutPath<Det>()));
   const bool device = options.backend != "cpu";
+  if (options.noTracking && device) {
+    throw std::runtime_error("--no-tracking runs on the host: no --backend");
+  }
   if (device) {
     interface.initDevice({.backend = options.backend, .device = options.gpuDevice, .arenaMB = options.gpuArenaMB});
   }
@@ -1548,6 +1554,59 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   const Frame frame{measurementView(input.columns), geometry, std::span<const typename Frame::Index>{input.offsets}};
   if (const auto* why = interface.checkInput(input.columns, input.offsets, geometry.bucketCount(), input.vertices)) {
     throw std::runtime_error(why);
+  }
+  // The truth studies, and for them and the anatomy the MC hits and every
+  // particle's rows in path order. The truth source's studies run here, before
+  // any tracking; --no-tracking stops after them.
+  std::optional<study::TruthStudies<Det>> truthStudies;
+  if (!options.truthStudies.empty()) {
+    if (!truth || options.hits.empty()) {
+      throw std::runtime_error("--truth-study needs the MC truth and --hits");
+    }
+    std::vector<study::TruthStudySpec> specs;
+    for (const auto& text : options.truthStudies) {
+      specs.push_back(study::parseTruthStudy(text));
+    }
+    truthStudies.emplace(specs, study::parseChainSelection(options.truthSelect));
+  }
+  if (options.noTracking && (!truthStudies || truthStudies->takes(study::ChainSource::kTracks))) {
+    throw std::runtime_error("--no-tracking runs truth studies of the truth source only");
+  }
+  std::unique_ptr<study::HitFile> hitFile;
+  std::optional<study::HitIndex> hitIndex;
+  std::optional<study::ParticleChains> particleChains;
+  const auto studyArena = std::make_unique<o2::gtrk::detail::TaskArena>();
+  if (options.completeAnatomy || truthStudies) {
+    if (!truth) {
+      throw std::runtime_error("--complete-anatomy and --truth-study need the MC truth");
+    }
+    if (!options.hits.empty()) {
+      hitFile = std::make_unique<study::HitFile>(options.hits, study::chipsOf<Det>(), std::is_same_v<Det, detectors::TRKFT3> ? options.ft3Hits : std::string{});
+      hitIndex.emplace(*hitFile);
+    }
+    particleChains.emplace(study::ParticleChains::build(truth->rows, truth->particles, frame, hitIndex ? &*hitIndex : nullptr, *studyArena));
+  }
+  const auto truthEvent = [&] {
+    return study::TruthEvent<Det>{
+      .frame = &frame,
+      .geometry = &tracking,
+      .material = material,
+      .propagator = propagator,
+      .rows = truth->rows,
+      .particles = &truth->particles,
+      .hits = hitIndex ? &*hitIndex : nullptr,
+      .chains = &*particleChains,
+      .arena = studyArena.get(),
+    };
+  };
+  if (truthStudies) {
+    truthStudies->run(truthEvent());
+  }
+  if (options.noTracking) {
+    for (const auto& line : truthStudies->summary()) {
+      std::cout << line << '\n';
+    }
+    return 0;
   }
   std::string phiCells;
   std::string secondCells;
@@ -1654,19 +1713,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     throw std::runtime_error("--end-edits needs --end-decisions");
   }
   std::optional<study::CompleteAnatomy<Det>> completeAnatomy;
-  // The anatomy's MC hits, and every particle's rows in path order.
-  std::unique_ptr<study::HitFile> hitFile;
-  std::optional<study::HitIndex> hitIndex;
-  std::optional<study::ParticleChains> particleChains;
   if (options.completeAnatomy) {
-    if (!options.hits.empty()) {
-      hitFile = std::make_unique<study::HitFile>(options.hits, study::chipsOf<Det>(), std::is_same_v<Det, detectors::TRKFT3> ? options.ft3Hits : std::string{});
-      hitIndex.emplace(*hitFile);
-    }
-    {
-      o2::gtrk::detail::TaskArena arena;
-      particleChains.emplace(study::ParticleChains::build(*truth, frame, hitIndex ? &*hitIndex : nullptr, arena));
-    }
     std::vector<std::uint64_t> roadLayers;
     roadLayers.reserve(settings.size());
     for (const auto& iteration : settings) {
@@ -1716,12 +1763,6 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         throw std::runtime_error("--inward-history needs --hits");
       }
       completeAnatomy->openInwardHistory(options.inwardHistory);
-    }
-    if (!options.anatomyGsf.empty()) {
-      if (options.hits.empty()) {
-        throw std::runtime_error("--anatomy-gsf needs --hits");
-      }
-      completeAnatomy->openGsfOracle(options.anatomyGsf);
     }
     if (!options.endDecisions.empty()) {
       completeAnatomy->openEndDecisions(options.endDecisions);
@@ -2081,6 +2122,12 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         json << "}\n";
         json.flush();
       }
+      if (truthStudies && last) {
+        truthStudies->run(truthEvent(), deviceTracks);
+        for (const auto& line : truthStudies->summary()) {
+          std::cout << line << '\n';
+        }
+      }
       if (options.hostReference && last) {
         const std::span<const VertexSeed> vertices = vertexing ? std::span<const VertexSeed>{foundVertices} : std::span<const VertexSeed>{input.vertices};
         const auto plan = tracker.planTimeframe(frame, vertices, blocksPerSlice, param.sliceHaloPS);
@@ -2158,6 +2205,12 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     }
     if (!options.fitResults.empty() && last) {
       writeFitResults<Det>(options.fitResults, *result.tracks, frame, truth ? &*truth : nullptr);
+    }
+    if (truthStudies && last) {
+      truthStudies->run(truthEvent(), *result.tracks);
+      for (const auto& line : truthStudies->summary()) {
+        std::cout << line << '\n';
+      }
     }
     if (truth && last) {
       writeTruthStudies<Det>(options, *result.tracks, *truth, comparison, frame, tracking, *material, propagator, studies.followed, [&](std::size_t iteration) -> const IterationParameters<Det>& { return tracker.iteration(iteration); }, [&](std::uint64_t id, std::size_t iteration) { return funnel ? funnel->stages(id, iteration) : std::nullopt; }, [&](std::size_t iteration, std::span<const std::uint32_t> rows) { return funnel ? funnel->recordChi2(iteration, rows) : std::nullopt; });
