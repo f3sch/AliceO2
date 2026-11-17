@@ -110,7 +110,7 @@ static int run(int argc, char** argv)
     ("hits", bpo::value(&options.hits)->default_value(""),
      "the MC hits (sgn_HitsTRK.root): the particles' path order, and every anatomy and truth study against the MC") //
     ("truth-study", bpo::value(&options.truthStudies)->composing(),
-     "a truth study, <module>:<source>:<path>: module gsf, source truth (the particles' own rows) or tracks (the good tracks' rows), a .csv or "
+     "a truth study, <module>:<source>:<path>: module gsf or species, source truth (the particles' own rows) or tracks (the good tracks' rows), a .csv or "
      ".root path; repeatable; with --hits") //
     ("truth-select", bpo::value(&options.truthSelect)->default_value(""),
      "the truth studies' particles: key=value items separated by ';' -- origins=primary+decay+material, pdg=11+211, minPt=<GeV>, minRows=<n>, "

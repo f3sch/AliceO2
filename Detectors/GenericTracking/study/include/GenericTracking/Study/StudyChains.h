@@ -64,6 +64,21 @@ struct Chain {
   std::optional<TrackContext> track; ///< a chain from the tracker's output only
 };
 
+/// What names a chain in a study's records.
+struct ChainIdentity {
+  std::uint32_t timeframe = 0U;
+  std::uint8_t source = 0U; ///< ChainSource
+  std::int32_t track = -1;  ///< the tracker's track, -1 for a truth chain
+  std::uint64_t particle = 0U;
+  std::uint8_t leg = 0U;
+};
+
+/// \a chain's identity in timeframe \a timeframe, from \a source.
+[[nodiscard]] inline ChainIdentity identityOf(const Chain& chain, std::uint32_t timeframe, ChainSource source)
+{
+  return {.timeframe = timeframe, .source = static_cast<std::uint8_t>(source), .track = chain.track ? static_cast<std::int32_t>(chain.track->track) : -1, .particle = chain.particle, .leg = chain.leg};
+}
+
 /// The particles a study takes, from either source.
 struct ChainSelection {
   /// A bit per `ParticleOrigin`: physical primaries and decay daughters.

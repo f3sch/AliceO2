@@ -1594,6 +1594,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       .propagator = propagator,
       .rows = truth->rows,
       .particles = &truth->particles,
+      .collisions = &truth->collisions,
       .hits = hitIndex ? &*hitIndex : nullptr,
       .chains = &*particleChains,
       .arena = studyArena.get(),

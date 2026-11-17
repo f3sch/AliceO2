@@ -46,7 +46,6 @@
 #include "GenericTracking/Study/ProfileReport.h"
 #include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackingInput.h"
-#include "GenericTracking/Study/SpeciesOracle.h"
 #include "GenericTracking/Study/StateTruth.h"
 #include "GenericTracking/Study/TruthStudies.h"
 #include "GenericTracking/Study/TrackingQA.h"
@@ -2969,7 +2968,7 @@ class MeasurementSinkTask : public Task
 
     mTruthReports = !ic.options().get<bool>("no-truth-reports");
     mFindableMinPtGeV = ic.options().get<double>("findable-min-pt");
-    mSpeciesOracle = ic.options().get<bool>("species-oracle");
+    mOutwardMomenta = ic.options().get<bool>("outward-momenta");
     // The truth studies (TruthStudies.h), with MC and its hits.
     if (const auto studies = ic.options().get<std::string>("truth-study"); !studies.empty()) {
       if (!mUseMC || !mHitIndex) {
@@ -3124,11 +3123,12 @@ class MeasurementSinkTask : public Task
     const bool dumping = !mDumpInput.empty() && n != 0U && mTimeframe == mDumpTimeframe;
     std::vector<TruthRow> comparisonRows;
     ParticleTable comparisonParticles;
+    CollisionTable comparisonCollisions;
     if (mUseMC) {
       const auto labels = pc.inputs().get<o2::dataformats::ConstMCTruthContainer<o2::MCCompLabel>>("labels");
       // Every row's particles: a cluster is every particle's it carries among
       // its labels, for every report of the sink and the dump's truth.
-      comparisonTruth(frame, labels, comparisonRows, comparisonParticles);
+      comparisonTruth(frame, labels, comparisonRows, comparisonParticles, comparisonCollisions);
       const auto mcOf = [&](std::uint64_t id) -> const o2::MCTrack* {
         const auto found = mParticleLabels.find(id);
         return found == mParticleLabels.end() ? nullptr : mKinematics->getTrack(found->second.source, found->second.event, found->second.track);
@@ -3161,6 +3161,7 @@ class MeasurementSinkTask : public Task
         .propagator = mInterface.propagator(),
         .rows = comparisonRows,
         .particles = &comparisonParticles,
+        .collisions = &comparisonCollisions,
         .hits = &*mHitIndex,
         .chains = &*particleChains,
         .arena = mStudyArena.get(),
@@ -3182,7 +3183,7 @@ class MeasurementSinkTask : public Task
       writeTrackingInput(mDumpInput, view, n, offsets, seeds, mInterface.beamLine(), mInterface.frames(), depths);
       LOGP(info, "tracking input written to {} and {}.ini", mDumpInput, mDumpInput);
       if (mUseMC) {
-        writeTrackingTruth(mDumpInput + ".truth", std::span<const std::uint32_t>{columns.clusterIndex.data(), n}, comparisonRows, comparisonParticles);
+        writeTrackingTruth(mDumpInput + ".truth", std::span<const std::uint32_t>{columns.clusterIndex.data(), n}, comparisonRows, comparisonParticles, comparisonCollisions);
         LOGP(info, "tracking truth written to {}.truth ({} particles)", mDumpInput, comparisonParticles.size());
       }
       mDumpInput.clear();
@@ -3489,7 +3490,6 @@ class MeasurementSinkTask : public Task
     const TrackRows ours = trackRows(tracks);
     std::vector<TrackKinematics> kinematics(tracks.size());
     std::vector<QAResolution> resolution;
-    std::vector<QAOracle> oracle;
     const Propagator propagator = mInterface.propagator();
     const auto particleChains = particleLayers(rows, findableRule());
     for (std::size_t track = 0; track < tracks.size(); ++track) {
@@ -3535,9 +3535,6 @@ class MeasurementSinkTask : public Task
         entry.sigma[i] = static_cast<float>(truth->sigma[i]);
       }
       vertexApproach(frame, state, particle, *innermost, propagator, found->second, *truth, entry);
-      if (mSpeciesOracle) {
-        speciesOracle(frame, view, track, particle, *innermost, propagator, entry, oracle);
-      }
       entry.complete = completeTrack(rows, ours[track], particleChains.at(particle));
       resolution.push_back(entry);
     }
@@ -3554,7 +3551,7 @@ class MeasurementSinkTask : public Task
     // Each signal particle's outward leg in its MC hits (TrackingQA.h).
     std::unordered_map<std::uint64_t, std::uint8_t> outward;
     std::unordered_map<std::uint64_t, std::uint64_t> outwardMasks;
-    std::map<std::uint64_t, std::vector<float>> legMomenta;            // --species-oracle; by particle, the tree's order
+    std::map<std::uint64_t, std::vector<float>> legMomenta;            // --outward-momenta; by particle, the tree's order
     std::unordered_map<std::uint64_t, std::vector<LayerID>> legLayers; // the funnel's LegLinks
     if (mHits) {
       std::vector<HitCrossing> crossings;
@@ -3586,7 +3583,7 @@ class MeasurementSinkTask : public Task
             }
           }
         }
-        if (mSpeciesOracle && (std::abs(truth.pdg) == 11 || (std::abs(truth.pdg) == 211 && id % 16U == 0U))) {
+        if (mOutwardMomenta && (std::abs(truth.pdg) == 11 || (std::abs(truth.pdg) == 211 && id % 16U == 0U))) {
           legMomenta[id] = momentaAlongLeg(leg);
         }
       }
@@ -3659,7 +3656,6 @@ class MeasurementSinkTask : public Task
       streamTracks(*mQAOutput, nativeQA.tracks, "tracksO2");
     }
     streamResolution(*mQAOutput, resolution);
-    streamOracle(*mQAOutput, oracle);
     if (!legMomenta.empty()) {
       const auto rule = findableRule();
       const auto chains = particleLayers(rows, rule);
@@ -3731,10 +3727,12 @@ class MeasurementSinkTask : public Task
   /// rules and cluster set by cluster set (TrackComparison.h). O2's tracks
   /// name O2's cluster indices, which are our measurements' clusterIndex.
   /// Every row's signal particles, all of them, and those particles' truth:
-  /// what O2's label rule counts (TrackComparison.h).
-  void comparisonTruth(const Frame& frame, const o2::dataformats::ConstMCTruthContainer<o2::MCCompLabel>& labels, std::vector<TruthRow>& rows, ParticleTable& particles)
+  /// what O2's label rule counts (TrackComparison.h); and their collisions'
+  /// vertices.
+  void comparisonTruth(const Frame& frame, const o2::dataformats::ConstMCTruthContainer<o2::MCCompLabel>& labels, std::vector<TruthRow>& rows, ParticleTable& particles, CollisionTable& collisions)
   {
     rows.assign(frame.size(), {});
+    collisions.clear();
     mParticleLabels.clear();
     for (Frame::Index row = 0U; row < frame.size(); ++row) {
       const auto measurement = frame.measurement(row);
@@ -3761,6 +3759,10 @@ class MeasurementSinkTask : public Task
           } else {
             const auto& event = mKinematics->getTracks(label.getSourceID(), label.getEventID());
             mother = o2::mcutils::MCTrackNavigator::getMother(*mc, event);
+            if (const auto collision = collisionOf(id); !collisions.contains(collision)) {
+              const auto& header = mKinematics->getMCEventHeader(label.getSourceID(), label.getEventID());
+              collisions[collision] = {header.GetX(), header.GetY(), header.GetZ()};
+            }
             particles[id] = ParticleTruth{
               .pt = static_cast<float>(mc->GetPt()),
               .primary = mc->isPrimary(),
@@ -4132,57 +4134,6 @@ class MeasurementSinkTask : public Task
     return study::stateTruth(mInterface.tracking(), *mHitIndex, frame, state, particle, row, charge);
   }
 
-  /// The oracle refits of good track \a track of \a particle
-  /// (SpeciesOracle.h) into \a out, each against the particle's
-  /// crossing of \a row's sensor, \a entry its resolution entry; none for a
-  /// species without an oracle mass.
-  void speciesOracle(const Frame& frame, const typename TrackRefit<Det>::Tracks::ConstView& view, std::size_t track, std::uint64_t particle, Frame::Index row, const Propagator& propagator, const QAResolution& entry, std::vector<QAOracle>& out)
-  {
-    const auto mass = oracleMass(entry.pdg);
-    if (!mass.has_value()) {
-      return;
-    }
-    const RowChain<Det> chain{.frame = &frame, .rows = view.clusters[track].index};
-    const int count = view.count[track];
-    // The momentum lost inside the fitted chain: the crossing of the
-    // outermost measurement's sensor.
-    float pOuter = std::numeric_limits<float>::quiet_NaN();
-    const auto outer = frame.measurement(view.clusters[track].index[count - 1]);
-    if (const auto* segment = mHitIndex->crossing(particle, outer.surface, {static_cast<double>(outer.x), static_cast<double>(outer.y), static_cast<double>(outer.z)}); segment != nullptr) {
-      pOuter = static_cast<float>(std::hypot(segment->momentum[0], segment->momentum[1], segment->momentum[2]));
-    }
-    for (std::size_t v = 0; v < kOracleVariants; ++v) {
-      const auto fit = oracleFit(static_cast<OracleVariant>(v), *mass, propagator, mInterface.tracking(), mInterface.material(), chain, count, view.outwardState[track]);
-      QAOracle o{
-        .pdg = entry.pdg,
-        .charge = entry.charge,
-        .origin = entry.origin,
-        .eta = entry.eta,
-        .layer = entry.layer,
-        .kinks = entry.kinks,
-        .clusters = entry.clusters,
-        .productionOffset = entry.productionOffset,
-        .pOuter = pOuter,
-        .variant = static_cast<std::uint8_t>(v),
-        .status = static_cast<std::uint8_t>(fit.status),
-        .chi2 = fit.chi2,
-        .ndf = fit.ndf,
-      };
-      const auto truth = fit.status == PropagationStatus::kOk ? stateTruth(frame, fit.state, particle, row) : std::nullopt;
-      if (truth.has_value()) {
-        o.momentum = static_cast<float>(truth->momentum);
-        o.ptResidual = static_cast<float>((truth->fittedPt / truth->pt) - 1.);
-        for (std::size_t i = 0; i < 5U; ++i) {
-          o.residual[i] = static_cast<float>(truth->residual[i]);
-          o.sigma[i] = static_cast<float>(truth->sigma[i]);
-        }
-      } else if (fit.status == PropagationStatus::kOk) {
-        o.status = std::numeric_limits<std::uint8_t>::max();
-      }
-      out.push_back(o);
-    }
-  }
-
   /// \a state's closest approach to its particle's MC event vertex into
   /// \a entry: carried to the plane
   /// through the vertex along the beam, normal to its transverse direction
@@ -4393,7 +4344,7 @@ class MeasurementSinkTask : public Task
   /// The findable rule of the QA, the comparisons and the funnel; it needs the geometry, so it is made where it is used.
   [[nodiscard]] ComparisonSettings findableRule() const { return comparisonSettings<Det>(4, mFindableMinPtGeV); }
   bool mUseMC = true;
-  bool mSpeciesOracle = false;                               ///< --species-oracle: the `oracle` QA tree
+  bool mOutwardMomenta = false;                              ///< --outward-momenta: the `momenta` QA tree
   bool mTruthReports = true;                                 ///< the stages' truth, the true roads' chi2 and the fakes' anatomy in the log; on unless --no-truth-reports, data runs too
   double mFindableMinPtGeV = 0.1;                            ///< --findable-min-pt: the pT floor of findableRule()
   bool mWithVertices = true;                                 ///< the vertex list is an input
@@ -4453,7 +4404,7 @@ DataProcessorSpec getMeasurementSinkSpec<Det>(bool useMC, bool withVertices, Tra
     .inputs = inputs,
     .outputs = Outputs{},
     .algorithm = AlgorithmSpec{adaptFromTask<MeasurementSinkTask>(useMC, withVertices, products, conditions)},
-    .options = Options{{"collision-context", VariantType::String, "collisioncontext.root", {"collision context and MC-event mapping"}}, {"input-dir", VariantType::String, "none", {"input directory"}}, {"tracklet-truth-output", VariantType::String, "gtrk_tracklet_truth.csv", {"per-link pT and cot(theta) truth breakdown; empty disables"}}, {"dump-tracking-input", VariantType::String, "", {"write one timeframe's tracking input here, for o2-gtrk-track-bench"}}, {"dump-timeframe", VariantType::Int, 0, {"which timeframe --dump-tracking-input writes, counting from 0"}}, {"dump-only", VariantType::Bool, false, {"with --dump-tracking-input, the dumped timeframe is not tracked"}}, {"qa-output", VariantType::String, "", {"the MC truth QA as ROOT trees; empty disables"}}, {"species-oracle", VariantType::Bool, false, {"with --qa-output, refit every good track of e, mu, pi, K, p with its true mass: the oracle tree"}}, {"truth-study", VariantType::String, "", {"truth studies, <module>:<source>:<path> separated by ',': module gsf, source truth (the particles' own rows) or tracks (the good tracks' rows), a .csv or .root path; with MC and its hits"}}, {"truth-select", VariantType::String, "", {"the truth studies' particles: key=value items separated by ';' -- origins=primary+decay+material, pdg=11+211, minPt=<GeV>, minRows=<n>, layers=<mask>, findable"}}, {"no-truth-reports", VariantType::Bool, false, {"with MC, no truth reports in the log (stages, true roads' chi2, fake anatomy): for the QA alone"}}, {"findable-min-pt", VariantType::Double, 0.1, {"the findable rule's pT floor [GeV]: the QA, the comparisons, the funnel"}}, {"o2-tracks", VariantType::String, "", {"O2's tracks of the same clusters (o2trac_its.root, mfttracks.root), compared under one set of truth rules"}}, {"mc-hits", VariantType::String, hitFileName(), {"O2's MC hits, for the pulls, the true kinks and the QA's outward legs"}}},
+    .options = Options{{"collision-context", VariantType::String, "collisioncontext.root", {"collision context and MC-event mapping"}}, {"input-dir", VariantType::String, "none", {"input directory"}}, {"tracklet-truth-output", VariantType::String, "gtrk_tracklet_truth.csv", {"per-link pT and cot(theta) truth breakdown; empty disables"}}, {"dump-tracking-input", VariantType::String, "", {"write one timeframe's tracking input here, for o2-gtrk-track-bench"}}, {"dump-timeframe", VariantType::Int, 0, {"which timeframe --dump-tracking-input writes, counting from 0"}}, {"dump-only", VariantType::Bool, false, {"with --dump-tracking-input, the dumped timeframe is not tracked"}}, {"qa-output", VariantType::String, "", {"the MC truth QA as ROOT trees; empty disables"}}, {"outward-momenta", VariantType::Bool, false, {"with --qa-output and MC hits, the momenta tree: |p| along the outward leg of every findable electron and every 16th pion"}}, {"truth-study", VariantType::String, "", {"truth studies, <module>:<source>:<path> separated by ',': module gsf or species, source truth (the particles' own rows) or tracks (the good tracks' rows), a .csv or .root path; with MC and its hits"}}, {"truth-select", VariantType::String, "", {"the truth studies' particles: key=value items separated by ';' -- origins=primary+decay+material, pdg=11+211, minPt=<GeV>, minRows=<n>, layers=<mask>, findable"}}, {"no-truth-reports", VariantType::Bool, false, {"with MC, no truth reports in the log (stages, true roads' chi2, fake anatomy): for the QA alone"}}, {"findable-min-pt", VariantType::Double, 0.1, {"the findable rule's pT floor [GeV]: the QA, the comparisons, the funnel"}}, {"o2-tracks", VariantType::String, "", {"O2's tracks of the same clusters (o2trac_its.root, mfttracks.root), compared under one set of truth rules"}}, {"mc-hits", VariantType::String, hitFileName(), {"O2's MC hits, for the pulls, the true kinks and the QA's outward legs"}}},
   };
   if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
     spec.options.push_back({"mc-ft3-hits", VariantType::String, "sgn_HitsFT3.root", {"O2's MC hits of FT3's discs, with --mc-hits TRK's"}});

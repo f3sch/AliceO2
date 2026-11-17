@@ -307,34 +307,8 @@ struct QAResolution {
   float productionOffset = std::numeric_limits<float>::quiet_NaN();
 };
 
-/// A good track's oracle refit (SpeciesOracle.h) against
-/// its particle's MC crossing of its innermost measurement's sensor: an
-/// entry of the `oracle` tree, one per track and variant, as `QAResolution`'s
-/// residuals and sigmas. \a momentum is the crossing's.
-struct QAOracle {
-  std::int32_t pdg = 0;
-  std::int8_t charge = 0; ///< [e]
-  std::uint8_t origin = 0U;
-  float eta = 0.F; ///< the truth's at production
-  std::uint8_t layer = 0U;
-  std::uint8_t kinks = 0U; ///< the tracking's own refit's
-  std::uint8_t clusters = 0U;
-  float productionOffset = std::numeric_limits<float>::quiet_NaN();
-  float momentum = 0.F; ///< at the crossing [GeV]
-  /// At the crossing of the outermost measurement's sensor [GeV]: the
-  /// momentum lost inside the fitted chain, 1 - pOuter / momentum.
-  float pOuter = std::numeric_limits<float>::quiet_NaN();
-  std::uint8_t variant = 0U; ///< OracleVariant
-  std::uint8_t status = 0U;  ///< the refit's PropagationStatus; the rest only for kOk
-  float chi2 = 0.F;
-  std::int16_t ndf = 0;
-  std::array<float, 5> residual{};
-  std::array<float, 5> sigma{};
-  float ptResidual = 0.F; ///< fitted pT over the crossing's, less 1
-};
-
 /// A findable particle's momentum along its outward leg: an entry of the
-/// `momenta` tree, with --species-oracle, for every electron and every 16th
+/// `momenta` tree, with --outward-momenta, for every electron and every 16th
 /// pion. \a pAtLayer: |p| entering the
 /// layer's first crossing on the outward leg (`outwardLeg`), NaN
 /// without one [GeV].
@@ -358,9 +332,6 @@ struct QAMomenta {
 
 /// \a entries into \a output's `momenta` tree.
 void streamMomenta(o2::utils::TreeStreamRedirector& output, std::span<const QAMomenta> entries);
-
-/// \a entries into \a output's `oracle` tree.
-void streamOracle(o2::utils::TreeStreamRedirector& output, std::span<const QAOracle> entries);
 
 /// One timeframe's records.
 struct TrackingQA {

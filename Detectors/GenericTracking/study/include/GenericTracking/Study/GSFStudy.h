@@ -159,7 +159,7 @@ class GSFStudy
     std::size_t fits = 0U;
   };
 
-  void fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propagator& prop, const GSFRecord& identity) const;
+  void fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propagator& prop, const ChainIdentity& identity) const;
 
   RecordWriter* mWriter = nullptr;
   std::size_t mChains = 0U;
@@ -212,15 +212,7 @@ void GSFStudy<Det>::process(const TruthEvent<Det>& event, std::span<const Chain>
   }
   o2::gtrk::detail::parallelFor(*event.arena, 0U, legs.size(), 4, [&](std::size_t begin, std::size_t end) {
     for (std::size_t i = begin; i < end; ++i) {
-      const auto& chain = *legs[i].chain;
-      const GSFRecord identity{
-        .timeframe = event.timeframe,
-        .source = static_cast<std::uint8_t>(source),
-        .track = chain.track ? static_cast<std::int32_t>(chain.track->track) : -1,
-        .particle = chain.particle,
-        .leg = chain.leg,
-      };
-      fitLeg(legs[i], event, prop, identity);
+      fitLeg(legs[i], event, prop, identityOf(*legs[i].chain, event.timeframe, source));
     }
   });
   for (const auto& leg : legs) {
@@ -236,7 +228,7 @@ void GSFStudy<Det>::process(const TruthEvent<Det>& event, std::span<const Chain>
 }
 
 template <DetectorLayout Det>
-void GSFStudy<Det>::fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propagator& prop, const GSFRecord& identity) const
+void GSFStudy<Det>::fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propagator& prop, const ChainIdentity& identity) const
 {
   const auto nan = std::numeric_limits<double>::quiet_NaN();
   const auto& truth = event.particles->at(identity.particle);
@@ -250,7 +242,7 @@ void GSFStudy<Det>::fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propaga
   for (int k = 0; k < n; ++k) {
     x2X0[static_cast<std::size_t>(k)] = o2::gtrk::detail::gsf::planeRadiation(geometry, material, whole, n, k);
   }
-  GSFRecord base = identity;
+  GSFRecord base{.timeframe = identity.timeframe, .source = identity.source, .track = identity.track, .particle = identity.particle, .leg = identity.leg};
   base.pdg = truth.pdg;
   base.pt = truth.pt;
   base.eta = truth.eta;

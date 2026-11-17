@@ -44,7 +44,8 @@ struct TruthEvent {
   Propagator propagator;          ///< the tracking's, with its field
   std::span<const TruthRow> rows; ///< one per row of the frame
   const ParticleTable* particles = nullptr;
-  const HitIndex* hits = nullptr; ///< none without the MC hits
+  const CollisionTable* collisions = nullptr; ///< the particles' collisions' vertices
+  const HitIndex* hits = nullptr;             ///< none without the MC hits
   const ParticleChains* chains = nullptr;
   o2::gtrk::detail::TaskArena* arena = nullptr; ///< the studies' threads
 };
