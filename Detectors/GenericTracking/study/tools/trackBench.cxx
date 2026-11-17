@@ -108,7 +108,15 @@ static int run(int argc, char** argv)
     ("step-anatomy", bpo::value(&options.stepAnatomy)->default_value(""),
      "with --complete-anatomy: a CSV of every short track's refused step and of the complete tracks' inner steps, replayed") //
     ("hits", bpo::value(&options.hits)->default_value(""),
-     "with --complete-anatomy: the MC hits (sgn_HitsTRK.root): the anatomy's path order, true kinks and every study against the MC")          //
+     "the MC hits (sgn_HitsTRK.root): the particles' path order, and every anatomy and truth study against the MC") //
+    ("truth-study", bpo::value(&options.truthStudies)->composing(),
+     "a truth study, <module>:<source>:<path>: module gsf, source truth (the particles' own rows) or tracks (the good tracks' rows), a .csv or "
+     ".root path; repeatable; with --hits") //
+    ("truth-select", bpo::value(&options.truthSelect)->default_value(""),
+     "the truth studies' particles: key=value items separated by ';' -- origins=primary+decay+material, pdg=11+211, minPt=<GeV>, minRows=<n>, "
+     "layers=<mask>, findable; default physical primaries and decay daughters") //
+    ("no-tracking", bpo::bool_switch(&options.noTracking),
+     "run the truth studies of the truth source and stop, without tracking")                                                                  //
     ("ft3-hits", bpo::value(&options.ft3Hits)->default_value("sgn_HitsFT3.root"), "TRKFT3: FT3's MC hits beside --hits (the disc crossings)") //
     ("kine", bpo::value(&options.kine)->default_value(""),
      "--complete-anatomy with --hits: the MC kinematics, a <prefix>_Kine.root (sgn_Kine.root), for the clutter test of the follow's steps") //
@@ -131,9 +139,6 @@ static int run(int argc, char** argv)
      "with --complete-anatomy: a CSV of the beam-line test on the class's own roads, every iteration with the beam constraint, against the MC") //
     ("anatomy-follow-loss", bpo::value(&options.anatomyFollowLoss)->default_value(""),
      "with --complete-anatomy and --hits: a CSV of the class's selected records dropped or kept as a fake, against the MC momentum along the leg") //
-    ("anatomy-gsf", bpo::value(&options.anatomyGsf)->default_value(""),
-     "with --complete-anatomy and --hits: a CSV of the Gaussian-sum filter and the Kalman fit, electron hypothesis, on every class particle's first "
-     "leg of own rows, each prefix's outward and each suffix's inward end against the MC momentum (plans/105 S2)") //
     ("anatomy-retry", bpo::bool_switch(&options.anatomyRetry),
      "with --complete-anatomy: a second selection round on the rows each iteration's length cut released, replayed and scored") //
     ("anatomy-pair-loss", bpo::value(&options.anatomyPairLoss)->default_value(""),

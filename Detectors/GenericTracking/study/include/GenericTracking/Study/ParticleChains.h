@@ -65,10 +65,10 @@ struct ParticleRows {
 class ParticleChains
 {
  public:
-  /// The chains of \a truth's rows, which are \a frame's; timed with \a hits
-  /// if given. \a arena runs the ordering.
+  /// The chains of \a rows, \a frame's, whose particles' truth is
+  /// \a particles; timed with \a hits if given. \a arena runs the ordering.
   template <DetectorLayout Det>
-  [[nodiscard]] static ParticleChains build(const TrackingTruth& truth, const TimeFrame<Det>& frame, const HitIndex* hits, o2::gtrk::detail::TaskArena& arena);
+  [[nodiscard]] static ParticleChains build(std::span<const TruthRow> rows, const ParticleTable& particles, const TimeFrame<Det>& frame, const HitIndex* hits, o2::gtrk::detail::TaskArena& arena);
 
   /// The particles, in increasing packed identity.
   [[nodiscard]] std::span<const std::uint64_t> particles() const { return mParticles; }
@@ -107,10 +107,9 @@ class ParticleChains
     return std::hypot(static_cast<double>(rows[row].r) - vertex[0], static_cast<double>(rows[row].z) - vertex[1]);
   }
 
- private:
   /// The radial direction of \a segment: +1 outward, -1 inward; from its ends,
   /// or where they are at one radius (a crossing at the turning point) from
-  /// its momentum.
+  /// its momentum. A leg's crossings all have its sign.
   [[nodiscard]] static int radialSign(const HitSegment& segment)
   {
     const double dr = std::hypot(segment.end[0], segment.end[1]) - std::hypot(segment.start[0], segment.start[1]);
@@ -121,6 +120,7 @@ class ParticleChains
     return along >= 0. ? 1 : -1;
   }
 
+ private:
   template <DetectorLayout Det>
   static void timeOrder(std::uint64_t particle, ParticleRows& chain, std::span<const TruthRow> rows, const TimeFrame<Det>& frame, const HitIndex& hits);
 
@@ -130,11 +130,11 @@ class ParticleChains
 };
 
 template <DetectorLayout Det>
-ParticleChains ParticleChains::build(const TrackingTruth& truth, const TimeFrame<Det>& frame, const HitIndex* hits, o2::gtrk::detail::TaskArena& arena)
+ParticleChains ParticleChains::build(std::span<const TruthRow> rows, const ParticleTable& particles, const TimeFrame<Det>& frame, const HitIndex* hits, o2::gtrk::detail::TaskArena& arena)
 {
   ParticleChains result;
   result.mFromHits = hits != nullptr;
-  auto rowsOf = rowsOfParticles(truth.rows);
+  auto rowsOf = rowsOfParticles(rows);
   result.mParticles.reserve(rowsOf.size());
   for (const auto& entry : rowsOf) {
     result.mParticles.push_back(entry.first);
@@ -144,13 +144,12 @@ ParticleChains ParticleChains::build(const TrackingTruth& truth, const TimeFrame
   for (std::size_t i = 0; i < result.mParticles.size(); ++i) {
     result.mChains[i].rows = std::move(rowsOf.at(result.mParticles[i]));
   }
-  const std::span<const TruthRow> rows{truth.rows};
   o2::gtrk::detail::parallelFor(arena, 0U, result.mParticles.size(), 1024, [&](std::size_t a, std::size_t b) {
     for (std::size_t i = a; i < b; ++i) {
       const auto particle = result.mParticles[i];
       auto& chain = result.mChains[i];
-      const auto found = truth.particles.find(particle);
-      const auto vertex = vertexRZ(found != truth.particles.end() ? &found->second : nullptr);
+      const auto found = particles.find(particle);
+      const auto vertex = vertexRZ(found != particles.end() ? &found->second : nullptr);
       const auto distance = [&](std::uint32_t row) { return pathDistance(rows, row, vertex); };
       std::ranges::sort(chain.rows, [&](std::uint32_t x, std::uint32_t y) { return distance(x) < distance(y) || (!(distance(y) < distance(x)) && x < y); });
       if (hits != nullptr) {
