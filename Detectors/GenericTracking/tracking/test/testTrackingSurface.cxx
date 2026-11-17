@@ -32,6 +32,7 @@
 
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <set>
 
 namespace o2::gtrk
@@ -73,7 +74,9 @@ BOOST_AUTO_TEST_CASE(PackedCovarianceIndexingIsUnambiguous)
 BOOST_AUTO_TEST_CASE(SurfaceAgreesWithTheGeometryItWasBuiltFrom)
 {
   const auto geo = toyGeometry<Mixed>();
-  const TrackingGeometry<Mixed> tgeo(geo);
+  // On the heap: its material tables are too large for the stack.
+  const auto tgeoOwner = std::make_unique<const TrackingGeometry<Mixed>>(geo);
+  const TrackingGeometry<Mixed>& tgeo = *tgeoOwner;
 
   // One barrel sensor and one disc sensor: the two orientations the single
   // bound model has to serve.
@@ -111,7 +114,9 @@ BOOST_AUTO_TEST_CASE(SurfaceAgreesWithTheGeometryItWasBuiltFrom)
 BOOST_AUTO_TEST_CASE(AxesAreOrthonormalAndRightHanded)
 {
   const auto geo = toyGeometry<Mixed>();
-  const TrackingGeometry<Mixed> tgeo(geo);
+  // On the heap: its material tables are too large for the stack.
+  const auto tgeoOwner = std::make_unique<const TrackingGeometry<Mixed>>(geo);
+  const TrackingGeometry<Mixed>& tgeo = *tgeoOwner;
 
   for (SensorID id = 0; id < static_cast<SensorID>(Mixed::nSensors); id += 97) {
     const TrackingSurface& s = tgeo.surface(id);
@@ -142,7 +147,9 @@ BOOST_AUTO_TEST_CASE(NormalsFallIntoTheTwoFamiliesTheClosedFormIntersectionNeeds
   // the transverse projection, so the intersection is a quadratic) or exactly
   // along z (disc: z is linear in path length). This pins that precondition.
   const auto geo = toyGeometry<Mixed>();
-  const TrackingGeometry<Mixed> tgeo(geo);
+  // On the heap: its material tables are too large for the stack.
+  const auto tgeoOwner = std::make_unique<const TrackingGeometry<Mixed>>(geo);
+  const TrackingGeometry<Mixed>& tgeo = *tgeoOwner;
 
   int barrel = 0;
   int disc = 0;

@@ -32,6 +32,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <memory>
 #include <random>
 #include <vector>
 
@@ -76,7 +77,8 @@ template <std::size_t N>
 struct Chain {
   using Mixed = detectors::ToyBarrel4Disc8;
   Geometry<Mixed> geometry = toyGeometry<Mixed>();
-  TrackingGeometry<Mixed> tracking{geometry};
+  // On the heap: its material tables are too large for the stack.
+  std::unique_ptr<TrackingGeometry<Mixed>> tracking = std::make_unique<TrackingGeometry<Mixed>>(geometry);
   Propagator propagator;
   std::array<Measurement, N> measurements;
   bool built = false;
@@ -93,11 +95,11 @@ struct Chain {
     constexpr Scalar kSigma = 5e-4F;
     for (std::size_t layer = 0; layer < N; ++layer) {
       if (layer > 0) {
-        const auto& from = tracking.surface(state.surface);
+        const auto& from = tracking->surface(state.surface);
         bool crossed = false;
         for (SensorID id = firstSensorOfLayer<Mixed>(static_cast<LayerID>(layer)); id < firstSensorOfLayer<Mixed>(static_cast<LayerID>(layer + 1)) && !crossed; ++id) {
           BoundTrackState probe = state;
-          if (propagate(propagator, probe, from, tracking.surface(id), PropagationDirection::kForward).status == PropagationStatus::kOk) {
+          if (propagate(propagator, probe, from, tracking->surface(id), PropagationDirection::kForward).status == PropagationStatus::kOk) {
             state = probe;
             crossed = true;
           }
@@ -242,8 +244,8 @@ BOOST_AUTO_TEST_CASE(WithoutLossItIsTheKalmanFit)
   for (int trial = 0; trial < 50; ++trial) {
     const Chain<4> chain(trial % 2 == 0 ? 3.F : -5.F, rng);
     BOOST_REQUIRE(chain.built);
-    const auto kalman = fitMeasurements(chain.propagator, chain.tracking, material, chain.measurements.data(), 4);
-    const auto gsf = fitGaussianSum<NoLoss>(chain.propagator, chain.tracking, material, chain.measurements.data(), 4);
+    const auto kalman = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), 4);
+    const auto gsf = fitGaussianSum<NoLoss>(chain.propagator, *chain.tracking, material, chain.measurements.data(), 4);
     BOOST_REQUIRE(kalman.status == PropagationStatus::kOk);
     BOOST_REQUIRE(gsf.fit.status == PropagationStatus::kOk);
     BOOST_TEST(gsf.outwardMixture.size == 1);
@@ -282,10 +284,10 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
     const Chain<kLayers> chain(trial % 2 == 0 ? 2.F : -4.F, rng);
     BOOST_REQUIRE(chain.built);
     const auto* measurements = chain.measurements.data();
-    const auto gsf = fitGaussianSum<TwoLosses, kPaths>(chain.propagator, chain.tracking, material, measurements, kLayers);
+    const auto gsf = fitGaussianSum<TwoLosses, kPaths>(chain.propagator, *chain.tracking, material, measurements, kLayers);
     BOOST_REQUIRE(gsf.fit.status == PropagationStatus::kOk);
-    const auto seed = makeChainSeed(chain.propagator, chain.tracking, measurements, kLayers);
-    const auto span = detail::spanMaterial(chain.tracking, material, measurements, kLayers);
+    const auto seed = makeChainSeed(chain.propagator, *chain.tracking, measurements, kLayers);
+    const auto span = detail::spanMaterial(*chain.tracking, material, measurements, kLayers);
     for (const auto direction : {PropagationDirection::kForward, PropagationDirection::kBackward}) {
       const bool outward = direction == PropagationDirection::kForward;
       const auto& mixture = outward ? gsf.outwardMixture : gsf.mixture;
@@ -306,7 +308,7 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
           reference.qOverP *= betheHeitlerScale(loss, direction);
           reference.lossScale *= betheHeitlerScale(loss, direction);
         };
-        const auto referenceTo = [&](int index) { return detail::referenceFor(reference, kLayers, direction, [&] { return detail::leaveOneOutQOverP(chain.propagator, chain.tracking, measurements, kLayers, index); }); };
+        const auto referenceTo = [&](int index) { return detail::referenceFor(reference, kLayers, direction, [&] { return detail::leaveOneOutQOverP(chain.propagator, *chain.tracking, measurements, kLayers, index); }); };
         detail::DiffuseFactors diffuse;
         BOOST_REQUIRE(detail::startDiffuse(measurements[first], state[path], diffuse));
         int plane = first;
@@ -318,7 +320,7 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
           Scalar density = 0.F;
           const Scalar stepReference = referenceTo(plane + increment);
           Scalar carried = stepReference;
-          BOOST_REQUIRE((detail::diffuseStepBody<kRule, true>(chain.propagator, chain.tracking, span, measurements[plane + increment], direction, state[path], diffuse, chi2, carried, &density) == PropagationStatus::kOk));
+          BOOST_REQUIRE((detail::diffuseStepBody<kRule, true>(chain.propagator, *chain.tracking, span, measurements[plane + increment], direction, state[path], diffuse, chi2, carried, &density) == PropagationStatus::kOk));
           detail::advanceReference(reference, kLayers, direction, stepReference, carried);
           logWeight[path] -= 0.5 * static_cast<double>(density);
         }
@@ -333,7 +335,7 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
             Scalar logLikelihood = 0.F;
             const Scalar stepReference = referenceTo(plane + increment);
             Scalar carried = stepReference;
-            BOOST_REQUIRE((detail::filterStepBody<false, kRule, true>(chain.propagator, chain.tracking, span, measurements[plane + increment], direction, state[path], factors[path], chi2, carried, 1.F, &logLikelihood) == PropagationStatus::kOk));
+            BOOST_REQUIRE((detail::filterStepBody<false, kRule, true>(chain.propagator, *chain.tracking, span, measurements[plane + increment], direction, state[path], factors[path], chi2, carried, 1.F, &logLikelihood) == PropagationStatus::kOk));
             detail::advanceReference(reference, kLayers, direction, stepReference, carried);
             logWeight[path] += logLikelihood;
           }

@@ -311,7 +311,9 @@ BOOST_AUTO_TEST_CASE(BarrelAndDiscPredictionsMatchCrossedSensors)
 {
   using Mixed = detectors::ToyBarrel4Disc8;
   const auto detector = toyGeometry<Mixed>();
-  const TrackingGeometry<Mixed> geometry{detector};
+  // On the heap: its material tables are too large for the stack.
+  const auto geometryOwner = std::make_unique<const TrackingGeometry<Mixed>>(detector);
+  const TrackingGeometry<Mixed>& geometry = *geometryOwner;
   const auto iteration = parameters<Mixed>();
   const Propagator propagator;
 
@@ -343,7 +345,9 @@ BOOST_AUTO_TEST_CASE(PredictionRefusesACrossingPastHalfATurn)
 {
   using Mixed = detectors::ToyBarrel4Disc8;
   const auto detector = toyGeometry<Mixed>();
-  const TrackingGeometry<Mixed> geometry{detector};
+  // On the heap: its material tables are too large for the stack.
+  const auto geometryOwner = std::make_unique<const TrackingGeometry<Mixed>>(detector);
+  const TrackingGeometry<Mixed>& geometry = *geometryOwner;
   const auto iteration = parameters<Mixed>();
   const Propagator propagator;
 
@@ -382,7 +386,9 @@ BOOST_AUTO_TEST_CASE(UpdateRefusesAnIndefiniteCovariance)
 {
   using Mixed = detectors::ToyBarrel4Disc8;
   const auto detector = toyGeometry<Mixed>();
-  const TrackingGeometry<Mixed> geometry{detector};
+  // On the heap: its material tables are too large for the stack.
+  const auto geometryOwner = std::make_unique<const TrackingGeometry<Mixed>>(detector);
+  const TrackingGeometry<Mixed>& geometry = *geometryOwner;
   const Propagator propagator;
   const UniformMaterial material;
 
@@ -426,7 +432,7 @@ BOOST_AUTO_TEST_CASE(UpdateRefusesAnIndefiniteCovariance)
   CovarianceFactors separateFactors;
   Scalar separateChi2 = 0.F;
   BOOST_REQUIRE(follow::updateCandidate<false>(massive, geometry, filled, measurement, PropagationDirection::kForward, state, factorCovariance(state.cov), separate, separateFactors, separateChi2, 1.F));
-  BoundParameters aliased = state;
+  BoundParameters aliased = static_cast<const BoundParameters&>(state);
   auto aliasedFactors = factorCovariance(state.cov);
   Scalar aliasedChi2 = 0.F;
   BOOST_REQUIRE(follow::updateCandidate<false>(massive, geometry, filled, measurement, PropagationDirection::kForward, aliased, aliasedFactors, aliased, aliasedFactors, aliasedChi2, 1.F));
@@ -1325,7 +1331,9 @@ BOOST_AUTO_TEST_CASE(EverySensorIsListedAtItsCentre)
   }
   using Mixed = detectors::ToyBarrel4Disc8;
   const auto detector = toyGeometry<Mixed>();
-  const TrackingGeometry<Mixed> mixed{detector};
+  // On the heap: its material tables are too large for the stack.
+  const auto mixedOwner = std::make_unique<const TrackingGeometry<Mixed>>(detector);
+  const TrackingGeometry<Mixed>& mixed = *mixedOwner;
   const SensorCells<Mixed> mixedCells(mixed);
   std::size_t missed = 0U;
   for (const auto& surface : mixed.surfaces()) {
