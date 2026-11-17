@@ -110,11 +110,14 @@ foreach(backend IN ITEMS CUDA HIP)
   # launch bounds do not reach the out-of-line functions it calls, so a
   # register target is the unit's. Fewer registers per thread leave more
   # warps resident to hide the memory waits of the fits and the follow; each
-  # cap is where its unit runs fastest. The provider's out-of-line LUT query
-  # takes 93 registers, and no unit links below that. nvcc applies one cap to
-  # every architecture a unit is compiled for. HIP has none: there the follow
-  # already runs at the register file's limit, and a lower one only spills.
-  if(backend STREQUAL "CUDA")
+  # cap is where its unit runs fastest. A unit cannot link below the
+  # registers of the provider's out-of-line LUT query, which the device link
+  # compiles without a cap; without contraction (the deterministic mode) that
+  # query takes more than the caps, so there the units are not capped. nvcc
+  # applies one cap to every architecture a unit is compiled for. HIP has
+  # none: there the follow already runs at the register file's limit, and a
+  # lower one only spills.
+  if(backend STREQUAL "CUDA" AND NOT GPUCA_DETERMINISTIC_MODE GREATER_EQUAL ${GPUCA_DETERMINISTIC_MODE_MAP_NO_FAST_MATH})
     set_source_files_properties(cuda/DeviceTrackerITS.cu cuda/DeviceTrackerTRKFT3.cu PROPERTIES COMPILE_OPTIONS -maxrregcount=96)
     set_source_files_properties(cuda/DeviceTrackerMFT.cu PROPERTIES COMPILE_OPTIONS -maxrregcount=128)
   endif()
