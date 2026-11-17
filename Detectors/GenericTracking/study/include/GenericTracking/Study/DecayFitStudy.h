@@ -23,19 +23,26 @@
 /// Gaussian-sum filter's, a later step). Each daughter's rows are refitted
 /// with its true species (`refitWithHypothesis`); the vertex is fitted under
 /// every `DecayFitVariant`, a record each: from the daughters' states, and
-/// from their rows (`kRows`, DecayRowsFit.h, the information limit).
+/// from their rows (`kRows`, DecayRowsFit.h, the information limit); and
+/// both fits (kFull, kRows) under the mother's mass, its production at the
+/// MC collision vertex, and both (DecayConstraints.h).
 ///
 /// Truth: the vertex against the MC decay point (the products' production
 /// point), in the global frame and along the true flight; the daughters'
 /// momenta against their MC momenta at production; the invariant mass of the
 /// refitted momenta and of the carried ones (without the vertex's
 /// information) against the true daughters' (with the species' masses), the
-/// summed momentum against theirs.
+/// summed momentum against theirs. The decay length L is the vertex's
+/// distance from the collision vertex along the mother's direction, ct = L M /
+/// p with the mother's PDG mass, the truth's from the true decay point and
+/// the true daughters' momenta; the mother's direction is the summed
+/// momentum's.
 
 #ifndef GTRK_STUDY_DECAYFITSTUDY_H_
 #define GTRK_STUDY_DECAYFITSTUDY_H_
 
 #include "GenericTracking/Study/DecayCandidates.h"
+#include "GenericTracking/Study/DecayConstraints.h"
 #include "GenericTracking/Study/DecayRowsFit.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/DecayTrees.h"
@@ -76,13 +83,17 @@ struct DecayFitRecord {
   std::uint8_t source = 0U; ///< ChainSource
   std::uint64_t particle = 0U;
   std::int32_t pdg = 0;
-  std::uint8_t variant = 0U; ///< DecayFitVariant
+  std::uint8_t variant = 0U;     ///< DecayFitVariant
+  std::uint8_t constraints = 0U; ///< 1 the mass, 2 the production point
   std::uint8_t daughters = 0U;
   std::uint8_t status = 0U; ///< DecayFitStatus, or kRefitFailed
   std::uint8_t iterations = 0U;
   float chi2 = 0.F;
   std::int16_t ndf = 0;
-  float flight = 0.F;        ///< the true one [cm]
+  float flight = 0.F; ///< the true one [cm]
+  /// The mother's production point's distance from its collision's vertex
+  /// [cm]: 0 for a mother made at the collision, NaN without the collision.
+  float productionOffset = std::numeric_limits<float>::quiet_NaN();
   float decayR = 0.F;        ///< the true decay point's distance from the z axis [cm]
   float pTrue = 0.F;         ///< the true daughters' summed |p| [GeV]
   float minDaughterPt = 0.F; ///< the lowest true daughter pT [GeV]
@@ -109,6 +120,16 @@ struct DecayFitRecord {
   float massTrue = 0.F;
   float p = 0.F; ///< the refitted momenta's summed |p| [GeV]
   float sP = 0.F;
+  float decayLength = 0.F; ///< L [cm]
+  float sDecayLength = 0.F;
+  float decayLengthTrue = 0.F;
+  float ct = 0.F; ///< [cm]
+  float sCt = 0.F;
+  float ctTrue = 0.F;
+  float dPhiMother = 0.F; ///< the mother's direction, fitted less true
+  float dThetaMother = 0.F;
+  float sPhiMother = 0.F;
+  float sThetaMother = 0.F;
   /// The first daughters' refitted phi, theta, q/p less the true ones, and
   /// their sigmas.
   std::array<float, kDaughterColumns> dPhi{};
@@ -127,12 +148,14 @@ struct DecayFitRecord {
     visit("particle", particle);
     visit("pdg", pdg);
     visit("variant", variant);
+    visit("constraints", constraints);
     visit("daughters", daughters);
     visit("status", status);
     visit("iterations", iterations);
     visit("chi2", chi2);
     visit("ndf", ndf);
     visit("flight", flight);
+    visit("productionOffset", productionOffset);
     visit("decayR", decayR);
     visit("pTrue", pTrue);
     visit("minDaughterPt", minDaughterPt);
@@ -159,6 +182,16 @@ struct DecayFitRecord {
     visit("massTrue", massTrue);
     visit("p", p);
     visit("sP", sP);
+    visit("decayLength", decayLength);
+    visit("sDecayLength", sDecayLength);
+    visit("decayLengthTrue", decayLengthTrue);
+    visit("ct", ct);
+    visit("sCt", sCt);
+    visit("ctTrue", ctTrue);
+    visit("dPhiMother", dPhiMother);
+    visit("dThetaMother", dThetaMother);
+    visit("sPhiMother", sPhiMother);
+    visit("sThetaMother", sThetaMother);
     static constexpr std::array<std::string_view, kDaughterColumns> kSuffix{"0", "1", "2"};
     for (std::size_t d = 0; d < kDaughterColumns; ++d) {
       // The names must outlive the writer's first call: kept in static storage.
@@ -264,6 +297,62 @@ struct Kinematics {
   out.sMass = std::sqrt(std::max(varMass, 0.));
   out.sP = std::sqrt(std::max(varP, 0.));
   return out;
+}
+
+/// The mother's decay length from \a point along its direction, ct with
+/// \a mass, and its direction, each with its sigma from \a covariance (the
+/// fit's, V and the momenta).
+struct MotherQuantities {
+  double length = 0.;
+  double sLength = 0.;
+  double ct = 0.;
+  double sCt = 0.;
+  double phi = 0.;
+  double sPhi = 0.;
+  double theta = 0.;
+  double sTheta = 0.;
+};
+
+[[nodiscard]] inline MotherQuantities motherQuantities(const std::array<double, 3>& vertex, std::span<const std::array<double, 3>> momenta, const std::array<double, 3>& point, double mass, std::span<const double> covariance)
+{
+  using namespace decay_fit_detail;
+  using D = Dual<kConstraintInputs>;
+  const int count = static_cast<int>(momenta.size());
+  const int n = 3 + (3 * count);
+  std::array<D, 3> v{};
+  for (int k = 0; k < 3; ++k) {
+    v[k].v = vertex[k];
+    v[k].d[k] = 1.;
+  }
+  std::array<D, 3> total{};
+  for (int i = 0; i < count; ++i) {
+    std::array<D, 3> q{};
+    for (int k = 0; k < 3; ++k) {
+      q[k].v = momenta[i][k];
+      q[k].d[3 + (3 * i) + k] = 1.;
+    }
+    const D p = D{q[2].v > 0. ? 1. : -1.} / q[2];
+    const D pt = p * sin(q[1]);
+    total[0] = total[0] + (pt * cos(q[0]));
+    total[1] = total[1] + (pt * sin(q[0]));
+    total[2] = total[2] + (p * cos(q[1]));
+  }
+  const D pt = sqrt((total[0] * total[0]) + (total[1] * total[1]));
+  const D p = sqrt((pt * pt) + (total[2] * total[2]));
+  const D length = (((v[0] + (-point[0])) * total[0]) + ((v[1] + (-point[1])) * total[1]) + ((v[2] + (-point[2])) * total[2])) / p;
+  const D ct = (mass * length) / p;
+  const D phi = atan2(total[1], total[0]);
+  const D theta = atan2(pt, total[2]);
+  const auto sigma = [&](const D& value) {
+    double variance = 0.;
+    for (int a = 0; a < n; ++a) {
+      for (int b = 0; b < n; ++b) {
+        variance += value.d[a] * covariance[a * n + b] * value.d[b];
+      }
+    }
+    return std::sqrt(std::max(variance, 0.));
+  };
+  return {.length = length.v, .sLength = sigma(length), .ct = ct.v, .sCt = sigma(ct), .phi = phi.v, .sPhi = sigma(phi), .theta = theta.v, .sTheta = sigma(theta)};
 }
 
 } // namespace decay_fit_study_detail
@@ -443,18 +532,56 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         .refitStatus = one.refitStatus,
         .massTrue = static_cast<float>(std::sqrt(std::max((eTrue * eTrue) - (pTotal * pTotal), 0.))),
       };
-      std::array<DecayVertexFitResult, kDecayFitVariants> fits{};
+      // The mother: its PDG mass, its collision's vertex, the true decay length.
+      const auto* species = o2::O2DatabasePDG::Instance()->GetParticle(mother.pdg);
+      const double motherMass = species == nullptr ? 0. : species->Mass();
+      const auto collision = event.collisions->find(collisionOf(mother.id));
+      const bool hasCollision = collision != event.collisions->end();
+      const std::array<double, 3> point = hasCollision ? collision->second : std::array<double, 3>{};
+      if (hasCollision) {
+        base.productionOffset = static_cast<float>(std::hypot(mother.vertex[0] - point[0], mother.vertex[1] - point[1], mother.vertex[2] - point[2]));
+        base.decayLengthTrue = static_cast<float>((((decay[0] - point[0]) * pTrue[0]) + ((decay[1] - point[1]) * pTrue[1]) + ((decay[2] - point[2]) * pTrue[2])) / pTotal);
+        base.ctTrue = static_cast<float>(base.decayLengthTrue * motherMass / pTotal);
+      }
+      // The fits: every variant alone, then kFull and kRows under the mass,
+      // the production point, and both.
+      struct Job {
+        DecayFitVariant variant;
+        std::uint8_t constraints;
+      };
+      std::vector<Job> jobs;
       for (std::size_t v = 0; v < kDecayFitVariants; ++v) {
+        jobs.push_back({static_cast<DecayFitVariant>(v), 0U});
+      }
+      for (const auto variant : {DecayFitVariant::kFull, DecayFitVariant::kRows}) {
+        for (const std::uint8_t set : {std::uint8_t{1}, std::uint8_t{2}, std::uint8_t{3}}) {
+          jobs.push_back({variant, set});
+        }
+      }
+      std::array<DecayVertexFitResult, kDecayFitVariants> fits{};
+      for (const auto& job : jobs) {
         DecayFitRecord record = base;
-        record.variant = static_cast<std::uint8_t>(v);
+        record.variant = static_cast<std::uint8_t>(job.variant);
+        record.constraints = job.constraints;
         if (one.refitFailed) {
           record.status = DecayFitRecord::kRefitFailed;
           one.records.push_back(record);
           continue;
         }
-        const auto variant = static_cast<DecayFitVariant>(v);
-        fits[v] = variant == DecayFitVariant::kRows ? fitDecayRows(std::span<const RowsDaughter>{rowsDaughters}, material, fits[static_cast<std::size_t>(DecayFitVariant::kFull)]) : fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, variant);
-        const auto& fit = fits[v];
+        const bool wantMass = (job.constraints & 1U) != 0U;
+        const bool wantProduction = (job.constraints & 2U) != 0U;
+        if ((wantMass && !(motherMass > 0.)) || (wantProduction && !hasCollision)) {
+          record.status = static_cast<std::uint8_t>(DecayFitStatus::kNoStart); // nothing to constrain to
+          one.records.push_back(record);
+          continue;
+        }
+        const DecayConstraints constraints{.mass = wantMass, .massGeV = motherMass, .production = wantProduction, .point = point};
+        const auto& full = fits[static_cast<std::size_t>(DecayFitVariant::kFull)];
+        auto outcome = job.variant == DecayFitVariant::kRows ? fitDecayRows(std::span<const RowsDaughter>{rowsDaughters}, material, full, constraints) : fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, job.variant, constraints);
+        if (job.constraints == 0U) {
+          fits[static_cast<std::size_t>(job.variant)] = outcome;
+        }
+        const auto& fit = outcome;
         record.status = static_cast<std::uint8_t>(fit.status);
         record.iterations = fit.iterations;
         if (fit.status != DecayFitStatus::kOk) {
@@ -491,6 +618,17 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.sMass = static_cast<float>(fitted.sMass);
         record.p = static_cast<float>(fitted.p);
         record.sP = static_cast<float>(fitted.sP);
+        if (hasCollision) {
+          const auto motherFit = motherQuantities(fit.vertex, fit.momenta, point, motherMass, c);
+          record.decayLength = static_cast<float>(motherFit.length);
+          record.sDecayLength = static_cast<float>(motherFit.sLength);
+          record.ct = static_cast<float>(motherFit.ct);
+          record.sCt = static_cast<float>(motherFit.sCt);
+          record.dPhiMother = static_cast<float>(std::remainder(motherFit.phi - std::atan2(pTrue[1], pTrue[0]), 2. * std::numbers::pi));
+          record.dThetaMother = static_cast<float>(motherFit.theta - std::atan2(std::hypot(pTrue[0], pTrue[1]), pTrue[2]));
+          record.sPhiMother = static_cast<float>(motherFit.sPhi);
+          record.sThetaMother = static_cast<float>(motherFit.sTheta);
+        }
         // The carried momenta: independent of one another, each its own 3 x 3.
         std::vector<double> carried(static_cast<std::size_t>(9 * count * count), 0.);
         const int stride = 3 * static_cast<int>(count);
