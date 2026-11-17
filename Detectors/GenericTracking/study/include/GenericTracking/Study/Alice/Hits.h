@@ -25,7 +25,9 @@
 #include <concepts>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 class TFile;
@@ -91,6 +93,28 @@ class HitFile
   TTree* mDiscTree = nullptr;
   bool mRead = false;
   std::vector<std::vector<HitSegment>> mEvents; ///< by event
+};
+
+/// A hit file's segments by particle: the signal source's (source 0), each
+/// particle's in the file's order. It points into the file's events, which
+/// it reads whole, so the file must outlive it; lookups only read, from any
+/// thread.
+class HitIndex
+{
+ public:
+  explicit HitIndex(HitFile& file);
+
+  /// \a particle's segments (a packed particle identity, `TruthRow`'s), in
+  /// the file's order; none for another source or a particle without hits.
+  [[nodiscard]] std::span<const HitSegment* const> segments(std::uint64_t particle) const;
+
+  /// \a particle's segment on \a chip whose middle is nearest \a near (the
+  /// squared distance, the first in the file's order on a tie); none without
+  /// one.
+  [[nodiscard]] const HitSegment* crossing(std::uint64_t particle, std::uint32_t chip, const std::array<double, 3>& near) const;
+
+ private:
+  std::unordered_map<std::uint64_t, std::vector<const HitSegment*>> mSegments; ///< by event and track
 };
 
 } // namespace o2::gtrk::study

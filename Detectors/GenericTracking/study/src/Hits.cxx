@@ -11,6 +11,7 @@
 
 #include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Workflow/TrackLabel.h"
 
 #include "DataFormatsTRKFT3/Hit.h"
 #include "ITSMFTSimulation/Hit.h"
@@ -19,6 +20,7 @@
 #include <TTree.h>
 
 #include <format>
+#include <limits>
 #include <stdexcept>
 
 namespace o2::gtrk::study
@@ -26,6 +28,9 @@ namespace o2::gtrk::study
 
 namespace
 {
+
+/// An index key: an event and a track within it.
+[[nodiscard]] std::uint64_t segmentKey(int event, int track) { return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(event)) << 32U) | static_cast<std::uint32_t>(track); }
 /// Every event's hits of type \a HitType from \a branch, as segments, appended to its event's.
 template <typename HitType>
 void readSegments(TTree& tree, const char* branch, std::vector<std::vector<HitSegment>>& events, std::uint32_t firstSensor = 0U)
@@ -106,6 +111,46 @@ const std::vector<HitSegment>& HitFile::event(int event)
   }
   static const std::vector<HitSegment> kNone;
   return event < 0 || static_cast<std::size_t>(event) >= mEvents.size() ? kNone : mEvents[static_cast<std::size_t>(event)];
+}
+
+HitIndex::HitIndex(HitFile& file)
+{
+  for (int event = 0; event < file.nEvents(); ++event) {
+    for (const auto& segment : file.event(event)) {
+      mSegments[segmentKey(event, segment.track)].push_back(&segment);
+    }
+  }
+}
+
+std::span<const HitSegment* const> HitIndex::segments(std::uint64_t particle) const
+{
+  const auto label = workflow::labelOfParticle(particle);
+  if (label.getSourceID() != 0) {
+    return {};
+  }
+  const auto found = mSegments.find(segmentKey(label.getEventID(), label.getTrackID()));
+  return found != mSegments.end() ? std::span<const HitSegment* const>{found->second} : std::span<const HitSegment* const>{};
+}
+
+const HitSegment* HitIndex::crossing(std::uint64_t particle, std::uint32_t chip, const std::array<double, 3>& near) const
+{
+  const HitSegment* best = nullptr;
+  double bestDistance = std::numeric_limits<double>::infinity();
+  for (const auto* segment : segments(particle)) {
+    if (segment->chip != chip) {
+      continue;
+    }
+    double distance = 0.;
+    for (std::size_t i = 0; i < 3U; ++i) {
+      const double d = (0.5 * (segment->start[i] + segment->end[i])) - near[i];
+      distance += d * d;
+    }
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = segment;
+    }
+  }
+  return best;
 }
 
 } // namespace o2::gtrk::study
