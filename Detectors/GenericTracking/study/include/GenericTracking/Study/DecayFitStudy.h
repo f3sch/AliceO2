@@ -16,11 +16,14 @@
 /// The decays: members of the decay trees with a vertex of their own (the
 /// products made away from the member's production point), whose products are
 /// all final charged particles (no composite below: one vertex), two to
-/// `kMaxDaughters` of them, every one with a chain from the source; no
+/// `kMaxDaughters` of them, every one findable -- its rows on a chain of at
+/// least four linked layers (`isFindable`, no pT floor): a track of three is
+/// barely defined -- and with a chain from the source; no
 /// photon's conversion and no electron daughter (their fit is the
 /// Gaussian-sum filter's, a later step). Each daughter's rows are refitted
 /// with its true species (`refitWithHypothesis`); the vertex is fitted under
-/// every `DecayFitVariant`, a record each.
+/// every `DecayFitVariant`, a record each: from the daughters' states, and
+/// from their rows (`kRows`, DecayRowsFit.h, the information limit).
 ///
 /// Truth: the vertex against the MC decay point (the products' production
 /// point), in the global frame and along the true flight; the daughters'
@@ -33,6 +36,8 @@
 #define GTRK_STUDY_DECAYFITSTUDY_H_
 
 #include "GenericTracking/Study/DecayCandidates.h"
+#include "GenericTracking/Study/DecayRowsFit.h"
+#include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/DecayTrees.h"
 #include "GenericTracking/Study/DecayVertexFit.h"
 #include "GenericTracking/Study/RecordWriter.h"
@@ -274,7 +279,7 @@ class DecayFitStudy
 
   [[nodiscard]] std::vector<std::string> summary() const
   {
-    return {std::format("decay fit study: {} decays, {} records into {}; {} with a failed daughter refit", mDecays, mRecords, mWriter->path(), mRefitFailed)};
+    return {std::format("decay fit study: {} decays, {} records into {}; {} with a failed daughter refit; {} left out for a daughter not findable", mDecays, mRecords, mWriter->path(), mRefitFailed, mUnfindable)};
   }
 
  private:
@@ -282,6 +287,7 @@ class DecayFitStudy
   std::size_t mDecays = 0U;
   std::size_t mRecords = 0U;
   std::size_t mRefitFailed = 0U;
+  std::size_t mUnfindable = 0U;
 };
 
 template <DetectorLayout Det>
@@ -299,6 +305,14 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       best = &chain;
     }
   }
+
+  // A daughter must be findable: on a chain of four linked layers, at any pT.
+  const auto rule = comparisonSettings<Det>(4, 0.);
+  const auto layers = particleLayers(event.rows, rule);
+  const auto findable = [&](const TreeParticle& leaf) {
+    const auto found = layers.find(leaf.id);
+    return found != layers.end() && isFindable(std::numeric_limits<float>::max(), found->second, rule);
+  };
 
   struct Work {
     const TreeParticle* mother = nullptr;
@@ -328,9 +342,14 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     const bool usable = std::ranges::all_of(shape.leaves, [&](const TreeParticle* leaf) {
       return std::abs(leaf->pdg) != 11 && truthSpecies(leaf->pdg).has_value() && chainOf.contains(leaf->id);
     });
-    if (usable) {
-      work.push_back({.mother = &member, .leaves = shape.leaves});
+    if (!usable) {
+      continue;
     }
+    if (!std::ranges::all_of(shape.leaves, [&](const TreeParticle* leaf) { return findable(*leaf); })) {
+      ++mUnfindable;
+      continue;
+    }
+    work.push_back({.mother = &member, .leaves = shape.leaves});
   }
 
   const auto& frame = *event.frame;
@@ -341,6 +360,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       auto& one = work[index];
       const auto count = one.leaves.size();
       std::vector<DecayDaughter> daughters(count);
+      std::vector<RowsDaughter> rowsDaughters(count);
       std::vector<double> masses(count);
       std::uint8_t minRows = std::numeric_limits<std::uint8_t>::max();
       for (const auto* leaf : one.leaves) {
@@ -361,6 +381,14 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         auto propagator = event.propagator;
         propagator.massGeV = species.mass;
         daughters[i] = {.innermost = refit.innermost, .surface = geometry.planeOf(rows[0]), .propagator = propagator, .mass = species.mass};
+        auto& own = rowsDaughters[i];
+        own.propagator = propagator;
+        for (const auto at : chain.rows) {
+          const auto m = frame.measurement(at);
+          own.planes.push_back(geometry.planeOf(m));
+          own.positions.push_back({m.loc0, m.loc1});
+          own.covariance.push_back({m.varLoc0, m.covLoc01, m.varLoc1});
+        }
         masses[i] = species.mass;
       }
 
@@ -413,6 +441,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         .refitStatus = one.refitStatus,
         .massTrue = static_cast<float>(std::sqrt(std::max((eTrue * eTrue) - (pTotal * pTotal), 0.))),
       };
+      std::array<DecayVertexFitResult, kDecayFitVariants> fits{};
       for (std::size_t v = 0; v < kDecayFitVariants; ++v) {
         DecayFitRecord record = base;
         record.variant = static_cast<std::uint8_t>(v);
@@ -421,7 +450,9 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           one.records.push_back(record);
           continue;
         }
-        const auto fit = fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, static_cast<DecayFitVariant>(v));
+        const auto variant = static_cast<DecayFitVariant>(v);
+        fits[v] = variant == DecayFitVariant::kRows ? fitDecayRows(std::span<const RowsDaughter>{rowsDaughters}, material, fits[static_cast<std::size_t>(DecayFitVariant::kFull)]) : fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, variant);
+        const auto& fit = fits[v];
         record.status = static_cast<std::uint8_t>(fit.status);
         record.iterations = fit.iterations;
         if (fit.status != DecayFitStatus::kOk) {

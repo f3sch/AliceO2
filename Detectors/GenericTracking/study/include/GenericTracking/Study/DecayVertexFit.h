@@ -61,6 +61,7 @@ enum class DecayFitVariant : std::uint8_t {
   kFull,       ///< carried with their material to the plane about every iteration's vertex
   kCarryOnce,  ///< carried once, to the plane about the start; later iterations re-linearise only
   kNoMaterial, ///< carried every iteration, without material
+  kRows,       ///< not this fit's: the rows' fit (DecayRowsFit.h), from kFull's solution
   kCount
 };
 inline constexpr std::size_t kDecayFitVariants = static_cast<std::size_t>(DecayFitVariant::kCount);

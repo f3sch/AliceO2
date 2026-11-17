@@ -11,13 +11,15 @@
 
 /// \file testDecayVertexFit.cxx
 /// \brief A decay vertex fitted from its daughters' states (DecayVertexFit.h)
-///        on exact helices without material: the truth back from exact
-///        states, unit pulls and the chi2's mean from smeared ones.
+///        and from their rows (DecayRowsFit.h) on exact helices without
+///        material: the truth back from exact inputs, unit pulls and the
+///        chi2's mean from smeared ones.
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK decay vertex fit
 #include <boost/test/unit_test.hpp>
 
+#include "GenericTracking/Study/DecayRowsFit.h"
 #include "GenericTracking/Study/DecayVertexFit.h"
 
 #include "DetectorsBase/MatCell.h"
@@ -84,7 +86,124 @@ DecayDaughter daughterOf(const Truth& truth, const Propagator& prop)
   return {.innermost = out, .surface = target, .propagator = prop, .mass = prop.massGeV};
 }
 
+/// A daughter of \a truth from kVertex as rows: its exact crossings of six
+/// planes 2-7 cm downstream (the library's propagation), 5 um errors.
+RowsDaughter rowsOf(const Truth& truth, const Propagator& prop)
+{
+  const auto start = beamLinePlane(static_cast<Scalar>(kVertex[0]), static_cast<Scalar>(kVertex[1]), static_cast<Scalar>(truth.phi));
+  BoundTrackState state;
+  state.par[kLoc0] = 0.F;
+  state.par[kLoc1] = static_cast<Scalar>(kVertex[2]);
+  state.par[kPhi] = static_cast<Scalar>(truth.phi);
+  state.par[kTheta] = static_cast<Scalar>(truth.theta);
+  state.par[kQOverP] = static_cast<Scalar>(truth.qOverP);
+  RowsDaughter rows{.propagator = prop};
+  for (int k = 0; k < 6; ++k) {
+    TrackingSurface plane;
+    const double c = std::cos(truth.phi);
+    const double s = std::sin(truth.phi);
+    const double distance = 2. + k;
+    plane.origin[0] = static_cast<Scalar>(kVertex[0] + (distance * c));
+    plane.origin[1] = static_cast<Scalar>(kVertex[1] + (distance * s));
+    plane.axis0[0] = static_cast<Scalar>(-s);
+    plane.axis0[1] = static_cast<Scalar>(c);
+    plane.axis1[2] = 1.F;
+    plane.normal[0] = static_cast<Scalar>(c);
+    plane.normal[1] = static_cast<Scalar>(s);
+    plane.id = static_cast<SensorID>(k + 1);
+    SolenoidJacobian jacobian;
+    BoundTrackState out = state;
+    const auto status = jacobianAnalytic(prop, state, start, plane, PropagationDirection::kForward, jacobian, &out);
+    BOOST_REQUIRE(status == PropagationStatus::kOk || status == PropagationStatus::kOutOfBounds);
+    rows.planes.push_back(plane);
+    rows.positions.push_back({out.loc0(), out.loc1()});
+    rows.covariance.push_back({25e-8, 0., 25e-8});
+  }
+  return rows;
+}
+
+/// The rows' fit's start: the truth, as the states' fit would give it.
+DecayVertexFitResult truthStart()
+{
+  DecayVertexFitResult start;
+  start.status = DecayFitStatus::kOk;
+  start.vertex = kVertex;
+  for (const auto& truth : kDaughters) {
+    start.momenta.push_back({truth.phi, truth.theta, truth.qOverP});
+  }
+  return start;
+}
+
 } // namespace
+
+BOOST_AUTO_TEST_CASE(ExactRowsGiveTheTruthBack)
+{
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  std::vector<RowsDaughter> daughters;
+  for (const auto& truth : kDaughters) {
+    daughters.push_back(rowsOf(truth, prop));
+  }
+  auto start = truthStart();
+  start.vertex[0] += 0.01; // away from the truth, to find it again
+  const auto fit = fitDecayRows(std::span<const RowsDaughter>{daughters}, NoMaterial{}, start);
+  BOOST_REQUIRE(fit.status == DecayFitStatus::kOk);
+  for (int k = 0; k < 3; ++k) {
+    BOOST_TEST(std::abs(fit.vertex[k] - kVertex[k]) < 2e-5);
+  }
+  for (std::size_t i = 0; i < kDaughters.size(); ++i) {
+    BOOST_TEST(std::abs((fit.momenta[i][2] / kDaughters[i].qOverP) - 1.) < 1e-3);
+  }
+  BOOST_TEST(fit.ndf == (2 * 18) - 12);
+}
+
+BOOST_AUTO_TEST_CASE(SmearedRowsGiveUnitPulls)
+{
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  std::vector<RowsDaughter> exact;
+  for (const auto& truth : kDaughters) {
+    exact.push_back(rowsOf(truth, prop));
+  }
+  std::mt19937 random{54321U};
+  std::normal_distribution<double> gauss;
+  constexpr int kTrials = 2000;
+  std::array<double, 3> sum{};
+  std::array<double, 3> sum2{};
+  double chi2 = 0.;
+  int fitted = 0;
+  for (int trial = 0; trial < kTrials; ++trial) {
+    auto daughters = exact;
+    for (auto& daughter : daughters) {
+      for (auto& position : daughter.positions) {
+        position[0] += gauss(random) * 5e-4;
+        position[1] += gauss(random) * 5e-4;
+      }
+    }
+    const auto fit = fitDecayRows(std::span<const RowsDaughter>{daughters}, NoMaterial{}, truthStart());
+    if (fit.status != DecayFitStatus::kOk) {
+      continue;
+    }
+    ++fitted;
+    const int n = 3 + (3 * static_cast<int>(daughters.size()));
+    for (int k = 0; k < 3; ++k) {
+      const double pull = (fit.vertex[k] - kVertex[k]) / std::sqrt(fit.covariance[k * n + k]);
+      sum[k] += pull;
+      sum2[k] += pull * pull;
+    }
+    chi2 += fit.chi2;
+  }
+  BOOST_TEST(fitted == kTrials);
+  for (int k = 0; k < 3; ++k) {
+    const double mean = sum[k] / fitted;
+    const double width = std::sqrt((sum2[k] / fitted) - (mean * mean));
+    BOOST_TEST_MESSAGE("rows: vertex " << k << ": pull mean " << mean << ", width " << width);
+    BOOST_TEST(std::abs(mean) < 0.1);
+    BOOST_TEST(std::abs(width - 1.) < 0.05);
+  }
+  BOOST_TEST_MESSAGE("rows: chi2 mean " << chi2 / fitted << " at ndf 24");
+  BOOST_TEST(std::abs((chi2 / fitted) - 24.) < 0.6);
+}
 
 BOOST_AUTO_TEST_CASE(ExactStatesGiveTheTruthBack)
 {
