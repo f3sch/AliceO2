@@ -25,6 +25,8 @@
 #include "DetectorsBase/MatLayerCylSet.h"
 
 #include <algorithm>
+#include <array>
+#include <functional>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -99,15 +101,21 @@ class SensorPlaneGrid
     }
   }
 
-  [[nodiscard]] double cross(const double u[3], double nominalT, bool last) const
+  /// The ray's first and last sensor crossings, t <= 0 for none.
+  void crossings(const double u[3], double nominalT, double& first, double& last) const
   {
+    first = -1.;
+    last = -1.;
     const double p[3] = {nominalT * u[0], nominalT * u[1], nominalT * u[2]};
     double phi = std::atan2(p[1], p[0]);
     phi = phi < 0. ? phi + (2. * std::numbers::pi) : phi;
     const int ip = std::clamp(static_cast<int>(phi * kPhi / (2. * std::numbers::pi)), 0, kPhi - 1);
     const double second = mBarrel ? p[2] : std::hypot(p[0], p[1]);
     const int is = std::clamp(static_cast<int>((second - mSecondMin) * mPerCm), 0, kSecond - 1);
-    double best = -1.;
+    const auto take = [&](double t) {
+      first = first <= 0. || t < first ? t : first;
+      last = last <= 0. || t > last ? t : last;
+    };
     for (const TrackingSurface* surface : mCells[(static_cast<std::size_t>(ip) * kSecond) + is]) {
       if (surface->radius > 0.F) {
         // |w - (w.n) n| = radius for w = t u - origin, n the axis.
@@ -141,9 +149,7 @@ class SensorPlaneGrid
         if (!surface->bounds.isInside(static_cast<Scalar>(surface->radius * std::atan2(y, x)), static_cast<Scalar>(along))) {
           continue;
         }
-        if (best <= 0. || (last ? t > best : t < best)) {
-          best = t;
-        }
+        take(t);
         continue;
       }
       const double nu = (surface->normal[0] * u[0]) + (surface->normal[1] * u[1]) + (surface->normal[2] * u[2]);
@@ -163,11 +169,8 @@ class SensorPlaneGrid
       if (!surface->bounds.isInside(static_cast<Scalar>(loc0), static_cast<Scalar>(loc1))) {
         continue;
       }
-      if (best <= 0. || (last ? t > best : t < best)) {
-        best = t;
-      }
+      take(t);
     }
-    return best;
   }
 
  private:
@@ -178,17 +181,23 @@ class SensorPlaneGrid
 };
 
 /// The linked pairs' material (SurfaceMaterial.h) from the LUT: for each cell
-/// of a half's layer, rays from the nominal vertex through points spread over
-/// the cell (thin walls fall between cell centres), each walked from where it
+/// of a layer, rays from the nominal vertex through points spread over the
+/// cell (thin walls fall between cell centres), each walked from where it
 /// crosses a sensor plane of the cell's layer to the midpoint between that
-/// and its crossing of the pair's other layer -- the sensor planes, not the
-/// layers' nominal radii or z, since a stave's own material splits between
-/// the steps in and out at its sensor. Where a ray crosses two sensors of a
-/// layer, both; where it crosses none, the nominal surface. A step between
-/// the pair starts and ends on a sensor and had no row on a layer in between:
-/// a cell takes the rays that cross a sensor at both ends and none between,
-/// else those that cross none between, else all. The halves in parallel on \a arena's
-/// threads, the tracker's.
+/// and its crossing of a linked layer -- the sensor planes, not the layers'
+/// nominal radii or z, since a stave's own material splits between the steps
+/// in and out at its sensor. Where a ray crosses two sensors of a layer
+/// (staggered or overlapping staves: a step may leave or reach either), the
+/// mean of the walks from both and the midpoint between the mean crossings;
+/// where it crosses none, the nominal surface. A step between a pair starts
+/// and ends on a sensor and had no row on a layer in between: a cell takes
+/// the rays that cross a sensor at both ends and none between, else those
+/// that cross none between, else all.
+///
+/// A ray serves every pair of its layer: its crossings of all layers are
+/// found once, and it is walked once outward and once inward, cut at the
+/// pairs' midpoints in order. The layers' azimuth bins in parallel on
+/// \a arena's threads, the tracker's.
 template <DetectorLayout Det>
 inline void fillSurfaceMaterial(SurfaceMaterialMap<Det>& map, const o2::base::MatLayerCylSet& lut, std::span<const TrackingSurface> surfaces, detail::TaskArena& arena)
 {
@@ -200,11 +209,20 @@ inline void fillSurfaceMaterial(SurfaceMaterialMap<Det>& map, const o2::base::Ma
     const double sMax = secondMax<Det>(id);
     return MaterialSurface{.secondMin = static_cast<Scalar>(sMin), .secondBinsPerCm = static_cast<Scalar>(Map::kSecondBins / (sMax - sMin)), .barrel = static_cast<std::uint8_t>(Detector<Det>::isBarrelLayer(id) ? 1U : 0U)};
   };
+  // Each layer's halves: the pair, which half, the pair's other layer.
+  struct Half {
+    int pair;
+    int half;
+    LayerID other;
+  };
+  std::array<std::vector<Half>, kL> halves;
   for (int pair = 0; pair < Map::kPairs; ++pair) {
     const auto& link = Det::layerLinks[pair];
     map.surfaces[pair] = {surfaceOf(link.from), surfaceOf(link.to)};
     map.pairOf[(static_cast<std::size_t>(link.from) * kL) + link.to] = static_cast<std::int16_t>(pair + 1);
     map.pairOf[(static_cast<std::size_t>(link.to) * kL) + link.from] = static_cast<std::int16_t>(-(pair + 1));
+    halves[link.from].push_back({.pair = pair, .half = 0, .other = link.to});
+    halves[link.to].push_back({.pair = pair, .half = 1, .other = link.from});
   }
   std::vector<std::unique_ptr<SensorPlaneGrid<Det>>> grids;
   for (int layer = 0; layer < kL; ++layer) {
@@ -218,104 +236,157 @@ inline void fillSurfaceMaterial(SurfaceMaterialMap<Det>& map, const o2::base::Ma
     }
     return u[2] != 0. ? discZ<Det>(id) / u[2] : -1.;
   };
-  // On a sensor plane where the ray crosses one (\a onSensor), else the
-  // nominal surface.
-  const auto onLayer = [&](LayerID id, const double u[3], bool last, bool& onSensor) {
-    onSensor = false;
-    const double t = nominal(id, u);
-    if (!(t > 0.)) {
-      return t;
-    }
-    const double plane = grids[id]->cross(u, t, last);
-    onSensor = plane > 0.;
-    return onSensor ? plane : t;
-  };
-  detail::parallelFor(arena, 0U, 2U * Map::kPairs, 1U, [&](std::size_t first, std::size_t end) {
-    for (std::size_t job = first; job < end; ++job) {
-      const int pair = static_cast<int>(job / 2U);
-      const int half = static_cast<int>(job % 2U);
-      const auto& link = Det::layerLinks[pair];
-      const LayerID own = half == 0 ? link.from : link.to;
+  constexpr int kSubPhi = 4;
+  constexpr int kSubSecond = 2;
+  detail::parallelFor(arena, 0U, static_cast<std::size_t>(kL) * Map::kPhiBins, 1U, [&](std::size_t begin, std::size_t end) {
+    // A layer's crossing of the ray: the first and last sensor (or the
+    // nominal surface twice), whether on a sensor.
+    struct Crossing {
+      double first = -1.;
+      double last = -1.;
+      double nominalT = -1.;
+      bool onSensor = false;
+    };
+    struct Sum {
+      double x2X0 = 0.;
+      double xRho = 0.;
+      int n = 0;
+    };
+    // A half's walk end and its result for the ray.
+    struct Cut {
+      double t;
+      std::size_t index;
+    };
+    std::array<Crossing, kL> crossing;
+    std::vector<std::array<Sum, 3>> sums; // sensed, clear, all
+    std::vector<double> mid;
+    std::vector<double> walkedX2X0;
+    std::vector<double> walkedXRho;
+    std::vector<Cut> outward;
+    std::vector<Cut> inward;
+    for (std::size_t job = begin; job < end; ++job) {
+      const auto own = static_cast<LayerID>(job / Map::kPhiBins);
+      const int iPhi = static_cast<int>(job % Map::kPhiBins);
+      const auto& mine = halves[own];
+      if (mine.empty()) {
+        continue;
+      }
       const bool barrel = Detector<Det>::isBarrelLayer(own);
-      const auto& surface = map.surfaces[pair][half];
-      constexpr int kSubPhi = 4;
-      constexpr int kSubSecond = 2;
-      for (int iPhi = 0; iPhi < Map::kPhiBins; ++iPhi) {
-        for (int iSecond = 0; iSecond < Map::kSecondBins; ++iSecond) {
-          // The cell's rays in three sets, the first non-empty taken: those
-          // that cross a sensor at both ends and none between, those that
-          // cross none between, all of them.
-          struct Sum {
-            double x2X0 = 0.;
-            double xRho = 0.;
-            int n = 0;
-          };
-          Sum sensed;
-          Sum clear;
-          Sum all;
-          for (int a = 0; a < kSubPhi; ++a) {
-            const double phi = 2. * std::numbers::pi * (iPhi + ((a + 0.5) / kSubPhi)) / Map::kPhiBins;
-            const double c = std::cos(phi);
-            const double s = std::sin(phi);
-            for (int b = 0; b < kSubSecond; ++b) {
-              const double second = surface.secondMin + ((iSecond + ((b + 0.5) / kSubSecond)) / surface.secondBinsPerCm);
-              double p[3];
-              if (barrel) {
-                const double r = layerDistance<Det>(own);
-                p[0] = r * c;
-                p[1] = r * s;
-                p[2] = second;
-              } else {
-                p[0] = second * c;
-                p[1] = second * s;
-                p[2] = discZ<Det>(own);
-              }
-              const double norm = std::sqrt((p[0] * p[0]) + (p[1] * p[1]) + (p[2] * p[2]));
-              const double u[3] = {p[0] / norm, p[1] / norm, p[2] / norm};
-              // A layer's sensors may overlap (staggered or overlapping
-              // staves): a step may leave or reach either, so the own layer is
-              // taken at both its first and its last crossing, the other at
-              // their mean.
-              bool fromSensor = false;
-              bool toSensor = false;
-              const double fromFirst = onLayer(link.from, u, false, fromSensor);
-              const double fromLast = onLayer(link.from, u, true, fromSensor);
-              const double toFirst = onLayer(link.to, u, false, toSensor);
-              const double toLast = onLayer(link.to, u, true, toSensor);
-              if (!(fromFirst > 0.) || !(toFirst > 0.)) {
-                continue;
-              }
-              const double tFrom = 0.5 * (fromFirst + fromLast);
-              const double tTo = 0.5 * (toFirst + toLast);
-              double x2X0 = 0.;
-              double xRho = 0.;
-              for (const double tOwn : {half == 0 ? fromFirst : toFirst, half == 0 ? fromLast : toLast}) {
-                const double tMid = 0.5 * (tOwn + (half == 0 ? tTo : tFrom));
-                const auto walked = lut.getMatBudget(static_cast<float>(tOwn * u[0]), static_cast<float>(tOwn * u[1]), static_cast<float>(tOwn * u[2]), static_cast<float>(tMid * u[0]), static_cast<float>(tMid * u[1]), static_cast<float>(tMid * u[2]));
-                x2X0 += 0.5 * walked.meanX2X0;
-                xRho += 0.5 * walked.meanRho * walked.length;
-              }
-              bool crosses = false;
-              for (int other = 0; other < kL && !crosses; ++other) {
-                if (other == link.from || other == link.to) {
-                  continue;
-                }
-                const double t = nominal(static_cast<LayerID>(other), u);
-                if (t > std::min(tFrom, tTo) && t < std::max(tFrom, tTo)) {
-                  crosses = grids[other]->cross(u, t, false) > 0.;
-                }
-              }
-              for (Sum* sum : {&all, crosses ? nullptr : &clear, (crosses || !fromSensor || !toSensor) ? nullptr : &sensed}) {
-                if (sum != nullptr) {
-                  sum->x2X0 += x2X0;
-                  sum->xRho += xRho;
-                  ++sum->n;
+      const MaterialSurface surface = surfaceOf(own);
+      mid.resize(mine.size());
+      walkedX2X0.resize(mine.size());
+      walkedXRho.resize(mine.size());
+      for (int iSecond = 0; iSecond < Map::kSecondBins; ++iSecond) {
+        sums.assign(mine.size(), {});
+        for (int a = 0; a < kSubPhi; ++a) {
+          const double phi = 2. * std::numbers::pi * (iPhi + ((a + 0.5) / kSubPhi)) / Map::kPhiBins;
+          const double c = std::cos(phi);
+          const double s = std::sin(phi);
+          for (int b = 0; b < kSubSecond; ++b) {
+            const double second = surface.secondMin + ((iSecond + ((b + 0.5) / kSubSecond)) / surface.secondBinsPerCm);
+            double p[3];
+            if (barrel) {
+              const double r = layerDistance<Det>(own);
+              p[0] = r * c;
+              p[1] = r * s;
+              p[2] = second;
+            } else {
+              p[0] = second * c;
+              p[1] = second * s;
+              p[2] = discZ<Det>(own);
+            }
+            const double norm = std::sqrt((p[0] * p[0]) + (p[1] * p[1]) + (p[2] * p[2]));
+            const double u[3] = {p[0] / norm, p[1] / norm, p[2] / norm};
+            for (int layer = 0; layer < kL; ++layer) {
+              auto& at = crossing[layer];
+              at.nominalT = nominal(static_cast<LayerID>(layer), u);
+              at.onSensor = false;
+              at.first = at.nominalT;
+              at.last = at.nominalT;
+              if (at.nominalT > 0.) {
+                double first = -1.;
+                double last = -1.;
+                grids[layer]->crossings(u, at.nominalT, first, last);
+                if (first > 0.) {
+                  at.first = first;
+                  at.last = last;
+                  at.onSensor = true;
                 }
               }
             }
+            const Crossing& here = crossing[own];
+            const double tOwn = 0.5 * (here.first + here.last);
+            // The walk ends, outward and inward of the own layer.
+            outward.clear();
+            inward.clear();
+            for (std::size_t h = 0; h < mine.size(); ++h) {
+              const Crossing& there = crossing[mine[h].other];
+              mid[h] = -1.;
+              if (!(there.nominalT > 0.)) {
+                continue;
+              }
+              mid[h] = 0.5 * (tOwn + (0.5 * (there.first + there.last)));
+              (mid[h] > tOwn ? outward : inward).push_back({.t = mid[h], .index = h});
+            }
+            // Walked from the own layer's crossing nearer each end, and the
+            // stretch between its two crossings, half of which each half takes.
+            const auto walk = [&](double from, double to) {
+              return lut.getMatBudget(static_cast<float>(from * u[0]), static_cast<float>(from * u[1]), static_cast<float>(from * u[2]), static_cast<float>(to * u[0]), static_cast<float>(to * u[1]), static_cast<float>(to * u[2]));
+            };
+            double betweenX2X0 = 0.;
+            double betweenXRho = 0.;
+            if (here.last > here.first) {
+              const auto between = walk(here.first, here.last);
+              betweenX2X0 = between.meanX2X0;
+              betweenXRho = between.meanRho * between.length;
+            }
+            std::ranges::sort(outward, {}, &Cut::t);
+            std::ranges::sort(inward, std::ranges::greater{}, &Cut::t);
+            for (auto* cuts : {&outward, &inward}) {
+              double at = cuts == &outward ? here.last : here.first;
+              double x2X0 = 0.;
+              double xRho = 0.;
+              for (const Cut& cut : *cuts) {
+                if (std::abs(cut.t - at) > 0.) {
+                  const auto step = walk(at, cut.t);
+                  x2X0 += step.meanX2X0;
+                  xRho += step.meanRho * step.length;
+                  at = cut.t;
+                }
+                walkedX2X0[cut.index] = x2X0 + (0.5 * betweenX2X0);
+                walkedXRho[cut.index] = xRho + (0.5 * betweenXRho);
+              }
+            }
+            for (std::size_t h = 0; h < mine.size(); ++h) {
+              if (!(mid[h] > 0.)) {
+                continue;
+              }
+              const LayerID from = mine[h].half == 0 ? own : mine[h].other;
+              const LayerID to = mine[h].half == 0 ? mine[h].other : own;
+              const double tFrom = 0.5 * (crossing[from].first + crossing[from].last);
+              const double tTo = 0.5 * (crossing[to].first + crossing[to].last);
+              bool crosses = false;
+              for (int layer = 0; layer < kL && !crosses; ++layer) {
+                const auto& at = crossing[layer];
+                crosses = layer != from && layer != to && at.onSensor && at.nominalT > std::min(tFrom, tTo) && at.nominalT < std::max(tFrom, tTo);
+              }
+              const bool sensed = !crosses && crossing[from].onSensor && crossing[to].onSensor;
+              for (int set = 0; set < 3; ++set) {
+                if ((set == 0 && !sensed) || (set == 1 && crosses)) {
+                  continue;
+                }
+                auto& sum = sums[h][set];
+                sum.x2X0 += walkedX2X0[h];
+                sum.xRho += walkedXRho[h];
+                ++sum.n;
+              }
+            }
           }
-          auto& cell = map.cells[(((static_cast<std::size_t>(pair) * 2U) + half) * Map::kCells) + (static_cast<std::size_t>(iPhi) * Map::kSecondBins) + iSecond];
-          const Sum& taken = sensed.n > 0 ? sensed : (clear.n > 0 ? clear : all);
+        }
+        for (std::size_t h = 0; h < mine.size(); ++h) {
+          const auto& set = sums[h];
+          const Sum& taken = set[0].n > 0 ? set[0] : (set[1].n > 0 ? set[1] : set[2]);
+          auto& cell = map.cells[(((static_cast<std::size_t>(mine[h].pair) * 2U) + static_cast<std::size_t>(mine[h].half)) * Map::kCells) + (static_cast<std::size_t>(iPhi) * Map::kSecondBins) + static_cast<std::size_t>(iSecond)];
           cell = taken.n > 0 ? MaterialCell{.x2X0 = static_cast<float>(taken.x2X0 / taken.n), .xRho = static_cast<float>(taken.xRho / taken.n)} : MaterialCell{};
         }
       }
