@@ -30,7 +30,16 @@
 /// derivatives of the material and the loss by the state are left out (they
 /// are re-evaluated every iteration).
 ///
-/// Gauss-Newton, the start (a)'s solution, kicks at zero.
+/// Gauss-Newton from (a)'s solution. The kicks start on a trajectory that
+/// follows the rows (`followRows`): at every row the kick that turns the
+/// direction onto the helix, at the current curvature, through the next
+/// row's measured point; with kicks at zero a slow daughter's helix from the
+/// vertex may miss its later planes altogether. A trial step is
+/// evaluated with the material along its own trajectory, and halved while
+/// its trajectory misses a plane or its chi2 rises against the current
+/// point's under the same material: a slow daughter's reach depends on its
+/// loss. Converged when the vertex and the momenta stop moving
+/// (in their sigmas); the kicks are nuisance parameters.
 
 #ifndef GTRK_STUDY_DECAYROWSFIT_H_
 #define GTRK_STUDY_DECAYROWSFIT_H_
@@ -67,8 +76,15 @@ namespace decay_rows_detail
 using Free = std::array<decay_fit_detail::Dual<6>, 6>; ///< x, y, z, phi, theta, q/p, by the step's start
 
 /// \a from carried along its helix to \a plane (a plane along the beam, or
-/// across it): the free state there and its loc0, loc1; false if the helix
-/// does not reach it ahead or the plane is tilted.
+/// across it): the free state at the crossing nearest along the helix,
+/// ahead or behind, and its loc0, loc1 there; false if the helix never
+/// reaches the plane or the plane is tilted.
+///
+/// On a plane along the beam with normal angle phiL the crossing has
+/// sin(phi_end - phiL) = sin(phi - phiL) - rho u, u the start's distance
+/// along the normal; of the two solutions phi_end and every turn by 2 pi, the
+/// smallest |rho s| = |phi_end - phi| is the nearest crossing. In double the
+/// difference loses nothing that matters at small rho.
 [[nodiscard]] inline bool crossToPlane(const Free& from, const TrackingSurface& plane, double fieldScale, Free& to, std::array<decay_fit_detail::Dual<6>, 2>& local)
 {
   using namespace decay_fit_detail;
@@ -83,35 +99,37 @@ using Free = std::array<decay_fit_detail::Dual<6>, 6>; ///< x, y, z, phi, theta,
   const D rho = fieldScale * (from[5] / sinTheta);
   D s;
   if (std::abs(nz) < 1e-6) {
-    double phiL = std::atan2(ny, nx);
-    D u = (nx * (from[0] + (-static_cast<double>(plane.origin[0])))) + (ny * (from[1] + (-static_cast<double>(plane.origin[1]))));
-    if (std::cos(phi.v - phiL) < 0.) {
-      phiL += std::numbers::pi;
-      u = -u;
-    }
+    const double phiL = std::atan2(ny, nx);
+    const D u = (nx * (from[0] + (-static_cast<double>(plane.origin[0])))) + (ny * (from[1] + (-static_cast<double>(plane.origin[1]))));
     const D delta = phi + (-phiL);
-    const D sinDelta = sin(delta);
-    const D cosDelta = cos(delta);
-    const D sinEnd = sinDelta - (rho * u);
-    if (!(std::abs(sinEnd.v) < 1.)) {
-      return false;
+    if (rho.v == 0.) {
+      const D cosDelta = cos(delta);
+      if (!(std::abs(cosDelta.v) > 0.)) {
+        return false;
+      }
+      s = (-u) / cosDelta;
+    } else {
+      const D sinEnd = sin(delta) - (rho * u);
+      if (!(std::abs(sinEnd.v) <= 1.)) {
+        return false;
+      }
+      const D first = chain(sinEnd, std::asin(sinEnd.v), 1. / std::sqrt(std::max(1e-300, 1. - (sinEnd.v * sinEnd.v))));
+      // The turn to each solution, brought within (-pi, pi]; the smaller wins.
+      const auto turnTo = [&](const D& end) {
+        D turn = end - delta;
+        turn.v = std::remainder(turn.v, 2. * std::numbers::pi);
+        return turn;
+      };
+      const D one = turnTo(first);
+      const D two = turnTo((-first) + std::numbers::pi);
+      s = (std::abs(one.v) <= std::abs(two.v) ? one : two) / rho;
     }
-    const D rootEnd = sqrt((-(sinEnd * sinEnd)) + 1.);
-    const D wOverRho = (-(u * cosDelta)) - ((sinDelta * u) * (sinEnd + sinDelta) / (cosDelta + rootEnd));
-    const D w = rho * wOverRho;
-    if (!(std::abs(w.v) < 1.)) {
-      return false;
-    }
-    s = wOverRho * asinc(w);
   } else if (std::abs(nx) < 1e-6 && std::abs(ny) < 1e-6) {
-    if (!(std::abs(cotTheta.v) > 1e-9)) {
+    if (!(std::abs(cotTheta.v) > 0.)) {
       return false;
     }
     s = (((-1.) * from[2]) + static_cast<double>(plane.origin[2])) / cotTheta;
   } else {
-    return false;
-  }
-  if (!(s.v > 0.)) {
     return false;
   }
   const D half = 0.5 * (rho * s);
@@ -332,6 +350,59 @@ template <typename Material>
     return true;
   };
 
+  // The kicks' start: each daughter walked along its rows, its direction at
+  // every row turned towards the next row's measured point.
+  const auto followRows = [&](std::vector<double>& p) {
+    for (int i = 0; i < count; ++i) {
+      const auto& daughter = daughters[i];
+      const int rows = static_cast<int>(daughter.planes.size());
+      const double fieldScale = static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
+      const double mass = daughter.propagator.massGeV;
+      const int base = firstOf[i];
+      std::array<double, 6> state{p[0], p[1], p[2], p[base], p[base + 1], p[base + 2]};
+      for (int row = 0; row + 1 < rows; ++row) {
+        Free from{};
+        for (int k = 0; k < 6; ++k) {
+          from[k].v = state[k];
+        }
+        Free to{};
+        std::array<D, 2> loc{};
+        if (!crossToPlane(from, daughter.planes[row], fieldScale, to, loc)) {
+          return; // the start stays where it got to
+        }
+        const Scalar a[3] = {static_cast<Scalar>(state[0]), static_cast<Scalar>(state[1]), static_cast<Scalar>(state[2])};
+        const Scalar b[3] = {static_cast<Scalar>(to[0].v), static_cast<Scalar>(to[1].v), static_cast<Scalar>(to[2].v)};
+        const auto step = o2::gtrk::detail::stepMaterial(material, a, b);
+        const auto loss = energyLoss(static_cast<Scalar>(state[5]), static_cast<Scalar>(mass), -step.xRho);
+        for (int k = 0; k < 6; ++k) {
+          state[k] = to[k].v;
+        }
+        state[5] *= loss.ok ? loss.momentumScale : 1.;
+        // The next row's measured point, and the helix towards it.
+        Scalar next[3]{};
+        surfaceToGlobal(daughter.planes[row + 1], static_cast<Scalar>(daughter.positions[row + 1][0]), static_cast<Scalar>(daughter.positions[row + 1][1]), next);
+        const double cx = next[0] - state[0];
+        const double cy = next[1] - state[1];
+        const double chord = std::hypot(cx, cy);
+        const double rho = fieldScale * state[5] / std::sin(state[4]);
+        const double halfTurn = rho * chord / 2.;
+        if (!(chord > 0.) || !(std::abs(halfTurn) < 1.)) {
+          continue; // no helix of this curvature reaches it: no kick
+        }
+        const double turn = 2. * std::asin(halfTurn); // rho s
+        const double arc = std::abs(rho) > 0. ? turn / rho : chord;
+        const double phi = std::atan2(cy, cx) - (turn / 2.);
+        const double theta = std::atan2(arc, next[2] - state[2]);
+        const int kick = base + 3 + (3 * row);
+        p[kick] = std::remainder(phi - state[3], 2. * std::numbers::pi);
+        p[kick + 1] = theta - state[4];
+        state[3] += p[kick];
+        state[4] += p[kick + 1];
+      }
+    }
+  };
+  followRows(parameters);
+
   std::vector<double> normal(static_cast<std::size_t>(n * n));
   std::vector<double> gradient(static_cast<std::size_t>(n));
   std::vector<double> factor;
@@ -354,23 +425,34 @@ template <typename Material>
     double trialChi2 = 0.;
     double scale = 1.;
     bool taken = false;
+    const auto kept = model;
     for (int halving = 0; halving < 10; ++halving, scale *= 0.5) {
       for (int k = 0; k < n; ++k) {
         trial[k] = parameters[k] + (scale * step[k]);
       }
-      if (evaluate(trial, false, trialChi2, nullptr, nullptr) && trialChi2 <= chi2 * (1. + 1e-12) + 1e-12) {
+      // The trial and the current point, both under the trial trajectory's
+      // material: the priors move with the model.
+      double currentChi2 = 0.;
+      if (evaluate(trial, true, trialChi2, nullptr, nullptr) && evaluate(parameters, false, currentChi2, nullptr, nullptr) && trialChi2 <= currentChi2 * (1. + 1e-12) + 1e-12) {
         taken = true;
         break;
       }
     }
     if (!taken) {
+      model = kept;
       converged = true;
       break;
     }
     const auto inverse = choleskyInverse(factor, n);
     double largest = 0.;
-    for (int k = 0; k < n; ++k) {
-      largest = std::max(largest, std::abs(scale * step[k]) / std::sqrt(inverse[k * n + k]));
+    const auto watch = [&](int k) { largest = std::max(largest, std::abs(scale * step[k]) / std::sqrt(inverse[k * n + k])); };
+    for (int k = 0; k < 3; ++k) {
+      watch(k);
+    }
+    for (int i = 0; i < count; ++i) {
+      for (int k = 0; k < 3; ++k) {
+        watch(firstOf[i] + k);
+      }
     }
     parameters = trial;
     chi2 = trialChi2;

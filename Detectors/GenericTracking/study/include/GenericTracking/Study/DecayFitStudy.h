@@ -117,6 +117,7 @@ struct DecayFitRecord {
   std::array<float, kDaughterColumns> sPhi{};
   std::array<float, kDaughterColumns> sTheta{};
   std::array<float, kDaughterColumns> sQOverP{};
+  std::array<float, kDaughterColumns> dPRel{}; ///< fitted |p| over the true one, less 1
 
   template <typename Visit>
   void columns(const Visit& visit) const
@@ -161,11 +162,11 @@ struct DecayFitRecord {
     static constexpr std::array<std::string_view, kDaughterColumns> kSuffix{"0", "1", "2"};
     for (std::size_t d = 0; d < kDaughterColumns; ++d) {
       // The names must outlive the writer's first call: kept in static storage.
-      static const std::array<std::array<std::string, 6>, kDaughterColumns> kNames = [] {
-        std::array<std::array<std::string, 6>, kDaughterColumns> names;
+      static const std::array<std::array<std::string, 7>, kDaughterColumns> kNames = [] {
+        std::array<std::array<std::string, 7>, kDaughterColumns> names;
         for (std::size_t k = 0; k < kDaughterColumns; ++k) {
           const std::string s{kSuffix[k]};
-          names[k] = {"dPhi" + s, "dTheta" + s, "dQOverP" + s, "sPhi" + s, "sTheta" + s, "sQOverP" + s};
+          names[k] = {"dPhi" + s, "dTheta" + s, "dQOverP" + s, "sPhi" + s, "sTheta" + s, "sQOverP" + s, "dPRel" + s};
         }
         return names;
       }();
@@ -175,6 +176,7 @@ struct DecayFitRecord {
       visit(kNames[d][3], sPhi[d]);
       visit(kNames[d][4], sTheta[d]);
       visit(kNames[d][5], sQOverP[d]);
+      visit(kNames[d][6], dPRel[d]);
     }
   }
 };
@@ -510,6 +512,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           record.sPhi[i] = static_cast<float>(std::sqrt(c[q * n + q]));
           record.sTheta[i] = static_cast<float>(std::sqrt(c[(q + 1) * n + (q + 1)]));
           record.sQOverP[i] = static_cast<float>(std::sqrt(c[(q + 2) * n + (q + 2)]));
+          record.dPRel[i] = static_cast<float>((std::abs(qTrue[i][2]) / std::abs(fit.momenta[i][2])) - 1.);
         }
         one.records.push_back(record);
       }
