@@ -82,13 +82,26 @@ const ParticleTable kParticles{{5U, {.pt = 0.25F, .primary = true, .eta = -0.5F,
 
 const CollisionTable kCollisions{{0U, {0.01, -0.02, 3.5}}, {1U, {-0.003, 0.004, -12.25}}};
 
+/// A Lambda (no rows) decayed into the rows' antiproton 9 and a pion 12.
+DecayTrees someTrees()
+{
+  return {
+    .particles = {
+      {.id = 4U, .pdg = -3122, .process = 0, .vertex = {0.01, -0.02, 3.5}, .momentum = {1.25, -0.5, 2.}, .firstDaughter = 0, .daughterCount = 2},
+      {.id = 9U, .pdg = -2212, .process = 4, .mother = 4U, .vertex = {1.5, -2.25, 7.}, .momentum = {1., -0.25, 1.75}},
+      {.id = 12U, .pdg = 211, .process = 4, .mother = 4U, .vertex = {1.5, -2.25, 7.}, .momentum = {0.25, -0.25, 0.25}},
+    },
+    .daughters = {9U, 12U},
+  };
+}
+
 } // namespace
 
 BOOST_AUTO_TEST_CASE(ItReadsBackAsWritten)
 {
   const TemporaryFile file;
   const auto rows = someRows();
-  writeTrackingTruth(file.path, kClusters, rows, kParticles, kCollisions);
+  writeTrackingTruth(file.path, kClusters, rows, kParticles, kCollisions, someTrees());
   const auto truth = readTrackingTruth(file.path, inputOf(kClusters));
 
   BOOST_REQUIRE_EQUAL(truth.rows.size(), rows.size());
@@ -114,6 +127,34 @@ BOOST_AUTO_TEST_CASE(ItReadsBackAsWritten)
     BOOST_TEST(read.vz == particle.vz);
   }
   BOOST_TEST(truth.collisions == kCollisions);
+  const auto trees = someTrees();
+  BOOST_REQUIRE_EQUAL(truth.trees.particles.size(), trees.particles.size());
+  for (std::size_t index = 0; index < trees.particles.size(); ++index) {
+    const auto& read = truth.trees.particles[index];
+    const auto& written = trees.particles[index];
+    BOOST_TEST(read.id == written.id);
+    BOOST_TEST(read.pdg == written.pdg);
+    BOOST_TEST(read.process == written.process);
+    BOOST_TEST(read.mother == written.mother);
+    BOOST_TEST(read.vertex == written.vertex);
+    BOOST_TEST(read.momentum == written.momentum);
+    BOOST_TEST(read.firstDaughter == written.firstDaughter);
+    BOOST_TEST(read.daughterCount == written.daughterCount);
+  }
+  BOOST_TEST(truth.trees.daughters == trees.daughters);
+}
+
+/// Trees whose members are out of order or whose daughters run past the
+/// list are refused.
+BOOST_AUTO_TEST_CASE(ItRefusesBrokenTrees)
+{
+  const TemporaryFile file;
+  auto unsorted = someTrees();
+  std::swap(unsorted.particles[0], unsorted.particles[1]);
+  BOOST_CHECK_THROW(writeTrackingTruth(file.path, kClusters, someRows(), kParticles, kCollisions, unsorted), std::runtime_error);
+  auto overrun = someTrees();
+  overrun.particles[0].daughterCount = 3;
+  BOOST_CHECK_THROW(writeTrackingTruth(file.path, kClusters, someRows(), kParticles, kCollisions, overrun), std::runtime_error);
 }
 
 /// A tracking input keeps each layer's readout frames and the boxes its
@@ -147,7 +188,7 @@ BOOST_AUTO_TEST_CASE(TheInputKeepsEachLayersFramesAndItsBoxes)
 BOOST_AUTO_TEST_CASE(ItReadsOnlyForItsOwnInput)
 {
   const TemporaryFile file;
-  writeTrackingTruth(file.path, kClusters, someRows(), kParticles, kCollisions);
+  writeTrackingTruth(file.path, kClusters, someRows(), kParticles, kCollisions, someTrees());
   BOOST_CHECK_THROW((void)readTrackingTruth(file.path, inputOf({7U, 3U})), std::runtime_error);
   BOOST_CHECK_THROW((void)readTrackingTruth(file.path, inputOf({7U, 11U, 3U})), std::runtime_error);
 }
@@ -155,9 +196,9 @@ BOOST_AUTO_TEST_CASE(ItReadsOnlyForItsOwnInput)
 BOOST_AUTO_TEST_CASE(ItRefusesAShortOrForeignFile)
 {
   const TemporaryFile file;
-  BOOST_CHECK_THROW(writeTrackingTruth(file.path, std::span{kClusters}.first(2), someRows(), kParticles, kCollisions), std::runtime_error);
+  BOOST_CHECK_THROW(writeTrackingTruth(file.path, std::span{kClusters}.first(2), someRows(), kParticles, kCollisions, someTrees()), std::runtime_error);
 
-  writeTrackingTruth(file.path, kClusters, someRows(), kParticles, kCollisions);
+  writeTrackingTruth(file.path, kClusters, someRows(), kParticles, kCollisions, someTrees());
   const auto size = std::filesystem::file_size(file.path);
   std::filesystem::resize_file(file.path, size - 1U);
   BOOST_CHECK_THROW((void)readTrackingTruth(file.path, inputOf(kClusters)), std::runtime_error);

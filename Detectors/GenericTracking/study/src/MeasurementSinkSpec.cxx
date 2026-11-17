@@ -3124,11 +3124,15 @@ class MeasurementSinkTask : public Task
     std::vector<TruthRow> comparisonRows;
     ParticleTable comparisonParticles;
     CollisionTable comparisonCollisions;
+    DecayTrees comparisonTrees;
     if (mUseMC) {
       const auto labels = pc.inputs().get<o2::dataformats::ConstMCTruthContainer<o2::MCCompLabel>>("labels");
       // Every row's particles: a cluster is every particle's it carries among
       // its labels, for every report of the sink and the dump's truth.
       comparisonTruth(frame, labels, comparisonRows, comparisonParticles, comparisonCollisions);
+      if (mTruthStudies || dumping) {
+        comparisonTrees = decayTreesOf(comparisonParticles);
+      }
       const auto mcOf = [&](std::uint64_t id) -> const o2::MCTrack* {
         const auto found = mParticleLabels.find(id);
         return found == mParticleLabels.end() ? nullptr : mKinematics->getTrack(found->second.source, found->second.event, found->second.track);
@@ -3162,6 +3166,7 @@ class MeasurementSinkTask : public Task
         .rows = comparisonRows,
         .particles = &comparisonParticles,
         .collisions = &comparisonCollisions,
+        .trees = &comparisonTrees,
         .hits = &*mHitIndex,
         .chains = &*particleChains,
         .arena = mStudyArena.get(),
@@ -3183,7 +3188,7 @@ class MeasurementSinkTask : public Task
       writeTrackingInput(mDumpInput, view, n, offsets, seeds, mInterface.beamLine(), mInterface.frames(), depths);
       LOGP(info, "tracking input written to {} and {}.ini", mDumpInput, mDumpInput);
       if (mUseMC) {
-        writeTrackingTruth(mDumpInput + ".truth", std::span<const std::uint32_t>{columns.clusterIndex.data(), n}, comparisonRows, comparisonParticles, comparisonCollisions);
+        writeTrackingTruth(mDumpInput + ".truth", std::span<const std::uint32_t>{columns.clusterIndex.data(), n}, comparisonRows, comparisonParticles, comparisonCollisions, comparisonTrees);
         LOGP(info, "tracking truth written to {}.truth ({} particles)", mDumpInput, comparisonParticles.size());
       }
       mDumpInput.clear();
@@ -3797,6 +3802,101 @@ class MeasurementSinkTask : public Task
     }
   }
 
+  /// The decay trees of \a particles (DecayTrees.h), from the MC kinematics:
+  /// every particle of the table, its ancestors up to the first that is no
+  /// tree species, and every daughter of those ancestors.
+  [[nodiscard]] DecayTrees decayTreesOf(const ParticleTable& particles) const
+  {
+    const auto pack = [](int track, int event, int source) { return o2::MCCompLabel(track, event, source).getTrackEventSourceID(); };
+    // Each touched event's particles by mother, built on its first use.
+    std::unordered_map<std::uint64_t, std::vector<std::vector<int>>> children;
+    const auto childrenOf = [&](int source, int event) -> const std::vector<std::vector<int>>& {
+      auto [entry, inserted] = children.try_emplace(collisionOf(pack(0, event, source)));
+      if (inserted) {
+        const auto& tracks = mKinematics->getTracks(source, event);
+        entry->second.resize(tracks.size());
+        for (std::size_t index = 0; index < tracks.size(); ++index) {
+          const int mother = tracks[index].getMotherTrackId();
+          if (mother >= 0 && static_cast<std::size_t>(mother) < tracks.size()) {
+            entry->second[mother].push_back(static_cast<int>(index));
+          }
+        }
+      }
+      return entry->second;
+    };
+    struct Member {
+      int source = 0;
+      int event = 0;
+      int track = 0;
+      bool ancestor = false;
+    };
+    std::unordered_map<std::uint64_t, Member> members;
+    for (const auto& entry : particles) {
+      const auto label = mParticleLabels.find(entry.first);
+      if (label == mParticleLabels.end() || label->second.source < 0 || label->second.event < 0) {
+        continue;
+      }
+      const int event = label->second.event;
+      const int track = label->second.track;
+      const int source = label->second.source;
+      members.try_emplace(entry.first, Member{.source = source, .event = event, .track = track});
+      const auto& tracks = mKinematics->getTracks(source, event);
+      for (int above = tracks[track].getMotherTrackId(); above >= 0 && static_cast<std::size_t>(above) < tracks.size(); above = tracks[above].getMotherTrackId()) {
+        if (!isTreeSpecies(tracks[above].GetPdgCode())) {
+          break;
+        }
+        auto [member, inserted] = members.try_emplace(pack(above, event, source), Member{.source = source, .event = event, .track = above, .ancestor = true});
+        if (!inserted) {
+          if (member->second.ancestor) {
+            break; // climbed from here before
+          }
+          member->second.ancestor = true;
+        }
+      }
+    }
+    std::vector<std::uint64_t> ancestors;
+    for (const auto& [id, member] : members) {
+      if (member.ancestor) {
+        ancestors.push_back(id);
+      }
+    }
+    for (const auto id : ancestors) {
+      const auto member = members.at(id);
+      for (const auto child : childrenOf(member.source, member.event)[member.track]) {
+        members.try_emplace(pack(child, member.event, member.source), Member{.source = member.source, .event = member.event, .track = child});
+      }
+    }
+    std::vector<std::uint64_t> ids;
+    ids.reserve(members.size());
+    for (const auto& [id, member] : members) {
+      ids.push_back(id);
+    }
+    std::ranges::sort(ids);
+    DecayTrees trees;
+    trees.particles.reserve(ids.size());
+    for (const auto id : ids) {
+      const auto& member = members.at(id);
+      const auto& mc = mKinematics->getTracks(member.source, member.event)[member.track];
+      const auto motherId = mc.getMotherTrackId() >= 0 ? pack(mc.getMotherTrackId(), member.event, member.source) : kNoTreeParticle;
+      auto& particle = trees.particles.emplace_back(TreeParticle{
+        .id = id,
+        .pdg = mc.GetPdgCode(),
+        .process = static_cast<std::uint8_t>(mc.getProcess()),
+        .mother = members.contains(motherId) ? motherId : kNoTreeParticle,
+        .vertex = {mc.Vx(), mc.Vy(), mc.Vz()},
+        .momentum = {mc.Px(), mc.Py(), mc.Pz()},
+        .firstDaughter = static_cast<std::uint32_t>(trees.daughters.size()),
+      });
+      if (member.ancestor) {
+        for (const auto child : childrenOf(member.source, member.event)[member.track]) {
+          trees.daughters.push_back(pack(child, member.event, member.source));
+        }
+        particle.daughterCount = static_cast<std::uint32_t>(trees.daughters.size() - particle.firstDaughter);
+      }
+    }
+    return trees;
+  }
+
   /// Without MC truth: GTRK's tracks against
   /// O2's of the same clusters by the clusters they share. An O2 track is
   /// found when a GTRK track holds four or more of its clusters, and
@@ -4405,7 +4505,7 @@ DataProcessorSpec getMeasurementSinkSpec<Det>(bool useMC, bool withVertices, Tra
     .inputs = inputs,
     .outputs = Outputs{},
     .algorithm = AlgorithmSpec{adaptFromTask<MeasurementSinkTask>(useMC, withVertices, products, conditions)},
-    .options = Options{{"collision-context", VariantType::String, "collisioncontext.root", {"collision context and MC-event mapping"}}, {"input-dir", VariantType::String, "none", {"input directory"}}, {"tracklet-truth-output", VariantType::String, "gtrk_tracklet_truth.csv", {"per-link pT and cot(theta) truth breakdown; empty disables"}}, {"dump-tracking-input", VariantType::String, "", {"write one timeframe's tracking input here, for o2-gtrk-track-bench"}}, {"dump-timeframe", VariantType::Int, 0, {"which timeframe --dump-tracking-input writes, counting from 0"}}, {"dump-only", VariantType::Bool, false, {"with --dump-tracking-input, the dumped timeframe is not tracked"}}, {"qa-output", VariantType::String, "", {"the MC truth QA as ROOT trees; empty disables"}}, {"outward-momenta", VariantType::Bool, false, {"with --qa-output and MC hits, the momenta tree: |p| along the outward leg of every findable electron and every 16th pion"}}, {"truth-study", VariantType::String, "", {"truth studies, <module>:<source>:<path> separated by ',': module gsf or species, source truth (the particles' own rows) or tracks (the good tracks' rows), a .csv or .root path; with MC and its hits"}}, {"truth-select", VariantType::String, "", {"the truth studies' particles: key=value items separated by ';' -- origins=primary+decay+material, pdg=11+211, minPt=<GeV>, minRows=<n>, layers=<mask>, findable"}}, {"no-truth-reports", VariantType::Bool, false, {"with MC, no truth reports in the log (stages, true roads' chi2, fake anatomy): for the QA alone"}}, {"findable-min-pt", VariantType::Double, 0.1, {"the findable rule's pT floor [GeV]: the QA, the comparisons, the funnel"}}, {"o2-tracks", VariantType::String, "", {"O2's tracks of the same clusters (o2trac_its.root, mfttracks.root), compared under one set of truth rules"}}, {"mc-hits", VariantType::String, hitFileName(), {"O2's MC hits, for the pulls, the true kinks and the QA's outward legs"}}},
+    .options = Options{{"collision-context", VariantType::String, "collisioncontext.root", {"collision context and MC-event mapping"}}, {"input-dir", VariantType::String, "none", {"input directory"}}, {"tracklet-truth-output", VariantType::String, "gtrk_tracklet_truth.csv", {"per-link pT and cot(theta) truth breakdown; empty disables"}}, {"dump-tracking-input", VariantType::String, "", {"write one timeframe's tracking input here, for o2-gtrk-track-bench"}}, {"dump-timeframe", VariantType::Int, 0, {"which timeframe --dump-tracking-input writes, counting from 0"}}, {"dump-only", VariantType::Bool, false, {"with --dump-tracking-input, the dumped timeframe is not tracked"}}, {"qa-output", VariantType::String, "", {"the MC truth QA as ROOT trees; empty disables"}}, {"outward-momenta", VariantType::Bool, false, {"with --qa-output and MC hits, the momenta tree: |p| along the outward leg of every findable electron and every 16th pion"}}, {"truth-study", VariantType::String, "", {"truth studies, <module>:<source>:<path> separated by ',': module gsf, species or decaycensus, source truth (the particles' own rows) or tracks (the good tracks' rows), a .csv or .root path; with MC and its hits"}}, {"truth-select", VariantType::String, "", {"the truth studies' particles: key=value items separated by ';' -- origins=primary+decay+material, pdg=11+211, minPt=<GeV>, minRows=<n>, layers=<mask>, findable"}}, {"no-truth-reports", VariantType::Bool, false, {"with MC, no truth reports in the log (stages, true roads' chi2, fake anatomy): for the QA alone"}}, {"findable-min-pt", VariantType::Double, 0.1, {"the findable rule's pT floor [GeV]: the QA, the comparisons, the funnel"}}, {"o2-tracks", VariantType::String, "", {"O2's tracks of the same clusters (o2trac_its.root, mfttracks.root), compared under one set of truth rules"}}, {"mc-hits", VariantType::String, hitFileName(), {"O2's MC hits, for the pulls, the true kinks and the QA's outward legs"}}},
   };
   if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
     spec.options.push_back({"mc-ft3-hits", VariantType::String, "sgn_HitsFT3.root", {"O2's MC hits of FT3's discs, with --mc-hits TRK's"}});

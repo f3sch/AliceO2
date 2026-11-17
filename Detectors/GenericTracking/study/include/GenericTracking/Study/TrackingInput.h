@@ -27,7 +27,7 @@
 /// With MC, the truth the comparison reads goes beside it as `<file>.truth`:
 /// each row's particles and layer, and
 /// the particles' kinematics, laid out the same way, so that the bench scores
-/// its tracks as the sink does.
+/// its tracks as the sink does; and the decay trees they belong to.
 
 #ifndef GTRK_STUDY_TRACKINGINPUT_H_
 #define GTRK_STUDY_TRACKINGINPUT_H_
@@ -37,6 +37,7 @@
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Workflow/BeamLine.h"
+#include "GenericTracking/Study/DecayTrees.h"
 #include "GenericTracking/Study/TrackComparison.h"
 
 #include <cstdint>
@@ -95,12 +96,14 @@ struct TrackingTruth {
   std::vector<TruthRow> rows; ///< one per row of the tracking input, in its order
   ParticleTable particles;
   CollisionTable collisions; ///< the particles' collisions
+  DecayTrees trees;          ///< the decay trees the particles belong to
 };
 
 /// Write \a rows -- one per row of the tracking input, whose cluster indices
-/// are \a clusterIndex --, \a particles and \a collisions to \a path. Throws
-/// std::runtime_error.
-void writeTrackingTruth(const std::string& path, std::span<const std::uint32_t> clusterIndex, std::span<const TruthRow> rows, const ParticleTable& particles, const CollisionTable& collisions);
+/// are \a clusterIndex --, \a particles, \a collisions and \a trees to
+/// \a path. Throws std::runtime_error, also for trees whose members are not
+/// sorted by identity or whose daughters run past their list.
+void writeTrackingTruth(const std::string& path, std::span<const std::uint32_t> clusterIndex, std::span<const TruthRow> rows, const ParticleTable& particles, const CollisionTable& collisions, const DecayTrees& trees);
 
 /// Read what `writeTrackingTruth` wrote to \a path for \a input. Throws
 /// std::runtime_error on a short, foreign or corrupt file, or one whose rows

@@ -17,6 +17,7 @@
 #define GTRK_STUDY_TRUTHEVENT_H_
 
 #include "GenericTracking/Study/Alice/Hits.h"
+#include "GenericTracking/Study/DecayTrees.h"
 #include "GenericTracking/Study/ParticleChains.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Tracking/Parallel.h"
@@ -45,6 +46,7 @@ struct TruthEvent {
   std::span<const TruthRow> rows; ///< one per row of the frame
   const ParticleTable* particles = nullptr;
   const CollisionTable* collisions = nullptr; ///< the particles' collisions' vertices
+  const DecayTrees* trees = nullptr;          ///< the decay trees the particles belong to
   const HitIndex* hits = nullptr;             ///< none without the MC hits
   const ParticleChains* chains = nullptr;
   o2::gtrk::detail::TaskArena* arena = nullptr; ///< the studies' threads
