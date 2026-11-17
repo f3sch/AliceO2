@@ -577,6 +577,92 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
       BOOST_TEST(std::abs(width - 1.) < 0.08);
     }
   }
+  // Tracked, from rows: the Xi's crossings of four planes 1-4 cm before its
+  // decay vertex, nearest first, in the rows' fit.
+  RowsMother trackedRows{.rows = {.propagator = xiProp}, .vertex = 0};
+  {
+    const auto at = beamLinePlane(static_cast<Scalar>(kVertex[0]), static_cast<Scalar>(kVertex[1]), static_cast<Scalar>(xiTruth.phi));
+    BoundTrackState state;
+    state.par[kLoc0] = 0.F;
+    state.par[kLoc1] = static_cast<Scalar>(kVertex[2]);
+    state.par[kPhi] = static_cast<Scalar>(xiTruth.phi);
+    state.par[kTheta] = static_cast<Scalar>(xiTruth.theta);
+    state.par[kQOverP] = static_cast<Scalar>(xiTruth.qOverP);
+    for (int k = 0; k < 4; ++k) {
+      TrackingSurface plane;
+      const double c = std::cos(xiTruth.phi);
+      const double sn = std::sin(xiTruth.phi);
+      const double distance = -(1. + k);
+      plane.origin[0] = static_cast<Scalar>(kVertex[0] + (distance * c));
+      plane.origin[1] = static_cast<Scalar>(kVertex[1] + (distance * sn));
+      plane.axis0[0] = static_cast<Scalar>(-sn);
+      plane.axis0[1] = static_cast<Scalar>(c);
+      plane.axis1[2] = 1.F;
+      plane.normal[0] = static_cast<Scalar>(c);
+      plane.normal[1] = static_cast<Scalar>(sn);
+      plane.id = static_cast<SensorID>(20 + k);
+      SolenoidJacobian jacobian;
+      BoundTrackState out = state;
+      const auto status = jacobianAnalytic(xiProp, state, at, plane, PropagationDirection::kBackward, jacobian, &out);
+      BOOST_REQUIRE(status == PropagationStatus::kOk || status == PropagationStatus::kOutOfBounds);
+      trackedRows.rows.planes.push_back(plane);
+      trackedRows.rows.positions.push_back({out.loc0(), out.loc1()});
+      trackedRows.rows.covariance.push_back({25e-8, 0., 25e-8});
+    }
+  }
+  {
+    const std::array<RowsMother, 1> exactMothers{trackedRows};
+    const auto exactTracked = fitDecayRows(std::span<const RowsDaughter>{exactRows}, NoMaterial{}, exact, {}, topology, exactMothers);
+    BOOST_REQUIRE(exactTracked.status == DecayFitStatus::kOk);
+    for (int w = 0; w < 2; ++w) {
+      for (int c = 0; c < 3; ++c) {
+        BOOST_TEST(std::abs(exactTracked.vertices[w][c] - truth[w][c]) < 1e-4);
+      }
+    }
+    std::array<double, 6> tsum{};
+    std::array<double, 6> tsum2{};
+    double tchi2 = 0.;
+    int tfitted = 0;
+    int tndf = 0;
+    for (int trial = 0; trial < kTrials; ++trial) {
+      auto own = exactRows;
+      for (auto& daughter : own) {
+        for (auto& position : daughter.positions) {
+          position[0] += gauss(random) * 5e-4;
+          position[1] += gauss(random) * 5e-4;
+        }
+      }
+      auto mother = trackedRows;
+      for (auto& position : mother.rows.positions) {
+        position[0] += gauss(random) * 5e-4;
+        position[1] += gauss(random) * 5e-4;
+      }
+      const std::array<RowsMother, 1> mothers{mother};
+      const auto fit = fitDecayRows(std::span<const RowsDaughter>{own}, NoMaterial{}, exact, {}, topology, mothers);
+      if (fit.status != DecayFitStatus::kOk) {
+        continue;
+      }
+      ++tfitted;
+      tndf = fit.ndf;
+      const int n = 6 + 9;
+      for (int k = 0; k < 6; ++k) {
+        const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covariance[k * n + k]);
+        tsum[k] += pull;
+        tsum2[k] += pull * pull;
+      }
+      tchi2 += fit.chi2;
+    }
+    BOOST_TEST_MESSAGE("cascade tracked rows: fitted " << tfitted << ", chi2 mean " << tchi2 / tfitted << " at ndf " << tndf);
+    BOOST_TEST(tfitted >= kTrials - 5);
+    BOOST_TEST(std::abs((tchi2 / tfitted / tndf) - 1.) < 0.1);
+    for (int k = 0; k < 6; ++k) {
+      const double mean = tsum[k] / tfitted;
+      const double width = std::sqrt((tsum2[k] / tfitted) - (mean * mean));
+      BOOST_TEST_MESSAGE("  tracked rows vertex " << k / 3 << " coordinate " << k % 3 << ": pull mean " << mean << ", width " << width);
+      BOOST_TEST(std::abs(mean) < 0.12);
+      BOOST_TEST(std::abs(width - 1.) < 0.08);
+    }
+  }
 }
 
 BOOST_AUTO_TEST_CASE(ExactRowsGiveTheTruthBack)
