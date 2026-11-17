@@ -45,6 +45,7 @@
 #include "GenericTracking/Tracking/LayerMaterial.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/StageOutput.h"
+#include "GenericTracking/Tracking/SurfaceMaterialFill.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/Tracker.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
@@ -249,6 +250,14 @@ class TrackingInterface
     // The road fit and the refit: the sensors, the material LUT, the field.
     if (!mTracking) {
       mTracking = std::make_unique<TrackingGeometry<Det>>(*mGeometry);
+      mSurfaceMaterialLut = nullptr;
+    }
+    // The fits' and the follow's material tables, from this run's LUT.
+    if (mSurfaceMaterialLut != mMaterial) {
+      const auto filling = std::chrono::steady_clock::now();
+      fillSurfaceMaterial<Det>(mTracking->material(), *mMaterial, mTracking->surfaces(), mTracker->arena());
+      mSurfaceMaterialLut = mMaterial;
+      LOGP(info, "the surface material: {} layer pairs, {:.1f} MB, filled in {:.2f} s", SurfaceMaterialMap<Det>::kPairs, sizeof(SurfaceMaterialMap<Det>) / 1e6, std::chrono::duration<double>(std::chrono::steady_clock::now() - filling).count());
     }
     mTracker->setTrackModel(*mTracking, *mMaterial, propagator());
     if (mContext) {
@@ -529,6 +538,8 @@ class TrackingInterface
   const Material* mMaterial = nullptr; ///< the condition's (MaterialLUT.h)
   ScatteringTable<Det> mScattering;
   std::unique_ptr<TrackingGeometry<Det>> mTracking;
+  /// The LUT the tracking geometry's material tables were filled from.
+  const Material* mSurfaceMaterialLut = nullptr;
   BeamLine mBeamLine;                     ///< the producer's, the trackers were built for
   std::optional<GridGeometry<Det>> mGrid; ///< the grid's layout, the producer's (MeasurementGeometry)
   std::vector<FrameTiming> mFrames;       ///< each layer's readout frames, the grid's
