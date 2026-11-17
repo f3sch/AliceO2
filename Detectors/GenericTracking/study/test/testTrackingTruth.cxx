@@ -80,13 +80,15 @@ const ParticleTable kParticles{{5U, {.pt = 0.25F, .primary = true, .eta = -0.5F,
                                   .vz = 7.F,
                                 }}};
 
+const CollisionTable kCollisions{{0U, {0.01, -0.02, 3.5}}, {1U, {-0.003, 0.004, -12.25}}};
+
 } // namespace
 
 BOOST_AUTO_TEST_CASE(ItReadsBackAsWritten)
 {
   const TemporaryFile file;
   const auto rows = someRows();
-  writeTrackingTruth(file.path, kClusters, rows, kParticles);
+  writeTrackingTruth(file.path, kClusters, rows, kParticles, kCollisions);
   const auto truth = readTrackingTruth(file.path, inputOf(kClusters));
 
   BOOST_REQUIRE_EQUAL(truth.rows.size(), rows.size());
@@ -111,6 +113,7 @@ BOOST_AUTO_TEST_CASE(ItReadsBackAsWritten)
     BOOST_TEST(read.vy == particle.vy);
     BOOST_TEST(read.vz == particle.vz);
   }
+  BOOST_TEST(truth.collisions == kCollisions);
 }
 
 /// A tracking input keeps each layer's readout frames and the boxes its
@@ -144,7 +147,7 @@ BOOST_AUTO_TEST_CASE(TheInputKeepsEachLayersFramesAndItsBoxes)
 BOOST_AUTO_TEST_CASE(ItReadsOnlyForItsOwnInput)
 {
   const TemporaryFile file;
-  writeTrackingTruth(file.path, kClusters, someRows(), kParticles);
+  writeTrackingTruth(file.path, kClusters, someRows(), kParticles, kCollisions);
   BOOST_CHECK_THROW((void)readTrackingTruth(file.path, inputOf({7U, 3U})), std::runtime_error);
   BOOST_CHECK_THROW((void)readTrackingTruth(file.path, inputOf({7U, 11U, 3U})), std::runtime_error);
 }
@@ -152,9 +155,9 @@ BOOST_AUTO_TEST_CASE(ItReadsOnlyForItsOwnInput)
 BOOST_AUTO_TEST_CASE(ItRefusesAShortOrForeignFile)
 {
   const TemporaryFile file;
-  BOOST_CHECK_THROW(writeTrackingTruth(file.path, std::span{kClusters}.first(2), someRows(), kParticles), std::runtime_error);
+  BOOST_CHECK_THROW(writeTrackingTruth(file.path, std::span{kClusters}.first(2), someRows(), kParticles, kCollisions), std::runtime_error);
 
-  writeTrackingTruth(file.path, kClusters, someRows(), kParticles);
+  writeTrackingTruth(file.path, kClusters, someRows(), kParticles, kCollisions);
   const auto size = std::filesystem::file_size(file.path);
   std::filesystem::resize_file(file.path, size - 1U);
   BOOST_CHECK_THROW((void)readTrackingTruth(file.path, inputOf(kClusters)), std::runtime_error);

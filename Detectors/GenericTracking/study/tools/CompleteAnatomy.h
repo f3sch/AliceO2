@@ -73,7 +73,7 @@
 #include "GenericTracking/Study/MCTruth.h"
 #include "GenericTracking/Study/ParticleChains.h"
 #include "GenericTracking/Study/StateTruth.h"
-#include "GenericTracking/Study/SpeciesOracle.h"
+#include "GenericTracking/Study/TruthFit.h"
 #include "GenericTracking/Study/StageFunnel.h"
 #include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackComparison.h"

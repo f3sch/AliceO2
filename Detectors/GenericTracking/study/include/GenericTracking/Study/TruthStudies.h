@@ -13,7 +13,7 @@
 /// \brief The truth studies a host runs: each a module, a source of chains
 ///        and an output, as `<module>:<source>:<path>` names them.
 ///
-/// Modules: `gsf` (GSFStudy.h). Sources: `truth`, the particles' own rows,
+/// Modules: `gsf` (GSFStudy.h), `species` (SpeciesFitStudy.h). Sources: `truth`, the particles' own rows,
 /// and `tracks`, the tracker's good tracks (StudyChains.h). The path's
 /// extension picks the format (RecordWriter.h). The bench and the sink both
 /// hold one of these for the run and hand it each timeframe.
@@ -23,6 +23,7 @@
 
 #include "GenericTracking/Study/GSFStudy.h"
 #include "GenericTracking/Study/RecordWriter.h"
+#include "GenericTracking/Study/SpeciesFitStudy.h"
 #include "GenericTracking/Study/StudyChains.h"
 #include "GenericTracking/Study/TruthEvent.h"
 
@@ -60,8 +61,8 @@ class TruthStudies
   {
     std::vector<std::string_view> paths;
     for (const auto& spec : specs) {
-      if (spec.module != "gsf") {
-        throw std::invalid_argument("truth study " + spec.module + ": the modules are gsf");
+      if (spec.module != "gsf" && spec.module != "species") {
+        throw std::invalid_argument("truth study " + spec.module + ": the modules are gsf and species");
       }
       if (!RecordWriter::writes(spec.path) || std::ranges::find(paths, spec.path) != paths.end()) {
         throw std::invalid_argument("truth study " + spec.module + ": its output " + spec.path + " is not a new .csv or .root path");
@@ -72,7 +73,11 @@ class TruthStudies
       auto& study = mStudies.emplace_back(std::make_unique<Study>());
       study->source = spec.source;
       study->writer = std::make_unique<RecordWriter>(spec.path);
-      study->module.template emplace<GSFStudy<Det>>(*study->writer);
+      if (spec.module == "gsf") {
+        study->module.template emplace<GSFStudy<Det>>(*study->writer);
+      } else {
+        study->module.template emplace<SpeciesFitStudy<Det>>(*study->writer);
+      }
     }
   }
 
@@ -130,7 +135,7 @@ class TruthStudies
   struct Study {
     ChainSource source = ChainSource::kTruth;
     std::unique_ptr<RecordWriter> writer;
-    std::variant<std::monostate, GSFStudy<Det>> module;
+    std::variant<std::monostate, GSFStudy<Det>, SpeciesFitStudy<Det>> module;
   };
 
   void dispatch(const TruthEvent<Det>& event, std::span<const Chain> chains, ChainSource source)

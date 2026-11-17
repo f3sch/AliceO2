@@ -71,18 +71,20 @@ static_assert(std::is_trivially_copyable_v<VertexSeed> && std::is_trivially_copy
 constexpr std::array<char, 8> kTruthMagic{'G', 'T', 'R', 'K', 'T', 'R', 'U', '1'};
 
 /// Bumped whenever the truth's layout below or a field's type changes.
-constexpr std::uint32_t kTruthVersion = 2U;
+constexpr std::uint32_t kTruthVersion = 3U;
 
 /// The truth's header; then the rows' cluster indices, particles
 /// (`TruthRow::kMaxParticles` per row), counts, layers and first-label flags,
 /// then the particles' identities, pT, primary flags, eta, phi, origins, PDG
-/// codes, mothers' PDG codes, production processes and vertices, by identity.
+/// codes, mothers' PDG codes, production processes and vertices, by identity;
+/// then the collisions' identities and vertices, by identity.
 struct TruthHeader {
   std::array<char, 8> magic = kTruthMagic;
   std::uint32_t version = kTruthVersion;
   std::uint32_t maxParticles = TruthRow::kMaxParticles;
   std::uint64_t rows = 0U;
   std::uint64_t particles = 0U;
+  std::uint64_t collisions = 0U;
 };
 static_assert(std::has_unique_object_representations_v<TruthHeader>);
 
@@ -264,7 +266,7 @@ TrackingInput readTrackingInput(const std::string& path)
   return input;
 }
 
-void writeTrackingTruth(const std::string& path, std::span<const std::uint32_t> clusterIndex, std::span<const TruthRow> rows, const ParticleTable& particles)
+void writeTrackingTruth(const std::string& path, std::span<const std::uint32_t> clusterIndex, std::span<const TruthRow> rows, const ParticleTable& particles, const CollisionTable& collisions)
 {
   if (clusterIndex.size() != rows.size()) {
     throw std::runtime_error(std::format("tracking truth: {} rows for {} cluster indices", rows.size(), clusterIndex.size()));
@@ -317,12 +319,27 @@ void writeTrackingTruth(const std::string& path, std::span<const std::uint32_t> 
     vy.push_back(particle.vy);
     vz.push_back(particle.vz);
   }
+  std::vector<std::uint64_t> collisionIds;
+  collisionIds.reserve(collisions.size());
+  for (const auto& [id, vertex] : collisions) {
+    collisionIds.push_back(id);
+  }
+  std::ranges::sort(collisionIds);
+  std::vector<double> collisionX;
+  std::vector<double> collisionY;
+  std::vector<double> collisionZ;
+  for (const auto id : collisionIds) {
+    const auto& vertex = collisions.at(id);
+    collisionX.push_back(vertex[0]);
+    collisionY.push_back(vertex[1]);
+    collisionZ.push_back(vertex[2]);
+  }
 
   std::ofstream out{path, std::ios::binary | std::ios::trunc};
   if (!out) {
     throw std::runtime_error("tracking truth: cannot create " + path);
   }
-  const TruthHeader header{.rows = rows.size(), .particles = ids.size()};
+  const TruthHeader header{.rows = rows.size(), .particles = ids.size(), .collisions = collisionIds.size()};
   out.write(bytesOf(&header), sizeof(header));
   writeBlock(out, clusterIndex.data(), clusterIndex.size());
   writeBlock(out, rowParticles.data(), rowParticles.size());
@@ -341,6 +358,10 @@ void writeTrackingTruth(const std::string& path, std::span<const std::uint32_t> 
   writeBlock(out, vx.data(), vx.size());
   writeBlock(out, vy.data(), vy.size());
   writeBlock(out, vz.data(), vz.size());
+  writeBlock(out, collisionIds.data(), collisionIds.size());
+  writeBlock(out, collisionX.data(), collisionX.size());
+  writeBlock(out, collisionY.data(), collisionY.size());
+  writeBlock(out, collisionZ.data(), collisionZ.size());
   out.close();
   if (!out) {
     throw std::runtime_error("tracking truth: cannot write " + path);
@@ -404,6 +425,15 @@ TrackingTruth readTrackingTruth(const std::string& path, const TrackingInput& in
   readBlock(in, vx.data(), vx.size(), "the particles' production x");
   readBlock(in, vy.data(), vy.size(), "the particles' production y");
   readBlock(in, vz.data(), vz.size(), "the particles' production z");
+  const auto collisions = static_cast<std::size_t>(header.collisions);
+  std::vector<std::uint64_t> collisionIds(collisions);
+  std::vector<double> collisionX(collisions);
+  std::vector<double> collisionY(collisions);
+  std::vector<double> collisionZ(collisions);
+  readBlock(in, collisionIds.data(), collisionIds.size(), "the collisions' identities");
+  readBlock(in, collisionX.data(), collisionX.size(), "the collisions' x");
+  readBlock(in, collisionY.data(), collisionY.size(), "the collisions' y");
+  readBlock(in, collisionZ.data(), collisionZ.size(), "the collisions' z");
   if (std::ranges::any_of(origin, [](std::uint8_t value) { return value >= kParticleOrigins; })) {
     throw std::runtime_error("tracking truth: " + path + " has a particle of no known origin");
   }
@@ -437,6 +467,10 @@ TrackingTruth readTrackingTruth(const std::string& path, const TrackingInput& in
       .vy = vy[index],
       .vz = vz[index],
     };
+  }
+  truth.collisions.reserve(collisions);
+  for (std::size_t index = 0; index < collisions; ++index) {
+    truth.collisions[collisionIds[index]] = {collisionX[index], collisionY[index], collisionZ[index]};
   }
   return truth;
 }

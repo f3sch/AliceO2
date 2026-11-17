@@ -18,6 +18,7 @@
 
 #include "GenericTracking/Base/Definitions.h"
 #include "GenericTracking/Study/Alice/Hits.h"
+#include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
@@ -102,6 +103,29 @@ template <DetectorLayout Det>
   const double variance = (dTheta * dTheta * static_cast<double>(state.covAt(kTheta, kTheta))) + (2. * dTheta * dQOverP * static_cast<double>(state.covAt(kTheta, kQOverP))) + (dQOverP * dQOverP * static_cast<double>(state.covAt(kQOverP, kQOverP)));
   truth.ptSigma = std::sqrt(std::max(variance, 0.));
   return truth;
+}
+
+/// A state on the perigee plane about a particle's MC production point
+/// against its MC kinematics there.
+struct PerigeeTruth {
+  std::array<double, 5> residual{}; ///< fitted less true: d0, z, phi, theta, q/p
+  std::array<double, 5> sigma{};    ///< the fit's
+};
+
+/// \a state on the perigee plane about the production point of the particle
+/// of \a truth and \a charge (`perigeePlaneOf`, BeamConstraint.h: loc0 the
+/// signed transverse distance, the d0, loc1 the z) against its production
+/// point and momentum.
+[[nodiscard]] inline PerigeeTruth perigeeTruth(const BoundTrackState& state, const ParticleTruth& truth, double charge)
+{
+  const auto eta = static_cast<double>(truth.eta);
+  const double momentum = static_cast<double>(truth.pt) * std::cosh(eta);
+  PerigeeTruth result;
+  result.residual = {static_cast<double>(state.par[kLoc0]), static_cast<double>(state.par[kLoc1]) - static_cast<double>(truth.vz), std::remainder(static_cast<double>(state.par[kPhi]) - static_cast<double>(truth.phi), 2. * std::numbers::pi), static_cast<double>(state.par[kTheta]) - (2. * std::atan(std::exp(-eta))), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
+  for (int i = 0; i < 5; ++i) {
+    result.sigma[static_cast<std::size_t>(i)] = std::sqrt(std::max(static_cast<double>(state.covAt(i, i)), 0.));
+  }
+  return result;
 }
 
 } // namespace o2::gtrk::study

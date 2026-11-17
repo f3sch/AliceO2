@@ -324,13 +324,6 @@ void streamResolution(o2::utils::TreeStreamRedirector& output, std::span<const Q
   }
 }
 
-void streamOracle(o2::utils::TreeStreamRedirector& output, std::span<const QAOracle> entries)
-{
-  for (const auto& o : entries) {
-    output << "oracle" << "pdg=" << o.pdg << "charge=" << o.charge << "origin=" << o.origin << "eta=" << o.eta << "layer=" << o.layer << "kinks=" << o.kinks << "clusters=" << o.clusters << "productionOffset=" << o.productionOffset << "p=" << o.momentum << "pOuter=" << o.pOuter << "variant=" << o.variant << "status=" << o.status << "chi2=" << o.chi2 << "ndf=" << o.ndf << "dLoc0=" << o.residual[0] << "dLoc1=" << o.residual[1] << "dPhi=" << o.residual[2] << "dTheta=" << o.residual[3] << "dQOverP=" << o.residual[4] << "sLoc0=" << o.sigma[0] << "sLoc1=" << o.sigma[1] << "sPhi=" << o.sigma[2] << "sTheta=" << o.sigma[3] << "sQOverP=" << o.sigma[4] << "dPtRel=" << o.ptResidual << "\n";
-  }
-}
-
 void streamMomenta(o2::utils::TreeStreamRedirector& output, std::span<const QAMomenta> entries)
 {
   for (const auto& m : entries) {

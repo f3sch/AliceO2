@@ -94,11 +94,13 @@ template <DetectorLayout Det>
 struct TrackingTruth {
   std::vector<TruthRow> rows; ///< one per row of the tracking input, in its order
   ParticleTable particles;
+  CollisionTable collisions; ///< the particles' collisions
 };
 
 /// Write \a rows -- one per row of the tracking input, whose cluster indices
-/// are \a clusterIndex -- and \a particles to \a path. Throws std::runtime_error.
-void writeTrackingTruth(const std::string& path, std::span<const std::uint32_t> clusterIndex, std::span<const TruthRow> rows, const ParticleTable& particles);
+/// are \a clusterIndex --, \a particles and \a collisions to \a path. Throws
+/// std::runtime_error.
+void writeTrackingTruth(const std::string& path, std::span<const std::uint32_t> clusterIndex, std::span<const TruthRow> rows, const ParticleTable& particles, const CollisionTable& collisions);
 
 /// Read what `writeTrackingTruth` wrote to \a path for \a input. Throws
 /// std::runtime_error on a short, foreign or corrupt file, or one whose rows

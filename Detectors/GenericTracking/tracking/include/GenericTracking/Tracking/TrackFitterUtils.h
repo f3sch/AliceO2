@@ -65,13 +65,13 @@ struct TrackFitResult {
 };
 
 /// The mass a fit step's energy loss takes: the propagator's hypothesis,
-/// the one its scattering takes. A QA oracle's propagator type overloads it
-/// to set the two apart (SpeciesOracle.h).
+/// the one its scattering takes. A study's propagator type overloads it to
+/// set the two apart (the study's TruthFit.h).
 GPUhdi() GPUAlwaysInline() Scalar lossMassGeV(const Propagator& prop) { return prop.massGeV; }
 
 /// The bremsstrahlung a fit step adds to its energy loss over \a x2X0
-/// radiation lengths: none for the tracking's propagator. A QA oracle's
-/// propagator type overloads it (SpeciesOracle.h) to change \a state's q/p
+/// radiation lengths: none for the tracking's propagator. A study's
+/// propagator type overloads it (the study's TruthFit.h) to change \a state's q/p
 /// and add to the step's q/p variance \a varQOverP.
 GPUhdi() GPUAlwaysInline() void applyRadiation(const Propagator& /*prop*/, Scalar /*x2X0*/, PropagationDirection /*direction*/, BoundTrackState& /*state*/, Scalar& /*varQOverP*/) {}
 
