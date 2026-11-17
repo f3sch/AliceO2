@@ -106,5 +106,17 @@ foreach(backend IN ITEMS CUDA HIP)
   gtrk_device_library(GTrkTracking${backend} ${backend} cuda/DeviceRuntime.cu cuda/DeviceTrackerITS.cu cuda/DeviceTrackerMFT.cu cuda/DeviceTrackerTRKFT3.cu)
   set(target ${GTrkTracking${backend}_TARGET})
   target_link_libraries(${target} PUBLIC O2::GTrkTracking)
+  # Register caps of the CUDA units. Under relocatable device code a kernel's
+  # launch bounds do not reach the out-of-line functions it calls, so a
+  # register target is the unit's. Fewer registers per thread leave more
+  # warps resident to hide the memory waits of the fits and the follow; each
+  # cap is where its unit runs fastest. The provider's out-of-line LUT query
+  # takes 93 registers, and no unit links below that. nvcc applies one cap to
+  # every architecture a unit is compiled for. HIP has none: there the follow
+  # already runs at the register file's limit, and a lower one only spills.
+  if(backend STREQUAL "CUDA")
+    set_source_files_properties(cuda/DeviceTrackerITS.cu cuda/DeviceTrackerTRKFT3.cu PROPERTIES COMPILE_OPTIONS -maxrregcount=96)
+    set_source_files_properties(cuda/DeviceTrackerMFT.cu PROPERTIES COMPILE_OPTIONS -maxrregcount=128)
+  endif()
   gtrk_device_target(${target} ${backend} SHARED "_ZN2o24gtrk3gpu${lower_length}${lower}11makeRuntimeEi")
 endforeach()
