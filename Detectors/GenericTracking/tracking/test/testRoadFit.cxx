@@ -106,7 +106,6 @@ const UniformMaterial kNoMaterial{};
 
 IterationParameters<Det> parameters()
 {
-  const std::array<double, kLayers> material{};
   return iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scatteringTable<Det>(std::array<double, kLayers>{}));
 }
 
@@ -432,7 +431,6 @@ BOOST_AUTO_TEST_CASE(TheStageEmitsOneRecordPerRoad)
   const RoadsRun roads{fixture};
   const auto& run = roads.result;
   const auto& count = roads.count;
-  const SerialForEach serial{};
   BOOST_REQUIRE(count.roadCount() == kTracks);
 
   const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
@@ -484,7 +482,6 @@ BOOST_AUTO_TEST_CASE(TheStageDropsRoadsBelowTheFloorOfTheirClusterCount)
   const RoadsRun roads{fixture};
   const auto& run = roads.result;
   const auto& count = roads.count;
-  const SerialForEach serial{};
   BOOST_REQUIRE(count.roadCount() == kTracks);
 
   const auto tracksKept = [&](double floorAll, double floorOneShort) {
@@ -522,7 +519,6 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
   const RoadsRun roads{fixture};
   const auto& run = roads.result;
   const auto& count = roads.count;
-  const SerialForEach serial{};
   BOOST_REQUIRE(count.roadCount() == kTracks);
 
   // The records, each its cluster count times 10 plus its first layer, by

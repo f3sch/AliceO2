@@ -94,7 +94,7 @@ struct SurfaceMaterialMap {
   {
     using Math = o2::gpu::GPUCommonMath;
     SurfaceStep out;
-    if (fromLayer >= kLayers || toLayer >= kLayers) {
+    if (fromLayer >= static_cast<LayerID>(kLayers) || toLayer >= static_cast<LayerID>(kLayers)) {
       return out;
     }
     const int code = pairOf[(static_cast<std::size_t>(fromLayer) * kLayers) + toLayer];

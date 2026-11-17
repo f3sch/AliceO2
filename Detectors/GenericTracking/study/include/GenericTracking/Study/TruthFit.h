@@ -123,15 +123,15 @@ struct Species {
   using o2::track::PID;
   switch (std::abs(pdg)) {
     case 11:
-      return Species{static_cast<Scalar>(physics::MassElectron), PID{PID::Electron}};
+      return Species{.mass = static_cast<Scalar>(physics::MassElectron), .pid = PID{PID::Electron}};
     case 13:
-      return Species{static_cast<Scalar>(physics::MassMuon), PID{PID::Muon}};
+      return Species{.mass = static_cast<Scalar>(physics::MassMuon), .pid = PID{PID::Muon}};
     case 211:
-      return Species{static_cast<Scalar>(physics::MassPionCharged), PID{PID::Pion}};
+      return Species{.mass = static_cast<Scalar>(physics::MassPionCharged), .pid = PID{PID::Pion}};
     case 321:
-      return Species{static_cast<Scalar>(physics::MassKaonCharged), PID{PID::Kaon}};
+      return Species{.mass = static_cast<Scalar>(physics::MassKaonCharged), .pid = PID{PID::Kaon}};
     case 2212:
-      return Species{static_cast<Scalar>(physics::MassProton), PID{PID::Proton}};
+      return Species{.mass = static_cast<Scalar>(physics::MassProton), .pid = PID{PID::Proton}};
     default:
       return std::nullopt;
   }

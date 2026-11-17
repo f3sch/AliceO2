@@ -50,24 +50,25 @@ class SensorPlaneGrid
   static constexpr int kPhi = SurfaceMaterialMap<Det>::kPhiBins;
   static constexpr int kSecond = SurfaceMaterialMap<Det>::kSecondBins;
 
-  SensorPlaneGrid(std::span<const TrackingSurface> surfaces, LayerID id) : mBarrel(Detector<Det>::isBarrelLayer(id))
+  SensorPlaneGrid(std::span<const TrackingSurface> surfaces, LayerID id) : mBarrel(Detector<Det>::isBarrelLayer(id)), mSecondMin(secondMin<Det>(id)), mPerCm(kSecond / (secondMax<Det>(id) - mSecondMin))
   {
-    mSecondMin = secondMin<Det>(id);
-    mPerCm = kSecond / (secondMax<Det>(id) - mSecondMin);
     mCells.resize(static_cast<std::size_t>(kPhi) * kSecond);
     for (const auto& surface : surfaces) {
       if (surface.layer != id) {
         continue;
       }
-      double phiLo = 1e9, phiHi = -1e9, sLo = 1e9, sHi = -1e9;
+      double phiLo = 1e9;
+      double phiHi = -1e9;
+      double sLo = 1e9;
+      double sHi = -1e9;
       const bool curved = surface.radius > 0.F;
       double centre[3];
       for (int k = 0; k < 3; ++k) {
         centre[k] = curved ? surface.origin[k] + (surface.radius * surface.axis0[k]) : surface.origin[k];
       }
       const double reference = std::atan2(centre[1], centre[0]);
-      for (int i = -1; i <= 1; i += 2) {
-        for (int j = -1; j <= 1; j += 2) {
+      for (const Scalar i : {-1.F, 1.F}) {
+        for (const Scalar j : {-1.F, 1.F}) {
           double g[3];
           for (int k = 0; k < 3; ++k) {
             if (curved) {
@@ -120,7 +121,8 @@ class SensorPlaneGrid
         const double o[3] = {surface->origin[0], surface->origin[1], surface->origin[2]};
         const double un = (u[0] * surface->normal[0]) + (u[1] * surface->normal[1]) + (u[2] * surface->normal[2]);
         const double on = (o[0] * surface->normal[0]) + (o[1] * surface->normal[1]) + (o[2] * surface->normal[2]);
-        double up[3], op[3];
+        double up[3];
+        double op[3];
         for (int k = 0; k < 3; ++k) {
           up[k] = u[k] - (un * surface->normal[k]);
           op[k] = o[k] - (on * surface->normal[k]);
@@ -223,6 +225,7 @@ inline void fillSurfaceMaterial(SurfaceMaterialMap<Det>& map, const o2::base::Ma
     halves[link.to].push_back({.pair = pair, .half = 1, .other = link.from});
   }
   std::vector<std::unique_ptr<SensorPlaneGrid<Det>>> grids;
+  grids.reserve(kL);
   for (int layer = 0; layer < kL; ++layer) {
     grids.push_back(std::make_unique<SensorPlaneGrid<Det>>(surfaces, static_cast<LayerID>(layer)));
   }
@@ -376,8 +379,8 @@ inline void fillSurfaceMaterial(SurfaceMaterialMap<Det>& map, const o2::base::Ma
               if (!(mid[h] > 0.)) {
                 continue;
               }
-              const LayerID from = mine[h].half == 0 ? own : mine[h].other;
-              const LayerID to = mine[h].half == 0 ? mine[h].other : own;
+              const int from = mine[h].half == 0 ? own : mine[h].other;
+              const int to = mine[h].half == 0 ? mine[h].other : own;
               const double tFrom = 0.5 * (crossing[from].first + crossing[from].last);
               const double tTo = 0.5 * (crossing[to].first + crossing[to].last);
               bool crosses = false;

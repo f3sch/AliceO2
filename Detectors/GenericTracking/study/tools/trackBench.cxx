@@ -192,10 +192,10 @@ static int run(int argc, char** argv)
      "write every row of the last run's frame here with its first particle's origin, kinematics and production point") //
     ("clone-joins", bpo::value(&options.cloneJoins)->default_value(""),
      "write the last run's clones joined along the truth here: each inner good track's outward state stepped through the next good track's rows, the true "
-     "row's chi2 and the rows competing with it")                                                                                          //
+     "row's chi2 and the rows competing with it") //
     ("material-check", bpo::bool_switch(&options.materialCheck),
      "compare the material tables with the LUT on the last run's tracks: per layer pair, each step between consecutive rows, the tables' halves against the "
-     "LUT walk's") //
+     "LUT walk's")                                                                                                                         //
     ("backend", bpo::value(&options.backend)->default_value("cpu"), "cpu, or cuda or hip: run each planned timeframe on that GPU backend") //
     ("gpu-device", bpo::value(&options.gpuDevice)->default_value(0), "the GPU backend's device index")                                     //
     ("gpu-arena-mb", bpo::value(&options.gpuArenaMB)->default_value(0U), "the device arena [MB], in O2's GPU pool; 0: the whole device")   //

@@ -222,7 +222,7 @@ void writeParameters(const std::string& path)
         section = found == exact.end() ? nullptr : &found->second;
       } else if (const auto equals = line.find('='); section != nullptr && equals != std::string::npos) {
         if (const auto value = section->find(line.substr(0, equals)); value != section->end()) {
-          line = line.substr(0, equals + 1) + value->second;
+          line.replace(equals + 1, std::string::npos, value->second);
         }
       }
       lines.push_back(std::move(line));

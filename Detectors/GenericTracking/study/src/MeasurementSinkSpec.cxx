@@ -3553,7 +3553,7 @@ class MeasurementSinkTask : public Task
     std::unordered_map<std::uint64_t, std::uint64_t> outwardMasks;
     std::map<std::uint64_t, std::vector<float>> legMomenta;            // --outward-momenta; by particle, the tree's order
     std::unordered_map<std::uint64_t, std::vector<LayerID>> legLayers; // the funnel's LegLinks
-    if (mHits) {
+    if (mHitIndex) {
       std::vector<HitCrossing> crossings;
       for (const auto& [id, truth] : particles) {
         if (const auto label = mParticleLabels.find(id); label == mParticleLabels.end() || label->second.source != 0) {
@@ -3639,7 +3639,7 @@ class MeasurementSinkTask : public Task
       if (verdict.has_value() && verdict->pairLoss.has_value()) {
         extra.pairLoss = static_cast<std::uint8_t>(*verdict->pairLoss);
       }
-      if (const auto leg = legLayers.find(id); leg != legLayers.end()) {
+      if (const auto leg = legLayers.find(id); funnel != nullptr && leg != legLayers.end()) {
         if (const auto links = funnel->legLinks(id, leg->second); links.has_value()) {
           extra.legRows = links->rows;
           extra.legLinked = links->linked;
@@ -4077,8 +4077,8 @@ class MeasurementSinkTask : public Task
     const auto flags = mO2Tracks->fakeFlags(static_cast<long long>(mTimeframe));
     const auto fakes = std::ranges::count(flags, true);
     LOGP(info, "  O2's own track labels: {} of {} fake ({:.2f} %)", fakes, flags.size(), percent(static_cast<std::uint64_t>(fakes), flags.size()));
-    if (mHits) {
-      measurePulls(frame, rows, tracks, theirs);
+    if (mHitIndex) {
+      measurePulls(frame, rows, tracks, theirs, *mHitIndex);
     }
   }
 
@@ -4128,7 +4128,7 @@ class MeasurementSinkTask : public Task
   [[nodiscard]] std::optional<StateTruth> stateTruth(const Frame& frame, const BoundTrackState& state, std::uint64_t particle, Frame::Index row)
   {
     const double charge = mParticleLabels[particle].charge;
-    if (!mInterface.configured()) {
+    if (!mInterface.configured() || !mHitIndex) {
       return std::nullopt;
     }
     return study::stateTruth(mInterface.tracking(), *mHitIndex, frame, state, particle, row, charge);
@@ -4209,8 +4209,9 @@ class MeasurementSinkTask : public Task
   /// and O2's, against the MC hit on that measurement's chip, each in its
   /// own parameters and covariance, and both as common residuals
   /// (TrackPulls.h). Ours are bound to the sensor plane; O2's are in its
-  /// tracking frame, which only the ITS's tracks are.
-  void measurePulls(const Frame& frame, std::span<const TruthRow> rows, const typename TrackRefit<Det>::Tracks& tracks, const TrackRows& theirs)
+  /// tracking frame, which only the ITS's tracks are; \a hits finds O2's
+  /// MC hit.
+  void measurePulls(const Frame& frame, std::span<const TruthRow> rows, const typename TrackRefit<Det>::Tracks& tracks, const TrackRows& theirs, [[maybe_unused]] const study::HitIndex& hits)
   {
     const std::vector<PullParameter> common{{.name = "across", .unit = "um", .scale = 1e4}, {.name = "along", .unit = "um", .scale = 1e4}, {.name = "phi", .unit = "mrad", .scale = 1e3}, {.name = "dip", .unit = "mrad", .scale = 1e3}, {.name = "pT", .unit = "%", .scale = 1e2}};
     PullTable ours{"GTRK at the innermost measurement, bound parameters", {{.name = "loc0", .unit = "um", .scale = 1e4}, {.name = "loc1", .unit = "um", .scale = 1e4}, {.name = "phi", .unit = "mrad", .scale = 1e3}, {.name = "theta", .unit = "mrad", .scale = 1e3}, {.name = "q/p", .unit = "1/GeV", .scale = 1.}}};
@@ -4283,7 +4284,7 @@ class MeasurementSinkTask : public Task
           continue;
         }
         const auto chip = frame.measurement(*innermost).surface;
-        const auto* segment = mHitIndex->crossing(particle, chip, point(*innermost));
+        const auto* segment = hits.crossing(particle, chip, point(*innermost));
         const double charge = mParticleLabels[particle].charge;
         if (segment == nullptr || exactlyEqual(charge, 0.)) {
           continue;
