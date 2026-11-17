@@ -22,7 +22,11 @@
 ///   plane about C (through C's transverse point along the beam, normal to the
 ///   mother's direction at its closest approach to it) at C: loc0 = 0 and
 ///   loc1 = C_z, two equations (`predictOnPlane`). The plane is the current
-///   iterate's, as a measurement's.
+///   iterate's, as a measurement's. The mother scatters on the material
+///   between C and V; with that scattering's covariance on the plane
+///   (`pointCovariance`, `productionScattering`) the point is a measurement
+///   of the helix instead -- two terms of the chi2 (`productionTerm`) --,
+///   held exactly only where none is crossed.
 ///
 /// - Collinear daughters (a photon's conversion): the two daughters' momenta
 ///   parallel at V, phi1 - phi2 = 0 and theta1 - theta2 = 0. A pair has a
@@ -91,10 +95,24 @@ struct DecayConstraints {
   double massGeV = 0.; ///< the mother's
   bool production = false;
   std::array<double, 3> point{}; ///< where the mother was made [cm]
-  bool collinear = false;        ///< two daughters only
+  /// The covariance (loc0, loc0 loc1, loc1) [cm^2] on the plane about the
+  /// point of where the mother's helix from V crosses it: its scattering
+  /// between. Positive definite: the point is measured, else held.
+  std::array<double, 3> pointCovariance{};
+  bool collinear = false; ///< two daughters only
   std::optional<LinePosition> position;
   /// Per vertex below the root, its composite's mass to hold [GeV]; 0 for none.
   std::vector<double> compositeMasses;
+  [[nodiscard]] bool softProduction() const
+  {
+    return production && pointCovariance[0] > 0. && (pointCovariance[0] * pointCovariance[2]) - (pointCovariance[1] * pointCovariance[1]) > 0.;
+  }
+  /// The equations held exactly: `count` less a measured production point.
+  [[nodiscard]] int equations(const DecayTopology& topology = {}) const
+  {
+    return count(topology) - (softProduction() ? 2 : 0);
+  }
+  /// What the constraints add to the degrees of freedom.
   [[nodiscard]] int count(const DecayTopology& topology = {}) const
   {
     int composites = 0;
@@ -123,6 +141,33 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
     r.d[i] = ((x.v * y.d[i]) - (y.v * x.d[i])) / norm;
   }
   return r;
+}
+
+/// Where the helix from \a vertex with momentum \a total and \a charge
+/// crosses the plane about \a point (through its transverse point along the
+/// beam, normal to the helix's direction at its closest approach, from the
+/// current values: `perigeePhi`), less the point: (loc0, loc1 - z).
+template <int N>
+bool productionOffset(const std::array<double, 3>& point, const std::array<Dual<N>, 3>& vertex, const std::array<Dual<N>, 3>& total, double charge, double fieldScale, std::array<Dual<N>, 2>& offset)
+{
+  using D = Dual<N>;
+  const D pt = sqrt((total[0] * total[0]) + (total[1] * total[1]));
+  const D p = sqrt((pt * pt) + (total[2] * total[2]));
+  const D phi = atan2(total[1], total[0]);
+  const D theta = atan2(pt, total[2]);
+  const D qOverP = D{charge} / p;
+  const double curvature = fieldScale * charge / pt.v;
+  const double dx = vertex[0].v - point[0];
+  const double dy = vertex[1].v - point[1];
+  const double along = (dx * std::cos(phi.v)) + (dy * std::sin(phi.v));
+  const double across = (-dx * std::sin(phi.v)) + (dy * std::cos(phi.v));
+  const PerigeePlane plane{.x = point[0], .y = point[1], .phi = phi.v + std::atan2(-curvature * along, 1. + (curvature * across))};
+  std::array<D, 5> crossing{};
+  if (!predictOnPlane(vertex[0], vertex[1], vertex[2], phi, theta, qOverP, fieldScale, plane, crossing)) {
+    return false;
+  }
+  offset = {crossing[0], crossing[1] + (-point[2])};
+  return true;
 }
 
 /// \a constraints' values at \a vertices (\a topology's) and \a momenta (phi,
@@ -195,26 +240,13 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
   if (constraints.mass) {
     push(massOf(total, energy, constraints.massGeV));
   }
-  if (constraints.production) {
-    const D pt = sqrt((total[0] * total[0]) + (total[1] * total[1]));
-    const D p = sqrt((pt * pt) + (total[2] * total[2]));
-    const D phi = atan2(total[1], total[0]);
-    const D theta = atan2(pt, total[2]);
-    const D qOverP = D{charge} / p;
-    // The plane about C: normal to the mother's direction at its closest
-    // approach to C, from the current values (`perigeePhi`).
-    const double curvature = fieldScale * charge / pt.v;
-    const double dx = vertices[0][0] - constraints.point[0];
-    const double dy = vertices[0][1] - constraints.point[1];
-    const double along = (dx * std::cos(phi.v)) + (dy * std::sin(phi.v));
-    const double across = (-dx * std::sin(phi.v)) + (dy * std::cos(phi.v));
-    const PerigeePlane plane{.x = constraints.point[0], .y = constraints.point[1], .phi = phi.v + std::atan2(-curvature * along, 1. + (curvature * across))};
-    std::array<D, 5> crossing{};
-    if (!predictOnPlane(v[0][0], v[0][1], v[0][2], phi, theta, qOverP, fieldScale, plane, crossing)) {
+  if (constraints.production && !constraints.softProduction()) {
+    std::array<D, 2> offset{};
+    if (!productionOffset(constraints.point, v[0], total, charge, fieldScale, offset)) {
       return false;
     }
-    push(crossing[0]);
-    push(crossing[1] + (-constraints.point[2]));
+    push(offset[0]);
+    push(offset[1]);
   }
   // The links: each composite below the root flies from its parent's vertex
   // to its own along its momentum P: the offset's components across P, on
@@ -270,6 +302,64 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
     }
     along.v -= line.s;
     push(along);
+  }
+  return true;
+}
+
+/// A measured production point's terms (`DecayConstraints::softProduction`):
+/// adds its chi2 to \a chi2 and, if given, its gradient (J^T W r, r the
+/// point less the crossing) and normal matrix (J^T W J) to \a gradient and
+/// \a normal, 3K + 3N wide as `evaluateConstraints`' rows; false if the
+/// mother misses its plane.
+[[nodiscard]] inline bool productionTerm(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const std::array<double, 3>> vertices, std::span<const std::array<double, 3>> momenta, std::span<const double> charges, double fieldScale, double& chi2, std::vector<double>* gradient, std::vector<double>* normal)
+{
+  using D = Dual<kConstraintInputs>;
+  const int k = static_cast<int>(vertices.size());
+  const int count = static_cast<int>(momenta.size());
+  const int width = (3 * k) + (3 * count);
+  std::array<D, 3> v{};
+  for (int c = 0; c < 3; ++c) {
+    v[c].v = vertices[0][c];
+    v[c].d[c] = 1.;
+  }
+  std::array<D, 3> total{};
+  double charge = 0.;
+  for (int i = 0; i < count; ++i) {
+    if (!topology.under(i, 0)) {
+      continue;
+    }
+    std::array<D, 3> q{};
+    for (int c = 0; c < 3; ++c) {
+      q[c].v = momenta[i][c];
+      q[c].d[(3 * k) + (3 * i) + c] = 1.;
+    }
+    const D p = D{q[2].v > 0. ? 1. : -1.} / q[2];
+    const D pt = p * sin(q[1]);
+    total[0] = total[0] + (pt * cos(q[0]));
+    total[1] = total[1] + (pt * sin(q[0]));
+    total[2] = total[2] + (p * cos(q[1]));
+    charge += charges[i];
+  }
+  std::array<D, 2> offset{};
+  if (!productionOffset(constraints.point, v, total, charge, fieldScale, offset)) {
+    return false;
+  }
+  const auto& cov = constraints.pointCovariance;
+  const double det = (cov[0] * cov[2]) - (cov[1] * cov[1]);
+  const std::array<double, 4> weight{cov[2] / det, -cov[1] / det, -cov[1] / det, cov[0] / det};
+  const std::array<double, 2> residual{-offset[0].v, -offset[1].v};
+  const std::array<double, 2> weighted{(weight[0] * residual[0]) + (weight[1] * residual[1]), (weight[2] * residual[0]) + (weight[3] * residual[1])};
+  chi2 += (residual[0] * weighted[0]) + (residual[1] * weighted[1]);
+  if (gradient == nullptr) {
+    return true;
+  }
+  for (int a = 0; a < width; ++a) {
+    (*gradient)[a] += (offset[0].d[a] * weighted[0]) + (offset[1].d[a] * weighted[1]);
+    for (int b = 0; b < width; ++b) {
+      const double wb0 = (weight[0] * offset[0].d[b]) + (weight[1] * offset[1].d[b]);
+      const double wb1 = (weight[2] * offset[0].d[b]) + (weight[3] * offset[1].d[b]);
+      (*normal)[a * width + b] += (offset[0].d[a] * wb0) + (offset[1].d[a] * wb1);
+    }
   }
   return true;
 }

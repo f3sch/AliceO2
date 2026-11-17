@@ -548,6 +548,43 @@ template <typename Material>
         }
       }
     }
+    // A measured production point, in this fit's layout.
+    if (constraints.softProduction()) {
+      std::vector<std::array<double, 3>> vertices(static_cast<std::size_t>(vertexCount));
+      for (int w = 0; w < vertexCount; ++w) {
+        vertices[w] = {p[3 * w], p[(3 * w) + 1], p[(3 * w) + 2]};
+      }
+      std::vector<std::array<double, 3>> momenta(static_cast<std::size_t>(count));
+      std::vector<double> charges(static_cast<std::size_t>(count));
+      for (int i = 0; i < count; ++i) {
+        momenta[i] = {p[firstOf[i]], p[firstOf[i] + 1], p[firstOf[i] + 2]};
+        charges[i] = start.momenta[i][2] > 0. ? 1. : -1.;
+      }
+      const int width = (3 * vertexCount) + (3 * count);
+      std::vector<int> column(static_cast<std::size_t>(width));
+      for (int c = 0; c < 3 * vertexCount; ++c) {
+        column[c] = c;
+      }
+      for (int i = 0; i < count; ++i) {
+        for (int c = 0; c < 3; ++c) {
+          column[(3 * vertexCount) + (3 * i) + c] = firstOf[i] + c;
+        }
+      }
+      std::vector<double> g(static_cast<std::size_t>(width), 0.);
+      std::vector<double> h(static_cast<std::size_t>(width * width), 0.);
+      const double field = static_cast<double>(daughters[0].propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
+      if (!productionTerm(constraints, topology, vertices, momenta, charges, field, chi2, normal != nullptr ? &g : nullptr, normal != nullptr ? &h : nullptr)) {
+        return false;
+      }
+      if (normal != nullptr) {
+        for (int a = 0; a < width; ++a) {
+          (*gradient)[column[a]] += g[a];
+          for (int b = 0; b < width; ++b) {
+            (*normal)[column[a] * n + column[b]] += h[a * width + b];
+          }
+        }
+      }
+    }
     return true;
   };
 
@@ -607,7 +644,7 @@ template <typename Material>
 
   // The constraints' values and rows at \a p, in this fit's layout (their
   // columns are V and the momenta; the kicks' are zero).
-  const bool constrained = constraints.count(topology) > 0;
+  const bool constrained = constraints.equations(topology) > 0;
   std::vector<double> masses(static_cast<std::size_t>(count));
   std::vector<double> charges(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
