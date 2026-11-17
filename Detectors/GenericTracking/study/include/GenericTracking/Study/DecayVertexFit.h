@@ -657,11 +657,40 @@ template <typename Material>
         }
       }
     }
+    // A measured production point (its rows are this fit's first 3K + 3N).
+    if (constraints.softProduction()) {
+      std::vector<std::array<double, 3>> vertices(static_cast<std::size_t>(k));
+      for (int w = 0; w < k; ++w) {
+        vertices[w] = {p[3 * w], p[(3 * w) + 1], p[(3 * w) + 2]};
+      }
+      std::vector<std::array<double, 3>> momenta(static_cast<std::size_t>(count));
+      std::vector<double> charges(static_cast<std::size_t>(count));
+      for (int i = 0; i < count; ++i) {
+        const int q = (3 * k) + (3 * i);
+        momenta[i] = {p[q], p[q + 1], p[q + 2]};
+        charges[i] = daughters[i].charge();
+      }
+      const int width = (3 * k) + (3 * count);
+      std::vector<double> g(static_cast<std::size_t>(width), 0.);
+      std::vector<double> h(static_cast<std::size_t>(width * width), 0.);
+      const double field = static_cast<double>(daughters[0].propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
+      if (!productionTerm(constraints, topology, vertices, momenta, charges, field, chi2, normal != nullptr ? &g : nullptr, normal != nullptr ? &h : nullptr)) {
+        return false;
+      }
+      if (normal != nullptr) {
+        for (int a = 0; a < width; ++a) {
+          (*gradient)[a] += g[a];
+          for (int b = 0; b < width; ++b) {
+            (*normal)[a * n + b] += h[a * width + b];
+          }
+        }
+      }
+    }
     return true;
   };
 
   // The constraints' values and rows at \a p.
-  const bool constrained = constraints.count(topology) > 0;
+  const bool constrained = constraints.equations(topology) > 0;
   std::vector<double> masses(static_cast<std::size_t>(count));
   std::vector<double> charges(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
