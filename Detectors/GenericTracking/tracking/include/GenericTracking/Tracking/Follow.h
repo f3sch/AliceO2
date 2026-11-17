@@ -1137,7 +1137,7 @@ class FollowStage
     observe.begin(direction);
     Branch branch;
     branch.own = own;
-    branch.state = start;
+    branch.state = static_cast<const BoundParameters&>(start); // the covariance travels as its factors
     branch.factors = factorCovariance(start.cov);
     auto end = FollowEnd::kCapacity;
     // Whether the latest step saw a row near where it took none (the unconfirmed drop, below).

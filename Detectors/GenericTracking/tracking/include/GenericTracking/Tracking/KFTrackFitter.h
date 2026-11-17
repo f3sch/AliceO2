@@ -427,9 +427,9 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
     Scalar carried = stepReference;
     if constexpr (LastStepAllowance) {
       if (index == n - 1) {
-        int taken = kinks;
+        int kinksAfter = kinks;
         bool refused = false;
-        const auto status = detail::allowanceStep<Rule>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, carried, budget, lastStepScale, taken, refused);
+        const auto status = detail::allowanceStep<Rule>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, carried, budget, lastStepScale, kinksAfter, refused);
         if (status != PropagationStatus::kOk) {
           countWork(WorkCounter::kRoadPropagation);
           result.status = RoadFitStatus::kPropagationFailed;
@@ -440,7 +440,7 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
           result.status = RoadFitStatus::kRejected;
           return result;
         }
-        allowed = taken - kinks;
+        allowed = kinksAfter - kinks;
         continue;
       }
     }

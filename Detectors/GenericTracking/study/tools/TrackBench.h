@@ -142,11 +142,11 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string json;
   std::string tracksOut;
   std::string fitResults;
-  std::string clonesOut;   ///< --clones-out
-  std::string rowsOut;     ///< --rows-out
-  std::string fakesOut;    ///< --fakes-out
-  std::string followSteps; ///< --follow-steps
-  std::string cloneJoins;  ///< --clone-joins
+  std::string clonesOut;      ///< --clones-out
+  std::string rowsOut;        ///< --rows-out
+  std::string fakesOut;       ///< --fakes-out
+  std::string followSteps;    ///< --follow-steps
+  std::string cloneJoins;     ///< --clone-joins
   bool materialCheck = false; ///< --material-check
   std::string backend;
   int gpuDevice = 0;
@@ -1639,6 +1639,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       throw std::runtime_error("--truth-study needs the MC truth and --hits");
     }
     std::vector<study::TruthStudySpec> specs;
+    specs.reserve(options.truthStudies.size());
     for (const auto& text : options.truthStudies) {
       specs.push_back(study::parseTruthStudy(text));
     }
