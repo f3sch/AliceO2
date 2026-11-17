@@ -147,6 +147,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string fakesOut;    ///< --fakes-out
   std::string followSteps; ///< --follow-steps
   std::string cloneJoins;  ///< --clone-joins
+  bool materialCheck = false; ///< --material-check
   std::string backend;
   int gpuDevice = 0;
   std::size_t gpuArenaMB = 0U;
@@ -1443,6 +1444,80 @@ struct IterationStudies {
   }
 };
 
+/// The material tables (SurfaceMaterial.h) against the LUT on the last run's
+/// tracks: each step between two consecutive rows of a track on different
+/// layers, straight between their measurements as a fit's chord, per ordered
+/// layer pair: the LUT walk's mean x/X0, the tables' nearer half, farther half,
+/// total and rho * length against it, the mean absolute difference of the
+/// totals and the share of steps off by more than 30 %; and the steps between
+/// layers with no table, which walk the LUT.
+template <DetectorLayout Det, typename Material>
+void printMaterialCheck(const typename TrackRefit<Det>::Tracks& tracks, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& lut)
+{
+  constexpr int kLayers = Detector<Det>::nLayers;
+  struct Sum {
+    double lutNear = 0.;
+    double lutFar = 0.;
+    double mapNear = 0.;
+    double mapFar = 0.;
+    double lutRho = 0.;
+    double mapRho = 0.;
+    double absDiff = 0.;
+    std::size_t steps = 0U;
+    std::size_t off = 0U;
+    std::size_t untabled = 0U;
+  };
+  std::vector<Sum> sums(static_cast<std::size_t>(kLayers) * kLayers);
+  const auto view = tracks.view();
+  for (std::size_t track = 0; track < tracks.size(); ++track) {
+    Scalar previous[3]{};
+    LayerID previousLayer = kInvalidLayerID;
+    for (std::uint8_t i = 0; i < view.count[track]; ++i) {
+      const auto measurement = measurementAt(frame, view.clusters[track].index[i]);
+      const auto& plane = geometry.planeOf(measurement);
+      Scalar point[3];
+      surfaceToGlobal(plane, measurement.loc0, measurement.loc1, point);
+      if (previousLayer != kInvalidLayerID && previousLayer != plane.layer) {
+        auto& sum = sums[(static_cast<std::size_t>(previousLayer) * kLayers) + plane.layer];
+        const auto table = geometry.material().step(previousLayer, plane.layer, previous, point);
+        if (!table.found) {
+          ++sum.untabled;
+        } else {
+          const auto walked = detail::stepMaterial(lut, previous, point);
+          const double walkedTotal = walked.nearerX2X0 + walked.fartherX2X0;
+          const double tableTotal = table.nearerX2X0 + table.fartherX2X0;
+          sum.lutNear += walked.nearerX2X0;
+          sum.lutFar += walked.fartherX2X0;
+          sum.mapNear += table.nearerX2X0;
+          sum.mapFar += table.fartherX2X0;
+          sum.lutRho += walked.xRho;
+          sum.mapRho += table.xRho;
+          sum.absDiff += std::abs(tableTotal - walkedTotal);
+          ++sum.steps;
+          sum.off += std::abs(tableTotal - walkedTotal) > 0.3 * walkedTotal ? 1U : 0U;
+        }
+      }
+      previousLayer = plane.layer;
+      std::copy(point, point + 3, previous);
+    }
+  }
+  std::cout << "material check, the tables against the LUT on the tracks' steps (from -> to, steps, LUT x/X0, table/LUT: nearer, farther, total, rho * length; mean |difference| / LUT, share off by > 30 %; steps with no table):\n";
+  for (int from = 0; from < kLayers; ++from) {
+    for (int to = 0; to < kLayers; ++to) {
+      const auto& sum = sums[(static_cast<std::size_t>(from) * kLayers) + to];
+      if (sum.steps + sum.untabled == 0U) {
+        continue;
+      }
+      if (sum.steps == 0U) {
+        std::cout << std::format("  {:2d} -> {:2d}: no table, {} steps\n", from, to, sum.untabled);
+        continue;
+      }
+      const double walkedTotal = sum.lutNear + sum.lutFar;
+      std::cout << std::format("  {:2d} -> {:2d}: {:8d} steps, LUT {:.5f}; table {:.3f} {:.3f} {:.3f} {:.3f}; |d| {:.3f}, off {:.3f}{}\n", from, to, sum.steps, walkedTotal / static_cast<double>(sum.steps), sum.mapNear / sum.lutNear, sum.mapFar / sum.lutFar, (sum.mapNear + sum.mapFar) / walkedTotal, sum.mapRho / sum.lutRho, sum.absDiff / walkedTotal, static_cast<double>(sum.off) / static_cast<double>(sum.steps), sum.untabled > 0U ? std::format("; {} with no table", sum.untabled) : std::string{});
+    }
+  }
+}
+
 /// The last run's truth studies the options ask for: the fakes,
 /// the clones, the rows and the clone joins.
 template <DetectorLayout Det, typename Material, typename ParametersOf, typename StagesOf, typename RecordChi2>
@@ -2212,6 +2287,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       for (const auto& line : truthStudies->summary()) {
         std::cout << line << '\n';
       }
+    }
+    if (options.materialCheck && last) {
+      printMaterialCheck<Det>(*result.tracks, frame, tracking, *material);
     }
     if (truth && last) {
       writeTruthStudies<Det>(options, *result.tracks, *truth, comparison, frame, tracking, *material, propagator, studies.followed, [&](std::size_t iteration) -> const IterationParameters<Det>& { return tracker.iteration(iteration); }, [&](std::uint64_t id, std::size_t iteration) { return funnel ? funnel->stages(id, iteration) : std::nullopt; }, [&](std::size_t iteration, std::span<const std::uint32_t> rows) { return funnel ? funnel->recordChi2(iteration, rows) : std::nullopt; });

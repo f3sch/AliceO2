@@ -311,7 +311,7 @@ template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
   }
   Scalar end[3]{};
   surfaceToGlobal(to, output.loc0(), output.loc1(), end);
-  const auto step = detail::stepMaterial(material, start, end);
+  const auto step = detail::stepMaterial(geometry, from, to, material, start, end);
   if (traversed != nullptr) {
     *traversed = step;
   }

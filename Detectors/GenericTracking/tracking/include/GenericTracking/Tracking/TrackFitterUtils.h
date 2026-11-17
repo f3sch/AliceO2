@@ -33,6 +33,7 @@
 #include "MathUtils/detail/trigonometric.h"
 
 #include <cstdint>
+#include <type_traits>
 
 namespace o2::gtrk
 {
@@ -185,6 +186,58 @@ GPUdi() StepMaterial stepMaterial(const GroupMaterial<Material, Group>& material
   }
 }
 
+/// The LUT itself, never the surface map: the material of the final refit,
+/// whose parameters and covariance are the tracking's output.
+template <typename Material>
+struct ExactMaterial {
+  const Material* lut = nullptr;
+  [[nodiscard]] GPUdi() auto getMatBudget(float x0, float y0, float z0, float x1, float y1, float z1) const { return lut->getMatBudget(x0, y0, z0, x1, y1, z1); }
+  [[nodiscard]] GPUdi() auto getMatMoment(float x0, float y0, float z0, float x1, float y1, float z1) const { return lut->getMatMoment(x0, y0, z0, x1, y1, z1); }
+};
+
+template <typename Material>
+struct IsExactMaterial : std::false_type {
+};
+template <typename Material>
+struct IsExactMaterial<ExactMaterial<Material>> : std::true_type {
+};
+template <typename Material>
+struct IsExactMaterial<SpanMaterial<ExactMaterial<Material>>> : std::true_type {
+};
+
+/// A step's material from the surface map (SurfaceMaterial.h) between the
+/// planes \a from and \a to, or from \a material's LUT where their layers are
+/// not a linked pair: \a material's given step for a follow candidate
+/// (`GivenMaterial`), each half's logarithm at the fit's span for a fit
+/// (`SpanMaterial`), each at its own otherwise.
+template <typename Material>
+struct IsSpanMaterial : std::false_type {
+};
+template <typename Material>
+struct IsSpanMaterial<SpanMaterial<Material>> : std::true_type {
+};
+
+template <DetectorLayout Det, typename Material>
+GPUdi() StepMaterial stepMaterial(const TrackingGeometry<Det>& geometry, const TrackingSurface& from, const TrackingSurface& to, const Material& material, const Scalar start[3], const Scalar end[3])
+{
+  if constexpr (std::is_same_v<Material, GivenMaterial>) {
+    return material.step;
+  } else if constexpr (IsExactMaterial<Material>::value) {
+    return stepMaterial(material, start, end);
+  } else {
+    const auto surface = geometry.material().step(from.layer, to.layer, start, end);
+    if (!surface.found) {
+      return stepMaterial(material, start, end);
+    }
+    StepMaterial step{.nearerX2X0 = surface.nearerX2X0, .fartherX2X0 = surface.fartherX2X0, .nearerLogX2X0 = surface.nearerX2X0, .fartherLogX2X0 = surface.fartherX2X0, .xRho = surface.xRho};
+    if constexpr (IsSpanMaterial<Material>::value) {
+      step.nearerLogX2X0 = material.spanX2X0;
+      step.fartherLogX2X0 = material.spanX2X0;
+    }
+    return step;
+  }
+}
+
 /// The mass hypothesis's energy loss over a step's \a xRho [g/cm^2], O2's
 /// way, evaluated at \a lossQOverP (the pass's reference, or \a state's own
 /// q/p): the loss's fraction of the momentum, its straggling's q/p variance
@@ -304,7 +357,7 @@ GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<D
   Scalar end[3]{};
   surfaceToGlobal(to, state.loc0(), state.loc1(), end);
 
-  const auto step = stepMaterial(material, start, end);
+  const auto step = stepMaterial(geometry, from, to, material, start, end);
   const Scalar momentum = 1.F / o2::gpu::GPUCommonMath::Abs(referenceQOverP);
   // The nearer half before the transport (StepMaterial), at the direction on
   // the surface the step leaves; the farther half after it.
@@ -762,13 +815,17 @@ GPUdi() SpanMaterial<Material> spanMaterial(const TrackingGeometry<Det>& geometr
 {
   SpanMaterial<Material> span{.lut = &material};
   Scalar previous[3]{};
+  LayerID previousLayer = kInvalidLayerID;
   for (int i = 0; i < n; ++i) {
     const auto measurement = measurements[i];
     Scalar point[3];
-    surfaceToGlobal(geometry.planeOf(measurement), measurement.loc0, measurement.loc1, point);
+    const auto& plane = geometry.planeOf(measurement);
+    surfaceToGlobal(plane, measurement.loc0, measurement.loc1, point);
     if (i > 0) {
-      span.spanX2X0 += material.getMatBudget(previous[0], previous[1], previous[2], point[0], point[1], point[2]).meanX2X0;
+      const auto step = IsExactMaterial<Material>::value ? SurfaceStep{} : geometry.material().step(previousLayer, plane.layer, previous, point);
+      span.spanX2X0 += step.found ? step.nearerX2X0 + step.fartherX2X0 : material.getMatBudget(previous[0], previous[1], previous[2], point[0], point[1], point[2]).meanX2X0;
     }
+    previousLayer = plane.layer;
     previous[0] = point[0];
     previous[1] = point[1];
     previous[2] = point[2];
