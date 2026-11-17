@@ -15,20 +15,23 @@
 ///        (DecayVertexFit.h) is held to.
 ///
 /// One least-squares fit of every daughter's rows with the vertex. The
-/// parameters: the vertex V; each daughter's direction and q/p at V; and at
-/// each of its rows but the last a kick -- in phi, in theta and in q/p --
-/// that its material gives it there, each with its prior: zero mean, the
-/// scattering's and the straggling's variance (a General Broken Lines fit).
-/// The material model is the Kalman fit's: a step's material split in halves,
-/// each half's scattering kicked at its end of the step, Highland's formula
-/// with its logarithm at the span of the rows (`SpanMaterial`), the step
-/// from the vertex to the first row at its own; the mean ionisation applied
-/// over every step (`energyLoss`); the vertex's half of the first step is
-/// absorbed by the free direction at V. Between planes the helix is exact in
-/// the uniform field, in double, its derivatives by forward differentiation
-/// of the six-component free state (position, phi, theta, q/p); the
-/// derivatives of the material and the loss by the state are left out (they
-/// are re-evaluated every iteration).
+/// parameters: the vertex V; each daughter's direction and q/p as it was made
+/// at V; and a kick -- in phi, in theta and in q/p -- at V and at each of its
+/// rows but the last, the material's there, each with its prior: zero mean,
+/// the scattering's and the straggling's variance (a General Broken Lines
+/// fit). The material model is the Kalman fit's: a step's material split in
+/// halves, each half's scattering kicked at its end of the step -- the first
+/// step's nearer half at V, so that the momentum parameters are the
+/// daughters' as they were made, which the truth and the constraints mean --,
+/// Highland's formula with its logarithm at the span of the rows
+/// (`SpanMaterial`), the step from the vertex to the first row at its own; the
+/// mean ionisation over every step (`energyLoss`), its straggling the q/p
+/// kick's variance. Between planes the helix is exact in the uniform field, in
+/// double, its derivatives by forward differentiation of the six-component
+/// free state (position, phi, theta, q/p); the material and the loss are
+/// re-evaluated every iteration, the loss's derivative by q/p taken (by a
+/// central difference: left out, the fit's fixed point is not the minimum and
+/// slow daughters come out too slow), the material's left out.
 ///
 /// Gauss-Newton from (a)'s solution. The kicks start on a trajectory that
 /// follows the rows (`followRows`): at every row the kick that turns the
@@ -165,13 +168,13 @@ template <typename Material>
     return result;
   }
 
-  // The parameter layout: V, then per daughter its phi, theta, q/p and its
-  // kicks (three per row but the last).
+  // The parameter layout: V, then per daughter its phi, theta, q/p as it was
+  // made, its kick at V and its kicks at its rows but the last (three each).
   std::vector<int> firstOf(static_cast<std::size_t>(count));
   int n = 3;
   for (int i = 0; i < count; ++i) {
     firstOf[i] = n;
-    n += 3 + (3 * (static_cast<int>(daughters[i].planes.size()) - 1));
+    n += 6 + (3 * (static_cast<int>(daughters[i].planes.size()) - 1));
   }
   std::vector<double> parameters(static_cast<std::size_t>(n), 0.);
   std::copy(start.vertex.begin(), start.vertex.end(), parameters.begin());
@@ -186,8 +189,10 @@ template <typename Material>
   struct RowMaterial {
     std::array<double, 3> kickVariance{}; ///< phi, theta, q/p
     double lossScale = 1.;
+    double lossSlope = 0.; ///< d lossScale / d(q/p): a slow daughter's loss depends on its momentum
   };
   std::vector<std::vector<RowMaterial>> model(static_cast<std::size_t>(count));
+  std::vector<std::array<double, 3>> vertexKick(static_cast<std::size_t>(count)); ///< the kick at V's variances
 
   // The chi2 at \a p, and with \a normal its normal equations; with \a refresh
   // the material model is evaluated along the trajectory first.
@@ -203,7 +208,7 @@ template <typename Material>
       const double fieldScale = static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
       const double mass = daughter.propagator.massGeV;
       const int base = firstOf[i];
-      const int local = 6 + (3 * (rows - 1)); // V, the momentum, the kicks: this daughter's parameters
+      const int local = 9 + (3 * (rows - 1)); // V, the momentum, the kicks: this daughter's parameters
       // index of local parameter -> global
       std::vector<int> index(static_cast<std::size_t>(local));
       index[0] = 0;
@@ -216,11 +221,15 @@ template <typename Material>
       if (refresh) {
         rowModel.assign(static_cast<std::size_t>(rows), {});
       }
-      // The free state and its derivatives by the local parameters (6 x local).
-      std::array<double, 6> state{p[0], p[1], p[2], p[base], p[base + 1], p[base + 2]};
+      // The free state leaving V, the momentum kicked there, and its
+      // derivatives by the local parameters (6 x local).
+      std::array<double, 6> state{p[0], p[1], p[2], p[base] + p[base + 3], p[base + 1] + p[base + 4], p[base + 2] + p[base + 5]};
       std::vector<double> derivative(static_cast<std::size_t>(6 * local), 0.);
       for (int k = 0; k < 6; ++k) {
         derivative[k * local + k] = 1.;
+      }
+      for (int k = 3; k < 6; ++k) {
+        derivative[k * local + k + 3] = 1.;
       }
       double spanX2X0 = 0.;
       if (refresh) {
@@ -256,16 +265,23 @@ template <typename Material>
           const double momentum = 1. / std::abs(state[5]);
           const double farther = highlandTheta0(step.fartherX2X0, step.fartherLogX2X0, static_cast<Scalar>(momentum), static_cast<Scalar>(mass));
           const auto loss = energyLoss(static_cast<Scalar>(state[5]), static_cast<Scalar>(mass), -step.xRho);
-          // The step's nearer half kicks at its start -- the previous row; at
-          // the vertex the free direction absorbs it --, its farther half at
-          // this row, with the loss's straggling.
+          // The step's nearer half kicks at its start -- the previous row, or
+          // the vertex --, its farther half at this row, with the loss's
+          // straggling.
+          const double nearer = highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, static_cast<Scalar>(momentum), static_cast<Scalar>(mass));
           if (row != 0) {
-            const double nearer = highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, static_cast<Scalar>(momentum), static_cast<Scalar>(mass));
             rowModel[row - 1].kickVariance[0] += nearer * nearer;
             rowModel[row - 1].kickVariance[1] += nearer * nearer;
+          } else {
+            vertexKick[i] = {nearer * nearer, nearer * nearer, 0.};
           }
           auto& here = rowModel[row];
           here.lossScale = loss.ok ? loss.momentumScale : 1.;
+          // Its slope by q/p, by a central difference of 1 %.
+          const double h = 0.01 * state[5];
+          const auto up = energyLoss(static_cast<Scalar>(state[5] + h), static_cast<Scalar>(mass), -step.xRho);
+          const auto down = energyLoss(static_cast<Scalar>(state[5] - h), static_cast<Scalar>(mass), -step.xRho);
+          here.lossSlope = loss.ok && up.ok && down.ok ? (static_cast<double>(up.momentumScale) - static_cast<double>(down.momentumScale)) / (2. * h) : 0.;
           here.kickVariance = {farther * farther, farther * farther, loss.ok ? loss.varQOverP : 0.};
         }
         // Chain the derivatives: d(to)/d(local) = d(to)/d(from) d(from)/d(local).
@@ -314,12 +330,14 @@ template <typename Material>
           state[k] = to[k].v;
         }
         derivative.swap(next);
+        // q/p after the loss: k scale(k), its derivative scale + k scale'.
+        const double lossDerivative = rowModel[row].lossScale + (state[5] * rowModel[row].lossSlope);
         state[5] *= rowModel[row].lossScale;
         for (int c = 0; c < local; ++c) {
-          derivative[5 * local + c] *= rowModel[row].lossScale;
+          derivative[5 * local + c] *= lossDerivative;
         }
         if (row + 1 < rows) {
-          const int kick = 6 + (3 * row); // local index of this row's kick
+          const int kick = 9 + (3 * row); // local index of this row's kick
           for (int k = 0; k < 3; ++k) {
             state[3 + k] += p[index[kick + k]];
             derivative[(3 + k) * local + kick + k] += 1.;
@@ -327,13 +345,14 @@ template <typename Material>
         }
       }
     }
-    // The kicks' priors (with the model of this evaluation).
+    // The kicks' priors (with the model of this evaluation): at V, then at
+    // the rows.
     for (int i = 0; i < count; ++i) {
       const int rows = static_cast<int>(daughters[i].planes.size());
-      for (int row = 0; row + 1 < rows; ++row) {
+      for (int row = -1; row + 1 < rows; ++row) {
         for (int k = 0; k < 3; ++k) {
-          const int at = firstOf[i] + 3 + (3 * row) + k;
-          double variance = model[i][row].kickVariance[k];
+          const int at = firstOf[i] + 6 + (3 * row) + k;
+          double variance = row < 0 ? vertexKick[i][k] : model[i][row].kickVariance[k];
           if (k == 0) {
             const double s = std::sin(p[firstOf[i] + 1]);
             variance /= s * s; // phi's kick: theta0 / sin(theta)
@@ -360,7 +379,7 @@ template <typename Material>
       const double fieldScale = static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
       const double mass = daughter.propagator.massGeV;
       const int base = firstOf[i];
-      std::array<double, 6> state{p[0], p[1], p[2], p[base], p[base + 1], p[base + 2]};
+      std::array<double, 6> state{p[0], p[1], p[2], p[base] + p[base + 3], p[base + 1] + p[base + 4], p[base + 2] + p[base + 5]};
       for (int row = 0; row + 1 < rows; ++row) {
         Free from{};
         for (int k = 0; k < 6; ++k) {
@@ -394,7 +413,7 @@ template <typename Material>
         const double arc = std::abs(rho) > 0. ? turn / rho : chord;
         const double phi = std::atan2(cy, cx) - (turn / 2.);
         const double theta = std::atan2(arc, next[2] - state[2]);
-        const int kick = base + 3 + (3 * row);
+        const int kick = base + 6 + (3 * row);
         p[kick] = std::remainder(phi - state[3], 2. * std::numbers::pi);
         p[kick + 1] = theta - state[4];
         state[3] += p[kick];

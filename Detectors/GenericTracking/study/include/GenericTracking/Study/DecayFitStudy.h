@@ -139,6 +139,14 @@ struct DecayFitRecord {
   std::array<float, kDaughterColumns> sTheta{};
   std::array<float, kDaughterColumns> sQOverP{};
   std::array<float, kDaughterColumns> dPRel{}; ///< fitted |p| over the true one, less 1
+  /// The energy loss from the decay point to the first row, as fractions of
+  /// |p|: the MC's (|p| entering the first row's sensor over |p| at
+  /// production) and the model's over the straight segment between (the LUT's
+  /// material, `energyLoss`); and the daughter's Kalman fit's |p| on its
+  /// first row over the MC's there, less 1. NaN without the MC hits.
+  std::array<float, kDaughterColumns> lossTrue{};
+  std::array<float, kDaughterColumns> lossModel{};
+  std::array<float, kDaughterColumns> dPRelInner{};
 
   template <typename Visit>
   void columns(const Visit& visit) const
@@ -195,11 +203,11 @@ struct DecayFitRecord {
     static constexpr std::array<std::string_view, kDaughterColumns> kSuffix{"0", "1", "2"};
     for (std::size_t d = 0; d < kDaughterColumns; ++d) {
       // The names must outlive the writer's first call: kept in static storage.
-      static const std::array<std::array<std::string, 7>, kDaughterColumns> kNames = [] {
-        std::array<std::array<std::string, 7>, kDaughterColumns> names;
+      static const std::array<std::array<std::string, 10>, kDaughterColumns> kNames = [] {
+        std::array<std::array<std::string, 10>, kDaughterColumns> names;
         for (std::size_t k = 0; k < kDaughterColumns; ++k) {
           const std::string s{kSuffix[k]};
-          names[k] = {"dPhi" + s, "dTheta" + s, "dQOverP" + s, "sPhi" + s, "sTheta" + s, "sQOverP" + s, "dPRel" + s};
+          names[k] = {"dPhi" + s, "dTheta" + s, "dQOverP" + s, "sPhi" + s, "sTheta" + s, "sQOverP" + s, "dPRel" + s, "lossTrue" + s, "lossModel" + s, "dPRelInner" + s};
         }
         return names;
       }();
@@ -210,6 +218,9 @@ struct DecayFitRecord {
       visit(kNames[d][4], sTheta[d]);
       visit(kNames[d][5], sQOverP[d]);
       visit(kNames[d][6], dPRel[d]);
+      visit(kNames[d][7], lossTrue[d]);
+      visit(kNames[d][8], lossModel[d]);
+      visit(kNames[d][9], dPRelInner[d]);
     }
   }
 };
@@ -532,6 +543,30 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         .refitStatus = one.refitStatus,
         .massTrue = static_cast<float>(std::sqrt(std::max((eTrue * eTrue) - (pTotal * pTotal), 0.))),
       };
+      // The daughters' energy loss before their first row, true and modelled,
+      // and their Kalman fits' momenta there.
+      for (std::size_t i = 0; i < std::min(count, DecayFitRecord::kDaughterColumns); ++i) {
+        base.lossTrue[i] = base.lossModel[i] = base.dPRelInner[i] = std::numeric_limits<float>::quiet_NaN();
+        if (one.refitFailed || event.hits == nullptr) {
+          continue;
+        }
+        const auto* leaf = one.leaves[i];
+        const auto first = frame.measurement(chainOf.at(leaf->id)->rows.front());
+        const auto* segment = event.hits->crossing(leaf->id, first.surface, {static_cast<double>(first.x), static_cast<double>(first.y), static_cast<double>(first.z)});
+        if (segment == nullptr) {
+          continue;
+        }
+        const double pProduction = std::hypot(leaf->momentum[0], leaf->momentum[1], leaf->momentum[2]);
+        const double pFirst = std::hypot(segment->momentum[0], segment->momentum[1], segment->momentum[2]);
+        base.lossTrue[i] = static_cast<float>(1. - (pFirst / pProduction));
+        const auto budget = material.getMatBudget(static_cast<float>(leaf->vertex[0]), static_cast<float>(leaf->vertex[1]), static_cast<float>(leaf->vertex[2]), static_cast<float>(segment->start[0]), static_cast<float>(segment->start[1]), static_cast<float>(segment->start[2]));
+        const auto loss = energyLoss(static_cast<Scalar>(1. / pProduction), static_cast<Scalar>(masses[i]), -budget.meanRho * budget.length);
+        if (loss.ok) {
+          base.lossModel[i] = static_cast<float>(1. - (1. / static_cast<double>(loss.momentumScale)));
+        }
+        base.dPRelInner[i] = static_cast<float>((1. / std::abs(static_cast<double>(daughters[i].innermost.qOverP())) / pFirst) - 1.);
+      }
+
       // The mother: its PDG mass, its collision's vertex, the true decay length.
       const auto* species = o2::O2DatabasePDG::Instance()->GetParticle(mother.pdg);
       const double motherMass = species == nullptr ? 0. : species->Mass();
