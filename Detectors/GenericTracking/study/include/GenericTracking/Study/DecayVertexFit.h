@@ -39,6 +39,7 @@
 
 #include "GenericTracking/Study/DecayConstraints.h"
 #include "GenericTracking/Study/DecayFitMath.h"
+#include "GenericTracking/Tracking/BeamConstraint.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/GSFTrackFitter.h"
 #include "GenericTracking/Tracking/HypothesisRefit.h"
@@ -65,6 +66,7 @@ enum class DecayFitVariant : std::uint8_t {
   kCarryOnce,  ///< carried once, to the plane about the start; later iterations re-linearise only
   kNoMaterial, ///< carried every iteration, without material
   kRows,       ///< not this fit's: the rows' fit (DecayRowsFit.h), from kFull's solution
+  kSequential, ///< not one fit: a tree's composite fitted first, a pseudo-track in its parent's fit (`pseudoTrackOf`)
   kCount
 };
 inline constexpr std::size_t kDecayFitVariants = static_cast<std::size_t>(DecayFitVariant::kCount);
@@ -90,6 +92,11 @@ struct DecayDaughter {
   /// An electron's Gaussian-sum fit there: carried as a mixture, its
   /// radiation on the way taken (`takeRadiation`), and collapsed on the plane.
   std::optional<GSFMixture<BetheHeitlerLoss::kComponents>> mixture;
+  /// A neutral daughter -- a composite fitted before, as a pseudo-track
+  /// (`pseudoTrackOf`): a line, its q/p its 1/p, carried without material.
+  bool neutral = false;
+  /// The daughter's charge [e], 0 for a neutral one.
+  [[nodiscard]] double charge() const { return neutral ? 0. : (innermost.qOverP() > 0.F ? 1. : -1.); }
 };
 
 /// A decay vertex fit's result.
@@ -215,10 +222,11 @@ namespace decay_fit_detail
   return {std::cos(state.phi()) * st, std::sin(state.phi()) * st, std::cos(state.theta())};
 }
 
-/// Each vertex's start, the deepest first: two track daughters' helices'
+/// Each vertex's start, the deepest first: two charged daughters' helices'
 /// closest approach (`closestApproach`); otherwise the closest points of two
-/// lines -- a track's from its innermost point along its direction, a
-/// composite's from its own start along its daughters' summed momentum.
+/// lines -- a daughter's from its innermost point along its direction (a
+/// neutral one's is its line), a composite's from its own start along its
+/// daughters' summed momentum.
 [[nodiscard]] inline std::optional<std::vector<std::array<double, 3>>> treeStart(std::span<const DecayDaughter> daughters, const DecayTopology& topology)
 {
   const int k = topology.vertices();
@@ -231,7 +239,7 @@ namespace decay_fit_detail
         tracks.push_back(i);
       }
     }
-    if (tracks.size() >= 2) {
+    if (tracks.size() >= 2 && !daughters[tracks[0]].neutral && !daughters[tracks[1]].neutral) {
       const auto start = closestApproach(daughters[tracks[0]], daughters[tracks[1]]);
       if (!start) {
         return std::nullopt;
@@ -278,6 +286,69 @@ namespace decay_fit_detail
 
 } // namespace decay_fit_detail
 
+/// A composite fitted before (\a fit, a one-vertex fit) as a neutral
+/// pseudo-track of mass \a mass, for the next level's fit: on the plane
+/// through its vertex along the beam, normal to its momentum's transverse
+/// direction, loc0 0, loc1 the vertex's z, the summed momentum's phi, theta
+/// and 1/p; their covariance the fit's carried by forward differentiation.
+/// \a propagator's field is set to none: the composite flies in a line.
+[[nodiscard]] inline DecayDaughter pseudoTrackOf(const DecayVertexFitResult& fit, double mass, Propagator propagator)
+{
+  using namespace decay_fit_detail;
+  using D = Dual<kConstraintInputs>;
+  const int count = static_cast<int>(fit.momenta.size());
+  const int n = 3 + (3 * count);
+  std::array<D, 3> total{};
+  for (int i = 0; i < count; ++i) {
+    std::array<D, 3> q{};
+    for (int c = 0; c < 3; ++c) {
+      q[c].v = fit.momenta[i][c];
+      q[c].d[3 + (3 * i) + c] = 1.;
+    }
+    const D p = D{q[2].v > 0. ? 1. : -1.} / q[2];
+    const D pt = p * sin(q[1]);
+    total[0] = total[0] + (pt * cos(q[0]));
+    total[1] = total[1] + (pt * sin(q[0]));
+    total[2] = total[2] + (p * cos(q[1]));
+  }
+  const D pt = sqrt((total[0] * total[0]) + (total[1] * total[1]));
+  const D p = sqrt((pt * pt) + (total[2] * total[2]));
+  const D phi = atan2(total[1], total[0]);
+  const D theta = atan2(pt, total[2]);
+  const D inverse = D{1.} / p;
+  // loc0, loc1 where the line through the vertex crosses the plane through
+  // its transverse point (normal n along its transverse direction): a shift
+  // of the vertex along axis0 moves loc0; along n it slides the crossing
+  // along the line, z by -cot(theta) per unit, which leaves loc0.
+  const double cotTheta = std::cos(theta.v) / std::sin(theta.v);
+  D loc0{};
+  loc0.d[0] = -std::sin(phi.v);
+  loc0.d[1] = std::cos(phi.v);
+  D loc1{fit.vertex[2]};
+  loc1.d[0] = -cotTheta * std::cos(phi.v);
+  loc1.d[1] = -cotTheta * std::sin(phi.v);
+  loc1.d[2] = 1.;
+  const std::array<D, 5> state{loc0, loc1, phi, theta, inverse};
+  DecayDaughter daughter{.propagator = propagator, .mass = mass, .neutral = true};
+  daughter.propagator.bzKiloGauss = 0.F;
+  daughter.propagator.massGeV = static_cast<Scalar>(mass);
+  daughter.surface = beamLinePlane(static_cast<Scalar>(fit.vertex[0]), static_cast<Scalar>(fit.vertex[1]), static_cast<Scalar>(phi.v));
+  for (int r = 0; r < 5; ++r) {
+    daughter.innermost.par[r] = static_cast<Scalar>(state[r].v);
+    for (int c = 0; c <= r; ++c) {
+      double value = 0.;
+      for (int a = 0; a < n; ++a) {
+        for (int b = 0; b < n; ++b) {
+          value += state[r].d[a] * fit.covariance[(a * n) + b] * state[c].d[b];
+        }
+      }
+      daughter.innermost.covAt(r, c) = static_cast<Scalar>(value);
+    }
+  }
+  daughter.innermost.surface = daughter.surface.id;
+  return daughter;
+}
+
 /// The vertex of \a daughters (at least two) under \a variant, with
 /// \a material's material between each daughter's innermost measurement and
 /// the vertex, and under \a constraints: then every step is the constrained
@@ -320,7 +391,8 @@ template <typename Material>
       BoundTrackState state = daughter.innermost;
       auto factors = factorCovariance(state.cov);
       PropagationStatus status = PropagationStatus::kOk;
-      result.carryX2X0[i] = variant == DecayFitVariant::kNoMaterial ? 0. : detail::hypothesis::segmentRadiation(daughter.propagator, material, daughter.innermost, daughter.surface, plane);
+      const bool bare = variant == DecayFitVariant::kNoMaterial || daughter.neutral;
+      result.carryX2X0[i] = bare ? 0. : detail::hypothesis::segmentRadiation(daughter.propagator, material, daughter.innermost, daughter.surface, plane);
       if (daughter.mixture) {
         // The electron: its mixture branched by the segment's radiation, every
         // component carried, the collapse on the plane.
@@ -337,7 +409,7 @@ template <typename Material>
         Scalar mode = 0.F;
         detail::gsf::finishMixture(mixture, state, mode);
       } else {
-        if (variant == DecayFitVariant::kNoMaterial) {
+        if (bare) {
           status = detail::hypothesis::carryInward(daughter.propagator, o2::gtrk::detail::GivenMaterial{}, daughter.surface, plane, state, factors);
         } else {
           status = detail::hypothesis::carryInward(daughter.propagator, material, daughter.surface, plane, state, factors);
@@ -398,7 +470,7 @@ template <typename Material>
     }
     for (int i = 0; i < count; ++i) {
       const auto& daughter = daughters[i];
-      const double fieldScale = static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
+      const double fieldScale = daughter.neutral ? 0. : static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
       using D = Dual<kDerivatives>;
       std::array<D, kDerivatives> in{};
       const int q = (3 * k) + (3 * i);
@@ -452,8 +524,10 @@ template <typename Material>
   // The constraints' values and rows at \a p.
   const bool constrained = constraints.count(topology) > 0;
   std::vector<double> masses(static_cast<std::size_t>(count));
+  std::vector<double> charges(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
     masses[i] = daughters[i].mass;
+    charges[i] = daughters[i].charge();
   }
   const double fieldScale = static_cast<double>(daughters[0].propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
   std::vector<double> values;
@@ -468,7 +542,7 @@ template <typename Material>
       const int q = (3 * k) + (3 * i);
       momenta[i] = {p[q], p[q + 1], p[q + 2]};
     }
-    return evaluateConstraints(constraints, topology, vertices, momenta, masses, fieldScale, values, rows);
+    return evaluateConstraints(constraints, topology, vertices, momenta, masses, charges, fieldScale, values, rows);
   };
 
   std::vector<double> normal(static_cast<std::size_t>(n * n));
@@ -477,6 +551,7 @@ template <typename Material>
   double chi2 = 0.;
   bool converged = false;
   const int ndf = (2 * count) - (3 * k) + constraints.count(topology);
+  double lastMetric = std::numeric_limits<double>::infinity();
   for (int iteration = 0; iteration < kMaxSteps; ++iteration) {
     result.iterations = static_cast<std::uint8_t>(iteration + 1);
     if (variant != DecayFitVariant::kCarryOnce && iteration != 0) {
@@ -507,7 +582,7 @@ template <typename Material>
     } else {
       choleskySolve(factor, n, step);
     }
-    if (negligibleStep(normal, n, step, chi2, ndf)) {
+    if (settledStep(normal, n, step, chi2, ndf, lastMetric)) {
       converged = true;
       break;
     }

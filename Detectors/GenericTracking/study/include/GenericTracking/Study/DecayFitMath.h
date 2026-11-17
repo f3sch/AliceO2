@@ -160,12 +160,14 @@ Dual<N> asinc(const Dual<N>& a)
 /// a bit an iteration; a step halved that often no longer moves a double.
 inline constexpr int kMaxSteps = std::numeric_limits<double>::digits;
 
-/// Whether \a step moves the chi2 by less than the inputs can tell: its own
-/// metric step^T N step (\a normal, n x n) below the inputs' precision times
-/// the chi2 a fit of \a ndf degrees of freedom has, \a chi2 or its
-/// expectation \a ndf. The measurements -- states and rows -- are floats
-/// (`Scalar`), carried anew every iteration: the chi2 is not known better.
-[[nodiscard]] inline bool negligibleStep(const std::vector<double>& normal, int n, const std::vector<double>& step, double chi2, int ndf)
+/// A Gauss-Newton iteration's stop: its step's own metric step^T N step
+/// (\a normal, n x n), the chi2 it would move, no longer shrinking from the
+/// previous iteration's (\a previous): the iteration has reached the floor
+/// its inputs' rounding sets -- the measurements, floats, carried anew every
+/// iteration, jitter there --; or below that rounding outright, the inputs'
+/// precision times the chi2 a fit of \a ndf degrees of freedom has (\a chi2
+/// or its expectation). \a previous gets this step's metric.
+[[nodiscard]] inline bool settledStep(const std::vector<double>& normal, int n, const std::vector<double>& step, double chi2, int ndf, double& previous)
 {
   double metric = 0.;
   for (int a = 0; a < n; ++a) {
@@ -173,7 +175,9 @@ inline constexpr int kMaxSteps = std::numeric_limits<double>::digits;
       metric += step[a] * normal[a * n + b] * step[b];
     }
   }
-  return metric <= static_cast<double>(std::numeric_limits<Scalar>::epsilon()) * (chi2 + std::max(ndf, 0));
+  const bool settled = metric >= previous || metric <= static_cast<double>(std::numeric_limits<Scalar>::epsilon()) * (chi2 + std::max(ndf, 0));
+  previous = metric;
+  return settled;
 }
 
 /// The plane's frame: its transverse origin and its normal's angle.

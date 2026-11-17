@@ -126,11 +126,12 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
 }
 
 /// \a constraints' values at \a vertices (\a topology's) and \a momenta (phi,
-/// theta, q/p each at its daughter's vertex; unit charges) with the
-/// daughters' \a masses, and their rows of derivatives by (the vertices, the
+/// theta, q/p each at its daughter's vertex; a neutral daughter's q/p its
+/// 1/p) with the daughters' \a masses and \a charges, and their rows of
+/// derivatives by (the vertices, the
 /// momenta), 3K + 3N wide; false if the mother misses its plane, a charged
 /// composite is to be linked, or the tree is too large.
-[[nodiscard]] inline bool evaluateConstraints(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const std::array<double, 3>> vertices, std::span<const std::array<double, 3>> momenta, std::span<const double> masses, double fieldScale, std::vector<double>& values, std::vector<double>& rows)
+[[nodiscard]] inline bool evaluateConstraints(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const std::array<double, 3>> vertices, std::span<const std::array<double, 3>> momenta, std::span<const double> masses, std::span<const double> charges, double fieldScale, std::vector<double>& values, std::vector<double>& rows)
 {
   using D = Dual<kConstraintInputs>;
   const int count = static_cast<int>(momenta.size());
@@ -151,15 +152,13 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
   // Every daughter's momentum vector, energy and charge.
   std::vector<std::array<D, 3>> vectors(static_cast<std::size_t>(count));
   std::vector<D> energies(static_cast<std::size_t>(count));
-  std::vector<double> charges(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
     std::array<D, 3> q{};
     for (int c = 0; c < 3; ++c) {
       q[c].v = momenta[i][c];
       q[c].d[(3 * k) + (3 * i) + c] = 1.;
     }
-    charges[i] = q[2].v > 0. ? 1. : -1.;
-    const D p = D{charges[i]} / q[2]; // |p| = 1 / |q/p|
+    const D p = D{q[2].v > 0. ? 1. : -1.} / q[2]; // |p| = 1 / |q/p|
     const D pt = p * sin(q[1]);
     vectors[i] = {pt * cos(q[0]), pt * sin(q[0]), p * cos(q[1])};
     energies[i] = sqrt((p * p) + (masses[i] * masses[i]));

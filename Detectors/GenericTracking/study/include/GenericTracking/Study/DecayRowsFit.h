@@ -496,8 +496,10 @@ template <typename Material>
   // columns are V and the momenta; the kicks' are zero).
   const bool constrained = constraints.count(topology) > 0;
   std::vector<double> masses(static_cast<std::size_t>(count));
+  std::vector<double> charges(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
     masses[i] = daughters[i].propagator.massGeV;
+    charges[i] = start.momenta[i][2] > 0. ? 1. : -1.;
   }
   const double fieldScale = static_cast<double>(daughters[0].propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
   std::vector<double> values;
@@ -512,7 +514,7 @@ template <typename Material>
       vertices[w] = {p[3 * w], p[(3 * w) + 1], p[(3 * w) + 2]};
     }
     std::vector<double> core;
-    if (!evaluateConstraints(constraints, topology, vertices, momenta, masses, fieldScale, values, core)) {
+    if (!evaluateConstraints(constraints, topology, vertices, momenta, masses, charges, fieldScale, values, core)) {
       return false;
     }
     const int width = (3 * vertexCount) + (3 * count);
@@ -558,6 +560,7 @@ template <typename Material>
     holdFixed(p, normal, gradient);
     return true;
   };
+  double lastMetric = std::numeric_limits<double>::infinity();
   for (int iteration = 0; iteration < kMaxSteps; ++iteration) {
     result.iterations = static_cast<std::uint8_t>(iteration + 1);
     if (!evaluateHeld(parameters)) {
@@ -582,7 +585,7 @@ template <typename Material>
     } else {
       choleskySolve(factor, n, step);
     }
-    if (negligibleStep(normal, n, step, chi2, ndf)) {
+    if (settledStep(normal, n, step, chi2, ndf, lastMetric)) {
       converged = true;
       break;
     }
