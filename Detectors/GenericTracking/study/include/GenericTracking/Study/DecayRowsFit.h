@@ -54,6 +54,8 @@
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
 #include <algorithm>
+#include <limits>
+#include <functional>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -82,10 +84,16 @@ struct RowsDaughter {
 /// vertex back -- its last row first --: walked from the vertex against its
 /// momentum, its state there its daughters' summed momentum and charge, a
 /// kick at the vertex and after every row but the last, the loss regained
-/// on the way back.
+/// on the way back. The root's walk, under a production point, ends there:
+/// a kick after its innermost row too, then the plane about the point
+/// (through it along the beam, normal to the walk's direction at its closest
+/// approach), measured at the point with `pointCovariance`, the scattering
+/// between the innermost row and the point; the point is then not predicted
+/// from the vertex.
 struct RowsMother {
-  RowsDaughter rows; ///< its rows, its last row first; `propagator` with its mass
-  int vertex = 0;    ///< the vertex it decayed at
+  RowsDaughter rows;                       ///< its rows, its last row first; `propagator` with its mass
+  int vertex = 0;                          ///< the vertex it decayed at
+  std::array<double, 3> pointCovariance{}; ///< (loc0, loc0 loc1, loc1) [cm^2] on the plane about the production point
 };
 
 namespace decay_rows_detail
@@ -96,7 +104,7 @@ using Free = std::array<decay_fit_detail::Dual<6>, 6>; ///< x, y, z, phi, theta,
 /// \a from carried along its helix to \a plane (a plane along the beam, or
 /// across it): the free state at the crossing nearest along the helix,
 /// ahead or behind, and its loc0, loc1 there; false if the helix never
-/// reaches the plane or the plane is tilted.
+/// reaches the plane.
 ///
 /// On a plane along the beam with normal angle phiL the crossing has
 /// sin(phi_end - phiL) = sin(phi - phiL) - rho u, u the start's distance
@@ -176,6 +184,20 @@ using Free = std::array<decay_fit_detail::Dual<6>, 6>; ///< x, y, z, phi, theta,
       at -= change;
     }
     const D value = f(D{at});
+    // Closed to the plane's own precision (its geometry is floats), or no
+    // crossing: f's terms' size times float epsilon.
+    {
+      const double half = 0.5 * rho.v * at;
+      const double chord = at * (half == 0. ? 1. : std::sin(half) / half);
+      const std::array<double, 3> x{from[0].v + (chord * std::cos(phi.v + half)), from[1].v + (chord * std::sin(phi.v + half)), from[2].v + (at * cotTheta.v)};
+      double size = 0.;
+      for (int c = 0; c < 3; ++c) {
+        size += std::abs(static_cast<double>(plane.normal[c])) * (std::abs(x[c]) + std::abs(static_cast<double>(plane.origin[c])));
+      }
+      if (!(std::abs(value.v) <= static_cast<double>(std::numeric_limits<Scalar>::epsilon()) * size)) {
+        return false;
+      }
+    }
     s = D{at};
     const double fs = slope(at);
     for (int k = 0; k < 6; ++k) {
@@ -201,11 +223,16 @@ using Free = std::array<decay_fit_detail::Dual<6>, 6>; ///< x, y, z, phi, theta,
 /// The vertex of \a daughters fitted from their rows, starting from \a start
 /// (the states' fit's solution), with \a material's material.
 template <typename Material>
-[[nodiscard]] DecayVertexFitResult fitDecayRows(std::span<const RowsDaughter> daughters, const Material& material, const DecayVertexFitResult& start, const DecayConstraints& constraints = {}, const DecayTopology& topology = {}, std::span<const RowsMother> mothers = {})
+[[nodiscard]] DecayVertexFitResult fitDecayRows(std::span<const RowsDaughter> daughters, const Material& material, const DecayVertexFitResult& start, const DecayConstraints& requested = {}, const DecayTopology& topology = {}, std::span<const RowsMother> mothers = {})
 {
   using namespace decay_fit_detail;
   using namespace decay_rows_detail;
   using D = Dual<6>;
+  // A tracked root's walk ends at the production point: the point's
+  // equations leave the constraints.
+  const auto endsAtPoint = [&](const RowsMother& mother) { return requested.production && mother.vertex == 0; };
+  DecayConstraints constraints = requested;
+  constraints.production = requested.production && std::ranges::none_of(mothers, endsAtPoint);
   DecayVertexFitResult result;
   result.status = DecayFitStatus::kNotConverged;
   const int count = static_cast<int>(daughters.size());
@@ -232,8 +259,15 @@ template <typename Material>
   std::vector<int> firstOfMother(mothers.size());
   for (std::size_t j = 0; j < mothers.size(); ++j) {
     firstOfMother[j] = n;
-    n += 3 * static_cast<int>(mothers[j].rows.planes.size());
+    n += 3 * (static_cast<int>(mothers[j].rows.planes.size()) + (endsAtPoint(mothers[j]) ? 1 : 0));
   }
+  // A production point's two nuisances (`ScatteredPoint`): of the point's
+  // equations, or of the tracked root's walk's end at it.
+  const int etaAt = requested.production ? n : -1;
+  n += requested.production ? 2 : 0;
+  const auto ending = std::ranges::find_if(mothers, endsAtPoint);
+  const bool walkEnds = ending != mothers.end();
+  ScatteredPoint scattered{.at = etaAt, .factor = ScatteredPoint::factorOf(walkEnds ? ending->pointCovariance : requested.pointCovariance)};
   std::vector<double> parameters(static_cast<std::size_t>(n), 0.);
   for (int w = 0; w < vertexCount; ++w) {
     std::copy(start.vertices[w].begin(), start.vertices[w].end(), parameters.begin() + (3 * w));
@@ -273,8 +307,19 @@ template <typename Material>
 
   // The chi2 at \a p, and with \a normal its normal equations; with \a refresh
   // the material model is evaluated along the trajectory first.
+  // The inputs' precision (`minimiseFrozen`), a walk's exact end's
+  // equations, and whether a trajectory stopped in the material, of the last
+  // evaluation.
+  constexpr double kEpsilon = std::numeric_limits<Scalar>::epsilon(); // the measurements' precision
+  double rounding = 0.;
+  std::vector<double> terminalValues;
+  std::vector<double> terminalRows;
+  bool stopped = false;
   const auto evaluate = [&](const std::vector<double>& p, bool refresh, double& chi2, std::vector<double>* normal, std::vector<double>* gradient) {
     chi2 = 0.;
+    rounding = 0.;
+    terminalValues.clear();
+    terminalRows.clear();
     if (normal != nullptr) {
       std::ranges::fill(*normal, 0.);
       std::ranges::fill(*gradient, 0.);
@@ -282,11 +327,46 @@ template <typename Material>
     // One chain's walk: from \a state (its derivatives by the \a local
     // parameters, \a index into the global ones) through its rows, the kick
     // after row r at local index \a kickBase + 3 r; \a backward walks against
-    // the momentum (a mother's), regaining the loss.
-    const auto walk = [&](const RowsDaughter& chain, int local, const std::vector<int>& index, std::array<double, 6> state, std::vector<double> derivative, int kickBase, bool backward, std::vector<RowMaterial>& rowModel, std::array<double, 3>& firstKick) {
+    // the momentum (a mother's), regaining the loss; with \a end (a mother's)
+    // it ends at the production point, kicked after its last row too.
+    const auto walk = [&](const RowsDaughter& chain, int local, const std::vector<int>& index, std::array<double, 6> state, std::vector<double> derivative, int kickBase, bool backward, std::vector<RowMaterial>& rowModel, std::array<double, 3>& firstKick, const RowsMother* end) {
       const int rows = static_cast<int>(chain.planes.size());
       const double fieldScale = static_cast<double>(chain.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
       const double mass = chain.propagator.massGeV;
+      // A measured position on a plane: its chi2 and normal equations, the
+      // crossing \a loc's derivatives chained through \a from's.
+      const auto measure = [&](const std::array<D, 2>& loc, const std::vector<double>& from, const std::array<double, 2>& position, const std::array<double, 3>& cov) {
+        std::array<std::vector<double>, 2> h{std::vector<double>(static_cast<std::size_t>(local), 0.), std::vector<double>(static_cast<std::size_t>(local), 0.)};
+        for (int a = 0; a < 2; ++a) {
+          for (int c = 0; c < local; ++c) {
+            double value = 0.;
+            for (int k = 0; k < 6; ++k) {
+              value += loc[a].d[k] * from[k * local + c];
+            }
+            h[a][c] = value;
+          }
+        }
+        const std::array<double, 2> residual{position[0] - loc[0].v, position[1] - loc[1].v};
+        const double det = (cov[0] * cov[2]) - (cov[1] * cov[1]);
+        if (!(cov[0] > 0.) || !(det > 0.)) {
+          return false;
+        }
+        const std::array<double, 4> weight{cov[2] / det, -cov[1] / det, -cov[1] / det, cov[0] / det};
+        const std::array<double, 2> weighted{(weight[0] * residual[0]) + (weight[1] * residual[1]), (weight[2] * residual[0]) + (weight[3] * residual[1])};
+        chi2 += (residual[0] * weighted[0]) + (residual[1] * weighted[1]);
+        rounding += (std::pow(kEpsilon * position[0], 2) * weight[0]) + (std::pow(kEpsilon * position[1], 2) * weight[3]);
+        if (normal != nullptr) {
+          for (int a = 0; a < local; ++a) {
+            const double g = (h[0][a] * weighted[0]) + (h[1][a] * weighted[1]);
+            (*gradient)[index[a]] += g;
+            for (int b = 0; b < local; ++b) {
+              const double value = (h[0][a] * ((weight[0] * h[0][b]) + (weight[1] * h[1][b]))) + (h[1][a] * ((weight[2] * h[0][b]) + (weight[3] * h[1][b])));
+              (*normal)[index[a] * n + index[b]] += value;
+            }
+          }
+        }
+        return true;
+      };
       if (refresh) {
         rowModel.assign(static_cast<std::size_t>(rows), {});
       }
@@ -317,10 +397,11 @@ template <typename Material>
           const Scalar a[3] = {static_cast<Scalar>(state[0]), static_cast<Scalar>(state[1]), static_cast<Scalar>(state[2])};
           const Scalar b[3] = {static_cast<Scalar>(to[0].v), static_cast<Scalar>(to[1].v), static_cast<Scalar>(to[2].v)};
           auto step = o2::gtrk::detail::stepMaterial(material, a, b);
-          if (row != 0) {
-            step.nearerLogX2X0 = static_cast<Scalar>(spanX2X0);
-            step.fartherLogX2X0 = static_cast<Scalar>(spanX2X0);
-          }
+          // Highland's logarithm at the span's x/X0, the first step's at its
+          // own whole (its halves are one segment's).
+          const Scalar logX2X0 = row != 0 ? static_cast<Scalar>(spanX2X0) : step.nearerX2X0 + step.fartherX2X0;
+          step.nearerLogX2X0 = logX2X0;
+          step.fartherLogX2X0 = logX2X0;
           const double momentum = 1. / std::abs(state[5]);
           const double farther = highlandTheta0(step.fartherX2X0, step.fartherLogX2X0, static_cast<Scalar>(momentum), static_cast<Scalar>(mass));
           const auto loss = energyLoss(static_cast<Scalar>(state[5]), static_cast<Scalar>(mass), backward ? step.xRho : -step.xRho);
@@ -334,8 +415,12 @@ template <typename Material>
           } else {
             firstKick = {nearer * nearer, nearer * nearer, 0.};
           }
+          if (!loss.ok) {
+            stopped = true; // the particle stops in this step's material
+            return false;
+          }
           auto& here = rowModel[row];
-          here.lossScale = loss.ok ? loss.momentumScale : 1.;
+          here.lossScale = loss.momentumScale;
           double radiationVariance = 0.;
           if (chain.electron) {
             // z = E after / E before: E[z] = 2^-c, E[z^2] = 3^-c, c = t / ln 2;
@@ -361,34 +446,8 @@ template <typename Material>
           }
         }
         // The residual on this row and its derivatives.
-        std::array<std::vector<double>, 2> h{std::vector<double>(static_cast<std::size_t>(local), 0.), std::vector<double>(static_cast<std::size_t>(local), 0.)};
-        for (int a = 0; a < 2; ++a) {
-          for (int c = 0; c < local; ++c) {
-            double value = 0.;
-            for (int k = 0; k < 6; ++k) {
-              value += loc[a].d[k] * derivative[k * local + c];
-            }
-            h[a][c] = value;
-          }
-        }
-        const std::array<double, 2> residual{chain.positions[row][0] - loc[0].v, chain.positions[row][1] - loc[1].v};
-        const auto& cov = chain.covariance[row];
-        const double det = (cov[0] * cov[2]) - (cov[1] * cov[1]);
-        if (!(det > 0.)) {
+        if (!measure(loc, derivative, chain.positions[row], chain.covariance[row])) {
           return false;
-        }
-        const std::array<double, 4> weight{cov[2] / det, -cov[1] / det, -cov[1] / det, cov[0] / det};
-        const std::array<double, 2> weighted{(weight[0] * residual[0]) + (weight[1] * residual[1]), (weight[2] * residual[0]) + (weight[3] * residual[1])};
-        chi2 += (residual[0] * weighted[0]) + (residual[1] * weighted[1]);
-        if (normal != nullptr) {
-          for (int a = 0; a < local; ++a) {
-            const double g = (h[0][a] * weighted[0]) + (h[1][a] * weighted[1]);
-            (*gradient)[index[a]] += g;
-            for (int b = 0; b < local; ++b) {
-              const double value = (h[0][a] * ((weight[0] * h[0][b]) + (weight[1] * h[1][b]))) + (h[1][a] * ((weight[2] * h[0][b]) + (weight[3] * h[1][b])));
-              (*normal)[index[a] * n + index[b]] += value;
-            }
-          }
         }
         // The state after the row: its loss, then its kick (none after the last).
         for (int k = 0; k < 6; ++k) {
@@ -399,12 +458,50 @@ template <typename Material>
         for (int c = 0; c < local; ++c) {
           derivative[5 * local + c] *= rowModel[row].lossScale;
         }
-        if (row + 1 < rows) {
+        if (row + 1 < rows || end != nullptr) {
           const int kick = kickBase + (3 * row); // local index of this row's kick
           for (int k = 0; k < 3; ++k) {
             state[3 + k] += p[index[kick + k]];
             derivative[(3 + k) * local + kick + k] += 1.;
           }
+        }
+      }
+      if (end != nullptr) {
+        // The plane about the production point, normal to the walk's
+        // direction at its closest approach (`perigeePhi`), from the current
+        // values; measured at the point.
+        const auto& point = requested.point;
+        const double curvature = fieldScale * state[5] / std::sin(state[4]);
+        const double dx = state[0] - point[0];
+        const double dy = state[1] - point[1];
+        const double along = (dx * std::cos(state[3])) + (dy * std::sin(state[3]));
+        const double across = (-dx * std::sin(state[3])) + (dy * std::cos(state[3]));
+        const double phi = state[3] + std::atan2(-curvature * along, 1. + (curvature * across));
+        const auto plane = beamLinePlane(static_cast<Scalar>(point[0]), static_cast<Scalar>(point[1]), static_cast<Scalar>(phi));
+        Free from{};
+        for (int k = 0; k < 6; ++k) {
+          from[k].v = state[k];
+          from[k].d[k] = 1.;
+        }
+        Free to{};
+        std::array<D, 2> loc{};
+        if (!crossToPlane(from, plane, fieldScale, to, loc)) {
+          return false;
+        }
+        // The walk ends at the point: two equations, its scattering between
+        // the innermost row and the point their nuisances' (`constraintsAt`).
+        const std::array<double, 2> target{0., point[2]};
+        for (int a = 0; a < 2; ++a) {
+          terminalValues.push_back(loc[a].v - target[a]);
+          std::vector<double> row(static_cast<std::size_t>(n), 0.);
+          for (int c = 0; c < local; ++c) {
+            double value = 0.;
+            for (int k = 0; k < 6; ++k) {
+              value += loc[a].d[k] * derivative[k * local + c];
+            }
+            row[index[c]] += value;
+          }
+          terminalRows.insert(terminalRows.end(), row.begin(), row.end());
         }
       }
       return true;
@@ -434,7 +531,7 @@ template <typename Material>
       for (int k = 3; k < 6; ++k) {
         derivative[k * local + k + 3] = 1.;
       }
-      if (!walk(daughter, local, index, state, std::move(derivative), 9, false, model[i], vertexKick[i])) {
+      if (!walk(daughter, local, index, state, std::move(derivative), 9, false, model[i], vertexKick[i], nullptr)) {
         return false;
       }
     }
@@ -452,7 +549,8 @@ template <typename Material>
       }
       const int m = static_cast<int>(under.size());
       const int rows = static_cast<int>(mother.rows.planes.size());
-      const int local = 3 + (3 * m) + (3 * rows); // V, the daughters' momenta, the kicks
+      const int kicks = rows + (endsAtPoint(mother) ? 1 : 0);
+      const int local = 3 + (3 * m) + (3 * kicks); // V, the daughters' momenta, the kicks
       std::vector<int> index(static_cast<std::size_t>(local));
       for (int k = 0; k < 3; ++k) {
         index[k] = (3 * w) + k;
@@ -462,7 +560,7 @@ template <typename Material>
           index[3 + (3 * u) + k] = firstOf[under[u]] + k;
         }
       }
-      for (int k = 0; k < 3 * rows; ++k) {
+      for (int k = 0; k < 3 * kicks; ++k) {
         index[3 + (3 * m) + k] = firstOfMother[j] + k;
       }
       using DM = Dual<kConstraintInputs>;
@@ -496,11 +594,12 @@ template <typename Material>
         }
         derivative[(3 + k) * local + kickV + k] = 1.;
       }
-      if (!walk(mother.rows, local, index, state, std::move(derivative), kickV + 3, true, motherModel[j], motherVertexKick[j])) {
+      if (!walk(mother.rows, local, index, state, std::move(derivative), kickV + 3, true, motherModel[j], motherVertexKick[j], endsAtPoint(mother) ? &mother : nullptr)) {
         return false;
       }
-      // Its kicks' priors: at the vertex, then after its rows but the last.
-      for (int row = -1; row + 1 < rows; ++row) {
+      // Its kicks' priors: at the vertex, then after its rows (but the last,
+      // unless it ends at the production point).
+      for (int row = -1; row + 1 < kicks; ++row) {
         for (int k = 0; k < 3; ++k) {
           const int at = firstOfMother[j] + 3 + (3 * row) + k;
           double variance = row < 0 ? motherVertexKick[j][k] : motherModel[j][row].kickVariance[k];
@@ -548,43 +647,7 @@ template <typename Material>
         }
       }
     }
-    // A measured production point, in this fit's layout.
-    if (constraints.softProduction()) {
-      std::vector<std::array<double, 3>> vertices(static_cast<std::size_t>(vertexCount));
-      for (int w = 0; w < vertexCount; ++w) {
-        vertices[w] = {p[3 * w], p[(3 * w) + 1], p[(3 * w) + 2]};
-      }
-      std::vector<std::array<double, 3>> momenta(static_cast<std::size_t>(count));
-      std::vector<double> charges(static_cast<std::size_t>(count));
-      for (int i = 0; i < count; ++i) {
-        momenta[i] = {p[firstOf[i]], p[firstOf[i] + 1], p[firstOf[i] + 2]};
-        charges[i] = start.momenta[i][2] > 0. ? 1. : -1.;
-      }
-      const int width = (3 * vertexCount) + (3 * count);
-      std::vector<int> column(static_cast<std::size_t>(width));
-      for (int c = 0; c < 3 * vertexCount; ++c) {
-        column[c] = c;
-      }
-      for (int i = 0; i < count; ++i) {
-        for (int c = 0; c < 3; ++c) {
-          column[(3 * vertexCount) + (3 * i) + c] = firstOf[i] + c;
-        }
-      }
-      std::vector<double> g(static_cast<std::size_t>(width), 0.);
-      std::vector<double> h(static_cast<std::size_t>(width * width), 0.);
-      const double field = static_cast<double>(daughters[0].propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
-      if (!productionTerm(constraints, topology, vertices, momenta, charges, field, chi2, normal != nullptr ? &g : nullptr, normal != nullptr ? &h : nullptr)) {
-        return false;
-      }
-      if (normal != nullptr) {
-        for (int a = 0; a < width; ++a) {
-          (*gradient)[column[a]] += g[a];
-          for (int b = 0; b < width; ++b) {
-            (*normal)[column[a] * n + column[b]] += h[a * width + b];
-          }
-        }
-      }
-    }
+    scattered.addPrior(p, n, chi2, normal, gradient);
     return true;
   };
 
@@ -644,7 +707,7 @@ template <typename Material>
 
   // The constraints' values and rows at \a p, in this fit's layout (their
   // columns are V and the momenta; the kicks' are zero).
-  const bool constrained = constraints.equations(topology) > 0;
+  const bool constrained = constraints.count(topology) > 0 || walkEnds;
   std::vector<double> masses(static_cast<std::size_t>(count));
   std::vector<double> charges(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
@@ -680,6 +743,19 @@ template <typename Material>
         }
       }
     }
+    // A walk's end at the point, from the evaluation at \a p (after the
+    // position, which no mother's fit takes); the point's equations, its or
+    // the production constraint's, smeared by their nuisances.
+    scattered.row = walkEnds ? static_cast<int>(values.size()) : (constraints.mass ? 1 : 0);
+    values.insert(values.end(), terminalValues.begin(), terminalValues.end());
+    rows.insert(rows.end(), terminalRows.begin(), terminalRows.end());
+    scattered.apply(p, n, values, rows);
+    // A held kick is no parameter: none of its columns (`holdFixed`).
+    for (std::size_t a = 0; a < values.size(); ++a) {
+      for (int k = 0; k < n; ++k) {
+        rows[(a * n) + k] = held[k] != 0 ? 0. : rows[(a * n) + k];
+      }
+    }
     return true;
   };
 
@@ -687,13 +763,12 @@ template <typename Material>
   std::vector<double> gradient(static_cast<std::size_t>(n));
   std::vector<double> factor;
   double chi2 = 0.;
-  bool converged = false;
   int measurementCount = 0;
   for (const auto& daughter : daughters) {
     measurementCount += 2 * static_cast<int>(daughter.planes.size());
   }
   for (const auto& mother : mothers) {
-    measurementCount += 2 * static_cast<int>(mother.rows.planes.size());
+    measurementCount += 2 * (static_cast<int>(mother.rows.planes.size()) + (endsAtPoint(mother) ? 1 : 0));
   }
   const int ndf = measurementCount - ((3 * vertexCount) + (3 * count)) + constraints.count(topology);
   // Evaluated at \a p with the material along it, the held kicks at zero.
@@ -713,61 +788,58 @@ template <typename Material>
     holdFixed(p, normal, gradient);
     return true;
   };
-  double lastMetric = std::numeric_limits<double>::infinity();
-  for (int iteration = 0; iteration < kMaxSteps; ++iteration) {
-    result.iterations = static_cast<std::uint8_t>(iteration + 1);
+  // The material model along the trajectory is the model: minimised under
+  // it, evaluated anew along the solution, until that no longer moves the
+  // solution by what the inputs resolve (the minimiser takes no step).
+
+  const auto frozen = [&](const std::vector<double>& p, double& value, double& resolution, std::vector<double>* matrix, std::vector<double>* rhs) {
+    const bool ok = evaluate(p, false, value, matrix, rhs);
+    resolution = rounding;
+    return ok;
+  };
+  double mu = 0.;
+  double metric = 0.;
+  int iterations = 0;
+  int steps = 0;
+  double shift = 0.;
+  double lastShift = std::numeric_limits<double>::infinity();
+  result.status = DecayFitStatus::kNotConverged;
+  for (int outer = 0; outer < kMaxSteps; ++outer) {
+    stopped = false;
     if (!evaluateHeld(parameters)) {
-      result.status = DecayFitStatus::kNoCrossing;
+      result.status = stopped ? DecayFitStatus::kStopped : DecayFitStatus::kNoCrossing;
       return result;
     }
-    factor = normal;
-    if (!constrained && !cholesky(factor, n)) {
-      result.status = DecayFitStatus::kSingular;
-      return result;
-    }
-    std::vector<double> step = gradient;
-    if (constrained) {
-      if (!constraintsAt(parameters)) {
-        result.status = DecayFitStatus::kNoCrossing;
-        return result;
-      }
-      if (!constrainedStep(normal, n, gradient, rows, values, step, nullptr)) {
-        result.status = DecayFitStatus::kSingular;
-        return result;
-      }
-    } else {
-      choleskySolve(factor, n, step);
-    }
-    if (settledStep(normal, n, step, chi2, ndf, lastMetric)) {
-      converged = true;
+    result.outer = static_cast<std::uint8_t>(outer + 1);
+    const auto inner = minimiseFrozen(n, ndf, constrained, frozen, constraintsAt, holdFixed, values, rows, parameters, chi2, mu, metric, iterations, steps, shift);
+    if (inner != DecayFitStatus::kOk) {
+      result.status = inner;
       break;
     }
-    std::vector<double> trial(parameters.size());
-    double trialChi2 = 0.;
-    double scale = 1.;
-    bool taken = false;
-    const auto kept = model;
-    for (int halving = 0; halving < kMaxSteps; ++halving, scale *= 0.5) {
-      for (int k = 0; k < n; ++k) {
-        trial[k] = parameters[k] + (scale * step[k]);
-      }
-      // The trial and the current point, both under the trial trajectory's
-      // material: the priors move with the model.
-      double currentChi2 = 0.;
-      if (evaluate(trial, true, trialChi2, nullptr, nullptr) && (constrained || (evaluate(parameters, false, currentChi2, nullptr, nullptr) && trialChi2 < currentChi2))) {
-        taken = true;
-        break;
-      }
-    }
-    if (!taken) {
-      model = kept;
-      converged = !constrained;
+    result.modelShift = static_cast<float>(shift);
+    if (steps == 0) {
+      // The model anew along the solution moves it less than the inputs
+      // resolve: converged.
+      result.status = DecayFitStatus::kOk;
+      result.stopReason = 1U;
       break;
     }
-    parameters = trial;
-    chi2 = trialChi2;
+    if (outer > 1 && shift >= lastShift) {
+      // The model's moves no longer shrink: the material table's
+      // discretisation (piecewise constant along the trajectory) leaves no
+      // exact fixed point. Each solution here is a converged minimum under a
+      // model along a trajectory close to it; taken if the model moves it by
+      // less than its error (`kModelTolerance`).
+      result.status = shift <= kModelTolerance ? DecayFitStatus::kOk : DecayFitStatus::kNotConverged;
+      result.stopReason = shift <= kModelTolerance ? 2U : 0U;
+      break;
+    }
+    if (outer != 0) {
+      lastShift = shift;
+    }
   }
-  result.status = converged ? DecayFitStatus::kOk : DecayFitStatus::kNotConverged;
+  result.iterations = static_cast<std::uint8_t>(std::min(iterations, 255));
+  result.stopMetric = static_cast<float>(metric);
   if (!evaluateHeld(parameters)) {
     result.status = DecayFitStatus::kNoCrossing;
     return result;

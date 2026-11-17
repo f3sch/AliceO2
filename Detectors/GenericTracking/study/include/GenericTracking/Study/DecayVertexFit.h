@@ -48,6 +48,7 @@
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
 #include <algorithm>
+#include <functional>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -80,6 +81,7 @@ enum class DecayFitStatus : std::uint8_t {
   kSingular,    ///< the normal matrix or a measurement's covariance is not positive definite
   kNotConverged,
   kNoProfile, ///< no point along a conversion's line gave a fit (DecayFitStudy.h)
+  kStopped,   ///< a daughter's trajectory stops in the material (the loss has no solution)
   kCount
 };
 
@@ -115,6 +117,10 @@ struct DecayMother {
 struct DecayVertexFitResult {
   DecayFitStatus status = DecayFitStatus::kNoStart;
   std::uint8_t iterations = 0U;
+  std::uint8_t outer = 0U;                     ///< the model's evaluations (carries, material along the trajectory)
+  std::uint8_t stopReason = 0U;                ///< 1 the model anew moved nothing, 2 its moves stopped shrinking within `kModelTolerance`, 0 not converged
+  float stopMetric = 0.F;                      ///< the last step's predicted chi2 gain
+  float modelShift = 0.F;                      ///< what the last model evaluation moved the solution by (its first step's predicted gain)
   std::array<double, 3> vertex{};              ///< the root's, `vertices[0]`
   std::vector<std::array<double, 3>> vertices; ///< every vertex of the tree (DecayTopology)
   /// Per daughter: phi, theta, q/p at its vertex.
@@ -131,6 +137,10 @@ struct DecayVertexFitResult {
   std::vector<std::array<double, 9>> carriedCovariance;
   /// The material [x/X0] each daughter's last carry crossed.
   std::vector<double> carryX2X0;
+  /// Per daughter: the first vertex's derivatives by its measurement (the
+  /// five parameters on its plane), 3 x 5: how a pseudo-track's errors reach
+  /// its parent's vertex.
+  std::vector<std::array<double, 15>> vertexGain;
   /// With a `LinePosition` constraint: the parameters' (as `covariance`)
   /// derivatives by its s.
   std::vector<double> positionSensitivity;
@@ -138,6 +148,109 @@ struct DecayVertexFitResult {
 
 namespace decay_fit_detail
 {
+
+/// The Gauss-Newton minimum under a fixed model -- the carried measurements,
+/// the material along a trajectory --: smooth, in double. Each step solves
+/// the normal equations, under hard constraints the Lagrange system; it is
+/// halved until it lowers the merit, the chi2 plus 2 mu |c|_1 with mu the
+/// largest |lambda| seen (the exact penalty: the constrained step is a descent
+/// direction of it for mu >= |lambda|_inf). Converged when the step's
+/// predicted gain, step^T N step + mu |c|_1 - lambda.c (the merit's halved
+/// first-order decrease), is no larger than what the inputs resolve: they are
+/// floats, each measured value m known to epsilon_float |m|, which moves the
+/// solution by R = sum (epsilon_float |m|)^2 w in the same metric (\a
+/// evaluate's `rounding`); plus double's rounding of the chi2, epsilon
+/// (chi2 + ndf). A step that no halving makes lower the merit above that is a
+/// failure, not a minimum.
+///
+/// \a evaluate(p, chi2, rounding, normal*, gradient*); \a constraintsAt(p)
+/// fills \a values and \a rows; \a prepare(p, normal, gradient) after each
+/// full evaluation (held parameters). \a steps: the steps taken; \a first:
+/// the first step's predicted gain, what the model moved the solution by.
+template <typename Evaluate, typename ConstraintsAt, typename Prepare>
+[[nodiscard]] DecayFitStatus minimiseFrozen(int n, int ndf, bool constrained, const Evaluate& evaluate, const ConstraintsAt& constraintsAt, const Prepare& prepare, const std::vector<double>& values, const std::vector<double>& rows, std::vector<double>& parameters, double& chi2, double& mu, double& metric, int& iterations, int& steps, double& first)
+{
+  using namespace decay_fit_detail;
+  std::vector<double> normal(static_cast<std::size_t>(n * n));
+  std::vector<double> gradient(static_cast<std::size_t>(n));
+  std::vector<double> factor;
+  std::vector<double> step;
+  std::vector<double> multipliers;
+  std::vector<double> trial(static_cast<std::size_t>(n));
+  const auto violationOf = [&]() {
+    double sum = 0.;
+    for (const double c : values) {
+      sum += std::abs(c);
+    }
+    return sum;
+  };
+  steps = 0;
+  for (int iteration = 0; iteration < kMaxSteps; ++iteration) {
+    ++iterations;
+    double rounding = 0.;
+    if (!evaluate(parameters, chi2, rounding, &normal, &gradient)) {
+      return DecayFitStatus::kNoCrossing;
+    }
+    prepare(parameters, normal, gradient);
+    step = gradient;
+    double violation = 0.;
+    double lambdaC = 0.;
+    if (constrained) {
+      if (!constraintsAt(parameters)) {
+        return DecayFitStatus::kNoCrossing;
+      }
+      if (!constrainedStep(normal, n, gradient, rows, values, step, nullptr, nullptr, &multipliers)) {
+        return DecayFitStatus::kSingular;
+      }
+      for (std::size_t j = 0; j < multipliers.size(); ++j) {
+        mu = std::max(mu, std::abs(multipliers[j]));
+        lambdaC += multipliers[j] * values[j];
+      }
+      violation = violationOf();
+    } else {
+      factor = normal;
+      if (!cholesky(factor, n)) {
+        return DecayFitStatus::kSingular;
+      }
+      choleskySolve(factor, n, step);
+    }
+    metric = (mu * violation) - lambdaC;
+    for (int a = 0; a < n; ++a) {
+      for (int b = 0; b < n; ++b) {
+        metric += step[a] * normal[a * n + b] * step[b];
+      }
+    }
+    if (iteration == 0) {
+      first = metric;
+    }
+    const double resolvable = (std::numeric_limits<double>::epsilon() * (chi2 + std::max(ndf, 0))) + rounding;
+    if (metric <= resolvable) {
+      return DecayFitStatus::kOk;
+    }
+    const double merit = chi2 + (2. * mu * violation);
+    bool reached = false;
+    bool taken = false;
+    double scale = 1.;
+    for (int halving = 0; halving < kMaxSteps && !taken; ++halving, scale *= 0.5) {
+      for (int j = 0; j < n; ++j) {
+        trial[j] = parameters[j] + (scale * step[j]);
+      }
+      double trialChi2 = 0.;
+      double trialRounding = 0.;
+      if (!evaluate(trial, trialChi2, trialRounding, nullptr, nullptr) || (constrained && !constraintsAt(trial))) {
+        continue;
+      }
+      reached = true;
+      taken = trialChi2 + (constrained ? 2. * mu * violationOf() : 0.) < merit;
+    }
+    if (!taken) {
+      return reached ? DecayFitStatus::kNotConverged : DecayFitStatus::kNoCrossing;
+    }
+    parameters = trial;
+    ++steps;
+  }
+  return DecayFitStatus::kNotConverged;
+}
 
 /// The global position of \a state on \a surface [cm].
 [[nodiscard]] inline std::array<double, 3> positionOf(const BoundTrackState& state, const TrackingSurface& surface)
@@ -326,9 +439,10 @@ template <typename Material>
 /// pseudo-track of mass \a mass, for the next level's fit: on the plane
 /// through its vertex along the beam, normal to its momentum's transverse
 /// direction, loc0 0, loc1 the vertex's z, the summed momentum's phi, theta
-/// and 1/p; their covariance the fit's carried by forward differentiation.
+/// and 1/p; their covariance the fit's carried by forward differentiation
+/// (its \a jacobian, 5 x the fit's parameters, if asked).
 /// \a propagator's field is set to none: the composite flies in a line.
-[[nodiscard]] inline DecayDaughter pseudoTrackOf(const DecayVertexFitResult& fit, double mass, Propagator propagator)
+[[nodiscard]] inline DecayDaughter pseudoTrackOf(const DecayVertexFitResult& fit, double mass, Propagator propagator, std::vector<double>* jacobian = nullptr)
 {
   using namespace decay_fit_detail;
   using D = Dual<kConstraintInputs>;
@@ -382,6 +496,14 @@ template <typename Material>
     }
   }
   daughter.innermost.surface = daughter.surface.id;
+  if (jacobian != nullptr) {
+    jacobian->assign(static_cast<std::size_t>(5 * n), 0.);
+    for (int r = 0; r < 5; ++r) {
+      for (int a = 0; a < n; ++a) {
+        (*jacobian)[(r * n) + a] = state[r].d[a];
+      }
+    }
+  }
   return daughter;
 }
 
@@ -399,7 +521,11 @@ template <typename Material>
   DecayVertexFitResult result;
   const int count = static_cast<int>(daughters.size());
   const int k = topology.vertices();
-  const int n = (3 * k) + (3 * count);
+  const int core = (3 * k) + (3 * count);
+  // A production point: two nuisance parameters after the momenta, its
+  // scattering's (`ScatteredPoint`).
+  const int n = core + (constraints.production ? 2 : 0);
+  const ScatteredPoint scattered{.at = constraints.production ? core : -1, .row = constraints.mass ? 1 : 0, .factor = ScatteredPoint::factorOf(constraints.pointCovariance)};
   if (count < 2) {
     return result;
   }
@@ -424,7 +550,9 @@ template <typename Material>
     for (int i = 0; i < count; ++i) {
       const auto& daughter = daughters[i];
       const int w = topology.vertexOfDaughter(i);
-      const auto plane = detail::hypothesis::perigeePlaneOf(daughter.propagator, daughter.innermost, daughter.surface, static_cast<Scalar>(at[3 * w]), static_cast<Scalar>(at[(3 * w) + 1]));
+      // A neutral pseudo-track is measured on its own plane: a line without
+      // material, which the prediction reaches exactly; nothing to carry.
+      const auto plane = daughter.neutral ? daughter.surface : detail::hypothesis::perigeePlaneOf(daughter.propagator, daughter.innermost, daughter.surface, static_cast<Scalar>(at[3 * w]), static_cast<Scalar>(at[(3 * w) + 1]));
       BoundTrackState state = daughter.innermost;
       auto factors = factorCovariance(state.cov);
       PropagationStatus status = PropagationStatus::kOk;
@@ -445,7 +573,7 @@ template <typename Material>
         }
         Scalar mode = 0.F;
         detail::gsf::finishMixture(mixture, state, mode);
-      } else {
+      } else if (!daughter.neutral) {
         if (bare) {
           status = detail::hypothesis::carryInward(daughter.propagator, o2::gtrk::detail::GivenMaterial{}, daughter.surface, plane, state, factors);
         } else {
@@ -529,8 +657,23 @@ template <typename Material>
 
   // The chi2 at \a p and, with \a normal and \a gradient, the normal
   // equations' matrix and right-hand side; false if a helix misses its plane.
-  const auto evaluate = [&](const std::vector<double>& p, double& chi2, std::vector<double>* normal, std::vector<double>* gradient) {
+  // The field a charged mother flies in: a charged daughter's (a neutral
+  // pseudo-track's propagator has none).
+  double physicalField = 0.;
+  for (const auto& daughter : daughters) {
+    if (!daughter.neutral) {
+      physicalField = static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
+      break;
+    }
+  }
+  // Each daughter's prediction's derivatives (5 x its 6 parameters) and
+  // their indices, kept at the last evaluation for the vertex's gains.
+  std::vector<std::array<double, 30>> jacobians(static_cast<std::size_t>(count));
+  std::vector<std::array<int, 6>> jacobianIndex(static_cast<std::size_t>(count));
+  constexpr double kEpsilon = std::numeric_limits<Scalar>::epsilon(); // the measurements' precision
+  const auto evaluate = [&](const std::vector<double>& p, double& chi2, double& rounding, std::vector<double>* normal, std::vector<double>* gradient) {
     chi2 = 0.;
+    rounding = 0.;
     if (normal != nullptr) {
       std::ranges::fill(*normal, 0.);
       std::ranges::fill(*gradient, 0.);
@@ -557,6 +700,15 @@ template <typename Material>
       }
       residual[2] = std::remainder(residual[2], 2. * std::numbers::pi);
       const auto& weight = measurements[i].weight;
+      for (int r = 0; r < 5; ++r) {
+        rounding += std::pow(kEpsilon * measurements[i].value[r], 2) * weight[r * 5 + r];
+      }
+      for (int r = 0; r < 5; ++r) {
+        for (int a = 0; a < kDerivatives; ++a) {
+          jacobians[i][r * 6 + a] = predicted[r].d[a];
+        }
+      }
+      jacobianIndex[i] = index;
       std::array<double, 5> weighted{};
       for (int r = 0; r < 5; ++r) {
         for (int c = 0; c < 5; ++c) {
@@ -630,6 +782,9 @@ template <typename Material>
       }
       residual[2] = std::remainder(residual[2], 2. * std::numbers::pi);
       const auto& weight = motherMeasurements[j].weight;
+      for (int r = 0; r < 5; ++r) {
+        rounding += std::pow(kEpsilon * motherMeasurements[j].value[r], 2) * weight[r * 5 + r];
+      }
       std::array<double, 5> weighted{};
       for (int r = 0; r < 5; ++r) {
         for (int c = 0; c < 5; ++c) {
@@ -657,47 +812,18 @@ template <typename Material>
         }
       }
     }
-    // A measured production point (its rows are this fit's first 3K + 3N).
-    if (constraints.softProduction()) {
-      std::vector<std::array<double, 3>> vertices(static_cast<std::size_t>(k));
-      for (int w = 0; w < k; ++w) {
-        vertices[w] = {p[3 * w], p[(3 * w) + 1], p[(3 * w) + 2]};
-      }
-      std::vector<std::array<double, 3>> momenta(static_cast<std::size_t>(count));
-      std::vector<double> charges(static_cast<std::size_t>(count));
-      for (int i = 0; i < count; ++i) {
-        const int q = (3 * k) + (3 * i);
-        momenta[i] = {p[q], p[q + 1], p[q + 2]};
-        charges[i] = daughters[i].charge();
-      }
-      const int width = (3 * k) + (3 * count);
-      std::vector<double> g(static_cast<std::size_t>(width), 0.);
-      std::vector<double> h(static_cast<std::size_t>(width * width), 0.);
-      const double field = static_cast<double>(daughters[0].propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
-      if (!productionTerm(constraints, topology, vertices, momenta, charges, field, chi2, normal != nullptr ? &g : nullptr, normal != nullptr ? &h : nullptr)) {
-        return false;
-      }
-      if (normal != nullptr) {
-        for (int a = 0; a < width; ++a) {
-          (*gradient)[a] += g[a];
-          for (int b = 0; b < width; ++b) {
-            (*normal)[a * n + b] += h[a * width + b];
-          }
-        }
-      }
-    }
+    scattered.addPrior(p, n, chi2, normal, gradient);
     return true;
   };
 
   // The constraints' values and rows at \a p.
-  const bool constrained = constraints.equations(topology) > 0;
+  const bool constrained = constraints.count(topology) > 0;
   std::vector<double> masses(static_cast<std::size_t>(count));
   std::vector<double> charges(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
     masses[i] = daughters[i].mass;
     charges[i] = daughters[i].charge();
   }
-  const double fieldScale = static_cast<double>(daughters[0].propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
   std::vector<double> values;
   std::vector<double> rows;
   const auto constraintsAt = [&](const std::vector<double>& p) {
@@ -710,75 +836,82 @@ template <typename Material>
       const int q = (3 * k) + (3 * i);
       momenta[i] = {p[q], p[q + 1], p[q + 2]};
     }
-    return evaluateConstraints(constraints, topology, vertices, momenta, masses, charges, fieldScale, values, rows);
+    std::vector<double> coreRows;
+    if (!evaluateConstraints(constraints, topology, vertices, momenta, masses, charges, physicalField, values, coreRows)) {
+      return false;
+    }
+    const int m = static_cast<int>(values.size());
+    rows.assign(static_cast<std::size_t>(m * n), 0.);
+    for (int a = 0; a < m; ++a) {
+      std::copy_n(coreRows.begin() + (a * core), core, rows.begin() + (a * n));
+    }
+    scattered.apply(p, n, values, rows);
+    return true;
   };
 
   std::vector<double> normal(static_cast<std::size_t>(n * n));
   std::vector<double> gradient(static_cast<std::size_t>(n));
   std::vector<double> factor;
   double chi2 = 0.;
-  bool converged = false;
   const int ndf = (2 * count) - (3 * k) + constraints.count(topology) + (5 * static_cast<int>(mothers.size()));
-  double lastMetric = std::numeric_limits<double>::infinity();
-  for (int iteration = 0; iteration < kMaxSteps; ++iteration) {
-    result.iterations = static_cast<std::uint8_t>(iteration + 1);
-    if (variant != DecayFitVariant::kCarryOnce && iteration != 0) {
+  // The carried measurements are the model: minimised under them, carried
+  // anew to the planes about the solution, until a carry no longer moves the
+  // solution by what the inputs resolve (the minimiser takes no step); once
+  // under kCarryOnce.
+
+  const auto noPreparation = [](std::vector<double>&, std::vector<double>&, std::vector<double>&) {};
+  double mu = 0.;
+  double metric = 0.;
+  int iterations = 0;
+  int steps = 0;
+  double shift = 0.;
+  double lastShift = std::numeric_limits<double>::infinity();
+  result.status = DecayFitStatus::kNotConverged;
+  for (int outer = 0; outer < kMaxSteps; ++outer) {
+    if (outer != 0) {
+      if (variant == DecayFitVariant::kCarryOnce) {
+        result.status = DecayFitStatus::kOk;
+        result.stopReason = 1U;
+        break;
+      }
       if (const auto status = carry(parameters); status != DecayFitStatus::kOk) {
         result.status = status;
         return result;
       }
     }
-    if (!evaluate(parameters, chi2, &normal, &gradient)) {
-      result.status = DecayFitStatus::kNoCrossing;
-      return result;
-    }
-    factor = normal;
-    if (!constrained && !cholesky(factor, n)) {
-      result.status = DecayFitStatus::kSingular;
-      return result;
-    }
-    std::vector<double> step = gradient;
-    if (constrained) {
-      if (!constraintsAt(parameters)) {
-        result.status = DecayFitStatus::kNoCrossing;
-        return result;
-      }
-      if (!constrainedStep(normal, n, gradient, rows, values, step, nullptr)) {
-        result.status = DecayFitStatus::kSingular;
-        return result;
-      }
-    } else {
-      choleskySolve(factor, n, step);
-    }
-    if (settledStep(normal, n, step, chi2, ndf, lastMetric)) {
-      converged = true;
+    result.outer = static_cast<std::uint8_t>(outer + 1);
+    const auto inner = minimiseFrozen(n, ndf, constrained, evaluate, constraintsAt, noPreparation, values, rows, parameters, chi2, mu, metric, iterations, steps, shift);
+    if (inner != DecayFitStatus::kOk) {
+      result.status = inner;
       break;
     }
-    // Halve a step that does not lower the chi2 (the measurements fixed); a
-    // constrained step only while a helix misses its plane.
-    std::vector<double> trial(parameters.size());
-    double trialChi2 = 0.;
-    double scale = 1.;
-    bool taken = false;
-    for (int halving = 0; halving < kMaxSteps; ++halving, scale *= 0.5) {
-      for (int j = 0; j < n; ++j) {
-        trial[j] = parameters[j] + (scale * step[j]);
-      }
-      if (evaluate(trial, trialChi2, nullptr, nullptr) && (constrained || trialChi2 < chi2)) {
-        taken = true;
-        break;
-      }
-    }
-    if (!taken) {
-      converged = !constrained; // no step lowers the chi2: the fit sits at its minimum
+    result.modelShift = static_cast<float>(shift);
+    if (steps == 0) {
+      // The model anew along the solution moves it less than the inputs
+      // resolve: converged.
+      result.status = DecayFitStatus::kOk;
+      result.stopReason = 1U;
       break;
     }
-    parameters = trial;
-    chi2 = trialChi2;
+    if (outer > 1 && shift >= lastShift) {
+      // The model's moves no longer shrink: the material table's
+      // discretisation (piecewise constant along the trajectory) leaves no
+      // exact fixed point. Each solution here is a converged minimum under a
+      // model along a trajectory close to it; taken if the model moves it by
+      // less than its error (`kModelTolerance`).
+      result.status = shift <= kModelTolerance ? DecayFitStatus::kOk : DecayFitStatus::kNotConverged;
+      result.stopReason = shift <= kModelTolerance ? 2U : 0U;
+      break;
+    }
+    if (outer != 0) {
+      lastShift = shift;
+    }
   }
-  result.status = converged ? DecayFitStatus::kOk : DecayFitStatus::kNotConverged;
+  result.iterations = static_cast<std::uint8_t>(std::min(iterations, 255));
+  result.stopMetric = static_cast<float>(metric);
   // The covariance at the solution, with the measurements of the last carry.
-  if (!evaluate(parameters, chi2, &normal, &gradient)) {
+  double rounding = 0.;
+  if (!evaluate(parameters, chi2, rounding, &normal, &gradient)) {
     result.status = DecayFitStatus::kNoCrossing;
     return result;
   }
@@ -814,6 +947,38 @@ template <typename Material>
   for (int i = 0; i < count; ++i) {
     for (int c = 0; c < 3; ++c) {
       result.momenta[i][c] = parameters[(3 * k) + (3 * i) + c];
+    }
+  }
+  // Each daughter's gain on the first vertex: d V_0 / d m_i = (C J_i^T W_i)
+  // over V_0's rows, with the constrained covariance under constraints.
+  result.vertexGain.assign(static_cast<std::size_t>(count), {});
+  for (int i = 0; i < count; ++i) {
+    const auto& weight = measurements[i].weight;
+    for (int v = 0; v < 3; ++v) {
+      std::array<double, 5> cj{}; // (C J^T)_{v, s}
+      for (int sIndex = 0; sIndex < 5; ++sIndex) {
+        for (int a = 0; a < 6; ++a) {
+          cj[sIndex] += result.covariance[(v * n) + jacobianIndex[i][a]] * jacobians[i][(sIndex * 6) + a];
+        }
+      }
+      for (int r = 0; r < 5; ++r) {
+        double g = 0.;
+        for (int sIndex = 0; sIndex < 5; ++sIndex) {
+          g += cj[sIndex] * weight[(sIndex * 5) + r];
+        }
+        result.vertexGain[i][(v * 5) + r] = g;
+      }
+    }
+  }
+  // The vertices' and momenta's block: the nuisances left out.
+  if (n != core) {
+    std::vector<double> block(static_cast<std::size_t>(core * core));
+    for (int a = 0; a < core; ++a) {
+      std::copy_n(result.covariance.begin() + (a * n), core, block.begin() + (a * core));
+    }
+    result.covariance = std::move(block);
+    if (!result.positionSensitivity.empty()) {
+      result.positionSensitivity.resize(static_cast<std::size_t>(core));
     }
   }
   result.chi2 = chi2;

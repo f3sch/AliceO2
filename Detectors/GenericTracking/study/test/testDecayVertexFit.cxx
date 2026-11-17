@@ -663,6 +663,75 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
       BOOST_TEST(std::abs(width - 1.) < 0.08);
     }
   }
+  // Tracked from rows, made at a point 6 cm before its decay vertex: the
+  // walk ends there, the point measured with 5 um.
+  {
+    const auto at = beamLinePlane(static_cast<Scalar>(kVertex[0]), static_cast<Scalar>(kVertex[1]), static_cast<Scalar>(xiTruth.phi));
+    BoundTrackState state;
+    state.par[kLoc0] = 0.F;
+    state.par[kLoc1] = static_cast<Scalar>(kVertex[2]);
+    state.par[kPhi] = static_cast<Scalar>(xiTruth.phi);
+    state.par[kTheta] = static_cast<Scalar>(xiTruth.theta);
+    state.par[kQOverP] = static_cast<Scalar>(xiTruth.qOverP);
+    TrackingSurface origin = trackedRows.rows.planes[0];
+    const double c = std::cos(xiTruth.phi);
+    const double sn = std::sin(xiTruth.phi);
+    origin.origin[0] = static_cast<Scalar>(kVertex[0] - (6. * c));
+    origin.origin[1] = static_cast<Scalar>(kVertex[1] - (6. * sn));
+    SolenoidJacobian jacobian;
+    BoundTrackState out = state;
+    const auto status = jacobianAnalytic(xiProp, state, at, origin, PropagationDirection::kBackward, jacobian, &out);
+    BOOST_REQUIRE(status == PropagationStatus::kOk || status == PropagationStatus::kOutOfBounds);
+    Scalar made[3]{};
+    surfaceToGlobal(origin, out.loc0(), out.loc1(), made);
+    auto mother = trackedRows;
+    mother.pointCovariance = {25e-8, 0., 25e-8};
+    std::array<double, 6> psum{};
+    std::array<double, 6> psum2{};
+    double pchi2 = 0.;
+    int pfitted = 0;
+    int pndf = 0;
+    for (int trial = 0; trial < kTrials; ++trial) {
+      auto own = exactRows;
+      for (auto& daughter : own) {
+        for (auto& position : daughter.positions) {
+          position[0] += gauss(random) * 5e-4;
+          position[1] += gauss(random) * 5e-4;
+        }
+      }
+      auto smeared = mother;
+      for (auto& position : smeared.rows.positions) {
+        position[0] += gauss(random) * 5e-4;
+        position[1] += gauss(random) * 5e-4;
+      }
+      const double across = gauss(random) * 5e-4;
+      DecayConstraints production{.production = true, .point = {made[0] - (across * sn), made[1] + (across * c), made[2] + (gauss(random) * 5e-4)}};
+      const std::array<RowsMother, 1> mothers{smeared};
+      const auto fit = fitDecayRows(std::span<const RowsDaughter>{own}, NoMaterial{}, exact, production, topology, mothers);
+      if (fit.status != DecayFitStatus::kOk) {
+        continue;
+      }
+      ++pfitted;
+      pndf = fit.ndf;
+      const int n = 6 + 9;
+      for (int k = 0; k < 6; ++k) {
+        const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covariance[k * n + k]);
+        psum[k] += pull;
+        psum2[k] += pull * pull;
+      }
+      pchi2 += fit.chi2;
+    }
+    BOOST_TEST_MESSAGE("cascade tracked rows from a point: fitted " << pfitted << ", chi2 mean " << pchi2 / pfitted << " at ndf " << pndf);
+    BOOST_TEST(pfitted >= kTrials - 5);
+    BOOST_TEST(std::abs((pchi2 / pfitted / pndf) - 1.) < 0.1);
+    for (int k = 0; k < 6; ++k) {
+      const double mean = psum[k] / pfitted;
+      const double width = std::sqrt((psum2[k] / pfitted) - (mean * mean));
+      BOOST_TEST_MESSAGE("  from a point vertex " << k / 3 << " coordinate " << k % 3 << ": pull mean " << mean << ", width " << width);
+      BOOST_TEST(std::abs(mean) < 0.12);
+      BOOST_TEST(std::abs(width - 1.) < 0.08);
+    }
+  }
 }
 
 BOOST_AUTO_TEST_CASE(ExactRowsGiveTheTruthBack)
