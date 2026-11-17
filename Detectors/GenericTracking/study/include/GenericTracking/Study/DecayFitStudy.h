@@ -92,7 +92,7 @@ struct DecayFitRecord {
   std::uint64_t particle = 0U;
   std::int32_t pdg = 0;
   std::uint8_t variant = 0U;     ///< DecayFitVariant
-  std::uint8_t constraints = 0U; ///< 1 the mass, 2 the production point, 4 collinear daughters, 8 a conversion's profile along its line, 16 a tree's composites' masses
+  std::uint8_t constraints = 0U; ///< 1 the mass, 2 the production point, 4 collinear daughters, 8 a conversion's profile along its line, 16 a tree's composites' masses, 32 the tracked mother's own rows
   std::uint8_t daughters = 0U;
   std::uint8_t status = 0U; ///< DecayFitStatus, or kRefitFailed
   std::uint8_t iterations = 0U;
@@ -107,6 +107,7 @@ struct DecayFitRecord {
   float minDaughterPt = 0.F; ///< the lowest true daughter pT [GeV]
   float maxCarryX2X0 = 0.F;  ///< the most material a daughter's last carry crossed
   std::uint8_t minDaughterRows = 0U;
+  std::uint8_t motherRows = 0U;  ///< a charged root's own rows (a tracked Xi or Omega), 0 without
   std::uint8_t refitPass = 0U;   ///< a failed daughter refit's FitPass
   std::uint8_t refitStatus = 0U; ///< and its PropagationStatus
   float dX = 0.F;                ///< fitted less true vertex [cm]
@@ -201,6 +202,7 @@ struct DecayFitRecord {
     visit("minDaughterPt", minDaughterPt);
     visit("maxCarryX2X0", maxCarryX2X0);
     visit("minDaughterRows", minDaughterRows);
+    visit("motherRows", motherRows);
     visit("refitPass", refitPass);
     visit("refitStatus", refitStatus);
     visit("dX", dX);
@@ -769,6 +771,22 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         std::uint8_t constraints;
       };
       const bool tree = !one.composites.empty();
+      // A charged root's own rows (a tracked Xi, Omega): its Kalman fit with its
+      // mass, the outward pass's end on its last row.
+      std::optional<DecayMother> trackedMother;
+      if (tree && !one.refitFailed && particleCharge(mother.pdg) != 0. && motherMass > 0.) {
+        if (const auto found = chainOf.find(mother.id); found != chainOf.end()) {
+          const auto& own = *found->second;
+          base.motherRows = static_cast<std::uint8_t>(std::min<std::size_t>(own.rows.size(), 255U));
+          auto propagator = event.propagator;
+          propagator.massGeV = static_cast<Scalar>(motherMass);
+          const RowChain<Det> rows{.frame = &frame, .rows = own.rows.data()};
+          const auto ownFit = fitMeasurements(propagator, geometry, material, rows, static_cast<int>(own.rows.size()));
+          if (ownFit.status == PropagationStatus::kOk) {
+            trackedMother = DecayMother{.outermost = ownFit.outwardState, .surface = geometry.planeOf(ownFit.outwardState), .propagator = propagator, .vertex = 0};
+          }
+        }
+      }
       std::vector<Job> jobs;
       for (const auto variant : {DecayFitVariant::kFull, DecayFitVariant::kCarryOnce, DecayFitVariant::kNoMaterial, DecayFitVariant::kRows}) {
         jobs.push_back({variant, 0U});
@@ -785,6 +803,16 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         if (one.topology.vertices() == 2) {
           for (const std::uint8_t set : {std::uint8_t{0}, std::uint8_t{16}, std::uint8_t{18}, std::uint8_t{19}}) {
             jobs.push_back({DecayFitVariant::kSequential, set});
+          }
+        }
+        // A tracked mother: its own rows in the tree, and in the sequential
+        // fit's root (strangeness tracking as a fit).
+        if (trackedMother) {
+          for (const std::uint8_t set : {std::uint8_t{48}, std::uint8_t{50}, std::uint8_t{51}}) {
+            jobs.push_back({DecayFitVariant::kFull, set});
+            if (one.topology.vertices() == 2) {
+              jobs.push_back({DecayFitVariant::kSequential, set});
+            }
           }
         }
       } else {
@@ -855,8 +883,10 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           constraints.compositeMasses = compositeMasses;
         }
         const auto& full = fits[static_cast<std::size_t>(DecayFitVariant::kFull)];
+        const bool wantMother = (job.constraints & 32U) != 0U && trackedMother.has_value();
+        const auto mothers = wantMother ? std::span<const DecayMother>{&*trackedMother, 1} : std::span<const DecayMother>{};
         const auto fitUnder = [&](const DecayConstraints& set) {
-          return job.variant == DecayFitVariant::kRows ? fitDecayRows(std::span<const RowsDaughter>{rowsDaughters}, material, full, set, one.topology) : fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, job.variant, set, one.topology);
+          return job.variant == DecayFitVariant::kRows ? fitDecayRows(std::span<const RowsDaughter>{rowsDaughters}, material, full, set, one.topology) : fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, job.variant, set, one.topology, mothers);
         };
         DecayVertexFitResult outcome;
         // The sequential fit: the composite (vertex 1) from its daughters,
@@ -883,7 +913,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           } else {
             rootDaughters.push_back(pseudoTrackOf(childFit, compositeMasses.front(), event.propagator));
             rootMasses.push_back(compositeMasses.front());
-            outcome = fitDecayVertex(std::span<const DecayDaughter>{rootDaughters}, material, DecayFitVariant::kFull, constraints);
+            outcome = fitDecayVertex(std::span<const DecayDaughter>{rootDaughters}, material, DecayFitVariant::kFull, constraints, {}, mothers);
           }
         } else if (conversion) {
           record.constraints |= 8U;

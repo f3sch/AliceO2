@@ -99,6 +99,18 @@ struct DecayDaughter {
   [[nodiscard]] double charge() const { return neutral ? 0. : (innermost.qOverP() > 0.F ? 1. : -1.); }
 };
 
+/// A charged composite that left its own rows before it decayed (a tracked Xi
+/// or Omega): its rows' fit, the outward pass's end on its last row, carried
+/// along its momentum with the material to the plane about its decay vertex,
+/// is one more measurement, predicted from the vertex and its daughters'
+/// summed momentum there with their summed charge.
+struct DecayMother {
+  BoundTrackState outermost; ///< its own fit's outward state, on `surface`
+  TrackingSurface surface;   ///< its last row's plane
+  Propagator propagator;     ///< the field, with its mass
+  int vertex = 0;            ///< the vertex it decayed at
+};
+
 /// A decay vertex fit's result.
 struct DecayVertexFitResult {
   DecayFitStatus status = DecayFitStatus::kNoStart;
@@ -286,6 +298,30 @@ namespace decay_fit_detail
 
 } // namespace decay_fit_detail
 
+/// \a state, its covariance \a factors, carried from \a from to \a to along
+/// the momentum, as a Kalman step carries a state between two measurements,
+/// with \a lut's material on the straight segment between (`carryInward`'s
+/// way, the other direction: the loss taken, not undone).
+template <typename Material>
+[[nodiscard]] PropagationStatus carryOutward(const Propagator& prop, const Material& lut, const TrackingSurface& from, const TrackingSurface& to, BoundTrackState& state, CovarianceFactors& factors)
+{
+  Scalar start[3]{};
+  surfaceToGlobal(from, state.loc0(), state.loc1(), start);
+  const Scalar leaving = state.theta();
+  SolenoidJacobian jacobian;
+  const auto status = jacobianAnalytic(prop, state, from, to, PropagationDirection::kForward, jacobian, &state);
+  if (status != PropagationStatus::kOk && status != PropagationStatus::kOutOfBounds) {
+    return status;
+  }
+  state.surface = to.id;
+  Scalar end[3]{};
+  surfaceToGlobal(to, state.loc0(), state.loc1(), end);
+  const auto step = o2::gtrk::detail::stepMaterial(lut, start, end);
+  const Scalar momentum = 1.F / o2::gpu::GPUCommonMath::Abs(state.qOverP());
+  const auto before = scatteringNoise(highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, momentum, prop.massGeV), leaving);
+  return o2::gtrk::detail::transportStep<false>(prop, step, momentum, before, PropagationDirection::kForward, jacobian, state, factors, 1.F);
+}
+
 /// A composite fitted before (\a fit, a one-vertex fit) as a neutral
 /// pseudo-track of mass \a mass, for the next level's fit: on the plane
 /// through its vertex along the beam, normal to its momentum's transverse
@@ -356,7 +392,7 @@ namespace decay_fit_detail
 /// a tree (\a topology) has a vertex per composite, each daughter carried to
 /// the plane about its own, and the links always constrained.
 template <typename Material>
-[[nodiscard]] DecayVertexFitResult fitDecayVertex(std::span<const DecayDaughter> daughters, const Material& material, DecayFitVariant variant, const DecayConstraints& constraints = {}, const DecayTopology& topology = {})
+[[nodiscard]] DecayVertexFitResult fitDecayVertex(std::span<const DecayDaughter> daughters, const Material& material, DecayFitVariant variant, const DecayConstraints& constraints = {}, const DecayTopology& topology = {}, std::span<const DecayMother> mothers = {})
 {
   using namespace decay_fit_detail;
   constexpr int kDerivatives = 6; // vx, vy, vz, phi, theta, q/p
@@ -378,6 +414,7 @@ template <typename Material>
     std::array<double, 25> weight{}; ///< the inverse covariance
   };
   std::vector<Measurement> measurements(static_cast<std::size_t>(count));
+  std::vector<Measurement> motherMeasurements(mothers.size());
   result.carried.resize(static_cast<std::size_t>(count));
   result.carriedCovariance.resize(static_cast<std::size_t>(count));
   result.carryX2X0.resize(static_cast<std::size_t>(count));
@@ -441,6 +478,36 @@ template <typename Material>
           result.carriedCovariance[i][r * 3 + c] = state.covAt(r + 2, c + 2);
         }
       }
+    }
+    // Each tracked mother carried along its momentum to the plane about its
+    // decay vertex.
+    for (std::size_t j = 0; j < mothers.size(); ++j) {
+      const auto& mother = mothers[j];
+      const int w = mother.vertex;
+      const auto plane = detail::hypothesis::perigeePlaneOf(mother.propagator, mother.outermost, mother.surface, static_cast<Scalar>(at[3 * w]), static_cast<Scalar>(at[(3 * w) + 1]));
+      BoundTrackState state = mother.outermost;
+      auto factors = factorCovariance(state.cov);
+      const auto status = variant == DecayFitVariant::kNoMaterial ? carryOutward(mother.propagator, o2::gtrk::detail::GivenMaterial{}, mother.surface, plane, state, factors) : carryOutward(mother.propagator, material, mother.surface, plane, state, factors);
+      if (status != PropagationStatus::kOk) {
+        return DecayFitStatus::kCarryFailed;
+      }
+      covarianceFromFactors(factors, state.cov);
+      std::vector<double> covariance(25);
+      for (int r = 0; r < 5; ++r) {
+        for (int c = 0; c < 5; ++c) {
+          covariance[r * 5 + c] = state.covAt(r, c);
+        }
+      }
+      if (!cholesky(covariance, 5)) {
+        return DecayFitStatus::kSingular;
+      }
+      const auto inverse = choleskyInverse(covariance, 5);
+      auto& m = motherMeasurements[j];
+      m.plane = perigeePlaneFrame(plane);
+      for (int r = 0; r < 5; ++r) {
+        m.value[r] = state.par[r];
+      }
+      std::ranges::copy(inverse, m.weight.begin());
     }
     return DecayFitStatus::kOk;
   };
@@ -518,6 +585,78 @@ template <typename Material>
         }
       }
     }
+    // The tracked mothers: predicted from their vertex and their daughters'
+    // summed momentum there, with their summed charge.
+    for (std::size_t j = 0; j < mothers.size(); ++j) {
+      using DM = Dual<kConstraintInputs>;
+      const int w = mothers[j].vertex;
+      std::array<DM, 3> v{};
+      for (int c = 0; c < 3; ++c) {
+        v[c].v = p[(3 * w) + c];
+        v[c].d[(3 * w) + c] = 1.;
+      }
+      std::array<DM, 3> total{};
+      double charge = 0.;
+      for (int i = 0; i < count; ++i) {
+        if (!topology.under(i, w)) {
+          continue;
+        }
+        const int q = (3 * k) + (3 * i);
+        std::array<DM, 3> m{};
+        for (int c = 0; c < 3; ++c) {
+          m[c].v = p[q + c];
+          m[c].d[q + c] = 1.;
+        }
+        charge += daughters[i].charge();
+        const DM pi = DM{m[2].v > 0. ? 1. : -1.} / m[2];
+        const DM pti = pi * sin(m[1]);
+        total[0] = total[0] + (pti * cos(m[0]));
+        total[1] = total[1] + (pti * sin(m[0]));
+        total[2] = total[2] + (pi * cos(m[1]));
+      }
+      const DM pt = sqrt((total[0] * total[0]) + (total[1] * total[1]));
+      const DM pTotal = sqrt((pt * pt) + (total[2] * total[2]));
+      const DM phi = atan2(total[1], total[0]);
+      const DM theta = atan2(pt, total[2]);
+      const DM qOverP = DM{charge} / pTotal;
+      const double motherField = static_cast<double>(mothers[j].propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
+      std::array<DM, 5> predicted{};
+      if (!predictOnPlane(v[0], v[1], v[2], phi, theta, qOverP, motherField, motherMeasurements[j].plane, predicted)) {
+        return false;
+      }
+      std::array<double, 5> residual{};
+      for (int r = 0; r < 5; ++r) {
+        residual[r] = motherMeasurements[j].value[r] - predicted[r].v;
+      }
+      residual[2] = std::remainder(residual[2], 2. * std::numbers::pi);
+      const auto& weight = motherMeasurements[j].weight;
+      std::array<double, 5> weighted{};
+      for (int r = 0; r < 5; ++r) {
+        for (int c = 0; c < 5; ++c) {
+          weighted[r] += weight[r * 5 + c] * residual[c];
+        }
+        chi2 += residual[r] * weighted[r];
+      }
+      if (normal == nullptr) {
+        continue;
+      }
+      for (int a = 0; a < n; ++a) {
+        double g = 0.;
+        for (int r = 0; r < 5; ++r) {
+          g += predicted[r].d[a] * weighted[r];
+        }
+        (*gradient)[a] += g;
+        for (int b = 0; b < n; ++b) {
+          double h = 0.;
+          for (int r = 0; r < 5; ++r) {
+            for (int c = 0; c < 5; ++c) {
+              h += predicted[r].d[a] * weight[r * 5 + c] * predicted[c].d[b];
+            }
+          }
+          (*normal)[a * n + b] += h;
+        }
+      }
+    }
     return true;
   };
 
@@ -550,7 +689,7 @@ template <typename Material>
   std::vector<double> factor;
   double chi2 = 0.;
   bool converged = false;
-  const int ndf = (2 * count) - (3 * k) + constraints.count(topology);
+  const int ndf = (2 * count) - (3 * k) + constraints.count(topology) + (5 * static_cast<int>(mothers.size()));
   double lastMetric = std::numeric_limits<double>::infinity();
   for (int iteration = 0; iteration < kMaxSteps; ++iteration) {
     result.iterations = static_cast<std::uint8_t>(iteration + 1);

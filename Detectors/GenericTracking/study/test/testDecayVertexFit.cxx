@@ -485,6 +485,98 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
     BOOST_TEST(std::abs(mean) < 0.12);
     BOOST_TEST(std::abs(width - 1.) < 0.08);
   }
+  // Tracked: the Xi's own state 1 cm before its decay vertex (its helix from
+  // the vertex carried back), one more measurement of the tree.
+  std::array<double, 3> xi{};
+  for (const auto& t : {proton, pion, bachelor}) {
+    const auto v = vectorOf(t);
+    for (int c = 0; c < 3; ++c) {
+      xi[c] += v[c];
+    }
+  }
+  const double xiP = std::hypot(xi[0], xi[1], xi[2]);
+  const Truth xiTruth{std::atan2(xi[1], xi[0]), std::atan2(std::hypot(xi[0], xi[1]), xi[2]), -1. / xiP};
+  Propagator xiProp = prop;
+  xiProp.massGeV = 1.32171F;
+  DecayMother tracked{.propagator = xiProp, .vertex = 0};
+  {
+    const auto at = beamLinePlane(static_cast<Scalar>(kVertex[0]), static_cast<Scalar>(kVertex[1]), static_cast<Scalar>(xiTruth.phi));
+    BoundTrackState state;
+    state.par[kLoc0] = 0.F;
+    state.par[kLoc1] = static_cast<Scalar>(kVertex[2]);
+    state.par[kPhi] = static_cast<Scalar>(xiTruth.phi);
+    state.par[kTheta] = static_cast<Scalar>(xiTruth.theta);
+    state.par[kQOverP] = static_cast<Scalar>(xiTruth.qOverP);
+    TrackingSurface before;
+    const double c = std::cos(xiTruth.phi);
+    const double sn = std::sin(xiTruth.phi);
+    before.origin[0] = static_cast<Scalar>(kVertex[0] - c);
+    before.origin[1] = static_cast<Scalar>(kVertex[1] - sn);
+    before.origin[2] = static_cast<Scalar>(kVertex[2]);
+    before.axis0[0] = static_cast<Scalar>(-sn);
+    before.axis0[1] = static_cast<Scalar>(c);
+    before.axis1[2] = 1.F;
+    before.normal[0] = static_cast<Scalar>(c);
+    before.normal[1] = static_cast<Scalar>(sn);
+    before.id = 7;
+    SolenoidJacobian jacobian;
+    BoundTrackState out = state;
+    const auto status = jacobianAnalytic(xiProp, state, at, before, PropagationDirection::kBackward, jacobian, &out);
+    BOOST_REQUIRE(status == PropagationStatus::kOk || status == PropagationStatus::kOutOfBounds);
+    for (auto& entry : out.cov) {
+      entry = 0.F;
+    }
+    for (int i = 0; i < 4; ++i) {
+      out.covAt(i, i) = static_cast<Scalar>(kSigmas[i] * kSigmas[i]);
+    }
+    out.covAt(kQOverP, kQOverP) = static_cast<Scalar>(std::pow(kSigmas[4] * xiTruth.qOverP, 2));
+    out.surface = before.id;
+    tracked.outermost = out;
+    tracked.surface = before;
+  }
+  {
+    std::array<double, 6> tsum{};
+    std::array<double, 6> tsum2{};
+    double tchi2 = 0.;
+    int tfitted = 0;
+    int tndf = 0;
+    for (int trial = 0; trial < kTrials; ++trial) {
+      auto states = exactStates;
+      for (auto& daughter : states) {
+        for (int c = 0; c < 5; ++c) {
+          daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
+        }
+      }
+      auto mother = tracked;
+      for (int c = 0; c < 5; ++c) {
+        mother.outermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(mother.outermost.covAt(c, c))));
+      }
+      const std::array<DecayMother, 1> mothers{mother};
+      const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial, {}, topology, mothers);
+      if (fit.status != DecayFitStatus::kOk) {
+        continue;
+      }
+      ++tfitted;
+      tndf = fit.ndf;
+      const int n = 6 + 9;
+      for (int k = 0; k < 6; ++k) {
+        const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covariance[k * n + k]);
+        tsum[k] += pull;
+        tsum2[k] += pull * pull;
+      }
+      tchi2 += fit.chi2;
+    }
+    BOOST_TEST_MESSAGE("cascade tracked: fitted " << tfitted << ", chi2 mean " << tchi2 / tfitted << " at ndf " << tndf);
+    BOOST_TEST(tfitted >= kTrials - 5);
+    BOOST_TEST(std::abs((tchi2 / tfitted / tndf) - 1.) < 0.1);
+    for (int k = 0; k < 6; ++k) {
+      const double mean = tsum[k] / tfitted;
+      const double width = std::sqrt((tsum2[k] / tfitted) - (mean * mean));
+      BOOST_TEST_MESSAGE("  tracked vertex " << k / 3 << " coordinate " << k % 3 << ": pull mean " << mean << ", width " << width);
+      BOOST_TEST(std::abs(mean) < 0.12);
+      BOOST_TEST(std::abs(width - 1.) < 0.08);
+    }
+  }
 }
 
 BOOST_AUTO_TEST_CASE(ExactRowsGiveTheTruthBack)
