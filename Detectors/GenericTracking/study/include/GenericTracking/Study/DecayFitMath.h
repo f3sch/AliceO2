@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cmath>
 #include <limits>
 #include <span>
@@ -155,30 +156,20 @@ Dual<N> asinc(const Dual<N>& a)
   return chain(a, std::asin(x) / x, (1. / (x * root)) - (std::asin(x) / (x * x)));
 }
 
-/// The most Gauss-Newton iterations of a fit, and the most halvings of one
-/// step: double's mantissa bits. A fit that converges at least linearly gains
-/// a bit an iteration; a step halved that often no longer moves a double.
+/// The most iterations of a fit's loops, and the most halvings of one step:
+/// double's mantissa bits. A cap, not a derivation: a step halved that often
+/// no longer moves a double; Gauss-Newton under a fixed model converges
+/// quadratically near its solution, far faster; a fit that reaches the cap
+/// is reported as not converged.
 inline constexpr int kMaxSteps = std::numeric_limits<double>::digits;
 
-/// A Gauss-Newton iteration's stop: its step's own metric step^T N step
-/// (\a normal, n x n), the chi2 it would move, no longer shrinking from the
-/// previous iteration's (\a previous): the iteration has reached the floor
-/// its inputs' rounding sets -- the measurements, floats, carried anew every
-/// iteration, jitter there --; or below that rounding outright, the inputs'
-/// precision times the chi2 a fit of \a ndf degrees of freedom has (\a chi2
-/// or its expectation). \a previous gets this step's metric.
-[[nodiscard]] inline bool settledStep(const std::vector<double>& normal, int n, const std::vector<double>& step, double chi2, int ndf, double& previous)
-{
-  double metric = 0.;
-  for (int a = 0; a < n; ++a) {
-    for (int b = 0; b < n; ++b) {
-      metric += step[a] * normal[a * n + b] * step[b];
-    }
-  }
-  const bool settled = metric >= previous || metric <= static_cast<double>(std::numeric_limits<Scalar>::epsilon()) * (chi2 + std::max(ndf, 0));
-  previous = metric;
-  return settled;
-}
+/// A tolerance, stated openly: how far the material model may still move a
+/// converged solution, in its chi2 metric (step^T N step), and the fit count
+/// as converged -- one standard deviation. The model is evaluated along the
+/// solution from a material table that is piecewise constant along a
+/// trajectory, so an exact fixed point need not exist; a solution the model's
+/// ambiguity moves by less than its own error is taken, more is a failure.
+inline constexpr double kModelTolerance = 1.;
 
 /// The plane's frame: its transverse origin and its normal's angle.
 struct PerigeePlane {
@@ -217,6 +208,11 @@ template <int N>
     return false;
   }
   const T rootEnd = sqrt((-(sinEnd * sinEnd)) + 1.);
+  // The turn rho s, from the end's direction on the near side (cos > 0):
+  // asin recovers it only within a quarter turn, cos(rho s) > 0.
+  if (!((rootEnd.v * cosDelta.v) + (sinEnd.v * sinDelta.v) > 0.)) {
+    return false;
+  }
   const T wOverRho = (-(u * cosDelta)) - ((sinDelta * u) * (sinEnd + sinDelta) / (cosDelta + rootEnd));
   const T w = rho * wOverRho;
   if (!(std::abs(w.v) < 1.)) {

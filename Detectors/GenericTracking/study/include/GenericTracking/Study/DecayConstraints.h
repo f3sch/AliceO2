@@ -22,11 +22,12 @@
 ///   plane about C (through C's transverse point along the beam, normal to the
 ///   mother's direction at its closest approach to it) at C: loc0 = 0 and
 ///   loc1 = C_z, two equations (`predictOnPlane`). The plane is the current
-///   iterate's, as a measurement's. The mother scatters on the material
-///   between C and V; with that scattering's covariance on the plane
-///   (`pointCovariance`, `productionScattering`) the point is a measurement
-///   of the helix instead -- two terms of the chi2 (`productionTerm`) --,
-///   held exactly only where none is crossed.
+///   iterate's, as a measurement's. A charged mother scatters on the
+///   material between C and V: with that scattering's covariance S = L L^T on
+///   the plane (`pointCovariance`, `productionScattering`) the equations are
+///   offset - L eta = 0, eta two nuisance parameters with a unit Gaussian
+///   prior (`ScatteredPoint`): the point measured with S, exactly held as S
+///   goes to zero, continuous between (no switch, no ill-conditioned weight).
 ///
 /// - Collinear daughters (a photon's conversion): the two daughters' momenta
 ///   parallel at V, phi1 - phi2 = 0 and theta1 - theta2 = 0. A pair has a
@@ -49,6 +50,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include <optional>
 #include <span>
@@ -97,21 +99,12 @@ struct DecayConstraints {
   std::array<double, 3> point{}; ///< where the mother was made [cm]
   /// The covariance (loc0, loc0 loc1, loc1) [cm^2] on the plane about the
   /// point of where the mother's helix from V crosses it: its scattering
-  /// between. Positive definite: the point is measured, else held.
+  /// between (`ScatteredPoint`); zero where nothing is crossed.
   std::array<double, 3> pointCovariance{};
   bool collinear = false; ///< two daughters only
   std::optional<LinePosition> position;
   /// Per vertex below the root, its composite's mass to hold [GeV]; 0 for none.
   std::vector<double> compositeMasses;
-  [[nodiscard]] bool softProduction() const
-  {
-    return production && pointCovariance[0] > 0. && (pointCovariance[0] * pointCovariance[2]) - (pointCovariance[1] * pointCovariance[1]) > 0.;
-  }
-  /// The equations held exactly: `count` less a measured production point.
-  [[nodiscard]] int equations(const DecayTopology& topology = {}) const
-  {
-    return count(topology) - (softProduction() ? 2 : 0);
-  }
   /// What the constraints add to the degrees of freedom.
   [[nodiscard]] int count(const DecayTopology& topology = {}) const
   {
@@ -240,7 +233,7 @@ bool productionOffset(const std::array<double, 3>& point, const std::array<Dual<
   if (constraints.mass) {
     push(massOf(total, energy, constraints.massGeV));
   }
-  if (constraints.production && !constraints.softProduction()) {
+  if (constraints.production) {
     std::array<D, 2> offset{};
     if (!productionOffset(constraints.point, v[0], total, charge, fieldScale, offset)) {
       return false;
@@ -306,63 +299,48 @@ bool productionOffset(const std::array<double, 3>& point, const std::array<Dual<
   return true;
 }
 
-/// A measured production point's terms (`DecayConstraints::softProduction`):
-/// adds its chi2 to \a chi2 and, if given, its gradient (J^T W r, r the
-/// point less the crossing) and normal matrix (J^T W J) to \a gradient and
-/// \a normal, 3K + 3N wide as `evaluateConstraints`' rows; false if the
-/// mother misses its plane.
-[[nodiscard]] inline bool productionTerm(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const std::array<double, 3>> vertices, std::span<const std::array<double, 3>> momenta, std::span<const double> charges, double fieldScale, double& chi2, std::vector<double>* gradient, std::vector<double>* normal)
-{
-  using D = Dual<kConstraintInputs>;
-  const int k = static_cast<int>(vertices.size());
-  const int count = static_cast<int>(momenta.size());
-  const int width = (3 * k) + (3 * count);
-  std::array<D, 3> v{};
-  for (int c = 0; c < 3; ++c) {
-    v[c].v = vertices[0][c];
-    v[c].d[c] = 1.;
+/// Two equations offset - L eta = 0 whose offset is smeared by a covariance
+/// S = L L^T (a scattered production point): eta, two of the fit's
+/// parameters at \a at, carry a unit Gaussian prior (`addPrior`); `apply`
+/// subtracts L eta from the two equations' values at \a row and puts -L in
+/// their columns. S = 0 leaves the equations exact and eta decoupled.
+struct ScatteredPoint {
+  int at = -1;                    ///< eta's first parameter; -1: none
+  int row = -1;                   ///< the two equations' first row
+  std::array<double, 3> factor{}; ///< L: (L00, L10, L11)
+  [[nodiscard]] static std::array<double, 3> factorOf(const std::array<double, 3>& covariance)
+  {
+    const double l00 = std::sqrt(std::max(covariance[0], 0.));
+    const double l10 = l00 > 0. ? covariance[1] / l00 : 0.;
+    return {l00, l10, std::sqrt(std::max(covariance[2] - (l10 * l10), 0.))};
   }
-  std::array<D, 3> total{};
-  double charge = 0.;
-  for (int i = 0; i < count; ++i) {
-    if (!topology.under(i, 0)) {
-      continue;
+  void apply(const std::vector<double>& p, int n, std::vector<double>& values, std::vector<double>& rows) const
+  {
+    if (at < 0) {
+      return;
     }
-    std::array<D, 3> q{};
-    for (int c = 0; c < 3; ++c) {
-      q[c].v = momenta[i][c];
-      q[c].d[(3 * k) + (3 * i) + c] = 1.;
-    }
-    const D p = D{q[2].v > 0. ? 1. : -1.} / q[2];
-    const D pt = p * sin(q[1]);
-    total[0] = total[0] + (pt * cos(q[0]));
-    total[1] = total[1] + (pt * sin(q[0]));
-    total[2] = total[2] + (p * cos(q[1]));
-    charge += charges[i];
-  }
-  std::array<D, 2> offset{};
-  if (!productionOffset(constraints.point, v, total, charge, fieldScale, offset)) {
-    return false;
-  }
-  const auto& cov = constraints.pointCovariance;
-  const double det = (cov[0] * cov[2]) - (cov[1] * cov[1]);
-  const std::array<double, 4> weight{cov[2] / det, -cov[1] / det, -cov[1] / det, cov[0] / det};
-  const std::array<double, 2> residual{-offset[0].v, -offset[1].v};
-  const std::array<double, 2> weighted{(weight[0] * residual[0]) + (weight[1] * residual[1]), (weight[2] * residual[0]) + (weight[3] * residual[1])};
-  chi2 += (residual[0] * weighted[0]) + (residual[1] * weighted[1]);
-  if (gradient == nullptr) {
-    return true;
-  }
-  for (int a = 0; a < width; ++a) {
-    (*gradient)[a] += (offset[0].d[a] * weighted[0]) + (offset[1].d[a] * weighted[1]);
-    for (int b = 0; b < width; ++b) {
-      const double wb0 = (weight[0] * offset[0].d[b]) + (weight[1] * offset[1].d[b]);
-      const double wb1 = (weight[2] * offset[0].d[b]) + (weight[3] * offset[1].d[b]);
-      (*normal)[a * width + b] += (offset[0].d[a] * wb0) + (offset[1].d[a] * wb1);
+    const std::array<std::array<double, 2>, 2> l{{{factor[0], 0.}, {factor[1], factor[2]}}};
+    for (int a = 0; a < 2; ++a) {
+      for (int b = 0; b < 2; ++b) {
+        values[row + a] -= l[a][b] * p[at + b];
+        rows[((row + a) * n) + at + b] = -l[a][b];
+      }
     }
   }
-  return true;
-}
+  void addPrior(const std::vector<double>& p, int n, double& chi2, std::vector<double>* normal, std::vector<double>* gradient) const
+  {
+    if (at < 0) {
+      return;
+    }
+    for (int b = 0; b < 2; ++b) {
+      chi2 += p[at + b] * p[at + b];
+      if (normal != nullptr) {
+        (*normal)[((at + b) * n) + at + b] += 1.;
+        (*gradient)[at + b] -= p[at + b];
+      }
+    }
+  }
+};
 
 /// The Gauss-Newton step under the hard constraints C step + c = 0 (\a rows
 /// C, m x n, \a values c) with the normal matrix \a normal (n x n) and its
@@ -373,7 +351,7 @@ bool productionOffset(const std::array<double, 3>& point, const std::array<Dual<
 /// covariance: the system's inverse's N block; with \a sensitivity (n x m),
 /// the parameters' derivatives by each constraint's value, the inverse's
 /// C^T block. False if the system is singular (an exactly zero pivot).
-[[nodiscard]] inline bool constrainedStep(const std::vector<double>& normal, int n, const std::vector<double>& gradient, const std::vector<double>& rows, const std::vector<double>& values, std::vector<double>& step, std::vector<double>* covariance, std::vector<double>* sensitivity = nullptr)
+[[nodiscard]] inline bool constrainedStep(const std::vector<double>& normal, int n, const std::vector<double>& gradient, const std::vector<double>& rows, const std::vector<double>& values, std::vector<double>& step, std::vector<double>* covariance, std::vector<double>* sensitivity = nullptr, std::vector<double>* multipliers = nullptr)
 {
   const int m = static_cast<int>(values.size());
   const int size = n + m;
@@ -438,6 +416,9 @@ bool productionOffset(const std::array<double, 3>& point, const std::array<Dual<
   }
   solve(rhs);
   step.assign(rhs.begin(), rhs.begin() + n);
+  if (multipliers != nullptr) {
+    multipliers->assign(rhs.begin() + n, rhs.end());
+  }
   if (covariance != nullptr) {
     covariance->assign(static_cast<std::size_t>(n * n), 0.);
     for (int c = 0; c < n; ++c) {
