@@ -40,6 +40,7 @@
 #include "GenericTracking/Study/DecayConstraints.h"
 #include "GenericTracking/Study/DecayFitMath.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
+#include "GenericTracking/Tracking/GSFTrackFitter.h"
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/TrackFitterUtils.h"
@@ -81,10 +82,13 @@ enum class DecayFitStatus : std::uint8_t {
 
 /// A daughter as the fit takes it.
 struct DecayDaughter {
-  BoundTrackState innermost; ///< fitted, on `surface`
+  BoundTrackState innermost; ///< fitted, on `surface`; an electron's its mixture's collapse
   TrackingSurface surface;   ///< its innermost measurement's plane
   Propagator propagator;     ///< the field, with the daughter's species' mass
   double mass = 0.;          ///< [GeV]
+  /// An electron's Gaussian-sum fit there: carried as a mixture, its
+  /// radiation on the way taken (`takeRadiation`), and collapsed on the plane.
+  std::optional<GSFMixture<BetheHeitlerLoss::kComponents>> mixture;
 };
 
 /// A decay vertex fit's result.
@@ -221,17 +225,33 @@ template <typename Material>
       BoundTrackState state = daughter.innermost;
       auto factors = factorCovariance(state.cov);
       PropagationStatus status = PropagationStatus::kOk;
-      if (variant == DecayFitVariant::kNoMaterial) {
-        status = detail::hypothesis::carryInward(daughter.propagator, o2::gtrk::detail::GivenMaterial{}, daughter.surface, plane, state, factors);
-        result.carryX2X0[i] = 0.;
+      result.carryX2X0[i] = variant == DecayFitVariant::kNoMaterial ? 0. : detail::hypothesis::segmentRadiation(daughter.propagator, material, daughter.innermost, daughter.surface, plane);
+      if (daughter.mixture) {
+        // The electron: its mixture branched by the segment's radiation, every
+        // component carried, the collapse on the plane.
+        auto mixture = *daughter.mixture;
+        if (variant != DecayFitVariant::kNoMaterial && (!(result.carryX2X0[i] >= 0.) || !detail::gsf::takeRadiation<BetheHeitlerLoss>(static_cast<Scalar>(result.carryX2X0[i]), PropagationDirection::kBackward, mixture))) {
+          return DecayFitStatus::kCarryFailed;
+        }
+        status = detail::gsf::stepEach(mixture, [&](GSFComponent<CovarianceFactors>& component) {
+          return variant == DecayFitVariant::kNoMaterial ? detail::hypothesis::carryInward(daughter.propagator, o2::gtrk::detail::GivenMaterial{}, daughter.surface, plane, component.state, component.factors) : detail::hypothesis::carryInward(daughter.propagator, material, daughter.surface, plane, component.state, component.factors);
+        });
+        if (status != PropagationStatus::kOk || mixture.size == 0) {
+          return DecayFitStatus::kCarryFailed;
+        }
+        Scalar mode = 0.F;
+        detail::gsf::finishMixture(mixture, state, mode);
       } else {
-        result.carryX2X0[i] = detail::hypothesis::segmentRadiation(daughter.propagator, material, daughter.innermost, daughter.surface, plane);
-        status = detail::hypothesis::carryInward(daughter.propagator, material, daughter.surface, plane, state, factors);
+        if (variant == DecayFitVariant::kNoMaterial) {
+          status = detail::hypothesis::carryInward(daughter.propagator, o2::gtrk::detail::GivenMaterial{}, daughter.surface, plane, state, factors);
+        } else {
+          status = detail::hypothesis::carryInward(daughter.propagator, material, daughter.surface, plane, state, factors);
+        }
+        if (status != PropagationStatus::kOk) {
+          return DecayFitStatus::kCarryFailed;
+        }
+        covarianceFromFactors(factors, state.cov);
       }
-      if (status != PropagationStatus::kOk) {
-        return DecayFitStatus::kCarryFailed;
-      }
-      covarianceFromFactors(factors, state.cov);
       std::vector<double> covariance(25);
       for (int r = 0; r < 5; ++r) {
         for (int c = 0; c < 5; ++c) {
@@ -327,6 +347,9 @@ template <typename Material>
           (*normal)[index[a] * n + index[b]] += h;
         }
       }
+    }
+    if (constraints.prior) {
+      chi2 += addLinePrior(*constraints.prior, std::span<const double>{p.data(), 3}, normal, gradient, n);
     }
     return true;
   };
@@ -442,7 +465,7 @@ template <typename Material>
     }
   }
   result.chi2 = chi2;
-  result.ndf = (2 * count) - 3 + constraints.count();
+  result.ndf = (2 * count) - 3 + constraints.count() + (constraints.prior ? 1 : 0);
   return result;
 }
 

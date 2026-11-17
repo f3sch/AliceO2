@@ -613,11 +613,8 @@ std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> rowsOfParticles(st
   return rowsOf;
 }
 
-std::unordered_map<std::uint64_t, ParticleLayers> particleLayers(std::span<const TruthRow> rows, const ComparisonSettings& settings)
+ParticleLayers chainLayers(std::span<const TruthRow> rows, std::span<const std::uint32_t> own, const ComparisonSettings& settings)
 {
-  const auto rowsOf = rowsOfParticles(rows);
-  std::unordered_map<std::uint64_t, ParticleLayers> result;
-  result.reserve(rowsOf.size());
   std::array<std::uint32_t, std::numeric_limits<std::uint64_t>::digits> depth{};
   // A step joins one of the particle's measurements on each of its layers
   // without crossing another layer.
@@ -633,21 +630,28 @@ std::unordered_map<std::uint64_t, ParticleLayers> particleLayers(std::span<const
     }
     return false;
   };
+  ParticleLayers particle;
+  for (const auto row : own) {
+    particle.layers |= std::uint64_t{1} << rows[row].layer;
+    depth[rows[row].layer] = 1U;
+  }
+  // Links in topological order: a link's `from` is complete when it comes.
+  for (const auto& link : settings.chainLinks) {
+    if (depth[link.from] != 0U && depth[link.to] != 0U && depth[link.from] + 1U > depth[link.to] && direct(own, link)) {
+      depth[link.to] = depth[link.from] + 1U;
+    }
+  }
+  particle.chain = *std::ranges::max_element(depth);
+  return particle;
+}
+
+std::unordered_map<std::uint64_t, ParticleLayers> particleLayers(std::span<const TruthRow> rows, const ComparisonSettings& settings)
+{
+  const auto rowsOf = rowsOfParticles(rows);
+  std::unordered_map<std::uint64_t, ParticleLayers> result;
+  result.reserve(rowsOf.size());
   for (const auto& [id, own] : rowsOf) {
-    ParticleLayers particle;
-    depth.fill(0U);
-    for (const auto row : own) {
-      particle.layers |= std::uint64_t{1} << rows[row].layer;
-      depth[rows[row].layer] = 1U;
-    }
-    // Links in topological order: a link's `from` is complete when it comes.
-    for (const auto& link : settings.chainLinks) {
-      if (depth[link.from] != 0U && depth[link.to] != 0U && depth[link.from] + 1U > depth[link.to] && direct(own, link)) {
-        depth[link.to] = depth[link.from] + 1U;
-      }
-    }
-    particle.chain = *std::ranges::max_element(depth);
-    result.emplace(id, particle);
+    result.emplace(id, chainLayers(rows, own, settings));
   }
   return result;
 }

@@ -16,16 +16,21 @@
 /// The decays: members of the decay trees with a vertex of their own (the
 /// products made away from the member's production point), whose products are
 /// all final charged particles (no composite below: one vertex), two to
-/// `kMaxDaughters` of them, every one findable -- its rows on a chain of at
-/// least four linked layers (`isFindable`, no pT floor): a track of three is
-/// barely defined -- and with a chain from the source; no
-/// photon's conversion and no electron daughter (their fit is the
-/// Gaussian-sum filter's, a later step). Each daughter's rows are refitted
+/// `kMaxDaughters` of them -- a photon's conversion pair among them --, every
+/// one with a chain from the source that is findable: its rows -- the chain
+/// the fit takes, a truth chain's first outward leg -- on a chain of at least
+/// four linked layers (`chainLayers`, `isFindable`, no pT floor): a track of
+/// three is barely defined. An electron daughter
+/// is refitted with the Gaussian-sum filter and carried as its mixture
+/// (DecayVertexFit.h); the rows' fit takes its radiation as a Gaussian. Each daughter's rows are refitted
 /// with its true species (`refitWithHypothesis`); the vertex is fitted under
 /// every `DecayFitVariant`, a record each: from the daughters' states, and
 /// from their rows (`kRows`, DecayRowsFit.h, the information limit); and
 /// both fits (kFull, kRows) under the mother's mass, its production at the
-/// MC collision vertex, and both (DecayConstraints.h).
+/// MC collision vertex, and both (DecayConstraints.h); a photon's under
+/// collinear daughters in place of the mass, and every photon fit with the
+/// material prior on its conversion point (`conversionPrior`): two parallel
+/// daughters leave it unmeasured along the flight to first order.
 ///
 /// Truth: the vertex against the MC decay point (the products' production
 /// point), in the global frame and along the true flight; the daughters'
@@ -41,6 +46,7 @@
 #ifndef GTRK_STUDY_DECAYFITSTUDY_H_
 #define GTRK_STUDY_DECAYFITSTUDY_H_
 
+#include "GenericTracking/Base/LayerEnvelopes.h"
 #include "GenericTracking/Study/DecayCandidates.h"
 #include "GenericTracking/Study/DecayConstraints.h"
 #include "GenericTracking/Study/DecayRowsFit.h"
@@ -84,7 +90,7 @@ struct DecayFitRecord {
   std::uint64_t particle = 0U;
   std::int32_t pdg = 0;
   std::uint8_t variant = 0U;     ///< DecayFitVariant
-  std::uint8_t constraints = 0U; ///< 1 the mass, 2 the production point
+  std::uint8_t constraints = 0U; ///< 1 the mass, 2 the production point, 4 collinear daughters, 8 a conversion's material prior
   std::uint8_t daughters = 0U;
   std::uint8_t status = 0U; ///< DecayFitStatus, or kRefitFailed
   std::uint8_t iterations = 0U;
@@ -126,6 +132,11 @@ struct DecayFitRecord {
   float ct = 0.F; ///< [cm]
   float sCt = 0.F;
   float ctTrue = 0.F;
+  /// A conversion's material prior along its line (`conversionPrior`): the
+  /// true point's distance along it less the prior's mean, over its sigma,
+  /// and the sigma [cm]; NaN for another decay.
+  float priorPull = std::numeric_limits<float>::quiet_NaN();
+  float priorSigma = std::numeric_limits<float>::quiet_NaN();
   float dPhiMother = 0.F; ///< the mother's direction, fitted less true
   float dThetaMother = 0.F;
   float sPhiMother = 0.F;
@@ -196,6 +207,8 @@ struct DecayFitRecord {
     visit("ct", ct);
     visit("sCt", sCt);
     visit("ctTrue", ctTrue);
+    visit("priorPull", priorPull);
+    visit("priorSigma", priorSigma);
     visit("dPhiMother", dPhiMother);
     visit("dThetaMother", dThetaMother);
     visit("sPhiMother", sPhiMother);
@@ -366,6 +379,82 @@ struct MotherQuantities {
   return {.length = length.v, .sLength = sigma(length), .ct = ct.v, .sCt = sigma(ct), .phi = phi.v, .sPhi = sigma(phi), .theta = theta.v, .sTheta = sigma(theta)};
 }
 
+/// A conversion's prior on its point along the line from \a collision
+/// towards the midpoint of its daughters' first rows: the photon converted
+/// after the last active layer's sensitive surface (its nominal radius, or
+/// its z) the line crosses before the nearer first row (\a nearest along the
+/// line) -- the pair would have left rows there; behind it, in that layer's
+/// own silicon and supports, it may have --, and
+/// in material: the distribution of the line's material between (x/X0 in 200
+/// equal steps of \a material's LUT), its mean and spread; uniform without
+/// material. The layers are the loaded geometry's envelopes.
+template <DetectorLayout Det, typename Material>
+[[nodiscard]] LinePrior conversionPrior(const Material& material, const std::array<double, 3>& collision, const std::array<double, 3>& firstRows, double nearest)
+{
+  constexpr int kSteps = 200;
+  LinePrior prior{.origin = collision};
+  const std::array<double, 3> d{firstRows[0] - collision[0], firstRows[1] - collision[1], firstRows[2] - collision[2]};
+  const double length = std::hypot(d[0], d[1], d[2]);
+  for (int k = 0; k < 3; ++k) {
+    prior.direction[k] = d[k] / length;
+  }
+  const auto& n = prior.direction;
+  const auto at = [&](double s) { return std::array<double, 3>{collision[0] + (s * n[0]), collision[1] + (s * n[1]), collision[2] + (s * n[2])}; };
+  // Where the line leaves each active layer before the nearer first row.
+  double low = 0.;
+  const auto envelopes = PlacedEnvelopes<Det>::all();
+  for (std::size_t layer = 0; layer < envelopes.size(); ++layer) {
+    const auto& envelope = envelopes[layer];
+    double s = -1.;
+    if (Detector<Det>::isBarrelLayer(static_cast<LayerID>(layer))) {
+      // |xy(s)| = the nominal radius: s^2 nt^2 + 2 s (c . nt) + c^2 - r^2 = 0,
+      // the larger root.
+      const double a2 = (n[0] * n[0]) + (n[1] * n[1]);
+      const double b1 = (collision[0] * n[0]) + (collision[1] * n[1]);
+      const double c0 = (collision[0] * collision[0]) + (collision[1] * collision[1]) - (envelope.position * envelope.position);
+      const double disc = (b1 * b1) - (a2 * c0);
+      if (a2 > 0. && disc >= 0.) {
+        s = (-b1 + std::sqrt(disc)) / a2;
+        const double z = at(s)[2];
+        if (z < envelope.zMin || z > envelope.zMax) {
+          s = -1.;
+        }
+      }
+    } else if (std::abs(n[2]) > 0. && (envelope.position > 0.) == (n[2] > 0.)) {
+      s = (envelope.position - collision[2]) / n[2];
+      const auto p = at(s);
+      const double r = std::hypot(p[0], p[1]);
+      if (r < envelope.rMin || r > envelope.rMax) {
+        s = -1.;
+      }
+    }
+    if (s > low && s < nearest) {
+      low = s;
+    }
+  }
+  const double step = (nearest - low) / kSteps;
+  double weight = 0.;
+  double first = 0.;
+  double second = 0.;
+  for (int j = 0; j < kSteps; ++j) {
+    const auto a = at(low + (j * step));
+    const auto b = at(low + ((j + 1) * step));
+    const double w = material.getMatBudget(static_cast<float>(a[0]), static_cast<float>(a[1]), static_cast<float>(a[2]), static_cast<float>(b[0]), static_cast<float>(b[1]), static_cast<float>(b[2])).meanX2X0;
+    const double s = low + ((j + 0.5) * step);
+    weight += w;
+    first += w * s;
+    second += w * s * s;
+  }
+  if (weight > 0.) {
+    prior.mean = first / weight;
+    prior.sigma = std::sqrt(std::max((second / weight) - (prior.mean * prior.mean), 0.) + (step * step / 12.));
+  } else {
+    prior.mean = 0.5 * (low + nearest);
+    prior.sigma = (nearest - low) / std::sqrt(12.);
+  }
+  return prior;
+}
+
 } // namespace decay_fit_study_detail
 
 template <DetectorLayout Det>
@@ -408,12 +497,12 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     }
   }
 
-  // A daughter must be findable: on a chain of four linked layers, at any pT.
+  // A daughter's chain must be findable: its rows on a chain of four linked
+  // layers, at any pT.
   const auto rule = comparisonSettings<Det>(4, 0.);
-  const auto layers = particleLayers(event.rows, rule);
   const auto findable = [&](const TreeParticle& leaf) {
-    const auto found = layers.find(leaf.id);
-    return found != layers.end() && isFindable(std::numeric_limits<float>::max(), found->second, rule);
+    const auto chain = chainOf.find(leaf.id);
+    return chain != chainOf.end() && isFindable(std::numeric_limits<float>::max(), chainLayers(event.rows, chain->second->rows, rule), rule);
   };
 
   struct Work {
@@ -426,7 +515,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
   };
   std::vector<Work> work;
   for (const auto& member : trees.particles) {
-    if (member.pdg == 22 || isFinalCharged(member.pdg)) {
+    if (isFinalCharged(member.pdg)) {
       continue;
     }
     const auto products = decayProducts(trees, member);
@@ -442,7 +531,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       continue;
     }
     const bool usable = std::ranges::all_of(shape.leaves, [&](const TreeParticle* leaf) {
-      return std::abs(leaf->pdg) != 11 && truthSpecies(leaf->pdg).has_value() && chainOf.contains(leaf->id);
+      return truthSpecies(leaf->pdg).has_value() && chainOf.contains(leaf->id);
     });
     if (!usable) {
       continue;
@@ -483,8 +572,12 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         auto propagator = event.propagator;
         propagator.massGeV = species.mass;
         daughters[i] = {.innermost = refit.innermost, .surface = geometry.planeOf(rows[0]), .propagator = propagator, .mass = species.mass};
+        if (species.pid == o2::track::PID::Electron) {
+          daughters[i].mixture = refit.innermostMixture;
+        }
         auto& own = rowsDaughters[i];
         own.propagator = propagator;
+        own.electron = species.pid == o2::track::PID::Electron;
         for (const auto at : chain.rows) {
           const auto m = frame.measurement(at);
           own.planes.push_back(geometry.planeOf(m));
@@ -578,6 +671,33 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         base.decayLengthTrue = static_cast<float>((((decay[0] - point[0]) * pTrue[0]) + ((decay[1] - point[1]) * pTrue[1]) + ((decay[2] - point[2]) * pTrue[2])) / pTotal);
         base.ctTrue = static_cast<float>(base.decayLengthTrue * motherMass / pTotal);
       }
+      // A conversion: its material prior along the flight, from the collision
+      // towards its daughters' first rows.
+      std::optional<LinePrior> photonPrior;
+      if (mother.pdg == 22 && hasCollision && !one.refitFailed) {
+        std::array<double, 3> firstRows{};
+        std::vector<std::array<double, 3>> firsts;
+        for (std::size_t i = 0; i < count; ++i) {
+          const auto m = frame.measurement(chainOf.at(one.leaves[i]->id)->rows.front());
+          firsts.push_back({m.x, m.y, m.z});
+          for (int k = 0; k < 3; ++k) {
+            firstRows[k] += firsts.back()[k] / static_cast<double>(count);
+          }
+        }
+        const std::array<double, 3> towards{firstRows[0] - point[0], firstRows[1] - point[1], firstRows[2] - point[2]};
+        const double length = std::hypot(towards[0], towards[1], towards[2]);
+        double nearest = std::numeric_limits<double>::infinity();
+        for (const auto& first : firsts) {
+          nearest = std::min(nearest, (((first[0] - point[0]) * towards[0]) + ((first[1] - point[1]) * towards[1]) + ((first[2] - point[2]) * towards[2])) / length);
+        }
+        photonPrior = conversionPrior<Det>(material, point, firstRows, nearest);
+        double along = 0.;
+        for (int k = 0; k < 3; ++k) {
+          along += (decay[k] - photonPrior->origin[k]) * photonPrior->direction[k];
+        }
+        base.priorPull = static_cast<float>((along - photonPrior->mean) / photonPrior->sigma);
+        base.priorSigma = static_cast<float>(photonPrior->sigma);
+      }
       // The fits: every variant alone, then kFull and kRows under the mass,
       // the production point, and both.
       struct Job {
@@ -588,8 +708,10 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       for (std::size_t v = 0; v < kDecayFitVariants; ++v) {
         jobs.push_back({static_cast<DecayFitVariant>(v), 0U});
       }
+      // A photon: collinear daughters in place of the mass.
+      const std::uint8_t first = mother.pdg == 22 ? std::uint8_t{4} : std::uint8_t{1};
       for (const auto variant : {DecayFitVariant::kFull, DecayFitVariant::kRows}) {
-        for (const std::uint8_t set : {std::uint8_t{1}, std::uint8_t{2}, std::uint8_t{3}}) {
+        for (const std::uint8_t set : {first, std::uint8_t{2}, static_cast<std::uint8_t>(first | 2U)}) {
           jobs.push_back({variant, set});
         }
       }
@@ -605,12 +727,17 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         const bool wantMass = (job.constraints & 1U) != 0U;
         const bool wantProduction = (job.constraints & 2U) != 0U;
-        if ((wantMass && !(motherMass > 0.)) || (wantProduction && !hasCollision)) {
+        const bool wantCollinear = (job.constraints & 4U) != 0U;
+        if ((wantMass && !(motherMass > 0.)) || (wantProduction && !hasCollision) || (wantCollinear && count != 2)) {
           record.status = static_cast<std::uint8_t>(DecayFitStatus::kNoStart); // nothing to constrain to
           one.records.push_back(record);
           continue;
         }
-        const DecayConstraints constraints{.mass = wantMass, .massGeV = motherMass, .production = wantProduction, .point = point};
+        DecayConstraints constraints{.mass = wantMass, .massGeV = motherMass, .production = wantProduction, .point = point, .collinear = wantCollinear};
+        if (photonPrior) {
+          constraints.prior = photonPrior;
+          record.constraints |= 8U;
+        }
         const auto& full = fits[static_cast<std::size_t>(DecayFitVariant::kFull)];
         auto outcome = job.variant == DecayFitVariant::kRows ? fitDecayRows(std::span<const RowsDaughter>{rowsDaughters}, material, full, constraints) : fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, job.variant, constraints);
         if (job.constraints == 0U) {
