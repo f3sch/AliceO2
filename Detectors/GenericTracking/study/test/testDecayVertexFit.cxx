@@ -19,6 +19,7 @@
 #define BOOST_TEST_MODULE Test GTRK decay vertex fit
 #include <boost/test/unit_test.hpp>
 
+#include "GenericTracking/Study/DecayConstraints.h"
 #include "GenericTracking/Study/DecayRowsFit.h"
 #include "GenericTracking/Study/DecayVertexFit.h"
 
@@ -50,21 +51,21 @@ const std::array<Truth, 3> kDaughters{Truth{0.3, 1.2, 2.}, Truth{-0.4, 1.6, -1.2
 
 /// A daughter of \a truth from kVertex, exact on a plane 3 cm downstream, its
 /// covariance kSigmas's.
-DecayDaughter daughterOf(const Truth& truth, const Propagator& prop)
+DecayDaughter daughterOf(const Truth& truth, const Propagator& prop, const std::array<double, 3>& vertex = kVertex)
 {
-  const auto start = beamLinePlane(static_cast<Scalar>(kVertex[0]), static_cast<Scalar>(kVertex[1]), static_cast<Scalar>(truth.phi));
+  const auto start = beamLinePlane(static_cast<Scalar>(vertex[0]), static_cast<Scalar>(vertex[1]), static_cast<Scalar>(truth.phi));
   BoundTrackState state;
   state.par[kLoc0] = 0.F;
-  state.par[kLoc1] = static_cast<Scalar>(kVertex[2]);
+  state.par[kLoc1] = static_cast<Scalar>(vertex[2]);
   state.par[kPhi] = static_cast<Scalar>(truth.phi);
   state.par[kTheta] = static_cast<Scalar>(truth.theta);
   state.par[kQOverP] = static_cast<Scalar>(truth.qOverP);
   TrackingSurface target;
   const double c = std::cos(truth.phi);
   const double s = std::sin(truth.phi);
-  target.origin[0] = static_cast<Scalar>(kVertex[0] + (3. * c));
-  target.origin[1] = static_cast<Scalar>(kVertex[1] + (3. * s));
-  target.origin[2] = static_cast<Scalar>(kVertex[2]);
+  target.origin[0] = static_cast<Scalar>(vertex[0] + (3. * c));
+  target.origin[1] = static_cast<Scalar>(vertex[1] + (3. * s));
+  target.origin[2] = static_cast<Scalar>(vertex[2]);
   target.axis0[0] = static_cast<Scalar>(-s);
   target.axis0[1] = static_cast<Scalar>(c);
   target.axis1[2] = 1.F;
@@ -88,12 +89,12 @@ DecayDaughter daughterOf(const Truth& truth, const Propagator& prop)
 
 /// A daughter of \a truth from kVertex as rows: its exact crossings of six
 /// planes 2-7 cm downstream (the library's propagation), 5 um errors.
-RowsDaughter rowsOf(const Truth& truth, const Propagator& prop)
+RowsDaughter rowsOf(const Truth& truth, const Propagator& prop, const std::array<double, 3>& vertex = kVertex)
 {
-  const auto start = beamLinePlane(static_cast<Scalar>(kVertex[0]), static_cast<Scalar>(kVertex[1]), static_cast<Scalar>(truth.phi));
+  const auto start = beamLinePlane(static_cast<Scalar>(vertex[0]), static_cast<Scalar>(vertex[1]), static_cast<Scalar>(truth.phi));
   BoundTrackState state;
   state.par[kLoc0] = 0.F;
-  state.par[kLoc1] = static_cast<Scalar>(kVertex[2]);
+  state.par[kLoc1] = static_cast<Scalar>(vertex[2]);
   state.par[kPhi] = static_cast<Scalar>(truth.phi);
   state.par[kTheta] = static_cast<Scalar>(truth.theta);
   state.par[kQOverP] = static_cast<Scalar>(truth.qOverP);
@@ -103,8 +104,8 @@ RowsDaughter rowsOf(const Truth& truth, const Propagator& prop)
     const double c = std::cos(truth.phi);
     const double s = std::sin(truth.phi);
     const double distance = 2. + k;
-    plane.origin[0] = static_cast<Scalar>(kVertex[0] + (distance * c));
-    plane.origin[1] = static_cast<Scalar>(kVertex[1] + (distance * s));
+    plane.origin[0] = static_cast<Scalar>(vertex[0] + (distance * c));
+    plane.origin[1] = static_cast<Scalar>(vertex[1] + (distance * s));
     plane.axis0[0] = static_cast<Scalar>(-s);
     plane.axis0[1] = static_cast<Scalar>(c);
     plane.axis1[2] = 1.F;
@@ -134,7 +135,127 @@ DecayVertexFitResult truthStart()
   return start;
 }
 
+/// A K0S-like decay: a neutral mother of mass kMass made at kPoint flies to
+/// kDecay; its two pions' momenta sum to its momentum along the flight.
+constexpr double kMass = 0.497611;
+constexpr double kPion = 0.13957;
+constexpr std::array<double, 3> kPoint{0.01, -0.02, 0.5};
+constexpr std::array<double, 3> kDecay{1.21, 0.98, 1.7};
+
+std::array<Truth, 2> pionPair()
+{
+  std::array<double, 3> dir{kDecay[0] - kPoint[0], kDecay[1] - kPoint[1], kDecay[2] - kPoint[2]};
+  const double length = std::hypot(dir[0], dir[1], dir[2]);
+  for (auto& d : dir) {
+    d /= length;
+  }
+  // A unit vector across the flight, in the transverse plane.
+  const double across = std::hypot(dir[0], dir[1]);
+  const std::array<double, 3> normal{-dir[1] / across, dir[0] / across, 0.};
+  // p1 = a dir + b normal, p2 = c dir - b normal; c from the mass.
+  const double a = 0.7;
+  const double b = 0.15;
+  const auto massOf = [&](double c) {
+    const double e1 = std::sqrt((a * a) + (b * b) + (kPion * kPion));
+    const double e2 = std::sqrt((c * c) + (b * b) + (kPion * kPion));
+    return std::sqrt(((e1 + e2) * (e1 + e2)) - ((a + c) * (a + c)));
+  };
+  double low = 0.05;
+  double high = 5.;
+  for (int i = 0; i < 200; ++i) {
+    const double mid = 0.5 * (low + high);
+    // the mass falls as c grows past a: bisect on the side of the root
+    (massOf(mid) > kMass ? low : high) = mid;
+  }
+  const double c = 0.5 * (low + high);
+  const auto truthOf = [](const std::array<double, 3>& p, double charge) {
+    const double total = std::hypot(p[0], p[1], p[2]);
+    return Truth{std::atan2(p[1], p[0]), std::atan2(std::hypot(p[0], p[1]), p[2]), charge / total};
+  };
+  const std::array<double, 3> p1{(a * dir[0]) + (b * normal[0]), (a * dir[1]) + (b * normal[1]), (a * dir[2]) + (b * normal[2])};
+  const std::array<double, 3> p2{(c * dir[0]) - (b * normal[0]), (c * dir[1]) - (b * normal[1]), (c * dir[2]) - (b * normal[2])};
+  return {truthOf(p1, 1.), truthOf(p2, -1.)};
+}
+
 } // namespace
+
+/// Every constraint set, on both fits: the constraints hold, the vertex pulls
+/// stay at one and the chi2's mean is its new ndf.
+BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
+{
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  prop.massGeV = static_cast<Scalar>(kPion);
+  const auto pions = pionPair();
+  std::vector<DecayDaughter> exactStates;
+  std::vector<RowsDaughter> exactRows;
+  for (const auto& truth : pions) {
+    exactStates.push_back(daughterOf(truth, prop, kDecay));
+    exactRows.push_back(rowsOf(truth, prop, kDecay));
+  }
+  std::mt19937 random{777U};
+  std::normal_distribution<double> gauss;
+  constexpr int kTrials = 1000;
+  const double fieldScale = 20. * static_cast<double>(constants::math::B2C);
+  const std::array<double, 2> masses{kPion, kPion};
+  for (const int set : {1, 2, 3}) {
+    const DecayConstraints constraints{.mass = (set & 1) != 0, .massGeV = kMass, .production = (set & 2) != 0, .point = kPoint};
+    for (const bool rows : {false, true}) {
+      std::array<double, 3> sum{};
+      std::array<double, 3> sum2{};
+      double chi2 = 0.;
+      double worst = 0.;
+      int fitted = 0;
+      int ndf = 0;
+      for (int trial = 0; trial < kTrials; ++trial) {
+        auto states = exactStates;
+        for (auto& daughter : states) {
+          for (int k = 0; k < 5; ++k) {
+            daughter.innermost.par[k] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(k, k))));
+          }
+        }
+        auto own = exactRows;
+        for (auto& daughter : own) {
+          for (auto& position : daughter.positions) {
+            position[0] += gauss(random) * 5e-4;
+            position[1] += gauss(random) * 5e-4;
+          }
+        }
+        const auto free = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial);
+        const auto fit = rows ? fitDecayRows(std::span<const RowsDaughter>{own}, NoMaterial{}, free, constraints) : fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial, constraints);
+        if (fit.status != DecayFitStatus::kOk) {
+          continue;
+        }
+        ++fitted;
+        ndf = fit.ndf;
+        const int n = 3 + 6;
+        for (int k = 0; k < 3; ++k) {
+          const double pull = (fit.vertex[k] - kDecay[k]) / std::sqrt(fit.covariance[k * n + k]);
+          sum[k] += pull;
+          sum2[k] += pull * pull;
+        }
+        chi2 += fit.chi2;
+        std::vector<double> values;
+        std::vector<double> unused;
+        BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, fit.vertex, fit.momenta, masses, fieldScale, values, unused));
+        for (const auto value : values) {
+          worst = std::max(worst, std::abs(value));
+        }
+      }
+      BOOST_TEST_MESSAGE("constraints " << set << (rows ? " rows" : " states") << ": fitted " << fitted << ", chi2 mean " << chi2 / fitted << " at ndf " << ndf << ", largest constraint residual " << worst);
+      BOOST_TEST(fitted >= kTrials - 5);
+      BOOST_TEST(worst < 1e-6);
+      BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.1);
+      for (int k = 0; k < 3; ++k) {
+        const double mean = sum[k] / fitted;
+        const double width = std::sqrt((sum2[k] / fitted) - (mean * mean));
+        BOOST_TEST_MESSAGE("  vertex " << k << ": pull mean " << mean << ", width " << width);
+        BOOST_TEST(std::abs(mean) < 0.12);
+        BOOST_TEST(std::abs(width - 1.) < 0.08);
+      }
+    }
+  }
+}
 
 BOOST_AUTO_TEST_CASE(ExactRowsGiveTheTruthBack)
 {

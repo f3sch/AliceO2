@@ -44,6 +44,7 @@
 #ifndef GTRK_STUDY_DECAYROWSFIT_H_
 #define GTRK_STUDY_DECAYROWSFIT_H_
 
+#include "GenericTracking/Study/DecayConstraints.h"
 #include "GenericTracking/Study/DecayVertexFit.h"
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Tracking/Measurement.h"
@@ -151,7 +152,7 @@ using Free = std::array<decay_fit_detail::Dual<6>, 6>; ///< x, y, z, phi, theta,
 /// The vertex of \a daughters fitted from their rows, starting from \a start
 /// (the states' fit's solution), with \a material's material.
 template <typename Material>
-[[nodiscard]] DecayVertexFitResult fitDecayRows(std::span<const RowsDaughter> daughters, const Material& material, const DecayVertexFitResult& start, int maxIterations = 20)
+[[nodiscard]] DecayVertexFitResult fitDecayRows(std::span<const RowsDaughter> daughters, const Material& material, const DecayVertexFitResult& start, const DecayConstraints& constraints = {}, int maxIterations = 20)
 {
   using namespace decay_fit_detail;
   using namespace decay_rows_detail;
@@ -403,6 +404,41 @@ template <typename Material>
   };
   followRows(parameters);
 
+  // The constraints' values and rows at \a p, in this fit's layout (their
+  // columns are V and the momenta; the kicks' are zero).
+  const bool constrained = constraints.count() > 0;
+  std::vector<double> masses(static_cast<std::size_t>(count));
+  for (int i = 0; i < count; ++i) {
+    masses[i] = daughters[i].propagator.massGeV;
+  }
+  const double fieldScale = static_cast<double>(daughters[0].propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
+  std::vector<double> values;
+  std::vector<double> rows;
+  const auto constraintsAt = [&](const std::vector<double>& p) {
+    std::vector<std::array<double, 3>> momenta(static_cast<std::size_t>(count));
+    for (int i = 0; i < count; ++i) {
+      momenta[i] = {p[firstOf[i]], p[firstOf[i] + 1], p[firstOf[i] + 2]};
+    }
+    std::vector<double> core;
+    if (!evaluateConstraints(constraints, {p[0], p[1], p[2]}, momenta, masses, fieldScale, values, core)) {
+      return false;
+    }
+    const int width = 3 + (3 * count);
+    const int m = static_cast<int>(values.size());
+    rows.assign(static_cast<std::size_t>(m * n), 0.);
+    for (int a = 0; a < m; ++a) {
+      for (int k = 0; k < 3; ++k) {
+        rows[a * n + k] = core[a * width + k];
+      }
+      for (int i = 0; i < count; ++i) {
+        for (int k = 0; k < 3; ++k) {
+          rows[a * n + firstOf[i] + k] = core[a * width + 3 + (3 * i) + k];
+        }
+      }
+    }
+    return true;
+  };
+
   std::vector<double> normal(static_cast<std::size_t>(n * n));
   std::vector<double> gradient(static_cast<std::size_t>(n));
   std::vector<double> factor;
@@ -420,7 +456,18 @@ template <typename Material>
       return result;
     }
     std::vector<double> step = gradient;
-    choleskySolve(factor, n, step);
+    if (constrained) {
+      if (!constraintsAt(parameters)) {
+        result.status = DecayFitStatus::kNoCrossing;
+        return result;
+      }
+      if (!constrainedStep(factor, n, gradient, rows, values, step, nullptr)) {
+        result.status = DecayFitStatus::kSingular;
+        return result;
+      }
+    } else {
+      choleskySolve(factor, n, step);
+    }
     std::vector<double> trial(parameters.size());
     double trialChi2 = 0.;
     double scale = 1.;
@@ -433,14 +480,14 @@ template <typename Material>
       // The trial and the current point, both under the trial trajectory's
       // material: the priors move with the model.
       double currentChi2 = 0.;
-      if (evaluate(trial, true, trialChi2, nullptr, nullptr) && evaluate(parameters, false, currentChi2, nullptr, nullptr) && trialChi2 <= currentChi2 * (1. + 1e-12) + 1e-12) {
+      if (evaluate(trial, true, trialChi2, nullptr, nullptr) && (constrained || (evaluate(parameters, false, currentChi2, nullptr, nullptr) && trialChi2 <= currentChi2 * (1. + 1e-12) + 1e-12))) {
         taken = true;
         break;
       }
     }
     if (!taken) {
       model = kept;
-      converged = true;
+      converged = !constrained;
       break;
     }
     const auto inverse = choleskyInverse(factor, n);
@@ -472,7 +519,16 @@ template <typename Material>
     return result;
   }
   // The covariance of V and the momenta: the full inverse's rows of them.
-  const auto inverse = choleskyInverse(factor, n);
+  std::vector<double> inverse;
+  if (constrained) {
+    std::vector<double> unused;
+    if (!constraintsAt(parameters) || !constrainedStep(factor, n, gradient, rows, values, unused, &inverse)) {
+      result.status = DecayFitStatus::kSingular;
+      return result;
+    }
+  } else {
+    inverse = choleskyInverse(factor, n);
+  }
   const int m = 3 + (3 * count);
   std::vector<int> kept{0, 1, 2};
   for (int i = 0; i < count; ++i) {
@@ -498,7 +554,7 @@ template <typename Material>
   for (const auto& daughter : daughters) {
     measurements += 2 * static_cast<int>(daughter.planes.size());
   }
-  result.ndf = measurements - (3 + (3 * count));
+  result.ndf = measurements - (3 + (3 * count)) + constraints.count();
   result.carried = start.carried;
   result.carriedCovariance = start.carriedCovariance;
   result.carryX2X0 = start.carryX2X0;
