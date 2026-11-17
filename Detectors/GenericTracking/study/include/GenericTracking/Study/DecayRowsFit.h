@@ -191,7 +191,7 @@ using Free = std::array<decay_fit_detail::Dual<6>, 6>; ///< x, y, z, phi, theta,
 /// The vertex of \a daughters fitted from their rows, starting from \a start
 /// (the states' fit's solution), with \a material's material.
 template <typename Material>
-[[nodiscard]] DecayVertexFitResult fitDecayRows(std::span<const RowsDaughter> daughters, const Material& material, const DecayVertexFitResult& start, const DecayConstraints& constraints = {})
+[[nodiscard]] DecayVertexFitResult fitDecayRows(std::span<const RowsDaughter> daughters, const Material& material, const DecayVertexFitResult& start, const DecayConstraints& constraints = {}, const DecayTopology& topology = {})
 {
   using namespace decay_fit_detail;
   using namespace decay_rows_detail;
@@ -204,16 +204,24 @@ template <typename Material>
     return result;
   }
 
-  // The parameter layout: V, then per daughter its phi, theta, q/p as it was
-  // made, its kick at V and its kicks at its rows but the last (three each).
+  // The parameter layout: the vertices (a tree's, DecayTopology), then per
+  // daughter its phi, theta, q/p as it was made at its vertex, its kick there
+  // and its kicks at its rows but the last (three each).
+  const int vertexCount = topology.vertices();
+  if (static_cast<int>(start.vertices.size()) != vertexCount) {
+    result.status = DecayFitStatus::kNoStart;
+    return result;
+  }
   std::vector<int> firstOf(static_cast<std::size_t>(count));
-  int n = 3;
+  int n = 3 * vertexCount;
   for (int i = 0; i < count; ++i) {
     firstOf[i] = n;
     n += 6 + (3 * (static_cast<int>(daughters[i].planes.size()) - 1));
   }
   std::vector<double> parameters(static_cast<std::size_t>(n), 0.);
-  std::copy(start.vertex.begin(), start.vertex.end(), parameters.begin());
+  for (int w = 0; w < vertexCount; ++w) {
+    std::copy(start.vertices[w].begin(), start.vertices[w].end(), parameters.begin() + (3 * w));
+  }
   for (int i = 0; i < count; ++i) {
     for (int k = 0; k < 3; ++k) {
       parameters[firstOf[i] + k] = start.momenta[i][k];
@@ -262,9 +270,10 @@ template <typename Material>
       const int local = 9 + (3 * (rows - 1)); // V, the momentum, the kicks: this daughter's parameters
       // index of local parameter -> global
       std::vector<int> index(static_cast<std::size_t>(local));
-      index[0] = 0;
-      index[1] = 1;
-      index[2] = 2;
+      const int at = 3 * topology.vertexOfDaughter(i);
+      index[0] = at;
+      index[1] = at + 1;
+      index[2] = at + 2;
       for (int k = 0; k < local - 3; ++k) {
         index[3 + k] = base + k;
       }
@@ -274,7 +283,7 @@ template <typename Material>
       }
       // The free state leaving V, the momentum kicked there, and its
       // derivatives by the local parameters (6 x local).
-      std::array<double, 6> state{p[0], p[1], p[2], p[base] + p[base + 3], p[base + 1] + p[base + 4], p[base + 2] + p[base + 5]};
+      std::array<double, 6> state{p[at], p[at + 1], p[at + 2], p[base] + p[base + 3], p[base + 1] + p[base + 4], p[base + 2] + p[base + 5]};
       std::vector<double> derivative(static_cast<std::size_t>(6 * local), 0.);
       for (int k = 0; k < 6; ++k) {
         derivative[k * local + k] = 1.;
@@ -438,7 +447,8 @@ template <typename Material>
       const double fieldScale = static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
       const double mass = daughter.propagator.massGeV;
       const int base = firstOf[i];
-      std::array<double, 6> state{p[0], p[1], p[2], p[base] + p[base + 3], p[base + 1] + p[base + 4], p[base + 2] + p[base + 5]};
+      const int at = 3 * topology.vertexOfDaughter(i);
+      std::array<double, 6> state{p[at], p[at + 1], p[at + 2], p[base] + p[base + 3], p[base + 1] + p[base + 4], p[base + 2] + p[base + 5]};
       for (int row = 0; row + 1 < rows; ++row) {
         Free from{};
         for (int k = 0; k < 6; ++k) {
@@ -484,7 +494,7 @@ template <typename Material>
 
   // The constraints' values and rows at \a p, in this fit's layout (their
   // columns are V and the momenta; the kicks' are zero).
-  const bool constrained = constraints.count() > 0;
+  const bool constrained = constraints.count(topology) > 0;
   std::vector<double> masses(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
     masses[i] = daughters[i].propagator.massGeV;
@@ -497,20 +507,24 @@ template <typename Material>
     for (int i = 0; i < count; ++i) {
       momenta[i] = {p[firstOf[i]], p[firstOf[i] + 1], p[firstOf[i] + 2]};
     }
+    std::vector<std::array<double, 3>> vertices(static_cast<std::size_t>(vertexCount));
+    for (int w = 0; w < vertexCount; ++w) {
+      vertices[w] = {p[3 * w], p[(3 * w) + 1], p[(3 * w) + 2]};
+    }
     std::vector<double> core;
-    if (!evaluateConstraints(constraints, {p[0], p[1], p[2]}, momenta, masses, fieldScale, values, core)) {
+    if (!evaluateConstraints(constraints, topology, vertices, momenta, masses, fieldScale, values, core)) {
       return false;
     }
-    const int width = 3 + (3 * count);
+    const int width = (3 * vertexCount) + (3 * count);
     const int m = static_cast<int>(values.size());
     rows.assign(static_cast<std::size_t>(m * n), 0.);
     for (int a = 0; a < m; ++a) {
-      for (int k = 0; k < 3; ++k) {
-        rows[a * n + k] = core[a * width + k];
+      for (int c = 0; c < 3 * vertexCount; ++c) {
+        rows[a * n + c] = core[a * width + c];
       }
       for (int i = 0; i < count; ++i) {
-        for (int k = 0; k < 3; ++k) {
-          rows[a * n + firstOf[i] + k] = core[a * width + 3 + (3 * i) + k];
+        for (int c = 0; c < 3; ++c) {
+          rows[a * n + firstOf[i] + c] = core[a * width + (3 * vertexCount) + (3 * i) + c];
         }
       }
     }
@@ -526,7 +540,7 @@ template <typename Material>
   for (const auto& daughter : daughters) {
     measurementCount += 2 * static_cast<int>(daughter.planes.size());
   }
-  const int ndf = measurementCount - (3 + (3 * count)) + constraints.count();
+  const int ndf = measurementCount - ((3 * vertexCount) + (3 * count)) + constraints.count(topology);
   // Evaluated at \a p with the material along it, the held kicks at zero.
   const auto evaluateHeld = [&](std::vector<double>& p) {
     if (!evaluate(p, true, chi2, &normal, &gradient)) {
@@ -619,8 +633,11 @@ template <typename Material>
   } else {
     inverse = choleskyInverse(factor, n);
   }
-  const int m = 3 + (3 * count);
-  std::vector<int> kept{0, 1, 2};
+  const int m = (3 * vertexCount) + (3 * count);
+  std::vector<int> kept;
+  for (int c = 0; c < 3 * vertexCount; ++c) {
+    kept.push_back(c);
+  }
   for (int i = 0; i < count; ++i) {
     for (int k = 0; k < 3; ++k) {
       kept.push_back(firstOf[i] + k);
@@ -641,6 +658,10 @@ template <typename Material>
     }
   }
   std::copy_n(parameters.begin(), 3, result.vertex.begin());
+  result.vertices.resize(static_cast<std::size_t>(vertexCount));
+  for (int w = 0; w < vertexCount; ++w) {
+    std::copy_n(parameters.begin() + (3 * w), 3, result.vertices[w].begin());
+  }
   result.momenta.resize(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
     for (int k = 0; k < 3; ++k) {

@@ -344,12 +344,12 @@ struct MotherQuantities {
   double sTheta = 0.;
 };
 
-[[nodiscard]] inline MotherQuantities motherQuantities(const std::array<double, 3>& vertex, std::span<const std::array<double, 3>> momenta, const std::array<double, 3>& point, double mass, std::span<const double> covariance)
+[[nodiscard]] inline MotherQuantities motherQuantities(const std::array<double, 3>& vertex, std::span<const std::array<double, 3>> momenta, const std::array<double, 3>& point, double mass, std::span<const double> covariance, int vertices)
 {
   using namespace decay_fit_detail;
   using D = Dual<kConstraintInputs>;
   const int count = static_cast<int>(momenta.size());
-  const int n = 3 + (3 * count);
+  const int n = (3 * vertices) + (3 * count);
   std::array<D, 3> v{};
   for (int k = 0; k < 3; ++k) {
     v[k].v = vertex[k];
@@ -360,7 +360,7 @@ struct MotherQuantities {
     std::array<D, 3> q{};
     for (int k = 0; k < 3; ++k) {
       q[k].v = momenta[i][k];
-      q[k].d[3 + (3 * i) + k] = 1.;
+      q[k].d[(3 * vertices) + (3 * i) + k] = 1.;
     }
     const D p = D{q[2].v > 0. ? 1. : -1.} / q[2];
     const D pt = p * sin(q[1]);
@@ -762,7 +762,8 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           one.records.push_back(record);
           continue;
         }
-        const int n = 3 + (3 * static_cast<int>(count));
+        const int vertexCount = static_cast<int>(fit.vertices.size());
+        const int n = (3 * vertexCount) + (3 * static_cast<int>(count));
         const auto& c = fit.covariance;
         record.chi2 = static_cast<float>(fit.chi2);
         record.ndf = static_cast<std::int16_t>(fit.ndf);
@@ -787,13 +788,13 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         project(along, record.dL, record.sL);
         project(across, record.dT, record.sT);
         project(third, record.dN, record.sN);
-        const auto fitted = kinematicsOf(fit.momenta, masses, c, n, 3);
+        const auto fitted = kinematicsOf(fit.momenta, masses, c, n, 3 * vertexCount);
         record.mass = static_cast<float>(fitted.mass);
         record.sMass = static_cast<float>(fitted.sMass);
         record.p = static_cast<float>(fitted.p);
         record.sP = static_cast<float>(fitted.sP);
         if (hasCollision) {
-          const auto motherFit = motherQuantities(fit.vertex, fit.momenta, point, motherMass, c);
+          const auto motherFit = motherQuantities(fit.vertex, fit.momenta, point, motherMass, c, vertexCount);
           record.decayLength = static_cast<float>(motherFit.length);
           record.sDecayLength = static_cast<float>(motherFit.sLength);
           record.ct = static_cast<float>(motherFit.ct);
@@ -817,7 +818,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.massCarried = static_cast<float>(measured.mass);
         record.sMassCarried = static_cast<float>(measured.sMass);
         for (std::size_t i = 0; i < std::min(count, DecayFitRecord::kDaughterColumns); ++i) {
-          const int q = 3 + (3 * static_cast<int>(i));
+          const int q = (3 * vertexCount) + (3 * static_cast<int>(i));
           record.dPhi[i] = static_cast<float>(std::remainder(fit.momenta[i][0] - qTrue[i][0], 2. * std::numbers::pi));
           record.dTheta[i] = static_cast<float>(fit.momenta[i][1] - qTrue[i][1]);
           record.dQOverP[i] = static_cast<float>(fit.momenta[i][2] - qTrue[i][2]);
