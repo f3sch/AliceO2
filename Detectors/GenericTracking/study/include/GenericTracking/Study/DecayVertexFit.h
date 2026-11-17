@@ -77,6 +77,7 @@ enum class DecayFitStatus : std::uint8_t {
   kNoCrossing,  ///< the prediction's helix does not reach a plane
   kSingular,    ///< the normal matrix or a measurement's covariance is not positive definite
   kNotConverged,
+  kNoProfile, ///< no point along a conversion's line gave a fit (DecayFitStudy.h)
   kCount
 };
 
@@ -109,6 +110,9 @@ struct DecayVertexFitResult {
   std::vector<std::array<double, 9>> carriedCovariance;
   /// The material [x/X0] each daughter's last carry crossed.
   std::vector<double> carryX2X0;
+  /// With a `LinePosition` constraint: the parameters' (as `covariance`)
+  /// derivatives by its s.
+  std::vector<double> positionSensitivity;
 };
 
 namespace decay_fit_detail
@@ -192,7 +196,7 @@ namespace decay_fit_detail
 /// the vertex, and under \a constraints: then every step is the constrained
 /// one (DecayConstraints.h), taken whole unless a helix misses its plane.
 template <typename Material>
-[[nodiscard]] DecayVertexFitResult fitDecayVertex(std::span<const DecayDaughter> daughters, const Material& material, DecayFitVariant variant, const DecayConstraints& constraints = {}, int maxIterations = 20)
+[[nodiscard]] DecayVertexFitResult fitDecayVertex(std::span<const DecayDaughter> daughters, const Material& material, DecayFitVariant variant, const DecayConstraints& constraints = {})
 {
   using namespace decay_fit_detail;
   constexpr int kDerivatives = 6; // vx, vy, vz, phi, theta, q/p
@@ -348,9 +352,6 @@ template <typename Material>
         }
       }
     }
-    if (constraints.prior) {
-      chi2 += addLinePrior(*constraints.prior, std::span<const double>{p.data(), 3}, normal, gradient, n);
-    }
     return true;
   };
 
@@ -376,7 +377,8 @@ template <typename Material>
   std::vector<double> factor;
   double chi2 = 0.;
   bool converged = false;
-  for (int iteration = 0; iteration < maxIterations; ++iteration) {
+  const int ndf = (2 * count) - 3 + constraints.count();
+  for (int iteration = 0; iteration < kMaxSteps; ++iteration) {
     result.iterations = static_cast<std::uint8_t>(iteration + 1);
     if (variant != DecayFitVariant::kCarryOnce && iteration != 0) {
       if (const auto status = carry(parameters[0], parameters[1]); status != DecayFitStatus::kOk) {
@@ -389,7 +391,7 @@ template <typename Material>
       return result;
     }
     factor = normal;
-    if (!cholesky(factor, n)) {
+    if (!constrained && !cholesky(factor, n)) {
       result.status = DecayFitStatus::kSingular;
       return result;
     }
@@ -399,24 +401,28 @@ template <typename Material>
         result.status = DecayFitStatus::kNoCrossing;
         return result;
       }
-      if (!constrainedStep(factor, n, gradient, rows, values, step, nullptr)) {
+      if (!constrainedStep(normal, n, gradient, rows, values, step, nullptr)) {
         result.status = DecayFitStatus::kSingular;
         return result;
       }
     } else {
       choleskySolve(factor, n, step);
     }
-    // Halve a step that raises the chi2 (the measurements fixed); a
+    if (negligibleStep(normal, n, step, chi2, ndf)) {
+      converged = true;
+      break;
+    }
+    // Halve a step that does not lower the chi2 (the measurements fixed); a
     // constrained step only while a helix misses its plane.
     std::vector<double> trial(parameters.size());
     double trialChi2 = 0.;
     double scale = 1.;
     bool taken = false;
-    for (int halving = 0; halving < 10; ++halving, scale *= 0.5) {
+    for (int halving = 0; halving < kMaxSteps; ++halving, scale *= 0.5) {
       for (int k = 0; k < n; ++k) {
         trial[k] = parameters[k] + (scale * step[k]);
       }
-      if (evaluate(trial, trialChi2, nullptr, nullptr) && (constrained || trialChi2 <= chi2 * (1. + 1e-12) + 1e-12)) {
+      if (evaluate(trial, trialChi2, nullptr, nullptr) && (constrained || trialChi2 < chi2)) {
         taken = true;
         break;
       }
@@ -425,17 +431,8 @@ template <typename Material>
       converged = !constrained; // no step lowers the chi2: the fit sits at its minimum
       break;
     }
-    const auto inverse = choleskyInverse(factor, n);
-    double largest = 0.;
-    for (int k = 0; k < n; ++k) {
-      largest = std::max(largest, std::abs(scale * step[k]) / std::sqrt(inverse[k * n + k]));
-    }
     parameters = trial;
     chi2 = trialChi2;
-    if (largest < 1e-3) {
-      converged = true;
-      break;
-    }
   }
   result.status = converged ? DecayFitStatus::kOk : DecayFitStatus::kNotConverged;
   // The covariance at the solution, with the measurements of the last carry.
@@ -444,15 +441,24 @@ template <typename Material>
     return result;
   }
   factor = normal;
-  if (!cholesky(factor, n)) {
+  if (!constrained && !cholesky(factor, n)) {
     result.status = DecayFitStatus::kSingular;
     return result;
   }
   if (constrained) {
     std::vector<double> unused;
-    if (!constraintsAt(parameters) || !constrainedStep(factor, n, gradient, rows, values, unused, &result.covariance)) {
+    std::vector<double> sensitivity;
+    if (!constraintsAt(parameters) || !constrainedStep(normal, n, gradient, rows, values, unused, &result.covariance, &sensitivity)) {
       result.status = DecayFitStatus::kSingular;
       return result;
+    }
+    if (constraints.position) {
+      // the position is the last constraint (`evaluateConstraints`)
+      const int m = static_cast<int>(values.size());
+      result.positionSensitivity.resize(static_cast<std::size_t>(n));
+      for (int r = 0; r < n; ++r) {
+        result.positionSensitivity[r] = sensitivity[r * m + (m - 1)];
+      }
     }
   } else {
     result.covariance = choleskyInverse(factor, n);
@@ -465,7 +471,7 @@ template <typename Material>
     }
   }
   result.chi2 = chi2;
-  result.ndf = (2 * count) - 3 + constraints.count() + (constraints.prior ? 1 : 0);
+  result.ndf = ndf;
   return result;
 }
 

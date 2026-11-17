@@ -28,9 +28,11 @@
 /// from their rows (`kRows`, DecayRowsFit.h, the information limit); and
 /// both fits (kFull, kRows) under the mother's mass, its production at the
 /// MC collision vertex, and both (DecayConstraints.h); a photon's under
-/// collinear daughters in place of the mass, and every photon fit with the
-/// material prior on its conversion point (`conversionPrior`): two parallel
-/// daughters leave it unmeasured along the flight to first order.
+/// collinear daughters in place of the mass. Two nearly parallel daughters
+/// measure a conversion's point along the flight only through their
+/// curvature, weakly and far from linearly, so every photon fit is profiled
+/// along the line from the collision towards the pair's first rows over the
+/// material table's cells on it (`conversionCells`, `profileAlongLine`).
 ///
 /// Truth: the vertex against the MC decay point (the products' production
 /// point), in the global frame and along the true flight; the daughters'
@@ -46,9 +48,9 @@
 #ifndef GTRK_STUDY_DECAYFITSTUDY_H_
 #define GTRK_STUDY_DECAYFITSTUDY_H_
 
-#include "GenericTracking/Base/LayerEnvelopes.h"
 #include "GenericTracking/Study/DecayCandidates.h"
 #include "GenericTracking/Study/DecayConstraints.h"
+#include "GenericTracking/Study/DecayProfile.h"
 #include "GenericTracking/Study/DecayRowsFit.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/DecayTrees.h"
@@ -90,7 +92,7 @@ struct DecayFitRecord {
   std::uint64_t particle = 0U;
   std::int32_t pdg = 0;
   std::uint8_t variant = 0U;     ///< DecayFitVariant
-  std::uint8_t constraints = 0U; ///< 1 the mass, 2 the production point, 4 collinear daughters, 8 a conversion's material prior
+  std::uint8_t constraints = 0U; ///< 1 the mass, 2 the production point, 4 collinear daughters, 8 a conversion's profile along its line
   std::uint8_t daughters = 0U;
   std::uint8_t status = 0U; ///< DecayFitStatus, or kRefitFailed
   std::uint8_t iterations = 0U;
@@ -132,11 +134,11 @@ struct DecayFitRecord {
   float ct = 0.F; ///< [cm]
   float sCt = 0.F;
   float ctTrue = 0.F;
-  /// A conversion's material prior along its line (`conversionPrior`): the
-  /// true point's distance along it less the prior's mean, over its sigma,
-  /// and the sigma [cm]; NaN for another decay.
-  float priorPull = std::numeric_limits<float>::quiet_NaN();
-  float priorSigma = std::numeric_limits<float>::quiet_NaN();
+  /// A conversion's profile along its line: the true point's distance along
+  /// it less the profile's mean, over its spread, and the spread [cm]; NaN
+  /// for another decay.
+  float profilePull = std::numeric_limits<float>::quiet_NaN();
+  float profileSigma = std::numeric_limits<float>::quiet_NaN();
   float dPhiMother = 0.F; ///< the mother's direction, fitted less true
   float dThetaMother = 0.F;
   float sPhiMother = 0.F;
@@ -158,6 +160,10 @@ struct DecayFitRecord {
   std::array<float, kDaughterColumns> lossTrue{};
   std::array<float, kDaughterColumns> lossModel{};
   std::array<float, kDaughterColumns> dPRelInner{};
+  /// The daughter's MC hits (sensitive-volume crossings) before its first
+  /// row's: where it crossed a sensor and left no row of its chain; -1
+  /// without the MC hits.
+  std::array<std::int16_t, kDaughterColumns> hitsBefore{-1, -1, -1};
 
   template <typename Visit>
   void columns(const Visit& visit) const
@@ -207,8 +213,8 @@ struct DecayFitRecord {
     visit("ct", ct);
     visit("sCt", sCt);
     visit("ctTrue", ctTrue);
-    visit("priorPull", priorPull);
-    visit("priorSigma", priorSigma);
+    visit("profilePull", profilePull);
+    visit("profileSigma", profileSigma);
     visit("dPhiMother", dPhiMother);
     visit("dThetaMother", dThetaMother);
     visit("sPhiMother", sPhiMother);
@@ -216,11 +222,11 @@ struct DecayFitRecord {
     static constexpr std::array<std::string_view, kDaughterColumns> kSuffix{"0", "1", "2"};
     for (std::size_t d = 0; d < kDaughterColumns; ++d) {
       // The names must outlive the writer's first call: kept in static storage.
-      static const std::array<std::array<std::string, 10>, kDaughterColumns> kNames = [] {
-        std::array<std::array<std::string, 10>, kDaughterColumns> names;
+      static const std::array<std::array<std::string, 11>, kDaughterColumns> kNames = [] {
+        std::array<std::array<std::string, 11>, kDaughterColumns> names;
         for (std::size_t k = 0; k < kDaughterColumns; ++k) {
           const std::string s{kSuffix[k]};
-          names[k] = {"dPhi" + s, "dTheta" + s, "dQOverP" + s, "sPhi" + s, "sTheta" + s, "sQOverP" + s, "dPRel" + s, "lossTrue" + s, "lossModel" + s, "dPRelInner" + s};
+          names[k] = {"dPhi" + s, "dTheta" + s, "dQOverP" + s, "sPhi" + s, "sTheta" + s, "sQOverP" + s, "dPRel" + s, "lossTrue" + s, "lossModel" + s, "dPRelInner" + s, "hitsBefore" + s};
         }
         return names;
       }();
@@ -234,6 +240,7 @@ struct DecayFitRecord {
       visit(kNames[d][7], lossTrue[d]);
       visit(kNames[d][8], lossModel[d]);
       visit(kNames[d][9], dPRelInner[d]);
+      visit(kNames[d][10], hitsBefore[d]);
     }
   }
 };
@@ -379,80 +386,68 @@ struct MotherQuantities {
   return {.length = length.v, .sLength = sigma(length), .ct = ct.v, .sCt = sigma(ct), .phi = phi.v, .sPhi = sigma(phi), .theta = theta.v, .sTheta = sigma(theta)};
 }
 
-/// A conversion's prior on its point along the line from \a collision
-/// towards the midpoint of its daughters' first rows: the photon converted
-/// after the last active layer's sensitive surface (its nominal radius, or
-/// its z) the line crosses before the nearer first row (\a nearest along the
-/// line) -- the pair would have left rows there; behind it, in that layer's
-/// own silicon and supports, it may have --, and
-/// in material: the distribution of the line's material between (x/X0 in 200
-/// equal steps of \a material's LUT), its mean and spread; uniform without
-/// material. The layers are the loaded geometry's envelopes.
-template <DetectorLayout Det, typename Material>
-[[nodiscard]] LinePrior conversionPrior(const Material& material, const std::array<double, 3>& collision, const std::array<double, 3>& firstRows, double nearest)
+/// The cells of \a lut the line from \a origin along \a direction crosses up
+/// to \a end, where a photon may have converted: each cylindrical layer's
+/// stretch of it, split where the line crosses the layer's z bins; each with
+/// the probability of a pair there, 1 - exp(-7/9 x/X0). Cells without
+/// material are left out: no pair is made there.
+[[nodiscard]] inline std::vector<LineCell> conversionCells(const o2::base::MatLayerCylSet& lut, const std::array<double, 3>& origin, const std::array<double, 3>& direction, double end)
 {
-  constexpr int kSteps = 200;
-  LinePrior prior{.origin = collision};
-  const std::array<double, 3> d{firstRows[0] - collision[0], firstRows[1] - collision[1], firstRows[2] - collision[2]};
-  const double length = std::hypot(d[0], d[1], d[2]);
-  for (int k = 0; k < 3; ++k) {
-    prior.direction[k] = d[k] / length;
-  }
-  const auto& n = prior.direction;
-  const auto at = [&](double s) { return std::array<double, 3>{collision[0] + (s * n[0]), collision[1] + (s * n[1]), collision[2] + (s * n[2])}; };
-  // Where the line leaves each active layer before the nearer first row.
-  double low = 0.;
-  const auto envelopes = PlacedEnvelopes<Det>::all();
-  for (std::size_t layer = 0; layer < envelopes.size(); ++layer) {
-    const auto& envelope = envelopes[layer];
-    double s = -1.;
-    if (Detector<Det>::isBarrelLayer(static_cast<LayerID>(layer))) {
-      // |xy(s)| = the nominal radius: s^2 nt^2 + 2 s (c . nt) + c^2 - r^2 = 0,
-      // the larger root.
-      const double a2 = (n[0] * n[0]) + (n[1] * n[1]);
-      const double b1 = (collision[0] * n[0]) + (collision[1] * n[1]);
-      const double c0 = (collision[0] * collision[0]) + (collision[1] * collision[1]) - (envelope.position * envelope.position);
-      const double disc = (b1 * b1) - (a2 * c0);
-      if (a2 > 0. && disc >= 0.) {
-        s = (-b1 + std::sqrt(disc)) / a2;
-        const double z = at(s)[2];
-        if (z < envelope.zMin || z > envelope.zMax) {
-          s = -1.;
+  std::vector<LineCell> cells;
+  // r^2(s) = a s^2 + 2 b s + c over the transverse plane.
+  const double a = (direction[0] * direction[0]) + (direction[1] * direction[1]);
+  const double b = (origin[0] * direction[0]) + (origin[1] * direction[1]);
+  const double c = (origin[0] * origin[0]) + (origin[1] * origin[1]);
+  // The stretch of s with r(s) below \a r: [low, high], empty if low > high.
+  const auto inside = [&](double r) {
+    const double discriminant = (b * b) - (a * (c - (r * r)));
+    if (!(a > 0.) || discriminant < 0.) {
+      return std::array<double, 2>{1., 0.};
+    }
+    const double root = std::sqrt(discriminant);
+    return std::array<double, 2>{(-b - root) / a, (-b + root) / a};
+  };
+  const auto at = [&](double s) { return std::array<float, 3>{static_cast<float>(origin[0] + (s * direction[0])), static_cast<float>(origin[1] + (s * direction[1])), static_cast<float>(origin[2] + (s * direction[2]))}; };
+  for (int i = 0; i < lut.getNLayers(); ++i) {
+    const auto& layer = lut.getLayer(i);
+    const auto outer = inside(layer.getRMax());
+    const auto inner = inside(layer.getRMin());
+    // The layer's stretches: inside its outer radius, outside its inner one.
+    std::vector<std::array<double, 2>> stretches;
+    if (inner[0] > inner[1]) {
+      stretches.push_back(outer);
+    } else {
+      stretches.push_back({outer[0], std::min(outer[1], inner[0])});
+      stretches.push_back({std::max(outer[0], inner[1]), outer[1]});
+    }
+    for (auto stretch : stretches) {
+      stretch[0] = std::max(stretch[0], 0.);
+      stretch[1] = std::min(stretch[1], end);
+      if (!(stretch[1] > stretch[0])) {
+        continue;
+      }
+      // Split at the layer's z bins.
+      std::vector<double> edges{stretch[0], stretch[1]};
+      if (direction[2] != 0.) {
+        for (int k = 0; k <= layer.getNZBins(); ++k) {
+          const double s = (static_cast<double>(layer.getZBinMin(k)) - origin[2]) / direction[2];
+          if (s > stretch[0] && s < stretch[1]) {
+            edges.push_back(s);
+          }
         }
       }
-    } else if (std::abs(n[2]) > 0. && (envelope.position > 0.) == (n[2] > 0.)) {
-      s = (envelope.position - collision[2]) / n[2];
-      const auto p = at(s);
-      const double r = std::hypot(p[0], p[1]);
-      if (r < envelope.rMin || r > envelope.rMax) {
-        s = -1.;
+      std::ranges::sort(edges);
+      for (std::size_t k = 0; k + 1 < edges.size(); ++k) {
+        const auto from = at(edges[k]);
+        const auto to = at(edges[k + 1]);
+        const double x2X0 = lut.getMatBudget(from[0], from[1], from[2], to[0], to[1], to[2]).meanX2X0;
+        if (x2X0 > 0.) {
+          cells.push_back({.s = 0.5 * (edges[k] + edges[k + 1]), .halfLength = 0.5 * (edges[k + 1] - edges[k]), .probability = 1. - std::exp(-(7. / 9.) * x2X0)});
+        }
       }
     }
-    if (s > low && s < nearest) {
-      low = s;
-    }
   }
-  const double step = (nearest - low) / kSteps;
-  double weight = 0.;
-  double first = 0.;
-  double second = 0.;
-  for (int j = 0; j < kSteps; ++j) {
-    const auto a = at(low + (j * step));
-    const auto b = at(low + ((j + 1) * step));
-    const double w = material.getMatBudget(static_cast<float>(a[0]), static_cast<float>(a[1]), static_cast<float>(a[2]), static_cast<float>(b[0]), static_cast<float>(b[1]), static_cast<float>(b[2])).meanX2X0;
-    const double s = low + ((j + 0.5) * step);
-    weight += w;
-    first += w * s;
-    second += w * s * s;
-  }
-  if (weight > 0.) {
-    prior.mean = first / weight;
-    prior.sigma = std::sqrt(std::max((second / weight) - (prior.mean * prior.mean), 0.) + (step * step / 12.));
-  } else {
-    prior.mean = 0.5 * (low + nearest);
-    prior.sigma = (nearest - low) / std::sqrt(12.);
-  }
-  return prior;
+  return cells;
 }
 
 } // namespace decay_fit_study_detail
@@ -658,6 +653,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           base.lossModel[i] = static_cast<float>(1. - (1. / static_cast<double>(loss.momentumScale)));
         }
         base.dPRelInner[i] = static_cast<float>((1. / std::abs(static_cast<double>(daughters[i].innermost.qOverP())) / pFirst) - 1.);
+        base.hitsBefore[i] = static_cast<std::int16_t>(std::ranges::count_if(event.hits->segments(leaf->id), [&](const HitSegment* other) { return other->time < segment->time; }));
       }
 
       // The mother: its PDG mass, its collision's vertex, the true decay length.
@@ -671,9 +667,14 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         base.decayLengthTrue = static_cast<float>((((decay[0] - point[0]) * pTrue[0]) + ((decay[1] - point[1]) * pTrue[1]) + ((decay[2] - point[2]) * pTrue[2])) / pTotal);
         base.ctTrue = static_cast<float>(base.decayLengthTrue * motherMass / pTotal);
       }
-      // A conversion: its material prior along the flight, from the collision
-      // towards its daughters' first rows.
-      std::optional<LinePrior> photonPrior;
+      // A conversion: its line from the collision towards its daughters'
+      // first rows, and the material table's cells on it up to the nearer one.
+      struct ConversionLine {
+        std::array<double, 3> direction{};
+        std::vector<LineCell> cells;
+        double along = 0.; ///< the true point's distance along it
+      };
+      std::optional<ConversionLine> conversion;
       if (mother.pdg == 22 && hasCollision && !one.refitFailed) {
         std::array<double, 3> firstRows{};
         std::vector<std::array<double, 3>> firsts;
@@ -684,19 +685,20 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
             firstRows[k] += firsts.back()[k] / static_cast<double>(count);
           }
         }
-        const std::array<double, 3> towards{firstRows[0] - point[0], firstRows[1] - point[1], firstRows[2] - point[2]};
-        const double length = std::hypot(towards[0], towards[1], towards[2]);
+        ConversionLine line;
+        const double length = std::hypot(firstRows[0] - point[0], firstRows[1] - point[1], firstRows[2] - point[2]);
+        for (int k = 0; k < 3; ++k) {
+          line.direction[k] = (firstRows[k] - point[k]) / length;
+        }
         double nearest = std::numeric_limits<double>::infinity();
         for (const auto& first : firsts) {
-          nearest = std::min(nearest, (((first[0] - point[0]) * towards[0]) + ((first[1] - point[1]) * towards[1]) + ((first[2] - point[2]) * towards[2])) / length);
+          nearest = std::min(nearest, ((first[0] - point[0]) * line.direction[0]) + ((first[1] - point[1]) * line.direction[1]) + ((first[2] - point[2]) * line.direction[2]));
         }
-        photonPrior = conversionPrior<Det>(material, point, firstRows, nearest);
-        double along = 0.;
+        line.cells = conversionCells(material, point, line.direction, nearest);
         for (int k = 0; k < 3; ++k) {
-          along += (decay[k] - photonPrior->origin[k]) * photonPrior->direction[k];
+          line.along += (decay[k] - point[k]) * line.direction[k];
         }
-        base.priorPull = static_cast<float>((along - photonPrior->mean) / photonPrior->sigma);
-        base.priorSigma = static_cast<float>(photonPrior->sigma);
+        conversion = std::move(line);
       }
       // The fits: every variant alone, then kFull and kRows under the mass,
       // the production point, and both.
@@ -733,13 +735,23 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           one.records.push_back(record);
           continue;
         }
-        DecayConstraints constraints{.mass = wantMass, .massGeV = motherMass, .production = wantProduction, .point = point, .collinear = wantCollinear};
-        if (photonPrior) {
-          constraints.prior = photonPrior;
-          record.constraints |= 8U;
-        }
+        const DecayConstraints constraints{.mass = wantMass, .massGeV = motherMass, .production = wantProduction, .point = point, .collinear = wantCollinear};
         const auto& full = fits[static_cast<std::size_t>(DecayFitVariant::kFull)];
-        auto outcome = job.variant == DecayFitVariant::kRows ? fitDecayRows(std::span<const RowsDaughter>{rowsDaughters}, material, full, constraints) : fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, job.variant, constraints);
+        const auto fitUnder = [&](const DecayConstraints& set) {
+          return job.variant == DecayFitVariant::kRows ? fitDecayRows(std::span<const RowsDaughter>{rowsDaughters}, material, full, set) : fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, job.variant, set);
+        };
+        DecayVertexFitResult outcome;
+        if (conversion) {
+          record.constraints |= 8U;
+          const auto profile = profileAlongLine(fitUnder, constraints, point, conversion->direction, conversion->cells);
+          outcome = profile.fit;
+          if (outcome.status != DecayFitStatus::kNoProfile) {
+            record.profilePull = static_cast<float>((conversion->along - profile.mean) / profile.sigma);
+            record.profileSigma = static_cast<float>(profile.sigma);
+          }
+        } else {
+          outcome = fitUnder(constraints);
+        }
         if (job.constraints == 0U) {
           fits[static_cast<std::size_t>(job.variant)] = outcome;
         }

@@ -29,9 +29,8 @@
 /// kick's variance. Between planes the helix is exact in the uniform field, in
 /// double, its derivatives by forward differentiation of the six-component
 /// free state (position, phi, theta, q/p); the material and the loss are
-/// re-evaluated every iteration, the loss's derivative by q/p taken (by a
-/// central difference: left out, the fit's fixed point is not the minimum and
-/// slow daughters come out too slow), the material's left out.
+/// re-evaluated every iteration, their derivatives by the state left out. A
+/// kick whose material is nil is no parameter: it is held at zero.
 ///
 /// Gauss-Newton from (a)'s solution. The kicks start on a trajectory that
 /// follows the rows (`followRows`): at every row the kick that turns the
@@ -59,6 +58,7 @@
 #include <cmath>
 #include <cstdint>
 #include <numbers>
+#include <ranges>
 #include <span>
 #include <vector>
 
@@ -106,7 +106,7 @@ using Free = std::array<decay_fit_detail::Dual<6>, 6>; ///< x, y, z, phi, theta,
   const D cotTheta = cos(theta) / sinTheta;
   const D rho = fieldScale * (from[5] / sinTheta);
   D s;
-  if (std::abs(nz) < 1e-6) {
+  if (nz == 0.) {
     const double phiL = std::atan2(ny, nx);
     const D u = (nx * (from[0] + (-static_cast<double>(plane.origin[0])))) + (ny * (from[1] + (-static_cast<double>(plane.origin[1]))));
     const D delta = phi + (-phiL);
@@ -118,10 +118,10 @@ using Free = std::array<decay_fit_detail::Dual<6>, 6>; ///< x, y, z, phi, theta,
       s = (-u) / cosDelta;
     } else {
       const D sinEnd = sin(delta) - (rho * u);
-      if (!(std::abs(sinEnd.v) <= 1.)) {
-        return false;
+      if (!(std::abs(sinEnd.v) < 1.)) {
+        return false; // missed, or grazing: no crossing to bind to
       }
-      const D first = chain(sinEnd, std::asin(sinEnd.v), 1. / std::sqrt(std::max(1e-300, 1. - (sinEnd.v * sinEnd.v))));
+      const D first = chain(sinEnd, std::asin(sinEnd.v), 1. / std::sqrt(1. - (sinEnd.v * sinEnd.v)));
       // The turn to each solution, brought within (-pi, pi]; the smaller wins.
       const auto turnTo = [&](const D& end) {
         D turn = end - delta;
@@ -132,13 +132,45 @@ using Free = std::array<decay_fit_detail::Dual<6>, 6>; ///< x, y, z, phi, theta,
       const D two = turnTo((-first) + std::numbers::pi);
       s = (std::abs(one.v) <= std::abs(two.v) ? one : two) / rho;
     }
-  } else if (std::abs(nx) < 1e-6 && std::abs(ny) < 1e-6) {
+  } else if (nx == 0. && ny == 0.) {
     if (!(std::abs(cotTheta.v) > 0.)) {
       return false;
     }
     s = (((-1.) * from[2]) + static_cast<double>(plane.origin[2])) / cotTheta;
   } else {
-    return false;
+    // A tilted plane: f(s) = n . (x(s) - origin) = 0 by Newton's method from
+    // the straight line's crossing, while each step shrinks; s's derivatives
+    // by the implicit function, -df / f'(s).
+    const auto f = [&](const D& at) {
+      const D half = 0.5 * (rho * at);
+      const D chord = at * sinc(half);
+      return (nx * ((from[0] + (chord * cos(phi + half))) + (-static_cast<double>(plane.origin[0])))) + (ny * ((from[1] + (chord * sin(phi + half))) + (-static_cast<double>(plane.origin[1])))) + (nz * ((from[2] + (at * cotTheta)) + (-static_cast<double>(plane.origin[2]))));
+    };
+    const auto slope = [&](double at) { return (nx * std::cos(phi.v + (rho.v * at))) + (ny * std::sin(phi.v + (rho.v * at))) + (nz * cotTheta.v); };
+    const double ahead = slope(0.);
+    if (!(std::abs(ahead) > 0.)) {
+      return false;
+    }
+    double at = -f(D{0.}).v / ahead;
+    double last = std::numeric_limits<double>::infinity();
+    for (int step = 0; step < kMaxSteps; ++step) {
+      const double fs = slope(at);
+      if (!(std::abs(fs) > 0.)) {
+        return false;
+      }
+      const double change = f(D{at}).v / fs;
+      if (!(std::abs(change) < last)) {
+        break; // no longer shrinking: at the root to rounding
+      }
+      last = std::abs(change);
+      at -= change;
+    }
+    const D value = f(D{at});
+    s = D{at};
+    const double fs = slope(at);
+    for (int k = 0; k < 6; ++k) {
+      s.d[k] = -value.d[k] / fs;
+    }
   }
   const D half = 0.5 * (rho * s);
   const D chord = s * sinc(half);
@@ -159,7 +191,7 @@ using Free = std::array<decay_fit_detail::Dual<6>, 6>; ///< x, y, z, phi, theta,
 /// The vertex of \a daughters fitted from their rows, starting from \a start
 /// (the states' fit's solution), with \a material's material.
 template <typename Material>
-[[nodiscard]] DecayVertexFitResult fitDecayRows(std::span<const RowsDaughter> daughters, const Material& material, const DecayVertexFitResult& start, const DecayConstraints& constraints = {}, int maxIterations = 20)
+[[nodiscard]] DecayVertexFitResult fitDecayRows(std::span<const RowsDaughter> daughters, const Material& material, const DecayVertexFitResult& start, const DecayConstraints& constraints = {})
 {
   using namespace decay_fit_detail;
   using namespace decay_rows_detail;
@@ -193,10 +225,25 @@ template <typename Material>
   struct RowMaterial {
     std::array<double, 3> kickVariance{}; ///< phi, theta, q/p
     double lossScale = 1.;
-    double lossSlope = 0.; ///< d lossScale / d(q/p): a slow daughter's loss depends on its momentum
   };
   std::vector<std::vector<RowMaterial>> model(static_cast<std::size_t>(count));
   std::vector<std::array<double, 3>> vertexKick(static_cast<std::size_t>(count)); ///< the kick at V's variances
+
+  // The kicks without material: held at zero, out of the solve.
+  std::vector<char> held(static_cast<std::size_t>(n), 0);
+  const auto holdFixed = [&](std::vector<double>& p, std::vector<double>& matrix, std::vector<double>& rhs) {
+    for (int k = 0; k < n; ++k) {
+      if (held[k] != 0) {
+        p[k] = 0.;
+        for (int j = 0; j < n; ++j) {
+          matrix[k * n + j] = 0.;
+          matrix[j * n + k] = 0.;
+        }
+        matrix[k * n + k] = 1.;
+        rhs[k] = 0.;
+      }
+    }
+  };
 
   // The chi2 at \a p, and with \a normal its normal equations; with \a refresh
   // the material model is evaluated along the trajectory first.
@@ -292,11 +339,6 @@ template <typename Material>
             here.lossScale /= meanZ;
             radiationVariance = kAfter * kAfter * varZ / (meanZ * meanZ * meanZ * meanZ);
           }
-          // Its slope by q/p, by a central difference of 1 %.
-          const double h = 0.01 * state[5];
-          const auto up = energyLoss(static_cast<Scalar>(state[5] + h), static_cast<Scalar>(mass), -step.xRho);
-          const auto down = energyLoss(static_cast<Scalar>(state[5] - h), static_cast<Scalar>(mass), -step.xRho);
-          here.lossSlope = loss.ok && up.ok && down.ok ? (static_cast<double>(up.momentumScale) - static_cast<double>(down.momentumScale)) / (2. * h) : 0.;
           here.kickVariance = {farther * farther, farther * farther, (loss.ok ? loss.varQOverP : 0.) + radiationVariance};
         }
         // Chain the derivatives: d(to)/d(local) = d(to)/d(from) d(from)/d(local).
@@ -345,11 +387,9 @@ template <typename Material>
           state[k] = to[k].v;
         }
         derivative.swap(next);
-        // q/p after the loss: k scale(k), its derivative scale + k scale'.
-        const double lossDerivative = rowModel[row].lossScale + (state[5] * rowModel[row].lossSlope);
         state[5] *= rowModel[row].lossScale;
         for (int c = 0; c < local; ++c) {
-          derivative[5 * local + c] *= lossDerivative;
+          derivative[5 * local + c] *= rowModel[row].lossScale;
         }
         if (row + 1 < rows) {
           const int kick = 9 + (3 * row); // local index of this row's kick
@@ -372,8 +412,12 @@ template <typename Material>
             const double s = std::sin(p[firstOf[i] + 1]);
             variance /= s * s; // phi's kick: theta0 / sin(theta)
           }
-          // A kick without material is held at zero.
-          const double w = variance > 0. ? 1. / variance : 1e30;
+          if (!(variance > 0.)) {
+            held[at] = 1; // no material: the kick is held at zero
+            continue;
+          }
+          held[at] = 0;
+          const double w = 1. / variance;
           chi2 += p[at] * p[at] * w;
           if (normal != nullptr) {
             (*normal)[at * n + at] += w;
@@ -381,9 +425,6 @@ template <typename Material>
           }
         }
       }
-    }
-    if (constraints.prior) {
-      chi2 += addLinePrior(*constraints.prior, std::span<const double>{p.data(), 3}, normal, gradient, n);
     }
     return true;
   };
@@ -481,14 +522,36 @@ template <typename Material>
   std::vector<double> factor;
   double chi2 = 0.;
   bool converged = false;
-  for (int iteration = 0; iteration < maxIterations; ++iteration) {
+  int measurementCount = 0;
+  for (const auto& daughter : daughters) {
+    measurementCount += 2 * static_cast<int>(daughter.planes.size());
+  }
+  const int ndf = measurementCount - (3 + (3 * count)) + constraints.count();
+  // Evaluated at \a p with the material along it, the held kicks at zero.
+  const auto evaluateHeld = [&](std::vector<double>& p) {
+    if (!evaluate(p, true, chi2, &normal, &gradient)) {
+      return false;
+    }
+    const bool moved = std::ranges::any_of(std::views::iota(0, n), [&](int k) { return held[k] != 0 && p[k] != 0.; });
+    if (moved) {
+      for (int k = 0; k < n; ++k) {
+        p[k] = held[k] != 0 ? 0. : p[k];
+      }
+      if (!evaluate(p, true, chi2, &normal, &gradient)) {
+        return false;
+      }
+    }
+    holdFixed(p, normal, gradient);
+    return true;
+  };
+  for (int iteration = 0; iteration < kMaxSteps; ++iteration) {
     result.iterations = static_cast<std::uint8_t>(iteration + 1);
-    if (!evaluate(parameters, true, chi2, &normal, &gradient)) {
+    if (!evaluateHeld(parameters)) {
       result.status = DecayFitStatus::kNoCrossing;
       return result;
     }
     factor = normal;
-    if (!cholesky(factor, n)) {
+    if (!constrained && !cholesky(factor, n)) {
       result.status = DecayFitStatus::kSingular;
       return result;
     }
@@ -498,26 +561,30 @@ template <typename Material>
         result.status = DecayFitStatus::kNoCrossing;
         return result;
       }
-      if (!constrainedStep(factor, n, gradient, rows, values, step, nullptr)) {
+      if (!constrainedStep(normal, n, gradient, rows, values, step, nullptr)) {
         result.status = DecayFitStatus::kSingular;
         return result;
       }
     } else {
       choleskySolve(factor, n, step);
     }
+    if (negligibleStep(normal, n, step, chi2, ndf)) {
+      converged = true;
+      break;
+    }
     std::vector<double> trial(parameters.size());
     double trialChi2 = 0.;
     double scale = 1.;
     bool taken = false;
     const auto kept = model;
-    for (int halving = 0; halving < 10; ++halving, scale *= 0.5) {
+    for (int halving = 0; halving < kMaxSteps; ++halving, scale *= 0.5) {
       for (int k = 0; k < n; ++k) {
         trial[k] = parameters[k] + (scale * step[k]);
       }
       // The trial and the current point, both under the trial trajectory's
       // material: the priors move with the model.
       double currentChi2 = 0.;
-      if (evaluate(trial, true, trialChi2, nullptr, nullptr) && (constrained || (evaluate(parameters, false, currentChi2, nullptr, nullptr) && trialChi2 <= currentChi2 * (1. + 1e-12) + 1e-12))) {
+      if (evaluate(trial, true, trialChi2, nullptr, nullptr) && (constrained || (evaluate(parameters, false, currentChi2, nullptr, nullptr) && trialChi2 < currentChi2))) {
         taken = true;
         break;
       }
@@ -527,39 +594,25 @@ template <typename Material>
       converged = !constrained;
       break;
     }
-    const auto inverse = choleskyInverse(factor, n);
-    double largest = 0.;
-    const auto watch = [&](int k) { largest = std::max(largest, std::abs(scale * step[k]) / std::sqrt(inverse[k * n + k])); };
-    for (int k = 0; k < 3; ++k) {
-      watch(k);
-    }
-    for (int i = 0; i < count; ++i) {
-      for (int k = 0; k < 3; ++k) {
-        watch(firstOf[i] + k);
-      }
-    }
     parameters = trial;
     chi2 = trialChi2;
-    if (largest < 1e-3) {
-      converged = true;
-      break;
-    }
   }
   result.status = converged ? DecayFitStatus::kOk : DecayFitStatus::kNotConverged;
-  if (!evaluate(parameters, true, chi2, &normal, &gradient)) {
+  if (!evaluateHeld(parameters)) {
     result.status = DecayFitStatus::kNoCrossing;
     return result;
   }
   factor = normal;
-  if (!cholesky(factor, n)) {
+  if (!constrained && !cholesky(factor, n)) {
     result.status = DecayFitStatus::kSingular;
     return result;
   }
   // The covariance of V and the momenta: the full inverse's rows of them.
   std::vector<double> inverse;
+  std::vector<double> sensitivity;
   if (constrained) {
     std::vector<double> unused;
-    if (!constraintsAt(parameters) || !constrainedStep(factor, n, gradient, rows, values, unused, &inverse)) {
+    if (!constraintsAt(parameters) || !constrainedStep(normal, n, gradient, rows, values, unused, &inverse, &sensitivity)) {
       result.status = DecayFitStatus::kSingular;
       return result;
     }
@@ -579,6 +632,14 @@ template <typename Material>
       result.covariance[a * m + b] = inverse[kept[a] * n + kept[b]];
     }
   }
+  if (constraints.position) {
+    // the position is the last constraint (`evaluateConstraints`)
+    const int constraintCount = static_cast<int>(values.size());
+    result.positionSensitivity.resize(static_cast<std::size_t>(m));
+    for (int a = 0; a < m; ++a) {
+      result.positionSensitivity[a] = sensitivity[kept[a] * constraintCount + (constraintCount - 1)];
+    }
+  }
   std::copy_n(parameters.begin(), 3, result.vertex.begin());
   result.momenta.resize(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
@@ -587,11 +648,7 @@ template <typename Material>
     }
   }
   result.chi2 = chi2;
-  int measurements = 0;
-  for (const auto& daughter : daughters) {
-    measurements += 2 * static_cast<int>(daughter.planes.size());
-  }
-  result.ndf = measurements - (3 + (3 * count)) + constraints.count() + (constraints.prior ? 1 : 0);
+  result.ndf = ndf;
   result.carried = start.carried;
   result.carriedCovariance = start.carriedCovariance;
   result.carryX2X0 = start.carryX2X0;

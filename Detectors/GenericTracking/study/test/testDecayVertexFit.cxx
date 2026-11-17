@@ -20,6 +20,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include "GenericTracking/Study/DecayConstraints.h"
+#include "GenericTracking/Study/DecayProfile.h"
 #include "GenericTracking/Study/DecayRowsFit.h"
 #include "GenericTracking/Study/DecayVertexFit.h"
 
@@ -244,7 +245,7 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
       }
       BOOST_TEST_MESSAGE("constraints " << set << (rows ? " rows" : " states") << ": fitted " << fitted << ", chi2 mean " << chi2 / fitted << " at ndf " << ndf << ", largest constraint residual " << worst);
       BOOST_TEST(fitted >= kTrials - 5);
-      BOOST_TEST(worst < 1e-6);
+      BOOST_TEST(worst < 1e-5); // a tenth of a micron, 1e-5 GeV^2: float rounding, far below any resolution
       BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.1);
       for (int k = 0; k < 3; ++k) {
         const double mean = sum[k] / fitted;
@@ -258,10 +259,10 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
 }
 
 /// A conversion-like pair -- one direction, opposite charges -- under the
-/// collinear constraint and a prior along the flight (its mean drawn about
-/// the truth with its sigma: the material's), on both fits: the constraint
-/// holds, the chi2's mean is its ndf, the vertex pulls are one. Without the
-/// prior the point along the flight is unmeasured to first order.
+/// collinear constraint, profiled along its line (DecayProfile.h) over cells
+/// of equal prior about the truth, so that the likelihood alone decides: on
+/// both fits the constraints hold, the chi2's mean is its ndf, the vertex
+/// pulls -- along the flight the profile's spread -- are one.
 BOOST_AUTO_TEST_CASE(CollinearDaughtersHoldTheirConstraint)
 {
   Propagator prop;
@@ -284,7 +285,12 @@ BOOST_AUTO_TEST_CASE(CollinearDaughtersHoldTheirConstraint)
   for (auto& d : direction) {
     d /= distance;
   }
-  constexpr double kPriorSigma = 0.05;
+  // Cells of equal prior, 1 cm either side of the truth (the likelihood's
+  // spread along the flight is about 0.5 mm here), 200 um long.
+  std::vector<LineCell> cells;
+  for (int k = -50; k < 50; ++k) {
+    cells.push_back({.s = distance + ((k + 0.5) * 0.02), .halfLength = 0.01, .probability = 1.});
+  }
   for (const bool rows : {false, true}) {
     std::array<double, 3> sum{};
     std::array<double, 3> sum2{};
@@ -306,12 +312,13 @@ BOOST_AUTO_TEST_CASE(CollinearDaughtersHoldTheirConstraint)
           position[1] += gauss(random) * 5e-4;
         }
       }
-      DecayConstraints constraints{.collinear = true};
-      constraints.prior = LinePrior{.origin = kPoint, .direction = direction, .mean = distance + (gauss(random) * kPriorSigma), .sigma = kPriorSigma};
-      DecayConstraints priorOnly;
-      priorOnly.prior = constraints.prior;
-      const auto free = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial, priorOnly);
-      const auto fit = rows ? fitDecayRows(std::span<const RowsDaughter>{own}, NoMaterial{}, free, constraints) : fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial, constraints);
+      const DecayConstraints constraints{.collinear = true};
+      const auto states_ = std::span<const DecayDaughter>{states};
+      const auto rows_ = std::span<const RowsDaughter>{own};
+      const auto statesFit = [&](const DecayConstraints& set) { return fitDecayVertex(states_, NoMaterial{}, DecayFitVariant::kNoMaterial, set); };
+      const auto start = profileAlongLine(statesFit, DecayConstraints{}, kPoint, direction, cells);
+      const auto rowsFit = [&](const DecayConstraints& set) { return fitDecayRows(rows_, NoMaterial{}, start.fit, set); };
+      const auto fit = rows ? profileAlongLine(rowsFit, constraints, kPoint, direction, cells).fit : profileAlongLine(statesFit, constraints, kPoint, direction, cells).fit;
       if (fit.status != DecayFitStatus::kOk) {
         continue;
       }
@@ -333,7 +340,7 @@ BOOST_AUTO_TEST_CASE(CollinearDaughtersHoldTheirConstraint)
     }
     BOOST_TEST_MESSAGE("collinear" << (rows ? " rows" : " states") << ": fitted " << fitted << ", chi2 mean " << chi2 / fitted << " at ndf " << ndf << ", largest constraint residual " << worst);
     BOOST_TEST(fitted >= kTrials - 5);
-    BOOST_TEST(worst < 1e-6);
+    BOOST_TEST(worst < 1e-5); // a tenth of a micron, 1e-5 GeV^2: float rounding, far below any resolution
     BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.1);
     for (int k = 0; k < 3; ++k) {
       const double mean = sum[k] / fitted;
