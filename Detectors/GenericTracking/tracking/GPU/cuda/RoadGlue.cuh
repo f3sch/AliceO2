@@ -88,7 +88,7 @@ struct NarrowOffsets {
 
 /// The chained count -- the triplets above level 1, those with predecessors --
 /// without their indices: one sum per block, one atomic add each.
-GPUg() void GTRK_KERNEL_BOUNDS summarizeLevelsKernel(const std::uint32_t* levels, Index count, std::uint32_t* chainedCount)
+GPUg() void GTRK_KERNEL_BOUNDS summarizeLevelsKernel(const std::uint32_t* GPUrestrict() levels, Index count, std::uint32_t* chainedCount)
 {
   const auto element = blockIdx.x * blockDim.x + threadIdx.x;
   const std::uint32_t sum = work_group_count(element < count && levels[element] > 1U);

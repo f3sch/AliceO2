@@ -113,7 +113,7 @@ struct InitializeTriplets {
 // order); 1 the reverse sweep on \a reverse, one writer per element (the end
 // index is not built yet). A template, as every kernel of a header.
 template <typename = void>
-GPUg() void GTRK_KERNEL_BOUNDS tripletPathsKernel(TripletConstView triplets, const Index* permutation, const Index* tripletOffsets, const Index* firstRanges, LayerID forward, LayerID reverse, Index* prefix, std::uint8_t* suffix)
+GPUg() void GTRK_KERNEL_BOUNDS tripletPathsKernel(TripletConstView triplets, const Index* GPUrestrict() permutation, const Index* GPUrestrict() tripletOffsets, const Index* GPUrestrict() firstRanges, LayerID forward, LayerID reverse, Index* prefix, std::uint8_t* suffix)
 {
   const bool isForward = blockIdx.y == 0U;
   const LayerID layer = isForward ? forward : reverse;

@@ -293,7 +293,7 @@ struct KinkSteps {
 /// given, gets the step's material. The body, inlined where it is called;
 /// the follow calls `transportCandidate`.
 template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool transportCandidateInline(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& input, const CovarianceFactors& inputFactors, BoundParameters& output, CovarianceFactors& outputFactors, Scalar noiseScale, detail::StepMaterial* traversed = nullptr)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool transportCandidateInline(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& GPUrestrict() input, const CovarianceFactors& GPUrestrict() inputFactors, BoundParameters& GPUrestrict() output, CovarianceFactors& GPUrestrict() outputFactors, Scalar noiseScale, detail::StepMaterial* GPUrestrict() traversed = nullptr)
 {
   const auto& from = geometry.planeOf(input);
   const auto& propagator = pointPropagator(prop, from, input);
@@ -328,7 +328,7 @@ template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
 /// `FollowStage::passingOn` takes the body inline (`updateCandidate`'s
 /// \a Inlined).
 template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
-[[nodiscard]] GPUhdnii() bool transportCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& input, const CovarianceFactors& inputFactors, BoundParameters& output, CovarianceFactors& outputFactors, Scalar noiseScale, detail::StepMaterial* traversed = nullptr)
+[[nodiscard]] GPUhdnii() bool transportCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& GPUrestrict() input, const CovarianceFactors& GPUrestrict() inputFactors, BoundParameters& GPUrestrict() output, CovarianceFactors& GPUrestrict() outputFactors, Scalar noiseScale, detail::StepMaterial* GPUrestrict() traversed = nullptr)
 {
   return transportCandidateInline<Scaled>(prop, geometry, material, to, direction, input, inputFactors, output, outputFactors, noiseScale, traversed);
 }
@@ -344,7 +344,7 @@ template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
 /// \a Inlined the transport is inlined (`transportCandidateInline`), else
 /// called.
 template <bool Scaled, bool Determinant = false, bool Inlined = false, typename Prop, DetectorLayout Det, typename Material>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool updateCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, const BoundParameters& input, const CovarianceFactors& inputFactors, BoundParameters& output, CovarianceFactors& outputFactors, Scalar& chi2, Scalar noiseScale, [[maybe_unused]] Scalar* determinant = nullptr)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool updateCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, const BoundParameters& GPUrestrict() input, const CovarianceFactors& GPUrestrict() inputFactors, BoundParameters& GPUrestrict() output, CovarianceFactors& GPUrestrict() outputFactors, Scalar& GPUrestrict() chi2, Scalar noiseScale, [[maybe_unused]] Scalar* GPUrestrict() determinant = nullptr)
 {
   bool carried = false;
   if constexpr (Inlined) {
@@ -677,7 +677,7 @@ GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det, Material>& co
 /// `visitInline`, never inlined on the device: one copy for each call site,
 /// which the kernels then do not absorb.
 template <bool Scaled, bool Own = false, bool EndDensity = false, DetectorLayout Det, typename Material, typename Group, typename Report, typename Step>
-GPUhdnii() void visit(const StepContext<Det, Material>& context, const BoundParameters& state, const CovarianceFactors& factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& window, const detail::StepMaterial& traversed, std::uint64_t holes, Scalar noiseScale, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
+GPUhdnii() void visit(const StepContext<Det, Material>& GPUrestrict() context, const BoundParameters& GPUrestrict() state, const CovarianceFactors& GPUrestrict() factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& GPUrestrict() window, const detail::StepMaterial& GPUrestrict() traversed, std::uint64_t holes, Scalar noiseScale, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
 {
   visitInline<Scaled, Own, EndDensity>(context, state, factors, r, z, layer, direction, window, traversed, holes, noiseScale, counter, group, report, step, own);
 }
