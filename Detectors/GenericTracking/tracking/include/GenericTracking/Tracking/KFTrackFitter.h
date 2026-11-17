@@ -80,7 +80,7 @@ namespace detail
 /// device: one copy for each instantiation, not one in every fit of every
 /// stage variant.
 template <bool Scaled = false, CrossingRule Rule = CrossingRule::kFirstAhead, DetectorLayout Det, typename Material, typename Prop>
-GPUdnii() PropagationStatus filterStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, Scalar& referenceQOverP, [[maybe_unused]] Scalar noiseScale = 1.F)
+GPUdnii() PropagationStatus filterStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& GPUrestrict() state, CovarianceFactors& GPUrestrict() factors, Scalar& GPUrestrict() chi2, Scalar& GPUrestrict() referenceQOverP, [[maybe_unused]] Scalar noiseScale = 1.F)
 {
   return filterStepBody<Scaled, Rule, false>(prop, geometry, material, measurement, direction, state, factors, chi2, referenceQOverP, noiseScale, nullptr);
 }
@@ -90,7 +90,7 @@ GPUdnii() PropagationStatus filterStep(const Prop& prop, const TrackingGeometry<
 /// \a chi2 gets only what the update tests. Once P_inf is gone, \a c's
 /// factors are the pass's. Never inlined on the device.
 template <CrossingRule Rule = CrossingRule::kFirstAhead, DetectorLayout Det, typename Material, typename Prop>
-GPUdnii() PropagationStatus diffuseStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, DiffuseFactors& c, Scalar& chi2, Scalar& referenceQOverP)
+GPUdnii() PropagationStatus diffuseStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& GPUrestrict() state, DiffuseFactors& GPUrestrict() c, Scalar& GPUrestrict() chi2, Scalar& GPUrestrict() referenceQOverP)
 {
   return diffuseStepBody<Rule, false>(prop, geometry, material, measurement, direction, state, c, chi2, referenceQOverP, nullptr);
 }

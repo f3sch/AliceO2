@@ -134,7 +134,7 @@ GPUg() void GTRK_KERNEL_BOUNDS generateKernel(Generate generate, StagingState<S>
 /// one thread each; every other element's
 /// count is set to 0 before.
 template <template <template <class> class> class S, typename Generate>
-GPUg() void GTRK_KERNEL_BOUNDS generateListedKernel(Generate generate, StagingState<S> staging, const typename DeviceStageOutput<S>::Index* listed, typename DeviceStageOutput<S>::Index listedCount, typename DeviceStageOutput<S>::Index* counts)
+GPUg() void GTRK_KERNEL_BOUNDS generateListedKernel(Generate generate, StagingState<S> staging, const typename DeviceStageOutput<S>::Index* GPUrestrict() listed, typename DeviceStageOutput<S>::Index listedCount, typename DeviceStageOutput<S>::Index* counts)
 {
   using Index = typename DeviceStageOutput<S>::Index;
   const Index i = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -145,7 +145,7 @@ GPUg() void GTRK_KERNEL_BOUNDS generateListedKernel(Generate generate, StagingSt
 }
 
 template <template <template <class> class> class S>
-GPUg() void GTRK_KERNEL_BOUNDS placeKernel(typename DeviceColumns<S>::ConstView staged, const typename DeviceStageOutput<S>::Index* element, const typename DeviceStageOutput<S>::Ordinal* ordinal, const typename DeviceStageOutput<S>::Index* offsets, typename DeviceColumns<S>::View placed, typename DeviceStageOutput<S>::Index records)
+GPUg() void GTRK_KERNEL_BOUNDS placeKernel(typename DeviceColumns<S>::ConstView staged, const typename DeviceStageOutput<S>::Index* GPUrestrict() element, const typename DeviceStageOutput<S>::Ordinal* GPUrestrict() ordinal, const typename DeviceStageOutput<S>::Index* GPUrestrict() offsets, typename DeviceColumns<S>::View placed, typename DeviceStageOutput<S>::Index records)
 {
   using Index = typename DeviceStageOutput<S>::Index;
   const Index slot = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -158,7 +158,7 @@ GPUg() void GTRK_KERNEL_BOUNDS placeKernel(typename DeviceColumns<S>::ConstView 
 // Layer-dependent generation appends to one staging arena across launches;
 // one count readback, scan and canonical placement follow all layers.
 template <template <template <class> class> class S, typename Generate>
-GPUg() void GTRK_KERNEL_BOUNDS generateLayerKernel(Generate generate, StagingState<S> staging, const std::uint32_t* boundaries, std::uint32_t layer, typename DeviceStageOutput<S>::Index* counts)
+GPUg() void GTRK_KERNEL_BOUNDS generateLayerKernel(Generate generate, StagingState<S> staging, const std::uint32_t* GPUrestrict() boundaries, std::uint32_t layer, typename DeviceStageOutput<S>::Index* counts)
 {
   using Index = typename DeviceStageOutput<S>::Index;
   const Index begin = boundaries[layer];
