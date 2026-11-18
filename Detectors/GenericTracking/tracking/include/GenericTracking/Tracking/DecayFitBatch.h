@@ -49,12 +49,17 @@ struct DecayFitInput {
 };
 
 /// A tracked mother of a batch: `DecayMother` with its rows as a share of
-/// the batch's row arrays.
+/// the batch's row arrays, each array's own share kept, so a mother whose
+/// arrays differ in length reaches the fit's input check as it was given.
 struct DecayMotherRows {
   int vertex = 0;
   Propagator propagator;
   std::uint32_t firstRow = 0U;
-  std::uint32_t rows = 0U;
+  std::uint32_t rows = 0U; ///< planes
+  std::uint32_t firstPosition = 0U;
+  std::uint32_t positions = 0U;
+  std::uint32_t firstCovariance = 0U;
+  std::uint32_t covariances = 0U;
 };
 
 /// A batch's arrays where the fit reads them: host or device memory.
@@ -86,7 +91,7 @@ class DecayFitBatch
     DecayFitInput input{.firstDaughter = static_cast<std::uint32_t>(mDaughters.size()), .daughters = static_cast<std::uint32_t>(daughters.size()), .firstMother = static_cast<std::uint32_t>(mMothers.size()), .mothers = static_cast<std::uint32_t>(mothers.size()), .constraints = constraints, .topology = topology};
     mDaughters.insert(mDaughters.end(), daughters.begin(), daughters.end());
     for (const auto& mother : mothers) {
-      mMothers.push_back({.vertex = mother.vertex, .propagator = mother.propagator, .firstRow = static_cast<std::uint32_t>(mPlanes.size()), .rows = static_cast<std::uint32_t>(mother.planes.size())});
+      mMothers.push_back({.vertex = mother.vertex, .propagator = mother.propagator, .firstRow = static_cast<std::uint32_t>(mPlanes.size()), .rows = static_cast<std::uint32_t>(mother.planes.size()), .firstPosition = static_cast<std::uint32_t>(mPositions.size()), .positions = static_cast<std::uint32_t>(mother.positions.size()), .firstCovariance = static_cast<std::uint32_t>(mCovariance.size()), .covariances = static_cast<std::uint32_t>(mother.covariance.size())});
       mPlanes.insert(mPlanes.end(), mother.planes.begin(), mother.planes.end());
       mPositions.insert(mPositions.end(), mother.positions.begin(), mother.positions.end());
       mCovariance.insert(mCovariance.end(), mother.covariance.begin(), mother.covariance.end());
@@ -102,7 +107,7 @@ class DecayFitBatch
       std::array<DecayMother, decay_fit_detail::kMaxConstrainedVertices> mothers{};
       for (std::uint32_t a = 0; a < input.mothers; ++a) {
         const auto& rows = other.mMothers[input.firstMother + a];
-        mothers[a] = {.vertex = rows.vertex, .planes = {other.mPlanes.data() + rows.firstRow, rows.rows}, .positions = {other.mPositions.data() + rows.firstRow, rows.rows}, .covariance = {other.mCovariance.data() + rows.firstRow, rows.rows}, .propagator = rows.propagator};
+        mothers[a] = {.vertex = rows.vertex, .planes = {other.mPlanes.data() + rows.firstRow, rows.rows}, .positions = {other.mPositions.data() + rows.firstPosition, rows.positions}, .covariance = {other.mCovariance.data() + rows.firstCovariance, rows.covariances}, .propagator = rows.propagator};
       }
       add({other.mDaughters.data() + input.firstDaughter, input.daughters}, input.constraints, input.topology, {mothers.data(), input.mothers});
     }
@@ -153,7 +158,7 @@ template <DetectorLayout Det, DecayFitVariant Variant, typename Material>
   const auto& input = batch.decays[index];
   for (std::uint32_t a = 0; a < input.mothers; ++a) {
     const auto& rows = batch.mothers[input.firstMother + a];
-    mothers[a] = {.vertex = rows.vertex, .planes = {batch.planes + rows.firstRow, rows.rows}, .positions = {batch.positions + rows.firstRow, rows.rows}, .covariance = {batch.covariance + rows.firstRow, rows.rows}, .propagator = rows.propagator};
+    mothers[a] = {.vertex = rows.vertex, .planes = {batch.planes + rows.firstRow, rows.rows}, .positions = {batch.positions + rows.firstPosition, rows.positions}, .covariance = {batch.covariance + rows.firstCovariance, rows.covariances}, .propagator = rows.propagator};
   }
   return DecayVertexFitter<Det, Variant, Material>({batch.daughters + input.firstDaughter, input.daughters}, material, input.constraints, input.topology, {mothers.data(), input.mothers});
 }
