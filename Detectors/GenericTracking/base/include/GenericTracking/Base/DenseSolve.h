@@ -31,6 +31,8 @@
 #include "GPUCommonDef.h"
 #include "GPUCommonMath.h"
 
+#include <limits>
+
 #include <type_traits>
 
 namespace o2::gtrk::dense
@@ -209,6 +211,36 @@ GPUhdi() GPUAlwaysInline() void exchange(View a, int n, int k, int p)
     swap(a(i, k), a(i, p));
   }
 }
+
+/// Whether \a x is finite: NaN fails both comparisons, an infinity one.
+template <typename T>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() constexpr bool isFinite(T x)
+{
+  return x >= -std::numeric_limits<T>::max() && x <= std::numeric_limits<T>::max();
+}
+
+/// A 2 x 2 pivot block D = [[d11, d21], [d21, d22]] scaled by its off-diagonal
+/// d21, which Bunch-Kaufman's choice makes the block's largest entry:
+/// D = d21 [[e11, 1], [1, e22]], D^-1 = scale [[e22, -1], [-1, e11]] with
+/// scale = 1 / (d21 (e11 e22 - 1)). No product of two entries is formed, so a
+/// block of any magnitude neither overflows nor underflows.
+template <typename T>
+struct ScaledBlock {
+  T e11;
+  T e22;
+  T reduced; ///< e11 e22 - 1: det D / d21^2
+  T scale;
+  GPUhdi() GPUAlwaysInline() ScaledBlock(T d11, T d21, T d22) : e11(d11 / d21), e22(d22 / d21), reduced((e11 * e22) - T(1)), scale((T(1) / d21) / reduced) {}
+  /// (x1, x2) D^-1, in place.
+  template <typename U>
+  GPUhdi() GPUAlwaysInline() void solve(U& x1, U& x2) const
+  {
+    const U first = scale * ((e22 * x1) - x2);
+    const U second = scale * ((e11 * x2) - x1);
+    x1 = first;
+    x2 = second;
+  }
+};
 } // namespace detail
 
 /// Factor the symmetric (possibly indefinite) \a a in place as
@@ -244,19 +276,24 @@ template <typename View, typename Size>
         largestRow = i;
       }
     }
-    if (!(diagonal != T(0) || columnLargest != T(0))) {
+    // A non-finite entry would defeat every comparison below (and select a
+    // 2 x 2 block past the last row): refused like a singular block.
+    if (!detail::isFinite(diagonal) || !detail::isFinite(columnLargest) || !(diagonal != T(0) || columnLargest != T(0))) {
       return false;
     }
     int step = 1;
     int pivot = k;
     if (!(diagonal >= alpha * columnLargest)) {
+      // columnLargest > 0 here, so largestRow > k: a 2 x 2 block has its row.
       T rowLargest = T(0);
       for (int j = k; j < n; ++j) {
         if (j != largestRow) {
           rowLargest = o2::gpu::GPUCommonMath::Max(rowLargest, o2::gpu::GPUCommonMath::Abs(j < largestRow ? a(largestRow, j) : a(j, largestRow)));
         }
       }
-      if (diagonal * rowLargest >= alpha * columnLargest * columnLargest) {
+      // rowLargest >= columnLargest (row largestRow holds a(largestRow, k)),
+      // so the ratio is at most one: no product of two entries.
+      if (diagonal >= alpha * columnLargest * (columnLargest / rowLargest)) {
         pivot = k;
       } else if (o2::gpu::GPUCommonMath::Abs(a(largestRow, largestRow)) >= alpha * rowLargest) {
         pivot = largestRow;
@@ -282,24 +319,23 @@ template <typename View, typename Size>
         a(i, k) /= d;
       }
     } else {
-      const T d11 = a(k, k);
-      const T d21 = a(k + 1, k);
-      const T d22 = a(k + 1, k + 1);
-      const T determinant = (d11 * d22) - (d21 * d21);
-      if (!(determinant != T(0))) {
+      const detail::ScaledBlock<T> block(a(k, k), a(k + 1, k), a(k + 1, k + 1));
+      if (!(block.reduced != T(0)) || !detail::isFinite(block.scale)) {
         return false;
       }
       for (int i = k + 2; i < n; ++i) {
         // (l_i1, l_i2) = (a_ik, a_ik+1) D^-1
-        const T first = ((a(i, k) * d22) - (a(i, k + 1) * d21)) / determinant;
-        const T second = ((a(i, k + 1) * d11) - (a(i, k) * d21)) / determinant;
+        T first = a(i, k);
+        T second = a(i, k + 1);
+        block.solve(first, second);
         for (int j = k + 2; j <= i; ++j) {
           a(i, j) -= (first * a(j, k)) + (second * a(j, k + 1));
         }
       }
       for (int i = k + 2; i < n; ++i) {
-        const T first = ((a(i, k) * d22) - (a(i, k + 1) * d21)) / determinant;
-        const T second = ((a(i, k + 1) * d11) - (a(i, k) * d21)) / determinant;
+        T first = a(i, k);
+        T second = a(i, k + 1);
+        block.solve(first, second);
         a(i, k) = first;
         a(i, k + 1) = second;
       }
@@ -336,12 +372,10 @@ GPUhdi() GPUAlwaysInline() void ldltSolve(View ldl, Size size, const int* swaps,
       x[k] /= ldl(k, k);
       k += 1;
     } else {
-      const T d11 = ldl(k, k);
-      const T d21 = ldl(k + 1, k);
-      const T d22 = ldl(k + 1, k + 1);
-      const T determinant = (d11 * d22) - (d21 * d21);
-      const T first = ((d22 * x[k]) - (d21 * x[k + 1])) / determinant;
-      const T second = ((d11 * x[k + 1]) - (d21 * x[k])) / determinant;
+      const detail::ScaledBlock<ElementOf<View>> block(ldl(k, k), ldl(k + 1, k), ldl(k + 1, k + 1));
+      T first = x[k];
+      T second = x[k + 1];
+      block.solve(first, second);
       x[k] = first;
       x[k + 1] = second;
       k += 2;
@@ -376,8 +410,10 @@ template <typename View, typename Size>
     if (blocks[k] == 1) {
       sum += logOf(o2::gpu::GPUCommonMath::Abs(ldl(k, k)));
     } else if (blocks[k] == 2) {
-      const T determinant = (ldl(k, k) * ldl(k + 1, k + 1)) - (ldl(k + 1, k) * ldl(k + 1, k));
-      sum += logOf(o2::gpu::GPUCommonMath::Abs(determinant));
+      // det D = d21^2 (e11 e22 - 1), its logarithm without the product
+      const T d21 = o2::gpu::GPUCommonMath::Abs(ldl(k + 1, k));
+      const detail::ScaledBlock<T> block(ldl(k, k), ldl(k + 1, k), ldl(k + 1, k + 1));
+      sum += (T(2) * logOf(d21)) + logOf(o2::gpu::GPUCommonMath::Abs(block.reduced));
     }
   }
   return sum;
