@@ -18,18 +18,23 @@
 /// `overlapPartners` attaches the others after its follow and length cut, as
 /// *overlap partners*:
 ///
-///  - each kept track is fitted on its rows walking the LUT
-///    (`ExactMaterial`), and each row's filtered state kept, the inward
-///    pass's where it has one (`ObservesFitStates`);
-///  - about each row, the rows of the same layer on other sensors within the
-///    window the state's spread and the layer's envelope allow
-///    (`partnerWindow`), free, compatible in time, are each predicted on
-///    their own sensor and tested with the follow's two-coordinate cut
-///    (`clusterChi2Max`); per sensor the best is the track's proposal;
+///  - each kept track is fitted on its rows, with the tracking's material
+///    (its rows are one per layer, which the surface map holds), and each
+///    row's filtered state kept, the inward pass's where it has one
+///    (`ObservesFitStates`);
+///  - from each row's state, the other sensors of its layer the track
+///    crosses -- listed near enough by `SensorCells` (`partnerReach`), and
+///    crossed within their bounds widened by the gate's spread -- and on each
+///    its free rows, compatible in time, within that spread of the crossing,
+///    each predicted on the sensor and tested with the follow's
+///    two-coordinate cut (`clusterChi2Max`); per sensor the best is the
+///    track's proposal;
 ///  - a row proposed by more than one track goes to the lowest chi2, then the
 ///    lowest track (a deterministic order);
 ///  - each track with partners is fitted again on its rows and partners in
-///    path order, walking the LUT; where that fit fails or the rows' time
+///    path order, with the surface map between layers and no material of its
+///    own on the step between a layer's two sensors (`LayerMaterial`: the
+///    map's halves hold the layer's whole material); where that fit fails or the rows' time
 ///    boxes leave none in common, the track stays as it was, without them;
 ///  - the attached partners are taken in the used mask, exclusively.
 ///
@@ -48,6 +53,7 @@
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/RoadFit.h"
+#include "GenericTracking/Tracking/SensorCells.h"
 #include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
@@ -107,28 +113,30 @@ struct RowStateObserver {
   }
 };
 
-/// The window about a track's row on \a layer, its \a state there with
-/// \a factors, in which its crossing of any other sensor of the layer lies:
-/// the layer's whole envelope times the track's slope there (the two
-/// sensors are anywhere in it), plus the gate's spread of the state, its
-/// covariance and the follow's position term. In the grid's coordinates
-/// about the beam line; the time range the track's \a box less the layer's
-/// widest candidate box \a maxWidthPS, as the follow's.
+/// Where a track's state \a state on its row's sensor, on \a layer, may
+/// cross another sensor of the layer: about its point there (the detector's
+/// frame, as `SensorCells` lists the sensors), as far as the layer's whole
+/// envelope lets the crossing move along the track's slope, both sensors
+/// anywhere in it, plus \a spread.
+struct PartnerReach {
+  Scalar point[3]{}; ///< the state's point [cm]
+  Scalar phi = 0.F;  ///< its azimuth about the detector's axis
+  Scalar second = 0.F;
+  Scalar phiReach = 0.F;
+  Scalar secondReach = 0.F;
+};
+
 template <DetectorLayout Det>
-[[nodiscard]] CandidateWindow partnerWindow(const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, LayerID layer, const BoundParameters& state, const CovarianceFactors& factors, const TimeEstPS& box, std::uint32_t maxWidthPS)
+[[nodiscard]] PartnerReach partnerReach(const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, LayerID layer, const BoundParameters& state, Scalar spread)
 {
   using Math = o2::gpu::CAMath;
-  Scalar point[3]{};
-  surfaceToGlobal(geometry.planeOf(state), state.loc0(), state.loc1(), point);
-  const Scalar x = point[0] - parameters.beamX;
-  const Scalar y = point[1] - parameters.beamY;
-  const Scalar r = Math::Hypot(x, y);
+  PartnerReach reach;
+  surfaceToGlobal(geometry.planeOf(state), state.loc0(), state.loc1(), reach.point);
+  const Scalar r = Math::Hypot(reach.point[0], reach.point[1]);
   const bool barrel = ((parameters.barrelLayers >> layer) & 1U) != 0U;
-  Scalar cov[kBoundCovSize]{};
-  covarianceFromFactors(factors, cov);
-  const Scalar nSigma = Math::Sqrt(parameters.clusterChi2Max);
-  const Scalar spread = nSigma * Math::Sqrt(Math::Max(cov[varIndex(kLoc0)], cov[varIndex(kLoc1)]) + parameters.followPositionVariance);
-  const Scalar alpha = state.phi() - azimuth(x, y);
+  reach.phi = azimuth(reach.point[0], reach.point[1]);
+  reach.second = barrel ? reach.point[2] : r;
+  const Scalar alpha = state.phi() - reach.phi;
   const Scalar sinAlpha = Math::Abs(Math::Sin(alpha));
   const Scalar cosAlpha = Math::Abs(Math::Cos(alpha));
   const Scalar sinTheta = Math::Abs(Math::Sin(state.theta()));
@@ -136,27 +144,18 @@ template <DetectorLayout Det>
   // How far the crossing moves per unit of the layer's position (radius on
   // a barrel layer, z on a disc), along the track there.
   const Scalar transverse = barrel ? 1.F / cosAlpha : sinTheta / cosTheta;
-  const Scalar phiSlope = transverse * sinAlpha / r;
-  const Scalar secondSlope = transverse * (barrel ? cosTheta / sinTheta : cosAlpha);
   const auto& span = parameters.layerSpans[layer];
   const Scalar envelope = span.positionMax - span.positionMin;
-  CandidateWindow window{
-    .earliestPS = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(maxWidthPS) + 1,
-    .latestPS = static_cast<std::int64_t>(box.upper()) - 1,
-    .afterPS = box.lower(),
-    .phiCentre = azimuth(x, y),
-    .phiHalfWidth = Math::Min((spread / r) + (envelope * phiSlope), std::numbers::pi_v<Scalar>),
-    .secondCentre = secondCoordinate<Det>(layer, r, point[2]),
-    .secondHalfWidth = Math::Min(spread + (envelope * secondSlope), follow::kOpenBound),
-  };
-  // A NaN half-width (a slope at a singular angle) searches the whole layer.
-  if (!(window.phiHalfWidth >= 0.F)) {
-    window.phiHalfWidth = std::numbers::pi_v<Scalar>;
+  reach.phiReach = Math::Min(((transverse * sinAlpha * envelope) + spread) / r, std::numbers::pi_v<Scalar>);
+  reach.secondReach = Math::Min((transverse * (barrel ? cosTheta / sinTheta : cosAlpha) * envelope) + spread, follow::kOpenBound);
+  // A NaN reach (a slope at a singular angle) looks at the whole layer.
+  if (!(reach.phiReach >= 0.F)) {
+    reach.phiReach = std::numbers::pi_v<Scalar>;
   }
-  if (!(window.secondHalfWidth >= 0.F)) {
-    window.secondHalfWidth = follow::kOpenBound;
+  if (!(reach.secondReach >= 0.F)) {
+    reach.secondReach = follow::kOpenBound;
   }
-  return window;
+  return reach;
 }
 
 } // namespace overlap
@@ -206,19 +205,20 @@ class OverlapPartners
   /// Partners for \a tracks from \a trackOffset on, iteration \a parameters'
   /// (see the file's comment): \a used gets the attached ones, the tracks
   /// with partners their fit with them. \a maxWidthPS per layer the widest
-  /// candidate box (`TimeframePlan::layerMaxWidthPS`). \a forEach(n, body)
+  /// candidate box (`TimeframePlan::layerMaxWidthPS`), \a measurementVariance
+  /// the largest local variance (`TimeframePlan::layerMaxLocVariance`). \a forEach(n, body)
   /// runs body(i) for every i below n, serially or in parallel.
   template <typename Material, typename ForEach>
-  [[nodiscard]] StageStatus run(const ForEach& forEach, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& lut, const Propagator& propagator, Tracks& tracks, std::uint32_t trackOffset, std::span<std::uint8_t> used, std::span<const std::uint32_t> maxWidthPS)
+  [[nodiscard]] StageStatus run(const ForEach& forEach, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& lut, const Propagator& propagator, const SensorCellsView& cells, Tracks& tracks, std::uint32_t trackOffset, std::span<std::uint8_t> used, std::span<const std::uint32_t> maxWidthPS, std::span<const Scalar> measurementVariance)
   {
     return guardOutOfMemory([&] {
       mCounts = {};
       const auto n = static_cast<std::uint32_t>(tracks.size() - trackOffset);
       const auto view = tracks.view();
-      const detail::ExactMaterial<Material> exact{.lut = &lut};
+      const detail::LayerMaterial<Material> layered{.lut = &lut};
       // Each track's proposals, in parallel, each track its own list.
       std::vector<std::vector<Proposal>> proposals(n);
-      forEach(n, [&](std::uint32_t i) { propose(parameters, frame, geometry, exact, propagator, view, trackOffset + i, i, used, maxWidthPS, proposals[i]); });
+      forEach(n, [&](std::uint32_t i) { propose(parameters, frame, geometry, lut, propagator, cells, view, trackOffset + i, i, used, maxWidthPS, measurementVariance, proposals[i]); });
       // A row proposed by more than one track: the lowest chi2, then the
       // lowest track, takes it.
       for (const auto& own : proposals) {
@@ -243,7 +243,7 @@ class OverlapPartners
       std::vector<std::uint8_t> kept(n, 0U);
       forEach(n, [&](std::uint32_t i) {
         if (!won[i].empty()) {
-          kept[i] = refit(parameters, frame, geometry, exact, propagator, view, trackOffset + i, won[i]) ? 1U : 0U;
+          kept[i] = refit(parameters, frame, geometry, layered, propagator, view, trackOffset + i, won[i]) ? 1U : 0U;
         }
       });
       // The partners in path order per track, and the used mask.
@@ -278,10 +278,14 @@ class OverlapPartners
 
  private:
   /// Track \a track's proposals into \a out, one per other sensor of each
-  /// layer it has a row on (see the file's comment).
+  /// layer it has a row on (see the file's comment). From each row's state,
+  /// the layer's sensors near enough (`partnerReach`, `SensorCells`) that
+  /// the track crosses within their bounds, wider by the gate's spread; on
+  /// each, the rows within that spread of the crossing, its own rows only.
   template <typename Material, typename View>
-  static void propose(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const View& view, std::uint32_t track, std::uint32_t ordinal, std::span<const std::uint8_t> used, std::span<const std::uint32_t> maxWidthPS, std::vector<Proposal>& out)
+  static void propose(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const SensorCellsView& cells, const View& view, std::uint32_t track, std::uint32_t ordinal, std::span<const std::uint8_t> used, std::span<const std::uint32_t> maxWidthPS, std::span<const Scalar> measurementVariance, std::vector<Proposal>& out)
   {
+    using Math = o2::gpu::CAMath;
     const auto& rows = view.clusters[track];
     const auto count = view.count[track];
     overlap::RowStates<K> states;
@@ -291,6 +295,8 @@ class OverlapPartners
     }
     const auto columns = frame.measurements();
     const TimeEstPS box{.start = view.timePS[track], .width = view.widthPS[track]};
+    const Scalar nSigma = Math::Sqrt(parameters.clusterChi2Max);
+    std::vector<std::uint32_t> seen;
     for (std::uint8_t k = 0; k < count; ++k) {
       if (states.pass[k] == 0U) {
         continue;
@@ -299,39 +305,118 @@ class OverlapPartners
       const auto ownSurface = columns.surface[own];
       const LayerID layer = geometry.surface(ownSurface).layer;
       const auto& state = states.state[k];
-      const auto window = overlap::partnerWindow<Det>(parameters, geometry, layer, state, states.factors[k], box, maxWidthPS[layer]);
-      // The track's direction at its row: the side of the row a candidate
-      // lies on, and the way to propagate there.
-      const Scalar sinTheta = o2::gpu::CAMath::Sin(state.theta());
-      const Scalar direction[3] = {sinTheta * o2::gpu::CAMath::Cos(state.phi()), sinTheta * o2::gpu::CAMath::Sin(state.phi()), o2::gpu::CAMath::Cos(state.theta())};
-      const std::size_t first = out.size();
-      frame.grid().visitCandidates(layer, window, frame.grid().geometry().allBlocks(), [&](std::uint32_t row) {
-        const auto surface = columns.surface[row];
-        if (row == own || surface == ownSurface || used[row] != kFree || geometry.surface(surface).layer != layer) {
-          return;
+      const auto& factors = states.factors[k];
+      Scalar cov[kBoundCovSize]{};
+      covarianceFromFactors(factors, cov);
+      // The gate's reach about a predicted crossing: the prediction's
+      // variance and the follow's position term (`predictedWindow`), and the
+      // layer's largest measurement variance, which the gate adds.
+      const Scalar spread = nSigma * Math::Sqrt(Math::Max(cov[varIndex(kLoc0)], cov[varIndex(kLoc1)]) + parameters.followPositionVariance + measurementVariance[layer]);
+      const Scalar sinTheta = Math::Sin(state.theta());
+      const Scalar direction[3] = {sinTheta * Math::Cos(state.phi()), sinTheta * Math::Sin(state.phi()), Math::Cos(state.theta())};
+      const auto reach = overlap::partnerReach<Det>(parameters, geometry, layer, state, spread);
+      const auto& from = geometry.planeOf(state);
+      const auto& stepPropagator = pointPropagator(propagator, from, state);
+      const ExactScalar curvature = stepPropagator.curvature(static_cast<ExactScalar>(state.qOverP()), 1.);
+      seen.clear();
+      static_cast<void>(cells.anySensor(layer, reach.phi, reach.phiReach, reach.second, reach.secondReach, [&](std::uint32_t id) {
+        if (id == ownSurface || std::ranges::find(seen, id) != seen.end()) {
+          return false;
         }
-        if (!spatiallyCompatible(window, columns.phi[row], secondCoordinate<Det>(layer, columns.r[row], columns.z[row])) || !box.isCompatible(timeBoxAt(columns, row))) {
-          return;
+        seen.push_back(id);
+        const TrackingSurface& surface = geometry.surface(static_cast<SensorID>(id));
+        if (surface.layer != layer) {
+          return false;
         }
-        const Scalar path = (direction[0] * (columns.x[row] - columns.x[own])) + (direction[1] * (columns.y[row] - columns.y[own])) + (direction[2] * (columns.z[row] - columns.z[own]));
-        const auto towards = path > 0.F ? PropagationDirection::kForward : PropagationDirection::kBackward;
-        BoundParameters predicted;
-        CovarianceFactors predictedFactors;
-        Scalar chi2 = 0.F;
-        if (!follow::updateCandidate<false>(propagator, geometry, material, measurementAt(frame, row), towards, state, states.factors[k], predicted, predictedFactors, chi2, 1.F) || !(chi2 <= parameters.clusterChi2Max)) {
-          return;
+        TrackingSurface plane = surface;
+        if (surface.radius > 0.F) {
+          Scalar along0 = 0.F;
+          Scalar along1 = 0.F;
+          for (int i = 0; i < 3; ++i) {
+            along0 += (reach.point[i] - surface.origin[i]) * surface.axis0[i];
+            along1 += (reach.point[i] - surface.origin[i]) * surface.axis1[i];
+          }
+          plane = tangentPlane(surface, Math::ATan2(along1, along0));
         }
-        // The best per sensor.
-        for (std::size_t at = first; at < out.size(); ++at) {
-          if (out[at].surface == surface) {
-            if (chi2 < out[at].chi2 || (!(out[at].chi2 < chi2) && row < out[at].partner.row)) {
-              out[at] = {.track = ordinal, .partner = {.row = row, .layerRow = k, .ahead = static_cast<std::uint8_t>(path > 0.F ? 1U : 0U)}, .surface = surface, .chi2 = chi2, .path = path};
-            }
-            return;
+        // The straight line along the track first: off the sensor by more than
+        // the spread and the helix's departure from the line over the step,
+        // it is not crossed.
+        Scalar normalDirection = 0.F;
+        Scalar normalOffset = 0.F;
+        for (int i = 0; i < 3; ++i) {
+          normalDirection += plane.normal[i] * direction[i];
+          normalOffset += plane.normal[i] * (plane.origin[i] - reach.point[i]);
+        }
+        if (!(Math::Abs(normalDirection) > 0.F)) {
+          return false;
+        }
+        const Scalar step = normalOffset / normalDirection;
+        Scalar line0 = 0.F;
+        Scalar line1 = 0.F;
+        for (int i = 0; i < 3; ++i) {
+          const Scalar offset = reach.point[i] + (step * direction[i]) - plane.origin[i];
+          line0 += offset * plane.axis0[i];
+          line1 += offset * plane.axis1[i];
+        }
+        const Scalar departure = 0.5F * static_cast<Scalar>(Math::Abs(curvature)) * step * step;
+        if (Math::Abs(line0) > surface.bounds.halfX + spread + departure || Math::Abs(line1) > surface.bounds.halfY + spread + departure) {
+          return false;
+        }
+        // Where the track crosses it, ahead or behind its row.
+        BoundParameters at = state;
+        auto crossed = propagate(stepPropagator, at, from, plane, PropagationDirection::kForward);
+        const auto usable = [&](const PropagationResult& result) { return (result.status == PropagationStatus::kOk || result.status == PropagationStatus::kOutOfBounds) && !follow::beyondHalfTurn(curvature * static_cast<ExactScalar>(result.pathLength)); };
+        if (!usable(crossed)) {
+          at = state;
+          crossed = propagate(stepPropagator, at, from, plane, PropagationDirection::kBackward);
+          if (!usable(crossed)) {
+            return false;
           }
         }
-        out.push_back({.track = ordinal, .partner = {.row = row, .layerRow = k, .ahead = static_cast<std::uint8_t>(path > 0.F ? 1U : 0U)}, .surface = surface, .chi2 = chi2, .path = path});
-      });
+        if (Math::Abs(at.loc0()) > surface.bounds.halfX + spread || Math::Abs(at.loc1()) > surface.bounds.halfY + spread) {
+          return false;
+        }
+        // Its rows about the crossing.
+        Scalar point[3]{};
+        surfaceToGlobal(plane, at.loc0(), at.loc1(), point);
+        const Scalar x = point[0] - parameters.beamX;
+        const Scalar y = point[1] - parameters.beamY;
+        const Scalar r = Math::Hypot(x, y);
+        const CandidateWindow window{
+          .earliestPS = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(maxWidthPS[layer]) + 1,
+          .latestPS = static_cast<std::int64_t>(box.upper()) - 1,
+          .afterPS = box.lower(),
+          .phiCentre = azimuth(x, y),
+          .phiHalfWidth = Math::Min(spread / r, std::numbers::pi_v<Scalar>),
+          .secondCentre = secondCoordinate<Det>(layer, r, point[2]),
+          .secondHalfWidth = spread,
+        };
+        const auto towards = crossed.pathLength > 0.F ? PropagationDirection::kForward : PropagationDirection::kBackward;
+        Proposal best;
+        bool found = false;
+        frame.grid().visitCandidates(layer, window, frame.grid().geometry().allBlocks(), [&](std::uint32_t row) {
+          if (columns.surface[row] != id || used[row] != kFree) {
+            return;
+          }
+          if (!spatiallyCompatible(window, columns.phi[row], secondCoordinate<Det>(layer, columns.r[row], columns.z[row])) || !box.isCompatible(timeBoxAt(columns, row))) {
+            return;
+          }
+          BoundParameters predicted;
+          CovarianceFactors predictedFactors;
+          Scalar chi2 = 0.F;
+          if (!follow::updateCandidate<false>(propagator, geometry, material, measurementAt(frame, row), towards, state, factors, predicted, predictedFactors, chi2, 1.F) || !(chi2 <= parameters.clusterChi2Max)) {
+            return;
+          }
+          if (!found || chi2 < best.chi2 || (!(best.chi2 < chi2) && row < best.partner.row)) {
+            best = {.track = ordinal, .partner = {.row = row, .layerRow = k, .ahead = static_cast<std::uint8_t>(crossed.pathLength > 0.F ? 1U : 0U)}, .surface = id, .chi2 = chi2, .path = crossed.pathLength};
+            found = true;
+          }
+        });
+        if (found) {
+          out.push_back(best);
+        }
+        return false;
+      }));
     }
   }
 

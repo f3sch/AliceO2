@@ -242,8 +242,9 @@ class Tracker
     mGeometry = &geometry;
     mMaterial = &material;
     mPropagator = propagator;
-    // The sensors by place, once, where an iteration follows.
-    if (std::ranges::any_of(mIterations, [](const auto& parameters) { return parameters.follow || parameters.followEnd; })) {
+    // The sensors by place, once, where an iteration follows or takes
+    // overlap partners.
+    if (std::ranges::any_of(mIterations, [](const auto& parameters) { return parameters.follow || parameters.followEnd || parameters.overlapPartners; })) {
       mSensorCells = SensorCells<Det>(geometry);
     }
   }
@@ -797,7 +798,7 @@ class Tracker
     const bool partnered = summary.status == StageStatus::kComplete && mIterations[iteration].overlapPartners;
     if (partnered) {
       const profile::Zone zone{Phase::kOverlapPartners};
-      summary.status = mPartners.run(fitForEach(), mIterations[iteration], frame, *mGeometry, *mMaterial, mPropagator, mRefit.tracks(), trackOffset, std::span<std::uint8_t>{mUsed}, std::span<const std::uint32_t>{plan.layerMaxWidthPS});
+      summary.status = mPartners.run(fitForEach(), mIterations[iteration], frame, *mGeometry, *mMaterial, mPropagator, mSensorCells.view(), mRefit.tracks(), trackOffset, std::span<std::uint8_t>{mUsed}, std::span<const std::uint32_t>{plan.layerMaxWidthPS}, std::span<const Scalar>{plan.layerMaxLocVariance});
       summary.overlapPartners = mPartners.counts().attached;
       summary.tracksWithPartners = mPartners.counts().tracks;
     }
