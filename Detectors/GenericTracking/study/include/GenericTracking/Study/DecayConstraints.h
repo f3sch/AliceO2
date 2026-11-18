@@ -72,6 +72,9 @@ struct LinePosition {
 struct DecayTopology {
   std::vector<int> vertexOf; ///< per daughter
   std::vector<int> parent;   ///< per vertex, -1 for the root
+  /// Per vertex, the decaying particle's mass [GeV]: its flight's material
+  /// (DecayVertexFit.h's chains); empty or 0 where unknown.
+  std::vector<double> massGeV;
   [[nodiscard]] int vertices() const { return parent.empty() ? 1 : static_cast<int>(parent.size()); }
   [[nodiscard]] int vertexOfDaughter(int daughter) const { return vertexOf.empty() ? 0 : vertexOf[daughter]; }
   /// Whether \a daughter's vertex is \a vertex or below it.
@@ -88,8 +91,9 @@ struct DecayTopology {
 
 /// The constraints a decay vertex fit takes. Besides these, a tree's links
 /// always hold: every composite below the root flies from its parent's
-/// vertex to its own along its momentum, two equations (a neutral one in a
-/// line; a charged one is not taken yet).
+/// vertex to its own along its momentum, two equations -- a neutral one in a
+/// line (here), a charged one on its helix with its scattering
+/// (DecayVertexFit.h's chains).
 struct DecayConstraints {
   bool mass = false;
   double massGeV = 0.; ///< the mother's
@@ -134,8 +138,7 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
 /// theta, q/p each at its daughter's vertex; a neutral daughter's q/p its
 /// 1/p) with the daughters' \a masses and \a charges, and their rows of
 /// derivatives by (the vertices, the
-/// momenta), 3K + 3N wide; false if the mother misses its plane, a charged
-/// composite is to be linked, or the tree is too large.
+/// momenta), 3K + 3N wide; false if the tree is too large.
 [[nodiscard]] inline bool evaluateConstraints(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const std::array<double, 3>> vertices, std::span<const std::array<double, 3>> momenta, std::span<const double> masses, std::span<const double> charges, double fieldScale, std::vector<double>& values, std::vector<double>& rows)
 {
   using D = Dual<kConstraintInputs>;
@@ -206,7 +209,7 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
   for (int w = 1; w < k; ++w) {
     composite(w, total, energy, charge);
     if (charge != 0.) {
-      return false; // a charged composite's link is its helix: not taken yet
+      continue; // a charged composite's link: its chain's (DecayVertexFit.h)
     }
     const int up = topology.parent[w];
     std::array<D, 3> offset{};

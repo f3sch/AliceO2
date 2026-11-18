@@ -570,7 +570,8 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     // A tree: vertex 0 the root, then the composites depth first. A
     // composite with a single product (a K0 becoming a K0S) has no vertex:
     // its product takes its place. Every other composite has its own, two
-    // products or more, is neutral (its link is a line) and flies.
+    // products or more, and flies: a neutral one's link a line, a charged
+    // one's its helix (the fit's chains).
     std::vector<const TreeParticle*> composites;
     std::unordered_map<std::uint64_t, int> vertexOf{{member.id, 0}};
     bool linkable = true;
@@ -580,7 +581,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         vertexOf[composite->id] = vertexOf.at(composite->mother);
         continue;
       }
-      if (particleCharge(composite->pdg) != 0. || own.front()->vertex == composite->vertex) {
+      if (own.front()->vertex == composite->vertex) {
         linkable = false;
         break;
       }
@@ -776,27 +777,38 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         std::uint8_t constraints;
       };
       const bool tree = !one.composites.empty();
-      // A charged root's own rows (a tracked Xi, Omega), any number, the
-      // outermost first, with its mass (DecayVertexFit.h's chain).
-      std::optional<DecayMother> trackedMother;
-      if (tree && !one.refitFailed && particleCharge(mother.pdg) != 0. && motherMass > 0.) {
-        if (const auto found = chainOf.find(mother.id); found != chainOf.end()) {
-          const auto& own = *found->second;
-          base.motherRows = static_cast<std::uint8_t>(std::min<std::size_t>(own.rows.size(), 255U));
-          auto propagator = event.propagator;
-          propagator.massGeV = static_cast<Scalar>(motherMass);
-          if (!own.rows.empty()) {
-            DecayMother tracked{.propagator = propagator};
-            for (auto at = own.rows.rbegin(); at != own.rows.rend(); ++at) {
-              const auto m = frame.measurement(*at);
-              tracked.planes.push_back(geometry.planeOf(m));
-              tracked.positions.push_back({m.loc0, m.loc1});
-              tracked.covariance.push_back({m.varLoc0, m.covLoc01, m.varLoc1});
-            }
-            trackedMother = std::move(tracked);
+      // A tree's charged particles' own rows -- the root's (a tracked Xi,
+      // Omega), a charged composite's (a tracked Xi in a Xi_c) --, any number,
+      // the outermost first, with its mass (DecayVertexFit.h's chains).
+      std::vector<DecayMother> trackedMothers;
+      if (tree && !one.refitFailed) {
+        std::vector<std::pair<const TreeParticle*, int>> charged{{&mother, 0}};
+        for (std::size_t w = 0; w < one.composites.size(); ++w) {
+          charged.emplace_back(one.composites[w], static_cast<int>(w) + 1);
+        }
+        for (const auto& [particle, vertex] : charged) {
+          const auto* entry = o2::O2DatabasePDG::Instance()->GetParticle(particle->pdg);
+          const auto found = chainOf.find(particle->id);
+          if (particleCharge(particle->pdg) == 0. || entry == nullptr || found == chainOf.end() || found->second->rows.empty()) {
+            continue;
           }
+          const auto& own = *found->second;
+          if (vertex == 0) {
+            base.motherRows = static_cast<std::uint8_t>(std::min<std::size_t>(own.rows.size(), 255U));
+          }
+          auto propagator = event.propagator;
+          propagator.massGeV = static_cast<Scalar>(entry->Mass());
+          DecayMother tracked{.vertex = vertex, .propagator = propagator};
+          for (auto at = own.rows.rbegin(); at != own.rows.rend(); ++at) {
+            const auto m = frame.measurement(*at);
+            tracked.planes.push_back(geometry.planeOf(m));
+            tracked.positions.push_back({m.loc0, m.loc1});
+            tracked.covariance.push_back({m.varLoc0, m.covLoc01, m.varLoc1});
+          }
+          trackedMothers.push_back(std::move(tracked));
         }
       }
+      const bool rootTracked = std::ranges::any_of(trackedMothers, [](const DecayMother& m) { return m.vertex == 0; });
       std::vector<Job> jobs;
       for (const auto variant : {DecayFitVariant::kFull, DecayFitVariant::kCarryOnce, DecayFitVariant::kNoMaterial}) {
         jobs.push_back({variant, 0U});
@@ -816,9 +828,9 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         // A tracked mother: its own rows in the tree, and in the sequential
         // fit's root (strangeness tracking as a fit).
         for (const std::uint8_t set : {std::uint8_t{48}, std::uint8_t{50}, std::uint8_t{51}}) {
-          if (trackedMother) {
+          if (!trackedMothers.empty()) {
             jobs.push_back({DecayFitVariant::kFull, set});
-            if (one.topology.vertices() == 2) {
+            if (rootTracked && one.topology.vertices() == 2) {
               jobs.push_back({DecayFitVariant::kSequential, set});
             }
           }
@@ -836,6 +848,9 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         const auto* entry = o2::O2DatabasePDG::Instance()->GetParticle(composite->pdg);
         compositeMasses.push_back(entry == nullptr ? 0. : entry->Mass());
       }
+      // each vertex's particle's mass, for its flight's material in the fit
+      one.topology.massGeV.assign(1, motherMass);
+      one.topology.massGeV.insert(one.topology.massGeV.end(), compositeMasses.begin(), compositeMasses.end());
       std::vector<std::size_t> childLeaves; // the first composite's leaves
       std::array<double, 3> childDecay{};
       std::array<double, 3> childAxis{}; // its true flight direction
@@ -889,7 +904,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           constraints.compositeMasses = compositeMasses;
         }
         const bool wantMother = (job.constraints & 32U) != 0U;
-        const DecayMother* tracked = wantMother && trackedMother ? &*trackedMother : nullptr;
+        const auto tracked = wantMother ? std::span<const DecayMother>{trackedMothers} : std::span<const DecayMother>{};
         const auto fitUnder = [&](const DecayConstraints& set) { return fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, job.variant, set, one.topology, tracked); };
         DecayVertexFitResult outcome;
         const auto started = std::chrono::steady_clock::now();
@@ -916,9 +931,11 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           if (childFit.status != DecayFitStatus::kOk) {
             outcome.status = childFit.status;
           } else {
-            rootDaughters.push_back(pseudoTrackOf(childFit, compositeMasses.front(), event.propagator, &pseudoJacobian));
+            rootDaughters.push_back(pseudoTrackOf(childFit, compositeMasses.front(), particleCharge(one.composites.front()->pdg), event.propagator, &pseudoJacobian));
             rootMasses.push_back(compositeMasses.front());
-            outcome = fitDecayVertex(std::span<const DecayDaughter>{rootDaughters}, material, DecayFitVariant::kFull, constraints, {}, tracked);
+            // the root's own rows only: the composite's flight is in its pseudo-track
+            const auto rootTracks = tracked.empty() || tracked.front().vertex != 0 ? std::span<const DecayMother>{} : tracked.first(1);
+            outcome = fitDecayVertex(std::span<const DecayDaughter>{rootDaughters}, material, DecayFitVariant::kFull, constraints, {}, rootTracks);
           }
         } else if (conversion) {
           record.constraints |= 8U;
