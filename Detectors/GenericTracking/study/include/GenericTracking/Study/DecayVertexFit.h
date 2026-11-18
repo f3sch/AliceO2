@@ -574,7 +574,7 @@ template <typename Material>
   }
 
   struct Measurement {
-    PerigeePlane plane;
+    TrackingSurface plane;
     std::array<double, 5> value{};
     std::array<double, 25> weight{}; ///< the inverse covariance
   };
@@ -925,7 +925,7 @@ template <typename Material>
             continue; // a component without a covariance is no measurement
           }
           Component component{.logWeight = static_cast<double>(mixture.components[j].logWeight) - largest - std::log(total)};
-          component.measurement.plane = perigeePlaneFrame(plane);
+          component.measurement.plane = plane;
           for (int r = 0; r < 5; ++r) {
             component.measurement.value[r] = one.par[r];
           }
@@ -945,7 +945,7 @@ template <typename Material>
         return DecayFitStatus::kSingular;
       }
       auto& m = measurements[i];
-      m.plane = perigeePlaneFrame(plane);
+      m.plane = plane;
       for (int r = 0; r < 5; ++r) {
         m.value[r] = state.par[r];
       }
@@ -999,18 +999,19 @@ template <typename Material>
       }
       const double fieldScale = daughter.neutral ? 0. : static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
       using D = Dual<kDerivatives>;
-      std::array<D, kDerivatives> in{};
       const int q = (3 * k) + (3 * i);
       const int w = 3 * topology.vertexOfDaughter(i);
       const std::array<int, kDerivatives> index{w, w + 1, w + 2, q, q + 1, q + 2};
+      FreeState<kDerivatives> from{};
       for (int c = 0; c < kDerivatives; ++c) {
-        in[c].v = p[index[c]];
-        in[c].d[c] = 1.;
+        from[c] = dual::variable<kDerivatives>(p[index[c]], c);
       }
-      std::array<D, 5> predicted{};
-      if (!predictOnPlane(in[0], in[1], in[2], in[3], in[4], in[5], fieldScale, measurements[i].plane, predicted)) {
+      FreeState<kDerivatives> to{};
+      std::array<D, 2> local{};
+      if (!crossToPlane(from, measurements[i].plane, fieldScale, to, local)) {
         return false;
       }
+      const std::array<D, 5> predicted{local[0], local[1], to[3], to[4], to[5]};
       std::array<double, 5> residual{};
       for (int r = 0; r < 5; ++r) {
         residual[r] = measurements[i].value[r] - predicted[r].v;
