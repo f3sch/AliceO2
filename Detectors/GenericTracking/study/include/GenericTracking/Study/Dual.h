@@ -26,6 +26,7 @@ namespace o2::gtrk::study::dual
 /// A value and its derivatives by N inputs: forward differentiation.
 template <int N>
 struct Dual {
+  static constexpr int kInputs = N;
   double v = 0.;
   std::array<double, N> d{};
 };
@@ -157,6 +158,23 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
   }
   return r;
 }
+
+/// An input: \a value, its derivative by itself (input \a index) one.
+template <int N>
+[[nodiscard]] Dual<N> variable(double value, int index)
+{
+  Dual<N> r{value};
+  r.d[index] = 1.;
+  return r;
+}
+
+/// A value, of a dual number or of a double.
+template <int N>
+[[nodiscard]] double valueOf(const Dual<N>& a)
+{
+  return a.v;
+}
+[[nodiscard]] inline double valueOf(double a) { return a; }
 
 } // namespace o2::gtrk::study::dual
 

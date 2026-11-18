@@ -36,6 +36,30 @@ namespace o2::gtrk::study::decay_fit_detail
 
 using o2::gtrk::study::dual::Dual;
 
+/// q/p's numerator for a particle of \a charge: |q|, 1 for a neutral one
+/// (its q/p is 1/p).
+[[nodiscard]] inline double numeratorOf(double charge) { return charge != 0. ? std::abs(charge) : 1.; }
+
+/// A momentum: its vector and its magnitude [GeV].
+template <typename T>
+struct Momentum {
+  std::array<T, 3> vector{};
+  T magnitude{};
+};
+
+/// The momentum of direction \a phi, \a theta and \a qOverP with q/p's
+/// \a numerator (`numeratorOf`), in doubles or dual numbers.
+template <typename T>
+[[nodiscard]] Momentum<T> momentumOf(const T& phi, const T& theta, const T& qOverP, double numerator)
+{
+  using dual::valueOf;
+  using std::cos;
+  using std::sin;
+  const T p = T{valueOf(qOverP) > 0. ? numerator : -numerator} / qOverP;
+  const T pt = p * sin(theta);
+  return {{pt * cos(phi), pt * sin(phi), p * cos(theta)}, p};
+}
+
 /// The most iterations of a fit's loops, and the most halvings of one step:
 /// double's mantissa bits. A cap, not a derivation: a step halved that often
 /// no longer moves a double; Gauss-Newton under a fixed model converges

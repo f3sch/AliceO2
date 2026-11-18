@@ -341,11 +341,10 @@ template <typename Evaluate, typename ConstraintsAt>
   return std::array<double, 3>{0.5 * (a[0] + (s * u[0]) + b[0] + (t * w[0])), 0.5 * (a[1] + (s * u[1]) + b[1] + (t * w[1])), 0.5 * (a[2] + (s * u[2]) + b[2] + (t * w[2]))};
 }
 
-/// A daughter's direction (unit) and momentum vector from its innermost state.
+/// A state's direction (unit).
 [[nodiscard]] inline std::array<double, 3> directionOf(const BoundTrackState& state)
 {
-  const double st = std::sin(state.theta());
-  return {std::cos(state.phi()) * st, std::sin(state.phi()) * st, std::cos(state.theta())};
+  return momentumOf<double>(state.phi(), state.theta(), 1., 1.).vector;
 }
 
 /// Each vertex's start, the deepest first, from its entries -- its daughters,
@@ -381,10 +380,10 @@ template <typename Evaluate, typename ConstraintsAt>
       const DecayDaughter* field = nullptr;
       for (int i = 0; i < count; ++i) {
         if (topology.under(i, child)) {
-          const auto u = directionOf(daughters[i].innermost);
-          const double p = daughters[i].momentumNumerator() / std::abs(static_cast<double>(daughters[i].innermost.qOverP()));
+          const auto& state = daughters[i].innermost;
+          const auto momentum = momentumOf<double>(state.phi(), state.theta(), state.qOverP(), daughters[i].momentumNumerator());
           for (int c = 0; c < 3; ++c) {
-            total[c] += p * u[c];
+            total[c] += momentum.vector[c];
           }
           charge += daughters[i].charge();
           field = daughters[i].neutral ? field : &daughters[i];
@@ -447,12 +446,10 @@ template <typename Evaluate, typename ConstraintsAt>
   double energy = 0.;
   for (std::size_t i = 0; i < visible.momenta.size(); ++i) {
     const auto& q = visible.momenta[i];
-    const double numerator = i < visible.charges.size() && visible.charges[i] != 0. ? std::abs(visible.charges[i]) : 1.;
-    const double p = numerator / std::abs(q[2]);
-    const std::array<double, 3> v{p * std::cos(q[0]) * std::sin(q[1]), p * std::sin(q[0]) * std::sin(q[1]), p * std::cos(q[1])};
-    energy += std::sqrt((p * p) + (masses[i] * masses[i]));
+    const auto momentum = decay_fit_detail::momentumOf(q[0], q[1], q[2], decay_fit_detail::numeratorOf(visible.charges[i]));
+    energy += std::sqrt((momentum.magnitude * momentum.magnitude) + (masses[i] * masses[i]));
     for (int c = 0; c < 3; ++c) {
-      total[c] += v[c];
+      total[c] += momentum.vector[c];
     }
   }
   std::array<double, 3> u{visible.vertex[0] - point[0], visible.vertex[1] - point[1], visible.vertex[2] - point[2]};
@@ -635,17 +632,10 @@ template <typename Material>
         continue;
       }
       const int q = (3 * k) + (3 * i);
-      std::array<DC, 3> m{};
+      const auto momentum = momentumOf(dual::variable<kConstraintInputs>(p[q], q), dual::variable<kConstraintInputs>(p[q + 1], q + 1), dual::variable<kConstraintInputs>(p[q + 2], q + 2), numeratorOf(charges[i]));
       for (int c = 0; c < 3; ++c) {
-        m[c].v = p[q + c];
-        m[c].d[q + c] = 1.;
+        total[c] = total[c] + momentum.vector[c];
       }
-      const double numerator = charges[i] != 0. ? std::abs(charges[i]) : 1.;
-      const DC pi = DC{m[2].v > 0. ? numerator : -numerator} / m[2];
-      const DC pti = pi * sin(m[1]);
-      total[0] = total[0] + (pti * cos(m[0]));
-      total[1] = total[1] + (pti * sin(m[0]));
-      total[2] = total[2] + (pi * cos(m[1]));
     }
     const DC pt = sqrt((total[0] * total[0]) + (total[1] * total[1]));
     const DC pTotal = sqrt((pt * pt) + (total[2] * total[2]));
@@ -1072,18 +1062,11 @@ template <typename Material>
       std::array<DR, 3> total{};
       for (const int i : resonance.daughters) {
         const int q = (3 * k) + (3 * i);
-        std::array<DR, 3> m{};
+        const auto momentum = momentumOf(dual::variable<kConstraintInputs>(p[q], q), dual::variable<kConstraintInputs>(p[q + 1], q + 1), dual::variable<kConstraintInputs>(p[q + 2], q + 2), numeratorOf(charges[i]));
         for (int c = 0; c < 3; ++c) {
-          m[c].v = p[q + c];
-          m[c].d[q + c] = 1.;
+          total[c] = total[c] + momentum.vector[c];
         }
-        const double numerator = charges[i] != 0. ? std::abs(charges[i]) : 1.;
-        const DR pi = DR{m[2].v > 0. ? numerator : -numerator} / m[2];
-        const DR pti = pi * sin(m[1]);
-        total[0] = total[0] + (pti * cos(m[0]));
-        total[1] = total[1] + (pti * sin(m[0]));
-        total[2] = total[2] + (pi * cos(m[1]));
-        energy = energy + sqrt((pi * pi) + (daughters[i].mass * daughters[i].mass));
+        energy = energy + sqrt((momentum.magnitude * momentum.magnitude) + (daughters[i].mass * daughters[i].mass));
       }
       const DR mass2 = (energy * energy) - ((total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]));
       if (!(mass2.v > 0.)) {

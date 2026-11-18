@@ -279,30 +279,8 @@ struct DecayFitRecord {
 namespace decay_fit_study_detail
 {
 
-/// q/p's numerator for a daughter of \a charge: |q|, 1 if neutral (its
-/// q/p is 1/p).
-[[nodiscard]] inline double numeratorOf(double charge) { return charge != 0. ? std::abs(charge) : 1.; }
-
-/// A daughter's momentum vector from phi, theta, q/p and its \a charge.
-[[nodiscard]] inline std::array<double, 3> momentumOf(const std::array<double, 3>& q, double charge)
-{
-  const double p = numeratorOf(charge) / std::abs(q[2]);
-  return {p * std::cos(q[0]) * std::sin(q[1]), p * std::sin(q[0]) * std::sin(q[1]), p * std::cos(q[1])};
-}
-
-/// d(px, py, pz) / d(phi, theta, q/p), row-major 3 x 3.
-[[nodiscard]] inline std::array<double, 9> momentumJacobian(const std::array<double, 3>& q, double charge)
-{
-  const double p = numeratorOf(charge) / std::abs(q[2]);
-  const double dpdk = -p / q[2]; // d|p| / d(q/p)
-  const double cp = std::cos(q[0]);
-  const double sp = std::sin(q[0]);
-  const double ct = std::cos(q[1]);
-  const double st = std::sin(q[1]);
-  return {-p * sp * st, p * cp * ct, dpdk * cp * st,
-          p * cp * st, p * sp * ct, dpdk * sp * st,
-          0., -p * st, dpdk * ct};
-}
+using decay_fit_detail::momentumOf;
+using decay_fit_detail::numeratorOf;
 
 /// The invariant mass of \a momenta with \a masses (and \a charges) and its sigma from
 /// \a covariance (\a stride wide, the momenta's phi, theta, q/p at
@@ -316,53 +294,31 @@ struct Kinematics {
 
 [[nodiscard]] inline Kinematics kinematicsOf(std::span<const std::array<double, 3>> momenta, std::span<const double> masses, std::span<const double> charges, std::span<const double> covariance, int stride, int offset)
 {
-  const auto count = momenta.size();
-  std::array<double, 3> total{};
-  double energy = 0.;
-  std::vector<std::array<double, 3>> vectors(count);
-  std::vector<double> energies(count);
-  for (std::size_t i = 0; i < count; ++i) {
-    vectors[i] = momentumOf(momenta[i], charges[i]);
-    const double p2 = (vectors[i][0] * vectors[i][0]) + (vectors[i][1] * vectors[i][1]) + (vectors[i][2] * vectors[i][2]);
-    energies[i] = std::sqrt(p2 + (masses[i] * masses[i]));
-    energy += energies[i];
+  using D = dual::Dual<3 * decay_fit_detail::kMaxConstrainedDaughters>;
+  const int count = static_cast<int>(momenta.size());
+  std::array<D, 3> total{};
+  D energy{};
+  for (int i = 0; i < count; ++i) {
+    const auto momentum = momentumOf(dual::variable<D::kInputs>(momenta[i][0], 3 * i), dual::variable<D::kInputs>(momenta[i][1], (3 * i) + 1), dual::variable<D::kInputs>(momenta[i][2], (3 * i) + 2), numeratorOf(charges[i]));
+    energy = energy + sqrt((momentum.magnitude * momentum.magnitude) + (masses[i] * masses[i]));
     for (int k = 0; k < 3; ++k) {
-      total[k] += vectors[i][k];
+      total[k] = total[k] + momentum.vector[k];
     }
   }
-  const double p = std::hypot(total[0], total[1], total[2]);
-  const double m2 = (energy * energy) - (p * p);
-  Kinematics out{.mass = std::sqrt(std::max(m2, 0.)), .p = p};
-  // Gradients by every daughter's phi, theta, q/p.
-  std::vector<double> gMass(3 * count);
-  std::vector<double> gP(3 * count);
-  for (std::size_t i = 0; i < count; ++i) {
-    const auto jacobian = momentumJacobian(momenta[i], charges[i]);
-    for (int a = 0; a < 3; ++a) {
-      double dm2 = 0.;
-      double dp = 0.;
-      for (int k = 0; k < 3; ++k) {
-        const double dvk = jacobian[k * 3 + a];
-        // d(E_i)/dp_ik = p_ik / E_i; dM^2 = 2 E dE - 2 P . dP
-        dm2 += 2. * ((energy * vectors[i][k] / energies[i]) - total[k]) * dvk;
-        dp += (total[k] / p) * dvk;
+  const D p2 = (total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]);
+  const D p = sqrt(p2);
+  const D m2 = (energy * energy) - p2;
+  const auto sigma = [&](const D& value) {
+    double variance = 0.;
+    for (int a = 0; a < 3 * count; ++a) {
+      for (int b = 0; b < 3 * count; ++b) {
+        variance += value.d[a] * covariance[((offset + a) * stride) + offset + b] * value.d[b];
       }
-      gMass[3 * i + a] = out.mass > 0. ? dm2 / (2. * out.mass) : 0.;
-      gP[3 * i + a] = dp;
     }
-  }
-  double varMass = 0.;
-  double varP = 0.;
-  for (std::size_t a = 0; a < 3 * count; ++a) {
-    for (std::size_t b = 0; b < 3 * count; ++b) {
-      const double c = covariance[(offset + a) * stride + (offset + b)];
-      varMass += gMass[a] * c * gMass[b];
-      varP += gP[a] * c * gP[b];
-    }
-  }
-  out.sMass = std::sqrt(std::max(varMass, 0.));
-  out.sP = std::sqrt(std::max(varP, 0.));
-  return out;
+    return std::sqrt(std::max(variance, 0.));
+  };
+  const double mass = std::sqrt(std::max(m2.v, 0.));
+  return {.mass = mass, .sMass = mass > 0. ? sigma(m2) / (2. * mass) : 0., .p = p.v, .sP = sigma(p)};
 }
 
 /// The mother's decay length from \a point along its direction, ct with
@@ -392,16 +348,11 @@ struct MotherQuantities {
   }
   std::array<D, 3> total{};
   for (int i = 0; i < count; ++i) {
-    std::array<D, 3> q{};
+    const int q = (3 * vertices) + (3 * i);
+    const auto momentum = momentumOf(dual::variable<kConstraintInputs>(momenta[i][0], q), dual::variable<kConstraintInputs>(momenta[i][1], q + 1), dual::variable<kConstraintInputs>(momenta[i][2], q + 2), numeratorOf(charges[i]));
     for (int k = 0; k < 3; ++k) {
-      q[k].v = momenta[i][k];
-      q[k].d[(3 * vertices) + (3 * i) + k] = 1.;
+      total[k] = total[k] + momentum.vector[k];
     }
-    const D p = D{q[2].v > 0. ? numeratorOf(charges[i]) : -numeratorOf(charges[i])} / q[2];
-    const D pt = p * sin(q[1]);
-    total[0] = total[0] + (pt * cos(q[0]));
-    total[1] = total[1] + (pt * sin(q[0]));
-    total[2] = total[2] + (p * cos(q[1]));
   }
   const D pt = sqrt((total[0] * total[0]) + (total[1] * total[1]));
   const D p = sqrt((pt * pt) + (total[2] * total[2]));

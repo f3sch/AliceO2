@@ -143,16 +143,10 @@ inline constexpr int kConstraintInputs = (3 * kMaxConstrainedVertices) + (3 * kM
   std::vector<std::array<D, 3>> vectors(static_cast<std::size_t>(count));
   std::vector<D> energies(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
-    std::array<D, 3> q{};
-    for (int c = 0; c < 3; ++c) {
-      q[c].v = momenta[i][c];
-      q[c].d[(3 * k) + (3 * i) + c] = 1.;
-    }
-    const double numerator = charges[i] != 0. ? std::abs(charges[i]) : 1.; // |p| = |q| / |q/p|; a neutral one's q/p is 1/p
-    const D p = D{q[2].v > 0. ? numerator : -numerator} / q[2];
-    const D pt = p * sin(q[1]);
-    vectors[i] = {pt * cos(q[0]), pt * sin(q[0]), p * cos(q[1])};
-    energies[i] = sqrt((p * p) + (masses[i] * masses[i]));
+    const int q = (3 * k) + (3 * i);
+    const auto momentum = momentumOf(dual::variable<kConstraintInputs>(momenta[i][0], q), dual::variable<kConstraintInputs>(momenta[i][1], q + 1), dual::variable<kConstraintInputs>(momenta[i][2], q + 2), numeratorOf(charges[i]));
+    vectors[i] = momentum.vector;
+    energies[i] = sqrt((momentum.magnitude * momentum.magnitude) + (masses[i] * masses[i]));
   }
   // A vertex's composite: its subtree's momentum, energy, charge.
   const auto composite = [&](int vertex, std::array<D, 3>& total, D& energy, double& charge) {
