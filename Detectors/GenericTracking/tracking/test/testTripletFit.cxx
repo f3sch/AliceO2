@@ -21,6 +21,7 @@
 #include "Oracles.h"
 #include "GenericTracking/Tracking/Triplet.h"
 #include "GenericTracking/Tracking/TripletFit.h"
+#include "GenericTracking/Base/Dual.h"
 #include "GenericTracking/Study/Validation.h"
 
 #include <algorithm>
@@ -41,87 +42,7 @@ constexpr std::size_t kCoordinates = 9U;
 // original nine-derivative form so it is independent of GTRK's gradient,
 // and evaluated in double: the float port is compared with the true value,
 // not with a second float evaluation whose rounding differs.
-struct ReferenceDual {
-  double value = 0.;
-  std::array<double, kCoordinates> derivative{};
-
-  ReferenceDual() = default;
-  explicit ReferenceDual(double valueIn) : value(valueIn) {}
-
-  static ReferenceDual variable(double value, std::size_t coordinate)
-  {
-    ReferenceDual result{value};
-    result.derivative[coordinate] = 1.;
-    return result;
-  }
-};
-
-ReferenceDual operator+(const ReferenceDual& left, const ReferenceDual& right)
-{
-  ReferenceDual result{left.value + right.value};
-  for (std::size_t i = 0; i < kCoordinates; ++i) {
-    result.derivative[i] = left.derivative[i] + right.derivative[i];
-  }
-  return result;
-}
-
-ReferenceDual operator-(const ReferenceDual& left, const ReferenceDual& right)
-{
-  ReferenceDual result{left.value - right.value};
-  for (std::size_t i = 0; i < kCoordinates; ++i) {
-    result.derivative[i] = left.derivative[i] - right.derivative[i];
-  }
-  return result;
-}
-
-ReferenceDual operator*(const ReferenceDual& left, const ReferenceDual& right)
-{
-  ReferenceDual result{left.value * right.value};
-  for (std::size_t i = 0; i < kCoordinates; ++i) {
-    result.derivative[i] = left.derivative[i] * right.value + left.value * right.derivative[i];
-  }
-  return result;
-}
-
-ReferenceDual operator/(const ReferenceDual& left, const ReferenceDual& right)
-{
-  const double inverse = 1. / right.value;
-  ReferenceDual result{left.value * inverse};
-  for (std::size_t i = 0; i < kCoordinates; ++i) {
-    result.derivative[i] = (left.derivative[i] - result.value * right.derivative[i]) * inverse;
-  }
-  return result;
-}
-
-ReferenceDual referenceSqrt(const ReferenceDual& argument)
-{
-  const double root = std::sqrt(argument.value);
-  ReferenceDual result{root};
-  for (std::size_t i = 0; i < kCoordinates; ++i) {
-    result.derivative[i] = 0.5 * argument.derivative[i] / root;
-  }
-  return result;
-}
-
-ReferenceDual referenceAsin(const ReferenceDual& argument)
-{
-  ReferenceDual result{std::asin(argument.value)};
-  const double scale = 1. / std::sqrt(1. - argument.value * argument.value);
-  for (std::size_t i = 0; i < kCoordinates; ++i) {
-    result.derivative[i] = scale * argument.derivative[i];
-  }
-  return result;
-}
-
-ReferenceDual referenceAtan2(const ReferenceDual& y, const ReferenceDual& x)
-{
-  ReferenceDual result{std::atan2(y.value, x.value)};
-  const double denominator = x.value * x.value + y.value * y.value;
-  for (std::size_t i = 0; i < kCoordinates; ++i) {
-    result.derivative[i] = (x.value * y.derivative[i] - y.value * x.derivative[i]) / denominator;
-  }
-  return result;
-}
+using ReferenceDual = dual::Dual<static_cast<int>(kCoordinates)>;
 
 struct ReferenceSegment {
   ReferenceDual bendingAngle;
@@ -137,19 +58,19 @@ ReferenceSegment referenceSegment(const ReferenceDual& curvature, const Referenc
   const ReferenceDual halfSine = ReferenceDual{0.5} * curvature * chord;
   const ReferenceDual halfSine2 = halfSine * halfSine;
   const ReferenceDual halfSine4 = halfSine2 * halfSine2;
-  const ReferenceDual halfAngle = referenceAsin(halfSine);
+  const ReferenceDual halfAngle = dual::asin(halfSine);
   ReferenceDual asinOverArgument;
   ReferenceDual angleCotangent;
-  if (std::abs(halfSine.value) < 1.e-4) {
+  if (std::abs(halfSine.v) < 1.e-4) {
     asinOverArgument = ReferenceDual{1.} + halfSine2 * ReferenceDual{1. / 6.} + halfSine4 * ReferenceDual{3. / 40.};
     angleCotangent = ReferenceDual{1.} - halfSine2 * ReferenceDual{1. / 3.} - halfSine4 * ReferenceDual{2. / 15.};
   } else {
     asinOverArgument = halfAngle / halfSine;
-    angleCotangent = halfAngle * referenceSqrt(ReferenceDual{1.} - halfSine2) / halfSine;
+    angleCotangent = halfAngle * dual::sqrt(ReferenceDual{1.} - halfSine2) / halfSine;
   }
   const ReferenceDual arc = chord * asinOverArgument;
   const ReferenceDual cotangent = deltaZ / arc;
-  const ReferenceDual sine = ReferenceDual{1.} / referenceSqrt(ReferenceDual{1.} + cotangent * cotangent);
+  const ReferenceDual sine = ReferenceDual{1.} / dual::sqrt(ReferenceDual{1.} + cotangent * cotangent);
   const ReferenceDual cosine = cotangent * sine;
   const ReferenceDual index = ReferenceDual{1.} / (angleCotangent * sine * sine + cosine * cosine);
   return {
@@ -175,7 +96,7 @@ ReferenceGeometry referenceGeometry(const std::array<PairPoint, 3>& measurements
   for (std::size_t hit = 0; hit < measurements.size(); ++hit) {
     const double position[3]{static_cast<double>(measurements[hit].x), static_cast<double>(measurements[hit].y), static_cast<double>(measurements[hit].z)};
     for (std::size_t coordinate = 0; coordinate < 3U; ++coordinate) {
-      point[hit][coordinate] = ReferenceDual::variable(position[coordinate], 3U * hit + coordinate);
+      point[hit][coordinate] = dual::variable<static_cast<int>(kCoordinates)>(position[coordinate], static_cast<int>((3U * hit) + coordinate));
     }
   }
   const ReferenceDual dx01 = point[1][0] - point[0][0];
@@ -186,19 +107,19 @@ ReferenceGeometry referenceGeometry(const std::array<PairPoint, 3>& measurements
   const ReferenceDual dz12 = point[2][2] - point[1][2];
   const ReferenceDual dx02 = point[2][0] - point[0][0];
   const ReferenceDual dy02 = point[2][1] - point[0][1];
-  const ReferenceDual length01 = referenceSqrt(dx01 * dx01 + dy01 * dy01);
-  const ReferenceDual length12 = referenceSqrt(dx12 * dx12 + dy12 * dy12);
-  const ReferenceDual length02 = referenceSqrt(dx02 * dx02 + dy02 * dy02);
+  const ReferenceDual length01 = dual::sqrt(dx01 * dx01 + dy01 * dy01);
+  const ReferenceDual length12 = dual::sqrt(dx12 * dx12 + dy12 * dy12);
+  const ReferenceDual length02 = dual::sqrt(dx02 * dx02 + dy02 * dy02);
   const ReferenceDual transverseCurvature = ReferenceDual{2.} * (dx01 * dy12 - dy01 * dx12) / (length01 * length12 * length02);
   const auto first = referenceSegment(transverseCurvature, length01, dz01);
   const auto second = referenceSegment(transverseCurvature, length12, dz12);
-  const ReferenceDual theta01 = referenceAtan2(first.transverseArcLength, dz01);
-  const ReferenceDual theta12 = referenceAtan2(second.transverseArcLength, dz12);
+  const ReferenceDual theta01 = dual::atan2(first.transverseArcLength, dz01);
+  const ReferenceDual theta12 = dual::atan2(second.transverseArcLength, dz12);
   const ReferenceDual phi = ReferenceDual{0.5} * (first.bendingAngle * first.index + second.bendingAngle * second.index);
   const ReferenceDual theta = theta12 - theta01 + (ReferenceDual{1.} - second.index) * second.cotangentTheta - (ReferenceDual{1.} - first.index) * first.cotangentTheta;
   const ReferenceDual rhoPhi = ReferenceDual{-0.5} * (first.transverseArcLength * first.index / first.sineTheta + second.transverseArcLength * second.index / second.sineTheta);
   ReferenceDual rhoTheta;
-  const double maximumHalfSine = 0.5 * std::abs(transverseCurvature.value) * std::max(length01.value, length12.value);
+  const double maximumHalfSine = 0.5 * std::abs(transverseCurvature.v) * std::max(length01.v, length12.v);
   if (maximumHalfSine < 1.e-4) {
     rhoTheta = transverseCurvature * (length12 * length12 * second.cosineTheta - length01 * length01 * first.cosineTheta) / ReferenceDual{12.};
   } else {
@@ -216,15 +137,15 @@ struct ReferenceFactor {
 ReferenceFactor referenceFactor(const std::array<PairPoint, 3>& points, Scalar angularVariance)
 {
   const auto geometry = referenceGeometry(points);
-  const Scalar kappaReference = -static_cast<Scalar>(geometry.phi.value) / static_cast<Scalar>(geometry.rhoPhi.value);
+  const Scalar kappaReference = -static_cast<Scalar>(geometry.phi.v) / static_cast<Scalar>(geometry.rhoPhi.v);
   const Scalar dx = points[2].x - points[0].x;
   const Scalar dy = points[2].y - points[0].y;
   const Scalar dz = points[2].z - points[0].z;
   const Scalar transverse2 = dx * dx + dy * dy;
   const Scalar sineTheta2 = transverse2 / (transverse2 + dz * dz);
   ReferenceFactor result{
-    .psi = {.theta = static_cast<Scalar>(geometry.theta.value), .phi = static_cast<Scalar>(geometry.phi.value)},
-    .rho = {.theta = static_cast<Scalar>(geometry.rhoTheta.value), .phi = static_cast<Scalar>(geometry.rhoPhi.value)},
+    .psi = {.theta = static_cast<Scalar>(geometry.theta.v), .phi = static_cast<Scalar>(geometry.phi.v)},
+    .rho = {.theta = static_cast<Scalar>(geometry.rhoTheta.v), .phi = static_cast<Scalar>(geometry.rhoPhi.v)},
     .covariance = {.thetaTheta = angularVariance, .thetaPhi = 0.F, .phiPhi = angularVariance / sineTheta2},
   };
   for (std::size_t hit = 0; hit < points.size(); ++hit) {
@@ -234,12 +155,12 @@ ReferenceFactor referenceFactor(const std::array<PairPoint, 3>& points, Scalar a
     const Scalar tangentX = -points[hit].y * inverseR;
     const Scalar tangentY = points[hit].x * inverseR;
     const std::size_t coordinate = 3U * hit;
-    const Scalar thetaX = static_cast<Scalar>(geometry.theta.derivative[coordinate]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.derivative[coordinate]);
-    const Scalar thetaY = static_cast<Scalar>(geometry.theta.derivative[coordinate + 1U]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.derivative[coordinate + 1U]);
-    const Scalar thetaZ = static_cast<Scalar>(geometry.theta.derivative[coordinate + 2U]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.derivative[coordinate + 2U]);
-    const Scalar phiX = static_cast<Scalar>(geometry.phi.derivative[coordinate]) + kappaReference * static_cast<Scalar>(geometry.rhoPhi.derivative[coordinate]);
-    const Scalar phiY = static_cast<Scalar>(geometry.phi.derivative[coordinate + 1U]) + kappaReference * static_cast<Scalar>(geometry.rhoPhi.derivative[coordinate + 1U]);
-    const Scalar phiZ = static_cast<Scalar>(geometry.phi.derivative[coordinate + 2U]) + kappaReference * static_cast<Scalar>(geometry.rhoPhi.derivative[coordinate + 2U]);
+    const Scalar thetaX = static_cast<Scalar>(geometry.theta.d[coordinate]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.d[coordinate]);
+    const Scalar thetaY = static_cast<Scalar>(geometry.theta.d[coordinate + 1U]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.d[coordinate + 1U]);
+    const Scalar thetaZ = static_cast<Scalar>(geometry.theta.d[coordinate + 2U]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.d[coordinate + 2U]);
+    const Scalar phiX = static_cast<Scalar>(geometry.phi.d[coordinate]) + kappaReference * static_cast<Scalar>(geometry.rhoPhi.d[coordinate]);
+    const Scalar phiY = static_cast<Scalar>(geometry.phi.d[coordinate + 1U]) + kappaReference * static_cast<Scalar>(geometry.rhoPhi.d[coordinate + 1U]);
+    const Scalar phiZ = static_cast<Scalar>(geometry.phi.d[coordinate + 2U]) + kappaReference * static_cast<Scalar>(geometry.rhoPhi.d[coordinate + 2U]);
     const Scalar thetaRadial = thetaX * radialX + thetaY * radialY;
     const Scalar phiRadial = phiX * radialX + phiY * radialY;
     const Scalar thetaTangent = thetaX * tangentX + thetaY * tangentY;
@@ -269,8 +190,8 @@ struct ReferenceFit {
 ReferenceFit referenceAdjacentFit(const std::array<PairPoint, 4>& points, double varianceSecond, double varianceThird)
 {
   const std::array<ReferenceGeometry, 2> geometry{referenceGeometry({points[0], points[1], points[2]}), referenceGeometry({points[1], points[2], points[3]})};
-  const std::array<double, 4> psi{geometry[0].theta.value, geometry[0].phi.value, geometry[1].theta.value, geometry[1].phi.value};
-  const std::array<double, 4> rho{geometry[0].rhoTheta.value, geometry[0].rhoPhi.value, geometry[1].rhoTheta.value, geometry[1].rhoPhi.value};
+  const std::array<double, 4> psi{geometry[0].theta.v, geometry[0].phi.v, geometry[1].theta.v, geometry[1].phi.v};
+  const std::array<double, 4> rho{geometry[0].rhoTheta.v, geometry[0].rhoPhi.v, geometry[1].rhoTheta.v, geometry[1].rhoPhi.v};
   const auto sine2 = [&](std::size_t from, std::size_t to) {
     const double dx = static_cast<double>(points[to].x) - static_cast<double>(points[from].x);
     const double dy = static_cast<double>(points[to].y) - static_cast<double>(points[from].y);
@@ -293,14 +214,14 @@ ReferenceFit referenceAdjacentFit(const std::array<PairPoint, 4>& points, double
         continue;
       }
       const auto& g = geometry[triplet];
-      const double kappa = -g.phi.value / g.rhoPhi.value;
+      const double kappa = -g.phi.v / g.rhoPhi.v;
       const std::size_t coordinate = 3U * (hit - triplet);
       for (std::size_t angle = 0; angle < 2U; ++angle) {
         const auto& kink = angle == 0U ? g.theta : g.phi;
         const auto& slope = angle == 0U ? g.rhoTheta : g.rhoPhi;
-        const double dX = kink.derivative[coordinate] + kappa * slope.derivative[coordinate];
-        const double dY = kink.derivative[coordinate + 1U] + kappa * slope.derivative[coordinate + 1U];
-        const double dZ = kink.derivative[coordinate + 2U] + kappa * slope.derivative[coordinate + 2U];
+        const double dX = kink.d[coordinate] + kappa * slope.d[coordinate];
+        const double dY = kink.d[coordinate + 1U] + kappa * slope.d[coordinate + 1U];
+        const double dZ = kink.d[coordinate + 2U] + kappa * slope.d[coordinate + 2U];
         gradient[2U * triplet + angle] = {dX * radialX + dY * radialY, -dX * radialY + dY * radialX, dZ};
       }
     }

@@ -21,6 +21,7 @@
 #ifndef GTRK_TRACKING_TRIPLETFIT_H_
 #define GTRK_TRACKING_TRIPLETFIT_H_
 
+#include "GenericTracking/Base/DenseSolve.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/Trig.h"
 #include "GenericTracking/Tracking/Triplet.h"
@@ -29,6 +30,7 @@
 
 #include <cstddef>
 #include <limits>
+#include <type_traits>
 
 namespace o2::gtrk
 {
@@ -645,42 +647,6 @@ namespace detail
 
 constexpr int kAdjacentKinks = 4;
 
-/// Factor the symmetric positive definite \a covariance, given by its lower
-/// triangle, in place: the lower triangle becomes the Cholesky factor.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool choleskyDecompose(Scalar (&covariance)[kAdjacentKinks][kAdjacentKinks])
-{
-  for (int row = 0; row < kAdjacentKinks; ++row) {
-    for (int column = 0; column <= row; ++column) {
-      Scalar value = covariance[row][column];
-      for (int k = 0; k < column; ++k) {
-        value -= covariance[row][k] * covariance[column][k];
-      }
-      if (row == column) {
-        if (!(value > 0.F)) {
-          return false;
-        }
-        covariance[row][row] = o2::gpu::GPUCommonMath::Sqrt(value);
-      } else {
-        covariance[row][column] = value / covariance[column][column];
-      }
-    }
-  }
-  return true;
-}
-
-/// Whiten a vector with L^-1. The curvature fit needs only contractions with
-/// C^-1 = L^-T L^-1, so backward substitution is unnecessary.
-GPUhdi() GPUAlwaysInline() void choleskyWhiten(const Scalar (&lower)[kAdjacentKinks][kAdjacentKinks], const Scalar (&right)[kAdjacentKinks], Scalar (&whitened)[kAdjacentKinks])
-{
-  for (int row = 0; row < kAdjacentKinks; ++row) {
-    Scalar value = right[row];
-    for (int column = 0; column < row; ++column) {
-      value -= lower[row][column] * whitened[column];
-    }
-    whitened[row] = value / lower[row][row];
-  }
-}
-
 [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar dot(const Scalar (&left)[kAdjacentKinks], const Scalar (&right)[kAdjacentKinks])
 {
   Scalar result = 0.F;
@@ -747,13 +713,17 @@ GPUhdi() GPUAlwaysInline() void choleskyWhiten(const Scalar (&lower)[kAdjacentKi
     }
   }
 
-  if (!detail::choleskyDecompose(covariance)) {
+  // The kinks whitened by the covariance's Cholesky factor L: the curvature
+  // fit needs only contractions with C^-1 = L^-T L^-1, so L^-1 alone.
+  constexpr std::integral_constant<int, detail::kAdjacentKinks> kKinks{};
+  const dense::MatrixView<Scalar> lower{&covariance[0][0], detail::kAdjacentKinks};
+  if (!dense::choleskyFactor(lower, kKinks)) {
     return false;
   }
-  Scalar whitenedPsi[detail::kAdjacentKinks]{};
-  Scalar whitenedRho[detail::kAdjacentKinks]{};
-  detail::choleskyWhiten(covariance, psi, whitenedPsi);
-  detail::choleskyWhiten(covariance, rho, whitenedRho);
+  Scalar whitenedPsi[detail::kAdjacentKinks]{psi[0], psi[1], psi[2], psi[3]};
+  Scalar whitenedRho[detail::kAdjacentKinks]{rho[0], rho[1], rho[2], rho[3]};
+  dense::forwardSolve(lower, kKinks, whitenedPsi);
+  dense::forwardSolve(lower, kKinks, whitenedRho);
   return detail::curvatureFit(detail::dot(whitenedPsi, whitenedPsi), detail::dot(whitenedRho, whitenedPsi), detail::dot(whitenedRho, whitenedRho), result);
 }
 
