@@ -25,7 +25,7 @@
 /// (DecayVertexFit.h). Each daughter's rows are refitted with its true
 /// species (`refitWithHypothesis`); the vertex is fitted from the daughters'
 /// states alone, under the mother's mass, its production at the MC collision
-/// vertex, and both (DecayConstraints.h), a record each.
+/// vertex, and both (DecayFitConstraints.h), a record each.
 ///
 /// Truth: the vertex against the MC decay point (the products' production
 /// point), in the global frame and along the true flight; the daughters'
@@ -42,10 +42,10 @@
 #define GTRK_STUDY_DECAYFITSTUDY_H_
 
 #include "GenericTracking/Study/DecayCandidates.h"
-#include "GenericTracking/Study/DecayConstraints.h"
+#include "GenericTracking/Tracking/DecayFitConstraints.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/DecayTrees.h"
-#include "GenericTracking/Study/DecayVertexFit.h"
+#include "GenericTracking/Tracking/DecayVertexFit.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/StateTruth.h"
 #include "GenericTracking/Study/StudyChains.h"

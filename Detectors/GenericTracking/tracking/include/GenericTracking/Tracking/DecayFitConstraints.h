@@ -9,7 +9,7 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-/// \file DecayConstraints.h
+/// \file DecayFitConstraints.h
 /// \brief Hard constraints on a decay vertex fit's parameters -- the vertex V
 ///        and each daughter's phi, theta, q/p at it -- and the constrained
 ///        Gauss-Newton step the fit takes (DecayVertexFit.h).
@@ -32,10 +32,10 @@
 /// constraints linearised, by Lagrange multipliers; its covariance is the
 /// unconstrained one less what the constraints fix.
 
-#ifndef GTRK_STUDY_DECAYCONSTRAINTS_H_
-#define GTRK_STUDY_DECAYCONSTRAINTS_H_
+#ifndef GTRK_TRACKING_DECAYFITCONSTRAINTS_H_
+#define GTRK_TRACKING_DECAYFITCONSTRAINTS_H_
 
-#include "GenericTracking/Study/DecayFitMath.h"
+#include "GenericTracking/Tracking/DecayFitMath.h"
 
 #include <array>
 #include <cmath>
@@ -43,7 +43,7 @@
 #include <type_traits>
 #include <vector>
 
-namespace o2::gtrk::study
+namespace o2::gtrk
 {
 
 /// A decay tree's shape: which vertex each daughter leaves, and how the
@@ -337,6 +337,6 @@ template <typename S>
 
 } // namespace decay_fit_detail
 
-} // namespace o2::gtrk::study
+} // namespace o2::gtrk
 
-#endif // GTRK_STUDY_DECAYCONSTRAINTS_H_
+#endif // GTRK_TRACKING_DECAYFITCONSTRAINTS_H_

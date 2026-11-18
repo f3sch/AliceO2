@@ -18,8 +18,8 @@
 #define BOOST_TEST_MODULE Test GTRK decay vertex fit
 #include <boost/test/unit_test.hpp>
 
-#include "GenericTracking/Study/DecayConstraints.h"
-#include "GenericTracking/Study/DecayVertexFit.h"
+#include "GenericTracking/Tracking/DecayFitConstraints.h"
+#include "GenericTracking/Tracking/DecayVertexFit.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 
 #include "DetectorsBase/MatCell.h"
