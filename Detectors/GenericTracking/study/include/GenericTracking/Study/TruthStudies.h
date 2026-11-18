@@ -16,7 +16,9 @@
 /// Modules: `gsf` (GSFStudy.h), `species` (SpeciesFitStudy.h), `clusters`
 /// (ClusterPullStudy.h), `decaycensus` (DecayCensusStudy.h), `decayfit`
 /// (DecayFitStudy.h), `decayprecision` (its fits in reduced precision against
-/// double, DecayPrecisionRecord). Sources: `truth`, the particles' own rows,
+/// double, DecayPrecisionRecord), `decaydevice` (its fits through a packed
+/// batch on the host and on a GPU backend, DecayDeviceRecord). Sources:
+/// `truth`, the particles' own rows,
 /// and `tracks`, the tracker's good tracks (StudyChains.h). The path's
 /// extension picks the format (RecordWriter.h). The bench and the sink both
 /// hold one of these for the run and hand it each timeframe.
@@ -63,12 +65,13 @@ class TruthStudies
   /// The studies \a specs name, every one's chains taken by \a selection.
   /// Throws std::invalid_argument for an unknown module, an output of another
   /// format or one named twice, before any output is opened.
-  TruthStudies(std::span<const TruthStudySpec> specs, ChainSelection selection) : mSelection(std::move(selection))
+  /// `decaydevice` fits on \a device's backend.
+  TruthStudies(std::span<const TruthStudySpec> specs, ChainSelection selection, const DecayDeviceSettings& device = {}) : mSelection(std::move(selection))
   {
     std::vector<std::string_view> paths;
     for (const auto& spec : specs) {
-      if (spec.module != "gsf" && spec.module != "species" && spec.module != "decaycensus" && spec.module != "decayfit" && spec.module != "decayprecision" && spec.module != "clusters") {
-        throw std::invalid_argument("truth study " + spec.module + ": the modules are gsf, species, decaycensus, decayfit, decayprecision and clusters");
+      if (spec.module != "gsf" && spec.module != "species" && spec.module != "decaycensus" && spec.module != "decayfit" && spec.module != "decayprecision" && spec.module != "decaydevice" && spec.module != "clusters") {
+        throw std::invalid_argument("truth study " + spec.module + ": the modules are gsf, species, decaycensus, decayfit, decayprecision, decaydevice and clusters");
       }
       if (!RecordWriter::writes(spec.path) || std::ranges::find(paths, spec.path) != paths.end()) {
         throw std::invalid_argument("truth study " + spec.module + ": its output " + spec.path + " is not a new .csv or .root path");
@@ -88,7 +91,9 @@ class TruthStudies
       } else if (spec.module == "decaycensus") {
         study->module.template emplace<DecayCensusStudy<Det>>(*study->writer);
       } else {
-        study->module.template emplace<DecayFitStudy<Det>>(*study->writer, spec.module == "decayprecision");
+        using Mode = typename DecayFitStudy<Det>::Mode;
+        const auto mode = spec.module == "decayprecision" ? Mode::kPrecision : (spec.module == "decaydevice" ? Mode::kDevice : Mode::kFit);
+        study->module.template emplace<DecayFitStudy<Det>>(*study->writer, mode, device);
       }
     }
   }
