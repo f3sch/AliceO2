@@ -74,11 +74,12 @@ struct LayerCrossingPrediction {
 namespace follow
 {
 
-GPUhdi() GPUAlwaysInline() ExactScalar directedTurn(ExactScalar turn, ExactScalar curvature, PropagationDirection direction)
+template <typename T>
+GPUhdi() GPUAlwaysInline() T directedTurn(T turn, T curvature, PropagationDirection direction)
 {
-  const auto wanted = static_cast<ExactScalar>(static_cast<int>(direction));
-  if ((turn / curvature) * wanted < 0.) {
-    turn += wanted * (curvature > 0. ? 2 * std::numbers::pi_v<ExactScalar> : -(2 * std::numbers::pi_v<ExactScalar>));
+  const auto wanted = static_cast<T>(static_cast<int>(direction));
+  if ((turn / curvature) * wanted < T{0}) {
+    turn += wanted * (curvature > T{0} ? T{2} * std::numbers::pi_v<T> : -(T{2} * std::numbers::pi_v<T>));
   }
   return turn;
 }
@@ -87,31 +88,35 @@ GPUhdi() GPUAlwaysInline() ExactScalar directedTurn(ExactScalar turn, ExactScala
 /// Such a crossing is a looper coming round again -- a track at eta ~ 0 reaches
 /// a forward disc after about ten turns -- and not the next layer of the same
 /// arc; its transported covariance is also past what float can factorise.
-GPUhdi() GPUAlwaysInline() bool beyondHalfTurn(ExactScalar turn) { return o2::gpu::CAMath::Abs(turn) > std::numbers::pi_v<ExactScalar>; }
+template <typename T>
+GPUhdi() GPUAlwaysInline() bool beyondHalfTurn(T turn) { return o2::gpu::CAMath::Abs(turn) > std::numbers::pi_v<T>; }
 
-GPUhdi() GPUAlwaysInline() bool nearerPath(ExactScalar candidate, ExactScalar chosen) { return exactlyEqual(chosen, ExactScalar{0}) || o2::gpu::CAMath::Abs(candidate) < o2::gpu::CAMath::Abs(chosen); }
+template <typename T>
+GPUhdi() GPUAlwaysInline() bool nearerPath(T candidate, T chosen) { return exactlyEqual(chosen, T{0}) || o2::gpu::CAMath::Abs(candidate) < o2::gpu::CAMath::Abs(chosen); }
 
 } // namespace follow
 
 /// What every layer crossing of one state needs, taken once for the
-/// state: its global position, its direction's sines and cosines, its
+/// state, in float: the crossing only names the layer's sensors to search
+/// and orders the targets, the window and every state taken are the
+/// double plane solve's. Per state: its global position, its direction's sines and cosines, its
 /// curvature and, on a helix, the circle it turns on. \a status is not kOk
 /// where the state runs along the beam axis.
 struct LayerCrossingStart {
   Scalar position[3]{};
-  ExactScalar start[3]{};
-  ExactScalar sinPhi = 0.;
-  ExactScalar cosPhi = 0.;
-  ExactScalar sinTheta = 0.;
-  ExactScalar cosTheta = 0.;
-  ExactScalar curvature = 0.;
-  ExactScalar minAbsCosIncidence = 0.;
+  Scalar start[3]{};
+  Scalar sinPhi = 0.F;
+  Scalar cosPhi = 0.F;
+  Scalar sinTheta = 0.F;
+  Scalar cosTheta = 0.F;
+  Scalar curvature = 0.F;
+  Scalar minAbsCosIncidence = 0.F;
   // The helix's circle in the transverse plane, where |curvature| >= 1e-12.
-  ExactScalar inverse = 0.;
-  ExactScalar centreX = 0.;
-  ExactScalar centreY = 0.;
-  ExactScalar centreDistance = 0.;
-  ExactScalar circleRadius = 0.;
+  Scalar inverse = 0.F;
+  Scalar centreX = 0.F;
+  Scalar centreY = 0.F;
+  Scalar centreDistance = 0.F;
+  Scalar circleRadius = 0.F;
   PropagationStatus status = PropagationStatus::kNotFinite;
 };
 
@@ -124,20 +129,20 @@ template <typename Prop>
   const auto& propagator = pointPropagator(prop, from, state);
   surfaceToGlobal(from, state.loc0(), state.loc1(), s.position);
   for (int i = 0; i < 3; ++i) {
-    s.start[i] = static_cast<ExactScalar>(s.position[i]);
+    s.start[i] = static_cast<Scalar>(s.position[i]);
   }
-  sincosOf(static_cast<ExactScalar>(state.phi()), s.sinPhi, s.cosPhi);
-  sincosOf(static_cast<ExactScalar>(state.theta()), s.sinTheta, s.cosTheta);
-  if (Math::Abs(s.sinTheta) < 1.e-9) {
+  sincosOf(static_cast<Scalar>(state.phi()), s.sinPhi, s.cosPhi);
+  sincosOf(static_cast<Scalar>(state.theta()), s.sinTheta, s.cosTheta);
+  if (Math::Abs(s.sinTheta) < 1.e-9F) {
     return s;
   }
-  s.curvature = propagator.curvature(static_cast<ExactScalar>(state.qOverP()), s.sinTheta);
-  s.minAbsCosIncidence = static_cast<ExactScalar>(propagator.minAbsCosIncidence);
-  if (!(Math::Abs(s.curvature) < 1.e-12)) {
-    s.inverse = 1. / s.curvature;
+  s.curvature = (static_cast<Scalar>(state.qOverP()) / s.sinTheta) * static_cast<Scalar>(propagator.bzKiloGauss) * static_cast<Scalar>(constants::math::B2C);
+  s.minAbsCosIncidence = static_cast<Scalar>(propagator.minAbsCosIncidence);
+  if (!(Math::Abs(s.curvature) < 1.e-12F)) {
+    s.inverse = 1.F / s.curvature;
     s.centreX = s.start[0] - (s.sinPhi * s.inverse);
     s.centreY = s.start[1] + (s.cosPhi * s.inverse);
-    s.centreDistance = static_cast<ExactScalar>(Math::Sqrt(static_cast<Scalar>((s.centreX * s.centreX) + (s.centreY * s.centreY))));
+    s.centreDistance = (Math::Sqrt(((s.centreX * s.centreX) + (s.centreY * s.centreY))));
     s.circleRadius = Math::Abs(s.inverse);
   }
   s.status = PropagationStatus::kOk;
@@ -157,61 +162,61 @@ template <DetectorLayout Det>
     result.status = s.status;
     return result;
   }
-  const ExactScalar* start = s.start;
-  const ExactScalar sinPhi = s.sinPhi;
-  const ExactScalar cosPhi = s.cosPhi;
-  const ExactScalar sinTheta = s.sinTheta;
-  const ExactScalar cosTheta = s.cosTheta;
-  const ExactScalar curvature = s.curvature;
-  const auto directionValue = static_cast<ExactScalar>(static_cast<int>(direction));
-  ExactScalar path = 0.;
-  ExactScalar x = start[0];
-  ExactScalar y = start[1];
-  ExactScalar z = start[2];
+  const Scalar* start = s.start;
+  const Scalar sinPhi = s.sinPhi;
+  const Scalar cosPhi = s.cosPhi;
+  const Scalar sinTheta = s.sinTheta;
+  const Scalar cosTheta = s.cosTheta;
+  const Scalar curvature = s.curvature;
+  const auto directionValue = static_cast<Scalar>(static_cast<int>(direction));
+  Scalar path = 0.F;
+  Scalar x = start[0];
+  Scalar y = start[1];
+  Scalar z = start[2];
 
   if (Detector<Det>::hasDiscs && !Detector<Det>::isBarrelLayer(layer)) {
     if (Math::Abs(cosTheta) < s.minAbsCosIncidence) {
       result.status = PropagationStatus::kGrazing;
       return result;
     }
-    path = (static_cast<ExactScalar>(parameters.layerSpans[layer].position) - start[2]) / cosTheta;
-    if (path * directionValue < 0.) {
+    path = (static_cast<Scalar>(parameters.layerSpans[layer].position) - start[2]) / cosTheta;
+    if (path * directionValue < 0.F) {
       result.status = PropagationStatus::kWrongDirection;
       return result;
     }
-    const ExactScalar turn = curvature * path * sinTheta;
+    const Scalar turn = curvature * path * sinTheta;
     if (follow::beyondHalfTurn(turn)) {
       result.status = PropagationStatus::kTooManyTurns;
       return result;
     }
-    const ExactScalar transverse = path * sinTheta;
-    ExactScalar sincTurn = 0.;
-    ExactScalar versineTurn = 0.;
+    const Scalar transverse = path * sinTheta;
+    Scalar sincTurn = 0.F;
+    Scalar versineTurn = 0.F;
     sincVersine(turn, sincTurn, versineTurn);
     x += transverse * ((cosPhi * sincTurn) - (sinPhi * versineTurn));
     y += transverse * ((sinPhi * sincTurn) + (cosPhi * versineTurn));
-    z = static_cast<ExactScalar>(parameters.layerSpans[layer].position);
+    z = static_cast<Scalar>(parameters.layerSpans[layer].position);
   } else {
-    const auto radius = static_cast<ExactScalar>(parameters.layerSpans[layer].position);
-    const ExactScalar dot = (start[0] * cosPhi) + (start[1] * sinPhi);
-    const ExactScalar radial = (start[0] * start[0]) + (start[1] * start[1]) - (radius * radius);
-    if (Math::Abs(curvature) < 1.e-12) {
-      const ExactScalar discriminant = (dot * dot) - radial;
-      if (discriminant < 0.) {
+    const auto radius = static_cast<Scalar>(parameters.layerSpans[layer].position);
+    const Scalar dot = (start[0] * cosPhi) + (start[1] * sinPhi);
+    const Scalar radial = (start[0] * start[0]) + (start[1] * start[1]) - (radius * radius);
+    if (Math::Abs(curvature) < 1.e-12F) {
+      const Scalar discriminant = (dot * dot) - radial;
+      if (discriminant < 0.F) {
         result.status = PropagationStatus::kNoIntersection;
         return result;
       }
-      const auto root = static_cast<ExactScalar>(Math::Sqrt(static_cast<Scalar>(discriminant)));
-      const ExactScalar first = -dot - root;
-      const ExactScalar second = -dot + root;
-      ExactScalar transverse = 0.;
-      if (first * directionValue >= 0.) {
+      const auto root = (Math::Sqrt((discriminant)));
+      const Scalar first = -dot - root;
+      const Scalar second = -dot + root;
+      Scalar transverse = 0.F;
+      if (first * directionValue >= 0.F) {
         transverse = first;
       }
-      if (second * directionValue >= 0. && follow::nearerPath(second, transverse)) {
+      if (second * directionValue >= 0.F && follow::nearerPath(second, transverse)) {
         transverse = second;
       }
-      if (exactlyEqual(transverse, ExactScalar{0})) {
+      if (exactlyEqual(transverse, Scalar{0})) {
         result.status = PropagationStatus::kWrongDirection;
         return result;
       }
@@ -220,44 +225,44 @@ template <DetectorLayout Det>
       y += transverse * sinPhi;
       z += path * cosTheta;
     } else {
-      const ExactScalar centreX = s.centreX;
-      const ExactScalar centreY = s.centreY;
-      const ExactScalar centreDistance = s.centreDistance;
-      const ExactScalar circleRadius = s.circleRadius;
-      if (centreDistance > radius + circleRadius || centreDistance < Math::Abs(radius - circleRadius) || !(centreDistance > 0.)) {
+      const Scalar centreX = s.centreX;
+      const Scalar centreY = s.centreY;
+      const Scalar centreDistance = s.centreDistance;
+      const Scalar circleRadius = s.circleRadius;
+      if (centreDistance > radius + circleRadius || centreDistance < Math::Abs(radius - circleRadius) || !(centreDistance > 0.F)) {
         result.status = PropagationStatus::kNoIntersection;
         return result;
       }
-      const ExactScalar along = ((radius * radius) - (circleRadius * circleRadius) + (centreDistance * centreDistance)) / (2. * centreDistance);
-      const ExactScalar heightSquared = (radius * radius) - (along * along);
-      if (heightSquared < 0.) {
+      const Scalar along = ((radius * radius) - (circleRadius * circleRadius) + (centreDistance * centreDistance)) / (2.F * centreDistance);
+      const Scalar heightSquared = (radius * radius) - (along * along);
+      if (heightSquared < 0.F) {
         result.status = PropagationStatus::kNoIntersection;
         return result;
       }
-      const auto height = static_cast<ExactScalar>(Math::Sqrt(static_cast<Scalar>(heightSquared)));
-      const ExactScalar unitX = centreX / centreDistance;
-      const ExactScalar unitY = centreY / centreDistance;
-      ExactScalar chosenPath = 0.;
-      ExactScalar chosenX = 0.;
-      ExactScalar chosenY = 0.;
+      const auto height = (Math::Sqrt((heightSquared)));
+      const Scalar unitX = centreX / centreDistance;
+      const Scalar unitY = centreY / centreDistance;
+      Scalar chosenPath = 0.F;
+      Scalar chosenX = 0.F;
+      Scalar chosenY = 0.F;
       for (int side = -1; side <= 1; side += 2) {
-        const auto sideValue = static_cast<ExactScalar>(side);
-        const ExactScalar candidateX = (along * unitX) - (sideValue * height * unitY);
-        const ExactScalar candidateY = (along * unitY) + (sideValue * height * unitX);
-        const ExactScalar deltaX = candidateX - start[0];
-        const ExactScalar deltaY = candidateY - start[1];
-        const ExactScalar alongDirection = (deltaX * cosPhi) + (deltaY * sinPhi);
-        const ExactScalar alongNormal = (-deltaX * sinPhi) + (deltaY * cosPhi);
-        ExactScalar turn = atan2Of(curvature * alongDirection, 1. - (curvature * alongNormal));
+        const auto sideValue = static_cast<Scalar>(side);
+        const Scalar candidateX = (along * unitX) - (sideValue * height * unitY);
+        const Scalar candidateY = (along * unitY) + (sideValue * height * unitX);
+        const Scalar deltaX = candidateX - start[0];
+        const Scalar deltaY = candidateY - start[1];
+        const Scalar alongDirection = (deltaX * cosPhi) + (deltaY * sinPhi);
+        const Scalar alongNormal = (-deltaX * sinPhi) + (deltaY * cosPhi);
+        Scalar turn = atan2Of(curvature * alongDirection, 1.F - (curvature * alongNormal));
         turn = follow::directedTurn(turn, curvature, direction);
-        const ExactScalar candidatePath = turn / (curvature * sinTheta);
-        if (candidatePath * directionValue >= 0. && follow::nearerPath(candidatePath, chosenPath)) {
+        const Scalar candidatePath = turn / (curvature * sinTheta);
+        if (candidatePath * directionValue >= 0.F && follow::nearerPath(candidatePath, chosenPath)) {
           chosenPath = candidatePath;
           chosenX = candidateX;
           chosenY = candidateY;
         }
       }
-      if (exactlyEqual(chosenPath, ExactScalar{0})) {
+      if (exactlyEqual(chosenPath, Scalar{0})) {
         result.status = PropagationStatus::kWrongDirection;
         return result;
       }
@@ -342,7 +347,7 @@ struct KinkSteps {
 /// which never multiplies (`detail::scaledTheta0`). \a traversed, where
 /// given, gets the step's material. The body, inlined where it is called;
 /// the follow calls `transportCandidate`.
-template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
+template <bool Scaled, typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material>
 [[nodiscard]] GPUhdi() GPUAlwaysInline() bool transportCandidateInline(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& GPUrestrict() input, const CovarianceFactors& GPUrestrict() inputFactors, BoundParameters& GPUrestrict() output, CovarianceFactors& GPUrestrict() outputFactors, Scalar noiseScale, detail::StepMaterial* GPUrestrict() traversed = nullptr)
 {
   const auto& from = geometry.planeOf(input);
@@ -351,13 +356,19 @@ template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
   surfaceToGlobal(from, input.loc0(), input.loc1(), start);
   SolenoidJacobian jacobian;
   PropagationResult propagated;
-  if (jacobianAnalytic(propagator, input, from, to, direction, jacobian, &output, &propagated) != PropagationStatus::kOk) {
+  if (jacobianAnalytic<Scalar, CrossingRule::kFirstAhead, Solve>(propagator, input, from, to, direction, jacobian, &output, &propagated) != PropagationStatus::kOk) {
     return false;
   }
   // The turn is kappa times the transverse path, (q/p) Bz B2C times the 3D
   // path: curvature() at sin(theta) = 1 against the 3D length.
-  if (beyondHalfTurn(propagator.curvature(static_cast<ExactScalar>(input.qOverP()), 1.) * static_cast<ExactScalar>(propagated.pathLength))) {
-    return false;
+  if constexpr (std::is_same_v<Solve, ExactScalar>) {
+    if (beyondHalfTurn(propagator.curvature(static_cast<ExactScalar>(input.qOverP()), 1.) * static_cast<ExactScalar>(propagated.pathLength))) {
+      return false;
+    }
+  } else {
+    if (beyondHalfTurn(input.qOverP() * propagator.bzKiloGauss * static_cast<Scalar>(constants::math::B2C) * propagated.pathLength)) {
+      return false;
+    }
   }
   Scalar end[3]{};
   surfaceToGlobal(to, output.loc0(), output.loc1(), end);
@@ -377,10 +388,10 @@ template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
 /// every search shares. Only
 /// `FollowStage::passingOn` takes the body inline (`updateCandidate`'s
 /// \a Inlined).
-template <bool Scaled, typename Prop, DetectorLayout Det, typename Material>
+template <bool Scaled, typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material>
 [[nodiscard]] GPUhdnii() bool transportCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& GPUrestrict() input, const CovarianceFactors& GPUrestrict() inputFactors, BoundParameters& GPUrestrict() output, CovarianceFactors& GPUrestrict() outputFactors, Scalar noiseScale, detail::StepMaterial* GPUrestrict() traversed = nullptr)
 {
-  return transportCandidateInline<Scaled>(prop, geometry, material, to, direction, input, inputFactors, output, outputFactors, noiseScale, traversed);
+  return transportCandidateInline<Scaled, Solve>(prop, geometry, material, to, direction, input, inputFactors, output, outputFactors, noiseScale, traversed);
 }
 
 /// \a input, its covariance \a inputFactors (CovarianceFactors), carried to
@@ -467,7 +478,9 @@ GPUhdi() bool predictedWindow(const Prop& prop, const IterationParameters<Det>& 
   plane.layer = target;
   BoundParameters predicted;
   CovarianceFactors predictedFactors;
-  if (!transportCandidate<Scaled>(prop, geometry, material, plane, direction, state, factors, predicted, predictedFactors, noiseScale, traversed)) {
+  // Navigation: the window's plane, centre and widths need no more than a
+  // float solve (the states taken into the track are transported in double).
+  if (!transportCandidate<Scaled, Scalar>(prop, geometry, material, plane, direction, state, factors, predicted, predictedFactors, noiseScale, traversed)) {
     return false;
   }
   Scalar predictedCov[kBoundCovSize]{};
@@ -1715,7 +1728,7 @@ class FollowStage
     Scalar point[3]{};
     follow::crossingPoint(*mParameters, target.layer, target.prediction, point);
     const auto& propagator = pointPropagator(mPropagator, from, state);
-    const ExactScalar curvature = propagator.curvature(static_cast<ExactScalar>(state.qOverP()), 1.);
+    const Scalar curvature = state.qOverP() * propagator.bzKiloGauss * static_cast<Scalar>(constants::math::B2C);
     const bool crossed = mCells.anySensor(target.layer, target.prediction.phi, reach[0], target.prediction.second, reach[1], [&](std::uint32_t id) {
       const TrackingSurface& surface = mGeometry->surface(static_cast<SensorID>(id));
       TrackingSurface plane = surface;
@@ -1729,8 +1742,8 @@ class FollowStage
         plane = tangentPlane(surface, o2::gpu::CAMath::ATan2(along1, along0));
       }
       BoundParameters at = state;
-      const auto result = propagate(propagator, at, from, plane, direction);
-      return result.status == PropagationStatus::kOk && !follow::beyondHalfTurn(curvature * static_cast<ExactScalar>(result.pathLength));
+      const auto result = propagate<CrossingRule::kFirstAhead, Scalar>(propagator, at, from, plane, direction);
+      return result.status == PropagationStatus::kOk && !follow::beyondHalfTurn(curvature * result.pathLength);
     });
     countWork(WorkCounter::kFollowHoles, crossed ? 1U : 0U);
     return crossed;
