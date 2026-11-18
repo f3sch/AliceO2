@@ -156,7 +156,7 @@ GPUhdi() GPUAlwaysInline() T dVersine(T x)
 
 /// sinc of a dual number: the value and its derivative chained.
 template <int N, typename T>
-[[nodiscard]] dual::Dual<N, T> sinc(const dual::Dual<N, T>& a)
+[[nodiscard]] GPUhdi() dual::Dual<N, T> sinc(const dual::Dual<N, T>& a)
 {
   return dual::chain(a, sinc<T>(a.v), dSinc<T>(a.v));
 }
@@ -323,7 +323,7 @@ GPUhdi() GPUAlwaysInline() AsinOverArgument<T> asinOverArgumentWithDerivative(T 
 
 /// asin(x) / x of a dual number: the value and its derivative chained.
 template <int N, typename T>
-[[nodiscard]] dual::Dual<N, T> asinOverArgument(const dual::Dual<N, T>& a)
+[[nodiscard]] GPUhdi() dual::Dual<N, T> asinOverArgument(const dual::Dual<N, T>& a)
 {
   const auto both = asinOverArgumentWithDerivative<T>(a.v);
   return dual::chain(a, both.value, both.derivative);

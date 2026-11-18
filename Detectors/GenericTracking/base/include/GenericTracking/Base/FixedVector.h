@@ -1,0 +1,74 @@
+// Copyright 2019-2020 CERN and copyright holders of ALICE O2.
+// See https://alice-o2.web.cern.ch/copyright for details of the copyright holders.
+// All rights not expressly granted are reserved.
+//
+// This software is distributed under the terms of the GNU General Public
+// License v3 (GPL Version 3), copied verbatim in the file "COPYING".
+//
+// In applying this license CERN does not waive the privileges and immunities
+// granted to it by virtue of its status as an Intergovernmental Organization
+// or submit itself to any jurisdiction.
+
+/// \file FixedVector.h
+/// \brief At most a compile-time number of elements in place, a runtime count
+///        of them used: storage bounded by a capacity, without allocation, on
+///        the host and on the device.
+
+#ifndef GTRK_BASE_FIXEDVECTOR_H_
+#define GTRK_BASE_FIXEDVECTOR_H_
+
+#include "GPUCommonDef.h"
+
+#include <array>
+#include <cstddef>
+#include <initializer_list>
+
+namespace o2::gtrk
+{
+
+/// Elements a resize adds are value-initialised, as std::vector's. The
+/// caller keeps within the capacity.
+template <typename T, std::size_t Capacity>
+struct FixedVector {
+  std::array<T, Capacity> items{};
+  std::size_t count = 0;
+
+  FixedVector() = default;
+  /// The elements of \a values (host code's brace initialisation).
+  FixedVector(std::initializer_list<T> values)
+  {
+    for (const auto& value : values) {
+      items[count++] = value;
+    }
+  }
+
+  [[nodiscard]] GPUhdi() static constexpr std::size_t capacity() { return Capacity; }
+  [[nodiscard]] GPUhdi() std::size_t size() const { return count; }
+  [[nodiscard]] GPUhdi() bool empty() const { return count == 0; }
+  [[nodiscard]] GPUhdi() T* data() { return items.data(); }
+  [[nodiscard]] GPUhdi() const T* data() const { return items.data(); }
+  [[nodiscard]] GPUhdi() T* begin() { return items.data(); }
+  [[nodiscard]] GPUhdi() T* end() { return items.data() + count; }
+  [[nodiscard]] GPUhdi() const T* begin() const { return items.data(); }
+  [[nodiscard]] GPUhdi() const T* end() const { return items.data() + count; }
+  [[nodiscard]] GPUhdi() T& operator[](std::size_t i) { return items[i]; }
+  [[nodiscard]] GPUhdi() const T& operator[](std::size_t i) const { return items[i]; }
+  [[nodiscard]] GPUhdi() T& front() { return items[0]; }
+  [[nodiscard]] GPUhdi() const T& front() const { return items[0]; }
+  [[nodiscard]] GPUhdi() T& back() { return items[count - 1]; }
+  [[nodiscard]] GPUhdi() const T& back() const { return items[count - 1]; }
+  GPUhdi() void clear() { count = 0; }
+  GPUhdi() void push_back(const T& value) { items[count++] = value; }
+  GPUhdi() void pop_back() { --count; }
+  GPUhdi() void resize(std::size_t size)
+  {
+    for (std::size_t i = count; i < size; ++i) {
+      items[i] = T{};
+    }
+    count = size;
+  }
+};
+
+} // namespace o2::gtrk
+
+#endif // GTRK_BASE_FIXEDVECTOR_H_

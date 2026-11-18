@@ -18,29 +18,87 @@
 #define GTRK_TRACKING_DECAYFITMATH_H_
 
 #include "GenericTracking/Base/Dual.h"
+#include "GenericTracking/Base/FixedVector.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Base/DenseSolve.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
-#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <cmath>
+#include <cfloat>
 #include <limits>
 #include <numbers>
 #include <span>
-#include <vector>
+#include <type_traits>
 
 namespace o2::gtrk::decay_fit_detail
 {
 
 using o2::gtrk::dual::Dual;
 
+/// Small arithmetic the fit's code shares, on the host and the device.
+[[nodiscard]] GPUhdi() double hypotOf(double a, double b) { return sqrtOf((a * a) + (b * b)); }
+[[nodiscard]] GPUhdi() double hypotOf(double a, double b, double c) { return sqrtOf((a * a) + (b * b) + (c * c)); }
+/// Finite, in every build (O2's `CAMath::Finite` is a constant outside the
+/// deterministic mode): NaN fails both comparisons, an infinity one.
+[[nodiscard]] GPUhdi() bool isFiniteDouble(double x) { return x >= -DBL_MAX && x <= DBL_MAX; }
+/// ln(1 + x) without losing x's digits to the sum: ln(u) x / (u - 1) with
+/// u = 1 + x rounded, exact where u is 1 (Goldberg's form).
+[[nodiscard]] GPUhdi() double log1pOf(double x)
+{
+  const double u = 1. + x;
+  return u == 1. ? x : logOf(u) * x / (u - 1.);
+}
+/// An angle difference within (-3 pi, 3 pi) brought to [-pi, pi], with pi
+/// in T's own precision.
+template <typename T>
+[[nodiscard]] GPUhdi() T angleInPMPi(T x)
+{
+  constexpr T kPi = std::numbers::pi_v<T>;
+  if (x > kPi) {
+    return x - (T(2) * kPi);
+  }
+  return x < -kPi ? x + (T(2) * kPi) : x;
+}
+template <typename From, typename To>
+GPUhdi() void copyN(const From* from, std::size_t n, To* to)
+{
+  for (std::size_t i = 0; i < n; ++i) {
+    to[i] = from[i];
+  }
+}
+template <typename T, typename V>
+GPUhdi() void fillN(T* to, std::size_t n, const V& value)
+{
+  for (std::size_t i = 0; i < n; ++i) {
+    to[i] = value;
+  }
+}
+/// sin and cos of a scalar or a dual number.
+template <typename T>
+[[nodiscard]] GPUhdi() T sinAny(const T& x)
+{
+  if constexpr (std::is_same_v<T, typename dual::ScalarOf<T>::type>) {
+    return sinOf(x);
+  } else {
+    return dual::sin(x);
+  }
+}
+template <typename T>
+[[nodiscard]] GPUhdi() T cosAny(const T& x)
+{
+  if constexpr (std::is_same_v<T, typename dual::ScalarOf<T>::type>) {
+    return cosOf(x);
+  } else {
+    return dual::cos(x);
+  }
+}
+
 /// q/p's numerator for a particle of \a charge: |q|, 1 for a neutral one
 /// (its q/p is 1/p).
-[[nodiscard]] inline double numeratorOf(double charge) { return charge != 0. ? std::abs(charge) : 1.; }
+[[nodiscard]] GPUhdi() double numeratorOf(double charge) { return charge != 0. ? o2::gpu::CAMath::Abs(charge) : 1.; }
 
 /// A momentum: its vector and its magnitude [GeV].
 template <typename T>
@@ -52,15 +110,13 @@ struct Momentum {
 /// The momentum of direction \a phi, \a theta and \a qOverP with q/p's
 /// \a numerator (`numeratorOf`), in doubles or dual numbers.
 template <typename T>
-[[nodiscard]] Momentum<T> momentumOf(const T& phi, const T& theta, const T& qOverP, double numerator)
+[[nodiscard]] GPUhdi() Momentum<T> momentumOf(const T& phi, const T& theta, const T& qOverP, double numerator)
 {
   using dual::valueOf;
-  using std::cos;
-  using std::sin;
   using Value = typename dual::ScalarOf<T>::type;
   const T p = T{static_cast<Value>(valueOf(qOverP) > 0. ? numerator : -numerator)} / qOverP;
-  const T pt = p * sin(theta);
-  return {{pt * cos(phi), pt * sin(phi), p * cos(theta)}, p};
+  const T pt = p * sinAny(theta);
+  return {{pt * cosAny(phi), pt * sinAny(phi), p * cosAny(theta)}, p};
 }
 
 /// The most iterations of a fit's loops, and the most halvings of one step:
@@ -88,7 +144,7 @@ using FreeState = std::array<Dual<N, T>, 6>;
 /// state at the crossing, ahead or behind, and its loc0, loc1 there; false if
 /// the helix does not reach the plane (along the beam: within a quarter turn).
 template <int N, typename T>
-[[nodiscard]] bool crossToPlane(const FreeState<N, T>& from, const TrackingSurface& plane, double fieldScale, FreeState<N, T>& to, std::array<Dual<N, T>, 2>& local)
+[[nodiscard]] GPUhdi() bool crossToPlane(const FreeState<N, T>& from, const TrackingSurface& plane, double fieldScale, FreeState<N, T>& to, std::array<Dual<N, T>, 2>& local)
 {
   using D = Dual<N, T>;
   const T nx = plane.normal[0];
@@ -107,14 +163,14 @@ template <int N, typename T>
     // distance before the plane, solved for w = sin(rho s) without the
     // cancellation at small rho (the line's -u / cos(delta) at rho = 0),
     // s = (w / rho) asin(w) / w. asin recovers rho s within a quarter turn only.
-    const T phiL = std::atan2(ny, nx);
+    const T phiL = atan2Of(ny, nx);
     const D delta = phi + (-phiL);
     const T side = cos(delta).v >= T(0.) ? T(1.) : T(-1.);
     const D u = side * ((nx * (from[0] + (-static_cast<T>(plane.origin[0])))) + (ny * (from[1] + (-static_cast<T>(plane.origin[1])))));
     const D sinDelta = side * sin(delta);
     const D cosDelta = side * cos(delta);
     const D sinEnd = sinDelta - (rho * u);
-    if (!(std::abs(sinEnd.v) < 1.) || !(cosDelta.v > 0.)) {
+    if (!(o2::gpu::CAMath::Abs(sinEnd.v) < 1.) || !(cosDelta.v > 0.)) {
       return false; // missed, grazing, or along the plane: no crossing to bind to
     }
     const D cosEnd = sqrt((-(sinEnd * sinEnd)) + 1.);
@@ -123,12 +179,12 @@ template <int N, typename T>
     }
     const D wOverRho = (-(u * cosDelta)) - ((sinDelta * u) * (sinEnd + sinDelta) / (cosDelta + cosEnd));
     const D w = rho * wOverRho;
-    if (!(std::abs(w.v) < 1.)) {
+    if (!(o2::gpu::CAMath::Abs(w.v) < 1.)) {
       return false;
     }
     s = wOverRho * o2::gtrk::detail::asinOverArgument(w);
   } else if (nx == 0. && ny == 0.) {
-    if (!(std::abs(cotTheta.v) > 0.)) {
+    if (!(o2::gpu::CAMath::Abs(cotTheta.v) > 0.)) {
       return false;
     }
     s = (((-1.) * from[2]) + static_cast<T>(plane.origin[2])) / cotTheta;
@@ -141,23 +197,23 @@ template <int N, typename T>
       const D chord = at * sinc(half);
       return (nx * ((from[0] + (chord * cos(phi + half))) + (-static_cast<T>(plane.origin[0])))) + (ny * ((from[1] + (chord * sin(phi + half))) + (-static_cast<T>(plane.origin[1])))) + (nz * ((from[2] + (at * cotTheta)) + (-static_cast<T>(plane.origin[2]))));
     };
-    const auto slope = [&](T at) { return (nx * std::cos(phi.v + (rho.v * at))) + (ny * std::sin(phi.v + (rho.v * at))) + (nz * cotTheta.v); };
+    const auto slope = [&](T at) { return (nx * cosOf(phi.v + (rho.v * at))) + (ny * sinOf(phi.v + (rho.v * at))) + (nz * cotTheta.v); };
     const T ahead = slope(0.);
-    if (!(std::abs(ahead) > 0.)) {
+    if (!(o2::gpu::CAMath::Abs(ahead) > 0.)) {
       return false;
     }
     T at = -f(D{0.}).v / ahead;
     T last = std::numeric_limits<T>::infinity();
     for (int step = 0; step < kMaxSteps; ++step) {
       const T fs = slope(at);
-      if (!(std::abs(fs) > 0.)) {
+      if (!(o2::gpu::CAMath::Abs(fs) > 0.)) {
         return false;
       }
       const T change = f(D{at}).v / fs;
-      if (!(std::abs(change) < last)) {
+      if (!(o2::gpu::CAMath::Abs(change) < last)) {
         break; // no longer shrinking: at the root to rounding
       }
-      last = std::abs(change);
+      last = o2::gpu::CAMath::Abs(change);
       at -= change;
     }
     const D value = f(D{at});
@@ -166,12 +222,12 @@ template <int N, typename T>
     {
       const T half = T(0.5) * rho.v * at;
       const T chord = at * o2::gtrk::sinc(half);
-      const std::array<T, 3> x{from[0].v + (chord * std::cos(phi.v + half)), from[1].v + (chord * std::sin(phi.v + half)), from[2].v + (at * cotTheta.v)};
+      const std::array<T, 3> x{from[0].v + (chord * cosOf(phi.v + half)), from[1].v + (chord * sinOf(phi.v + half)), from[2].v + (at * cotTheta.v)};
       T size = 0.;
       for (int c = 0; c < 3; ++c) {
-        size += std::abs(static_cast<T>(plane.normal[c])) * (std::abs(x[c]) + std::abs(static_cast<T>(plane.origin[c])));
+        size += o2::gpu::CAMath::Abs(static_cast<T>(plane.normal[c])) * (o2::gpu::CAMath::Abs(x[c]) + o2::gpu::CAMath::Abs(static_cast<T>(plane.origin[c])));
       }
-      if (!(std::abs(value.v) <= static_cast<T>(std::numeric_limits<Scalar>::epsilon()) * size)) {
+      if (!(o2::gpu::CAMath::Abs(value.v) <= static_cast<T>(std::numeric_limits<Scalar>::epsilon()) * size)) {
         return false;
       }
     }
@@ -195,41 +251,10 @@ template <int N, typename T>
   return true;
 }
 
-/// At most \a Capacity elements in place, a runtime count of them used: the
-/// fit's storage of what its capacities bound, without allocation. Elements
-/// a resize adds are value-initialised, as std::vector's.
-template <typename T, std::size_t Capacity>
-struct FixedVector {
-  std::array<T, Capacity> items{};
-  std::size_t count = 0;
-  [[nodiscard]] static constexpr std::size_t capacity() { return Capacity; }
-  [[nodiscard]] std::size_t size() const { return count; }
-  [[nodiscard]] bool empty() const { return count == 0; }
-  [[nodiscard]] T* data() { return items.data(); }
-  [[nodiscard]] const T* data() const { return items.data(); }
-  [[nodiscard]] T* begin() { return items.data(); }
-  [[nodiscard]] T* end() { return items.data() + count; }
-  [[nodiscard]] const T* begin() const { return items.data(); }
-  [[nodiscard]] const T* end() const { return items.data() + count; }
-  [[nodiscard]] T& operator[](std::size_t i) { return items[i]; }
-  [[nodiscard]] const T& operator[](std::size_t i) const { return items[i]; }
-  [[nodiscard]] T& back() { return items[count - 1]; }
-  void clear() { count = 0; }
-  /// The caller keeps within the capacity.
-  void push_back(const T& value) { items[count++] = value; }
-  void resize(std::size_t size)
-  {
-    for (std::size_t i = count; i < size; ++i) {
-      items[i] = T{};
-    }
-    count = size;
-  }
-};
-
 /// A row-major matrix of \a columns columns at \a a, seen by the dense
 /// solves (DenseSolve.h).
 template <typename S>
-[[nodiscard]] dense::MatrixView<S> viewOf(S* a, int columns)
+[[nodiscard]] GPUhdi() dense::MatrixView<S> viewOf(S* a, int columns)
 {
   return {a, columns};
 }
@@ -242,22 +267,22 @@ struct Cholesky {
   S* l = nullptr;
   /// Factor \a a (\a size x \a size, row-major, its lower triangle read);
   /// false if it is not positive definite.
-  [[nodiscard]] bool factor(const S* a, int size)
+  [[nodiscard]] GPUhdi() bool factor(const S* a, int size)
   {
     n = size;
-    std::copy_n(a, n * n, l);
+    copyN(a, n * n, l);
     return dense::choleskyFactor(viewOf(l, n), n);
   }
-  [[nodiscard]] S logDeterminant() const { return dense::choleskyLogDeterminant(viewOf(l, n), n); }
+  [[nodiscard]] GPUhdi() S logDeterminant() const { return dense::choleskyLogDeterminant(viewOf(l, n), n); }
   /// x <- a^-1 x.
-  void solve(S* x) const { dense::choleskySolve(viewOf(l, n), n, x); }
+  GPUhdi() void solve(S* x) const { dense::choleskySolve(viewOf(l, n), n, x); }
   /// a^-1 into \a inverse, n x n, row-major.
-  void inverse(S* inverse) const { dense::choleskyInverse(viewOf(l, n), n, viewOf(inverse, n)); }
+  GPUhdi() void inverse(S* inverse) const { dense::choleskyInverse(viewOf(l, n), n, viewOf(inverse, n)); }
 };
 
 /// A track state's 5 x 5 covariance in S, row-major.
 template <typename S = double, typename State>
-[[nodiscard]] std::array<S, 25> covarianceOf(const State& state)
+[[nodiscard]] GPUhdi() std::array<S, 25> covarianceOf(const State& state)
 {
   std::array<S, 25> covariance{};
   for (int r = 0; r < 5; ++r) {
@@ -271,7 +296,7 @@ template <typename S = double, typename State>
 /// The weight (inverse covariance, 5 x 5, row-major) of the covariance
 /// factored in \a cholesky.
 template <typename S>
-void weightOf(const Cholesky<S>& cholesky, std::array<S, 25>& weight)
+GPUhdi() void weightOf(const Cholesky<S>& cholesky, std::array<S, 25>& weight)
 {
   dense::choleskyInverse(viewOf(cholesky.l, 5), 5, dense::MatrixView<S>{weight.data(), 5});
 }
@@ -281,7 +306,7 @@ void weightOf(const Cholesky<S>& cholesky, std::array<S, 25>& weight)
 /// (`dense::semidefiniteFactor`; \a a overwritten, \a order n ints of
 /// scratch). L is not triangular.
 template <typename S>
-void semidefiniteFactor(S* a, int n, int* order, S* factor)
+GPUhdi() void semidefiniteFactor(S* a, int n, int* order, S* factor)
 {
   dense::semidefiniteFactor(viewOf(a, n), n, order, viewOf(factor, n));
 }
@@ -308,48 +333,48 @@ struct MixtureCollapse {
   std::span<double> mean;
   std::span<S> scatter; ///< n x n, row-major
 
-  MixtureCollapse(std::span<double> meanStorage, std::span<S> scatterStorage) : n(static_cast<int>(meanStorage.size())), mean(meanStorage), scatter(scatterStorage)
+  GPUhdi() MixtureCollapse(std::span<double> meanStorage, std::span<S> scatterStorage) : n(static_cast<int>(meanStorage.size())), mean(meanStorage), scatter(scatterStorage)
   {
-    std::ranges::fill(mean, 0.);
-    std::ranges::fill(scatter, S(0.));
+    fillN(mean.data(), mean.size(), 0.);
+    fillN(scatter.data(), scatter.size(), S(0.));
   }
 
   /// Takes the component of log-weight \a logWeight, mean \a p, covariance
   /// \a sigma (n x n) and chi2 \a componentChi2.
-  void add(double logWeight, std::span<const double> p, std::span<const S> sigma, double componentChi2)
+  GPUhdi() void add(double logWeight, std::span<const double> p, std::span<const S> sigma, double componentChi2)
   {
     combine(logWeight, 1., p, sigma, componentChi2, 1);
   }
-  void merge(const MixtureCollapse& other)
+  GPUhdi() void merge(const MixtureCollapse& other)
   {
     if (other.count > 0) {
       combine(other.logScale, other.weight, other.mean, other.scatter, other.chi2, other.count);
     }
   }
   /// The collapse's covariance, S / W, into \a covariance (n x n).
-  void covarianceInto(S* covariance) const
+  GPUhdi() void covarianceInto(S* covariance) const
   {
     for (std::size_t i = 0; i < scatter.size(); ++i) {
       covariance[i] = static_cast<S>(scatter[i] / weight);
     }
   }
-  [[nodiscard]] double meanChi2() const { return chi2 / weight; }
+  [[nodiscard]] GPUhdi() double meanChi2() const { return chi2 / weight; }
 
  private:
-  void combine(double logScaleB, double weightB, std::span<const double> meanB, std::span<const S> scatterB, double chi2B, int countB)
+  GPUhdi() void combine(double logScaleB, double weightB, std::span<const double> meanB, std::span<const S> scatterB, double chi2B, int countB)
   {
     if (count == 0) {
       logScale = logScaleB;
       weight = weightB;
-      std::ranges::copy(meanB, mean.begin());
-      std::ranges::copy(scatterB, scatter.begin());
+      copyN(meanB.data(), meanB.size(), mean.data());
+      copyN(scatterB.data(), scatterB.size(), scatter.data());
       chi2 = chi2B;
       count = countB;
       return;
     }
-    const double h = std::max(logScale, logScaleB);
-    const double a = std::exp(logScale - h);
-    const double b = std::exp(logScaleB - h);
+    const double h = o2::gpu::CAMath::Max(logScale, logScaleB);
+    const double a = o2::gpu::CAMath::Expd(logScale - h);
+    const double b = o2::gpu::CAMath::Expd(logScaleB - h);
     const double u = a * weight;
     const double v = b * weightB;
     const double w = u + v;

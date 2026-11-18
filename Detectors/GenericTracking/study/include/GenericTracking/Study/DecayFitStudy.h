@@ -852,12 +852,21 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       // Omega), a charged composite's (a tracked Xi in a Xi_c) --, one per
       // layer as a track holds them, the outermost first, with its mass
       // (DecayVertexFit.h's chains).
+      // The fit's DecayMother holds spans of its rows: their storage here,
+      // reserved so that the spans stay valid.
+      struct OwnRows {
+        std::vector<TrackingSurface> planes;
+        std::vector<std::array<double, 2>> positions;
+        std::vector<std::array<double, 3>> covariance;
+      };
+      std::vector<OwnRows> motherRows;
       std::vector<DecayMother> trackedMothers;
       if (tree && !one.refitFailed) {
         std::vector<std::pair<const TreeParticle*, int>> charged{{&mother, 0}};
         for (std::size_t w = 0; w < one.composites.size(); ++w) {
           charged.emplace_back(one.composites[w], static_cast<int>(w) + 1);
         }
+        motherRows.reserve(charged.size());
         for (const auto& [particle, vertex] : charged) {
           const auto* entry = o2::O2DatabasePDG::Instance()->GetParticle(particle->pdg);
           const auto found = chainOf.find(particle->id);
@@ -874,14 +883,14 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           }
           auto propagator = event.propagator;
           propagator.massGeV = static_cast<Scalar>(entry->Mass());
-          DecayMother tracked{.vertex = vertex, .propagator = propagator};
+          auto& rows = motherRows.emplace_back();
           for (auto at = own.rbegin(); at != own.rend(); ++at) {
             const auto m = frame.measurement(*at);
-            tracked.planes.push_back(geometry.planeOf(m));
-            tracked.positions.push_back({m.loc0, m.loc1});
-            tracked.covariance.push_back({m.varLoc0, m.covLoc01, m.varLoc1});
+            rows.planes.push_back(geometry.planeOf(m));
+            rows.positions.push_back({m.loc0, m.loc1});
+            rows.covariance.push_back({m.varLoc0, m.covLoc01, m.varLoc1});
           }
-          trackedMothers.push_back(std::move(tracked));
+          trackedMothers.push_back({.vertex = vertex, .planes = rows.planes, .positions = rows.positions, .covariance = rows.covariance, .propagator = propagator});
         }
       }
       std::vector<Job> jobs;
@@ -922,7 +931,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
       }
       // Electron daughters' mixtures kept: alone and under the masses.
-      const bool electrons = std::ranges::any_of(daughters, [](const DecayDaughter& d) { return d.mixture.has_value(); });
+      const bool electrons = std::ranges::any_of(daughters, [](const DecayDaughter& d) { return d.mixture.size > 0; });
       if (electrons) {
         for (const std::uint8_t set : {std::uint8_t{0}, tree ? std::uint8_t{16} : std::uint8_t{1}}) {
           if (!missing || set != 1U) {
@@ -937,8 +946,11 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         compositeMasses.push_back(entry == nullptr ? 0. : entry->Mass());
       }
       // each vertex's particle's mass, for its flight's material in the fit
-      one.topology.massGeV.assign(1, motherMass);
-      one.topology.massGeV.insert(one.topology.massGeV.end(), compositeMasses.begin(), compositeMasses.end());
+      one.topology.massGeV.clear();
+      one.topology.massGeV.push_back(motherMass);
+      for (const double m : compositeMasses) {
+        one.topology.massGeV.push_back(m);
+      }
       std::vector<std::size_t> childLeaves; // the first composite's leaves
       std::array<double, 3> childDecay{};
       std::array<double, 3> childAxis{}; // its true flight direction
@@ -988,7 +1000,9 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         DecayConstraints constraints{.mass = wantMass, .massGeV = motherMass, .production = wantProduction, .point = point};
         if (wantComposites) {
-          constraints.compositeMasses = compositeMasses;
+          for (const double m : compositeMasses) {
+            constraints.compositeMasses.push_back(m);
+          }
         }
         record.resonance = job.resonance ? 1U : 0U;
         if (job.resonance) {
@@ -1004,7 +1018,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
               }
             }
             if (taken.massGeV > 0. && taken.widthGeV > 0. && taken.daughters.size() >= 2U) {
-              constraints.resonances.push_back(std::move(taken));
+              constraints.resonances.push_back(taken);
             }
           }
         }
