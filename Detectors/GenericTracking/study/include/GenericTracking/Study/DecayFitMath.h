@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <cmath>
 #include <limits>
+#include <numbers>
 #include <span>
 #include <vector>
 
@@ -171,6 +172,128 @@ inline constexpr int kMaxSteps = std::numeric_limits<double>::digits;
 /// ambiguity moves by less than its own error is taken, more is a failure.
 inline constexpr double kModelTolerance = 1.;
 
+/// A free state -- x, y, z, phi, theta, q/p -- with its derivatives by N
+/// inputs.
+template <int N>
+using FreeState = std::array<Dual<N>, 6>;
+
+/// \a from carried along its helix to \a plane (a plane along the beam, or
+/// across it): the free state at the crossing nearest along the helix,
+/// ahead or behind, and its loc0, loc1 there; false if the helix never
+/// reaches the plane.
+///
+/// On a plane along the beam with normal angle phiL the crossing has
+/// sin(phi_end - phiL) = sin(phi - phiL) - rho u, u the start's distance
+/// along the normal; of the two solutions phi_end and every turn by 2 pi, the
+/// smallest |rho s| = |phi_end - phi| is the nearest crossing. In double the
+/// difference loses nothing that matters at small rho.
+template <int N>
+[[nodiscard]] bool crossToPlane(const FreeState<N>& from, const TrackingSurface& plane, double fieldScale, FreeState<N>& to, std::array<Dual<N>, 2>& local)
+{
+  using D = Dual<N>;
+  const double nx = plane.normal[0];
+  const double ny = plane.normal[1];
+  const double nz = plane.normal[2];
+  const D& phi = from[3];
+  const D& theta = from[4];
+  const D sinTheta = sin(theta);
+  const D cotTheta = cos(theta) / sinTheta;
+  const D rho = fieldScale * (from[5] / sinTheta);
+  D s;
+  if (nz == 0.) {
+    const double phiL = std::atan2(ny, nx);
+    const D u = (nx * (from[0] + (-static_cast<double>(plane.origin[0])))) + (ny * (from[1] + (-static_cast<double>(plane.origin[1]))));
+    const D delta = phi + (-phiL);
+    if (rho.v == 0.) {
+      const D cosDelta = cos(delta);
+      if (!(std::abs(cosDelta.v) > 0.)) {
+        return false;
+      }
+      s = (-u) / cosDelta;
+    } else {
+      const D sinEnd = sin(delta) - (rho * u);
+      if (!(std::abs(sinEnd.v) < 1.)) {
+        return false; // missed, or grazing: no crossing to bind to
+      }
+      const D first = chain(sinEnd, std::asin(sinEnd.v), 1. / std::sqrt(1. - (sinEnd.v * sinEnd.v)));
+      // The turn to each solution, brought within (-pi, pi]; the smaller wins.
+      const auto turnTo = [&](const D& end) {
+        D turn = end - delta;
+        turn.v = std::remainder(turn.v, 2. * std::numbers::pi);
+        return turn;
+      };
+      const D one = turnTo(first);
+      const D two = turnTo((-first) + std::numbers::pi);
+      s = (std::abs(one.v) <= std::abs(two.v) ? one : two) / rho;
+    }
+  } else if (nx == 0. && ny == 0.) {
+    if (!(std::abs(cotTheta.v) > 0.)) {
+      return false;
+    }
+    s = (((-1.) * from[2]) + static_cast<double>(plane.origin[2])) / cotTheta;
+  } else {
+    // A tilted plane: f(s) = n . (x(s) - origin) = 0 by Newton's method from
+    // the straight line's crossing, while each step shrinks; s's derivatives
+    // by the implicit function, -df / f'(s).
+    const auto f = [&](const D& at) {
+      const D half = 0.5 * (rho * at);
+      const D chord = at * sinc(half);
+      return (nx * ((from[0] + (chord * cos(phi + half))) + (-static_cast<double>(plane.origin[0])))) + (ny * ((from[1] + (chord * sin(phi + half))) + (-static_cast<double>(plane.origin[1])))) + (nz * ((from[2] + (at * cotTheta)) + (-static_cast<double>(plane.origin[2]))));
+    };
+    const auto slope = [&](double at) { return (nx * std::cos(phi.v + (rho.v * at))) + (ny * std::sin(phi.v + (rho.v * at))) + (nz * cotTheta.v); };
+    const double ahead = slope(0.);
+    if (!(std::abs(ahead) > 0.)) {
+      return false;
+    }
+    double at = -f(D{0.}).v / ahead;
+    double last = std::numeric_limits<double>::infinity();
+    for (int step = 0; step < kMaxSteps; ++step) {
+      const double fs = slope(at);
+      if (!(std::abs(fs) > 0.)) {
+        return false;
+      }
+      const double change = f(D{at}).v / fs;
+      if (!(std::abs(change) < last)) {
+        break; // no longer shrinking: at the root to rounding
+      }
+      last = std::abs(change);
+      at -= change;
+    }
+    const D value = f(D{at});
+    // Closed to the plane's own precision (its geometry is floats), or no
+    // crossing: f's terms' size times float epsilon.
+    {
+      const double half = 0.5 * rho.v * at;
+      const double chord = at * (half == 0. ? 1. : std::sin(half) / half);
+      const std::array<double, 3> x{from[0].v + (chord * std::cos(phi.v + half)), from[1].v + (chord * std::sin(phi.v + half)), from[2].v + (at * cotTheta.v)};
+      double size = 0.;
+      for (int c = 0; c < 3; ++c) {
+        size += std::abs(static_cast<double>(plane.normal[c])) * (std::abs(x[c]) + std::abs(static_cast<double>(plane.origin[c])));
+      }
+      if (!(std::abs(value.v) <= static_cast<double>(std::numeric_limits<Scalar>::epsilon()) * size)) {
+        return false;
+      }
+    }
+    s = D{at};
+    const double fs = slope(at);
+    for (int k = 0; k < N; ++k) {
+      s.d[k] = -value.d[k] / fs;
+    }
+  }
+  const D half = 0.5 * (rho * s);
+  const D chord = s * sinc(half);
+  to[0] = from[0] + (chord * cos(phi + half));
+  to[1] = from[1] + (chord * sin(phi + half));
+  to[2] = from[2] + (s * cotTheta);
+  to[3] = phi + (rho * s);
+  to[4] = theta;
+  to[5] = from[5];
+  const std::array<D, 3> d{to[0] + (-static_cast<double>(plane.origin[0])), to[1] + (-static_cast<double>(plane.origin[1])), to[2] + (-static_cast<double>(plane.origin[2]))};
+  local[0] = (static_cast<double>(plane.axis0[0]) * d[0]) + (static_cast<double>(plane.axis0[1]) * d[1]) + (static_cast<double>(plane.axis0[2]) * d[2]);
+  local[1] = (static_cast<double>(plane.axis1[0]) * d[0]) + (static_cast<double>(plane.axis1[1]) * d[1]) + (static_cast<double>(plane.axis1[2]) * d[2]);
+  return true;
+}
+
 /// The plane's frame: its transverse origin and its normal's angle.
 struct PerigeePlane {
   double x = 0.;
@@ -286,6 +409,33 @@ inline void choleskySolve(const std::vector<double>& factor, int n, std::span<do
     }
   }
   return inverse;
+}
+
+/// A positive semi-definite matrix's factor L, L L^T = \a a (n x n,
+/// row-major; lower triangle): a pivot that is not positive -- the matrix
+/// singular there, or below zero by rounding -- leaves its column zero.
+[[nodiscard]] inline std::vector<double> semidefiniteFactor(const std::vector<double>& a, int n)
+{
+  std::vector<double> l(static_cast<std::size_t>(n * n), 0.);
+  for (int j = 0; j < n; ++j) {
+    double diagonal = a[j * n + j];
+    for (int k = 0; k < j; ++k) {
+      diagonal -= l[j * n + k] * l[j * n + k];
+    }
+    if (!(diagonal > 0.)) {
+      continue;
+    }
+    const double root = std::sqrt(diagonal);
+    l[j * n + j] = root;
+    for (int i = j + 1; i < n; ++i) {
+      double value = a[i * n + j];
+      for (int k = 0; k < j; ++k) {
+        value -= l[i * n + k] * l[j * n + k];
+      }
+      l[i * n + j] = value / root;
+    }
+  }
+  return l;
 }
 
 } // namespace o2::gtrk::study::decay_fit_detail

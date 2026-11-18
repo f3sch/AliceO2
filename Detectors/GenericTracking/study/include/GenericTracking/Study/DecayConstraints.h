@@ -21,13 +21,11 @@
 ///   a helix in the uniform field or a line if neutral, crosses the perigee
 ///   plane about C (through C's transverse point along the beam, normal to the
 ///   mother's direction at its closest approach to it) at C: loc0 = 0 and
-///   loc1 = C_z, two equations (`predictOnPlane`). The plane is the current
-///   iterate's, as a measurement's. A charged mother scatters on the
-///   material between C and V: with that scattering's covariance S = L L^T on
-///   the plane (`pointCovariance`, `productionScattering`) the equations are
-///   offset - L eta = 0, eta two nuisance parameters with a unit Gaussian
-///   prior (`ScatteredPoint`): the point measured with S, exactly held as S
-///   goes to zero, continuous between (no switch, no ill-conditioned weight).
+///   loc1 = C_z, two equations. The plane is the current iterate's, as a
+///   measurement's. The fit takes them with a tracked mother's own rows as
+///   one chain walked from V (DecayVertexFit.h, `DecayMother`), the
+///   scattering on the way their nuisances' (`ScatteredEquations`); they are
+///   not among the values here.
 ///
 /// - Collinear daughters (a photon's conversion): the two daughters' momenta
 ///   parallel at V, phi1 - phi2 = 0 and theta1 - theta2 = 0. A pair has a
@@ -97,11 +95,7 @@ struct DecayConstraints {
   double massGeV = 0.; ///< the mother's
   bool production = false;
   std::array<double, 3> point{}; ///< where the mother was made [cm]
-  /// The covariance (loc0, loc0 loc1, loc1) [cm^2] on the plane about the
-  /// point of where the mother's helix from V crosses it: its scattering
-  /// between (`ScatteredPoint`); zero where nothing is crossed.
-  std::array<double, 3> pointCovariance{};
-  bool collinear = false; ///< two daughters only
+  bool collinear = false;        ///< two daughters only
   std::optional<LinePosition> position;
   /// Per vertex below the root, its composite's mass to hold [GeV]; 0 for none.
   std::vector<double> compositeMasses;
@@ -134,33 +128,6 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
     r.d[i] = ((x.v * y.d[i]) - (y.v * x.d[i])) / norm;
   }
   return r;
-}
-
-/// Where the helix from \a vertex with momentum \a total and \a charge
-/// crosses the plane about \a point (through its transverse point along the
-/// beam, normal to the helix's direction at its closest approach, from the
-/// current values: `perigeePhi`), less the point: (loc0, loc1 - z).
-template <int N>
-bool productionOffset(const std::array<double, 3>& point, const std::array<Dual<N>, 3>& vertex, const std::array<Dual<N>, 3>& total, double charge, double fieldScale, std::array<Dual<N>, 2>& offset)
-{
-  using D = Dual<N>;
-  const D pt = sqrt((total[0] * total[0]) + (total[1] * total[1]));
-  const D p = sqrt((pt * pt) + (total[2] * total[2]));
-  const D phi = atan2(total[1], total[0]);
-  const D theta = atan2(pt, total[2]);
-  const D qOverP = D{charge} / p;
-  const double curvature = fieldScale * charge / pt.v;
-  const double dx = vertex[0].v - point[0];
-  const double dy = vertex[1].v - point[1];
-  const double along = (dx * std::cos(phi.v)) + (dy * std::sin(phi.v));
-  const double across = (-dx * std::sin(phi.v)) + (dy * std::cos(phi.v));
-  const PerigeePlane plane{.x = point[0], .y = point[1], .phi = phi.v + std::atan2(-curvature * along, 1. + (curvature * across))};
-  std::array<D, 5> crossing{};
-  if (!predictOnPlane(vertex[0], vertex[1], vertex[2], phi, theta, qOverP, fieldScale, plane, crossing)) {
-    return false;
-  }
-  offset = {crossing[0], crossing[1] + (-point[2])};
-  return true;
 }
 
 /// \a constraints' values at \a vertices (\a topology's) and \a momenta (phi,
@@ -233,14 +200,6 @@ bool productionOffset(const std::array<double, 3>& point, const std::array<Dual<
   if (constraints.mass) {
     push(massOf(total, energy, constraints.massGeV));
   }
-  if (constraints.production) {
-    std::array<D, 2> offset{};
-    if (!productionOffset(constraints.point, v[0], total, charge, fieldScale, offset)) {
-      return false;
-    }
-    push(offset[0]);
-    push(offset[1]);
-  }
   // The links: each composite below the root flies from its parent's vertex
   // to its own along its momentum P: the offset's components across P, on
   // u1 = z x P / |z x P| (x where P is along z) and u2 = P x u1 / |P|.
@@ -299,40 +258,31 @@ bool productionOffset(const std::array<double, 3>& point, const std::array<Dual<
   return true;
 }
 
-/// Two equations offset - L eta = 0 whose offset is smeared by a covariance
-/// S = L L^T (a scattered production point): eta, two of the fit's
-/// parameters at \a at, carry a unit Gaussian prior (`addPrior`); `apply`
-/// subtracts L eta from the two equations' values at \a row and puts -L in
-/// their columns. S = 0 leaves the equations exact and eta decoupled.
-struct ScatteredPoint {
-  int at = -1;                    ///< eta's first parameter; -1: none
-  int row = -1;                   ///< the two equations' first row
-  std::array<double, 3> factor{}; ///< L: (L00, L10, L11)
-  [[nodiscard]] static std::array<double, 3> factorOf(const std::array<double, 3>& covariance)
-  {
-    const double l00 = std::sqrt(std::max(covariance[0], 0.));
-    const double l10 = l00 > 0. ? covariance[1] / l00 : 0.;
-    return {l00, l10, std::sqrt(std::max(covariance[2] - (l10 * l10), 0.))};
-  }
+/// Equations predicted - measured - L eta = 0 whose measurements carry a
+/// covariance S = L L^T (`semidefiniteFactor`): eta, as many of the fit's
+/// parameters from \a at, carry a unit Gaussian prior (`addPrior`); `apply`
+/// subtracts L eta from the equations' values from \a row and puts -L in
+/// their columns. Minimising eta^T eta under them is the chi2 of the
+/// measurements with S, never inverting S: a measurement S leaves exact (a
+/// zero row) holds exactly, one with a small S is no ill-conditioned weight.
+struct ScatteredEquations {
+  int at = -1;  ///< eta's first parameter; -1: none
+  int row = -1; ///< the first equation's row
+  int count = 0;
+  std::vector<double> factor; ///< L, count x count, lower triangular
   void apply(const std::vector<double>& p, int n, std::vector<double>& values, std::vector<double>& rows) const
   {
-    if (at < 0) {
-      return;
-    }
-    const std::array<std::array<double, 2>, 2> l{{{factor[0], 0.}, {factor[1], factor[2]}}};
-    for (int a = 0; a < 2; ++a) {
-      for (int b = 0; b < 2; ++b) {
-        values[row + a] -= l[a][b] * p[at + b];
-        rows[((row + a) * n) + at + b] = -l[a][b];
+    for (int a = 0; a < count; ++a) {
+      for (int b = 0; b <= a; ++b) {
+        const double l = factor[(a * count) + b];
+        values[row + a] -= l * p[at + b];
+        rows[((row + a) * n) + at + b] = -l;
       }
     }
   }
   void addPrior(const std::vector<double>& p, int n, double& chi2, std::vector<double>* normal, std::vector<double>* gradient) const
   {
-    if (at < 0) {
-      return;
-    }
-    for (int b = 0; b < 2; ++b) {
+    for (int b = 0; b < count; ++b) {
       chi2 += p[at + b] * p[at + b];
       if (normal != nullptr) {
         (*normal)[((at + b) * n) + at + b] += 1.;

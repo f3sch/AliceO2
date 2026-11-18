@@ -112,7 +112,7 @@ struct DecayFitRecord {
   float maxCarryX2X0 = 0.F;  ///< the most material a daughter's last carry crossed
   std::uint8_t minDaughterRows = 0U;
   std::uint8_t motherRows = 0U;  ///< a charged root's own rows (a tracked Xi or Omega), 0 without
-  float pointSigma = 0.F;        ///< the production point's scattering across the flight [cm] (0: held exactly)
+  float pointSigma = 0.F;        ///< the production point's equations' sigma across the flight [cm] (0: held exactly)
   std::uint8_t refitPass = 0U;   ///< a failed daughter refit's FitPass
   std::uint8_t refitStatus = 0U; ///< and its PropagationStatus
   float dX = 0.F;                ///< fitted less true vertex [cm]
@@ -430,28 +430,6 @@ struct MotherQuantities {
 /// stretch of it, split where the line crosses the layer's z bins; each with
 /// the probability of a pair there, 1 - exp(-7/9 x/X0). Cells without
 /// material are left out: no pair is made there.
-/// The covariance (loc0, loc0 loc1, loc1) [cm^2] on the plane about the
-/// production point \a point of a charged mother of \a momentum [GeV] and \a mass
-/// flying straight to \a vertex: a kink theta_k at the fraction t_k of the
-/// way, at distance t_k L from the point, moves its crossing by theta_k t_k L
-/// across the flight, by that over sin(theta) along the beam (the plane
-/// contains the beam's direction); Highland's formula for the segment's whole
-/// x/X0, shared in proportion to x/X0 (`beamScattering`'s way):
-/// theta0^2 L^2 (int t^2 dx) / X.
-[[nodiscard]] inline std::array<double, 3> productionScattering(const o2::base::MatLayerCylSet& lut, const std::array<double, 3>& point, const std::array<double, 3>& vertex, const std::array<double, 3>& momentum, double mass)
-{
-  const auto moment = lut.getMatMoment(static_cast<float>(point[0]), static_cast<float>(point[1]), static_cast<float>(point[2]), static_cast<float>(vertex[0]), static_cast<float>(vertex[1]), static_cast<float>(vertex[2]));
-  const double p = std::hypot(momentum[0], momentum[1], momentum[2]);
-  const double sinTheta = std::hypot(momentum[0], momentum[1]) / p;
-  if (!(moment.x2X0 > 0.F) || !(sinTheta > 0.)) {
-    return {};
-  }
-  const double theta0 = highlandTheta0(moment.x2X0, moment.x2X0, static_cast<Scalar>(p), static_cast<Scalar>(mass));
-  const double length2 = std::pow(vertex[0] - point[0], 2) + std::pow(vertex[1] - point[1], 2) + std::pow(vertex[2] - point[2], 2);
-  const double across = theta0 * theta0 * length2 * static_cast<double>(moment.x2X0T2) / static_cast<double>(moment.x2X0);
-  return {across, 0., across / (sinTheta * sinTheta)};
-}
-
 [[nodiscard]] inline std::vector<LineCell> conversionCells(const o2::base::MatLayerCylSet& lut, const std::array<double, 3>& origin, const std::array<double, 3>& direction, double end)
 {
   std::vector<LineCell> cells;
@@ -798,8 +776,8 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         std::uint8_t constraints;
       };
       const bool tree = !one.composites.empty();
-      // A charged root's own rows (a tracked Xi, Omega): its Kalman fit with its
-      // mass, the outward pass's end on its last row.
+      // A charged root's own rows (a tracked Xi, Omega), any number, the
+      // outermost first, with its mass (DecayVertexFit.h's chain).
       std::optional<DecayMother> trackedMother;
       if (tree && !one.refitFailed && particleCharge(mother.pdg) != 0. && motherMass > 0.) {
         if (const auto found = chainOf.find(mother.id); found != chainOf.end()) {
@@ -807,10 +785,15 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           base.motherRows = static_cast<std::uint8_t>(std::min<std::size_t>(own.rows.size(), 255U));
           auto propagator = event.propagator;
           propagator.massGeV = static_cast<Scalar>(motherMass);
-          const RowChain<Det> rows{.frame = &frame, .rows = own.rows.data()};
-          const auto ownFit = fitMeasurements(propagator, geometry, material, rows, static_cast<int>(own.rows.size()));
-          if (ownFit.status == PropagationStatus::kOk) {
-            trackedMother = DecayMother{.outermost = ownFit.outwardState, .surface = geometry.planeOf(ownFit.outwardState), .propagator = propagator, .vertex = 0};
+          if (!own.rows.empty()) {
+            DecayMother tracked{.propagator = propagator};
+            for (auto at = own.rows.rbegin(); at != own.rows.rend(); ++at) {
+              const auto m = frame.measurement(*at);
+              tracked.planes.push_back(geometry.planeOf(m));
+              tracked.positions.push_back({m.loc0, m.loc1});
+              tracked.covariance.push_back({m.varLoc0, m.covLoc01, m.varLoc1});
+            }
+            trackedMother = std::move(tracked);
           }
         }
       }
@@ -902,26 +885,12 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           continue;
         }
         DecayConstraints constraints{.mass = wantMass, .massGeV = motherMass, .production = wantProduction, .point = point, .collinear = wantCollinear};
-        // A charged mother's production point measured, with its scattering
-        // on the way from it to the unconstrained fit's vertex at its
-        // momentum; a neutral one does not scatter: held exactly.
-        if (const auto& free = fits[static_cast<std::size_t>(DecayFitVariant::kFull)]; wantProduction && particleCharge(mother.pdg) != 0. && free.status == DecayFitStatus::kOk && !free.vertices.empty()) {
-          std::array<double, 3> total{};
-          for (const auto& m : free.momenta) {
-            const double pm = 1. / std::abs(m[2]);
-            total[0] += pm * std::sin(m[1]) * std::cos(m[0]);
-            total[1] += pm * std::sin(m[1]) * std::sin(m[0]);
-            total[2] += pm * std::cos(m[1]);
-          }
-          constraints.pointCovariance = productionScattering(material, point, free.vertices[0], total, motherMass > 0. ? motherMass : static_cast<double>(base.massTrue));
-          record.pointSigma = static_cast<float>(std::sqrt(constraints.pointCovariance[0]));
-        }
         if (wantComposites && job.variant != DecayFitVariant::kSequential) {
           constraints.compositeMasses = compositeMasses;
         }
         const bool wantMother = (job.constraints & 32U) != 0U;
-        const auto mothers = wantMother && trackedMother ? std::span<const DecayMother>{&*trackedMother, 1} : std::span<const DecayMother>{};
-        const auto fitUnder = [&](const DecayConstraints& set) { return fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, job.variant, set, one.topology, mothers); };
+        const DecayMother* tracked = wantMother && trackedMother ? &*trackedMother : nullptr;
+        const auto fitUnder = [&](const DecayConstraints& set) { return fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, job.variant, set, one.topology, tracked); };
         DecayVertexFitResult outcome;
         const auto started = std::chrono::steady_clock::now();
         // The sequential fit: the composite (vertex 1) from its daughters,
@@ -949,7 +918,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           } else {
             rootDaughters.push_back(pseudoTrackOf(childFit, compositeMasses.front(), event.propagator, &pseudoJacobian));
             rootMasses.push_back(compositeMasses.front());
-            outcome = fitDecayVertex(std::span<const DecayDaughter>{rootDaughters}, material, DecayFitVariant::kFull, constraints, {}, mothers);
+            outcome = fitDecayVertex(std::span<const DecayDaughter>{rootDaughters}, material, DecayFitVariant::kFull, constraints, {}, tracked);
           }
         } else if (conversion) {
           record.constraints |= 8U;
@@ -972,6 +941,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.stopReason = fit.stopReason;
         record.outer = fit.outer;
         record.modelShift = fit.modelShift;
+        record.pointSigma = static_cast<float>(fit.pointSigma);
         record.stopMetric = fit.stopMetric;
         if (fit.status != DecayFitStatus::kOk) {
           one.records.push_back(record);
