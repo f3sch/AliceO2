@@ -25,6 +25,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 #include <random>
 #include <tuple>
 #include <vector>
@@ -960,6 +961,91 @@ BOOST_AUTO_TEST_CASE(SmearedStatesGiveUnitPulls)
   }
   BOOST_TEST_MESSAGE("chi2 mean " << chi2 / fitted << " at ndf 3");
   BOOST_TEST(std::abs((chi2 / fitted) - 3.) < 0.2);
+}
+
+BOOST_AUTO_TEST_CASE(TheMixtureCollapseIsTheTwoPassOne)
+{
+  // Components of 3 parameters with log-weights spread over 700 (rising and
+  // falling maxima; exp of the spread underflows), streamed, merged from
+  // halves, against the normalised two-pass collapse.
+  using decay_fit_detail::MixtureCollapse;
+  constexpr int n = 3;
+  std::mt19937 random(7U);
+  std::normal_distribution<double> gauss;
+  struct Component {
+    double logWeight;
+    std::vector<double> p;
+    std::vector<double> sigma;
+    double chi2;
+  };
+  std::vector<Component> mixture;
+  for (const double logWeight : {-3., 1.5, -700., 2., 0.5, -1., 2.5, -20.}) {
+    Component c{.logWeight = logWeight, .p = {gauss(random), gauss(random), gauss(random)}, .sigma = std::vector<double>(n * n, 0.), .chi2 = 3. + gauss(random)};
+    std::array<double, n * n> b{};
+    for (auto& v : b) {
+      v = gauss(random);
+    }
+    for (int i = 0; i < n; ++i) {
+      for (int j = 0; j < n; ++j) {
+        for (int k = 0; k < n; ++k) {
+          c.sigma[(i * n) + j] += b[(i * n) + k] * b[(j * n) + k];
+        }
+      }
+    }
+    mixture.push_back(c);
+  }
+  double largest = -std::numeric_limits<double>::infinity();
+  for (const auto& c : mixture) {
+    largest = std::max(largest, c.logWeight);
+  }
+  double total = 0.;
+  for (const auto& c : mixture) {
+    total += std::exp(c.logWeight - largest);
+  }
+  std::vector<double> mean(n, 0.);
+  double chi2 = 0.;
+  for (const auto& c : mixture) {
+    const double w = std::exp(c.logWeight - largest) / total;
+    for (int i = 0; i < n; ++i) {
+      mean[i] += w * c.p[i];
+    }
+    chi2 += w * c.chi2;
+  }
+  std::vector<double> covariance(n * n, 0.);
+  for (const auto& c : mixture) {
+    const double w = std::exp(c.logWeight - largest) / total;
+    for (int i = 0; i < n; ++i) {
+      for (int j = 0; j < n; ++j) {
+        covariance[(i * n) + j] += w * (c.sigma[(i * n) + j] + ((c.p[i] - mean[i]) * (c.p[j] - mean[j])));
+      }
+    }
+  }
+
+  MixtureCollapse stream(n);
+  MixtureCollapse first(n);
+  MixtureCollapse second(n);
+  for (std::size_t c = 0; c < mixture.size(); ++c) {
+    stream.add(mixture[c].logWeight, mixture[c].p, mixture[c].sigma, mixture[c].chi2);
+    (c % 2 == 0 ? first : second).add(mixture[c].logWeight, mixture[c].p, mixture[c].sigma, mixture[c].chi2);
+  }
+  MixtureCollapse merged(n);
+  merged.merge(MixtureCollapse(n)); // an empty one is the identity
+  merged.merge(second);
+  merged.merge(first);
+  for (const auto* one : {&stream, &merged}) {
+    BOOST_TEST(one->count == static_cast<int>(mixture.size()));
+    BOOST_TEST(std::abs(one->meanChi2() - chi2) < 1e-12);
+    const auto c = one->covariance();
+    for (int i = 0; i < n; ++i) {
+      BOOST_TEST(std::abs(one->mean[i] - mean[i]) < 1e-12);
+      for (int j = 0; j < n; ++j) {
+        BOOST_TEST(std::abs(c[(i * n) + j] - covariance[(i * n) + j]) < 1e-12);
+      }
+    }
+  }
+  MixtureCollapse empty(n);
+  empty.merge(MixtureCollapse(n));
+  BOOST_TEST(empty.count == 0);
 }
 
 } // namespace o2::gtrk::study

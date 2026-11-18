@@ -92,10 +92,11 @@ struct DecayFitRecord {
   std::uint8_t stopReason = 0U;
   float stopMetric = 0.F;
   float modelShift = 0.F;
-  float microseconds = 0.F;        ///< the fit's time
-  std::uint16_t combinations = 0U; ///< the Gaussian sum's component combinations
-  std::int8_t branch = -1;         ///< an unseen neutral's start (0, 1), -1 without one
-  std::uint8_t resonance = 0U;     ///< 1 the resonances' masses taken (Breit-Wigner)
+  float microseconds = 0.F;             ///< the fit's time
+  std::uint16_t combinations = 0U;      ///< the Gaussian sum's component combinations fitted and taken
+  std::uint16_t combinationsTried = 0U; ///< and all it tried
+  std::int8_t branch = -1;              ///< an unseen neutral's start (0, 1), -1 without one
+  std::uint8_t resonance = 0U;          ///< 1 the resonances' masses taken (Breit-Wigner)
   float chi2 = 0.F;
   std::int16_t ndf = 0;
   float flight = 0.F; ///< the true one [cm]
@@ -196,6 +197,7 @@ struct DecayFitRecord {
     visit("resonance", resonance);
     visit("branch", branch);
     visit("combinations", combinations);
+    visit("combinationsTried", combinationsTried);
     visit("microseconds", microseconds);
     visit("stopReason", stopReason);
     visit("stopMetric", stopMetric);
@@ -886,6 +888,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.modelShift = fit.modelShift;
         record.pointSigma = static_cast<float>(fit.pointSigma);
         record.combinations = fit.combinations;
+        record.combinationsTried = fit.combinationsTried;
         record.stopMetric = fit.stopMetric;
         if (fit.status != DecayFitStatus::kOk) {
           one.records.push_back(record);
