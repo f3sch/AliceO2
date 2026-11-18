@@ -46,6 +46,10 @@
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/DecayTrees.h"
 #include "GenericTracking/Tracking/DecayVertexFit.h"
+#include "GenericTracking/Tracking/DecayFitBatch.h"
+#include "GenericTracking/Tracking/GPU/DeviceContext.h"
+#include "GenericTracking/Tracking/GPU/DeviceDecayFitter.h"
+#include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/StateTruth.h"
 #include "GenericTracking/Study/StudyChains.h"
@@ -57,12 +61,14 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <format>
 #include <limits>
+#include <memory>
 #include <numbers>
 #include <span>
 #include <stdexcept>
@@ -349,6 +355,65 @@ struct DecayPrecisionRecord {
   }
 };
 
+/// `decaydevice`'s record: one fit, made directly (`fitDecayVertex`),
+/// through the packed batch on the host (`fitDecayBatch`) and, with a GPU
+/// backend, on the device (DeviceDecayFitter.h).
+struct DecayDeviceRecord {
+  static constexpr std::string_view kName = "decayDevice";
+  static constexpr std::uint8_t kNone = 255U; ///< `statusDevice` without a device
+  std::uint32_t timeframe = 0U;
+  std::uint8_t source = 0U; ///< ChainSource
+  std::uint64_t particle = 0U;
+  std::int32_t pdg = 0;
+  std::uint8_t variant = 0U;     ///< DecayFitVariant
+  std::uint8_t constraints = 0U; ///< as DecayFitRecord's
+  std::int8_t branch = -1;
+  std::uint8_t resonance = 0U;
+  std::uint8_t daughters = 0U;
+  std::uint8_t statusDirect = 0U; ///< DecayFitStatus
+  std::uint8_t statusHost = 0U;
+  std::uint8_t statusDevice = kNone;
+  std::uint8_t hostSame = 0U; ///< 1: the batch's host fit equals the direct one to the bit (statuses, vertices, momenta, chi2, covariance)
+  /// The device fit against the direct one, both converged: the root
+  /// vertex's shift [um], the mass's difference [GeV], chi2's relative
+  /// difference, the largest relative difference of a covariance diagonal.
+  float dVertex = std::numeric_limits<float>::quiet_NaN();
+  float dMass = std::numeric_limits<float>::quiet_NaN();
+  float chi2Rel = std::numeric_limits<float>::quiet_NaN();
+  float diagonalRel = std::numeric_limits<float>::quiet_NaN();
+
+  template <typename Visit>
+  void columns(const Visit& visit) const
+  {
+    visit("timeframe", timeframe);
+    visit("source", source);
+    visit("particle", particle);
+    visit("pdg", pdg);
+    visit("variant", variant);
+    visit("constraints", constraints);
+    visit("branch", branch);
+    visit("resonance", resonance);
+    visit("daughters", daughters);
+    visit("statusDirect", statusDirect);
+    visit("statusHost", statusHost);
+    visit("statusDevice", statusDevice);
+    visit("hostSame", hostSame);
+    visit("dVertex", dVertex);
+    visit("dMass", dMass);
+    visit("chi2Rel", chi2Rel);
+    visit("diagonalRel", diagonalRel);
+  }
+};
+
+/// The GPU backend `decaydevice` fits on: "cpu" for none (the host batch
+/// only), else cuda or hip on \a device, its arena \a arenaMB (0: the whole
+/// device).
+struct DecayDeviceSettings {
+  std::string backend = "cpu";
+  int device = 0;
+  std::size_t arenaMB = 0U;
+};
+
 namespace decay_fit_study_detail
 {
 
@@ -547,6 +612,64 @@ DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, 
   return fit;
 }
 
+/// What `decaydevice` compares of a fit: its status, vertices, momenta,
+/// chi2, covariance diagonal, and the mass of its momenta with \a
+/// daughters' masses.
+struct FitSummary {
+  std::uint8_t status = 0U;
+  FixedVector<std::array<double, 3>, DecayVertexFitResult::kVertices> vertices;
+  FixedVector<std::array<double, 3>, DecayVertexFitResult::kDaughters> momenta;
+  FixedVector<double, (3 * DecayVertexFitResult::kVertices) + (3 * DecayVertexFitResult::kDaughters)> diagonal;
+  double chi2 = 0.;
+  double mass = 0.;
+};
+
+[[nodiscard]] inline FitSummary summarise(const DecayVertexFitResult& fit, std::span<const DecayDaughter> daughters)
+{
+  FitSummary summary{.status = static_cast<std::uint8_t>(fit.status), .vertices = fit.vertices, .momenta = fit.momenta, .chi2 = fit.chi2};
+  if (fit.status != DecayFitStatus::kOk) {
+    return summary;
+  }
+  const int n = (3 * static_cast<int>(fit.vertices.size())) + (3 * static_cast<int>(fit.momenta.size()));
+  for (int a = 0; a < n; ++a) {
+    summary.diagonal.push_back(fit.covariance[(a * n) + a]);
+  }
+  std::vector<double> masses;
+  for (std::size_t i = 0; i < fit.momenta.size(); ++i) {
+    masses.push_back(daughters[i].mass);
+  }
+  summary.mass = kinematicsOf(fit.momenta, masses, fit.charges, fit.covariance, n, 3 * static_cast<int>(fit.vertices.size())).mass;
+  return summary;
+}
+
+[[nodiscard]] inline bool sameBits(const FitSummary& a, const FitSummary& b)
+{
+  const auto same = [](double x, double y) { return std::bit_cast<std::uint64_t>(x) == std::bit_cast<std::uint64_t>(y); };
+  if (a.status != b.status || a.vertices.size() != b.vertices.size() || a.momenta.size() != b.momenta.size() || a.diagonal.size() != b.diagonal.size() || !same(a.chi2, b.chi2) || !same(a.mass, b.mass)) {
+    return false;
+  }
+  for (std::size_t w = 0; w < a.vertices.size(); ++w) {
+    for (int c = 0; c < 3; ++c) {
+      if (!same(a.vertices[w][c], b.vertices[w][c])) {
+        return false;
+      }
+    }
+  }
+  for (std::size_t i = 0; i < a.momenta.size(); ++i) {
+    for (int c = 0; c < 3; ++c) {
+      if (!same(a.momenta[i][c], b.momenta[i][c])) {
+        return false;
+      }
+    }
+  }
+  for (std::size_t j = 0; j < a.diagonal.size(); ++j) {
+    if (!same(a.diagonal[j], b.diagonal[j])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 } // namespace decay_fit_study_detail
 
 template <DetectorLayout Det>
@@ -555,14 +678,29 @@ class DecayFitStudy
  public:
   static constexpr std::size_t kMaxDaughters = 5;
 
-  /// With \a precision (`decayprecision`), every fit is also made in reduced
-  /// precision and the writer takes `DecayPrecisionRecord`s instead.
-  explicit DecayFitStudy(RecordWriter& writer, bool precision = false) : mWriter(&writer), mPrecision(precision)
+  /// What the study writes: the fits (`decayfit`, DecayFitRecord); every fit
+  /// also in reduced precision (`decayprecision`, DecayPrecisionRecord); every
+  /// fit also through a packed batch on the host and, with a GPU backend, on
+  /// the device (`decaydevice`, DecayDeviceRecord).
+  enum class Mode : std::uint8_t {
+    kFit,
+    kPrecision,
+    kDevice
+  };
+
+  explicit DecayFitStudy(RecordWriter& writer, Mode mode = Mode::kFit, const DecayDeviceSettings& device = {}) : mWriter(&writer), mPrecision(mode == Mode::kPrecision), mMode(mode), mDeviceSettings(device)
   {
-    if (precision) {
+    if (mode == Mode::kPrecision) {
       writer.begin<DecayPrecisionRecord>();
+    } else if (mode == Mode::kDevice) {
+      writer.begin<DecayDeviceRecord>();
     } else {
       writer.begin<DecayFitRecord>();
+    }
+    if (mode == Mode::kDevice && device.backend != "cpu") {
+      const std::array<std::size_t, 1> blocks{device.arenaMB * 1024U * 1024U};
+      mContext = std::make_unique<DeviceContext>(device.backend, device.device, blocks);
+      mDevice = mContext->runtime().template makeDecayFitter<Det>(mContext->block(0));
     }
   }
 
@@ -571,12 +709,40 @@ class DecayFitStudy
 
   [[nodiscard]] std::vector<std::string> summary() const
   {
-    return {std::format("decay fit study: {} decays, {} records into {}; {} with a failed daughter refit; {} left out for a daughter not findable", mDecays, mRecords, mWriter->path(), mRefitFailed, mUnfindable)};
+    std::vector<std::string> lines{std::format("decay fit study: {} decays, {} records into {}; {} with a failed daughter refit; {} left out for a daughter not findable", mDecays, mRecords, mWriter->path(), mRefitFailed, mUnfindable)};
+    if (mMode == Mode::kDevice) {
+      const auto perEvent = [&](double seconds) { return mEvents > 0U ? 1e3 * seconds / static_cast<double>(mEvents) : 0.; };
+      lines.push_back(std::format("decay device: {} fits of {} events in {} timeframes; the batch on the host (one thread) {:.4f} ms per event ({:.4f} s); equal to the direct fit to the bit: {} of {}",
+                                  mBatchFits, mEvents, mTimeframes, perEvent(mHostSeconds), mHostSeconds, mHostSame, mBatchFits));
+      if (mDevice) {
+        lines.push_back(std::format("decay device on {}: {:.4f} ms per event ({:.4f} s: upload {:.4f}, sizes {:.4f}, fits {:.4f} in {} launches, download {:.4f}); statuses equal to the direct fit's: {} of {}; {} refused (workspace); arena peak {} B",
+                                    mDeviceSettings.backend, perEvent(mDeviceTotal.uploadSeconds + mDeviceTotal.sizeSeconds + mDeviceTotal.fitSeconds + mDeviceTotal.downloadSeconds), mDeviceTotal.uploadSeconds + mDeviceTotal.sizeSeconds + mDeviceTotal.fitSeconds + mDeviceTotal.downloadSeconds,
+                                    mDeviceTotal.uploadSeconds, mDeviceTotal.sizeSeconds, mDeviceTotal.fitSeconds, mDeviceTotal.launches, mDeviceTotal.downloadSeconds, mDeviceStatusSame, mBatchFits, mDeviceTotal.refused, mDeviceTotal.peakBytes));
+      }
+    }
+    return lines;
   }
 
  private:
+  using Device = DeviceDecayFitter<Det, o2::base::MatLayerCylSet>;
+  /// `decaydevice`: the batches of one source's timeframe fitted on the host
+  /// and on the device, compared with the direct fits, written.
+  void fitBatches(const TruthEvent<Det>& event, std::array<DecayFitBatch, 2>& batches, std::array<std::vector<DecayDeviceRecord>, 2>& records, std::array<std::vector<decay_fit_study_detail::FitSummary>, 2>& direct);
+
   RecordWriter* mWriter = nullptr;
   bool mPrecision = false;
+  Mode mMode = Mode::kFit;
+  DecayDeviceSettings mDeviceSettings;
+  std::unique_ptr<DeviceContext> mContext;
+  std::unique_ptr<Device> mDevice;
+  const o2::base::MatLayerCylSet* mConfigured = nullptr; ///< the material the device has
+  std::size_t mTimeframes = 0U;
+  std::size_t mEvents = 0U;
+  std::size_t mBatchFits = 0U;
+  std::size_t mHostSame = 0U;
+  std::size_t mDeviceStatusSame = 0U;
+  double mHostSeconds = 0.;
+  typename Device::Timing mDeviceTotal;
   std::size_t mDecays = 0U;
   std::size_t mRecords = 0U;
   std::size_t mRefitFailed = 0U;
@@ -617,6 +783,11 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     std::vector<const TreeParticle*> resonances; ///< composites that decay where they are made: transparent
     std::vector<DecayFitRecord> records;
     std::vector<DecayPrecisionRecord> precision; ///< `decayprecision`'s
+    /// `decaydevice`'s: per variant the fits' inputs, their records' identity
+    /// and the direct fits.
+    std::array<DecayFitBatch, 2> batches;
+    std::array<std::vector<DecayDeviceRecord>, 2> device;
+    std::array<std::vector<FitSummary>, 2> direct;
     bool refitFailed = false;
     std::uint8_t refitPass = 0U;
     std::uint8_t refitStatus = 0U;
@@ -1068,6 +1239,13 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         if (job.constraints == 0U && job.variant == DecayFitVariant::kFull) {
           free = outcome;
         }
+        if (mMode == Mode::kDevice) {
+          const auto v = static_cast<std::size_t>(job.variant);
+          one.batches[v].add(jobDaughters, constraints, jobTopology, tracked);
+          one.device[v].push_back({.timeframe = record.timeframe, .particle = record.particle, .pdg = record.pdg, .variant = record.variant, .constraints = record.constraints, .branch = record.branch, .resonance = record.resonance, .daughters = static_cast<std::uint8_t>(jobDaughters.size()), .statusDirect = static_cast<std::uint8_t>(outcome.status)});
+          one.direct[v].push_back(summarise(outcome, jobDaughters));
+          continue;
+        }
         if (mPrecision) {
           continue;
         }
@@ -1215,6 +1393,24 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       }
     }
   });
+  if (mMode == Mode::kDevice) {
+    std::array<DecayFitBatch, 2> batches;
+    std::array<std::vector<DecayDeviceRecord>, 2> records;
+    std::array<std::vector<FitSummary>, 2> direct;
+    for (auto& one : work) {
+      for (std::size_t v = 0; v < 2U; ++v) {
+        batches[v].append(one.batches[v]);
+        records[v].insert(records[v].end(), one.device[v].begin(), one.device[v].end());
+        direct[v].insert(direct[v].end(), one.direct[v].begin(), one.direct[v].end());
+      }
+    }
+    for (auto& variant : records) {
+      for (auto& record : variant) {
+        record.source = static_cast<std::uint8_t>(source);
+      }
+    }
+    fitBatches(event, batches, records, direct);
+  }
   for (auto& one : work) {
     if (mPrecision) {
       for (auto& record : one.precision) {
@@ -1222,7 +1418,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         mWriter->write(record);
       }
       mRecords += one.precision.size();
-    } else {
+    } else if (mMode == Mode::kFit) {
       for (auto& record : one.records) {
         record.source = static_cast<std::uint8_t>(source);
         mWriter->write(record);
@@ -1232,6 +1428,82 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     mRefitFailed += one.refitFailed ? 1U : 0U;
   }
   mDecays += work.size();
+}
+
+template <DetectorLayout Det>
+void DecayFitStudy<Det>::fitBatches(const TruthEvent<Det>& event, std::array<DecayFitBatch, 2>& batches, std::array<std::vector<DecayDeviceRecord>, 2>& records, std::array<std::vector<decay_fit_study_detail::FitSummary>, 2>& direct)
+{
+  using namespace decay_fit_study_detail;
+  const auto& material = *event.material;
+  ++mTimeframes;
+  mEvents += event.collisions != nullptr ? event.collisions->size() : 0U;
+  if (mDevice && mConfigured != &material) {
+    if (!mDevice->configure(material)) {
+      throw std::runtime_error("decay device: the material does not fit the device arena");
+    }
+    mConfigured = &material;
+  }
+  for (std::size_t v = 0; v < 2U; ++v) {
+    auto& batch = batches[v];
+    if (batch.empty()) {
+      continue;
+    }
+    const auto variant = static_cast<DecayFitVariant>(v);
+    std::vector<DecayVertexFitResult> host(batch.size());
+    const auto started = std::chrono::steady_clock::now();
+    if (variant == DecayFitVariant::kGaussianSum) {
+      fitDecayBatch<Det, DecayFitVariant::kGaussianSum>(batch.view(), material, host);
+    } else {
+      fitDecayBatch<Det, DecayFitVariant::kFull>(batch.view(), material, host);
+    }
+    mHostSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    std::vector<DecayVertexFitResult> device;
+    if (mDevice) {
+      device.resize(batch.size());
+      typename Device::Timing timing;
+      if (!mDevice->fit(variant, batch, device, timing)) {
+        throw std::runtime_error("decay device: a timeframe's decays do not fit the device arena");
+      }
+      mDeviceTotal.uploadSeconds += timing.uploadSeconds;
+      mDeviceTotal.sizeSeconds += timing.sizeSeconds;
+      mDeviceTotal.fitSeconds += timing.fitSeconds;
+      mDeviceTotal.downloadSeconds += timing.downloadSeconds;
+      mDeviceTotal.launches += timing.launches;
+      mDeviceTotal.refused += timing.refused;
+      mDeviceTotal.peakBytes = std::max(mDeviceTotal.peakBytes, timing.peakBytes);
+    }
+    const auto view = batch.view();
+    for (std::size_t i = 0; i < batch.size(); ++i) {
+      auto& record = records[v][i];
+      const auto& input = view.decays[i];
+      const std::span<const DecayDaughter> daughters{view.daughters + input.firstDaughter, input.daughters};
+      const auto hostSummary = summarise(host[i], daughters);
+      record.statusHost = hostSummary.status;
+      record.hostSame = sameBits(hostSummary, direct[v][i]) ? 1U : 0U;
+      mHostSame += record.hostSame;
+      if (mDevice) {
+        const auto deviceSummary = summarise(device[i], daughters);
+        const auto& reference = direct[v][i];
+        record.statusDevice = deviceSummary.status;
+        mDeviceStatusSame += deviceSummary.status == reference.status ? 1U : 0U;
+        if (deviceSummary.status == 0U && reference.status == 0U) {
+          const auto& a = deviceSummary.vertices[0];
+          const auto& b = reference.vertices[0];
+          record.dVertex = static_cast<float>(1e4 * std::sqrt(((a[0] - b[0]) * (a[0] - b[0])) + ((a[1] - b[1]) * (a[1] - b[1])) + ((a[2] - b[2]) * (a[2] - b[2]))));
+          record.dMass = static_cast<float>(deviceSummary.mass - reference.mass);
+          record.chi2Rel = static_cast<float>((deviceSummary.chi2 - reference.chi2) / reference.chi2);
+          double largest = 0.;
+          for (std::size_t j = 0; j < reference.diagonal.size() && j < deviceSummary.diagonal.size(); ++j) {
+            largest = std::max(largest, std::abs(deviceSummary.diagonal[j] - reference.diagonal[j]) / std::abs(reference.diagonal[j]));
+          }
+          record.diagonalRel = static_cast<float>(largest);
+        }
+      }
+      mWriter->write(record);
+    }
+    mBatchFits += batch.size();
+    mRecords += batch.size();
+  }
 }
 
 } // namespace o2::gtrk::study

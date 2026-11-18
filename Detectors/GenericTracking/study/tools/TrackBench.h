@@ -175,6 +175,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string hits;                      ///< --hits: the MC hits (sgn_Hits<det>.root), the anatomy's and the truth studies'
   std::vector<std::string> truthStudies; ///< --truth-study: <module>:<source>:<path> each (TruthStudies.h)
   std::string truthSelect;               ///< --truth-select: the truth studies' particles (parseChainSelection)
+  std::string decayBackend = "cpu";      ///< --decay-backend: decaydevice's GPU backend (cpu: the host batch only)
   bool noTracking = false;               ///< --no-tracking: the truth studies of the truth source alone
   std::string ft3Hits;                   ///< --ft3-hits: FT3's MC hits beside TRK's
   std::string kine;                      ///< --kine: the MC kinematics (sgn_Kine.root), the anatomy's clutter test
@@ -1643,7 +1644,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     for (const auto& text : options.truthStudies) {
       specs.push_back(study::parseTruthStudy(text));
     }
-    truthStudies.emplace(specs, study::parseChainSelection(options.truthSelect));
+    truthStudies.emplace(specs, study::parseChainSelection(options.truthSelect), study::DecayDeviceSettings{.backend = options.decayBackend, .device = options.gpuDevice, .arenaMB = options.gpuArenaMB});
   }
   if (options.noTracking && (!truthStudies || truthStudies->takes(study::ChainSource::kTracks))) {
     throw std::runtime_error("--no-tracking runs truth studies of the truth source only");
