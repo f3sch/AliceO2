@@ -448,18 +448,13 @@ struct Kinematics {
 {
   using D = dual::Dual<3 * decay_fit_detail::kMaxConstrainedDaughters>;
   const int count = static_cast<int>(momenta.size());
-  std::array<D, 3> total{};
-  D energy{};
+  decay_fit_detail::MomentumSum<D> sum;
   for (int i = 0; i < count; ++i) {
-    const auto momentum = momentumOf(dual::variable<D::kInputs>(momenta[i][0], 3 * i), dual::variable<D::kInputs>(momenta[i][1], (3 * i) + 1), dual::variable<D::kInputs>(momenta[i][2], (3 * i) + 2), numeratorOf(charges[i]));
-    energy = energy + sqrtOf((momentum.magnitude * momentum.magnitude) + (masses[i] * masses[i]));
-    for (int k = 0; k < 3; ++k) {
-      total[k] = total[k] + momentum.vector[k];
-    }
+    const auto momentum = decay_fit_detail::momentumOfInputs<D::kInputs>(momenta[i][0], momenta[i][1], momenta[i][2], 3 * i, charges[i]);
+    sum.add(momentum.vector, decay_fit_detail::energyOf(momentum, masses[i]));
   }
-  const D p2 = (total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]);
-  const D p = sqrtOf(p2);
-  const D m2 = (energy * energy) - p2;
+  const D p = sqrtOf(sum.squared());
+  const D m2 = sum.massSquared();
   const auto sigma = [&](const D& value) {
     double variance = 0.;
     for (int a = 0; a < 3 * count; ++a) {
@@ -498,20 +493,17 @@ struct MotherQuantities {
     v[k].v = vertex[k];
     v[k].d[k] = 1.;
   }
-  std::array<D, 3> total{};
+  MomentumSum<D> sum;
   for (int i = 0; i < count; ++i) {
-    const int q = (3 * vertices) + (3 * i);
-    const auto momentum = momentumOf(dual::variable<kConstraintInputs>(momenta[i][0], q), dual::variable<kConstraintInputs>(momenta[i][1], q + 1), dual::variable<kConstraintInputs>(momenta[i][2], q + 2), numeratorOf(charges[i]));
-    for (int k = 0; k < 3; ++k) {
-      total[k] = total[k] + momentum.vector[k];
-    }
+    sum.add(momentumOfInputs<kConstraintInputs>(momenta[i][0], momenta[i][1], momenta[i][2], (3 * vertices) + (3 * i), charges[i]).vector);
   }
-  const D pt = sqrtOf((total[0] * total[0]) + (total[1] * total[1]));
-  const D p = sqrtOf((pt * pt) + (total[2] * total[2]));
+  const auto& total = sum.vector;
+  const auto direction = directionOfMomentum(total);
+  const D& p = direction.p;
   const D length = (((v[0] + (-point[0])) * total[0]) + ((v[1] + (-point[1])) * total[1]) + ((v[2] + (-point[2])) * total[2])) / p;
   const D ct = (mass * length) / p;
-  const D phi = atan2Of(total[1], total[0]);
-  const D theta = atan2Of(pt, total[2]);
+  const D& phi = direction.phi;
+  const D& theta = direction.theta;
   const auto sigma = [&](const D& value) {
     double variance = 0.;
     for (int a = 0; a < n; ++a) {
@@ -1003,7 +995,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         if (loss.ok) {
           base.lossModel[i] = static_cast<float>(1. - (1. / static_cast<double>(loss.momentumScale)));
         }
-        base.dPRelInner[i] = static_cast<float>((daughters[i].momentumNumerator() / std::abs(static_cast<double>(daughters[i].innermost.qOverP())) / pFirst) - 1.);
+        base.dPRelInner[i] = static_cast<float>((numeratorOf(daughters[i].charge()) / std::abs(static_cast<double>(daughters[i].innermost.qOverP())) / pFirst) - 1.);
         base.hitsBefore[i] = static_cast<std::int16_t>(std::ranges::count_if(event.hits->segments(leaf->id), [&](const HitSegment* other) { return other->time < segment->time; }));
       }
 
