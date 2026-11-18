@@ -10,13 +10,13 @@
 // or submit itself to any jurisdiction.
 
 /// \file DecayFitMath.h
-/// \brief The arithmetic the decay vertex fits share: forward
-///        differentiation (dual numbers), the helix from a point to a perigee
-///        plane in a uniform field, and the dense symmetric solves.
+/// \brief The arithmetic the decay vertex fits share: the helix from a point
+///        to a plane in a uniform field, and the dense solves (Eigen).
 
 #ifndef GTRK_STUDY_DECAYFITMATH_H_
 #define GTRK_STUDY_DECAYFITMATH_H_
 
+#include "GenericTracking/Study/Dual.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
@@ -29,133 +29,12 @@
 #include <span>
 #include <vector>
 
+#include <Eigen/Dense>
+
 namespace o2::gtrk::study::decay_fit_detail
 {
 
-/// A value and its derivatives by N inputs: forward differentiation.
-template <int N>
-struct Dual {
-  double v = 0.;
-  std::array<double, N> d{};
-};
-
-template <int N>
-Dual<N> operator+(const Dual<N>& a, const Dual<N>& b)
-{
-  Dual<N> r{a.v + b.v};
-  for (int i = 0; i < N; ++i) {
-    r.d[i] = a.d[i] + b.d[i];
-  }
-  return r;
-}
-template <int N>
-Dual<N> operator-(const Dual<N>& a, const Dual<N>& b)
-{
-  Dual<N> r{a.v - b.v};
-  for (int i = 0; i < N; ++i) {
-    r.d[i] = a.d[i] - b.d[i];
-  }
-  return r;
-}
-template <int N>
-Dual<N> operator-(const Dual<N>& a)
-{
-  Dual<N> r{-a.v};
-  for (int i = 0; i < N; ++i) {
-    r.d[i] = -a.d[i];
-  }
-  return r;
-}
-template <int N>
-Dual<N> operator*(const Dual<N>& a, const Dual<N>& b)
-{
-  Dual<N> r{a.v * b.v};
-  for (int i = 0; i < N; ++i) {
-    r.d[i] = a.d[i] * b.v + a.v * b.d[i];
-  }
-  return r;
-}
-template <int N>
-Dual<N> operator/(const Dual<N>& a, const Dual<N>& b)
-{
-  Dual<N> r{a.v / b.v};
-  for (int i = 0; i < N; ++i) {
-    r.d[i] = (a.d[i] - r.v * b.d[i]) / b.v;
-  }
-  return r;
-}
-template <int N>
-Dual<N> operator*(double a, const Dual<N>& b)
-{
-  Dual<N> r{a * b.v};
-  for (int i = 0; i < N; ++i) {
-    r.d[i] = a * b.d[i];
-  }
-  return r;
-}
-template <int N>
-Dual<N> operator+(const Dual<N>& a, double b)
-{
-  Dual<N> r = a;
-  r.v += b;
-  return r;
-}
-/// f(a) with f'(a) given.
-template <int N>
-Dual<N> chain(const Dual<N>& a, double value, double derivative)
-{
-  Dual<N> r{value};
-  for (int i = 0; i < N; ++i) {
-    r.d[i] = derivative * a.d[i];
-  }
-  return r;
-}
-template <int N>
-Dual<N> sin(const Dual<N>& a)
-{
-  return chain(a, std::sin(a.v), std::cos(a.v));
-}
-template <int N>
-Dual<N> cos(const Dual<N>& a)
-{
-  return chain(a, std::cos(a.v), -std::sin(a.v));
-}
-template <int N>
-Dual<N> sqrt(const Dual<N>& a)
-{
-  const double root = std::sqrt(a.v);
-  return chain(a, root, 0.5 / root);
-}
-/// Below these arguments sinc and asinc take their series, through the x^6
-/// term: there its first omitted term is below double's rounding, where the
-/// closed forms' derivatives lose digits to cancellation. sinc's omitted term
-/// is x^8 / 9!, asinc's 35 x^8 / 1152.
-inline const double kSincSeries = std::pow(362880. * std::numeric_limits<double>::epsilon(), 1. / 8.);
-inline const double kAsincSeries = std::pow((1152. / 35.) * std::numeric_limits<double>::epsilon(), 1. / 8.);
-
-/// sin(x) / x, 1 at 0.
-template <int N>
-Dual<N> sinc(const Dual<N>& a)
-{
-  const double x = a.v;
-  if (std::abs(x) < kSincSeries) {
-    const double x2 = x * x;
-    return chain(a, 1. - (x2 / 6.) + (x2 * x2 / 120.) - (x2 * x2 * x2 / 5040.), x * (-(1. / 3.) + (x2 / 30.) - (x2 * x2 / 840.)));
-  }
-  return chain(a, std::sin(x) / x, (std::cos(x) / x) - (std::sin(x) / (x * x)));
-}
-/// asin(x) / x, 1 at 0.
-template <int N>
-Dual<N> asinc(const Dual<N>& a)
-{
-  const double x = a.v;
-  if (std::abs(x) < kAsincSeries) {
-    const double x2 = x * x;
-    return chain(a, 1. + (x2 / 6.) + (3. * x2 * x2 / 40.) + (5. * x2 * x2 * x2 / 112.), x * ((1. / 3.) + (3. * x2 / 10.) + (15. * x2 * x2 / 56.)));
-  }
-  const double root = std::sqrt(1. - (x * x));
-  return chain(a, std::asin(x) / x, (1. / (x * root)) - (std::asin(x) / (x * x)));
-}
+using o2::gtrk::study::dual::Dual;
 
 /// The most iterations of a fit's loops, and the most halvings of one step:
 /// double's mantissa bits. A cap, not a derivation: a step halved that often
@@ -351,91 +230,68 @@ template <int N>
   return true;
 }
 
-/// A symmetric matrix's Cholesky factor in place (lower triangle, row-major
-/// n x n); false if it is not positive definite.
-[[nodiscard]] inline bool cholesky(std::vector<double>& a, int n)
+/// The dense solves' matrices: row-major n x n in a std::vector, seen by Eigen.
+using RowMatrix = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+[[nodiscard]] inline Eigen::Map<RowMatrix> matrixOf(std::vector<double>& a, int rows, int columns) { return {a.data(), rows, columns}; }
+[[nodiscard]] inline Eigen::Map<const RowMatrix> matrixOf(const std::vector<double>& a, int rows, int columns) { return {a.data(), rows, columns}; }
+[[nodiscard]] inline Eigen::Map<Eigen::VectorXd> vectorOf(std::vector<double>& a) { return {a.data(), static_cast<Eigen::Index>(a.size())}; }
+[[nodiscard]] inline Eigen::Map<const Eigen::VectorXd> vectorOf(const std::vector<double>& a) { return {a.data(), static_cast<Eigen::Index>(a.size())}; }
+
+/// A symmetric positive definite matrix's Cholesky factorisation; false if
+/// it is not positive definite.
+[[nodiscard]] inline bool factorise(Eigen::LLT<RowMatrix>& llt, const RowMatrix& a)
 {
-  for (int j = 0; j < n; ++j) {
-    double diagonal = a[j * n + j];
-    for (int k = 0; k < j; ++k) {
-      diagonal -= a[j * n + k] * a[j * n + k];
-    }
-    if (!(diagonal > 0.)) {
-      return false;
-    }
-    const double root = std::sqrt(diagonal);
-    a[j * n + j] = root;
-    for (int i = j + 1; i < n; ++i) {
-      double value = a[i * n + j];
-      for (int k = 0; k < j; ++k) {
-        value -= a[i * n + k] * a[j * n + k];
-      }
-      a[i * n + j] = value / root;
-    }
-  }
-  return true;
+  llt.compute(a);
+  return llt.info() == Eigen::Success;
 }
 
-/// Solve L L^T x = b with the factor of `cholesky`.
-inline void choleskySolve(const std::vector<double>& factor, int n, std::span<double> b)
+/// ln det of a matrix from its Cholesky factorisation.
+[[nodiscard]] inline double logDeterminant(const Eigen::LLT<RowMatrix>& llt)
 {
-  for (int i = 0; i < n; ++i) {
-    double value = b[i];
-    for (int k = 0; k < i; ++k) {
-      value -= factor[i * n + k] * b[k];
-    }
-    b[i] = value / factor[i * n + i];
-  }
-  for (int i = n - 1; i >= 0; --i) {
-    double value = b[i];
-    for (int k = i + 1; k < n; ++k) {
-      value -= factor[k * n + i] * b[k];
-    }
-    b[i] = value / factor[i * n + i];
-  }
+  return 2. * llt.matrixLLT().diagonal().array().log().sum();
 }
 
-/// The inverse of a symmetric positive definite matrix from its factor.
-[[nodiscard]] inline std::vector<double> choleskyInverse(const std::vector<double>& factor, int n)
+/// The inverse of the matrix factorised in \a llt (n x n, row-major).
+[[nodiscard]] inline std::vector<double> inverseOf(const Eigen::LLT<RowMatrix>& llt, int n)
 {
-  std::vector<double> inverse(static_cast<std::size_t>(n * n), 0.);
-  std::vector<double> column(static_cast<std::size_t>(n));
-  for (int j = 0; j < n; ++j) {
-    std::ranges::fill(column, 0.);
-    column[j] = 1.;
-    choleskySolve(factor, n, column);
-    for (int i = 0; i < n; ++i) {
-      inverse[i * n + j] = column[i];
-    }
-  }
+  std::vector<double> inverse(static_cast<std::size_t>(n * n));
+  matrixOf(inverse, n, n) = llt.solve(RowMatrix::Identity(n, n));
   return inverse;
 }
 
-/// A positive semi-definite matrix's factor L, L L^T = \a a (n x n,
-/// row-major; lower triangle): a pivot that is not positive -- the matrix
-/// singular there, or below zero by rounding -- leaves its column zero.
-[[nodiscard]] inline std::vector<double> semidefiniteFactor(const std::vector<double>& a, int n)
+/// A track state's 5 x 5 covariance in double.
+template <typename State>
+[[nodiscard]] RowMatrix covarianceOf(const State& state)
 {
-  std::vector<double> l(static_cast<std::size_t>(n * n), 0.);
-  for (int j = 0; j < n; ++j) {
-    double diagonal = a[j * n + j];
-    for (int k = 0; k < j; ++k) {
-      diagonal -= l[j * n + k] * l[j * n + k];
-    }
-    if (!(diagonal > 0.)) {
-      continue;
-    }
-    const double root = std::sqrt(diagonal);
-    l[j * n + j] = root;
-    for (int i = j + 1; i < n; ++i) {
-      double value = a[i * n + j];
-      for (int k = 0; k < j; ++k) {
-        value -= l[i * n + k] * l[j * n + k];
-      }
-      l[i * n + j] = value / root;
+  RowMatrix covariance(5, 5);
+  for (int r = 0; r < 5; ++r) {
+    for (int c = 0; c < 5; ++c) {
+      covariance(r, c) = state.covAt(r, c);
     }
   }
-  return l;
+  return covariance;
+}
+
+/// The weight (inverse covariance, 5 x 5, row-major) of the covariance
+/// factorised in \a llt.
+inline void weightOf(const Eigen::LLT<RowMatrix>& llt, std::array<double, 25>& weight)
+{
+  Eigen::Map<Eigen::Matrix<double, 5, 5, Eigen::RowMajor>>{weight.data()} = llt.solve(RowMatrix::Identity(5, 5));
+}
+
+/// A positive semi-definite matrix's factor L, L L^T = \a a (n x n,
+/// row-major), from the pivoted LDL^T: L = P^T L' D^1/2, a pivot that is not
+/// positive -- the matrix singular there, or below zero by rounding --
+/// leaving its column zero. L is not triangular.
+[[nodiscard]] inline std::vector<double> semidefiniteFactor(const std::vector<double>& a, int n)
+{
+  const Eigen::LDLT<RowMatrix> ldlt(matrixOf(a, n, n));
+  const Eigen::VectorXd root = ldlt.vectorD().cwiseMax(0.).cwiseSqrt();
+  RowMatrix l = RowMatrix(ldlt.matrixL()) * root.asDiagonal();
+  l = ldlt.transpositionsP().transpose() * l;
+  std::vector<double> factor(static_cast<std::size_t>(n * n));
+  matrixOf(factor, n, n) = l;
+  return factor;
 }
 
 } // namespace o2::gtrk::study::decay_fit_detail

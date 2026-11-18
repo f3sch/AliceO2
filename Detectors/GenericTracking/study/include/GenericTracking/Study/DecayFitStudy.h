@@ -16,22 +16,16 @@
 /// The decays: members of the decay trees with a vertex of their own (the
 /// products made away from the member's production point), whose products are
 /// all final charged particles (no composite below: one vertex), two to
-/// `kMaxDaughters` of them -- a photon's conversion pair among them --, every
+/// `kMaxDaughters` of them (a photon's conversion is parked), every
 /// one with a chain from the source that is findable: its rows -- the chain
 /// the fit takes, a truth chain's first outward leg -- on a chain of at least
 /// four linked layers (`chainLayers`, `isFindable`, no pT floor): a track of
 /// three is barely defined. An electron daughter
 /// is refitted with the Gaussian-sum filter and carried as its mixture
 /// (DecayVertexFit.h). Each daughter's rows are refitted with its true
-/// species (`refitWithHypothesis`); the vertex is fitted under every
-/// `DecayFitVariant`, a record each, from the daughters' states; and kFull
-/// under the mother's mass, its production at the MC collision vertex, and
-/// both (DecayConstraints.h); a photon's under
-/// collinear daughters in place of the mass. Two nearly parallel daughters
-/// measure a conversion's point along the flight only through their
-/// curvature, weakly and far from linearly, so every photon fit is profiled
-/// along the line from the collision towards the pair's first rows over the
-/// material table's cells on it (`conversionCells`, `profileAlongLine`).
+/// species (`refitWithHypothesis`); the vertex is fitted from the daughters'
+/// states alone, under the mother's mass, its production at the MC collision
+/// vertex, and both (DecayConstraints.h), a record each.
 ///
 /// Truth: the vertex against the MC decay point (the products' production
 /// point), in the global frame and along the true flight; the daughters'
@@ -49,7 +43,6 @@
 
 #include "GenericTracking/Study/DecayCandidates.h"
 #include "GenericTracking/Study/DecayConstraints.h"
-#include "GenericTracking/Study/DecayProfile.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/DecayTrees.h"
 #include "GenericTracking/Study/DecayVertexFit.h"
@@ -91,7 +84,7 @@ struct DecayFitRecord {
   std::uint64_t particle = 0U;
   std::int32_t pdg = 0;
   std::uint8_t variant = 0U;     ///< DecayFitVariant
-  std::uint8_t constraints = 0U; ///< 1 the mass, 2 the production point, 4 collinear daughters, 8 a conversion's profile along its line, 16 a tree's composites' masses, 32 the tracked mother's own rows, 64 an unseen neutral's momentum fitted
+  std::uint8_t constraints = 0U; ///< 1 the mass, 2 the production point, 16 a tree's composites' masses, 32 the tracked mother's own rows, 64 an unseen neutral's momentum fitted
   std::uint8_t daughters = 0U;
   std::uint8_t status = 0U; ///< DecayFitStatus, or kRefitFailed
   std::uint8_t iterations = 0U;
@@ -99,7 +92,7 @@ struct DecayFitRecord {
   std::uint8_t stopReason = 0U;
   float stopMetric = 0.F;
   float modelShift = 0.F;
-  float microseconds = 0.F;        ///< the fit's time (with a profile's or a sequential fit's every fit)
+  float microseconds = 0.F;        ///< the fit's time
   std::uint16_t combinations = 0U; ///< the Gaussian sum's component combinations
   std::int8_t branch = -1;         ///< an unseen neutral's start (0, 1), -1 without one
   std::uint8_t resonance = 0U;     ///< 1 the resonances' masses taken (Breit-Wigner)
@@ -143,11 +136,6 @@ struct DecayFitRecord {
   float ct = 0.F; ///< [cm]
   float sCt = 0.F;
   float ctTrue = 0.F;
-  /// A conversion's profile along its line: the true point's distance along
-  /// it less the profile's mean, over its spread, and the spread [cm]; NaN
-  /// for another decay.
-  float profilePull = std::numeric_limits<float>::quiet_NaN();
-  float profileSigma = std::numeric_limits<float>::quiet_NaN();
   /// A tree's first composite below the root (a cascade's Lambda): its
   /// species, its vertex against its true decay point along and across its
   /// true flight, its decay length from its parent's vertex along its
@@ -247,8 +235,6 @@ struct DecayFitRecord {
     visit("ct", ct);
     visit("sCt", sCt);
     visit("ctTrue", ctTrue);
-    visit("profilePull", profilePull);
-    visit("profileSigma", profileSigma);
     visit("childPdg", childPdg);
     visit("dChildL", dChildL);
     visit("sChildL", sChildL);
@@ -435,70 +421,6 @@ struct MotherQuantities {
   return {.length = length.v, .sLength = sigma(length), .ct = ct.v, .sCt = sigma(ct), .phi = phi.v, .sPhi = sigma(phi), .theta = theta.v, .sTheta = sigma(theta)};
 }
 
-/// The cells of \a lut the line from \a origin along \a direction crosses up
-/// to \a end, where a photon may have converted: each cylindrical layer's
-/// stretch of it, split where the line crosses the layer's z bins; each with
-/// the probability of a pair there, 1 - exp(-7/9 x/X0). Cells without
-/// material are left out: no pair is made there.
-[[nodiscard]] inline std::vector<LineCell> conversionCells(const o2::base::MatLayerCylSet& lut, const std::array<double, 3>& origin, const std::array<double, 3>& direction, double end)
-{
-  std::vector<LineCell> cells;
-  // r^2(s) = a s^2 + 2 b s + c over the transverse plane.
-  const double a = (direction[0] * direction[0]) + (direction[1] * direction[1]);
-  const double b = (origin[0] * direction[0]) + (origin[1] * direction[1]);
-  const double c = (origin[0] * origin[0]) + (origin[1] * origin[1]);
-  // The stretch of s with r(s) below \a r: [low, high], empty if low > high.
-  const auto inside = [&](double r) {
-    const double discriminant = (b * b) - (a * (c - (r * r)));
-    if (!(a > 0.) || discriminant < 0.) {
-      return std::array<double, 2>{1., 0.};
-    }
-    const double root = std::sqrt(discriminant);
-    return std::array<double, 2>{(-b - root) / a, (-b + root) / a};
-  };
-  const auto at = [&](double s) { return std::array<float, 3>{static_cast<float>(origin[0] + (s * direction[0])), static_cast<float>(origin[1] + (s * direction[1])), static_cast<float>(origin[2] + (s * direction[2]))}; };
-  for (int i = 0; i < lut.getNLayers(); ++i) {
-    const auto& layer = lut.getLayer(i);
-    const auto outer = inside(layer.getRMax());
-    const auto inner = inside(layer.getRMin());
-    // The layer's stretches: inside its outer radius, outside its inner one.
-    std::vector<std::array<double, 2>> stretches;
-    if (inner[0] > inner[1]) {
-      stretches.push_back(outer);
-    } else {
-      stretches.push_back({outer[0], std::min(outer[1], inner[0])});
-      stretches.push_back({std::max(outer[0], inner[1]), outer[1]});
-    }
-    for (auto stretch : stretches) {
-      stretch[0] = std::max(stretch[0], 0.);
-      stretch[1] = std::min(stretch[1], end);
-      if (!(stretch[1] > stretch[0])) {
-        continue;
-      }
-      // Split at the layer's z bins.
-      std::vector<double> edges{stretch[0], stretch[1]};
-      if (direction[2] != 0.) {
-        for (int k = 0; k <= layer.getNZBins(); ++k) {
-          const double s = (static_cast<double>(layer.getZBinMin(k)) - origin[2]) / direction[2];
-          if (s > stretch[0] && s < stretch[1]) {
-            edges.push_back(s);
-          }
-        }
-      }
-      std::ranges::sort(edges);
-      for (std::size_t k = 0; k + 1 < edges.size(); ++k) {
-        const auto from = at(edges[k]);
-        const auto to = at(edges[k + 1]);
-        const double x2X0 = lut.getMatBudget(from[0], from[1], from[2], to[0], to[1], to[2]).meanX2X0;
-        if (x2X0 > 0.) {
-          cells.push_back({.s = 0.5 * (edges[k] + edges[k + 1]), .halfLength = 0.5 * (edges[k + 1] - edges[k]), .probability = 1. - std::exp(-(7. / 9.) * x2X0)});
-        }
-      }
-    }
-  }
-  return cells;
-}
-
 } // namespace decay_fit_study_detail
 
 template <DetectorLayout Det>
@@ -570,6 +492,9 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     const auto products = decayProducts(trees, member);
     if (products.size() < 2) {
       continue; // no decay vertex: a K0 becoming a K0S, which is a root of its own
+    }
+    if (member.pdg == 22) {
+      continue; // a conversion: parked (its point along the flight needs a profile)
     }
     const auto& decay = products.front()->vertex;
     if (decay == member.vertex) {
@@ -774,39 +699,6 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         base.decayLengthTrue = static_cast<float>((((decay[0] - point[0]) * pTrue[0]) + ((decay[1] - point[1]) * pTrue[1]) + ((decay[2] - point[2]) * pTrue[2])) / pTotal);
         base.ctTrue = static_cast<float>(base.decayLengthTrue * motherMass / pTotal);
       }
-      // A conversion: its line from the collision towards its daughters'
-      // first rows, and the material table's cells on it up to the nearer one.
-      struct ConversionLine {
-        std::array<double, 3> direction{};
-        std::vector<LineCell> cells;
-        double along = 0.; ///< the true point's distance along it
-      };
-      std::optional<ConversionLine> conversion;
-      if (mother.pdg == 22 && hasCollision && !one.refitFailed) {
-        std::array<double, 3> firstRows{};
-        std::vector<std::array<double, 3>> firsts;
-        for (std::size_t i = 0; i < count; ++i) {
-          const auto m = frame.measurement(chainOf.at(one.leaves[i]->id)->rows.front());
-          firsts.push_back({m.x, m.y, m.z});
-          for (int k = 0; k < 3; ++k) {
-            firstRows[k] += firsts.back()[k] / static_cast<double>(count);
-          }
-        }
-        ConversionLine line;
-        const double length = std::hypot(firstRows[0] - point[0], firstRows[1] - point[1], firstRows[2] - point[2]);
-        for (int k = 0; k < 3; ++k) {
-          line.direction[k] = (firstRows[k] - point[k]) / length;
-        }
-        double nearest = std::numeric_limits<double>::infinity();
-        for (const auto& first : firsts) {
-          nearest = std::min(nearest, ((first[0] - point[0]) * line.direction[0]) + ((first[1] - point[1]) * line.direction[1]) + ((first[2] - point[2]) * line.direction[2]));
-        }
-        line.cells = conversionCells(material, point, line.direction, nearest);
-        for (int k = 0; k < 3; ++k) {
-          line.along += (decay[k] - point[k]) * line.direction[k];
-        }
-        conversion = std::move(line);
-      }
       // The fits: every variant alone, then kFull under the mass, the
       // production point, and both.
       struct Job {
@@ -847,11 +739,8 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           trackedMothers.push_back(std::move(tracked));
         }
       }
-      const bool rootTracked = std::ranges::any_of(trackedMothers, [](const DecayMother& m) { return m.vertex == 0; });
       std::vector<Job> jobs;
-      for (const auto variant : {DecayFitVariant::kFull, DecayFitVariant::kCarryOnce, DecayFitVariant::kNoMaterial}) {
-        jobs.push_back({variant, 0U});
-      }
+      jobs.push_back({DecayFitVariant::kFull, 0U});
       const bool missing = one.unseen != nullptr;
       if (missing) {
         // The visible daughters alone (a tree's composites' masses hold),
@@ -865,30 +754,18 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
       } else if (tree) {
         // A tree: its composites' masses, with the root's mass, its
-        // production point, both; the sequential fit (a composite first) for
-        // a tree of two vertices.
+        // production point, both.
         for (const std::uint8_t set : {std::uint8_t{16}, std::uint8_t{17}, std::uint8_t{18}, std::uint8_t{19}}) {
           jobs.push_back({DecayFitVariant::kFull, set});
         }
-        if (one.topology.vertices() == 2) {
-          for (const std::uint8_t set : {std::uint8_t{0}, std::uint8_t{16}, std::uint8_t{18}, std::uint8_t{19}}) {
-            jobs.push_back({DecayFitVariant::kSequential, set});
-          }
-        }
-        // A tracked mother: its own rows in the tree, and in the sequential
-        // fit's root (strangeness tracking as a fit).
-        for (const std::uint8_t set : {std::uint8_t{48}, std::uint8_t{50}, std::uint8_t{51}}) {
-          if (!trackedMothers.empty()) {
+        // A tracked mother: its own rows in the tree.
+        if (!trackedMothers.empty()) {
+          for (const std::uint8_t set : {std::uint8_t{48}, std::uint8_t{50}, std::uint8_t{51}}) {
             jobs.push_back({DecayFitVariant::kFull, set});
-            if (rootTracked && one.topology.vertices() == 2) {
-              jobs.push_back({DecayFitVariant::kSequential, set});
-            }
           }
         }
       } else {
-        // A photon: collinear daughters in place of the mass.
-        const std::uint8_t first = mother.pdg == 22 ? std::uint8_t{4} : std::uint8_t{1};
-        for (const std::uint8_t set : {first, std::uint8_t{2}, static_cast<std::uint8_t>(first | 2U)}) {
+        for (const std::uint8_t set : {std::uint8_t{1}, std::uint8_t{2}, std::uint8_t{3}}) {
           jobs.push_back({DecayFitVariant::kFull, set});
         }
       }
@@ -899,10 +776,9 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           jobs.push_back({.variant = DecayFitVariant::kFull, .constraints = set, .resonance = true});
         }
       }
-      // Electron daughters' mixtures kept (not a conversion's: parked):
-      // alone and under the masses.
+      // Electron daughters' mixtures kept: alone and under the masses.
       const bool electrons = std::ranges::any_of(daughters, [](const DecayDaughter& d) { return d.mixture.has_value(); });
-      if (electrons && mother.pdg != 22) {
+      if (electrons) {
         for (const std::uint8_t set : {std::uint8_t{0}, tree ? std::uint8_t{16} : std::uint8_t{1}}) {
           if (!missing || set != 1U) {
             jobs.push_back({DecayFitVariant::kGaussianSum, set});
@@ -947,7 +823,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         base.childLengthTrue = static_cast<float>(((childDecay[0] - decay[0]) * childAxis[0]) + ((childDecay[1] - decay[1]) * childAxis[1]) + ((childDecay[2] - decay[2]) * childAxis[2]));
         base.childMassTrue = static_cast<float>(std::sqrt(std::max((childE * childE) - (childPTotal * childPTotal), 0.)));
       }
-      std::array<DecayVertexFitResult, kDecayFitVariants> fits{};
+      DecayVertexFitResult free; // kFull without constraints: the missing momentum's start
       for (const auto& job : jobs) {
         DecayFitRecord record = base;
         record.variant = static_cast<std::uint8_t>(job.variant);
@@ -959,15 +835,14 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         const bool wantMass = (job.constraints & 1U) != 0U;
         const bool wantProduction = (job.constraints & 2U) != 0U;
-        const bool wantCollinear = (job.constraints & 4U) != 0U;
         const bool wantComposites = (job.constraints & 16U) != 0U;
-        if ((wantMass && !(motherMass > 0.)) || (wantProduction && !madeAtCollision) || (wantCollinear && count != 2)) {
+        if ((wantMass && !(motherMass > 0.)) || (wantProduction && !madeAtCollision)) {
           record.status = static_cast<std::uint8_t>(DecayFitStatus::kNoStart); // nothing to constrain to
           one.records.push_back(record);
           continue;
         }
-        DecayConstraints constraints{.mass = wantMass, .massGeV = motherMass, .production = wantProduction, .point = point, .collinear = wantCollinear};
-        if (wantComposites && job.variant != DecayFitVariant::kSequential) {
+        DecayConstraints constraints{.mass = wantMass, .massGeV = motherMass, .production = wantProduction, .point = point};
+        if (wantComposites) {
           constraints.compositeMasses = compositeMasses;
         }
         record.resonance = job.resonance ? 1U : 0U;
@@ -996,7 +871,6 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         auto jobDaughters = daughters;
         const bool wantMissing = (job.constraints & 64U) != 0U;
         if (wantMissing) {
-          const auto& free = fits[static_cast<std::size_t>(DecayFitVariant::kFull)];
           std::optional<std::array<double, 3>> start;
           if (free.status == DecayFitStatus::kOk) {
             const auto starts = missingMomentumStarts(free, masses, point, motherMass, unseenMass);
@@ -1018,51 +892,11 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           jobDaughters.pop_back();
         }
         const auto fitUnder = [&](const DecayConstraints& set) { return fitDecayVertex(std::span<const DecayDaughter>{jobDaughters}, material, job.variant, set, one.topology, tracked); };
-        DecayVertexFitResult outcome;
         const auto started = std::chrono::steady_clock::now();
-        // The sequential fit: the composite (vertex 1) from its daughters,
-        // under its mass if asked; then the root from its own daughters and
-        // the composite as a pseudo-track.
-        DecayVertexFitResult childFit;
-        std::vector<double> pseudoJacobian; // the pseudo-track by the child fit's parameters
-        std::vector<double> rootMasses;
-        const bool sequential = job.variant == DecayFitVariant::kSequential;
-        if (sequential) {
-          std::vector<DecayDaughter> childDaughters;
-          std::vector<DecayDaughter> rootDaughters;
-          for (std::size_t i = 0; i < count; ++i) {
-            if (one.topology.vertexOfDaughter(static_cast<int>(i)) == 1) {
-              childDaughters.push_back(daughters[i]);
-            } else {
-              rootDaughters.push_back(daughters[i]);
-              rootMasses.push_back(masses[i]);
-            }
-          }
-          const DecayConstraints childSet{.mass = wantComposites, .massGeV = compositeMasses.front()};
-          childFit = fitDecayVertex(std::span<const DecayDaughter>{childDaughters}, material, DecayFitVariant::kFull, childSet);
-          if (childFit.status != DecayFitStatus::kOk) {
-            outcome.status = childFit.status;
-          } else {
-            rootDaughters.push_back(pseudoTrackOf(childFit, compositeMasses.front(), particleCharge(one.composites.front()->pdg), event.propagator, &pseudoJacobian));
-            rootMasses.push_back(compositeMasses.front());
-            // the root's own rows only: the composite's flight is in its pseudo-track
-            const auto rootTracks = tracked.empty() || tracked.front().vertex != 0 ? std::span<const DecayMother>{} : tracked.first(1);
-            outcome = fitDecayVertex(std::span<const DecayDaughter>{rootDaughters}, material, DecayFitVariant::kFull, constraints, {}, rootTracks);
-          }
-        } else if (conversion) {
-          record.constraints |= 8U;
-          const auto profile = profileAlongLine(fitUnder, constraints, point, conversion->direction, conversion->cells);
-          outcome = profile.fit;
-          if (outcome.status != DecayFitStatus::kNoProfile) {
-            record.profilePull = static_cast<float>((conversion->along - profile.mean) / profile.sigma);
-            record.profileSigma = static_cast<float>(profile.sigma);
-          }
-        } else {
-          outcome = fitUnder(constraints);
-        }
+        const auto outcome = fitUnder(constraints);
         record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
-        if (job.constraints == 0U) {
-          fits[static_cast<std::size_t>(job.variant)] = outcome;
+        if (job.constraints == 0U && job.variant == DecayFitVariant::kFull) {
+          free = outcome;
         }
         const auto& fit = outcome;
         record.status = static_cast<std::uint8_t>(fit.status);
@@ -1081,7 +915,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         const std::size_t fitCount = fit.momenta.size();
         const int n = (3 * vertexCount) + (3 * static_cast<int>(fitCount));
         const auto& c = fit.covariance;
-        const auto& fitMasses = sequential ? rootMasses : masses;
+        const auto& fitMasses = masses;
         record.chi2 = static_cast<float>(fit.chi2);
         record.ndf = static_cast<std::int16_t>(fit.ndf);
         record.maxCarryX2X0 = static_cast<float>(*std::ranges::max_element(fit.carryX2X0));
@@ -1123,10 +957,10 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         // The child: its vertex, decay length and mass.
         if (tree) {
-          const auto& child = sequential ? childFit.vertex : fit.vertices[1];
-          const int childN = sequential ? 3 + (3 * static_cast<int>(childFit.momenta.size())) : n;
-          const int childAt = sequential ? 0 : 3;
-          const auto& childC = sequential ? childFit.covariance : c;
+          const auto& child = fit.vertices[1];
+          const int childN = n;
+          const int childAt = 3;
+          const auto& childC = c;
           const std::array<double, 3> e{child[0] - childDecay[0], child[1] - childDecay[1], child[2] - childDecay[2]};
           const auto childVariance = [&](const std::array<double, 3>& axis) {
             double variance = 0.;
@@ -1142,50 +976,17 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           record.dChildT = static_cast<float>((e[0] * childAcross[0]) + (e[1] * childAcross[1]) + (e[2] * childAcross[2]));
           record.sChildT = static_cast<float>(std::sqrt(std::max(childVariance(childAcross), 0.)));
           // The decay length from the parent's vertex along the true flight;
-          // its variance the two vertices' with their correlation (one fit:
-          // its covariance; sequential: the parent's vertex depends on the
-          // child's through the pseudo-track, the parent fit's last daughter:
-          // cov(V_p, V_c) = G J C_c, G the parent's gain on it, J the
-          // pseudo-track by the child's parameters).
+          // its variance the two vertices' with their correlation.
           record.childLength = static_cast<float>(((child[0] - fit.vertex[0]) * childAxis[0]) + ((child[1] - fit.vertex[1]) * childAxis[1]) + ((child[2] - fit.vertex[2]) * childAxis[2]));
           double lengthVariance = childVariance(childAxis);
-          std::array<double, 9> crossCovariance{};
-          if (sequential) {
-            const auto& gain = fit.vertexGain.back();
-            for (int a = 0; a < 3; ++a) {
-              for (int b = 0; b < 3; ++b) {
-                double value = 0.;
-                for (int r = 0; r < 5; ++r) {
-                  for (int q = 0; q < childN; ++q) {
-                    value += gain[(a * 5) + r] * pseudoJacobian[(r * childN) + q] * childC[(q * childN) + b];
-                  }
-                }
-                crossCovariance[(a * 3) + b] = value;
-              }
-            }
-          } else {
-            for (int a = 0; a < 3; ++a) {
-              for (int b = 0; b < 3; ++b) {
-                crossCovariance[(a * 3) + b] = c[(a * n) + 3 + b];
-              }
-            }
-          }
           for (int a = 0; a < 3; ++a) {
             for (int b = 0; b < 3; ++b) {
               lengthVariance += childAxis[a] * c[(a * n) + b] * childAxis[b];
-              lengthVariance -= 2. * childAxis[a] * crossCovariance[(a * 3) + b] * childAxis[b];
+              lengthVariance -= 2. * childAxis[a] * c[(a * n) + 3 + b] * childAxis[b];
             }
           }
           record.sChildLength = static_cast<float>(std::sqrt(std::max(lengthVariance, 0.)));
-          if (sequential) {
-            std::vector<double> childMasses;
-            for (const auto i : childLeaves) {
-              childMasses.push_back(masses[i]);
-            }
-            const auto childKinematics = kinematicsOf(childFit.momenta, childMasses, childFit.charges, childFit.covariance, childN, 3);
-            record.childMass = static_cast<float>(childKinematics.mass);
-            record.sChildMass = static_cast<float>(childKinematics.sMass);
-          } else {
+          {
             // the child's leaves' momenta and their covariance block
             std::vector<std::array<double, 3>> childMomenta;
             std::vector<double> childMasses;
@@ -1210,10 +1011,6 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
             record.childMass = static_cast<float>(childKinematics.mass);
             record.sChildMass = static_cast<float>(childKinematics.sMass);
           }
-        }
-        if (sequential) {
-          one.records.push_back(record); // no per-daughter columns: the composite's daughters are not in the root's fit
-          continue;
         }
         // The carried momenta: independent of one another, each its own 3 x 3.
         std::vector<double> carried(static_cast<std::size_t>(9 * count * count), 0.);
