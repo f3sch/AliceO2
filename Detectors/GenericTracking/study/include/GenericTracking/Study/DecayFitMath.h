@@ -11,8 +11,8 @@
 
 /// \file DecayFitMath.h
 /// \brief The arithmetic the decay vertex fits share: the helix from a point
-///        to a plane in a uniform field, and the dense solves on
-///        std::vector matrices (DenseSolve.h).
+///        to a plane in a uniform field, the dense solves on caller
+///        storage (DenseSolve.h), fixed-capacity storage.
 
 #ifndef GTRK_STUDY_DECAYFITMATH_H_
 #define GTRK_STUDY_DECAYFITMATH_H_
@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cmath>
 #include <limits>
@@ -192,39 +193,66 @@ template <int N>
   return true;
 }
 
-/// A row-major matrix of \a columns columns in a std::vector, seen by the
-/// dense solves (DenseSolve.h).
-[[nodiscard]] inline dense::MatrixView<double> viewOf(std::vector<double>& a, int columns) { return {a.data(), columns}; }
+/// At most \a Capacity elements in place, a runtime count of them used: the
+/// fit's storage of what its capacities bound, without allocation. Elements
+/// a resize adds are value-initialised, as std::vector's.
+template <typename T, std::size_t Capacity>
+struct FixedVector {
+  std::array<T, Capacity> items{};
+  std::size_t count = 0;
+  [[nodiscard]] static constexpr std::size_t capacity() { return Capacity; }
+  [[nodiscard]] std::size_t size() const { return count; }
+  [[nodiscard]] bool empty() const { return count == 0; }
+  [[nodiscard]] T* data() { return items.data(); }
+  [[nodiscard]] const T* data() const { return items.data(); }
+  [[nodiscard]] T* begin() { return items.data(); }
+  [[nodiscard]] T* end() { return items.data() + count; }
+  [[nodiscard]] const T* begin() const { return items.data(); }
+  [[nodiscard]] const T* end() const { return items.data() + count; }
+  [[nodiscard]] T& operator[](std::size_t i) { return items[i]; }
+  [[nodiscard]] const T& operator[](std::size_t i) const { return items[i]; }
+  [[nodiscard]] T& back() { return items[count - 1]; }
+  void clear() { count = 0; }
+  /// The caller keeps within the capacity.
+  void push_back(const T& value) { items[count++] = value; }
+  void resize(std::size_t size)
+  {
+    for (std::size_t i = count; i < size; ++i) {
+      items[i] = T{};
+    }
+    count = size;
+  }
+};
 
-/// A symmetric positive definite matrix's Cholesky factor.
+/// A row-major matrix of \a columns columns at \a a, seen by the dense
+/// solves (DenseSolve.h).
+[[nodiscard]] inline dense::MatrixView<double> viewOf(double* a, int columns) { return {a, columns}; }
+
+/// A symmetric positive definite matrix's Cholesky factor, in storage the
+/// caller hands in (`l`, at least n x n).
 struct Cholesky {
   int n = 0;
-  std::vector<double> l;
+  double* l = nullptr;
   /// Factor \a a (\a size x \a size, row-major, its lower triangle read);
   /// false if it is not positive definite.
-  [[nodiscard]] bool factor(const std::vector<double>& a, int size)
+  [[nodiscard]] bool factor(const double* a, int size)
   {
     n = size;
-    l = a;
+    std::copy_n(a, n * n, l);
     return dense::choleskyFactor(viewOf(l, n), n);
   }
-  [[nodiscard]] double logDeterminant() { return dense::choleskyLogDeterminant(viewOf(l, n), n); }
+  [[nodiscard]] double logDeterminant() const { return dense::choleskyLogDeterminant(viewOf(l, n), n); }
   /// x <- a^-1 x.
-  void solve(std::vector<double>& x) { dense::choleskySolve(viewOf(l, n), n, x.data()); }
-  /// a^-1, n x n, row-major.
-  [[nodiscard]] std::vector<double> inverse()
-  {
-    std::vector<double> out(static_cast<std::size_t>(n * n));
-    dense::choleskyInverse(viewOf(l, n), n, viewOf(out, n));
-    return out;
-  }
+  void solve(double* x) const { dense::choleskySolve(viewOf(l, n), n, x); }
+  /// a^-1 into \a inverse, n x n, row-major.
+  void inverse(double* inverse) const { dense::choleskyInverse(viewOf(l, n), n, viewOf(inverse, n)); }
 };
 
 /// A track state's 5 x 5 covariance in double, row-major.
 template <typename State>
-[[nodiscard]] std::vector<double> covarianceOf(const State& state)
+[[nodiscard]] std::array<double, 25> covarianceOf(const State& state)
 {
-  std::vector<double> covariance(25U);
+  std::array<double, 25> covariance{};
   for (int r = 0; r < 5; ++r) {
     for (int c = 0; c < 5; ++c) {
       covariance[(r * 5) + c] = state.covAt(r, c);
@@ -235,21 +263,18 @@ template <typename State>
 
 /// The weight (inverse covariance, 5 x 5, row-major) of the covariance
 /// factored in \a cholesky.
-inline void weightOf(Cholesky& cholesky, std::array<double, 25>& weight)
+inline void weightOf(const Cholesky& cholesky, std::array<double, 25>& weight)
 {
   dense::choleskyInverse(viewOf(cholesky.l, 5), 5, dense::MatrixView<double>{weight.data(), 5});
 }
 
 /// A positive semi-definite matrix's factor L, L L^T = \a a (n x n,
-/// row-major): the pivoted L D L^T's P^T L D^1/2 (`dense::semidefiniteFactor`).
-/// L is not triangular.
-[[nodiscard]] inline std::vector<double> semidefiniteFactor(const std::vector<double>& a, int n)
+/// row-major), into \a factor: the pivoted L D L^T's P^T L D^1/2
+/// (`dense::semidefiniteFactor`; \a a overwritten, \a order n ints of
+/// scratch). L is not triangular.
+inline void semidefiniteFactor(double* a, int n, int* order, double* factor)
 {
-  std::vector<double> work = a;
-  std::vector<int> order(static_cast<std::size_t>(n));
-  std::vector<double> factor(static_cast<std::size_t>(n * n));
-  dense::semidefiniteFactor(viewOf(work, n), n, order.data(), viewOf(factor, n));
-  return factor;
+  dense::semidefiniteFactor(viewOf(a, n), n, order, viewOf(factor, n));
 }
 
 /// A Gaussian mixture's collapse to one Gaussian (its mean and covariance)
@@ -260,21 +285,26 @@ inline void weightOf(Cholesky& cholesky, std::array<double, 25>& weight)
 /// the weighted chi2 sum. Merging A and B rescales both to the larger h and
 /// combines means and scatters with their means' difference; adding one
 /// component is a merge with a collapse of one. No raw moments
-/// (sum w p p^T - mu mu^T), which cancel.
+/// (sum w p p^T - mu mu^T), which cancel. Its mean and scatter live in
+/// storage the caller hands in (n and n x n).
 struct MixtureCollapse {
   int n = 0;
   int count = 0; ///< the components taken
   double logScale = -std::numeric_limits<double>::infinity();
   double weight = 0.;
   double chi2 = 0.;
-  std::vector<double> mean;
-  std::vector<double> scatter; ///< n x n, row-major
+  std::span<double> mean;
+  std::span<double> scatter; ///< n x n, row-major
 
-  explicit MixtureCollapse(int size) : n(size), mean(static_cast<std::size_t>(size), 0.), scatter(static_cast<std::size_t>(size * size), 0.) {}
+  MixtureCollapse(std::span<double> meanStorage, std::span<double> scatterStorage) : n(static_cast<int>(meanStorage.size())), mean(meanStorage), scatter(scatterStorage)
+  {
+    std::ranges::fill(mean, 0.);
+    std::ranges::fill(scatter, 0.);
+  }
 
   /// Takes the component of log-weight \a logWeight, mean \a p, covariance
   /// \a sigma (n x n) and chi2 \a componentChi2.
-  void add(double logWeight, const std::vector<double>& p, const std::vector<double>& sigma, double componentChi2)
+  void add(double logWeight, std::span<const double> p, std::span<const double> sigma, double componentChi2)
   {
     combine(logWeight, 1., p, sigma, componentChi2, 1);
   }
@@ -284,25 +314,23 @@ struct MixtureCollapse {
       combine(other.logScale, other.weight, other.mean, other.scatter, other.chi2, other.count);
     }
   }
-  /// The collapse's covariance, S / W.
-  [[nodiscard]] std::vector<double> covariance() const
+  /// The collapse's covariance, S / W, into \a covariance (n x n).
+  void covarianceInto(double* covariance) const
   {
-    std::vector<double> c(scatter.size());
-    for (std::size_t i = 0; i < c.size(); ++i) {
-      c[i] = scatter[i] / weight;
+    for (std::size_t i = 0; i < scatter.size(); ++i) {
+      covariance[i] = scatter[i] / weight;
     }
-    return c;
   }
   [[nodiscard]] double meanChi2() const { return chi2 / weight; }
 
  private:
-  void combine(double logScaleB, double weightB, const std::vector<double>& meanB, const std::vector<double>& scatterB, double chi2B, int countB)
+  void combine(double logScaleB, double weightB, std::span<const double> meanB, std::span<const double> scatterB, double chi2B, int countB)
   {
     if (count == 0) {
       logScale = logScaleB;
       weight = weightB;
-      mean = meanB;
-      scatter = scatterB;
+      std::ranges::copy(meanB, mean.begin());
+      std::ranges::copy(scatterB, scatter.begin());
       chi2 = chi2B;
       count = countB;
       return;

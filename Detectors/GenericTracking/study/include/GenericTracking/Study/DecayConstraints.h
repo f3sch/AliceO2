@@ -115,24 +115,27 @@ namespace decay_fit_detail
 inline constexpr int kMaxConstrainedVertices = 3;
 inline constexpr int kMaxConstrainedDaughters = 5;
 inline constexpr int kConstraintInputs = (3 * kMaxConstrainedVertices) + (3 * kMaxConstrainedDaughters);
+/// The most equations `evaluateConstraints` gives: the mother's mass, and per
+/// composite below the root its link (two) and its mass.
+inline constexpr int kMaxHardRows = 1 + (3 * (kMaxConstrainedVertices - 1));
 
 /// \a constraints' values at \a vertices (\a topology's) and \a momenta (phi,
 /// theta, q/p each at its daughter's vertex; a neutral daughter's q/p its
 /// 1/p) with the daughters' \a masses and \a charges, and their rows of
-/// derivatives by (the vertices, the
-/// momenta), 3K + 3N wide; false if the tree is too large.
-[[nodiscard]] inline bool evaluateConstraints(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const std::array<double, 3>> vertices, std::span<const std::array<double, 3>> momenta, std::span<const double> masses, std::span<const double> charges, double fieldScale, std::vector<double>& values, std::vector<double>& rows)
+/// derivatives by (the vertices, the momenta), 3K + 3N wide: \a written
+/// values into \a values, row j at \a rows + j \a stride, at most
+/// \a capacity of them; false if the tree is too large or they are more.
+[[nodiscard]] inline bool evaluateConstraints(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const std::array<double, 3>> vertices, std::span<const std::array<double, 3>> momenta, std::span<const double> masses, std::span<const double> charges, double fieldScale, double* values, double* rows, int stride, int capacity, int& written)
 {
   using D = Dual<kConstraintInputs>;
   const int count = static_cast<int>(momenta.size());
   const int k = topology.vertices();
   const int width = (3 * k) + (3 * count);
+  written = 0;
   if (count > kMaxConstrainedDaughters || k > kMaxConstrainedVertices) {
     return false;
   }
-  values.clear();
-  rows.clear();
-  std::vector<std::array<D, 3>> v(static_cast<std::size_t>(k));
+  std::array<std::array<D, 3>, kMaxConstrainedVertices> v{};
   for (int w = 0; w < k; ++w) {
     for (int c = 0; c < 3; ++c) {
       v[w][c].v = vertices[w][c];
@@ -140,8 +143,8 @@ inline constexpr int kConstraintInputs = (3 * kMaxConstrainedVertices) + (3 * kM
     }
   }
   // Every daughter's momentum vector, energy and charge.
-  std::vector<std::array<D, 3>> vectors(static_cast<std::size_t>(count));
-  std::vector<D> energies(static_cast<std::size_t>(count));
+  std::array<std::array<D, 3>, kMaxConstrainedDaughters> vectors{};
+  std::array<D, kMaxConstrainedDaughters> energies{};
   for (int i = 0; i < count; ++i) {
     const int q = (3 * k) + (3 * i);
     const auto momentum = momentumOf(dual::variable<kConstraintInputs>(momenta[i][0], q), dual::variable<kConstraintInputs>(momenta[i][1], q + 1), dual::variable<kConstraintInputs>(momenta[i][2], q + 2), numeratorOf(charges[i]));
@@ -163,11 +166,17 @@ inline constexpr int kConstraintInputs = (3 * kMaxConstrainedVertices) + (3 * kM
       }
     }
   };
+  bool room = true;
   const auto push = [&](const D& value) {
-    values.push_back(value.v);
-    for (int c = 0; c < width; ++c) {
-      rows.push_back(value.d[c]);
+    if (written >= capacity) {
+      room = false;
+      return;
     }
+    values[written] = value.v;
+    for (int c = 0; c < width; ++c) {
+      rows[(written * stride) + c] = value.d[c];
+    }
+    ++written;
   };
   const auto massOf = [&](const std::array<D, 3>& total, const D& energy, double m) {
     const D p2 = (total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]);
@@ -213,7 +222,7 @@ inline constexpr int kConstraintInputs = (3 * kMaxConstrainedVertices) + (3 * kM
       push(massOf(total, energy, constraints.compositeMasses[w - 1]));
     }
   }
-  return true;
+  return room;
 }
 
 /// Equations predicted - measured - L eta = 0 whose measurements carry a
@@ -227,8 +236,8 @@ struct ScatteredEquations {
   int at = -1;  ///< eta's first parameter; -1: none
   int row = -1; ///< the first equation's row
   int count = 0;
-  std::vector<double> factor; ///< L, count x count (`semidefiniteFactor`: not triangular)
-  void apply(const std::vector<double>& p, int n, std::vector<double>& values, std::vector<double>& rows) const
+  const double* factor = nullptr; ///< L, count x count (`semidefiniteFactor`: not triangular)
+  void apply(std::span<const double> p, int n, double* values, double* rows) const
   {
     for (int a = 0; a < count; ++a) {
       for (int b = 0; b < count; ++b) {
@@ -238,16 +247,24 @@ struct ScatteredEquations {
       }
     }
   }
-  void addPrior(const std::vector<double>& p, int n, double& chi2, std::vector<double>* normal, std::vector<double>* gradient) const
+  void addPrior(std::span<const double> p, int n, double& chi2, double* normal, double* gradient) const
   {
     for (int b = 0; b < count; ++b) {
       chi2 += p[at + b] * p[at + b];
       if (normal != nullptr) {
-        (*normal)[((at + b) * n) + at + b] += 1.;
-        (*gradient)[at + b] -= p[at + b];
+        normal[((at + b) * n) + at + b] += 1.;
+        gradient[at + b] -= p[at + b];
       }
     }
   }
+};
+
+/// The Lagrange system's storage, the caller's: the matrix ((n + m)^2), the
+/// solution (n + m), the pivots (n + m).
+struct LagrangeSpace {
+  double* system = nullptr;
+  double* solution = nullptr;
+  int* pivots = nullptr;
 };
 
 /// The Gauss-Newton step under the hard constraints C step + c = 0 (\a rows
@@ -255,15 +272,16 @@ struct ScatteredEquations {
 /// right-hand side \a gradient: the Lagrange system [[N, C^T], [C, 0]]
 /// [step; lambda] = [g; -c], solved by LU with partial pivoting, as N alone
 /// may be singular where the constraints fix its null direction (two parallel
-/// daughters along the flight). With \a covariance, the constrained
-/// covariance: the system's inverse's N block; with \a multipliers, lambda;
-/// with \a logDeterminant, ln |det| of the system. False if the
-/// system is singular (an exactly zero pivot).
-[[nodiscard]] inline bool constrainedStep(const std::vector<double>& normal, int n, const std::vector<double>& gradient, const std::vector<double>& rows, const std::vector<double>& values, std::vector<double>& step, std::vector<double>* covariance, std::vector<double>* multipliers = nullptr, double* logDeterminant = nullptr)
+/// daughters along the flight). With \a step, the step; with \a covariance,
+/// the constrained covariance: the system's inverse's N block (n x n); with
+/// \a multipliers, lambda; with \a logDeterminant, ln |det| of the system.
+/// False if the system is singular (an exactly zero pivot).
+[[nodiscard]] inline bool constrainedStep(const LagrangeSpace& space, const double* normal, int n, const double* gradient, const double* rows, std::span<const double> values, double* step, double* covariance, double* multipliers = nullptr, double* logDeterminant = nullptr)
 {
   const int m = static_cast<int>(values.size());
   const int size = n + m;
-  std::vector<double> system(static_cast<std::size_t>(size * size), 0.);
+  double* system = space.system;
+  std::fill_n(system, size * size, 0.);
   for (int a = 0; a < n; ++a) {
     for (int b = 0; b < n; ++b) {
       system[(a * size) + b] = normal[(a * n) + b];
@@ -275,35 +293,36 @@ struct ScatteredEquations {
       system[(b * size) + n + j] = rows[(j * n) + b];
     }
   }
-  std::vector<int> pivots(static_cast<std::size_t>(size));
+  int* pivots = space.pivots;
   const auto lu = viewOf(system, size);
-  if (!dense::luFactor(lu, size, pivots.data())) {
+  if (!dense::luFactor(lu, size, pivots)) {
     return false;
   }
-  std::vector<double> solution(static_cast<std::size_t>(size));
+  double* solution = space.solution;
   for (int a = 0; a < n; ++a) {
     solution[a] = gradient[a];
   }
   for (int j = 0; j < m; ++j) {
     solution[n + j] = -values[j];
   }
-  dense::luSolve(lu, size, pivots.data(), solution.data());
-  step.assign(solution.begin(), solution.begin() + n);
+  dense::luSolve(lu, size, pivots, solution);
+  if (step != nullptr) {
+    std::copy_n(solution, n, step);
+  }
   if (multipliers != nullptr) {
-    multipliers->assign(solution.begin() + n, solution.end());
+    std::copy_n(solution + n, m, multipliers);
   }
   if (logDeterminant != nullptr) {
     *logDeterminant = dense::luLogAbsDeterminant(lu, size);
   }
   if (covariance != nullptr) {
     // The system's inverse's N block, a column at a time.
-    covariance->resize(static_cast<std::size_t>(n * n));
     for (int b = 0; b < n; ++b) {
-      std::fill(solution.begin(), solution.end(), 0.);
+      std::fill_n(solution, size, 0.);
       solution[b] = 1.;
-      dense::luSolve(lu, size, pivots.data(), solution.data());
+      dense::luSolve(lu, size, pivots, solution);
       for (int a = 0; a < n; ++a) {
-        (*covariance)[(a * n) + b] = solution[a];
+        covariance[(a * n) + b] = solution[a];
       }
     }
   }
