@@ -56,7 +56,8 @@ template <typename T>
   using dual::valueOf;
   using std::cos;
   using std::sin;
-  const T p = T{valueOf(qOverP) > 0. ? numerator : -numerator} / qOverP;
+  using Value = typename dual::ScalarOf<T>::type;
+  const T p = T{static_cast<Value>(valueOf(qOverP) > 0. ? numerator : -numerator)} / qOverP;
   const T pt = p * sin(theta);
   return {{pt * cos(phi), pt * sin(phi), p * cos(theta)}, p};
 }
@@ -77,26 +78,26 @@ inline constexpr int kMaxSteps = std::numeric_limits<double>::digits;
 inline constexpr double kModelTolerance = 1.;
 
 /// A free state -- x, y, z, phi, theta, q/p -- with its derivatives by N
-/// inputs.
-template <int N>
-using FreeState = std::array<Dual<N>, 6>;
+/// inputs, in the arithmetic T.
+template <int N, typename T = double>
+using FreeState = std::array<Dual<N, T>, 6>;
 
 /// \a from carried along its helix (\a fieldScale = Bz B2C, the curvature per
 /// q/pT) to \a plane -- along the beam, across it, or tilted --: the free
 /// state at the crossing, ahead or behind, and its loc0, loc1 there; false if
 /// the helix does not reach the plane (along the beam: within a quarter turn).
-template <int N>
-[[nodiscard]] bool crossToPlane(const FreeState<N>& from, const TrackingSurface& plane, double fieldScale, FreeState<N>& to, std::array<Dual<N>, 2>& local)
+template <int N, typename T>
+[[nodiscard]] bool crossToPlane(const FreeState<N, T>& from, const TrackingSurface& plane, double fieldScale, FreeState<N, T>& to, std::array<Dual<N, T>, 2>& local)
 {
-  using D = Dual<N>;
-  const double nx = plane.normal[0];
-  const double ny = plane.normal[1];
-  const double nz = plane.normal[2];
+  using D = Dual<N, T>;
+  const T nx = plane.normal[0];
+  const T ny = plane.normal[1];
+  const T nz = plane.normal[2];
   const D& phi = from[3];
   const D& theta = from[4];
   const D sinTheta = sin(theta);
   const D cotTheta = cos(theta) / sinTheta;
-  const D rho = fieldScale * (from[5] / sinTheta);
+  const D rho = static_cast<T>(fieldScale) * (from[5] / sinTheta);
   D s;
   if (nz == 0.) {
     // Oriented so that the helix leaves through the plane's front (the
@@ -105,10 +106,10 @@ template <int N>
     // distance before the plane, solved for w = sin(rho s) without the
     // cancellation at small rho (the line's -u / cos(delta) at rho = 0),
     // s = (w / rho) asinc(w). asin recovers rho s within a quarter turn only.
-    const double phiL = std::atan2(ny, nx);
+    const T phiL = std::atan2(ny, nx);
     const D delta = phi + (-phiL);
-    const double side = cos(delta).v >= 0. ? 1. : -1.;
-    const D u = side * ((nx * (from[0] + (-static_cast<double>(plane.origin[0])))) + (ny * (from[1] + (-static_cast<double>(plane.origin[1])))));
+    const T side = cos(delta).v >= T(0.) ? T(1.) : T(-1.);
+    const D u = side * ((nx * (from[0] + (-static_cast<T>(plane.origin[0])))) + (ny * (from[1] + (-static_cast<T>(plane.origin[1])))));
     const D sinDelta = side * sin(delta);
     const D cosDelta = side * cos(delta);
     const D sinEnd = sinDelta - (rho * u);
@@ -129,7 +130,7 @@ template <int N>
     if (!(std::abs(cotTheta.v) > 0.)) {
       return false;
     }
-    s = (((-1.) * from[2]) + static_cast<double>(plane.origin[2])) / cotTheta;
+    s = (((-1.) * from[2]) + static_cast<T>(plane.origin[2])) / cotTheta;
   } else {
     // A tilted plane: f(s) = n . (x(s) - origin) = 0 by Newton's method from
     // the straight line's crossing, while each step shrinks; s's derivatives
@@ -137,21 +138,21 @@ template <int N>
     const auto f = [&](const D& at) {
       const D half = 0.5 * (rho * at);
       const D chord = at * sinc(half);
-      return (nx * ((from[0] + (chord * cos(phi + half))) + (-static_cast<double>(plane.origin[0])))) + (ny * ((from[1] + (chord * sin(phi + half))) + (-static_cast<double>(plane.origin[1])))) + (nz * ((from[2] + (at * cotTheta)) + (-static_cast<double>(plane.origin[2]))));
+      return (nx * ((from[0] + (chord * cos(phi + half))) + (-static_cast<T>(plane.origin[0])))) + (ny * ((from[1] + (chord * sin(phi + half))) + (-static_cast<T>(plane.origin[1])))) + (nz * ((from[2] + (at * cotTheta)) + (-static_cast<T>(plane.origin[2]))));
     };
-    const auto slope = [&](double at) { return (nx * std::cos(phi.v + (rho.v * at))) + (ny * std::sin(phi.v + (rho.v * at))) + (nz * cotTheta.v); };
-    const double ahead = slope(0.);
+    const auto slope = [&](T at) { return (nx * std::cos(phi.v + (rho.v * at))) + (ny * std::sin(phi.v + (rho.v * at))) + (nz * cotTheta.v); };
+    const T ahead = slope(0.);
     if (!(std::abs(ahead) > 0.)) {
       return false;
     }
-    double at = -f(D{0.}).v / ahead;
-    double last = std::numeric_limits<double>::infinity();
+    T at = -f(D{0.}).v / ahead;
+    T last = std::numeric_limits<T>::infinity();
     for (int step = 0; step < kMaxSteps; ++step) {
-      const double fs = slope(at);
+      const T fs = slope(at);
       if (!(std::abs(fs) > 0.)) {
         return false;
       }
-      const double change = f(D{at}).v / fs;
+      const T change = f(D{at}).v / fs;
       if (!(std::abs(change) < last)) {
         break; // no longer shrinking: at the root to rounding
       }
@@ -162,19 +163,19 @@ template <int N>
     // Closed to the plane's own precision (its geometry is floats), or no
     // crossing: f's terms' size times float epsilon.
     {
-      const double half = 0.5 * rho.v * at;
-      const double chord = at * (half == 0. ? 1. : std::sin(half) / half);
-      const std::array<double, 3> x{from[0].v + (chord * std::cos(phi.v + half)), from[1].v + (chord * std::sin(phi.v + half)), from[2].v + (at * cotTheta.v)};
-      double size = 0.;
+      const T half = T(0.5) * rho.v * at;
+      const T chord = at * (half == T(0.) ? T(1.) : std::sin(half) / half);
+      const std::array<T, 3> x{from[0].v + (chord * std::cos(phi.v + half)), from[1].v + (chord * std::sin(phi.v + half)), from[2].v + (at * cotTheta.v)};
+      T size = 0.;
       for (int c = 0; c < 3; ++c) {
-        size += std::abs(static_cast<double>(plane.normal[c])) * (std::abs(x[c]) + std::abs(static_cast<double>(plane.origin[c])));
+        size += std::abs(static_cast<T>(plane.normal[c])) * (std::abs(x[c]) + std::abs(static_cast<T>(plane.origin[c])));
       }
-      if (!(std::abs(value.v) <= static_cast<double>(std::numeric_limits<Scalar>::epsilon()) * size)) {
+      if (!(std::abs(value.v) <= static_cast<T>(std::numeric_limits<Scalar>::epsilon()) * size)) {
         return false;
       }
     }
     s = D{at};
-    const double fs = slope(at);
+    const T fs = slope(at);
     for (int k = 0; k < N; ++k) {
       s.d[k] = -value.d[k] / fs;
     }
@@ -187,9 +188,9 @@ template <int N>
   to[3] = phi + (rho * s);
   to[4] = theta;
   to[5] = from[5];
-  const std::array<D, 3> d{to[0] + (-static_cast<double>(plane.origin[0])), to[1] + (-static_cast<double>(plane.origin[1])), to[2] + (-static_cast<double>(plane.origin[2]))};
-  local[0] = (static_cast<double>(plane.axis0[0]) * d[0]) + (static_cast<double>(plane.axis0[1]) * d[1]) + (static_cast<double>(plane.axis0[2]) * d[2]);
-  local[1] = (static_cast<double>(plane.axis1[0]) * d[0]) + (static_cast<double>(plane.axis1[1]) * d[1]) + (static_cast<double>(plane.axis1[2]) * d[2]);
+  const std::array<D, 3> d{to[0] + (-static_cast<T>(plane.origin[0])), to[1] + (-static_cast<T>(plane.origin[1])), to[2] + (-static_cast<T>(plane.origin[2]))};
+  local[0] = (static_cast<T>(plane.axis0[0]) * d[0]) + (static_cast<T>(plane.axis0[1]) * d[1]) + (static_cast<T>(plane.axis0[2]) * d[2]);
+  local[1] = (static_cast<T>(plane.axis1[0]) * d[0]) + (static_cast<T>(plane.axis1[1]) * d[1]) + (static_cast<T>(plane.axis1[2]) * d[2]);
   return true;
 }
 
@@ -226,33 +227,38 @@ struct FixedVector {
 
 /// A row-major matrix of \a columns columns at \a a, seen by the dense
 /// solves (DenseSolve.h).
-[[nodiscard]] inline dense::MatrixView<double> viewOf(double* a, int columns) { return {a, columns}; }
+template <typename S>
+[[nodiscard]] dense::MatrixView<S> viewOf(S* a, int columns)
+{
+  return {a, columns};
+}
 
-/// A symmetric positive definite matrix's Cholesky factor, in storage the
-/// caller hands in (`l`, at least n x n).
+/// A symmetric positive definite matrix's Cholesky factor in the arithmetic
+/// S, in storage the caller hands in (`l`, at least n x n).
+template <typename S = double>
 struct Cholesky {
   int n = 0;
-  double* l = nullptr;
+  S* l = nullptr;
   /// Factor \a a (\a size x \a size, row-major, its lower triangle read);
   /// false if it is not positive definite.
-  [[nodiscard]] bool factor(const double* a, int size)
+  [[nodiscard]] bool factor(const S* a, int size)
   {
     n = size;
     std::copy_n(a, n * n, l);
     return dense::choleskyFactor(viewOf(l, n), n);
   }
-  [[nodiscard]] double logDeterminant() const { return dense::choleskyLogDeterminant(viewOf(l, n), n); }
+  [[nodiscard]] S logDeterminant() const { return dense::choleskyLogDeterminant(viewOf(l, n), n); }
   /// x <- a^-1 x.
-  void solve(double* x) const { dense::choleskySolve(viewOf(l, n), n, x); }
+  void solve(S* x) const { dense::choleskySolve(viewOf(l, n), n, x); }
   /// a^-1 into \a inverse, n x n, row-major.
-  void inverse(double* inverse) const { dense::choleskyInverse(viewOf(l, n), n, viewOf(inverse, n)); }
+  void inverse(S* inverse) const { dense::choleskyInverse(viewOf(l, n), n, viewOf(inverse, n)); }
 };
 
-/// A track state's 5 x 5 covariance in double, row-major.
-template <typename State>
-[[nodiscard]] std::array<double, 25> covarianceOf(const State& state)
+/// A track state's 5 x 5 covariance in S, row-major.
+template <typename S = double, typename State>
+[[nodiscard]] std::array<S, 25> covarianceOf(const State& state)
 {
-  std::array<double, 25> covariance{};
+  std::array<S, 25> covariance{};
   for (int r = 0; r < 5; ++r) {
     for (int c = 0; c < 5; ++c) {
       covariance[(r * 5) + c] = state.covAt(r, c);
@@ -263,16 +269,18 @@ template <typename State>
 
 /// The weight (inverse covariance, 5 x 5, row-major) of the covariance
 /// factored in \a cholesky.
-inline void weightOf(const Cholesky& cholesky, std::array<double, 25>& weight)
+template <typename S>
+void weightOf(const Cholesky<S>& cholesky, std::array<S, 25>& weight)
 {
-  dense::choleskyInverse(viewOf(cholesky.l, 5), 5, dense::MatrixView<double>{weight.data(), 5});
+  dense::choleskyInverse(viewOf(cholesky.l, 5), 5, dense::MatrixView<S>{weight.data(), 5});
 }
 
 /// A positive semi-definite matrix's factor L, L L^T = \a a (n x n,
 /// row-major), into \a factor: the pivoted L D L^T's P^T L D^1/2
 /// (`dense::semidefiniteFactor`; \a a overwritten, \a order n ints of
 /// scratch). L is not triangular.
-inline void semidefiniteFactor(double* a, int n, int* order, double* factor)
+template <typename S>
+void semidefiniteFactor(S* a, int n, int* order, S* factor)
 {
   dense::semidefiniteFactor(viewOf(a, n), n, order, viewOf(factor, n));
 }
@@ -286,7 +294,10 @@ inline void semidefiniteFactor(double* a, int n, int* order, double* factor)
 /// combines means and scatters with their means' difference; adding one
 /// component is a merge with a collapse of one. No raw moments
 /// (sum w p p^T - mu mu^T), which cancel. Its mean and scatter live in
-/// storage the caller hands in (n and n x n).
+/// storage the caller hands in (n and n x n): the mean in double, as the
+/// parameters are, the scatter in S, as covariances are; the weights in
+/// double.
+template <typename S = double>
 struct MixtureCollapse {
   int n = 0;
   int count = 0; ///< the components taken
@@ -294,17 +305,17 @@ struct MixtureCollapse {
   double weight = 0.;
   double chi2 = 0.;
   std::span<double> mean;
-  std::span<double> scatter; ///< n x n, row-major
+  std::span<S> scatter; ///< n x n, row-major
 
-  MixtureCollapse(std::span<double> meanStorage, std::span<double> scatterStorage) : n(static_cast<int>(meanStorage.size())), mean(meanStorage), scatter(scatterStorage)
+  MixtureCollapse(std::span<double> meanStorage, std::span<S> scatterStorage) : n(static_cast<int>(meanStorage.size())), mean(meanStorage), scatter(scatterStorage)
   {
     std::ranges::fill(mean, 0.);
-    std::ranges::fill(scatter, 0.);
+    std::ranges::fill(scatter, S(0.));
   }
 
   /// Takes the component of log-weight \a logWeight, mean \a p, covariance
   /// \a sigma (n x n) and chi2 \a componentChi2.
-  void add(double logWeight, std::span<const double> p, std::span<const double> sigma, double componentChi2)
+  void add(double logWeight, std::span<const double> p, std::span<const S> sigma, double componentChi2)
   {
     combine(logWeight, 1., p, sigma, componentChi2, 1);
   }
@@ -315,16 +326,16 @@ struct MixtureCollapse {
     }
   }
   /// The collapse's covariance, S / W, into \a covariance (n x n).
-  void covarianceInto(double* covariance) const
+  void covarianceInto(S* covariance) const
   {
     for (std::size_t i = 0; i < scatter.size(); ++i) {
-      covariance[i] = scatter[i] / weight;
+      covariance[i] = static_cast<S>(scatter[i] / weight);
     }
   }
   [[nodiscard]] double meanChi2() const { return chi2 / weight; }
 
  private:
-  void combine(double logScaleB, double weightB, std::span<const double> meanB, std::span<const double> scatterB, double chi2B, int countB)
+  void combine(double logScaleB, double weightB, std::span<const double> meanB, std::span<const S> scatterB, double chi2B, int countB)
   {
     if (count == 0) {
       logScale = logScaleB;
@@ -345,7 +356,7 @@ struct MixtureCollapse {
       for (int j = 0; j < n; ++j) {
         const double di = meanB[i] - mean[i];
         const double dj = meanB[j] - mean[j];
-        scatter[(i * n) + j] = (a * scatter[(i * n) + j]) + (b * scatterB[(i * n) + j]) + ((u * v / w) * di * dj);
+        scatter[(i * n) + j] = static_cast<S>((a * scatter[(i * n) + j]) + (b * scatterB[(i * n) + j]) + ((u * v / w) * di * dj));
       }
     }
     for (int i = 0; i < n; ++i) {

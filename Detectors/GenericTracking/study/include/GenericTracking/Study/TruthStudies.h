@@ -14,8 +14,9 @@
 ///        and an output, as `<module>:<source>:<path>` names them.
 ///
 /// Modules: `gsf` (GSFStudy.h), `species` (SpeciesFitStudy.h), `clusters`
-/// (ClusterPullStudy.h), `decaycensus`
-/// (DecayCensusStudy.h), `decayfit` (DecayFitStudy.h). Sources: `truth`, the particles' own rows,
+/// (ClusterPullStudy.h), `decaycensus` (DecayCensusStudy.h), `decayfit`
+/// (DecayFitStudy.h), `decayprecision` (its fits in reduced precision against
+/// double, DecayPrecisionRecord). Sources: `truth`, the particles' own rows,
 /// and `tracks`, the tracker's good tracks (StudyChains.h). The path's
 /// extension picks the format (RecordWriter.h). The bench and the sink both
 /// hold one of these for the run and hand it each timeframe.
@@ -66,8 +67,8 @@ class TruthStudies
   {
     std::vector<std::string_view> paths;
     for (const auto& spec : specs) {
-      if (spec.module != "gsf" && spec.module != "species" && spec.module != "decaycensus" && spec.module != "decayfit" && spec.module != "clusters") {
-        throw std::invalid_argument("truth study " + spec.module + ": the modules are gsf, species, decaycensus, decayfit and clusters");
+      if (spec.module != "gsf" && spec.module != "species" && spec.module != "decaycensus" && spec.module != "decayfit" && spec.module != "decayprecision" && spec.module != "clusters") {
+        throw std::invalid_argument("truth study " + spec.module + ": the modules are gsf, species, decaycensus, decayfit, decayprecision and clusters");
       }
       if (!RecordWriter::writes(spec.path) || std::ranges::find(paths, spec.path) != paths.end()) {
         throw std::invalid_argument("truth study " + spec.module + ": its output " + spec.path + " is not a new .csv or .root path");
@@ -87,7 +88,7 @@ class TruthStudies
       } else if (spec.module == "decaycensus") {
         study->module.template emplace<DecayCensusStudy<Det>>(*study->writer);
       } else {
-        study->module.template emplace<DecayFitStudy<Det>>(*study->writer);
+        study->module.template emplace<DecayFitStudy<Det>>(*study->writer, spec.module == "decayprecision");
       }
     }
   }

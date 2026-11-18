@@ -40,6 +40,7 @@
 #include <array>
 #include <cmath>
 #include <span>
+#include <type_traits>
 #include <vector>
 
 namespace o2::gtrk::study
@@ -125,9 +126,11 @@ inline constexpr int kMaxHardRows = 1 + (3 * (kMaxConstrainedVertices - 1));
 /// derivatives by (the vertices, the momenta), 3K + 3N wide: \a written
 /// values into \a values, row j at \a rows + j \a stride, at most
 /// \a capacity of them; false if the tree is too large or they are more.
-[[nodiscard]] inline bool evaluateConstraints(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const std::array<double, 3>> vertices, std::span<const std::array<double, 3>> momenta, std::span<const double> masses, std::span<const double> charges, double fieldScale, double* values, double* rows, int stride, int capacity, int& written)
+/// Evaluated in the arithmetic M, stored in S.
+template <typename M = double, typename S>
+[[nodiscard]] bool evaluateConstraints(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const std::array<double, 3>> vertices, std::span<const std::array<double, 3>> momenta, std::span<const double> masses, std::span<const double> charges, double fieldScale, S* values, S* rows, int stride, int capacity, int& written)
 {
-  using D = Dual<kConstraintInputs>;
+  using D = Dual<kConstraintInputs, M>;
   const int count = static_cast<int>(momenta.size());
   const int k = topology.vertices();
   const int width = (3 * k) + (3 * count);
@@ -138,8 +141,8 @@ inline constexpr int kMaxHardRows = 1 + (3 * (kMaxConstrainedVertices - 1));
   std::array<std::array<D, 3>, kMaxConstrainedVertices> v{};
   for (int w = 0; w < k; ++w) {
     for (int c = 0; c < 3; ++c) {
-      v[w][c].v = vertices[w][c];
-      v[w][c].d[(3 * w) + c] = 1.;
+      v[w][c].v = static_cast<M>(vertices[w][c]);
+      v[w][c].d[(3 * w) + c] = M(1.);
     }
   }
   // Every daughter's momentum vector, energy and charge.
@@ -147,7 +150,7 @@ inline constexpr int kMaxHardRows = 1 + (3 * (kMaxConstrainedVertices - 1));
   std::array<D, kMaxConstrainedDaughters> energies{};
   for (int i = 0; i < count; ++i) {
     const int q = (3 * k) + (3 * i);
-    const auto momentum = momentumOf(dual::variable<kConstraintInputs>(momenta[i][0], q), dual::variable<kConstraintInputs>(momenta[i][1], q + 1), dual::variable<kConstraintInputs>(momenta[i][2], q + 2), numeratorOf(charges[i]));
+    const auto momentum = momentumOf(dual::variable<kConstraintInputs, M>(momenta[i][0], q), dual::variable<kConstraintInputs, M>(momenta[i][1], q + 1), dual::variable<kConstraintInputs, M>(momenta[i][2], q + 2), numeratorOf(charges[i]));
     vectors[i] = momentum.vector;
     energies[i] = sqrt((momentum.magnitude * momentum.magnitude) + (masses[i] * masses[i]));
   }
@@ -172,9 +175,9 @@ inline constexpr int kMaxHardRows = 1 + (3 * (kMaxConstrainedVertices - 1));
       room = false;
       return;
     }
-    values[written] = value.v;
+    values[written] = static_cast<S>(value.v);
     for (int c = 0; c < width; ++c) {
-      rows[(written * stride) + c] = value.d[c];
+      rows[(written * stride) + c] = static_cast<S>(value.d[c]);
     }
     ++written;
   };
@@ -232,28 +235,29 @@ inline constexpr int kMaxHardRows = 1 + (3 * (kMaxConstrainedVertices - 1));
 /// their columns. Minimising eta^T eta under them is the chi2 of the
 /// measurements with S, never inverting S: a measurement S leaves exact (a
 /// zero row) holds exactly, one with a small S is no ill-conditioned weight.
+template <typename S = double>
 struct ScatteredEquations {
   int at = -1;  ///< eta's first parameter; -1: none
   int row = -1; ///< the first equation's row
   int count = 0;
-  const double* factor = nullptr; ///< L, count x count (`semidefiniteFactor`: not triangular)
-  void apply(std::span<const double> p, int n, double* values, double* rows) const
+  const S* factor = nullptr; ///< L, count x count (`semidefiniteFactor`: not triangular)
+  void apply(std::span<const double> p, int n, S* values, S* rows) const
   {
     for (int a = 0; a < count; ++a) {
       for (int b = 0; b < count; ++b) {
-        const double l = factor[(a * count) + b];
-        values[row + a] -= l * p[at + b];
+        const S l = factor[(a * count) + b];
+        values[row + a] -= l * static_cast<S>(p[at + b]);
         rows[((row + a) * n) + at + b] = -l;
       }
     }
   }
-  void addPrior(std::span<const double> p, int n, double& chi2, double* normal, double* gradient) const
+  void addPrior(std::span<const double> p, int n, double& chi2, S* normal, S* gradient) const
   {
     for (int b = 0; b < count; ++b) {
       chi2 += p[at + b] * p[at + b];
       if (normal != nullptr) {
-        normal[((at + b) * n) + at + b] += 1.;
-        gradient[at + b] -= p[at + b];
+        normal[((at + b) * n) + at + b] += S(1.);
+        gradient[at + b] -= static_cast<S>(p[at + b]);
       }
     }
   }
@@ -261,9 +265,10 @@ struct ScatteredEquations {
 
 /// The Lagrange system's storage, the caller's: the matrix ((n + m)^2), the
 /// solution (n + m), the pivots (n + m).
+template <typename S = double>
 struct LagrangeSpace {
-  double* system = nullptr;
-  double* solution = nullptr;
+  S* system = nullptr;
+  S* solution = nullptr;
   int* pivots = nullptr;
 };
 
@@ -276,12 +281,13 @@ struct LagrangeSpace {
 /// the constrained covariance: the system's inverse's N block (n x n); with
 /// \a multipliers, lambda; with \a logDeterminant, ln |det| of the system.
 /// False if the system is singular (an exactly zero pivot).
-[[nodiscard]] inline bool constrainedStep(const LagrangeSpace& space, const double* normal, int n, const double* gradient, const double* rows, std::span<const double> values, double* step, double* covariance, double* multipliers = nullptr, double* logDeterminant = nullptr)
+template <typename S>
+[[nodiscard]] bool constrainedStep(const LagrangeSpace<S>& space, const S* normal, int n, const S* gradient, const S* rows, std::span<const S> values, std::type_identity_t<S>* step, std::type_identity_t<S>* covariance, std::type_identity_t<S>* multipliers = nullptr, std::type_identity_t<S>* logDeterminant = nullptr)
 {
   const int m = static_cast<int>(values.size());
   const int size = n + m;
-  double* system = space.system;
-  std::fill_n(system, size * size, 0.);
+  S* system = space.system;
+  std::fill_n(system, size * size, S(0.));
   for (int a = 0; a < n; ++a) {
     for (int b = 0; b < n; ++b) {
       system[(a * size) + b] = normal[(a * n) + b];
@@ -298,7 +304,7 @@ struct LagrangeSpace {
   if (!dense::luFactor(lu, size, pivots)) {
     return false;
   }
-  double* solution = space.solution;
+  S* solution = space.solution;
   for (int a = 0; a < n; ++a) {
     solution[a] = gradient[a];
   }
@@ -318,8 +324,8 @@ struct LagrangeSpace {
   if (covariance != nullptr) {
     // The system's inverse's N block, a column at a time.
     for (int b = 0; b < n; ++b) {
-      std::fill_n(solution, size, 0.);
-      solution[b] = 1.;
+      std::fill_n(solution, size, S(0.));
+      solution[b] = S(1.);
       dense::luSolve(lu, size, pivots, solution);
       for (int a = 0; a < n; ++a) {
         covariance[(a * n) + b] = solution[a];
