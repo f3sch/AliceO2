@@ -27,6 +27,7 @@
 #include <array>
 #include <cmath>
 #include <random>
+#include <tuple>
 #include <vector>
 
 namespace o2::gtrk::study
@@ -925,6 +926,95 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
       BOOST_TEST(std::abs(mean) < 0.12);
       BOOST_TEST(std::abs(width - 1.) < 0.1);
     }
+  }
+}
+
+/// A hypertriton-like decay into 3He pi-: the 3He's q/p is 2 / p
+/// (`chargeMagnitude`). Exact inputs give the mother's mass back; under it,
+/// smeared ones unit vertex pulls and the chi2's mean at its ndf.
+BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
+{
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  constexpr double kHelium3 = 2.80839;
+  const Truth helium{0.3, 1.25, 2. / 2.4}; // q / p, |q| = 2
+  const Truth pion{0.7, 1.4, -1. / 0.25};
+  double energy = 0.;
+  std::array<double, 3> total{};
+  for (const auto& [truth, mass, charge] : {std::tuple{helium, kHelium3, 2.}, std::tuple{pion, kPion, 1.}}) {
+    const double p = charge / std::abs(truth.qOverP);
+    energy += std::hypot(p, mass);
+    total[0] += p * std::cos(truth.phi) * std::sin(truth.theta);
+    total[1] += p * std::sin(truth.phi) * std::sin(truth.theta);
+    total[2] += p * std::cos(truth.theta);
+  }
+  const double massMother = std::sqrt((energy * energy) - (total[0] * total[0]) - (total[1] * total[1]) - (total[2] * total[2]));
+  Propagator heliumProp = prop;
+  heliumProp.massGeV = static_cast<Scalar>(kHelium3);
+  Propagator pionProp = prop;
+  pionProp.massGeV = static_cast<Scalar>(kPion);
+  auto he = daughterOf(helium, heliumProp, kVertex);
+  he.mass = kHelium3;
+  he.chargeMagnitude = 2.;
+  auto pi = daughterOf(pion, pionProp, kVertex);
+  pi.mass = kPion;
+  const std::vector<DecayDaughter> exactStates{he, pi};
+  {
+    const auto fit = fitDecayVertex(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, DecayFitVariant::kNoMaterial);
+    BOOST_REQUIRE(fit.status == DecayFitStatus::kOk);
+    double e = 0.;
+    std::array<double, 3> sum{};
+    for (int i = 0; i < 2; ++i) {
+      const auto& q = fit.momenta[i];
+      const double p = std::abs(fit.charges[i]) / std::abs(q[2]);
+      e += std::hypot(p, exactStates[i].mass);
+      sum[0] += p * std::cos(q[0]) * std::sin(q[1]);
+      sum[1] += p * std::sin(q[0]) * std::sin(q[1]);
+      sum[2] += p * std::cos(q[1]);
+    }
+    const double mass = std::sqrt((e * e) - (sum[0] * sum[0]) - (sum[1] * sum[1]) - (sum[2] * sum[2]));
+    BOOST_TEST_MESSAGE("doubly charged: mass " << mass << " against " << massMother);
+    BOOST_TEST(std::abs(mass - massMother) < 1e-4); // float states
+  }
+  const DecayConstraints set{.mass = true, .massGeV = massMother};
+  std::mt19937 random{8642U};
+  std::normal_distribution<double> gauss;
+  constexpr int kTrials = 1000;
+  std::array<double, 3> sum{};
+  std::array<double, 3> sum2{};
+  double chi2 = 0.;
+  int fitted = 0;
+  int ndf = 0;
+  for (int trial = 0; trial < kTrials; ++trial) {
+    auto states = exactStates;
+    for (auto& daughter : states) {
+      for (int c = 0; c < 5; ++c) {
+        daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
+      }
+    }
+    const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial, set);
+    if (fit.status != DecayFitStatus::kOk) {
+      continue;
+    }
+    ++fitted;
+    ndf = fit.ndf;
+    const int n = 3 + 6;
+    for (int c = 0; c < 3; ++c) {
+      const double pull = (fit.vertex[c] - kVertex[c]) / std::sqrt(fit.covariance[c * n + c]);
+      sum[c] += pull;
+      sum2[c] += pull * pull;
+    }
+    chi2 += fit.chi2;
+  }
+  BOOST_TEST_MESSAGE("doubly charged under its mass: fitted " << fitted << ", chi2 mean " << chi2 / fitted << " at ndf " << ndf);
+  BOOST_TEST(fitted >= kTrials - 5);
+  BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.1);
+  for (int c = 0; c < 3; ++c) {
+    const double mean = sum[c] / fitted;
+    const double width = std::sqrt((sum2[c] / fitted) - (mean * mean));
+    BOOST_TEST_MESSAGE("  vertex " << c << ": pull mean " << mean << ", width " << width);
+    BOOST_TEST(std::abs(mean) < 0.12);
+    BOOST_TEST(std::abs(width - 1.) < 0.08);
   }
 }
 

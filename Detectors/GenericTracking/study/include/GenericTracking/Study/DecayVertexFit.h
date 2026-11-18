@@ -105,8 +105,12 @@ struct DecayDaughter {
   /// (its mother's mass and production point fix three components); its
   /// start the caller's, `innermost`'s phi, theta and 1/p.
   bool unmeasured = false;
+  /// A charged daughter's |q| [e]: 2 for 3He, 4He.
+  double chargeMagnitude = 1.;
   /// The daughter's charge [e], 0 for a neutral one.
-  [[nodiscard]] double charge() const { return neutral ? 0. : (innermost.qOverP() > 0.F ? 1. : -1.); }
+  [[nodiscard]] double charge() const { return neutral ? 0. : (innermost.qOverP() > 0.F ? chargeMagnitude : -chargeMagnitude); }
+  /// q/p's numerator: |p| = it / |q/p| (a neutral one's q/p is 1/p).
+  [[nodiscard]] double momentumNumerator() const { return neutral ? 1. : chargeMagnitude; }
 };
 
 /// A charged particle of the decay -- the root, or a composite below it --
@@ -133,6 +137,8 @@ struct DecayVertexFitResult {
   std::uint16_t combinations = 0U;             ///< `kGaussianSum`: the component combinations fitted
   std::array<double, 3> vertex{};              ///< the root's, `vertices[0]`
   std::vector<std::array<double, 3>> vertices; ///< every vertex of the tree (DecayTopology)
+  /// Per daughter: its charge [e] (|p| = |q| / |q/p|; a neutral one's q/p is 1/p).
+  std::vector<double> charges;
   /// Per daughter: phi, theta, q/p at its vertex.
   std::vector<std::array<double, 3>> momenta;
   /// The covariance of (the vertices, the daughters' momenta in order),
@@ -389,7 +395,7 @@ template <typename Evaluate, typename ConstraintsAt>
       for (int i = 0; i < count; ++i) {
         if (topology.under(i, child)) {
           const auto u = directionOf(daughters[i].innermost);
-          const double p = 1. / std::abs(static_cast<double>(daughters[i].innermost.qOverP()));
+          const double p = daughters[i].momentumNumerator() / std::abs(static_cast<double>(daughters[i].innermost.qOverP()));
           for (int c = 0; c < 3; ++c) {
             total[c] += p * u[c];
           }
@@ -462,7 +468,8 @@ template <typename Evaluate, typename ConstraintsAt>
       q[c].v = fit.momenta[i][c];
       q[c].d[3 + (3 * i) + c] = 1.;
     }
-    const D p = D{q[2].v > 0. ? 1. : -1.} / q[2];
+    const double numerator = i < static_cast<int>(fit.charges.size()) && fit.charges[i] != 0. ? std::abs(fit.charges[i]) : 1.;
+    const D p = D{q[2].v > 0. ? numerator : -numerator} / q[2];
     const D pt = p * sin(q[1]);
     total[0] = total[0] + (pt * cos(q[0]));
     total[1] = total[1] + (pt * sin(q[0]));
@@ -530,7 +537,8 @@ template <typename Evaluate, typename ConstraintsAt>
   double energy = 0.;
   for (std::size_t i = 0; i < visible.momenta.size(); ++i) {
     const auto& q = visible.momenta[i];
-    const double p = 1. / std::abs(q[2]);
+    const double numerator = i < visible.charges.size() && visible.charges[i] != 0. ? std::abs(visible.charges[i]) : 1.;
+    const double p = numerator / std::abs(q[2]);
     const std::array<double, 3> v{p * std::cos(q[0]) * std::sin(q[1]), p * std::sin(q[0]) * std::sin(q[1]), p * std::cos(q[1])};
     energy += std::sqrt((p * p) + (masses[i] * masses[i]));
     for (int c = 0; c < 3; ++c) {
@@ -611,6 +619,7 @@ template <typename Material>
   for (int i = 0; i < count; ++i) {
     charges[i] = daughters[i].charge();
   }
+  result.charges = charges;
   const auto chargeUnder = [&](int w) {
     double sum = 0.;
     for (int i = 0; i < count; ++i) {
@@ -721,7 +730,8 @@ template <typename Material>
         m[c].v = p[q + c];
         m[c].d[q + c] = 1.;
       }
-      const DC pi = DC{m[2].v > 0. ? 1. : -1.} / m[2];
+      const double numerator = charges[i] != 0. ? std::abs(charges[i]) : 1.;
+      const DC pi = DC{m[2].v > 0. ? numerator : -numerator} / m[2];
       const DC pti = pi * sin(m[1]);
       total[0] = total[0] + (pti * cos(m[0]));
       total[1] = total[1] + (pti * sin(m[0]));
@@ -1185,7 +1195,8 @@ template <typename Material>
           m[c].v = p[q + c];
           m[c].d[q + c] = 1.;
         }
-        const DR pi = DR{m[2].v > 0. ? 1. : -1.} / m[2];
+        const double numerator = charges[i] != 0. ? std::abs(charges[i]) : 1.;
+        const DR pi = DR{m[2].v > 0. ? numerator : -numerator} / m[2];
         const DR pti = pi * sin(m[1]);
         total[0] = total[0] + (pti * cos(m[0]));
         total[1] = total[1] + (pti * sin(m[0]));

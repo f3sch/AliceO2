@@ -293,17 +293,21 @@ struct DecayFitRecord {
 namespace decay_fit_study_detail
 {
 
-/// A daughter's momentum vector from phi, theta, q/p.
-[[nodiscard]] inline std::array<double, 3> momentumOf(const std::array<double, 3>& q)
+/// q/p's numerator for a daughter of \a charge: |q|, 1 if neutral (its
+/// q/p is 1/p).
+[[nodiscard]] inline double numeratorOf(double charge) { return charge != 0. ? std::abs(charge) : 1.; }
+
+/// A daughter's momentum vector from phi, theta, q/p and its \a charge.
+[[nodiscard]] inline std::array<double, 3> momentumOf(const std::array<double, 3>& q, double charge)
 {
-  const double p = 1. / std::abs(q[2]);
+  const double p = numeratorOf(charge) / std::abs(q[2]);
   return {p * std::cos(q[0]) * std::sin(q[1]), p * std::sin(q[0]) * std::sin(q[1]), p * std::cos(q[1])};
 }
 
 /// d(px, py, pz) / d(phi, theta, q/p), row-major 3 x 3.
-[[nodiscard]] inline std::array<double, 9> momentumJacobian(const std::array<double, 3>& q)
+[[nodiscard]] inline std::array<double, 9> momentumJacobian(const std::array<double, 3>& q, double charge)
 {
-  const double p = 1. / std::abs(q[2]);
+  const double p = numeratorOf(charge) / std::abs(q[2]);
   const double dpdk = -p / q[2]; // d|p| / d(q/p)
   const double cp = std::cos(q[0]);
   const double sp = std::sin(q[0]);
@@ -314,7 +318,7 @@ namespace decay_fit_study_detail
           0., -p * st, dpdk * ct};
 }
 
-/// The invariant mass of \a momenta with \a masses and its sigma from
+/// The invariant mass of \a momenta with \a masses (and \a charges) and its sigma from
 /// \a covariance (\a stride wide, the momenta's phi, theta, q/p at
 /// \a offset + 3 i), and the summed |p| and its sigma.
 struct Kinematics {
@@ -324,7 +328,7 @@ struct Kinematics {
   double sP = 0.;
 };
 
-[[nodiscard]] inline Kinematics kinematicsOf(std::span<const std::array<double, 3>> momenta, std::span<const double> masses, std::span<const double> covariance, int stride, int offset)
+[[nodiscard]] inline Kinematics kinematicsOf(std::span<const std::array<double, 3>> momenta, std::span<const double> masses, std::span<const double> charges, std::span<const double> covariance, int stride, int offset)
 {
   const auto count = momenta.size();
   std::array<double, 3> total{};
@@ -332,7 +336,7 @@ struct Kinematics {
   std::vector<std::array<double, 3>> vectors(count);
   std::vector<double> energies(count);
   for (std::size_t i = 0; i < count; ++i) {
-    vectors[i] = momentumOf(momenta[i]);
+    vectors[i] = momentumOf(momenta[i], charges[i]);
     const double p2 = (vectors[i][0] * vectors[i][0]) + (vectors[i][1] * vectors[i][1]) + (vectors[i][2] * vectors[i][2]);
     energies[i] = std::sqrt(p2 + (masses[i] * masses[i]));
     energy += energies[i];
@@ -347,7 +351,7 @@ struct Kinematics {
   std::vector<double> gMass(3 * count);
   std::vector<double> gP(3 * count);
   for (std::size_t i = 0; i < count; ++i) {
-    const auto jacobian = momentumJacobian(momenta[i]);
+    const auto jacobian = momentumJacobian(momenta[i], charges[i]);
     for (int a = 0; a < 3; ++a) {
       double dm2 = 0.;
       double dp = 0.;
@@ -389,7 +393,7 @@ struct MotherQuantities {
   double sTheta = 0.;
 };
 
-[[nodiscard]] inline MotherQuantities motherQuantities(const std::array<double, 3>& vertex, std::span<const std::array<double, 3>> momenta, const std::array<double, 3>& point, double mass, std::span<const double> covariance, int vertices)
+[[nodiscard]] inline MotherQuantities motherQuantities(const std::array<double, 3>& vertex, std::span<const std::array<double, 3>> momenta, std::span<const double> charges, const std::array<double, 3>& point, double mass, std::span<const double> covariance, int vertices)
 {
   using namespace decay_fit_detail;
   using D = Dual<kConstraintInputs>;
@@ -407,7 +411,7 @@ struct MotherQuantities {
       q[k].v = momenta[i][k];
       q[k].d[(3 * vertices) + (3 * i) + k] = 1.;
     }
-    const D p = D{q[2].v > 0. ? 1. : -1.} / q[2];
+    const D p = D{q[2].v > 0. ? numeratorOf(charges[i]) : -numeratorOf(charges[i])} / q[2];
     const D pt = p * sin(q[1]);
     total[0] = total[0] + (pt * cos(q[0]));
     total[1] = total[1] + (pt * sin(q[0]));
@@ -659,7 +663,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         auto propagator = event.propagator;
         propagator.massGeV = species.mass;
-        daughters[i] = {.innermost = refit.innermost, .surface = geometry.planeOf(rows[0]), .propagator = propagator, .mass = species.mass};
+        daughters[i] = {.innermost = refit.innermost, .surface = geometry.planeOf(rows[0]), .propagator = propagator, .mass = species.mass, .chargeMagnitude = std::abs(particleCharge(leaf->pdg))};
         if (species.pid == o2::track::PID::Electron) {
           daughters[i].mixture = refit.innermostMixture;
         }
@@ -751,7 +755,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         if (loss.ok) {
           base.lossModel[i] = static_cast<float>(1. - (1. / static_cast<double>(loss.momentumScale)));
         }
-        base.dPRelInner[i] = static_cast<float>((1. / std::abs(static_cast<double>(daughters[i].innermost.qOverP())) / pFirst) - 1.);
+        base.dPRelInner[i] = static_cast<float>((daughters[i].momentumNumerator() / std::abs(static_cast<double>(daughters[i].innermost.qOverP())) / pFirst) - 1.);
         base.hitsBefore[i] = static_cast<std::int16_t>(std::ranges::count_if(event.hits->segments(leaf->id), [&](const HitSegment* other) { return other->time < segment->time; }));
       }
 
@@ -1101,13 +1105,13 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         project(along, record.dL, record.sL);
         project(across, record.dT, record.sT);
         project(third, record.dN, record.sN);
-        const auto fitted = kinematicsOf(fit.momenta, fitMasses, c, n, 3 * vertexCount);
+        const auto fitted = kinematicsOf(fit.momenta, fitMasses, fit.charges, c, n, 3 * vertexCount);
         record.mass = static_cast<float>(fitted.mass);
         record.sMass = static_cast<float>(fitted.sMass);
         record.p = static_cast<float>(fitted.p);
         record.sP = static_cast<float>(fitted.sP);
         if (hasCollision) {
-          const auto motherFit = motherQuantities(fit.vertex, fit.momenta, point, motherMass, c, vertexCount);
+          const auto motherFit = motherQuantities(fit.vertex, fit.momenta, fit.charges, point, motherMass, c, vertexCount);
           record.decayLength = static_cast<float>(motherFit.length);
           record.sDecayLength = static_cast<float>(motherFit.sLength);
           record.ct = static_cast<float>(motherFit.ct);
@@ -1178,7 +1182,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
             for (const auto i : childLeaves) {
               childMasses.push_back(masses[i]);
             }
-            const auto childKinematics = kinematicsOf(childFit.momenta, childMasses, childFit.covariance, childN, 3);
+            const auto childKinematics = kinematicsOf(childFit.momenta, childMasses, childFit.charges, childFit.covariance, childN, 3);
             record.childMass = static_cast<float>(childKinematics.mass);
             record.sChildMass = static_cast<float>(childKinematics.sMass);
           } else {
@@ -1198,7 +1202,11 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
                 block[(a * m) + b] = c[(ia * n) + ib];
               }
             }
-            const auto childKinematics = kinematicsOf(childMomenta, childMasses, block, m, 0);
+            std::vector<double> childCharges;
+            for (const auto i : childLeaves) {
+              childCharges.push_back(fit.charges[i]);
+            }
+            const auto childKinematics = kinematicsOf(childMomenta, childMasses, childCharges, block, m, 0);
             record.childMass = static_cast<float>(childKinematics.mass);
             record.sChildMass = static_cast<float>(childKinematics.sMass);
           }
@@ -1217,7 +1225,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
             }
           }
         }
-        const auto measured = kinematicsOf(fit.carried, masses, carried, stride, 0);
+        const auto measured = kinematicsOf(fit.carried, masses, fit.charges, carried, stride, 0);
         record.massCarried = static_cast<float>(measured.mass);
         record.sMassCarried = static_cast<float>(measured.sMass);
         for (std::size_t i = 0; i < std::min(count, DecayFitRecord::kDaughterColumns); ++i) {

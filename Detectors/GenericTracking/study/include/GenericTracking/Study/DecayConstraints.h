@@ -180,7 +180,8 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
       q[c].v = momenta[i][c];
       q[c].d[(3 * k) + (3 * i) + c] = 1.;
     }
-    const D p = D{q[2].v > 0. ? 1. : -1.} / q[2]; // |p| = 1 / |q/p|
+    const double numerator = charges[i] != 0. ? std::abs(charges[i]) : 1.; // |p| = |q| / |q/p|; a neutral one's q/p is 1/p
+    const D p = D{q[2].v > 0. ? numerator : -numerator} / q[2];
     const D pt = p * sin(q[1]);
     vectors[i] = {pt * cos(q[0]), pt * sin(q[0]), p * cos(q[1])};
     energies[i] = sqrt((p * p) + (masses[i] * masses[i]));
