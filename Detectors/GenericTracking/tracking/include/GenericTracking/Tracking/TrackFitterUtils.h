@@ -195,6 +195,25 @@ struct ExactMaterial {
   [[nodiscard]] GPUdi() auto getMatMoment(float x0, float y0, float z0, float x1, float y1, float z1) const { return lut->getMatMoment(x0, y0, z0, x1, y1, z1); }
 };
 
+/// A fit's material where its chain may hold two measurements on one layer
+/// (overlap partners, OverlapPartners.h): the surface map's between layers,
+/// whose halves hold each layer's whole material about either of two
+/// overlapping sensors (SurfaceMaterialFill.h), and none on a step between
+/// two sensors of one layer, which those halves hold already.
+template <typename Material>
+struct LayerMaterial {
+  const Material* lut = nullptr;
+  [[nodiscard]] GPUdi() auto getMatBudget(float x0, float y0, float z0, float x1, float y1, float z1) const { return lut->getMatBudget(x0, y0, z0, x1, y1, z1); }
+  [[nodiscard]] GPUdi() auto getMatMoment(float x0, float y0, float z0, float x1, float y1, float z1) const { return lut->getMatMoment(x0, y0, z0, x1, y1, z1); }
+};
+
+template <typename Material>
+struct IsLayerMaterial : std::false_type {
+};
+template <typename Material>
+struct IsLayerMaterial<LayerMaterial<Material>> : std::true_type {
+};
+
 template <typename Material>
 struct IsExactMaterial : std::false_type {
 };
@@ -216,6 +235,9 @@ struct IsSpanMaterial : std::false_type {
 template <typename Material>
 struct IsSpanMaterial<SpanMaterial<Material>> : std::true_type {
 };
+template <typename Material>
+struct IsLayerMaterial<SpanMaterial<LayerMaterial<Material>>> : std::true_type {
+};
 
 template <DetectorLayout Det, typename Material>
 GPUdi() StepMaterial stepMaterial(const TrackingGeometry<Det>& geometry, const TrackingSurface& from, const TrackingSurface& to, const Material& material, const Scalar start[3], const Scalar end[3])
@@ -225,6 +247,16 @@ GPUdi() StepMaterial stepMaterial(const TrackingGeometry<Det>& geometry, const T
   } else if constexpr (IsExactMaterial<Material>::value) {
     return stepMaterial(material, start, end);
   } else {
+    if constexpr (IsLayerMaterial<Material>::value) {
+      if (from.layer == to.layer) {
+        StepMaterial none;
+        if constexpr (IsSpanMaterial<Material>::value) {
+          none.nearerLogX2X0 = material.spanX2X0;
+          none.fartherLogX2X0 = material.spanX2X0;
+        }
+        return none;
+      }
+    }
     const auto surface = geometry.material().step(from.layer, to.layer, start, end);
     if (!surface.found) {
       return stepMaterial(material, start, end);
@@ -821,7 +853,12 @@ GPUdi() SpanMaterial<Material> spanMaterial(const TrackingGeometry<Det>& geometr
     Scalar point[3];
     const auto& plane = geometry.planeOf(measurement);
     surfaceToGlobal(plane, measurement.loc0, measurement.loc1, point);
-    if (i > 0) {
+    // A layer's two sensors: its material is in the steps to and from it.
+    bool sameLayer = false;
+    if constexpr (IsLayerMaterial<Material>::value) {
+      sameLayer = previousLayer == plane.layer;
+    }
+    if (i > 0 && !sameLayer) {
       const auto step = IsExactMaterial<Material>::value ? SurfaceStep{} : geometry.material().step(previousLayer, plane.layer, previous, point);
       span.spanX2X0 += step.found ? step.nearerX2X0 + step.fartherX2X0 : material.getMatBudget(previous[0], previous[1], previous[2], point[0], point[1], point[2]).meanX2X0;
     }

@@ -48,14 +48,16 @@ namespace o2::gtrk
 /// Every layer's largest values over a range of rows: the time box's width
 /// the tracklet stage's and the extension's windows and the slices' reach are
 /// bounded with, and the z, r and r-phi variances the triplet stage's
-/// dip-angle window is; and whether every row's box is exactly one of the
-/// layer's readout frames (`FrameTiming::isFrame`), which the slices' reach
-/// reads (`sliceReach`).
+/// dip-angle window is, and the larger of its two local variances, which the
+/// overlap partners' search spreads by (OverlapPartners.h); and whether
+/// every row's box is exactly one of the layer's readout frames
+/// (`FrameTiming::isFrame`), which the slices' reach reads (`sliceReach`).
 template <DetectorLayout Det>
 struct HaloBounds {
   static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
   std::array<std::uint32_t, kLayerCount> widthPS{};
   std::array<TripletTargetBounds, kLayerCount> target{};
+  std::array<Scalar, kLayerCount> varLoc{};
   std::array<bool, kLayerCount> rowsAreFrames{};
 };
 
@@ -75,6 +77,7 @@ template <DetectorLayout Det>
       target.varZ = std::max(target.varZ, columns.varZ[row]);
       target.varR = std::max(target.varR, columns.varR[row]);
       target.varRPhi = std::max(target.varRPhi, columns.varRPhi[row]);
+      result.varLoc[layer] = std::max({result.varLoc[layer], columns.varLoc0[row], columns.varLoc1[row]});
     }
   }
   return result;
@@ -219,6 +222,9 @@ struct TimeframePlan {
   std::array<std::uint32_t, kLayerCount> layerMaxWidthPS{};
   /// The triplet stage's target bounds, over the whole frame (`frameBounds`).
   std::array<TripletTargetBounds, kLayerCount> layerTargetBounds{};
+  /// The largest local measurement variance per layer, over the whole frame
+  /// (`frameBounds`).
+  std::array<Scalar, kLayerCount> layerMaxLocVariance{};
   std::int64_t haloPS = 0;
   std::vector<SlicePlan<Det>> slices;                     ///< in order
   std::vector<VertexWindowParameters<Det>> vertexWindows; ///< per iteration
@@ -271,6 +277,7 @@ template <DetectorLayout Det>
   const auto bounds = frameBounds(frame);
   plan.layerMaxWidthPS = bounds.widthPS;
   plan.layerTargetBounds = bounds.target;
+  plan.layerMaxLocVariance = bounds.varLoc;
   const auto reach = sliceReach(bounds, frame.grid().geometry());
   plan.haloPS = std::max(configuredHaloPS, reach.haloPS());
   const auto width = std::max<std::int32_t>(1, sliceWidthBlocks);
