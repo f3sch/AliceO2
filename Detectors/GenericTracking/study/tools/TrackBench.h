@@ -2279,6 +2279,11 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     // by the slicing too, which changes the summaries' counts and the tracks'
     // order.
     std::cout << std::format("digest, tracks in clusters: {:016x}\n", tracksClusterDigest<Det>(*result.tracks, frame));
+    // The committed tracks (TrackStore.h) beside the tracks' own rows, which
+    // they must hold.
+    const auto& references = result.store->references();
+    constexpr std::size_t kReferenceBytes = sizeof(std::uint32_t) + sizeof(SourceID) + sizeof(std::uint8_t);
+    std::cout << std::format("track store: {} tracks, {} references ({:.2f} MB with the ranges); they are the tracks' rows: {}\n", result.store->size(), references.recordCount(), static_cast<double>((references.recordCount() * kReferenceBytes) + (references.trackCount() * sizeof(TrackRange))) / 1.e6, result.store->holdsRowsOf(*result.tracks) ? "yes" : "NO");
     if (!options.tracksOut.empty() && last) {
       writeTracks<Det>(options.tracksOut, *result.tracks, frame);
     }

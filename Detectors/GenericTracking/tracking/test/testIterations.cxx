@@ -137,6 +137,9 @@ Outcome track(const Fixture& fixture, std::int32_t widthBlocks, int threads)
   const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, {}, widthBlocks, 0.));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   BOOST_REQUIRE(result.tracks != nullptr);
+  // Every iteration's tracks committed, on any number of threads.
+  BOOST_REQUIRE(result.store != nullptr);
+  BOOST_TEST(result.store->holdsRowsOf(*result.tracks));
   Outcome outcome;
   for (const auto& summary : result.iterations) {
     BOOST_TEST(summary.mismatches == 0U);
@@ -408,6 +411,9 @@ BOOST_AUTO_TEST_CASE(AResumedRunIsTheWholeRun)
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   BOOST_TEST(study::trackingDigest(result, resumed->used()) == expectedDigest);
   BOOST_TEST((found(result) == found(expected)));
+  // The checkpoint's tracks committed again, the resumed iterations' after them.
+  BOOST_TEST(result.store->holdsRowsOf(*result.tracks));
+  BOOST_TEST(result.store->references().recordCount() == expected.store->references().recordCount());
 }
 
 /// The plan holds the frame's bounds and one slice list for every iteration:
@@ -602,6 +608,7 @@ BOOST_AUTO_TEST_CASE(TheRecoveryPassKeepsWholeTracksWhole)
   const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3, 0.));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   BOOST_TEST((rows(found(result)) == expected));
+  BOOST_TEST(result.store->holdsRowsOf(*result.tracks));
   BOOST_TEST(result.iterations[1].tracksDropped == 0U);
   BOOST_TEST(std::ranges::all_of(tracker->used(), [](std::uint8_t state) { return state == kExclusive; }));
 }
