@@ -66,7 +66,6 @@ enum class DecayFitVariant : std::uint8_t {
   kFull,       ///< carried with their material to the plane about every iteration's vertex
   kCarryOnce,  ///< carried once, to the plane about the start; later iterations re-linearise only
   kNoMaterial, ///< carried every iteration, without material
-  kRows,       ///< not this fit's: the rows' fit (DecayRowsFit.h), from kFull's solution
   kSequential, ///< not one fit: a tree's composite fitted first, a pseudo-track in its parent's fit (`pseudoTrackOf`)
   kCount
 };
@@ -164,11 +163,10 @@ namespace decay_fit_detail
 /// failure, not a minimum.
 ///
 /// \a evaluate(p, chi2, rounding, normal*, gradient*); \a constraintsAt(p)
-/// fills \a values and \a rows; \a prepare(p, normal, gradient) after each
-/// full evaluation (held parameters). \a steps: the steps taken; \a first:
+/// fills \a values and \a rows. \a steps: the steps taken; \a first:
 /// the first step's predicted gain, what the model moved the solution by.
-template <typename Evaluate, typename ConstraintsAt, typename Prepare>
-[[nodiscard]] DecayFitStatus minimiseFrozen(int n, int ndf, bool constrained, const Evaluate& evaluate, const ConstraintsAt& constraintsAt, const Prepare& prepare, const std::vector<double>& values, const std::vector<double>& rows, std::vector<double>& parameters, double& chi2, double& mu, double& metric, int& iterations, int& steps, double& first)
+template <typename Evaluate, typename ConstraintsAt>
+[[nodiscard]] DecayFitStatus minimiseFrozen(int n, int ndf, bool constrained, const Evaluate& evaluate, const ConstraintsAt& constraintsAt, const std::vector<double>& values, const std::vector<double>& rows, std::vector<double>& parameters, double& chi2, double& mu, double& metric, int& iterations, int& steps, double& first)
 {
   using namespace decay_fit_detail;
   std::vector<double> normal(static_cast<std::size_t>(n * n));
@@ -191,7 +189,6 @@ template <typename Evaluate, typename ConstraintsAt, typename Prepare>
     if (!evaluate(parameters, chi2, rounding, &normal, &gradient)) {
       return DecayFitStatus::kNoCrossing;
     }
-    prepare(parameters, normal, gradient);
     step = gradient;
     double violation = 0.;
     double lambdaC = 0.;
@@ -859,7 +856,6 @@ template <typename Material>
   // solution by what the inputs resolve (the minimiser takes no step); once
   // under kCarryOnce.
 
-  const auto noPreparation = [](std::vector<double>&, std::vector<double>&, std::vector<double>&) {};
   double mu = 0.;
   double metric = 0.;
   int iterations = 0;
@@ -880,7 +876,7 @@ template <typename Material>
       }
     }
     result.outer = static_cast<std::uint8_t>(outer + 1);
-    const auto inner = minimiseFrozen(n, ndf, constrained, evaluate, constraintsAt, noPreparation, values, rows, parameters, chi2, mu, metric, iterations, steps, shift);
+    const auto inner = minimiseFrozen(n, ndf, constrained, evaluate, constraintsAt, values, rows, parameters, chi2, mu, metric, iterations, steps, shift);
     if (inner != DecayFitStatus::kOk) {
       result.status = inner;
       break;

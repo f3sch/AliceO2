@@ -12,7 +12,7 @@
 /// \file DecayConstraints.h
 /// \brief Hard constraints on a decay vertex fit's parameters -- the vertex V
 ///        and each daughter's phi, theta, q/p at it -- and the constrained
-///        Gauss-Newton step both fits take (DecayVertexFit.h, DecayRowsFit.h).
+///        Gauss-Newton step the fit takes (DecayVertexFit.h).
 ///
 /// - The mass: the daughters' summed four-momentum at V has the mother's mass,
 ///   m^2 - M^2 = 0, each daughter's energy from its species' mass.
