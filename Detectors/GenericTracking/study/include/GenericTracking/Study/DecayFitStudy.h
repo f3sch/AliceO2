@@ -284,6 +284,70 @@ struct DecayFitRecord {
   }
 };
 
+/// One decay fit in reduced precision against the same fit in double
+/// (`DecayFitStudy` as `decayprecision`): the model, the solve or both in
+/// float (`DecayVertexFitter`'s scalars), judged in the double fit's own
+/// terms -- its chi2 under its last model at the float fit's parameters less
+/// at its own, against its stopping bound R.
+struct DecayPrecisionRecord {
+  static constexpr std::string_view kName = "decayPrecision";
+  std::uint32_t timeframe = 0U;
+  std::uint8_t source = 0U; ///< ChainSource
+  std::uint64_t particle = 0U;
+  std::int32_t pdg = 0;
+  std::uint8_t variant = 0U;     ///< DecayFitVariant
+  std::uint8_t constraints = 0U; ///< as DecayFitRecord's
+  std::int8_t branch = -1;
+  std::uint8_t resonance = 0U;
+  std::uint8_t daughters = 0U;
+  std::uint8_t configuration = 0U; ///< 0 the double fit itself, 1 the model in float, 2 the solve in float, 3 both
+  std::uint8_t statusDouble = 0U;  ///< DecayFitStatus of the double fit
+  std::uint8_t status = 0U;        ///< and of this one
+  std::uint8_t stopReasonDouble = 0U;
+  std::uint8_t iterations = 0U;
+  double stopMetricDouble = 0.;
+  double stopBoundDouble = 0.; ///< R
+  /// The double fit's chi2 under its last model at this fit's parameters,
+  /// less at its own; NaN unless both converged.
+  double delta = std::numeric_limits<double>::quiet_NaN();
+  double violationDouble = std::numeric_limits<double>::quiet_NaN(); ///< |c|_1 in double at the double fit's parameters
+  double violation = std::numeric_limits<double>::quiet_NaN();       ///< and at this one's
+  float dVertex = std::numeric_limits<float>::quiet_NaN();           ///< the root vertex's shift from the double fit's [um]
+  float dMass = std::numeric_limits<float>::quiet_NaN();             ///< the fitted mass's [GeV]
+  float sTRel = std::numeric_limits<float>::quiet_NaN();             ///< sT's (across the true flight, transverse) relative difference
+  float chi2Rel = std::numeric_limits<float>::quiet_NaN();           ///< the fit's own chi2's relative difference
+  float microseconds = 0.F;
+
+  template <typename Visit>
+  void columns(const Visit& visit) const
+  {
+    visit("timeframe", timeframe);
+    visit("source", source);
+    visit("particle", particle);
+    visit("pdg", pdg);
+    visit("variant", variant);
+    visit("constraints", constraints);
+    visit("branch", branch);
+    visit("resonance", resonance);
+    visit("daughters", daughters);
+    visit("configuration", configuration);
+    visit("statusDouble", statusDouble);
+    visit("status", status);
+    visit("stopReasonDouble", stopReasonDouble);
+    visit("iterations", iterations);
+    visit("stopMetricDouble", stopMetricDouble);
+    visit("stopBoundDouble", stopBoundDouble);
+    visit("delta", delta);
+    visit("violationDouble", violationDouble);
+    visit("violation", violation);
+    visit("dVertex", dVertex);
+    visit("dMass", dMass);
+    visit("sTRel", sTRel);
+    visit("chi2Rel", chi2Rel);
+    visit("microseconds", microseconds);
+  }
+};
+
 namespace decay_fit_study_detail
 {
 
@@ -400,6 +464,92 @@ struct MotherQuantities {
   return kept;
 }
 
+/// The fit of \a daughters in double and in the three reduced-precision
+/// configurations (`DecayPrecisionRecord`), a record each from \a base into
+/// \a out; \a masses the daughters' (the fitted mass), \a across the true
+/// flight's transverse normal (sT). Returns the double fit's result.
+template <DetectorLayout Det, DecayFitVariant Variant, typename Material>
+DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, const Material& material, const DecayConstraints& constraints, const DecayTopology& topology, std::span<const DecayMother> mothers, std::span<const double> masses, const std::array<double, 3>& across,
+                                      const DecayPrecisionRecord& base, std::vector<DecayPrecisionRecord>& out)
+{
+  const auto massOf = [&](const DecayVertexFitResult& fit) {
+    const int n = (3 * static_cast<int>(fit.vertices.size())) + (3 * static_cast<int>(fit.momenta.size()));
+    return kinematicsOf(std::span<const std::array<double, 3>>{fit.momenta.data(), fit.momenta.size()}, masses, std::span<const double>{fit.charges.data(), fit.charges.size()}, std::span<const double>{fit.covariance.data(), fit.covariance.size()}, n, 3 * static_cast<int>(fit.vertices.size())).mass;
+  };
+  const auto sigmaT = [&](const DecayVertexFitResult& fit) {
+    const int n = (3 * static_cast<int>(fit.vertices.size())) + (3 * static_cast<int>(fit.momenta.size()));
+    double variance = 0.;
+    for (int a = 0; a < 3; ++a) {
+      for (int b = 0; b < 3; ++b) {
+        variance += across[a] * fit.covariance[(a * n) + b] * across[b];
+      }
+    }
+    return std::sqrt(std::max(variance, 0.));
+  };
+  using Reference = DecayVertexFitter<Det, Variant, Material, double, double>;
+  Reference reference(daughters, material, constraints, topology, mothers);
+  const auto need = reference.workspace();
+  std::vector<double> doubles(need.doubles);
+  std::vector<double> solves(need.solves);
+  std::vector<int> ints(need.ints);
+  auto started = std::chrono::steady_clock::now();
+  const auto fit = reference.fit(doubles, solves, ints);
+  auto record = base;
+  record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
+  record.statusDouble = record.status = static_cast<std::uint8_t>(fit.status);
+  record.stopReasonDouble = fit.stopReason;
+  record.iterations = fit.iterations;
+  record.stopMetricDouble = fit.stopMetric;
+  record.stopBoundDouble = fit.stopBound;
+  const bool ok = fit.status == DecayFitStatus::kOk;
+  const std::vector<double> solution(reference.solution().begin(), reference.solution().end());
+  double chi2 = 0.;
+  double violation = 0.;
+  const bool merit = ok && reference.frozenMerit(solution, chi2, violation);
+  if (merit) {
+    record.delta = 0.;
+    record.violationDouble = record.violation = violation;
+    record.dVertex = record.dMass = record.sTRel = record.chi2Rel = 0.F;
+  }
+  out.push_back(record);
+  const double mass = ok ? massOf(fit) : 0.;
+  const double sT = ok ? sigmaT(fit) : 0.;
+  const auto reduced = [&]<typename Model, typename Solve>(std::uint8_t configuration) {
+    DecayVertexFitter<Det, Variant, Material, Model, Solve> fitter(daughters, material, constraints, topology, mothers);
+    const auto size = fitter.workspace();
+    std::vector<double> fitterDoubles(size.doubles);
+    std::vector<Solve> fitterSolves(size.solves);
+    std::vector<int> fitterInts(size.ints);
+    const auto begin = std::chrono::steady_clock::now();
+    const auto result = fitter.fit(fitterDoubles, fitterSolves, fitterInts);
+    auto one = record;
+    one.configuration = configuration;
+    one.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - begin).count());
+    one.status = static_cast<std::uint8_t>(result.status);
+    one.iterations = result.iterations;
+    one.delta = one.violation = std::numeric_limits<double>::quiet_NaN();
+    one.dVertex = one.dMass = one.sTRel = one.chi2Rel = std::numeric_limits<float>::quiet_NaN();
+    if (merit && result.status == DecayFitStatus::kOk) {
+      const auto at = fitter.solution();
+      double atChi2 = 0.;
+      double atViolation = 0.;
+      if (reference.frozenMerit(at, atChi2, atViolation)) {
+        one.delta = atChi2 - chi2;
+        one.violation = atViolation;
+      }
+      one.dVertex = static_cast<float>(1e4 * std::hypot(result.vertex[0] - fit.vertex[0], result.vertex[1] - fit.vertex[1], result.vertex[2] - fit.vertex[2]));
+      one.dMass = static_cast<float>(massOf(result) - mass);
+      one.sTRel = static_cast<float>((sigmaT(result) / sT) - 1.);
+      one.chi2Rel = static_cast<float>((result.chi2 / fit.chi2) - 1.);
+    }
+    out.push_back(one);
+  };
+  reduced.template operator()<float, double>(1U);
+  reduced.template operator()<double, float>(2U);
+  reduced.template operator()<float, float>(3U);
+  return fit;
+}
+
 } // namespace decay_fit_study_detail
 
 template <DetectorLayout Det>
@@ -408,7 +558,16 @@ class DecayFitStudy
  public:
   static constexpr std::size_t kMaxDaughters = 5;
 
-  explicit DecayFitStudy(RecordWriter& writer) : mWriter(&writer) { writer.begin<DecayFitRecord>(); }
+  /// With \a precision (`decayprecision`), every fit is also made in reduced
+  /// precision and the writer takes `DecayPrecisionRecord`s instead.
+  explicit DecayFitStudy(RecordWriter& writer, bool precision = false) : mWriter(&writer), mPrecision(precision)
+  {
+    if (precision) {
+      writer.begin<DecayPrecisionRecord>();
+    } else {
+      writer.begin<DecayFitRecord>();
+    }
+  }
 
   /// \a event's single-vertex decays, from \a chains of \a source.
   void process(const TruthEvent<Det>& event, std::span<const Chain> chains, ChainSource source);
@@ -420,6 +579,7 @@ class DecayFitStudy
 
  private:
   RecordWriter* mWriter = nullptr;
+  bool mPrecision = false;
   std::size_t mDecays = 0U;
   std::size_t mRecords = 0U;
   std::size_t mRefitFailed = 0U;
@@ -459,6 +619,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     const TreeParticle* unseen = nullptr;        ///< the root's one unseen neutral product, if any
     std::vector<const TreeParticle*> resonances; ///< composites that decay where they are made: transparent
     std::vector<DecayFitRecord> records;
+    std::vector<DecayPrecisionRecord> precision; ///< `decayprecision`'s
     bool refitFailed = false;
     std::uint8_t refitPass = 0U;
     std::uint8_t refitStatus = 0U;
@@ -885,10 +1046,19 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           return job.variant == DecayFitVariant::kGaussianSum ? fitDecayVertex<Det, DecayFitVariant::kGaussianSum>(span, material, set, jobTopology, tracked) : fitDecayVertex<Det, DecayFitVariant::kFull>(span, material, set, jobTopology, tracked);
         };
         const auto started = std::chrono::steady_clock::now();
-        const auto outcome = fitUnder(constraints);
+        const auto inPrecisions = [&]() {
+          const std::span<const DecayDaughter> span{jobDaughters};
+          const DecayPrecisionRecord identity{.timeframe = record.timeframe, .particle = record.particle, .pdg = record.pdg, .variant = record.variant, .constraints = record.constraints, .branch = record.branch, .resonance = record.resonance, .daughters = static_cast<std::uint8_t>(jobDaughters.size())};
+          return job.variant == DecayFitVariant::kGaussianSum ? measurePrecision<Det, DecayFitVariant::kGaussianSum>(span, material, constraints, jobTopology, tracked, masses, across, identity, one.precision)
+                                                              : measurePrecision<Det, DecayFitVariant::kFull>(span, material, constraints, jobTopology, tracked, masses, across, identity, one.precision);
+        };
+        const auto outcome = mPrecision ? inPrecisions() : fitUnder(constraints);
         record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
         if (job.constraints == 0U && job.variant == DecayFitVariant::kFull) {
           free = outcome;
+        }
+        if (mPrecision) {
+          continue;
         }
         const auto& fit = outcome;
         record.status = static_cast<std::uint8_t>(fit.status);
@@ -1035,11 +1205,19 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     }
   });
   for (auto& one : work) {
-    for (auto& record : one.records) {
-      record.source = static_cast<std::uint8_t>(source);
-      mWriter->write(record);
+    if (mPrecision) {
+      for (auto& record : one.precision) {
+        record.source = static_cast<std::uint8_t>(source);
+        mWriter->write(record);
+      }
+      mRecords += one.precision.size();
+    } else {
+      for (auto& record : one.records) {
+        record.source = static_cast<std::uint8_t>(source);
+        mWriter->write(record);
+      }
+      mRecords += one.records.size();
     }
-    mRecords += one.records.size();
     mRefitFailed += one.refitFailed ? 1U : 0U;
   }
   mDecays += work.size();

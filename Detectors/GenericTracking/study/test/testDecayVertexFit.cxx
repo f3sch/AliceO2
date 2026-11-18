@@ -27,7 +27,9 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <numbers>
 #include <random>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -131,6 +133,70 @@ std::array<Truth, 2> pionPair()
   const std::array<double, 3> p1{(a * dir[0]) + (b * normal[0]), (a * dir[1]) + (b * normal[1]), (a * dir[2]) + (b * normal[2])};
   const std::array<double, 3> p2{(c * dir[0]) - (b * normal[0]), (c * dir[1]) - (b * normal[1]), (c * dir[2]) - (b * normal[2])};
   return {truthOf(p1, 1.), truthOf(p2, -1.)};
+}
+
+/// \a name's fit in double and in the reduced-precision configurations
+/// (`DecayVertexFitter`'s scalars): the double fit as `fitDecayVertex` gives
+/// it (asserted), and each one's Delta (the double fit's chi2 under its last
+/// model at that fit's parameters, less at its own) over the double fit's R,
+/// as a message.
+template <DecayFitVariant Variant = DecayFitVariant::kFull>
+void reportPrecision(const char* name, std::span<const DecayDaughter> daughters, const DecayConstraints& constraints = {}, const DecayTopology& topology = {})
+{
+  const NoMaterial material;
+  DecayVertexFitter<TRKFT3, Variant, NoMaterial> reference(daughters, material, constraints, topology, {});
+  const auto need = reference.workspace();
+  std::vector<double> doubles(need.doubles);
+  std::vector<double> solves(need.solves);
+  std::vector<int> ints(need.ints);
+  const auto fit = reference.fit(doubles, solves, ints);
+  const auto plain = fitDecayVertex<TRKFT3, Variant>(daughters, material, constraints, topology);
+  BOOST_TEST(static_cast<int>(fit.status) == static_cast<int>(plain.status));
+  BOOST_TEST(fit.chi2 == plain.chi2);
+  BOOST_TEST((fit.vertex == plain.vertex));
+  if (fit.status != DecayFitStatus::kOk) {
+    BOOST_TEST_MESSAGE(name << ": the double fit itself ends with status " << static_cast<int>(fit.status));
+    return;
+  }
+  const std::vector<double> solution(reference.solution().begin(), reference.solution().end());
+  double chi2 = 0.;
+  double violation = 0.;
+  BOOST_REQUIRE(reference.frozenMerit(solution, chi2, violation));
+  const auto one = [&]<typename Model, typename Solve>(const char* label) {
+    DecayVertexFitter<TRKFT3, Variant, NoMaterial, Model, Solve> fitter(daughters, material, constraints, topology, {});
+    const auto size = fitter.workspace();
+    std::vector<double> fitterDoubles(size.doubles);
+    std::vector<Solve> fitterSolves(size.solves);
+    std::vector<int> fitterInts(size.ints);
+    const auto result = fitter.fit(fitterDoubles, fitterSolves, fitterInts);
+    double at = std::numeric_limits<double>::quiet_NaN();
+    double atViolation = std::numeric_limits<double>::quiet_NaN();
+    if (result.status == DecayFitStatus::kOk && !reference.frozenMerit(fitter.solution(), at, atViolation)) {
+      at = std::numeric_limits<double>::quiet_NaN();
+    }
+    BOOST_TEST_MESSAGE(name << ", " << label << ": status " << static_cast<int>(result.status) << ", Delta / R " << (at - chi2) / static_cast<double>(fit.stopBound) << " (R " << fit.stopBound << "), |c| " << violation << " -> " << atViolation << ", vertex shift [um] "
+                            << 1e4 * std::hypot(result.vertex[0] - fit.vertex[0], result.vertex[1] - fit.vertex[1], result.vertex[2] - fit.vertex[2]));
+  };
+  one.template operator()<float, double>("model float");
+  one.template operator()<double, float>("solve float");
+  one.template operator()<float, float>("both float");
+}
+
+/// \a states smeared by their covariances' diagonals, the same draw for a
+/// seed.
+std::vector<DecayDaughter> smeared(std::vector<DecayDaughter> states, unsigned seed)
+{
+  std::mt19937 random{seed};
+  std::normal_distribution<double> gauss;
+  for (auto& daughter : states) {
+    if (daughter.unmeasured) {
+      continue;
+    }
+    for (int k = 0; k < 5; ++k) {
+      daughter.innermost.par[k] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(k, k))));
+    }
+  }
+  return states;
 }
 
 } // namespace
@@ -1077,6 +1143,92 @@ BOOST_AUTO_TEST_CASE(InputsOutsideTheCapacitiesAreRefused)
   BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, {}, {}, std::span<const DecayMother>{&longer, 1}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
   const std::vector<DecayDaughter> six(6);
   BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{six}, NoMaterial{}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
+}
+
+BOOST_AUTO_TEST_CASE(ReducedPrecisionOnHardCases)
+{
+  // A boosted, nearly collinear V0: two pions of 25 GeV, 1 mrad apart, with
+  // and without its mass.
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  prop.massGeV = static_cast<Scalar>(kPion);
+  for (const double opening : {1e-3, 1e-2}) {
+    constexpr double kP = 25.;
+    const double half = 0.5 * opening;
+    const Truth plus{0.4 + half, 1.3, 1. / kP};
+    const Truth minus{0.4 - half, 1.3, -1. / kP};
+    const auto pair = smeared({daughterOf(plus, prop, kDecay), daughterOf(minus, prop, kDecay)}, 11U);
+    const double e = std::hypot(kP, kPion);
+    const double mass = std::sqrt((2. * kPion * kPion) + (2. * ((e * e) - (kP * kP * std::cos(opening)))));
+    const auto name = std::string("boosted V0, opening ") + std::to_string(opening);
+    reportPrecision(name.c_str(), pair);
+    reportPrecision((name + ", under its mass").c_str(), pair, DecayConstraints{.mass = true, .massGeV = mass});
+  }
+  // A resonance: the pion pair's mass as a Breit-Wigner of 50 MeV.
+  {
+    const auto pions = pionPair();
+    const auto pair = smeared({daughterOf(pions[0], prop, kDecay), daughterOf(pions[1], prop, kDecay)}, 12U);
+    DecayConstraints resonance;
+    resonance.resonances.push_back({.daughters = {0, 1}, .massGeV = kMass, .widthGeV = 0.05});
+    reportPrecision("resonance", pair, resonance);
+  }
+  // An unseen neutral: a K0S's two pions with a massless third, its
+  // momentum fitted from the mother's mass and production point.
+  {
+    const auto pions = pionPair();
+    const auto visible = smeared({daughterOf(pions[0], prop, kDecay), daughterOf(pions[1], prop, kDecay)}, 13U);
+    const std::array<double, 2> masses{kPion, kPion};
+    const auto free = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{visible}, NoMaterial{});
+    BOOST_REQUIRE(free.status == DecayFitStatus::kOk);
+    // a mother heavier than the pair: room for the unseen one
+    const auto starts = missingMomentumStarts(free, masses, kPoint, kMass + 0.1, 0.);
+    BOOST_REQUIRE(!starts.empty());
+    auto all = visible;
+    DecayDaughter unseen{.mass = 0., .neutral = true, .unmeasured = true};
+    const auto& start = starts.front();
+    const double p = std::hypot(start[0], start[1], start[2]);
+    unseen.innermost.par[kPhi] = static_cast<Scalar>(std::atan2(start[1], start[0]));
+    unseen.innermost.par[kTheta] = static_cast<Scalar>(std::atan2(std::hypot(start[0], start[1]), start[2]));
+    unseen.innermost.par[kQOverP] = static_cast<Scalar>(1. / p);
+    all.push_back(unseen);
+    reportPrecision("missing momentum", all, DecayConstraints{.mass = true, .massGeV = kMass + 0.1, .production = true, .point = kPoint});
+  }
+  // A crossing near the quarter turn: a helix of radius R from the origin
+  // along x to the plane x = d along the beam, d / R towards 1, in double and
+  // in float: whether both accept it, and the float crossing's offset.
+  {
+    using namespace decay_fit_detail;
+    TrackingSurface plane;
+    plane.normal[0] = 1.F;
+    plane.axis0[1] = 1.F;
+    plane.axis1[2] = 1.F;
+    constexpr double kD = 3.;
+    plane.origin[0] = static_cast<Scalar>(kD);
+    const double fieldScale = 20. * static_cast<double>(constants::math::B2C);
+    for (const double ratio : {0.9, 0.99, 0.999, 0.9999, 0.99999}) {
+      const double radius = kD / ratio;
+      const double qOverPt = 1. / (fieldScale * radius); // rho = fieldScale q/pT
+      const auto crossing = [&]<typename T>(std::array<double, 2>& at) {
+        FreeState<6, T> from{};
+        for (int c = 0; c < 6; ++c) {
+          from[c].d[c] = T(1.);
+        }
+        from[3].v = T(0.);
+        from[4].v = static_cast<T>(std::numbers::pi / 2.);
+        from[5].v = static_cast<T>(qOverPt);
+        FreeState<6, T> to{};
+        std::array<Dual<6, T>, 2> local{};
+        const bool reached = crossToPlane(from, plane, fieldScale, to, local);
+        at = {static_cast<double>(local[0].v), static_cast<double>(local[1].v)};
+        return reached;
+      };
+      std::array<double, 2> inDouble{};
+      std::array<double, 2> inFloat{};
+      const bool reachedDouble = crossing.template operator()<double>(inDouble);
+      const bool reachedFloat = crossing.template operator()<float>(inFloat);
+      BOOST_TEST_MESSAGE("quarter turn, d / R " << ratio << ": reached in double " << reachedDouble << ", in float " << reachedFloat << ", loc0 " << inDouble[0] << ", float less double [um] " << 1e4 * (inFloat[0] - inDouble[0]));
+    }
+  }
 }
 
 } // namespace o2::gtrk::study

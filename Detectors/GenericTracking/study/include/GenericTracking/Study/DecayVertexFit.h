@@ -141,19 +141,22 @@ namespace decay_fit_detail
 {
 
 /// The minimiser's buffers in a fitter's workspace, for n parameters and m
-/// constraint equations.
+/// constraint equations: the solve's in S, the trial parameters in double.
+template <typename S = double>
 struct SolveSpace {
-  double* normal = nullptr;      ///< n x n
-  double* gradient = nullptr;    ///< n
-  double* factor = nullptr;      ///< max(n, m)^2: a Cholesky factor
-  double* step = nullptr;        ///< n
-  double* trial = nullptr;       ///< n
-  double* multipliers = nullptr; ///< m
-  LagrangeSpace lagrange;        ///< the Lagrange system's
+  S* normal = nullptr;       ///< n x n
+  S* gradient = nullptr;     ///< n
+  S* factor = nullptr;       ///< max(n, m)^2: a Cholesky factor
+  S* step = nullptr;         ///< n
+  double* trial = nullptr;   ///< n
+  S* multipliers = nullptr;  ///< m
+  LagrangeSpace<S> lagrange; ///< the Lagrange system's
 };
 
 /// The Gauss-Newton minimum under a fixed model -- the carried measurements,
-/// the material along a trajectory --: smooth, in double. Each step solves
+/// the material along a trajectory --: smooth; the model evaluated in M, the
+/// solves in S, the parameters, chi2, merit and the stopping test in double.
+/// Each step solves
 /// the normal equations, under hard constraints the Lagrange system; it is
 /// halved until it lowers the merit, the chi2 plus 2 mu |c|_1 with mu the
 /// largest |lambda| seen (the exact penalty: the constrained step is a descent
@@ -162,28 +165,28 @@ struct SolveSpace {
 /// first-order decrease), is no larger than what the inputs resolve: they are
 /// floats, each measured value m known to epsilon_float |m|, which moves the
 /// solution by R = sum (epsilon_float |m|)^2 w in the same metric (\a
-/// evaluate's `rounding`); plus double's rounding of the chi2, epsilon
-/// (chi2 + ndf). A step that no halving makes lower the merit above that is a
-/// failure, not a minimum.
+/// evaluate's `rounding`); plus the model arithmetic's rounding of the chi2,
+/// epsilon_M (chi2 + ndf). A step that no halving makes lower the merit above
+/// that is a failure, not a minimum.
 ///
 /// \a evaluate(p, chi2, rounding, normal*, gradient*); \a constraintsAt(p)
 /// fills \a values and \a rows (m x n). \a steps: the steps taken; \a
 /// first: the first step's predicted gain, what the model moved the
 /// solution by. Its buffers are \a space's.
-template <typename Evaluate, typename ConstraintsAt>
-[[nodiscard]] DecayFitStatus minimiseFrozen(int n, int ndf, bool constrained, const Evaluate& evaluate, const ConstraintsAt& constraintsAt, std::span<const double> values, const double* rows, const SolveSpace& space, std::span<double> parameters, double& chi2, double& mu, double& metric, double& bound, int& iterations, int& steps, double& first)
+template <typename M, typename S, typename Evaluate, typename ConstraintsAt>
+[[nodiscard]] DecayFitStatus minimiseFrozen(int n, int ndf, bool constrained, const Evaluate& evaluate, const ConstraintsAt& constraintsAt, std::span<const S> values, const S* rows, const SolveSpace<S>& space, std::span<double> parameters, double& chi2, double& mu, double& metric, double& bound, int& iterations, int& steps, double& first)
 {
   using namespace decay_fit_detail;
-  double* normal = space.normal;
-  double* gradient = space.gradient;
-  Cholesky llt{.l = space.factor};
-  double* step = space.step;
-  double* multipliers = space.multipliers;
+  S* normal = space.normal;
+  S* gradient = space.gradient;
+  Cholesky<S> llt{.l = space.factor};
+  S* step = space.step;
+  S* multipliers = space.multipliers;
   const std::span<double> trial{space.trial, static_cast<std::size_t>(n)};
   const auto violationOf = [&]() {
     double sum = 0.;
-    for (const double c : values) {
-      sum += std::abs(c);
+    for (const S c : values) {
+      sum += std::abs(static_cast<double>(c));
     }
     return sum;
   };
@@ -205,8 +208,8 @@ template <typename Evaluate, typename ConstraintsAt>
         return DecayFitStatus::kSingular;
       }
       for (std::size_t j = 0; j < values.size(); ++j) {
-        mu = std::max(mu, std::abs(multipliers[j]));
-        lambdaC += multipliers[j] * values[j];
+        mu = std::max(mu, std::abs(static_cast<double>(multipliers[j])));
+        lambdaC += static_cast<double>(multipliers[j]) * static_cast<double>(values[j]);
       }
       violation = violationOf();
     } else {
@@ -218,13 +221,13 @@ template <typename Evaluate, typename ConstraintsAt>
     metric = (mu * violation) - lambdaC;
     for (int a = 0; a < n; ++a) {
       for (int b = 0; b < n; ++b) {
-        metric += step[a] * normal[a * n + b] * step[b];
+        metric += static_cast<double>(step[a]) * static_cast<double>(normal[a * n + b]) * static_cast<double>(step[b]);
       }
     }
     if (iteration == 0) {
       first = metric;
     }
-    const double resolvable = (std::numeric_limits<double>::epsilon() * (chi2 + std::max(ndf, 0))) + rounding;
+    const double resolvable = (static_cast<double>(std::numeric_limits<M>::epsilon()) * (chi2 + std::max(ndf, 0))) + rounding;
     bound = resolvable;
     if (metric <= resolvable) {
       return DecayFitStatus::kOk;
@@ -235,7 +238,7 @@ template <typename Evaluate, typename ConstraintsAt>
     double scale = 1.;
     for (int halving = 0; halving < kMaxSteps && !taken; ++halving, scale *= 0.5) {
       for (int j = 0; j < n; ++j) {
-        trial[j] = parameters[j] + (scale * step[j]);
+        trial[j] = parameters[j] + (scale * static_cast<double>(step[j]));
       }
       double trialChi2 = 0.;
       double trialRounding = 0.;
@@ -562,11 +565,27 @@ template <DetectorLayout Det>
 /// mixture -- is held in place; what grows with the decay -- the parameters
 /// (n), the constraint equations (m), the chains' equations (c) and the
 /// matrices over them -- lives in a workspace the caller hands in, of
-/// `workspace()`'s size: one span of doubles, one of ints (the pivots and the
-/// semi-definite factor's order), carved in the order `bind` takes them.
-template <DetectorLayout Det, DecayFitVariant Variant, typename Material>
+/// `workspace()`'s size: one span of doubles (the parameters), one of
+/// SolveScalars (the matrices), one of ints (the pivots and the semi-definite
+/// factor's order), carved in the order `bind` takes them.
+///
+/// Its arithmetic: ModelScalar evaluates the model from the parameters --
+/// the carry's crossings, the predictions, residuals, chain equations,
+/// constraint values and all their derivatives (dual numbers), the chains'
+/// Jacobians and the scattering they carry --; SolveScalar holds and solves
+/// what the model gives -- the measurements' weights, the normal matrix, the
+/// gradient, the constraint rows and values, the factors, the step, the
+/// multipliers, the covariances, the log-determinants, the Gaussian sum's
+/// collapse's scatter --. Always double, O(n) or O(1) on any device: the
+/// parameters and their update, the chi2 and merit sums, mu, the stopping
+/// test and its bound -- epsilon_ModelScalar (chi2 + ndf) plus the inputs'
+/// rounding --, the outer loop's shift. Both double is the fit as it was
+/// built; the others are measured (`DecayPrecisionStudy`).
+template <DetectorLayout Det, DecayFitVariant Variant, typename Material, typename ModelScalar = double, typename SolveScalar = double>
 class DecayVertexFitter
 {
+  using M = ModelScalar;
+  using S = SolveScalar;
   static constexpr int kMaxVertices = decay_fit_detail::kMaxConstrainedVertices;
   static constexpr int kMaxDaughters = decay_fit_detail::kMaxConstrainedDaughters;
   static constexpr int kMaxRows = static_cast<int>(maxChainLayers<Det>); ///< a tracked particle's
@@ -581,21 +600,21 @@ class DecayVertexFitter
   // production point; their equations two per row and two at the end, and as
   // many nuisances after the momenta (`ScatteredEquations`).
   struct Chain {
-    int vertex = 0;                      ///< where it decayed
-    const DecayMother* rows = nullptr;   ///< its own rows, if it left any
-    int end = -2;                        ///< where it was made: its parent's vertex; -1 the production point; -2 nowhere
-    double charge = 0.;                  ///< its daughters' sum [e]
-    double mass = 0.;                    ///< [GeV], for its flight's material
-    int first = 0;                       ///< its first equation among the chains'
-    int count = 0;                       ///< two per row and two at its end
-    int rowCount = 0;                    ///< its rows
-    std::array<double, kMaxRows> loss{}; ///< the model: q/p's factor after each row
-    TrackingSurface endPlane;            ///< the model: the plane about its end point
+    int vertex = 0;                    ///< where it decayed
+    const DecayMother* rows = nullptr; ///< its own rows, if it left any
+    int end = -2;                      ///< where it was made: its parent's vertex; -1 the production point; -2 nowhere
+    double charge = 0.;                ///< its daughters' sum [e]
+    double mass = 0.;                  ///< [GeV], for its flight's material
+    int first = 0;                     ///< its first equation among the chains'
+    int count = 0;                     ///< two per row and two at its end
+    int rowCount = 0;                  ///< its rows
+    std::array<M, kMaxRows> loss{};    ///< the model: q/p's factor after each row
+    TrackingSurface endPlane;          ///< the model: the plane about its end point
   };
   struct Measurement {
     TrackingSurface plane;
     std::array<double, 5> value{};
-    std::array<double, 25> weight{}; ///< the inverse covariance
+    std::array<S, 25> weight{}; ///< the inverse covariance
   };
   // An electron's carried mixture, its components kept apart for the
   // Gaussian sum (`kGaussianSum`): ln of its normalised weight, its
@@ -607,9 +626,10 @@ class DecayVertexFitter
   };
 
  public:
-  /// A workspace's size: doubles and ints.
+  /// A workspace's size: doubles, SolveScalars and ints.
   struct WorkspaceSize {
     std::size_t doubles = 0;
+    std::size_t solves = 0;
     std::size_t ints = 0;
   };
 
@@ -627,20 +647,20 @@ class DecayVertexFitter
     const auto uc = static_cast<std::size_t>(c);
     const std::size_t system = un + um;
     const std::size_t larger = std::max(un, um);
-    std::size_t doubles = un                           // the parameters
-                          + (un * un) + un             // the normal matrix, the gradient
-                          + (larger * larger)          // a Cholesky factor
-                          + un + un + um               // the step, the trial, the multipliers
-                          + (um * un)                  // the constraints' rows
-                          + (system * system) + system // the Lagrange system, its solution
-                          + (un * un)                  // the covariance
-                          + (2 * uc * uc);             // the chains' covariance, its factor
+    std::size_t doubles = un + un;                    // the parameters, the trial
+    std::size_t solves = (un * un) + un               // the normal matrix, the gradient
+                         + (larger * larger)          // a Cholesky factor
+                         + un + um                    // the step, the multipliers
+                         + (um * un)                  // the constraints' rows
+                         + (system * system) + system // the Lagrange system, its solution
+                         + (un * un)                  // the covariance
+                         + (2 * uc * uc);             // the chains' covariance, its factor
     if constexpr (Variant == DecayFitVariant::kGaussianSum) {
-      doubles += un + un + (un * un) // the start, a combination's parameters and covariance
-                 + (um * um)         // C C^T
-                 + un + (un * un);   // the collapse's mean and scatter
+      doubles += un + un + un;        // the start, a combination's parameters, the collapse's mean
+      solves += (un * un) + (um * um) // a combination's covariance, C C^T
+                + (un * un);          // the collapse's scatter
     }
-    return {.doubles = doubles, .ints = system + uc};
+    return {.doubles = doubles, .solves = solves, .ints = system + uc};
   }
 
   /// This decay's workspace; none for inputs `fit` refuses.
@@ -652,20 +672,20 @@ class DecayVertexFitter
     return workspaceSize(mParameterCount, mValueCount, mChainCount);
   }
 
-  /// The fit, in the workspace \a doubles and \a ints (at least `workspace()`;
-  /// less is refused as `kTooLarge`).
-  [[nodiscard]] DecayVertexFitResult fit(std::span<double> doubles, std::span<int> ints)
+  /// The fit, in the workspace \a doubles, \a solves and \a ints (at least
+  /// `workspace()`; less is refused as `kTooLarge`).
+  [[nodiscard]] DecayVertexFitResult fit(std::span<double> doubles, std::span<S> solves, std::span<int> ints)
   {
     using namespace decay_fit_detail;
     if (!prepare()) {
       return mResult;
     }
     const auto need = workspaceSize(mParameterCount, mValueCount, mChainCount);
-    if (doubles.size() < need.doubles || ints.size() < need.ints) {
+    if (doubles.size() < need.doubles || solves.size() < need.solves || ints.size() < need.ints) {
       mResult.status = DecayFitStatus::kTooLarge;
       return mResult;
     }
-    bind(doubles, ints);
+    bind(doubles, solves, ints);
     if (mCount < 2) {
       return mResult;
     }
@@ -745,6 +765,32 @@ class DecayVertexFitter
     return mResult;
   }
 
+  /// After `fit`: its parameters (n: the vertices, the momenta, the chains'
+  /// nuisances), as the solution or the Gaussian sum's collapse left them.
+  [[nodiscard]] std::span<const double> solution() const { return {mParameters, static_cast<std::size_t>(mParameterCount)}; }
+
+  /// After `fit`: the chi2 at \a p (n parameters, as `solution`) under the
+  /// fit's last model -- its last carry's measurements, its chains' last
+  /// model --, and the constraints' violation |c|_1 there; false if a helix
+  /// misses its plane.
+  [[nodiscard]] bool frozenMerit(std::span<const double> p, double& chi2, double& violation)
+  {
+    double rounding = 0.;
+    violation = 0.;
+    if (!evaluate(p, chi2, rounding, nullptr, nullptr)) {
+      return false;
+    }
+    if (mConstrained) {
+      if (!constraintsAt(p)) {
+        return false;
+      }
+      for (const S c : values()) {
+        violation += std::abs(static_cast<double>(c));
+      }
+    }
+    return true;
+  }
+
  private:
   static constexpr int kDerivatives = 6;                                     // vx, vy, vz, phi, theta, q/p
   static constexpr double kEpsilon = std::numeric_limits<Scalar>::epsilon(); // the measurements' precision
@@ -772,7 +818,7 @@ class DecayVertexFitter
     mResult.charges = mCharges;
     setUpChains();
     mParameterCount = mCore + mChainCount;
-    mScattered = ScatteredEquations{.at = mCore, .count = mChainCount};
+    mScattered = ScatteredEquations<S>{.at = mCore, .count = mChainCount};
     mValueCount = hardRows() + mChainCount;
     return true;
   }
@@ -793,7 +839,7 @@ class DecayVertexFitter
   }
 
   /// Carve the workspace (`workspaceSize`'s order).
-  void bind(std::span<double> doubles, std::span<int> ints)
+  void bind(std::span<double> doubles, std::span<S> solves, std::span<int> ints)
   {
     const auto n = static_cast<std::size_t>(mParameterCount);
     const auto m = static_cast<std::size_t>(mValueCount);
@@ -806,33 +852,39 @@ class DecayVertexFitter
       at += size;
       return first;
     };
+    S* solveAt = solves.data();
+    const auto takeSolve = [&solveAt](std::size_t size) {
+      S* first = solveAt;
+      solveAt += size;
+      return first;
+    };
     mParameters = take(n);
-    mSolve.normal = take(n * n);
-    mSolve.gradient = take(n);
-    mSolve.factor = take(larger * larger);
-    mSolve.step = take(n);
     mSolve.trial = take(n);
-    mSolve.multipliers = take(m);
-    mRows = take(m * n);
-    mSolve.lagrange.system = take(system * system);
-    mSolve.lagrange.solution = take(system);
-    mCovariance = take(n * n);
-    mChainCovariance = take(c * c);
-    mChainFactor = take(c * c);
+    mSolve.normal = takeSolve(n * n);
+    mSolve.gradient = takeSolve(n);
+    mSolve.factor = takeSolve(larger * larger);
+    mSolve.step = takeSolve(n);
+    mSolve.multipliers = takeSolve(m);
+    mRows = takeSolve(m * n);
+    mSolve.lagrange.system = takeSolve(system * system);
+    mSolve.lagrange.solution = takeSolve(system);
+    mCovariance = takeSolve(n * n);
+    mChainCovariance = takeSolve(c * c);
+    mChainFactor = takeSolve(c * c);
     if constexpr (Variant == DecayFitVariant::kGaussianSum) {
       mFrom = take(n);
       mFitParameters = take(n);
-      mFitCovariance = take(n * n);
-      mSquare = take(m * m);
       mCollapseMean = take(n);
-      mCollapseScatter = take(n * n);
+      mFitCovariance = takeSolve(n * n);
+      mSquare = takeSolve(m * m);
+      mCollapseScatter = takeSolve(n * n);
     }
     mSolve.lagrange.pivots = ints.data();
     mFactorOrder = ints.data() + system;
   }
 
   [[nodiscard]] std::span<double> parameters() const { return {mParameters, static_cast<std::size_t>(mParameterCount)}; }
-  [[nodiscard]] std::span<const double> values() const { return {mValues.data(), static_cast<std::size_t>(mValueCount)}; }
+  [[nodiscard]] std::span<const S> values() const { return {mValues.data(), static_cast<std::size_t>(mValueCount)}; }
 
   [[nodiscard]] double chargeUnder(int w) const
   {
@@ -898,14 +950,14 @@ class DecayVertexFitter
   // particle crosses nothing: S = R. The chains are separate particles: S is
   // block diagonal. The material model takes unit charge (Highland's p, the
   // loss): a doubly charged chain's flight is not modelled.
-  [[nodiscard]] decay_fit_detail::FreeState<decay_fit_detail::kConstraintInputs> chainStart(std::span<const double> p, const Chain& chain) const
+  [[nodiscard]] decay_fit_detail::FreeState<decay_fit_detail::kConstraintInputs, M> chainStart(std::span<const double> p, const Chain& chain) const
   {
     using namespace decay_fit_detail;
-    using DC = Dual<kConstraintInputs>;
-    FreeState<kConstraintInputs> state{};
+    using DC = Dual<kConstraintInputs, M>;
+    FreeState<kConstraintInputs, M> state{};
     for (int c = 0; c < 3; ++c) {
-      state[c].v = p[(3 * chain.vertex) + c];
-      state[c].d[(3 * chain.vertex) + c] = 1.;
+      state[c].v = static_cast<M>(p[(3 * chain.vertex) + c]);
+      state[c].d[(3 * chain.vertex) + c] = M(1.);
     }
     std::array<DC, 3> total{};
     for (int i = 0; i < mCount; ++i) {
@@ -913,7 +965,7 @@ class DecayVertexFitter
         continue;
       }
       const int q = (3 * mVertexCount) + (3 * i);
-      const auto momentum = momentumOf(dual::variable<kConstraintInputs>(p[q], q), dual::variable<kConstraintInputs>(p[q + 1], q + 1), dual::variable<kConstraintInputs>(p[q + 2], q + 2), numeratorOf(mCharges[i]));
+      const auto momentum = momentumOf(dual::variable<kConstraintInputs, M>(p[q], q), dual::variable<kConstraintInputs, M>(p[q + 1], q + 1), dual::variable<kConstraintInputs, M>(p[q + 2], q + 2), numeratorOf(mCharges[i]));
       for (int c = 0; c < 3; ++c) {
         total[c] = total[c] + momentum.vector[c];
       }
@@ -922,21 +974,21 @@ class DecayVertexFitter
     const DC pTotal = sqrt((pt * pt) + (total[2] * total[2]));
     state[3] = atan2(total[1], total[0]);
     state[4] = atan2(pt, total[2]);
-    state[5] = DC{chain.charge} / pTotal;
+    state[5] = DC{static_cast<M>(chain.charge)} / pTotal;
     return state;
   }
 
   // A chain's end point at \a p: C, or its parent's vertex (a parameter).
-  [[nodiscard]] std::array<decay_fit_detail::Dual<decay_fit_detail::kConstraintInputs>, 3> endPoint(std::span<const double> p, const Chain& chain) const
+  [[nodiscard]] std::array<decay_fit_detail::Dual<decay_fit_detail::kConstraintInputs, M>, 3> endPoint(std::span<const double> p, const Chain& chain) const
   {
     using namespace decay_fit_detail;
-    std::array<Dual<kConstraintInputs>, 3> point{};
+    std::array<Dual<kConstraintInputs, M>, 3> point{};
     for (int c = 0; c < 3; ++c) {
       if (chain.end == -1) {
-        point[c].v = mConstraints.point[c];
+        point[c].v = static_cast<M>(mConstraints.point[c]);
       } else {
-        point[c].v = p[(3 * chain.end) + c];
-        point[c].d[(3 * chain.end) + c] = 1.;
+        point[c].v = static_cast<M>(p[(3 * chain.end) + c]);
+        point[c].d[(3 * chain.end) + c] = M(1.);
       }
     }
     return point;
@@ -961,14 +1013,14 @@ class DecayVertexFitter
   {
     using namespace decay_fit_detail;
     bool room = true;
-    const auto push = [&](const Dual<kConstraintInputs>& value) {
+    const auto push = [&](const Dual<kConstraintInputs, M>& value) {
       if (written >= mValueCount) {
         room = false;
         return;
       }
-      mValues[written] = value.v;
+      mValues[written] = static_cast<S>(value.v);
       for (int c = 0; c < mCore; ++c) {
-        mRows[(written * mParameterCount) + c] = value.d[c];
+        mRows[(written * mParameterCount) + c] = static_cast<S>(value.d[c]);
       }
       ++written;
     };
@@ -976,8 +1028,8 @@ class DecayVertexFitter
       auto state = chainStart(p, chain);
       const int rows = chain.rowCount;
       for (int j = 0; j < rows; ++j) {
-        FreeState<kConstraintInputs> to{};
-        std::array<Dual<kConstraintInputs>, 2> local{};
+        FreeState<kConstraintInputs, M> to{};
+        std::array<Dual<kConstraintInputs, M>, 2> local{};
         if (!crossToPlane(state, chain.rows->planes[j], mPhysicalField, to, local)) {
           return false;
         }
@@ -987,15 +1039,15 @@ class DecayVertexFitter
         state[5] = chain.loss[j] * state[5];
       }
       if (chain.end != -2) {
-        FreeState<kConstraintInputs> to{};
-        std::array<Dual<kConstraintInputs>, 2> local{};
+        FreeState<kConstraintInputs, M> to{};
+        std::array<Dual<kConstraintInputs, M>, 2> local{};
         if (!crossToPlane(state, chain.endPlane, mPhysicalField, to, local)) {
           return false;
         }
         // the end point's own place on the plane
         const auto point = endPoint(p, chain);
         const auto& plane = chain.endPlane;
-        std::array<Dual<kConstraintInputs>, 2> target{};
+        std::array<Dual<kConstraintInputs, M>, 2> target{};
         for (int c = 0; c < 3; ++c) {
           const auto d = point[c] + (-static_cast<double>(plane.origin[c]));
           target[0] = target[0] + (static_cast<double>(plane.axis0[c]) * d);
@@ -1012,11 +1064,11 @@ class DecayVertexFitter
   [[nodiscard]] DecayFitStatus refreshChains(std::span<const double> p)
   {
     using namespace decay_fit_detail;
-    double* covariance = mChainCovariance;
-    std::fill_n(covariance, mChainCount * mChainCount, 0.);
+    S* covariance = mChainCovariance;
+    std::fill_n(covariance, mChainCount * mChainCount, S(0.));
     for (auto& chain : mChains) {
       const auto begin = chainStart(p, chain);
-      std::array<double, 6> state{};
+      std::array<M, 6> state{};
       for (int c = 0; c < 6; ++c) {
         state[c] = begin[c].v;
       }
@@ -1030,11 +1082,11 @@ class DecayVertexFitter
       }
       // Each crossing's step and local Jacobians by the state before it, the
       // segments' material and the states at the scatterers.
-      std::array<std::array<double, 36>, kMaxRows + 1> step{};
-      std::array<std::array<double, 12>, kMaxRows + 1> local{};
+      std::array<std::array<M, 36>, kMaxRows + 1> step{};
+      std::array<std::array<M, 12>, kMaxRows + 1> local{};
       std::array<o2::gtrk::detail::StepMaterial, kMaxRows> segment{};
-      std::array<std::array<double, 6>, kMaxRows + 1> at{};
-      std::array<double, kMaxRows> straggling{};
+      std::array<std::array<M, 6>, kMaxRows + 1> at{};
+      std::array<M, kMaxRows> straggling{};
       at[0] = state;
       double totalX2X0 = 0.;
       o2::base::MatMoment last{};
@@ -1045,13 +1097,13 @@ class DecayVertexFitter
           chain.endPlane = endPlaneOf(end, state[0], state[1], state[3], state[4], state[5]);
         }
         const auto& plane = isRow ? chain.rows->planes[j] : chain.endPlane;
-        FreeState<6> from{};
+        FreeState<6, M> from{};
         for (int c = 0; c < 6; ++c) {
           from[c].v = state[c];
-          from[c].d[c] = 1.;
+          from[c].d[c] = M(1.);
         }
-        FreeState<6> to{};
-        std::array<Dual<6>, 2> loc{};
+        FreeState<6, M> to{};
+        std::array<Dual<6, M>, 2> loc{};
         if (!crossToPlane(from, plane, mPhysicalField, to, loc)) {
           return DecayFitStatus::kNoCrossing;
         }
@@ -1068,7 +1120,7 @@ class DecayVertexFitter
         const Scalar a[3] = {static_cast<Scalar>(state[0]), static_cast<Scalar>(state[1]), static_cast<Scalar>(state[2])};
         const Scalar b[3] = {static_cast<Scalar>(to[0].v), static_cast<Scalar>(to[1].v), static_cast<Scalar>(to[2].v)};
         if (isRow) {
-          double scale = 1.;
+          M scale = 1.;
           if (scatters) {
             segment[j] = o2::gtrk::detail::stepMaterial(mMaterial, a, b);
             totalX2X0 += static_cast<double>(segment[j].nearerX2X0 + segment[j].fartherX2X0);
@@ -1094,7 +1146,7 @@ class DecayVertexFitter
       }
       // This chain's block: its rows' own, then each scatterer's kink carried
       // to every later equation, then the last segment's onto the end.
-      const auto entry = [&](int a, int b) -> double& { return covariance[((chain.first + a) * mChainCount) + chain.first + b]; };
+      const auto entry = [&](int a, int b) -> S& { return covariance[((chain.first + a) * mChainCount) + chain.first + b]; };
       for (int j = 0; j < rows; ++j) {
         const int e = 2 * j;
         entry(e, e) = chain.rows->covariance[j][0];
@@ -1105,40 +1157,40 @@ class DecayVertexFitter
       if (!scatters) {
         continue;
       }
-      const auto theta0 = [&](Scalar x2X0, const std::array<double, 6>& where) {
+      const auto theta0 = [&](Scalar x2X0, const std::array<M, 6>& where) {
         return static_cast<double>(highlandTheta0(x2X0, static_cast<Scalar>(totalX2X0), static_cast<Scalar>(std::abs(chain.charge / where[5])), static_cast<Scalar>(chain.mass)));
       };
       // scatterer k sits at at[k]: V (k = 0) or after row k - 1
       for (int kink = 0; kink <= rows; ++kink) {
         const auto& where = at[kink];
-        double angle = 0.;
+        M angle = 0.;
         if (kink < rows) {
-          const double nearer = theta0(segment[kink].nearerX2X0, where);
+          const auto nearer = static_cast<M>(theta0(segment[kink].nearerX2X0, where));
           angle += nearer * nearer;
         }
         if (kink > 0) {
-          const double farther = theta0(segment[kink - 1].fartherX2X0, where);
+          const auto farther = static_cast<M>(theta0(segment[kink - 1].fartherX2X0, where));
           angle += farther * farther;
         }
-        const double sinTheta = std::sin(where[4]);
-        const std::array<double, 3> variance{angle / (sinTheta * sinTheta), angle, kink > 0 ? straggling[kink - 1] : 0.};
+        const M sinTheta = std::sin(where[4]);
+        const std::array<M, 3> variance{angle / (sinTheta * sinTheta), angle, kink > 0 ? straggling[kink - 1] : M(0.)};
         // the kink's sensitivity, 6 x 3, carried through the later crossings
-        std::array<double, 18> g{};
+        std::array<M, 18> g{};
         for (int c = 0; c < 3; ++c) {
-          g[((3 + c) * 3) + c] = 1.;
+          g[((3 + c) * 3) + c] = M(1.);
         }
-        std::array<double, 3 * ((2 * kMaxRows) + 2)> jac{};
+        std::array<M, 3 * ((2 * kMaxRows) + 2)> jac{};
         for (int j = kink; j < planes; ++j) {
           for (int r = 0; r < 2; ++r) {
             for (int c = 0; c < 3; ++c) {
-              double value = 0.;
+              M value = 0.;
               for (int q = 0; q < 6; ++q) {
                 value += local[j][(r * 6) + q] * g[(q * 3) + c];
               }
               jac[(((2 * j) + r) * 3) + c] = value;
             }
           }
-          std::array<double, 18> next{};
+          std::array<M, 18> next{};
           for (int r = 0; r < 6; ++r) {
             for (int c = 0; c < 3; ++c) {
               for (int q = 0; q < 6; ++q) {
@@ -1156,7 +1208,7 @@ class DecayVertexFitter
         for (int a = 0; a < chain.count; ++a) {
           for (int b = 0; b < chain.count; ++b) {
             for (int c = 0; c < 3; ++c) {
-              entry(a, b) += jac[(a * 3) + c] * variance[c] * jac[(b * 3) + c];
+              entry(a, b) += static_cast<S>(jac[(a * 3) + c] * variance[c] * jac[(b * 3) + c]);
             }
           }
         }
@@ -1164,16 +1216,16 @@ class DecayVertexFitter
       if (chain.end != -2 && last.x2X0 > 0.F) {
         const double t0 = static_cast<double>(highlandTheta0(last.x2X0, static_cast<Scalar>(totalX2X0), static_cast<Scalar>(std::abs(chain.charge / state[5])), static_cast<Scalar>(chain.mass)));
         const double across = t0 * t0 * lastLength * lastLength * static_cast<double>(last.x2X0T2) / static_cast<double>(last.x2X0);
-        const double sinTheta = std::sin(state[4]);
+        const double sinTheta = std::sin(static_cast<double>(state[4]));
         const int e = 2 * rows;
-        entry(e, e) += across;
-        entry(e + 1, e + 1) += across / (sinTheta * sinTheta);
+        entry(e, e) += static_cast<S>(across);
+        entry(e + 1, e + 1) += static_cast<S>(across / (sinTheta * sinTheta));
       }
     }
     for (const auto& chain : mChains) {
       if (chain.end == -1) {
         const int e = chain.first + chain.count - 2;
-        mResult.pointSigma = std::sqrt(covariance[(e * mChainCount) + e]);
+        mResult.pointSigma = std::sqrt(static_cast<double>(covariance[(e * mChainCount) + e]));
       }
     }
     // the covariance factored in place (not needed after)
@@ -1198,7 +1250,7 @@ class DecayVertexFitter
       auto factors = factorCovariance(state.cov);
       PropagationStatus status = PropagationStatus::kOk;
       mResult.carryX2X0[i] = detail::hypothesis::segmentRadiation(daughter.propagator, mMaterial, daughter.innermost, daughter.surface, plane);
-      std::array<double, 25> factorStorage{};
+      std::array<S, 25> factorStorage{};
       if (daughter.mixture) {
         // The electron: its mixture branched by the segment's radiation, every
         // component carried, the collapse on the plane.
@@ -1226,8 +1278,8 @@ class DecayVertexFitter
         }
         for (int j = 0; j < mixture.size; ++j) {
           const auto& one = mixture.components[j].state;
-          Cholesky llt{.l = factorStorage.data()};
-          if (!llt.factor(covarianceOf(one).data(), 5)) {
+          Cholesky<S> llt{.l = factorStorage.data()};
+          if (!llt.factor(covarianceOf<S>(one).data(), 5)) {
             continue; // a component without a covariance is no measurement
           }
           Component component{.logWeight = static_cast<double>(mixture.components[j].logWeight) - largest - std::log(total)};
@@ -1235,7 +1287,7 @@ class DecayVertexFitter
           for (int r = 0; r < 5; ++r) {
             component.measurement.value[r] = one.par[r];
           }
-          component.logDetCovariance = llt.logDeterminant();
+          component.logDetCovariance = static_cast<double>(llt.logDeterminant());
           weightOf(llt, component.measurement.weight);
           kept.push_back(component);
         }
@@ -1246,8 +1298,8 @@ class DecayVertexFitter
         }
         covarianceFromFactors(factors, state.cov);
       }
-      Cholesky llt{.l = factorStorage.data()};
-      if (!llt.factor(covarianceOf(state).data(), 5)) {
+      Cholesky<S> llt{.l = factorStorage.data()};
+      if (!llt.factor(covarianceOf<S>(state).data(), 5)) {
         return DecayFitStatus::kSingular;
       }
       auto& m = mMeasurements[i];
@@ -1269,14 +1321,14 @@ class DecayVertexFitter
   // The chi2 at \a p and, with \a normal (n x n) and \a gradient (n), the
   // normal equations' matrix and right-hand side; false if a helix misses
   // its plane.
-  [[nodiscard]] bool evaluate(std::span<const double> p, double& chi2, double& rounding, double* normal, double* gradient) const
+  [[nodiscard]] bool evaluate(std::span<const double> p, double& chi2, double& rounding, S* normal, S* gradient) const
   {
     using namespace decay_fit_detail;
     chi2 = 0.;
     rounding = 0.;
     if (normal != nullptr) {
-      std::fill_n(normal, mParameterCount * mParameterCount, 0.);
-      std::fill_n(gradient, mParameterCount, 0.);
+      std::fill_n(normal, mParameterCount * mParameterCount, S(0.));
+      std::fill_n(gradient, mParameterCount, S(0.));
     }
     for (int i = 0; i < mCount; ++i) {
       const auto& daughter = mDaughters[i];
@@ -1284,51 +1336,52 @@ class DecayVertexFitter
         continue; // no measurement
       }
       const double fieldScale = daughter.neutral ? 0. : static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
-      using D = Dual<kDerivatives>;
+      using D = Dual<kDerivatives, M>;
       const int q = (3 * mVertexCount) + (3 * i);
       const int w = 3 * mTopology.vertexOfDaughter(i);
       const std::array<int, kDerivatives> index{w, w + 1, w + 2, q, q + 1, q + 2};
-      FreeState<kDerivatives> from{};
+      FreeState<kDerivatives, M> from{};
       for (int c = 0; c < kDerivatives; ++c) {
-        from[c] = dual::variable<kDerivatives>(p[index[c]], c);
+        from[c] = dual::variable<kDerivatives, M>(p[index[c]], c);
       }
-      FreeState<kDerivatives> to{};
+      FreeState<kDerivatives, M> to{};
       std::array<D, 2> local{};
       if (!crossToPlane(from, mMeasurements[i].plane, fieldScale, to, local)) {
         return false;
       }
       const std::array<D, 5> predicted{local[0], local[1], to[3], to[4], to[5]};
-      std::array<double, 5> residual{};
+      std::array<M, 5> residual{};
       for (int r = 0; r < 5; ++r) {
-        residual[r] = mMeasurements[i].value[r] - predicted[r].v;
+        residual[r] = static_cast<M>(mMeasurements[i].value[r]) - predicted[r].v;
       }
-      residual[2] = std::remainder(residual[2], 2. * std::numbers::pi);
+      residual[2] = std::remainder(residual[2], M(2.) * std::numbers::pi_v<M>);
       const auto& weight = mMeasurements[i].weight;
       for (int r = 0; r < 5; ++r) {
-        rounding += std::pow(kEpsilon * mMeasurements[i].value[r], 2) * weight[r * 5 + r];
+        rounding += std::pow(kEpsilon * mMeasurements[i].value[r], 2) * static_cast<double>(weight[r * 5 + r]);
       }
+      // W r in double: the chi2 is a sum in double
       std::array<double, 5> weighted{};
       for (int r = 0; r < 5; ++r) {
         for (int c = 0; c < 5; ++c) {
-          weighted[r] += weight[r * 5 + c] * residual[c];
+          weighted[r] += static_cast<double>(weight[r * 5 + c]) * static_cast<double>(residual[c]);
         }
-        chi2 += residual[r] * weighted[r];
+        chi2 += static_cast<double>(residual[r]) * weighted[r];
       }
       if (normal == nullptr) {
         continue;
       }
       // H^T W H and H^T W r over this daughter's six parameters.
       for (int a = 0; a < kDerivatives; ++a) {
-        double g = 0.;
+        S g = 0.;
         for (int r = 0; r < 5; ++r) {
-          g += predicted[r].d[a] * weighted[r];
+          g += static_cast<S>(predicted[r].d[a]) * static_cast<S>(weighted[r]);
         }
         gradient[index[a]] += g;
         for (int b = 0; b < kDerivatives; ++b) {
-          double h = 0.;
+          S h = 0.;
           for (int r = 0; r < 5; ++r) {
             for (int c = 0; c < 5; ++c) {
-              h += predicted[r].d[a] * weight[r * 5 + c] * predicted[c].d[b];
+              h += static_cast<S>(predicted[r].d[a]) * weight[r * 5 + c] * static_cast<S>(predicted[c].d[b]);
             }
           }
           normal[index[a] * mParameterCount + index[b]] += h;
@@ -1344,12 +1397,12 @@ class DecayVertexFitter
     mScattered.addPrior(p, mParameterCount, chi2, normal, gradient);
     // The resonances' masses (`Resonance`): Breit-Wigner terms.
     for (const auto& resonance : mConstraints.resonances) {
-      using DR = Dual<kConstraintInputs>;
+      using DR = Dual<kConstraintInputs, M>;
       DR energy{};
       std::array<DR, 3> total{};
       for (const int i : resonance.daughters) {
         const int q = (3 * mVertexCount) + (3 * i);
-        const auto momentum = momentumOf(dual::variable<kConstraintInputs>(p[q], q), dual::variable<kConstraintInputs>(p[q + 1], q + 1), dual::variable<kConstraintInputs>(p[q + 2], q + 2), numeratorOf(mCharges[i]));
+        const auto momentum = momentumOf(dual::variable<kConstraintInputs, M>(p[q], q), dual::variable<kConstraintInputs, M>(p[q + 1], q + 1), dual::variable<kConstraintInputs, M>(p[q + 2], q + 2), numeratorOf(mCharges[i]));
         for (int c = 0; c < 3; ++c) {
           total[c] = total[c] + momentum.vector[c];
         }
@@ -1360,18 +1413,18 @@ class DecayVertexFitter
         return false;
       }
       const double big = resonance.massGeV;
-      const DR u = (mass2 + (-(big * big))) / DR{big * resonance.widthGeV};
-      const double u2 = u.v * u.v;
-      chi2 += 2. * std::log1p(u2);
-      const double weight = 0.5;                 // the Fisher information of chi2 / 2 per unit u^2
-      const double slope = 2. * u.v / (1. + u2); // d(chi2 / 2) / du
+      const DR u = (mass2 + (-(big * big))) / DR{static_cast<M>(big * resonance.widthGeV)};
+      const M u2 = u.v * u.v;
+      chi2 += 2. * std::log1p(static_cast<double>(u2));
+      const M weight = 0.5;                       // the Fisher information of chi2 / 2 per unit u^2
+      const M slope = M(2.) * u.v / (M(1.) + u2); // d(chi2 / 2) / du
       if (normal == nullptr) {
         continue;
       }
       for (int a = 0; a < mCore; ++a) {
-        gradient[a] -= slope * u.d[a];
+        gradient[a] -= static_cast<S>(slope * u.d[a]);
         for (int b = 0; b < mCore; ++b) {
-          normal[a * mParameterCount + b] += weight * u.d[a] * u.d[b];
+          normal[a * mParameterCount + b] += static_cast<S>(weight * u.d[a] * u.d[b]);
         }
       }
     }
@@ -1393,7 +1446,7 @@ class DecayVertexFitter
       momenta[i] = {p[q], p[q + 1], p[q + 2]};
     }
     int written = 0;
-    if (!evaluateConstraints(mConstraints, mTopology, std::span<const std::array<double, 3>>{vertices.data(), static_cast<std::size_t>(mVertexCount)}, std::span<const std::array<double, 3>>{momenta.data(), static_cast<std::size_t>(mCount)}, std::span<const double>{mMasses}, std::span<const double>{mCharges}, mPhysicalField, mValues.data(), mRows, mParameterCount, mValueCount, written)) {
+    if (!evaluateConstraints<M>(mConstraints, mTopology, std::span<const std::array<double, 3>>{vertices.data(), static_cast<std::size_t>(mVertexCount)}, std::span<const std::array<double, 3>>{momenta.data(), static_cast<std::size_t>(mCount)}, std::span<const double>{mMasses}, std::span<const double>{mCharges}, mPhysicalField, mValues.data(), mRows, mParameterCount, mValueCount, written)) {
       return false;
     }
     mScattered.row = written;
@@ -1404,7 +1457,7 @@ class DecayVertexFitter
       return false;
     }
     for (int a = 0; a < mValueCount; ++a) {
-      std::fill(mRows + (a * mParameterCount) + mCore, mRows + ((a + 1) * mParameterCount), 0.);
+      std::fill(mRows + (a * mParameterCount) + mCore, mRows + ((a + 1) * mParameterCount), S(0.));
     }
     if (mChainCount > 0) {
       mScattered.apply(p, mParameterCount, mValues.data(), mRows);
@@ -1415,9 +1468,9 @@ class DecayVertexFitter
   /// `minimiseFrozen` under the current model, from \a parameters.
   [[nodiscard]] DecayFitStatus minimise(std::span<double> parameters, double& chi2, double& mu, double& metric, double& bound, int& iterations, int& steps, double& first)
   {
-    const auto evaluateAt = [this](std::span<const double> p, double& value, double& rounding, double* normal, double* gradient) { return evaluate(p, value, rounding, normal, gradient); };
+    const auto evaluateAt = [this](std::span<const double> p, double& value, double& rounding, S* normal, S* gradient) { return evaluate(p, value, rounding, normal, gradient); };
     const auto constraintsOf = [this](std::span<const double> p) { return constraintsAt(p); };
-    return decay_fit_detail::minimiseFrozen(mParameterCount, mNdf, mConstrained, evaluateAt, constraintsOf, values(), mRows, mSolve, parameters, chi2, mu, metric, bound, iterations, steps, first);
+    return decay_fit_detail::minimiseFrozen<M>(mParameterCount, mNdf, mConstrained, evaluateAt, constraintsOf, values(), mRows, mSolve, parameters, chi2, mu, metric, bound, iterations, steps, first);
   }
 
   // The carried measurements are the model: minimised under them, carried
@@ -1493,7 +1546,7 @@ class DecayVertexFitter
         return false;
       }
     } else {
-      Cholesky llt{.l = mSolve.factor};
+      Cholesky<S> llt{.l = mSolve.factor};
       if (!llt.factor(mSolve.normal, mParameterCount)) {
         mResult.status = DecayFitStatus::kSingular;
         return false;
@@ -1529,7 +1582,7 @@ class DecayVertexFitter
       for (const int e : electrons) {
         tried *= mComponents[e].size();
       }
-      MixtureCollapse collapse(std::span<double>{mCollapseMean, n}, std::span<double>{mCollapseScatter, n * n});
+      MixtureCollapse<S> collapse(std::span<double>{mCollapseMean, n}, std::span<S>{mCollapseScatter, n * n});
       const std::span<double> fitParameters{mFitParameters, n};
       for (std::size_t combination = 0; combination < tried; ++combination) {
         double logWeight = 0.;
@@ -1552,20 +1605,20 @@ class DecayVertexFitter
           continue;
         }
         double unusedRounding = 0.;
-        double* matrix = mSolve.normal;
-        double* rhs = mSolve.gradient;
+        S* matrix = mSolve.normal;
+        S* rhs = mSolve.gradient;
         bool ok = evaluate(fitParameters, fitChi2, unusedRounding, matrix, rhs);
         double logVolume = 0.;
         if (ok && mConstrained) {
-          double logKKT = 0.;
+          S logKKT = 0.;
           ok = constraintsAt(fitParameters) && constrainedStep(mSolve.lagrange, matrix, mParameterCount, rhs, mRows, values(), nullptr, mFitCovariance, nullptr, &logKKT);
           // C C^T, m x m.
           const int m = mValueCount;
-          double* square = mSquare;
-          std::fill_n(square, m * m, 0.);
+          S* square = mSquare;
+          std::fill_n(square, m * m, S(0.));
           for (int j = 0; j < m; ++j) {
             for (int c = 0; c <= j; ++c) {
-              double sum = 0.;
+              S sum = 0.;
               for (int b = 0; b < mParameterCount; ++b) {
                 sum += mRows[(j * mParameterCount) + b] * mRows[(c * mParameterCount) + b];
               }
@@ -1573,19 +1626,19 @@ class DecayVertexFitter
               square[(c * m) + j] = sum;
             }
           }
-          Cholesky llt{.l = mSolve.factor};
+          Cholesky<S> llt{.l = mSolve.factor};
           ok = ok && llt.factor(square, m);
-          logVolume = ok ? logKKT - llt.logDeterminant() : 0.;
+          logVolume = ok ? static_cast<double>(logKKT) - static_cast<double>(llt.logDeterminant()) : 0.;
         } else if (ok) {
-          Cholesky llt{.l = mSolve.factor};
+          Cholesky<S> llt{.l = mSolve.factor};
           ok = llt.factor(matrix, mParameterCount);
           if (ok) {
-            logVolume = llt.logDeterminant();
+            logVolume = static_cast<double>(llt.logDeterminant());
             llt.inverse(mFitCovariance);
           }
         }
         if (ok) {
-          collapse.add(logWeight - (0.5 * fitChi2) - (0.5 * logVolume), fitParameters, std::span<const double>{mFitCovariance, n * n}, fitChi2);
+          collapse.add(logWeight - (0.5 * fitChi2) - (0.5 * logVolume), fitParameters, std::span<const S>{mFitCovariance, n * n}, fitChi2);
         }
       }
       mMeasurements = collapsed;
@@ -1617,12 +1670,12 @@ class DecayVertexFitter
   int mValueCount = 0;     ///< the constraint equations, the chains' among them: m
   decay_fit_detail::FixedVector<double, kMaxDaughters> mCharges;
   decay_fit_detail::FixedVector<Chain, kMaxVertices> mChains;
-  decay_fit_detail::ScatteredEquations mScattered;
+  decay_fit_detail::ScatteredEquations<S> mScattered;
   std::array<Measurement, kMaxDaughters> mMeasurements{};
   std::array<decay_fit_detail::FixedVector<Component, Mixture::kCapacity>, kMaxDaughters> mComponents{};
   double mPhysicalField = 0.;
   decay_fit_detail::FixedVector<double, kMaxDaughters> mMasses;
-  std::array<double, kMaxValues> mValues{}; ///< the constraints' values (m)
+  std::array<S, kMaxValues> mValues{}; ///< the constraints' values (m)
   bool mConstrained = false;
   double mChi2 = 0.;
   int mNdf = 0;
@@ -1634,30 +1687,31 @@ class DecayVertexFitter
   int mSteps = 0;
   double mShift = 0.;
   // the workspace (`bind`)
-  double* mParameters = nullptr;       ///< n
-  decay_fit_detail::SolveSpace mSolve; ///< the minimiser's and the solves' buffers
-  double* mRows = nullptr;             ///< the constraints' rows of derivatives, m x n
-  double* mCovariance = nullptr;       ///< n x n
-  double* mChainCovariance = nullptr;  ///< c x c
-  double* mChainFactor = nullptr;      ///< c x c, the scattered equations' L
-  int* mFactorOrder = nullptr;         ///< c
-  double* mFrom = nullptr;             ///< the Gaussian sum's: its start (n)
-  double* mFitParameters = nullptr;    ///< a combination's parameters (n)
-  double* mFitCovariance = nullptr;    ///< and covariance (n x n)
-  double* mSquare = nullptr;           ///< C C^T (m x m)
-  double* mCollapseMean = nullptr;     ///< the collapse's mean (n)
-  double* mCollapseScatter = nullptr;  ///< and scatter (n x n)
+  double* mParameters = nullptr;          ///< n
+  decay_fit_detail::SolveSpace<S> mSolve; ///< the minimiser's and the solves' buffers
+  S* mRows = nullptr;                     ///< the constraints' rows of derivatives, m x n
+  S* mCovariance = nullptr;               ///< n x n
+  S* mChainCovariance = nullptr;          ///< c x c
+  S* mChainFactor = nullptr;              ///< c x c, the scattered equations' L
+  int* mFactorOrder = nullptr;            ///< c
+  double* mFrom = nullptr;                ///< the Gaussian sum's: its start (n)
+  double* mFitParameters = nullptr;       ///< a combination's parameters (n)
+  S* mFitCovariance = nullptr;            ///< and covariance (n x n)
+  S* mSquare = nullptr;                   ///< C C^T (m x m)
+  double* mCollapseMean = nullptr;        ///< the collapse's mean (n)
+  S* mCollapseScatter = nullptr;          ///< and scatter (n x n)
 };
 
 /// A `DecayVertexFitter`'s fit of one decay, in a workspace of its own.
-template <DetectorLayout Det, DecayFitVariant Variant, typename Material>
+template <DetectorLayout Det, DecayFitVariant Variant, typename ModelScalar = double, typename SolveScalar = double, typename Material>
 [[nodiscard]] DecayVertexFitResult fitDecayVertex(std::span<const DecayDaughter> daughters, const Material& material, const DecayConstraints& constraints = {}, const DecayTopology& topology = {}, std::span<const DecayMother> mothers = {})
 {
-  DecayVertexFitter<Det, Variant, Material> fitter(daughters, material, constraints, topology, mothers);
+  DecayVertexFitter<Det, Variant, Material, ModelScalar, SolveScalar> fitter(daughters, material, constraints, topology, mothers);
   const auto need = fitter.workspace();
   std::vector<double> doubles(need.doubles);
+  std::vector<SolveScalar> solves(need.solves);
   std::vector<int> ints(need.ints);
-  return fitter.fit(doubles, ints);
+  return fitter.fit(doubles, solves, ints);
 }
 
 } // namespace o2::gtrk::study
