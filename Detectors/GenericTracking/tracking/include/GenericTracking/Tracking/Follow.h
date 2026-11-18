@@ -404,14 +404,14 @@ template <bool Scaled, typename Solve = ExactScalar, typename Prop, DetectorLayo
 /// update is not usable. With
 /// \a Inlined the transport is inlined (`transportCandidateInline`), else
 /// called.
-template <bool Scaled, bool Determinant = false, bool Inlined = false, typename Prop, DetectorLayout Det, typename Material>
+template <bool Scaled, bool Determinant = false, bool Inlined = false, typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material>
 [[nodiscard]] GPUhdi() GPUAlwaysInline() bool updateCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, const BoundParameters& GPUrestrict() input, const CovarianceFactors& GPUrestrict() inputFactors, BoundParameters& GPUrestrict() output, CovarianceFactors& GPUrestrict() outputFactors, Scalar& GPUrestrict() chi2, Scalar noiseScale, [[maybe_unused]] Scalar* GPUrestrict() determinant = nullptr)
 {
   bool carried = false;
   if constexpr (Inlined) {
-    carried = transportCandidateInline<Scaled>(prop, geometry, material, geometry.planeOf(measurement), direction, input, inputFactors, output, outputFactors, noiseScale);
+    carried = transportCandidateInline<Scaled, Solve>(prop, geometry, material, geometry.planeOf(measurement), direction, input, inputFactors, output, outputFactors, noiseScale);
   } else {
-    carried = transportCandidate<Scaled>(prop, geometry, material, geometry.planeOf(measurement), direction, input, inputFactors, output, outputFactors, noiseScale);
+    carried = transportCandidate<Scaled, Solve>(prop, geometry, material, geometry.planeOf(measurement), direction, input, inputFactors, output, outputFactors, noiseScale);
   }
   if (!carried) {
     return false;
@@ -694,7 +694,9 @@ GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det, Material>& co
   const auto update = [&](std::uint32_t row, ChildOf<EndDensity>& candidate) {
     countWork(counter);
     Scalar chi2 = 0.F;
-    const bool usable = updateCandidate<Scaled, EndDensity, Inlined>(*context.propagator, *context.geometry, detail::GivenMaterial{traversed}, measurementAt(frame, row), direction, state, factors, candidate.state, candidate.factors, chi2, noiseScale, determinantOf(candidate));
+    // The follow's states steer its own steps only (a proposal hands on
+    // rows; the refit fits them again): a float solve.
+    const bool usable = updateCandidate<Scaled, EndDensity, Inlined, Scalar>(*context.propagator, *context.geometry, detail::GivenMaterial{traversed}, measurementAt(frame, row), direction, state, factors, candidate.state, candidate.factors, chi2, noiseScale, determinantOf(candidate));
     if (!usable) {
       report(row, StepOutcome::kNoUpdate, 0.F);
       return;
