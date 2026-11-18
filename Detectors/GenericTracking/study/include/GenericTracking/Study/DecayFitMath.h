@@ -17,7 +17,7 @@
 #ifndef GTRK_STUDY_DECAYFITMATH_H_
 #define GTRK_STUDY_DECAYFITMATH_H_
 
-#include "GenericTracking/Study/Dual.h"
+#include "GenericTracking/Base/Dual.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Base/DenseSolve.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
@@ -35,7 +35,7 @@
 namespace o2::gtrk::study::decay_fit_detail
 {
 
-using o2::gtrk::study::dual::Dual;
+using o2::gtrk::dual::Dual;
 
 /// q/p's numerator for a particle of \a charge: |q|, 1 for a neutral one
 /// (its q/p is 1/p).
