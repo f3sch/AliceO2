@@ -125,17 +125,20 @@ struct DecayVertexFitResult {
   /// Per daughter: phi, theta, q/p at its vertex.
   FixedVector<std::array<double, 3>, kDaughters> momenta;
   /// The covariance of (the vertices, the daughters' momenta in order),
-  /// (3K + 3N)^2.
-  FixedVector<double, ((3 * kVertices) + (3 * kDaughters)) * ((3 * kVertices) + (3 * kDaughters))> covariance;
+  /// 3K + 3N square, packed (`dense::packedIndex`; `covarianceAt`).
+  FixedVector<double, dense::packedSize((3 * kVertices) + (3 * kDaughters))> covariance;
   double chi2 = 0.;
   int ndf = 0;
   /// The daughters' last carried states' phi, theta, q/p: their momenta
   /// without the vertex's information.
   FixedVector<std::array<double, 3>, kDaughters> carried;
-  /// The covariance of each carried state's phi, theta, q/p, 3 x 3.
-  FixedVector<std::array<double, 9>, kDaughters> carriedCovariance;
+  /// The covariance of each carried state's phi, theta, q/p, packed.
+  FixedVector<std::array<double, 6>, kDaughters> carriedCovariance;
   /// The material [x/X0] each daughter's last carry crossed.
   FixedVector<double, kDaughters> carryX2X0;
+
+  /// Element (\a row, \a column) of `covariance`.
+  [[nodiscard]] GPUhdi() double covarianceAt(int row, int column) const { return covariance[static_cast<std::size_t>(dense::packedIndex(row, column))]; }
 
   /// Back to a fresh result, in place (no temporary of this size).
   GPUhdi() void reset()
@@ -165,9 +168,9 @@ namespace decay_fit_detail
 /// constraint equations: the solve's in S, the trial parameters in double.
 template <typename S = double>
 struct SolveSpace {
-  S* normal = nullptr;       ///< n x n
+  S* normal = nullptr;       ///< n x n, packed
   S* gradient = nullptr;     ///< n
-  S* factor = nullptr;       ///< max(n, m)^2: a Cholesky factor
+  S* factor = nullptr;       ///< max(n, m), packed: a Cholesky factor
   S* step = nullptr;         ///< n
   double* trial = nullptr;   ///< n
   S* multipliers = nullptr;  ///< m
@@ -242,7 +245,7 @@ template <typename M, typename S, typename Evaluate, typename ConstraintsAt>
     metric = (mu * violation) - lambdaC;
     for (int a = 0; a < n; ++a) {
       for (int b = 0; b < n; ++b) {
-        metric += static_cast<double>(step[a]) * static_cast<double>(normal[a * n + b]) * static_cast<double>(step[b]);
+        metric += static_cast<double>(step[a]) * static_cast<double>(normal[dense::packedIndex(a, b)]) * static_cast<double>(step[b]);
       }
     }
     if (iteration == 0) {
@@ -643,7 +646,7 @@ class DecayVertexFitter
   struct Measurement {
     TrackingSurface plane;
     std::array<double, 5> value{};
-    std::array<S, 25> weight{}; ///< the inverse covariance
+    std::array<S, decay_fit_detail::kPackedState> weight{}; ///< the inverse covariance, packed
   };
   // An electron's carried mixture, its components kept apart for the
   // Gaussian sum (`kGaussianSum`): ln of its normalised weight, its
@@ -815,11 +818,10 @@ class DecayVertexFitter
         mResult->momenta[i][c] = mSpace.parameters[(3 * mVertexCount) + (3 * i) + c];
       }
     }
-    // The vertices' and momenta's block: the nuisances left out.
-    mResult->covariance.resize(static_cast<std::size_t>(mCore * mCore));
-    for (int a = 0; a < mCore; ++a) {
-      decay_fit_detail::copyN(mSpace.covariance + (a * mParameterCount), mCore, mResult->covariance.data() + (a * mCore));
-    }
+    // The vertices' and momenta's block, the nuisances left out: packed by
+    // rows, it is the covariance's first entries.
+    mResult->covariance.resize(static_cast<std::size_t>(dense::packedSize(mCore)));
+    decay_fit_detail::copyN(mSpace.covariance, dense::packedSize(mCore), mResult->covariance.data());
     mResult->chi2 = mChi2;
     mResult->ndf = mNdf;
     return;
@@ -933,23 +935,25 @@ class DecayVertexFitter
     const auto c = static_cast<std::size_t>(k.chainEquations);
     const std::size_t system = n + m;
     const std::size_t larger = o2::gpu::CAMath::Max(n, m);
+    const auto packed = [](std::size_t size) { return (size * (size + 1U)) / 2U; };
     const auto rows = static_cast<std::size_t>(k.longestChain);
     std::size_t at = 0;
     space.parameters = place<double>(base, at, n);
     space.solve.trial = place<double>(base, at, n);
-    space.solve.normal = place<S>(base, at, n * n);
+    space.solve.normal = place<S>(base, at, packed(n));
     space.solve.gradient = place<S>(base, at, n);
-    space.solve.factor = place<S>(base, at, larger * larger);
+    space.solve.factor = place<S>(base, at, packed(larger));
     space.solve.step = place<S>(base, at, n);
     space.solve.multipliers = place<S>(base, at, m);
     space.rows = place<S>(base, at, m * n);
     space.values = place<S>(base, at, m);
-    space.solve.lagrange.system = place<S>(base, at, system * system);
+    space.solve.lagrange.system = place<S>(base, at, packed(system));
     space.solve.lagrange.solution = place<S>(base, at, system);
-    space.covariance = place<S>(base, at, n * n);
-    space.chainCovariance = place<S>(base, at, c * c);
+    space.covariance = place<S>(base, at, packed(n));
+    space.chainCovariance = place<S>(base, at, packed(c));
     space.chainFactor = place<S>(base, at, c * c);
-    space.solve.lagrange.pivots = place<int>(base, at, system);
+    space.solve.lagrange.swaps = place<int>(base, at, system);
+    space.solve.lagrange.blocks = place<int>(base, at, system);
     space.factorOrder = place<int>(base, at, c);
     space.loss = place<M>(base, at, static_cast<std::size_t>(k.chainRows));
     if (c > 0U) {
@@ -967,9 +971,9 @@ class DecayVertexFitter
       space.from = place<double>(base, at, n);
       space.fitParameters = place<double>(base, at, n);
       space.collapseMean = place<double>(base, at, n);
-      space.fitCovariance = place<S>(base, at, n * n);
-      space.square = place<S>(base, at, m * m);
-      space.collapseScatter = place<S>(base, at, n * n);
+      space.fitCovariance = place<S>(base, at, packed(n));
+      space.square = place<S>(base, at, packed(m));
+      space.collapseScatter = place<S>(base, at, packed(n));
     }
     return at;
   }
@@ -1183,7 +1187,7 @@ class DecayVertexFitter
   {
     using namespace decay_fit_detail;
     S* covariance = mSpace.chainCovariance;
-    decay_fit_detail::fillN(covariance, mChainCount * mChainCount, S(0.));
+    decay_fit_detail::fillN(covariance, dense::packedSize(mChainCount), S(0.));
     for (auto& chain : mChains) {
       const auto begin = chainStart(p, chain);
       std::array<M, 6> state{};
@@ -1271,13 +1275,13 @@ class DecayVertexFitter
           totalX2X0 += static_cast<double>(last.x2X0);
         }
       }
-      // This chain's block: its rows' own, then each scatterer's kink carried
-      // to every later equation, then the last segment's onto the end.
-      const auto entry = [&](int a, int b) -> S& { return covariance[((chain.first + a) * mChainCount) + chain.first + b]; };
+      // This chain's block (packed, its lower triangle): its rows' own, then
+      // each scatterer's kink carried to every later equation, then the last
+      // segment's onto the end.
+      const auto entry = [&](int a, int b) -> S& { return covariance[dense::packedIndex(chain.first + a, chain.first + b)]; };
       for (int j = 0; j < rows; ++j) {
         const int e = 2 * j;
         entry(e, e) = chain.rows->covariance[j][0];
-        entry(e, e + 1) = chain.rows->covariance[j][1];
         entry(e + 1, e) = chain.rows->covariance[j][1];
         entry(e + 1, e + 1) = chain.rows->covariance[j][2];
       }
@@ -1334,7 +1338,7 @@ class DecayVertexFitter
           g = next;
         }
         for (int a = 0; a < chain.count; ++a) {
-          for (int b = 0; b < chain.count; ++b) {
+          for (int b = 0; b <= a; ++b) {
             for (int c = 0; c < 3; ++c) {
               entry(a, b) += static_cast<S>(jac[(a * 3) + c] * variance[c] * jac[(b * 3) + c]);
             }
@@ -1353,7 +1357,7 @@ class DecayVertexFitter
     for (const auto& chain : mChains) {
       if (chain.end == -1) {
         const int e = chain.first + chain.count - 2;
-        mResult->pointSigma = sqrtOf(static_cast<double>(covariance[(e * mChainCount) + e]));
+        mResult->pointSigma = sqrtOf(static_cast<double>(covariance[dense::packedIndex(e, e)]));
       }
     }
     // the covariance factored in place (not needed after)
@@ -1378,7 +1382,7 @@ class DecayVertexFitter
       auto factors = factorCovariance(state.cov);
       PropagationStatus status = PropagationStatus::kOk;
       mResult->carryX2X0[i] = detail::hypothesis::segmentRadiation(daughter.propagator, mMaterial, daughter.innermost, daughter.surface, plane);
-      std::array<S, 25> factorStorage{};
+      std::array<S, decay_fit_detail::kPackedState> factorStorage{};
       if (daughter.mixture.size > 0) {
         // The electron: its mixture branched by the segment's radiation, every
         // component carried, the collapse on the plane.
@@ -1441,8 +1445,8 @@ class DecayVertexFitter
       weightOf(llt, m.weight);
       mResult->carried[i] = {state.phi(), state.theta(), state.qOverP()};
       for (int r = 0; r < 3; ++r) {
-        for (int c = 0; c < 3; ++c) {
-          mResult->carriedCovariance[i][r * 3 + c] = state.covAt(r + 2, c + 2);
+        for (int c = 0; c <= r; ++c) {
+          mResult->carriedCovariance[i][dense::packedIndex(r, c)] = state.covAt(r + 2, c + 2);
         }
       }
     }
@@ -1458,7 +1462,7 @@ class DecayVertexFitter
     chi2 = 0.;
     rounding = 0.;
     if (normal != nullptr) {
-      decay_fit_detail::fillN(normal, mParameterCount * mParameterCount, S(0.));
+      decay_fit_detail::fillN(normal, dense::packedSize(mParameterCount), S(0.));
       decay_fit_detail::fillN(gradient, mParameterCount, S(0.));
     }
     for (int i = 0; i < mCount; ++i) {
@@ -1488,34 +1492,35 @@ class DecayVertexFitter
       residual[2] = decay_fit_detail::angleInPMPi(residual[2]);
       const auto& weight = mSpace.measurements[i].weight;
       for (int r = 0; r < 5; ++r) {
-        rounding += ((kEpsilon * mSpace.measurements[i].value[r]) * (kEpsilon * mSpace.measurements[i].value[r])) * static_cast<double>(weight[r * 5 + r]);
+        rounding += ((kEpsilon * mSpace.measurements[i].value[r]) * (kEpsilon * mSpace.measurements[i].value[r])) * static_cast<double>(weight[dense::packedIndex(r, r)]);
       }
       // W r in double: the chi2 is a sum in double
       std::array<double, 5> weighted{};
       for (int r = 0; r < 5; ++r) {
         for (int c = 0; c < 5; ++c) {
-          weighted[r] += static_cast<double>(weight[r * 5 + c]) * static_cast<double>(residual[c]);
+          weighted[r] += static_cast<double>(weight[dense::packedIndex(r, c)]) * static_cast<double>(residual[c]);
         }
         chi2 += static_cast<double>(residual[r]) * weighted[r];
       }
       if (normal == nullptr) {
         continue;
       }
-      // H^T W H and H^T W r over this daughter's six parameters.
+      // H^T W H (its lower triangle: the indices rise with a) and H^T W r
+      // over this daughter's six parameters.
       for (int a = 0; a < kDerivatives; ++a) {
         S g = 0.;
         for (int r = 0; r < 5; ++r) {
           g += static_cast<S>(predicted[r].d[a]) * static_cast<S>(weighted[r]);
         }
         gradient[index[a]] += g;
-        for (int b = 0; b < kDerivatives; ++b) {
+        for (int b = 0; b <= a; ++b) {
           S h = 0.;
           for (int r = 0; r < 5; ++r) {
             for (int c = 0; c < 5; ++c) {
-              h += static_cast<S>(predicted[r].d[a]) * weight[r * 5 + c] * static_cast<S>(predicted[c].d[b]);
+              h += static_cast<S>(predicted[r].d[a]) * weight[dense::packedIndex(r, c)] * static_cast<S>(predicted[c].d[b]);
             }
           }
-          normal[index[a] * mParameterCount + index[b]] += h;
+          normal[dense::packedIndex(index[a], index[b])] += h;
         }
       }
     }
@@ -1525,7 +1530,7 @@ class DecayVertexFitter
         rounding += ((kEpsilon * mother.positions[j][0]) * (kEpsilon * mother.positions[j][0]) / mother.covariance[j][0]) + ((kEpsilon * mother.positions[j][1]) * (kEpsilon * mother.positions[j][1]) / mother.covariance[j][2]);
       }
     }
-    mScattered.addPrior(p, mParameterCount, chi2, normal, gradient);
+    mScattered.addPrior(p, chi2, normal, gradient);
     // The resonances' masses (`Resonance`): Breit-Wigner terms.
     for (const auto& resonance : mConstraints.resonances) {
       using DR = Dual<kConstraintInputs, M>;
@@ -1554,8 +1559,8 @@ class DecayVertexFitter
       }
       for (int a = 0; a < mCore; ++a) {
         gradient[a] -= static_cast<S>(slope * u.d[a]);
-        for (int b = 0; b < mCore; ++b) {
-          normal[a * mParameterCount + b] += static_cast<S>(weight * u.d[a] * u.d[b]);
+        for (int b = 0; b <= a; ++b) {
+          normal[dense::packedIndex(a, b)] += static_cast<S>(weight * u.d[a] * u.d[b]);
         }
       }
     }
@@ -1661,7 +1666,7 @@ class DecayVertexFitter
   }
 
   // The covariance at the solution, with the measurements of the last carry,
-  // into `mSpace.covariance` (n x n).
+  // into `mSpace.covariance` (packed).
   /// False if the fit ends here (`mResult` is final).
   [[nodiscard]] GPUd() bool covariance()
   {
@@ -1713,7 +1718,7 @@ class DecayVertexFitter
       for (const int e : electrons) {
         tried *= mComponents[e].size();
       }
-      MixtureCollapse<S> collapse(std::span<double>{mSpace.collapseMean, n}, std::span<S>{mSpace.collapseScatter, n * n});
+      MixtureCollapse<S> collapse(std::span<double>{mSpace.collapseMean, n}, std::span<S>{mSpace.collapseScatter, static_cast<std::size_t>(dense::packedSize(mParameterCount))});
       const std::span<double> fitParameters{mSpace.fitParameters, n};
       for (std::size_t combination = 0; combination < tried; ++combination) {
         double logWeight = 0.;
@@ -1743,18 +1748,16 @@ class DecayVertexFitter
         if (ok && mConstrained) {
           S logKKT = 0.;
           ok = constraintsAt(fitParameters) && constrainedStep(mSpace.solve.lagrange, matrix, mParameterCount, rhs, mSpace.rows, values(), nullptr, mSpace.fitCovariance, nullptr, &logKKT);
-          // C C^T, m x m.
+          // C C^T, m x m, packed.
           const int m = mValueCount;
           S* square = mSpace.square;
-          decay_fit_detail::fillN(square, m * m, S(0.));
           for (int j = 0; j < m; ++j) {
             for (int c = 0; c <= j; ++c) {
               S sum = 0.;
               for (int b = 0; b < mParameterCount; ++b) {
                 sum += mSpace.rows[(j * mParameterCount) + b] * mSpace.rows[(c * mParameterCount) + b];
               }
-              square[(j * m) + c] = sum;
-              square[(c * m) + j] = sum;
+              square[dense::packedIndex(j, c)] = sum;
             }
           }
           Cholesky<S> llt{.l = mSpace.solve.factor};
@@ -1769,7 +1772,7 @@ class DecayVertexFitter
           }
         }
         if (ok) {
-          collapse.add(logWeight - (0.5 * fitChi2) - (0.5 * logVolume), fitParameters, std::span<const S>{mSpace.fitCovariance, n * n}, fitChi2);
+          collapse.add(logWeight - (0.5 * fitChi2) - (0.5 * logVolume), fitParameters, std::span<const S>{mSpace.fitCovariance, static_cast<std::size_t>(dense::packedSize(mParameterCount))}, fitChi2);
         }
       }
       decay_fit_detail::copyN(mSpace.saved, mCount, mSpace.measurements);

@@ -259,56 +259,69 @@ template <typename S>
   return {a, columns};
 }
 
+/// A symmetric matrix packed by its lower triangle (`dense::PackedView`).
+template <typename S>
+[[nodiscard]] GPUhdi() dense::PackedView<S> packedOf(S* a)
+{
+  return {a};
+}
+
 /// A symmetric positive definite matrix's Cholesky factor in the arithmetic
-/// S, in storage the caller hands in (`l`, at least n x n).
+/// S, packed, in storage the caller hands in (`l`, at least
+/// `dense::packedSize(n)`).
 template <typename S = double>
 struct Cholesky {
   int n = 0;
   S* l = nullptr;
-  /// Factor \a a (\a size x \a size, row-major, its lower triangle read);
-  /// false if it is not positive definite.
+  /// Factor \a a (\a size x \a size, packed); false if it is not positive
+  /// definite.
   [[nodiscard]] GPUhdi() bool factor(const S* a, int size)
   {
     n = size;
-    copyN(a, n * n, l);
-    return dense::choleskyFactor(viewOf(l, n), n);
+    copyN(a, dense::packedSize(n), l);
+    return dense::choleskyFactor(packedOf(l), n);
   }
-  [[nodiscard]] GPUhdi() S logDeterminant() const { return dense::choleskyLogDeterminant(viewOf(l, n), n); }
+  [[nodiscard]] GPUhdi() S logDeterminant() const { return dense::choleskyLogDeterminant(packedOf(l), n); }
   /// x <- a^-1 x.
-  GPUhdi() void solve(S* x) const { dense::choleskySolve(viewOf(l, n), n, x); }
-  /// a^-1 into \a inverse, n x n, row-major.
-  GPUhdi() void inverse(S* inverse) const { dense::choleskyInverse(viewOf(l, n), n, viewOf(inverse, n)); }
+  GPUhdi() void solve(S* x) const { dense::choleskySolve(packedOf(l), n, x); }
+  /// a^-1 into \a inverse, packed.
+  GPUhdi() void inverse(S* inverse) const { dense::choleskyInverse(packedOf(l), n, packedOf(inverse)); }
 };
 
-/// A track state's 5 x 5 covariance in S, row-major.
+/// The entries of a packed 5 x 5 matrix: a track state's covariance or a
+/// measurement's weight.
+inline constexpr int kPackedState = 15;
+
+/// A track state's covariance in S, packed in `dense::packedIndex`'s order
+/// (BoundTrackState's own, covIndex, is the same lower triangle row by row).
 template <typename S = double, typename State>
-[[nodiscard]] GPUhdi() std::array<S, 25> covarianceOf(const State& state)
+[[nodiscard]] GPUhdi() std::array<S, kPackedState> covarianceOf(const State& state)
 {
-  std::array<S, 25> covariance{};
+  std::array<S, kPackedState> covariance{};
   for (int r = 0; r < 5; ++r) {
-    for (int c = 0; c < 5; ++c) {
-      covariance[(r * 5) + c] = state.covAt(r, c);
+    for (int c = 0; c <= r; ++c) {
+      covariance[dense::packedIndex(r, c)] = state.covAt(r, c);
     }
   }
   return covariance;
 }
 
-/// The weight (inverse covariance, 5 x 5, row-major) of the covariance
-/// factored in \a cholesky.
+/// The weight (inverse covariance, packed) of the covariance factored in
+/// \a cholesky.
 template <typename S>
-GPUhdi() void weightOf(const Cholesky<S>& cholesky, std::array<S, 25>& weight)
+GPUhdi() void weightOf(const Cholesky<S>& cholesky, std::array<S, kPackedState>& weight)
 {
-  dense::choleskyInverse(viewOf(cholesky.l, 5), 5, dense::MatrixView<S>{weight.data(), 5});
+  dense::choleskyInverse(packedOf(cholesky.l), 5, packedOf(weight.data()));
 }
 
 /// A positive semi-definite matrix's factor L, L L^T = \a a (n x n,
-/// row-major), into \a factor: the pivoted L D L^T's P^T L D^1/2
-/// (`dense::semidefiniteFactor`; \a a overwritten, \a order n ints of
-/// scratch). L is not triangular.
+/// packed), into \a factor (n x n, row-major): the pivoted L D L^T's
+/// P^T L D^1/2 (`dense::semidefiniteFactor`; \a a overwritten, \a order n
+/// ints of scratch). L is not triangular.
 template <typename S>
 GPUhdi() void semidefiniteFactor(S* a, int n, int* order, S* factor)
 {
-  dense::semidefiniteFactor(viewOf(a, n), n, order, viewOf(factor, n));
+  dense::semidefiniteFactor(packedOf(a), n, order, viewOf(factor, n));
 }
 
 /// A Gaussian mixture's collapse to one Gaussian (its mean and covariance)
@@ -320,7 +333,7 @@ GPUhdi() void semidefiniteFactor(S* a, int n, int* order, S* factor)
 /// combines means and scatters with their means' difference; adding one
 /// component is a merge with a collapse of one. No raw moments
 /// (sum w p p^T - mu mu^T), which cancel. Its mean and scatter live in
-/// storage the caller hands in (n and n x n): the mean in double, as the
+/// storage the caller hands in (n, and the scatter packed): the mean in double, as the
 /// parameters are, the scatter in S, as covariances are; the weights in
 /// double.
 template <typename S = double>
@@ -331,7 +344,7 @@ struct MixtureCollapse {
   double weight = 0.;
   double chi2 = 0.;
   std::span<double> mean;
-  std::span<S> scatter; ///< n x n, row-major
+  std::span<S> scatter; ///< packed (`dense::packedIndex`)
 
   GPUhdi() MixtureCollapse(std::span<double> meanStorage, std::span<S> scatterStorage) : n(static_cast<int>(meanStorage.size())), mean(meanStorage), scatter(scatterStorage)
   {
@@ -340,7 +353,7 @@ struct MixtureCollapse {
   }
 
   /// Takes the component of log-weight \a logWeight, mean \a p, covariance
-  /// \a sigma (n x n) and chi2 \a componentChi2.
+  /// \a sigma (packed) and chi2 \a componentChi2.
   GPUhdi() void add(double logWeight, std::span<const double> p, std::span<const S> sigma, double componentChi2)
   {
     combine(logWeight, 1., p, sigma, componentChi2, 1);
@@ -351,7 +364,7 @@ struct MixtureCollapse {
       combine(other.logScale, other.weight, other.mean, other.scatter, other.chi2, other.count);
     }
   }
-  /// The collapse's covariance, S / W, into \a covariance (n x n).
+  /// The collapse's covariance, S / W, into \a covariance (packed).
   GPUhdi() void covarianceInto(S* covariance) const
   {
     for (std::size_t i = 0; i < scatter.size(); ++i) {
@@ -379,10 +392,11 @@ struct MixtureCollapse {
     const double v = b * weightB;
     const double w = u + v;
     for (int i = 0; i < n; ++i) {
-      for (int j = 0; j < n; ++j) {
+      for (int j = 0; j <= i; ++j) {
         const double di = meanB[i] - mean[i];
         const double dj = meanB[j] - mean[j];
-        scatter[(i * n) + j] = static_cast<S>((a * scatter[(i * n) + j]) + (b * scatterB[(i * n) + j]) + ((u * v / w) * di * dj));
+        const int ij = dense::packedIndex(i, j);
+        scatter[ij] = static_cast<S>((a * scatter[ij]) + (b * scatterB[ij]) + ((u * v / w) * di * dj));
       }
     }
     for (int i = 0; i < n; ++i) {
