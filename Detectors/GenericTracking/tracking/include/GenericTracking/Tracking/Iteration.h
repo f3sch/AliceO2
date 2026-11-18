@@ -118,6 +118,9 @@ struct IterationSettings {
   /// The holes a followed track may cross in each direction; past them the
   /// direction ends.
   int followHoles = 0;
+  /// The lowest pT [GeV] at which the follow follows a track, from its state
+  /// as the follow starts (`RecoSettings::followMinPtGeV`).
+  double followMinPtGeV = 0.01;
   /// Whether the road's outermost row is decided again by the follow:
   /// the road fitted without it, the follow's
   /// first row takes its place where it is another; where the follow takes
@@ -341,6 +344,8 @@ struct IterationParameters {
   bool followGreedy = false;
   /// `IterationSettings::followKeepChi2`.
   Scalar followKeepChi2 = 0.F;
+  /// `IterationSettings::followMinPtGeV`.
+  Scalar followMinPt = 0.F;
   /// The resolution term of the follow's window, `positionSigma` squared,
   /// as the pair windows take it [cm^2].
   Scalar followPositionVariance = 0.F;
@@ -518,6 +523,7 @@ template <DetectorLayout Det>
   parameters.followPrefix = settings.follow && settings.followPrefix;
   parameters.followGreedy = settings.follow && settings.followGreedy;
   parameters.followKeepChi2 = static_cast<Scalar>(std::max(settings.followKeepChi2, 0.));
+  parameters.followMinPt = static_cast<Scalar>(std::max(settings.followMinPtGeV, 0.));
   parameters.followEndMaxSqrtDet = static_cast<Scalar>(std::max(settings.followEndMaxSqrtDet, 0.));
   parameters.followKeepDensity = static_cast<Scalar>(std::max(settings.followKeepDensity, 0.));
   parameters.followTrimMargin = settings.follow ? static_cast<Scalar>(std::max(settings.followTrimMargin, 0.)) : 0.F;

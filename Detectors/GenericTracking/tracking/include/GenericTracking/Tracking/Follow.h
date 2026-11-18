@@ -1060,8 +1060,10 @@ class FollowStage
   template <typename Observer, typename Group = SoloGroup>
   GPUhdi() void follow(const BoundTrackState& inner, const BoundTrackState& outer, const ClusterList<kMaxClusters>& rows, std::uint32_t count, Proposal& proposal, follow::KinkSteps& steps, const Observer& observe, [[maybe_unused]] const BoundTrackState* endStart = nullptr, const Group& group = {}) const
   {
-    // A track as long as a chain can be is not followed.
-    if (count >= kMaxClusters) {
+    // A track as long as a chain can be is not followed, nor one below the
+    // follow's pT minimum: its windows, sized by the scattering at its
+    // momentum, would take in whole layers.
+    if (count >= kMaxClusters || !(o2::gpu::CAMath::Abs(o2::gpu::CAMath::Sin(inner.theta())) >= mParameters->followMinPt * o2::gpu::CAMath::Abs(inner.qOverP()))) {
       return;
     }
     if constexpr (DecidesEnd) {
