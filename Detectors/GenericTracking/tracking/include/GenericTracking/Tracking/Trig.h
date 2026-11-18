@@ -10,27 +10,17 @@
 // or submit itself to any jurisdiction.
 
 /// \file Trig.h
-/// \brief The transcendental functions of shared tracking code, overloaded for
-///        float and double, for host and device alike.
-///
-/// Outside O2's deterministic mode they are `CAMath`'s: `Sin`, `ATan2`, ... in
-/// float and `Sind`, `ATan2d`, ... in double. `sincosOf` is
-/// `o2::math_utils::detail::sincos`, one call on hosts and devices, and the
-/// spelling O2's own track code uses.
-///
-/// O2's deterministic mode is different. It computes the float functions in
-/// double and rounds, which almost always hides the host's and the device's
-/// libraries disagreeing in the last place of the double; the double
-/// functions it leaves native, and there nothing hides it (PortableMath.h). So in that
-/// mode every function here is PortableMath's,
-/// in both precisions: the same arithmetic on the host and on every device,
-/// the float ones in double and rounded, as O2 does.
+/// \brief The elementary functions of shared tracking code (ElementaryMath.h)
+///        and the sincos that needs O2's MathUtils: `sincosOf` is
+///        `o2::math_utils::detail::sincos`, one call on hosts and devices, and
+///        the spelling O2's own track code uses (in the deterministic mode
+///        PortableMath's sin and cos).
 
 #ifndef GTRK_TRACKING_TRIG_H_
 #define GTRK_TRACKING_TRIG_H_
 
 #include "GenericTracking/Base/Definitions.h"
-
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/PortableMath.h"
 
 #include "GPUCommonMath.h"
@@ -45,60 +35,6 @@ extern "C" __device__ void __nv_sincosf(float, float*, float*);
 namespace o2::gtrk
 {
 
-GPUhdi() GPUAlwaysInline() float sinOf(float x)
-{
-#ifdef GPUCA_DETERMINISTIC_MODE
-  return static_cast<float>(portable::sin(static_cast<double>(x)));
-#else
-  return o2::gpu::CAMath::Sin(x);
-#endif
-}
-
-GPUhdi() GPUAlwaysInline() float cosOf(float x)
-{
-#ifdef GPUCA_DETERMINISTIC_MODE
-  return static_cast<float>(portable::cos(static_cast<double>(x)));
-#else
-  return o2::gpu::CAMath::Cos(x);
-#endif
-}
-
-GPUhdi() GPUAlwaysInline() float asinOf(float x)
-{
-#ifdef GPUCA_DETERMINISTIC_MODE
-  return static_cast<float>(portable::asin(static_cast<double>(x)));
-#else
-  return o2::gpu::CAMath::ASin(x);
-#endif
-}
-
-GPUhdi() GPUAlwaysInline() float atanOf(float x)
-{
-#ifdef GPUCA_DETERMINISTIC_MODE
-  return static_cast<float>(portable::atan(static_cast<double>(x)));
-#else
-  return o2::gpu::CAMath::ATan(x);
-#endif
-}
-
-GPUhdi() GPUAlwaysInline() float logOf(float x)
-{
-#ifdef GPUCA_DETERMINISTIC_MODE
-  return static_cast<float>(portable::log(static_cast<double>(x)));
-#else
-  return o2::gpu::CAMath::Log(x);
-#endif
-}
-
-GPUhdi() GPUAlwaysInline() float atan2Of(float y, float x)
-{
-#ifdef GPUCA_DETERMINISTIC_MODE
-  return static_cast<float>(portable::atan2(static_cast<double>(y), static_cast<double>(x)));
-#else
-  return o2::gpu::CAMath::ATan2(y, x);
-#endif
-}
-
 GPUhdi() GPUAlwaysInline() void sincosOf(float x, float& s, float& c)
 {
 #ifdef GPUCA_DETERMINISTIC_MODE
@@ -108,20 +44,6 @@ GPUhdi() GPUAlwaysInline() void sincosOf(float x, float& s, float& c)
   math_utils::detail::sincos<float>(x, s, c);
 #endif
 }
-
-#ifdef GPUCA_DETERMINISTIC_MODE
-GPUhdi() GPUAlwaysInline() double sinOf(double x) { return portable::sin(x); }
-GPUhdi() GPUAlwaysInline() double cosOf(double x) { return portable::cos(x); }
-GPUhdi() GPUAlwaysInline() double asinOf(double x) { return portable::asin(x); }
-GPUhdi() GPUAlwaysInline() double atanOf(double x) { return portable::atan(x); }
-GPUhdi() GPUAlwaysInline() double atan2Of(double y, double x) { return portable::atan2(y, x); }
-#else
-GPUhdi() GPUAlwaysInline() double sinOf(double x) { return o2::gpu::CAMath::Sind(x); }
-GPUhdi() GPUAlwaysInline() double cosOf(double x) { return o2::gpu::CAMath::Cosd(x); }
-GPUhdi() GPUAlwaysInline() double asinOf(double x) { return o2::gpu::CAMath::ASind(x); }
-GPUhdi() GPUAlwaysInline() double atanOf(double x) { return o2::gpu::CAMath::ATand(x); }
-GPUhdi() GPUAlwaysInline() double atan2Of(double y, double x) { return o2::gpu::CAMath::ATan2d(y, x); }
-#endif
 
 GPUhdi() GPUAlwaysInline() void sincosOf(double x, double& s, double& c)
 {

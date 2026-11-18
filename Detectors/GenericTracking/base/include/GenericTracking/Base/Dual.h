@@ -16,8 +16,11 @@
 #ifndef GTRK_BASE_DUAL_H_
 #define GTRK_BASE_DUAL_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
+
+#include "GPUCommonDef.h"
+
 #include <array>
-#include <cmath>
 #include <type_traits>
 
 namespace o2::gtrk::dual
@@ -44,7 +47,7 @@ struct ScalarOf<Dual<N, T>> {
 };
 
 template <int N, typename T>
-Dual<N, T> operator+(const Dual<N, T>& a, const Dual<N, T>& b)
+GPUhdi() Dual<N, T> operator+(const Dual<N, T>& a, const Dual<N, T>& b)
 {
   Dual<N, T> r{a.v + b.v};
   for (int i = 0; i < N; ++i) {
@@ -53,7 +56,7 @@ Dual<N, T> operator+(const Dual<N, T>& a, const Dual<N, T>& b)
   return r;
 }
 template <int N, typename T>
-Dual<N, T> operator-(const Dual<N, T>& a, const Dual<N, T>& b)
+GPUhdi() Dual<N, T> operator-(const Dual<N, T>& a, const Dual<N, T>& b)
 {
   Dual<N, T> r{a.v - b.v};
   for (int i = 0; i < N; ++i) {
@@ -62,7 +65,7 @@ Dual<N, T> operator-(const Dual<N, T>& a, const Dual<N, T>& b)
   return r;
 }
 template <int N, typename T>
-Dual<N, T> operator-(const Dual<N, T>& a)
+GPUhdi() Dual<N, T> operator-(const Dual<N, T>& a)
 {
   Dual<N, T> r{-a.v};
   for (int i = 0; i < N; ++i) {
@@ -71,7 +74,7 @@ Dual<N, T> operator-(const Dual<N, T>& a)
   return r;
 }
 template <int N, typename T>
-Dual<N, T> operator*(const Dual<N, T>& a, const Dual<N, T>& b)
+GPUhdi() Dual<N, T> operator*(const Dual<N, T>& a, const Dual<N, T>& b)
 {
   Dual<N, T> r{a.v * b.v};
   for (int i = 0; i < N; ++i) {
@@ -80,7 +83,7 @@ Dual<N, T> operator*(const Dual<N, T>& a, const Dual<N, T>& b)
   return r;
 }
 template <int N, typename T>
-Dual<N, T> operator/(const Dual<N, T>& a, const Dual<N, T>& b)
+GPUhdi() Dual<N, T> operator/(const Dual<N, T>& a, const Dual<N, T>& b)
 {
   Dual<N, T> r{a.v / b.v};
   for (int i = 0; i < N; ++i) {
@@ -91,7 +94,7 @@ Dual<N, T> operator/(const Dual<N, T>& a, const Dual<N, T>& b)
 /// A constant times a dual number: the constant taken in the dual's
 /// arithmetic.
 template <int N, typename T>
-Dual<N, T> operator*(std::type_identity_t<T> a, const Dual<N, T>& b)
+GPUhdi() Dual<N, T> operator*(std::type_identity_t<T> a, const Dual<N, T>& b)
 {
   Dual<N, T> r{a * b.v};
   for (int i = 0; i < N; ++i) {
@@ -100,7 +103,7 @@ Dual<N, T> operator*(std::type_identity_t<T> a, const Dual<N, T>& b)
   return r;
 }
 template <int N, typename T>
-Dual<N, T> operator+(const Dual<N, T>& a, std::type_identity_t<T> b)
+GPUhdi() Dual<N, T> operator+(const Dual<N, T>& a, std::type_identity_t<T> b)
 {
   Dual<N, T> r = a;
   r.v += b;
@@ -108,7 +111,7 @@ Dual<N, T> operator+(const Dual<N, T>& a, std::type_identity_t<T> b)
 }
 /// f(a) with f'(a) given.
 template <int N, typename T>
-Dual<N, T> chain(const Dual<N, T>& a, T value, T derivative)
+GPUhdi() Dual<N, T> chain(const Dual<N, T>& a, T value, T derivative)
 {
   Dual<N, T> r{value};
   for (int i = 0; i < N; ++i) {
@@ -117,30 +120,30 @@ Dual<N, T> chain(const Dual<N, T>& a, T value, T derivative)
   return r;
 }
 template <int N, typename T>
-Dual<N, T> sin(const Dual<N, T>& a)
+GPUhdi() Dual<N, T> sin(const Dual<N, T>& a)
 {
-  return chain(a, std::sin(a.v), std::cos(a.v));
+  return chain(a, sinOf(a.v), cosOf(a.v));
 }
 template <int N, typename T>
-Dual<N, T> cos(const Dual<N, T>& a)
+GPUhdi() Dual<N, T> cos(const Dual<N, T>& a)
 {
-  return chain(a, std::cos(a.v), -std::sin(a.v));
+  return chain(a, cosOf(a.v), -sinOf(a.v));
 }
 template <int N, typename T>
-Dual<N, T> sqrt(const Dual<N, T>& a)
+GPUhdi() Dual<N, T> sqrt(const Dual<N, T>& a)
 {
-  const T root = std::sqrt(a.v);
+  const T root = sqrtOf(a.v);
   return chain(a, root, T(0.5) / root);
 }
 template <int N, typename T>
-Dual<N, T> asin(const Dual<N, T>& a)
+GPUhdi() Dual<N, T> asin(const Dual<N, T>& a)
 {
-  return chain(a, std::asin(a.v), T(1.) / std::sqrt(T(1.) - (a.v * a.v)));
+  return chain(a, asinOf(a.v), T(1.) / sqrtOf(T(1.) - (a.v * a.v)));
 }
 template <int N, typename T>
-Dual<N, T> atan2(const Dual<N, T>& y, const Dual<N, T>& x)
+GPUhdi() Dual<N, T> atan2(const Dual<N, T>& y, const Dual<N, T>& x)
 {
-  Dual<N, T> r{std::atan2(y.v, x.v)};
+  Dual<N, T> r{atan2Of(y.v, x.v)};
   const T norm = (x.v * x.v) + (y.v * y.v);
   for (int i = 0; i < N; ++i) {
     r.d[i] = ((x.v * y.d[i]) - (y.v * x.d[i])) / norm;
@@ -151,7 +154,7 @@ Dual<N, T> atan2(const Dual<N, T>& y, const Dual<N, T>& x)
 /// An input: \a value (taken in T), its derivative by itself (input
 /// \a index) one.
 template <int N, typename T = double>
-[[nodiscard]] Dual<N, T> variable(std::type_identity_t<T> value, int index)
+[[nodiscard]] GPUhdi() Dual<N, T> variable(std::type_identity_t<T> value, int index)
 {
   Dual<N, T> r{value};
   r.d[index] = T(1.);
@@ -160,12 +163,12 @@ template <int N, typename T = double>
 
 /// A value, of a dual number or of a scalar.
 template <int N, typename T>
-[[nodiscard]] T valueOf(const Dual<N, T>& a)
+[[nodiscard]] GPUhdi() T valueOf(const Dual<N, T>& a)
 {
   return a.v;
 }
-[[nodiscard]] inline double valueOf(double a) { return a; }
-[[nodiscard]] inline float valueOf(float a) { return a; }
+[[nodiscard]] GPUhdi() double valueOf(double a) { return a; }
+[[nodiscard]] GPUhdi() float valueOf(float a) { return a; }
 
 } // namespace o2::gtrk::dual
 
