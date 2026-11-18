@@ -91,7 +91,7 @@ struct DecayFitRecord {
   std::uint64_t particle = 0U;
   std::int32_t pdg = 0;
   std::uint8_t variant = 0U;     ///< DecayFitVariant
-  std::uint8_t constraints = 0U; ///< 1 the mass, 2 the production point, 4 collinear daughters, 8 a conversion's profile along its line, 16 a tree's composites' masses, 32 the tracked mother's own rows
+  std::uint8_t constraints = 0U; ///< 1 the mass, 2 the production point, 4 collinear daughters, 8 a conversion's profile along its line, 16 a tree's composites' masses, 32 the tracked mother's own rows, 64 an unseen neutral's momentum fitted
   std::uint8_t daughters = 0U;
   std::uint8_t status = 0U; ///< DecayFitStatus, or kRefitFailed
   std::uint8_t iterations = 0U;
@@ -101,6 +101,7 @@ struct DecayFitRecord {
   float modelShift = 0.F;
   float microseconds = 0.F;        ///< the fit's time (with a profile's or a sequential fit's every fit)
   std::uint16_t combinations = 0U; ///< the Gaussian sum's component combinations
+  std::int8_t branch = -1;         ///< an unseen neutral's start (0, 1), -1 without one
   float chi2 = 0.F;
   std::int16_t ndf = 0;
   float flight = 0.F; ///< the true one [cm]
@@ -201,6 +202,7 @@ struct DecayFitRecord {
     visit("iterations", iterations);
     visit("outer", outer);
     visit("modelShift", modelShift);
+    visit("branch", branch);
     visit("combinations", combinations);
     visit("microseconds", microseconds);
     visit("stopReason", stopReason);
@@ -546,7 +548,8 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     std::vector<const TreeParticle*> leaves;
     std::vector<const TreeParticle*> composites; ///< a tree's, vertex 1 on
     DecayTopology topology;
-    std::array<double, 3> decay{}; ///< the root's true decay point
+    std::array<double, 3> decay{};        ///< the root's true decay point
+    const TreeParticle* unseen = nullptr; ///< the root's one unseen neutral product, if any
     std::vector<DecayFitRecord> records;
     bool refitFailed = false;
     std::uint8_t refitPass = 0U;
@@ -566,7 +569,11 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       continue; // no vertex of its own: a resonance
     }
     const auto shape = decayShape(trees, member, particleCharge);
-    if (!shape.closed() || shape.leaves.size() < 2 || shape.leaves.size() > kMaxDaughters) {
+    // Closed, or with one unseen neutral straight from the root (a neutrino,
+    // a photon, a pi0 as a whole): its momentum the fit's, from the mother's
+    // mass and production point.
+    const bool missing = shape.chargedUnseen == 0U && shape.unseen.size() == 1U && shape.unseen.front()->mother == member.id;
+    if (!(shape.closed() || missing) || shape.leaves.size() < 2 || shape.leaves.size() + (missing ? 1U : 0U) > kMaxDaughters) {
       continue;
     }
     // A tree: vertex 0 the root, then the composites depth first. A
@@ -613,7 +620,10 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       ++mUnfindable;
       continue;
     }
-    work.push_back({.mother = &member, .leaves = shape.leaves, .composites = std::move(composites), .topology = std::move(topology), .decay = decay});
+    if (missing && !topology.vertexOf.empty()) {
+      topology.vertexOf.push_back(0); // the unseen one, last, at the root
+    }
+    work.push_back({.mother = &member, .leaves = shape.leaves, .composites = std::move(composites), .topology = std::move(topology), .decay = decay, .unseen = missing ? shape.unseen.front() : nullptr});
   }
 
   const auto& frame = *event.frame;
@@ -649,6 +659,14 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         masses[i] = species.mass;
       }
+      // The unseen one: an unmeasured daughter, last, its start per job.
+      double unseenMass = 0.;
+      if (one.unseen != nullptr) {
+        const auto* entry = o2::O2DatabasePDG::Instance()->GetParticle(one.unseen->pdg);
+        unseenMass = entry == nullptr ? 0. : entry->Mass();
+        daughters.push_back({.mass = unseenMass, .neutral = true, .unmeasured = true});
+        masses.push_back(unseenMass);
+      }
 
       // The truth.
       const auto& mother = *one.mother;
@@ -666,6 +684,13 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         minPt = std::min(minPt, std::hypot(m[0], m[1]));
         qTrue[i] = {std::atan2(m[1], m[0]), std::atan2(std::hypot(m[0], m[1]), m[2]), particleCharge(one.leaves[i]->pdg) / p};
+      }
+      if (one.unseen != nullptr) {
+        const auto& m = one.unseen->momentum;
+        eTrue += std::sqrt((m[0] * m[0]) + (m[1] * m[1]) + (m[2] * m[2]) + (unseenMass * unseenMass));
+        for (int k = 0; k < 3; ++k) {
+          pTrue[k] += m[k];
+        }
       }
       const double pTotal = std::hypot(pTrue[0], pTrue[1], pTrue[2]);
       // The flight's frame: along it, across it in the transverse plane, and
@@ -777,6 +802,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       struct Job {
         DecayFitVariant variant;
         std::uint8_t constraints;
+        int branch = -1; ///< an unseen neutral's start: the quadratic's smaller (0) or larger (1) root
       };
       const bool tree = !one.composites.empty();
       // A tree's charged particles' own rows -- the root's (a tracked Xi,
@@ -815,7 +841,18 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       for (const auto variant : {DecayFitVariant::kFull, DecayFitVariant::kCarryOnce, DecayFitVariant::kNoMaterial}) {
         jobs.push_back({variant, 0U});
       }
-      if (tree) {
+      const bool missing = one.unseen != nullptr;
+      if (missing) {
+        // The visible daughters alone (a tree's composites' masses hold),
+        // then the unseen one's momentum under the mother's mass and
+        // production point, from either start.
+        if (tree) {
+          jobs.push_back({DecayFitVariant::kFull, 16U});
+        }
+        for (const int branch : {0, 1}) {
+          jobs.push_back({DecayFitVariant::kFull, static_cast<std::uint8_t>(64U | 3U | (tree ? 16U : 0U)), branch});
+        }
+      } else if (tree) {
         // A tree: its composites' masses, with the root's mass, its
         // production point, both; the sequential fit (a composite first) for
         // a tree of two vertices.
@@ -849,7 +886,9 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       const bool electrons = std::ranges::any_of(daughters, [](const DecayDaughter& d) { return d.mixture.has_value(); });
       if (electrons && mother.pdg != 22) {
         for (const std::uint8_t set : {std::uint8_t{0}, tree ? std::uint8_t{16} : std::uint8_t{1}}) {
-          jobs.push_back({DecayFitVariant::kGaussianSum, set});
+          if (!missing || set != 1U) {
+            jobs.push_back({DecayFitVariant::kGaussianSum, set});
+          }
         }
       }
       // A tree's composites: their PDG masses, the first one's truth.
@@ -915,7 +954,34 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         const bool wantMother = (job.constraints & 32U) != 0U;
         const auto tracked = wantMother ? std::span<const DecayMother>{trackedMothers} : std::span<const DecayMother>{};
-        const auto fitUnder = [&](const DecayConstraints& set) { return fitDecayVertex(std::span<const DecayDaughter>{daughters}, material, job.variant, set, one.topology, tracked); };
+        // The unseen one with the visible ones only under the missing fit,
+        // from the visible fit's starts (`missingMomentumStarts`).
+        record.branch = static_cast<std::int8_t>(job.branch);
+        auto jobDaughters = daughters;
+        const bool wantMissing = (job.constraints & 64U) != 0U;
+        if (wantMissing) {
+          const auto& free = fits[static_cast<std::size_t>(DecayFitVariant::kFull)];
+          std::optional<std::array<double, 3>> start;
+          if (free.status == DecayFitStatus::kOk) {
+            const auto starts = missingMomentumStarts(free, masses, point, motherMass, unseenMass);
+            if (static_cast<std::size_t>(job.branch) < starts.size()) {
+              start = starts[static_cast<std::size_t>(job.branch)];
+            }
+          }
+          const double unseenP = start ? std::hypot((*start)[0], (*start)[1], (*start)[2]) : 0.;
+          if (!(unseenP > 0.)) {
+            record.status = static_cast<std::uint8_t>(DecayFitStatus::kNoStart);
+            one.records.push_back(record);
+            continue;
+          }
+          auto& unseen = jobDaughters.back();
+          unseen.innermost.par[kPhi] = static_cast<Scalar>(std::atan2((*start)[1], (*start)[0]));
+          unseen.innermost.par[kTheta] = static_cast<Scalar>(std::atan2(std::hypot((*start)[0], (*start)[1]), (*start)[2]));
+          unseen.innermost.par[kQOverP] = static_cast<Scalar>(1. / unseenP);
+        } else if (missing) {
+          jobDaughters.pop_back();
+        }
+        const auto fitUnder = [&](const DecayConstraints& set) { return fitDecayVertex(std::span<const DecayDaughter>{jobDaughters}, material, job.variant, set, one.topology, tracked); };
         DecayVertexFitResult outcome;
         const auto started = std::chrono::steady_clock::now();
         // The sequential fit: the composite (vertex 1) from its daughters,

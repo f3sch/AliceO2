@@ -100,6 +100,11 @@ struct DecayDaughter {
   /// A neutral daughter -- a composite fitted before, as a pseudo-track
   /// (`pseudoTrackOf`): a line, its q/p its 1/p, carried without material.
   bool neutral = false;
+  /// A particle not seen at all (a neutrino, a photon, a pi0 as a whole),
+  /// neutral: no measurement, its momentum fitted through the constraints
+  /// (its mother's mass and production point fix three components); its
+  /// start the caller's, `innermost`'s phi, theta and 1/p.
+  bool unmeasured = false;
   /// The daughter's charge [e], 0 for a neutral one.
   [[nodiscard]] double charge() const { return neutral ? 0. : (innermost.qOverP() > 0.F ? 1. : -1.); }
 };
@@ -363,7 +368,7 @@ template <typename Evaluate, typename ConstraintsAt>
   for (int w = k - 1; w >= 0; --w) {
     std::vector<int> tracks;
     for (int i = 0; i < count; ++i) {
-      if (topology.vertexOfDaughter(i) == w) {
+      if (topology.vertexOfDaughter(i) == w && !daughters[i].unmeasured) {
         tracks.push_back(i);
       }
     }
@@ -509,6 +514,67 @@ template <typename Evaluate, typename ConstraintsAt>
     }
   }
   return daughter;
+}
+
+/// An unseen neutral's starts for the missing-momentum fit, from the fit of
+/// the visible daughters (\a visible, its momenta with \a masses): the
+/// mother flies along the line from its production point \a point to that
+/// vertex, |P_M| = x on it (u its direction), the unseen one x u - P, P and
+/// E the visible ones' momentum and energy: M^2 = (E + E_n)^2 - x^2 is
+/// 2 E E_n = M^2 - m^2 - E^2 - P^2 + 2 x (u.P), squared a quadratic in x;
+/// its roots with x > 0 that solve it unsquared (the smaller first). Smeared past the touching point (no real root), its
+/// nearest. Each start the unseen one's momentum vector [GeV].
+[[nodiscard]] inline std::vector<std::array<double, 3>> missingMomentumStarts(const DecayVertexFitResult& visible, std::span<const double> masses, const std::array<double, 3>& point, double motherMass, double unseenMass)
+{
+  std::array<double, 3> total{};
+  double energy = 0.;
+  for (std::size_t i = 0; i < visible.momenta.size(); ++i) {
+    const auto& q = visible.momenta[i];
+    const double p = 1. / std::abs(q[2]);
+    const std::array<double, 3> v{p * std::cos(q[0]) * std::sin(q[1]), p * std::sin(q[0]) * std::sin(q[1]), p * std::cos(q[1])};
+    energy += std::sqrt((p * p) + (masses[i] * masses[i]));
+    for (int c = 0; c < 3; ++c) {
+      total[c] += v[c];
+    }
+  }
+  std::array<double, 3> u{visible.vertex[0] - point[0], visible.vertex[1] - point[1], visible.vertex[2] - point[2]};
+  const double length = std::hypot(u[0], u[1], u[2]);
+  if (!(length > 0.)) {
+    return {};
+  }
+  for (auto& c : u) {
+    c /= length;
+  }
+  const double p2 = (total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]);
+  const double b = (u[0] * total[0]) + (u[1] * total[1]) + (u[2] * total[2]);
+  const double kappa = (motherMass * motherMass) - (unseenMass * unseenMass) - (energy * energy) - p2; // 2 E E_n = kappa + 2 x b
+  const double qa = 4. * ((b * b) - (energy * energy));
+  const double qb = 4. * ((kappa * b) + (2. * energy * energy * b));
+  const double qc = (kappa * kappa) - (4. * energy * energy * (p2 + (unseenMass * unseenMass)));
+  const double discriminant = (qb * qb) - (4. * qa * qc);
+  std::vector<double> roots;
+  if (qa == 0.) {
+    return {};
+  }
+  if (discriminant >= 0.) {
+    for (const double sign : {-1., 1.}) {
+      const double x = (-qb + (sign * std::sqrt(discriminant))) / (2. * qa);
+      if (x > 0. && kappa + (2. * x * b) >= 0.) {
+        roots.push_back(x);
+      }
+    }
+    std::ranges::sort(roots);
+  } else if (-qb / (2. * qa) > 0.) {
+    roots.push_back(-qb / (2. * qa));
+  }
+  std::vector<std::array<double, 3>> starts;
+  for (const double x : roots) {
+    const std::array<double, 3> q{(x * u[0]) - total[0], (x * u[1]) - total[1], (x * u[2]) - total[2]};
+    if (std::hypot(q[0], q[1], q[2]) > 0.) {
+      starts.push_back(q);
+    }
+  }
+  return starts;
 }
 
 /// The vertex of \a daughters (at least two) under \a variant, with
@@ -907,6 +973,10 @@ template <typename Material>
   const auto carry = [&](const std::vector<double>& at) {
     for (int i = 0; i < count; ++i) {
       const auto& daughter = daughters[i];
+      if (daughter.unmeasured) {
+        result.carried[i] = {daughter.innermost.phi(), daughter.innermost.theta(), daughter.innermost.qOverP()};
+        continue;
+      }
       const int w = topology.vertexOfDaughter(i);
       // A neutral pseudo-track is measured on its own plane: a line without
       // material, which the prediction reaches exactly; nothing to carry.
@@ -1036,6 +1106,9 @@ template <typename Material>
     }
     for (int i = 0; i < count; ++i) {
       const auto& daughter = daughters[i];
+      if (daughter.unmeasured) {
+        continue; // no measurement
+      }
       const double fieldScale = daughter.neutral ? 0. : static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
       using D = Dual<kDerivatives>;
       std::array<D, kDerivatives> in{};
@@ -1146,7 +1219,11 @@ template <typename Material>
   std::vector<double> gradient(static_cast<std::size_t>(n));
   std::vector<double> factor;
   double chi2 = 0.;
-  const int ndf = (2 * count) - (3 * k) + constraints.count(topology) + (2 * chainRows);
+  int measured = 0;
+  for (const auto& daughter : daughters) {
+    measured += daughter.unmeasured ? -3 : 2; // five measured against three; none against three
+  }
+  const int ndf = measured - (3 * k) + constraints.count(topology) + (2 * chainRows);
   // The carried measurements are the model: minimised under them, carried
   // anew to the planes about the solution, until a carry no longer moves the
   // solution by what the inputs resolve (the minimiser takes no step); once

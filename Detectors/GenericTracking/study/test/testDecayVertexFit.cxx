@@ -710,6 +710,138 @@ BOOST_AUTO_TEST_CASE(ElectronMixturesSumOverTheirComponents)
   }
 }
 
+/// A D0-like decay into K- e+ and an unseen neutrino, made 1 mm before its
+/// vertex: the neutrino an unmeasured daughter, its momentum fitted under
+/// the mother's mass and production point (`missingMomentumStarts`, two
+/// branches). Exact inputs: one branch gives the neutrino back. Smeared: on
+/// the branch nearer the truth the vertex pulls are one and the chi2's mean
+/// is its ndf (one).
+BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
+{
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  const auto vectorOf = [](const Truth& t) {
+    const double p = 1. / std::abs(t.qOverP);
+    return std::array<double, 3>{p * std::cos(t.phi) * std::sin(t.theta), p * std::sin(t.phi) * std::sin(t.theta), p * std::cos(t.theta)};
+  };
+  const Truth kaon{0.35, 1.25, -1. / 1.1};
+  const Truth positron{0.05, 1.4, 1. / 0.7};
+  const std::array<double, 3> neutrino{0.3, 0.25, 0.1};
+  constexpr double kKaon = 0.493677;
+  constexpr double kElectron = 0.000511;
+  std::array<double, 3> total = neutrino;
+  double energy = std::hypot(neutrino[0], neutrino[1], neutrino[2]);
+  for (const auto& [truth, mass] : {std::pair{kaon, kKaon}, std::pair{positron, kElectron}}) {
+    const auto v = vectorOf(truth);
+    energy += std::sqrt((v[0] * v[0]) + (v[1] * v[1]) + (v[2] * v[2]) + (mass * mass));
+    for (int c = 0; c < 3; ++c) {
+      total[c] += v[c];
+    }
+  }
+  const double pMother = std::hypot(total[0], total[1], total[2]);
+  const double massMother = std::sqrt((energy * energy) - (pMother * pMother));
+  const std::array<double, 3> made{kVertex[0] - (0.1 * total[0] / pMother), kVertex[1] - (0.1 * total[1] / pMother), kVertex[2] - (0.1 * total[2] / pMother)};
+  Propagator kaonProp = prop;
+  kaonProp.massGeV = static_cast<Scalar>(kKaon);
+  Propagator positronProp = prop;
+  positronProp.massGeV = static_cast<Scalar>(kElectron);
+  auto exactK = daughterOf(kaon, kaonProp, kVertex);
+  exactK.mass = kKaon;
+  auto exactE = daughterOf(positron, positronProp, kVertex);
+  exactE.mass = kElectron;
+  const std::vector<DecayDaughter> visible{exactK, exactE};
+  const std::array<double, 2> visibleMasses{kKaon, kElectron};
+  const DecayConstraints constraints{.mass = true, .massGeV = massMother, .production = true, .point = made};
+  const auto fitFrom = [&](const std::vector<DecayDaughter>& states, const std::array<double, 3>& start) {
+    auto all = states;
+    DecayDaughter unseen{.mass = 0., .neutral = true, .unmeasured = true};
+    const double p = std::hypot(start[0], start[1], start[2]);
+    unseen.innermost.par[kPhi] = static_cast<Scalar>(std::atan2(start[1], start[0]));
+    unseen.innermost.par[kTheta] = static_cast<Scalar>(std::atan2(std::hypot(start[0], start[1]), start[2]));
+    unseen.innermost.par[kQOverP] = static_cast<Scalar>(1. / p);
+    all.push_back(unseen);
+    return fitDecayVertex(std::span<const DecayDaughter>{all}, NoMaterial{}, DecayFitVariant::kNoMaterial, constraints);
+  };
+  // exact: one branch gives the neutrino back
+  {
+    const auto free = fitDecayVertex(std::span<const DecayDaughter>{visible}, NoMaterial{}, DecayFitVariant::kNoMaterial);
+    BOOST_REQUIRE(free.status == DecayFitStatus::kOk);
+    const auto starts = missingMomentumStarts(free, visibleMasses, made, massMother, 0.);
+    BOOST_REQUIRE(!starts.empty());
+    double best = std::numeric_limits<double>::infinity();
+    for (const auto& start : starts) {
+      const auto fit = fitFrom(visible, start);
+      if (fit.status == DecayFitStatus::kOk) {
+        const auto& q = fit.momenta[2];
+        const double p = 1. / q[2];
+        const std::array<double, 3> v{p * std::cos(q[0]) * std::sin(q[1]), p * std::sin(q[0]) * std::sin(q[1]), p * std::cos(q[1])};
+        best = std::min(best, std::hypot(v[0] - neutrino[0], v[1] - neutrino[1], v[2] - neutrino[2]));
+      }
+    }
+    BOOST_TEST_MESSAGE("unseen neutrino, exact: nearest branch off by " << best << " GeV");
+    // the fit stops within what the float inputs resolve, and the neutrino's
+    // momentum is fixed loosely (its sigma of order 0.1 GeV)
+    BOOST_TEST(best < 1e-3 * std::hypot(neutrino[0], neutrino[1], neutrino[2]));
+  }
+  std::mt19937 random{1357U};
+  std::normal_distribution<double> gauss;
+  constexpr int kTrials = 1000;
+  std::array<double, 3> sum{};
+  std::array<double, 3> sum2{};
+  double chi2 = 0.;
+  int fitted = 0;
+  int ndf = 0;
+  for (int trial = 0; trial < kTrials; ++trial) {
+    auto states = visible;
+    for (auto& daughter : states) {
+      for (int c = 0; c < 5; ++c) {
+        daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
+      }
+    }
+    const auto free = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial);
+    if (free.status != DecayFitStatus::kOk) {
+      continue;
+    }
+    DecayVertexFitResult nearest;
+    double best = std::numeric_limits<double>::infinity();
+    for (const auto& start : missingMomentumStarts(free, visibleMasses, made, massMother, 0.)) {
+      const auto fit = fitFrom(states, start);
+      if (fit.status != DecayFitStatus::kOk) {
+        continue;
+      }
+      const auto& q = fit.momenta[2];
+      const double p = 1. / q[2];
+      const double off = std::hypot((p * std::cos(q[0]) * std::sin(q[1])) - neutrino[0], (p * std::sin(q[0]) * std::sin(q[1])) - neutrino[1], (p * std::cos(q[1])) - neutrino[2]);
+      if (off < best) {
+        best = off;
+        nearest = fit;
+      }
+    }
+    if (!std::isfinite(best)) {
+      continue;
+    }
+    ++fitted;
+    ndf = nearest.ndf;
+    const int n = 3 + 9;
+    for (int c = 0; c < 3; ++c) {
+      const double pull = (nearest.vertex[c] - kVertex[c]) / std::sqrt(nearest.covariance[c * n + c]);
+      sum[c] += pull;
+      sum2[c] += pull * pull;
+    }
+    chi2 += nearest.chi2;
+  }
+  BOOST_TEST_MESSAGE("unseen neutrino: fitted " << fitted << ", chi2 mean " << chi2 / fitted << " at ndf " << ndf);
+  BOOST_TEST(fitted >= kTrials - 50);
+  BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.15);
+  for (int c = 0; c < 3; ++c) {
+    const double mean = sum[c] / fitted;
+    const double width = std::sqrt((sum2[c] / fitted) - (mean * mean));
+    BOOST_TEST_MESSAGE("  vertex " << c << ": pull mean " << mean << ", width " << width);
+    BOOST_TEST(std::abs(mean) < 0.12);
+    BOOST_TEST(std::abs(width - 1.) < 0.1);
+  }
+}
+
 BOOST_AUTO_TEST_CASE(ExactStatesGiveTheTruthBack)
 {
   Propagator prop;
