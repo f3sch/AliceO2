@@ -88,8 +88,6 @@ struct DecayDaughter {
   double chargeMagnitude = 1.;
   /// The daughter's charge [e], 0 for a neutral one.
   [[nodiscard]] GPUhdi() double charge() const { return neutral ? 0. : (innermost.qOverP() > 0.F ? chargeMagnitude : -chargeMagnitude); }
-  /// q/p's numerator: |p| = it / |q/p| (a neutral one's q/p is 1/p).
-  [[nodiscard]] GPUhdi() double momentumNumerator() const { return neutral ? 1. : chargeMagnitude; }
 };
 
 /// A charged particle of the decay -- the root, or a composite below it --
@@ -413,32 +411,28 @@ struct StartEntry {
       if (topology.parent[child] != w) {
         continue;
       }
-      std::array<double, 3> total{};
+      MomentumSum<double> sum;
       double charge = 0.;
       const DecayDaughter* field = nullptr;
       for (int i = 0; i < count; ++i) {
         if (topology.under(i, child)) {
           const auto& state = daughters[i].innermost;
-          const auto momentum = momentumOf<double>(state.phi(), state.theta(), state.qOverP(), daughters[i].momentumNumerator());
-          for (int c = 0; c < 3; ++c) {
-            total[c] += momentum.vector[c];
-          }
+          sum.add(momentumOf<double>(state.phi(), state.theta(), state.qOverP(), numeratorOf(daughters[i].charge())).vector);
           charge += daughters[i].charge();
           field = daughters[i].neutral ? field : &daughters[i];
         }
       }
-      const double p = decay_fit_detail::hypotOf(total[0], total[1], total[2]);
-      const double phi = atan2Of(total[1], total[0]);
       const bool neutral = charge == 0. || field == nullptr;
+      const auto direction = directionOfMomentum(sum.vector);
       auto& state = compositeStates[made];
       auto& surface = compositeSurfaces[made];
       ++made;
-      surface = beamLinePlane(static_cast<Scalar>(starts[child][0]), static_cast<Scalar>(starts[child][1]), static_cast<Scalar>(phi));
+      surface = beamLinePlane(static_cast<Scalar>(starts[child][0]), static_cast<Scalar>(starts[child][1]), static_cast<Scalar>(direction.phi));
       state.par[kLoc0] = 0.F;
       state.par[kLoc1] = static_cast<Scalar>(starts[child][2]);
-      state.par[kPhi] = static_cast<Scalar>(phi);
-      state.par[kTheta] = static_cast<Scalar>(atan2Of(decay_fit_detail::hypotOf(total[0], total[1]), total[2]));
-      state.par[kQOverP] = static_cast<Scalar>((neutral ? 1. : charge) / p);
+      state.par[kPhi] = static_cast<Scalar>(direction.phi);
+      state.par[kTheta] = static_cast<Scalar>(direction.theta);
+      state.par[kQOverP] = static_cast<Scalar>((neutral ? 1. : charge) / direction.p);
       entries.push_back({.state = &state, .surface = &surface, .propagator = neutral ? nullptr : &field->propagator, .neutral = neutral});
     }
     if (entries.size() < 2) {
@@ -476,16 +470,14 @@ struct StartEntry {
 /// nearest. Each start the unseen one's momentum vector [GeV].
 [[nodiscard]] GPUhdi() FixedVector<std::array<double, 3>, 2> missingMomentumStarts(const DecayVertexFitResult& visible, std::span<const double> masses, const std::array<double, 3>& point, double motherMass, double unseenMass)
 {
-  std::array<double, 3> total{};
-  double energy = 0.;
+  decay_fit_detail::MomentumSum<double> sum;
   for (std::size_t i = 0; i < visible.momenta.size(); ++i) {
     const auto& q = visible.momenta[i];
     const auto momentum = decay_fit_detail::momentumOf(q[0], q[1], q[2], decay_fit_detail::numeratorOf(visible.charges[i]));
-    energy += sqrtOf((momentum.magnitude * momentum.magnitude) + (masses[i] * masses[i]));
-    for (int c = 0; c < 3; ++c) {
-      total[c] += momentum.vector[c];
-    }
+    sum.add(momentum.vector, decay_fit_detail::energyOf(momentum, masses[i]));
   }
+  const auto& total = sum.vector;
+  const double energy = sum.energy;
   std::array<double, 3> u{visible.vertex[0] - point[0], visible.vertex[1] - point[1], visible.vertex[2] - point[2]};
   const double length = decay_fit_detail::hypotOf(u[0], u[1], u[2]);
   if (!(length > 0.)) {
@@ -494,7 +486,7 @@ struct StartEntry {
   for (int c = 0; c < 3; ++c) {
     u[c] /= length;
   }
-  const double p2 = (total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]);
+  const double p2 = sum.squared();
   const double b = (u[0] * total[0]) + (u[1] * total[1]) + (u[2] * total[2]);
   const double kappa = (motherMass * motherMass) - (unseenMass * unseenMass) - (energy * energy) - p2; // 2 E E_n = kappa + 2 x b
   const double qa = 4. * ((b * b) - (energy * energy));
@@ -910,12 +902,9 @@ class DecayVertexFitter
   {
     int rows = mConstraints.mass ? 1 : 0;
     for (int w = 1; w < mVertexCount; ++w) {
-      rows += chargeUnder(w) == 0. ? 2 : 0;
+      rows += mTopology.chargeUnder(mCharges, w) == 0. ? 2 : 0;
     }
-    for (int w = 1; w < mVertexCount && w - 1 < static_cast<int>(mConstraints.compositeMasses.size()); ++w) {
-      rows += mConstraints.compositeMasses[w - 1] > 0. ? 1 : 0;
-    }
-    return rows;
+    return rows + mConstraints.heldMasses();
   }
 
   /// The alignment the workspace starts at: every array's in it.
@@ -1020,16 +1009,6 @@ class DecayVertexFitter
   [[nodiscard]] GPUd() std::span<double> parameters() const { return {mSpace.parameters, static_cast<std::size_t>(mParameterCount)}; }
   [[nodiscard]] GPUd() std::span<const S> values() const { return {mSpace.values, static_cast<std::size_t>(mValueCount)}; }
 
-  [[nodiscard]] GPUd() double chargeUnder(int w) const
-  {
-    using namespace decay_fit_detail;
-    double sum = 0.;
-    for (int i = 0; i < mCount; ++i) {
-      sum += mTopology.under(i, w) ? mCharges[i] : 0.;
-    }
-    return sum;
-  }
-
   [[nodiscard]] GPUd() const DecayMother* rowsAt(int w) const
   {
     using namespace decay_fit_detail;
@@ -1053,11 +1032,11 @@ class DecayVertexFitter
   GPUd() void setUpChains()
   {
     if (mConstraints.production || rowsAt(0) != nullptr) {
-      mChains.push_back({.vertex = 0, .rows = rowsAt(0), .end = mConstraints.production ? -1 : -2, .charge = chargeUnder(0), .mass = massAt(0)});
+      mChains.push_back({.vertex = 0, .rows = rowsAt(0), .end = mConstraints.production ? -1 : -2, .charge = mTopology.chargeUnder(mCharges, 0), .mass = massAt(0)});
     }
     for (int w = 1; w < mVertexCount; ++w) {
-      if (chargeUnder(w) != 0.) {
-        mChains.push_back({.vertex = w, .rows = rowsAt(w), .end = mTopology.parent[w], .charge = chargeUnder(w), .mass = massAt(w)});
+      if (mTopology.chargeUnder(mCharges, w) != 0.) {
+        mChains.push_back({.vertex = w, .rows = rowsAt(w), .end = mTopology.parent[w], .charge = mTopology.chargeUnder(mCharges, w), .mass = massAt(w)});
       }
     }
     for (auto& chain : mChains) {
@@ -1097,22 +1076,17 @@ class DecayVertexFitter
       state[c].v = static_cast<M>(p[(3 * chain.vertex) + c]);
       state[c].d[(3 * chain.vertex) + c] = M(1.);
     }
-    std::array<DC, 3> total{};
+    MomentumSum<DC> sum;
     for (int i = 0; i < mCount; ++i) {
-      if (!mTopology.under(i, chain.vertex)) {
-        continue;
-      }
-      const int q = (3 * mVertexCount) + (3 * i);
-      const auto momentum = momentumOf(dual::variable<kConstraintInputs, M>(p[q], q), dual::variable<kConstraintInputs, M>(p[q + 1], q + 1), dual::variable<kConstraintInputs, M>(p[q + 2], q + 2), numeratorOf(mCharges[i]));
-      for (int c = 0; c < 3; ++c) {
-        total[c] = total[c] + momentum.vector[c];
+      if (mTopology.under(i, chain.vertex)) {
+        const int q = (3 * mVertexCount) + (3 * i);
+        sum.add(momentumOfInputs<kConstraintInputs, M>(p[q], p[q + 1], p[q + 2], q, mCharges[i]).vector);
       }
     }
-    const DC pt = sqrtOf((total[0] * total[0]) + (total[1] * total[1]));
-    const DC pTotal = sqrtOf((pt * pt) + (total[2] * total[2]));
-    state[3] = atan2Of(total[1], total[0]);
-    state[4] = atan2Of(pt, total[2]);
-    state[5] = DC{static_cast<M>(chain.charge)} / pTotal;
+    const auto direction = directionOfMomentum(sum.vector);
+    state[3] = direction.phi;
+    state[4] = direction.theta;
+    state[5] = DC{static_cast<M>(chain.charge)} / direction.p;
     return state;
   }
 
@@ -1377,7 +1351,7 @@ class DecayVertexFitter
       }
     }
     // the covariance factored in place (not needed after)
-    semidefiniteFactor(covariance, mChainCount, mSpace.factorOrder, mSpace.chainFactor);
+    dense::semidefiniteFactor(dense::PackedView<S>{covariance}, mChainCount, mSpace.factorOrder, dense::MatrixView<S>{mSpace.chainFactor, mChainCount});
     mScattered.factor = mSpace.chainFactor;
     return DecayFitStatus::kOk;
   }
@@ -1437,7 +1411,7 @@ class DecayVertexFitter
               component.measurement.value[r] = one.par[r];
             }
             component.logDetCovariance = static_cast<double>(llt.logDeterminant());
-            weightOf(llt, component.measurement.weight);
+            llt.inverse(component.measurement.weight.data());
             kept.push_back(component);
           }
         }
@@ -1457,7 +1431,7 @@ class DecayVertexFitter
       for (int r = 0; r < 5; ++r) {
         m.value[r] = state.par[r];
       }
-      weightOf(llt, m.weight);
+      llt.inverse(m.weight.data());
       mResult->carried[i] = {state.phi(), state.theta(), state.qOverP()};
       for (int r = 0; r < 3; ++r) {
         for (int c = 0; c <= r; ++c) {
@@ -1549,17 +1523,13 @@ class DecayVertexFitter
     // The resonances' masses (`Resonance`): Breit-Wigner terms.
     for (const auto& resonance : mConstraints.resonances) {
       using DR = Dual<kConstraintInputs, M>;
-      DR energy{};
-      std::array<DR, 3> total{};
+      MomentumSum<DR> sum;
       for (const int i : resonance.daughters) {
         const int q = (3 * mVertexCount) + (3 * i);
-        const auto momentum = momentumOf(dual::variable<kConstraintInputs, M>(p[q], q), dual::variable<kConstraintInputs, M>(p[q + 1], q + 1), dual::variable<kConstraintInputs, M>(p[q + 2], q + 2), numeratorOf(mCharges[i]));
-        for (int c = 0; c < 3; ++c) {
-          total[c] = total[c] + momentum.vector[c];
-        }
-        energy = energy + sqrtOf((momentum.magnitude * momentum.magnitude) + (mDaughters[i].mass * mDaughters[i].mass));
+        const auto momentum = momentumOfInputs<kConstraintInputs, M>(p[q], p[q + 1], p[q + 2], q, mCharges[i]);
+        sum.add(momentum.vector, energyOf(momentum, mDaughters[i].mass));
       }
-      const DR mass2 = (energy * energy) - ((total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]));
+      const DR mass2 = sum.massSquared();
       if (!(mass2.v > 0.)) {
         return false;
       }

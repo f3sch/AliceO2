@@ -110,6 +110,60 @@ template <typename T>
   return {{pt * cosOf(phi), pt * sinOf(phi), p * cosOf(theta)}, p};
 }
 
+/// The momentum of a daughter of \a charge whose phi, theta and q/p are the
+/// inputs \a first, \a first + 1 and \a first + 2 of N, at \a phi, \a theta
+/// and \a qOverP: its derivatives by them.
+template <int N, typename M = double>
+[[nodiscard]] GPUhdi() Momentum<Dual<N, M>> momentumOfInputs(double phi, double theta, double qOverP, int first, double charge)
+{
+  return momentumOf(dual::variable<N, M>(phi, first), dual::variable<N, M>(theta, first + 1), dual::variable<N, M>(qOverP, first + 2), numeratorOf(charge));
+}
+
+/// A particle's energy, sqrt(|p|^2 + m^2) with its \a mass [GeV].
+template <typename T>
+[[nodiscard]] GPUhdi() T energyOf(const Momentum<T>& momentum, double mass)
+{
+  return sqrtOf((momentum.magnitude * momentum.magnitude) + (mass * mass));
+}
+
+/// Momenta summed (a composite's, a resonance's), with their energies where
+/// a mass is asked of the sum.
+template <typename T>
+struct MomentumSum {
+  std::array<T, 3> vector{};
+  T energy{};
+  GPUhdi() void add(const std::array<T, 3>& momentum)
+  {
+    for (int c = 0; c < 3; ++c) {
+      vector[c] = vector[c] + momentum[c];
+    }
+  }
+  GPUhdi() void add(const std::array<T, 3>& momentum, const T& itsEnergy)
+  {
+    add(momentum);
+    energy = energy + itsEnergy;
+  }
+  /// |P|^2.
+  [[nodiscard]] GPUhdi() T squared() const { return (vector[0] * vector[0]) + (vector[1] * vector[1]) + (vector[2] * vector[2]); }
+  /// The invariant mass squared, E^2 - |P|^2.
+  [[nodiscard]] GPUhdi() T massSquared() const { return (energy * energy) - squared(); }
+};
+
+/// A momentum vector's direction and its |P|.
+template <typename T>
+struct DirectionOfMomentum {
+  T phi{};
+  T theta{};
+  T p{};
+};
+
+template <typename T>
+[[nodiscard]] GPUhdi() DirectionOfMomentum<T> directionOfMomentum(const std::array<T, 3>& momentum)
+{
+  const T pt = sqrtOf((momentum[0] * momentum[0]) + (momentum[1] * momentum[1]));
+  return {.phi = atan2Of(momentum[1], momentum[0]), .theta = atan2Of(pt, momentum[2]), .p = sqrtOf((pt * pt) + (momentum[2] * momentum[2]))};
+}
+
 /// The most iterations of a fit's loops, and the most halvings of one step:
 /// double's mantissa bits. A cap, not a derivation: a step halved that often
 /// no longer moves a double; Gauss-Newton under a fixed model converges
@@ -134,6 +188,17 @@ using FreeState = std::array<Dual<N, T>, 6>;
 /// q/pT) to \a plane -- along the beam, across it, or tilted --: the free
 /// state at the crossing, ahead or behind, and its loc0, loc1 there; false if
 /// the helix does not reach the plane (along the beam: within a quarter turn).
+/// The point of the helix from \a start along \a phi, of curvature \a rho
+/// and cot(theta) \a cotTheta, after the transverse path \a s.
+template <typename V>
+[[nodiscard]] GPUhdi() std::array<V, 3> helixPointOf(const std::array<V, 3>& start, const V& phi, const V& rho, const V& cotTheta, const V& s)
+{
+  using Value = typename dual::ScalarOf<V>::type;
+  const V half = Value(0.5) * (rho * s);
+  const V chord = s * sinc(half);
+  return {start[0] + (chord * cosOf(phi + half)), start[1] + (chord * sinOf(phi + half)), start[2] + (s * cotTheta)};
+}
+
 template <int N, typename T>
 [[nodiscard]] GPUhdi() bool crossToPlane(const FreeState<N, T>& from, const TrackingSurface& plane, double fieldScale, FreeState<N, T>& to, std::array<Dual<N, T>, 2>& local)
 {
@@ -183,10 +248,10 @@ template <int N, typename T>
     // A tilted plane: f(s) = n . (x(s) - origin) = 0 by Newton's method from
     // the straight line's crossing, while each step shrinks; s's derivatives
     // by the implicit function, -df / f'(s).
+    const std::array<D, 3> start{from[0], from[1], from[2]};
     const auto f = [&](const D& at) {
-      const D half = 0.5 * (rho * at);
-      const D chord = at * sinc(half);
-      return (nx * ((from[0] + (chord * cosOf(phi + half))) + (-static_cast<T>(plane.origin[0])))) + (ny * ((from[1] + (chord * sinOf(phi + half))) + (-static_cast<T>(plane.origin[1])))) + (nz * ((from[2] + (at * cotTheta)) + (-static_cast<T>(plane.origin[2]))));
+      const auto x = helixPointOf(start, phi, rho, cotTheta, at);
+      return (nx * (x[0] + (-static_cast<T>(plane.origin[0])))) + (ny * (x[1] + (-static_cast<T>(plane.origin[1])))) + (nz * (x[2] + (-static_cast<T>(plane.origin[2]))));
     };
     const auto slope = [&](T at) { return (nx * cosOf(phi.v + (rho.v * at))) + (ny * sinOf(phi.v + (rho.v * at))) + (nz * cotTheta.v); };
     const T ahead = slope(0.);
@@ -211,9 +276,7 @@ template <int N, typename T>
     // Closed to the plane's own precision (its geometry is floats), or no
     // crossing: f's terms' size times float epsilon.
     {
-      const T half = T(0.5) * rho.v * at;
-      const T chord = at * o2::gtrk::sinc(half);
-      const std::array<T, 3> x{from[0].v + (chord * cosOf(phi.v + half)), from[1].v + (chord * sinOf(phi.v + half)), from[2].v + (at * cotTheta.v)};
+      const auto x = helixPointOf<T>({from[0].v, from[1].v, from[2].v}, phi.v, rho.v, cotTheta.v, at);
       T size = 0.;
       for (int c = 0; c < 3; ++c) {
         size += o2::gpu::CAMath::Abs(static_cast<T>(plane.normal[c])) * (o2::gpu::CAMath::Abs(x[c]) + o2::gpu::CAMath::Abs(static_cast<T>(plane.origin[c])));
@@ -228,11 +291,10 @@ template <int N, typename T>
       s.d[k] = -value.d[k] / fs;
     }
   }
-  const D half = 0.5 * (rho * s);
-  const D chord = s * sinc(half);
-  to[0] = from[0] + (chord * cosOf(phi + half));
-  to[1] = from[1] + (chord * sinOf(phi + half));
-  to[2] = from[2] + (s * cotTheta);
+  const auto x = helixPointOf<D>({from[0], from[1], from[2]}, phi, rho, cotTheta, s);
+  to[0] = x[0];
+  to[1] = x[1];
+  to[2] = x[2];
   to[3] = phi + (rho * s);
   to[4] = theta;
   to[5] = from[5];
@@ -240,21 +302,6 @@ template <int N, typename T>
   local[0] = (static_cast<T>(plane.axis0[0]) * d[0]) + (static_cast<T>(plane.axis0[1]) * d[1]) + (static_cast<T>(plane.axis0[2]) * d[2]);
   local[1] = (static_cast<T>(plane.axis1[0]) * d[0]) + (static_cast<T>(plane.axis1[1]) * d[1]) + (static_cast<T>(plane.axis1[2]) * d[2]);
   return true;
-}
-
-/// A row-major matrix of \a columns columns at \a a, seen by the dense
-/// solves (DenseSolve.h).
-template <typename S>
-[[nodiscard]] GPUhdi() dense::MatrixView<S> viewOf(S* a, int columns)
-{
-  return {a, columns};
-}
-
-/// A symmetric matrix packed by its lower triangle (`dense::PackedView`).
-template <typename S>
-[[nodiscard]] GPUhdi() dense::PackedView<S> packedOf(S* a)
-{
-  return {a};
 }
 
 /// A symmetric positive definite matrix's Cholesky factor in the arithmetic
@@ -270,13 +317,13 @@ struct Cholesky {
   {
     n = size;
     copyN(a, covSize(n), l);
-    return dense::choleskyFactor(packedOf(l), n);
+    return dense::choleskyFactor(dense::PackedView<S>{l}, n);
   }
-  [[nodiscard]] GPUhdi() S logDeterminant() const { return dense::choleskyLogDeterminant(packedOf(l), n); }
+  [[nodiscard]] GPUhdi() S logDeterminant() const { return dense::choleskyLogDeterminant(dense::PackedView<S>{l}, n); }
   /// x <- a^-1 x.
-  GPUhdi() void solve(S* x) const { dense::choleskySolve(packedOf(l), n, x); }
+  GPUhdi() void solve(S* x) const { dense::choleskySolve(dense::PackedView<S>{l}, n, x); }
   /// a^-1 into \a inverse, packed.
-  GPUhdi() void inverse(S* inverse) const { dense::choleskyInverse(packedOf(l), n, packedOf(inverse)); }
+  GPUhdi() void inverse(S* inverse) const { dense::choleskyInverse(dense::PackedView<S>{l}, n, dense::PackedView<S>{inverse}); }
 };
 
 /// A track state's covariance in S, packed (`covIndex`, the state's own).
@@ -286,24 +333,6 @@ template <typename S = double, typename State>
   std::array<S, kBoundCovSize> covariance{};
   copyN(state.cov, kBoundCovSize, covariance.data());
   return covariance;
-}
-
-/// The weight (inverse covariance, packed) of the covariance factored in
-/// \a cholesky.
-template <typename S>
-GPUhdi() void weightOf(const Cholesky<S>& cholesky, std::array<S, kBoundCovSize>& weight)
-{
-  dense::choleskyInverse(packedOf(cholesky.l), 5, packedOf(weight.data()));
-}
-
-/// A positive semi-definite matrix's factor L, L L^T = \a a (n x n,
-/// packed), into \a factor (n x n, row-major): the pivoted L D L^T's
-/// P^T L D^1/2 (`dense::semidefiniteFactor`; \a a overwritten, \a order n
-/// ints of scratch). L is not triangular.
-template <typename S>
-GPUhdi() void semidefiniteFactor(S* a, int n, int* order, S* factor)
-{
-  dense::semidefiniteFactor(packedOf(a), n, order, viewOf(factor, n));
 }
 
 /// A Gaussian mixture's collapse to one Gaussian (its mean and covariance)

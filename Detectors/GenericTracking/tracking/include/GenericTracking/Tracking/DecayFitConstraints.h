@@ -79,6 +79,17 @@ struct DecayTopology {
     }
     return false;
   }
+  /// The summed charge of the daughters (their \a charges) at \a vertex or
+  /// below it.
+  template <typename Charges>
+  [[nodiscard]] GPUhdi() double chargeUnder(const Charges& charges, int vertex) const
+  {
+    double sum = 0.;
+    for (int i = 0; i < static_cast<int>(charges.size()); ++i) {
+      sum += under(i, vertex) ? charges[i] : 0.;
+    }
+    return sum;
+  }
 };
 
 /// A resonance among the daughters: it decays where it is made, so its
@@ -108,14 +119,21 @@ struct DecayConstraints {
   FixedVector<double, decay_fit_detail::kMaxConstrainedVertices> compositeMasses;
   /// Resonances' masses, measured softly (a term of the chi2 each).
   FixedVector<Resonance, decay_fit_detail::kMaxResonances> resonances;
-  /// What the constraints add to the degrees of freedom.
+  /// The composites whose mass is held.
+  [[nodiscard]] GPUhdi() int heldMasses() const
+  {
+    int held = 0;
+    for (const auto m : compositeMasses) {
+      held += m > 0. ? 1 : 0;
+    }
+    return held;
+  }
+  /// What the constraints add to the degrees of freedom: besides the
+  /// equations, the links' two each (a charged composite's through its
+  /// chain) and the resonances' terms.
   [[nodiscard]] GPUhdi() int count(const DecayTopology& topology = {}) const
   {
-    int composites = 0;
-    for (const auto m : compositeMasses) {
-      composites += m > 0. ? 1 : 0;
-    }
-    return (mass ? 1 : 0) + (production ? 2 : 0) + composites + (2 * (topology.vertices() - 1)) + static_cast<int>(resonances.size());
+    return (mass ? 1 : 0) + (production ? 2 : 0) + heldMasses() + (2 * (topology.vertices() - 1)) + static_cast<int>(resonances.size());
   }
 };
 
@@ -152,29 +170,23 @@ template <typename M = double, typename S>
       v[w][c].d[(3 * w) + c] = M(1.);
     }
   }
-  // Every daughter's momentum vector, energy and charge.
+  // Every daughter's momentum vector and energy.
   std::array<std::array<D, 3>, kMaxConstrainedDaughters> vectors{};
   std::array<D, kMaxConstrainedDaughters> energies{};
   for (int i = 0; i < count; ++i) {
-    const int q = (3 * k) + (3 * i);
-    const auto momentum = momentumOf(dual::variable<kConstraintInputs, M>(momenta[i][0], q), dual::variable<kConstraintInputs, M>(momenta[i][1], q + 1), dual::variable<kConstraintInputs, M>(momenta[i][2], q + 2), numeratorOf(charges[i]));
+    const auto momentum = momentumOfInputs<kConstraintInputs, M>(momenta[i][0], momenta[i][1], momenta[i][2], (3 * k) + (3 * i), charges[i]);
     vectors[i] = momentum.vector;
-    energies[i] = sqrtOf((momentum.magnitude * momentum.magnitude) + (masses[i] * masses[i]));
+    energies[i] = energyOf(momentum, masses[i]);
   }
-  // A vertex's composite: its subtree's momentum, energy, charge.
-  const auto composite = [&](int vertex, std::array<D, 3>& total, D& energy, double& charge) {
-    total = {};
-    energy = D{};
-    charge = 0.;
+  // A vertex's composite: its subtree's momentum and energy.
+  const auto composite = [&](int vertex) {
+    MomentumSum<D> sum;
     for (int i = 0; i < count; ++i) {
       if (topology.under(i, vertex)) {
-        for (int c = 0; c < 3; ++c) {
-          total[c] = total[c] + vectors[i][c];
-        }
-        energy = energy + energies[i];
-        charge += charges[i];
+        sum.add(vectors[i], energies[i]);
       }
     }
+    return sum;
   };
   bool room = true;
   const auto push = [&](const D& value) {
@@ -188,31 +200,25 @@ template <typename M = double, typename S>
     }
     ++written;
   };
-  const auto massOf = [&](const std::array<D, 3>& total, const D& energy, double m) {
-    const D p2 = (total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]);
-    return (energy * energy) - p2 + (-(m * m));
-  };
-  std::array<D, 3> total{};
-  D energy{};
-  double charge = 0.;
-  composite(0, total, energy, charge);
+  const auto massOf = [&](const MomentumSum<D>& sum, double m) { return sum.massSquared() + (-(m * m)); };
   if (constraints.mass) {
-    push(massOf(total, energy, constraints.massGeV));
+    push(massOf(composite(0), constraints.massGeV));
   }
   // The links: each composite below the root flies from its parent's vertex
   // to its own along its momentum P: the offset's components across P, on
   // u1 = z x P / |z x P| (x where P is along z) and u2 = P x u1 / |P|.
   for (int w = 1; w < k; ++w) {
-    composite(w, total, energy, charge);
-    if (charge != 0.) {
+    if (topology.chargeUnder(charges, w) != 0.) {
       continue; // a charged composite's link: its chain's (DecayVertexFit.h)
     }
+    const auto sum = composite(w);
+    const auto& total = sum.vector;
     const int up = topology.parent[w];
     std::array<D, 3> offset{};
     for (int c = 0; c < 3; ++c) {
       offset[c] = v[w][c] - v[up][c];
     }
-    const D p = sqrtOf((total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]));
+    const D p = sqrtOf(sum.squared());
     std::array<D, 3> u1{-total[1], total[0], D{}};
     D across = sqrtOf((u1[0] * u1[0]) + (u1[1] * u1[1]));
     if (across.v == 0.) {
@@ -228,8 +234,7 @@ template <typename M = double, typename S>
   }
   for (int w = 1; w < k && w - 1 < static_cast<int>(constraints.compositeMasses.size()); ++w) {
     if (constraints.compositeMasses[w - 1] > 0.) {
-      composite(w, total, energy, charge);
-      push(massOf(total, energy, constraints.compositeMasses[w - 1]));
+      push(massOf(composite(w), constraints.compositeMasses[w - 1]));
     }
   }
   return room;

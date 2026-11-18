@@ -1222,6 +1222,88 @@ BOOST_AUTO_TEST_CASE(AComponentWhoseWeightUnderflowsLeavesNoTrace)
   BOOST_TEST(c[0] == 1.);
 }
 
+BOOST_AUTO_TEST_CASE(TheFitsCrossingIsThePropagatorsOne)
+{
+  // The fit's crossing (`crossToPlane`, double, on dual numbers) against the
+  // propagator's (`jacobianAnalytic`) on the planes both take, a plane along
+  // the beam and one across it; its derivatives against central differences
+  // of itself.
+  using namespace decay_fit_detail;
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  prop.massGeV = static_cast<Scalar>(kPion);
+  const double fieldScale = 20. * static_cast<double>(constants::math::B2C);
+  const auto set = [](Scalar* v, auto x, auto y, auto z) {
+    v[0] = static_cast<Scalar>(x);
+    v[1] = static_cast<Scalar>(y);
+    v[2] = static_cast<Scalar>(z);
+  };
+  const auto crossing = [&](const std::array<double, 6>& start, const TrackingSurface& plane, std::array<Dual<6>, 3>& out) {
+    FreeState<6, double> from{};
+    for (int c = 0; c < 6; ++c) {
+      from[c] = dual::variable<6>(start[c], c);
+    }
+    FreeState<6, double> to{};
+    std::array<Dual<6>, 2> local{};
+    const bool reached = crossToPlane(from, plane, fieldScale, to, local);
+    out = {local[0], local[1], to[3]};
+    return reached;
+  };
+  for (const Truth& truth : {Truth{0.3, 1.2, 1. / 0.3}, Truth{-0.4, 1.9, -1.}, Truth{2.5, 0.6, 0.2}}) {
+    const std::array<double, 3> vertex{0.2, -0.1, 0.4};
+    const auto start = beamLinePlane(static_cast<Scalar>(vertex[0]), static_cast<Scalar>(vertex[1]), static_cast<Scalar>(truth.phi));
+    BoundTrackState state;
+    state.par[kLoc1] = static_cast<Scalar>(vertex[2]);
+    state.par[kPhi] = static_cast<Scalar>(truth.phi);
+    state.par[kTheta] = static_cast<Scalar>(truth.theta);
+    state.par[kQOverP] = static_cast<Scalar>(truth.qOverP);
+    const std::array<double, 6> free{vertex[0], vertex[1], vertex[2], static_cast<double>(state.phi()), static_cast<double>(state.theta()), static_cast<double>(state.qOverP())};
+    // along the beam, 2 cm out along the direction; across it, 3 cm downstream
+    TrackingSurface along;
+    const double c = std::cos(truth.phi);
+    const double s = std::sin(truth.phi);
+    set(along.origin, static_cast<Scalar>(vertex[0] + (2. * c)), static_cast<Scalar>(vertex[1] + (2. * s)), static_cast<Scalar>(vertex[2]));
+    set(along.axis0, static_cast<Scalar>(-s), static_cast<Scalar>(c), 0.F);
+    set(along.axis1, 0.F, 0.F, 1.F);
+    set(along.normal, static_cast<Scalar>(c), static_cast<Scalar>(s), 0.F);
+    TrackingSurface across;
+    const double side = std::cos(truth.theta) > 0. ? 1. : -1.;
+    set(across.origin, 0.F, 0.F, static_cast<Scalar>(vertex[2] + (3. * side)));
+    set(across.axis0, 1.F, 0.F, 0.F);
+    set(across.axis1, 0.F, static_cast<Scalar>(side), 0.F);
+    set(across.normal, 0.F, 0.F, static_cast<Scalar>(side));
+    for (const auto* plane : {&along, &across}) {
+      SolenoidJacobian jacobian;
+      BoundTrackState reference = state;
+      const auto status = jacobianAnalytic(prop, state, start, *plane, PropagationDirection::kForward, jacobian, &reference);
+      BOOST_REQUIRE(status == PropagationStatus::kOk || status == PropagationStatus::kOutOfBounds);
+      std::array<Dual<6>, 3> fit{};
+      BOOST_REQUIRE(crossing(free, *plane, fit));
+      // the propagator's state is float: its rounding, relative to the
+      // lever arm of a few cm
+      const double tolerance = 64. * std::numeric_limits<Scalar>::epsilon() * 10.;
+      BOOST_TEST(std::abs(fit[0].v - static_cast<double>(reference.loc0())) < tolerance);
+      BOOST_TEST(std::abs(fit[1].v - static_cast<double>(reference.loc1())) < tolerance);
+      BOOST_TEST(std::abs(angleInPMPi(fit[2].v - static_cast<double>(reference.phi()))) < tolerance);
+      for (int k = 0; k < 6; ++k) {
+        const double h = 1e-6 * std::max(std::abs(free[k]), 1.);
+        auto up = free;
+        auto down = free;
+        up[k] += h;
+        down[k] -= h;
+        std::array<Dual<6>, 3> above{};
+        std::array<Dual<6>, 3> below{};
+        BOOST_REQUIRE(crossing(up, *plane, above));
+        BOOST_REQUIRE(crossing(down, *plane, below));
+        for (int r = 0; r < 3; ++r) {
+          const double difference = (above[r].v - below[r].v) / (2. * h);
+          BOOST_TEST(std::abs(fit[r].d[k] - difference) < 1e-6 * std::max(std::abs(difference), 1.));
+        }
+      }
+    }
+  }
+}
+
 BOOST_AUTO_TEST_CASE(ReducedPrecisionOnHardCases)
 {
   // A boosted, nearly collinear V0: two pions of 25 GeV, 1 mrad apart, with
