@@ -32,6 +32,7 @@
 #define GTRK_TRACKING_PROFILE_H_
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <iosfwd>
@@ -170,6 +171,9 @@ struct Profile {
 
 /// Nanoseconds on the steady clock.
 [[nodiscard]] std::int64_t now() noexcept;
+
+/// Seconds on the steady clock since \a from.
+[[nodiscard]] inline double secondsSince(std::chrono::steady_clock::time_point from) { return std::chrono::duration<double>(std::chrono::steady_clock::now() - from).count(); }
 
 /// Count each phase's DRAM traffic (`PhaseStats::dramBytes`) from now on:
 /// the CAS commands of every memory controller, 64 bytes each, from the

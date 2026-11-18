@@ -632,7 +632,7 @@ BOOST_AUTO_TEST_CASE(ElectronMixturesSumOverTheirComponents)
         daughter.mixture = mixture;
       }
       const std::span<const DecayDaughter> span{states};
-      const auto fit = variant == DecayFitVariant::kGaussianSum ? fitDecayVertex<TRKFT3, DecayFitVariant::kGaussianSum>(span, NoMaterial{}, massOfPair) : fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(span, NoMaterial{}, massOfPair);
+      const auto fit = withDecayFitVariant(variant, [&](auto one) { return fitDecayVertex<TRKFT3, decltype(one)::value>(span, NoMaterial{}, massOfPair); });
       if (fit.status != DecayFitStatus::kOk) {
         continue;
       }

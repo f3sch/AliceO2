@@ -48,9 +48,9 @@ template <typename T>
 {
   static_assert(std::is_trivially_copyable_v<T>);
   if (count > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
-    return arena.allocate(std::numeric_limits<std::size_t>::max(), 256U, end);
+    return arena.allocate(std::numeric_limits<std::size_t>::max(), kArenaAlignment, end);
   }
-  return arena.allocate(count * sizeof(T), 256U, end);
+  return arena.allocate(count * sizeof(T), kArenaAlignment, end);
 }
 
 /// \a copy(to, from) for each column of \a from and the same column of \a to,
@@ -498,8 +498,7 @@ class DeviceFlatObject
   /// the arena refuses. Returns once the copies are done.
   [[nodiscard]] bool upload(DeviceArena& arena, const T& source, DeviceStream& stream, ArenaEnd end = ArenaEnd::kBase)
   {
-    constexpr std::size_t kAlignment = 256U;
-    const std::size_t objectBytes = (sizeof(T) + kAlignment - 1U) / kAlignment * kAlignment;
+    const std::size_t objectBytes = (sizeof(T) + kArenaAlignment - 1U) / kArenaAlignment * kArenaAlignment;
     const std::size_t bufferBytes = flatObjectBufferBytes(source);
     DeviceSpan<std::byte> storage;
     if (!storage.allocate(arena, objectBytes + bufferBytes, end)) {

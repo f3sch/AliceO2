@@ -76,6 +76,21 @@ struct DecayFitBatchView {
 static_assert(std::is_trivially_copyable_v<DecayFitInput> && std::is_trivially_copyable_v<DecayDaughter> && std::is_trivially_copyable_v<DecayMotherRows> && std::is_trivially_copyable_v<TrackingSurface>, "a batch's columns upload as bytes");
 static_assert(std::is_trivially_copyable_v<DecayVertexFitResult>, "results download as bytes");
 
+namespace decay_fit_detail
+{
+
+/// \a input's tracked mothers into \a mothers, their spans over \a batch's
+/// rows.
+GPUhdi() void batchMothers(const DecayFitBatchView& batch, const DecayFitInput& input, std::array<DecayMother, kMaxConstrainedVertices>& mothers)
+{
+  for (std::uint32_t a = 0; a < input.mothers; ++a) {
+    const auto& rows = batch.mothers[input.firstMother + a];
+    mothers[a] = {.vertex = rows.vertex, .planes = {batch.planes + rows.firstRow, rows.rows}, .positions = {batch.positions + rows.firstPosition, rows.positions}, .covariance = {batch.covariance + rows.firstCovariance, rows.covariances}, .propagator = rows.propagator};
+  }
+}
+
+} // namespace decay_fit_detail
+
 /// A batch on the host, filled decay by decay.
 class DecayFitBatch
 {
@@ -103,12 +118,10 @@ class DecayFitBatch
   /// Takes \a other's decays after this batch's, in their order.
   void append(const DecayFitBatch& other)
   {
+    const auto view = other.view();
     for (const auto& input : other.mDecays) {
       std::array<DecayMother, decay_fit_detail::kMaxConstrainedVertices> mothers{};
-      for (std::uint32_t a = 0; a < input.mothers; ++a) {
-        const auto& rows = other.mMothers[input.firstMother + a];
-        mothers[a] = {.vertex = rows.vertex, .planes = {other.mPlanes.data() + rows.firstRow, rows.rows}, .positions = {other.mPositions.data() + rows.firstPosition, rows.positions}, .covariance = {other.mCovariance.data() + rows.firstCovariance, rows.covariances}, .propagator = rows.propagator};
-      }
+      decay_fit_detail::batchMothers(view, input, mothers);
       add({other.mDaughters.data() + input.firstDaughter, input.daughters}, input.constraints, input.topology, {mothers.data(), input.mothers});
     }
   }
@@ -156,10 +169,7 @@ template <DetectorLayout Det, DecayFitVariant Variant, typename Material>
 [[nodiscard]] GPUd() DecayVertexFitter<Det, Variant, Material> batchFitter(const DecayFitBatchView& batch, std::uint32_t index, const Material& material, std::array<DecayMother, kMaxConstrainedVertices>& mothers)
 {
   const auto& input = batch.decays[index];
-  for (std::uint32_t a = 0; a < input.mothers; ++a) {
-    const auto& rows = batch.mothers[input.firstMother + a];
-    mothers[a] = {.vertex = rows.vertex, .planes = {batch.planes + rows.firstRow, rows.rows}, .positions = {batch.positions + rows.firstPosition, rows.positions}, .covariance = {batch.covariance + rows.firstCovariance, rows.covariances}, .propagator = rows.propagator};
-  }
+  batchMothers(batch, input, mothers);
   return DecayVertexFitter<Det, Variant, Material>({batch.daughters + input.firstDaughter, input.daughters}, material, input.constraints, input.topology, {mothers.data(), input.mothers});
 }
 
@@ -191,12 +201,14 @@ void fitDecayBatch(const DecayFitBatchView& batch, const Material& material, std
 {
   std::vector<std::max_align_t> storage;
   for (std::uint32_t i = 0; i < batch.count; ++i) {
-    const std::size_t bytes = batchDecayWorkspace<Det, Variant>(batch, i, material);
+    std::array<DecayMother, decay_fit_detail::kMaxConstrainedVertices> mothers{};
+    auto fitter = decay_fit_detail::batchFitter<Det, Variant>(batch, i, material, mothers);
+    const std::size_t bytes = fitter.workspace();
     const std::size_t words = (bytes + sizeof(std::max_align_t) - 1U) / sizeof(std::max_align_t);
     if (storage.size() < words) {
       storage.resize(words);
     }
-    fitBatchDecay<Det, Variant>(batch, i, material, std::span<std::byte>{reinterpret_cast<std::byte*>(storage.data()), bytes}, results[i]);
+    fitter.fit(std::span<std::byte>{reinterpret_cast<std::byte*>(storage.data()), bytes}, results[i]);
   }
 }
 

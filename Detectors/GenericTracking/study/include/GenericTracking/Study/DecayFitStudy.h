@@ -405,15 +405,6 @@ struct DecayDeviceRecord {
   }
 };
 
-/// The GPU backend `decaydevice` fits on: "cpu" for none (the host batch
-/// only), else cuda or hip on \a device, its arena \a arenaMB (0: the whole
-/// device).
-struct DecayDeviceSettings {
-  std::string backend = "cpu";
-  int device = 0;
-  std::size_t arenaMB = 0U;
-};
-
 namespace decay_fit_study_detail
 {
 
@@ -695,7 +686,7 @@ class DecayFitStudy
     kDevice
   };
 
-  explicit DecayFitStudy(RecordWriter& writer, Mode mode = Mode::kFit, const DecayDeviceSettings& device = {}) : mWriter(&writer), mPrecision(mode == Mode::kPrecision), mMode(mode), mDeviceSettings(device)
+  explicit DecayFitStudy(RecordWriter& writer, Mode mode = Mode::kFit, const TrackingDevice& device = {}) : mWriter(&writer), mPrecision(mode == Mode::kPrecision), mMode(mode), mDeviceSettings(device)
   {
     if (mode == Mode::kPrecision) {
       writer.begin<DecayPrecisionRecord>();
@@ -704,7 +695,7 @@ class DecayFitStudy
     } else {
       writer.begin<DecayFitRecord>();
     }
-    if (mode == Mode::kDevice && device.backend != "cpu") {
+    if (mode == Mode::kDevice && !device.backend.empty()) {
       const std::array<std::size_t, 1> blocks{device.arenaMB * 1024U * 1024U};
       mContext = std::make_unique<DeviceContext>(device.backend, device.device, blocks);
       mDevice = mContext->runtime().template makeDecayFitter<Det>(mContext->block(0));
@@ -739,7 +730,7 @@ class DecayFitStudy
   RecordWriter* mWriter = nullptr;
   bool mPrecision = false;
   Mode mMode = Mode::kFit;
-  DecayDeviceSettings mDeviceSettings;
+  TrackingDevice mDeviceSettings; ///< where `decaydevice` fits beside the host batch
   std::unique_ptr<DeviceContext> mContext;
   std::unique_ptr<Device> mDevice;
   const o2::base::MatLayerCylSet* mConfigured = nullptr; ///< the material the device has
@@ -1232,14 +1223,13 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         const auto fitUnder = [&](const DecayConstraints& set) {
           const std::span<const DecayDaughter> span{jobDaughters};
-          return job.variant == DecayFitVariant::kGaussianSum ? fitDecayVertex<Det, DecayFitVariant::kGaussianSum>(span, material, set, jobTopology, tracked) : fitDecayVertex<Det, DecayFitVariant::kFull>(span, material, set, jobTopology, tracked);
+          return withDecayFitVariant(job.variant, [&](auto variant) { return fitDecayVertex<Det, decltype(variant)::value>(span, material, set, jobTopology, tracked); });
         };
         const auto started = std::chrono::steady_clock::now();
         const auto inPrecisions = [&]() {
           const std::span<const DecayDaughter> span{jobDaughters};
           const DecayPrecisionRecord identity{.timeframe = record.timeframe, .particle = record.particle, .pdg = record.pdg, .variant = record.variant, .constraints = record.constraints, .branch = record.branch, .resonance = record.resonance, .daughters = static_cast<std::uint8_t>(jobDaughters.size())};
-          return job.variant == DecayFitVariant::kGaussianSum ? measurePrecision<Det, DecayFitVariant::kGaussianSum>(span, material, constraints, jobTopology, tracked, masses, across, identity, one.precision)
-                                                              : measurePrecision<Det, DecayFitVariant::kFull>(span, material, constraints, jobTopology, tracked, masses, across, identity, one.precision);
+          return withDecayFitVariant(job.variant, [&](auto variant) { return measurePrecision<Det, decltype(variant)::value>(span, material, constraints, jobTopology, tracked, masses, across, identity, one.precision); });
         };
         const auto outcome = mPrecision ? inPrecisions() : fitUnder(constraints);
         record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
@@ -1458,11 +1448,7 @@ void DecayFitStudy<Det>::fitBatches(const TruthEvent<Det>& event, std::array<Dec
     const auto variant = static_cast<DecayFitVariant>(v);
     std::vector<DecayVertexFitResult> host(batch.size());
     const auto started = std::chrono::steady_clock::now();
-    if (variant == DecayFitVariant::kGaussianSum) {
-      fitDecayBatch<Det, DecayFitVariant::kGaussianSum>(batch.view(), material, host);
-    } else {
-      fitDecayBatch<Det, DecayFitVariant::kFull>(batch.view(), material, host);
-    }
+    withDecayFitVariant(variant, [&](auto one) { fitDecayBatch<Det, decltype(one)::value>(batch.view(), material, host); });
     mHostSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
     std::vector<DecayVertexFitResult> device;
     if (mDevice) {

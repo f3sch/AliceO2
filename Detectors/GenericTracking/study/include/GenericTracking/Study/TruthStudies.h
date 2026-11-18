@@ -66,7 +66,7 @@ class TruthStudies
   /// Throws std::invalid_argument for an unknown module, an output of another
   /// format or one named twice, before any output is opened.
   /// `decaydevice` fits on \a device's backend.
-  TruthStudies(std::span<const TruthStudySpec> specs, ChainSelection selection, const DecayDeviceSettings& device = {}) : mSelection(std::move(selection))
+  TruthStudies(std::span<const TruthStudySpec> specs, ChainSelection selection, const TrackingDevice& device = {}) : mSelection(std::move(selection))
   {
     std::vector<std::string_view> paths;
     for (const auto& spec : specs) {

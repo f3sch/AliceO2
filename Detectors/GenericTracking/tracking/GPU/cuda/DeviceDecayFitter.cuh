@@ -17,6 +17,7 @@
 #ifndef GTRK_TRACKING_GPU_DEVICEDECAYFITTER_CUH_
 #define GTRK_TRACKING_GPU_DEVICEDECAYFITTER_CUH_
 
+#include "DeviceAlgorithms.cuh"
 #include "DeviceMaterial.cuh"
 #include "Platform.cuh"
 
@@ -26,6 +27,7 @@
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Tracking/GPU/DeviceStorage.h"
 #include "GenericTracking/Tracking/GPU/DeviceStream.h"
+#include "GenericTracking/Tracking/Profile.h"
 
 #include <chrono>
 #include <cstddef>
@@ -39,34 +41,34 @@ namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
 namespace decay_fit_device
 {
 
-/// Every decay's workspace [bytes] (`batchDecayWorkspace`).
+/// Decay \a index's workspace [bytes] (`batchDecayWorkspace`).
 template <DetectorLayout Det, DecayFitVariant Variant, typename Material>
-__global__ GTRK_KERNEL_BOUNDS void sizeWorkspaces(DecayFitBatchView batch, const Material* material, std::uint64_t* bytes)
-{
-  const auto index = (blockIdx.x * blockDim.x) + threadIdx.x;
-  if (index >= batch.count) {
-    return;
-  }
-  bytes[index] = batchDecayWorkspace<Det, Variant>(batch, index, *material);
-}
+struct SizeWorkspace {
+  DecayFitBatchView batch;
+  const Material* material = nullptr;
+  std::uint64_t* bytes = nullptr;
+  GPUd() void operator()(std::uint32_t index) const { bytes[index] = batchDecayWorkspace<Det, Variant>(batch, index, *material); }
+};
 
-/// Decays [first, first + count) of \a batch, decay first + i in the
-/// workspace at offsets[i] of \a scratch, up to offsets[i + 1], its result
-/// into results[i] (the launch's own).
+/// Decay first + i of \a batch in the workspace at offsets[i] of \a scratch,
+/// up to offsets[i + 1], its result into results[i] (the launch's own).
 template <DetectorLayout Det, DecayFitVariant Variant, typename Material>
-__global__ GTRK_KERNEL_BOUNDS void fitDecays(DecayFitBatchView batch, const Material* material, std::uint32_t first, std::uint32_t count, const std::uint64_t* offsets, std::byte* scratch, DecayVertexFitResult* results)
-{
-  const auto i = (blockIdx.x * blockDim.x) + threadIdx.x;
-  if (i >= count) {
-    return;
+struct FitDecay {
+  DecayFitBatchView batch;
+  const Material* material = nullptr;
+  std::uint32_t first = 0U;
+  const std::uint64_t* offsets = nullptr;
+  std::byte* scratch = nullptr;
+  DecayVertexFitResult* results = nullptr;
+  GPUd() void operator()(std::uint32_t i) const
+  {
+    fitBatchDecay<Det, Variant>(batch, first + i, *material, std::span<std::byte>{scratch + offsets[i], static_cast<std::size_t>(offsets[i + 1U] - offsets[i])}, results[i]);
   }
-  const auto index = first + i;
-  fitBatchDecay<Det, Variant>(batch, index, *material, std::span<std::byte>{scratch + offsets[i], static_cast<std::size_t>(offsets[i + 1U] - offsets[i])}, results[i]);
-}
+};
 
 /// The workspaces' alignment in a launch's scratch: every decay's starts at
 /// a multiple of it (the fitter's own alignment divides it).
-inline constexpr std::uint64_t kSliceAlignment = 256U;
+inline constexpr std::uint64_t kSliceAlignment = kArenaAlignment;
 
 } // namespace decay_fit_device
 
@@ -95,15 +97,11 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
 
   [[nodiscard]] bool fit(DecayFitVariant variant, const DecayFitBatch& batch, std::span<DecayVertexFitResult> results, Timing& timing) final
   {
-    if (variant == DecayFitVariant::kGaussianSum) {
-      return fitAs<DecayFitVariant::kGaussianSum>(batch, results, timing);
-    }
-    return fitAs<DecayFitVariant::kFull>(batch, results, timing);
+    return withDecayFitVariant(variant, [&](auto one) { return fitAs<decltype(one)::value>(batch, results, timing); });
   }
 
  private:
   using Clock = std::chrono::steady_clock;
-  [[nodiscard]] static double since(Clock::time_point start) { return std::chrono::duration<double>(Clock::now() - start).count(); }
 
   template <DecayFitVariant Variant>
   [[nodiscard]] bool fitAs(const DecayFitBatch& batch, std::span<DecayVertexFitResult> results, Timing& timing)
@@ -140,20 +138,15 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
     upload(batch.positions().data(), positions, batch.positions().size(), mStream);
     upload(batch.covariance().data(), covariance, batch.covariance().size(), mStream);
     mStream.synchronize();
-    timing.uploadSeconds = since(start);
+    timing.uploadSeconds = profile::secondsSince(start);
 
     const DecayFitBatchView view{.decays = decays.data(), .daughters = daughters.data(), .mothers = mothers.data(), .planes = planes.data(), .positions = positions.data(), .covariance = covariance.data(), .count = static_cast<std::uint32_t>(count)};
-    const auto native = nativeStream(*mRuntime, mStream);
     start = Clock::now();
-    {
-      const auto shape = launchFor(static_cast<std::uint32_t>(count));
-      sizeWorkspaces<Det, Variant><<<shape.blocks, shape.threads, 0, native>>>(view, mMaterial.data(), bytes.data());
-      checkLaunch();
-    }
+    algorithms::forEach(*mRuntime, mStream, static_cast<std::uint32_t>(count), SizeWorkspace<Det, Variant, Material>{.batch = view, .material = mMaterial.data(), .bytes = bytes.data()});
     std::vector<std::uint64_t> sizes;
     download(bytes, sizes, count, mStream);
     mStream.synchronize();
-    timing.sizeSeconds = since(start);
+    timing.sizeSeconds = profile::secondsSince(start);
 
     // Launches of consecutive decays while their slices and results fit the
     // scratch the arena has left; a decay that alone does not is refused.
@@ -188,18 +181,16 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
         return false;
       }
       upload(offsets.data(), deviceOffsets, offsets.size(), mStream);
-      const auto shape = launchFor(launched);
-      fitDecays<Det, Variant><<<shape.blocks, shape.threads, 0, native>>>(view, mMaterial.data(), static_cast<std::uint32_t>(first), launched, deviceOffsets.data(), scratch.data(), fitted.data());
-      checkLaunch();
+      algorithms::forEach(*mRuntime, mStream, launched, FitDecay<Det, Variant, Material>{.batch = view, .material = mMaterial.data(), .first = static_cast<std::uint32_t>(first), .offsets = deviceOffsets.data(), .scratch = scratch.data(), .results = fitted.data()});
       const auto copied = Clock::now();
       download(fitted, results.data() + first, launched, mStream);
       // The next launch takes these slices: this one must be done with them.
       mStream.synchronize();
-      timing.downloadSeconds += since(copied);
+      timing.downloadSeconds += profile::secondsSince(copied);
       ++timing.launches;
       first = last;
     }
-    timing.fitSeconds = since(start) - timing.downloadSeconds;
+    timing.fitSeconds = profile::secondsSince(start) - timing.downloadSeconds;
     for (const auto index : refusedDecays) {
       results[index].reset();
       results[index].status = DecayFitStatus::kTooLarge;

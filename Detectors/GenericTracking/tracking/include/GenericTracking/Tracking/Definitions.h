@@ -232,6 +232,17 @@ decltype(auto) withCrossingRule(CrossingRule rule, const Body& body)
   return body(std::integral_constant<CrossingRule, CrossingRule::kFirstAhead>{});
 }
 
+/// `body(std::integral_constant<DecayFitVariant, variant>{})` for the
+/// run-time \a variant.
+template <typename Body>
+decltype(auto) withDecayFitVariant(DecayFitVariant variant, const Body& body)
+{
+  if (variant == DecayFitVariant::kGaussianSum) {
+    return body(std::integral_constant<DecayFitVariant, DecayFitVariant::kGaussianSum>{});
+  }
+  return body(std::integral_constant<DecayFitVariant, DecayFitVariant::kFull>{});
+}
+
 /// \a count values sorted in place by \a less, stable: an insertion sort,
 /// for the few entries one thread holds. Stable, and the same order on host
 /// and device; O2's `sort` is neither.
