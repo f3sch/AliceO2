@@ -11,13 +11,15 @@
 
 /// \file DecayFitMath.h
 /// \brief The arithmetic the decay vertex fits share: the helix from a point
-///        to a plane in a uniform field, and the dense solves (Eigen).
+///        to a plane in a uniform field, and the dense solves on
+///        std::vector matrices (DenseSolve.h).
 
 #ifndef GTRK_STUDY_DECAYFITMATH_H_
 #define GTRK_STUDY_DECAYFITMATH_H_
 
 #include "GenericTracking/Study/Dual.h"
 #include "GenericTracking/Tracking/Definitions.h"
+#include "GenericTracking/Tracking/DenseSolve.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
 #include <algorithm>
@@ -28,8 +30,6 @@
 #include <numbers>
 #include <span>
 #include <vector>
-
-#include <Eigen/Dense>
 
 namespace o2::gtrk::study::decay_fit_detail
 {
@@ -192,67 +192,63 @@ template <int N>
   return true;
 }
 
-/// The dense solves' matrices: row-major n x n in a std::vector, seen by Eigen.
-using RowMatrix = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-[[nodiscard]] inline Eigen::Map<RowMatrix> matrixOf(std::vector<double>& a, int rows, int columns) { return {a.data(), rows, columns}; }
-[[nodiscard]] inline Eigen::Map<const RowMatrix> matrixOf(const std::vector<double>& a, int rows, int columns) { return {a.data(), rows, columns}; }
-[[nodiscard]] inline Eigen::Map<Eigen::VectorXd> vectorOf(std::vector<double>& a) { return {a.data(), static_cast<Eigen::Index>(a.size())}; }
-[[nodiscard]] inline Eigen::Map<const Eigen::VectorXd> vectorOf(const std::vector<double>& a) { return {a.data(), static_cast<Eigen::Index>(a.size())}; }
+/// A row-major matrix of \a columns columns in a std::vector, seen by the
+/// dense solves (DenseSolve.h).
+[[nodiscard]] inline dense::MatrixView<double> viewOf(std::vector<double>& a, int columns) { return {a.data(), columns}; }
 
-/// A symmetric positive definite matrix's Cholesky factorisation; false if
-/// it is not positive definite.
-[[nodiscard]] inline bool factorise(Eigen::LLT<RowMatrix>& llt, const RowMatrix& a)
-{
-  llt.compute(a);
-  return llt.info() == Eigen::Success;
-}
+/// A symmetric positive definite matrix's Cholesky factor.
+struct Cholesky {
+  int n = 0;
+  std::vector<double> l;
+  /// Factor \a a (\a size x \a size, row-major, its lower triangle read);
+  /// false if it is not positive definite.
+  [[nodiscard]] bool factor(const std::vector<double>& a, int size)
+  {
+    n = size;
+    l = a;
+    return dense::choleskyFactor(viewOf(l, n), n);
+  }
+  [[nodiscard]] double logDeterminant() { return dense::choleskyLogDeterminant(viewOf(l, n), n); }
+  /// x <- a^-1 x.
+  void solve(std::vector<double>& x) { dense::choleskySolve(viewOf(l, n), n, x.data()); }
+  /// a^-1, n x n, row-major.
+  [[nodiscard]] std::vector<double> inverse()
+  {
+    std::vector<double> out(static_cast<std::size_t>(n * n));
+    dense::choleskyInverse(viewOf(l, n), n, viewOf(out, n));
+    return out;
+  }
+};
 
-/// ln det of a matrix from its Cholesky factorisation.
-[[nodiscard]] inline double logDeterminant(const Eigen::LLT<RowMatrix>& llt)
-{
-  return 2. * llt.matrixLLT().diagonal().array().log().sum();
-}
-
-/// The inverse of the matrix factorised in \a llt (n x n, row-major).
-[[nodiscard]] inline std::vector<double> inverseOf(const Eigen::LLT<RowMatrix>& llt, int n)
-{
-  std::vector<double> inverse(static_cast<std::size_t>(n * n));
-  matrixOf(inverse, n, n) = llt.solve(RowMatrix::Identity(n, n));
-  return inverse;
-}
-
-/// A track state's 5 x 5 covariance in double.
+/// A track state's 5 x 5 covariance in double, row-major.
 template <typename State>
-[[nodiscard]] RowMatrix covarianceOf(const State& state)
+[[nodiscard]] std::vector<double> covarianceOf(const State& state)
 {
-  RowMatrix covariance(5, 5);
+  std::vector<double> covariance(25U);
   for (int r = 0; r < 5; ++r) {
     for (int c = 0; c < 5; ++c) {
-      covariance(r, c) = state.covAt(r, c);
+      covariance[(r * 5) + c] = state.covAt(r, c);
     }
   }
   return covariance;
 }
 
 /// The weight (inverse covariance, 5 x 5, row-major) of the covariance
-/// factorised in \a llt.
-inline void weightOf(const Eigen::LLT<RowMatrix>& llt, std::array<double, 25>& weight)
+/// factored in \a cholesky.
+inline void weightOf(Cholesky& cholesky, std::array<double, 25>& weight)
 {
-  Eigen::Map<Eigen::Matrix<double, 5, 5, Eigen::RowMajor>>{weight.data()} = llt.solve(RowMatrix::Identity(5, 5));
+  dense::choleskyInverse(viewOf(cholesky.l, 5), 5, dense::MatrixView<double>{weight.data(), 5});
 }
 
 /// A positive semi-definite matrix's factor L, L L^T = \a a (n x n,
-/// row-major), from the pivoted LDL^T: L = P^T L' D^1/2, a pivot that is not
-/// positive -- the matrix singular there, or below zero by rounding --
-/// leaving its column zero. L is not triangular.
+/// row-major): the pivoted L D L^T's P^T L D^1/2 (`dense::semidefiniteFactor`).
+/// L is not triangular.
 [[nodiscard]] inline std::vector<double> semidefiniteFactor(const std::vector<double>& a, int n)
 {
-  const Eigen::LDLT<RowMatrix> ldlt(matrixOf(a, n, n));
-  const Eigen::VectorXd root = ldlt.vectorD().cwiseMax(0.).cwiseSqrt();
-  RowMatrix l = RowMatrix(ldlt.matrixL()) * root.asDiagonal();
-  l = ldlt.transpositionsP().transpose() * l;
+  std::vector<double> work = a;
+  std::vector<int> order(static_cast<std::size_t>(n));
   std::vector<double> factor(static_cast<std::size_t>(n * n));
-  matrixOf(factor, n, n) = l;
+  dense::semidefiniteFactor(viewOf(work, n), n, order.data(), viewOf(factor, n));
   return factor;
 }
 

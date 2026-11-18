@@ -176,7 +176,7 @@ template <typename Evaluate, typename ConstraintsAt>
   using namespace decay_fit_detail;
   std::vector<double> normal(static_cast<std::size_t>(n * n));
   std::vector<double> gradient(static_cast<std::size_t>(n));
-  Eigen::LLT<RowMatrix> llt;
+  Cholesky llt;
   std::vector<double> step;
   std::vector<double> multipliers;
   std::vector<double> trial(static_cast<std::size_t>(n));
@@ -210,10 +210,10 @@ template <typename Evaluate, typename ConstraintsAt>
       }
       violation = violationOf();
     } else {
-      if (!factorise(llt, matrixOf(normal, n, n))) {
+      if (!llt.factor(normal, n)) {
         return DecayFitStatus::kSingular;
       }
-      vectorOf(step) = llt.solve(vectorOf(gradient));
+      llt.solve(step);
     }
     metric = (mu * violation) - lambdaC;
     for (int a = 0; a < n; ++a) {
@@ -920,8 +920,8 @@ template <typename Material>
         }
         for (int j = 0; j < mixture.size; ++j) {
           const auto& one = mixture.components[j].state;
-          Eigen::LLT<RowMatrix> llt;
-          if (!factorise(llt, covarianceOf(one))) {
+          Cholesky llt;
+          if (!llt.factor(covarianceOf(one), 5)) {
             continue; // a component without a covariance is no measurement
           }
           Component component{.logWeight = static_cast<double>(mixture.components[j].logWeight) - largest - std::log(total)};
@@ -929,7 +929,7 @@ template <typename Material>
           for (int r = 0; r < 5; ++r) {
             component.measurement.value[r] = one.par[r];
           }
-          component.logDetCovariance = logDeterminant(llt);
+          component.logDetCovariance = llt.logDeterminant();
           weightOf(llt, component.measurement.weight);
           kept.push_back(component);
         }
@@ -940,8 +940,8 @@ template <typename Material>
         }
         covarianceFromFactors(factors, state.cov);
       }
-      Eigen::LLT<RowMatrix> llt;
-      if (!factorise(llt, covarianceOf(state))) {
+      Cholesky llt;
+      if (!llt.factor(covarianceOf(state), 5)) {
         return DecayFitStatus::kSingular;
       }
       auto& m = measurements[i];
@@ -1204,12 +1204,12 @@ template <typename Material>
       return result;
     }
   } else {
-    Eigen::LLT<RowMatrix> llt;
-    if (!factorise(llt, matrixOf(normal, n, n))) {
+    Cholesky llt;
+    if (!llt.factor(normal, n)) {
       result.status = DecayFitStatus::kSingular;
       return result;
     }
-    result.covariance = inverseOf(llt, n);
+    result.covariance = llt.inverse();
   }
   // The Gaussian sum: the electrons' carried mixtures kept, a fit per
   // combination of their components (one each) from this solution under this
@@ -1259,16 +1259,28 @@ template <typename Material>
             std::vector<double> unused;
             double logKKT = 0.;
             ok = constraintsAt(fit.parameters) && constrainedStep(matrix, n, rhs, rows, values, unused, &fit.covariance, nullptr, &logKKT);
-            const auto c = matrixOf(rows, static_cast<int>(values.size()), n);
-            Eigen::LLT<RowMatrix> llt;
-            ok = ok && factorise(llt, c * c.transpose());
-            logVolume = ok ? logKKT - logDeterminant(llt) : 0.;
+            // C C^T, m x m.
+            const int m = static_cast<int>(values.size());
+            std::vector<double> square(static_cast<std::size_t>(m * m), 0.);
+            for (int j = 0; j < m; ++j) {
+              for (int k = 0; k <= j; ++k) {
+                double sum = 0.;
+                for (int b = 0; b < n; ++b) {
+                  sum += rows[(j * n) + b] * rows[(k * n) + b];
+                }
+                square[(j * m) + k] = sum;
+                square[(k * m) + j] = sum;
+              }
+            }
+            Cholesky llt;
+            ok = ok && llt.factor(square, m);
+            logVolume = ok ? logKKT - llt.logDeterminant() : 0.;
           } else if (ok) {
-            Eigen::LLT<RowMatrix> llt;
-            ok = factorise(llt, matrixOf(matrix, n, n));
+            Cholesky llt;
+            ok = llt.factor(matrix, n);
             if (ok) {
-              logVolume = logDeterminant(llt);
-              fit.covariance = inverseOf(llt, n);
+              logVolume = llt.logDeterminant();
+              fit.covariance = llt.inverse();
             }
           }
           if (ok) {
