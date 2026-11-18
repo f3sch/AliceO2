@@ -32,6 +32,10 @@ namespace o2::gtrk::detectors
 
 struct ITS {
   static constexpr const char* name = "ITS";
+  /// The layers on which a particle can leave two rows, on two overlapping
+  /// sensors (LayerLinks.h `overlapLayers`): every one -- neighbouring
+  /// staves overlap, and in the outer barrel a stave's two half-staves.
+  static constexpr std::uint64_t overlapLayers = 0b1111111U;
   // clang-format off
   // Measured values that happen to lie near mathematical constants are not them.
   // NOLINTBEGIN(modernize-use-std-numbers)
