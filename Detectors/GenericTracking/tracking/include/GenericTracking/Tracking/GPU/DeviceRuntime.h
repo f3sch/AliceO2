@@ -47,6 +47,8 @@ namespace o2::gtrk
 /// include DeviceTracker.h.
 template <DetectorLayout Det, typename Material>
 class DeviceTracker;
+template <DetectorLayout Det, typename Material>
+class DeviceDecayFitter;
 
 /// One device-to-device copy of copyEachOnDevice.
 struct DeviceCopy {
@@ -114,6 +116,19 @@ class DeviceRuntime
     }
   }
 
+  /// The device decay vertex fitter for \a D (DeviceDecayFitter.h), its
+  /// arena on \a block; std::runtime_error for a layout the backends do not
+  /// fit decays of (ALICE 3's TRKFT3 only).
+  template <DetectorLayout D>
+  [[nodiscard]] std::unique_ptr<DeviceDecayFitter<D, o2::base::MatLayerCylSet>> makeDecayFitter(DeviceBlock block)
+  {
+    if constexpr (std::is_same_v<D, detectors::TRKFT3>) {
+      return makeTRKFT3DecayFitter(block);
+    } else {
+      throw std::runtime_error(std::string{"GPU backend "} + backend() + ": no device decay fitter is built for " + D::name);
+    }
+  }
+
  protected:
   [[nodiscard]] virtual void* createStreamHandle() = 0;
 
@@ -126,6 +141,7 @@ class DeviceRuntime
   [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::ITS, o2::base::MatLayerCylSet>> makeITSTracker(DeviceBlock block) = 0;
   [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::MFT, o2::base::MatLayerCylSet>> makeMFTTracker(DeviceBlock block) = 0;
   [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3Tracker(DeviceBlock block) = 0;
+  [[nodiscard]] virtual std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3DecayFitter(DeviceBlock block) = 0;
 };
 
 } // namespace o2::gtrk

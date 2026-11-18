@@ -58,6 +58,7 @@ class NoRuntime final : public DeviceRuntime
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::ITS, o2::base::MatLayerCylSet>> makeITSTracker(DeviceBlock /*block*/) final { fail(); }
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::MFT, o2::base::MatLayerCylSet>> makeMFTTracker(DeviceBlock /*block*/) final { fail(); }
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3Tracker(DeviceBlock /*block*/) final { fail(); }
+  [[nodiscard]] std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3DecayFitter(DeviceBlock /*block*/) final { fail(); }
 
   DeviceProperties mProperties;
 };

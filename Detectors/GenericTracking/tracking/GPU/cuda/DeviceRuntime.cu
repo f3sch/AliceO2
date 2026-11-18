@@ -15,6 +15,7 @@
 #include <cuda_runtime.h>
 
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
+#include "GenericTracking/Tracking/GPU/DeviceDecayFitter.h"
 #include "GenericTracking/Tracking/GPU/DeviceTracker.h"
 
 #include "Platform.cuh"
@@ -43,6 +44,7 @@ namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
 std::unique_ptr<DeviceTracker<detectors::ITS, o2::base::MatLayerCylSet>> makeITSTracker(DeviceRuntime& runtime, DeviceBlock block);
 std::unique_ptr<DeviceTracker<detectors::MFT, o2::base::MatLayerCylSet>> makeMFTTracker(DeviceRuntime& runtime, DeviceBlock block);
 std::unique_ptr<DeviceTracker<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3Tracker(DeviceRuntime& runtime, DeviceBlock block);
+std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3DecayFitter(DeviceRuntime& runtime, DeviceBlock block);
 
 namespace
 {
@@ -207,6 +209,7 @@ class Runtime final : public DeviceRuntime
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::ITS, o2::base::MatLayerCylSet>> makeITSTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeITSTracker(*this, block); }
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::MFT, o2::base::MatLayerCylSet>> makeMFTTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeMFTTracker(*this, block); }
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3Tracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeTRKFT3Tracker(*this, block); }
+  [[nodiscard]] std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3DecayFitter(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeTRKFT3DecayFitter(*this, block); }
 
   DeviceProperties mProperties;
 };
