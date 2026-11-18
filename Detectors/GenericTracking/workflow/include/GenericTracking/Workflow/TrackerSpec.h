@@ -12,15 +12,15 @@
 /// \file TrackerSpec.h
 /// \brief The tracking device, gtrk-<det>-tracker: the measurements in, the
 ///        tracks and the own vertexer's vertices out, in GenericTracking's
-///        own formats (DataSpecs.h's kTracks, kVertexSeeds,
-///        kVertexContributors). One device per detector, its own
+///        own formats (DataSpecs.h's kTracks, kTrackOffsets,
+///        kTrackReferences, kVertexSeeds, kVertexContributors). One device per detector, its own
 ///        instantiation.
 
 #ifndef GTRK_WORKFLOW_TRACKERSPEC_H_
 #define GTRK_WORKFLOW_TRACKERSPEC_H_
 
 #include "GenericTracking/Base/LayerSpec.h"
-#include "GenericTracking/Tracking/TrackRefit.h"
+#include "GenericTracking/Tracking/TrackStore.h"
 
 #include "Framework/DataProcessorSpec.h"
 
@@ -29,10 +29,15 @@
 namespace o2::gtrk::workflow
 {
 
-/// A track as the device publishes it: the tracker's own record, its refit's
-/// `status` with it (kOk, or why the refit failed).
+/// A track as the device publishes it: a committed track's fields
+/// (TrackStore.h), its refit's `status` with them (kOk, or why the refit
+/// failed); its references in kTrackReferences.
 template <DetectorLayout Det>
-using TrackRecord = typename TrackRefit<Det>::Tracks::Record;
+using TrackRecord = typename TrackStore<Det>::TrackRecord;
+
+/// A track's reference as the device publishes it (TrackStore.h).
+template <DetectorLayout Det>
+using TrackReferenceRecord = typename TrackStore<Det>::ReferenceRecord;
 
 /// The device; with \a withVertices the native vertex seeds (kVertices) are
 /// an input.

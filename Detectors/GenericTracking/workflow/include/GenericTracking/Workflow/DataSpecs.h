@@ -90,10 +90,19 @@ inline constexpr std::string_view kVertices{"VERTICES"};
 // The tracking device's products (TrackerSpec.h), one message each, every
 // timeframe, empty when there is nothing.
 
-/// The tracks: a flat array of the tracker's records (`TrackRecord<Det>`),
-/// in the tracker's order, every record with its refit's status. A record's
-/// clusters are rows of the same timeframe's measurement message.
+/// The tracks: a flat array of the committed tracks' records
+/// (`TrackRecord<Det>`), in the tracker's order, every record with its
+/// refit's status.
 inline constexpr std::string_view kTracks{"TRACKS"};
+
+/// Where each track's references begin in kTrackReferences: a std::uint32_t
+/// per track and one after the last, from 0.
+inline constexpr std::string_view kTrackOffsets{"TRKOFF"};
+
+/// The tracks' references (`TrackReferenceRecord<Det>`), track after track,
+/// each in path order; a reference of source 0 is a row of the same
+/// timeframe's measurement message.
+inline constexpr std::string_view kTrackReferences{"TRKREF"};
 
 /// The own vertexer's vertices: a flat array of gtrk::VertexSeed, sorted by
 /// time, then z; empty without the vertexer.

@@ -15,6 +15,7 @@
 #include "ITSMFTInput.h"
 #include "GenericTracking/WorkflowITSMFT/Clusters.h"
 #include "GenericTracking/Base/FrameTiming.h"
+#include "GenericTracking/Tracking/TrackStore.h"
 #include "GenericTracking/Workflow/TrackLabel.h"
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 
@@ -77,11 +78,10 @@ struct BCRange {
 };
 
 template <typename Record, typename LayerOf>
-[[nodiscard]] BCRange trackTime(const Record& record, std::span<const std::uint32_t> clusterIndex, const ClusterFrames& frames, std::span<const FrameTiming> timings, const LayerOf& layerOf)
+[[nodiscard]] BCRange trackTime(const Record& record, std::span<const std::uint32_t> rows, std::span<const std::uint32_t> clusterIndex, const ClusterFrames& frames, std::span<const FrameTiming> timings, const LayerOf& layerOf)
 {
   BCRange nominal{.lower = std::numeric_limits<std::int64_t>::min(), .upper = std::numeric_limits<std::int64_t>::max()};
-  for (std::uint8_t i = 0; i < record.count; ++i) {
-    const auto row = record.clusters.index[i];
+  for (const auto row : rows) {
     const auto& timing = timings[layerOf(row)];
     const auto start = frames.recordBC[frames.record[clusterIndex[row]]] + timing.firstStartBC;
     nominal.lower = std::max(nominal.lower, start);
@@ -93,13 +93,12 @@ template <typename Record, typename LayerOf>
   return {.lower = bcOfPS(record.timePS), .upper = bcOfPS(static_cast<std::int64_t>(record.timePS) + record.widthPS)};
 }
 
-/// The earliest frame (its CLUSTERSROF record) among a track's clusters.
-template <typename Record>
-[[nodiscard]] std::uint32_t earliestRecord(const Record& record, std::span<const std::uint32_t> clusterIndex, const ClusterFrames& frames)
+/// The earliest frame (its CLUSTERSROF record) among a track's \a rows.
+[[nodiscard]] inline std::uint32_t earliestRecord(std::span<const std::uint32_t> rows, std::span<const std::uint32_t> clusterIndex, const ClusterFrames& frames)
 {
   std::uint32_t earliest = std::numeric_limits<std::uint32_t>::max();
-  for (std::uint8_t i = 0; i < record.count; ++i) {
-    earliest = std::min(earliest, frames.record[clusterIndex[record.clusters.index[i]]]);
+  for (const auto row : rows) {
+    earliest = std::min(earliest, frames.record[clusterIndex[row]]);
   }
   return earliest;
 }
@@ -113,28 +112,56 @@ template <typename Record>
   return result;
 }
 
-/// The track's particle by the shared rule (TrackLabel.h), its rows'
+/// The track's particle by the shared rule (TrackLabel.h), its \a rows'
 /// clusters' labels, innermost first; \a carried gets, per row, whether it
 /// carries that particle.
-template <typename Record>
-[[nodiscard]] o2::MCCompLabel trackLabel(const Record& record, std::span<const std::uint32_t> clusterIndex, const ITSMFTInput& input, std::span<bool> carried)
+[[nodiscard]] inline o2::MCCompLabel trackLabel(std::span<const std::uint32_t> rows, std::span<const std::uint32_t> clusterIndex, const ITSMFTInput& input, std::span<bool> carried)
 {
-  constexpr std::size_t kRows = std::extent_v<std::remove_cvref_t<decltype(record.clusters.index)>>;
-  std::array<RowParticles, kRows> rows{};
-  std::array<std::uint32_t, kRows> track{};
-  for (std::uint8_t i = 0; i < record.count; ++i) {
-    const auto all = input.labels(clusterIndex[record.clusters.index[i]]);
-    rows[i] = rowParticles(std::span<const o2::MCCompLabel>{all.data(), all.size()});
-    track[i] = i;
+  std::vector<RowParticles> particles(rows.size());
+  std::vector<std::uint32_t> order(rows.size());
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    const auto all = input.labels(clusterIndex[rows[i]]);
+    particles[i] = rowParticles(std::span<const o2::MCCompLabel>{all.data(), all.size()});
+    order[i] = static_cast<std::uint32_t>(i);
   }
-  const std::span<const std::uint32_t> order{track.data(), record.count};
-  const auto majority = majorityParticle(rows, order);
-  const bool good = majority.particle != kNoTrackParticle && majority.carried == record.count;
-  for (std::uint8_t i = 0; i < record.count; ++i) {
-    carried[i] = majority.particle != kNoTrackParticle && rows[i].carries(majority.particle);
+  const auto majority = majorityParticle(particles, std::span<const std::uint32_t>{order});
+  const bool good = majority.particle != kNoTrackParticle && majority.carried == rows.size();
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    carried[i] = majority.particle != kNoTrackParticle && particles[i].carries(majority.particle);
   }
   return labelOf(majority.particle, good);
 }
+
+/// What the export takes of each track: its rows of its own detector held as
+/// its layers' (`ReferenceRole::kLayerRow`), in path order, one per layer --
+/// the ITS's and MFT's tracks have one cluster per layer. From the tracking
+/// device's products (kTrackOffsets, kTrackReferences).
+class ExportRows
+{
+ public:
+  template <typename Reference>
+  ExportRows(std::span<const std::uint32_t> offsets, std::span<const Reference> references)
+  {
+    const std::size_t tracks = offsets.empty() ? 0U : offsets.size() - 1U;
+    mOffsets.reserve(tracks + 1U);
+    mOffsets.push_back(0U);
+    mRows.reserve(references.size());
+    for (std::size_t track = 0; track < tracks; ++track) {
+      for (std::uint32_t at = offsets[track]; at < offsets[track + 1U]; ++at) {
+        if (references[at].source == kOwnRows && (references[at].role & static_cast<std::uint8_t>(ReferenceRole::kLayerRow)) != 0U) {
+          mRows.push_back(references[at].row);
+        }
+      }
+      mOffsets.push_back(static_cast<std::uint32_t>(mRows.size()));
+    }
+  }
+
+  [[nodiscard]] std::span<const std::uint32_t> of(std::size_t track) const { return {mRows.data() + mOffsets[track], mOffsets[track + 1U] - mOffsets[track]}; }
+
+ private:
+  std::vector<std::uint32_t> mOffsets;
+  std::vector<std::uint32_t> mRows;
+};
 
 /// Flatten ROF identities in the same layer order as the converter's clusters.
 [[nodiscard]] inline ClusterFrames clusterFrames(const ITSMFTInput& input, std::uint32_t orbit)

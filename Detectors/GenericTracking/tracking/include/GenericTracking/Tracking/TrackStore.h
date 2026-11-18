@@ -21,13 +21,21 @@
 /// gets a new range after the records held; its old one is no longer read and
 /// goes with the rest at the timeframe's end.
 ///
-/// The store holds one table of its own, the tracks' *references*: per
-/// reference the row it names, the source whose measurements that row indexes
-/// (`kOwnRows` for the tracker's frame, or a source the store names with
-/// `addSource`) and its role (`ReferenceRole`). Any other component may add a
-/// table of its own record type (`addTable`): a matching step's matches to its
-/// detector's measurements, say, keyed by the committed track. The tracker
-/// does not know those types; it grows every table with the tracks it commits.
+/// The store holds each committed track's own fields (`CommittedTrack`: its
+/// states, time, chi2, iteration) and one table of its own, the tracks'
+/// *references*: per reference the row it names, the source whose
+/// measurements that row indexes (`kOwnRows` for the tracker's frame, or a
+/// source the store names with `addSource`) and its role (`ReferenceRole`).
+/// Any other component may add a table of its own record type (`addTable`): a
+/// matching step's matches to its detector's measurements, say, keyed by the
+/// committed track. The tracker does not know those types; it grows every
+/// table with the tracks it commits.
+///
+/// The tracker builds and extends its tracks with their rows inline (`TrackOf`,
+/// one per layer at most) and commits them here; what reads tracks after the
+/// tracking reads the store. `flatten` and `assign` take it to and from the
+/// tracking device's products; `inlineTracks` gives back the tracker's layout
+/// for what compares or digests in it.
 ///
 /// Each table's ranges and records are plain arrays: a device holds the same
 /// columns and reads them through the same views.
@@ -46,7 +54,10 @@
 
 #include "GPUCommonDef.h"
 
+#include <algorithm>
 #include <cassert>
+#include <cstring>
+#include <new>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -95,11 +106,6 @@ namespace detail
 class TrackTableBase
 {
  public:
-  TrackTableBase() = default;
-  TrackTableBase(const TrackTableBase&) = delete;
-  TrackTableBase& operator=(const TrackTableBase&) = delete;
-  TrackTableBase(TrackTableBase&&) = delete;
-  TrackTableBase& operator=(TrackTableBase&&) = delete;
   virtual ~TrackTableBase() = default;
 
   /// Every allocation reseated on \a resource, what was held released.
@@ -108,6 +114,14 @@ class TrackTableBase
   virtual void clear() = 0;
   /// Ranges for \a tracks tracks, the new ones empty.
   virtual void resizeTracks(std::size_t tracks) = 0;
+
+ protected:
+  // A table moves as its own type only, never through the base.
+  TrackTableBase() = default;
+  TrackTableBase(const TrackTableBase&) = default;
+  TrackTableBase& operator=(const TrackTableBase&) = default;
+  TrackTableBase(TrackTableBase&&) = default;
+  TrackTableBase& operator=(TrackTableBase&&) = default;
 };
 
 /// A table type's key in a store: the address of its own variable.
@@ -195,6 +209,60 @@ class TrackTable final : public detail::TrackTableBase
   Records mRecords;
 };
 
+/// A committed track's own fields: `TrackOf`'s without its rows and their
+/// count, which are its references and their range.
+struct CommittedTrack {
+  // As for TrackletT: upstream's `apply` macro also uses the member names as
+  // enum constants.
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  template <template <class> class C>
+  struct RecordT {
+    MEMLAYOUT_APPLY(RecordT, state, outwardState, timePS, widthPS, chi2, outwardChi2, ndf, status, iteration, addedOutward, addedInward, kinks, kinkCluster)
+    C<BoundTrackState> state;
+    C<BoundTrackState> outwardState;
+    C<std::uint32_t> timePS;
+    C<std::uint32_t> widthPS;
+    C<Scalar> chi2;        ///< the inward pass's
+    C<Scalar> outwardChi2; ///< the outward pass's, which `outwardState` ends
+    C<std::int16_t> ndf;
+    C<PropagationStatus> status; ///< the refit's: kOk, or why it failed
+    C<std::uint8_t> iteration;   ///< the iteration that found it
+    C<std::uint8_t> addedOutward;
+    C<std::uint8_t> addedInward;
+    C<std::uint8_t> kinks;       ///< the inward pass's
+    C<std::uint8_t> kinkCluster; ///< its last kink's position among its layer rows; kNoKink without
+  };
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  static constexpr std::uint8_t kNoKink = 0xFFU;
+};
+
+/// Track \a from's fields of \a tracks (a `TrackOf` view) into track \a to
+/// of \a committed (a `CommittedTrack` view), or back with \a Back.
+template <bool Back = false, typename TrackView, typename CommittedView>
+GPUhdi() void copyTrackFields(const TrackView& tracks, std::size_t from, const CommittedView& committed, std::size_t to)
+{
+  const auto copy = [](auto&& field, auto&& trackField) {
+    if constexpr (Back) {
+      trackField = field;
+    } else {
+      field = trackField;
+    }
+  };
+  copy(committed.state[to], tracks.state[from]);
+  copy(committed.outwardState[to], tracks.outwardState[from]);
+  copy(committed.timePS[to], tracks.timePS[from]);
+  copy(committed.widthPS[to], tracks.widthPS[from]);
+  copy(committed.chi2[to], tracks.chi2[from]);
+  copy(committed.outwardChi2[to], tracks.outwardChi2[from]);
+  copy(committed.ndf[to], tracks.ndf[from]);
+  copy(committed.status[to], tracks.status[from]);
+  copy(committed.iteration[to], tracks.iteration[from]);
+  copy(committed.addedOutward[to], tracks.addedOutward[from]);
+  copy(committed.addedInward[to], tracks.addedInward[from]);
+  copy(committed.kinks[to], tracks.kinks[from]);
+  copy(committed.kinkCluster[to], tracks.kinkCluster[from]);
+}
+
 /// The references of a track's inline rows (`TrackOf`'s `clusters`, the first
 /// `count`): each its own detector's row, held as its layer's. A device
 /// stage fills the same way.
@@ -225,7 +293,12 @@ class TrackStore
  public:
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using References = TrackTable<TrackReference::template RecordT>;
+  /// The tracker's tracks as it builds them, rows inline (`TrackOf`).
   using Tracks = typename TrackRefit<Det>::Tracks;
+  /// The committed tracks' own fields.
+  using TrackColumns = BoundedColumns<CommittedTrack::template RecordT>;
+  using TrackRecord = typename TrackColumns::Record;
+  using ReferenceRecord = typename References::Record;
 
   TrackStore() { mSources.emplace_back("rows"); }
 
@@ -240,6 +313,7 @@ class TrackStore
   void clear()
   {
     mTracks = 0U;
+    mTrackColumns.resize(0U);
     mReferences.clear();
     for (auto& table : mTables) {
       table.second->clear();
@@ -250,14 +324,24 @@ class TrackStore
   void clearStorage() noexcept
   {
     mTracks = 0U;
+    mTrackColumns.setMemoryResource(resource());
     mReferences.setMemoryResource(resource());
     for (auto& table : mTables) {
       table.second->setMemoryResource(resource());
     }
   }
 
-  /// The committed tracks: those of the store's TrackRefit, from 0.
+  /// The committed tracks, in commit order: every iteration's after the
+  /// ones before, each iteration's best first.
   [[nodiscard]] std::size_t size() const { return mTracks; }
+  [[nodiscard]] const TrackColumns& tracks() const { return mTrackColumns; }
+  /// \a track's rows in its own detector's frame, in path order: its
+  /// references' rows, every reference being one of the tracker's rows.
+  [[nodiscard]] std::span<const std::uint32_t> rows(std::size_t track) const
+  {
+    const auto range = mReferences.range(track);
+    return {mReferences.view().records.row + range.first, range.count};
+  }
   [[nodiscard]] const References& references() const { return mReferences; }
   [[nodiscard]] References& references() { return mReferences; }
 
@@ -326,19 +410,24 @@ class TrackStore
       return status;
     }
     const auto view = tracks.view();
+    const auto committed = mTrackColumns.view();
+    forEach(n, [&](std::uint32_t i) { copyTrackFields(view, begin + i, committed, begin + i); });
     const LayerRowReferences<kMaxClusters> rows{.clusters = view.clusters, .count = view.count};
     return mReferences.append(
       forEach, chunk, n, [begin](std::uint32_t i) { return begin + i; }, [&](std::uint32_t i) { return rows.references(begin + i); }, [&](std::uint32_t i, const auto& out, std::uint32_t at) { rows.write(begin + i, out, at); });
   }
 
-  /// The committed tracks whose rows in \a tracks are no longer their
-  /// references -- changed in place since their commit -- committed again.
+  /// The committed tracks as \a tracks holds them after a step changed them
+  /// in place (the follow of earlier iterations' tracks): every one's fields
+  /// again, and new references for those whose rows are no longer theirs.
   /// \a changed is the scratch for their indices.
   template <typename ForEach>
   [[nodiscard]] StageStatus recommitChanged(const ForEach& forEach, std::uint32_t chunk, const Tracks& tracks, BoundedVector<std::uint32_t>& changed)
   {
     assert(tracks.size() >= mTracks);
     const auto view = tracks.view();
+    const auto committed = mTrackColumns.view();
+    forEach(static_cast<std::uint32_t>(mTracks), [&](std::uint32_t track) { copyTrackFields(view, track, committed, track); });
     const auto status = guardOutOfMemory([&] {
       host_algorithms::compactIndices(forEach, static_cast<std::uint32_t>(mTracks), chunk, [&](std::uint32_t track) { return !holdsRows(view, track); }, changed);
       return StageStatus::kComplete;
@@ -351,20 +440,79 @@ class TrackStore
       forEach, chunk, static_cast<std::uint32_t>(changed.size()), [&](std::uint32_t i) { return changed[i]; }, [&](std::uint32_t i) { return rows.references(changed[i]); }, [&](std::uint32_t i, const auto& out, std::uint32_t at) { rows.write(changed[i], out, at); });
   }
 
-  /// Whether every committed track's references are its rows in \a tracks,
-  /// in order, each its own detector's and held as its layer's.
-  [[nodiscard]] bool holdsRowsOf(const Tracks& tracks) const
+  /// Whether the committed tracks are \a tracks: the same fields, bit for
+  /// bit, and as references its rows in order, each its own detector's and
+  /// held as its layer's.
+  [[nodiscard]] bool holds(const Tracks& tracks) const
   {
     if (tracks.size() != mTracks || mReferences.trackCount() != mTracks) {
       return false;
     }
     const auto view = tracks.view();
     for (std::size_t track = 0; track < mTracks; ++track) {
-      if (!holdsRows(view, track)) {
+      if (!holdsRows(view, track) || !sameFields(view, track)) {
         return false;
       }
     }
     return true;
+  }
+
+  /// The committed tracks as flat products, in track order: \a records their
+  /// fields, \a offsets (one more than the tracks) where each one's references
+  /// begin in \a references. Each vector is cleared first.
+  template <class Records, class Offsets, class ReferenceVector>
+  void flatten(Records& records, Offsets& offsets, ReferenceVector& references) const
+  {
+    records.clear();
+    offsets.clear();
+    references.clear();
+    records.reserve(mTracks);
+    offsets.reserve(mTracks + 1U);
+    offsets.push_back(0U);
+    for (std::size_t track = 0; track < mTracks; ++track) {
+      records.push_back(mTrackColumns.read(track));
+      const auto range = mReferences.range(track);
+      for (std::uint32_t k = 0; k < range.count; ++k) {
+        references.push_back(mReferences.read(track, k));
+      }
+      offsets.push_back(static_cast<std::uint32_t>(references.size()));
+    }
+  }
+
+  /// The store holding flat products (`flatten`'s; all three empty for no
+  /// tracks) and nothing else; the added tables stay, empty for every track. std::invalid_argument where
+  /// the offsets do not fit the records and references.
+  void assign(std::span<const TrackRecord> records, std::span<const std::uint32_t> offsets, std::span<const ReferenceRecord> references)
+  {
+    if (offsets.empty() && records.empty() && references.empty()) {
+      clear();
+      return;
+    }
+    if (offsets.size() != records.size() + 1U || offsets.front() != 0U || offsets.back() != references.size() || !std::ranges::is_sorted(offsets)) {
+      throw std::invalid_argument("track products whose offsets do not fit their tracks and references");
+    }
+    clear();
+    grow(records.size());
+    for (std::size_t track = 0; track < records.size(); ++track) {
+      mTrackColumns.write(track, records[track]);
+    }
+    const auto status = mReferences.append(
+      [](std::uint32_t n, const auto& body) {
+        for (std::uint32_t i = 0; i < n; ++i) {
+          body(i);
+        }
+      },
+      1024U, static_cast<std::uint32_t>(records.size()), [](std::uint32_t i) { return i; }, [&](std::uint32_t i) { return offsets[i + 1U] - offsets[i]; },
+      [&](std::uint32_t i, const auto& out, std::uint32_t at) {
+        for (std::uint32_t k = offsets[i]; k < offsets[i + 1U]; ++k) {
+          out.row[at + k - offsets[i]] = references[k].row;
+          out.source[at + k - offsets[i]] = references[k].source;
+          out.role[at + k - offsets[i]] = references[k].role;
+        }
+      });
+    if (status != StageStatus::kComplete) {
+      throw std::bad_alloc();
+    }
   }
 
  private:
@@ -389,8 +537,22 @@ class TrackStore
     return true;
   }
 
+  /// Whether \a track's fields are those of \a view's track, bit for bit.
+  template <typename View>
+  [[nodiscard]] bool sameFields(const View& view, std::size_t track) const
+  {
+    const auto mine = mTrackColumns.read(track);
+    TrackRecord theirs{};
+    const typename TrackColumns::View one{CommittedTrack::RecordT<memlayout::pointer>{&theirs.state, &theirs.outwardState, &theirs.timePS, &theirs.widthPS, &theirs.chi2, &theirs.outwardChi2, &theirs.ndf, &theirs.status, &theirs.iteration, &theirs.addedOutward, &theirs.addedInward, &theirs.kinks, &theirs.kinkCluster}};
+    copyTrackFields(view, track, one, 0U);
+    bool same = true;
+    mine.apply([&](const auto&... a) { theirs.apply([&](const auto&... b) { ((same = same && std::memcmp(&a, &b, sizeof(a)) == 0), ...); }); });
+    return same;
+  }
+
   void grow(std::size_t tracks)
   {
+    mTrackColumns.resize(tracks);
     mReferences.resizeTracks(tracks);
     for (auto& table : mTables) {
       table.second->resizeTracks(tracks);
@@ -400,10 +562,50 @@ class TrackStore
 
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   std::size_t mTracks = 0U;
+  TrackColumns mTrackColumns;
   References mReferences;
   std::vector<std::pair<const void*, std::unique_ptr<detail::TrackTableBase>>> mTables;
   std::vector<std::string> mSources;
 };
+
+/// The time box of a track's \a rows (`trackTimeBox`'s, from its committed
+/// rows).
+template <typename Columns>
+[[nodiscard]] TimeEstPS trackTimeBox(const Columns& columns, std::span<const std::uint32_t> rows)
+{
+  auto box = timeBoxAt(columns, rows[0]);
+  for (std::size_t i = 1; i < rows.size(); ++i) {
+    box += timeBoxAt(columns, rows[i]);
+  }
+  return box;
+}
+
+/// \a store's tracks as the tracker builds them (`TrackOf`), on \a resource:
+/// the fields, each track's rows inline and the slots after them
+/// `kNoCluster`. For what reads that layout -- the digests, a comparison with
+/// a device's tracks; std::length_error for a track with more rows than the
+/// layout holds.
+template <DetectorLayout Det>
+[[nodiscard]] typename TrackStore<Det>::Tracks inlineTracks(const TrackStore<Det>& store, std::pmr::memory_resource* resource)
+{
+  constexpr std::size_t K = TrackStore<Det>::kMaxClusters;
+  typename TrackStore<Det>::Tracks tracks;
+  tracks.setMemoryResource(resource);
+  tracks.resize(store.size());
+  const auto view = tracks.view();
+  const auto committed = store.tracks().view();
+  for (std::size_t track = 0; track < store.size(); ++track) {
+    copyTrackFields<true>(view, track, committed, track);
+    const auto rows = store.rows(track);
+    if (rows.size() > K) {
+      throw std::length_error("a committed track with more rows than a chain holds");
+    }
+    std::fill(std::begin(view.clusters[track].index), std::end(view.clusters[track].index), ClusterList<K>::kNoCluster);
+    std::copy(rows.begin(), rows.end(), view.clusters[track].index);
+    view.count[track] = static_cast<std::uint8_t>(rows.size());
+  }
+  return tracks;
+}
 
 } // namespace o2::gtrk
 

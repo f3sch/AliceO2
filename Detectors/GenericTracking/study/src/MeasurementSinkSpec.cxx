@@ -1641,7 +1641,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
 /// that ranks below it was beaten by the wrong cluster on chi2. Also the
 /// refit's chi2 per degree of freedom of the good tracks against the fakes',
 /// for what a cut on it would reach.
-void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<const TruthRow> rows, const ParticleTable& particles, const Funnel* funnel, const Controller& tracker, const TrackRefit<Det>::Tracks& tracks, const TrackingGeometry<Det>& tracking, const o2::base::MatLayerCylSet& material, const Propagator& propagator, const char* label)
+void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<const TruthRow> rows, const ParticleTable& particles, const Funnel* funnel, const Controller& tracker, const TrackStore<Det>& tracks, const TrackingGeometry<Det>& tracking, const o2::base::MatLayerCylSet& material, const Propagator& propagator, const char* label)
 {
   constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   constexpr std::size_t kClasses = 4U;
@@ -1681,10 +1681,10 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
   std::array<std::array<std::uint64_t, 2>, kClasses> tracksByClass{};
   std::array<std::array<std::uint64_t, 2>, kClasses> kinkedByClass{};
   std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> ownRows; // the fakes' labels -> every row carrying them
-  const auto view = tracks.view();
+  const auto view = tracks.tracks().view();
   for (std::size_t track = 0; track < tracks.size(); ++track) {
-    const auto count = view.count[track];
-    const std::span<const std::uint32_t> trackRows{view.clusters[track].index, count};
+    const auto count = tracks.rows(track).size();
+    const auto trackRows = tracks.rows(track);
     const auto [id, most] = majorityParticle(rows, trackRows);
     std::uint32_t pattern = 0U;
     for (const auto row : trackRows) {
@@ -1732,7 +1732,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
   std::array<std::uint32_t, kMaxClusters> trackRows{};
   std::array<std::uint32_t, kMaxClusters> altRows{};
   for (const auto& fake : fakes) {
-    const auto count = view.count[fake.track];
+    const auto count = tracks.rows(fake.track).size();
     if (count - fake.most != 1U) {
       continue;
     }
@@ -1740,7 +1740,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
     ++t.oneWrong;
     std::uint32_t wrong = 0U;
     for (std::uint32_t i = 0; i < count; ++i) {
-      trackRows[i] = view.clusters[fake.track].index[i];
+      trackRows[i] = tracks.rows(fake.track)[i];
       if (!rows[trackRows[i]].carries(fake.label)) {
         wrong = i;
       }
@@ -1865,26 +1865,23 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
 /// Every track's time box, its rows' intersection: none may be empty; narrower than a row's box only where boxes are
 /// widened or staggered. And the frames a track's rows come from, told apart
 /// by their boxes' starts: more than one only with a margin.
-void reportTrackTimeBoxes(const Frame& frame, const typename TrackRefit<Det>::Tracks& tracks)
+void reportTrackTimeBoxes(const Frame& frame, const TrackStore<Det>& tracks)
 {
-  const auto view = tracks.view();
   std::uint64_t empty = 0U;
   std::uint64_t narrowed = 0U;
   std::array<std::uint64_t, 3> byFrames{}; // 1, 2, 3 or more
   double widthSumNS = 0.;
   for (std::size_t track = 0; track < tracks.size(); ++track) {
-    const auto& clusters = view.clusters[track];
-    const auto count = view.count[track];
-    const auto box = trackTimeBox(frame.measurements(), clusters, count);
+    const auto rows = tracks.rows(track);
+    const auto box = trackTimeBox(frame.measurements(), rows);
     empty += box.width == 0U ? 1U : 0U;
-    narrowed += box.width < timeBoxAt(frame.measurements(), clusters.index[0]).width ? 1U : 0U;
+    narrowed += box.width < timeBoxAt(frame.measurements(), rows[0]).width ? 1U : 0U;
     widthSumNS += 1.e-3 * static_cast<double>(box.width);
-    std::array<std::uint32_t, std::extent_v<std::remove_cvref_t<decltype(clusters.index)>>> starts{};
-    const auto rows = std::min<std::size_t>(count, starts.size());
-    for (std::size_t i = 0; i < rows; ++i) {
-      starts[i] = timeBoxAt(frame.measurements(), clusters.index[i]).start;
+    std::vector<std::uint32_t> starts(rows.size());
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+      starts[i] = timeBoxAt(frame.measurements(), rows[i]).start;
     }
-    const auto used = std::span{starts}.first(rows);
+    const std::span<std::uint32_t> used{starts};
     std::ranges::sort(used);
     const auto frames = static_cast<std::size_t>(std::ranges::distance(used.begin(), std::ranges::unique(used).begin()));
     ++byFrames[std::min<std::size_t>(frames, 3U) - 1U];
@@ -1920,14 +1917,14 @@ void addLostPairs(const Funnel::IterationStages& survived, std::array<std::uint6
 /// measureTracks's, by id, with `pt` and `longest`; \a goodTracks: each
 /// particle's good tracks.
 template <typename Particles>
-void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKiloGauss, const TrackingGeometry<Det>& tracking, const typename TrackRefit<Det>::Tracks& tracks, std::span<const TruthRow> truthRows, const Funnel* funnel, const Particles& particles, const std::unordered_map<std::uint64_t, std::vector<std::size_t>>& goodTracks, std::size_t iterations, const char* set, const TrueCrossings& crossings = {}, const ScatteringTable<Det>* scattering = nullptr, const o2::base::MatLayerCylSet* material = nullptr)
+void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKiloGauss, const TrackingGeometry<Det>& tracking, const TrackStore<Det>& tracks, std::span<const TruthRow> truthRows, const Funnel* funnel, const Particles& particles, const std::unordered_map<std::uint64_t, std::vector<std::size_t>>& goodTracks, std::size_t iterations, const char* set, const TrueCrossings& crossings = {}, const ScatteringTable<Det>* scattering = nullptr, const o2::base::MatLayerCylSet* material = nullptr)
 {
-  const auto view = tracks.view();
+  const auto view = tracks.tracks().view();
   constexpr auto nLayers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   std::vector<std::uint32_t> holder(frame.size(), std::numeric_limits<std::uint32_t>::max());
   for (std::size_t track = 0; track < tracks.size(); ++track) {
-    for (std::uint32_t i = 0; i < view.count[track]; ++i) {
-      holder[view.clusters[track].index[i]] = static_cast<std::uint32_t>(track);
+    for (std::uint32_t i = 0; i < tracks.rows(track).size(); ++i) {
+      holder[tracks.rows(track)[i]] = static_cast<std::uint32_t>(track);
     }
   }
   std::vector<bool> isGood(tracks.size(), false);
@@ -2010,7 +2007,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
   std::array<std::uint64_t, kWhys> incompleteNoHits{};
   for (const auto& [id, rows] : rowsOf) {
     const auto& list = goodTracks.at(id);
-    const auto best = *std::ranges::max_element(list, {}, [&](std::size_t track) { return view.count[track]; });
+    const auto best = *std::ranges::max_element(list, {}, [&](std::size_t track) { return tracks.rows(track).size(); });
     const auto& particle = particles.at(id);
     const auto ptBin = binOf(particle.pt, kTrackPtEdges);
     ++allLayerFound;
@@ -2047,7 +2044,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
         }
       }
     }
-    if (view.count[best] >= nLayers) {
+    if (tracks.rows(best).size() >= nLayers) {
       continue;
     }
     ++incomplete;
@@ -2055,8 +2052,8 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
     const auto iteration = std::min<std::size_t>(view.iteration[best], iterations - 1U);
     ++byIteration[iteration];
     std::uint32_t has = 0U;
-    for (std::uint32_t i = 0; i < view.count[best]; ++i) {
-      has |= 1U << layerOfRow(view.clusters[best].index[i]);
+    for (std::uint32_t i = 0; i < tracks.rows(best).size(); ++i) {
+      has |= 1U << layerOfRow(tracks.rows(best)[i]);
     }
     const auto innermost = static_cast<std::uint32_t>(std::countr_zero(has));
     const auto outermost = static_cast<std::uint32_t>(std::bit_width(has)) - 1U;
@@ -2325,7 +2322,7 @@ class OriginZTally
 /// if a good track is its; each further good track of it is a **clone**.
 /// \a tracked, the comparisons, gets the tracks of a complete run first. The
 /// run is \a interface's; its timeframe ends with the caller's guard.
-void measureTracks(const Frame& frame, const RecoSettings& param, const VertexConstraint& beamSpot, std::span<const VertexSeed> vertices, std::span<const TruthRow> truthRows, const ParticleTable& truth, const Funnel* funnel, const ComparisonSettings& findableRule, workflow::TrackingInterface<Det>& interface, const std::function<void(const TrackRefit<Det>::Tracks&)>& tracked = {}, const TrueCrossings& crossings = {})
+void measureTracks(const Frame& frame, const RecoSettings& param, const VertexConstraint& beamSpot, std::span<const VertexSeed> vertices, std::span<const TruthRow> truthRows, const ParticleTable& truth, const Funnel* funnel, const ComparisonSettings& findableRule, workflow::TrackingInterface<Det>& interface, const std::function<void(const TrackStore<Det>&)>& tracked = {}, const TrueCrossings& crossings = {})
 {
   const auto* label = interface.trackerLabel().c_str();
   const auto& tracking = interface.tracking();
@@ -2343,10 +2340,10 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
   const auto& result = run.result;
   const double seconds = run.seconds;
   if (tracked) {
-    tracked(*result.tracks);
+    tracked(*result.store);
   }
-  const auto& tracks = *result.tracks;
-  const auto view = tracks.view();
+  const auto& tracks = *result.store;
+  const auto view = tracks.tracks().view();
   LOGP(info, "tracks, {}: {} in {:.3f} s", label, tracks.size(), seconds);
   // The output's fingerprint: what a speed change must leave alone.
   LOGP(info, "digest, {}: {:016x}", label, trackingDigest(result, tracker.used()));
@@ -2443,11 +2440,11 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
   // Every good track of a particle, in output order: iteration, then best first.
   std::unordered_map<std::uint64_t, std::vector<std::size_t>> goodTracks;
   for (std::size_t track = 0; track < tracks.size(); ++track) {
-    const auto count = view.count[track];
+    const auto count = tracks.rows(track).size();
     const auto iteration = std::min<std::size_t>(view.iteration[track], iterations - 1U);
     ++tracksByIteration[iteration];
     ++tracksByCount[std::min<std::size_t>(count, kCountSlots - 1U)];
-    const std::span<const std::uint32_t> trackRows{view.clusters[track].index, count};
+    const auto trackRows = tracks.rows(track);
     const std::uint32_t addedInward = view.addedInward[track];
     const std::uint32_t addedOutward = view.addedOutward[track];
     const std::uint32_t added = addedInward + addedOutward;
@@ -2467,7 +2464,7 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
     if (view.kinks[track] != 0U) {
       ++kinkedTracks;
       kinkedFakes += one ? 0U : 1U;
-      const auto kinkRow = view.clusters[track].index[view.kinkCluster[track]];
+      const auto kinkRow = tracks.rows(track)[view.kinkCluster[track]];
       ++kinksByLayer[static_cast<std::size_t>(tracking.surface(frame.measurement(kinkRow).surface).layer)];
     }
     if (one) {
@@ -2774,8 +2771,8 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
     double innerA = std::numeric_limits<double>::max();
     double outerA = 0.;
     std::array<bool, Frame::kLayerCount> layersA{};
-    for (std::uint32_t i = 0; i < view.count[a]; ++i) {
-      const auto row = view.clusters[a].index[i];
+    for (std::uint32_t i = 0; i < tracks.rows(a).size(); ++i) {
+      const auto row = tracks.rows(a)[i];
       innerA = std::min(innerA, distance(row));
       outerA = std::max(outerA, distance(row));
       layersA[std::min(layerOf(row), Frame::kLayerCount - 1U)] = true;
@@ -2785,8 +2782,8 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
       double innerB = std::numeric_limits<double>::max();
       double outerB = 0.;
       bool sameLayers = true;
-      for (std::uint32_t i = 0; i < view.count[b]; ++i) {
-        const auto row = view.clusters[b].index[i];
+      for (std::uint32_t i = 0; i < tracks.rows(b).size(); ++i) {
+        const auto row = tracks.rows(b)[i];
         innerB = std::min(innerB, distance(row));
         outerB = std::max(outerB, distance(row));
         sameLayers &= layersA[std::min(layerOf(row), Frame::kLayerCount - 1U)];
@@ -2803,7 +2800,7 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
       const auto iterationB = std::min<std::size_t>(view.iteration[b], iterations - 1U);
       ++cloneRelations[iterationA][iterationB][relation];
       if (relation == kInner || relation == kOuter) {
-        const auto need = static_cast<std::uint32_t>(view.count[a]) + view.count[b];
+        const auto need = static_cast<std::uint32_t>(tracks.rows(a).size()) + tracks.rows(b).size();
         const auto stage = funnel != nullptr ? funnel->stages(id, 0U) : std::nullopt;
         const auto splitParticle = particles.find(id);
         Split split = kSplitElse;
@@ -2837,7 +2834,7 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
         }
         ++splits[split];
       }
-      ++cloneClusters[std::min<std::size_t>(view.count[b], kCountSlots - 1U)];
+      ++cloneClusters[std::min<std::size_t>(tracks.rows(b).size(), kCountSlots - 1U)];
     }
   }
   for (std::size_t iterationA = 0; iterationA < result.iterations.size(); ++iterationA) {
@@ -3216,12 +3213,12 @@ class MeasurementSinkTask : public Task
     const auto theirs = mO2Tracks && !comparisonRows.empty() ? o2TrackRows(frame) : TrackRows{};
     // --qa-output: the tracker's tracks into the QA, after what else reads
     // them.
-    using Tracked = std::function<void(const TrackRefit<Det>::Tracks&)>;
+    using Tracked = std::function<void(const TrackStore<Det>&)>;
     const auto withQA = [&](Tracked tracked) -> Tracked {
       if (!mQAOutput || comparisonRows.empty()) {
         return tracked;
       }
-      return [&, tracked = std::move(tracked)](const TrackRefit<Det>::Tracks& tracks) {
+      return [&, tracked = std::move(tracked)](const TrackStore<Det>& tracks) {
         if (tracked) {
           tracked(tracks);
         }
@@ -3234,7 +3231,7 @@ class MeasurementSinkTask : public Task
       if (!mTruthStudies || !mTruthStudies->takes(ChainSource::kTracks)) {
         return tracked;
       }
-      return [&, tracked = std::move(tracked)](const TrackRefit<Det>::Tracks& tracks) {
+      return [&, tracked = std::move(tracked)](const TrackStore<Det>& tracks) {
         if (tracked) {
           tracked(tracks);
         }
@@ -3243,7 +3240,7 @@ class MeasurementSinkTask : public Task
     };
     const auto comparisons = [&]() -> Tracked {
       if (!comparisonRows.empty()) {
-        return [&](const TrackRefit<Det>::Tracks& tracks) {
+        return [&](const TrackStore<Det>& tracks) {
           if (mO2Tracks) {
             compareWithO2(frame, comparisonRows, comparisonParticles, tracks, theirs);
           }
@@ -3256,7 +3253,7 @@ class MeasurementSinkTask : public Task
       }
       if (mO2Tracks && !mUseMC) {
         // Real data: no truth, O2's tracks of the same clusters are the yardstick.
-        return [&](const TrackRefit<Det>::Tracks& tracks) { compareWithO2ByClusters(frame, tracks); };
+        return [&](const TrackStore<Det>& tracks) { compareWithO2ByClusters(frame, tracks); };
       }
       return {};
     };
@@ -3280,7 +3277,7 @@ class MeasurementSinkTask : public Task
       if (mTrackerProducts != TrackerProducts::kCompare) {
         return tracked;
       }
-      return [&, tracked = std::move(tracked)](const TrackRefit<Det>::Tracks& tracks) {
+      return [&, tracked = std::move(tracked)](const TrackStore<Det>& tracks) {
         compareWithDevice(pc, tracks, pass != nullptr ? &pass->found : nullptr);
         if (tracked) {
           tracked(tracks);
@@ -3329,12 +3326,9 @@ class MeasurementSinkTask : public Task
   /// tracks and its vertexer's list. One line per timeframe.
   static void logTrackerDigests(ProcessingContext& pc, const Frame& frame)
   {
-    using Record = workflow::TrackRecord<Det>;
-    const auto records = pc.inputs().get<gsl::span<Record>>("deviceTracks");
     const auto vertices = pc.inputs().get<gsl::span<VertexSeed>>("deviceVertices");
     const auto contributors = pc.inputs().get<gsl::span<std::uint32_t>>("deviceContributors");
-    BoundedMemoryResource resource;
-    const auto tracks = recordsTracks<Det>(std::span<const Record>{records.data(), records.size()}, &resource);
+    const auto tracks = deviceStore(pc);
     LOGP(info, "tracker-digests, {}, orbit {}: {} tracks, {} vertices; digest, tracks: {:016x}; digest, tracks in clusters: {:016x}; digest, vertices: {:016x}", Det::name, pc.services().get<o2::framework::TimingInfo>().firstTForbit, tracks.size(), vertices.size(), tracksDigest(tracks), tracksClusterDigest<Det>(tracks, frame), vertexDigest(std::span<const VertexSeed>{vertices.data(), vertices.size()}, std::span<const std::uint32_t>{contributors.data(), contributors.size()}));
   }
 
@@ -3343,10 +3337,9 @@ class MeasurementSinkTask : public Task
   /// \a found (none without it): every record field by field, failed refits
   /// included, every vertex and contributor count. One line per timeframe;
   /// the run fails on the first difference.
-  static void compareWithDevice(ProcessingContext& pc, const typename TrackRefit<Det>::Tracks& tracks, const VertexerResult* found)
+  static void compareWithDevice(ProcessingContext& pc, const TrackStore<Det>& tracks, const VertexerResult* found)
   {
-    using Record = workflow::TrackRecord<Det>;
-    const auto theirs = pc.inputs().get<gsl::span<Record>>("deviceTracks");
+    const auto theirs = deviceStore(pc);
     const auto theirVertices = pc.inputs().get<gsl::span<VertexSeed>>("deviceVertices");
     const auto theirContributors = pc.inputs().get<gsl::span<std::uint32_t>>("deviceContributors");
     const std::span<const VertexSeed> vertices = found != nullptr ? std::span<const VertexSeed>{found->vertices} : std::span<const VertexSeed>{};
@@ -3357,8 +3350,21 @@ class MeasurementSinkTask : public Task
       difference = fmt::format("the device has {} tracks", theirs.size());
     } else {
       for (std::size_t track = 0; track < tracks.size(); ++track) {
-        if (const auto field = differingField(tracks.read(track), theirs[track]); field >= 0) {
+        if (const auto field = differingField(tracks.tracks().read(track), theirs.tracks().read(track)); field >= 0) {
           difference = fmt::format("track {}, field {} (memlayout order)", track, field);
+          break;
+        }
+        const auto mine = tracks.references();
+        const auto other = theirs.references();
+        const auto range = mine.range(track);
+        bool same = range.count == other.range(track).count;
+        for (std::uint32_t k = 0; same && k < range.count; ++k) {
+          const auto a = mine.read(track, k);
+          const auto b = other.read(track, k);
+          same = a.row == b.row && a.source == b.source && a.role == b.role;
+        }
+        if (!same) {
+          difference = fmt::format("track {}, its references", track);
           break;
         }
       }
@@ -3375,6 +3381,20 @@ class MeasurementSinkTask : public Task
       return;
     }
     LOGP(info, "compare-tracks, {}, orbit {}: {} tracks, {} vertices: equal", Det::name, orbit, tracks.size(), vertices.size());
+  }
+
+  /// The tracking device's tracks of this timeframe (TrackerSpec.h), as a
+  /// store.
+  static TrackStore<Det> deviceStore(ProcessingContext& pc)
+  {
+    using Record = workflow::TrackRecord<Det>;
+    using Reference = workflow::TrackReferenceRecord<Det>;
+    const auto records = pc.inputs().get<gsl::span<Record>>("deviceTracks");
+    const auto offsets = pc.inputs().get<gsl::span<std::uint32_t>>("deviceTrackOffsets");
+    const auto references = pc.inputs().get<gsl::span<Reference>>("deviceTrackReferences");
+    TrackStore<Det> store;
+    store.assign(std::span<const Record>{records.data(), records.size()}, std::span<const std::uint32_t>{offsets.data(), offsets.size()}, std::span<const Reference>{references.data(), references.size()});
+    return store;
   }
 
   /// The first field of \a mine whose bytes differ from \a theirs, in
@@ -3489,9 +3509,9 @@ class MeasurementSinkTask : public Task
     streamVertices(*mQAOutput, vertices);
   }
 
-  void streamQA(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& particles, const Funnel* funnel, const typename TrackRefit<Det>::Tracks& tracks, const TrackRows* theirs)
+  void streamQA(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& particles, const Funnel* funnel, const TrackStore<Det>& tracks, const TrackRows* theirs)
   {
-    const auto view = tracks.view();
+    const auto view = tracks.tracks().view();
     const TrackRows ours = trackRows(tracks);
     std::vector<TrackKinematics> kinematics(tracks.size());
     std::vector<QAResolution> resolution;
@@ -3529,7 +3549,7 @@ class MeasurementSinkTask : public Task
         .origin = static_cast<std::uint8_t>(found->second.origin),
         .iteration = view.iteration[track],
         .kinks = view.kinks[track],
-        .clusters = view.count[track],
+        .clusters = tracks.rows(track).size(),
         .layer = static_cast<std::uint8_t>(rows[*innermost].layer),
         .fitPt = static_cast<float>(truth->fittedPt),
         .ptResidual = static_cast<float>((truth->fittedPt / truth->pt) - 1.),
@@ -3903,18 +3923,18 @@ class MeasurementSinkTask : public Task
   /// reproduced when one holds exactly its clusters; a GTRK track is O2's
   /// when it shares four or more with an O2 track, and GTRK's own otherwise.
   /// Both by the track's cluster count.
-  void compareWithO2ByClusters(const Frame& frame, const typename TrackRefit<Det>::Tracks& tracks)
+  void compareWithO2ByClusters(const Frame& frame, const TrackStore<Det>& tracks)
   {
     constexpr std::uint32_t kSharedToMatch = 4U;
     const auto rowOfCluster = rowsOfClusters(frame);
     // Which GTRK tracks hold each row.
-    const auto view = tracks.view();
+    const auto view = tracks.tracks().view();
     std::vector<std::vector<std::uint32_t>> tracksOfRow(frame.size());
     std::vector<std::uint32_t> ourCount(tracks.size(), 0U);
     for (std::size_t track = 0; track < tracks.size(); ++track) {
-      ourCount[track] = view.count[track];
-      for (std::uint32_t i = 0; i < view.count[track]; ++i) {
-        tracksOfRow[view.clusters[track].index[i]].push_back(static_cast<std::uint32_t>(track));
+      ourCount[track] = tracks.rows(track).size();
+      for (std::uint32_t i = 0; i < tracks.rows(track).size(); ++i) {
+        tracksOfRow[tracks.rows(track)[i]].push_back(static_cast<std::uint32_t>(track));
       }
     }
     const auto theirs = o2Clusters(frame);
@@ -4029,8 +4049,8 @@ class MeasurementSinkTask : public Task
       }
       if (ourCount[track] < static_cast<std::uint32_t>(Detector<Det>::nLayers)) {
         std::uint32_t mask = 0U;
-        for (std::uint32_t i = 0; i < view.count[track]; ++i) {
-          mask |= 1U << layerOfRow(view.clusters[track].index[i]);
+        for (std::uint32_t i = 0; i < tracks.rows(track).size(); ++i) {
+          mask |= 1U << layerOfRow(tracks.rows(track)[i]);
         }
         ++shortPatterns[mask];
       }
@@ -4167,7 +4187,7 @@ class MeasurementSinkTask : public Task
   }
 
   /// Our tracks against O2's, \a theirs (`o2TrackRows`), with MC.
-  void compareWithO2(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& particles, const typename TrackRefit<Det>::Tracks& tracks, const TrackRows& theirs)
+  void compareWithO2(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& particles, const TrackStore<Det>& tracks, const TrackRows& theirs)
   {
     const TrackRows ours = trackRows(tracks);
     for (const auto& line : compareTrackSets(rows, particles, ours, theirs, findableRule(), "GTRK", "O2")) {
@@ -4311,7 +4331,7 @@ class MeasurementSinkTask : public Task
   /// (TrackPulls.h). Ours are bound to the sensor plane; O2's are in its
   /// tracking frame, which only the ITS's tracks are; \a hits finds O2's
   /// MC hit.
-  void measurePulls(const Frame& frame, std::span<const TruthRow> rows, const typename TrackRefit<Det>::Tracks& tracks, const TrackRows& theirs, [[maybe_unused]] const study::HitIndex& hits)
+  void measurePulls(const Frame& frame, std::span<const TruthRow> rows, const TrackStore<Det>& tracks, const TrackRows& theirs, [[maybe_unused]] const study::HitIndex& hits)
   {
     const std::vector<PullParameter> common{{.name = "across", .unit = "um", .scale = 1e4}, {.name = "along", .unit = "um", .scale = 1e4}, {.name = "phi", .unit = "mrad", .scale = 1e3}, {.name = "dip", .unit = "mrad", .scale = 1e3}, {.name = "pT", .unit = "%", .scale = 1e2}};
     PullTable ours{"GTRK at the innermost measurement, bound parameters", {{.name = "loc0", .unit = "um", .scale = 1e4}, {.name = "loc1", .unit = "um", .scale = 1e4}, {.name = "phi", .unit = "mrad", .scale = 1e3}, {.name = "theta", .unit = "mrad", .scale = 1e3}, {.name = "q/p", .unit = "1/GeV", .scale = 1.}}};
@@ -4330,11 +4350,11 @@ class MeasurementSinkTask : public Task
     auto oursBySpecies = split("GTRK q/p by species", kSpecies);
     constexpr std::array<const char*, 2> kKinkClasses{"without a kink", "with a kink"};
     auto oursByKink = split("GTRK q/p", kKinkClasses);
-    const auto view = tracks.view();
+    const auto view = tracks.tracks().view();
     std::vector<std::uint32_t> trackRows;
     for (std::size_t track = 0; track < tracks.size(); ++track) {
-      const auto& clusters = view.clusters[track];
-      trackRows.assign(std::begin(clusters.index), std::begin(clusters.index) + view.count[track]);
+      const auto mine = tracks.rows(track);
+      trackRows.assign(mine.begin(), mine.end());
       const auto particle = goodParticle(rows, trackRows);
       const auto& state = view.state[track];
       const auto innermost = std::ranges::find_if(trackRows, [&](std::uint32_t row) { return frame.measurement(row).surface == state.surface; });
@@ -4495,6 +4515,8 @@ DataProcessorSpec getMeasurementSinkSpec<Det>(bool useMC, bool withVertices, Tra
   }
   if (products != TrackerProducts::kNone) {
     inputs.emplace_back("deviceTracks", workflow::gDataOrigin, workflow::description<Det>(workflow::kTracks), 0, Lifetime::Timeframe);
+    inputs.emplace_back("deviceTrackOffsets", workflow::gDataOrigin, workflow::description<Det>(workflow::kTrackOffsets), 0, Lifetime::Timeframe);
+    inputs.emplace_back("deviceTrackReferences", workflow::gDataOrigin, workflow::description<Det>(workflow::kTrackReferences), 0, Lifetime::Timeframe);
     inputs.emplace_back("deviceVertices", workflow::gDataOrigin, workflow::description<Det>(workflow::kVertexSeeds), 0, Lifetime::Timeframe);
     inputs.emplace_back("deviceContributors", workflow::gDataOrigin, workflow::description<Det>(workflow::kVertexContributors), 0, Lifetime::Timeframe);
   }

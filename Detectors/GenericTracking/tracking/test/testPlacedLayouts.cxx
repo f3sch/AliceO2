@@ -132,8 +132,8 @@ void runEmpty()
   tracker.setTrackModel(*tracking, UniformMaterial{}, Propagator{.bzKiloGauss = 5.F});
   const auto result = tracker.run(frame, tracker.planTimeframe(frame, {}, 1, 0.));
   BOOST_TEST((result.status == StageStatus::kComplete));
-  BOOST_REQUIRE(result.tracks != nullptr);
-  BOOST_TEST(result.tracks->size() == 0U);
+  BOOST_REQUIRE(result.store != nullptr);
+  BOOST_TEST(result.store->size() == 0U);
 }
 
 } // namespace

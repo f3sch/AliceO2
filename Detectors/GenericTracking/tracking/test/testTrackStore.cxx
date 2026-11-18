@@ -117,7 +117,7 @@ BOOST_AUTO_TEST_CASE(EachCommittedTrackRefersToItsRows)
   appendTracks(tracks, {4U, 2U});
   BOOST_REQUIRE(store.commit(serial, 2U, tracks) == StageStatus::kComplete);
   BOOST_TEST(store.size() == 5U);
-  BOOST_TEST(store.holdsRowsOf(tracks));
+  BOOST_TEST(store.holds(tracks));
   BOOST_TEST(store.references().recordCount() == 3U + 0U + K + 4U + 2U);
   std::uint32_t next = 0U;
   for (std::size_t track = 0; track < store.size(); ++track) {
@@ -148,7 +148,7 @@ BOOST_AUTO_TEST_CASE(AParallelCommitIsTheSerialOne)
   Store four;
   BOOST_REQUIRE(one.commit(serial, 8U, tracks) == StageStatus::kComplete);
   BOOST_REQUIRE(four.commit(threaded, 8U, tracks) == StageStatus::kComplete);
-  BOOST_TEST(four.holdsRowsOf(tracks));
+  BOOST_TEST(four.holds(tracks));
   for (std::size_t track = 0; track < tracks.size(); ++track) {
     BOOST_TEST(one.references().range(track).first == four.references().range(track).first);
     BOOST_TEST(one.references().range(track).count == four.references().range(track).count);
@@ -170,11 +170,11 @@ BOOST_AUTO_TEST_CASE(ATrackChangedInPlaceIsCommittedAgain)
   view.clusters[0].index[3] = 7777U; // extended by a row
   view.count[0] = 4U;
   view.clusters[2].index[1] = 8888U; // its outer end replaced
-  BOOST_TEST(!store.holdsRowsOf(tracks));
+  BOOST_TEST(!store.holds(tracks));
   BoundedVector<std::uint32_t> changed;
   BOOST_REQUIRE(store.recommitChanged(serial, 2U, tracks, changed) == StageStatus::kComplete);
   BOOST_TEST((std::vector<std::uint32_t>(changed.begin(), changed.end()) == std::vector<std::uint32_t>{0U, 2U}));
-  BOOST_TEST(store.holdsRowsOf(tracks));
+  BOOST_TEST(store.holds(tracks));
   BOOST_TEST(store.references().recordCount() == before + 4U + 2U);
   BOOST_TEST(store.references().range(0).first == before);
   BOOST_TEST(store.references().range(1).first == 3U);
@@ -247,7 +247,7 @@ BOOST_AUTO_TEST_CASE(TheTimeframesStorageGoesBackToThePool)
   BOOST_TEST(matches.trackCount() == 0U);
   BOOST_TEST(store.findTable<ToyMatch::RecordT>() == &matches);
   BOOST_REQUIRE(store.commit(serial, 2U, tracks) == StageStatus::kComplete);
-  BOOST_TEST(store.holdsRowsOf(tracks));
+  BOOST_TEST(store.holds(tracks));
   store.clearStorage();
   BOOST_TEST(pool->getUsedMemory() == 0U);
 }

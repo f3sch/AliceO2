@@ -152,9 +152,8 @@ class Tracker
   /// iteration's best first, with each iteration's summary.
   struct TimeframeResult {
     StageStatus status = StageStatus::kComplete;
-    const typename TrackRefit<Det>::Tracks* tracks = nullptr;
-    /// The same tracks committed: their references, and the tables other
-    /// components add (TrackStore.h).
+    /// The tracks committed (TrackStore.h): their fields, their references,
+    /// and the tables other components add.
     const TrackStore<Det>* store = nullptr;
     std::vector<IterationSummary> iterations;
     /// The run's phases: `run`, `begin timeframe`, and the iterations' summed.
@@ -288,6 +287,10 @@ class Tracker
   [[nodiscard]] TrackStore<Det>& trackStore() { return mStore; }
   [[nodiscard]] const TrackStore<Det>& trackStore() const { return mStore; }
 
+  /// The tracks as the tracker builds and extends them, rows inline: what the
+  /// store commits, and what a checkpoint holds. Valid as the store is.
+  [[nodiscard]] const typename TrackRefit<Det>::Tracks& workingTracks() const { return mRefit.tracks(); }
+
   /// The used mask, per row: what the selection has taken so far.
   [[nodiscard]] std::span<const std::uint8_t> used() const { return mUsed; }
 
@@ -376,13 +379,14 @@ class Tracker
   /// `endTimeframe`, which releases them.
   [[nodiscard]] Checkpoint checkpoint(const TimeframeResult& result) const
   {
-    if (result.status != StageStatus::kComplete || result.tracks == nullptr) {
+    if (result.status != StageStatus::kComplete || result.store == nullptr) {
       throw std::invalid_argument("a checkpoint of an incomplete run");
     }
     Checkpoint state;
-    state.tracks.reserve(result.tracks->size());
-    for (std::size_t track = 0; track < result.tracks->size(); ++track) {
-      state.tracks.push_back(result.tracks->read(track));
+    const auto& tracks = mRefit.tracks();
+    state.tracks.reserve(tracks.size());
+    for (std::size_t track = 0; track < tracks.size(); ++track) {
+      state.tracks.push_back(tracks.read(track));
     }
     state.used.assign(mUsed.begin(), mUsed.end());
     state.summaries = result.iterations;
@@ -604,7 +608,6 @@ class Tracker
         return;
       }
     }
-    result.tracks = &mRefit.tracks();
     result.store = &mStore;
   }
 

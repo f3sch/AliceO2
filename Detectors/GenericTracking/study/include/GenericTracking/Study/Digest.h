@@ -29,6 +29,7 @@
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
+#include "GenericTracking/Tracking/TrackStore.h"
 
 #include <algorithm>
 #include <bit>
@@ -171,8 +172,10 @@ template <typename Result>
 {
   Digest digest;
   digest.add(static_cast<std::uint32_t>(result.status));
-  if (result.tracks != nullptr) {
-    digest.columns(result.tracks->view(), result.tracks->size());
+  if (result.store != nullptr) {
+    // The tracker's layout, rows inline: the same bytes as before the store.
+    const auto tracks = inlineTracks(*result.store, std::pmr::get_default_resource());
+    digest.columns(tracks.view(), tracks.size());
   }
   digest.column(used);
   addSummaries(digest, result);
@@ -239,8 +242,8 @@ template <DetectorLayout Det, typename Result>
   const auto columns = frame.measurements();
   Digest digest;
   digest.add(static_cast<std::uint32_t>(result.status));
-  if (result.tracks != nullptr) {
-    addTracksInClusters<Det>(digest, *result.tracks, frame);
+  if (result.store != nullptr) {
+    addTracksInClusters<Det>(digest, inlineTracks(*result.store, std::pmr::get_default_resource()), frame);
   }
   std::uint32_t clusterEnd = 0U;
   for (std::uint32_t row = 0; row < frame.size(); ++row) {
@@ -262,6 +265,14 @@ template <class Tracks>
   Digest digest;
   digest.columns(std::as_const(tracks).view(), tracks.size());
   return digest.result();
+}
+
+/// \a store's tracks as "digest, tracks": the tracker's layout's columns
+/// (`inlineTracks`).
+template <DetectorLayout Det>
+[[nodiscard]] std::uint64_t tracksDigest(const TrackStore<Det>& store)
+{
+  return tracksDigest(inlineTracks(store, std::pmr::get_default_resource()));
 }
 
 /// A vertex list and its contributor counts, as the vertexer gives them.
@@ -298,6 +309,12 @@ template <DetectorLayout Det>
   Digest digest;
   addTracksInClusters<Det>(digest, tracks, frame);
   return digest.result();
+}
+
+template <DetectorLayout Det>
+[[nodiscard]] std::uint64_t tracksClusterDigest(const TrackStore<Det>& store, const TimeFrame<Det>& frame)
+{
+  return tracksClusterDigest<Det>(inlineTracks(store, std::pmr::get_default_resource()), frame);
 }
 
 } // namespace o2::gtrk::study
