@@ -103,11 +103,12 @@ struct DecayDaughter {
   [[nodiscard]] double charge() const { return neutral ? 0. : (innermost.qOverP() > 0.F ? 1. : -1.); }
 };
 
-/// The root as a charged composite that left rows of its own before it
-/// decayed (a tracked Xi or Omega): its rows, the outermost first, as the fit
-/// walks them from the decay vertex against the momentum (`fitDecayVertex`'s
-/// chain), any number of them.
+/// A charged particle of the decay -- the root, or a composite below it --
+/// that left rows of its own before it decayed (a tracked Xi or Omega): its
+/// rows, the outermost first, as the fit walks them from its decay vertex
+/// against the momentum (`fitDecayVertex`'s chains), any number of them.
 struct DecayMother {
+  int vertex = 0; ///< the vertex it decayed at: the root's, or a charged composite's
   std::vector<TrackingSurface> planes;
   std::vector<std::array<double, 2>> positions;  ///< loc0, loc1 [cm]
   std::vector<std::array<double, 3>> covariance; ///< loc0, loc0 loc1, loc1 [cm^2]
@@ -411,14 +412,16 @@ template <typename Evaluate, typename ConstraintsAt>
 
 } // namespace decay_fit_detail
 
-/// A composite fitted before (\a fit, a one-vertex fit) as a neutral
-/// pseudo-track of mass \a mass, for the next level's fit: on the plane
+/// A composite fitted before (\a fit, a one-vertex fit) as a pseudo-track of
+/// mass \a mass and \a charge, for the next level's fit: on the plane
 /// through its vertex along the beam, normal to its momentum's transverse
 /// direction, loc0 0, loc1 the vertex's z, the summed momentum's phi, theta
-/// and 1/p; their covariance the fit's carried by forward differentiation
-/// (its \a jacobian, 5 x the fit's parameters, if asked).
-/// \a propagator's field is set to none: the composite flies in a line.
-[[nodiscard]] inline DecayDaughter pseudoTrackOf(const DecayVertexFitResult& fit, double mass, Propagator propagator, std::vector<double>* jacobian = nullptr)
+/// and charge / p (1/p if neutral); their covariance the fit's carried by
+/// forward differentiation (its \a jacobian, 5 x the fit's parameters, if
+/// asked). A neutral one flies in a line (\a propagator's field set to
+/// none) and is not carried; a charged one is carried with its material as
+/// any daughter.
+[[nodiscard]] inline DecayDaughter pseudoTrackOf(const DecayVertexFitResult& fit, double mass, double charge, Propagator propagator, std::vector<double>* jacobian = nullptr)
 {
   using namespace decay_fit_detail;
   using D = Dual<kConstraintInputs>;
@@ -441,7 +444,7 @@ template <typename Evaluate, typename ConstraintsAt>
   const D p = sqrt((pt * pt) + (total[2] * total[2]));
   const D phi = atan2(total[1], total[0]);
   const D theta = atan2(pt, total[2]);
-  const D inverse = D{1.} / p;
+  const D inverse = D{charge != 0. ? charge : 1.} / p;
   // loc0, loc1 where the line through the vertex crosses the plane through
   // its transverse point (normal n along its transverse direction): a shift
   // of the vertex along axis0 moves loc0; along n it slides the crossing
@@ -455,8 +458,10 @@ template <typename Evaluate, typename ConstraintsAt>
   loc1.d[1] = -cotTheta * std::sin(phi.v);
   loc1.d[2] = 1.;
   const std::array<D, 5> state{loc0, loc1, phi, theta, inverse};
-  DecayDaughter daughter{.propagator = propagator, .mass = mass, .neutral = true};
-  daughter.propagator.bzKiloGauss = 0.F;
+  DecayDaughter daughter{.propagator = propagator, .mass = mass, .neutral = charge == 0.};
+  if (daughter.neutral) {
+    daughter.propagator.bzKiloGauss = 0.F;
+  }
   daughter.propagator.massGeV = static_cast<Scalar>(mass);
   daughter.surface = beamLinePlane(static_cast<Scalar>(fit.vertex[0]), static_cast<Scalar>(fit.vertex[1]), static_cast<Scalar>(phi.v));
   for (int r = 0; r < 5; ++r) {
@@ -490,7 +495,7 @@ template <typename Evaluate, typename ConstraintsAt>
 /// a tree (\a topology) has a vertex per composite, each daughter carried to
 /// the plane about its own, and the links always constrained.
 template <typename Material>
-[[nodiscard]] DecayVertexFitResult fitDecayVertex(std::span<const DecayDaughter> daughters, const Material& material, DecayFitVariant variant, const DecayConstraints& constraints = {}, const DecayTopology& topology = {}, const DecayMother* mother = nullptr)
+[[nodiscard]] DecayVertexFitResult fitDecayVertex(std::span<const DecayDaughter> daughters, const Material& material, DecayFitVariant variant, const DecayConstraints& constraints = {}, const DecayTopology& topology = {}, std::span<const DecayMother> mothers = {})
 {
   using namespace decay_fit_detail;
   constexpr int kDerivatives = 6; // vx, vy, vz, phi, theta, q/p
@@ -498,11 +503,61 @@ template <typename Material>
   const int count = static_cast<int>(daughters.size());
   const int k = topology.vertices();
   const int core = (3 * k) + (3 * count);
-  // The chain from the root's vertex: a tracked mother's rows and the
-  // production point, two equations each, and as many nuisances after the
-  // momenta (`ScatteredEquations`).
-  const int motherRows = mother != nullptr ? static_cast<int>(mother->planes.size()) : 0;
-  const int chainCount = (2 * motherRows) + (constraints.production ? 2 : 0);
+  // The chains (below): one per charged particle that decayed here -- the
+  // root, every charged composite -- and the root if neutral under a
+  // production point; their equations two per row and two at the end, and as
+  // many nuisances after the momenta (`ScatteredEquations`).
+  struct Chain {
+    int vertex = 0;                    ///< where it decayed
+    const DecayMother* rows = nullptr; ///< its own rows, if it left any
+    int end = -2;                      ///< where it was made: its parent's vertex; -1 the production point; -2 nowhere
+    double charge = 0.;                ///< its daughters' sum [e]
+    double mass = 0.;                  ///< [GeV], for its flight's material
+    int first = 0;                     ///< its first equation among the chains'
+    int count = 0;                     ///< two per row and two at its end
+    std::vector<double> loss;          ///< the model: q/p's factor after each row
+    TrackingSurface endPlane;          ///< the model: the plane about its end point
+  };
+  std::vector<double> charges(static_cast<std::size_t>(count));
+  for (int i = 0; i < count; ++i) {
+    charges[i] = daughters[i].charge();
+  }
+  const auto chargeUnder = [&](int w) {
+    double sum = 0.;
+    for (int i = 0; i < count; ++i) {
+      sum += topology.under(i, w) ? charges[i] : 0.;
+    }
+    return sum;
+  };
+  const auto rowsAt = [&](int w) -> const DecayMother* {
+    const auto found = std::ranges::find_if(mothers, [&](const DecayMother& m) { return m.vertex == w; });
+    return found == mothers.end() ? nullptr : &*found;
+  };
+  const auto massAt = [&](int w) {
+    if (const auto* own = rowsAt(w); own != nullptr) {
+      return static_cast<double>(own->propagator.massGeV);
+    }
+    return static_cast<std::size_t>(w) < topology.massGeV.size() ? topology.massGeV[w] : (w == 0 ? constraints.massGeV : 0.);
+  };
+  std::vector<Chain> chains;
+  if (constraints.production || rowsAt(0) != nullptr) {
+    chains.push_back({.vertex = 0, .rows = rowsAt(0), .end = constraints.production ? -1 : -2, .charge = chargeUnder(0), .mass = massAt(0)});
+  }
+  for (int w = 1; w < k; ++w) {
+    if (chargeUnder(w) != 0.) {
+      chains.push_back({.vertex = w, .rows = rowsAt(w), .end = topology.parent[w], .charge = chargeUnder(w), .mass = massAt(w)});
+    }
+  }
+  int chainCount = 0;
+  int chainRows = 0;
+  for (auto& chain : chains) {
+    const int rows = chain.rows != nullptr ? static_cast<int>(chain.rows->planes.size()) : 0;
+    chain.first = chainCount;
+    chain.count = (2 * rows) + (chain.end != -2 ? 2 : 0);
+    chain.loss.assign(static_cast<std::size_t>(rows), 1.);
+    chainCount += chain.count;
+    chainRows += rows;
+  }
   const int n = core + chainCount;
   ScatteredEquations scattered{.at = core, .count = chainCount};
   if (count < 2) {
@@ -532,38 +587,36 @@ template <typename Material>
       break;
     }
   }
-  std::vector<double> charges(static_cast<std::size_t>(count));
-  for (int i = 0; i < count; ++i) {
-    charges[i] = daughters[i].charge();
-  }
-  const double rootCharge = std::accumulate(charges.begin(), charges.end(), 0.);
 
-  // The chain: from the root's vertex V with the daughters' summed momentum
-  // and charge, against the momentum through the mother's rows (outermost
-  // first), then to the plane about the production point C (through C along
-  // the beam, normal to the direction at the closest approach to it). Its
-  // model, evaluated along the current solution with each carry
-  // (`refreshChain`): the mean loss regained after each row, and the
-  // equations' covariance S = R + sum_k J_k Q_k J_k^T + S_C: R the rows'
+  // Each chain: from its vertex V with its daughters' summed momentum and
+  // charge, against the momentum through its rows (outermost first), then to
+  // the plane about its end point -- the production point C for the root, its
+  // parent's vertex for a composite: its link -- (through the point along the
+  // beam, normal to the direction at the closest approach to it). Its model,
+  // evaluated along the current solution with each carry (`refreshChain`):
+  // the mean loss regained after each row, the end's plane, and the
+  // equations' covariance S = R + sum_k J_k Q_k J_k^T + S_end: R the rows'
   // own; a scatterer at V and at each row, the Kalman's halves of the
   // segments' material on either side (Highland with the logarithm at the
   // whole path's x/X0; the loss's straggling on q/p), J_k how a kink there
-  // moves every later equation; S_C the last segment's scattering onto C,
-  // exact from the material table's moment (theta0^2 L^2 int t^2 dx / X
-  // across, over sin^2(theta) along the beam). A neutral mother crosses
-  // nothing: S = R.
-  std::vector<double> chainLoss(static_cast<std::size_t>(motherRows), 1.);
-  TrackingSurface chainPointPlane; // the plane about C, the model's (as a measurement's plane)
-  const double chainMass = mother != nullptr ? static_cast<double>(mother->propagator.massGeV) : constraints.massGeV;
-  const auto chainStart = [&](const std::vector<double>& p) {
+  // moves every later equation; S_end the last segment's scattering onto the
+  // end point, exact from the material table's moment (theta0^2 L^2
+  // int t^2 dx / X across, over sin^2(theta) along the beam). A neutral
+  // particle crosses nothing: S = R. The chains are separate particles: S is
+  // block diagonal. The material model takes unit charge (Highland's p, the
+  // loss): a doubly charged chain's flight is not modelled.
+  const auto chainStart = [&](const std::vector<double>& p, const Chain& chain) {
     using DC = Dual<kConstraintInputs>;
     FreeState<kConstraintInputs> state{};
     for (int c = 0; c < 3; ++c) {
-      state[c].v = p[c];
-      state[c].d[c] = 1.;
+      state[c].v = p[(3 * chain.vertex) + c];
+      state[c].d[(3 * chain.vertex) + c] = 1.;
     }
     std::array<DC, 3> total{};
     for (int i = 0; i < count; ++i) {
+      if (!topology.under(i, chain.vertex)) {
+        continue;
+      }
       const int q = (3 * k) + (3 * i);
       std::array<DC, 3> m{};
       for (int c = 0; c < 3; ++c) {
@@ -580,143 +633,177 @@ template <typename Material>
     const DC pTotal = sqrt((pt * pt) + (total[2] * total[2]));
     state[3] = atan2(total[1], total[0]);
     state[4] = atan2(pt, total[2]);
-    state[5] = DC{rootCharge} / pTotal;
-    return std::pair{state, pTotal.v};
+    state[5] = DC{chain.charge} / pTotal;
+    return state;
   };
-  // The plane about C for a state at (x, y) with direction phi.
-  const auto pointPlane = [&](double x, double y, double phi, double theta, double qOverP) {
-    const auto& c = constraints.point;
+  // A chain's end point at \a p: C, or its parent's vertex (a parameter).
+  const auto endPoint = [&](const std::vector<double>& p, const Chain& chain) {
+    std::array<Dual<kConstraintInputs>, 3> point{};
+    for (int c = 0; c < 3; ++c) {
+      if (chain.end == -1) {
+        point[c].v = constraints.point[c];
+      } else {
+        point[c].v = p[(3 * chain.end) + c];
+        point[c].d[(3 * chain.end) + c] = 1.;
+      }
+    }
+    return point;
+  };
+  // The plane about \a point for a state at (x, y) with direction phi.
+  const auto endPlaneOf = [&](const std::array<double, 3>& point, double x, double y, double phi, double theta, double qOverP) {
     const double curvature = physicalField * qOverP / std::sin(theta);
-    const double dx = x - c[0];
-    const double dy = y - c[1];
+    const double dx = x - point[0];
+    const double dy = y - point[1];
     const double along = (dx * std::cos(phi)) + (dy * std::sin(phi));
     const double across = (-dx * std::sin(phi)) + (dy * std::cos(phi));
-    return beamLinePlane(static_cast<Scalar>(c[0]), static_cast<Scalar>(c[1]), static_cast<Scalar>(phi + std::atan2(-curvature * along, 1. + (curvature * across))));
+    return beamLinePlane(static_cast<Scalar>(point[0]), static_cast<Scalar>(point[1]), static_cast<Scalar>(phi + std::atan2(-curvature * along, 1. + (curvature * across))));
   };
-  // The chain's equations at \a p, predicted less measured, their rows of
+  // The chains' equations at \a p, predicted less measured, their rows of
   // derivatives by (the vertices, the momenta), under the current model.
   const auto chainEquations = [&](const std::vector<double>& p, std::vector<double>& equations, std::vector<double>& coreRows) {
-    auto state = chainStart(p).first;
-    const auto push = [&](const Dual<kConstraintInputs>& value, double measured) {
-      equations.push_back(value.v - measured);
+    const auto push = [&](const Dual<kConstraintInputs>& value) {
+      equations.push_back(value.v);
       for (int c = 0; c < core; ++c) {
         coreRows.push_back(value.d[c]);
       }
     };
-    for (int j = 0; j < motherRows; ++j) {
-      FreeState<kConstraintInputs> to{};
-      std::array<Dual<kConstraintInputs>, 2> local{};
-      if (!crossToPlane(state, mother->planes[j], physicalField, to, local)) {
-        return false;
+    for (const auto& chain : chains) {
+      auto state = chainStart(p, chain);
+      const int rows = static_cast<int>(chain.loss.size());
+      for (int j = 0; j < rows; ++j) {
+        FreeState<kConstraintInputs> to{};
+        std::array<Dual<kConstraintInputs>, 2> local{};
+        if (!crossToPlane(state, chain.rows->planes[j], physicalField, to, local)) {
+          return false;
+        }
+        push(local[0] + (-chain.rows->positions[j][0]));
+        push(local[1] + (-chain.rows->positions[j][1]));
+        state = to;
+        state[5] = chain.loss[j] * state[5];
       }
-      push(local[0], mother->positions[j][0]);
-      push(local[1], mother->positions[j][1]);
-      state = to;
-      state[5] = chainLoss[j] * state[5];
-    }
-    if (constraints.production) {
-      FreeState<kConstraintInputs> to{};
-      std::array<Dual<kConstraintInputs>, 2> local{};
-      if (!crossToPlane(state, chainPointPlane, physicalField, to, local)) {
-        return false;
+      if (chain.end != -2) {
+        FreeState<kConstraintInputs> to{};
+        std::array<Dual<kConstraintInputs>, 2> local{};
+        if (!crossToPlane(state, chain.endPlane, physicalField, to, local)) {
+          return false;
+        }
+        // the end point's own place on the plane
+        const auto point = endPoint(p, chain);
+        const auto& plane = chain.endPlane;
+        std::array<Dual<kConstraintInputs>, 2> target{};
+        for (int c = 0; c < 3; ++c) {
+          const auto d = point[c] + (-static_cast<double>(plane.origin[c]));
+          target[0] = target[0] + (static_cast<double>(plane.axis0[c]) * d);
+          target[1] = target[1] + (static_cast<double>(plane.axis1[c]) * d);
+        }
+        push(local[0] - target[0]);
+        push(local[1] - target[1]);
       }
-      push(local[0], 0.);
-      push(local[1], constraints.point[2]);
     }
     return true;
   };
-  // The chain's model along \a p's trajectory.
+  // The chains' model along \a p's trajectories.
   const auto refreshChain = [&](const std::vector<double>& p) {
-    const auto begin = chainStart(p).first;
-    std::array<double, 6> state{};
-    for (int c = 0; c < 6; ++c) {
-      state[c] = begin[c].v;
-    }
-    const bool scatters = variant != DecayFitVariant::kNoMaterial && rootCharge != 0.;
-    const int planes = motherRows + (constraints.production ? 1 : 0);
-    // Each crossing's step and local Jacobians by the state before it, the
-    // segments' material and the states at the scatterers.
-    std::vector<std::array<double, 36>> step(static_cast<std::size_t>(planes));
-    std::vector<std::array<double, 12>> local(static_cast<std::size_t>(planes));
-    std::vector<o2::gtrk::detail::StepMaterial> segment(static_cast<std::size_t>(motherRows));
-    std::vector<std::array<double, 6>> at(static_cast<std::size_t>(motherRows + 1));
-    std::vector<double> straggling(static_cast<std::size_t>(motherRows), 0.);
-    at[0] = state;
-    double totalX2X0 = 0.;
-    o2::base::MatMoment last{};
-    double lastLength = 0.;
-    for (int j = 0; j < planes; ++j) {
-      const bool isRow = j < motherRows;
-      if (!isRow) {
-        chainPointPlane = pointPlane(state[0], state[1], state[3], state[4], state[5]);
-      }
-      const auto& plane = isRow ? mother->planes[j] : chainPointPlane;
-      FreeState<6> from{};
-      for (int c = 0; c < 6; ++c) {
-        from[c].v = state[c];
-        from[c].d[c] = 1.;
-      }
-      FreeState<6> to{};
-      std::array<Dual<6>, 2> loc{};
-      if (!crossToPlane(from, plane, physicalField, to, loc)) {
-        return DecayFitStatus::kNoCrossing;
-      }
-      for (int r = 0; r < 6; ++r) {
-        for (int c = 0; c < 6; ++c) {
-          step[j][(r * 6) + c] = to[r].d[c];
-        }
-      }
-      for (int r = 0; r < 2; ++r) {
-        for (int c = 0; c < 6; ++c) {
-          local[j][(r * 6) + c] = loc[r].d[c];
-        }
-      }
-      const Scalar a[3] = {static_cast<Scalar>(state[0]), static_cast<Scalar>(state[1]), static_cast<Scalar>(state[2])};
-      const Scalar b[3] = {static_cast<Scalar>(to[0].v), static_cast<Scalar>(to[1].v), static_cast<Scalar>(to[2].v)};
-      if (isRow) {
-        double scale = 1.;
-        if (scatters) {
-          segment[j] = o2::gtrk::detail::stepMaterial(material, a, b);
-          totalX2X0 += static_cast<double>(segment[j].nearerX2X0 + segment[j].fartherX2X0);
-          const auto loss = energyLoss(static_cast<Scalar>(to[5].v), static_cast<Scalar>(chainMass), segment[j].xRho);
-          if (!loss.ok) {
-            return DecayFitStatus::kStopped;
-          }
-          scale = loss.momentumScale;
-          straggling[j] = loss.varQOverP;
-        }
-        chainLoss[j] = scale;
-        for (int c = 0; c < 6; ++c) {
-          state[c] = to[c].v;
-        }
-        state[5] *= scale;
-        at[j + 1] = state;
-      } else if (scatters) {
-        // the last segment, from the innermost row (or V) to C, t from C
-        last = material.getMatMoment(static_cast<Scalar>(constraints.point[0]), static_cast<Scalar>(constraints.point[1]), static_cast<Scalar>(constraints.point[2]), a[0], a[1], a[2]);
-        lastLength = std::hypot(state[0] - constraints.point[0], state[1] - constraints.point[1], state[2] - constraints.point[2]);
-        totalX2X0 += static_cast<double>(last.x2X0);
-      }
-    }
-    // The covariance: the rows' own, then each scatterer's kink carried to
-    // every later equation.
     std::vector<double> covariance(static_cast<std::size_t>(chainCount * chainCount), 0.);
-    for (int j = 0; j < motherRows; ++j) {
-      const int e = 2 * j;
-      covariance[(e * chainCount) + e] = mother->covariance[j][0];
-      covariance[(e * chainCount) + e + 1] = mother->covariance[j][1];
-      covariance[((e + 1) * chainCount) + e] = mother->covariance[j][1];
-      covariance[((e + 1) * chainCount) + e + 1] = mother->covariance[j][2];
-    }
-    if (scatters) {
+    for (auto& chain : chains) {
+      const auto begin = chainStart(p, chain);
+      std::array<double, 6> state{};
+      for (int c = 0; c < 6; ++c) {
+        state[c] = begin[c].v;
+      }
+      const int rows = static_cast<int>(chain.loss.size());
+      const bool scatters = variant != DecayFitVariant::kNoMaterial && chain.charge != 0.;
+      const int planes = rows + (chain.end != -2 ? 1 : 0);
+      std::array<double, 3> end{};
+      if (chain.end != -2) {
+        const auto point = endPoint(p, chain);
+        end = {point[0].v, point[1].v, point[2].v};
+      }
+      // Each crossing's step and local Jacobians by the state before it, the
+      // segments' material and the states at the scatterers.
+      std::vector<std::array<double, 36>> step(static_cast<std::size_t>(planes));
+      std::vector<std::array<double, 12>> local(static_cast<std::size_t>(planes));
+      std::vector<o2::gtrk::detail::StepMaterial> segment(static_cast<std::size_t>(rows));
+      std::vector<std::array<double, 6>> at(static_cast<std::size_t>(rows + 1));
+      std::vector<double> straggling(static_cast<std::size_t>(rows), 0.);
+      at[0] = state;
+      double totalX2X0 = 0.;
+      o2::base::MatMoment last{};
+      double lastLength = 0.;
+      for (int j = 0; j < planes; ++j) {
+        const bool isRow = j < rows;
+        if (!isRow) {
+          chain.endPlane = endPlaneOf(end, state[0], state[1], state[3], state[4], state[5]);
+        }
+        const auto& plane = isRow ? chain.rows->planes[j] : chain.endPlane;
+        FreeState<6> from{};
+        for (int c = 0; c < 6; ++c) {
+          from[c].v = state[c];
+          from[c].d[c] = 1.;
+        }
+        FreeState<6> to{};
+        std::array<Dual<6>, 2> loc{};
+        if (!crossToPlane(from, plane, physicalField, to, loc)) {
+          return DecayFitStatus::kNoCrossing;
+        }
+        for (int r = 0; r < 6; ++r) {
+          for (int c = 0; c < 6; ++c) {
+            step[j][(r * 6) + c] = to[r].d[c];
+          }
+        }
+        for (int r = 0; r < 2; ++r) {
+          for (int c = 0; c < 6; ++c) {
+            local[j][(r * 6) + c] = loc[r].d[c];
+          }
+        }
+        const Scalar a[3] = {static_cast<Scalar>(state[0]), static_cast<Scalar>(state[1]), static_cast<Scalar>(state[2])};
+        const Scalar b[3] = {static_cast<Scalar>(to[0].v), static_cast<Scalar>(to[1].v), static_cast<Scalar>(to[2].v)};
+        if (isRow) {
+          double scale = 1.;
+          if (scatters) {
+            segment[j] = o2::gtrk::detail::stepMaterial(material, a, b);
+            totalX2X0 += static_cast<double>(segment[j].nearerX2X0 + segment[j].fartherX2X0);
+            const auto loss = energyLoss(static_cast<Scalar>(to[5].v), static_cast<Scalar>(chain.mass), segment[j].xRho);
+            if (!loss.ok) {
+              return DecayFitStatus::kStopped;
+            }
+            scale = loss.momentumScale;
+            straggling[j] = loss.varQOverP;
+          }
+          chain.loss[j] = scale;
+          for (int c = 0; c < 6; ++c) {
+            state[c] = to[c].v;
+          }
+          state[5] *= scale;
+          at[j + 1] = state;
+        } else if (scatters) {
+          // the last segment, from the innermost row (or V) to the end point, t from it
+          last = material.getMatMoment(static_cast<Scalar>(end[0]), static_cast<Scalar>(end[1]), static_cast<Scalar>(end[2]), a[0], a[1], a[2]);
+          lastLength = std::hypot(state[0] - end[0], state[1] - end[1], state[2] - end[2]);
+          totalX2X0 += static_cast<double>(last.x2X0);
+        }
+      }
+      // This chain's block: its rows' own, then each scatterer's kink carried
+      // to every later equation, then the last segment's onto the end.
+      const auto entry = [&](int a, int b) -> double& { return covariance[((chain.first + a) * chainCount) + chain.first + b]; };
+      for (int j = 0; j < rows; ++j) {
+        const int e = 2 * j;
+        entry(e, e) = chain.rows->covariance[j][0];
+        entry(e, e + 1) = chain.rows->covariance[j][1];
+        entry(e + 1, e) = chain.rows->covariance[j][1];
+        entry(e + 1, e + 1) = chain.rows->covariance[j][2];
+      }
+      if (!scatters) {
+        continue;
+      }
       const auto theta0 = [&](Scalar x2X0, const std::array<double, 6>& where) {
-        return static_cast<double>(highlandTheta0(x2X0, static_cast<Scalar>(totalX2X0), static_cast<Scalar>(1. / std::abs(where[5])), static_cast<Scalar>(chainMass)));
+        return static_cast<double>(highlandTheta0(x2X0, static_cast<Scalar>(totalX2X0), static_cast<Scalar>(std::abs(chain.charge / where[5])), static_cast<Scalar>(chain.mass)));
       };
       // scatterer k sits at at[k]: V (k = 0) or after row k - 1
-      for (int kink = 0; kink <= motherRows; ++kink) {
+      for (int kink = 0; kink <= rows; ++kink) {
         const auto& where = at[kink];
         double angle = 0.;
-        if (kink < motherRows) {
+        if (kink < rows) {
           const double nearer = theta0(segment[kink].nearerX2X0, where);
           angle += nearer * nearer;
         }
@@ -731,7 +818,7 @@ template <typename Material>
         for (int c = 0; c < 3; ++c) {
           g[((3 + c) * 3) + c] = 1.;
         }
-        std::vector<double> jac(static_cast<std::size_t>(chainCount * 3), 0.);
+        std::vector<double> jac(static_cast<std::size_t>(chain.count * 3), 0.);
         for (int j = kink; j < planes; ++j) {
           for (int r = 0; r < 2; ++r) {
             for (int c = 0; c < 3; ++c) {
@@ -750,33 +837,35 @@ template <typename Material>
               }
             }
           }
-          if (j < motherRows) {
+          if (j < rows) {
             for (int c = 0; c < 3; ++c) {
-              next[(5 * 3) + c] *= chainLoss[j];
+              next[(5 * 3) + c] *= chain.loss[j];
             }
           }
           g = next;
         }
-        for (int a = 0; a < chainCount; ++a) {
-          for (int b = 0; b < chainCount; ++b) {
+        for (int a = 0; a < chain.count; ++a) {
+          for (int b = 0; b < chain.count; ++b) {
             for (int c = 0; c < 3; ++c) {
-              covariance[(a * chainCount) + b] += jac[(a * 3) + c] * variance[c] * jac[(b * 3) + c];
+              entry(a, b) += jac[(a * 3) + c] * variance[c] * jac[(b * 3) + c];
             }
           }
         }
       }
-      if (constraints.production && last.x2X0 > 0.F) {
-        const double t0 = static_cast<double>(highlandTheta0(last.x2X0, static_cast<Scalar>(totalX2X0), static_cast<Scalar>(1. / std::abs(state[5])), static_cast<Scalar>(chainMass)));
+      if (chain.end != -2 && last.x2X0 > 0.F) {
+        const double t0 = static_cast<double>(highlandTheta0(last.x2X0, static_cast<Scalar>(totalX2X0), static_cast<Scalar>(std::abs(chain.charge / state[5])), static_cast<Scalar>(chain.mass)));
         const double across = t0 * t0 * lastLength * lastLength * static_cast<double>(last.x2X0T2) / static_cast<double>(last.x2X0);
         const double sinTheta = std::sin(state[4]);
-        const int e = 2 * motherRows;
-        covariance[(e * chainCount) + e] += across;
-        covariance[((e + 1) * chainCount) + e + 1] += across / (sinTheta * sinTheta);
+        const int e = 2 * rows;
+        entry(e, e) += across;
+        entry(e + 1, e + 1) += across / (sinTheta * sinTheta);
       }
     }
-    if (constraints.production) {
-      const int e = 2 * motherRows;
-      result.pointSigma = std::sqrt(covariance[(e * chainCount) + e]);
+    for (const auto& chain : chains) {
+      if (chain.end == -1) {
+        const int e = chain.first + chain.count - 2;
+        result.pointSigma = std::sqrt(covariance[(e * chainCount) + e]);
+      }
     }
     scattered.factor = semidefiniteFactor(covariance, chainCount);
     return DecayFitStatus::kOk;
@@ -942,9 +1031,11 @@ template <typename Material>
         }
       }
     }
-    // The mother's rows: the inputs' precision (`minimiseFrozen`).
-    for (int j = 0; j < motherRows; ++j) {
-      rounding += (std::pow(kEpsilon * mother->positions[j][0], 2) / mother->covariance[j][0]) + (std::pow(kEpsilon * mother->positions[j][1], 2) / mother->covariance[j][2]);
+    // The chains' rows: the inputs' precision (`minimiseFrozen`).
+    for (const auto& mother : mothers) {
+      for (std::size_t j = 0; j < mother.planes.size(); ++j) {
+        rounding += (std::pow(kEpsilon * mother.positions[j][0], 2) / mother.covariance[j][0]) + (std::pow(kEpsilon * mother.positions[j][1], 2) / mother.covariance[j][2]);
+      }
     }
     scattered.addPrior(p, n, chi2, normal, gradient);
     return true;
@@ -993,7 +1084,7 @@ template <typename Material>
   std::vector<double> gradient(static_cast<std::size_t>(n));
   std::vector<double> factor;
   double chi2 = 0.;
-  const int ndf = (2 * count) - (3 * k) + constraints.count(topology) + (2 * motherRows);
+  const int ndf = (2 * count) - (3 * k) + constraints.count(topology) + (2 * chainRows);
   // The carried measurements are the model: minimised under them, carried
   // anew to the planes about the solution, until a carry no longer moves the
   // solution by what the inputs resolve (the minimiser takes no step); once

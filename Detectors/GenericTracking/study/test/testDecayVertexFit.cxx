@@ -376,7 +376,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
     if (lambdaFit.status != DecayFitStatus::kOk) {
       continue;
     }
-    const std::vector<DecayDaughter> xi{states[2], pseudoTrackOf(lambdaFit, 1.115683, prop)};
+    const std::vector<DecayDaughter> xi{states[2], pseudoTrackOf(lambdaFit, 1.115683, 0., prop)};
     const auto fit = fitDecayVertex(std::span<const DecayDaughter>{xi}, NoMaterial{}, DecayFitVariant::kNoMaterial);
     if (fit.status != DecayFitStatus::kOk) {
       continue;
@@ -477,7 +477,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
           position[0] += gauss(random) * 5e-4;
           position[1] += gauss(random) * 5e-4;
         }
-        const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial, set, topology, &mother);
+        const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial, set, topology, std::span<const DecayMother>{&mother, 1});
         if (fit.status != DecayFitStatus::kOk) {
           continue;
         }
@@ -502,6 +502,115 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
         BOOST_TEST(std::abs(width - 1.) < 0.08);
       }
     }
+  }
+}
+
+/// A tree with a charged composite: a Xi_c+-like root at kVertex into
+/// pi+ pi+ and a Xi-, which curves 2 cm to its own decay into pi- and a
+/// Lambda, which flies 3 cm in a line into p pi-. The Xi's link is its helix
+/// from its vertex back to the root's (the fit's chain): exact inputs give
+/// the three vertices back, smeared ones unit pulls and the chi2's mean at
+/// its ndf.
+BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
+{
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  const auto vectorOf = [](const Truth& t) {
+    const double p = 1. / std::abs(t.qOverP);
+    return std::array<double, 3>{p * std::cos(t.phi) * std::sin(t.theta), p * std::sin(t.phi) * std::sin(t.theta), p * std::cos(t.theta)};
+  };
+  const auto truthOf = [](const std::array<double, 3>& v, double charge) {
+    const double p = std::hypot(v[0], v[1], v[2]);
+    return Truth{std::atan2(v[1], v[0]), std::atan2(std::hypot(v[0], v[1]), v[2]), (charge != 0. ? charge : 1.) / p};
+  };
+  // the Xi- at the root, carried 2 cm along its helix: its decay vertex and
+  // its momentum there
+  const Truth xiAtRoot{0.2, 1.3, -1. / 1.2};
+  Propagator xiProp = prop;
+  xiProp.massGeV = 1.32171F;
+  const auto start = beamLinePlane(static_cast<Scalar>(kVertex[0]), static_cast<Scalar>(kVertex[1]), static_cast<Scalar>(xiAtRoot.phi));
+  BoundTrackState xiState;
+  xiState.par[kLoc0] = 0.F;
+  xiState.par[kLoc1] = static_cast<Scalar>(kVertex[2]);
+  xiState.par[kPhi] = static_cast<Scalar>(xiAtRoot.phi);
+  xiState.par[kTheta] = static_cast<Scalar>(xiAtRoot.theta);
+  xiState.par[kQOverP] = static_cast<Scalar>(xiAtRoot.qOverP);
+  TrackingSurface on;
+  on.origin[0] = static_cast<Scalar>(kVertex[0] + (2. * std::cos(xiAtRoot.phi)));
+  on.origin[1] = static_cast<Scalar>(kVertex[1] + (2. * std::sin(xiAtRoot.phi)));
+  on.axis0[0] = static_cast<Scalar>(-std::sin(xiAtRoot.phi));
+  on.axis0[1] = static_cast<Scalar>(std::cos(xiAtRoot.phi));
+  on.axis1[2] = 1.F;
+  on.normal[0] = static_cast<Scalar>(std::cos(xiAtRoot.phi));
+  on.normal[1] = static_cast<Scalar>(std::sin(xiAtRoot.phi));
+  SolenoidJacobian jacobian;
+  BoundTrackState there = xiState;
+  const auto status = jacobianAnalytic(xiProp, xiState, start, on, PropagationDirection::kForward, jacobian, &there);
+  BOOST_REQUIRE(status == PropagationStatus::kOk || status == PropagationStatus::kOutOfBounds);
+  Scalar xiDecay[3]{};
+  surfaceToGlobal(on, there.loc0(), there.loc1(), xiDecay);
+  const std::array<double, 3> second{xiDecay[0], xiDecay[1], xiDecay[2]};
+  const auto xi = vectorOf(Truth{static_cast<double>(there.phi()), static_cast<double>(there.theta()), static_cast<double>(there.qOverP())});
+  // its daughters at its decay: a pi-, the Lambda the rest
+  const Truth bachelor{0.5, 1.25, -1. / 0.3};
+  const auto b = vectorOf(bachelor);
+  const std::array<double, 3> lambda{xi[0] - b[0], xi[1] - b[1], xi[2] - b[2]};
+  const double lambdaP = std::hypot(lambda[0], lambda[1], lambda[2]);
+  const std::array<double, 3> third{second[0] + (3. * lambda[0] / lambdaP), second[1] + (3. * lambda[1] / lambdaP), second[2] + (3. * lambda[2] / lambdaP)};
+  const Truth proton{0.1, 1.2, 1. / 0.8};
+  const auto pr = vectorOf(proton);
+  const Truth lambdaPion = truthOf({lambda[0] - pr[0], lambda[1] - pr[1], lambda[2] - pr[2]}, -1.);
+  const Truth piPlusA{-0.3, 1.5, 1. / 0.6};
+  const Truth piPlusB{0.7, 1.1, 1. / 0.4};
+  const DecayTopology topology{.vertexOf = {0, 0, 1, 2, 2}, .parent = {-1, 0, 1}};
+  const std::vector<DecayDaughter> exactStates{daughterOf(piPlusA, prop, kVertex), daughterOf(piPlusB, prop, kVertex), daughterOf(bachelor, prop, second), daughterOf(proton, prop, third), daughterOf(lambdaPion, prop, third)};
+  const std::array<std::array<double, 3>, 3> truth{kVertex, second, third};
+
+  const auto exact = fitDecayVertex(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, DecayFitVariant::kNoMaterial, {}, topology);
+  BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
+  for (int w = 0; w < 3; ++w) {
+    for (int c = 0; c < 3; ++c) {
+      BOOST_TEST(std::abs(exact.vertices[w][c] - truth[w][c]) < 1e-4); // float states
+    }
+  }
+  std::mt19937 random{1234U};
+  std::normal_distribution<double> gauss;
+  constexpr int kTrials = 1000;
+  std::array<double, 9> sum{};
+  std::array<double, 9> sum2{};
+  double chi2 = 0.;
+  int fitted = 0;
+  int ndf = 0;
+  for (int trial = 0; trial < kTrials; ++trial) {
+    auto states = exactStates;
+    for (auto& daughter : states) {
+      for (int c = 0; c < 5; ++c) {
+        daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
+      }
+    }
+    const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial, {}, topology);
+    if (fit.status != DecayFitStatus::kOk) {
+      continue;
+    }
+    ++fitted;
+    ndf = fit.ndf;
+    const int n = 9 + 15;
+    for (int k = 0; k < 9; ++k) {
+      const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covariance[k * n + k]);
+      sum[k] += pull;
+      sum2[k] += pull * pull;
+    }
+    chi2 += fit.chi2;
+  }
+  BOOST_TEST_MESSAGE("charged composite: fitted " << fitted << ", chi2 mean " << chi2 / fitted << " at ndf " << ndf);
+  BOOST_TEST(fitted >= kTrials - 5);
+  BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.1);
+  for (int k = 0; k < 9; ++k) {
+    const double mean = sum[k] / fitted;
+    const double width = std::sqrt((sum2[k] / fitted) - (mean * mean));
+    BOOST_TEST_MESSAGE("  vertex " << k / 3 << " coordinate " << k % 3 << ": pull mean " << mean << ", width " << width);
+    BOOST_TEST(std::abs(mean) < 0.12);
+    BOOST_TEST(std::abs(width - 1.) < 0.08);
   }
 }
 
