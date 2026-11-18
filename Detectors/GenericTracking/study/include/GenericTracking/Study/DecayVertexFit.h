@@ -348,11 +348,11 @@ template <typename Evaluate, typename ConstraintsAt>
   return {std::cos(state.phi()) * st, std::sin(state.phi()) * st, std::cos(state.theta())};
 }
 
-/// Each vertex's start, the deepest first: two charged daughters' helices'
+/// Each vertex's start, the deepest first, from its entries -- its daughters,
+/// and its composites, each from its own start along its daughters' summed
+/// momentum with their summed charge --: two charged entries' helices'
 /// closest approach (`closestApproach`); otherwise the closest points of two
-/// lines -- a daughter's from its innermost point along its direction (a
-/// neutral one's is its line), a composite's from its own start along its
-/// daughters' summed momentum.
+/// lines, an entry's from its point along its direction.
 [[nodiscard]] inline std::optional<std::vector<std::array<double, 3>>> treeStart(std::span<const DecayDaughter> daughters, const DecayTopology& topology)
 {
   const int k = topology.vertices();
@@ -365,27 +365,20 @@ template <typename Evaluate, typename ConstraintsAt>
         tracks.push_back(i);
       }
     }
-    if (tracks.size() >= 2 && !daughters[tracks[0]].neutral && !daughters[tracks[1]].neutral) {
-      const auto start = closestApproach(daughters[tracks[0]], daughters[tracks[1]]);
-      if (!start) {
-        return std::nullopt;
-      }
-      starts[w] = *start;
-      continue;
-    }
-    struct Line {
-      std::array<double, 3> point;
-      std::array<double, 3> direction;
-    };
-    std::vector<Line> lines;
+    // The vertex's entries: its daughters, then its composites, each as a
+    // daughter from its own start along its daughters' summed momentum with
+    // their summed charge (a helix if charged, a line if not).
+    std::vector<DecayDaughter> entries;
     for (const auto i : tracks) {
-      lines.push_back({positionOf(daughters[i].innermost, daughters[i].surface), directionOf(daughters[i].innermost)});
+      entries.push_back(daughters[i]);
     }
     for (int child = w + 1; child < k; ++child) {
       if (topology.parent[child] != w) {
         continue;
       }
       std::array<double, 3> total{};
+      double charge = 0.;
+      const DecayDaughter* field = nullptr;
       for (int i = 0; i < count; ++i) {
         if (topology.under(i, child)) {
           const auto u = directionOf(daughters[i].innermost);
@@ -393,15 +386,43 @@ template <typename Evaluate, typename ConstraintsAt>
           for (int c = 0; c < 3; ++c) {
             total[c] += p * u[c];
           }
+          charge += daughters[i].charge();
+          field = daughters[i].neutral ? field : &daughters[i];
         }
       }
-      const double norm = std::hypot(total[0], total[1], total[2]);
-      lines.push_back({starts[child], {total[0] / norm, total[1] / norm, total[2] / norm}});
+      const double p = std::hypot(total[0], total[1], total[2]);
+      const double phi = std::atan2(total[1], total[0]);
+      DecayDaughter composite{.neutral = charge == 0. || field == nullptr};
+      if (!composite.neutral) {
+        composite.propagator = field->propagator;
+      }
+      composite.surface = beamLinePlane(static_cast<Scalar>(starts[child][0]), static_cast<Scalar>(starts[child][1]), static_cast<Scalar>(phi));
+      composite.innermost.par[kLoc0] = 0.F;
+      composite.innermost.par[kLoc1] = static_cast<Scalar>(starts[child][2]);
+      composite.innermost.par[kPhi] = static_cast<Scalar>(phi);
+      composite.innermost.par[kTheta] = static_cast<Scalar>(std::atan2(std::hypot(total[0], total[1]), total[2]));
+      composite.innermost.par[kQOverP] = static_cast<Scalar>((composite.neutral ? 1. : charge) / p);
+      entries.push_back(composite);
     }
-    if (lines.size() < 2) {
+    if (entries.size() < 2) {
       return std::nullopt;
     }
-    const auto start = closestOfLines(lines[0].point, lines[0].direction, lines[1].point, lines[1].direction);
+    // Two charged entries: their helices' closest approach; else two lines.
+    std::vector<const DecayDaughter*> charged;
+    for (const auto& entry : entries) {
+      if (!entry.neutral) {
+        charged.push_back(&entry);
+      }
+    }
+    if (charged.size() >= 2) {
+      const auto start = closestApproach(*charged[0], *charged[1]);
+      if (!start) {
+        return std::nullopt;
+      }
+      starts[w] = *start;
+      continue;
+    }
+    const auto start = closestOfLines(positionOf(entries[0].innermost, entries[0].surface), directionOf(entries[0].innermost), positionOf(entries[1].innermost, entries[1].surface), directionOf(entries[1].innermost));
     if (!start) {
       return std::nullopt;
     }
