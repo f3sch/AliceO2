@@ -140,6 +140,15 @@ GPUhdi() GPUAlwaysInline() void sincosOf(double x, double& s, double& c)
 /// sin and cos of a direction for the double plane solve. Under CUDA's
 /// -use_fast_math (outside the deterministic mode) `sincosf` becomes the
 /// intrinsic, too coarse here; libdevice's precise one is called instead.
+GPUhdi() GPUAlwaysInline() void directionSincosOf(float angle, float& sine, float& cosine)
+{
+#if defined(__CUDA_ARCH__) && !defined(GPUCA_DETERMINISTIC_MODE)
+  __nv_sincosf(angle, &sine, &cosine);
+#else
+  sincosOf(angle, sine, cosine);
+#endif
+}
+
 GPUhdi() GPUAlwaysInline() void directionSincosOf(float angle, double& sine, double& cosine)
 {
   float s = 0.F;

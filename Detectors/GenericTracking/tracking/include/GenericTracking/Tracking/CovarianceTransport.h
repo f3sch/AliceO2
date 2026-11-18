@@ -200,7 +200,7 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
 /// \a T controls the transient derivative arithmetic. The propagated path,
 /// input state and stored Jacobian are Scalar; ExactScalar is retained as a
 /// host-side validation oracle while the device path uses the Scalar default.
-template <typename T = Scalar, CrossingRule Rule = CrossingRule::kFirstAhead>
+template <typename T = Scalar, CrossingRule Rule = CrossingRule::kFirstAhead, typename Solve = ExactScalar>
 GPUdi() PropagationStatus jacobianAnalytic(const Propagator& prop, const BoundParameters& reference, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection dir, SolenoidJacobian& jac, BoundParameters* propagatedState = nullptr, PropagationResult* propagatedResult = nullptr)
 {
   using Math = o2::gpu::GPUCommonMath;
@@ -209,7 +209,7 @@ GPUdi() PropagationStatus jacobianAnalytic(const Propagator& prop, const BoundPa
   // direction are what everything below is evaluated at.
   BoundParameters at = reference;
   detail::PropagationTrig direction;
-  const auto res = propagate<Rule>(prop, at, from, to, dir, &direction);
+  const auto res = propagate<Rule, Solve>(prop, at, from, to, dir, &direction);
   if (res.status != PropagationStatus::kOk && res.status != PropagationStatus::kOutOfBounds) {
     return res.status;
   }

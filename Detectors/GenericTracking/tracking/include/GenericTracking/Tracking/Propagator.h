@@ -124,10 +124,11 @@ struct PropagationTrig {
 };
 
 /// Global position of a bound state on its own surface.
-GPUhdi() GPUAlwaysInline() void boundToGlobal(const TrackingSurface& surface, ExactScalar loc0, ExactScalar loc1, ExactScalar global[3])
+template <typename T = ExactScalar>
+GPUhdi() GPUAlwaysInline() void boundToGlobal(const TrackingSurface& surface, T loc0, T loc1, T global[3])
 {
   for (int i = 0; i < 3; ++i) {
-    global[i] = static_cast<ExactScalar>(surface.origin[i]) + loc0 * static_cast<ExactScalar>(surface.axis0[i]) + loc1 * static_cast<ExactScalar>(surface.axis1[i]);
+    global[i] = static_cast<T>(surface.origin[i]) + loc0 * static_cast<T>(surface.axis0[i]) + loc1 * static_cast<T>(surface.axis1[i]);
   }
 }
 
@@ -138,29 +139,32 @@ GPUhdi() GPUAlwaysInline() void boundToGlobal(const TrackingSurface& surface, Ex
 /// projection. Both origins are floats, so their difference is exact, and what
 /// the solve then carries is a distance between two sensors rather than a
 /// distance from the interaction point.
-GPUhdi() GPUAlwaysInline() void boundDisplacement(const TrackingSurface& from, const TrackingSurface& to, ExactScalar loc0, ExactScalar loc1, ExactScalar delta[3])
+template <typename T = ExactScalar>
+GPUhdi() GPUAlwaysInline() void boundDisplacement(const TrackingSurface& from, const TrackingSurface& to, T loc0, T loc1, T delta[3])
 {
   for (int i = 0; i < 3; ++i) {
-    delta[i] = (static_cast<ExactScalar>(from.origin[i]) - static_cast<ExactScalar>(to.origin[i])) + loc0 * static_cast<ExactScalar>(from.axis0[i]) + loc1 * static_cast<ExactScalar>(from.axis1[i]);
+    delta[i] = (static_cast<T>(from.origin[i]) - static_cast<T>(to.origin[i])) + loc0 * static_cast<T>(from.axis0[i]) + loc1 * static_cast<T>(from.axis1[i]);
   }
 }
 
 /// Where a crossing displaced from the target by \a fromTarget + (dxy, dz)
 /// lands in the target plane, as local coordinates.
-GPUhdi() GPUAlwaysInline() void crossingLocal(const TrackingSurface& to, const ExactScalar fromTarget[3], const ExactScalar dxy[2], ExactScalar dz, ExactScalar loc[2])
+template <typename T = ExactScalar>
+GPUhdi() GPUAlwaysInline() void crossingLocal(const TrackingSurface& to, const T fromTarget[3], const T dxy[2], T dz, T loc[2])
 {
-  const ExactScalar d[3] = {fromTarget[0] + dxy[0], fromTarget[1] + dxy[1], fromTarget[2] + dz};
-  loc[0] = 0.;
-  loc[1] = 0.;
+  const T d[3] = {fromTarget[0] + dxy[0], fromTarget[1] + dxy[1], fromTarget[2] + dz};
+  loc[0] = T{0};
+  loc[1] = T{0};
   for (int i = 0; i < 3; ++i) {
-    loc[0] += d[i] * static_cast<ExactScalar>(to.axis0[i]);
-    loc[1] += d[i] * static_cast<ExactScalar>(to.axis1[i]);
+    loc[0] += d[i] * static_cast<T>(to.axis0[i]);
+    loc[1] += d[i] * static_cast<T>(to.axis1[i]);
   }
 }
 
-GPUhdi() GPUAlwaysInline() ExactScalar offCentreSquared(const TrackingSurface& to, const ExactScalar fromTarget[3], const ExactScalar dxy[2], ExactScalar dz)
+template <typename T = ExactScalar>
+GPUhdi() GPUAlwaysInline() T offCentreSquared(const TrackingSurface& to, const T fromTarget[3], const T dxy[2], T dz)
 {
-  ExactScalar loc[2];
+  T loc[2];
   crossingLocal(to, fromTarget, dxy, dz, loc);
   return (loc[0] * loc[0]) + (loc[1] * loc[1]);
 }
@@ -172,9 +176,10 @@ struct CrossingPlace {
   ExactScalar offCentre2 = 0.;
   bool inside = false;
 };
-GPUhdi() GPUAlwaysInline() CrossingPlace crossingPlace(const TrackingSurface& to, const ExactScalar fromTarget[3], const ExactScalar dxy[2], ExactScalar dz)
+template <typename T = ExactScalar>
+GPUhdi() GPUAlwaysInline() CrossingPlace crossingPlace(const TrackingSurface& to, const T fromTarget[3], const T dxy[2], T dz)
 {
-  ExactScalar loc[2];
+  T loc[2];
   crossingLocal(to, fromTarget, dxy, dz, loc);
   return {.offCentre2 = (loc[0] * loc[0]) + (loc[1] * loc[1]), .inside = to.bounds.isInside(static_cast<Scalar>(loc[0]), static_cast<Scalar>(loc[1]))};
 }
@@ -206,72 +211,77 @@ GPUhdi() GPUAlwaysInline() CrossingPlace crossingPlace(const TrackingSurface& to
 /// \a Rule is which of a barrel plane's two crossings is taken
 /// (`CrossingRule`); the default takes the first root ahead, and the others
 /// are their own instantiations.
-template <CrossingRule Rule = CrossingRule::kFirstAhead>
+template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Solve = ExactScalar>
 GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& state, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection dir, detail::PropagationTrig* referenceTrig = nullptr)
 {
   using Math = o2::gpu::GPUCommonMath;
   PropagationResult res;
 
-  const auto phi0 = static_cast<ExactScalar>(state.phi());
-  const auto theta0 = static_cast<ExactScalar>(state.theta());
+  const auto phi0 = static_cast<Solve>(state.phi());
+  const auto theta0 = static_cast<Solve>(state.theta());
 
   // Evaluate the stored direction in Scalar, then retain FP64 throughout the
   // plane solve. The independent helix-closure sweep bounds the direction
   // rounding together with the solve/storage error.
-  ExactScalar sinPhi = 0.;
-  ExactScalar cosPhi = 0.;
-  ExactScalar sinTheta = 0.;
-  ExactScalar cosTheta = 0.;
+  Solve sinPhi = Solve{0};
+  Solve cosPhi = Solve{0};
+  Solve sinTheta = Solve{0};
+  Solve cosTheta = Solve{0};
   directionSincosOf(static_cast<Scalar>(phi0), sinPhi, cosPhi);
   directionSincosOf(static_cast<Scalar>(theta0), sinTheta, cosTheta);
 
   // A track exactly along the beam has no transverse motion and no bound
   // representation on any plane here.
-  if (Math::Abs(sinTheta) < ExactScalar{1e-9}) {
+  if (Math::Abs(sinTheta) < Solve{1e-9}) {
     res.status = PropagationStatus::kNotFinite;
     return res;
   }
 
-  const ExactScalar kappa = prop.curvature(static_cast<ExactScalar>(state.qOverP()), sinTheta);
+  Solve kappa = 0;
+  if constexpr (std::is_same_v<Solve, ExactScalar>) {
+    kappa = prop.curvature(static_cast<ExactScalar>(state.qOverP()), sinTheta);
+  } else {
+    kappa = (static_cast<Solve>(state.qOverP()) / sinTheta) * static_cast<Solve>(prop.bzKiloGauss) * static_cast<Solve>(constants::math::B2C);
+  }
 
-  ExactScalar fromTarget[3] = {};
-  detail::boundDisplacement(from, to, static_cast<ExactScalar>(state.loc0()), static_cast<ExactScalar>(state.loc1()), fromTarget);
+  Solve fromTarget[3] = {};
+  detail::boundDisplacement<Solve>(from, to, static_cast<Solve>(state.loc0()), static_cast<Solve>(state.loc1()), fromTarget);
 
   // Transverse direction and its left normal; the pair spans the plane the
   // circle lives in.
-  const ExactScalar dT[2] = {cosPhi, sinPhi};
-  const ExactScalar perp[2] = {-sinPhi, cosPhi};
+  const Solve dT[2] = {cosPhi, sinPhi};
+  const Solve perp[2] = {-sinPhi, cosPhi};
 
-  const auto nx = static_cast<ExactScalar>(to.normal[0]);
-  const auto ny = static_cast<ExactScalar>(to.normal[1]);
-  const auto nz = static_cast<ExactScalar>(to.normal[2]);
+  const auto nx = static_cast<Solve>(to.normal[0]);
+  const auto ny = static_cast<Solve>(to.normal[1]);
+  const auto nz = static_cast<Solve>(to.normal[2]);
 
-  ExactScalar path = 0.;   // 3D path length
-  ExactScalar psi = 0.;    // turn angle
-  ExactScalar dxy[2] = {}; // transverse displacement from r0
+  Solve path = Solve{0};   // 3D path length
+  Solve psi = Solve{0};    // turn angle
+  Solve dxy[2] = {}; // transverse displacement from r0
   // The turn's sine and cosine, kept because the chord already contains them.
-  ExactScalar turnSin = 0.;
-  ExactScalar turnCos = 1.;
+  Solve turnSin = Solve{0};
+  Solve turnCos = Solve{1};
 
-  if (Math::Abs(nz) > ExactScalar{0.5}) {
+  if (Math::Abs(nz) > Solve{0.5}) {
     // A disc: the normal is along z, so z is linear in path length and the
     // solve is a division. Nothing about the helix enters it.
-    if (Math::Abs(cosTheta) < static_cast<ExactScalar>(prop.minAbsCosIncidence)) {
+    if (Math::Abs(cosTheta) < static_cast<Solve>(prop.minAbsCosIncidence)) {
       res.status = PropagationStatus::kGrazing;
       return res;
     }
     path = -fromTarget[2] / cosTheta;
-    const ExactScalar ell = path * sinTheta;
+    const Solve ell = path * sinTheta;
     psi = kappa * ell;
-    ExactScalar sA = 0.;
-    ExactScalar sB = 0.;
+    Solve sA = Solve{0};
+    Solve sB = Solve{0};
     sincVersine(psi, sA, sB);
     dxy[0] = ell * (dT[0] * sA + perp[0] * sB);
     dxy[1] = ell * (dT[1] * sA + perp[1] * sB);
     // sin(psi) = psi sinc(psi) and cos(psi) = 1 - psi versine(psi), from the
     // series that is already evaluated rather than from a second sincos.
     turnSin = psi * sA;
-    turnCos = 1. - psi * sB;
+    turnCos = Solve{1} - psi * sB;
   } else {
     // A barrel sensor: the normal has no z component, so the plane projects to
     // a *line* in the transverse plane while the trajectory projects to a
@@ -289,35 +299,35 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
     // taking the root in the form C / (B + sign(B) sqrt(D)) removes the
     // cancellation *and* the straight-line special case: at kappa = 0 it
     // collapses exactly to mu = -a (dT.t) / (dT.n).
-    const ExactScalar tx = -ny;
-    const ExactScalar ty = nx;
+    const Solve tx = -ny;
+    const Solve ty = nx;
 
     // The stored normal is a float triplet, so its norm is one only to within
     // a float's last bit. Carrying |n|^2 costs one divide and makes the solve
     // exact for the plane as stored, instead of scaling that last bit by the
     // hundredfold a grazing crossing applies to the distance to the plane.
-    const ExactScalar normal2 = nx * nx + ny * ny;
-    const ExactScalar a = (nx * fromTarget[0] + ny * fromTarget[1]) / normal2;
-    const ExactScalar quadratic = kappa * normal2;
+    const Solve normal2 = nx * nx + ny * ny;
+    const Solve a = (nx * fromTarget[0] + ny * fromTarget[1]) / normal2;
+    const Solve quadratic = kappa * normal2;
 
-    const ExactScalar bCoef = dT[0] * nx + dT[1] * ny;
-    const ExactScalar tangent = dT[0] * tx + dT[1] * ty;
-    const ExactScalar cCoef = a * (quadratic * a - ExactScalar{2} * tangent);
+    const Solve bCoef = dT[0] * nx + dT[1] * ny;
+    const Solve tangent = dT[0] * tx + dT[1] * ty;
+    const Solve cCoef = a * (quadratic * a - Solve{2} * tangent);
 
     // sqrt(D) is the transverse incidence at the crossing, so D cancels only
     // where the circle is tangent to the line -- and there the crossing does
     // not clear minAbsCosIncidence anyway. Inside the accepted band the
     // cancellation is bounded by that cut, 1e-4 of the terms, which leaves a
     // double twelve digits.
-    const ExactScalar disc = bCoef * bCoef - quadratic * cCoef;
-    if (disc < ExactScalar{0}) {
+    const Solve disc = bCoef * bCoef - quadratic * cCoef;
+    if (disc < Solve{0}) {
       // The circle never reaches the line: the track curls before the target
       // radius. A fact about the track, not a failure.
       res.status = PropagationStatus::kNoIntersection;
       return res;
     }
-    const ExactScalar den = bCoef + (bCoef >= ExactScalar{0} ? ExactScalar{1} : ExactScalar{-1}) * sqrtOf(disc);
-    if (Math::Abs(den) < ExactScalar{1e-30}) {
+    const Solve den = bCoef + (bCoef >= Solve{0} ? Solve{1} : Solve{-1}) * sqrtOf(disc);
+    if (Math::Abs(den) < Solve{1e-30}) {
       res.status = PropagationStatus::kNoIntersection;
       return res;
     }
@@ -359,38 +369,38 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
     // The default: the first root, unless it is not usable and the second
     // lands nearer the centre. The other rules, each its own instantiation:
     // the second where the rule moves off the first.
-    [[maybe_unused]] ExactScalar firstOffCentre = 0.; // NOLINT(misc-const-correctness): written in a dependent call the check does not see
+    [[maybe_unused]] Solve firstOffCentre = Solve{0}; // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     [[maybe_unused]] detail::CrossingPlace first;     // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     [[maybe_unused]] bool firstAhead = false;         // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     for (int root = 0; root < 2; ++root) {
-      const ExactScalar mu = root == 0 ? cCoef / den : den / quadratic;
-      const ExactScalar tryDxy[2] = {-a * nx + mu * tx, -a * ny + mu * ty};
+      const Solve mu = root == 0 ? cCoef / den : den / quadratic;
+      const Solve tryDxy[2] = {-a * nx + mu * tx, -a * ny + mu * ty};
 
       // Recover the turn from the chord: sin(psi) = kappa (delta . dT) and
       // cos(psi) = 1 - kappa (delta . perp), both exact and both bounded. It
       // is the principal turn, so this holds for |turn| <= pi over one step,
       // well above a turn between adjacent layers.
-      const ExactScalar alongD = (tryDxy[0] * dT[0]) + (tryDxy[1] * dT[1]);
-      const ExactScalar alongP = (tryDxy[0] * perp[0]) + (tryDxy[1] * perp[1]);
-      const ExactScalar trySin = kappa * alongD;
-      const ExactScalar tryCos = ExactScalar{1} - kappa * alongP;
+      const Solve alongD = (tryDxy[0] * dT[0]) + (tryDxy[1] * dT[1]);
+      const Solve alongP = (tryDxy[0] * perp[0]) + (tryDxy[1] * perp[1]);
+      const Solve trySin = kappa * alongD;
+      const Solve tryCos = Solve{1} - kappa * alongP;
       const auto tryPsi = atan2Of(trySin, tryCos);
 
       // ell = psi / kappa is 0/0 for a straight track; ell = (delta.dT)/sinc(psi)
       // is the same number and is regular there. The quotient is the one to
       // take near zero only: sinc vanishes at a half turn, where psi / kappa
       // is the well-conditioned form.
-      const ExactScalar ell = Math::Abs(tryPsi) < ExactScalar{0.01} ? alongD / sinc<ExactScalar>(tryPsi) : tryPsi / kappa;
-      const ExactScalar tryPath = ell / sinTheta;
+      const Solve ell = Math::Abs(tryPsi) < Solve{0.01} ? alongD / sinc<Solve>(tryPsi) : tryPsi / kappa;
+      const Solve tryPath = ell / sinTheta;
 
-      const bool usable = isFiniteOf(static_cast<Scalar>(tryPath)) && tryPath * static_cast<ExactScalar>(static_cast<int>(dir)) >= ExactScalar{0};
+      const bool usable = isFiniteOf(static_cast<Scalar>(tryPath)) && tryPath * static_cast<Solve>(static_cast<int>(dir)) >= Solve{0};
       bool take = root == 0;
       if constexpr (Rule == CrossingRule::kFirstAhead) {
         if (root != 0) {
-          take = usable && detail::offCentreSquared(to, fromTarget, tryDxy, tryPath * cosTheta) < firstOffCentre;
+          take = usable && detail::offCentreSquared<Solve>(to, fromTarget, tryDxy, tryPath * cosTheta) < firstOffCentre;
         }
       } else {
-        const auto place = detail::crossingPlace(to, fromTarget, tryDxy, tryPath * cosTheta);
+        const auto place = detail::crossingPlace<Solve>(to, fromTarget, tryDxy, tryPath * cosTheta);
         if (root == 0) {
           first = place;
           firstAhead = usable;
@@ -416,7 +426,7 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
           if (usable) {
             break; // the overwhelming majority: nothing below is reached or paid for
           }
-          firstOffCentre = detail::offCentreSquared(to, fromTarget, tryDxy, tryPath * cosTheta);
+          firstOffCentre = detail::offCentreSquared<Solve>(to, fromTarget, tryDxy, tryPath * cosTheta);
         }
       } else if constexpr (Rule == CrossingRule::kInsideFirst) {
         if (root == 0 && usable && first.inside) {
@@ -433,8 +443,8 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
     return res;
   }
 
-  const auto wanted = static_cast<ExactScalar>(static_cast<int>(dir));
-  if (path * wanted < ExactScalar{0}) {
+  const auto wanted = static_cast<Solve>(static_cast<int>(dir));
+  if (path * wanted < Solve{0}) {
     res.status = PropagationStatus::kWrongDirection;
     res.pathLength = static_cast<Scalar>(path);
     return res;
@@ -445,8 +455,8 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
   // sine and cosine came out of the chord, so this is a rotation rather than a
   // second sincos -- and it is asked in Scalar, because the azimuth is stored
   // as one and the incidence only has to clear a tolerance.
-  ExactScalar phi1 = phi0 + psi;
-  math_utils::detail::bringToPMPi<ExactScalar>(phi1);
+  Solve phi1 = phi0 + psi;
+  math_utils::detail::bringToPMPi<Solve>(phi1);
 
   const auto sinTurn = static_cast<Scalar>(turnSin);
   const auto cosTurn = static_cast<Scalar>(turnCos);
@@ -469,11 +479,11 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
   // Bind to the target plane.  The out-of-plane component is not computed: it
   // is zero by construction, and checking it at run time would be checking the
   // algebra rather than the data.  testPropagator.cxx checks it instead.
-  const ExactScalar d0 = fromTarget[0] + dxy[0];
-  const ExactScalar d1 = fromTarget[1] + dxy[1];
-  const ExactScalar d2 = fromTarget[2] + path * cosTheta;
-  const ExactScalar loc0 = d0 * static_cast<ExactScalar>(to.axis0[0]) + d1 * static_cast<ExactScalar>(to.axis0[1]) + d2 * static_cast<ExactScalar>(to.axis0[2]);
-  const ExactScalar loc1 = d0 * static_cast<ExactScalar>(to.axis1[0]) + d1 * static_cast<ExactScalar>(to.axis1[1]) + d2 * static_cast<ExactScalar>(to.axis1[2]);
+  const Solve d0 = fromTarget[0] + dxy[0];
+  const Solve d1 = fromTarget[1] + dxy[1];
+  const Solve d2 = fromTarget[2] + path * cosTheta;
+  const Solve loc0 = d0 * static_cast<Solve>(to.axis0[0]) + d1 * static_cast<Solve>(to.axis0[1]) + d2 * static_cast<Solve>(to.axis0[2]);
+  const Solve loc1 = d0 * static_cast<Solve>(to.axis1[0]) + d1 * static_cast<Solve>(to.axis1[1]) + d2 * static_cast<Solve>(to.axis1[2]);
 
   // What is about to be stored, asked as floats like the path. A disc's path
   // is finite whatever the azimuth or the curvature, so a NaN in either shows
