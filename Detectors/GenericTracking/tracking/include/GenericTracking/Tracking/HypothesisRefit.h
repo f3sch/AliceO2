@@ -132,6 +132,34 @@ GPUdi() Scalar segmentRadiation(const Propagator& prop, const Material& lut, con
   return lut.getMatBudget(start[0], start[1], start[2], end[0], end[1], end[2]).meanX2X0;
 }
 
+/// \a mixture's components carried inward from \a surface onto \a plane
+/// (`carryInward`), the segment's radiation \a x2X0 (`segmentRadiation`)
+/// taken first, branched and reduced as on a plane; kNotFinite if it cannot
+/// be.
+template <typename Mixture, typename Material>
+GPUdi() PropagationStatus carryMixtureInward(const Propagator& prop, const Material& material, const TrackingSurface& surface, const TrackingSurface& plane, Scalar x2X0, Mixture& mixture)
+{
+  if (!(x2X0 >= 0.F) || !detail::gsf::takeRadiation<BetheHeitlerLoss>(x2X0, PropagationDirection::kBackward, mixture)) {
+    return PropagationStatus::kNotFinite;
+  }
+  return detail::gsf::stepEach(mixture, [&](GSFComponent<CovarianceFactors>& component) {
+    return carryInward(prop, material, surface, plane, component.state, component.factors);
+  });
+}
+
+/// \a state with its covariance carried inward from \a surface onto
+/// \a plane (`carryInward`).
+template <typename Material>
+GPUdi() PropagationStatus carryStateInward(const Propagator& prop, const Material& material, const TrackingSurface& surface, const TrackingSurface& plane, BoundTrackState& state)
+{
+  auto factors = factorCovariance(state.cov);
+  const auto status = carryInward(prop, material, surface, plane, state, factors);
+  if (status == PropagationStatus::kOk) {
+    covarianceFromFactors(factors, state.cov);
+  }
+  return status;
+}
+
 } // namespace detail::hypothesis
 
 /// \a n measurements of \a measurements, ordered from the innermost, refitted
@@ -179,13 +207,7 @@ GPUdi() HypothesisFit<K> refitWithHypothesis(const Propagator& base, const Track
     fit.innermostMixture = gsf.mixture;
     GSFMixture<K> mixture = gsf.mixture;
     const Scalar x2X0 = detail::hypothesis::segmentRadiation(prop, material, gsf.fit.state, innermostSurface, fit.perigeePlane);
-    if (!(x2X0 >= 0.F) || !detail::gsf::takeRadiation<BetheHeitlerLoss>(x2X0, PropagationDirection::kBackward, mixture)) {
-      fit.status = PropagationStatus::kNotFinite;
-      return fit;
-    }
-    fit.status = detail::gsf::stepEach(mixture, [&](GSFComponent<CovarianceFactors>& component) {
-      return detail::hypothesis::carryInward(prop, material, innermostSurface, fit.perigeePlane, component.state, component.factors);
-    });
+    fit.status = detail::hypothesis::carryMixtureInward(prop, material, innermostSurface, fit.perigeePlane, x2X0, mixture);
     if (fit.status != PropagationStatus::kOk) {
       return fit;
     }
@@ -198,12 +220,10 @@ GPUdi() HypothesisFit<K> refitWithHypothesis(const Propagator& base, const Track
     return fit;
   }
   BoundTrackState state = kalman.state;
-  auto factors = factorCovariance(state.cov);
-  fit.status = detail::hypothesis::carryInward(prop, material, innermostSurface, fit.perigeePlane, state, factors);
+  fit.status = detail::hypothesis::carryStateInward(prop, material, innermostSurface, fit.perigeePlane, state);
   if (fit.status != PropagationStatus::kOk) {
     return fit;
   }
-  covarianceFromFactors(factors, state.cov);
   fit.perigee = state;
   fit.perigeeMomentum = 1.F / o2::gpu::GPUCommonMath::Abs(state.qOverP());
   return fit;

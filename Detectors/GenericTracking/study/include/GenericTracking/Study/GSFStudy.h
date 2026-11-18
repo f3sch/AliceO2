@@ -331,11 +331,9 @@ void GSFStudy<Det>::fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propaga
   BoundTrackState kf = kalman.state;
   double segmentX2X0 = nan;
   if (kfOk) {
-    auto factors = factorCovariance(kf.cov);
     const auto plane = o2::gtrk::detail::hypothesis::perigeePlaneOf(prop, kf, innermostSurface, truth.vx, truth.vy);
     segmentX2X0 = o2::gtrk::detail::hypothesis::segmentRadiation(prop, material, kf, innermostSurface, plane);
-    kfOk = o2::gtrk::detail::hypothesis::carryInward(prop, material, innermostSurface, plane, kf, factors) == PropagationStatus::kOk;
-    covarianceFromFactors(factors, kf.cov);
+    kfOk = o2::gtrk::detail::hypothesis::carryStateInward(prop, material, innermostSurface, plane, kf) == PropagationStatus::kOk;
   }
   const bool gsfOk = refit.status == PropagationStatus::kOk;
   const double pTrue = static_cast<double>(truth.pt) * std::cosh(static_cast<double>(truth.eta));

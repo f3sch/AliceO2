@@ -282,9 +282,9 @@ template <typename M, typename S, typename Evaluate, typename ConstraintsAt>
 /// The global position of \a state on \a surface [cm].
 [[nodiscard]] GPUhdi() std::array<double, 3> positionOf(const BoundTrackState& state, const TrackingSurface& surface)
 {
-  Scalar position[3]{};
-  surfaceToGlobal(surface, state.loc0(), state.loc1(), position);
-  return {position[0], position[1], position[2]};
+  std::array<double, 3> position{};
+  o2::gtrk::detail::boundToGlobal(surface, static_cast<ExactScalar>(state.loc0()), static_cast<ExactScalar>(state.loc1()), position.data());
+  return position;
 }
 
 /// An entry of a vertex's start (`treeStart`): a daughter's state, or one
@@ -1111,11 +1111,7 @@ class DecayVertexFitter
   {
     using namespace decay_fit_detail;
     const double curvature = mPhysicalField * qOverP / sinOf(theta);
-    const double dx = x - point[0];
-    const double dy = y - point[1];
-    const double along = (dx * cosOf(phi)) + (dy * sinOf(phi));
-    const double across = (-dx * sinOf(phi)) + (dy * cosOf(phi));
-    return beamLinePlane(static_cast<Scalar>(point[0]), static_cast<Scalar>(point[1]), static_cast<Scalar>(phi + atan2Of(-curvature * along, 1. + (curvature * across))));
+    return beamLinePlane(static_cast<Scalar>(point[0]), static_cast<Scalar>(point[1]), static_cast<Scalar>(perigeeAzimuth(x - point[0], y - point[1], phi, curvature)));
   }
 
   // The chains' equations at \a p, predicted less measured, their rows of
@@ -1369,20 +1365,13 @@ class DecayVertexFitter
       const int w = mTopology.vertexOfDaughter(i);
       const auto plane = detail::hypothesis::perigeePlaneOf(daughter.propagator, daughter.innermost, daughter.surface, static_cast<Scalar>(at[3 * w]), static_cast<Scalar>(at[(3 * w) + 1]));
       BoundTrackState state = daughter.innermost;
-      auto factors = factorCovariance(state.cov);
-      PropagationStatus status = PropagationStatus::kOk;
       mResult->carryX2X0[i] = detail::hypothesis::segmentRadiation(daughter.propagator, mMaterial, daughter.innermost, daughter.surface, plane);
       std::array<S, kBoundCovSize> factorStorage{};
       if (daughter.mixture.size > 0) {
         // The electron: its mixture branched by the segment's radiation, every
         // component carried, the collapse on the plane.
         auto mixture = daughter.mixture;
-        if (!(mResult->carryX2X0[i] >= 0.) || !detail::gsf::takeRadiation<BetheHeitlerLoss>(static_cast<Scalar>(mResult->carryX2X0[i]), PropagationDirection::kBackward, mixture)) {
-          return DecayFitStatus::kCarryFailed;
-        }
-        status = detail::gsf::stepEach(mixture, [&](GSFComponent<CovarianceFactors>& component) {
-          return detail::hypothesis::carryInward(daughter.propagator, mMaterial, daughter.surface, plane, component.state, component.factors);
-        });
+        const auto status = detail::hypothesis::carryMixtureInward(daughter.propagator, mMaterial, daughter.surface, plane, static_cast<Scalar>(mResult->carryX2X0[i]), mixture);
         if (status != PropagationStatus::kOk || mixture.size == 0) {
           return DecayFitStatus::kCarryFailed;
         }
@@ -1391,21 +1380,13 @@ class DecayVertexFitter
         if constexpr (Variant == DecayFitVariant::kGaussianSum) {
           auto& kept = mComponents[i];
           kept.clear();
-          double largest = -std::numeric_limits<double>::infinity();
-          for (int j = 0; j < mixture.size; ++j) {
-            largest = o2::gpu::CAMath::Max(largest, static_cast<double>(mixture.components[j].logWeight));
-          }
-          double total = 0.;
-          for (int j = 0; j < mixture.size; ++j) {
-            total += o2::gpu::CAMath::Expd(static_cast<double>(mixture.components[j].logWeight) - largest);
-          }
           for (int j = 0; j < mixture.size; ++j) {
             const auto& one = mixture.components[j].state;
             Cholesky<S> llt{.l = factorStorage.data()};
             if (!llt.factor(covarianceOf<S>(one).data(), 5)) {
               continue; // a component without a covariance is no measurement
             }
-            Component component{.logWeight = static_cast<double>(mixture.components[j].logWeight) - largest - logOf(total)};
+            Component component{.logWeight = static_cast<double>(mixture.components[j].logWeight)}; // normalised by the collapse
             component.measurement.plane = plane;
             for (int r = 0; r < 5; ++r) {
               component.measurement.value[r] = one.par[r];
@@ -1415,12 +1396,8 @@ class DecayVertexFitter
             kept.push_back(component);
           }
         }
-      } else {
-        status = detail::hypothesis::carryInward(daughter.propagator, mMaterial, daughter.surface, plane, state, factors);
-        if (status != PropagationStatus::kOk) {
-          return DecayFitStatus::kCarryFailed;
-        }
-        covarianceFromFactors(factors, state.cov);
+      } else if (detail::hypothesis::carryStateInward(daughter.propagator, mMaterial, daughter.surface, plane, state) != PropagationStatus::kOk) {
+        return DecayFitStatus::kCarryFailed;
       }
       Cholesky<S> llt{.l = factorStorage.data()};
       if (!llt.factor(covarianceOf<S>(state).data(), 5)) {
