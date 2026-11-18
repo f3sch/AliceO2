@@ -36,6 +36,7 @@
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TimeFrameScratch.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
+#include "GenericTracking/Tracking/TrackStore.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Tracking/TrackletSort.h"
 #include "GenericTracking/Tracking/TrackletStage.h"
@@ -152,6 +153,9 @@ class Tracker
   struct TimeframeResult {
     StageStatus status = StageStatus::kComplete;
     const typename TrackRefit<Det>::Tracks* tracks = nullptr;
+    /// The same tracks committed: their references, and the tables other
+    /// components add (TrackStore.h).
+    const TrackStore<Det>* store = nullptr;
     std::vector<IterationSummary> iterations;
     /// The run's phases: `run`, `begin timeframe`, and the iterations' summed.
     profile::Profile profile;
@@ -208,9 +212,10 @@ class Tracker
     mSelection.setMemoryPool(mMemoryPool);
     mShared.setMemoryPool(mMemoryPool);
     mRefit.setMemoryPool(mMemoryPool);
+    mStore.setMemoryPool(mMemoryPool);
     mFollow.setMemoryPool(mMemoryPool);
     mFollowEarlier.setMemoryPool(mMemoryPool);
-    deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection, mKeptTracks);
+    deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection, mKeptTracks, mChangedTracks);
     mDropScratch.setMemoryResource(mMemoryPool.get());
   }
 
@@ -267,6 +272,7 @@ class Tracker
     mSelection.clearStorage();
     mShared.clearStorage();
     mRefit.clearStorage();
+    mStore.clearStorage();
     deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection);
     mFollowStartInner = {};
     mFollowStart = {};
@@ -276,6 +282,11 @@ class Tracker
     mFollowEndCount = {};
     mFollowEndState = {};
   }
+
+  /// The committed tracks (TrackStore.h): a component that adds a table of
+  /// its own (`addTable`) does so here, before the run.
+  [[nodiscard]] TrackStore<Det>& trackStore() { return mStore; }
+  [[nodiscard]] const TrackStore<Det>& trackStore() const { return mStore; }
 
   /// The used mask, per row: what the selection has taken so far.
   [[nodiscard]] std::span<const std::uint8_t> used() const { return mUsed; }
@@ -561,6 +572,7 @@ class Tracker
       return;
     }
     mRefit.clear();
+    mStore.clear();
     std::size_t first = 0U;
     if (from != nullptr) {
       first = from->summaries.size();
@@ -574,6 +586,9 @@ class Tracker
         }
         return StageStatus::kComplete;
       });
+      if (result.status == StageStatus::kComplete) {
+        result.status = commitTracks();
+      }
       if (result.status != StageStatus::kComplete) {
         return;
       }
@@ -590,6 +605,14 @@ class Tracker
       }
     }
     result.tracks = &mRefit.tracks();
+    result.store = &mStore;
+  }
+
+  /// The tracks not committed yet into the store (TrackStore::commit).
+  [[nodiscard]] StageStatus commitTracks()
+  {
+    const auto count = static_cast<Index>(mRefit.size() - mStore.size());
+    return mStore.commit(spreadForEach(), spreadChunk(count), std::as_const(mRefit).tracks());
   }
 
   /// What one iteration grew, back to the pool at its end, after its
@@ -612,7 +635,7 @@ class Tracker
     mSelection.clearRecordStorage();
     mFollow.clearStorage();
     mFollowEarlier.clearStorage();
-    deepVectorClear(mMemoryPool.get(), mKeptTracks);
+    deepVectorClear(mMemoryPool.get(), mKeptTracks, mChangedTracks);
     mDropScratch.setMemoryResource(mMemoryPool.get());
   }
 
@@ -641,6 +664,10 @@ class Tracker
     if (earlier) {
       const profile::Zone zone{Phase::kFollowEarlier};
       summary.status = runFollow(mFollowEarlier, mIterations[iteration], frame, plan, 0U, true, summary.tracksFollowedEarlier, summary.clustersFollowedEarlierOutward, summary.clustersFollowedEarlierInward);
+      if (summary.status == StageStatus::kComplete) {
+        // The tracks it extended or trimmed in place, committed again.
+        summary.status = mStore.recommitChanged(spreadForEach(), spreadChunk(static_cast<Index>(mStore.size())), std::as_const(mRefit).tracks(), mChangedTracks);
+      }
       if (summary.status != StageStatus::kComplete) {
         return;
       }
@@ -747,6 +774,11 @@ class Tracker
         summary.tracksDropped = dropShortTracks(mIterations[iteration], trackOffset, followed, started);
         return StageStatus::kComplete;
       });
+    }
+    if (summary.status == StageStatus::kComplete) {
+      // The iteration's tracks as the follow and the length cut left them.
+      const profile::Zone zone{Phase::kCommit};
+      summary.status = commitTracks();
     }
     if (mIterationObserver && summary.status == StageStatus::kComplete) {
       const profile::Zone zone{Phase::kObservers};
@@ -1206,6 +1238,7 @@ class Tracker
   GlobalSelection<kMaxClusters> mShared; ///< the next iteration's records, over the slices
   GlobalSelection<kMaxClusters> mSelection;
   TrackRefit<Det> mRefit;
+  TrackStore<Det> mStore;
   Follow<Det> mFollow;        ///< the iteration's own tracks'
   Follow<Det> mFollowEarlier; ///< the earlier iterations' tracks', with followEarlier
   /// What the follow started from, for an iteration observer only.
@@ -1222,6 +1255,7 @@ class Tracker
   BoundedVector<std::uint8_t> mUsedBeforeSelection; ///< with a length after the follow (`dropShortTracks`)
   BoundedVector<Index> mKeptTracks;                 ///< `dropShortTracks`' kept tracks
   typename TrackRefit<Det>::Tracks mDropScratch;    ///< `dropShortTracks`' moved tracks
+  BoundedVector<Index> mChangedTracks;              ///< `TrackStore::recommitChanged`'s scratch
   const TrackingGeometry<Det>* mGeometry = nullptr;
   const Material* mMaterial = nullptr;
   Propagator mPropagator;
