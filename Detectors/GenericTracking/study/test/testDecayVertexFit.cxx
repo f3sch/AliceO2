@@ -396,13 +396,15 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
     surfaceToGlobal(origin, out.loc0(), out.loc1(), madeAt);
   }
   for (const int rowCount : {1, 2, 4}) {
-    DecayMother tracked{.propagator = xiProp};
+    std::vector<TrackingSurface> planes;
+    std::vector<std::array<double, 2>> exactPositions;
+    std::vector<std::array<double, 3>> covariance;
     for (int r = 0; r < rowCount; ++r) {
       const auto plane = planeBefore(1. + r, 20 + r);
       const auto out = crossing(plane);
-      tracked.planes.push_back(plane);
-      tracked.positions.push_back({out.loc0(), out.loc1()});
-      tracked.covariance.push_back({25e-8, 0., 25e-8});
+      planes.push_back(plane);
+      exactPositions.push_back({out.loc0(), out.loc1()});
+      covariance.push_back({25e-8, 0., 25e-8});
     }
     for (const bool withPoint : {false, true}) {
       const DecayConstraints set{.production = withPoint, .point = {madeAt[0], madeAt[1], madeAt[2]}};
@@ -418,11 +420,12 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
             daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
           }
         }
-        auto mother = tracked;
-        for (auto& position : mother.positions) {
+        auto positions = exactPositions;
+        for (auto& position : positions) {
           position[0] += gauss(random) * 5e-4;
           position[1] += gauss(random) * 5e-4;
         }
+        const DecayMother mother{.planes = planes, .positions = positions, .covariance = covariance, .propagator = xiProp};
         const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{}, set, topology, std::span<const DecayMother>{&mother, 1});
         if (fit.status != DecayFitStatus::kOk) {
           continue;
@@ -1136,10 +1139,10 @@ BOOST_AUTO_TEST_CASE(InputsOutsideTheCapacitiesAreRefused)
   BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, resonance).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
   const DecayMother elsewhere{.vertex = 1};
   BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, {}, {}, std::span<const DecayMother>{&elsewhere, 1}).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
-  DecayMother longer;
-  longer.planes.resize(maxChainLayers<TRKFT3> + 1U);
-  longer.positions.resize(longer.planes.size());
-  longer.covariance.resize(longer.planes.size());
+  const std::vector<TrackingSurface> planes(maxChainLayers<TRKFT3> + 1U);
+  const std::vector<std::array<double, 2>> positions(planes.size());
+  const std::vector<std::array<double, 3>> covariance(planes.size());
+  const DecayMother longer{.planes = planes, .positions = positions, .covariance = covariance};
   BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, {}, {}, std::span<const DecayMother>{&longer, 1}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
   const std::vector<DecayDaughter> six(6);
   BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{six}, NoMaterial{}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
