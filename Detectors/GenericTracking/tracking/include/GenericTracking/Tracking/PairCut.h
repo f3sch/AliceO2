@@ -808,34 +808,41 @@ struct PairChord {
 
 GPUhdi() void addLongitudinalPairTerms(PairTerms& terms, const PairCut& cut, const VertexSeed& vertex, const PairPoint& source, Scalar sourceScatter, const PairPoint& target, const PairChord& pair, Scalar betweenScatter = 0.F)
 {
-  const Scalar dx = pair.dx;
-  const Scalar dy = pair.dy;
-  const Scalar chord = pair.chord;
-  const Scalar cross = pair.cross;
-  const auto geometry = detail::arcPairGeometry(source, target, cross, chord, cut.maxCurvature);
+  const auto geometry = detail::arcPairGeometry(source, target, pair.cross, pair.chord, cut.maxCurvature);
   const Scalar dzSource = source.z - vertex.z;
   const Scalar dzTarget = target.z - vertex.z;
   const Scalar collinearity = (geometry.source.value * dzTarget) - (geometry.target.value * dzSource);
 
   const Scalar invSourceR = 1.F / source.r;
   const Scalar invTargetR = 1.F / target.r;
-  // A bounded curvature does not follow the positions: its terms drop out.
-  const Scalar curvatureD = geometry.bounded ? 0.F : (dzTarget * geometry.source.curvature) - (dzSource * geometry.target.curvature);
-  const Scalar sourceRadiusD = (dzTarget * geometry.source.chord) - (curvatureD * geometry.curvature * invSourceR);
-  const Scalar targetRadiusD = (-dzSource * geometry.target.chord) - (curvatureD * geometry.curvature * invTargetR);
-  const Scalar crossD = geometry.bounded ? 0.F : curvatureD * geometry.curvatureScale;
-  const Scalar chordD = geometry.bounded ? 0.F : curvatureD * geometry.curvature / (geometry.chord * geometry.chord);
-
-  const Scalar sourceX = (sourceRadiusD * source.x * invSourceR) + (crossD * target.y) + (chordD * dx);
-  const Scalar sourceY = (sourceRadiusD * source.y * invSourceR) - (crossD * target.x) + (chordD * dy);
-  const Scalar targetX = (targetRadiusD * target.x * invTargetR) - (crossD * source.y) - (chordD * dx);
-  const Scalar targetY = (targetRadiusD * target.y * invTargetR) + (crossD * source.x) - (chordD * dy);
-  const Scalar sourceRadialD = (sourceX * source.x + sourceY * source.y) * invSourceR;
-  const Scalar sourceTangentD = (-sourceX * source.y + sourceY * source.x) * invSourceR;
-  const Scalar targetRadialD = (targetX * target.x + targetY * target.y) * invTargetR;
-  const Scalar targetTangentD = (-targetX * target.y + targetY * target.x) * invTargetR;
-  const Scalar vertexXD = -(sourceX + targetX);
-  const Scalar vertexYD = -(sourceY + targetY);
+  // The collinearity's gradient in each point's radial and r-phi directions. At a fixed curvature only
+  // the arcs' radii move it, radially.
+  Scalar sourceRadialD = dzTarget * geometry.source.chord;
+  Scalar targetRadialD = -dzSource * geometry.target.chord;
+  Scalar sourceTangentD = 0.F;
+  Scalar targetTangentD = 0.F;
+  // A measured curvature follows the positions: kappa = 2 sin(h) / c, h the pair's azimuth gap and c its
+  // chord. A point moved radially changes the chord alone, d kappa / d r_i = kappa (P_i . P_j - r_i^2) /
+  // (r_i c^2); moved along r-phi by a length t, h and the chord, d kappa / d t_i = 2 ((P_i x P_j)^2 / c^2 -
+  // P_i . P_j) / (r_i^2 r_j c), and the opposite sign for the target. A bounded curvature does not follow.
+  if (!geometry.bounded) {
+    const Scalar curvatureD = (dzTarget * geometry.source.curvature) - (dzSource * geometry.target.curvature);
+    const Scalar dot = (source.x * target.x) + (source.y * target.y);
+    const Scalar invChord2 = 1.F / pair.chord2;
+    const Scalar radialScale = curvatureD * geometry.curvature * invChord2;
+    sourceRadialD += radialScale * (dot - (source.r * source.r)) * invSourceR;
+    targetRadialD += radialScale * (dot - (target.r * target.r)) * invTargetR;
+    const Scalar turnD = curvatureD * geometry.curvatureScale * ((pair.cross * pair.cross * invChord2) - dot);
+    sourceTangentD = turnD * invSourceR;
+    targetTangentD = -turnD * invTargetR;
+  }
+  // The vertex's gradient is minus the sum of the two (D depends on the positions relative to it).
+  const Scalar sourceRadialX = sourceRadialD * invSourceR;
+  const Scalar sourceTangentX = sourceTangentD * invSourceR;
+  const Scalar targetRadialX = targetRadialD * invTargetR;
+  const Scalar targetTangentX = targetTangentD * invTargetR;
+  const Scalar vertexXD = -((sourceRadialX * source.x) - (sourceTangentX * source.y) + (targetRadialX * target.x) - (targetTangentX * target.y));
+  const Scalar vertexYD = -((sourceRadialX * source.y) + (sourceTangentX * source.x) + (targetRadialX * target.y) + (targetTangentX * target.x));
   const Scalar arcGap = geometry.target.value - geometry.source.value;
   const Scalar dz = target.z - source.z;
 
