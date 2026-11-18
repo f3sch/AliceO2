@@ -99,6 +99,18 @@ template <DetectorLayout Det>
 /// particles): its source and event, the bits above the track's.
 [[nodiscard]] inline std::uint64_t collisionOf(std::uint64_t particle) { return particle >> o2::MCCompLabel::nbitsTrackID; }
 
+/// The distance [cm] of \a vertex from the vertex of the collision
+/// \a particle was made in; none without that collision.
+[[nodiscard]] inline std::optional<double> productionOffset(const CollisionTable& collisions, std::uint64_t particle, const std::array<double, 3>& vertex)
+{
+  const auto found = collisions.find(collisionOf(particle));
+  if (found == collisions.end()) {
+    return std::nullopt;
+  }
+  const auto& at = found->second;
+  return std::hypot(vertex[0] - at[0], vertex[1] - at[1], vertex[2] - at[2]);
+}
+
 /// Calls \a body for each particle of the first of \a held's rows that all
 /// the other rows carry, in that first row's label order; whether there was one.
 template <typename Body>

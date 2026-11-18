@@ -421,6 +421,23 @@ struct Kinematics {
   double sP = 0.;
 };
 
+/// u^T C v over \a n entries of u and v, C's entry (a, b) \a at(a, b): a
+/// projection's variance, or two projections' covariance.
+template <typename U, typename V, typename At>
+[[nodiscard]] double quadraticForm(const U& u, const V& v, int n, const At& at)
+{
+  double sum = 0.;
+  for (int a = 0; a < n; ++a) {
+    for (int b = 0; b < n; ++b) {
+      sum += u[a] * at(a, b) * v[b];
+    }
+  }
+  return sum;
+}
+
+/// A standard deviation from a \a variance that rounding may leave below 0.
+[[nodiscard]] inline double sigmaOf(double variance) { return std::sqrt(std::max(variance, 0.)); }
+
 /// \a fit's covariance as a full row-major matrix (3K + 3N square), as the
 /// study's sums over it run.
 [[nodiscard]] inline std::vector<double> fullCovariance(const DecayVertexFitResult& fit)
@@ -446,15 +463,7 @@ struct Kinematics {
   }
   const D p = sqrtOf(sum.squared());
   const D m2 = sum.massSquared();
-  const auto sigma = [&](const D& value) {
-    double variance = 0.;
-    for (int a = 0; a < 3 * count; ++a) {
-      for (int b = 0; b < 3 * count; ++b) {
-        variance += value.d[a] * covariance[((offset + a) * stride) + offset + b] * value.d[b];
-      }
-    }
-    return std::sqrt(std::max(variance, 0.));
-  };
+  const auto sigma = [&](const D& value) { return sigmaOf(quadraticForm(value.d, value.d, 3 * count, [&](int a, int b) { return covariance[((offset + a) * stride) + offset + b]; })); };
   const double mass = std::sqrt(std::max(m2.v, 0.));
   return {.mass = mass, .sMass = mass > 0. ? sigma(m2) / (2. * mass) : 0., .p = p.v, .sP = sigma(p)};
 }
@@ -495,15 +504,7 @@ struct MotherQuantities {
   const D ct = (mass * length) / p;
   const D& phi = direction.phi;
   const D& theta = direction.theta;
-  const auto sigma = [&](const D& value) {
-    double variance = 0.;
-    for (int a = 0; a < n; ++a) {
-      for (int b = 0; b < n; ++b) {
-        variance += value.d[a] * covariance[a * n + b] * value.d[b];
-      }
-    }
-    return std::sqrt(std::max(variance, 0.));
-  };
+  const auto sigma = [&](const D& value) { return sigmaOf(quadraticForm(value.d, value.d, n, [&](int a, int b) { return covariance[a * n + b]; })); };
   return {.length = length.v, .sLength = sigma(length), .ct = ct.v, .sCt = sigma(ct), .phi = phi.v, .sPhi = sigma(phi), .theta = theta.v, .sTheta = sigma(theta)};
 }
 
@@ -540,16 +541,7 @@ DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, 
     const auto full = fullCovariance(fit);
     return kinematicsOf(std::span<const std::array<double, 3>>{fit.momenta.data(), fit.momenta.size()}, masses, std::span<const double>{fit.charges.data(), fit.charges.size()}, full, n, 3 * static_cast<int>(fit.vertices.size())).mass;
   };
-  const auto sigmaT = [&](const DecayVertexFitResult& fit) {
-    const int n = (3 * static_cast<int>(fit.vertices.size())) + (3 * static_cast<int>(fit.momenta.size()));
-    double variance = 0.;
-    for (int a = 0; a < 3; ++a) {
-      for (int b = 0; b < 3; ++b) {
-        variance += across[a] * fit.covarianceAt(a, b) * across[b];
-      }
-    }
-    return std::sqrt(std::max(variance, 0.));
-  };
+  const auto sigmaT = [&](const DecayVertexFitResult& fit) { return sigmaOf(quadraticForm(across, across, 3, [&](int a, int b) { return fit.covarianceAt(a, b); })); };
   using Reference = DecayVertexFitter<Det, Variant, Material, double, double>;
   Reference reference(daughters, material, constraints, topology, mothers);
   std::vector<std::byte> workspace(reference.workspace());
@@ -755,13 +747,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     throw std::runtime_error("decay fit study: the host has no decay trees (a truth dump of another version?)");
   }
   const auto& trees = *event.trees;
-  std::unordered_map<std::uint64_t, const Chain*> chainOf;
-  for (const auto& chain : chains) {
-    auto& best = chainOf[chain.particle];
-    if (best == nullptr || chain.rows.size() > best->rows.size()) {
-      best = &chain;
-    }
-  }
+  const auto chainOf = longestChains(chains);
 
   // A daughter's chain must be findable: its rows on a chain of four linked
   // layers, at any pT.
@@ -903,8 +889,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       // The unseen one: an unmeasured daughter, last, its start per job.
       double unseenMass = 0.;
       if (one.unseen != nullptr) {
-        const auto* entry = o2::O2DatabasePDG::Instance()->GetParticle(one.unseen->pdg);
-        unseenMass = entry == nullptr ? 0. : entry->Mass();
+        unseenMass = particleMass(one.unseen->pdg);
         daughters.push_back({.mass = unseenMass, .neutral = true, .unmeasured = true});
         masses.push_back(unseenMass);
       }
@@ -974,7 +959,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         const auto* leaf = one.leaves[i];
         const auto first = frame.measurement(chainOf.at(leaf->id)->rows.front());
-        const auto* segment = event.hits->crossing(leaf->id, first.surface, {static_cast<double>(first.x), static_cast<double>(first.y), static_cast<double>(first.z)});
+        const auto* segment = event.hits->crossing(leaf->id, first);
         if (segment == nullptr) {
           continue;
         }
@@ -991,8 +976,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       }
 
       // The mother: its PDG mass, its collision's vertex, the true decay length.
-      const auto* species = o2::O2DatabasePDG::Instance()->GetParticle(mother.pdg);
-      const double motherMass = species == nullptr ? 0. : species->Mass();
+      const double motherMass = particleMass(mother.pdg);
       const auto collision = event.collisions->find(collisionOf(mother.id));
       const bool hasCollision = collision != event.collisions->end();
       const std::array<double, 3> point = hasCollision ? collision->second : std::array<double, 3>{};
@@ -1001,7 +985,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       // from a Xi) a production point at the collision is false.
       const bool madeAtCollision = hasCollision && std::ranges::equal(mother.vertex, point, [](double a, double b) { return static_cast<float>(a) == static_cast<float>(b); });
       if (hasCollision) {
-        base.productionOffset = static_cast<float>(std::hypot(mother.vertex[0] - point[0], mother.vertex[1] - point[1], mother.vertex[2] - point[2]));
+        base.productionOffset = static_cast<float>(*productionOffset(*event.collisions, mother.id, mother.vertex));
         base.decayLengthTrue = static_cast<float>((((decay[0] - point[0]) * pTrue[0]) + ((decay[1] - point[1]) * pTrue[1]) + ((decay[2] - point[2]) * pTrue[2])) / pTotal);
         base.ctTrue = static_cast<float>(base.decayLengthTrue * motherMass / pTotal);
       }
@@ -1034,9 +1018,9 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         motherRows.reserve(charged.size());
         for (const auto& [particle, vertex] : charged) {
-          const auto* entry = o2::O2DatabasePDG::Instance()->GetParticle(particle->pdg);
           const auto found = chainOf.find(particle->id);
-          if (particleCharge(particle->pdg) == 0. || entry == nullptr || found == chainOf.end() || found->second->rows.empty()) {
+          // a species the PDG table lacks has no charge either
+          if (particleCharge(particle->pdg) == 0. || found == chainOf.end() || found->second->rows.empty()) {
             continue;
           }
           const auto own = onePerLayer(event.rows, found->second->rows);
@@ -1048,7 +1032,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
             base.compositesTrimmed = static_cast<std::uint8_t>(std::min(base.compositesTrimmed + trimmed, 255));
           }
           auto propagator = event.propagator;
-          propagator.massGeV = static_cast<Scalar>(entry->Mass());
+          propagator.massGeV = static_cast<Scalar>(particleMass(particle->pdg));
           auto& rows = motherRows.emplace_back();
           for (auto at = own.rbegin(); at != own.rend(); ++at) {
             const auto m = frame.measurement(*at);
@@ -1108,8 +1092,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       // A tree's composites: their PDG masses, the first one's truth.
       std::vector<double> compositeMasses;
       for (const auto* composite : one.composites) {
-        const auto* entry = o2::O2DatabasePDG::Instance()->GetParticle(composite->pdg);
-        compositeMasses.push_back(entry == nullptr ? 0. : entry->Mass());
+        compositeMasses.push_back(particleMass(composite->pdg));
       }
       // each vertex's particle's mass, for its flight's material in the fit
       one.topology.massGeV.clear();
@@ -1210,10 +1193,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
             one.records.push_back(record);
             continue;
           }
-          auto& unseen = jobDaughters.back();
-          unseen.innermost.par[kPhi] = static_cast<Scalar>(std::atan2((*start)[1], (*start)[0]));
-          unseen.innermost.par[kTheta] = static_cast<Scalar>(std::atan2(std::hypot((*start)[0], (*start)[1]), (*start)[2]));
-          unseen.innermost.par[kQOverP] = static_cast<Scalar>(1. / unseenP);
+          startUnmeasured(jobDaughters.back(), *start);
         } else if (missing) {
           // the visible daughters alone: the unseen one out of the tree too
           jobDaughters.pop_back();
@@ -1278,13 +1258,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.sZ = static_cast<float>(std::sqrt(c[2 * n + 2]));
         const auto project = [&](const std::array<double, 3>& axis, float& residual, float& sigma) {
           residual = static_cast<float>((d[0] * axis[0]) + (d[1] * axis[1]) + (d[2] * axis[2]));
-          double variance = 0.;
-          for (int a = 0; a < 3; ++a) {
-            for (int b = 0; b < 3; ++b) {
-              variance += axis[a] * c[a * n + b] * axis[b];
-            }
-          }
-          sigma = static_cast<float>(std::sqrt(std::max(variance, 0.)));
+          sigma = static_cast<float>(sigmaOf(quadraticForm(axis, axis, 3, [&](int a, int b) { return c[a * n + b]; })));
         };
         project(along, record.dL, record.sL);
         project(across, record.dT, record.sT);
@@ -1308,34 +1282,19 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         // The child: its vertex, decay length and mass.
         if (tree) {
           const auto& child = fit.vertices[1];
-          const int childN = n;
-          const int childAt = 3;
-          const auto& childC = c;
           const std::array<double, 3> e{child[0] - childDecay[0], child[1] - childDecay[1], child[2] - childDecay[2]};
-          const auto childVariance = [&](const std::array<double, 3>& axis) {
-            double variance = 0.;
-            for (int a = 0; a < 3; ++a) {
-              for (int b = 0; b < 3; ++b) {
-                variance += axis[a] * childC[((childAt + a) * childN) + childAt + b] * axis[b];
-              }
-            }
-            return variance;
-          };
+          // the covariance of projections of the vertices from \a first and \a second (0: the parent's, 3: the child's)
+          const auto vertexCovariance = [&](const std::array<double, 3>& axis, int first, int second) { return quadraticForm(axis, axis, 3, [&](int a, int b) { return c[((first + a) * n) + second + b]; }); };
+          const auto childVariance = [&](const std::array<double, 3>& axis) { return vertexCovariance(axis, 3, 3); };
           record.dChildL = static_cast<float>((e[0] * childAxis[0]) + (e[1] * childAxis[1]) + (e[2] * childAxis[2]));
-          record.sChildL = static_cast<float>(std::sqrt(std::max(childVariance(childAxis), 0.)));
+          record.sChildL = static_cast<float>(sigmaOf(childVariance(childAxis)));
           record.dChildT = static_cast<float>((e[0] * childAcross[0]) + (e[1] * childAcross[1]) + (e[2] * childAcross[2]));
-          record.sChildT = static_cast<float>(std::sqrt(std::max(childVariance(childAcross), 0.)));
+          record.sChildT = static_cast<float>(sigmaOf(childVariance(childAcross)));
           // The decay length from the parent's vertex along the true flight;
           // its variance the two vertices' with their correlation.
           record.childLength = static_cast<float>(((child[0] - fit.vertex[0]) * childAxis[0]) + ((child[1] - fit.vertex[1]) * childAxis[1]) + ((child[2] - fit.vertex[2]) * childAxis[2]));
-          double lengthVariance = childVariance(childAxis);
-          for (int a = 0; a < 3; ++a) {
-            for (int b = 0; b < 3; ++b) {
-              lengthVariance += childAxis[a] * c[(a * n) + b] * childAxis[b];
-              lengthVariance -= 2. * childAxis[a] * c[(a * n) + 3 + b] * childAxis[b];
-            }
-          }
-          record.sChildLength = static_cast<float>(std::sqrt(std::max(lengthVariance, 0.)));
+          const double lengthVariance = childVariance(childAxis) + vertexCovariance(childAxis, 0, 0) - (2. * vertexCovariance(childAxis, 0, 3));
+          record.sChildLength = static_cast<float>(sigmaOf(lengthVariance));
           {
             // the child's leaves' momenta and their covariance block
             std::vector<std::array<double, 3>> childMomenta;

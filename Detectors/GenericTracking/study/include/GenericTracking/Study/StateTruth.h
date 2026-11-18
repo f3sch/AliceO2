@@ -42,6 +42,14 @@ namespace o2::gtrk::study
   return particle == nullptr ? 0. : particle->Charge() / 3.;
 }
 
+/// The mass [GeV] of the species \a pdg, 0 for one O2's PDG table does not
+/// have.
+[[nodiscard]] inline double particleMass(std::int32_t pdg)
+{
+  const auto* particle = o2::O2DatabasePDG::Instance()->GetParticle(pdg);
+  return particle == nullptr ? 0. : particle->Mass();
+}
+
 /// A fitted state against its particle's MC crossing.
 struct StateTruth {
   std::array<double, 5> residual{}; ///< fitted less true: loc0, loc1, phi, theta, q/p

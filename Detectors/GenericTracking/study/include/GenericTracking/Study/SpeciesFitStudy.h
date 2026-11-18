@@ -233,7 +233,7 @@ void SpeciesFitStudy<Det>::fitChain(const TruthEvent<Det>& event, const Chain& c
   const RowChain<Det> rows{.frame = &frame, .rows = chain.rows.data()};
   const auto crossing = [&](std::uint32_t at) {
     const auto m = frame.measurement(at);
-    return event.hits == nullptr ? nullptr : event.hits->crossing(chain.particle, m.surface, {static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z)});
+    return event.hits == nullptr ? nullptr : event.hits->crossing(chain.particle, m);
   };
   SpeciesFitRecord base{
     .timeframe = identity.timeframe,
@@ -255,8 +255,8 @@ void SpeciesFitStudy<Det>::fitChain(const TruthEvent<Det>& event, const Chain& c
   }
   base.layers = static_cast<std::uint8_t>(std::popcount(layerBits));
   if (event.collisions != nullptr) {
-    if (const auto vertex = event.collisions->find(collisionOf(chain.particle)); vertex != event.collisions->end()) {
-      base.productionOffset = static_cast<float>(std::hypot(static_cast<double>(truth.vx) - vertex->second[0], static_cast<double>(truth.vy) - vertex->second[1], static_cast<double>(truth.vz) - vertex->second[2]));
+    if (const auto offset = productionOffset(*event.collisions, chain.particle, {static_cast<double>(truth.vx), static_cast<double>(truth.vy), static_cast<double>(truth.vz)})) {
+      base.productionOffset = static_cast<float>(*offset);
     }
   }
   // The comparison row's crossing |p| for every record, failed fits too.

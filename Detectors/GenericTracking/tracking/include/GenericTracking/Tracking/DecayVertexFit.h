@@ -522,6 +522,16 @@ struct StartEntry {
   return starts;
 }
 
+/// An unseen neutral's start from its momentum vector \a start [GeV] (one of
+/// `missingMomentumStarts`): \a daughter's phi, theta and 1/p.
+GPUhdi() void startUnmeasured(DecayDaughter& daughter, const std::array<double, 3>& start)
+{
+  const auto direction = decay_fit_detail::directionOfMomentum(start);
+  daughter.innermost.par[kPhi] = static_cast<Scalar>(direction.phi);
+  daughter.innermost.par[kTheta] = static_cast<Scalar>(direction.theta);
+  daughter.innermost.par[kQOverP] = static_cast<Scalar>(1. / direction.p);
+}
+
 namespace decay_fit_detail
 {
 

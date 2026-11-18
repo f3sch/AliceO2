@@ -64,6 +64,19 @@ struct Chain {
   std::optional<TrackContext> track; ///< a chain from the tracker's output only
 };
 
+/// Each particle's longest chain of \a chains, the first of equal length.
+[[nodiscard]] inline std::unordered_map<std::uint64_t, const Chain*> longestChains(std::span<const Chain> chains)
+{
+  std::unordered_map<std::uint64_t, const Chain*> longest;
+  for (const auto& chain : chains) {
+    auto& best = longest[chain.particle];
+    if (best == nullptr || chain.rows.size() > best->rows.size()) {
+      best = &chain;
+    }
+  }
+  return longest;
+}
+
 /// What names a chain in a study's records.
 struct ChainIdentity {
   std::uint32_t timeframe = 0U;

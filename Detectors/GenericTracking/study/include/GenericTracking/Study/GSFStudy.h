@@ -202,7 +202,7 @@ void GSFStudy<Det>::process(const TruthEvent<Det>& event, std::span<const Chain>
     leg.pTrue.assign(leg.rows.size(), nan);
     for (std::size_t k = 0; k < leg.rows.size(); ++k) {
       const auto point = event.frame->measurement(leg.rows[k]);
-      const auto* hit = event.hits == nullptr ? nullptr : event.hits->crossing(chain.particle, point.surface, {static_cast<double>(point.x), static_cast<double>(point.y), static_cast<double>(point.z)});
+      const auto* hit = event.hits == nullptr ? nullptr : event.hits->crossing(chain.particle, point);
       if (hit != nullptr) {
         leg.pTrue[k] = std::hypot(hit->momentum[0], hit->momentum[1], hit->momentum[2]);
       }
