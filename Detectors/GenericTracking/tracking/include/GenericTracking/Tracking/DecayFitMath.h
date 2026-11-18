@@ -27,7 +27,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <cfloat>
 #include <limits>
 #include <numbers>
 #include <span>
@@ -41,9 +40,6 @@ using o2::gtrk::dual::Dual;
 /// Small arithmetic the fit's code shares, on the host and the device.
 [[nodiscard]] GPUhdi() double hypotOf(double a, double b) { return sqrtOf((a * a) + (b * b)); }
 [[nodiscard]] GPUhdi() double hypotOf(double a, double b, double c) { return sqrtOf((a * a) + (b * b) + (c * c)); }
-/// Finite, in every build (O2's `CAMath::Finite` is a constant outside the
-/// deterministic mode): NaN fails both comparisons, an infinity one.
-[[nodiscard]] GPUhdi() bool isFiniteDouble(double x) { return x >= -DBL_MAX && x <= DBL_MAX; }
 /// ln(1 + x) without losing x's digits to the sum: ln(u) x / (u - 1) with
 /// u = 1 + x rounded, exact where u is 1 (Goldberg's form).
 [[nodiscard]] GPUhdi() double log1pOf(double x)
@@ -90,25 +86,6 @@ GPUhdi() void fillN(T* to, std::size_t n, const V& value)
     to[i] = value;
   }
 }
-/// sin and cos of a scalar or a dual number.
-template <typename T>
-[[nodiscard]] GPUhdi() T sinAny(const T& x)
-{
-  if constexpr (std::is_same_v<T, typename dual::ScalarOf<T>::type>) {
-    return sinOf(x);
-  } else {
-    return dual::sin(x);
-  }
-}
-template <typename T>
-[[nodiscard]] GPUhdi() T cosAny(const T& x)
-{
-  if constexpr (std::is_same_v<T, typename dual::ScalarOf<T>::type>) {
-    return cosOf(x);
-  } else {
-    return dual::cos(x);
-  }
-}
 
 /// q/p's numerator for a particle of \a charge: |q|, 1 for a neutral one
 /// (its q/p is 1/p).
@@ -129,8 +106,8 @@ template <typename T>
   using dual::valueOf;
   using Value = typename dual::ScalarOf<T>::type;
   const T p = T{static_cast<Value>(valueOf(qOverP) > 0. ? numerator : -numerator)} / qOverP;
-  const T pt = p * sinAny(theta);
-  return {{pt * cosAny(phi), pt * sinAny(phi), p * cosAny(theta)}, p};
+  const T pt = p * sinOf(theta);
+  return {{pt * cosOf(phi), pt * sinOf(phi), p * cosOf(theta)}, p};
 }
 
 /// The most iterations of a fit's loops, and the most halvings of one step:
@@ -166,8 +143,8 @@ template <int N, typename T>
   const T nz = plane.normal[2];
   const D& phi = from[3];
   const D& theta = from[4];
-  const D sinTheta = sin(theta);
-  const D cotTheta = cos(theta) / sinTheta;
+  const D sinTheta = sinOf(theta);
+  const D cotTheta = cosOf(theta) / sinTheta;
   const D rho = static_cast<T>(fieldScale) * (from[5] / sinTheta);
   D s;
   if (nz == 0.) {
@@ -179,15 +156,15 @@ template <int N, typename T>
     // s = (w / rho) asin(w) / w. asin recovers rho s within a quarter turn only.
     const T phiL = atan2Of(ny, nx);
     const D delta = phi + (-phiL);
-    const T side = cos(delta).v >= T(0.) ? T(1.) : T(-1.);
+    const T side = cosOf(delta).v >= T(0.) ? T(1.) : T(-1.);
     const D u = side * ((nx * (from[0] + (-static_cast<T>(plane.origin[0])))) + (ny * (from[1] + (-static_cast<T>(plane.origin[1])))));
-    const D sinDelta = side * sin(delta);
-    const D cosDelta = side * cos(delta);
+    const D sinDelta = side * sinOf(delta);
+    const D cosDelta = side * cosOf(delta);
     const D sinEnd = sinDelta - (rho * u);
     if (!(o2::gpu::CAMath::Abs(sinEnd.v) < 1.) || !(cosDelta.v > 0.)) {
       return false; // missed, grazing, or along the plane: no crossing to bind to
     }
-    const D cosEnd = sqrt((-(sinEnd * sinEnd)) + 1.);
+    const D cosEnd = sqrtOf((-(sinEnd * sinEnd)) + 1.);
     if (!((cosEnd.v * cosDelta.v) + (sinEnd.v * sinDelta.v) > 0.)) {
       return false; // beyond a quarter turn
     }
@@ -209,7 +186,7 @@ template <int N, typename T>
     const auto f = [&](const D& at) {
       const D half = 0.5 * (rho * at);
       const D chord = at * sinc(half);
-      return (nx * ((from[0] + (chord * cos(phi + half))) + (-static_cast<T>(plane.origin[0])))) + (ny * ((from[1] + (chord * sin(phi + half))) + (-static_cast<T>(plane.origin[1])))) + (nz * ((from[2] + (at * cotTheta)) + (-static_cast<T>(plane.origin[2]))));
+      return (nx * ((from[0] + (chord * cosOf(phi + half))) + (-static_cast<T>(plane.origin[0])))) + (ny * ((from[1] + (chord * sinOf(phi + half))) + (-static_cast<T>(plane.origin[1])))) + (nz * ((from[2] + (at * cotTheta)) + (-static_cast<T>(plane.origin[2]))));
     };
     const auto slope = [&](T at) { return (nx * cosOf(phi.v + (rho.v * at))) + (ny * sinOf(phi.v + (rho.v * at))) + (nz * cotTheta.v); };
     const T ahead = slope(0.);
@@ -253,8 +230,8 @@ template <int N, typename T>
   }
   const D half = 0.5 * (rho * s);
   const D chord = s * sinc(half);
-  to[0] = from[0] + (chord * cos(phi + half));
-  to[1] = from[1] + (chord * sin(phi + half));
+  to[0] = from[0] + (chord * cosOf(phi + half));
+  to[1] = from[1] + (chord * sinOf(phi + half));
   to[2] = from[2] + (s * cotTheta);
   to[3] = phi + (rho * s);
   to[4] = theta;
@@ -282,7 +259,7 @@ template <typename S>
 
 /// A symmetric positive definite matrix's Cholesky factor in the arithmetic
 /// S, packed, in storage the caller hands in (`l`, at least
-/// `dense::packedSize(n)`).
+/// `covSize(n)`).
 template <typename S = double>
 struct Cholesky {
   int n = 0;
@@ -292,7 +269,7 @@ struct Cholesky {
   [[nodiscard]] GPUhdi() bool factor(const S* a, int size)
   {
     n = size;
-    copyN(a, dense::packedSize(n), l);
+    copyN(a, covSize(n), l);
     return dense::choleskyFactor(packedOf(l), n);
   }
   [[nodiscard]] GPUhdi() S logDeterminant() const { return dense::choleskyLogDeterminant(packedOf(l), n); }
@@ -302,28 +279,19 @@ struct Cholesky {
   GPUhdi() void inverse(S* inverse) const { dense::choleskyInverse(packedOf(l), n, packedOf(inverse)); }
 };
 
-/// The entries of a packed 5 x 5 matrix: a track state's covariance or a
-/// measurement's weight.
-inline constexpr int kPackedState = 15;
-
-/// A track state's covariance in S, packed in `dense::packedIndex`'s order
-/// (BoundTrackState's own, covIndex, is the same lower triangle row by row).
+/// A track state's covariance in S, packed (`covIndex`, the state's own).
 template <typename S = double, typename State>
-[[nodiscard]] GPUhdi() std::array<S, kPackedState> covarianceOf(const State& state)
+[[nodiscard]] GPUhdi() std::array<S, kBoundCovSize> covarianceOf(const State& state)
 {
-  std::array<S, kPackedState> covariance{};
-  for (int r = 0; r < 5; ++r) {
-    for (int c = 0; c <= r; ++c) {
-      covariance[dense::packedIndex(r, c)] = state.covAt(r, c);
-    }
-  }
+  std::array<S, kBoundCovSize> covariance{};
+  copyN(state.cov, kBoundCovSize, covariance.data());
   return covariance;
 }
 
 /// The weight (inverse covariance, packed) of the covariance factored in
 /// \a cholesky.
 template <typename S>
-GPUhdi() void weightOf(const Cholesky<S>& cholesky, std::array<S, kPackedState>& weight)
+GPUhdi() void weightOf(const Cholesky<S>& cholesky, std::array<S, kBoundCovSize>& weight)
 {
   dense::choleskyInverse(packedOf(cholesky.l), 5, packedOf(weight.data()));
 }
@@ -358,7 +326,7 @@ struct MixtureCollapse {
   double weight = 0.;
   double chi2 = 0.;
   std::span<double> mean;
-  std::span<S> scatter; ///< packed (`dense::packedIndex`)
+  std::span<S> scatter; ///< packed (`covIndex`)
 
   GPUhdi() MixtureCollapse(std::span<double> meanStorage, std::span<S> scatterStorage) : n(static_cast<int>(meanStorage.size())), mean(meanStorage), scatter(scatterStorage)
   {
@@ -409,7 +377,7 @@ struct MixtureCollapse {
       for (int j = 0; j <= i; ++j) {
         const double di = meanB[i] - mean[i];
         const double dj = meanB[j] - mean[j];
-        const int ij = dense::packedIndex(i, j);
+        const int ij = covIndex(i, j);
         scatter[ij] = static_cast<S>((a * scatter[ij]) + (b * scatterB[ij]) + ((u * v / w) * di * dj));
       }
     }

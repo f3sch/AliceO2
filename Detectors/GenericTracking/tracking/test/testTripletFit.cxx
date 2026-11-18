@@ -58,7 +58,7 @@ ReferenceSegment referenceSegment(const ReferenceDual& curvature, const Referenc
   const ReferenceDual halfSine = ReferenceDual{0.5} * curvature * chord;
   const ReferenceDual halfSine2 = halfSine * halfSine;
   const ReferenceDual halfSine4 = halfSine2 * halfSine2;
-  const ReferenceDual halfAngle = dual::asin(halfSine);
+  const ReferenceDual halfAngle = asinOf(halfSine);
   ReferenceDual asinOverArgument;
   ReferenceDual angleCotangent;
   if (std::abs(halfSine.v) < 1.e-4) {
@@ -66,11 +66,11 @@ ReferenceSegment referenceSegment(const ReferenceDual& curvature, const Referenc
     angleCotangent = ReferenceDual{1.} - halfSine2 * ReferenceDual{1. / 3.} - halfSine4 * ReferenceDual{2. / 15.};
   } else {
     asinOverArgument = halfAngle / halfSine;
-    angleCotangent = halfAngle * dual::sqrt(ReferenceDual{1.} - halfSine2) / halfSine;
+    angleCotangent = halfAngle * sqrtOf(ReferenceDual{1.} - halfSine2) / halfSine;
   }
   const ReferenceDual arc = chord * asinOverArgument;
   const ReferenceDual cotangent = deltaZ / arc;
-  const ReferenceDual sine = ReferenceDual{1.} / dual::sqrt(ReferenceDual{1.} + cotangent * cotangent);
+  const ReferenceDual sine = ReferenceDual{1.} / sqrtOf(ReferenceDual{1.} + cotangent * cotangent);
   const ReferenceDual cosine = cotangent * sine;
   const ReferenceDual index = ReferenceDual{1.} / (angleCotangent * sine * sine + cosine * cosine);
   return {
@@ -107,14 +107,14 @@ ReferenceGeometry referenceGeometry(const std::array<PairPoint, 3>& measurements
   const ReferenceDual dz12 = point[2][2] - point[1][2];
   const ReferenceDual dx02 = point[2][0] - point[0][0];
   const ReferenceDual dy02 = point[2][1] - point[0][1];
-  const ReferenceDual length01 = dual::sqrt(dx01 * dx01 + dy01 * dy01);
-  const ReferenceDual length12 = dual::sqrt(dx12 * dx12 + dy12 * dy12);
-  const ReferenceDual length02 = dual::sqrt(dx02 * dx02 + dy02 * dy02);
+  const ReferenceDual length01 = sqrtOf(dx01 * dx01 + dy01 * dy01);
+  const ReferenceDual length12 = sqrtOf(dx12 * dx12 + dy12 * dy12);
+  const ReferenceDual length02 = sqrtOf(dx02 * dx02 + dy02 * dy02);
   const ReferenceDual transverseCurvature = ReferenceDual{2.} * (dx01 * dy12 - dy01 * dx12) / (length01 * length12 * length02);
   const auto first = referenceSegment(transverseCurvature, length01, dz01);
   const auto second = referenceSegment(transverseCurvature, length12, dz12);
-  const ReferenceDual theta01 = dual::atan2(first.transverseArcLength, dz01);
-  const ReferenceDual theta12 = dual::atan2(second.transverseArcLength, dz12);
+  const ReferenceDual theta01 = atan2Of(first.transverseArcLength, dz01);
+  const ReferenceDual theta12 = atan2Of(second.transverseArcLength, dz12);
   const ReferenceDual phi = ReferenceDual{0.5} * (first.bendingAngle * first.index + second.bendingAngle * second.index);
   const ReferenceDual theta = theta12 - theta01 + (ReferenceDual{1.} - second.index) * second.cotangentTheta - (ReferenceDual{1.} - first.index) * first.cotangentTheta;
   const ReferenceDual rhoPhi = ReferenceDual{-0.5} * (first.transverseArcLength * first.index / first.sineTheta + second.transverseArcLength * second.index / second.sineTheta);

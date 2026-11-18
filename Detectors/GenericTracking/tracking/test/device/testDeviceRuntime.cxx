@@ -42,7 +42,7 @@ namespace o2::gtrk
 
 using namespace device_test;
 
-/// Every function of Trig.h, in both precisions, over the propagator's turns,
+/// Every function of ElementaryMath.h, in both precisions, over the propagator's turns,
 /// wide arguments, the reduction's hard cases and the special values: in the
 /// deterministic build the host's bits, all of them (PortableMath.h).
 BOOST_AUTO_TEST_CASE(TrigGivesTheHostsBitsInTheDeterministicBuild)

@@ -26,7 +26,7 @@
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
 
 #include "CommonConstants/MathConstants.h"
@@ -316,7 +316,7 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
       res.status = PropagationStatus::kNoIntersection;
       return res;
     }
-    const ExactScalar den = bCoef + (bCoef >= ExactScalar{0} ? ExactScalar{1} : ExactScalar{-1}) * o2::math_utils::detail::sqrt(disc);
+    const ExactScalar den = bCoef + (bCoef >= ExactScalar{0} ? ExactScalar{1} : ExactScalar{-1}) * sqrtOf(disc);
     if (Math::Abs(den) < ExactScalar{1e-30}) {
       res.status = PropagationStatus::kNoIntersection;
       return res;
@@ -383,7 +383,7 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
       const ExactScalar ell = Math::Abs(tryPsi) < ExactScalar{0.01} ? alongD / sinc<ExactScalar>(tryPsi) : tryPsi / kappa;
       const ExactScalar tryPath = ell / sinTheta;
 
-      const bool usable = isFiniteScalar(static_cast<Scalar>(tryPath)) && tryPath * static_cast<ExactScalar>(static_cast<int>(dir)) >= ExactScalar{0};
+      const bool usable = isFiniteOf(static_cast<Scalar>(tryPath)) && tryPath * static_cast<ExactScalar>(static_cast<int>(dir)) >= ExactScalar{0};
       bool take = root == 0;
       if constexpr (Rule == CrossingRule::kFirstAhead) {
         if (root != 0) {
@@ -428,7 +428,7 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
 
   // Asked as a float, because a float is what gets stored: a double too large
   // to narrow is exactly the case this has to reject.
-  if (!isFiniteScalar(static_cast<Scalar>(path))) {
+  if (!isFiniteOf(static_cast<Scalar>(path))) {
     res.status = PropagationStatus::kNotFinite;
     return res;
   }
@@ -481,7 +481,7 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
   // the incidence test above does not reject a NaN. Every comparison on the
   // way down evaluates false for one, so without this test a NaN state would
   // come back as kOutOfBounds with the NaNs written.
-  if (!isFiniteScalar(static_cast<Scalar>(loc0)) || !isFiniteScalar(static_cast<Scalar>(loc1)) || !isFiniteScalar(static_cast<Scalar>(phi1))) {
+  if (!isFiniteOf(static_cast<Scalar>(loc0)) || !isFiniteOf(static_cast<Scalar>(loc1)) || !isFiniteOf(static_cast<Scalar>(phi1))) {
     res.status = PropagationStatus::kNotFinite;
     return res;
   }

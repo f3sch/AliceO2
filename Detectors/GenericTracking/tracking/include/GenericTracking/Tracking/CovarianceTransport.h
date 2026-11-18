@@ -21,7 +21,7 @@
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/Propagator.h"
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "CommonConstants/MathConstants.h"
 

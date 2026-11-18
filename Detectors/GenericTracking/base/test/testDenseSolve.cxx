@@ -79,10 +79,10 @@ const std::vector<std::vector<double>> kRows{{1., 2., 0.5}, {-0.5, 1., 3.}, {2.,
 // The packed lower triangle of the symmetric \a a.
 Matrix packed(const Matrix& a, int n)
 {
-  Matrix p(static_cast<std::size_t>(packedSize(n)));
+  Matrix p(static_cast<std::size_t>(covSize(n)));
   for (int i = 0; i < n; ++i) {
     for (int j = 0; j <= i; ++j) {
-      p[packedIndex(i, j)] = a[(i * n) + j];
+      p[covIndex(i, j)] = a[(i * n) + j];
     }
   }
   return p;
@@ -268,7 +268,7 @@ BOOST_AUTO_TEST_CASE(BunchKaufmanRefusesASingularSystem)
   std::array<int, n> swaps{};
   std::array<int, n> blocks{};
   BOOST_TEST(!ldltFactor(PackedView<double>{singular.data()}, n, swaps.data(), blocks.data()));
-  Matrix zero(static_cast<std::size_t>(packedSize(n)), 0.);
+  Matrix zero(static_cast<std::size_t>(covSize(n)), 0.);
   BOOST_TEST(!ldltFactor(PackedView<double>{zero.data()}, n, swaps.data(), blocks.data()));
 }
 
@@ -314,15 +314,15 @@ BOOST_AUTO_TEST_CASE(PackedAndRowMajorCholeskyAgree)
   BOOST_REQUIRE(choleskyFactor(PackedView<double>{p.data()}, n));
   for (int i = 0; i < n; ++i) {
     for (int j = 0; j <= i; ++j) {
-      BOOST_TEST(full[(i * n) + j] == p[packedIndex(i, j)]);
+      BOOST_TEST(full[(i * n) + j] == p[covIndex(i, j)]);
     }
   }
-  Matrix inverse(static_cast<std::size_t>(packedSize(n)));
+  Matrix inverse(static_cast<std::size_t>(covSize(n)));
   choleskyInverse(PackedView<double>{p.data()}, n, PackedView<double>{inverse.data()});
   Matrix unpacked(static_cast<std::size_t>(n * n));
   for (int i = 0; i < n; ++i) {
     for (int j = 0; j < n; ++j) {
-      unpacked[(i * n) + j] = inverse[packedIndex(i, j)];
+      unpacked[(i * n) + j] = inverse[covIndex(i, j)];
     }
   }
   requireIdentity(product(a, unpacked, n), n, 1e-12);

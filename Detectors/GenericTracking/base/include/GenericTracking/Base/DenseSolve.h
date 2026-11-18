@@ -26,12 +26,11 @@
 #ifndef GTRK_BASE_DENSESOLVE_H_
 #define GTRK_BASE_DENSESOLVE_H_
 
+#include "GenericTracking/Base/Definitions.h"
 #include "GenericTracking/Base/ElementaryMath.h"
 
 #include "GPUCommonDef.h"
 #include "GPUCommonMath.h"
-
-#include <limits>
 
 #include <type_traits>
 
@@ -46,22 +45,12 @@ struct MatrixView {
   [[nodiscard]] GPUhdi() GPUAlwaysInline() T& operator()(int row, int column) const { return data[(row * stride) + column]; }
 };
 
-/// Where (row, column) of a symmetric matrix sits in its packed lower
-/// triangle: row by row, row r's columns 0..r at r (r + 1) / 2.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() constexpr int packedIndex(int row, int column)
-{
-  return row >= column ? ((row * (row + 1)) / 2) + column : ((column * (column + 1)) / 2) + row;
-}
-
-/// The entries a packed symmetric n x n matrix holds, n (n + 1) / 2.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() constexpr int packedSize(int n) { return (n * (n + 1)) / 2; }
-
-/// A symmetric matrix by its lower triangle, packed (`packedIndex`):
+/// A symmetric matrix by its lower triangle, packed (`covIndex`):
 /// (row, column) and (column, row) are the same element.
 template <typename T>
 struct PackedView {
   T* data = nullptr;
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() T& operator()(int row, int column) const { return data[packedIndex(row, column)]; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() T& operator()(int row, int column) const { return data[covIndex(row, column)]; }
 };
 
 /// A view's element type.
@@ -192,31 +181,16 @@ namespace detail
 template <typename View>
 GPUhdi() GPUAlwaysInline() void exchange(View a, int n, int k, int p)
 {
-  using T = ElementOf<View>;
-  const auto swap = [](T& x, T& y) {
-    const T t = x;
-    x = y;
-    y = t;
-  };
   for (int j = 0; j < k; ++j) {
-    swap(a(k, j), a(p, j));
+    o2::gpu::CAMath::Swap(a(k, j), a(p, j));
   }
-  swap(a(k, k), a(p, p));
+  o2::gpu::CAMath::Swap(a(k, k), a(p, p));
   for (int i = k + 1; i < p; ++i) {
-    T& ik = a(i, k);
-    T& pi = a(p, i);
-    swap(ik, pi);
+    o2::gpu::CAMath::Swap(a(i, k), a(p, i));
   }
   for (int i = p + 1; i < n; ++i) {
-    swap(a(i, k), a(i, p));
+    o2::gpu::CAMath::Swap(a(i, k), a(i, p));
   }
-}
-
-/// Whether \a x is finite: NaN fails both comparisons, an infinity one.
-template <typename T>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() constexpr bool isFinite(T x)
-{
-  return x >= -std::numeric_limits<T>::max() && x <= std::numeric_limits<T>::max();
 }
 
 /// A 2 x 2 pivot block D = [[d11, d21], [d21, d22]] scaled by its off-diagonal
@@ -278,7 +252,7 @@ template <typename View, typename Size>
     }
     // A non-finite entry would defeat every comparison below (and select a
     // 2 x 2 block past the last row): refused like a singular block.
-    if (!detail::isFinite(diagonal) || !detail::isFinite(columnLargest) || !(diagonal != T(0) || columnLargest != T(0))) {
+    if (!isFiniteOf(diagonal) || !isFiniteOf(columnLargest) || !(diagonal != T(0) || columnLargest != T(0))) {
       return false;
     }
     int step = 1;
@@ -320,7 +294,7 @@ template <typename View, typename Size>
       }
     } else {
       const detail::ScaledBlock<T> block(a(k, k), a(k + 1, k), a(k + 1, k + 1));
-      if (!(block.reduced != T(0)) || !detail::isFinite(block.scale)) {
+      if (!(block.reduced != T(0)) || !isFiniteOf(block.scale)) {
         return false;
       }
       for (int i = k + 2; i < n; ++i) {
@@ -354,9 +328,7 @@ GPUhdi() GPUAlwaysInline() void ldltSolve(View ldl, Size size, const int* swaps,
   const int n = static_cast<int>(size);
   for (int k = 0; k < n; ++k) {
     if (swaps[k] != k) {
-      const T t = x[k];
-      x[k] = x[swaps[k]];
-      x[swaps[k]] = t;
+      o2::gpu::CAMath::Swap(x[k], x[swaps[k]]);
     }
   }
   // L y = P x
@@ -392,9 +364,7 @@ GPUhdi() GPUAlwaysInline() void ldltSolve(View ldl, Size size, const int* swaps,
   }
   for (int k = n - 1; k >= 0; --k) {
     if (swaps[k] != k) {
-      const T t = x[k];
-      x[k] = x[swaps[k]];
-      x[swaps[k]] = t;
+      o2::gpu::CAMath::Swap(x[k], x[swaps[k]]);
     }
   }
 }
@@ -446,9 +416,7 @@ GPUhdi() GPUAlwaysInline() void semidefiniteFactor(View a, Size size, int* order
     }
     if (pivot != k) {
       detail::exchange(a, n, k, pivot);
-      const int swapped = order[k];
-      order[k] = order[pivot];
-      order[pivot] = swapped;
+      o2::gpu::CAMath::Swap(order[k], order[pivot]);
     }
     const T d = a(k, k);
     for (int i = k + 1; i < n; ++i) {

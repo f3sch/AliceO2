@@ -43,7 +43,7 @@
 
 #include "GenericTracking/Base/Definitions.h"
 #include "GenericTracking/Tracking/MathUtils.h"
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "GPUCommonMath.h"
 
@@ -71,7 +71,7 @@ template <typename T>
 {
   const T dx = x2 - x1;
   const T dy = y2 - y1;
-  const T chord = o2::math_utils::detail::sqrt<T>((dx * dx) + (dy * dy));
+  const T chord = sqrtOf((dx * dx) + (dy * dy));
   const T inverse = chord > T(0) ? T(1) / chord : T(0);
   const T ux = dx * inverse;
   const T uy = dy * inverse;
@@ -101,7 +101,7 @@ template <typename T>
 {
   const T kh = k * family.half;
   const T square = T(1) - (kh * kh);
-  return square > T(0) ? o2::math_utils::detail::sqrt<T>(square) : T(0);
+  return square > T(0) ? sqrtOf(square) : T(0);
 }
 
 /// The signed distance from the beam line to the circle of curvature \a k:
@@ -113,7 +113,7 @@ template <typename T>
   const T s = halfTurnCosine(family, k);
   const T numerator = (k * (family.midSquare - (family.half * family.half))) + (T(2) * s * family.midNormal);
   const T centre2 = (k * k * family.midSquare) + (T(2) * k * s * family.midNormal) + (s * s);
-  return numerator / (T(1) + o2::math_utils::detail::sqrt<T>(centre2 > T(0) ? centre2 : T(0)));
+  return numerator / (T(1) + sqrtOf(centre2 > T(0) ? centre2 : T(0)));
 }
 
 /// A closed interval of curvatures; empty if `low > high`.
@@ -140,7 +140,7 @@ template <typename T>
     diameterOnly = b < T(0);
     return {-edge, edge};
   }
-  const T root = (a > T(0) ? -b : b) / o2::math_utils::detail::sqrt<T>((a * a) + (b * b * family.half * family.half));
+  const T root = (a > T(0) ? -b : b) / sqrtOf((a * a) + (b * b * family.half * family.half));
   return a > T(0) ? CurvatureInterval<T>{root, edge} : CurvatureInterval<T>{-edge, root};
 }
 
@@ -378,8 +378,8 @@ template <typename T>
   if (!(chord2 > T(0))) {
     return {T(0), T(0)};
   }
-  const T r1 = o2::math_utils::detail::sqrt<T>((x1 * x1) + (y1 * y1)) + maxImpact;
-  const T r2 = o2::math_utils::detail::sqrt<T>((x2 * x2) + (y2 * y2)) + maxImpact;
+  const T r1 = sqrtOf((x1 * x1) + (y1 * y1)) + maxImpact;
+  const T r2 = sqrtOf((x2 * x2) + (y2 * y2)) + maxImpact;
   const auto ratio = [&](T reach) {
     const T x = T(0.5) * maxCurvature * reach;
     return o2::gtrk::detail::asinOverArgument(x < T(1) ? x : T(1));
@@ -393,8 +393,8 @@ template <typename T>
   const T dip2 = dz * dz / chord2;
   const T longitudinal = ((lever1 * lever1 * errors.sourceVarZ) + (lever2 * lever2 * errors.targetVarZ)) / chord2;
   return {
-    .impact = o2::math_utils::detail::sqrt<T>(position + errors.sourceScatter + errors.beamVarTransverse),
-    .z = o2::math_utils::detail::sqrt<T>(longitudinal + (dip2 * position) + ((T(1) + dip2) * errors.sourceScatter)),
+    .impact = sqrtOf(position + errors.sourceScatter + errors.beamVarTransverse),
+    .z = sqrtOf(longitudinal + (dip2 * position) + ((T(1) + dip2) * errors.sourceScatter)),
   };
 }
 

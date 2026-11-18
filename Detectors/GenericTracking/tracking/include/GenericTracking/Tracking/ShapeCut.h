@@ -36,6 +36,8 @@
 #include "GPUCommonDef.h"
 #include "GPUCommonMath.h"
 
+#include <cfloat>
+
 namespace o2::gtrk
 {
 

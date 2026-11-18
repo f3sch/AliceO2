@@ -120,30 +120,30 @@ GPUhdi() Dual<N, T> chain(const Dual<N, T>& a, T value, T derivative)
   return r;
 }
 template <int N, typename T>
-GPUhdi() Dual<N, T> sin(const Dual<N, T>& a)
+GPUhdi() Dual<N, T> sinOf(const Dual<N, T>& a)
 {
-  return chain(a, sinOf(a.v), cosOf(a.v));
+  return chain(a, o2::gtrk::sinOf(a.v), o2::gtrk::cosOf(a.v));
 }
 template <int N, typename T>
-GPUhdi() Dual<N, T> cos(const Dual<N, T>& a)
+GPUhdi() Dual<N, T> cosOf(const Dual<N, T>& a)
 {
-  return chain(a, cosOf(a.v), -sinOf(a.v));
+  return chain(a, o2::gtrk::cosOf(a.v), -o2::gtrk::sinOf(a.v));
 }
 template <int N, typename T>
-GPUhdi() Dual<N, T> sqrt(const Dual<N, T>& a)
+GPUhdi() Dual<N, T> sqrtOf(const Dual<N, T>& a)
 {
-  const T root = sqrtOf(a.v);
+  const T root = o2::gtrk::sqrtOf(a.v);
   return chain(a, root, T(0.5) / root);
 }
 template <int N, typename T>
-GPUhdi() Dual<N, T> asin(const Dual<N, T>& a)
+GPUhdi() Dual<N, T> asinOf(const Dual<N, T>& a)
 {
-  return chain(a, asinOf(a.v), T(1.) / sqrtOf(T(1.) - (a.v * a.v)));
+  return chain(a, o2::gtrk::asinOf(a.v), T(1.) / o2::gtrk::sqrtOf(T(1.) - (a.v * a.v)));
 }
 template <int N, typename T>
-GPUhdi() Dual<N, T> atan2(const Dual<N, T>& y, const Dual<N, T>& x)
+GPUhdi() Dual<N, T> atan2Of(const Dual<N, T>& y, const Dual<N, T>& x)
 {
-  Dual<N, T> r{atan2Of(y.v, x.v)};
+  Dual<N, T> r{o2::gtrk::atan2Of(y.v, x.v)};
   const T norm = (x.v * x.v) + (y.v * y.v);
   for (int i = 0; i < N; ++i) {
     r.d[i] = ((x.v * y.d[i]) - (y.v * x.d[i])) / norm;

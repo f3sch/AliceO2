@@ -11,10 +11,10 @@
 
 /// \file ElementaryMath.h
 /// \brief The elementary functions of shared code, overloaded for float and
-///        double, for host and device alike.
+///        double, for host and device alike, and the finiteness test.
 ///
-/// Outside O2's deterministic mode they are `CAMath`'s: `Sin`, `ATan2`, ... in
-/// float and `Sind`, `ATan2d`, ... in double.
+/// Outside O2's deterministic mode they are `CAMath`'s: `Sin`, `ATan2`,
+/// `SinCos`, ... in float and `Sind`, `ATan2d`, `SinCosd`, ... in double.
 ///
 /// O2's deterministic mode is different. It computes the float functions in
 /// double and rounds, which almost always hides the host's and the device's
@@ -32,6 +32,14 @@
 #include "GenericTracking/Base/PortableMath.h"
 
 #include "GPUCommonMath.h"
+
+#include <cfloat>
+
+// The documented libdevice float implementation, called directly so CUDA's
+// --use-fast-math does not substitute the lower-accuracy intrinsic.
+#if defined(__CUDACC__) && !defined(__HIPCC__)
+extern "C" __device__ void __nv_sincosf(float, float*, float*);
+#endif
 
 namespace o2::gtrk
 {
@@ -108,6 +116,50 @@ GPUhdi() GPUAlwaysInline() double logOf(double x) { return o2::gpu::CAMath::Logd
 
 GPUhdi() GPUAlwaysInline() float sqrtOf(float x) { return o2::gpu::CAMath::Sqrt(x); }
 GPUhdi() GPUAlwaysInline() double sqrtOf(double x) { return o2::gpu::CAMath::Sqrtd(x); }
+
+GPUhdi() GPUAlwaysInline() void sincosOf(float x, float& s, float& c)
+{
+#ifdef GPUCA_DETERMINISTIC_MODE
+  s = sinOf(x);
+  c = cosOf(x);
+#else
+  o2::gpu::CAMath::SinCos(x, s, c);
+#endif
+}
+
+GPUhdi() GPUAlwaysInline() void sincosOf(double x, double& s, double& c)
+{
+#ifdef GPUCA_DETERMINISTIC_MODE
+  s = portable::sin(x);
+  c = portable::cos(x);
+#else
+  o2::gpu::CAMath::SinCosd(x, s, c);
+#endif
+}
+
+/// sin and cos of a direction for the double plane solve. Under CUDA's
+/// -use_fast_math (outside the deterministic mode) `sincosf` becomes the
+/// intrinsic, too coarse here; libdevice's precise one is called instead.
+GPUhdi() GPUAlwaysInline() void directionSincosOf(float angle, double& sine, double& cosine)
+{
+  float s = 0.F;
+  float c = 0.F;
+#if defined(__CUDA_ARCH__) && !defined(GPUCA_DETERMINISTIC_MODE)
+  __nv_sincosf(angle, &s, &c);
+#else
+  sincosOf(angle, s, c);
+#endif
+  sine = s;
+  cosine = c;
+}
+
+/// Whether \a x is finite, in every build: O2's `GPUCommonMath::Finite`
+/// and `IsNaN` are constants outside the deterministic mode, on the host as
+/// on the device. NaN fails both comparisons, an infinity one of them. The
+/// bounds are the C macros, which a device compiler accepts where a
+/// `std::numeric_limits` call may not.
+GPUhdi() GPUAlwaysInline() constexpr bool isFiniteOf(float x) { return x >= -FLT_MAX && x <= FLT_MAX; }
+GPUhdi() GPUAlwaysInline() constexpr bool isFiniteOf(double x) { return x >= -DBL_MAX && x <= DBL_MAX; }
 
 } // namespace o2::gtrk
 

@@ -185,7 +185,7 @@ GPUhdi() bool applyBetheHeitlerFactors(const BetheHeitlerComponent& component, P
   Scalar unit[kNBoundParams]{};
   unit[kQOverP] = 1.F;
   rankOneUpdateUD(factors.upper, factors.diagonal, slope * slope * component.variance, unit);
-  return isFiniteScalar(qOverP);
+  return isFiniteOf(qOverP);
 }
 
 } // namespace detail

@@ -90,7 +90,7 @@ template <class Columns>
 /// the spatial block positive definite. A zero variance divides the update's
 /// whitening and the U-D factorisation by zero, and nothing downstream
 /// reports the NaN that makes.
-[[nodiscard]] inline bool measurementVariancesValid(Scalar varLoc0, Scalar covLoc01, Scalar varLoc1) { return isFiniteScalar(varLoc0) && isFiniteScalar(covLoc01) && isFiniteScalar(varLoc1) && varLoc0 > 0.F && varLoc1 > 0.F && covLoc01 * covLoc01 < varLoc0 * varLoc1; }
+[[nodiscard]] inline bool measurementVariancesValid(Scalar varLoc0, Scalar covLoc01, Scalar varLoc1) { return isFiniteOf(varLoc0) && isFiniteOf(covLoc01) && isFiniteOf(varLoc1) && varLoc0 > 0.F && varLoc1 > 0.F && covLoc01 * covLoc01 < varLoc0 * varLoc1; }
 
 /// What the tracking borrows from the device that holds the run's conditions.
 struct TrackingConditions {

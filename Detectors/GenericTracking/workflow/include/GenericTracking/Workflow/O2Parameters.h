@@ -55,7 +55,7 @@ inline std::array<double, kBoundCovSize> transported(const Jacobian& jac, const 
           sum += jac[i][k] * static_cast<double>(state.covAt(k, l)) * jac[j][l];
         }
       }
-      result[(i * (i + 1) / 2) + j] = sum;
+      result[covIndex(i, j)] = sum;
     }
   }
   return result;

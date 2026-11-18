@@ -20,7 +20,7 @@
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "GPUCommonMath.h"
 
@@ -128,7 +128,7 @@ GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<D
       second[1] = p[1];
     }
     const T r2 = p[0] * p[0] + p[1] * p[1];
-    transverseScale = o2::gpu::GPUCommonMath::Max(transverseScale, o2::math_utils::detail::sqrt(r2));
+    transverseScale = o2::gpu::GPUCommonMath::Max(transverseScale, sqrtOf(r2));
 
     const T count = static_cast<T>(i + 1);
     const T dx = p[0] - meanX;
@@ -165,7 +165,7 @@ GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<D
   sincosOf(phi, sinPhi, cosPhi);
   const T scaledKappa = (sinPhi * scaledCXR - cosPhi * scaledCYR) / scaledCRR;
   const T delta = -scaledKappa * scaledMeanR2 + sinPhi * scaledMeanX - cosPhi * scaledMeanY;
-  const T root = o2::math_utils::detail::sqrt(o2::gpu::GPUCommonMath::Max(T(0), T(1) - T(4) * delta * scaledKappa));
+  const T root = sqrtOf(o2::gpu::GPUCommonMath::Max(T(0), T(1) - T(4) * delta * scaledKappa));
   T rho = T(2) * scaledKappa * invScale / root;
   T dca = T(2) * delta * transverseScale / (T(1) + root);
   if (cosPhi * second[0] + sinPhi * second[1] < T(0)) {
@@ -216,7 +216,7 @@ GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<D
   const T zStart = meanZ - cotTheta * meanS;
 
   const T theta = atan2Of(T(1), cotTheta);
-  const T thetaNorm = o2::math_utils::detail::sqrt(T(1) + cotTheta * cotTheta);
+  const T thetaNorm = sqrtOf(T(1) + cotTheta * cotTheta);
   const T sinTheta = T(1) / thetaNorm;
   const T cosTheta = cotTheta / thetaNorm;
   // The chain's propagator is asked at each use, not held in a local.

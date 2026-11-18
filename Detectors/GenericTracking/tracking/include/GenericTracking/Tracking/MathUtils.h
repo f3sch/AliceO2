@@ -19,11 +19,10 @@
 
 #include "GenericTracking/Base/Dual.h"
 #include "GenericTracking/Tracking/Definitions.h"
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "GPUCommonMath.h"
 #include "CommonConstants/MathConstants.h"
-#include "MathUtils/detail/basicMath.h"
 
 #include <cmath>
 #include <limits>
@@ -317,7 +316,7 @@ GPUhdi() GPUAlwaysInline() AsinOverArgument<T> asinOverArgumentWithDerivative(T 
     return {.value = T(1), .derivative = T(0), .angle = angle};
   }
   const T value = angle / x;
-  const T root = o2::math_utils::detail::sqrt((T(1) - x) * (T(1) + x));
+  const T root = sqrtOf((T(1) - x) * (T(1) + x));
   return {.value = value, .derivative = -dSinc<T>(angle) * value * value / root, .angle = angle};
 }
 
@@ -333,7 +332,7 @@ template <int N, typename T>
 template <typename T>
 GPUhdi() GPUAlwaysInline() T transverseArc(T curvature, T dx, T dy)
 {
-  const T chord = o2::math_utils::detail::sqrt(dx * dx + dy * dy);
+  const T chord = sqrtOf(dx * dx + dy * dy);
   // A chord of one diameter is half a turn; rounding must not push past it.
   const T halfTurnSine = o2::gpu::GPUCommonMath::Clamp(T(0.5) * curvature * chord, T(-1), T(1));
   return chord * asinOverArgument(halfTurnSine);

@@ -37,7 +37,7 @@
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/PairCut.h"
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/TripletFit.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
 
