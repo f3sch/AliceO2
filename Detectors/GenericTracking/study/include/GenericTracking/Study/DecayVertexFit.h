@@ -1173,6 +1173,45 @@ template <typename Material>
       }
     }
     scattered.addPrior(p, n, chi2, normal, gradient);
+    // The resonances' masses (`Resonance`): Breit-Wigner terms.
+    for (const auto& resonance : constraints.resonances) {
+      using DR = Dual<kConstraintInputs>;
+      DR energy{};
+      std::array<DR, 3> total{};
+      for (const int i : resonance.daughters) {
+        const int q = (3 * k) + (3 * i);
+        std::array<DR, 3> m{};
+        for (int c = 0; c < 3; ++c) {
+          m[c].v = p[q + c];
+          m[c].d[q + c] = 1.;
+        }
+        const DR pi = DR{m[2].v > 0. ? 1. : -1.} / m[2];
+        const DR pti = pi * sin(m[1]);
+        total[0] = total[0] + (pti * cos(m[0]));
+        total[1] = total[1] + (pti * sin(m[0]));
+        total[2] = total[2] + (pi * cos(m[1]));
+        energy = energy + sqrt((pi * pi) + (daughters[i].mass * daughters[i].mass));
+      }
+      const DR mass2 = (energy * energy) - ((total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]));
+      if (!(mass2.v > 0.)) {
+        return false;
+      }
+      const double big = resonance.massGeV;
+      const DR u = (mass2 + (-(big * big))) / DR{big * resonance.widthGeV};
+      const double u2 = u.v * u.v;
+      chi2 += 2. * std::log1p(u2);
+      const double weight = 0.5;                 // the Fisher information of chi2 / 2 per unit u^2
+      const double slope = 2. * u.v / (1. + u2); // d(chi2 / 2) / du
+      if (normal == nullptr) {
+        continue;
+      }
+      for (int a = 0; a < core; ++a) {
+        (*gradient)[a] -= slope * u.d[a];
+        for (int b = 0; b < core; ++b) {
+          (*normal)[a * n + b] += weight * u.d[a] * u.d[b];
+        }
+      }
+    }
     return true;
   };
 

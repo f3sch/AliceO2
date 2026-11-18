@@ -102,6 +102,7 @@ struct DecayFitRecord {
   float microseconds = 0.F;        ///< the fit's time (with a profile's or a sequential fit's every fit)
   std::uint16_t combinations = 0U; ///< the Gaussian sum's component combinations
   std::int8_t branch = -1;         ///< an unseen neutral's start (0, 1), -1 without one
+  std::uint8_t resonance = 0U;     ///< 1 the resonances' masses taken (Breit-Wigner)
   float chi2 = 0.F;
   std::int16_t ndf = 0;
   float flight = 0.F; ///< the true one [cm]
@@ -202,6 +203,7 @@ struct DecayFitRecord {
     visit("iterations", iterations);
     visit("outer", outer);
     visit("modelShift", modelShift);
+    visit("resonance", resonance);
     visit("branch", branch);
     visit("combinations", combinations);
     visit("microseconds", microseconds);
@@ -548,8 +550,9 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     std::vector<const TreeParticle*> leaves;
     std::vector<const TreeParticle*> composites; ///< a tree's, vertex 1 on
     DecayTopology topology;
-    std::array<double, 3> decay{};        ///< the root's true decay point
-    const TreeParticle* unseen = nullptr; ///< the root's one unseen neutral product, if any
+    std::array<double, 3> decay{};               ///< the root's true decay point
+    const TreeParticle* unseen = nullptr;        ///< the root's one unseen neutral product, if any
+    std::vector<const TreeParticle*> resonances; ///< composites that decay where they are made: transparent
     std::vector<DecayFitRecord> records;
     bool refitFailed = false;
     std::uint8_t refitPass = 0U;
@@ -584,6 +587,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     std::vector<const TreeParticle*> composites;
     std::unordered_map<std::uint64_t, int> vertexOf{{member.id, 0}};
     bool linkable = true;
+    std::vector<const TreeParticle*> resonances;
     for (const auto* composite : shape.composites) {
       const auto own = decayProducts(trees, *composite);
       if (own.size() == 1U) {
@@ -591,8 +595,10 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         continue;
       }
       if (own.front()->vertex == composite->vertex) {
-        linkable = false;
-        break;
+        // a resonance: its products at its parent's vertex, its mass soft
+        vertexOf[composite->id] = vertexOf.at(composite->mother);
+        resonances.push_back(composite);
+        continue;
       }
       vertexOf[composite->id] = static_cast<int>(composites.size()) + 1;
       composites.push_back(composite);
@@ -623,7 +629,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     if (missing && !topology.vertexOf.empty()) {
       topology.vertexOf.push_back(0); // the unseen one, last, at the root
     }
-    work.push_back({.mother = &member, .leaves = shape.leaves, .composites = std::move(composites), .topology = std::move(topology), .decay = decay, .unseen = missing ? shape.unseen.front() : nullptr});
+    work.push_back({.mother = &member, .leaves = shape.leaves, .composites = std::move(composites), .topology = std::move(topology), .decay = decay, .unseen = missing ? shape.unseen.front() : nullptr, .resonances = std::move(resonances)});
   }
 
   const auto& frame = *event.frame;
@@ -802,7 +808,8 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       struct Job {
         DecayFitVariant variant;
         std::uint8_t constraints;
-        int branch = -1; ///< an unseen neutral's start: the quadratic's smaller (0) or larger (1) root
+        int branch = -1;        ///< an unseen neutral's start: the quadratic's smaller (0) or larger (1) root
+        bool resonance = false; ///< the resonances' masses taken
       };
       const bool tree = !one.composites.empty();
       // A tree's charged particles' own rows -- the root's (a tracked Xi,
@@ -881,6 +888,13 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           jobs.push_back({DecayFitVariant::kFull, set});
         }
       }
+      // Resonances' masses: alone, and with the mother's mass and
+      // production point (and a tree's composites' masses).
+      if (!one.resonances.empty() && !missing) {
+        for (const std::uint8_t set : {std::uint8_t{0}, static_cast<std::uint8_t>(tree ? 19U : 3U)}) {
+          jobs.push_back({.variant = DecayFitVariant::kFull, .constraints = set, .resonance = true});
+        }
+      }
       // Electron daughters' mixtures kept (not a conversion's: parked):
       // alone and under the masses.
       const bool electrons = std::ranges::any_of(daughters, [](const DecayDaughter& d) { return d.mixture.has_value(); });
@@ -951,6 +965,24 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         DecayConstraints constraints{.mass = wantMass, .massGeV = motherMass, .production = wantProduction, .point = point, .collinear = wantCollinear};
         if (wantComposites && job.variant != DecayFitVariant::kSequential) {
           constraints.compositeMasses = compositeMasses;
+        }
+        record.resonance = job.resonance ? 1U : 0U;
+        if (job.resonance) {
+          for (const auto* resonance : one.resonances) {
+            const auto* entry = o2::O2DatabasePDG::Instance()->GetParticle(resonance->pdg);
+            Resonance taken{.massGeV = entry == nullptr ? 0. : entry->Mass(), .widthGeV = entry == nullptr ? 0. : entry->Width()};
+            for (std::size_t i = 0; i < count; ++i) {
+              for (const auto* up = one.leaves[i]; up != nullptr; up = trees.find(up->mother)) {
+                if (up->id == resonance->id) {
+                  taken.daughters.push_back(static_cast<int>(i));
+                  break;
+                }
+              }
+            }
+            if (taken.massGeV > 0. && taken.widthGeV > 0. && taken.daughters.size() >= 2U) {
+              constraints.resonances.push_back(std::move(taken));
+            }
+          }
         }
         const bool wantMother = (job.constraints & 32U) != 0U;
         const auto tracked = wantMother ? std::span<const DecayMother>{trackedMothers} : std::span<const DecayMother>{};
