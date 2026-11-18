@@ -129,7 +129,8 @@ struct DecayVertexFitResult {
   float stopMetric = 0.F;                      ///< the last step's predicted chi2 gain
   float modelShift = 0.F;                      ///< what the last model evaluation moved the solution by (its first step's predicted gain)
   double pointSigma = 0.;                      ///< the production point's equations' sigma across the flight [cm], with the scattering onto it
-  std::uint16_t combinations = 0U;             ///< `kGaussianSum`: the component combinations fitted
+  std::uint16_t combinations = 0U;             ///< `kGaussianSum`: the component combinations fitted and taken
+  std::uint16_t combinationsTried = 0U;        ///< and all combinations tried
   std::array<double, 3> vertex{};              ///< the root's, `vertices[0]`
   std::vector<std::array<double, 3>> vertices; ///< every vertex of the tree (DecayTopology)
   /// Per daughter: its charge [e] (|p| = |q| / |q/p|; a neutral one's q/p is 1/p).
@@ -1228,108 +1229,80 @@ template <typename Material>
     if (!electrons.empty()) {
       const auto collapsed = measurements;
       const auto from = parameters;
-      struct Fit {
+      // Combination k picks, per electron, its component k's digit in the
+      // mixed radix of the mixtures' sizes, the first electron's the fastest.
+      std::size_t tried = 1U;
+      for (const int e : electrons) {
+        tried *= components[e].size();
+      }
+      MixtureCollapse collapse(n);
+      std::vector<double> fitParameters(static_cast<std::size_t>(n));
+      std::vector<double> fitCovariance;
+      for (std::size_t combination = 0; combination < tried; ++combination) {
         double logWeight = 0.;
-        std::vector<double> parameters;
-        std::vector<double> covariance;
-        double chi2 = 0.;
-      };
-      std::vector<Fit> fits;
-      std::vector<std::size_t> pick(electrons.size(), 0U);
-      for (bool more = true; more;) {
-        double logWeight = 0.;
-        for (std::size_t e = 0; e < electrons.size(); ++e) {
-          const auto& component = components[electrons[e]][pick[e]];
-          measurements[electrons[e]] = component.measurement;
+        std::size_t digits = combination;
+        for (const int e : electrons) {
+          const auto& component = components[e][digits % components[e].size()];
+          digits /= components[e].size();
+          measurements[e] = component.measurement;
           logWeight += component.logWeight - (0.5 * component.logDetCovariance);
         }
-        Fit fit{.parameters = from};
+        fitParameters = from;
+        double fitChi2 = 0.;
         double combinationMu = mu;
         double combinationMetric = 0.;
         int combinationIterations = 0;
         int combinationSteps = 0;
         double combinationShift = 0.;
-        if (minimiseFrozen(n, ndf, constrained, evaluate, constraintsAt, values, rows, fit.parameters, fit.chi2, combinationMu, combinationMetric, combinationIterations, combinationSteps, combinationShift) == DecayFitStatus::kOk) {
-          double unusedRounding = 0.;
-          std::vector<double> matrix(static_cast<std::size_t>(n * n));
-          std::vector<double> rhs(static_cast<std::size_t>(n));
-          bool ok = evaluate(fit.parameters, fit.chi2, unusedRounding, &matrix, &rhs);
-          double logVolume = 0.;
-          if (ok && constrained) {
-            std::vector<double> unused;
-            double logKKT = 0.;
-            ok = constraintsAt(fit.parameters) && constrainedStep(matrix, n, rhs, rows, values, unused, &fit.covariance, nullptr, &logKKT);
-            // C C^T, m x m.
-            const int m = static_cast<int>(values.size());
-            std::vector<double> square(static_cast<std::size_t>(m * m), 0.);
-            for (int j = 0; j < m; ++j) {
-              for (int k = 0; k <= j; ++k) {
-                double sum = 0.;
-                for (int b = 0; b < n; ++b) {
-                  sum += rows[(j * n) + b] * rows[(k * n) + b];
-                }
-                square[(j * m) + k] = sum;
-                square[(k * m) + j] = sum;
+        if (minimiseFrozen(n, ndf, constrained, evaluate, constraintsAt, values, rows, fitParameters, fitChi2, combinationMu, combinationMetric, combinationIterations, combinationSteps, combinationShift) != DecayFitStatus::kOk) {
+          continue;
+        }
+        double unusedRounding = 0.;
+        std::vector<double> matrix(static_cast<std::size_t>(n * n));
+        std::vector<double> rhs(static_cast<std::size_t>(n));
+        bool ok = evaluate(fitParameters, fitChi2, unusedRounding, &matrix, &rhs);
+        double logVolume = 0.;
+        if (ok && constrained) {
+          std::vector<double> unused;
+          double logKKT = 0.;
+          ok = constraintsAt(fitParameters) && constrainedStep(matrix, n, rhs, rows, values, unused, &fitCovariance, nullptr, &logKKT);
+          // C C^T, m x m.
+          const int m = static_cast<int>(values.size());
+          std::vector<double> square(static_cast<std::size_t>(m * m), 0.);
+          for (int j = 0; j < m; ++j) {
+            for (int c = 0; c <= j; ++c) {
+              double sum = 0.;
+              for (int b = 0; b < n; ++b) {
+                sum += rows[(j * n) + b] * rows[(c * n) + b];
               }
-            }
-            Cholesky llt;
-            ok = ok && llt.factor(square, m);
-            logVolume = ok ? logKKT - llt.logDeterminant() : 0.;
-          } else if (ok) {
-            Cholesky llt;
-            ok = llt.factor(matrix, n);
-            if (ok) {
-              logVolume = llt.logDeterminant();
-              fit.covariance = llt.inverse();
+              square[(j * m) + c] = sum;
+              square[(c * m) + j] = sum;
             }
           }
+          Cholesky llt;
+          ok = ok && llt.factor(square, m);
+          logVolume = ok ? logKKT - llt.logDeterminant() : 0.;
+        } else if (ok) {
+          Cholesky llt;
+          ok = llt.factor(matrix, n);
           if (ok) {
-            fit.logWeight = logWeight - (0.5 * fit.chi2) - (0.5 * logVolume);
-            fits.push_back(std::move(fit));
+            logVolume = llt.logDeterminant();
+            fitCovariance = llt.inverse();
           }
         }
-        // the next combination
-        more = false;
-        for (std::size_t e = 0; e < electrons.size() && !more; ++e) {
-          if (++pick[e] < components[electrons[e]].size()) {
-            more = true;
-          } else {
-            pick[e] = 0U;
-          }
+        if (ok) {
+          collapse.add(logWeight - (0.5 * fitChi2) - (0.5 * logVolume), fitParameters, fitCovariance, fitChi2);
         }
       }
       measurements = collapsed;
-      if (fits.empty()) {
+      result.combinationsTried = static_cast<std::uint16_t>(std::min<std::size_t>(tried, 65535U));
+      if (collapse.count == 0) {
         result.status = DecayFitStatus::kNotConverged;
       } else {
-        double largest = -std::numeric_limits<double>::infinity();
-        for (const auto& fit : fits) {
-          largest = std::max(largest, fit.logWeight);
-        }
-        double total = 0.;
-        for (auto& fit : fits) {
-          fit.logWeight = std::exp(fit.logWeight - largest);
-          total += fit.logWeight;
-        }
-        std::ranges::fill(parameters, 0.);
-        chi2 = 0.;
-        for (const auto& fit : fits) {
-          const double w = fit.logWeight / total;
-          for (int a = 0; a < n; ++a) {
-            parameters[a] += w * fit.parameters[a];
-          }
-          chi2 += w * fit.chi2;
-        }
-        result.covariance.assign(static_cast<std::size_t>(n * n), 0.);
-        for (const auto& fit : fits) {
-          const double w = fit.logWeight / total;
-          for (int a = 0; a < n; ++a) {
-            for (int b = 0; b < n; ++b) {
-              result.covariance[a * n + b] += w * (fit.covariance[a * n + b] + ((fit.parameters[a] - parameters[a]) * (fit.parameters[b] - parameters[b])));
-            }
-          }
-        }
-        result.combinations = static_cast<std::uint16_t>(std::min<std::size_t>(fits.size(), 65535U));
+        parameters = collapse.mean;
+        chi2 = collapse.meanChi2();
+        result.covariance = collapse.covariance();
+        result.combinations = static_cast<std::uint16_t>(std::min(collapse.count, 65535));
       }
     }
   }

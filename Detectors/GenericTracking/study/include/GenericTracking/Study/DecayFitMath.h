@@ -252,6 +252,84 @@ inline void weightOf(Cholesky& cholesky, std::array<double, 25>& weight)
   return factor;
 }
 
+/// A Gaussian mixture's collapse to one Gaussian (its mean and covariance)
+/// and its weighted chi2, accumulated a component at a time or merged from
+/// two partial collapses, without keeping the components: the largest
+/// log-weight so far h, the weight sum W relative to exp(h), the weighted
+/// mean mu, the scatter S = sum w (Sigma + (p - mu)(p - mu)^T) unnormalised,
+/// the weighted chi2 sum. Merging A and B rescales both to the larger h and
+/// combines means and scatters with their means' difference; adding one
+/// component is a merge with a collapse of one. No raw moments
+/// (sum w p p^T - mu mu^T), which cancel.
+struct MixtureCollapse {
+  int n = 0;
+  int count = 0; ///< the components taken
+  double logScale = -std::numeric_limits<double>::infinity();
+  double weight = 0.;
+  double chi2 = 0.;
+  std::vector<double> mean;
+  std::vector<double> scatter; ///< n x n, row-major
+
+  explicit MixtureCollapse(int size) : n(size), mean(static_cast<std::size_t>(size), 0.), scatter(static_cast<std::size_t>(size * size), 0.) {}
+
+  /// Takes the component of log-weight \a logWeight, mean \a p, covariance
+  /// \a sigma (n x n) and chi2 \a componentChi2.
+  void add(double logWeight, const std::vector<double>& p, const std::vector<double>& sigma, double componentChi2)
+  {
+    combine(logWeight, 1., p, sigma, componentChi2, 1);
+  }
+  void merge(const MixtureCollapse& other)
+  {
+    if (other.count > 0) {
+      combine(other.logScale, other.weight, other.mean, other.scatter, other.chi2, other.count);
+    }
+  }
+  /// The collapse's covariance, S / W.
+  [[nodiscard]] std::vector<double> covariance() const
+  {
+    std::vector<double> c(scatter.size());
+    for (std::size_t i = 0; i < c.size(); ++i) {
+      c[i] = scatter[i] / weight;
+    }
+    return c;
+  }
+  [[nodiscard]] double meanChi2() const { return chi2 / weight; }
+
+ private:
+  void combine(double logScaleB, double weightB, const std::vector<double>& meanB, const std::vector<double>& scatterB, double chi2B, int countB)
+  {
+    if (count == 0) {
+      logScale = logScaleB;
+      weight = weightB;
+      mean = meanB;
+      scatter = scatterB;
+      chi2 = chi2B;
+      count = countB;
+      return;
+    }
+    const double h = std::max(logScale, logScaleB);
+    const double a = std::exp(logScale - h);
+    const double b = std::exp(logScaleB - h);
+    const double u = a * weight;
+    const double v = b * weightB;
+    const double w = u + v;
+    for (int i = 0; i < n; ++i) {
+      for (int j = 0; j < n; ++j) {
+        const double di = meanB[i] - mean[i];
+        const double dj = meanB[j] - mean[j];
+        scatter[(i * n) + j] = (a * scatter[(i * n) + j]) + (b * scatterB[(i * n) + j]) + ((u * v / w) * di * dj);
+      }
+    }
+    for (int i = 0; i < n; ++i) {
+      mean[i] += (v / w) * (meanB[i] - mean[i]);
+    }
+    chi2 = (a * chi2) + (b * chi2B);
+    weight = w;
+    logScale = h;
+    count += countB;
+  }
+};
+
 } // namespace o2::gtrk::study::decay_fit_detail
 
 #endif // GTRK_STUDY_DECAYFITMATH_H_
