@@ -303,8 +303,9 @@ struct ScatteredEquations {
 /// daughters along the flight). With \a covariance, the constrained
 /// covariance: the system's inverse's N block; with \a sensitivity (n x m),
 /// the parameters' derivatives by each constraint's value, the inverse's
-/// C^T block. False if the system is singular (an exactly zero pivot).
-[[nodiscard]] inline bool constrainedStep(const std::vector<double>& normal, int n, const std::vector<double>& gradient, const std::vector<double>& rows, const std::vector<double>& values, std::vector<double>& step, std::vector<double>* covariance, std::vector<double>* sensitivity = nullptr, std::vector<double>* multipliers = nullptr)
+/// C^T block; with \a logDeterminant, ln |det| of the system. False if the
+/// system is singular (an exactly zero pivot).
+[[nodiscard]] inline bool constrainedStep(const std::vector<double>& normal, int n, const std::vector<double>& gradient, const std::vector<double>& rows, const std::vector<double>& values, std::vector<double>& step, std::vector<double>* covariance, std::vector<double>* sensitivity = nullptr, std::vector<double>* multipliers = nullptr, double* logDeterminant = nullptr)
 {
   const int m = static_cast<int>(values.size());
   const int size = n + m;
@@ -366,6 +367,12 @@ struct ScatteredEquations {
   std::copy(gradient.begin(), gradient.end(), rhs.begin());
   for (int j = 0; j < m; ++j) {
     rhs[n + j] = -values[j];
+  }
+  if (logDeterminant != nullptr) {
+    *logDeterminant = 0.;
+    for (int k = 0; k < size; ++k) {
+      *logDeterminant += std::log(std::abs(system[k * size + k]));
+    }
   }
   solve(rhs);
   step.assign(rhs.begin(), rhs.begin() + n);

@@ -66,10 +66,11 @@ namespace o2::gtrk::study
 
 /// How a decay vertex fit takes its daughters.
 enum class DecayFitVariant : std::uint8_t {
-  kFull,       ///< carried with their material to the plane about every iteration's vertex
-  kCarryOnce,  ///< carried once, to the plane about the start; later iterations re-linearise only
-  kNoMaterial, ///< carried every iteration, without material
-  kSequential, ///< not one fit: a tree's composite fitted first, a pseudo-track in its parent's fit (`pseudoTrackOf`)
+  kFull,        ///< carried with their material to the plane about every iteration's vertex
+  kCarryOnce,   ///< carried once, to the plane about the start; later iterations re-linearise only
+  kNoMaterial,  ///< carried every iteration, without material
+  kSequential,  ///< not one fit: a tree's composite fitted first, a pseudo-track in its parent's fit (`pseudoTrackOf`)
+  kGaussianSum, ///< kFull, then its electrons' mixtures kept: a fit per combination of their components, the posterior mixture collapsed
   kCount
 };
 inline constexpr std::size_t kDecayFitVariants = static_cast<std::size_t>(DecayFitVariant::kCount);
@@ -124,6 +125,7 @@ struct DecayVertexFitResult {
   float stopMetric = 0.F;                      ///< the last step's predicted chi2 gain
   float modelShift = 0.F;                      ///< what the last model evaluation moved the solution by (its first step's predicted gain)
   double pointSigma = 0.;                      ///< the production point's equations' sigma across the flight [cm], with the scattering onto it
+  std::uint16_t combinations = 0U;             ///< `kGaussianSum`: the component combinations fitted
   std::array<double, 3> vertex{};              ///< the root's, `vertices[0]`
   std::vector<std::array<double, 3>> vertices; ///< every vertex of the tree (DecayTopology)
   /// Per daughter: phi, theta, q/p at its vertex.
@@ -595,6 +597,15 @@ template <typename Material>
     std::array<double, 25> weight{}; ///< the inverse covariance
   };
   std::vector<Measurement> measurements(static_cast<std::size_t>(count));
+  // An electron's carried mixture, its components kept apart for the
+  // Gaussian sum (`kGaussianSum`): ln of its normalised weight, its
+  // measurement, ln det of its covariance.
+  struct Component {
+    double logWeight = 0.;
+    Measurement measurement;
+    double logDetCovariance = 0.;
+  };
+  std::vector<std::vector<Component>> components(static_cast<std::size_t>(count));
   result.carried.resize(static_cast<std::size_t>(count));
   result.carriedCovariance.resize(static_cast<std::size_t>(count));
   result.carryX2X0.resize(static_cast<std::size_t>(count));
@@ -920,6 +931,36 @@ template <typename Material>
         }
         Scalar mode = 0.F;
         detail::gsf::finishMixture(mixture, state, mode);
+        auto& kept = components[i];
+        kept.clear();
+        double largest = -std::numeric_limits<double>::infinity();
+        for (int j = 0; j < mixture.size; ++j) {
+          largest = std::max(largest, static_cast<double>(mixture.components[j].logWeight));
+        }
+        double total = 0.;
+        for (int j = 0; j < mixture.size; ++j) {
+          total += std::exp(static_cast<double>(mixture.components[j].logWeight) - largest);
+        }
+        for (int j = 0; j < mixture.size; ++j) {
+          const auto& one = mixture.components[j].state;
+          std::vector<double> factor(25);
+          for (int r = 0; r < 5; ++r) {
+            for (int c = 0; c < 5; ++c) {
+              factor[r * 5 + c] = one.covAt(r, c);
+            }
+          }
+          if (!cholesky(factor, 5)) {
+            continue; // a component without a covariance is no measurement
+          }
+          Component component{.logWeight = static_cast<double>(mixture.components[j].logWeight) - largest - std::log(total)};
+          component.measurement.plane = perigeePlaneFrame(plane);
+          for (int r = 0; r < 5; ++r) {
+            component.measurement.value[r] = one.par[r];
+            component.logDetCovariance += 2. * std::log(factor[r * 5 + r]);
+          }
+          std::ranges::copy(choleskyInverse(factor, 5), component.measurement.weight.begin());
+          kept.push_back(component);
+        }
       } else if (!daughter.neutral) {
         if (bare) {
           status = detail::hypothesis::carryInward(daughter.propagator, o2::gtrk::detail::GivenMaterial{}, daughter.surface, plane, state, factors);
@@ -1194,6 +1235,129 @@ template <typename Material>
     }
   } else {
     result.covariance = choleskyInverse(factor, n);
+  }
+  // The Gaussian sum: the electrons' carried mixtures kept, a fit per
+  // combination of their components (one each) from this solution under this
+  // model, weighted by the components' weights times the combination's
+  // evidence -- exp(-chi2 / 2) times the posterior's volume over the
+  // measurements', sqrt(det C) / prod sqrt(det V), C over the constraints'
+  // surface (det(Z^T N Z) = |det KKT| / det(C C^T)) --; the result the
+  // posterior mixture's mean and covariance, its chi2 the weighted mean.
+  if (variant == DecayFitVariant::kGaussianSum) {
+    std::vector<int> electrons;
+    for (int i = 0; i < count; ++i) {
+      if (!components[i].empty()) {
+        electrons.push_back(i);
+      }
+    }
+    if (!electrons.empty()) {
+      const auto collapsed = measurements;
+      const auto from = parameters;
+      struct Fit {
+        double logWeight = 0.;
+        std::vector<double> parameters;
+        std::vector<double> covariance;
+        double chi2 = 0.;
+      };
+      std::vector<Fit> fits;
+      std::vector<std::size_t> pick(electrons.size(), 0U);
+      for (bool more = true; more;) {
+        double logWeight = 0.;
+        for (std::size_t e = 0; e < electrons.size(); ++e) {
+          const auto& component = components[electrons[e]][pick[e]];
+          measurements[electrons[e]] = component.measurement;
+          logWeight += component.logWeight - (0.5 * component.logDetCovariance);
+        }
+        Fit fit{.parameters = from};
+        double combinationMu = mu;
+        double combinationMetric = 0.;
+        int combinationIterations = 0;
+        int combinationSteps = 0;
+        double combinationShift = 0.;
+        if (minimiseFrozen(n, ndf, constrained, evaluate, constraintsAt, values, rows, fit.parameters, fit.chi2, combinationMu, combinationMetric, combinationIterations, combinationSteps, combinationShift) == DecayFitStatus::kOk) {
+          double unusedRounding = 0.;
+          std::vector<double> matrix(static_cast<std::size_t>(n * n));
+          std::vector<double> rhs(static_cast<std::size_t>(n));
+          bool ok = evaluate(fit.parameters, fit.chi2, unusedRounding, &matrix, &rhs);
+          double logVolume = 0.;
+          if (ok && constrained) {
+            std::vector<double> unused;
+            double logKKT = 0.;
+            ok = constraintsAt(fit.parameters) && constrainedStep(matrix, n, rhs, rows, values, unused, &fit.covariance, nullptr, nullptr, &logKKT);
+            const int m = static_cast<int>(values.size());
+            std::vector<double> ccT(static_cast<std::size_t>(m * m), 0.);
+            for (int a = 0; a < m; ++a) {
+              for (int b = 0; b < m; ++b) {
+                for (int c = 0; c < n; ++c) {
+                  ccT[a * m + b] += rows[a * n + c] * rows[b * n + c];
+                }
+              }
+            }
+            ok = ok && cholesky(ccT, m);
+            double logCCT = 0.;
+            for (int a = 0; ok && a < m; ++a) {
+              logCCT += 2. * std::log(ccT[a * m + a]);
+            }
+            logVolume = logKKT - logCCT;
+          } else if (ok) {
+            auto chol = matrix;
+            ok = cholesky(chol, n);
+            for (int a = 0; ok && a < n; ++a) {
+              logVolume += 2. * std::log(chol[a * n + a]);
+            }
+            if (ok) {
+              fit.covariance = choleskyInverse(chol, n);
+            }
+          }
+          if (ok) {
+            fit.logWeight = logWeight - (0.5 * fit.chi2) - (0.5 * logVolume);
+            fits.push_back(std::move(fit));
+          }
+        }
+        // the next combination
+        more = false;
+        for (std::size_t e = 0; e < electrons.size() && !more; ++e) {
+          if (++pick[e] < components[electrons[e]].size()) {
+            more = true;
+          } else {
+            pick[e] = 0U;
+          }
+        }
+      }
+      measurements = collapsed;
+      if (fits.empty()) {
+        result.status = DecayFitStatus::kNotConverged;
+      } else {
+        double largest = -std::numeric_limits<double>::infinity();
+        for (const auto& fit : fits) {
+          largest = std::max(largest, fit.logWeight);
+        }
+        double total = 0.;
+        for (auto& fit : fits) {
+          fit.logWeight = std::exp(fit.logWeight - largest);
+          total += fit.logWeight;
+        }
+        std::ranges::fill(parameters, 0.);
+        chi2 = 0.;
+        for (const auto& fit : fits) {
+          const double w = fit.logWeight / total;
+          for (int a = 0; a < n; ++a) {
+            parameters[a] += w * fit.parameters[a];
+          }
+          chi2 += w * fit.chi2;
+        }
+        result.covariance.assign(static_cast<std::size_t>(n * n), 0.);
+        for (const auto& fit : fits) {
+          const double w = fit.logWeight / total;
+          for (int a = 0; a < n; ++a) {
+            for (int b = 0; b < n; ++b) {
+              result.covariance[a * n + b] += w * (fit.covariance[a * n + b] + ((fit.parameters[a] - parameters[a]) * (fit.parameters[b] - parameters[b])));
+            }
+          }
+        }
+        result.combinations = static_cast<std::uint16_t>(std::min<std::size_t>(fits.size(), 65535U));
+      }
+    }
   }
   std::copy_n(parameters.begin(), 3, result.vertex.begin());
   result.vertices.resize(static_cast<std::size_t>(k));

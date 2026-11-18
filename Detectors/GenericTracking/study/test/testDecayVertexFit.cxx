@@ -614,6 +614,102 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
   }
 }
 
+/// Electrons whose states are two-component mixtures in q/p, as a GSF gives
+/// them: a core (75 %, 1 %) and a radiative tail (25 %, |q/p| 15 % up, 5 %
+/// wide). Each trial draws a component for each electron and smears its
+/// state with it; the mixture handed to the fit is the two corrections of
+/// that draw. Under the pair's mass, which tells the combinations apart,
+/// the Gaussian sum (`kGaussianSum`) covers the momenta (mean pull^2 near 1)
+/// and resolves them better than the collapsed fit (kFull).
+BOOST_AUTO_TEST_CASE(ElectronMixturesSumOverTheirComponents)
+{
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  prop.massGeV = 0.000511F;
+  const std::array<Truth, 2> pair{Truth{0.3, 1.2, 1. / 0.6}, Truth{0.9, 1.35, -1. / 0.4}};
+  std::vector<DecayDaughter> exactStates;
+  for (const auto& truth : pair) {
+    exactStates.push_back(daughterOf(truth, prop, kVertex));
+  }
+  constexpr std::array<double, 2> kWeight{0.75, 0.25};
+  constexpr std::array<double, 2> kShift{0., 0.15}; ///< relative, |q/p| up
+  constexpr std::array<double, 2> kWidth{0.01, 0.05};
+  double energy = 0.;
+  std::array<double, 3> total{};
+  for (const auto& truth : pair) {
+    const double p = 1. / std::abs(truth.qOverP);
+    energy += std::hypot(p, 0.000511);
+    total[0] += p * std::cos(truth.phi) * std::sin(truth.theta);
+    total[1] += p * std::sin(truth.phi) * std::sin(truth.theta);
+    total[2] += p * std::cos(truth.theta);
+  }
+  const DecayConstraints massOfPair{.mass = true, .massGeV = std::sqrt((energy * energy) - (total[0] * total[0]) - (total[1] * total[1]) - (total[2] * total[2]))};
+  for (auto& daughter : exactStates) {
+    daughter.mass = 0.000511;
+  }
+  std::mt19937 random{2468U};
+  std::normal_distribution<double> gauss;
+  std::uniform_real_distribution<double> uniform;
+  constexpr int kTrials = 1000;
+  double collapsedRms = 0.;
+  for (const auto variant : {DecayFitVariant::kFull, DecayFitVariant::kGaussianSum}) {
+    double pull2 = 0.;
+    double residual2 = 0.;
+    int fitted = 0;
+    std::mt19937 local = random;
+    for (int trial = 0; trial < kTrials; ++trial) {
+      auto states = exactStates;
+      for (std::size_t i = 0; i < states.size(); ++i) {
+        auto& daughter = states[i];
+        const double truthQ = pair[i].qOverP;
+        const int drawn = uniform(local) < kWeight[0] ? 0 : 1;
+        auto measured = daughter.innermost;
+        for (int c = 0; c < 4; ++c) {
+          measured.par[c] += static_cast<Scalar>(gauss(local) * std::sqrt(static_cast<double>(measured.covAt(c, c))));
+        }
+        measured.par[kQOverP] = static_cast<Scalar>(truthQ * (1. + kShift[drawn] + (kWidth[drawn] * gauss(local))));
+        GSFMixture<BetheHeitlerLoss::kComponents> mixture;
+        for (int j = 0; j < 2; ++j) {
+          auto& component = mixture.components[j];
+          component.logWeight = static_cast<Scalar>(std::log(kWeight[j]));
+          component.state = measured;
+          component.state.par[kQOverP] = static_cast<Scalar>(static_cast<double>(measured.par[kQOverP]) / (1. + kShift[j]));
+          component.state.covAt(kQOverP, kQOverP) = static_cast<Scalar>(std::pow(kWidth[j] * truthQ, 2));
+          component.factors = factorCovariance(component.state.cov);
+        }
+        mixture.size = 2;
+        BoundTrackState collapsed;
+        Scalar mode = 0.F;
+        detail::gsf::finishMixture(mixture, collapsed, mode);
+        daughter.innermost = collapsed;
+        daughter.mixture = mixture;
+      }
+      const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, variant, massOfPair);
+      if (fit.status != DecayFitStatus::kOk) {
+        continue;
+      }
+      ++fitted;
+      const int n = 3 + 6;
+      for (int i = 0; i < 2; ++i) {
+        const int q = 3 + (3 * i) + 2;
+        const double residual = fit.momenta[i][2] - pair[i].qOverP;
+        pull2 += residual * residual / fit.covariance[q * n + q];
+        residual2 += std::pow(residual / pair[i].qOverP, 2);
+      }
+    }
+    const double meanPull2 = pull2 / (2. * fitted);
+    const double rms = std::sqrt(residual2 / (2. * fitted));
+    BOOST_TEST_MESSAGE((variant == DecayFitVariant::kGaussianSum ? "gaussian sum" : "collapsed") << ": fitted " << fitted << ", q/p mean pull^2 " << meanPull2 << ", relative q/p rms " << rms);
+    BOOST_TEST(fitted >= kTrials - 5);
+    if (variant == DecayFitVariant::kGaussianSum) {
+      BOOST_TEST(std::abs(meanPull2 - 1.) < 0.15);
+      BOOST_TEST(rms < collapsedRms);
+    } else {
+      collapsedRms = rms;
+    }
+  }
+}
+
 BOOST_AUTO_TEST_CASE(ExactStatesGiveTheTruthBack)
 {
   Propagator prop;
