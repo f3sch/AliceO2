@@ -182,6 +182,11 @@ struct RecoSettings {
   /// takes another; without iterationFollow,
   /// that row alone. 0, off, by default; not with a kink allowance.
   std::vector<int> iterationFollowEnd;
+  /// Whether each iteration attaches to its tracks, after the follow and the
+  /// length cut, the free rows of their layers on overlapping sensors that
+  /// pass the follow's chi2 cut (OverlapPartners.h); 0, off, by default; not
+  /// before an iteration with iterationFollowEarlier.
+  std::vector<int> iterationOverlapPartners;
   /// The innermost clusters each iteration's road fit may drop from a road it
   /// refuses, one more each time, down to the iteration's minimum, the first
   /// it takes the road's record; 0, off, by

@@ -160,6 +160,7 @@ class OverlapStudy
   {
     const auto view = tracks.tracks().view();
     const auto rowsOf = [&](std::uint32_t track) { return tracks.rows(track); };
+    countPartners(event, tracks);
     Holders holders;
     holders.holder.assign(event.rows.size(), kNone);
     holders.good.assign(tracks.size(), kNoTrackParticle);
@@ -248,6 +249,9 @@ class OverlapStudy
   {
     std::vector<std::string> lines;
     lines.push_back(std::format("overlap study: {} pairs into {} ({} on two sensors) on {} chains; {} untimed chains skipped", mPairs, mWriter->path(), mTwoSensors, mChains, mUntimed));
+    if (mPartners > 0U) {
+      lines.push_back(std::format("overlap study: {} overlap partners on {} tracks: on tracks good on their layer rows {} right, {} wrong ({} such tracks made fakes by them); {} on tracks fake on their layer rows", mPartners, mPartnerTracks, mPartnersRight, mPartnersWrong, mMadeFake, mPartnersOnFakes));
+    }
     if (mTracks > 0U) {
       const auto line = [&](std::string_view what, std::size_t all, const Claims& c) {
         return std::format("overlap study: {} {} of {} tracks; {} hold claimable rows ({} rows; by rows 1/2/3+: {}/{}/{}; their other rows {:.2f} on average), the best track from an earlier iteration for {}, the same for {}, a later one for {}", all, what, mTracks, c.tracks, c.rows, c.byRows[1], c.byRows[2], c.byRows[3], c.tracks > 0U ? static_cast<double>(c.lengthLeft) / static_cast<double>(c.tracks) : 0., c.earlier, c.same, c.later);
@@ -259,6 +263,44 @@ class OverlapStudy
   }
 
  private:
+  /// The tracks' overlap partners (`kOverlapPartner` references) against
+  /// their layer rows' particle: whether each carries it.
+  void countPartners(const TruthEvent<Det>& event, const TrackStore<Det>& tracks)
+  {
+    const auto& references = tracks.references();
+    const auto view = references.view().records;
+    std::vector<std::uint32_t> layerRows;
+    std::vector<std::uint32_t> partners;
+    for (std::size_t track = 0; track < tracks.size(); ++track) {
+      const auto range = references.range(track);
+      layerRows.clear();
+      partners.clear();
+      for (std::uint32_t at = range.first; at < range.first + range.count; ++at) {
+        auto& into = (view.role[at] & static_cast<std::uint8_t>(ReferenceRole::kOverlapPartner)) != 0U ? partners : layerRows;
+        into.push_back(view.row[at]);
+      }
+      if (partners.empty()) {
+        continue;
+      }
+      ++mPartnerTracks;
+      mPartners += partners.size();
+      const auto good = goodParticle(event.rows, std::span<const std::uint32_t>{layerRows});
+      if (good == kNoTrackParticle) {
+        mPartnersOnFakes += partners.size();
+        continue;
+      }
+      bool wrong = false;
+      for (const auto partner : partners) {
+        layerRows.push_back(partner);
+        const bool right = goodParticle(event.rows, std::span<const std::uint32_t>{layerRows}) == good;
+        layerRows.pop_back();
+        (right ? mPartnersRight : mPartnersWrong) += 1U;
+        wrong = wrong || !right;
+      }
+      mMadeFake += wrong ? 1U : 0U;
+    }
+  }
+
   struct Holders {
     std::vector<std::uint32_t> holder; ///< per row, the first track holding it
     std::vector<std::uint64_t> good;   ///< per track, its good particle
@@ -403,6 +445,12 @@ class OverlapStudy
   std::size_t mTracks = 0U;
   std::size_t mFakes = 0U;
   std::size_t mClones = 0U;
+  std::size_t mPartners = 0U;
+  std::size_t mPartnerTracks = 0U;
+  std::size_t mPartnersRight = 0U;
+  std::size_t mPartnersWrong = 0U;
+  std::size_t mMadeFake = 0U;
+  std::size_t mPartnersOnFakes = 0U;
   Claims mFakeClaims;
   Claims mCloneClaims;
 };

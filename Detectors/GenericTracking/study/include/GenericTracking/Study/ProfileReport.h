@@ -51,6 +51,9 @@ template <typename Summary>
   if (summary.tracksFollowedEarlier != 0U || summary.seconds(profile::Phase::kFollowEarlier) > 0.) {
     lines.push_back(std::format("    earlier iterations' tracks followed: {} (+{} outward, +{} inward) in {:.3f} s", summary.tracksFollowedEarlier, summary.clustersFollowedEarlierOutward, summary.clustersFollowedEarlierInward, summary.seconds(profile::Phase::kFollowEarlier)));
   }
+  if (summary.overlapPartners != 0U || summary.seconds(profile::Phase::kOverlapPartners) > 0.) {
+    lines.push_back(std::format("    overlap partners: {} on {} tracks in {:.3f} s", summary.overlapPartners, summary.tracksWithPartners, summary.seconds(profile::Phase::kOverlapPartners)));
+  }
   return lines;
 }
 

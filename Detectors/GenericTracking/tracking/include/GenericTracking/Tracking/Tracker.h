@@ -25,6 +25,7 @@
 #include "GenericTracking/Base/HostAlgorithms.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/NeighbourStage.h"
+#include "GenericTracking/Tracking/OverlapPartners.h"
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/Profile.h"
 #include "GenericTracking/Tracking/Propagator.h"
@@ -138,6 +139,10 @@ class Tracker
     /// Tracks below the iteration's length after the follow, dropped;
     /// `tracks` counts them.
     std::size_t tracksDropped = 0U;
+    /// With overlapPartners, the partners attached and the tracks they went
+    /// to (OverlapPartners.h).
+    std::size_t overlapPartners = 0U;
+    std::size_t tracksWithPartners = 0U;
     std::size_t recordBytes = 0U; ///< the selection records held for the iteration
     std::int64_t haloPS = 0;
     /// Every phase of the iteration, from `iteration` down; empty with
@@ -185,6 +190,11 @@ class Tracker
     for (std::size_t iteration = 0; iteration < iterations.size(); ++iteration) {
       const auto& settings = iterations[iteration];
       checkSharedGraph(iterations, iteration);
+      // An earlier iteration's partners are references the follow of its
+      // tracks would not carry along.
+      if (iterations[iteration].followEarlier && std::ranges::any_of(iterations.first(iteration), [](const auto& earlier) { return earlier.overlapPartners; })) {
+        throw std::invalid_argument("iteration " + std::to_string(iteration) + " follows earlier iterations' tracks after an iteration with overlap partners");
+      }
       // An earlier iteration with the same windows has the same links'
       // windows and bounds: derived once (`iterationParameters`).
       const IterationParameters<Det>* alike = nullptr;
@@ -212,6 +222,7 @@ class Tracker
     mShared.setMemoryPool(mMemoryPool);
     mRefit.setMemoryPool(mMemoryPool);
     mStore.setMemoryPool(mMemoryPool);
+    mPartners.setMemoryPool(mMemoryPool);
     mFollow.setMemoryPool(mMemoryPool);
     mFollowEarlier.setMemoryPool(mMemoryPool);
     deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection, mKeptTracks, mChangedTracks);
@@ -611,10 +622,14 @@ class Tracker
     result.store = &mStore;
   }
 
-  /// The tracks not committed yet into the store (TrackStore::commit).
-  [[nodiscard]] StageStatus commitTracks()
+  /// The tracks not committed yet into the store (TrackStore::commit), with
+  /// \a partnered the overlap partners' last run gave them.
+  [[nodiscard]] StageStatus commitTracks(bool partnered = false)
   {
     const auto count = static_cast<Index>(mRefit.size() - mStore.size());
+    if (partnered) {
+      return mStore.commit(spreadForEach(), spreadChunk(count), std::as_const(mRefit).tracks(), mPartners.offsets(), mPartners.partners());
+    }
     return mStore.commit(spreadForEach(), spreadChunk(count), std::as_const(mRefit).tracks());
   }
 
@@ -638,6 +653,7 @@ class Tracker
     mSelection.clearRecordStorage();
     mFollow.clearStorage();
     mFollowEarlier.clearStorage();
+    mPartners.clearStorage();
     deepVectorClear(mMemoryPool.get(), mKeptTracks, mChangedTracks);
     mDropScratch.setMemoryResource(mMemoryPool.get());
   }
@@ -778,10 +794,18 @@ class Tracker
         return StageStatus::kComplete;
       });
     }
+    const bool partnered = summary.status == StageStatus::kComplete && mIterations[iteration].overlapPartners;
+    if (partnered) {
+      const profile::Zone zone{Phase::kOverlapPartners};
+      summary.status = mPartners.run(fitForEach(), mIterations[iteration], frame, *mGeometry, *mMaterial, mPropagator, mRefit.tracks(), trackOffset, std::span<std::uint8_t>{mUsed}, std::span<const std::uint32_t>{plan.layerMaxWidthPS});
+      summary.overlapPartners = mPartners.counts().attached;
+      summary.tracksWithPartners = mPartners.counts().tracks;
+    }
     if (summary.status == StageStatus::kComplete) {
-      // The iteration's tracks as the follow and the length cut left them.
+      // The iteration's tracks as the follow, the length cut and the
+      // partners left them.
       const profile::Zone zone{Phase::kCommit};
-      summary.status = commitTracks();
+      summary.status = commitTracks(partnered);
     }
     if (mIterationObserver && summary.status == StageStatus::kComplete) {
       const profile::Zone zone{Phase::kObservers};
@@ -1242,6 +1266,7 @@ class Tracker
   GlobalSelection<kMaxClusters> mSelection;
   TrackRefit<Det> mRefit;
   TrackStore<Det> mStore;
+  OverlapPartners<Det> mPartners;
   Follow<Det> mFollow;        ///< the iteration's own tracks'
   Follow<Det> mFollowEarlier; ///< the earlier iterations' tracks', with followEarlier
   /// What the follow started from, for an iteration observer only.

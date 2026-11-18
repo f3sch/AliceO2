@@ -123,6 +123,10 @@ struct IterationSettings {
   /// first row takes its place where it is another; where the follow takes
   /// none, the end stays. Without `follow`, the end alone.
   bool followEnd = false;
+  /// Whether the iteration's tracks, after the follow and the length cut,
+  /// take as overlap partners the free rows of their layers on other sensors
+  /// that pass `clusterChi2Max` (OverlapPartners.h).
+  bool overlapPartners = false;
   /// The innermost clusters a road the road fit refuses may be fitted again
   /// without, one more each time, down to `minClusters`; 0 for none.
   int innerTrim = 0;
@@ -294,9 +298,10 @@ struct IterationParameters {
   Scalar roadChi2MaxByNdf[(2 * maxChainLayers<Det>)-4]{};
   /// The kinks a fit pass may take.
   std::uint8_t maxKinks = 0U;
-  /// `IterationSettings::followEnd`, `innerTrim`
+  /// `IterationSettings::followEnd`, `overlapPartners`, `innerTrim`
   /// and `crossingRule`.
   bool followEnd = false;
+  bool overlapPartners = false;
   std::uint8_t innerTrim = 0U;
   CrossingRule crossingRule = CrossingRule::kFirstAhead;
   /// The update chi2 beyond which a step is a kink: two degrees of freedom at
@@ -517,6 +522,7 @@ template <DetectorLayout Det>
   parameters.shapeTest = settings.shapeTest;
   parameters.followHoles = static_cast<std::uint32_t>(std::max(settings.followHoles, 0));
   parameters.followEnd = settings.followEnd;
+  parameters.overlapPartners = settings.overlapPartners;
   if (settings.follow || settings.followEnd) {
     std::array<bool, nLinks<Det>> every{};
     every.fill(true);
