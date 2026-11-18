@@ -665,16 +665,23 @@ GPUhdi() Scalar momentumModeOf(const GSFMixture<K>& mixture)
 
 /// A mixture's end on a plane: the weights normalised (the radiation and the
 /// merges keep their sum, to rounding), each component's `state.cov`
-/// written, the mixture's collapse into \a collapsed and the mode of its
-/// momentum's density [GeV] into \a momentumMode.
+/// written, the mixture's collapse into \a collapsed.
 template <int K>
-GPUhdi() void finishMixture(GSFMixture<K>& mixture, BoundTrackState& collapsed, Scalar& momentumMode)
+GPUhdi() void collapseMixture(GSFMixture<K>& mixture, BoundTrackState& collapsed)
 {
   normalise(mixture);
   for (int k = 0; k < mixture.size; ++k) {
     covarianceFromFactors(mixture.components[k].factors, mixture.components[k].state.cov);
   }
   collapsed = collapse(mixture);
+}
+
+/// `collapseMixture`, and the mode of the momentum's density [GeV] into
+/// \a momentumMode.
+template <int K>
+GPUhdi() void finishMixture(GSFMixture<K>& mixture, BoundTrackState& collapsed, Scalar& momentumMode)
+{
+  collapseMixture(mixture, collapsed);
   momentumMode = momentumModeOf(mixture);
 }
 

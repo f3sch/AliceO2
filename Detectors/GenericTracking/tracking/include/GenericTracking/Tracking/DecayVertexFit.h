@@ -545,6 +545,19 @@ template <DetectorLayout Det>
   if (count > kMaxConstrainedDaughters || k > kMaxConstrainedVertices) {
     return DecayFitStatus::kTooLarge;
   }
+  // an input built beyond its fixed capacity kept only what fits
+  bool overflowed = topology.vertexOf.overflowed() || topology.parent.overflowed() || topology.massGeV.overflowed() || constraints.compositeMasses.overflowed() || constraints.resonances.overflowed();
+  for (const auto& resonance : constraints.resonances) {
+    overflowed = overflowed || resonance.daughters.overflowed();
+  }
+  if (overflowed) {
+    return DecayFitStatus::kTooLarge;
+  }
+  for (const auto& daughter : daughters) {
+    if (daughter.mixture.size < 0 || daughter.mixture.size > daughter.mixture.kCapacity) {
+      return DecayFitStatus::kInvalidInput;
+    }
+  }
   if (!topology.vertexOf.empty() && static_cast<int>(topology.vertexOf.size()) != count) {
     return DecayFitStatus::kInvalidInput;
   }
@@ -558,7 +571,8 @@ template <DetectorLayout Det>
       return DecayFitStatus::kInvalidInput;
     }
   }
-  if (static_cast<int>(topology.massGeV.size()) > k || static_cast<int>(constraints.compositeMasses.size()) > k) {
+  // composite masses are per vertex below the root: k - 1 of them at most
+  if (static_cast<int>(topology.massGeV.size()) > k || static_cast<int>(constraints.compositeMasses.size()) > k - 1) {
     return DecayFitStatus::kInvalidInput;
   }
   for (const auto& resonance : constraints.resonances) {
@@ -615,8 +629,10 @@ template <DetectorLayout Det>
 /// collapse's scatter --. Always double, O(n) or O(1) on any device: the
 /// parameters and their update, the chi2 and merit sums, mu, the stopping
 /// test and its bound -- epsilon_ModelScalar (chi2 + ndf) plus the inputs'
-/// rounding --, the outer loop's shift. Both double is the fit as it was
-/// built; the others are measured (`DecayPrecisionStudy`).
+/// rounding --, the outer loop's shift. Both double hold the fit's precision
+/// for every input; float in either loses it for some (constrained masses of
+/// nearly collinear daughters, the covariance), which `DecayPrecisionStudy`
+/// shows decay by decay.
 template <DetectorLayout Det, DecayFitVariant Variant, typename Material, typename ModelScalar = double, typename SolveScalar = double>
 class DecayVertexFitter
 {
@@ -1396,8 +1412,7 @@ class DecayVertexFitter
         if (status != PropagationStatus::kOk || mixture.size == 0) {
           return DecayFitStatus::kCarryFailed;
         }
-        Scalar mode = 0.F;
-        detail::gsf::finishMixture(mixture, state, mode);
+        detail::gsf::collapseMixture(mixture, state);
         // its components kept apart for the Gaussian sum
         if constexpr (Variant == DecayFitVariant::kGaussianSum) {
           auto& kept = mComponents[i];

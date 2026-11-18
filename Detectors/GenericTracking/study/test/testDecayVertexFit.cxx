@@ -18,6 +18,7 @@
 #define BOOST_TEST_MODULE Test GTRK decay vertex fit
 #include <boost/test/unit_test.hpp>
 
+#include "GenericTracking/Tracking/DecayFitBatch.h"
 #include "GenericTracking/Tracking/DecayFitConstraints.h"
 #include "GenericTracking/Tracking/DecayVertexFit.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
@@ -1153,6 +1154,72 @@ BOOST_AUTO_TEST_CASE(InputsOutsideTheCapacitiesAreRefused)
   BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, {}, {}, std::span<const DecayMother>{&longer, 1}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
   const std::vector<DecayDaughter> six(6);
   BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{six}, NoMaterial{}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
+}
+
+BOOST_AUTO_TEST_CASE(InputsBuiltBeyondTheirCapacityOrInconsistentAreRefused)
+{
+  const std::vector<DecayDaughter> two(2);
+  const auto statusOf = [](const DecayVertexFitResult& fit) { return static_cast<int>(fit.status); };
+  // A fixed-capacity input built with more than it holds keeps what fits and
+  // says so; the fit refuses it as too large.
+  const FixedVector<double, 3> four{1., 2., 3., 4.};
+  BOOST_TEST(four.size() == 3U);
+  BOOST_TEST(four.overflowed());
+  BOOST_TEST(four[2] == 3.);
+  const DecayTopology crowded{.vertexOf = {0, 0, 0, 0, 0, 0}};
+  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, {}, crowded)) == static_cast<int>(DecayFitStatus::kTooLarge));
+  // A mixture that claims more components than it holds.
+  auto mixed = two;
+  mixed[0].mixture.size = mixed[0].mixture.kCapacity + 1;
+  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{mixed}, NoMaterial{})) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  // A composite's mass where the tree has no composite: no equation, no
+  // degree of freedom either.
+  DecayConstraints orphan;
+  orphan.compositeMasses.push_back(1.);
+  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, orphan)) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  // A tracked mother with fewer positions than planes, through a batch: the
+  // batch keeps each array's length, so the fit's check sees the mismatch.
+  const std::vector<TrackingSurface> planes(2);
+  const std::vector<std::array<double, 2>> positions(1);
+  const std::vector<std::array<double, 3>> covariance(2);
+  const DecayMother ragged{.planes = planes, .positions = positions, .covariance = covariance};
+  DecayFitBatch batch;
+  batch.add(std::span<const DecayDaughter>{two}, {}, {}, std::span<const DecayMother>{&ragged, 1});
+  std::vector<DecayVertexFitResult> results(1);
+  fitDecayBatch<TRKFT3, DecayFitVariant::kFull>(batch.view(), NoMaterial{}, std::span<DecayVertexFitResult>{results});
+  BOOST_TEST(statusOf(results[0]) == static_cast<int>(DecayFitStatus::kInvalidInput));
+}
+
+BOOST_AUTO_TEST_CASE(AnAzimuthAnyTurnsAwayIsReduced)
+{
+  // Newton's steps are not bounded in phi: an azimuth whole turns away
+  // reduces as std::remainder does.
+  constexpr double kPi = std::numbers::pi;
+  for (const int turns : {-7, -5, -1, 0, 1, 5, 7}) {
+    for (const double offset : {-3., -0.3, 0., 0.3, 3.}) {
+      const double x = offset + (2. * kPi * turns);
+      BOOST_TEST(std::abs(decay_fit_detail::angleInPMPi(x) - std::remainder(x, 2. * kPi)) < 1e-12);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(AComponentWhoseWeightUnderflowsLeavesNoTrace)
+{
+  // (log w = -1000, mean 1e16) then (log w = 0, mean 1): the first one's
+  // relative weight is zero in double, so the mean is 1.
+  using decay_fit_detail::MixtureCollapse;
+  std::array<double, 1> mean{};
+  std::array<double, 1> scatter{};
+  MixtureCollapse<double> collapse(std::span<double>{mean}, std::span<double>{scatter});
+  const std::array<double, 1> far{1e16};
+  const std::array<double, 1> near{1.};
+  const std::array<double, 1> sigma{1.};
+  collapse.add(-1000., far, sigma, 0.);
+  collapse.add(0., near, sigma, 0.);
+  BOOST_TEST(collapse.mean[0] == 1.);
+  std::array<double, 1> c{};
+  collapse.covarianceInto(c.data());
+  BOOST_TEST(c[0] == 1.);
 }
 
 BOOST_AUTO_TEST_CASE(ReducedPrecisionOnHardCases)

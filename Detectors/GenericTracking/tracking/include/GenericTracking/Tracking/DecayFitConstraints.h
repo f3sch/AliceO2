@@ -85,8 +85,9 @@ struct DecayTopology {
 /// products sit at its parent's vertex; their invariant mass m is its own
 /// by the relativistic Breit-Wigner: -2 ln BW = 2 ln(1 + u^2),
 /// u = (m^2 - M^2) / (M Gamma) a standard Cauchy variable, solved by Fisher
-/// scoring (its information 1/2 per unit u^2). (A Gaussian of the
-/// Breit-Wigner's FWHM in m was measured worse: it pulls the tails' decays.)
+/// scoring (its information 1/2 per unit u^2). The Breit-Wigner, not a
+/// Gaussian in m: a Gaussian's quadratic penalty pulls the decays in the
+/// tails, which the Cauchy's logarithmic one leaves.
 struct Resonance {
   FixedVector<int, decay_fit_detail::kMaxConstrainedDaughters> daughters; ///< its products among the fit's daughters
   double massGeV = 0.;

@@ -51,16 +51,30 @@ using o2::gtrk::dual::Dual;
   const double u = 1. + x;
   return u == 1. ? x : logOf(u) * x / (u - 1.);
 }
-/// An angle difference within (-3 pi, 3 pi) brought to [-pi, pi], with pi
-/// in T's own precision.
+/// An angle brought to [-pi, pi] by whole turns, any number of them, with pi
+/// in T's own precision (as std::remainder by 2 pi): the nearest whole number
+/// of turns through an integer, exact while it is below 2^(digits - 1); an
+/// angle beyond that (or not finite) has no meaningful turn and is returned
+/// as it is.
 template <typename T>
 [[nodiscard]] GPUhdi() T angleInPMPi(T x)
 {
   constexpr T kPi = std::numbers::pi_v<T>;
-  if (x > kPi) {
-    return x - (T(2) * kPi);
+  constexpr T kTwoPi = T(2) * kPi;
+  constexpr T kExact = static_cast<T>(std::uint64_t{1} << (std::numeric_limits<T>::digits - 1));
+  const T turns = x / kTwoPi;
+  if (!(turns < kExact && turns > -kExact)) {
+    return x;
   }
-  return x < -kPi ? x + (T(2) * kPi) : x;
+  const T whole = static_cast<T>(static_cast<std::int64_t>(turns + (turns >= T(0) ? T(0.5) : T(-0.5))));
+  T reduced = x - (kTwoPi * whole);
+  // the rounded quotient can leave the result a hair outside
+  if (reduced > kPi) {
+    reduced -= kTwoPi;
+  } else if (reduced < -kPi) {
+    reduced += kTwoPi;
+  }
+  return reduced;
 }
 template <typename From, typename To>
 GPUhdi() void copyN(const From* from, std::size_t n, To* to)
@@ -399,8 +413,14 @@ struct MixtureCollapse {
         scatter[ij] = static_cast<S>((a * scatter[ij]) + (b * scatterB[ij]) + ((u * v / w) * di * dj));
       }
     }
+    // the mean anchored on the larger contribution, the smaller added as a
+    // correction: a contribution whose weight underflows leaves no trace
     for (int i = 0; i < n; ++i) {
-      mean[i] += (v / w) * (meanB[i] - mean[i]);
+      if (v > u) {
+        mean[i] = meanB[i] + ((u / w) * (mean[i] - meanB[i]));
+      } else {
+        mean[i] += (v / w) * (meanB[i] - mean[i]);
+      }
     }
     chi2 = (a * chi2) + (b * chi2B);
     weight = w;

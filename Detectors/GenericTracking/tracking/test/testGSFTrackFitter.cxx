@@ -536,4 +536,31 @@ BOOST_AUTO_TEST_CASE(TheReductionConverges)
   BOOST_TEST(quantile(difference[2][kNBoundParams], 0.95) < 0.02); // a fifth of the resolution here
 }
 
+BOOST_AUTO_TEST_CASE(TheMixtureCollapseAloneIsFinishMixtureWithoutTheMode)
+{
+  // finishMixture = collapseMixture, then the momentum's mode: the same
+  // collapse to the bit, for callers that take no mode.
+  GSFMixture<4> mixture;
+  mixture.size = 3;
+  for (int k = 0; k < mixture.size; ++k) {
+    auto& component = mixture.components[k];
+    component.logWeight = static_cast<Scalar>(-0.5 * k);
+    component.state.par[kQOverP] = static_cast<Scalar>(1. + (0.2 * k));
+    component.state.par[kPhi] = static_cast<Scalar>(0.1 * k);
+    for (int i = 0; i < kNBoundParams; ++i) {
+      component.state.covAt(i, i) = static_cast<Scalar>(0.01 * (1 + i + k));
+    }
+    component.factors = factorCovariance(component.state.cov);
+  }
+  auto alone = mixture;
+  BoundTrackState finished;
+  BoundTrackState collapsed;
+  Scalar mode = 0.F;
+  detail::gsf::finishMixture(mixture, finished, mode);
+  detail::gsf::collapseMixture(alone, collapsed);
+  BOOST_TEST(std::memcmp(finished.par, collapsed.par, sizeof(finished.par)) == 0);
+  BOOST_TEST(std::memcmp(finished.cov, collapsed.cov, sizeof(finished.cov)) == 0);
+  BOOST_TEST(mode == detail::gsf::momentumModeOf(alone));
+}
+
 } // namespace o2::gtrk
