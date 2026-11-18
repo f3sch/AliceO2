@@ -20,6 +20,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -269,6 +270,38 @@ BOOST_AUTO_TEST_CASE(BunchKaufmanRefusesASingularSystem)
   BOOST_TEST(!ldltFactor(PackedView<double>{singular.data()}, n, swaps.data(), blocks.data()));
   Matrix zero(static_cast<std::size_t>(packedSize(n)), 0.);
   BOOST_TEST(!ldltFactor(PackedView<double>{zero.data()}, n, swaps.data(), blocks.data()));
+}
+
+BOOST_AUTO_TEST_CASE(BunchKaufmanRefusesANonFiniteSystem)
+{
+  // A NaN pivot defeats every comparison: refused, nothing written beyond the
+  // matrix's own rows (the sentinels after them stay).
+  std::array<double, 1> nan{std::numeric_limits<double>::quiet_NaN()};
+  std::array<int, 2> swaps{-7, -7};
+  std::array<int, 2> blocks{-7, -7};
+  BOOST_TEST(!ldltFactor(PackedView<double>{nan.data()}, 1, swaps.data(), blocks.data()));
+  BOOST_TEST(swaps[1] == -7);
+  BOOST_TEST(blocks[1] == -7);
+  std::array<double, 3> infinite{1., std::numeric_limits<double>::infinity(), 2.};
+  BOOST_TEST(!ldltFactor(PackedView<double>{infinite.data()}, 2, swaps.data(), blocks.data()));
+}
+
+BOOST_AUTO_TEST_CASE(BunchKaufmanHoldsAnyScale)
+{
+  // [[0, t], [t, 0]] x = [1, 1] is x = [1/t, 1/t] and ln |det| = 2 ln t, for
+  // any t the type represents with its inverse: the 2 x 2 block's arithmetic
+  // forms no product of two entries.
+  for (const double t : {1e-200, 1e-100, 1., 1e100, 1e200}) {
+    std::array<double, 3> a{0., t, 0.};
+    std::array<int, 2> swaps{};
+    std::array<int, 2> blocks{};
+    BOOST_REQUIRE(ldltFactor(PackedView<double>{a.data()}, 2, swaps.data(), blocks.data()));
+    std::array<double, 2> x{1., 1.};
+    ldltSolve(PackedView<double>{a.data()}, 2, swaps.data(), blocks.data(), x.data());
+    BOOST_TEST(std::abs((x[0] * t) - 1.) < 1e-15);
+    BOOST_TEST(std::abs((x[1] * t) - 1.) < 1e-15);
+    BOOST_TEST(std::abs(ldltLogAbsDeterminant(PackedView<double>{a.data()}, 2, blocks.data()) - (2. * std::log(t))) < 1e-12 * (1. + std::abs(2. * std::log(t))));
+  }
 }
 
 BOOST_AUTO_TEST_CASE(PackedAndRowMajorCholeskyAgree)
