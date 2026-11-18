@@ -93,33 +93,76 @@ GPUhdi() GPUAlwaysInline() bool nearerPath(ExactScalar candidate, ExactScalar ch
 
 } // namespace follow
 
-/// Predict where \a state crosses \a layer, without choosing a sensor. The
-/// nominal radius or z is copied into IterationParameters on the host, so the
-/// runtime-indexed path reads no detector constexpr table on a device.
-template <typename Prop, DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() LayerCrossingPrediction predictLayerCrossing(const Prop& prop, const IterationParameters<Det>& parameters, const TrackingSurface& from, const BoundParameters& state, LayerID layer, PropagationDirection direction)
-{
-  using Math = o2::gpu::CAMath;
-  LayerCrossingPrediction result;
-  const auto& propagator = pointPropagator(prop, from, state);
-
-  Scalar startScalar[3]{};
-  surfaceToGlobal(from, state.loc0(), state.loc1(), startScalar);
-  const ExactScalar start[3] = {static_cast<ExactScalar>(startScalar[0]), static_cast<ExactScalar>(startScalar[1]), static_cast<ExactScalar>(startScalar[2])};
-  const auto phi0 = static_cast<ExactScalar>(state.phi());
-  const auto theta = static_cast<ExactScalar>(state.theta());
+/// What every layer crossing of one state needs, taken once for the
+/// state: its global position, its direction's sines and cosines, its
+/// curvature and, on a helix, the circle it turns on. \a status is not kOk
+/// where the state runs along the beam axis.
+struct LayerCrossingStart {
+  Scalar position[3]{};
+  ExactScalar start[3]{};
   ExactScalar sinPhi = 0.;
   ExactScalar cosPhi = 0.;
   ExactScalar sinTheta = 0.;
   ExactScalar cosTheta = 0.;
-  sincosOf(phi0, sinPhi, cosPhi);
-  sincosOf(theta, sinTheta, cosTheta);
-  if (Math::Abs(sinTheta) < 1.e-9) {
-    result.status = PropagationStatus::kNotFinite;
+  ExactScalar curvature = 0.;
+  ExactScalar minAbsCosIncidence = 0.;
+  // The helix's circle in the transverse plane, where |curvature| >= 1e-12.
+  ExactScalar inverse = 0.;
+  ExactScalar centreX = 0.;
+  ExactScalar centreY = 0.;
+  ExactScalar centreDistance = 0.;
+  ExactScalar circleRadius = 0.;
+  PropagationStatus status = PropagationStatus::kNotFinite;
+};
+
+/// \a state's `LayerCrossingStart`, \a from its surface.
+template <typename Prop>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() LayerCrossingStart layerCrossingStart(const Prop& prop, const TrackingSurface& from, const BoundParameters& state)
+{
+  using Math = o2::gpu::CAMath;
+  LayerCrossingStart s;
+  const auto& propagator = pointPropagator(prop, from, state);
+  surfaceToGlobal(from, state.loc0(), state.loc1(), s.position);
+  for (int i = 0; i < 3; ++i) {
+    s.start[i] = static_cast<ExactScalar>(s.position[i]);
+  }
+  sincosOf(static_cast<ExactScalar>(state.phi()), s.sinPhi, s.cosPhi);
+  sincosOf(static_cast<ExactScalar>(state.theta()), s.sinTheta, s.cosTheta);
+  if (Math::Abs(s.sinTheta) < 1.e-9) {
+    return s;
+  }
+  s.curvature = propagator.curvature(static_cast<ExactScalar>(state.qOverP()), s.sinTheta);
+  s.minAbsCosIncidence = static_cast<ExactScalar>(propagator.minAbsCosIncidence);
+  if (!(Math::Abs(s.curvature) < 1.e-12)) {
+    s.inverse = 1. / s.curvature;
+    s.centreX = s.start[0] - (s.sinPhi * s.inverse);
+    s.centreY = s.start[1] + (s.cosPhi * s.inverse);
+    s.centreDistance = static_cast<ExactScalar>(Math::Sqrt(static_cast<Scalar>((s.centreX * s.centreX) + (s.centreY * s.centreY))));
+    s.circleRadius = Math::Abs(s.inverse);
+  }
+  s.status = PropagationStatus::kOk;
+  return s;
+}
+
+/// Predict where the state of \a s crosses \a layer, without choosing a
+/// sensor. The nominal radius or z is copied into IterationParameters on the
+/// host, so the runtime-indexed path reads no detector constexpr table on a
+/// device.
+template <DetectorLayout Det>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() LayerCrossingPrediction predictLayerCrossing(const IterationParameters<Det>& parameters, const LayerCrossingStart& s, LayerID layer, PropagationDirection direction)
+{
+  using Math = o2::gpu::CAMath;
+  LayerCrossingPrediction result;
+  if (s.status != PropagationStatus::kOk) {
+    result.status = s.status;
     return result;
   }
-
-  const ExactScalar curvature = propagator.curvature(static_cast<ExactScalar>(state.qOverP()), sinTheta);
+  const ExactScalar* start = s.start;
+  const ExactScalar sinPhi = s.sinPhi;
+  const ExactScalar cosPhi = s.cosPhi;
+  const ExactScalar sinTheta = s.sinTheta;
+  const ExactScalar cosTheta = s.cosTheta;
+  const ExactScalar curvature = s.curvature;
   const auto directionValue = static_cast<ExactScalar>(static_cast<int>(direction));
   ExactScalar path = 0.;
   ExactScalar x = start[0];
@@ -127,7 +170,7 @@ template <typename Prop, DetectorLayout Det>
   ExactScalar z = start[2];
 
   if (Detector<Det>::hasDiscs && !Detector<Det>::isBarrelLayer(layer)) {
-    if (Math::Abs(cosTheta) < static_cast<ExactScalar>(propagator.minAbsCosIncidence)) {
+    if (Math::Abs(cosTheta) < s.minAbsCosIncidence) {
       result.status = PropagationStatus::kGrazing;
       return result;
     }
@@ -177,11 +220,10 @@ template <typename Prop, DetectorLayout Det>
       y += transverse * sinPhi;
       z += path * cosTheta;
     } else {
-      const ExactScalar inverse = 1. / curvature;
-      const ExactScalar centreX = start[0] - (sinPhi * inverse);
-      const ExactScalar centreY = start[1] + (cosPhi * inverse);
-      const auto centreDistance = static_cast<ExactScalar>(Math::Sqrt(static_cast<Scalar>((centreX * centreX) + (centreY * centreY))));
-      const ExactScalar circleRadius = Math::Abs(inverse);
+      const ExactScalar centreX = s.centreX;
+      const ExactScalar centreY = s.centreY;
+      const ExactScalar centreDistance = s.centreDistance;
+      const ExactScalar circleRadius = s.circleRadius;
       if (centreDistance > radius + circleRadius || centreDistance < Math::Abs(radius - circleRadius) || !(centreDistance > 0.)) {
         result.status = PropagationStatus::kNoIntersection;
         return result;
@@ -236,6 +278,14 @@ template <typename Prop, DetectorLayout Det>
   result.second = Detector<Det>::isBarrelLayer(layer) ? static_cast<Scalar>(z) : Math::Sqrt(static_cast<Scalar>((x * x) + (y * y)));
   result.status = isFiniteOf(result.phi) && isFiniteOf(result.second) ? PropagationStatus::kOk : PropagationStatus::kNotFinite;
   return result;
+}
+
+/// Predict where \a state crosses \a layer, \a from its surface: one
+/// crossing from the state's `layerCrossingStart`.
+template <typename Prop, DetectorLayout Det>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() LayerCrossingPrediction predictLayerCrossing(const Prop& prop, const IterationParameters<Det>& parameters, const TrackingSurface& from, const BoundParameters& state, LayerID layer, PropagationDirection direction)
+{
+  return predictLayerCrossing(parameters, layerCrossingStart(prop, from, state), layer, direction);
 }
 
 /// Rows a track's follow would add in each direction. Outward rows are in
@@ -1350,16 +1400,16 @@ class FollowStage
   {
     const bool forward = direction == PropagationDirection::kForward;
     const LayerID current = mGeometry->surface(state.surface).layer;
-    const auto& from = mGeometry->planeOf(state);
-    Scalar here[3]{};
-    surfaceToGlobal(from, state.loc0(), state.loc1(), here);
     const auto* offsets = forward ? mParameters->allOutLinkOffsets : mParameters->allInLinkOffsets;
     const auto* indices = forward ? mParameters->allOutLinkIndices : mParameters->allInLinkIndices;
+    // The state's part of every link's crossing, once.
+    const auto start = layerCrossingStart(mPropagator, mGeometry->planeOf(state), state);
+    const Scalar* here = start.position;
     std::uint32_t nTargets = 0U;
     for (auto at = offsets[current]; at < offsets[current + 1U]; ++at) {
       const auto link = indices[at];
       const LayerID layer = forward ? mParameters->linkTargets[link] : mParameters->linkSources[link];
-      const auto prediction = predictLayerCrossing(mPropagator, *mParameters, from, state, layer, direction);
+      const auto prediction = predictLayerCrossing(*mParameters, start, layer, direction);
       if (prediction.status != PropagationStatus::kOk) {
         continue;
       }
