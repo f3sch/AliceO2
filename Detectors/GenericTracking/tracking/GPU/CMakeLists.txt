@@ -103,7 +103,7 @@ foreach(backend IN ITEMS CUDA HIP)
   string(LENGTH ${lower} lower_length)
 
   # One device tracker per layout and unit, compiled in parallel.
-  gtrk_device_library(GTrkTracking${backend} ${backend} cuda/DeviceRuntime.cu cuda/DeviceTrackerITS.cu cuda/DeviceTrackerMFT.cu cuda/DeviceTrackerTRKFT3.cu)
+  gtrk_device_library(GTrkTracking${backend} ${backend} cuda/DeviceRuntime.cu cuda/DeviceTrackerITS.cu cuda/DeviceTrackerMFT.cu cuda/DeviceTrackerTRKFT3.cu cuda/DeviceDecayFitterTRKFT3.cu)
   set(target ${GTrkTracking${backend}_TARGET})
   target_link_libraries(${target} PUBLIC O2::GTrkTracking)
   # Register caps of the CUDA units. Under relocatable device code a kernel's

@@ -49,6 +49,7 @@
 #include "SelectionGlue.cuh"
 #include "SliceGlue.cuh"
 #include "VertexGlue.cuh"
+#include "DeviceMaterial.cuh"
 
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
@@ -441,37 +442,6 @@ struct RoadOrderKey {
 };
 
 } // namespace tracker_detail
-
-/// Where a material lives on the device: an O2 FlatObject -- the
-/// MatLayerCylSet -- with its buffer, anything else as a value. Decided by
-/// the base class, not by trivial copyability: O2 compiles a FlatObject's
-/// copy constructor and destructor only outside GPU translation units, so in
-/// this one a MatLayerCylSet looks trivially copyable, and copied as bytes it
-/// keeps its host buffer pointers.
-template <typename Material, bool Plain = !std::is_base_of_v<o2::gpu::FlatObject, Material>>
-struct DeviceMaterial {
-  static_assert(std::is_trivially_copyable_v<Material>, "a material that is not a FlatObject uploads as bytes");
-  DeviceObject<Material> storage;
-  [[nodiscard]] bool upload(DeviceArena& arena, const Material& material, DeviceStream& stream)
-  {
-    if (!storage.allocate(arena)) {
-      return false;
-    }
-    uploadObject(material, storage, stream);
-    return true;
-  }
-  void release() noexcept { storage = {}; }
-  [[nodiscard]] const Material* data() const { return storage.data(); }
-};
-
-template <typename Material>
-struct DeviceMaterial<Material, false> {
-  DeviceFlatObject<Material> storage;
-  [[nodiscard]] bool upload(DeviceArena& arena, const Material& material, DeviceStream& stream) { return storage.upload(arena, material, stream); }
-  /// The device copy let go, the host image kept for the next run's upload.
-  void release() noexcept { storage.release(); }
-  [[nodiscard]] const Material* data() const { return storage.data(); }
-};
 
 template <DetectorLayout Det, typename Material>
 class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
