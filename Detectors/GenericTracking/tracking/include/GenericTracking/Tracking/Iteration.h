@@ -298,10 +298,9 @@ struct IterationParameters {
   Scalar roadChi2MaxByNdf[(2 * maxChainLayers<Det>)-4]{};
   /// The kinks a fit pass may take.
   std::uint8_t maxKinks = 0U;
-  /// `IterationSettings::followEnd`, `overlapPartners`, `innerTrim`
+  /// `IterationSettings::followEnd`, `innerTrim`
   /// and `crossingRule`.
   bool followEnd = false;
-  bool overlapPartners = false;
   std::uint8_t innerTrim = 0U;
   CrossingRule crossingRule = CrossingRule::kFirstAhead;
   /// The update chi2 beyond which a step is a kink: two degrees of freedom at
@@ -373,6 +372,10 @@ struct IterationParameters {
   /// `IterationSettings::shapeTest`, read on the host only to choose the
   /// tracklet and triplet stages' instantiations.
   bool shapeTest = false;
+  /// `IterationSettings::overlapPartners`, read on the host only to run the
+  /// overlap partners' stage (OverlapPartners.h). Last, so that no other
+  /// member moves.
+  bool overlapPartners = false;
 };
 
 /// Whether an iteration uses \a vertex for a source with time box \a source:

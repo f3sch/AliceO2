@@ -105,6 +105,53 @@ struct SensorCellsView {
     }
     return false;
   }
+
+  /// \a visit(sensor) for every sensor of \a layer listed in a cell that
+  /// the range \a phi +- \a phiReach, \a second +- \a secondReach covers,
+  /// each once: a sensor is listed in a rectangle of cells, so it is visited
+  /// in the first cell of the range's part of that rectangle, the one with
+  /// no listing cell before it in either coordinate. A range all round in
+  /// azimuth may visit a sensor twice, at its two ends.
+  template <typename Visit>
+  GPUhdi() void forEachSensorOnce(LayerID layer, Scalar phi, Scalar phiReach, Scalar second, Scalar secondReach, const Visit& visit) const
+  {
+    using Math = o2::gpu::CAMath;
+    const auto& cells = layers[layer];
+    if (cells.nPhi == 0U || cells.nSecond == 0U) {
+      return;
+    }
+    const auto nPhi = static_cast<int>(cells.nPhi);
+    const auto nSecond = static_cast<int>(cells.nSecond);
+    const int phiFirst = static_cast<int>(Math::Floor((phi - phiReach) / cells.phiBin));
+    const int phiCount = Math::Min(static_cast<int>(Math::Floor((phi + phiReach) / cells.phiBin)) - phiFirst + 1, nPhi);
+    const Scalar secondHigh = cells.secondLow + (static_cast<Scalar>(nSecond) * cells.secondBin);
+    if (second + secondReach < cells.secondLow || second - secondReach > secondHigh) {
+      return;
+    }
+    const int secondFirst = Math::Min(Math::Max(static_cast<int>(Math::Floor((second - secondReach - cells.secondLow) / cells.secondBin)), 0), nSecond - 1);
+    const int secondLast = Math::Min(Math::Max(static_cast<int>(Math::Floor((second + secondReach - cells.secondLow) / cells.secondBin)), 0), nSecond - 1);
+    const auto cellOf = [&](int s, int i) { return cells.cellOffset + static_cast<std::uint32_t>((s * nPhi) + ((((phiFirst + i) % nPhi) + nPhi) % nPhi)); };
+    const auto lists = [&](std::uint32_t cell, std::uint32_t sensor) {
+      for (auto at = offsets[cell]; at < offsets[cell + 1U]; ++at) {
+        if (sensors[at] == sensor) {
+          return true;
+        }
+      }
+      return false;
+    };
+    for (int s = secondFirst; s <= secondLast; ++s) {
+      for (int i = 0; i < phiCount; ++i) {
+        const auto cell = cellOf(s, i);
+        for (auto at = offsets[cell]; at < offsets[cell + 1U]; ++at) {
+          const auto sensor = sensors[at];
+          if ((s > secondFirst && lists(cellOf(s - 1, i), sensor)) || (i > 0 && lists(cellOf(s, i - 1), sensor))) {
+            continue;
+          }
+          visit(sensor);
+        }
+      }
+    }
+  }
 };
 
 /// The host's cells of every layer of \a Det, from \a geometry.

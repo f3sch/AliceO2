@@ -185,6 +185,7 @@ class Tracker
       mTripletStage(mArena),
       mNeighbourStage(mArena),
       mRecordStage(mArena),
+      mPartners(mArena),
       mChunkSize(chunkSize)
   {
     for (std::size_t iteration = 0; iteration < iterations.size(); ++iteration) {
@@ -798,7 +799,7 @@ class Tracker
     const bool partnered = summary.status == StageStatus::kComplete && mIterations[iteration].overlapPartners;
     if (partnered) {
       const profile::Zone zone{Phase::kOverlapPartners};
-      summary.status = mPartners.run(fitForEach(), mIterations[iteration], frame, *mGeometry, *mMaterial, mPropagator, mSensorCells.view(), mRefit.tracks(), trackOffset, std::span<std::uint8_t>{mUsed}, std::span<const std::uint32_t>{plan.layerMaxWidthPS}, std::span<const Scalar>{plan.layerMaxLocVariance});
+      summary.status = mPartners.run(fitForEach(), fitChunk(static_cast<Index>(mRefit.size() - trackOffset)), mIterations[iteration], frame, *mGeometry, *mMaterial, mPropagator, mSensorCells.view(), mRefit.tracks(), trackOffset, std::span<std::uint8_t>{mUsed}, std::span<const std::uint32_t>{plan.layerMaxWidthPS}, std::span<const Scalar>{plan.layerMaxLocVariance});
       summary.overlapPartners = mPartners.counts().attached;
       summary.tracksWithPartners = mPartners.counts().tracks;
     }

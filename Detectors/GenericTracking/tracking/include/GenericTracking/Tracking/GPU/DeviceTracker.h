@@ -32,6 +32,7 @@
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
 #include "GenericTracking/Tracking/Follow.h"
+#include "GenericTracking/Tracking/OverlapPartners.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
 #include "GenericTracking/Tracking/VertexStage.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
@@ -233,6 +234,12 @@ class DeviceTracker
   /// Every iteration's tracks so far, in iteration order, each iteration's
   /// best first, into \a tracks; not with an iteration open.
   virtual void downloadTracks(Tracks& tracks) = 0;
+
+  /// Those tracks' overlap partners (OverlapPartners.h): per track where its
+  /// partners begin in \a partners, into \a offsets (one more than the
+  /// tracks), each track's in path order; both empty where no iteration
+  /// takes them. Not with an iteration open.
+  virtual void downloadPartners(std::vector<std::uint32_t>& offsets, std::vector<OverlapPartner>& partners) = 0;
 
   /// The vertexing pass: iteration \a pass
   /// of the configured run -- the pass, configured after the tracking's --
