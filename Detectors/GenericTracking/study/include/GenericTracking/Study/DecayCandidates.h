@@ -96,11 +96,24 @@ struct DecayShape {
   std::vector<const TreeParticle*> composites; ///< the decaying members below the root, depth first
   std::uint8_t products = 0U;                  ///< the root's own decay products
   std::uint8_t depth = 0U;                     ///< the most generations of composites below the root
-  std::uint8_t neutralUnseen = 0U;             ///< neutral members, no leaf, without decay products
+  std::uint8_t neutralUnseen = 0U;             ///< neutral members with no leaf below them (a neutrino, a photon, a pi0 into photons), each taken whole
+  std::vector<const TreeParticle*> unseen;     ///< those members
   std::uint8_t chargedUnseen = 0U;             ///< charged ones (charge from \a chargeOf)
   /// Whether nothing on the way keeps the fit from seeing it whole.
   [[nodiscard]] bool closed() const { return neutralUnseen == 0U && chargedUnseen == 0U && !leaves.empty(); }
 };
+
+/// Whether a final charged particle (a leaf) is among \a particle's decay
+/// products, or theirs.
+[[nodiscard]] inline bool hasLeafBelow(const DecayTrees& trees, const TreeParticle& particle)
+{
+  for (const auto* product : decayProducts(trees, particle)) {
+    if (isFinalCharged(product->pdg) || hasLeafBelow(trees, *product)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /// \a root's decay down to its leaves; \a chargeOf(pdg) a species' charge
 /// [e].
@@ -126,12 +139,13 @@ template <typename ChargeOf>
       continue;
     }
     const auto products = decayProducts(trees, *particle);
+    if (chargeOf(particle->pdg) == 0. && !hasLeafBelow(trees, *particle)) {
+      ++shape.neutralUnseen; // seen in nothing: taken whole, its own mass
+      shape.unseen.push_back(particle);
+      continue;
+    }
     if (products.empty()) {
-      if (chargeOf(particle->pdg) == 0.) {
-        ++shape.neutralUnseen;
-      } else {
-        ++shape.chargedUnseen;
-      }
+      ++shape.chargedUnseen;
       continue;
     }
     shape.composites.push_back(particle);
