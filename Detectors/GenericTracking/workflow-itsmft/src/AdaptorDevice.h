@@ -146,6 +146,9 @@ class AdaptorTask : public o2::framework::Task
     }
     const auto orbit = pc.services().get<o2::framework::TimingInfo>().firstTForbit;
     const auto records = pc.inputs().get<gsl::span<Record>>("tracks");
+    const auto offsets = pc.inputs().get<gsl::span<std::uint32_t>>("trackOffsets");
+    const auto references = pc.inputs().get<gsl::span<TrackReferenceRecord<Det>>>("trackReferences");
+    const adaptor::ExportRows exported{std::span<const std::uint32_t>{offsets.data(), offsets.size()}, std::span<const TrackReferenceRecord<Det>>{references.data(), references.size()}};
     const auto rows = pc.inputs().get<gsl::span<std::uint32_t>>("clusterIndex");
     const auto input = readITSMFTInput(pc, mUseMC, mStaggered ? Detector<Det>::nLayers : 1);
     const std::span<const std::uint32_t> clusterIndex{rows.data(), rows.size()};
@@ -166,15 +169,15 @@ class AdaptorTask : public o2::framework::Task
     }
     const auto layerOf = [&](std::uint32_t row) { return mGeometry->surface(input.cluster(clusterIndex[row]).getSensorID()).layer; };
     if constexpr (kITS) {
-      runITS(pc, records, fitted, clusterIndex, frameRecords, frames, pixels, input, timings, clock, bz, orbit, layerOf);
+      runITS(pc, records, exported, fitted, clusterIndex, frameRecords, frames, pixels, input, timings, clock, bz, orbit, layerOf);
     } else {
-      runMFT(pc, records, fitted, clusterIndex, frameRecords, frames, pixels, input, timings, clock, bz, orbit, layerOf);
+      runMFT(pc, records, exported, fitted, clusterIndex, frameRecords, frames, pixels, input, timings, clock, bz, orbit, layerOf);
     }
   }
 
  private:
   template <typename LayerOf>
-  void runITS(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, std::span<const std::uint32_t> fitted, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const ITSMFTInput& input, std::span<const FrameTiming> timings, std::size_t clock, double bz, std::uint32_t orbit, const LayerOf& layerOf)
+  void runITS(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, const adaptor::ExportRows& exported, std::span<const std::uint32_t> fitted, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const ITSMFTInput& input, std::span<const FrameTiming> timings, std::size_t clock, double bz, std::uint32_t orbit, const LayerOf& layerOf)
   {
     using o2::framework::Output;
     using AlpideParam = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>;
@@ -207,7 +210,7 @@ class AdaptorTask : public o2::framework::Task
     // A cluster in more than one track's innermost place: ITS's shared flag.
     std::vector<std::uint8_t> innermost(clusterIndex.empty() ? 0U : *std::ranges::max_element(clusterIndex) + 1U, 0U); // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     for (const auto track : fitted) {
-      auto& uses = innermost[clusterIndex[records[track].clusters.index[0]]];
+      auto& uses = innermost[clusterIndex[exported.of(track).front()]];
       uses = static_cast<std::uint8_t>(std::min(uses + 1, 2));
     }
 
@@ -223,6 +226,7 @@ class AdaptorTask : public o2::framework::Task
     std::array<bool, TrackRefit<Det>::kMaxClusters> carried{};
     for (const auto track : fitted) {
       const auto& record = records[track];
+      const auto rows = exported.of(track);
       auto* const geometry = o2::its::GeometryTGeo::Instance();
       const double sensorAlpha = geometry->getSensorRefAlpha(static_cast<int>(record.state.surface));
       const double alpha = frameAlpha(record.state, sensorAlpha);
@@ -233,20 +237,20 @@ class AdaptorTask : public o2::framework::Task
       const double outerAlpha = frameAlpha(record.outwardState, geometry->getSensorRefAlpha(static_cast<int>(record.outwardState.surface)));
       out.track.getParamOut() = toTrackParCov(record.outwardState, mGeometry->planeOf(record.outwardState), outerAlpha, bz);
       out.track.setChi2(record.chi2);
-      out.track.setNumberOfClusters(record.count);
+      out.track.setNumberOfClusters(static_cast<int>(rows.size()));
       if (mUseMC) {
-        out.label = adaptor::trackLabel(record, clusterIndex, input, std::span<bool>{carried.data(), record.count});
+        out.label = adaptor::trackLabel(rows, clusterIndex, input, std::span<bool>{carried.data(), rows.size()});
       }
       std::uint32_t pattern = 0U;
-      for (std::uint8_t i = 0; i < record.count; ++i) {
-        const auto layer = layerOf(record.clusters.index[i]);
+      for (std::size_t i = 0; i < rows.size(); ++i) {
+        const auto layer = layerOf(rows[i]);
         pattern |= 1U << layer;
         pattern |= mUseMC && carried[i] ? 1U << (16U + layer) : 0U;
-        out.track.setClusterSize(layer, static_cast<int>(pixels[clusterIndex[record.clusters.index[i]]]));
+        out.track.setClusterSize(layer, static_cast<int>(pixels[clusterIndex[rows[i]]]));
       }
       out.track.setPattern(pattern);
-      out.track.setSharedClusters(innermost[clusterIndex[record.clusters.index[0]]] > 1U);
-      const auto time = adaptor::trackTime(record, clusterIndex, frames, timings, layerOf);
+      out.track.setSharedClusters(innermost[clusterIndex[rows.front()]] > 1U);
+      const auto time = adaptor::trackTime(record, rows, clusterIndex, frames, timings, layerOf);
       const float half = std::min(static_cast<float>(time.upper - time.lower) / 2.F, static_cast<float>(length) / 2.F);
       const float centre = static_cast<float>(time.lower + time.upper) / 2.F;
       out.track.getTimeStamp() = o2::its::TimeStamp(centre, half);
@@ -297,10 +301,10 @@ class AdaptorTask : public o2::framework::Task
     std::vector<int> entries(static_cast<std::size_t>(frameCount) + 1U, 0);
     tracks.reserve(converted.size());
     for (auto& c : converted) {
-      const auto& record = records[c.record];
+      const auto rows = exported.of(c.record);
       c.track.setFirstClusterEntry(static_cast<int>(clusterIds.size()));
-      for (std::uint8_t i = record.count; i-- > 0;) { // outermost first
-        clusterIds.push_back(input.externalIndex(clusterIndex[record.clusters.index[i]]));
+      for (std::size_t i = rows.size(); i-- > 0;) { // outermost first
+        clusterIds.push_back(input.externalIndex(clusterIndex[rows[i]]));
       }
       tracks.push_back(c.track);
       ++entries[static_cast<std::size_t>(c.frame)];
@@ -340,7 +344,7 @@ class AdaptorTask : public o2::framework::Task
   }
 
   template <typename LayerOf>
-  void runMFT(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, std::span<const std::uint32_t> fitted, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const ITSMFTInput& input, std::span<const FrameTiming> timings, std::size_t clock, double bz, std::uint32_t orbit, const LayerOf& layerOf)
+  void runMFT(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, const adaptor::ExportRows& exported, std::span<const std::uint32_t> fitted, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const ITSMFTInput& input, std::span<const FrameTiming> timings, std::size_t clock, double bz, std::uint32_t orbit, const LayerOf& layerOf)
   {
     using o2::framework::Output;
     const auto& origin = detectorOrigin<Det>();
@@ -370,31 +374,32 @@ class AdaptorTask : public o2::framework::Task
     std::array<bool, TrackRefit<Det>::kMaxClusters> carried{};
     for (const auto track : fitted) {
       const auto& record = records[track];
+      const auto rows = exported.of(track);
       auto& out = converted.emplace_back();
       out.record = track;
       const auto inner = toTrackParCovFwd(record.state, mGeometry->planeOf(record.state), bz, record.chi2);
       static_cast<o2::track::TrackParCovFwd&>(out.track) = inner;
       out.track.setOutParam(toTrackParCovFwd(record.outwardState, mGeometry->planeOf(record.outwardState), bz, record.outwardChi2));
       out.track.setCA(true);
-      out.track.setNumberOfPoints(record.count);
+      out.track.setNumberOfPoints(static_cast<int>(rows.size()));
       if (mUseMC) {
-        out.label = adaptor::trackLabel(record, clusterIndex, input, std::span<bool>{carried.data(), record.count});
+        out.label = adaptor::trackLabel(rows, clusterIndex, input, std::span<bool>{carried.data(), rows.size()});
       }
-      for (std::uint8_t i = 0; i < record.count; ++i) {
-        out.track.setClusterSize(layerOf(record.clusters.index[i]), static_cast<int>(pixels[clusterIndex[record.clusters.index[i]]]));
+      for (const auto row : rows) {
+        out.track.setClusterSize(layerOf(row), static_cast<int>(pixels[clusterIndex[row]]));
       }
       // Preserve the monolithic MFT's earliest-record convention. Per-layer
       // record numbers have different clocks: use the interval's lower edge
       // on the fastest layer's clock instead.
       if (mStaggered) {
-        const auto time = adaptor::trackTime(record, clusterIndex, frames, timings, layerOf);
+        const auto time = adaptor::trackTime(record, rows, clusterIndex, frames, timings, layerOf);
         const float half = std::min(static_cast<float>(time.upper - time.lower) / 2.F, static_cast<float>(length) / 2.F);
         const float centre = static_cast<float>(time.lower + time.upper) / 2.F;
         out.frame = rofTiming.getROF(o2::its::TimeStamp(centre, half));
       } else {
-        out.frame = adaptor::earliestRecord(record, clusterIndex, frames);
-        for (std::uint8_t i = 0; i < record.count; ++i) {
-          if (frames.record[clusterIndex[record.clusters.index[i]]] != out.frame) {
+        out.frame = adaptor::earliestRecord(rows, clusterIndex, frames);
+        for (const auto row : rows) {
+          if (frames.record[clusterIndex[row]] != out.frame) {
             ++crossing;
             break;
           }
@@ -413,10 +418,9 @@ class AdaptorTask : public o2::framework::Task
     std::vector<int> entries(trackROFs.size() + 1U, 0);
     tracks.reserve(converted.size());
     for (auto& c : converted) {
-      const auto& record = records[c.record];
       c.track.setExternalClusterIndexOffset(static_cast<int>(clusterIds.size()));
-      for (std::uint8_t i = 0; i < record.count; ++i) { // innermost first
-        clusterIds.push_back(input.externalIndex(clusterIndex[record.clusters.index[i]]));
+      for (const auto row : exported.of(c.record)) { // innermost first
+        clusterIds.push_back(input.externalIndex(clusterIndex[row]));
       }
       tracks.push_back(c.track);
       ++entries[c.frame];
@@ -455,6 +459,8 @@ o2::framework::DataProcessorSpec getAdaptorSpec(bool useMC, bool staggered)
   const auto origin = detectorOrigin<Det>();
   std::vector<InputSpec> inputs{
     InputSpec{"tracks", gDataOrigin, description<Det>(kTracks), 0, Lifetime::Timeframe},
+    InputSpec{"trackOffsets", gDataOrigin, description<Det>(kTrackOffsets), 0, Lifetime::Timeframe},
+    InputSpec{"trackReferences", gDataOrigin, description<Det>(kTrackReferences), 0, Lifetime::Timeframe},
     InputSpec{"clusterIndex", gDataOrigin, description<Det>(kMeasurements), static_cast<std::uint32_t>(MeasurementColumn::clusterIndex), Lifetime::Timeframe},
     InputSpec{"dictionary", origin, "CLUSDICT", 0, Lifetime::Condition, ccdbParamSpec(origin.template as<std::string>() + "/Calib/ClusterDictionary")}};
   addITSMFTClusterInputs(inputs, origin, useMC, staggered ? Detector<Det>::nLayers : 1);

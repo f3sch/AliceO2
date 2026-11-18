@@ -123,7 +123,7 @@ class TruthStudies
   }
 
   /// The track-chain studies on \a event's \a tracks.
-  void run(const TruthEvent<Det>& event, const typename TrackRefit<Det>::Tracks& tracks)
+  void run(const TruthEvent<Det>& event, const TrackStore<Det>& tracks)
   {
     if (!takes(ChainSource::kTracks)) {
       return;

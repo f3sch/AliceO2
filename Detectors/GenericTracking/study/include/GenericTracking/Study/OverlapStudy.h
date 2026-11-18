@@ -156,10 +156,10 @@ class OverlapStudy
 
   /// The truth chains' pairs with their rows' holders among \a tracks, and the
   /// fakes' and clones' claimable rows.
-  void processTracks(const TruthEvent<Det>& event, const typename TrackRefit<Det>::Tracks& tracks)
+  void processTracks(const TruthEvent<Det>& event, const TrackStore<Det>& tracks)
   {
-    const auto view = tracks.view();
-    const auto rowsOf = [&](std::uint32_t track) { return std::span<const std::uint32_t>{view.clusters[track].index, view.count[track]}; };
+    const auto view = tracks.tracks().view();
+    const auto rowsOf = [&](std::uint32_t track) { return tracks.rows(track); };
     Holders holders;
     holders.holder.assign(event.rows.size(), kNone);
     holders.good.assign(tracks.size(), kNoTrackParticle);
@@ -173,7 +173,7 @@ class OverlapStudy
       }
       if (holders.good[track] != kNoTrackParticle) {
         auto [at, inserted] = holders.best.try_emplace(holders.good[track], track);
-        if (!inserted && view.count[at->second] < view.count[track]) {
+        if (!inserted && rowsOf(at->second).size() < rowsOf(track).size()) {
           at->second = track;
         }
       }

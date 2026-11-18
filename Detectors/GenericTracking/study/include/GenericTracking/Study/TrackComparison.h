@@ -55,6 +55,7 @@
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/LinkHoles.h"
+#include "GenericTracking/Tracking/TrackStore.h"
 #include "GenericTracking/Workflow/TrackLabel.h"
 
 #include <algorithm>
@@ -134,6 +135,18 @@ template <typename Tracks>
   const auto view = tracks.view();
   for (std::size_t track = 0; track < tracks.size(); ++track) {
     rows[track].assign(std::begin(view.clusters[track].index), std::begin(view.clusters[track].index) + view.count[track]);
+  }
+  return rows;
+}
+
+/// The same of committed tracks (TrackStore.h).
+template <DetectorLayout Det>
+[[nodiscard]] TrackRows trackRows(const TrackStore<Det>& tracks)
+{
+  TrackRows rows(tracks.size());
+  for (std::size_t track = 0; track < tracks.size(); ++track) {
+    const auto mine = tracks.rows(track);
+    rows[track].assign(mine.begin(), mine.end());
   }
   return rows;
 }

@@ -357,6 +357,7 @@ class TrackingInterface
       mLastArenaPeak = mDevice->arenaPeakBytes();
       mDevice->detach();
       mDeviceTracks.setMemoryResource(mDevicePool.get());
+      mDeviceStore.clearStorage();
       mDevicePlan = {};
       mDeviceTrackingPlan = {};
       mDeviceFound = {};
@@ -459,6 +460,7 @@ class TrackingInterface
       mDevice = mContext->runtime().makeTracker<Det>(DeviceBlock{});
       mDevicePool = trackerMemoryPool(recoParam<Det>());
       mDeviceTracks.setMemoryResource(mDevicePool.get());
+      mDeviceStore.setMemoryPool(mDevicePool);
     }
     mDeviceIterations.clear();
     mDeviceWindows.clear();
@@ -503,7 +505,12 @@ class TrackingInterface
       return tracked;
     }
     tracked.result.status = mDevice->trackTimeframe(frame, mDeviceTrackingPlan, iterations, replaced, mDeviceTracks, mDeviceReport);
-    tracked.result.tracks = &mDeviceTracks;
+    if (tracked.result.status == StageStatus::kComplete) {
+      // The device's tracks, downloaded with their rows inline, committed here.
+      mDeviceStore.clear();
+      tracked.result.status = mDeviceStore.commit([](std::uint32_t n, const auto& body) { for (std::uint32_t i = 0; i < n; ++i) { body(i); } }, 1024U, std::as_const(mDeviceTracks));
+      tracked.result.store = &mDeviceStore;
+    }
     tracked.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     if (tracked.result.status != StageStatus::kComplete) {
       tracked.dropped = dropOrFail(tracked.result.status, "the tracking");
@@ -555,6 +562,7 @@ class TrackingInterface
   VertexerResult mDeviceFound;
   std::shared_ptr<BoundedMemoryResource> mDevicePool;
   typename TrackRefit<Det>::Tracks mDeviceTracks;
+  TrackStore<Det> mDeviceStore; ///< `mDeviceTracks` committed
   typename Device::TimeframeReport mDeviceReport;
   bool mDeviceTimeframe = false; ///< the device holds a timeframe
   bool mVertexed = false;        ///< the vertexer ran this timeframe

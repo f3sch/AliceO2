@@ -120,12 +120,13 @@ std::vector<Found> trackFrom(const Fixture& fixture, std::span<const VertexSeed>
   const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, vertices, 3, 0.));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   std::vector<Found> tracks;
-  tracks.reserve(result.tracks->size());
-  const auto view = result.tracks->view();
-  for (std::size_t i = 0; i < result.tracks->size(); ++i) {
+  tracks.reserve(result.store->size());
+  const auto view = result.store->tracks().view();
+  for (std::size_t i = 0; i < result.store->size(); ++i) {
+    const auto rows = result.store->rows(i);
     tracks.push_back({
       .iteration = view.iteration[i],
-      .rows = {view.clusters[i].index, view.clusters[i].index + view.count[i]},
+      .rows = {rows.begin(), rows.end()},
       .chi2 = std::bit_cast<std::uint32_t>(view.chi2[i]),
     });
   }

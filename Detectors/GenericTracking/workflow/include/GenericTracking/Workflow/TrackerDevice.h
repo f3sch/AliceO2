@@ -61,18 +61,22 @@ namespace o2::gtrk::workflow
 {
 
 /// The tracking device's products made in \a pc's outputs, empty, published on
-/// every way out: (tracks, vertices, contributors, selectedROFs), DPL's vectors.
+/// every way out: (tracks, track offsets, track references, vertices,
+/// contributors, selectedROFs), DPL's vectors.
 template <DetectorLayout Det>
 [[nodiscard]] auto makeTrackerProducts(o2::framework::ProcessingContext& pc)
 {
   using o2::framework::Output;
   static_assert(o2::framework::is_messageable<TrackRecord<Det>>::value, "a track record goes as its bytes: trivially copyable, no pointer");
+  static_assert(o2::framework::is_messageable<TrackReferenceRecord<Det>>::value, "a track reference goes as its bytes");
   static_assert(o2::framework::is_messageable<VertexSeed>::value, "a vertex seed goes as its bytes");
   auto& tracks = pc.outputs().make<std::vector<TrackRecord<Det>>>(Output{gDataOrigin, description<Det>(kTracks), 0});
+  auto& offsets = pc.outputs().make<std::vector<std::uint32_t>>(Output{gDataOrigin, description<Det>(kTrackOffsets), 0});
+  auto& references = pc.outputs().make<std::vector<TrackReferenceRecord<Det>>>(Output{gDataOrigin, description<Det>(kTrackReferences), 0});
   auto& vertices = pc.outputs().make<std::vector<VertexSeed>>(Output{gDataOrigin, description<Det>(kVertexSeeds), 0});
   auto& contributors = pc.outputs().make<std::vector<std::uint32_t>>(Output{gDataOrigin, description<Det>(kVertexContributors), 0});
   auto& selectedROFs = pc.outputs().make<std::vector<std::uint8_t>>(Output{gDataOrigin, description<Det>(kSelectedROFs), 0});
-  return std::tie(tracks, vertices, contributors, selectedROFs);
+  return std::tie(tracks, offsets, references, vertices, contributors, selectedROFs);
 }
 
 /// The products' output specs.
@@ -80,7 +84,7 @@ template <DetectorLayout Det>
 [[nodiscard]] std::vector<o2::framework::OutputSpec> trackerOutputs()
 {
   using o2::framework::Lifetime;
-  return {{gDataOrigin, description<Det>(kTracks), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexSeeds), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexContributors), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kSelectedROFs), 0, Lifetime::Timeframe}};
+  return {{gDataOrigin, description<Det>(kTracks), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kTrackOffsets), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kTrackReferences), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexSeeds), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kVertexContributors), 0, Lifetime::Timeframe}, {gDataOrigin, description<Det>(kSelectedROFs), 0, Lifetime::Timeframe}};
 }
 
 /// One timeframe of \a Det's tracking, on \a interface's host or device
@@ -92,7 +96,7 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
 {
   conditions.checkUpdates(pc);
   const auto orbit = pc.services().get<o2::framework::TimingInfo>().firstTForbit;
-  auto [tracks, vertices, contributors, selectedROFs] = makeTrackerProducts<Det>(pc);
+  auto [tracks, trackOffsets, trackReferences, vertices, contributors, selectedROFs] = makeTrackerProducts<Det>(pc);
   // The vertex cut's measurements and the tracking's seeds, alive until the
   // device work on them is synchronised on every way out.
   std::optional<SelectedMeasurements> afterVertices;
@@ -154,18 +158,17 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
   }
   vertices.assign(foundVertices.begin(), foundVertices.end());
   contributors.assign(foundContributors.begin(), foundContributors.end());
-  const auto& result = *tracked.result.tracks;
-  tracks.reserve(result.size());
-  std::size_t failed = 0U;
-  for (std::size_t track = 0; track < result.size(); ++track) {
-    auto record = result.read(track);
-    if (!originalRows.empty()) {
-      for (std::uint8_t c = 0; c < record.count; ++c) {
-        record.clusters.index[c] = originalRows[record.clusters.index[c]];
+  tracked.result.store->flatten(tracks, trackOffsets, trackReferences);
+  if (!originalRows.empty()) {
+    for (auto& reference : trackReferences) {
+      if (reference.source == kOwnRows) {
+        reference.row = originalRows[reference.row];
       }
     }
-    tracks.push_back(record);
-    failed += tracks.back().status == PropagationStatus::kOk ? 0U : 1U;
+  }
+  std::size_t failed = 0U;
+  for (const auto& track : tracks) {
+    failed += track.status == PropagationStatus::kOk ? 0U : 1U;
   }
   LOGP(info, "{}: the timeframe at orbit {}: {} tracks ({} with a failed refit), {} vertices, {:.3f} s tracking, {:.3f} s vertexing", Det::name, orbit, tracks.size(), failed, vertices.size(), tracked.seconds, found.seconds);
 }

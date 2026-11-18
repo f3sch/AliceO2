@@ -29,6 +29,7 @@
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/TruthEvent.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
+#include "GenericTracking/Tracking/TrackStore.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -196,14 +197,14 @@ template <DetectorLayout Det>
 /// the particle's MC crossing there (`stateTruth`); what was taken and left
 /// into \a counts. The chains point into \a tracks.
 template <DetectorLayout Det>
-[[nodiscard]] std::vector<Chain> trackChains(const TruthEvent<Det>& event, const typename TrackRefit<Det>::Tracks& tracks, const ChainSelection& selection, ChainCounts& counts)
+[[nodiscard]] std::vector<Chain> trackChains(const TruthEvent<Det>& event, const TrackStore<Det>& tracks, const ChainSelection& selection, ChainCounts& counts)
 {
   const auto rule = comparisonSettings<Det>(4, selection.minPtGeV);
   const auto findable = selection.findable ? particleLayers(event.rows, rule) : std::unordered_map<std::uint64_t, ParticleLayers>{};
-  const auto view = tracks.view();
+  const auto view = tracks.tracks().view();
   std::vector<Chain> chains;
   for (std::size_t track = 0; track < tracks.size(); ++track) {
-    const std::span<const std::uint32_t> rows{view.clusters[track].index, view.count[track]};
+    const auto rows = tracks.rows(track);
     const auto particle = goodParticle(event.rows, rows);
     const auto found = particle == kNoTrackParticle ? event.particles->end() : event.particles->find(particle);
     if (found == event.particles->end()) {

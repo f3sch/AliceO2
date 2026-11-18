@@ -118,12 +118,13 @@ std::unique_ptr<Tracker<Det, UniformMaterial>> makeTracker(std::vector<Iteration
 std::vector<Found> found(const Tracker<Det, UniformMaterial>::TimeframeResult& result)
 {
   std::vector<Found> tracks;
-  tracks.reserve(result.tracks->size());
-  const auto view = result.tracks->view();
-  for (std::size_t i = 0; i < result.tracks->size(); ++i) {
+  tracks.reserve(result.store->size());
+  const auto view = result.store->tracks().view();
+  for (std::size_t i = 0; i < result.store->size(); ++i) {
+    const auto rows = result.store->rows(i);
     tracks.push_back({
       .iteration = view.iteration[i],
-      .rows = {view.clusters[i].index, view.clusters[i].index + view.count[i]},
+      .rows = {rows.begin(), rows.end()},
       .chi2 = std::bit_cast<std::uint32_t>(view.chi2[i]),
     });
   }
@@ -136,10 +137,9 @@ Outcome track(const Fixture& fixture, std::int32_t widthBlocks, int threads)
   auto& tracker = *owned;
   const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, {}, widthBlocks, 0.));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
-  BOOST_REQUIRE(result.tracks != nullptr);
   // Every iteration's tracks committed, on any number of threads.
   BOOST_REQUIRE(result.store != nullptr);
-  BOOST_TEST(result.store->holdsRowsOf(*result.tracks));
+  BOOST_TEST(result.store->holds(tracker.workingTracks()));
   Outcome outcome;
   for (const auto& summary : result.iterations) {
     BOOST_TEST(summary.mismatches == 0U);
@@ -412,7 +412,7 @@ BOOST_AUTO_TEST_CASE(AResumedRunIsTheWholeRun)
   BOOST_TEST(study::trackingDigest(result, resumed->used()) == expectedDigest);
   BOOST_TEST((found(result) == found(expected)));
   // The checkpoint's tracks committed again, the resumed iterations' after them.
-  BOOST_TEST(result.store->holdsRowsOf(*result.tracks));
+  BOOST_TEST(result.store->holds(resumed->workingTracks()));
   BOOST_TEST(result.store->references().recordCount() == expected.store->references().recordCount());
 }
 
@@ -551,7 +551,7 @@ BOOST_AUTO_TEST_CASE(InnerSeedsFollowOverEveryLayerAndShortTracksGiveTheirRowsBa
     auto tracker = makeTracker(seeded({kWhole + 1, kWhole + 1}));
     const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3, 0.));
     BOOST_REQUIRE(result.status == StageStatus::kComplete);
-    BOOST_TEST(result.tracks->size() == 0U);
+    BOOST_TEST(result.store->size() == 0U);
     BOOST_TEST(std::ranges::all_of(tracker->used(), [](std::uint8_t state) { return state == kFree; }));
   }
 }
@@ -608,7 +608,7 @@ BOOST_AUTO_TEST_CASE(TheRecoveryPassKeepsWholeTracksWhole)
   const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3, 0.));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   BOOST_TEST((rows(found(result)) == expected));
-  BOOST_TEST(result.store->holdsRowsOf(*result.tracks));
+  BOOST_TEST(result.store->holds(tracker->workingTracks()));
   BOOST_TEST(result.iterations[1].tracksDropped == 0U);
   BOOST_TEST(std::ranges::all_of(tracker->used(), [](std::uint8_t state) { return state == kExclusive; }));
 }
@@ -727,9 +727,9 @@ FramedRun trackFramed(const Fixture& fixture, std::int32_t widthBlocks)
   const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, widthBlocks, 0.));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   FramedRun run{.tracks = found(result), .times = std::vector<TimeEstPS>(kCrossingBC.size()), .haloPS = result.iterations.front().haloPS};
-  const auto view = result.tracks->view();
-  for (std::size_t i = 0; i < result.tracks->size(); ++i) {
-    const auto index = fixture.frame->measurement(view.clusters[i].index[0]).clusterIndex / kLayers;
+  const auto view = result.store->tracks().view();
+  for (std::size_t i = 0; i < result.store->size(); ++i) {
+    const auto index = fixture.frame->measurement(result.store->rows(i)[0]).clusterIndex / kLayers;
     run.times[index] = {.start = view.timePS[i], .width = view.widthPS[i]};
   }
   return run;
