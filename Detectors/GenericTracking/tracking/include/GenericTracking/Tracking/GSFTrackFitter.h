@@ -47,6 +47,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <numbers>
 
 namespace o2::gtrk
@@ -628,9 +629,11 @@ GPUhdi() Scalar momentumModeOf(const GSFMixture<K>& mixture)
     Scalar gradient;
     Scalar curvature;
     Scalar value = logDensity(u, gradient, curvature);
-    // Each accepted step raises the density; a step is at least halved until it does, and the walk ends when a
-    // step leaves u unchanged in float, which a bounded number of halvings reaches.
-    for (;;) {
+    // Each accepted step raises the density; a step is at least halved until it does (a bounded number of
+    // halvings leaves u unchanged in float), and the walk ends when a step leaves u unchanged. Newton's steps
+    // double the digits they resolve near the mode and halved steps halve the distance to it, so float's
+    // digits bound the steps that still move u; the walk is held to that many.
+    for (int iteration = 0; iteration < std::numeric_limits<Scalar>::digits; ++iteration) {
       Scalar step = curvature < 0.F ? -gradient / curvature : gradient * c[k].state.cov[covIndex(kQOverP, kQOverP)];
       if (!isFiniteScalar(step)) {
         break;
