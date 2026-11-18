@@ -133,6 +133,11 @@ Dual<N, T> sqrt(const Dual<N, T>& a)
   const T root = std::sqrt(a.v);
   return chain(a, root, T(0.5) / root);
 }
+template <int N, typename T>
+Dual<N, T> asin(const Dual<N, T>& a)
+{
+  return chain(a, std::asin(a.v), T(1.) / std::sqrt(T(1.) - (a.v * a.v)));
+}
 /// Below these arguments sinc and asinc take their series, through the x^6
 /// term: there its first omitted term is below T's rounding, where the
 /// closed forms' derivatives lose digits to cancellation. sinc's omitted term
