@@ -1644,7 +1644,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     for (const auto& text : options.truthStudies) {
       specs.push_back(study::parseTruthStudy(text));
     }
-    truthStudies.emplace(specs, study::parseChainSelection(options.truthSelect), study::DecayDeviceSettings{.backend = options.decayBackend, .device = options.gpuDevice, .arenaMB = options.gpuArenaMB});
+    truthStudies.emplace(specs, study::parseChainSelection(options.truthSelect), TrackingDevice{.backend = options.decayBackend == "cpu" ? std::string{} : options.decayBackend, .device = options.gpuDevice, .arenaMB = options.gpuArenaMB});
   }
   if (options.noTracking && (!truthStudies || truthStudies->takes(study::ChainSource::kTracks))) {
     throw std::runtime_error("--no-tracking runs truth studies of the truth source only");

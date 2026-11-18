@@ -37,6 +37,10 @@ class DeviceArena;
 template <template <template <class> class> class S>
 class DeviceColumns;
 
+/// The alignment of an arena's allocations unless one asks for another
+/// [bytes].
+inline constexpr std::size_t kArenaAlignment = 256U;
+
 /// Which end of the arena an allocation or a scope belongs to.
 enum class ArenaEnd : std::uint8_t {
   kBase = 0,    ///< grows up: storage of the scopes the run nests
@@ -101,7 +105,7 @@ class DeviceArena
   DeviceArena(DeviceArena&&) = delete;
   DeviceArena& operator=(DeviceArena&&) = delete;
 
-  [[nodiscard]] DeviceAllocation allocate(std::size_t bytes, std::size_t alignment = 256U, ArenaEnd end = ArenaEnd::kBase);
+  [[nodiscard]] DeviceAllocation allocate(std::size_t bytes, std::size_t alignment = kArenaAlignment, ArenaEnd end = ArenaEnd::kBase);
   [[nodiscard]] ArenaScope scope(ArenaEnd end = ArenaEnd::kBase);
   /// Rewind both ends and close every scope; the block stays.
   void reset() noexcept;

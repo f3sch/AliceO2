@@ -108,14 +108,6 @@ template <class Conditions>
   return {.bzKiloGauss = nominalBzKiloGauss(), .depthsCM = conditions.measurementDepthsCM(), .material = conditions.materialLut()};
 }
 
-/// Where the tracking runs: the host, or a GPU backend (the tracking
-/// device's options `--gtrk-gpu-backend`, `--gtrk-gpu-device`, `--gtrk-gpu-arena-mb`).
-struct TrackingDevice {
-  std::string backend;     ///< empty: the host; else "cuda" or "hip"
-  int device = 0;          ///< the backend's device index
-  std::size_t arenaMB = 0; ///< the device tracker's arena in O2's GPU pool [MB]; 0: the whole device
-};
-
 template <DetectorLayout Det>
 class TrackingInterface
 {

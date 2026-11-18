@@ -39,6 +39,7 @@
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/Tracklet.h"
 #include "GenericTracking/Tracking/Neighbour.h"
+#include "GenericTracking/Tracking/Profile.h"
 #include "GenericTracking/Tracking/Triplet.h"
 
 #include <chrono>
@@ -279,13 +280,13 @@ class DeviceTracker
     report = {};
     auto start = Clock::now();
     StageStatus status = beginTimeframe(frame, plan);
-    report.uploadSeconds = since(start);
+    report.uploadSeconds = profile::secondsSince(start);
     if (status != StageStatus::kComplete) {
       return status;
     }
     start = Clock::now();
     status = findVertices(pass, settings, beamSpot, result);
-    report.vertexSeconds = since(start);
+    report.vertexSeconds = profile::secondsSince(start);
     return status;
   }
 
@@ -303,7 +304,7 @@ class DeviceTracker
     }
     auto start = Clock::now();
     StageStatus status = replaced ? replacePlan(plan) : beginTimeframe(frame, plan);
-    (replaced ? report.planUploadSeconds : report.uploadSeconds) = since(start);
+    (replaced ? report.planUploadSeconds : report.uploadSeconds) = profile::secondsSince(start);
     for (std::size_t iteration = 0; iteration < iterations && status == StageStatus::kComplete; ++iteration) {
       start = Clock::now();
       beginIteration(iteration);
@@ -316,7 +317,7 @@ class DeviceTracker
         }
       }
       status = endIteration(nullptr);
-      report.iterationSeconds.push_back(since(start));
+      report.iterationSeconds.push_back(profile::secondsSince(start));
       report.iterations.push_back(lastIteration());
     }
     if (status != StageStatus::kComplete) {
@@ -328,7 +329,7 @@ class DeviceTracker
     } catch (const std::bad_alloc&) {
       return StageStatus::kOutOfMemory;
     }
-    report.downloadSeconds = since(start);
+    report.downloadSeconds = profile::secondsSince(start);
     return StageStatus::kComplete;
   }
 
@@ -342,7 +343,6 @@ class DeviceTracker
 
  private:
   using Clock = std::chrono::steady_clock;
-  [[nodiscard]] static double since(Clock::time_point from) { return std::chrono::duration<double>(Clock::now() - from).count(); }
 };
 
 } // namespace o2::gtrk
