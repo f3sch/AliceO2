@@ -58,9 +58,9 @@ struct BeamLineUpdate {
   Scalar scattering = 0.F; ///< of which the scattering between [cm^2]
 };
 
-/// The direction [rad] of a bound state's helix at its transverse closest
-/// approach to the line along the beam through (\a x, \a y), by default
-/// the z axis, without a virtual beam-line surface.
+/// The direction [rad] at transverse closest approach to a line along the
+/// beam of a helix of transverse \a curvature at (\a dx, \a dy) from that
+/// line with direction \a phi.
 ///
 /// With r the position from that line, A = r.dot(direction) and
 /// B = r.dot(leftNormal), closest approach obeys
@@ -68,6 +68,24 @@ struct BeamLineUpdate {
 ///   kappa A cos(psi) + (1 + kappa B) sin(psi) = 0,
 ///
 /// solved for the turn psi; at zero curvature it is 0.
+[[nodiscard]] GPUhdi() ExactScalar perigeeAzimuth(ExactScalar dx, ExactScalar dy, ExactScalar phi, ExactScalar curvature)
+{
+  ExactScalar sinPhi = 0.;
+  ExactScalar cosPhi = 0.;
+  sincosOf(phi, sinPhi, cosPhi);
+  const ExactScalar along = dx * cosPhi + dy * sinPhi;
+  const ExactScalar across = -dx * sinPhi + dy * cosPhi;
+  const ExactScalar numerator = -curvature * along;
+  const ExactScalar denominator = 1. + curvature * across;
+  const ExactScalar turn = atan2Of(numerator, denominator);
+  ExactScalar phi0 = phi + turn;
+  math_utils::detail::bringToPMPi<ExactScalar>(phi0);
+  return phi0;
+}
+
+/// The direction [rad] of a bound state's helix at its transverse closest
+/// approach to the line along the beam through (\a x, \a y), by default
+/// the z axis, without a virtual beam-line surface (`perigeeAzimuth`).
 template <typename Prop>
 [[nodiscard]] GPUdi() Scalar perigeePhi(const Prop& prop, const BoundTrackState& state, const TrackingSurface& surface, Scalar x = 0.F, Scalar y = 0.F)
 {
@@ -76,24 +94,11 @@ template <typename Prop>
   position[0] -= static_cast<ExactScalar>(x);
   position[1] -= static_cast<ExactScalar>(y);
 
-  const auto phi = static_cast<ExactScalar>(state.phi());
-  const auto theta = static_cast<ExactScalar>(state.theta());
-  ExactScalar sinPhi = 0.;
-  ExactScalar cosPhi = 0.;
   ExactScalar sinTheta = 0.;
   ExactScalar cosTheta = 0.;
-  sincosOf(phi, sinPhi, cosPhi);
-  sincosOf(theta, sinTheta, cosTheta);
-
+  sincosOf(static_cast<ExactScalar>(state.theta()), sinTheta, cosTheta);
   const ExactScalar curvature = pointPropagator(prop, surface, state).curvature(static_cast<ExactScalar>(state.qOverP()), sinTheta);
-  const ExactScalar along = position[0] * cosPhi + position[1] * sinPhi;
-  const ExactScalar across = -position[0] * sinPhi + position[1] * cosPhi;
-  const ExactScalar numerator = -curvature * along;
-  const ExactScalar denominator = 1. + curvature * across;
-  const ExactScalar turn = atan2Of(numerator, denominator);
-  ExactScalar phi0 = phi + turn;
-  math_utils::detail::bringToPMPi<ExactScalar>(phi0);
-  return static_cast<Scalar>(phi0);
+  return static_cast<Scalar>(perigeeAzimuth(position[0], position[1], static_cast<ExactScalar>(state.phi()), curvature));
 }
 
 /// The plane through the beam line at (\a x, \a y) normal to the transverse
