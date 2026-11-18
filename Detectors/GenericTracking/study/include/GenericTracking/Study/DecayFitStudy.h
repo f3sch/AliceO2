@@ -992,7 +992,8 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
             record.sChildMass = static_cast<float>(childKinematics.sMass);
           }
         }
-        // The carried momenta: independent of one another, each its own 3 x 3.
+        // The carried momenta, of the seen daughters (an unseen one has no
+        // carried state): independent of one another, each its own 3 x 3.
         std::vector<double> carried(static_cast<std::size_t>(9 * count * count), 0.);
         const int stride = 3 * static_cast<int>(count);
         for (std::size_t i = 0; i < count; ++i) {
@@ -1002,7 +1003,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
             }
           }
         }
-        const auto measured = kinematicsOf(fit.carried, masses, fit.charges, carried, stride, 0);
+        const auto measured = kinematicsOf(std::span(fit.carried).first(count), std::span(masses).first(count), std::span(fit.charges).first(count), carried, stride, 0);
         record.massCarried = static_cast<float>(measured.mass);
         record.sMassCarried = static_cast<float>(measured.sMass);
         for (std::size_t i = 0; i < std::min(count, DecayFitRecord::kDaughterColumns); ++i) {
