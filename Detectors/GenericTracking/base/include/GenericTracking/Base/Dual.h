@@ -13,15 +13,15 @@
 /// \brief Forward differentiation: a value carried with its derivatives by N
 ///        inputs (a dual number), the arithmetic and the functions on it.
 
-#ifndef GTRK_STUDY_DUAL_H_
-#define GTRK_STUDY_DUAL_H_
+#ifndef GTRK_BASE_DUAL_H_
+#define GTRK_BASE_DUAL_H_
 
 #include <array>
 #include <cmath>
 #include <limits>
 #include <type_traits>
 
-namespace o2::gtrk::study::dual
+namespace o2::gtrk::dual
 {
 
 /// A value and its derivatives by N inputs: forward differentiation, in
@@ -195,6 +195,6 @@ template <int N, typename T>
 [[nodiscard]] inline double valueOf(double a) { return a; }
 [[nodiscard]] inline float valueOf(float a) { return a; }
 
-} // namespace o2::gtrk::study::dual
+} // namespace o2::gtrk::dual
 
-#endif // GTRK_STUDY_DUAL_H_
+#endif // GTRK_BASE_DUAL_H_
