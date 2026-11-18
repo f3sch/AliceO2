@@ -181,11 +181,12 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
           sum2[k] += pull * pull;
         }
         chi2 += fit.chi2;
-        std::vector<double> values;
-        std::vector<double> unused;
-        BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, std::array<double, 2>{1., -1.}, fieldScale, values, unused));
-        for (const auto value : values) {
-          worst = std::max(worst, std::abs(value));
+        std::array<double, decay_fit_detail::kMaxHardRows> values{};
+        std::array<double, decay_fit_detail::kMaxHardRows * decay_fit_detail::kConstraintInputs> unused{};
+        int written = 0;
+        BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, std::array<double, 2>{1., -1.}, fieldScale, values.data(), unused.data(), decay_fit_detail::kConstraintInputs, decay_fit_detail::kMaxHardRows, written));
+        for (int j = 0; j < written; ++j) {
+          worst = std::max(worst, std::abs(values[j]));
         }
       }
       BOOST_TEST_MESSAGE("constraints " << set << " states" << ": fitted " << fitted << ", chi2 mean " << chi2 / fitted << " at ndf " << ndf << ", largest constraint residual " << worst);
@@ -1025,21 +1026,25 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseIsTheTwoPassOne)
     }
   }
 
-  MixtureCollapse stream(n);
-  MixtureCollapse first(n);
-  MixtureCollapse second(n);
+  // each collapse's mean and scatter in storage of its own
+  std::vector<std::vector<double>> storage(12, std::vector<double>(n * n, 0.));
+  const auto collapseIn = [&](int at) { return MixtureCollapse(std::span<double>{storage[2 * at].data(), n}, std::span<double>{storage[(2 * at) + 1]}); };
+  auto stream = collapseIn(0);
+  auto first = collapseIn(1);
+  auto second = collapseIn(2);
   for (std::size_t c = 0; c < mixture.size(); ++c) {
     stream.add(mixture[c].logWeight, mixture[c].p, mixture[c].sigma, mixture[c].chi2);
     (c % 2 == 0 ? first : second).add(mixture[c].logWeight, mixture[c].p, mixture[c].sigma, mixture[c].chi2);
   }
-  MixtureCollapse merged(n);
-  merged.merge(MixtureCollapse(n)); // an empty one is the identity
+  auto merged = collapseIn(3);
+  merged.merge(collapseIn(4)); // an empty one is the identity
   merged.merge(second);
   merged.merge(first);
   for (const auto* one : {&stream, &merged}) {
     BOOST_TEST(one->count == static_cast<int>(mixture.size()));
     BOOST_TEST(std::abs(one->meanChi2() - chi2) < 1e-12);
-    const auto c = one->covariance();
+    std::vector<double> c(n * n);
+    one->covarianceInto(c.data());
     for (int i = 0; i < n; ++i) {
       BOOST_TEST(std::abs(one->mean[i] - mean[i]) < 1e-12);
       for (int j = 0; j < n; ++j) {
@@ -1047,8 +1052,8 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseIsTheTwoPassOne)
       }
     }
   }
-  MixtureCollapse empty(n);
-  empty.merge(MixtureCollapse(n));
+  auto empty = collapseIn(5);
+  empty.merge(collapseIn(4));
   BOOST_TEST(empty.count == 0);
 }
 
