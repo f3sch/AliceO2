@@ -107,11 +107,13 @@ struct DecayFitRecord {
   float minDaughterPt = 0.F; ///< the lowest true daughter pT [GeV]
   float maxCarryX2X0 = 0.F;  ///< the most material a daughter's last carry crossed
   std::uint8_t minDaughterRows = 0U;
-  std::uint8_t motherRows = 0U;  ///< a charged root's own rows (a tracked Xi or Omega), 0 without
-  float pointSigma = 0.F;        ///< the production point's equations' sigma across the flight [cm] (0: held exactly)
-  std::uint8_t refitPass = 0U;   ///< a failed daughter refit's FitPass
-  std::uint8_t refitStatus = 0U; ///< and its PropagationStatus
-  float dX = 0.F;                ///< fitted less true vertex [cm]
+  std::uint8_t motherRows = 0U;        ///< a charged root's own rows fitted (a tracked Xi or Omega), 0 without
+  std::uint8_t motherTrimmed = 0U;     ///< its rows left out, one row per layer kept
+  std::uint8_t compositesTrimmed = 0U; ///< the charged composites' rows left out, one row per layer kept
+  float pointSigma = 0.F;              ///< the production point's equations' sigma across the flight [cm] (0: held exactly)
+  std::uint8_t refitPass = 0U;         ///< a failed daughter refit's FitPass
+  std::uint8_t refitStatus = 0U;       ///< and its PropagationStatus
+  float dX = 0.F;                      ///< fitted less true vertex [cm]
   float dY = 0.F;
   float dZ = 0.F;
   float sX = 0.F; ///< the fit's sigmas [cm]
@@ -207,6 +209,8 @@ struct DecayFitRecord {
     visit("maxCarryX2X0", maxCarryX2X0);
     visit("minDaughterRows", minDaughterRows);
     visit("motherRows", motherRows);
+    visit("motherTrimmed", motherTrimmed);
+    visit("compositesTrimmed", compositesTrimmed);
     visit("pointSigma", pointSigma);
     visit("refitPass", refitPass);
     visit("refitStatus", refitStatus);
@@ -370,6 +374,26 @@ struct MotherQuantities {
     return std::sqrt(std::max(variance, 0.));
   };
   return {.length = length.v, .sLength = sigma(length), .ct = ct.v, .sCt = sigma(ct), .phi = phi.v, .sPhi = sigma(phi), .theta = theta.v, .sTheta = sigma(theta)};
+}
+
+/// \a chain's rows, one per layer: on a layer holding more (overlapping
+/// sensors, split clusters), the row of the smallest global radius, the
+/// smaller row ID on a tie; the kept rows in the chain's order.
+[[nodiscard]] inline std::vector<std::uint32_t> onePerLayer(std::span<const TruthRow> rows, std::span<const std::uint32_t> chain)
+{
+  const auto better = [&](std::uint32_t a, std::uint32_t b) {
+    return rows[a].r < rows[b].r || (rows[a].r == rows[b].r && a < b);
+  };
+  std::vector<std::uint32_t> kept;
+  for (const auto row : chain) {
+    const bool beaten = std::ranges::any_of(chain, [&](std::uint32_t other) {
+      return other != row && rows[other].layer == rows[row].layer && better(other, row);
+    });
+    if (!beaten) {
+      kept.push_back(row);
+    }
+  }
+  return kept;
 }
 
 } // namespace decay_fit_study_detail
@@ -660,8 +684,9 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       };
       const bool tree = !one.composites.empty();
       // A tree's charged particles' own rows -- the root's (a tracked Xi,
-      // Omega), a charged composite's (a tracked Xi in a Xi_c) --, any number,
-      // the outermost first, with its mass (DecayVertexFit.h's chains).
+      // Omega), a charged composite's (a tracked Xi in a Xi_c) --, one per
+      // layer as a track holds them, the outermost first, with its mass
+      // (DecayVertexFit.h's chains).
       std::vector<DecayMother> trackedMothers;
       if (tree && !one.refitFailed) {
         std::vector<std::pair<const TreeParticle*, int>> charged{{&mother, 0}};
@@ -674,14 +699,18 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           if (particleCharge(particle->pdg) == 0. || entry == nullptr || found == chainOf.end() || found->second->rows.empty()) {
             continue;
           }
-          const auto& own = *found->second;
+          const auto own = onePerLayer(event.rows, found->second->rows);
+          const auto trimmed = static_cast<std::uint8_t>(std::min<std::size_t>(found->second->rows.size() - own.size(), 255U));
           if (vertex == 0) {
-            base.motherRows = static_cast<std::uint8_t>(std::min<std::size_t>(own.rows.size(), 255U));
+            base.motherRows = static_cast<std::uint8_t>(std::min<std::size_t>(own.size(), 255U));
+            base.motherTrimmed = trimmed;
+          } else {
+            base.compositesTrimmed = static_cast<std::uint8_t>(std::min(base.compositesTrimmed + trimmed, 255));
           }
           auto propagator = event.propagator;
           propagator.massGeV = static_cast<Scalar>(entry->Mass());
           DecayMother tracked{.vertex = vertex, .propagator = propagator};
-          for (auto at = own.rows.rbegin(); at != own.rows.rend(); ++at) {
+          for (auto at = own.rbegin(); at != own.rend(); ++at) {
             const auto m = frame.measurement(*at);
             tracked.planes.push_back(geometry.planeOf(m));
             tracked.positions.push_back({m.loc0, m.loc1});
