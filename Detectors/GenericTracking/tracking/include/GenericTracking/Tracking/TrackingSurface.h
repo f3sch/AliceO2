@@ -33,7 +33,7 @@
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/SurfaceMaterial.h"
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "GPUCommonMath.h"
 

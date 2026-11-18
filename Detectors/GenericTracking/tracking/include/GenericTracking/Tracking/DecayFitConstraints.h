@@ -159,7 +159,7 @@ template <typename M = double, typename S>
     const int q = (3 * k) + (3 * i);
     const auto momentum = momentumOf(dual::variable<kConstraintInputs, M>(momenta[i][0], q), dual::variable<kConstraintInputs, M>(momenta[i][1], q + 1), dual::variable<kConstraintInputs, M>(momenta[i][2], q + 2), numeratorOf(charges[i]));
     vectors[i] = momentum.vector;
-    energies[i] = sqrt((momentum.magnitude * momentum.magnitude) + (masses[i] * masses[i]));
+    energies[i] = sqrtOf((momentum.magnitude * momentum.magnitude) + (masses[i] * masses[i]));
   }
   // A vertex's composite: its subtree's momentum, energy, charge.
   const auto composite = [&](int vertex, std::array<D, 3>& total, D& energy, double& charge) {
@@ -212,9 +212,9 @@ template <typename M = double, typename S>
     for (int c = 0; c < 3; ++c) {
       offset[c] = v[w][c] - v[up][c];
     }
-    const D p = sqrt((total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]));
+    const D p = sqrtOf((total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]));
     std::array<D, 3> u1{-total[1], total[0], D{}};
-    D across = sqrt((u1[0] * u1[0]) + (u1[1] * u1[1]));
+    D across = sqrtOf((u1[0] * u1[0]) + (u1[1] * u1[1]));
     if (across.v == 0.) {
       u1 = {D{1.}, D{}, D{}};
       across = D{1.};
@@ -264,7 +264,7 @@ struct ScatteredEquations {
     for (int b = 0; b < count; ++b) {
       chi2 += p[at + b] * p[at + b];
       if (normal != nullptr) {
-        normal[dense::packedIndex(at + b, at + b)] += S(1.);
+        normal[covIndex(at + b, at + b)] += S(1.);
         gradient[at + b] -= static_cast<S>(p[at + b]);
       }
     }
@@ -272,7 +272,7 @@ struct ScatteredEquations {
 };
 
 /// The Lagrange system's storage, the caller's: the matrix packed
-/// (`dense::packedSize(n + m)`), the solution (n + m), the factorisation's
+/// (`covSize(n + m)`), the solution (n + m), the factorisation's
 /// exchanges and block sizes (n + m each).
 template <typename S = double>
 struct LagrangeSpace {
@@ -300,7 +300,7 @@ template <typename S>
   const dense::PackedView<S> system{space.system};
   for (int a = 0; a < n; ++a) {
     for (int b = 0; b <= a; ++b) {
-      system(a, b) = normal[dense::packedIndex(a, b)];
+      system(a, b) = normal[covIndex(a, b)];
     }
   }
   for (int j = 0; j < m; ++j) {
@@ -338,7 +338,7 @@ template <typename S>
       solution[b] = S(1.);
       dense::ldltSolve(system, size, space.swaps, space.blocks, solution);
       for (int a = b; a < n; ++a) {
-        covariance[dense::packedIndex(a, b)] = solution[a];
+        covariance[covIndex(a, b)] = solution[a];
       }
     }
   }

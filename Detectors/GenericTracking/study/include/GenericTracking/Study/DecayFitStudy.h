@@ -452,13 +452,13 @@ struct Kinematics {
   D energy{};
   for (int i = 0; i < count; ++i) {
     const auto momentum = momentumOf(dual::variable<D::kInputs>(momenta[i][0], 3 * i), dual::variable<D::kInputs>(momenta[i][1], (3 * i) + 1), dual::variable<D::kInputs>(momenta[i][2], (3 * i) + 2), numeratorOf(charges[i]));
-    energy = energy + sqrt((momentum.magnitude * momentum.magnitude) + (masses[i] * masses[i]));
+    energy = energy + sqrtOf((momentum.magnitude * momentum.magnitude) + (masses[i] * masses[i]));
     for (int k = 0; k < 3; ++k) {
       total[k] = total[k] + momentum.vector[k];
     }
   }
   const D p2 = (total[0] * total[0]) + (total[1] * total[1]) + (total[2] * total[2]);
-  const D p = sqrt(p2);
+  const D p = sqrtOf(p2);
   const D m2 = (energy * energy) - p2;
   const auto sigma = [&](const D& value) {
     double variance = 0.;
@@ -506,12 +506,12 @@ struct MotherQuantities {
       total[k] = total[k] + momentum.vector[k];
     }
   }
-  const D pt = sqrt((total[0] * total[0]) + (total[1] * total[1]));
-  const D p = sqrt((pt * pt) + (total[2] * total[2]));
+  const D pt = sqrtOf((total[0] * total[0]) + (total[1] * total[1]));
+  const D p = sqrtOf((pt * pt) + (total[2] * total[2]));
   const D length = (((v[0] + (-point[0])) * total[0]) + ((v[1] + (-point[1])) * total[1]) + ((v[2] + (-point[2])) * total[2])) / p;
   const D ct = (mass * length) / p;
-  const D phi = atan2(total[1], total[0]);
-  const D theta = atan2(pt, total[2]);
+  const D phi = atan2Of(total[1], total[0]);
+  const D theta = atan2Of(pt, total[2]);
   const auto sigma = [&](const D& value) {
     double variance = 0.;
     for (int a = 0; a < n; ++a) {
@@ -1387,7 +1387,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         for (std::size_t i = 0; i < count; ++i) {
           for (int a = 0; a < 3; ++a) {
             for (int b = 0; b < 3; ++b) {
-              carried[(3 * i + a) * stride + (3 * i + b)] = fit.carriedCovariance[i][dense::packedIndex(a, b)];
+              carried[(3 * i + a) * stride + (3 * i + b)] = fit.carriedCovariance[i][covIndex(a, b)];
             }
           }
         }

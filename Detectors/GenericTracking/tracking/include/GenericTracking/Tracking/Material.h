@@ -16,7 +16,7 @@
 #define GTRK_TRACKING_MATERIAL_H_
 
 #include "GenericTracking/Tracking/Definitions.h"
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "GPUCommonMath.h"
 

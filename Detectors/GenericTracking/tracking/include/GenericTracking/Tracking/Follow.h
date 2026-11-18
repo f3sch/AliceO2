@@ -43,7 +43,7 @@
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
 
 #include "GPUCommonMath.h"
@@ -234,7 +234,7 @@ template <typename Prop, DetectorLayout Det>
 
   result.phi = o2::math_utils::detail::to02Pi<Scalar>(Math::ATan2(static_cast<Scalar>(y), static_cast<Scalar>(x)));
   result.second = Detector<Det>::isBarrelLayer(layer) ? static_cast<Scalar>(z) : Math::Sqrt(static_cast<Scalar>((x * x) + (y * y)));
-  result.status = isFiniteScalar(result.phi) && isFiniteScalar(result.second) ? PropagationStatus::kOk : PropagationStatus::kNotFinite;
+  result.status = isFiniteOf(result.phi) && isFiniteOf(result.second) ? PropagationStatus::kOk : PropagationStatus::kNotFinite;
   return result;
 }
 

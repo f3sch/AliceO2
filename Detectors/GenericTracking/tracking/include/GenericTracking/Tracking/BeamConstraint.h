@@ -40,7 +40,7 @@
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "GPUCommonMath.h"
 #include "MathUtils/detail/trigonometric.h"

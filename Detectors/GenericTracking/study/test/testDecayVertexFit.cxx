@@ -1095,12 +1095,12 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseIsTheTwoPassOne)
 
   // each collapse's mean and scatter (packed) in storage of its own; the
   // components' covariances packed as the collapse takes them
-  std::vector<std::vector<double>> storage(12, std::vector<double>(dense::packedSize(n), 0.));
+  std::vector<std::vector<double>> storage(12, std::vector<double>(covSize(n), 0.));
   for (auto& c : mixture) {
-    std::vector<double> packedSigma(dense::packedSize(n));
+    std::vector<double> packedSigma(covSize(n));
     for (int i = 0; i < n; ++i) {
       for (int j = 0; j <= i; ++j) {
-        packedSigma[dense::packedIndex(i, j)] = c.sigma[(i * n) + j];
+        packedSigma[covIndex(i, j)] = c.sigma[(i * n) + j];
       }
     }
     c.sigma = packedSigma;
@@ -1120,12 +1120,12 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseIsTheTwoPassOne)
   for (const auto* one : {&stream, &merged}) {
     BOOST_TEST(one->count == static_cast<int>(mixture.size()));
     BOOST_TEST(std::abs(one->meanChi2() - chi2) < 1e-12);
-    std::vector<double> c(dense::packedSize(n));
+    std::vector<double> c(covSize(n));
     one->covarianceInto(c.data());
     for (int i = 0; i < n; ++i) {
       BOOST_TEST(std::abs(one->mean[i] - mean[i]) < 1e-12);
       for (int j = 0; j < n; ++j) {
-        BOOST_TEST(std::abs(c[dense::packedIndex(i, j)] - covariance[(i * n) + j]) < 1e-12);
+        BOOST_TEST(std::abs(c[covIndex(i, j)] - covariance[(i * n) + j]) < 1e-12);
       }
     }
   }

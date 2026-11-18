@@ -219,7 +219,7 @@ struct ElectronChain {
         after[layer] = fraction(halfGap(layer + 1), rng);
         state.par[kQOverP] /= static_cast<Scalar>(after[layer]);
       }
-      if (!isFiniteScalar(state.qOverP()) || std::abs(state.qOverP()) > 50.F) {
+      if (!isFiniteOf(state.qOverP()) || std::abs(state.qOverP()) > 50.F) {
         return false;
       }
     }

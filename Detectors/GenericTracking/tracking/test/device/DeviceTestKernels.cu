@@ -22,7 +22,7 @@
 #include "SelectionGlue.cuh"
 #include "SliceGlue.cuh"
 
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "DetectorsBase/MatLayerCylSet.h"
 #include "UniformMaterial.h"

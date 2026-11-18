@@ -26,7 +26,6 @@
 
 #include "GenericTracking/Base/Definitions.h"
 
-#include <cfloat>
 #include <cstdint>
 #include <type_traits>
 
@@ -59,33 +58,11 @@ enum BoundIndex : std::uint8_t { kLoc0 = 0,
                                  kQOverP = 4,
                                  kNBoundParams = 5 };
 
-/// A symmetric 5x5 needs 15 numbers, not 25.
-inline constexpr int kBoundCovSize = kNBoundParams * (kNBoundParams + 1) / 2;
+/// A symmetric 5x5 needs 15 numbers, not 25 (packed by `covIndex`).
+inline constexpr int kBoundCovSize = covSize(kNBoundParams);
 
 /// The strict upper triangle of a 5x5, the U of a U D U^T factorisation.
 inline constexpr int kBoundUpperSize = kBoundCovSize - kNBoundParams;
-
-/// Index of element (row, col) in the packed lower triangle, row-major:
-///
-///     0
-///     1  2
-///     3  4  5
-///     6  7  8  9
-///    10 11 12 13 14
-///
-/// This is the layout O2 uses for its 5x5: o2::track::CovarMap is
-/// {{0,1,3,6,10},...} with DiagMap {0,2,5,9,14}, which is what this formula
-/// produces.  O2 tabulates it and we compute it.
-///
-/// Symmetric in its arguments, so a caller never has to know which of the two
-/// indices is the larger one -- which is exactly the mistake that makes a
-/// packed covariance silently wrong rather than loudly broken.
-GPUhdi() GPUAlwaysInline() constexpr int covIndex(int row, int col)
-{
-  const int hi = row > col ? row : col;
-  const int lo = row > col ? col : row;
-  return (hi * (hi + 1)) / 2 + lo;
-}
 
 /// Index of the variance of parameter \a i.
 GPUhdi() GPUAlwaysInline() constexpr int varIndex(int i) { return covIndex(i, i); }
@@ -222,13 +199,6 @@ enum class DecayFitStatus : std::uint8_t {
   kInvalidInput, ///< a topology, resonance or tracked particle that refers outside the decay
   kCount
 };
-
-/// Whether a value is finite, in every build: O2's `GPUCommonMath::Finite`
-/// and `IsNaN` are constants outside the deterministic mode, on the host as
-/// on the device. NaN fails both comparisons, an
-/// infinity one of them. The bounds are the C macros, which a device compiler
-/// accepts where a `std::numeric_limits` call may not.
-GPUhdi() GPUAlwaysInline() constexpr bool isFiniteScalar(float x) { return x >= -FLT_MAX && x <= FLT_MAX; }
 
 /// `body(std::bool_constant<b>{}...)` for the run-time flags: an
 /// iteration's choices, each a compile-time variant of a stage, dispatched

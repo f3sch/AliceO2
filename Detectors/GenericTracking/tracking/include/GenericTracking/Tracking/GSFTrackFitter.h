@@ -231,7 +231,7 @@ template <typename Loss>
 GPUhdi() int lossParts(Scalar x2X0)
 {
   int parts = 1;
-  if (!isFiniteScalar(x2X0)) {
+  if (!isFiniteOf(x2X0)) {
     return parts; // the model refuses it
   }
   while (x2X0 > static_cast<Scalar>(parts) * Loss::kMaxX2X0) {
@@ -635,7 +635,7 @@ GPUhdi() Scalar momentumModeOf(const GSFMixture<K>& mixture)
     // digits bound the steps that still move u; the walk is held to that many.
     for (int iteration = 0; iteration < std::numeric_limits<Scalar>::digits; ++iteration) {
       Scalar step = curvature < 0.F ? -gradient / curvature : gradient * c[k].state.cov[covIndex(kQOverP, kQOverP)];
-      if (!isFiniteScalar(step)) {
+      if (!isFiniteOf(step)) {
         break;
       }
       Scalar next = u + step;

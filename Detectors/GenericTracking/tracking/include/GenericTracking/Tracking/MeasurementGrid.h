@@ -54,7 +54,7 @@
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/MeasurementRange.h"
 #include "GenericTracking/Tracking/SearchWindow.h"
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
 
 #include "GPUCommonAlgorithm.h"

@@ -27,7 +27,7 @@
 #include "GenericTracking/Tracking/Tracklet.h"
 #include "GenericTracking/Tracking/Triplet.h"
 #include "GenericTracking/Tracking/TripletCut.h"
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/GPU/DeviceTracker.h"
 
 #include "SyntheticStage.h"
@@ -46,7 +46,7 @@
 namespace o2::gtrk
 {
 
-/// Every function of Trig.h at one argument pair, in both precisions: in
+/// Every function of ElementaryMath.h at one argument pair, in both precisions: in
 /// the deterministic build the host's bits (PortableMath.h).
 struct TrigRow {
   double sinD = 0.;

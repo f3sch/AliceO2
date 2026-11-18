@@ -27,7 +27,7 @@
 #include "GenericTracking/Tracking/ShapeCut.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/Tracklet.h"
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
 
 #include "GPUCommonAlgorithm.h"
