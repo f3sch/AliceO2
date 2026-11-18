@@ -52,6 +52,29 @@ struct StateTruth {
   double ptSigma = 0.;              ///< of fittedPt, J C J^T over theta and q/p [GeV]
 };
 
+/// Where the straight MC segment from \a start to \a end crosses \a plane:
+/// its loc0, loc1 there; none for a segment along the plane.
+[[nodiscard]] inline std::optional<std::array<double, 2>> segmentCrossing(const TrackingSurface& plane, const std::array<double, 3>& start, const std::array<double, 3>& end)
+{
+  const auto local = [&](const std::array<double, 3>& global) {
+    std::array<double, 3> l{};
+    for (std::size_t i = 0; i < 3U; ++i) {
+      const double d = global[i] - static_cast<double>(plane.origin[i]);
+      l[0] += d * static_cast<double>(plane.axis0[i]);
+      l[1] += d * static_cast<double>(plane.axis1[i]);
+      l[2] += d * static_cast<double>(plane.normal[i]);
+    }
+    return l;
+  };
+  const auto a = local(start);
+  const auto b = local(end);
+  if (std::abs(a[2] - b[2]) < 1e-9) {
+    return std::nullopt;
+  }
+  const double t = a[2] / (a[2] - b[2]);
+  return std::array<double, 2>{a[0] + (t * (b[0] - a[0])), a[1] + (t * (b[1] - a[1]))};
+}
+
 /// \a state of particle \a particle (of charge \a charge) against the
 /// particle's MC crossing of the state's sensor, the one nearest the
 /// measurement at \a row, on the plane the state is bound to
@@ -69,28 +92,16 @@ template <DetectorLayout Det>
     return std::nullopt;
   }
   const TrackingSurface plane = geometry.planeOf(state); // a copy: a curved sensor's is made on the spot
-  const auto local = [&](const std::array<double, 3>& global) {
-    std::array<double, 3> l{};
-    for (std::size_t i = 0; i < 3U; ++i) {
-      const double d = global[i] - static_cast<double>(plane.origin[i]);
-      l[0] += d * static_cast<double>(plane.axis0[i]);
-      l[1] += d * static_cast<double>(plane.axis1[i]);
-      l[2] += d * static_cast<double>(plane.normal[i]);
-    }
-    return l;
-  };
-  const auto start = local(segment->start);
-  const auto end = local(segment->end);
-  if (std::abs(start[2] - end[2]) < 1e-9) {
+  const auto crossing = segmentCrossing(plane, segment->start, segment->end);
+  if (!crossing) {
     return std::nullopt;
   }
-  const double t = start[2] / (start[2] - end[2]);
   const auto& p = segment->momentum;
   StateTruth truth;
   truth.pt = std::hypot(p[0], p[1]);
   const double momentum = std::hypot(truth.pt, p[2]);
   truth.momentum = momentum;
-  truth.residual = {static_cast<double>(state.par[kLoc0]) - (start[0] + (t * (end[0] - start[0]))), static_cast<double>(state.par[kLoc1]) - (start[1] + (t * (end[1] - start[1]))), std::remainder(static_cast<double>(state.par[kPhi]) - std::atan2(p[1], p[0]), 2. * std::numbers::pi), static_cast<double>(state.par[kTheta]) - std::atan2(truth.pt, p[2]), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
+  truth.residual = {static_cast<double>(state.par[kLoc0]) - (*crossing)[0], static_cast<double>(state.par[kLoc1]) - (*crossing)[1], std::remainder(static_cast<double>(state.par[kPhi]) - std::atan2(p[1], p[0]), 2. * std::numbers::pi), static_cast<double>(state.par[kTheta]) - std::atan2(truth.pt, p[2]), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
   for (int i = 0; i < 5; ++i) {
     truth.sigma[static_cast<std::size_t>(i)] = std::sqrt(std::max(static_cast<double>(state.covAt(i, i)), 0.));
   }
