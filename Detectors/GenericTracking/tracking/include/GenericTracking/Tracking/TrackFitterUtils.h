@@ -364,7 +364,7 @@ GPUdi() PropagationStatus transportStep(const Prop& prop, const StepMaterial& st
 /// misweights every measurement that follows. \a jacobian and \a noise are
 /// what carries a covariance along (`transportFactors`). \a Scaled, the
 /// step's scattering theta0 is multiplied by \a noiseScale, both halves.
-template <bool Scaled, CrossingRule Rule, DetectorLayout Det, typename Material, typename Prop>
+template <bool Scaled, CrossingRule Rule, typename Solve = ExactScalar, DetectorLayout Det, typename Material, typename Prop>
 GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, Scalar& referenceQOverP, SolenoidJacobian& jacobian, StepNoise& noise, Scalar noiseScale)
 {
   const auto& from = geometry.planeOf(state);
@@ -378,7 +378,7 @@ GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<D
   // An intersection just outside the sensor's active area is still the point
   // to update at: the cluster is there, so the track was. Bounds are for
   // searches, not fits (`jacobianAnalytic` takes kOutOfBounds).
-  const auto jacobianStatus = jacobianAnalytic<Scalar, Rule>(prop, state, from, to, direction, jacobian, &state);
+  const auto jacobianStatus = jacobianAnalytic<Scalar, Rule, Solve>(prop, state, from, to, direction, jacobian, &state);
   if (jacobianStatus != PropagationStatus::kOk) {
     return jacobianStatus;
   }
@@ -409,13 +409,13 @@ GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<D
 /// the measurement's log likelihood under the prediction, -(chi2 + ln det S)
 /// / 2 without the constant: a Gaussian-sum component's weight
 /// (GSFTrackFitter.h).
-template <bool Scaled, CrossingRule Rule, bool Likelihood, DetectorLayout Det, typename Material, typename Prop>
+template <bool Scaled, CrossingRule Rule, bool Likelihood, typename Solve = ExactScalar, DetectorLayout Det, typename Material, typename Prop>
 GPUdi() GPUAlwaysInline() PropagationStatus filterStepBody(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, Scalar& referenceQOverP, [[maybe_unused]] Scalar noiseScale, [[maybe_unused]] Scalar* logLikelihood)
 {
   SolenoidJacobian jacobian;
   StepNoise noise;
   Scalar nextReference = referenceQOverP;
-  const auto predicted = predictStep<Scaled, Rule>(prop, geometry, material, measurement, direction, state, nextReference, jacobian, noise, noiseScale);
+  const auto predicted = predictStep<Scaled, Rule, Solve>(prop, geometry, material, measurement, direction, state, nextReference, jacobian, noise, noiseScale);
   if (predicted != PropagationStatus::kOk) {
     return predicted;
   }
@@ -723,13 +723,13 @@ GPUdi() bool updateDiffuse(DiffuseFactors& c, const Measurement& measurement, Bo
 /// `diffuseStep`'s arithmetic. With \a Density, the update's terms of -2 ln
 /// of the diffuse likelihood are added to \a density (`updateDiffuse`): a
 /// Gaussian-sum branch's weight (GSFTrackFitter.h).
-template <CrossingRule Rule, bool Density, DetectorLayout Det, typename Material, typename Prop>
+template <CrossingRule Rule, bool Density, typename Solve = ExactScalar, DetectorLayout Det, typename Material, typename Prop>
 GPUdi() GPUAlwaysInline() PropagationStatus diffuseStepBody(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, DiffuseFactors& c, Scalar& chi2, Scalar& referenceQOverP, [[maybe_unused]] Scalar* density)
 {
   SolenoidJacobian jacobian;
   StepNoise noise;
   Scalar nextReference = referenceQOverP;
-  const auto predicted = predictStep<false, Rule>(prop, geometry, material, measurement, direction, state, nextReference, jacobian, noise, 1.F);
+  const auto predicted = predictStep<false, Rule, Solve>(prop, geometry, material, measurement, direction, state, nextReference, jacobian, noise, 1.F);
   if (predicted != PropagationStatus::kOk) {
     return predicted;
   }
