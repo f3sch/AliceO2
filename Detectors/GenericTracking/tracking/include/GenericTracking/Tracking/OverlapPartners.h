@@ -52,6 +52,7 @@
 
 #include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Base/LayerLinks.h"
+#include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Follow.h"
 #include "GenericTracking/Tracking/Iteration.h"
@@ -88,6 +89,53 @@ struct OverlapPartner {
   std::uint8_t ahead = 0U;
 };
 
+/// The device's overlap partners kept beside its tracks (DeviceTracker): a
+/// count per track, and the partners as `OverlapPartner`s.
+struct PartnerCount {
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  template <template <class> class C>
+  struct RecordT {
+    MEMLAYOUT_APPLY(RecordT, count)
+    C<std::uint32_t> count;
+  };
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+};
+
+struct PartnerRow {
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  template <template <class> class C>
+  struct RecordT {
+    MEMLAYOUT_APPLY(RecordT, row, layerRow, ahead)
+    C<std::uint32_t> row;
+    C<std::uint8_t> layerRow;
+    C<std::uint8_t> ahead;
+  };
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+};
+
+/// A track's proposal of an overlap partner (`ProposePartners`): the track
+/// (from the iteration's first), the partner's row and sensor, its update's
+/// chi2, its signed distance from the track's row along the track [cm], which
+/// orders the partners on one side of a row, its row's position among the
+/// track's rows and whether it lies after that row.
+struct PartnerProposal {
+  // As for TrackletT: upstream's `apply` macro also uses the member names as
+  // enum constants.
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  template <template <class> class C>
+  struct RecordT {
+    MEMLAYOUT_APPLY(RecordT, track, row, surface, chi2, path, layerRow, ahead)
+    C<std::uint32_t> track;
+    C<std::uint32_t> row;
+    C<std::uint32_t> surface;
+    C<Scalar> chi2;
+    C<Scalar> path;
+    C<std::uint8_t> layerRow;
+    C<std::uint8_t> ahead;
+  };
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+};
+
 namespace overlap
 {
 
@@ -104,8 +152,8 @@ struct RowStates {
 template <std::size_t K>
 struct RowStateObserver {
   RowStates<K>* states = nullptr;
-  void operator()(PropagationDirection /*direction*/, int /*index*/, Scalar /*chi2*/) const {}
-  void state(PropagationDirection direction, int index, const BoundParameters& state, const CovarianceFactors& factors) const
+  GPUhdi() void operator()(PropagationDirection /*direction*/, int /*index*/, Scalar /*chi2*/) const {}
+  GPUhdi() void state(PropagationDirection direction, int index, const BoundParameters& state, const CovarianceFactors& factors) const
   {
     const auto at = static_cast<std::size_t>(index);
     const std::uint8_t pass = direction == PropagationDirection::kBackward ? 2U : 1U;
@@ -131,7 +179,7 @@ struct PartnerReach {
 };
 
 template <DetectorLayout Det>
-[[nodiscard]] PartnerReach partnerReach(const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, LayerID layer, const BoundParameters& state, Scalar spread)
+[[nodiscard]] GPUhdi() PartnerReach partnerReach(const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, LayerID layer, const BoundParameters& state, Scalar spread)
 {
   using Math = o2::gpu::CAMath;
   PartnerReach reach;
@@ -164,25 +212,280 @@ template <DetectorLayout Det>
 
 } // namespace overlap
 
-/// An iteration's overlap partners (see the file's comment): the stage, and
-/// its tracks' partners until the store commits them.
+/// One element per track of the iteration (from \a offset): its proposals
+/// (see the file's comment), one per other sensor of each layer it has a row
+/// on that the layout allows (`overlapLayers`). From each row's state, the
+/// layer's sensors near enough (`partnerReach`, `SensorCellsView`) that the
+/// track crosses within their bounds, wider by the gate's spread; on each,
+/// the rows within that spread of the crossing, its own rows only. Its
+/// pointers may be a device's.
+template <DetectorLayout Det, typename Material>
+struct ProposePartners {
+  static constexpr std::size_t K = maxChainLayers<Det>;
+  using TrackView = typename BoundedColumns<TrackOf<K>::template RecordT>::ConstView;
+  using Record = typename BoundedColumns<PartnerProposal::template RecordT>::Record;
+
+  const IterationParameters<Det>* parameters = nullptr;
+  const TimeFrame<Det>* frame = nullptr;
+  const TrackingGeometry<Det>* geometry = nullptr;
+  const Material* material = nullptr;
+  Propagator propagator;
+  SensorCellsView cells;
+  TrackView tracks;
+  std::uint32_t offset = 0U;
+  const std::uint8_t* used = nullptr;
+  const std::uint32_t* maxWidthPS = nullptr;   ///< per layer, `TimeframePlan::layerMaxWidthPS`
+  const Scalar* measurementVariance = nullptr; ///< per layer, `TimeframePlan::layerMaxLocVariance`
+
+  template <typename Emitter>
+  GPUhdi() void operator()(std::uint32_t element, Emitter& emitter) const
+  {
+    using Math = o2::gpu::CAMath;
+    const auto track = offset + element;
+    const auto& rows = tracks.clusters[track];
+    const auto count = tracks.count[track];
+    const auto columns = frame->measurements();
+    // A track with no row on a layer whose sensors overlap has no partner.
+    bool anyLayer = false;
+    for (std::uint8_t k = 0; k < count; ++k) {
+      anyLayer = anyLayer || ((overlapLayers<Det> >> geometry->surface(columns.surface[rows.index[k]]).layer) & 1U) != 0U;
+    }
+    if (!anyLayer) {
+      return;
+    }
+    overlap::RowStates<K> states;
+    const auto fit = fitMeasurements(propagator, *geometry, *material, RowChain<Det>{.frame = frame, .rows = rows.index}, static_cast<int>(count), kinkBudget(*parameters), overlap::RowStateObserver<K>{.states = &states});
+    if (fit.failedPass == FitPass::kOutward) {
+      return;
+    }
+    const TimeEstPS box{.start = tracks.timePS[track], .width = tracks.widthPS[track]};
+    const Scalar nSigma = Math::Sqrt(parameters->clusterChi2Max);
+    for (std::uint8_t k = 0; k < count; ++k) {
+      if (states.pass[k] == 0U) {
+        continue;
+      }
+      const auto own = rows.index[k];
+      const auto ownSurface = columns.surface[own];
+      const LayerID layer = geometry->surface(ownSurface).layer;
+      if (((overlapLayers<Det> >> layer) & 1U) == 0U) {
+        continue;
+      }
+      const auto& state = states.state[k];
+      const auto& factors = states.factors[k];
+      Scalar cov[kBoundCovSize]{};
+      covarianceFromFactors(factors, cov);
+      // The gate's reach about a predicted crossing: the prediction's
+      // variance and the follow's position term (`predictedWindow`), and the
+      // layer's largest measurement variance, which the gate adds.
+      const Scalar spread = nSigma * Math::Sqrt(Math::Max(cov[varIndex(kLoc0)], cov[varIndex(kLoc1)]) + parameters->followPositionVariance + measurementVariance[layer]);
+      const Scalar sinTheta = Math::Sin(state.theta());
+      const Scalar direction[3] = {sinTheta * Math::Cos(state.phi()), sinTheta * Math::Sin(state.phi()), Math::Cos(state.theta())};
+      const auto reach = overlap::partnerReach<Det>(*parameters, *geometry, layer, state, spread);
+      const auto& from = geometry->planeOf(state);
+      const auto& stepPropagator = pointPropagator(propagator, from, state);
+      const ExactScalar curvature = stepPropagator.curvature(static_cast<ExactScalar>(state.qOverP()), 1.);
+      cells.forEachSensorOnce(layer, reach.phi, reach.phiReach, reach.second, reach.secondReach, [&](std::uint32_t id) {
+        if (id == ownSurface) {
+          return;
+        }
+        const TrackingSurface& surface = geometry->surface(static_cast<SensorID>(id));
+        if (surface.layer != layer) {
+          return;
+        }
+        TrackingSurface plane = surface;
+        if (surface.radius > 0.F) {
+          Scalar along0 = 0.F;
+          Scalar along1 = 0.F;
+          for (int i = 0; i < 3; ++i) {
+            along0 += (reach.point[i] - surface.origin[i]) * surface.axis0[i];
+            along1 += (reach.point[i] - surface.origin[i]) * surface.axis1[i];
+          }
+          plane = tangentPlane(surface, Math::ATan2(along1, along0));
+        }
+        // The straight line along the track first: off the sensor by more
+        // than the spread and the helix's departure from the line over the
+        // step, it is not crossed.
+        Scalar normalDirection = 0.F;
+        Scalar normalOffset = 0.F;
+        for (int i = 0; i < 3; ++i) {
+          normalDirection += plane.normal[i] * direction[i];
+          normalOffset += plane.normal[i] * (plane.origin[i] - reach.point[i]);
+        }
+        if (!(Math::Abs(normalDirection) > 0.F)) {
+          return;
+        }
+        const Scalar step = normalOffset / normalDirection;
+        Scalar line0 = 0.F;
+        Scalar line1 = 0.F;
+        for (int i = 0; i < 3; ++i) {
+          const Scalar offsetAlong = reach.point[i] + (step * direction[i]) - plane.origin[i];
+          line0 += offsetAlong * plane.axis0[i];
+          line1 += offsetAlong * plane.axis1[i];
+        }
+        const Scalar departure = 0.5F * static_cast<Scalar>(Math::Abs(curvature)) * step * step;
+        if (Math::Abs(line0) > surface.bounds.halfX + spread + departure || Math::Abs(line1) > surface.bounds.halfY + spread + departure) {
+          return;
+        }
+        // Where the track crosses it, ahead or behind its row.
+        BoundParameters at = state;
+        auto crossed = propagate(stepPropagator, at, from, plane, PropagationDirection::kForward);
+        const auto usable = [&](const PropagationResult& result) { return (result.status == PropagationStatus::kOk || result.status == PropagationStatus::kOutOfBounds) && !follow::beyondHalfTurn(curvature * static_cast<ExactScalar>(result.pathLength)); };
+        if (!usable(crossed)) {
+          at = state;
+          crossed = propagate(stepPropagator, at, from, plane, PropagationDirection::kBackward);
+          if (!usable(crossed)) {
+            return;
+          }
+        }
+        if (Math::Abs(at.loc0()) > surface.bounds.halfX + spread || Math::Abs(at.loc1()) > surface.bounds.halfY + spread) {
+          return;
+        }
+        // Its rows about the crossing.
+        Scalar point[3]{};
+        surfaceToGlobal(plane, at.loc0(), at.loc1(), point);
+        const Scalar x = point[0] - parameters->beamX;
+        const Scalar y = point[1] - parameters->beamY;
+        const Scalar r = Math::Hypot(x, y);
+        const CandidateWindow window{
+          .earliestPS = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(maxWidthPS[layer]) + 1,
+          .latestPS = static_cast<std::int64_t>(box.upper()) - 1,
+          .afterPS = box.lower(),
+          .phiCentre = azimuth(x, y),
+          .phiHalfWidth = Math::Min(spread / r, std::numbers::pi_v<Scalar>),
+          .secondCentre = secondCoordinate<Det>(layer, r, point[2]),
+          .secondHalfWidth = spread,
+        };
+        const auto towards = crossed.pathLength > 0.F ? PropagationDirection::kForward : PropagationDirection::kBackward;
+        Record best{};
+        bool found = false;
+        frame->grid().visitCandidates(layer, window, frame->grid().geometry().allBlocks(), [&](std::uint32_t row) {
+          if (columns.surface[row] != id || used[row] != kFree) {
+            return;
+          }
+          if (!spatiallyCompatible(window, columns.phi[row], secondCoordinate<Det>(layer, columns.r[row], columns.z[row])) || !box.isCompatible(timeBoxAt(columns, row))) {
+            return;
+          }
+          BoundParameters predicted;
+          CovarianceFactors predictedFactors;
+          Scalar chi2 = 0.F;
+          // The transport inlined: the follow's shared copy stays its own.
+          if (!follow::updateCandidate<false, false, true>(propagator, *geometry, *material, measurementAt(*frame, row), towards, state, factors, predicted, predictedFactors, chi2, 1.F) || !(chi2 <= parameters->clusterChi2Max)) {
+            return;
+          }
+          if (!found || chi2 < best.chi2 || (!(best.chi2 < chi2) && row < best.row)) {
+            best = Record{element, row, id, chi2, crossed.pathLength, k, static_cast<std::uint8_t>(crossed.pathLength > 0.F ? 1U : 0U)};
+            found = true;
+          }
+        });
+        if (found) {
+          emitter.emit(best);
+        }
+      });
+    }
+  }
+};
+
+/// One element per track of the iteration (from \a offset) with won
+/// partners: fitted again on its rows and partners in path order (`material`,
+/// `detail::LayerMaterial`), written to \a tracks where the fit succeeds and
+/// the rows' time boxes have one in common, `kept` 1 then. Its partners are
+/// the proposals `winners` names, from `winnerOffsets[element]` to the next,
+/// which this sorts into path order -- by their row's position, then their
+/// distance along the track, those before the row first; `merged` holds the
+/// rows it fits, from `element * K + winnerOffsets[element]` on. Its pointers
+/// may be a device's.
+template <DetectorLayout Det, typename Material>
+struct RefitWithPartners {
+  static constexpr std::size_t K = maxChainLayers<Det>;
+  using TrackView = typename BoundedColumns<TrackOf<K>::template RecordT>::View;
+  using ProposalView = typename BoundedColumns<PartnerProposal::template RecordT>::ConstView;
+
+  const IterationParameters<Det>* parameters = nullptr;
+  const TimeFrame<Det>* frame = nullptr;
+  const TrackingGeometry<Det>* geometry = nullptr;
+  Material material;
+  Propagator propagator;
+  TrackView tracks;
+  std::uint32_t offset = 0U;
+  ProposalView proposals;
+  const std::uint32_t* winnerOffsets = nullptr;
+  std::uint32_t* winners = nullptr;
+  std::uint32_t* merged = nullptr;
+  std::uint8_t* layerRowOf = nullptr; ///< beside `merged`, each row's own row's position
+  std::uint8_t* kept = nullptr;
+
+  GPUhdi() void operator()(std::uint32_t element) const
+  {
+    kept[element] = 0U;
+    const auto first = winnerOffsets[element];
+    const auto end = winnerOffsets[element + 1U];
+    if (first == end) {
+      return;
+    }
+    // Into path order: a few per track, sorted in place.
+    const auto before = [&](std::uint32_t a, std::uint32_t b) { return proposals.layerRow[a] != proposals.layerRow[b] ? proposals.layerRow[a] < proposals.layerRow[b] : proposals.path[a] < proposals.path[b]; };
+    for (auto i = first + 1U; i < end; ++i) {
+      const auto moving = winners[i];
+      auto at = i;
+      for (; at > first && before(moving, winners[at - 1U]); --at) {
+        winners[at] = winners[at - 1U];
+      }
+      winners[at] = moving;
+    }
+    const auto track = offset + element;
+    const auto& rows = tracks.clusters[track];
+    const auto count = tracks.count[track];
+    const auto base = (static_cast<std::size_t>(element) * K) + first;
+    std::uint32_t n = 0U;
+    auto next = first;
+    for (std::uint8_t k = 0; k < count; ++k) {
+      for (; next < end && proposals.layerRow[winners[next]] == k && proposals.ahead[winners[next]] == 0U; ++next) {
+        merged[base + n] = proposals.row[winners[next]];
+        layerRowOf[base + n++] = k;
+      }
+      merged[base + n] = rows.index[k];
+      layerRowOf[base + n++] = k;
+      for (; next < end && proposals.layerRow[winners[next]] == k; ++next) {
+        merged[base + n] = proposals.row[winners[next]];
+        layerRowOf[base + n++] = k;
+      }
+    }
+    const auto columns = frame->measurements();
+    auto box = timeBoxAt(columns, merged[base]);
+    for (std::uint32_t i = 1; i < n; ++i) {
+      const auto other = timeBoxAt(columns, merged[base + i]);
+      if (!box.isCompatible(other)) {
+        return;
+      }
+      box += other;
+    }
+    const auto fit = fitMeasurements(propagator, *geometry, material, RowChain<Det>{.frame = frame, .rows = merged + base}, static_cast<int>(n), kinkBudget(*parameters));
+    if (fit.status != PropagationStatus::kOk) {
+      return;
+    }
+    tracks.state[track] = fit.state;
+    tracks.outwardState[track] = fit.outwardState;
+    tracks.timePS[track] = box.start;
+    tracks.widthPS[track] = box.width;
+    tracks.chi2[track] = fit.chi2;
+    tracks.outwardChi2[track] = fit.outwardChi2;
+    tracks.ndf[track] = fit.ndf;
+    tracks.status[track] = fit.status;
+    tracks.kinks[track] = fit.kinks;
+    tracks.kinkCluster[track] = fit.kinkMeasurement < 0 ? TrackOf<K>::kNoKink : layerRowOf[base + static_cast<std::size_t>(fit.kinkMeasurement)];
+    kept[element] = 1U;
+  }
+};
+
+/// An iteration's overlap partners on the host (see the file's comment): the
+/// stage, and its tracks' partners until the store commits them.
 template <DetectorLayout Det>
 class OverlapPartners
 {
  public:
   static constexpr std::size_t K = maxChainLayers<Det>;
   using Tracks = typename TrackRefit<Det>::Tracks;
-
-  /// A track's proposal: a partner and its update's chi2; `path` its
-  /// signed distance from the track's row along the track [cm], which
-  /// orders the partners on one side of a row.
-  struct Proposal {
-    std::uint32_t track = 0U; ///< from the iteration's first track
-    OverlapPartner partner;
-    std::uint32_t surface = 0U;
-    Scalar chi2 = 0.F;
-    Scalar path = 0.F;
-  };
+  using Proposals = StageOutput<PartnerProposal::template RecordT>;
 
   /// What the last run did.
   struct Counts {
@@ -193,81 +496,108 @@ class OverlapPartners
     std::size_t tracks = 0U; ///< tracks with partners
   };
 
+  /// On \a arena, the tracker's.
+  explicit OverlapPartners(detail::TaskArena& arena) : mStage(arena) {}
+
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
   {
     mMemoryPool = std::move(pool);
+    mStage.setMemoryPool(mMemoryPool);
+    mProposals.setMemoryPool(mMemoryPool);
     clearStorage();
   }
 
   /// The run's storage back to the pool.
   void clearStorage() noexcept
   {
+    mStage.releaseStorage();
+    mProposals.clearStorage();
     deepVectorClear(mMemoryPool.get(), mOffsets, mPartners);
-    mProposals = {};
   }
 
   /// Partners for \a tracks from \a trackOffset on, iteration \a parameters'
   /// (see the file's comment): \a used gets the attached ones, the tracks
   /// with partners their fit with them. \a maxWidthPS per layer the widest
   /// candidate box (`TimeframePlan::layerMaxWidthPS`), \a measurementVariance
-  /// the largest local variance (`TimeframePlan::layerMaxLocVariance`). \a forEach(n, body)
-  /// runs body(i) for every i below n, serially or in parallel.
+  /// the largest local variance (`TimeframePlan::layerMaxLocVariance`).
+  /// \a forEach(n, body) runs body(i) for every i below n, serially or in
+  /// parallel; \a chunk is the proposals' stage's chunk.
   template <typename Material, typename ForEach>
-  [[nodiscard]] StageStatus run(const ForEach& forEach, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& lut, const Propagator& propagator, const SensorCellsView& cells, Tracks& tracks, std::uint32_t trackOffset, std::span<std::uint8_t> used, std::span<const std::uint32_t> maxWidthPS, std::span<const Scalar> measurementVariance)
+  [[nodiscard]] StageStatus run(const ForEach& forEach, std::uint32_t chunk, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& lut, const Propagator& propagator, const SensorCellsView& cells, Tracks& tracks, std::uint32_t trackOffset, std::span<std::uint8_t> used, std::span<const std::uint32_t> maxWidthPS, std::span<const Scalar> measurementVariance)
   {
     return guardOutOfMemory([&] {
       mCounts = {};
       const auto n = static_cast<std::uint32_t>(tracks.size() - trackOffset);
-      const auto view = tracks.view();
-      const detail::LayerMaterial<Material> layered{.lut = &lut};
-      // Each track's proposals, in parallel, each track its own list.
-      std::vector<std::vector<Proposal>> proposals(n);
-      forEach(n, [&](std::uint32_t i) { propose(parameters, frame, geometry, lut, propagator, cells, view, trackOffset + i, i, used, maxWidthPS, measurementVariance, proposals[i]); });
+      // Each track's proposals: count, scan, place.
+      mProposals.prepare(n);
+      const ProposePartners<Det, Material> propose{.parameters = &parameters, .frame = &frame, .geometry = &geometry, .material = &lut, .propagator = propagator, .cells = cells, .tracks = std::as_const(tracks).view(), .offset = trackOffset, .used = used.data(), .maxWidthPS = maxWidthPS.data(), .measurementVariance = measurementVariance.data()};
+      const auto staged = mStage.run(mProposals, chunk, propose);
+      if (staged != StageStatus::kComplete) {
+        return staged;
+      }
+      const auto proposals = std::as_const(mProposals).view();
+      const auto total = static_cast<std::uint32_t>(mProposals.size());
+      mCounts.proposed = total;
       // A row proposed by more than one track: the lowest chi2, then the
       // lowest track, takes it.
-      for (const auto& own : proposals) {
-        mProposals.insert(mProposals.end(), own.begin(), own.end());
+      std::vector<std::uint32_t> order(total);
+      for (std::uint32_t i = 0; i < total; ++i) {
+        order[i] = i;
       }
-      mCounts.proposed = mProposals.size();
-      std::ranges::sort(mProposals, [](const Proposal& a, const Proposal& b) {
-        if (a.partner.row != b.partner.row) {
-          return a.partner.row < b.partner.row;
+      std::ranges::sort(order, [&](std::uint32_t a, std::uint32_t b) {
+        if (proposals.row[a] != proposals.row[b]) {
+          return proposals.row[a] < proposals.row[b];
         }
-        return a.chi2 != b.chi2 ? a.chi2 < b.chi2 : a.track < b.track;
+        return proposals.chi2[a] != proposals.chi2[b] ? proposals.chi2[a] < proposals.chi2[b] : proposals.track[a] < proposals.track[b];
       });
-      std::vector<std::vector<Proposal>> won(n);
-      for (std::size_t at = 0; at < mProposals.size(); ++at) {
-        if (at > 0U && mProposals[at].partner.row == mProposals[at - 1U].partner.row) {
+      // The winners per track, in their order of proposal.
+      std::vector<std::uint32_t> winnerOffsets(std::size_t{n} + 1U, 0U);
+      std::vector<std::uint8_t> won(total, 0U);
+      for (std::uint32_t at = 0; at < total; ++at) {
+        if (at > 0U && proposals.row[order[at]] == proposals.row[order[at - 1U]]) {
           ++mCounts.contested;
           continue;
         }
-        won[mProposals[at].track].push_back(mProposals[at]);
+        won[order[at]] = 1U;
+        ++winnerOffsets[proposals.track[order[at]] + 1U];
+      }
+      for (std::uint32_t i = 0; i < n; ++i) {
+        winnerOffsets[i + 1U] += winnerOffsets[i];
+      }
+      std::vector<std::uint32_t> winners(winnerOffsets[n]);
+      {
+        std::vector<std::uint32_t> fill(winnerOffsets.begin(), winnerOffsets.end() - 1);
+        for (std::uint32_t at = 0; at < total; ++at) {
+          if (won[at] != 0U) {
+            winners[fill[proposals.track[at]]++] = at;
+          }
+        }
       }
       // Each track with partners fitted again with them, in parallel.
+      std::vector<std::uint32_t> merged((std::size_t{n} * K) + winners.size());
+      std::vector<std::uint8_t> layerRowOf(merged.size());
       std::vector<std::uint8_t> kept(n, 0U);
-      forEach(n, [&](std::uint32_t i) {
-        if (!won[i].empty()) {
-          kept[i] = refit(parameters, frame, geometry, layered, propagator, view, trackOffset + i, won[i]) ? 1U : 0U;
-        }
-      });
+      const RefitWithPartners<Det, detail::LayerMaterial<Material>> refit{.parameters = &parameters, .frame = &frame, .geometry = &geometry, .material = {.lut = &lut}, .propagator = propagator, .tracks = tracks.view(), .offset = trackOffset, .proposals = proposals, .winnerOffsets = winnerOffsets.data(), .winners = winners.data(), .merged = merged.data(), .layerRowOf = layerRowOf.data(), .kept = kept.data()};
+      forEach(n, refit);
       // The partners in path order per track, and the used mask.
       resizeBoundedVector(mOffsets, std::size_t{n} + 1U, mMemoryPool.get());
       mPartners.clear();
       mOffsets[0] = 0U;
       for (std::uint32_t i = 0; i < n; ++i) {
+        const auto count = winnerOffsets[i + 1U] - winnerOffsets[i];
         if (kept[i] != 0U) {
-          for (const auto& proposal : won[i]) {
-            mPartners.push_back(proposal.partner);
-            used[proposal.partner.row] = kExclusive;
+          for (auto at = winnerOffsets[i]; at < winnerOffsets[i + 1U]; ++at) {
+            const auto proposal = winners[at];
+            mPartners.push_back({.row = proposals.row[proposal], .layerRow = proposals.layerRow[proposal], .ahead = proposals.ahead[proposal]});
+            used[proposals.row[proposal]] = kExclusive;
           }
-          mCounts.attached += won[i].size();
-          ++mCounts.tracks;
+          mCounts.attached += count;
+          mCounts.tracks += 1U;
         } else {
-          mCounts.refused += won[i].size();
+          mCounts.refused += count;
         }
         mOffsets[i + 1U] = static_cast<std::uint32_t>(mPartners.size());
       }
-      mProposals = {};
       return StageStatus::kComplete;
     });
   }
@@ -281,218 +611,11 @@ class OverlapPartners
   [[nodiscard]] const Counts& counts() const { return mCounts; }
 
  private:
-  /// Track \a track's proposals into \a out, one per other sensor of each
-  /// layer it has a row on (see the file's comment). From each row's state,
-  /// the layer's sensors near enough (`partnerReach`, `SensorCells`) that
-  /// the track crosses within their bounds, wider by the gate's spread; on
-  /// each, the rows within that spread of the crossing, its own rows only.
-  template <typename Material, typename View>
-  static void propose(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const SensorCellsView& cells, const View& view, std::uint32_t track, std::uint32_t ordinal, std::span<const std::uint8_t> used, std::span<const std::uint32_t> maxWidthPS, std::span<const Scalar> measurementVariance, std::vector<Proposal>& out)
-  {
-    using Math = o2::gpu::CAMath;
-    const auto& rows = view.clusters[track];
-    const auto count = view.count[track];
-    const auto columns = frame.measurements();
-    const auto layerOf = [&](std::uint32_t row) { return geometry.surface(columns.surface[row]).layer; };
-    // A track with no row on a layer whose sensors overlap has no partner.
-    if (std::none_of(rows.index, rows.index + count, [&](std::uint32_t row) { return ((overlapLayers<Det> >> layerOf(row)) & 1U) != 0U; })) {
-      return;
-    }
-    overlap::RowStates<K> states;
-    const auto fit = fitMeasurements(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = rows.index}, static_cast<int>(count), kinkBudget(parameters), overlap::RowStateObserver<K>{.states = &states});
-    if (fit.failedPass == FitPass::kOutward) {
-      return;
-    }
-    const TimeEstPS box{.start = view.timePS[track], .width = view.widthPS[track]};
-    const Scalar nSigma = Math::Sqrt(parameters.clusterChi2Max);
-    std::vector<std::uint32_t> seen;
-    for (std::uint8_t k = 0; k < count; ++k) {
-      if (states.pass[k] == 0U) {
-        continue;
-      }
-      const auto own = rows.index[k];
-      const auto ownSurface = columns.surface[own];
-      const LayerID layer = geometry.surface(ownSurface).layer;
-      if (((overlapLayers<Det> >> layer) & 1U) == 0U) {
-        continue;
-      }
-      const auto& state = states.state[k];
-      const auto& factors = states.factors[k];
-      Scalar cov[kBoundCovSize]{};
-      covarianceFromFactors(factors, cov);
-      // The gate's reach about a predicted crossing: the prediction's
-      // variance and the follow's position term (`predictedWindow`), and the
-      // layer's largest measurement variance, which the gate adds.
-      const Scalar spread = nSigma * Math::Sqrt(Math::Max(cov[varIndex(kLoc0)], cov[varIndex(kLoc1)]) + parameters.followPositionVariance + measurementVariance[layer]);
-      const Scalar sinTheta = Math::Sin(state.theta());
-      const Scalar direction[3] = {sinTheta * Math::Cos(state.phi()), sinTheta * Math::Sin(state.phi()), Math::Cos(state.theta())};
-      const auto reach = overlap::partnerReach<Det>(parameters, geometry, layer, state, spread);
-      const auto& from = geometry.planeOf(state);
-      const auto& stepPropagator = pointPropagator(propagator, from, state);
-      const ExactScalar curvature = stepPropagator.curvature(static_cast<ExactScalar>(state.qOverP()), 1.);
-      seen.clear();
-      static_cast<void>(cells.anySensor(layer, reach.phi, reach.phiReach, reach.second, reach.secondReach, [&](std::uint32_t id) {
-        if (id == ownSurface || std::ranges::find(seen, id) != seen.end()) {
-          return false;
-        }
-        seen.push_back(id);
-        const TrackingSurface& surface = geometry.surface(static_cast<SensorID>(id));
-        if (surface.layer != layer) {
-          return false;
-        }
-        TrackingSurface plane = surface;
-        if (surface.radius > 0.F) {
-          Scalar along0 = 0.F;
-          Scalar along1 = 0.F;
-          for (int i = 0; i < 3; ++i) {
-            along0 += (reach.point[i] - surface.origin[i]) * surface.axis0[i];
-            along1 += (reach.point[i] - surface.origin[i]) * surface.axis1[i];
-          }
-          plane = tangentPlane(surface, Math::ATan2(along1, along0));
-        }
-        // The straight line along the track first: off the sensor by more than
-        // the spread and the helix's departure from the line over the step,
-        // it is not crossed.
-        Scalar normalDirection = 0.F;
-        Scalar normalOffset = 0.F;
-        for (int i = 0; i < 3; ++i) {
-          normalDirection += plane.normal[i] * direction[i];
-          normalOffset += plane.normal[i] * (plane.origin[i] - reach.point[i]);
-        }
-        if (!(Math::Abs(normalDirection) > 0.F)) {
-          return false;
-        }
-        const Scalar step = normalOffset / normalDirection;
-        Scalar line0 = 0.F;
-        Scalar line1 = 0.F;
-        for (int i = 0; i < 3; ++i) {
-          const Scalar offset = reach.point[i] + (step * direction[i]) - plane.origin[i];
-          line0 += offset * plane.axis0[i];
-          line1 += offset * plane.axis1[i];
-        }
-        const Scalar departure = 0.5F * static_cast<Scalar>(Math::Abs(curvature)) * step * step;
-        if (Math::Abs(line0) > surface.bounds.halfX + spread + departure || Math::Abs(line1) > surface.bounds.halfY + spread + departure) {
-          return false;
-        }
-        // Where the track crosses it, ahead or behind its row.
-        BoundParameters at = state;
-        auto crossed = propagate(stepPropagator, at, from, plane, PropagationDirection::kForward);
-        const auto usable = [&](const PropagationResult& result) { return (result.status == PropagationStatus::kOk || result.status == PropagationStatus::kOutOfBounds) && !follow::beyondHalfTurn(curvature * static_cast<ExactScalar>(result.pathLength)); };
-        if (!usable(crossed)) {
-          at = state;
-          crossed = propagate(stepPropagator, at, from, plane, PropagationDirection::kBackward);
-          if (!usable(crossed)) {
-            return false;
-          }
-        }
-        if (Math::Abs(at.loc0()) > surface.bounds.halfX + spread || Math::Abs(at.loc1()) > surface.bounds.halfY + spread) {
-          return false;
-        }
-        // Its rows about the crossing.
-        Scalar point[3]{};
-        surfaceToGlobal(plane, at.loc0(), at.loc1(), point);
-        const Scalar x = point[0] - parameters.beamX;
-        const Scalar y = point[1] - parameters.beamY;
-        const Scalar r = Math::Hypot(x, y);
-        const CandidateWindow window{
-          .earliestPS = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(maxWidthPS[layer]) + 1,
-          .latestPS = static_cast<std::int64_t>(box.upper()) - 1,
-          .afterPS = box.lower(),
-          .phiCentre = azimuth(x, y),
-          .phiHalfWidth = Math::Min(spread / r, std::numbers::pi_v<Scalar>),
-          .secondCentre = secondCoordinate<Det>(layer, r, point[2]),
-          .secondHalfWidth = spread,
-        };
-        const auto towards = crossed.pathLength > 0.F ? PropagationDirection::kForward : PropagationDirection::kBackward;
-        Proposal best;
-        bool found = false;
-        frame.grid().visitCandidates(layer, window, frame.grid().geometry().allBlocks(), [&](std::uint32_t row) {
-          if (columns.surface[row] != id || used[row] != kFree) {
-            return;
-          }
-          if (!spatiallyCompatible(window, columns.phi[row], secondCoordinate<Det>(layer, columns.r[row], columns.z[row])) || !box.isCompatible(timeBoxAt(columns, row))) {
-            return;
-          }
-          BoundParameters predicted;
-          CovarianceFactors predictedFactors;
-          Scalar chi2 = 0.F;
-          if (!follow::updateCandidate<false>(propagator, geometry, material, measurementAt(frame, row), towards, state, factors, predicted, predictedFactors, chi2, 1.F) || !(chi2 <= parameters.clusterChi2Max)) {
-            return;
-          }
-          if (!found || chi2 < best.chi2 || (!(best.chi2 < chi2) && row < best.partner.row)) {
-            best = {.track = ordinal, .partner = {.row = row, .layerRow = k, .ahead = static_cast<std::uint8_t>(crossed.pathLength > 0.F ? 1U : 0U)}, .surface = id, .chi2 = chi2, .path = crossed.pathLength};
-            found = true;
-          }
-        });
-        if (found) {
-          out.push_back(best);
-        }
-        return false;
-      }));
-    }
-  }
-
-  /// Track \a track fitted on its rows and \a partners, which this sorts
-  /// into path order (by their row's position, then their distance along the
-  /// track, those before the row first); written to \a view where the fit succeeds and the rows'
-  /// time boxes have one in common. Whether it was.
-  template <typename Material, typename View>
-  static bool refit(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const View& view, std::uint32_t track, std::vector<Proposal>& partners)
-  {
-    std::ranges::sort(partners, [](const Proposal& a, const Proposal& b) {
-      if (a.partner.layerRow != b.partner.layerRow) {
-        return a.partner.layerRow < b.partner.layerRow;
-      }
-      return a.path < b.path;
-    });
-    const auto& rows = view.clusters[track];
-    const auto count = view.count[track];
-    std::vector<std::uint32_t> merged;
-    std::vector<std::uint8_t> layerRowOf;
-    merged.reserve(count + partners.size());
-    std::size_t next = 0U;
-    for (std::uint8_t k = 0; k < count; ++k) {
-      for (; next < partners.size() && partners[next].partner.layerRow == k && partners[next].partner.ahead == 0U; ++next) {
-        merged.push_back(partners[next].partner.row);
-        layerRowOf.push_back(k);
-      }
-      merged.push_back(rows.index[k]);
-      layerRowOf.push_back(k);
-      for (; next < partners.size() && partners[next].partner.layerRow == k; ++next) {
-        merged.push_back(partners[next].partner.row);
-        layerRowOf.push_back(k);
-      }
-    }
-    const auto columns = frame.measurements();
-    auto box = timeBoxAt(columns, merged.front());
-    for (std::size_t i = 1; i < merged.size(); ++i) {
-      const auto other = timeBoxAt(columns, merged[i]);
-      if (!box.isCompatible(other)) {
-        return false;
-      }
-      box += other;
-    }
-    const auto fit = fitMeasurements(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = merged.data()}, static_cast<int>(merged.size()), kinkBudget(parameters));
-    if (fit.status != PropagationStatus::kOk) {
-      return false;
-    }
-    view.state[track] = fit.state;
-    view.outwardState[track] = fit.outwardState;
-    view.timePS[track] = box.start;
-    view.widthPS[track] = box.width;
-    view.chi2[track] = fit.chi2;
-    view.outwardChi2[track] = fit.outwardChi2;
-    view.ndf[track] = fit.ndf;
-    view.status[track] = fit.status;
-    view.kinks[track] = fit.kinks;
-    view.kinkCluster[track] = fit.kinkMeasurement < 0 ? TrackOf<K>::kNoKink : layerRowOf[static_cast<std::size_t>(fit.kinkMeasurement)];
-    return true;
-  }
-
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
+  CpuStage<PartnerProposal::template RecordT> mStage;
+  Proposals mProposals;
   BoundedVector<std::uint32_t> mOffsets;
   BoundedVector<OverlapPartner> mPartners;
-  std::vector<Proposal> mProposals;
   Counts mCounts;
 };
 

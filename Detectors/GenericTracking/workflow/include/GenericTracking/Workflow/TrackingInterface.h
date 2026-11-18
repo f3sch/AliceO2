@@ -456,9 +456,6 @@ class TrackingInterface
   /// the first timeframe and on every new beam line.
   void configureDevice(const std::vector<IterationSettings>& settings)
   {
-    if (std::ranges::any_of(settings, [](const auto& iteration) { return iteration.overlapPartners; })) {
-      throw std::invalid_argument("iterationOverlapPartners: the device tracker does not attach overlap partners yet");
-    }
     if (!mDevice) {
       mDevice = mContext->runtime().makeTracker<Det>(DeviceBlock{});
       mDevicePool = trackerMemoryPool(recoParam<Det>());
@@ -509,9 +506,16 @@ class TrackingInterface
     }
     tracked.result.status = mDevice->trackTimeframe(frame, mDeviceTrackingPlan, iterations, replaced, mDeviceTracks, mDeviceReport);
     if (tracked.result.status == StageStatus::kComplete) {
-      // The device's tracks, downloaded with their rows inline, committed here.
+      // The device's tracks, downloaded with their rows inline, and their
+      // overlap partners, committed here.
       mDeviceStore.clear();
-      tracked.result.status = mDeviceStore.commit([](std::uint32_t n, const auto& body) { for (std::uint32_t i = 0; i < n; ++i) { body(i); } }, 1024U, std::as_const(mDeviceTracks));
+      const auto serial = [](std::uint32_t n, const auto& body) {
+        for (std::uint32_t i = 0; i < n; ++i) {
+          body(i);
+        }
+      };
+      mDevice->downloadPartners(mDevicePartnerOffsets, mDevicePartners);
+      tracked.result.status = mDevicePartnerOffsets.empty() ? mDeviceStore.commit(serial, 1024U, std::as_const(mDeviceTracks)) : mDeviceStore.commit(serial, 1024U, std::as_const(mDeviceTracks), std::span<const std::uint32_t>{mDevicePartnerOffsets}, std::span<const OverlapPartner>{mDevicePartners});
       tracked.result.store = &mDeviceStore;
     }
     tracked.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -565,7 +569,9 @@ class TrackingInterface
   VertexerResult mDeviceFound;
   std::shared_ptr<BoundedMemoryResource> mDevicePool;
   typename TrackRefit<Det>::Tracks mDeviceTracks;
-  TrackStore<Det> mDeviceStore; ///< `mDeviceTracks` committed
+  TrackStore<Det> mDeviceStore;                     ///< `mDeviceTracks` committed
+  std::vector<std::uint32_t> mDevicePartnerOffsets; ///< the device's partners (`DeviceTracker::downloadPartners`)
+  std::vector<OverlapPartner> mDevicePartners;
   typename Device::TimeframeReport mDeviceReport;
   bool mDeviceTimeframe = false; ///< the device holds a timeframe
   bool mVertexed = false;        ///< the vertexer ran this timeframe

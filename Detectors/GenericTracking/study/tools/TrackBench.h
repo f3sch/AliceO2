@@ -2166,7 +2166,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         const auto& report = deviceRun.iterations[iteration];
         std::cout << std::format("  iteration {}: {} records, {} duplicates, {} mismatches, {} rounds, {} tracks, {} readbacks; arena peak {:.1f} MB\n", iteration, report.records, report.duplicates, report.mismatches, report.rounds, report.tracks, report.readbacks, static_cast<double>(report.arenaPeakBytes) / 1.e6);
       }
-      const auto deviceRows = trackRows(deviceTracks);
+      const auto deviceRows = trackRows(*run.result.store);
       const auto score = scoreAndPrint(deviceRows);
       const auto sourceScore = scoreSources(deviceRows);
       if (json.is_open()) {
