@@ -20,6 +20,7 @@
 
 #include "GenericTracking/Study/DecayConstraints.h"
 #include "GenericTracking/Study/DecayVertexFit.h"
+#include "GenericTracking/Detectors/TRKFT3.h"
 
 #include "DetectorsBase/MatCell.h"
 
@@ -32,6 +33,8 @@
 
 namespace o2::gtrk::study
 {
+
+using detectors::TRKFT3;
 
 namespace
 {
@@ -165,7 +168,7 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
             daughter.innermost.par[k] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(k, k))));
           }
         }
-        const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kFull, constraints);
+        const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{}, constraints);
         if (fit.status != DecayFitStatus::kOk) {
           continue;
         }
@@ -228,7 +231,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
   const std::vector<DecayDaughter> exactStates{daughterOf(proton, prop, second), daughterOf(pion, prop, second), daughterOf(bachelor, prop, kVertex)};
   const std::array<std::array<double, 3>, 2> truth{kVertex, second};
 
-  const auto exact = fitDecayVertex(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, DecayFitVariant::kFull, {}, topology);
+  const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, {}, topology);
   BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
   for (int w = 0; w < 2; ++w) {
     for (int c = 0; c < 3; ++c) {
@@ -252,7 +255,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
           daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
         }
       }
-      const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kFull, {}, topology);
+      const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{}, {}, topology);
       if (fit.status != DecayFitStatus::kOk) {
         continue;
       }
@@ -353,7 +356,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
           position[0] += gauss(random) * 5e-4;
           position[1] += gauss(random) * 5e-4;
         }
-        const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kFull, set, topology, std::span<const DecayMother>{&mother, 1});
+        const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{}, set, topology, std::span<const DecayMother>{&mother, 1});
         if (fit.status != DecayFitStatus::kOk) {
           continue;
         }
@@ -442,7 +445,7 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
   const std::vector<DecayDaughter> exactStates{daughterOf(piPlusA, prop, kVertex), daughterOf(piPlusB, prop, kVertex), daughterOf(bachelor, prop, second), daughterOf(proton, prop, third), daughterOf(lambdaPion, prop, third)};
   const std::array<std::array<double, 3>, 3> truth{kVertex, second, third};
 
-  const auto exact = fitDecayVertex(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, DecayFitVariant::kFull, {}, topology);
+  const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, {}, topology);
   BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
   for (int w = 0; w < 3; ++w) {
     for (int c = 0; c < 3; ++c) {
@@ -464,7 +467,7 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
         daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
       }
     }
-    const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kFull, {}, topology);
+    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{}, {}, topology);
     if (fit.status != DecayFitStatus::kOk) {
       continue;
     }
@@ -560,7 +563,8 @@ BOOST_AUTO_TEST_CASE(ElectronMixturesSumOverTheirComponents)
         daughter.innermost = collapsed;
         daughter.mixture = mixture;
       }
-      const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, variant, massOfPair);
+      const std::span<const DecayDaughter> span{states};
+      const auto fit = variant == DecayFitVariant::kGaussianSum ? fitDecayVertex<TRKFT3, DecayFitVariant::kGaussianSum>(span, NoMaterial{}, massOfPair) : fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(span, NoMaterial{}, massOfPair);
       if (fit.status != DecayFitStatus::kOk) {
         continue;
       }
@@ -636,11 +640,11 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
     unseen.innermost.par[kTheta] = static_cast<Scalar>(std::atan2(std::hypot(start[0], start[1]), start[2]));
     unseen.innermost.par[kQOverP] = static_cast<Scalar>(1. / p);
     all.push_back(unseen);
-    return fitDecayVertex(std::span<const DecayDaughter>{all}, NoMaterial{}, DecayFitVariant::kFull, constraints);
+    return fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{all}, NoMaterial{}, constraints);
   };
   // exact: one branch gives the neutrino back
   {
-    const auto free = fitDecayVertex(std::span<const DecayDaughter>{visible}, NoMaterial{}, DecayFitVariant::kFull);
+    const auto free = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{visible}, NoMaterial{});
     BOOST_REQUIRE(free.status == DecayFitStatus::kOk);
     const auto starts = missingMomentumStarts(free, visibleMasses, made, massMother, 0.);
     BOOST_REQUIRE(!starts.empty());
@@ -674,7 +678,7 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
         daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
       }
     }
-    const auto free = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kFull);
+    const auto free = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{});
     if (free.status != DecayFitStatus::kOk) {
       continue;
     }
@@ -765,7 +769,7 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
   constexpr int kTrials = 1000;
   {
     const DecayConstraints set{.resonances = {Resonance{.daughters = {0, 1}, .massGeV = kKStar, .widthGeV = kWidth}}};
-    const auto exact = fitDecayVertex(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, DecayFitVariant::kFull, set);
+    const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, set);
     BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
     for (int i = 0; i < 3; ++i) {
       BOOST_TEST(std::abs(exact.vertex[i] - kVertex[i]) < 1e-4); // float states
@@ -780,7 +784,7 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
           daughter.innermost.par[i] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(i, i))));
         }
       }
-      const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kFull, set);
+      const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{}, set);
       if (fit.status != DecayFitStatus::kOk) {
         continue;
       }
@@ -835,7 +839,7 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
   pi.mass = kPion;
   const std::vector<DecayDaughter> exactStates{he, pi};
   {
-    const auto fit = fitDecayVertex(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, DecayFitVariant::kFull);
+    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, NoMaterial{});
     BOOST_REQUIRE(fit.status == DecayFitStatus::kOk);
     double e = 0.;
     std::array<double, 3> sum{};
@@ -867,7 +871,7 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
         daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
       }
     }
-    const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kFull, set);
+    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{}, set);
     if (fit.status != DecayFitStatus::kOk) {
       continue;
     }
@@ -902,7 +906,7 @@ BOOST_AUTO_TEST_CASE(ExactStatesGiveTheTruthBack)
     daughters.push_back(daughterOf(truth, prop));
   }
   {
-    const auto fit = fitDecayVertex(std::span<const DecayDaughter>{daughters}, NoMaterial{}, DecayFitVariant::kFull);
+    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{daughters}, NoMaterial{});
     BOOST_REQUIRE(fit.status == DecayFitStatus::kOk);
     for (int k = 0; k < 3; ++k) {
       BOOST_TEST(std::abs(fit.vertex[k] - kVertex[k]) < 2e-5); // the states are floats
@@ -938,7 +942,7 @@ BOOST_AUTO_TEST_CASE(SmearedStatesGiveUnitPulls)
         daughter.innermost.par[k] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(k, k))));
       }
     }
-    const auto fit = fitDecayVertex(std::span<const DecayDaughter>{daughters}, NoMaterial{}, DecayFitVariant::kFull);
+    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{daughters}, NoMaterial{});
     if (fit.status != DecayFitStatus::kOk) {
       continue;
     }
@@ -1046,6 +1050,28 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseIsTheTwoPassOne)
   MixtureCollapse empty(n);
   empty.merge(MixtureCollapse(n));
   BOOST_TEST(empty.count == 0);
+}
+
+BOOST_AUTO_TEST_CASE(InputsOutsideTheCapacitiesAreRefused)
+{
+  // Two daughters of a two-vertex tree whose second vertex hangs from
+  // itself, a resonance of a third daughter, a tracked mother at a vertex
+  // that is not there, one with more rows than a track holds.
+  const std::vector<DecayDaughter> two(2);
+  DecayTopology loop{.vertexOf = {0, 1}, .parent = {-1, 1}};
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, {}, loop).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  DecayConstraints resonance;
+  resonance.resonances.push_back({.daughters = {0, 2}, .massGeV = 1., .widthGeV = 0.1});
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, resonance).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  const DecayMother elsewhere{.vertex = 1};
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, {}, {}, std::span<const DecayMother>{&elsewhere, 1}).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  DecayMother longer;
+  longer.planes.resize(maxChainLayers<TRKFT3> + 1U);
+  longer.positions.resize(longer.planes.size());
+  longer.covariance.resize(longer.planes.size());
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, {}, {}, std::span<const DecayMother>{&longer, 1}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
+  const std::vector<DecayDaughter> six(6);
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{six}, NoMaterial{}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
 }
 
 } // namespace o2::gtrk::study

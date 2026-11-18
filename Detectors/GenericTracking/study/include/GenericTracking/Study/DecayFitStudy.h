@@ -91,6 +91,7 @@ struct DecayFitRecord {
   std::uint8_t outer = 0U;
   std::uint8_t stopReason = 0U;
   float stopMetric = 0.F;
+  float stopBound = 0.F; ///< what the last step's gain was held to (the inputs' resolution R)
   float modelShift = 0.F;
   float microseconds = 0.F;             ///< the fit's time
   std::uint16_t combinations = 0U;      ///< the Gaussian sum's component combinations fitted and taken
@@ -201,6 +202,7 @@ struct DecayFitRecord {
     visit("microseconds", microseconds);
     visit("stopReason", stopReason);
     visit("stopMetric", stopMetric);
+    visit("stopBound", stopBound);
     visit("chi2", chi2);
     visit("ndf", ndf);
     visit("flight", flight);
@@ -851,6 +853,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         // from the visible fit's starts (`missingMomentumStarts`).
         record.branch = static_cast<std::int8_t>(job.branch);
         auto jobDaughters = daughters;
+        auto jobTopology = one.topology;
         const bool wantMissing = (job.constraints & 64U) != 0U;
         if (wantMissing) {
           std::optional<std::array<double, 3>> start;
@@ -871,9 +874,16 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           unseen.innermost.par[kTheta] = static_cast<Scalar>(std::atan2(std::hypot((*start)[0], (*start)[1]), (*start)[2]));
           unseen.innermost.par[kQOverP] = static_cast<Scalar>(1. / unseenP);
         } else if (missing) {
+          // the visible daughters alone: the unseen one out of the tree too
           jobDaughters.pop_back();
+          if (!jobTopology.vertexOf.empty()) {
+            jobTopology.vertexOf.pop_back();
+          }
         }
-        const auto fitUnder = [&](const DecayConstraints& set) { return fitDecayVertex(std::span<const DecayDaughter>{jobDaughters}, material, job.variant, set, one.topology, tracked); };
+        const auto fitUnder = [&](const DecayConstraints& set) {
+          const std::span<const DecayDaughter> span{jobDaughters};
+          return job.variant == DecayFitVariant::kGaussianSum ? fitDecayVertex<Det, DecayFitVariant::kGaussianSum>(span, material, set, jobTopology, tracked) : fitDecayVertex<Det, DecayFitVariant::kFull>(span, material, set, jobTopology, tracked);
+        };
         const auto started = std::chrono::steady_clock::now();
         const auto outcome = fitUnder(constraints);
         record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
@@ -890,6 +900,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.combinations = fit.combinations;
         record.combinationsTried = fit.combinationsTried;
         record.stopMetric = fit.stopMetric;
+        record.stopBound = fit.stopBound;
         if (fit.status != DecayFitStatus::kOk) {
           one.records.push_back(record);
           continue;

@@ -202,6 +202,27 @@ enum class VertexCandidateStatus : std::uint8_t { kAccepted,
                                                   kDca,
                                                   kDegenerate };
 
+/// How a decay vertex fit takes its daughters.
+enum class DecayFitVariant : std::uint8_t {
+  kFull,        ///< carried with their material to the plane about every iteration's vertex
+  kGaussianSum, ///< kFull, then its electrons' mixtures kept: a fit per combination of their components, the posterior mixture collapsed
+  kCount
+};
+
+/// Why a decay vertex fit stopped.
+enum class DecayFitStatus : std::uint8_t {
+  kOk,
+  kNoStart,     ///< the first two daughters' helices give no start
+  kCarryFailed, ///< a daughter could not be carried to its plane
+  kNoCrossing,  ///< the prediction's helix does not reach a plane
+  kSingular,    ///< the normal matrix or a measurement's covariance is not positive definite
+  kNotConverged,
+  kStopped,      ///< a daughter's trajectory stops in the material (the loss has no solution)
+  kTooLarge,     ///< more vertices, daughters or rows of a tracked particle than the fit holds
+  kInvalidInput, ///< a topology, resonance or tracked particle that refers outside the decay
+  kCount
+};
+
 /// Whether a value is finite, in every build: O2's `GPUCommonMath::Finite`
 /// and `IsNaN` are constants outside the deterministic mode, on the host as
 /// on the device. NaN fails both comparisons, an
