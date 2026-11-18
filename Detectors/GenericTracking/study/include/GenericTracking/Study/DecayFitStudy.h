@@ -99,7 +99,8 @@ struct DecayFitRecord {
   std::uint8_t stopReason = 0U;
   float stopMetric = 0.F;
   float modelShift = 0.F;
-  float microseconds = 0.F; ///< the fit's time (with a profile's or a sequential fit's every fit)
+  float microseconds = 0.F;        ///< the fit's time (with a profile's or a sequential fit's every fit)
+  std::uint16_t combinations = 0U; ///< the Gaussian sum's component combinations
   float chi2 = 0.F;
   std::int16_t ndf = 0;
   float flight = 0.F; ///< the true one [cm]
@@ -200,6 +201,7 @@ struct DecayFitRecord {
     visit("iterations", iterations);
     visit("outer", outer);
     visit("modelShift", modelShift);
+    visit("combinations", combinations);
     visit("microseconds", microseconds);
     visit("stopReason", stopReason);
     visit("stopMetric", stopMetric);
@@ -842,6 +844,14 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           jobs.push_back({DecayFitVariant::kFull, set});
         }
       }
+      // Electron daughters' mixtures kept (not a conversion's: parked):
+      // alone and under the masses.
+      const bool electrons = std::ranges::any_of(daughters, [](const DecayDaughter& d) { return d.mixture.has_value(); });
+      if (electrons && mother.pdg != 22) {
+        for (const std::uint8_t set : {std::uint8_t{0}, tree ? std::uint8_t{16} : std::uint8_t{1}}) {
+          jobs.push_back({DecayFitVariant::kGaussianSum, set});
+        }
+      }
       // A tree's composites: their PDG masses, the first one's truth.
       std::vector<double> compositeMasses;
       for (const auto* composite : one.composites) {
@@ -959,6 +969,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.outer = fit.outer;
         record.modelShift = fit.modelShift;
         record.pointSigma = static_cast<float>(fit.pointSigma);
+        record.combinations = fit.combinations;
         record.stopMetric = fit.stopMetric;
         if (fit.status != DecayFitStatus::kOk) {
           one.records.push_back(record);
