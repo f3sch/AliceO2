@@ -50,17 +50,6 @@
 namespace o2::gtrk::displaced
 {
 
-/// atan(x) / x, without the singularity at 0.
-template <typename T>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() T atanOverArgument(T x)
-{
-  if (o2::gpu::CAMath::Abs(x) < T(0.05)) {
-    const T x2 = x * x;
-    return T(1) - (x2 * ((T(1) / T(3)) - (x2 * T(0.2))));
-  }
-  return atanOf(x) / x;
-}
-
 /// The circles through a source and a target: the chord's midpoint `M`, its
 /// unit direction `u` from the source, its left normal `n`, the half chord.
 template <typename T>
@@ -204,7 +193,7 @@ template <typename T>
   T ratio = T(0);
   if (along > T(0)) {
     // sin(alpha) / alpha = 1 / asinOverArgument(k h).
-    ratio = atanOverArgument(across / along) * family.midAlong / (along * o2::gtrk::detail::asinOverArgument(sine));
+    ratio = o2::gtrk::detail::atanOverArgument(across / along) * family.midAlong / (along * o2::gtrk::detail::asinOverArgument(sine));
   } else {
     ratio = atan2Of(across, along) / asinOf(sine);
   }

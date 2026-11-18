@@ -22,6 +22,7 @@
 #define GTRK_TRACKING_TRIPLETFIT_H_
 
 #include "GenericTracking/Base/DenseSolve.h"
+#include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/Trig.h"
 #include "GenericTracking/Tracking/Triplet.h"
@@ -173,21 +174,16 @@ struct SegmentForward {
   if (o2::gpu::GPUCommonMath::Abs(halfSine) >= 1.F) {
     return segment;
   }
-  const Scalar halfSine2 = halfSine * halfSine;
-  const Scalar halfSine4 = halfSine2 * halfSine2;
-  const Scalar halfAngle = asinOf(halfSine);
-  const Scalar root = o2::gpu::GPUCommonMath::Sqrt(1.F - halfSine2);
-  if (o2::gpu::GPUCommonMath::Abs(halfSine) < 1.e-4F) {
-    segment.asinOverArgument = 1.F + halfSine2 * (1.F / 6.F) + halfSine4 * (3.F / 40.F);
-    segment.angleCotangent = 1.F - halfSine2 * (1.F / 3.F) - halfSine4 * (2.F / 15.F);
-    segment.asinOverArgumentSlope = halfSine * (1.F / 3.F) + halfSine2 * halfSine * (3.F / 10.F);
-    segment.angleCotangentSlope = -(halfSine * (2.F / 3.F)) - halfSine2 * halfSine * (8.F / 15.F);
-  } else {
-    segment.asinOverArgument = halfAngle / halfSine;
-    segment.angleCotangent = halfAngle * root / halfSine;
-    segment.asinOverArgumentSlope = (1.F / root - segment.asinOverArgument) / halfSine;
-    segment.angleCotangentSlope = (1.F - segment.angleCotangent) / halfSine - halfAngle / root;
-  }
+  // A = asin(h) / h and its slope (`asinOverArgumentWithDerivative`), the
+  // angle cotangent G = A r, r = cos(asin h) = sqrt((1 - h)(1 + h)), and
+  // G' = r A' - h A / r: no term cancels as h -> 0.
+  const auto quotient = detail::asinOverArgumentWithDerivative(halfSine);
+  const Scalar halfAngle = quotient.angle;
+  const Scalar root = o2::gpu::GPUCommonMath::Sqrt((1.F - halfSine) * (1.F + halfSine));
+  segment.asinOverArgument = quotient.value;
+  segment.angleCotangent = quotient.value * root;
+  segment.asinOverArgumentSlope = quotient.derivative;
+  segment.angleCotangentSlope = (root * quotient.derivative) - (halfSine * quotient.value / root);
   segment.halfAngle = halfAngle;
   segment.halfAngleSlope = 1.F / root;
   segment.bendingAngle = 2.F * halfAngle;
