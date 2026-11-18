@@ -51,7 +51,8 @@ __global__ GTRK_KERNEL_BOUNDS void sizeWorkspaces(DecayFitBatchView batch, const
 }
 
 /// Decays [first, first + count) of \a batch, decay first + i in the
-/// workspace at offsets[i] of \a scratch, up to offsets[i + 1].
+/// workspace at offsets[i] of \a scratch, up to offsets[i + 1], its result
+/// into results[i] (the launch's own).
 template <DetectorLayout Det, DecayFitVariant Variant, typename Material>
 __global__ GTRK_KERNEL_BOUNDS void fitDecays(DecayFitBatchView batch, const Material* material, std::uint32_t first, std::uint32_t count, const std::uint64_t* offsets, std::byte* scratch, DecayVertexFitResult* results)
 {
@@ -60,7 +61,7 @@ __global__ GTRK_KERNEL_BOUNDS void fitDecays(DecayFitBatchView batch, const Mate
     return;
   }
   const auto index = first + i;
-  fitBatchDecay<Det, Variant>(batch, index, *material, std::span<std::byte>{scratch + offsets[i], static_cast<std::size_t>(offsets[i + 1U] - offsets[i])}, results[index]);
+  fitBatchDecay<Det, Variant>(batch, index, *material, std::span<std::byte>{scratch + offsets[i], static_cast<std::size_t>(offsets[i + 1U] - offsets[i])}, results[i]);
 }
 
 /// The workspaces' alignment in a launch's scratch: every decay's starts at
@@ -114,8 +115,11 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
       return true;
     }
     mArena.resetPeak();
-    // Inputs and results at the base end, the launches' workspaces at the
-    // scratch end, all for this call.
+    // The inputs at the base end for this call; each launch's workspaces and
+    // results at the scratch end, the results copied out when it is done.
+    // The arena's peak: the inputs (decays, daughters, mothers, their rows,
+    // the workspace sizes) plus the largest launch's offsets, its slices
+    // (each workspace rounded up to kSliceAlignment) and its results.
     auto scope = mArena.scope(ArenaEnd::kBase);
     DeviceSpan<DecayFitInput> decays;
     DeviceSpan<DecayDaughter> daughters;
@@ -124,8 +128,7 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
     DeviceSpan<std::array<double, 2>> positions;
     DeviceSpan<std::array<double, 3>> covariance;
     DeviceSpan<std::uint64_t> bytes;
-    DeviceSpan<DecayVertexFitResult> fitted;
-    const auto allocated = decays.allocate(mArena, count) && daughters.allocate(mArena, batch.daughters().size()) && mothers.allocate(mArena, batch.mothers().size()) && planes.allocate(mArena, batch.planes().size()) && positions.allocate(mArena, batch.positions().size()) && covariance.allocate(mArena, batch.covariance().size()) && bytes.allocate(mArena, count) && fitted.allocate(mArena, count);
+    const auto allocated = decays.allocate(mArena, count) && daughters.allocate(mArena, batch.daughters().size()) && mothers.allocate(mArena, batch.mothers().size()) && planes.allocate(mArena, batch.planes().size()) && positions.allocate(mArena, batch.positions().size()) && covariance.allocate(mArena, batch.covariance().size()) && bytes.allocate(mArena, count);
     if (!allocated) {
       return false;
     }
@@ -152,8 +155,8 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
     mStream.synchronize();
     timing.sizeSeconds = since(start);
 
-    // Launches of consecutive decays while their slices fit the scratch the
-    // arena has left; a decay that alone does not is refused.
+    // Launches of consecutive decays while their slices and results fit the
+    // scratch the arena has left; a decay that alone does not is refused.
     std::vector<std::uint32_t> refusedDecays;
     std::vector<std::uint64_t> offsets;
     start = Clock::now();
@@ -165,7 +168,8 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
         const std::uint64_t slice = ((sizes[last] + kSliceAlignment - 1U) / kSliceAlignment) * kSliceAlignment;
         const std::uint64_t total = offsets.back() + slice;
         const std::uint64_t offsetBytes = (offsets.size() + 1U) * sizeof(std::uint64_t) + kSliceAlignment;
-        if (total + offsetBytes + kSliceAlignment > available) {
+        const std::uint64_t resultBytes = (offsets.size() * sizeof(DecayVertexFitResult)) + kSliceAlignment;
+        if (total + offsetBytes + resultBytes + kSliceAlignment > available) {
           break;
         }
         offsets.push_back(total);
@@ -176,27 +180,26 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
         continue;
       }
       auto launch = mArena.scope(ArenaEnd::kScratch);
+      const auto launched = static_cast<std::uint32_t>(last - first);
       DeviceSpan<std::uint64_t> deviceOffsets;
       DeviceSpan<std::byte> scratch;
-      if (!deviceOffsets.allocate(mArena, offsets.size(), ArenaEnd::kScratch) || !scratch.allocate(mArena, offsets.back() == 0U ? 1U : offsets.back(), ArenaEnd::kScratch)) {
+      DeviceSpan<DecayVertexFitResult> fitted;
+      if (!deviceOffsets.allocate(mArena, offsets.size(), ArenaEnd::kScratch) || !scratch.allocate(mArena, offsets.back() == 0U ? 1U : offsets.back(), ArenaEnd::kScratch) || !fitted.allocate(mArena, launched, ArenaEnd::kScratch)) {
         return false;
       }
       upload(offsets.data(), deviceOffsets, offsets.size(), mStream);
-      const auto launched = static_cast<std::uint32_t>(last - first);
       const auto shape = launchFor(launched);
       fitDecays<Det, Variant><<<shape.blocks, shape.threads, 0, native>>>(view, mMaterial.data(), static_cast<std::uint32_t>(first), launched, deviceOffsets.data(), scratch.data(), fitted.data());
       checkLaunch();
+      const auto copied = Clock::now();
+      download(fitted, results.data() + first, launched, mStream);
       // The next launch takes these slices: this one must be done with them.
       mStream.synchronize();
+      timing.downloadSeconds += since(copied);
       ++timing.launches;
       first = last;
     }
-    timing.fitSeconds = since(start);
-
-    start = Clock::now();
-    download(fitted, results.data(), count, mStream);
-    mStream.synchronize();
-    timing.downloadSeconds = since(start);
+    timing.fitSeconds = since(start) - timing.downloadSeconds;
     for (const auto index : refusedDecays) {
       results[index].reset();
       results[index].status = DecayFitStatus::kTooLarge;
