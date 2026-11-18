@@ -26,6 +26,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <numbers>
 #include <random>
@@ -145,11 +146,9 @@ void reportPrecision(const char* name, std::span<const DecayDaughter> daughters,
 {
   const NoMaterial material;
   DecayVertexFitter<TRKFT3, Variant, NoMaterial> reference(daughters, material, constraints, topology, {});
-  const auto need = reference.workspace();
-  std::vector<double> doubles(need.doubles);
-  std::vector<double> solves(need.solves);
-  std::vector<int> ints(need.ints);
-  const auto fit = reference.fit(doubles, solves, ints);
+  std::vector<std::byte> workspace(reference.workspace());
+  DecayVertexFitResult fit;
+  reference.fit(workspace, fit);
   const auto plain = fitDecayVertex<TRKFT3, Variant>(daughters, material, constraints, topology);
   BOOST_TEST(static_cast<int>(fit.status) == static_cast<int>(plain.status));
   BOOST_TEST(fit.chi2 == plain.chi2);
@@ -164,11 +163,9 @@ void reportPrecision(const char* name, std::span<const DecayDaughter> daughters,
   BOOST_REQUIRE(reference.frozenMerit(solution, chi2, violation));
   const auto one = [&]<typename Model, typename Solve>(const char* label) {
     DecayVertexFitter<TRKFT3, Variant, NoMaterial, Model, Solve> fitter(daughters, material, constraints, topology, {});
-    const auto size = fitter.workspace();
-    std::vector<double> fitterDoubles(size.doubles);
-    std::vector<Solve> fitterSolves(size.solves);
-    std::vector<int> fitterInts(size.ints);
-    const auto result = fitter.fit(fitterDoubles, fitterSolves, fitterInts);
+    std::vector<std::byte> fitterWorkspace(fitter.workspace());
+    DecayVertexFitResult result;
+    fitter.fit(fitterWorkspace, result);
     double at = std::numeric_limits<double>::quiet_NaN();
     double atViolation = std::numeric_limits<double>::quiet_NaN();
     if (result.status == DecayFitStatus::kOk && !reference.frozenMerit(fitter.solution(), at, atViolation)) {

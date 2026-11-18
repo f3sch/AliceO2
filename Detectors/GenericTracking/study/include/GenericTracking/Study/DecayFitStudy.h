@@ -59,6 +59,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <limits>
@@ -488,12 +489,10 @@ DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, 
   };
   using Reference = DecayVertexFitter<Det, Variant, Material, double, double>;
   Reference reference(daughters, material, constraints, topology, mothers);
-  const auto need = reference.workspace();
-  std::vector<double> doubles(need.doubles);
-  std::vector<double> solves(need.solves);
-  std::vector<int> ints(need.ints);
+  std::vector<std::byte> workspace(reference.workspace());
   auto started = std::chrono::steady_clock::now();
-  const auto fit = reference.fit(doubles, solves, ints);
+  DecayVertexFitResult fit;
+  reference.fit(workspace, fit);
   auto record = base;
   record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
   record.statusDouble = record.status = static_cast<std::uint8_t>(fit.status);
@@ -516,12 +515,10 @@ DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, 
   const double sT = ok ? sigmaT(fit) : 0.;
   const auto reduced = [&]<typename Model, typename Solve>(std::uint8_t configuration) {
     DecayVertexFitter<Det, Variant, Material, Model, Solve> fitter(daughters, material, constraints, topology, mothers);
-    const auto size = fitter.workspace();
-    std::vector<double> fitterDoubles(size.doubles);
-    std::vector<Solve> fitterSolves(size.solves);
-    std::vector<int> fitterInts(size.ints);
+    std::vector<std::byte> fitterWorkspace(fitter.workspace());
     const auto begin = std::chrono::steady_clock::now();
-    const auto result = fitter.fit(fitterDoubles, fitterSolves, fitterInts);
+    DecayVertexFitResult result;
+    fitter.fit(fitterWorkspace, result);
     auto one = record;
     one.configuration = configuration;
     one.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - begin).count());
