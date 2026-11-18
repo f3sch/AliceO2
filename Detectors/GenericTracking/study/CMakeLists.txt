@@ -21,7 +21,7 @@ endfunction()
 
 # What the study's sources and public headers include, outside GenericTracking.
 set(studyLibraries O2::GTrkTools O2::GTrkWorkflowITSMFT O2::GTrkWorkflowTRK O2::GTrkTracking O2::Framework O2::CommonUtils O2::CommonConstants
-                   O2::DetectorsBase O2::SimulationDataFormat O2::ReconstructionDataFormats)
+                   O2::DetectorsBase O2::SimulationDataFormat O2::ReconstructionDataFormats Eigen3::Eigen)
 o2_add_library(GTrkStudy
                SOURCES src/Hits.cxx
                        src/Tracks.cxx

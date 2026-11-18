@@ -27,15 +27,6 @@
 ///   scattering on the way their nuisances' (`ScatteredEquations`); they are
 ///   not among the values here.
 ///
-/// - Collinear daughters (a photon's conversion): the two daughters' momenta
-///   parallel at V, phi1 - phi2 = 0 and theta1 - theta2 = 0. A pair has a
-///   mass of at least 2 m_e, so a mass constraint cannot hold one; parallel
-///   momenta is the approximation (DecayTreeFitter's, CMS's colinearity).
-///
-/// - V's position along a line, s = (V - origin) . direction: one equation;
-///   a conversion's profile fixes its point along the flight with it
-///   (DecayProfile.h).
-///
 /// The values and their derivatives by (V, the momenta) come from forward
 /// differentiation. A constrained step solves the normal equations with the
 /// constraints linearised, by Lagrange multipliers; its covariance is the
@@ -48,21 +39,11 @@
 
 #include <array>
 #include <cmath>
-#include <limits>
-#include <numbers>
-#include <optional>
 #include <span>
 #include <vector>
 
 namespace o2::gtrk::study
 {
-
-/// V at \a s along a line: (V - origin) . direction = s.
-struct LinePosition {
-  std::array<double, 3> origin{};
-  std::array<double, 3> direction{}; ///< unit
-  double s = 0.;                     ///< [cm]
-};
 
 /// A decay tree's shape: which vertex each daughter leaves, and how the
 /// vertices hang together. Vertex 0 is the root's decay point; every other
@@ -111,8 +92,6 @@ struct DecayConstraints {
   double massGeV = 0.; ///< the mother's
   bool production = false;
   std::array<double, 3> point{}; ///< where the mother was made [cm]
-  bool collinear = false;        ///< two daughters only
-  std::optional<LinePosition> position;
   /// Per vertex below the root, its composite's mass to hold [GeV]; 0 for none.
   std::vector<double> compositeMasses;
   /// Resonances' masses, measured softly (a term of the chi2 each).
@@ -124,7 +103,7 @@ struct DecayConstraints {
     for (const auto m : compositeMasses) {
       composites += m > 0. ? 1 : 0;
     }
-    return (mass ? 1 : 0) + (production ? 2 : 0) + (collinear ? 2 : 0) + (position ? 1 : 0) + composites + (2 * (topology.vertices() - 1)) + static_cast<int>(resonances.size());
+    return (mass ? 1 : 0) + (production ? 2 : 0) + composites + (2 * (topology.vertices() - 1)) + static_cast<int>(resonances.size());
   }
 };
 
@@ -137,17 +116,6 @@ inline constexpr int kMaxConstrainedVertices = 3;
 inline constexpr int kMaxConstrainedDaughters = 5;
 inline constexpr int kConstraintInputs = (3 * kMaxConstrainedVertices) + (3 * kMaxConstrainedDaughters);
 
-template <int N>
-Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
-{
-  Dual<N> r{std::atan2(y.v, x.v)};
-  const double norm = (x.v * x.v) + (y.v * y.v);
-  for (int i = 0; i < N; ++i) {
-    r.d[i] = ((x.v * y.d[i]) - (y.v * x.d[i])) / norm;
-  }
-  return r;
-}
-
 /// \a constraints' values at \a vertices (\a topology's) and \a momenta (phi,
 /// theta, q/p each at its daughter's vertex; a neutral daughter's q/p its
 /// 1/p) with the daughters' \a masses and \a charges, and their rows of
@@ -159,7 +127,7 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
   const int count = static_cast<int>(momenta.size());
   const int k = topology.vertices();
   const int width = (3 * k) + (3 * count);
-  if (count > kMaxConstrainedDaughters || k > kMaxConstrainedVertices || (constraints.collinear && count != 2)) {
+  if (count > kMaxConstrainedDaughters || k > kMaxConstrainedVertices) {
     return false;
   }
   values.clear();
@@ -251,28 +219,6 @@ Dual<N> atan2(const Dual<N>& y, const Dual<N>& x)
       push(massOf(total, energy, constraints.compositeMasses[w - 1]));
     }
   }
-  if (constraints.collinear) {
-    D dPhi{};
-    dPhi.v = std::remainder(momenta[0][0] - momenta[1][0], 2. * std::numbers::pi);
-    dPhi.d[(3 * k)] = 1.;
-    dPhi.d[(3 * k) + 3] = -1.;
-    D dTheta{};
-    dTheta.v = momenta[0][1] - momenta[1][1];
-    dTheta.d[(3 * k) + 1] = 1.;
-    dTheta.d[(3 * k) + 4] = -1.;
-    push(dPhi);
-    push(dTheta);
-  }
-  if (constraints.position) {
-    const auto& line = *constraints.position;
-    D along{};
-    for (int c = 0; c < 3; ++c) {
-      along.v += (vertices[0][c] - line.origin[c]) * line.direction[c];
-      along.d[c] = line.direction[c];
-    }
-    along.v -= line.s;
-    push(along);
-  }
   return true;
 }
 
@@ -287,11 +233,11 @@ struct ScatteredEquations {
   int at = -1;  ///< eta's first parameter; -1: none
   int row = -1; ///< the first equation's row
   int count = 0;
-  std::vector<double> factor; ///< L, count x count, lower triangular
+  std::vector<double> factor; ///< L, count x count (`semidefiniteFactor`: not triangular)
   void apply(const std::vector<double>& p, int n, std::vector<double>& values, std::vector<double>& rows) const
   {
     for (int a = 0; a < count; ++a) {
-      for (int b = 0; b <= a; ++b) {
+      for (int b = 0; b < count; ++b) {
         const double l = factor[(a * count) + b];
         values[row + a] -= l * p[at + b];
         rows[((row + a) * n) + at + b] = -l;
@@ -316,105 +262,36 @@ struct ScatteredEquations {
 /// [step; lambda] = [g; -c], solved by LU with partial pivoting, as N alone
 /// may be singular where the constraints fix its null direction (two parallel
 /// daughters along the flight). With \a covariance, the constrained
-/// covariance: the system's inverse's N block; with \a sensitivity (n x m),
-/// the parameters' derivatives by each constraint's value, the inverse's
-/// C^T block; with \a logDeterminant, ln |det| of the system. False if the
+/// covariance: the system's inverse's N block; with \a multipliers, lambda;
+/// with \a logDeterminant, ln |det| of the system. False if the
 /// system is singular (an exactly zero pivot).
-[[nodiscard]] inline bool constrainedStep(const std::vector<double>& normal, int n, const std::vector<double>& gradient, const std::vector<double>& rows, const std::vector<double>& values, std::vector<double>& step, std::vector<double>* covariance, std::vector<double>* sensitivity = nullptr, std::vector<double>* multipliers = nullptr, double* logDeterminant = nullptr)
+[[nodiscard]] inline bool constrainedStep(const std::vector<double>& normal, int n, const std::vector<double>& gradient, const std::vector<double>& rows, const std::vector<double>& values, std::vector<double>& step, std::vector<double>* covariance, std::vector<double>* multipliers = nullptr, double* logDeterminant = nullptr)
 {
   const int m = static_cast<int>(values.size());
   const int size = n + m;
-  std::vector<double> system(static_cast<std::size_t>(size * size), 0.);
-  for (int a = 0; a < n; ++a) {
-    for (int b = 0; b < n; ++b) {
-      system[a * size + b] = normal[a * n + b];
-    }
+  RowMatrix system = RowMatrix::Zero(size, size);
+  system.topLeftCorner(n, n) = matrixOf(normal, n, n);
+  system.bottomLeftCorner(m, n) = matrixOf(rows, m, n);
+  system.topRightCorner(n, m) = matrixOf(rows, m, n).transpose();
+  const Eigen::PartialPivLU<RowMatrix> lu(system);
+  const auto pivots = lu.matrixLU().diagonal();
+  if ((pivots.array() == 0.).any()) {
+    return false;
   }
-  for (int j = 0; j < m; ++j) {
-    for (int i = 0; i < n; ++i) {
-      system[(n + j) * size + i] = rows[j * n + i];
-      system[i * size + (n + j)] = rows[j * n + i];
-    }
-  }
-  // LU with partial pivoting, in place.
-  std::vector<int> pivot(static_cast<std::size_t>(size));
-  for (int k = 0; k < size; ++k) {
-    int best = k;
-    for (int i = k + 1; i < size; ++i) {
-      if (std::abs(system[i * size + k]) > std::abs(system[best * size + k])) {
-        best = i;
-      }
-    }
-    if (system[best * size + k] == 0.) {
-      return false;
-    }
-    pivot[k] = best;
-    if (best != k) {
-      for (int j = 0; j < size; ++j) {
-        std::swap(system[k * size + j], system[best * size + j]);
-      }
-    }
-    for (int i = k + 1; i < size; ++i) {
-      const double factor = system[i * size + k] / system[k * size + k];
-      system[i * size + k] = factor;
-      for (int j = k + 1; j < size; ++j) {
-        system[i * size + j] -= factor * system[k * size + j];
-      }
-    }
-  }
-  const auto solve = [&](std::vector<double>& b) {
-    for (int k = 0; k < size; ++k) {
-      std::swap(b[k], b[pivot[k]]);
-    }
-    for (int i = 0; i < size; ++i) {
-      for (int k = 0; k < i; ++k) {
-        b[i] -= system[i * size + k] * b[k];
-      }
-    }
-    for (int i = size - 1; i >= 0; --i) {
-      for (int k = i + 1; k < size; ++k) {
-        b[i] -= system[i * size + k] * b[k];
-      }
-      b[i] /= system[i * size + i];
-    }
-  };
-  std::vector<double> rhs(static_cast<std::size_t>(size), 0.);
-  std::copy(gradient.begin(), gradient.end(), rhs.begin());
-  for (int j = 0; j < m; ++j) {
-    rhs[n + j] = -values[j];
+  Eigen::VectorXd rhs(size);
+  rhs.head(n) = vectorOf(gradient);
+  rhs.tail(m) = -vectorOf(values);
+  const Eigen::VectorXd solution = lu.solve(rhs);
+  step.assign(solution.data(), solution.data() + n);
+  if (multipliers != nullptr) {
+    multipliers->assign(solution.data() + n, solution.data() + size);
   }
   if (logDeterminant != nullptr) {
-    *logDeterminant = 0.;
-    for (int k = 0; k < size; ++k) {
-      *logDeterminant += std::log(std::abs(system[k * size + k]));
-    }
-  }
-  solve(rhs);
-  step.assign(rhs.begin(), rhs.begin() + n);
-  if (multipliers != nullptr) {
-    multipliers->assign(rhs.begin() + n, rhs.end());
+    *logDeterminant = pivots.array().abs().log().sum();
   }
   if (covariance != nullptr) {
-    covariance->assign(static_cast<std::size_t>(n * n), 0.);
-    for (int c = 0; c < n; ++c) {
-      std::vector<double> unit(static_cast<std::size_t>(size), 0.);
-      unit[c] = 1.;
-      solve(unit);
-      for (int r = 0; r < n; ++r) {
-        (*covariance)[r * n + c] = unit[r];
-      }
-    }
-  }
-  if (sensitivity != nullptr) {
-    sensitivity->assign(static_cast<std::size_t>(n * m), 0.);
-    for (int j = 0; j < m; ++j) {
-      std::vector<double> unit(static_cast<std::size_t>(size), 0.);
-      unit[n + j] = 1.;
-      solve(unit);
-      for (int r = 0; r < n; ++r) {
-        (*sensitivity)[r * m + j] = unit[r];
-      }
-    }
+    covariance->resize(static_cast<std::size_t>(n * n));
+    matrixOf(*covariance, n, n) = lu.solve(RowMatrix::Identity(size, n)).topRows(n);
   }
   return true;
 }

@@ -67,9 +67,6 @@ namespace o2::gtrk::study
 /// How a decay vertex fit takes its daughters.
 enum class DecayFitVariant : std::uint8_t {
   kFull,        ///< carried with their material to the plane about every iteration's vertex
-  kCarryOnce,   ///< carried once, to the plane about the start; later iterations re-linearise only
-  kNoMaterial,  ///< carried every iteration, without material
-  kSequential,  ///< not one fit: a tree's composite fitted first, a pseudo-track in its parent's fit (`pseudoTrackOf`)
   kGaussianSum, ///< kFull, then its electrons' mixtures kept: a fit per combination of their components, the posterior mixture collapsed
   kCount
 };
@@ -83,8 +80,7 @@ enum class DecayFitStatus : std::uint8_t {
   kNoCrossing,  ///< the prediction's helix does not reach a plane
   kSingular,    ///< the normal matrix or a measurement's covariance is not positive definite
   kNotConverged,
-  kNoProfile, ///< no point along a conversion's line gave a fit (DecayFitStudy.h)
-  kStopped,   ///< a daughter's trajectory stops in the material (the loss has no solution)
+  kStopped, ///< a daughter's trajectory stops in the material (the loss has no solution)
   kCount
 };
 
@@ -97,8 +93,7 @@ struct DecayDaughter {
   /// An electron's Gaussian-sum fit there: carried as a mixture, its
   /// radiation on the way taken (`takeRadiation`), and collapsed on the plane.
   std::optional<GSFMixture<BetheHeitlerLoss::kComponents>> mixture;
-  /// A neutral daughter -- a composite fitted before, as a pseudo-track
-  /// (`pseudoTrackOf`): a line, its q/p its 1/p, carried without material.
+  /// A neutral daughter: a line, its q/p its 1/p (an unmeasured one, below).
   bool neutral = false;
   /// A particle not seen at all (a neutrino, a photon, a pi0 as a whole),
   /// neutral: no measurement, its momentum fitted through the constraints
@@ -153,13 +148,6 @@ struct DecayVertexFitResult {
   std::vector<std::array<double, 9>> carriedCovariance;
   /// The material [x/X0] each daughter's last carry crossed.
   std::vector<double> carryX2X0;
-  /// Per daughter: the first vertex's derivatives by its measurement (the
-  /// five parameters on its plane), 3 x 5: how a pseudo-track's errors reach
-  /// its parent's vertex.
-  std::vector<std::array<double, 15>> vertexGain;
-  /// With a `LinePosition` constraint: the parameters' (as `covariance`)
-  /// derivatives by its s.
-  std::vector<double> positionSensitivity;
 };
 
 namespace decay_fit_detail
@@ -188,7 +176,7 @@ template <typename Evaluate, typename ConstraintsAt>
   using namespace decay_fit_detail;
   std::vector<double> normal(static_cast<std::size_t>(n * n));
   std::vector<double> gradient(static_cast<std::size_t>(n));
-  std::vector<double> factor;
+  Eigen::LLT<RowMatrix> llt;
   std::vector<double> step;
   std::vector<double> multipliers;
   std::vector<double> trial(static_cast<std::size_t>(n));
@@ -213,7 +201,7 @@ template <typename Evaluate, typename ConstraintsAt>
       if (!constraintsAt(parameters)) {
         return DecayFitStatus::kNoCrossing;
       }
-      if (!constrainedStep(normal, n, gradient, rows, values, step, nullptr, nullptr, &multipliers)) {
+      if (!constrainedStep(normal, n, gradient, rows, values, step, nullptr, &multipliers)) {
         return DecayFitStatus::kSingular;
       }
       for (std::size_t j = 0; j < multipliers.size(); ++j) {
@@ -222,11 +210,10 @@ template <typename Evaluate, typename ConstraintsAt>
       }
       violation = violationOf();
     } else {
-      factor = normal;
-      if (!cholesky(factor, n)) {
+      if (!factorise(llt, matrixOf(normal, n, n))) {
         return DecayFitStatus::kSingular;
       }
-      choleskySolve(factor, n, step);
+      vectorOf(step) = llt.solve(vectorOf(gradient));
     }
     metric = (mu * violation) - lambdaC;
     for (int a = 0; a < n; ++a) {
@@ -445,83 +432,6 @@ template <typename Evaluate, typename ConstraintsAt>
 }
 
 } // namespace decay_fit_detail
-
-/// A composite fitted before (\a fit, a one-vertex fit) as a pseudo-track of
-/// mass \a mass and \a charge, for the next level's fit: on the plane
-/// through its vertex along the beam, normal to its momentum's transverse
-/// direction, loc0 0, loc1 the vertex's z, the summed momentum's phi, theta
-/// and charge / p (1/p if neutral); their covariance the fit's carried by
-/// forward differentiation (its \a jacobian, 5 x the fit's parameters, if
-/// asked). A neutral one flies in a line (\a propagator's field set to
-/// none) and is not carried; a charged one is carried with its material as
-/// any daughter.
-[[nodiscard]] inline DecayDaughter pseudoTrackOf(const DecayVertexFitResult& fit, double mass, double charge, Propagator propagator, std::vector<double>* jacobian = nullptr)
-{
-  using namespace decay_fit_detail;
-  using D = Dual<kConstraintInputs>;
-  const int count = static_cast<int>(fit.momenta.size());
-  const int n = 3 + (3 * count);
-  std::array<D, 3> total{};
-  for (int i = 0; i < count; ++i) {
-    std::array<D, 3> q{};
-    for (int c = 0; c < 3; ++c) {
-      q[c].v = fit.momenta[i][c];
-      q[c].d[3 + (3 * i) + c] = 1.;
-    }
-    const double numerator = i < static_cast<int>(fit.charges.size()) && fit.charges[i] != 0. ? std::abs(fit.charges[i]) : 1.;
-    const D p = D{q[2].v > 0. ? numerator : -numerator} / q[2];
-    const D pt = p * sin(q[1]);
-    total[0] = total[0] + (pt * cos(q[0]));
-    total[1] = total[1] + (pt * sin(q[0]));
-    total[2] = total[2] + (p * cos(q[1]));
-  }
-  const D pt = sqrt((total[0] * total[0]) + (total[1] * total[1]));
-  const D p = sqrt((pt * pt) + (total[2] * total[2]));
-  const D phi = atan2(total[1], total[0]);
-  const D theta = atan2(pt, total[2]);
-  const D inverse = D{charge != 0. ? charge : 1.} / p;
-  // loc0, loc1 where the line through the vertex crosses the plane through
-  // its transverse point (normal n along its transverse direction): a shift
-  // of the vertex along axis0 moves loc0; along n it slides the crossing
-  // along the line, z by -cot(theta) per unit, which leaves loc0.
-  const double cotTheta = std::cos(theta.v) / std::sin(theta.v);
-  D loc0{};
-  loc0.d[0] = -std::sin(phi.v);
-  loc0.d[1] = std::cos(phi.v);
-  D loc1{fit.vertex[2]};
-  loc1.d[0] = -cotTheta * std::cos(phi.v);
-  loc1.d[1] = -cotTheta * std::sin(phi.v);
-  loc1.d[2] = 1.;
-  const std::array<D, 5> state{loc0, loc1, phi, theta, inverse};
-  DecayDaughter daughter{.propagator = propagator, .mass = mass, .neutral = charge == 0.};
-  if (daughter.neutral) {
-    daughter.propagator.bzKiloGauss = 0.F;
-  }
-  daughter.propagator.massGeV = static_cast<Scalar>(mass);
-  daughter.surface = beamLinePlane(static_cast<Scalar>(fit.vertex[0]), static_cast<Scalar>(fit.vertex[1]), static_cast<Scalar>(phi.v));
-  for (int r = 0; r < 5; ++r) {
-    daughter.innermost.par[r] = static_cast<Scalar>(state[r].v);
-    for (int c = 0; c <= r; ++c) {
-      double value = 0.;
-      for (int a = 0; a < n; ++a) {
-        for (int b = 0; b < n; ++b) {
-          value += state[r].d[a] * fit.covariance[(a * n) + b] * state[c].d[b];
-        }
-      }
-      daughter.innermost.covAt(r, c) = static_cast<Scalar>(value);
-    }
-  }
-  daughter.innermost.surface = daughter.surface.id;
-  if (jacobian != nullptr) {
-    jacobian->assign(static_cast<std::size_t>(5 * n), 0.);
-    for (int r = 0; r < 5; ++r) {
-      for (int a = 0; a < n; ++a) {
-        (*jacobian)[(r * n) + a] = state[r].d[a];
-      }
-    }
-  }
-  return daughter;
-}
 
 /// An unseen neutral's starts for the missing-momentum fit, from the fit of
 /// the visible daughters (\a visible, its momenta with \a masses): the
@@ -820,7 +730,7 @@ template <typename Material>
         state[c] = begin[c].v;
       }
       const int rows = static_cast<int>(chain.loss.size());
-      const bool scatters = variant != DecayFitVariant::kNoMaterial && chain.charge != 0.;
+      const bool scatters = chain.charge != 0.;
       const int planes = rows + (chain.end != -2 ? 1 : 0);
       std::array<double, 3> end{};
       if (chain.end != -2) {
@@ -988,23 +898,20 @@ template <typename Material>
         continue;
       }
       const int w = topology.vertexOfDaughter(i);
-      // A neutral pseudo-track is measured on its own plane: a line without
-      // material, which the prediction reaches exactly; nothing to carry.
-      const auto plane = daughter.neutral ? daughter.surface : detail::hypothesis::perigeePlaneOf(daughter.propagator, daughter.innermost, daughter.surface, static_cast<Scalar>(at[3 * w]), static_cast<Scalar>(at[(3 * w) + 1]));
+      const auto plane = detail::hypothesis::perigeePlaneOf(daughter.propagator, daughter.innermost, daughter.surface, static_cast<Scalar>(at[3 * w]), static_cast<Scalar>(at[(3 * w) + 1]));
       BoundTrackState state = daughter.innermost;
       auto factors = factorCovariance(state.cov);
       PropagationStatus status = PropagationStatus::kOk;
-      const bool bare = variant == DecayFitVariant::kNoMaterial || daughter.neutral;
-      result.carryX2X0[i] = bare ? 0. : detail::hypothesis::segmentRadiation(daughter.propagator, material, daughter.innermost, daughter.surface, plane);
+      result.carryX2X0[i] = detail::hypothesis::segmentRadiation(daughter.propagator, material, daughter.innermost, daughter.surface, plane);
       if (daughter.mixture) {
         // The electron: its mixture branched by the segment's radiation, every
         // component carried, the collapse on the plane.
         auto mixture = *daughter.mixture;
-        if (variant != DecayFitVariant::kNoMaterial && (!(result.carryX2X0[i] >= 0.) || !detail::gsf::takeRadiation<BetheHeitlerLoss>(static_cast<Scalar>(result.carryX2X0[i]), PropagationDirection::kBackward, mixture))) {
+        if (!(result.carryX2X0[i] >= 0.) || !detail::gsf::takeRadiation<BetheHeitlerLoss>(static_cast<Scalar>(result.carryX2X0[i]), PropagationDirection::kBackward, mixture)) {
           return DecayFitStatus::kCarryFailed;
         }
         status = detail::gsf::stepEach(mixture, [&](GSFComponent<CovarianceFactors>& component) {
-          return variant == DecayFitVariant::kNoMaterial ? detail::hypothesis::carryInward(daughter.propagator, o2::gtrk::detail::GivenMaterial{}, daughter.surface, plane, component.state, component.factors) : detail::hypothesis::carryInward(daughter.propagator, material, daughter.surface, plane, component.state, component.factors);
+          return detail::hypothesis::carryInward(daughter.propagator, material, daughter.surface, plane, component.state, component.factors);
         });
         if (status != PropagationStatus::kOk || mixture.size == 0) {
           return DecayFitStatus::kCarryFailed;
@@ -1023,51 +930,36 @@ template <typename Material>
         }
         for (int j = 0; j < mixture.size; ++j) {
           const auto& one = mixture.components[j].state;
-          std::vector<double> factor(25);
-          for (int r = 0; r < 5; ++r) {
-            for (int c = 0; c < 5; ++c) {
-              factor[r * 5 + c] = one.covAt(r, c);
-            }
-          }
-          if (!cholesky(factor, 5)) {
+          Eigen::LLT<RowMatrix> llt;
+          if (!factorise(llt, covarianceOf(one))) {
             continue; // a component without a covariance is no measurement
           }
           Component component{.logWeight = static_cast<double>(mixture.components[j].logWeight) - largest - std::log(total)};
           component.measurement.plane = perigeePlaneFrame(plane);
           for (int r = 0; r < 5; ++r) {
             component.measurement.value[r] = one.par[r];
-            component.logDetCovariance += 2. * std::log(factor[r * 5 + r]);
           }
-          std::ranges::copy(choleskyInverse(factor, 5), component.measurement.weight.begin());
+          component.logDetCovariance = logDeterminant(llt);
+          weightOf(llt, component.measurement.weight);
           kept.push_back(component);
         }
-      } else if (!daughter.neutral) {
-        if (bare) {
-          status = detail::hypothesis::carryInward(daughter.propagator, o2::gtrk::detail::GivenMaterial{}, daughter.surface, plane, state, factors);
-        } else {
-          status = detail::hypothesis::carryInward(daughter.propagator, material, daughter.surface, plane, state, factors);
-        }
+      } else {
+        status = detail::hypothesis::carryInward(daughter.propagator, material, daughter.surface, plane, state, factors);
         if (status != PropagationStatus::kOk) {
           return DecayFitStatus::kCarryFailed;
         }
         covarianceFromFactors(factors, state.cov);
       }
-      std::vector<double> covariance(25);
-      for (int r = 0; r < 5; ++r) {
-        for (int c = 0; c < 5; ++c) {
-          covariance[r * 5 + c] = state.covAt(r, c);
-        }
-      }
-      if (!cholesky(covariance, 5)) {
+      Eigen::LLT<RowMatrix> llt;
+      if (!factorise(llt, covarianceOf(state))) {
         return DecayFitStatus::kSingular;
       }
-      const auto inverse = choleskyInverse(covariance, 5);
       auto& m = measurements[i];
       m.plane = perigeePlaneFrame(plane);
       for (int r = 0; r < 5; ++r) {
         m.value[r] = state.par[r];
       }
-      std::ranges::copy(inverse, m.weight.begin());
+      weightOf(llt, m.weight);
       result.carried[i] = {state.phi(), state.theta(), state.qOverP()};
       for (int r = 0; r < 3; ++r) {
         for (int c = 0; c < 3; ++c) {
@@ -1102,10 +994,6 @@ template <typename Material>
 
   // The chi2 at \a p and, with \a normal and \a gradient, the normal
   // equations' matrix and right-hand side; false if a helix misses its plane.
-  // Each daughter's prediction's derivatives (5 x its 6 parameters) and
-  // their indices, kept at the last evaluation for the vertex's gains.
-  std::vector<std::array<double, 30>> jacobians(static_cast<std::size_t>(count));
-  std::vector<std::array<int, 6>> jacobianIndex(static_cast<std::size_t>(count));
   constexpr double kEpsilon = std::numeric_limits<Scalar>::epsilon(); // the measurements' precision
   const auto evaluate = [&](const std::vector<double>& p, double& chi2, double& rounding, std::vector<double>* normal, std::vector<double>* gradient) {
     chi2 = 0.;
@@ -1142,12 +1030,6 @@ template <typename Material>
       for (int r = 0; r < 5; ++r) {
         rounding += std::pow(kEpsilon * measurements[i].value[r], 2) * weight[r * 5 + r];
       }
-      for (int r = 0; r < 5; ++r) {
-        for (int a = 0; a < kDerivatives; ++a) {
-          jacobians[i][r * 6 + a] = predicted[r].d[a];
-        }
-      }
-      jacobianIndex[i] = index;
       std::array<double, 5> weighted{};
       for (int r = 0; r < 5; ++r) {
         for (int c = 0; c < 5; ++c) {
@@ -1228,7 +1110,6 @@ template <typename Material>
 
   // The constraints' values and rows at \a p.
   const bool constrained = constraints.count(topology) > 0 || chainCount > 0;
-  int positionRow = -1; // a `LinePosition`'s equation
   std::vector<double> masses(static_cast<std::size_t>(count));
   for (int i = 0; i < count; ++i) {
     masses[i] = daughters[i].mass;
@@ -1249,7 +1130,6 @@ template <typename Material>
     if (!evaluateConstraints(constraints, topology, vertices, momenta, masses, charges, physicalField, values, coreRows)) {
       return false;
     }
-    positionRow = constraints.position ? static_cast<int>(values.size()) - 1 : -1;
     scattered.row = static_cast<int>(values.size());
     if (chainCount > 0 && !chainEquations(p, values, coreRows)) {
       return false;
@@ -1267,7 +1147,6 @@ template <typename Material>
 
   std::vector<double> normal(static_cast<std::size_t>(n * n));
   std::vector<double> gradient(static_cast<std::size_t>(n));
-  std::vector<double> factor;
   double chi2 = 0.;
   int measured = 0;
   for (const auto& daughter : daughters) {
@@ -1276,8 +1155,7 @@ template <typename Material>
   const int ndf = measured - (3 * k) + constraints.count(topology) + (2 * chainRows);
   // The carried measurements are the model: minimised under them, carried
   // anew to the planes about the solution, until a carry no longer moves the
-  // solution by what the inputs resolve (the minimiser takes no step); once
-  // under kCarryOnce.
+  // solution by what the inputs resolve (the minimiser takes no step).
 
   double mu = 0.;
   double metric = 0.;
@@ -1288,11 +1166,6 @@ template <typename Material>
   result.status = DecayFitStatus::kNotConverged;
   for (int outer = 0; outer < kMaxSteps; ++outer) {
     if (outer != 0) {
-      if (variant == DecayFitVariant::kCarryOnce) {
-        result.status = DecayFitStatus::kOk;
-        result.stopReason = 1U;
-        break;
-      }
       if (const auto status = carry(parameters); status != DecayFitStatus::kOk) {
         result.status = status;
         return result;
@@ -1340,28 +1213,19 @@ template <typename Material>
     result.status = DecayFitStatus::kNoCrossing;
     return result;
   }
-  factor = normal;
-  if (!constrained && !cholesky(factor, n)) {
-    result.status = DecayFitStatus::kSingular;
-    return result;
-  }
   if (constrained) {
     std::vector<double> unused;
-    std::vector<double> sensitivity;
-    if (!constraintsAt(parameters) || !constrainedStep(normal, n, gradient, rows, values, unused, &result.covariance, &sensitivity)) {
+    if (!constraintsAt(parameters) || !constrainedStep(normal, n, gradient, rows, values, unused, &result.covariance)) {
       result.status = DecayFitStatus::kSingular;
       return result;
     }
-    if (constraints.position) {
-      // the position's row (`positionRow`)
-      const int m = static_cast<int>(values.size());
-      result.positionSensitivity.resize(static_cast<std::size_t>(n));
-      for (int r = 0; r < n; ++r) {
-        result.positionSensitivity[r] = sensitivity[r * m + positionRow];
-      }
-    }
   } else {
-    result.covariance = choleskyInverse(factor, n);
+    Eigen::LLT<RowMatrix> llt;
+    if (!factorise(llt, matrixOf(normal, n, n))) {
+      result.status = DecayFitStatus::kSingular;
+      return result;
+    }
+    result.covariance = inverseOf(llt, n);
   }
   // The Gaussian sum: the electrons' carried mixtures kept, a fit per
   // combination of their components (one each) from this solution under this
@@ -1410,30 +1274,17 @@ template <typename Material>
           if (ok && constrained) {
             std::vector<double> unused;
             double logKKT = 0.;
-            ok = constraintsAt(fit.parameters) && constrainedStep(matrix, n, rhs, rows, values, unused, &fit.covariance, nullptr, nullptr, &logKKT);
-            const int m = static_cast<int>(values.size());
-            std::vector<double> ccT(static_cast<std::size_t>(m * m), 0.);
-            for (int a = 0; a < m; ++a) {
-              for (int b = 0; b < m; ++b) {
-                for (int c = 0; c < n; ++c) {
-                  ccT[a * m + b] += rows[a * n + c] * rows[b * n + c];
-                }
-              }
-            }
-            ok = ok && cholesky(ccT, m);
-            double logCCT = 0.;
-            for (int a = 0; ok && a < m; ++a) {
-              logCCT += 2. * std::log(ccT[a * m + a]);
-            }
-            logVolume = logKKT - logCCT;
+            ok = constraintsAt(fit.parameters) && constrainedStep(matrix, n, rhs, rows, values, unused, &fit.covariance, nullptr, &logKKT);
+            const auto c = matrixOf(rows, static_cast<int>(values.size()), n);
+            Eigen::LLT<RowMatrix> llt;
+            ok = ok && factorise(llt, c * c.transpose());
+            logVolume = ok ? logKKT - logDeterminant(llt) : 0.;
           } else if (ok) {
-            auto chol = matrix;
-            ok = cholesky(chol, n);
-            for (int a = 0; ok && a < n; ++a) {
-              logVolume += 2. * std::log(chol[a * n + a]);
-            }
+            Eigen::LLT<RowMatrix> llt;
+            ok = factorise(llt, matrixOf(matrix, n, n));
             if (ok) {
-              fit.covariance = choleskyInverse(chol, n);
+              logVolume = logDeterminant(llt);
+              fit.covariance = inverseOf(llt, n);
             }
           }
           if (ok) {
@@ -1497,27 +1348,6 @@ template <typename Material>
       result.momenta[i][c] = parameters[(3 * k) + (3 * i) + c];
     }
   }
-  // Each daughter's gain on the first vertex: d V_0 / d m_i = (C J_i^T W_i)
-  // over V_0's rows, with the constrained covariance under constraints.
-  result.vertexGain.assign(static_cast<std::size_t>(count), {});
-  for (int i = 0; i < count; ++i) {
-    const auto& weight = measurements[i].weight;
-    for (int v = 0; v < 3; ++v) {
-      std::array<double, 5> cj{}; // (C J^T)_{v, s}
-      for (int sIndex = 0; sIndex < 5; ++sIndex) {
-        for (int a = 0; a < 6; ++a) {
-          cj[sIndex] += result.covariance[(v * n) + jacobianIndex[i][a]] * jacobians[i][(sIndex * 6) + a];
-        }
-      }
-      for (int r = 0; r < 5; ++r) {
-        double g = 0.;
-        for (int sIndex = 0; sIndex < 5; ++sIndex) {
-          g += cj[sIndex] * weight[(sIndex * 5) + r];
-        }
-        result.vertexGain[i][(v * 5) + r] = g;
-      }
-    }
-  }
   // The vertices' and momenta's block: the nuisances left out.
   if (n != core) {
     std::vector<double> block(static_cast<std::size_t>(core * core));
@@ -1525,9 +1355,6 @@ template <typename Material>
       std::copy_n(result.covariance.begin() + (a * n), core, block.begin() + (a * core));
     }
     result.covariance = std::move(block);
-    if (!result.positionSensitivity.empty()) {
-      result.positionSensitivity.resize(static_cast<std::size_t>(core));
-    }
   }
   result.chi2 = chi2;
   result.ndf = ndf;
