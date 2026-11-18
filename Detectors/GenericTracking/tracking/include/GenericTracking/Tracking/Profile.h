@@ -105,6 +105,7 @@ enum class Phase : std::uint8_t { kRun,
                                   kTrackletPaths,
                                   kTripletPaths,
                                   kLengthCut,
+                                  kOverlapPartners,
                                   kCommit,
                                   kCount,
                                   kNone };

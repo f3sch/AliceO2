@@ -284,6 +284,42 @@ struct LayerRowReferences {
   }
 };
 
+/// The references of a track's inline rows and of its overlap partners
+/// (OverlapPartners.h), merged in path order: for each row, its partners
+/// before it, the row, its partners after it. \a offsets and \a partners
+/// are per track from \a first, the first of the tracks committed with them.
+template <std::size_t K, typename Partner>
+struct PartneredReferences {
+  LayerRowReferences<K> rows;
+  std::uint32_t first = 0U;
+  const std::uint32_t* offsets = nullptr;
+  const Partner* partners = nullptr;
+
+  [[nodiscard]] GPUhdi() std::uint32_t references(std::uint32_t track) const { return rows.references(track) + offsets[track - first + 1U] - offsets[track - first]; }
+
+  template <typename View>
+  GPUhdi() void write(std::uint32_t track, const View& out, std::uint32_t at) const
+  {
+    const auto emit = [&](std::uint32_t row, ReferenceRole role) {
+      out.row[at] = row;
+      out.source[at] = kOwnRows;
+      out.role[at] = static_cast<std::uint8_t>(role);
+      ++at;
+    };
+    std::uint32_t next = offsets[track - first];
+    const std::uint32_t end = offsets[track - first + 1U];
+    for (std::uint32_t k = 0; k < rows.count[track]; ++k) {
+      for (; next < end && partners[next].layerRow == k && partners[next].ahead == 0U; ++next) {
+        emit(partners[next].row, ReferenceRole::kOverlapPartner);
+      }
+      emit(rows.clusters[track].index[k], ReferenceRole::kLayerRow);
+      for (; next < end && partners[next].layerRow == k; ++next) {
+        emit(partners[next].row, ReferenceRole::kOverlapPartner);
+      }
+    }
+  }
+};
+
 /// The timeframe's committed tracks, \a Det's (see the file's comment): the
 /// tracker commits each iteration's tracks once its follow and length cut are
 /// done, and again any that a later step changed in place.
@@ -336,7 +372,8 @@ class TrackStore
   [[nodiscard]] std::size_t size() const { return mTracks; }
   [[nodiscard]] const TrackColumns& tracks() const { return mTrackColumns; }
   /// \a track's rows in its own detector's frame, in path order: its
-  /// references' rows, every reference being one of the tracker's rows.
+  /// references' rows -- its layers' and its overlap partners -- every
+  /// reference being one of the tracker's rows.
   [[nodiscard]] std::span<const std::uint32_t> rows(std::size_t track) const
   {
     const auto range = mReferences.range(track);
@@ -399,22 +436,19 @@ class TrackStore
   template <typename ForEach>
   [[nodiscard]] StageStatus commit(const ForEach& forEach, std::uint32_t chunk, const Tracks& tracks)
   {
-    assert(tracks.size() >= mTracks);
-    const auto begin = static_cast<std::uint32_t>(mTracks);
-    const auto n = static_cast<std::uint32_t>(tracks.size() - mTracks);
-    const auto status = guardOutOfMemory([&] {
-      grow(tracks.size());
-      return StageStatus::kComplete;
-    });
-    if (status != StageStatus::kComplete) {
-      return status;
-    }
     const auto view = tracks.view();
-    const auto committed = mTrackColumns.view();
-    forEach(n, [&](std::uint32_t i) { copyTrackFields(view, begin + i, committed, begin + i); });
-    const LayerRowReferences<kMaxClusters> rows{.clusters = view.clusters, .count = view.count};
-    return mReferences.append(
-      forEach, chunk, n, [begin](std::uint32_t i) { return begin + i; }, [&](std::uint32_t i) { return rows.references(begin + i); }, [&](std::uint32_t i, const auto& out, std::uint32_t at) { rows.write(begin + i, out, at); });
+    return commitWith(forEach, chunk, tracks, LayerRowReferences<kMaxClusters>{.clusters = view.clusters, .count = view.count});
+  }
+
+  /// The same, with their overlap partners (OverlapPartners.h): per track
+  /// from the first not committed yet, \a offsets where its \a partners
+  /// begin, one more than the tracks; each track's in path order.
+  template <typename ForEach, typename Partner>
+  [[nodiscard]] StageStatus commit(const ForEach& forEach, std::uint32_t chunk, const Tracks& tracks, std::span<const std::uint32_t> offsets, std::span<const Partner> partners)
+  {
+    assert(offsets.size() == tracks.size() - mTracks + 1U);
+    const auto view = tracks.view();
+    return commitWith(forEach, chunk, tracks, PartneredReferences<kMaxClusters, Partner>{.rows = {.clusters = view.clusters, .count = view.count}, .first = static_cast<std::uint32_t>(mTracks), .offsets = offsets.data(), .partners = partners.data()});
   }
 
   /// The committed tracks as \a tracks holds them after a step changed them
@@ -441,8 +475,8 @@ class TrackStore
   }
 
   /// Whether the committed tracks are \a tracks: the same fields, bit for
-  /// bit, and as references its rows in order, each its own detector's and
-  /// held as its layer's.
+  /// bit, and as the references held as their layers' its rows in order,
+  /// each its own detector's.
   [[nodiscard]] bool holds(const Tracks& tracks) const
   {
     if (tracks.size() != mTracks || mReferences.trackCount() != mTracks) {
@@ -519,22 +553,24 @@ class TrackStore
   /// The pool, or the default resource before one is set.
   [[nodiscard]] std::pmr::memory_resource* resource() const noexcept { return mMemoryPool ? static_cast<std::pmr::memory_resource*>(mMemoryPool.get()) : std::pmr::get_default_resource(); }
 
-  /// Whether \a track's references are its rows in \a view.
+  /// Whether \a track's references held as its layers' are its rows in
+  /// \a view, in order, its own detector's.
   template <typename View>
   [[nodiscard]] bool holdsRows(const View& view, std::size_t track) const
   {
     const auto range = mReferences.range(track);
-    if (range.count != view.count[track]) {
-      return false;
-    }
     const auto references = mReferences.view().records;
-    for (std::uint32_t k = 0; k < range.count; ++k) {
-      const auto at = range.first + k;
-      if (references.row[at] != view.clusters[track].index[k] || references.source[at] != kOwnRows || references.role[at] != static_cast<std::uint8_t>(ReferenceRole::kLayerRow)) {
+    std::uint32_t k = 0;
+    for (std::uint32_t at = range.first; at < range.first + range.count; ++at) {
+      if ((references.role[at] & static_cast<std::uint8_t>(ReferenceRole::kLayerRow)) == 0U) {
+        continue;
+      }
+      if (k == view.count[track] || references.row[at] != view.clusters[track].index[k] || references.source[at] != kOwnRows) {
         return false;
       }
+      ++k;
     }
-    return true;
+    return k == view.count[track];
   }
 
   /// Whether \a track's fields are those of \a view's track, bit for bit.
@@ -548,6 +584,27 @@ class TrackStore
     bool same = true;
     mine.apply([&](const auto&... a) { theirs.apply([&](const auto&... b) { ((same = same && std::memcmp(&a, &b, sizeof(a)) == 0), ...); }); });
     return same;
+  }
+
+  /// `commit` with \a references, which counts and writes each track's.
+  template <typename ForEach, typename References>
+  [[nodiscard]] StageStatus commitWith(const ForEach& forEach, std::uint32_t chunk, const Tracks& tracks, const References& references)
+  {
+    assert(tracks.size() >= mTracks);
+    const auto begin = static_cast<std::uint32_t>(mTracks);
+    const auto n = static_cast<std::uint32_t>(tracks.size() - mTracks);
+    const auto status = guardOutOfMemory([&] {
+      grow(tracks.size());
+      return StageStatus::kComplete;
+    });
+    if (status != StageStatus::kComplete) {
+      return status;
+    }
+    const auto view = tracks.view();
+    const auto committed = mTrackColumns.view();
+    forEach(n, [&](std::uint32_t i) { copyTrackFields(view, begin + i, committed, begin + i); });
+    return mReferences.append(
+      forEach, chunk, n, [begin](std::uint32_t i) { return begin + i; }, [&](std::uint32_t i) { return references.references(begin + i); }, [&](std::uint32_t i, const auto& out, std::uint32_t at) { references.write(begin + i, out, at); });
   }
 
   void grow(std::size_t tracks)
@@ -581,8 +638,8 @@ template <typename Columns>
 }
 
 /// \a store's tracks as the tracker builds them (`TrackOf`), on \a resource:
-/// the fields, each track's rows inline and the slots after them
-/// `kNoCluster`. For what reads that layout -- the digests, a comparison with
+/// the fields, each track's layer rows inline and the slots after them
+/// `kNoCluster`; its other references are not in the layout. For what reads that layout -- the digests, a comparison with
 /// a device's tracks; std::length_error for a track with more rows than the
 /// layout holds.
 template <DetectorLayout Det>
@@ -596,13 +653,20 @@ template <DetectorLayout Det>
   const auto committed = store.tracks().view();
   for (std::size_t track = 0; track < store.size(); ++track) {
     copyTrackFields<true>(view, track, committed, track);
-    const auto rows = store.rows(track);
-    if (rows.size() > K) {
-      throw std::length_error("a committed track with more rows than a chain holds");
-    }
     std::fill(std::begin(view.clusters[track].index), std::end(view.clusters[track].index), ClusterList<K>::kNoCluster);
-    std::copy(rows.begin(), rows.end(), view.clusters[track].index);
-    view.count[track] = static_cast<std::uint8_t>(rows.size());
+    const auto range = store.references().range(track);
+    const auto references = store.references().view().records;
+    std::uint8_t count = 0U;
+    for (std::uint32_t at = range.first; at < range.first + range.count; ++at) {
+      if ((references.role[at] & static_cast<std::uint8_t>(ReferenceRole::kLayerRow)) == 0U) {
+        continue;
+      }
+      if (count == K) {
+        throw std::length_error("a committed track with more layer rows than a chain holds");
+      }
+      view.clusters[track].index[count++] = references.row[at];
+    }
+    view.count[track] = count;
   }
   return tracks;
 }

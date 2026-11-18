@@ -65,6 +65,16 @@ struct NoFitObserver {
   GPUhdi() GPUAlwaysInline() void operator()(PropagationDirection /*direction*/, int /*index*/, Scalar /*chi2*/) const {}
 };
 
+/// An observer that also takes each pass's filtered state on every
+/// measurement once the pass has determined it -- from the start's last
+/// measurement on (`startPass`) -- with its covariance's factors:
+/// `observer.state(direction, index, state, factors)`. Only such an observer
+/// compiles the call; `NoFitObserver` does not.
+template <typename Observer>
+concept ObservesFitStates = requires(const Observer& observer, PropagationDirection direction, int index, const BoundParameters& state, const CovarianceFactors& factors) {
+  observer.state(direction, index, state, factors);
+};
+
 namespace detail
 {
 
@@ -240,6 +250,9 @@ GPUdi() PropagationStatus startPass(const Prop& prop, const TrackingGeometry<Det
     return PropagationStatus::kNotFinite;
   }
   factors = c.star;
+  if constexpr (ObservesFitStates<Observer>) {
+    observe.state(direction, first + ((taken - 1) * increment), state, factors);
+  }
   return PropagationStatus::kOk;
 }
 
@@ -281,6 +294,9 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
       kinkMeasurement = static_cast<std::int16_t>(index);
     }
     observe(direction, index, chi2 - before);
+    if constexpr (ObservesFitStates<Observer>) {
+      observe.state(direction, index, state, factors);
+    }
   }
   covarianceFromFactors(factors, state.cov);
   result = state;

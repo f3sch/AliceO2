@@ -456,6 +456,9 @@ class TrackingInterface
   /// the first timeframe and on every new beam line.
   void configureDevice(const std::vector<IterationSettings>& settings)
   {
+    if (std::ranges::any_of(settings, [](const auto& iteration) { return iteration.overlapPartners; })) {
+      throw std::invalid_argument("iterationOverlapPartners: the device tracker does not attach overlap partners yet");
+    }
     if (!mDevice) {
       mDevice = mContext->runtime().makeTracker<Det>(DeviceBlock{});
       mDevicePool = trackerMemoryPool(recoParam<Det>());

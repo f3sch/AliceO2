@@ -19,6 +19,7 @@
 #define BOOST_TEST_MODULE Test GTRK TrackStore
 #include <boost/test/unit_test.hpp>
 
+#include "GenericTracking/Tracking/OverlapPartners.h"
 #include "GenericTracking/Tracking/TrackStore.h"
 
 #include "ToyBarrel8Fixture.h"
@@ -27,6 +28,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -227,6 +229,36 @@ BOOST_AUTO_TEST_CASE(AnAddedTableGrowsWithTheCommittedTracks)
   const auto tof = store.addSource("TOF");
   BOOST_TEST(tof == 1U);
   BOOST_TEST(store.sourceName(tof) == "TOF");
+}
+
+/// Tracks committed with overlap partners: each partner beside its row on
+/// the same layer, before or after it as it lies along the track, held as a
+/// partner; the layer rows still the tracks' own rows (`holds`), the tracker's
+/// layout without the partners (`inlineTracks`), `rows` with them.
+BOOST_AUTO_TEST_CASE(PartnersGoBesideTheirRows)
+{
+  Store store;
+  Tracks tracks;
+  appendTracks(tracks, {2U, 3U});
+  BOOST_REQUIRE(store.commit(serial, 2U, tracks) == StageStatus::kComplete);
+  appendTracks(tracks, {3U, 2U});
+  // Track 2 (rows 200-202): a partner after row 0 and one before row 2;
+  // track 3 none.
+  const std::vector<std::uint32_t> offsets{0U, 2U, 2U};
+  const std::vector<OverlapPartner> partners{{.row = 9000U, .layerRow = 0U, .ahead = 1U}, {.row = 9001U, .layerRow = 2U, .ahead = 0U}};
+  BOOST_REQUIRE(store.commit(serial, 2U, tracks, std::span<const std::uint32_t>{offsets}, std::span<const OverlapPartner>{partners}) == StageStatus::kComplete);
+  const auto rows = store.rows(2);
+  BOOST_TEST((std::vector<std::uint32_t>(rows.begin(), rows.end()) == std::vector<std::uint32_t>{200U, 9000U, 201U, 9001U, 202U}));
+  const std::vector<std::uint8_t> roles{1U, 2U, 1U, 2U, 1U};
+  for (std::uint32_t k = 0; k < 5U; ++k) {
+    BOOST_TEST(store.references().read(2, k).role == static_cast<std::uint8_t>(roles[k] == 1U ? ReferenceRole::kLayerRow : ReferenceRole::kOverlapPartner));
+  }
+  BOOST_TEST(store.rows(3).size() == 2U);
+  BOOST_TEST(store.holds(tracks));
+  const auto inline_ = inlineTracks(store, std::pmr::get_default_resource());
+  BOOST_TEST(inline_.view().count[2] == 3U);
+  BOOST_TEST(inline_.view().clusters[2].index[1] == 201U);
+  BOOST_TEST(inline_.view().clusters[2].index[3] == ClusterList<K>::kNoCluster);
 }
 
 /// A new timeframe starts with no tracks in any table, the tables still

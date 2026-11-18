@@ -172,6 +172,7 @@ inline void checkRecoParam(const RecoSettings& param)
   check("iterationFollow", param.iterationFollow.size(), 1U);
   check("iterationFollowHoles", param.iterationFollowHoles.size(), 1U);
   check("iterationFollowEnd", param.iterationFollowEnd.size(), 1U);
+  check("iterationOverlapPartners", param.iterationOverlapPartners.size(), 1U);
   check("iterationInnerTrim", param.iterationInnerTrim.size(), 1U);
   check("iterationCrossingRule", param.iterationCrossingRule.size(), 1U);
   check("iterationFollowPrefix", param.iterationFollowPrefix.size(), 1U);
@@ -264,6 +265,7 @@ inline void checkRecoParam(const RecoSettings& param)
     .follow = follow,
     .followHoles = followHoles,
     .followEnd = followEnd,
+    .overlapPartners = flag(param.iterationOverlapPartners, defaults.overlapPartners),
     .innerTrim = innerTrim,
     .crossingRule = static_cast<CrossingRule>(crossingRule),
     .followPrefix = flag(param.iterationFollowPrefix, defaults.followPrefix),

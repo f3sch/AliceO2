@@ -32,10 +32,12 @@
 #include "GenericTracking/Tracking/TrackStore.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory_resource>
 #include <span>
 #include <type_traits>
@@ -162,6 +164,53 @@ void addSummaries(Digest& digest, const Result& result)
   }
 }
 
+/// \a store's references other than its tracks' layer rows (overlap
+/// partners, other sources) into \a digest, where it has any -- nothing
+/// otherwise, so that a run without them digests as before: per such
+/// reference its track, row, source and role, in track order, or with
+/// \a inClusters as cluster indices of \a frame and sorted, with the track
+/// named by its first row's cluster, which no track order changes.
+template <DetectorLayout Det>
+void addOtherReferences(Digest& digest, const TrackStore<Det>& store, const TimeFrame<Det>* inClusters = nullptr)
+{
+  const auto& references = store.references();
+  const auto view = references.view().records;
+  std::vector<std::array<std::uint32_t, 4>> others;
+  for (std::size_t track = 0; track < store.size(); ++track) {
+    const auto range = references.range(track);
+    const std::size_t mine = others.size();
+    std::uint32_t firstRow = 0U;
+    bool haveFirst = false;
+    for (std::uint32_t at = range.first; at < range.first + range.count; ++at) {
+      if ((view.role[at] & static_cast<std::uint8_t>(ReferenceRole::kLayerRow)) != 0U && view.source[at] == kOwnRows) {
+        if (!haveFirst) {
+          firstRow = view.row[at];
+          haveFirst = true;
+        }
+        continue;
+      }
+      others.push_back({static_cast<std::uint32_t>(track), view.row[at], view.source[at], view.role[at]});
+    }
+    if (inClusters != nullptr) {
+      const auto columns = inClusters->measurements();
+      for (std::size_t at = mine; at < others.size(); ++at) {
+        others[at][0] = haveFirst ? columns.clusterIndex[firstRow] : std::numeric_limits<std::uint32_t>::max();
+        others[at][1] = others[at][2] == kOwnRows ? columns.clusterIndex[others[at][1]] : others[at][1];
+      }
+    }
+  }
+  if (others.empty()) {
+    return;
+  }
+  if (inClusters != nullptr) {
+    std::ranges::sort(others);
+  }
+  digest.add(static_cast<std::uint64_t>(others.size()));
+  for (const auto& other : others) {
+    digest.add(other);
+  }
+}
+
 /// The fingerprint of a complete run's output: every column of every track,
 /// the used mask \a used the run left (the tracker's `used()`), and the counts
 /// of every iteration's summary -- nothing that is a time, nor a size in
@@ -176,6 +225,7 @@ template <typename Result>
     // The tracker's layout, rows inline: the same bytes as before the store.
     const auto tracks = inlineTracks(*result.store, std::pmr::get_default_resource());
     digest.columns(tracks.view(), tracks.size());
+    addOtherReferences(digest, *result.store);
   }
   digest.column(used);
   addSummaries(digest, result);
@@ -244,6 +294,7 @@ template <DetectorLayout Det, typename Result>
   digest.add(static_cast<std::uint32_t>(result.status));
   if (result.store != nullptr) {
     addTracksInClusters<Det>(digest, inlineTracks(*result.store, std::pmr::get_default_resource()), frame);
+    addOtherReferences(digest, *result.store, &frame);
   }
   std::uint32_t clusterEnd = 0U;
   for (std::uint32_t row = 0; row < frame.size(); ++row) {
@@ -272,7 +323,11 @@ template <class Tracks>
 template <DetectorLayout Det>
 [[nodiscard]] std::uint64_t tracksDigest(const TrackStore<Det>& store)
 {
-  return tracksDigest(inlineTracks(store, std::pmr::get_default_resource()));
+  const auto tracks = inlineTracks(store, std::pmr::get_default_resource());
+  Digest digest;
+  digest.columns(tracks.view(), tracks.size());
+  addOtherReferences(digest, store);
+  return digest.result();
 }
 
 /// A vertex list and its contributor counts, as the vertexer gives them.
@@ -314,7 +369,10 @@ template <DetectorLayout Det>
 template <DetectorLayout Det>
 [[nodiscard]] std::uint64_t tracksClusterDigest(const TrackStore<Det>& store, const TimeFrame<Det>& frame)
 {
-  return tracksClusterDigest<Det>(inlineTracks(store, std::pmr::get_default_resource()), frame);
+  Digest digest;
+  addTracksInClusters<Det>(digest, inlineTracks(store, std::pmr::get_default_resource()), frame);
+  addOtherReferences(digest, store, &frame);
+  return digest.result();
 }
 
 } // namespace o2::gtrk::study

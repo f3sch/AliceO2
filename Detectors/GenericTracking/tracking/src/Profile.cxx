@@ -98,6 +98,7 @@ constexpr std::array<PhaseInfo, kPhaseCount> kInfo{{
   {.name = "tracklet paths", .parent = kTriplets},
   {.name = "triplet paths", .parent = kTriplets},
   {.name = "length cut", .parent = kIteration},
+  {.name = "overlap partners", .parent = kIteration},
   {.name = "commit", .parent = kIteration},
 }};
 
