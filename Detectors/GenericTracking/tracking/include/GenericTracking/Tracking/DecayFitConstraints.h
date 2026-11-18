@@ -257,57 +257,60 @@ struct ScatteredEquations {
       }
     }
   }
-  GPUhdi() void addPrior(std::span<const double> p, int n, double& chi2, S* normal, S* gradient) const
+  /// \a normal packed (`dense::PackedView`).
+  GPUhdi() void addPrior(std::span<const double> p, double& chi2, S* normal, S* gradient) const
   {
     for (int b = 0; b < count; ++b) {
       chi2 += p[at + b] * p[at + b];
       if (normal != nullptr) {
-        normal[((at + b) * n) + at + b] += S(1.);
+        normal[dense::packedIndex(at + b, at + b)] += S(1.);
         gradient[at + b] -= static_cast<S>(p[at + b]);
       }
     }
   }
 };
 
-/// The Lagrange system's storage, the caller's: the matrix ((n + m)^2), the
-/// solution (n + m), the pivots (n + m).
+/// The Lagrange system's storage, the caller's: the matrix packed
+/// (`dense::packedSize(n + m)`), the solution (n + m), the factorisation's
+/// exchanges and block sizes (n + m each).
 template <typename S = double>
 struct LagrangeSpace {
   S* system = nullptr;
   S* solution = nullptr;
-  int* pivots = nullptr;
+  int* swaps = nullptr;
+  int* blocks = nullptr;
 };
 
 /// The Gauss-Newton step under the hard constraints C step + c = 0 (\a rows
-/// C, m x n, \a values c) with the normal matrix \a normal (n x n) and its
-/// right-hand side \a gradient: the Lagrange system [[N, C^T], [C, 0]]
-/// [step; lambda] = [g; -c], solved by LU with partial pivoting, as N alone
-/// may be singular where the constraints fix its null direction (two parallel
-/// daughters along the flight). With \a step, the step; with \a covariance,
-/// the constrained covariance: the system's inverse's N block (n x n); with
-/// \a multipliers, lambda; with \a logDeterminant, ln |det| of the system.
-/// False if the system is singular (an exactly zero pivot).
+/// C, m x n, \a values c) with the normal matrix \a normal (n x n, packed)
+/// and its right-hand side \a gradient: the Lagrange system [[N, C^T], [C,
+/// 0]] [step; lambda] = [g; -c], symmetric and indefinite, solved by L D L^T
+/// with Bunch-Kaufman pivoting, as N alone may be singular where the
+/// constraints fix its null direction (two parallel daughters along the
+/// flight). With \a step, the step; with \a covariance, the constrained
+/// covariance: the system's inverse's N block (packed); with \a multipliers,
+/// lambda; with \a logDeterminant, ln |det| of the system. False if the
+/// system is singular (an exactly singular pivot block).
 template <typename S>
 [[nodiscard]] GPUhdi() bool constrainedStep(const LagrangeSpace<S>& space, const S* normal, int n, const S* gradient, const S* rows, std::span<const S> values, std::type_identity_t<S>* step, std::type_identity_t<S>* covariance, std::type_identity_t<S>* multipliers = nullptr, std::type_identity_t<S>* logDeterminant = nullptr)
 {
   const int m = static_cast<int>(values.size());
   const int size = n + m;
-  S* system = space.system;
-  fillN(system, size * size, S(0.));
+  const dense::PackedView<S> system{space.system};
   for (int a = 0; a < n; ++a) {
-    for (int b = 0; b < n; ++b) {
-      system[(a * size) + b] = normal[(a * n) + b];
+    for (int b = 0; b <= a; ++b) {
+      system(a, b) = normal[dense::packedIndex(a, b)];
     }
   }
   for (int j = 0; j < m; ++j) {
     for (int b = 0; b < n; ++b) {
-      system[((n + j) * size) + b] = rows[(j * n) + b];
-      system[(b * size) + n + j] = rows[(j * n) + b];
+      system(n + j, b) = rows[(j * n) + b];
+    }
+    for (int k = 0; k <= j; ++k) {
+      system(n + j, n + k) = S(0.);
     }
   }
-  int* pivots = space.pivots;
-  const auto lu = viewOf(system, size);
-  if (!dense::luFactor(lu, size, pivots)) {
+  if (!dense::ldltFactor(system, size, space.swaps, space.blocks)) {
     return false;
   }
   S* solution = space.solution;
@@ -317,7 +320,7 @@ template <typename S>
   for (int j = 0; j < m; ++j) {
     solution[n + j] = -values[j];
   }
-  dense::luSolve(lu, size, pivots, solution);
+  dense::ldltSolve(system, size, space.swaps, space.blocks, solution);
   if (step != nullptr) {
     copyN(solution, n, step);
   }
@@ -325,16 +328,16 @@ template <typename S>
     copyN(solution + n, m, multipliers);
   }
   if (logDeterminant != nullptr) {
-    *logDeterminant = dense::luLogAbsDeterminant(lu, size);
+    *logDeterminant = dense::ldltLogAbsDeterminant(system, size, space.blocks);
   }
   if (covariance != nullptr) {
-    // The system's inverse's N block, a column at a time.
+    // The system's inverse's N block, a column at a time, its lower triangle.
     for (int b = 0; b < n; ++b) {
       fillN(solution, size, S(0.));
       solution[b] = S(1.);
-      dense::luSolve(lu, size, pivots, solution);
-      for (int a = 0; a < n; ++a) {
-        covariance[(a * n) + b] = solution[a];
+      dense::ldltSolve(system, size, space.swaps, space.blocks, solution);
+      for (int a = b; a < n; ++a) {
+        covariance[dense::packedIndex(a, b)] = solution[a];
       }
     }
   }

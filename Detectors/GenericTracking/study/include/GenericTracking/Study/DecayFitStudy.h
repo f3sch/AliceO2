@@ -430,6 +430,20 @@ struct Kinematics {
   double sP = 0.;
 };
 
+/// \a fit's covariance as a full row-major matrix (3K + 3N square), as the
+/// study's sums over it run.
+[[nodiscard]] inline std::vector<double> fullCovariance(const DecayVertexFitResult& fit)
+{
+  const int n = (3 * static_cast<int>(fit.vertices.size())) + (3 * static_cast<int>(fit.momenta.size()));
+  std::vector<double> full(static_cast<std::size_t>(n * n));
+  for (int a = 0; a < n; ++a) {
+    for (int b = 0; b < n; ++b) {
+      full[(a * n) + b] = fit.covarianceAt(a, b);
+    }
+  }
+  return full;
+}
+
 [[nodiscard]] inline Kinematics kinematicsOf(std::span<const std::array<double, 3>> momenta, std::span<const double> masses, std::span<const double> charges, std::span<const double> covariance, int stride, int offset)
 {
   using D = dual::Dual<3 * decay_fit_detail::kMaxConstrainedDaughters>;
@@ -540,14 +554,15 @@ DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, 
 {
   const auto massOf = [&](const DecayVertexFitResult& fit) {
     const int n = (3 * static_cast<int>(fit.vertices.size())) + (3 * static_cast<int>(fit.momenta.size()));
-    return kinematicsOf(std::span<const std::array<double, 3>>{fit.momenta.data(), fit.momenta.size()}, masses, std::span<const double>{fit.charges.data(), fit.charges.size()}, std::span<const double>{fit.covariance.data(), fit.covariance.size()}, n, 3 * static_cast<int>(fit.vertices.size())).mass;
+    const auto full = fullCovariance(fit);
+    return kinematicsOf(std::span<const std::array<double, 3>>{fit.momenta.data(), fit.momenta.size()}, masses, std::span<const double>{fit.charges.data(), fit.charges.size()}, full, n, 3 * static_cast<int>(fit.vertices.size())).mass;
   };
   const auto sigmaT = [&](const DecayVertexFitResult& fit) {
     const int n = (3 * static_cast<int>(fit.vertices.size())) + (3 * static_cast<int>(fit.momenta.size()));
     double variance = 0.;
     for (int a = 0; a < 3; ++a) {
       for (int b = 0; b < 3; ++b) {
-        variance += across[a] * fit.covariance[(a * n) + b] * across[b];
+        variance += across[a] * fit.covarianceAt(a, b) * across[b];
       }
     }
     return std::sqrt(std::max(variance, 0.));
@@ -632,13 +647,13 @@ struct FitSummary {
   }
   const int n = (3 * static_cast<int>(fit.vertices.size())) + (3 * static_cast<int>(fit.momenta.size()));
   for (int a = 0; a < n; ++a) {
-    summary.diagonal.push_back(fit.covariance[(a * n) + a]);
+    summary.diagonal.push_back(fit.covarianceAt(a, a));
   }
   std::vector<double> masses;
   for (std::size_t i = 0; i < fit.momenta.size(); ++i) {
     masses.push_back(daughters[i].mass);
   }
-  summary.mass = kinematicsOf(fit.momenta, masses, fit.charges, fit.covariance, n, 3 * static_cast<int>(fit.vertices.size())).mass;
+  summary.mass = kinematicsOf(fit.momenta, masses, fit.charges, fullCovariance(fit), n, 3 * static_cast<int>(fit.vertices.size())).mass;
   return summary;
 }
 
@@ -1267,7 +1282,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         const int vertexCount = static_cast<int>(fit.vertices.size());
         const std::size_t fitCount = fit.momenta.size();
         const int n = (3 * vertexCount) + (3 * static_cast<int>(fitCount));
-        const auto& c = fit.covariance;
+        const auto c = fullCovariance(fit);
         const auto& fitMasses = masses;
         record.chi2 = static_cast<float>(fit.chi2);
         record.ndf = static_cast<std::int16_t>(fit.ndf);
@@ -1372,7 +1387,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         for (std::size_t i = 0; i < count; ++i) {
           for (int a = 0; a < 3; ++a) {
             for (int b = 0; b < 3; ++b) {
-              carried[(3 * i + a) * stride + (3 * i + b)] = fit.carriedCovariance[i][a * 3 + b];
+              carried[(3 * i + a) * stride + (3 * i + b)] = fit.carriedCovariance[i][dense::packedIndex(a, b)];
             }
           }
         }

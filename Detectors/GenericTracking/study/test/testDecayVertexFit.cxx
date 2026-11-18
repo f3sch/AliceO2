@@ -239,7 +239,7 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
         ndf = fit.ndf;
         const int n = 3 + 6;
         for (int k = 0; k < 3; ++k) {
-          const double pull = (fit.vertex[k] - kDecay[k]) / std::sqrt(fit.covariance[k * n + k]);
+          const double pull = (fit.vertex[k] - kDecay[k]) / std::sqrt(fit.covarianceAt(k, k));
           sum[k] += pull;
           sum2[k] += pull * pull;
         }
@@ -327,7 +327,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
       ndf = fit.ndf;
       const int n = 6 + 9;
       for (int k = 0; k < 6; ++k) {
-        const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covariance[k * n + k]);
+        const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covarianceAt(k, k));
         sum[k] += pull;
         sum2[k] += pull * pull;
       }
@@ -431,7 +431,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
         tndf = fit.ndf;
         const int n = 6 + 9;
         for (int k = 0; k < 6; ++k) {
-          const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covariance[k * n + k]);
+          const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covarianceAt(k, k));
           tsum[k] += pull;
           tsum2[k] += pull * pull;
         }
@@ -542,7 +542,7 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
     ndf = fit.ndf;
     const int n = 9 + 15;
     for (int k = 0; k < 9; ++k) {
-      const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covariance[k * n + k]);
+      const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covarianceAt(k, k));
       sum[k] += pull;
       sum2[k] += pull * pull;
     }
@@ -640,7 +640,7 @@ BOOST_AUTO_TEST_CASE(ElectronMixturesSumOverTheirComponents)
       for (int i = 0; i < 2; ++i) {
         const int q = 3 + (3 * i) + 2;
         const double residual = fit.momenta[i][2] - pair[i].qOverP;
-        pull2 += residual * residual / fit.covariance[q * n + q];
+        pull2 += residual * residual / fit.covarianceAt(q, q);
         residual2 += std::pow(residual / pair[i].qOverP, 2);
       }
     }
@@ -771,7 +771,7 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
     ndf = nearest.ndf;
     const int n = 3 + 9;
     for (int c = 0; c < 3; ++c) {
-      const double pull = (nearest.vertex[c] - kVertex[c]) / std::sqrt(nearest.covariance[c * n + c]);
+      const double pull = (nearest.vertex[c] - kVertex[c]) / std::sqrt(nearest.covarianceAt(c, c));
       sum[c] += pull;
       sum2[c] += pull * pull;
     }
@@ -858,7 +858,7 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
       ++fitted;
       const int n = 3 + 9;
       for (int i = 0; i < 3; ++i) {
-        const double pull = (fit.vertex[i] - kVertex[i]) / std::sqrt(fit.covariance[i * n + i]);
+        const double pull = (fit.vertex[i] - kVertex[i]) / std::sqrt(fit.covarianceAt(i, i));
         sum[i] += pull;
         sum2[i] += pull * pull;
       }
@@ -946,7 +946,7 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
     ndf = fit.ndf;
     const int n = 3 + 6;
     for (int c = 0; c < 3; ++c) {
-      const double pull = (fit.vertex[c] - kVertex[c]) / std::sqrt(fit.covariance[c * n + c]);
+      const double pull = (fit.vertex[c] - kVertex[c]) / std::sqrt(fit.covarianceAt(c, c));
       sum[c] += pull;
       sum2[c] += pull * pull;
     }
@@ -1016,7 +1016,7 @@ BOOST_AUTO_TEST_CASE(SmearedStatesGiveUnitPulls)
     ++fitted;
     const int n = 3 + (3 * static_cast<int>(daughters.size()));
     for (int k = 0; k < 3; ++k) {
-      const double pull = (fit.vertex[k] - kVertex[k]) / std::sqrt(fit.covariance[k * n + k]);
+      const double pull = (fit.vertex[k] - kVertex[k]) / std::sqrt(fit.covarianceAt(k, k));
       sum[k] += pull;
       sum2[k] += pull * pull;
     }
@@ -1092,8 +1092,18 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseIsTheTwoPassOne)
     }
   }
 
-  // each collapse's mean and scatter in storage of its own
-  std::vector<std::vector<double>> storage(12, std::vector<double>(n * n, 0.));
+  // each collapse's mean and scatter (packed) in storage of its own; the
+  // components' covariances packed as the collapse takes them
+  std::vector<std::vector<double>> storage(12, std::vector<double>(dense::packedSize(n), 0.));
+  for (auto& c : mixture) {
+    std::vector<double> packedSigma(dense::packedSize(n));
+    for (int i = 0; i < n; ++i) {
+      for (int j = 0; j <= i; ++j) {
+        packedSigma[dense::packedIndex(i, j)] = c.sigma[(i * n) + j];
+      }
+    }
+    c.sigma = packedSigma;
+  }
   const auto collapseIn = [&](int at) { return MixtureCollapse(std::span<double>{storage[2 * at].data(), n}, std::span<double>{storage[(2 * at) + 1]}); };
   auto stream = collapseIn(0);
   auto first = collapseIn(1);
@@ -1109,12 +1119,12 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseIsTheTwoPassOne)
   for (const auto* one : {&stream, &merged}) {
     BOOST_TEST(one->count == static_cast<int>(mixture.size()));
     BOOST_TEST(std::abs(one->meanChi2() - chi2) < 1e-12);
-    std::vector<double> c(n * n);
+    std::vector<double> c(dense::packedSize(n));
     one->covarianceInto(c.data());
     for (int i = 0; i < n; ++i) {
       BOOST_TEST(std::abs(one->mean[i] - mean[i]) < 1e-12);
       for (int j = 0; j < n; ++j) {
-        BOOST_TEST(std::abs(c[(i * n) + j] - covariance[(i * n) + j]) < 1e-12);
+        BOOST_TEST(std::abs(c[dense::packedIndex(i, j)] - covariance[(i * n) + j]) < 1e-12);
       }
     }
   }
