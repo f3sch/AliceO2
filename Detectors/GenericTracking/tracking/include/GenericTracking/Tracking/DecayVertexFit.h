@@ -34,11 +34,11 @@
 ///
 /// The fit is in double: the states come in as floats.
 
-#ifndef GTRK_STUDY_DECAYVERTEXFIT_H_
-#define GTRK_STUDY_DECAYVERTEXFIT_H_
+#ifndef GTRK_TRACKING_DECAYVERTEXFIT_H_
+#define GTRK_TRACKING_DECAYVERTEXFIT_H_
 
-#include "GenericTracking/Study/DecayConstraints.h"
-#include "GenericTracking/Study/DecayFitMath.h"
+#include "GenericTracking/Tracking/DecayFitConstraints.h"
+#include "GenericTracking/Tracking/DecayFitMath.h"
 #include "GenericTracking/Base/LayerLinks.h"
 #include "DetectorsBase/MatCell.h"
 #include "GenericTracking/Tracking/BeamConstraint.h"
@@ -62,10 +62,8 @@
 #include <span>
 #include <vector>
 
-namespace o2::gtrk::study
+namespace o2::gtrk
 {
-
-inline constexpr std::size_t kDecayFitVariants = static_cast<std::size_t>(DecayFitVariant::kCount);
 
 /// A daughter as the fit takes it.
 struct DecayDaughter {
@@ -555,7 +553,7 @@ template <DetectorLayout Det>
 /// The vertex of \a daughters (at least two) under \a Variant, with
 /// \a material's material between each daughter's innermost measurement and
 /// the vertex, and under \a constraints: then every step is the constrained
-/// one (DecayConstraints.h), taken whole unless a helix misses its plane;
+/// one (DecayFitConstraints.h), taken whole unless a helix misses its plane;
 /// a tree (\a topology) has a vertex per composite, each daughter carried to
 /// the plane about its own, and the links always constrained. A fitter fits
 /// one decay, once (`fit`).
@@ -1714,6 +1712,6 @@ template <DetectorLayout Det, DecayFitVariant Variant, typename ModelScalar = do
   return fitter.fit(doubles, solves, ints);
 }
 
-} // namespace o2::gtrk::study
+} // namespace o2::gtrk
 
-#endif // GTRK_STUDY_DECAYVERTEXFIT_H_
+#endif // GTRK_TRACKING_DECAYVERTEXFIT_H_

@@ -14,8 +14,8 @@
 ///        to a plane in a uniform field, the dense solves on caller
 ///        storage (DenseSolve.h), fixed-capacity storage.
 
-#ifndef GTRK_STUDY_DECAYFITMATH_H_
-#define GTRK_STUDY_DECAYFITMATH_H_
+#ifndef GTRK_TRACKING_DECAYFITMATH_H_
+#define GTRK_TRACKING_DECAYFITMATH_H_
 
 #include "GenericTracking/Base/Dual.h"
 #include "GenericTracking/Tracking/Definitions.h"
@@ -33,7 +33,7 @@
 #include <span>
 #include <vector>
 
-namespace o2::gtrk::study::decay_fit_detail
+namespace o2::gtrk::decay_fit_detail
 {
 
 using o2::gtrk::dual::Dual;
@@ -370,6 +370,6 @@ struct MixtureCollapse {
   }
 };
 
-} // namespace o2::gtrk::study::decay_fit_detail
+} // namespace o2::gtrk::decay_fit_detail
 
-#endif // GTRK_STUDY_DECAYFITMATH_H_
+#endif // GTRK_TRACKING_DECAYFITMATH_H_
