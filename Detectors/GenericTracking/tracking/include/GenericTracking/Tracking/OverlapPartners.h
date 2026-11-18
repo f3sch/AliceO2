@@ -38,6 +38,10 @@
 ///    boxes leave none in common, the track stays as it was, without them;
 ///  - the attached partners are taken in the used mask, exclusively.
 ///
+/// Only the layers the layout says can have them are searched
+/// (`overlapLayers`, LayerLinks.h), and a track with no row on one is passed
+/// over.
+///
 /// The tracks' own rows stay one per layer (`TrackOf`); the partners go to
 /// the store as references (`kOverlapPartner`, TrackStore.h), in path order
 /// beside the rows. A track's states, chi2 and time are then those of the
@@ -288,12 +292,17 @@ class OverlapPartners
     using Math = o2::gpu::CAMath;
     const auto& rows = view.clusters[track];
     const auto count = view.count[track];
+    const auto columns = frame.measurements();
+    const auto layerOf = [&](std::uint32_t row) { return geometry.surface(columns.surface[row]).layer; };
+    // A track with no row on a layer whose sensors overlap has no partner.
+    if (std::none_of(rows.index, rows.index + count, [&](std::uint32_t row) { return ((overlapLayers<Det> >> layerOf(row)) & 1U) != 0U; })) {
+      return;
+    }
     overlap::RowStates<K> states;
     const auto fit = fitMeasurements(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = rows.index}, static_cast<int>(count), kinkBudget(parameters), overlap::RowStateObserver<K>{.states = &states});
     if (fit.failedPass == FitPass::kOutward) {
       return;
     }
-    const auto columns = frame.measurements();
     const TimeEstPS box{.start = view.timePS[track], .width = view.widthPS[track]};
     const Scalar nSigma = Math::Sqrt(parameters.clusterChi2Max);
     std::vector<std::uint32_t> seen;
@@ -304,6 +313,9 @@ class OverlapPartners
       const auto own = rows.index[k];
       const auto ownSurface = columns.surface[own];
       const LayerID layer = geometry.surface(ownSurface).layer;
+      if (((overlapLayers<Det> >> layer) & 1U) == 0U) {
+        continue;
+      }
       const auto& state = states.state[k];
       const auto& factors = states.factors[k];
       Scalar cov[kBoundCovSize]{};

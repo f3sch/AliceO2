@@ -213,6 +213,20 @@ template <DetectorLayout Det>
   return fromIndex < kLayers && toIndex < kLayers ? kLinkIndex<Det>[(fromIndex * kLayers) + toIndex] : kNoLink;
 }
 
+/// The layers of \a Det on which a particle can leave two rows, on two
+/// overlapping sensors, a bit each: where overlap partners are searched
+/// (OverlapPartners.h). A layout states them as `overlapLayers`; one that
+/// does not has none.
+template <DetectorLayout Det>
+inline constexpr std::uint64_t overlapLayers = [] {
+  static_assert(Detector<Det>::nLayers <= 64, "a bit per layer");
+  if constexpr (requires { Det::overlapLayers; }) {
+    return std::uint64_t{Det::overlapLayers};
+  } else {
+    return std::uint64_t{0};
+  }
+}();
+
 /// The most layers any path through the links visits, the deepest layer's
 /// depth + 1, which bounds a cell's level at `maxChainLayers - 2`.
 template <DetectorLayout Det>
