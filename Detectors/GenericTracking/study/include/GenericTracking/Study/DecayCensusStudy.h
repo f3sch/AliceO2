@@ -149,14 +149,10 @@ void DecayCensusStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     throw std::runtime_error("decay census: the host has no decay trees (a truth dump of another version?)");
   }
   const auto& trees = *event.trees;
-  std::unordered_map<std::uint64_t, std::size_t> chainRows;
-  for (const auto& chain : chains) {
-    auto& rows = chainRows[chain.particle];
-    rows = std::max(rows, chain.rows.size());
-  }
+  const auto longest = longestChains(chains);
   const auto rowsOf = [&](std::uint64_t particle) -> std::size_t {
-    const auto found = chainRows.find(particle);
-    return found == chainRows.end() ? 0U : found->second;
+    const auto found = longest.find(particle);
+    return found == longest.end() ? 0U : found->second->rows.size();
   };
   const auto clampRows = [](std::size_t rows) { return static_cast<std::uint16_t>(std::min<std::size_t>(rows, std::numeric_limits<std::uint16_t>::max())); };
   const auto ptOf = [](const TreeParticle& particle) { return std::hypot(particle.momentum[0], particle.momentum[1]); };
@@ -201,9 +197,8 @@ void DecayCensusStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     record.p = static_cast<float>(p);
     record.pt = static_cast<float>(pt);
     record.eta = static_cast<float>(pt > 0. ? std::asinh(momentum[2] / pt) : std::copysign(std::numeric_limits<double>::infinity(), momentum[2]));
-    if (const auto collision = event.collisions->find(collisionOf(member.id)); collision != event.collisions->end()) {
-      const auto& vertex = collision->second;
-      record.productionOffset = static_cast<float>(std::hypot(member.vertex[0] - vertex[0], member.vertex[1] - vertex[1], member.vertex[2] - vertex[2]));
+    if (const auto offset = productionOffset(*event.collisions, member.id, member.vertex)) {
+      record.productionOffset = static_cast<float>(*offset);
     }
     const auto& decay = products.front()->vertex;
     record.flight = static_cast<float>(std::hypot(decay[0] - member.vertex[0], decay[1] - member.vertex[1], decay[2] - member.vertex[2]));

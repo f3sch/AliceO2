@@ -23,6 +23,8 @@
 #include "GenericTracking/Tracking/DecayVertexFit.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 
+#include "UniformMaterial.h"
+
 #include "DetectorsBase/MatCell.h"
 
 #include <array>
@@ -43,18 +45,26 @@ using detectors::TRKFT3;
 namespace
 {
 
-/// No material anywhere.
-struct NoMaterial {
-  [[nodiscard]] o2::base::MatBudget getMatBudget(float, float, float, float, float, float) const { return {}; }
-  [[nodiscard]] o2::base::MatMoment getMatMoment(float, float, float, float, float, float) const { return {}; }
-};
-
 constexpr std::array<double, 3> kVertex{0.3, -0.2, 1.};
 constexpr std::array<double, 5> kSigmas{1e-3, 1e-3, 1e-3, 1e-3, 0.01}; ///< loc0, loc1, phi, theta [cm, rad]; q/p relative
 
 struct Truth {
   double phi, theta, qOverP;
 };
+
+/// \a truth's momentum vector [GeV], computed apart from the fit's.
+std::array<double, 3> vectorOf(const Truth& truth)
+{
+  const double p = 1. / std::abs(truth.qOverP);
+  return {p * std::cos(truth.phi) * std::sin(truth.theta), p * std::sin(truth.phi) * std::sin(truth.theta), p * std::cos(truth.theta)};
+}
+
+/// The truth of momentum vector \a v and \a charge (q/p 1/p for a neutral one).
+Truth truthOf(const std::array<double, 3>& v, double charge)
+{
+  const double p = std::hypot(v[0], v[1], v[2]);
+  return Truth{std::atan2(v[1], v[0]), std::atan2(std::hypot(v[0], v[1]), v[2]), (charge != 0. ? charge : 1.) / p};
+}
 const std::array<Truth, 3> kDaughters{Truth{0.3, 1.2, 2.}, Truth{-0.4, 1.6, -1.25}, Truth{0.1, 1.4, -0.8}};
 
 /// A daughter of \a truth from kVertex, exact on a plane 3 cm downstream, its
@@ -68,17 +78,8 @@ DecayDaughter daughterOf(const Truth& truth, const Propagator& prop, const std::
   state.par[kPhi] = static_cast<Scalar>(truth.phi);
   state.par[kTheta] = static_cast<Scalar>(truth.theta);
   state.par[kQOverP] = static_cast<Scalar>(truth.qOverP);
-  TrackingSurface target;
-  const double c = std::cos(truth.phi);
-  const double s = std::sin(truth.phi);
-  target.origin[0] = static_cast<Scalar>(vertex[0] + (3. * c));
-  target.origin[1] = static_cast<Scalar>(vertex[1] + (3. * s));
+  auto target = beamLinePlane(static_cast<Scalar>(vertex[0] + (3. * std::cos(truth.phi))), static_cast<Scalar>(vertex[1] + (3. * std::sin(truth.phi))), static_cast<Scalar>(truth.phi));
   target.origin[2] = static_cast<Scalar>(vertex[2]);
-  target.axis0[0] = static_cast<Scalar>(-s);
-  target.axis0[1] = static_cast<Scalar>(c);
-  target.axis1[2] = 1.F;
-  target.normal[0] = static_cast<Scalar>(c);
-  target.normal[1] = static_cast<Scalar>(s);
   target.id = 1;
   SolenoidJacobian jacobian;
   BoundTrackState out = state;
@@ -128,10 +129,6 @@ std::array<Truth, 2> pionPair()
     (massOf(mid) > kMass ? low : high) = mid;
   }
   const double c = 0.5 * (low + high);
-  const auto truthOf = [](const std::array<double, 3>& p, double charge) {
-    const double total = std::hypot(p[0], p[1], p[2]);
-    return Truth{std::atan2(p[1], p[0]), std::atan2(std::hypot(p[0], p[1]), p[2]), charge / total};
-  };
   const std::array<double, 3> p1{(a * dir[0]) + (b * normal[0]), (a * dir[1]) + (b * normal[1]), (a * dir[2]) + (b * normal[2])};
   const std::array<double, 3> p2{(c * dir[0]) - (b * normal[0]), (c * dir[1]) - (b * normal[1]), (c * dir[2]) - (b * normal[2])};
   return {truthOf(p1, 1.), truthOf(p2, -1.)};
@@ -145,8 +142,8 @@ std::array<Truth, 2> pionPair()
 template <DecayFitVariant Variant = DecayFitVariant::kFull>
 void reportPrecision(const char* name, std::span<const DecayDaughter> daughters, const DecayConstraints& constraints = {}, const DecayTopology& topology = {})
 {
-  const NoMaterial material;
-  DecayVertexFitter<TRKFT3, Variant, NoMaterial> reference(daughters, material, constraints, topology, {});
+  const UniformMaterial material;
+  DecayVertexFitter<TRKFT3, Variant, UniformMaterial> reference(daughters, material, constraints, topology, {});
   std::vector<std::byte> workspace(reference.workspace());
   DecayVertexFitResult fit;
   reference.fit(workspace, fit);
@@ -163,7 +160,7 @@ void reportPrecision(const char* name, std::span<const DecayDaughter> daughters,
   double violation = 0.;
   BOOST_REQUIRE(reference.frozenMerit(solution, chi2, violation));
   const auto one = [&]<typename Model, typename Solve>(const char* label) {
-    DecayVertexFitter<TRKFT3, Variant, NoMaterial, Model, Solve> fitter(daughters, material, constraints, topology, {});
+    DecayVertexFitter<TRKFT3, Variant, UniformMaterial, Model, Solve> fitter(daughters, material, constraints, topology, {});
     std::vector<std::byte> fitterWorkspace(fitter.workspace());
     DecayVertexFitResult result;
     fitter.fit(fitterWorkspace, result);
@@ -180,12 +177,23 @@ void reportPrecision(const char* name, std::span<const DecayDaughter> daughters,
   one.template operator()<float, float>("both float");
 }
 
-/// \a states smeared by their covariances' diagonals, the same draw for a
-/// seed.
-std::vector<DecayDaughter> smeared(std::vector<DecayDaughter> states, unsigned seed)
+/// Pulls' mean and width (the population's: the second moment less the
+/// mean's square) over \a n of them.
+struct PullMoments {
+  double sum = 0.;
+  double sum2 = 0.;
+  void add(double pull)
+  {
+    sum += pull;
+    sum2 += pull * pull;
+  }
+  [[nodiscard]] double mean(int n) const { return sum / n; }
+  [[nodiscard]] double width(int n) const { return std::sqrt((sum2 / n) - (mean(n) * mean(n))); }
+};
+
+/// \a states smeared by their covariances' diagonals, drawn from \a random.
+std::vector<DecayDaughter> smeared(std::vector<DecayDaughter> states, std::mt19937& random, std::normal_distribution<double>& gauss)
 {
-  std::mt19937 random{seed};
-  std::normal_distribution<double> gauss;
   for (auto& daughter : states) {
     if (daughter.unmeasured) {
       continue;
@@ -195,6 +203,15 @@ std::vector<DecayDaughter> smeared(std::vector<DecayDaughter> states, unsigned s
     }
   }
   return states;
+}
+
+/// \a states smeared by their covariances' diagonals, the same draw for a
+/// seed.
+std::vector<DecayDaughter> smeared(std::vector<DecayDaughter> states, unsigned seed)
+{
+  std::mt19937 random{seed};
+  std::normal_distribution<double> gauss;
+  return smeared(std::move(states), random, gauss);
 }
 
 } // namespace
@@ -219,20 +236,14 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
   for (const int set : {1, 2, 3}) {
     const DecayConstraints constraints{.mass = (set & 1) != 0, .massGeV = kMass, .production = (set & 2) != 0, .point = kPoint};
     {
-      std::array<double, 3> sum{};
-      std::array<double, 3> sum2{};
+      std::array<PullMoments, 3> pulls{};
       double chi2 = 0.;
       double worst = 0.;
       int fitted = 0;
       int ndf = 0;
       for (int trial = 0; trial < kTrials; ++trial) {
-        auto states = exactStates;
-        for (auto& daughter : states) {
-          for (int k = 0; k < 5; ++k) {
-            daughter.innermost.par[k] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(k, k))));
-          }
-        }
-        const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{}, constraints);
+        auto states = smeared(exactStates, random, gauss);
+        const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{}, constraints);
         if (fit.status != DecayFitStatus::kOk) {
           continue;
         }
@@ -241,8 +252,7 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
         const int n = 3 + 6;
         for (int k = 0; k < 3; ++k) {
           const double pull = (fit.vertex[k] - kDecay[k]) / std::sqrt(fit.covarianceAt(k, k));
-          sum[k] += pull;
-          sum2[k] += pull * pull;
+          pulls[k].add(pull);
         }
         chi2 += fit.chi2;
         std::array<double, decay_fit_detail::kMaxHardRows> values{};
@@ -258,8 +268,8 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
       BOOST_TEST(worst < 1e-5); // a tenth of a micron, 1e-5 GeV^2: float rounding, far below any resolution
       BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.1);
       for (int k = 0; k < 3; ++k) {
-        const double mean = sum[k] / fitted;
-        const double width = std::sqrt((sum2[k] / fitted) - (mean * mean));
+        const double mean = pulls[k].mean(fitted);
+        const double width = pulls[k].width(fitted);
         BOOST_TEST_MESSAGE("  vertex " << k << ": pull mean " << mean << ", width " << width);
         BOOST_TEST(std::abs(mean) < 0.12);
         BOOST_TEST(std::abs(width - 1.) < 0.08);
@@ -279,10 +289,6 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
   const Truth proton{0.25, 1.2, 1. / 1.0};
   const Truth pion{0.45, 1.25, -1. / 0.25};
   const Truth bachelor{-0.3, 1.4, -1. / 0.4};
-  const auto vectorOf = [](const Truth& t) {
-    const double p = 1. / std::abs(t.qOverP);
-    return std::array<double, 3>{p * std::cos(t.phi) * std::sin(t.theta), p * std::sin(t.phi) * std::sin(t.theta), p * std::cos(t.theta)};
-  };
   std::array<double, 3> lambda{};
   for (const auto& t : {proton, pion}) {
     const auto v = vectorOf(t);
@@ -296,7 +302,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
   const std::vector<DecayDaughter> exactStates{daughterOf(proton, prop, second), daughterOf(pion, prop, second), daughterOf(bachelor, prop, kVertex)};
   const std::array<std::array<double, 3>, 2> truth{kVertex, second};
 
-  const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, {}, topology);
+  const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, UniformMaterial{}, {}, topology);
   BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
   for (int w = 0; w < 2; ++w) {
     for (int c = 0; c < 3; ++c) {
@@ -308,19 +314,13 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
   std::normal_distribution<double> gauss;
   constexpr int kTrials = 1000;
   {
-    std::array<double, 6> sum{};
-    std::array<double, 6> sum2{};
+    std::array<PullMoments, 6> pulls{};
     double chi2 = 0.;
     int fitted = 0;
     int ndf = 0;
     for (int trial = 0; trial < kTrials; ++trial) {
-      auto states = exactStates;
-      for (auto& daughter : states) {
-        for (int c = 0; c < 5; ++c) {
-          daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
-        }
-      }
-      const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{}, {}, topology);
+      auto states = smeared(exactStates, random, gauss);
+      const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{}, {}, topology);
       if (fit.status != DecayFitStatus::kOk) {
         continue;
       }
@@ -329,8 +329,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
       const int n = 6 + 9;
       for (int k = 0; k < 6; ++k) {
         const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covarianceAt(k, k));
-        sum[k] += pull;
-        sum2[k] += pull * pull;
+        pulls[k].add(pull);
       }
       chi2 += fit.chi2;
     }
@@ -338,8 +337,8 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
     BOOST_TEST(fitted >= kTrials - 5);
     BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.1);
     for (int k = 0; k < 6; ++k) {
-      const double mean = sum[k] / fitted;
-      const double width = std::sqrt((sum2[k] / fitted) - (mean * mean));
+      const double mean = pulls[k].mean(fitted);
+      const double width = pulls[k].width(fitted);
       BOOST_TEST_MESSAGE("  vertex " << k / 3 << " coordinate " << k % 3 << ": pull mean " << mean << ", width " << width);
       BOOST_TEST(std::abs(mean) < 0.12);
       BOOST_TEST(std::abs(width - 1.) < 0.08);
@@ -367,16 +366,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
   xiState.par[kTheta] = static_cast<Scalar>(xiTruth.theta);
   xiState.par[kQOverP] = static_cast<Scalar>(xiTruth.qOverP);
   const auto planeBefore = [&](double distance, int id) {
-    const double c = std::cos(xiTruth.phi);
-    const double sn = std::sin(xiTruth.phi);
-    TrackingSurface plane;
-    plane.origin[0] = static_cast<Scalar>(kVertex[0] - (distance * c));
-    plane.origin[1] = static_cast<Scalar>(kVertex[1] - (distance * sn));
-    plane.axis0[0] = static_cast<Scalar>(-sn);
-    plane.axis0[1] = static_cast<Scalar>(c);
-    plane.axis1[2] = 1.F;
-    plane.normal[0] = static_cast<Scalar>(c);
-    plane.normal[1] = static_cast<Scalar>(sn);
+    auto plane = beamLinePlane(static_cast<Scalar>(kVertex[0] - (distance * std::cos(xiTruth.phi))), static_cast<Scalar>(kVertex[1] - (distance * std::sin(xiTruth.phi))), static_cast<Scalar>(xiTruth.phi));
     plane.id = static_cast<SensorID>(id);
     return plane;
   };
@@ -406,25 +396,19 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
     }
     for (const bool withPoint : {false, true}) {
       const DecayConstraints set{.production = withPoint, .point = {madeAt[0], madeAt[1], madeAt[2]}};
-      std::array<double, 6> tsum{};
-      std::array<double, 6> tsum2{};
+      std::array<PullMoments, 6> tpulls{};
       double tchi2 = 0.;
       int tfitted = 0;
       int tndf = 0;
       for (int trial = 0; trial < kTrials; ++trial) {
-        auto states = exactStates;
-        for (auto& daughter : states) {
-          for (int c = 0; c < 5; ++c) {
-            daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
-          }
-        }
+        auto states = smeared(exactStates, random, gauss);
         auto positions = exactPositions;
         for (auto& position : positions) {
           position[0] += gauss(random) * 5e-4;
           position[1] += gauss(random) * 5e-4;
         }
         const DecayMother mother{.planes = planes, .positions = positions, .covariance = covariance, .propagator = xiProp};
-        const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{}, set, topology, std::span<const DecayMother>{&mother, 1});
+        const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{}, set, topology, std::span<const DecayMother>{&mother, 1});
         if (fit.status != DecayFitStatus::kOk) {
           continue;
         }
@@ -433,8 +417,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
         const int n = 6 + 9;
         for (int k = 0; k < 6; ++k) {
           const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covarianceAt(k, k));
-          tsum[k] += pull;
-          tsum2[k] += pull * pull;
+          tpulls[k].add(pull);
         }
         tchi2 += fit.chi2;
       }
@@ -442,8 +425,8 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
       BOOST_TEST(tfitted >= kTrials - 5);
       BOOST_TEST(std::abs((tchi2 / tfitted / tndf) - 1.) < 0.1);
       for (int k = 0; k < 6; ++k) {
-        const double mean = tsum[k] / tfitted;
-        const double width = std::sqrt((tsum2[k] / tfitted) - (mean * mean));
+        const double mean = tpulls[k].mean(tfitted);
+        const double width = tpulls[k].width(tfitted);
         BOOST_TEST_MESSAGE("  vertex " << k / 3 << " coordinate " << k % 3 << ": pull mean " << mean << ", width " << width);
         BOOST_TEST(std::abs(mean) < 0.12);
         BOOST_TEST(std::abs(width - 1.) < 0.08);
@@ -462,14 +445,6 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
 {
   Propagator prop;
   prop.bzKiloGauss = 20.F;
-  const auto vectorOf = [](const Truth& t) {
-    const double p = 1. / std::abs(t.qOverP);
-    return std::array<double, 3>{p * std::cos(t.phi) * std::sin(t.theta), p * std::sin(t.phi) * std::sin(t.theta), p * std::cos(t.theta)};
-  };
-  const auto truthOf = [](const std::array<double, 3>& v, double charge) {
-    const double p = std::hypot(v[0], v[1], v[2]);
-    return Truth{std::atan2(v[1], v[0]), std::atan2(std::hypot(v[0], v[1]), v[2]), (charge != 0. ? charge : 1.) / p};
-  };
   // the Xi- at the root, carried 2 cm along its helix: its decay vertex and
   // its momentum there
   const Truth xiAtRoot{0.2, 1.3, -1. / 1.2};
@@ -513,7 +488,7 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
   const std::vector<DecayDaughter> exactStates{daughterOf(piPlusA, prop, kVertex), daughterOf(piPlusB, prop, kVertex), daughterOf(bachelor, prop, second), daughterOf(proton, prop, third), daughterOf(lambdaPion, prop, third)};
   const std::array<std::array<double, 3>, 3> truth{kVertex, second, third};
 
-  const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, {}, topology);
+  const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, UniformMaterial{}, {}, topology);
   BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
   for (int w = 0; w < 3; ++w) {
     for (int c = 0; c < 3; ++c) {
@@ -523,19 +498,13 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
   std::mt19937 random{1234U};
   std::normal_distribution<double> gauss;
   constexpr int kTrials = 1000;
-  std::array<double, 9> sum{};
-  std::array<double, 9> sum2{};
+  std::array<PullMoments, 9> pulls{};
   double chi2 = 0.;
   int fitted = 0;
   int ndf = 0;
   for (int trial = 0; trial < kTrials; ++trial) {
-    auto states = exactStates;
-    for (auto& daughter : states) {
-      for (int c = 0; c < 5; ++c) {
-        daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
-      }
-    }
-    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{}, {}, topology);
+    auto states = smeared(exactStates, random, gauss);
+    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{}, {}, topology);
     if (fit.status != DecayFitStatus::kOk) {
       continue;
     }
@@ -544,8 +513,7 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
     const int n = 9 + 15;
     for (int k = 0; k < 9; ++k) {
       const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covarianceAt(k, k));
-      sum[k] += pull;
-      sum2[k] += pull * pull;
+      pulls[k].add(pull);
     }
     chi2 += fit.chi2;
   }
@@ -553,8 +521,8 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
   BOOST_TEST(fitted >= kTrials - 5);
   BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.1);
   for (int k = 0; k < 9; ++k) {
-    const double mean = sum[k] / fitted;
-    const double width = std::sqrt((sum2[k] / fitted) - (mean * mean));
+    const double mean = pulls[k].mean(fitted);
+    const double width = pulls[k].width(fitted);
     BOOST_TEST_MESSAGE("  vertex " << k / 3 << " coordinate " << k % 3 << ": pull mean " << mean << ", width " << width);
     BOOST_TEST(std::abs(mean) < 0.12);
     BOOST_TEST(std::abs(width - 1.) < 0.08);
@@ -632,7 +600,7 @@ BOOST_AUTO_TEST_CASE(ElectronMixturesSumOverTheirComponents)
         daughter.mixture = mixture;
       }
       const std::span<const DecayDaughter> span{states};
-      const auto fit = withDecayFitVariant(variant, [&](auto one) { return fitDecayVertex<TRKFT3, decltype(one)::value>(span, NoMaterial{}, massOfPair); });
+      const auto fit = withDecayFitVariant(variant, [&](auto one) { return fitDecayVertex<TRKFT3, decltype(one)::value>(span, UniformMaterial{}, massOfPair); });
       if (fit.status != DecayFitStatus::kOk) {
         continue;
       }
@@ -668,10 +636,6 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
 {
   Propagator prop;
   prop.bzKiloGauss = 20.F;
-  const auto vectorOf = [](const Truth& t) {
-    const double p = 1. / std::abs(t.qOverP);
-    return std::array<double, 3>{p * std::cos(t.phi) * std::sin(t.theta), p * std::sin(t.phi) * std::sin(t.theta), p * std::cos(t.theta)};
-  };
   const Truth kaon{0.35, 1.25, -1. / 1.1};
   const Truth positron{0.05, 1.4, 1. / 0.7};
   const std::array<double, 3> neutrino{0.3, 0.25, 0.1};
@@ -703,16 +667,13 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
   const auto fitFrom = [&](const std::vector<DecayDaughter>& states, const std::array<double, 3>& start) {
     auto all = states;
     DecayDaughter unseen{.mass = 0., .neutral = true, .unmeasured = true};
-    const double p = std::hypot(start[0], start[1], start[2]);
-    unseen.innermost.par[kPhi] = static_cast<Scalar>(std::atan2(start[1], start[0]));
-    unseen.innermost.par[kTheta] = static_cast<Scalar>(std::atan2(std::hypot(start[0], start[1]), start[2]));
-    unseen.innermost.par[kQOverP] = static_cast<Scalar>(1. / p);
+    startUnmeasured(unseen, start);
     all.push_back(unseen);
-    return fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{all}, NoMaterial{}, constraints);
+    return fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{all}, UniformMaterial{}, constraints);
   };
   // exact: one branch gives the neutrino back
   {
-    const auto free = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{visible}, NoMaterial{});
+    const auto free = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{visible}, UniformMaterial{});
     BOOST_REQUIRE(free.status == DecayFitStatus::kOk);
     const auto starts = missingMomentumStarts(free, visibleMasses, made, massMother, 0.);
     BOOST_REQUIRE(!starts.empty());
@@ -734,19 +695,13 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
   std::mt19937 random{1357U};
   std::normal_distribution<double> gauss;
   constexpr int kTrials = 1000;
-  std::array<double, 3> sum{};
-  std::array<double, 3> sum2{};
+  std::array<PullMoments, 3> pulls{};
   double chi2 = 0.;
   int fitted = 0;
   int ndf = 0;
   for (int trial = 0; trial < kTrials; ++trial) {
-    auto states = visible;
-    for (auto& daughter : states) {
-      for (int c = 0; c < 5; ++c) {
-        daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
-      }
-    }
-    const auto free = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{});
+    auto states = smeared(visible, random, gauss);
+    const auto free = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{});
     if (free.status != DecayFitStatus::kOk) {
       continue;
     }
@@ -773,8 +728,7 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
     const int n = 3 + 9;
     for (int c = 0; c < 3; ++c) {
       const double pull = (nearest.vertex[c] - kVertex[c]) / std::sqrt(nearest.covarianceAt(c, c));
-      sum[c] += pull;
-      sum2[c] += pull * pull;
+      pulls[c].add(pull);
     }
     chi2 += nearest.chi2;
   }
@@ -782,8 +736,8 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
   BOOST_TEST(fitted >= kTrials - 50);
   BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.15);
   for (int c = 0; c < 3; ++c) {
-    const double mean = sum[c] / fitted;
-    const double width = std::sqrt((sum2[c] / fitted) - (mean * mean));
+    const double mean = pulls[c].mean(fitted);
+    const double width = pulls[c].width(fitted);
     BOOST_TEST_MESSAGE("  vertex " << c << ": pull mean " << mean << ", width " << width);
     BOOST_TEST(std::abs(mean) < 0.12);
     BOOST_TEST(std::abs(width - 1.) < 0.1);
@@ -837,22 +791,16 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
   constexpr int kTrials = 1000;
   {
     const DecayConstraints set{.resonances = {Resonance{.daughters = {0, 1}, .massGeV = kKStar, .widthGeV = kWidth}}};
-    const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, set);
+    const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, UniformMaterial{}, set);
     BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
     for (int i = 0; i < 3; ++i) {
       BOOST_TEST(std::abs(exact.vertex[i] - kVertex[i]) < 1e-4); // float states
     }
-    std::array<double, 3> sum{};
-    std::array<double, 3> sum2{};
+    std::array<PullMoments, 3> pulls{};
     int fitted = 0;
     for (int trial = 0; trial < kTrials; ++trial) {
-      auto states = exactStates;
-      for (auto& daughter : states) {
-        for (int i = 0; i < 5; ++i) {
-          daughter.innermost.par[i] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(i, i))));
-        }
-      }
-      const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{}, set);
+      auto states = smeared(exactStates, random, gauss);
+      const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{}, set);
       if (fit.status != DecayFitStatus::kOk) {
         continue;
       }
@@ -860,15 +808,14 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
       const int n = 3 + 9;
       for (int i = 0; i < 3; ++i) {
         const double pull = (fit.vertex[i] - kVertex[i]) / std::sqrt(fit.covarianceAt(i, i));
-        sum[i] += pull;
-        sum2[i] += pull * pull;
+        pulls[i].add(pull);
       }
     }
     BOOST_TEST_MESSAGE("resonance: fitted " << fitted);
     BOOST_TEST(fitted >= kTrials - 5);
     for (int i = 0; i < 3; ++i) {
-      const double mean = sum[i] / fitted;
-      const double width = std::sqrt((sum2[i] / fitted) - (mean * mean));
+      const double mean = pulls[i].mean(fitted);
+      const double width = pulls[i].width(fitted);
       BOOST_TEST_MESSAGE("  vertex " << i << ": pull mean " << mean << ", width " << width);
       BOOST_TEST(std::abs(mean) < 0.12);
       BOOST_TEST(std::abs(width - 1.) < 0.1);
@@ -907,7 +854,7 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
   pi.mass = kPion;
   const std::vector<DecayDaughter> exactStates{he, pi};
   {
-    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, NoMaterial{});
+    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, UniformMaterial{});
     BOOST_REQUIRE(fit.status == DecayFitStatus::kOk);
     double e = 0.;
     std::array<double, 3> sum{};
@@ -927,19 +874,13 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
   std::mt19937 random{8642U};
   std::normal_distribution<double> gauss;
   constexpr int kTrials = 1000;
-  std::array<double, 3> sum{};
-  std::array<double, 3> sum2{};
+  std::array<PullMoments, 3> pulls{};
   double chi2 = 0.;
   int fitted = 0;
   int ndf = 0;
   for (int trial = 0; trial < kTrials; ++trial) {
-    auto states = exactStates;
-    for (auto& daughter : states) {
-      for (int c = 0; c < 5; ++c) {
-        daughter.innermost.par[c] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(c, c))));
-      }
-    }
-    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, NoMaterial{}, set);
+    auto states = smeared(exactStates, random, gauss);
+    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{}, set);
     if (fit.status != DecayFitStatus::kOk) {
       continue;
     }
@@ -948,8 +889,7 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
     const int n = 3 + 6;
     for (int c = 0; c < 3; ++c) {
       const double pull = (fit.vertex[c] - kVertex[c]) / std::sqrt(fit.covarianceAt(c, c));
-      sum[c] += pull;
-      sum2[c] += pull * pull;
+      pulls[c].add(pull);
     }
     chi2 += fit.chi2;
   }
@@ -957,8 +897,8 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
   BOOST_TEST(fitted >= kTrials - 5);
   BOOST_TEST(std::abs((chi2 / fitted / ndf) - 1.) < 0.1);
   for (int c = 0; c < 3; ++c) {
-    const double mean = sum[c] / fitted;
-    const double width = std::sqrt((sum2[c] / fitted) - (mean * mean));
+    const double mean = pulls[c].mean(fitted);
+    const double width = pulls[c].width(fitted);
     BOOST_TEST_MESSAGE("  vertex " << c << ": pull mean " << mean << ", width " << width);
     BOOST_TEST(std::abs(mean) < 0.12);
     BOOST_TEST(std::abs(width - 1.) < 0.08);
@@ -974,7 +914,7 @@ BOOST_AUTO_TEST_CASE(ExactStatesGiveTheTruthBack)
     daughters.push_back(daughterOf(truth, prop));
   }
   {
-    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{daughters}, NoMaterial{});
+    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{daughters}, UniformMaterial{});
     BOOST_REQUIRE(fit.status == DecayFitStatus::kOk);
     for (int k = 0; k < 3; ++k) {
       BOOST_TEST(std::abs(fit.vertex[k] - kVertex[k]) < 2e-5); // the states are floats
@@ -999,18 +939,12 @@ BOOST_AUTO_TEST_CASE(SmearedStatesGiveUnitPulls)
   std::mt19937 random{12345U};
   std::normal_distribution<double> gauss;
   constexpr int kTrials = 2000;
-  std::array<double, 3> sum{};
-  std::array<double, 3> sum2{};
+  std::array<PullMoments, 3> pulls{};
   double chi2 = 0.;
   int fitted = 0;
   for (int trial = 0; trial < kTrials; ++trial) {
-    auto daughters = exact;
-    for (auto& daughter : daughters) {
-      for (int k = 0; k < 5; ++k) {
-        daughter.innermost.par[k] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(k, k))));
-      }
-    }
-    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{daughters}, NoMaterial{});
+    auto daughters = smeared(exact, random, gauss);
+    const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{daughters}, UniformMaterial{});
     if (fit.status != DecayFitStatus::kOk) {
       continue;
     }
@@ -1018,15 +952,14 @@ BOOST_AUTO_TEST_CASE(SmearedStatesGiveUnitPulls)
     const int n = 3 + (3 * static_cast<int>(daughters.size()));
     for (int k = 0; k < 3; ++k) {
       const double pull = (fit.vertex[k] - kVertex[k]) / std::sqrt(fit.covarianceAt(k, k));
-      sum[k] += pull;
-      sum2[k] += pull * pull;
+      pulls[k].add(pull);
     }
     chi2 += fit.chi2;
   }
   BOOST_TEST(fitted == kTrials);
   for (int k = 0; k < 3; ++k) {
-    const double mean = sum[k] / fitted;
-    const double width = std::sqrt((sum2[k] / fitted) - (mean * mean));
+    const double mean = pulls[k].mean(fitted);
+    const double width = pulls[k].width(fitted);
     BOOST_TEST_MESSAGE("vertex " << k << ": pull mean " << mean << ", width " << width);
     BOOST_TEST(std::abs(mean) < 0.1);
     BOOST_TEST(std::abs(width - 1.) < 0.05);
@@ -1141,19 +1074,19 @@ BOOST_AUTO_TEST_CASE(InputsOutsideTheCapacitiesAreRefused)
   // that is not there, one with more rows than a track holds.
   const std::vector<DecayDaughter> two(2);
   DecayTopology loop{.vertexOf = {0, 1}, .parent = {-1, 1}};
-  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, {}, loop).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, loop).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
   DecayConstraints resonance;
   resonance.resonances.push_back({.daughters = {0, 2}, .massGeV = 1., .widthGeV = 0.1});
-  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, resonance).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, resonance).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
   const DecayMother elsewhere{.vertex = 1};
-  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, {}, {}, std::span<const DecayMother>{&elsewhere, 1}).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, {}, std::span<const DecayMother>{&elsewhere, 1}).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
   const std::vector<TrackingSurface> planes(maxChainLayers<TRKFT3> + 1U);
   const std::vector<std::array<double, 2>> positions(planes.size());
   const std::vector<std::array<double, 3>> covariance(planes.size());
   const DecayMother longer{.planes = planes, .positions = positions, .covariance = covariance};
-  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, {}, {}, std::span<const DecayMother>{&longer, 1}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, {}, std::span<const DecayMother>{&longer, 1}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
   const std::vector<DecayDaughter> six(6);
-  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{six}, NoMaterial{}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{six}, UniformMaterial{}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
 }
 
 BOOST_AUTO_TEST_CASE(InputsBuiltBeyondTheirCapacityOrInconsistentAreRefused)
@@ -1167,16 +1100,16 @@ BOOST_AUTO_TEST_CASE(InputsBuiltBeyondTheirCapacityOrInconsistentAreRefused)
   BOOST_TEST(four.overflowed());
   BOOST_TEST(four[2] == 3.);
   const DecayTopology crowded{.vertexOf = {0, 0, 0, 0, 0, 0}};
-  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, {}, crowded)) == static_cast<int>(DecayFitStatus::kTooLarge));
+  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, crowded)) == static_cast<int>(DecayFitStatus::kTooLarge));
   // A mixture that claims more components than it holds.
   auto mixed = two;
   mixed[0].mixture.size = mixed[0].mixture.kCapacity + 1;
-  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{mixed}, NoMaterial{})) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{mixed}, UniformMaterial{})) == static_cast<int>(DecayFitStatus::kInvalidInput));
   // A composite's mass where the tree has no composite: no equation, no
   // degree of freedom either.
   DecayConstraints orphan;
   orphan.compositeMasses.push_back(1.);
-  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, NoMaterial{}, orphan)) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, orphan)) == static_cast<int>(DecayFitStatus::kInvalidInput));
   // A tracked mother with fewer positions than planes, through a batch: the
   // batch keeps each array's length, so the fit's check sees the mismatch.
   const std::vector<TrackingSurface> planes(2);
@@ -1186,7 +1119,7 @@ BOOST_AUTO_TEST_CASE(InputsBuiltBeyondTheirCapacityOrInconsistentAreRefused)
   DecayFitBatch batch;
   batch.add(std::span<const DecayDaughter>{two}, {}, {}, std::span<const DecayMother>{&ragged, 1});
   std::vector<DecayVertexFitResult> results(1);
-  fitDecayBatch<TRKFT3, DecayFitVariant::kFull>(batch.view(), NoMaterial{}, std::span<DecayVertexFitResult>{results});
+  fitDecayBatch<TRKFT3, DecayFitVariant::kFull>(batch.view(), UniformMaterial{}, std::span<DecayVertexFitResult>{results});
   BOOST_TEST(statusOf(results[0]) == static_cast<int>(DecayFitStatus::kInvalidInput));
 }
 
@@ -1259,13 +1192,8 @@ BOOST_AUTO_TEST_CASE(TheFitsCrossingIsThePropagatorsOne)
     state.par[kQOverP] = static_cast<Scalar>(truth.qOverP);
     const std::array<double, 6> free{vertex[0], vertex[1], vertex[2], static_cast<double>(state.phi()), static_cast<double>(state.theta()), static_cast<double>(state.qOverP())};
     // along the beam, 2 cm out along the direction; across it, 3 cm downstream
-    TrackingSurface along;
-    const double c = std::cos(truth.phi);
-    const double s = std::sin(truth.phi);
-    set(along.origin, static_cast<Scalar>(vertex[0] + (2. * c)), static_cast<Scalar>(vertex[1] + (2. * s)), static_cast<Scalar>(vertex[2]));
-    set(along.axis0, static_cast<Scalar>(-s), static_cast<Scalar>(c), 0.F);
-    set(along.axis1, 0.F, 0.F, 1.F);
-    set(along.normal, static_cast<Scalar>(c), static_cast<Scalar>(s), 0.F);
+    auto along = beamLinePlane(static_cast<Scalar>(vertex[0] + (2. * std::cos(truth.phi))), static_cast<Scalar>(vertex[1] + (2. * std::sin(truth.phi))), static_cast<Scalar>(truth.phi));
+    along.origin[2] = static_cast<Scalar>(vertex[2]);
     TrackingSurface across;
     const double side = std::cos(truth.theta) > 0. ? 1. : -1.;
     set(across.origin, 0.F, 0.F, static_cast<Scalar>(vertex[2] + (3. * side)));
@@ -1337,18 +1265,14 @@ BOOST_AUTO_TEST_CASE(ReducedPrecisionOnHardCases)
     const auto pions = pionPair();
     const auto visible = smeared({daughterOf(pions[0], prop, kDecay), daughterOf(pions[1], prop, kDecay)}, 13U);
     const std::array<double, 2> masses{kPion, kPion};
-    const auto free = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{visible}, NoMaterial{});
+    const auto free = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{visible}, UniformMaterial{});
     BOOST_REQUIRE(free.status == DecayFitStatus::kOk);
     // a mother heavier than the pair: room for the unseen one
     const auto starts = missingMomentumStarts(free, masses, kPoint, kMass + 0.1, 0.);
     BOOST_REQUIRE(!starts.empty());
     auto all = visible;
     DecayDaughter unseen{.mass = 0., .neutral = true, .unmeasured = true};
-    const auto& start = starts.front();
-    const double p = std::hypot(start[0], start[1], start[2]);
-    unseen.innermost.par[kPhi] = static_cast<Scalar>(std::atan2(start[1], start[0]));
-    unseen.innermost.par[kTheta] = static_cast<Scalar>(std::atan2(std::hypot(start[0], start[1]), start[2]));
-    unseen.innermost.par[kQOverP] = static_cast<Scalar>(1. / p);
+    startUnmeasured(unseen, starts.front());
     all.push_back(unseen);
     reportPrecision("missing momentum", all, DecayConstraints{.mass = true, .massGeV = kMass + 0.1, .production = true, .point = kPoint});
   }

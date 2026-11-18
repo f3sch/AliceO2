@@ -172,7 +172,7 @@ void ParticleChains::timeOrder(std::uint64_t particle, ParticleRows& chain, std:
   segments.reserve(own.size());
   for (const auto row : own) {
     const auto point = frame.measurement(row);
-    const auto* segment = hits.crossing(particle, point.surface, {static_cast<double>(point.x), static_cast<double>(point.y), static_cast<double>(point.z)});
+    const auto* segment = hits.crossing(particle, point);
     if (segment == nullptr) {
       chain.outcome = 2U;
       return;

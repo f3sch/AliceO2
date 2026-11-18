@@ -112,6 +112,13 @@ class HitIndex
   /// squared distance, the first in the file's order on a tie); none without
   /// one.
   [[nodiscard]] const HitSegment* crossing(std::uint64_t particle, std::uint32_t chip, const std::array<double, 3>& near) const;
+  /// \a particle's segment on a measurement's chip nearest it (\a point's
+  /// `surface` and x, y, z).
+  template <typename Point>
+  [[nodiscard]] const HitSegment* crossing(std::uint64_t particle, const Point& point) const
+  {
+    return crossing(particle, point.surface, {static_cast<double>(point.x), static_cast<double>(point.y), static_cast<double>(point.z)});
+  }
 
  private:
   std::unordered_map<std::uint64_t, std::vector<const HitSegment*>> mSegments; ///< by event and track

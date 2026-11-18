@@ -110,12 +110,11 @@ class ClusterPullStudy
     const auto& geometry = *event.geometry;
     const auto segmentOf = [&](std::uint64_t particle, std::uint32_t row) {
       const auto m = frame.measurement(row);
-      return event.hits->crossing(particle, m.surface, {static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z)});
+      return event.hits->crossing(particle, m);
     };
     for (const auto& chain : chains) {
       const auto& truth = event.particles->at(chain.particle);
-      const auto* species = o2::O2DatabasePDG::Instance()->GetParticle(truth.pdg);
-      const double mass = species == nullptr ? 0. : species->Mass();
+      const double mass = particleMass(truth.pdg);
       for (std::size_t i = 0; i < chain.rows.size(); ++i) {
         const auto m = frame.measurement(chain.rows[i]);
         const auto* segment = segmentOf(chain.particle, chain.rows[i]);
