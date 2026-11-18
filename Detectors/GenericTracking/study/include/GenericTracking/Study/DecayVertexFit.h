@@ -39,6 +39,7 @@
 
 #include "GenericTracking/Study/DecayConstraints.h"
 #include "GenericTracking/Study/DecayFitMath.h"
+#include "GenericTracking/Base/LayerLinks.h"
 #include "DetectorsBase/MatCell.h"
 #include "GenericTracking/Tracking/BeamConstraint.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
@@ -64,25 +65,7 @@
 namespace o2::gtrk::study
 {
 
-/// How a decay vertex fit takes its daughters.
-enum class DecayFitVariant : std::uint8_t {
-  kFull,        ///< carried with their material to the plane about every iteration's vertex
-  kGaussianSum, ///< kFull, then its electrons' mixtures kept: a fit per combination of their components, the posterior mixture collapsed
-  kCount
-};
 inline constexpr std::size_t kDecayFitVariants = static_cast<std::size_t>(DecayFitVariant::kCount);
-
-/// Why a decay vertex fit stopped.
-enum class DecayFitStatus : std::uint8_t {
-  kOk,
-  kNoStart,     ///< the first two daughters' helices give no start
-  kCarryFailed, ///< a daughter could not be carried to its plane
-  kNoCrossing,  ///< the prediction's helix does not reach a plane
-  kSingular,    ///< the normal matrix or a measurement's covariance is not positive definite
-  kNotConverged,
-  kStopped, ///< a daughter's trajectory stops in the material (the loss has no solution)
-  kCount
-};
 
 /// A daughter as the fit takes it.
 struct DecayDaughter {
@@ -127,6 +110,7 @@ struct DecayVertexFitResult {
   std::uint8_t outer = 0U;                     ///< the model's evaluations (carries, material along the trajectory)
   std::uint8_t stopReason = 0U;                ///< 1 the model anew moved nothing, 2 its moves stopped shrinking within `kModelTolerance`, 0 not converged
   float stopMetric = 0.F;                      ///< the last step's predicted chi2 gain
+  float stopBound = 0.F;                       ///< and what it was held to: the inputs' resolution R (`minimiseFrozen`)
   float modelShift = 0.F;                      ///< what the last model evaluation moved the solution by (its first step's predicted gain)
   double pointSigma = 0.;                      ///< the production point's equations' sigma across the flight [cm], with the scattering onto it
   std::uint16_t combinations = 0U;             ///< `kGaussianSum`: the component combinations fitted and taken
@@ -172,7 +156,7 @@ namespace decay_fit_detail
 /// fills \a values and \a rows. \a steps: the steps taken; \a first:
 /// the first step's predicted gain, what the model moved the solution by.
 template <typename Evaluate, typename ConstraintsAt>
-[[nodiscard]] DecayFitStatus minimiseFrozen(int n, int ndf, bool constrained, const Evaluate& evaluate, const ConstraintsAt& constraintsAt, const std::vector<double>& values, const std::vector<double>& rows, std::vector<double>& parameters, double& chi2, double& mu, double& metric, int& iterations, int& steps, double& first)
+[[nodiscard]] DecayFitStatus minimiseFrozen(int n, int ndf, bool constrained, const Evaluate& evaluate, const ConstraintsAt& constraintsAt, const std::vector<double>& values, const std::vector<double>& rows, std::vector<double>& parameters, double& chi2, double& mu, double& metric, double& bound, int& iterations, int& steps, double& first)
 {
   using namespace decay_fit_detail;
   std::vector<double> normal(static_cast<std::size_t>(n * n));
@@ -226,6 +210,7 @@ template <typename Evaluate, typename ConstraintsAt>
       first = metric;
     }
     const double resolvable = (std::numeric_limits<double>::epsilon() * (chi2 + std::max(ndf, 0))) + rounding;
+    bound = resolvable;
     if (metric <= resolvable) {
       return DecayFitStatus::kOk;
     }
@@ -493,18 +478,79 @@ template <typename Evaluate, typename ConstraintsAt>
   return starts;
 }
 
-/// The vertex of \a daughters (at least two) under \a variant, with
+namespace decay_fit_detail
+{
+
+/// Whether the inputs fit the fit's capacities (`kTooLarge`: more vertices
+/// or daughters than the constraints take, a tracked particle with more rows
+/// than a track of Det holds) and refer only inside the decay
+/// (`kInvalidInput`); checked before anything walks them.
+template <DetectorLayout Det>
+[[nodiscard]] DecayFitStatus validateInputs(std::span<const DecayDaughter> daughters, const DecayConstraints& constraints, const DecayTopology& topology, std::span<const DecayMother> mothers)
+{
+  const int count = static_cast<int>(daughters.size());
+  const int k = topology.vertices();
+  if (count > kMaxConstrainedDaughters || k > kMaxConstrainedVertices) {
+    return DecayFitStatus::kTooLarge;
+  }
+  if (!topology.vertexOf.empty() && static_cast<int>(topology.vertexOf.size()) != count) {
+    return DecayFitStatus::kInvalidInput;
+  }
+  for (const int v : topology.vertexOf) {
+    if (v < 0 || v >= k) {
+      return DecayFitStatus::kInvalidInput;
+    }
+  }
+  for (int v = 0; v < static_cast<int>(topology.parent.size()); ++v) {
+    if (v == 0 ? topology.parent[v] != -1 : (topology.parent[v] < 0 || topology.parent[v] >= v)) {
+      return DecayFitStatus::kInvalidInput;
+    }
+  }
+  if (static_cast<int>(topology.massGeV.size()) > k || static_cast<int>(constraints.compositeMasses.size()) > k) {
+    return DecayFitStatus::kInvalidInput;
+  }
+  for (const auto& resonance : constraints.resonances) {
+    for (const int i : resonance.daughters) {
+      if (i < 0 || i >= count) {
+        return DecayFitStatus::kInvalidInput;
+      }
+    }
+  }
+  for (std::size_t a = 0; a < mothers.size(); ++a) {
+    const auto& mother = mothers[a];
+    if (mother.vertex < 0 || mother.vertex >= k || mother.positions.size() != mother.planes.size() || mother.covariance.size() != mother.planes.size()) {
+      return DecayFitStatus::kInvalidInput;
+    }
+    for (std::size_t b = 0; b < a; ++b) {
+      if (mothers[b].vertex == mother.vertex) {
+        return DecayFitStatus::kInvalidInput;
+      }
+    }
+    if (mother.planes.size() > maxChainLayers<Det>) {
+      return DecayFitStatus::kTooLarge;
+    }
+  }
+  return DecayFitStatus::kOk;
+}
+
+} // namespace decay_fit_detail
+
+/// The vertex of \a daughters (at least two) under \a Variant, with
 /// \a material's material between each daughter's innermost measurement and
 /// the vertex, and under \a constraints: then every step is the constrained
 /// one (DecayConstraints.h), taken whole unless a helix misses its plane;
 /// a tree (\a topology) has a vertex per composite, each daughter carried to
 /// the plane about its own, and the links always constrained.
-template <typename Material>
-[[nodiscard]] DecayVertexFitResult fitDecayVertex(std::span<const DecayDaughter> daughters, const Material& material, DecayFitVariant variant, const DecayConstraints& constraints = {}, const DecayTopology& topology = {}, std::span<const DecayMother> mothers = {})
+template <DetectorLayout Det, DecayFitVariant Variant, typename Material>
+[[nodiscard]] DecayVertexFitResult fitDecayVertex(std::span<const DecayDaughter> daughters, const Material& material, const DecayConstraints& constraints = {}, const DecayTopology& topology = {}, std::span<const DecayMother> mothers = {})
 {
   using namespace decay_fit_detail;
   constexpr int kDerivatives = 6; // vx, vy, vz, phi, theta, q/p
   DecayVertexFitResult result;
+  if (const auto status = validateInputs<Det>(daughters, constraints, topology, mothers); status != DecayFitStatus::kOk) {
+    result.status = status;
+    return result;
+  }
   const int count = static_cast<int>(daughters.size());
   const int k = topology.vertices();
   const int core = (3 * k) + (3 * count);
@@ -1144,6 +1190,7 @@ template <typename Material>
 
   double mu = 0.;
   double metric = 0.;
+  double bound = 0.;
   int iterations = 0;
   int steps = 0;
   double shift = 0.;
@@ -1163,7 +1210,7 @@ template <typename Material>
       }
     }
     result.outer = static_cast<std::uint8_t>(outer + 1);
-    const auto inner = minimiseFrozen(n, ndf, constrained, evaluate, constraintsAt, values, rows, parameters, chi2, mu, metric, iterations, steps, shift);
+    const auto inner = minimiseFrozen(n, ndf, constrained, evaluate, constraintsAt, values, rows, parameters, chi2, mu, metric, bound, iterations, steps, shift);
     if (inner != DecayFitStatus::kOk) {
       result.status = inner;
       break;
@@ -1192,6 +1239,7 @@ template <typename Material>
   }
   result.iterations = static_cast<std::uint8_t>(std::min(iterations, 255));
   result.stopMetric = static_cast<float>(metric);
+  result.stopBound = static_cast<float>(bound);
   // The covariance at the solution, with the measurements of the last carry.
   double rounding = 0.;
   if (!evaluate(parameters, chi2, rounding, &normal, &gradient)) {
@@ -1219,7 +1267,7 @@ template <typename Material>
   // measurements', sqrt(det C) / prod sqrt(det V), C over the constraints'
   // surface (det(Z^T N Z) = |det KKT| / det(C C^T)) --; the result the
   // posterior mixture's mean and covariance, its chi2 the weighted mean.
-  if (variant == DecayFitVariant::kGaussianSum) {
+  if constexpr (Variant == DecayFitVariant::kGaussianSum) {
     std::vector<int> electrons;
     for (int i = 0; i < count; ++i) {
       if (!components[i].empty()) {
@@ -1251,10 +1299,11 @@ template <typename Material>
         double fitChi2 = 0.;
         double combinationMu = mu;
         double combinationMetric = 0.;
+        double combinationBound = 0.;
         int combinationIterations = 0;
         int combinationSteps = 0;
         double combinationShift = 0.;
-        if (minimiseFrozen(n, ndf, constrained, evaluate, constraintsAt, values, rows, fitParameters, fitChi2, combinationMu, combinationMetric, combinationIterations, combinationSteps, combinationShift) != DecayFitStatus::kOk) {
+        if (minimiseFrozen(n, ndf, constrained, evaluate, constraintsAt, values, rows, fitParameters, fitChi2, combinationMu, combinationMetric, combinationBound, combinationIterations, combinationSteps, combinationShift) != DecayFitStatus::kOk) {
           continue;
         }
         double unusedRounding = 0.;
