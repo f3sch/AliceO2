@@ -59,7 +59,8 @@ class DeviceDecayFitter
   /// hold it.
   [[nodiscard]] virtual bool configure(const Material& material) = 0;
   /// \a batch's decays under \a variant into \a results (one per decay, host
-  /// memory); false if the arena cannot hold the batch's inputs and results.
+  /// memory, copied out after each launch); false if the arena cannot hold the
+  /// batch's inputs.
   [[nodiscard]] virtual bool fit(DecayFitVariant variant, const DecayFitBatch& batch, std::span<DecayVertexFitResult> results, Timing& timing) = 0;
 };
 
