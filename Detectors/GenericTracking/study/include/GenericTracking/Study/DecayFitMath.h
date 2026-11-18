@@ -80,16 +80,10 @@ inline constexpr double kModelTolerance = 1.;
 template <int N>
 using FreeState = std::array<Dual<N>, 6>;
 
-/// \a from carried along its helix to \a plane (a plane along the beam, or
-/// across it): the free state at the crossing nearest along the helix,
-/// ahead or behind, and its loc0, loc1 there; false if the helix never
-/// reaches the plane.
-///
-/// On a plane along the beam with normal angle phiL the crossing has
-/// sin(phi_end - phiL) = sin(phi - phiL) - rho u, u the start's distance
-/// along the normal; of the two solutions phi_end and every turn by 2 pi, the
-/// smallest |rho s| = |phi_end - phi| is the nearest crossing. In double the
-/// difference loses nothing that matters at small rho.
+/// \a from carried along its helix (\a fieldScale = Bz B2C, the curvature per
+/// q/pT) to \a plane -- along the beam, across it, or tilted --: the free
+/// state at the crossing, ahead or behind, and its loc0, loc1 there; false if
+/// the helix does not reach the plane (along the beam: within a quarter turn).
 template <int N>
 [[nodiscard]] bool crossToPlane(const FreeState<N>& from, const TrackingSurface& plane, double fieldScale, FreeState<N>& to, std::array<Dual<N>, 2>& local)
 {
@@ -104,31 +98,32 @@ template <int N>
   const D rho = fieldScale * (from[5] / sinTheta);
   D s;
   if (nz == 0.) {
+    // Oriented so that the helix leaves through the plane's front (the
+    // normal and the direction on the same side, cos(delta) > 0): the
+    // crossing then has sin(delta + rho s) = sin(delta) - rho u, u the start's
+    // distance before the plane, solved for w = sin(rho s) without the
+    // cancellation at small rho (the line's -u / cos(delta) at rho = 0),
+    // s = (w / rho) asinc(w). asin recovers rho s within a quarter turn only.
     const double phiL = std::atan2(ny, nx);
-    const D u = (nx * (from[0] + (-static_cast<double>(plane.origin[0])))) + (ny * (from[1] + (-static_cast<double>(plane.origin[1]))));
     const D delta = phi + (-phiL);
-    if (rho.v == 0.) {
-      const D cosDelta = cos(delta);
-      if (!(std::abs(cosDelta.v) > 0.)) {
-        return false;
-      }
-      s = (-u) / cosDelta;
-    } else {
-      const D sinEnd = sin(delta) - (rho * u);
-      if (!(std::abs(sinEnd.v) < 1.)) {
-        return false; // missed, or grazing: no crossing to bind to
-      }
-      const D first = chain(sinEnd, std::asin(sinEnd.v), 1. / std::sqrt(1. - (sinEnd.v * sinEnd.v)));
-      // The turn to each solution, brought within (-pi, pi]; the smaller wins.
-      const auto turnTo = [&](const D& end) {
-        D turn = end - delta;
-        turn.v = std::remainder(turn.v, 2. * std::numbers::pi);
-        return turn;
-      };
-      const D one = turnTo(first);
-      const D two = turnTo((-first) + std::numbers::pi);
-      s = (std::abs(one.v) <= std::abs(two.v) ? one : two) / rho;
+    const double side = cos(delta).v >= 0. ? 1. : -1.;
+    const D u = side * ((nx * (from[0] + (-static_cast<double>(plane.origin[0])))) + (ny * (from[1] + (-static_cast<double>(plane.origin[1])))));
+    const D sinDelta = side * sin(delta);
+    const D cosDelta = side * cos(delta);
+    const D sinEnd = sinDelta - (rho * u);
+    if (!(std::abs(sinEnd.v) < 1.) || !(cosDelta.v > 0.)) {
+      return false; // missed, grazing, or along the plane: no crossing to bind to
     }
+    const D cosEnd = sqrt((-(sinEnd * sinEnd)) + 1.);
+    if (!((cosEnd.v * cosDelta.v) + (sinEnd.v * sinDelta.v) > 0.)) {
+      return false; // beyond a quarter turn
+    }
+    const D wOverRho = (-(u * cosDelta)) - ((sinDelta * u) * (sinEnd + sinDelta) / (cosDelta + cosEnd));
+    const D w = rho * wOverRho;
+    if (!(std::abs(w.v) < 1.)) {
+      return false;
+    }
+    s = wOverRho * asinc(w);
   } else if (nx == 0. && ny == 0.) {
     if (!(std::abs(cotTheta.v) > 0.)) {
       return false;
@@ -194,63 +189,6 @@ template <int N>
   const std::array<D, 3> d{to[0] + (-static_cast<double>(plane.origin[0])), to[1] + (-static_cast<double>(plane.origin[1])), to[2] + (-static_cast<double>(plane.origin[2]))};
   local[0] = (static_cast<double>(plane.axis0[0]) * d[0]) + (static_cast<double>(plane.axis0[1]) * d[1]) + (static_cast<double>(plane.axis0[2]) * d[2]);
   local[1] = (static_cast<double>(plane.axis1[0]) * d[0]) + (static_cast<double>(plane.axis1[1]) * d[1]) + (static_cast<double>(plane.axis1[2]) * d[2]);
-  return true;
-}
-
-/// The plane's frame: its transverse origin and its normal's angle.
-struct PerigeePlane {
-  double x = 0.;
-  double y = 0.;
-  double phi = 0.;
-};
-
-[[nodiscard]] inline PerigeePlane perigeePlaneFrame(const TrackingSurface& plane)
-{
-  return {.x = plane.origin[0], .y = plane.origin[1], .phi = std::atan2(static_cast<double>(plane.normal[1]), static_cast<double>(plane.normal[0]))};
-}
-
-/// The helix from (vx, vy, vz) with direction phi, theta and q/p in a
-/// uniform field (\a fieldScale = Bz B2C, the curvature per q/pT) to the
-/// perigee plane \a plane: its loc0, loc1, phi, theta, q/p there; false if it
-/// does not reach the plane on its nearer half turn.
-template <int N>
-[[nodiscard]] bool predictOnPlane(const Dual<N>& vx, const Dual<N>& vy, const Dual<N>& vz, const Dual<N>& phi, const Dual<N>& theta, const Dual<N>& qOverP, double fieldScale, const PerigeePlane& plane, std::array<Dual<N>, 5>& out)
-{
-  using T = Dual<N>;
-  const double cosL = std::cos(plane.phi);
-  const double sinL = std::sin(plane.phi);
-  const T dx = vx + (-plane.x);
-  const T dy = vy + (-plane.y);
-  const T sinTheta = sin(theta);
-  const T rho = fieldScale * (qOverP / sinTheta); // dphi / ds, s the transverse arc length
-  const T delta = phi + (-plane.phi);
-  const T sinDelta = sin(delta);
-  const T cosDelta = cos(delta);
-  const T u = (cosL * dx) + (sinL * dy); // the start's distance before the plane
-  // sin(delta + rho s) = sin(delta) - rho u at the crossing; s = asin(w) / rho,
-  // w = sin(rho s), written without the cancellation at small rho.
-  const T sinEnd = sinDelta - (rho * u);
-  if (!(std::abs(sinEnd.v) < 1.) || !(cosDelta.v > 0.)) {
-    return false;
-  }
-  const T rootEnd = sqrt((-(sinEnd * sinEnd)) + 1.);
-  // The turn rho s, from the end's direction on the near side (cos > 0):
-  // asin recovers it only within a quarter turn, cos(rho s) > 0.
-  if (!((rootEnd.v * cosDelta.v) + (sinEnd.v * sinDelta.v) > 0.)) {
-    return false;
-  }
-  const T wOverRho = (-(u * cosDelta)) - ((sinDelta * u) * (sinEnd + sinDelta) / (cosDelta + rootEnd));
-  const T w = rho * wOverRho;
-  if (!(std::abs(w.v) < 1.)) {
-    return false;
-  }
-  const T s = wOverRho * asinc(w);
-  const T half = 0.5 * (rho * s);
-  out[0] = ((-sinL) * dx) + (cosL * dy) + (s * (sin(delta + half) * sinc(half)));
-  out[1] = vz + (s * (cos(theta) / sinTheta));
-  out[2] = phi + (rho * s);
-  out[3] = theta;
-  out[4] = qOverP;
   return true;
 }
 
