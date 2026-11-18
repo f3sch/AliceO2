@@ -89,6 +89,18 @@ struct DecayTopology {
   }
 };
 
+/// A resonance among the daughters: it decays where it is made, so its
+/// products sit at its parent's vertex; their invariant mass m is its own
+/// by the relativistic Breit-Wigner: -2 ln BW = 2 ln(1 + u^2),
+/// u = (m^2 - M^2) / (M Gamma) a standard Cauchy variable, solved by Fisher
+/// scoring (its information 1/2 per unit u^2). (A Gaussian of the
+/// Breit-Wigner's FWHM in m was measured worse: it pulls the tails' decays.)
+struct Resonance {
+  std::vector<int> daughters; ///< its products among the fit's daughters
+  double massGeV = 0.;
+  double widthGeV = 0.;
+};
+
 /// The constraints a decay vertex fit takes. Besides these, a tree's links
 /// always hold: every composite below the root flies from its parent's
 /// vertex to its own along its momentum, two equations -- a neutral one in a
@@ -103,6 +115,8 @@ struct DecayConstraints {
   std::optional<LinePosition> position;
   /// Per vertex below the root, its composite's mass to hold [GeV]; 0 for none.
   std::vector<double> compositeMasses;
+  /// Resonances' masses, measured softly (a term of the chi2 each).
+  std::vector<Resonance> resonances;
   /// What the constraints add to the degrees of freedom.
   [[nodiscard]] int count(const DecayTopology& topology = {}) const
   {
@@ -110,7 +124,7 @@ struct DecayConstraints {
     for (const auto m : compositeMasses) {
       composites += m > 0. ? 1 : 0;
     }
-    return (mass ? 1 : 0) + (production ? 2 : 0) + (collinear ? 2 : 0) + (position ? 1 : 0) + composites + (2 * (topology.vertices() - 1));
+    return (mass ? 1 : 0) + (production ? 2 : 0) + (collinear ? 2 : 0) + (position ? 1 : 0) + composites + (2 * (topology.vertices() - 1)) + static_cast<int>(resonances.size());
   }
 };
 

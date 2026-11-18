@@ -842,6 +842,92 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
   }
 }
 
+/// A D+-like K- pi+ pi+ whose K- pi+ pair is a K*0 at its mass: its mass
+/// taken softly by its Breit-Wigner. Exact inputs give the vertex back;
+/// smeared ones unit vertex pulls.
+BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
+{
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  constexpr double kKaon = 0.493677;
+  constexpr double kKStar = 0.89555;
+  constexpr double kWidth = 0.0473;
+  // the K- and the pi+ of the K*0: their momenta at the K*'s mass, the
+  // pion's magnitude solved for it
+  const Truth kaon{0.2, 1.3, -1. / 0.9};
+  const double phiPi = 0.55;
+  const double thetaPi = 1.2;
+  const auto unit = [](double phi, double theta) { return std::array<double, 3>{std::cos(phi) * std::sin(theta), std::sin(phi) * std::sin(theta), std::cos(theta)}; };
+  const auto k = unit(kaon.phi, kaon.theta);
+  const double pk = 1. / std::abs(kaon.qOverP);
+  const double ek = std::hypot(pk, kKaon);
+  const auto u = unit(phiPi, thetaPi);
+  const double cosine = (k[0] * u[0]) + (k[1] * u[1]) + (k[2] * u[2]);
+  // M^2 = mK^2 + mpi^2 + 2 (ek epi - pk p cos): bisect p
+  double low = 1e-3;
+  double high = 10.;
+  for (int i = 0; i < 200; ++i) {
+    const double p = 0.5 * (low + high);
+    const double m2 = (kKaon * kKaon) + (kPion * kPion) + (2. * ((ek * std::hypot(p, kPion)) - (pk * p * cosine)));
+    (m2 < kKStar * kKStar ? low : high) = p;
+  }
+  const Truth pion{phiPi, thetaPi, 1. / (0.5 * (low + high))};
+  const Truth other{-0.4, 1.5, 1. / 0.6};
+  Propagator kaonProp = prop;
+  kaonProp.massGeV = static_cast<Scalar>(kKaon);
+  Propagator pionProp = prop;
+  pionProp.massGeV = static_cast<Scalar>(kPion);
+  auto a = daughterOf(kaon, kaonProp, kVertex);
+  a.mass = kKaon;
+  auto b = daughterOf(pion, pionProp, kVertex);
+  b.mass = kPion;
+  auto c = daughterOf(other, pionProp, kVertex);
+  c.mass = kPion;
+  const std::vector<DecayDaughter> exactStates{a, b, c};
+  std::mt19937 random{97531U};
+  std::normal_distribution<double> gauss;
+  constexpr int kTrials = 1000;
+  {
+    const DecayConstraints set{.resonances = {Resonance{.daughters = {0, 1}, .massGeV = kKStar, .widthGeV = kWidth}}};
+    const auto exact = fitDecayVertex(std::span<const DecayDaughter>{exactStates}, NoMaterial{}, DecayFitVariant::kNoMaterial, set);
+    BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
+    for (int i = 0; i < 3; ++i) {
+      BOOST_TEST(std::abs(exact.vertex[i] - kVertex[i]) < 1e-4); // float states
+    }
+    std::array<double, 3> sum{};
+    std::array<double, 3> sum2{};
+    int fitted = 0;
+    for (int trial = 0; trial < kTrials; ++trial) {
+      auto states = exactStates;
+      for (auto& daughter : states) {
+        for (int i = 0; i < 5; ++i) {
+          daughter.innermost.par[i] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(daughter.innermost.covAt(i, i))));
+        }
+      }
+      const auto fit = fitDecayVertex(std::span<const DecayDaughter>{states}, NoMaterial{}, DecayFitVariant::kNoMaterial, set);
+      if (fit.status != DecayFitStatus::kOk) {
+        continue;
+      }
+      ++fitted;
+      const int n = 3 + 9;
+      for (int i = 0; i < 3; ++i) {
+        const double pull = (fit.vertex[i] - kVertex[i]) / std::sqrt(fit.covariance[i * n + i]);
+        sum[i] += pull;
+        sum2[i] += pull * pull;
+      }
+    }
+    BOOST_TEST_MESSAGE("resonance: fitted " << fitted);
+    BOOST_TEST(fitted >= kTrials - 5);
+    for (int i = 0; i < 3; ++i) {
+      const double mean = sum[i] / fitted;
+      const double width = std::sqrt((sum2[i] / fitted) - (mean * mean));
+      BOOST_TEST_MESSAGE("  vertex " << i << ": pull mean " << mean << ", width " << width);
+      BOOST_TEST(std::abs(mean) < 0.12);
+      BOOST_TEST(std::abs(width - 1.) < 0.1);
+    }
+  }
+}
+
 BOOST_AUTO_TEST_CASE(ExactStatesGiveTheTruthBack)
 {
   Propagator prop;
