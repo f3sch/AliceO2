@@ -22,6 +22,7 @@ function(gtrk_tracking_test name source)
 endfunction()
 
 gtrk_tracking_test(math-utils testMathUtils.cxx)
+gtrk_tracking_test(dense-solve testDenseSolve.cxx)
 gtrk_tracking_test(placed-layouts testPlacedLayouts.cxx)
 gtrk_tracking_test(tracking-surface testTrackingSurface.cxx)
 gtrk_tracking_test(timeframe testTimeFrame.cxx)

@@ -263,29 +263,49 @@ struct ScatteredEquations {
 {
   const int m = static_cast<int>(values.size());
   const int size = n + m;
-  RowMatrix system = RowMatrix::Zero(size, size);
-  system.topLeftCorner(n, n) = matrixOf(normal, n, n);
-  system.bottomLeftCorner(m, n) = matrixOf(rows, m, n);
-  system.topRightCorner(n, m) = matrixOf(rows, m, n).transpose();
-  const Eigen::PartialPivLU<RowMatrix> lu(system);
-  const auto pivots = lu.matrixLU().diagonal();
-  if ((pivots.array() == 0.).any()) {
+  std::vector<double> system(static_cast<std::size_t>(size * size), 0.);
+  for (int a = 0; a < n; ++a) {
+    for (int b = 0; b < n; ++b) {
+      system[(a * size) + b] = normal[(a * n) + b];
+    }
+  }
+  for (int j = 0; j < m; ++j) {
+    for (int b = 0; b < n; ++b) {
+      system[((n + j) * size) + b] = rows[(j * n) + b];
+      system[(b * size) + n + j] = rows[(j * n) + b];
+    }
+  }
+  std::vector<int> pivots(static_cast<std::size_t>(size));
+  const auto lu = viewOf(system, size);
+  if (!dense::luFactor(lu, size, pivots.data())) {
     return false;
   }
-  Eigen::VectorXd rhs(size);
-  rhs.head(n) = vectorOf(gradient);
-  rhs.tail(m) = -vectorOf(values);
-  const Eigen::VectorXd solution = lu.solve(rhs);
-  step.assign(solution.data(), solution.data() + n);
+  std::vector<double> solution(static_cast<std::size_t>(size));
+  for (int a = 0; a < n; ++a) {
+    solution[a] = gradient[a];
+  }
+  for (int j = 0; j < m; ++j) {
+    solution[n + j] = -values[j];
+  }
+  dense::luSolve(lu, size, pivots.data(), solution.data());
+  step.assign(solution.begin(), solution.begin() + n);
   if (multipliers != nullptr) {
-    multipliers->assign(solution.data() + n, solution.data() + size);
+    multipliers->assign(solution.begin() + n, solution.end());
   }
   if (logDeterminant != nullptr) {
-    *logDeterminant = pivots.array().abs().log().sum();
+    *logDeterminant = dense::luLogAbsDeterminant(lu, size);
   }
   if (covariance != nullptr) {
+    // The system's inverse's N block, a column at a time.
     covariance->resize(static_cast<std::size_t>(n * n));
-    matrixOf(*covariance, n, n) = lu.solve(RowMatrix::Identity(size, n)).topRows(n);
+    for (int b = 0; b < n; ++b) {
+      std::fill(solution.begin(), solution.end(), 0.);
+      solution[b] = 1.;
+      dense::luSolve(lu, size, pivots.data(), solution.data());
+      for (int a = 0; a < n; ++a) {
+        (*covariance)[(a * n) + b] = solution[a];
+      }
+    }
   }
   return true;
 }

@@ -115,13 +115,20 @@ GPUhdi() GPUAlwaysInline() double cosOf(double x) { return portable::cos(x); }
 GPUhdi() GPUAlwaysInline() double asinOf(double x) { return portable::asin(x); }
 GPUhdi() GPUAlwaysInline() double atanOf(double x) { return portable::atan(x); }
 GPUhdi() GPUAlwaysInline() double atan2Of(double y, double x) { return portable::atan2(y, x); }
+GPUhdi() GPUAlwaysInline() double logOf(double x) { return portable::log(x); }
 #else
 GPUhdi() GPUAlwaysInline() double sinOf(double x) { return o2::gpu::CAMath::Sind(x); }
 GPUhdi() GPUAlwaysInline() double cosOf(double x) { return o2::gpu::CAMath::Cosd(x); }
 GPUhdi() GPUAlwaysInline() double asinOf(double x) { return o2::gpu::CAMath::ASind(x); }
 GPUhdi() GPUAlwaysInline() double atanOf(double x) { return o2::gpu::CAMath::ATand(x); }
 GPUhdi() GPUAlwaysInline() double atan2Of(double y, double x) { return o2::gpu::CAMath::ATan2d(y, x); }
+GPUhdi() GPUAlwaysInline() double logOf(double x) { return o2::gpu::CAMath::Logd(x); }
 #endif
+
+/// The square root: IEEE's is correctly rounded, so the deterministic mode
+/// needs no variant of its own.
+GPUhdi() GPUAlwaysInline() float sqrtOf(float x) { return o2::gpu::CAMath::Sqrt(x); }
+GPUhdi() GPUAlwaysInline() double sqrtOf(double x) { return o2::gpu::CAMath::Sqrtd(x); }
 
 GPUhdi() GPUAlwaysInline() void sincosOf(double x, double& s, double& c)
 {
