@@ -19,7 +19,7 @@
 
 #include "GenericTracking/Study/Dual.h"
 #include "GenericTracking/Tracking/Definitions.h"
-#include "GenericTracking/Tracking/DenseSolve.h"
+#include "GenericTracking/Base/DenseSolve.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
 #include <algorithm>
