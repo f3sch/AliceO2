@@ -16,7 +16,7 @@
 #define BOOST_TEST_MODULE Test GTRK DenseSolve
 #include <boost/test/unit_test.hpp>
 
-#include "GenericTracking/Tracking/DenseSolve.h"
+#include "GenericTracking/Base/DenseSolve.h"
 
 #include <array>
 #include <cmath>

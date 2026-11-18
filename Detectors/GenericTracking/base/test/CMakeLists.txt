@@ -25,3 +25,9 @@ o2_add_test(time-est-ps
             COMPONENT_NAME generic-tracking
             LABELS "generic-tracking"
             PUBLIC_LINK_LIBRARIES O2::GTrkBase O2::CommonConstants)
+
+o2_add_test(dense-solve
+            SOURCES testDenseSolve.cxx
+            COMPONENT_NAME generic-tracking
+            LABELS "generic-tracking"
+            PUBLIC_LINK_LIBRARIES O2::GTrkBase)

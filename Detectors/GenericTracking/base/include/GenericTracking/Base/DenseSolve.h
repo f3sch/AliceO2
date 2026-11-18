@@ -20,16 +20,31 @@
 /// whose size is known only at run time. Each loop runs over n: the cost is
 /// bounded by n^3 for any input.
 
-#ifndef GTRK_TRACKING_DENSESOLVE_H_
-#define GTRK_TRACKING_DENSESOLVE_H_
+#ifndef GTRK_BASE_DENSESOLVE_H_
+#define GTRK_BASE_DENSESOLVE_H_
 
-#include "GenericTracking/Tracking/Trig.h"
+#include "GenericTracking/Base/PortableMath.h"
 
 #include "GPUCommonDef.h"
 #include "GPUCommonMath.h"
 
 namespace o2::gtrk::dense
 {
+
+namespace detail
+{
+// The square root is correctly rounded everywhere (IEEE); the logarithm in
+// double is not, so the deterministic mode takes PortableMath's.
+GPUhdi() GPUAlwaysInline() float sqrtOf(float x) { return o2::gpu::CAMath::Sqrt(x); }
+GPUhdi() GPUAlwaysInline() double sqrtOf(double x) { return o2::gpu::CAMath::Sqrtd(x); }
+#ifdef GPUCA_DETERMINISTIC_MODE
+GPUhdi() GPUAlwaysInline() float logOf(float x) { return static_cast<float>(portable::log(static_cast<double>(x))); }
+GPUhdi() GPUAlwaysInline() double logOf(double x) { return portable::log(x); }
+#else
+GPUhdi() GPUAlwaysInline() float logOf(float x) { return o2::gpu::CAMath::Log(x); }
+GPUhdi() GPUAlwaysInline() double logOf(double x) { return o2::gpu::CAMath::Logd(x); }
+#endif
+} // namespace detail
 
 /// A row-major matrix in memory the caller owns: element (row, column) at
 /// `data[row * stride + column]`.
@@ -58,7 +73,7 @@ template <typename T, typename Size>
         if (!(value > T(0))) {
           return false;
         }
-        a(row, row) = sqrtOf(value);
+        a(row, row) = detail::sqrtOf(value);
       } else {
         a(row, column) = value / a(column, column);
       }
@@ -111,7 +126,7 @@ template <typename T, typename Size>
   const int n = static_cast<int>(size);
   T sum = T(0);
   for (int i = 0; i < n; ++i) {
-    sum += logOf(l(i, i));
+    sum += detail::logOf(l(i, i));
   }
   return T(2) * sum;
 }
@@ -207,7 +222,7 @@ template <typename T, typename Size>
   const int n = static_cast<int>(size);
   T sum = T(0);
   for (int i = 0; i < n; ++i) {
-    sum += logOf(o2::gpu::GPUCommonMath::Abs(lu(i, i)));
+    sum += detail::logOf(o2::gpu::GPUCommonMath::Abs(lu(i, i)));
   }
   return sum;
 }
@@ -267,7 +282,7 @@ GPUhdi() GPUAlwaysInline() void semidefiniteFactor(MatrixView<T> a, Size size, i
     for (int k = 0; k < n; ++k) {
       T value = T(0);
       if (k < rank && i >= k) {
-        value = (i == k ? T(1) : a(i, k)) * sqrtOf(a(k, k));
+        value = (i == k ? T(1) : a(i, k)) * detail::sqrtOf(a(k, k));
       }
       factor(order[i], k) = value;
     }
@@ -276,4 +291,4 @@ GPUhdi() GPUAlwaysInline() void semidefiniteFactor(MatrixView<T> a, Size size, i
 
 } // namespace o2::gtrk::dense
 
-#endif // GTRK_TRACKING_DENSESOLVE_H_
+#endif // GTRK_BASE_DENSESOLVE_H_
