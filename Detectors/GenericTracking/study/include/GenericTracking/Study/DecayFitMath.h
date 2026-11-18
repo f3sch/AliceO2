@@ -19,6 +19,7 @@
 
 #include "GenericTracking/Base/Dual.h"
 #include "GenericTracking/Tracking/Definitions.h"
+#include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Base/DenseSolve.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
@@ -105,7 +106,7 @@ template <int N, typename T>
     // crossing then has sin(delta + rho s) = sin(delta) - rho u, u the start's
     // distance before the plane, solved for w = sin(rho s) without the
     // cancellation at small rho (the line's -u / cos(delta) at rho = 0),
-    // s = (w / rho) asinc(w). asin recovers rho s within a quarter turn only.
+    // s = (w / rho) asin(w) / w. asin recovers rho s within a quarter turn only.
     const T phiL = std::atan2(ny, nx);
     const D delta = phi + (-phiL);
     const T side = cos(delta).v >= T(0.) ? T(1.) : T(-1.);
@@ -125,7 +126,7 @@ template <int N, typename T>
     if (!(std::abs(w.v) < 1.)) {
       return false;
     }
-    s = wOverRho * asinc(w);
+    s = wOverRho * o2::gtrk::detail::asinOverArgument(w);
   } else if (nx == 0. && ny == 0.) {
     if (!(std::abs(cotTheta.v) > 0.)) {
       return false;
@@ -164,7 +165,7 @@ template <int N, typename T>
     // crossing: f's terms' size times float epsilon.
     {
       const T half = T(0.5) * rho.v * at;
-      const T chord = at * (half == T(0.) ? T(1.) : std::sin(half) / half);
+      const T chord = at * o2::gtrk::sinc(half);
       const std::array<T, 3> x{from[0].v + (chord * std::cos(phi.v + half)), from[1].v + (chord * std::sin(phi.v + half)), from[2].v + (at * cotTheta.v)};
       T size = 0.;
       for (int c = 0; c < 3; ++c) {

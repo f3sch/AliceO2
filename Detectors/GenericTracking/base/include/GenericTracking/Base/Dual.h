@@ -18,7 +18,6 @@
 
 #include <array>
 #include <cmath>
-#include <limits>
 #include <type_traits>
 
 namespace o2::gtrk::dual
@@ -137,38 +136,6 @@ template <int N, typename T>
 Dual<N, T> asin(const Dual<N, T>& a)
 {
   return chain(a, std::asin(a.v), T(1.) / std::sqrt(T(1.) - (a.v * a.v)));
-}
-/// Below these arguments sinc and asinc take their series, through the x^6
-/// term: there its first omitted term is below T's rounding, where the
-/// closed forms' derivatives lose digits to cancellation. sinc's omitted term
-/// is x^8 / 9!, asinc's 35 x^8 / 1152.
-template <typename T>
-inline const T kSincSeries = std::pow(T(362880.) * std::numeric_limits<T>::epsilon(), T(1.) / T(8.));
-template <typename T>
-inline const T kAsincSeries = std::pow((T(1152.) / T(35.)) * std::numeric_limits<T>::epsilon(), T(1.) / T(8.));
-
-/// sin(x) / x, 1 at 0.
-template <int N, typename T>
-Dual<N, T> sinc(const Dual<N, T>& a)
-{
-  const T x = a.v;
-  if (std::abs(x) < kSincSeries<T>) {
-    const T x2 = x * x;
-    return chain(a, T(1.) - (x2 / T(6.)) + (x2 * x2 / T(120.)) - (x2 * x2 * x2 / T(5040.)), x * (-(T(1.) / T(3.)) + (x2 / T(30.)) - (x2 * x2 / T(840.))));
-  }
-  return chain(a, std::sin(x) / x, (std::cos(x) / x) - (std::sin(x) / (x * x)));
-}
-/// asin(x) / x, 1 at 0.
-template <int N, typename T>
-Dual<N, T> asinc(const Dual<N, T>& a)
-{
-  const T x = a.v;
-  if (std::abs(x) < kAsincSeries<T>) {
-    const T x2 = x * x;
-    return chain(a, T(1.) + (x2 / T(6.)) + (T(3.) * x2 * x2 / T(40.)) + (T(5.) * x2 * x2 * x2 / T(112.)), x * ((T(1.) / T(3.)) + (T(3.) * x2 / T(10.)) + (T(15.) * x2 * x2 / T(56.))));
-  }
-  const T root = std::sqrt(T(1.) - (x * x));
-  return chain(a, std::asin(x) / x, (T(1.) / (x * root)) - (std::asin(x) / (x * x)));
 }
 template <int N, typename T>
 Dual<N, T> atan2(const Dual<N, T>& y, const Dual<N, T>& x)

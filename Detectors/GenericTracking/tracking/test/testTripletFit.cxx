@@ -448,4 +448,16 @@ BOOST_AUTO_TEST_CASE(AdjacentFitOfAnExactHelix)
   BOOST_TEST(adjacent.varCurvature < std::min(first.varCurvature, second.varCurvature));
 }
 
+BOOST_AUTO_TEST_CASE(SegmentSlopesHoldAtSmallHalfSines)
+{
+  // At h = 1e-4 asin(h)/h and its angle cotangent round to 1 in float, so a
+  // slope taken as their difference over h is 0; the slopes come from the
+  // quotient's derivative instead: A' ~ h/3, G' ~ -2h/3.
+  for (const float h : {1e-4F, 1e-6F, 3e-3F}) {
+    const auto segment = detail::segmentForward(2.F * h, 1.F, 1.F);
+    BOOST_TEST(std::abs((segment.asinOverArgumentSlope / (h / 3.F)) - 1.F) < 1e-3F);
+    BOOST_TEST(std::abs((segment.angleCotangentSlope / (-2.F * h / 3.F)) - 1.F) < 1e-3F);
+  }
+}
+
 } // namespace o2::gtrk

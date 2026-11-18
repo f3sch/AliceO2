@@ -10,13 +10,14 @@
 // or submit itself to any jurisdiction.
 
 /// \file MathUtils.h
-/// \brief The tracking's numeric helpers: stable sinc, versine and asin(x)/x
-///        forms, the U-D covariance factorisation, the chi2 quantile, the
-///        curvature radius.
+/// \brief The tracking's numeric helpers: stable sinc, versine, asin(x)/x and
+///        atan(x)/x and their derivatives (also of dual numbers), the U-D
+///        covariance factorisation, the chi2 quantile, the curvature radius.
 
 #ifndef GTRK_TRACKING_MATHUTILS_H_
 #define GTRK_TRACKING_MATHUTILS_H_
 
+#include "GenericTracking/Base/Dual.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Trig.h"
 
@@ -25,26 +26,82 @@
 #include "MathUtils/detail/basicMath.h"
 
 #include <cmath>
+#include <limits>
 #include <numbers>
 
 namespace o2::gtrk
 {
 
-/// sin(x)/x, with its value at zero.
-///
-/// The series and quotient agree within the scalar precision at the branch.
-/// The quotient itself does not cancel, but needs the series at its removable
-/// singularity.
+namespace detail
+{
+
+/// dSinc's series: how many of its terms a type takes, and below which
+/// argument. The closed form (cos x - sinc x) / x cancels: cos x and sinc x
+/// both near 1, their difference near -x^2/3, so its relative error grows as
+/// about 3 eps / x^2 towards 0 (the model taken here, eps the type's
+/// epsilon). The series -x/3 (1 - x^2/10 (1 - x^2/28 (1 - ...))), the n-th
+/// factor x^2 / (2n (2n + 3)), alternates with shrinking terms below x = 1,
+/// so its truncation after m terms is bounded by its first omitted term,
+/// relative x^{2m} / prod_{n<=m} 2n (2n + 3) over 1 - x^2/10. For each m the
+/// two errors meet at one argument; the type takes the fewest terms whose
+/// meeting point's error is within kDSincTarget eps, and switches there:
+/// below it the series, above it the closed form, neither beyond the target.
+inline constexpr double kDSincTarget = 8.;
+
+[[nodiscard]] constexpr double dSincSeriesError(int terms, double x)
+{
+  double error = 1.;
+  for (int n = 1; n <= terms; ++n) {
+    error *= (x * x) / (2. * n * ((2. * n) + 3.));
+  }
+  return error / (1. - ((x * x) / 10.));
+}
+
+/// The argument in (0, 1) where `terms` terms' truncation meets the closed
+/// form's cancellation 3 eps / x^2: the series' error grows with x, the closed
+/// form's falls, so one bisection finds it.
+[[nodiscard]] constexpr double dSincMeeting(int terms, double eps)
+{
+  double low = 0.;
+  double high = 1.;
+  for (int i = 0; i < 200; ++i) {
+    const double middle = 0.5 * (low + high);
+    (dSincSeriesError(terms, middle) < 3. * eps / (middle * middle) ? low : high) = middle;
+  }
+  return 0.5 * (low + high);
+}
+
+/// The fewest terms whose meeting point is within the target (at most 64).
+[[nodiscard]] constexpr int dSincTerms(double eps)
+{
+  int terms = 1;
+  for (; terms < 64; ++terms) {
+    const double x = dSincMeeting(terms, eps);
+    if (3. * eps / (x * x) <= kDSincTarget * eps) {
+      break;
+    }
+  }
+  return terms;
+}
+
+template <typename T>
+struct DSincSeries {
+  static constexpr double kEpsilon = static_cast<double>(std::numeric_limits<T>::epsilon());
+  static constexpr int kTerms = dSincTerms(kEpsilon);
+  static constexpr T kSwitch = static_cast<T>(dSincMeeting(kTerms, kEpsilon));
+};
+
+} // namespace detail
+
+/// sin(x)/x, 1 at 0. The quotient does not cancel: accurate to rounding for
+/// every x but 0, which it takes exactly.
 template <typename T>
 GPUhdi() GPUAlwaysInline() T sinc(T x)
 {
-  if (o2::gpu::GPUCommonMath::Abs(x) < T(1e-4)) {
-    return T(1) - x * x / T(6);
-  }
-  return sinOf(x) / x;
+  return x == T(0) ? T(1) : sinOf(x) / x;
 }
 
-/// (1 - cos(x)) / x without forming the cancelling subtraction.
+/// (1 - cos(x)) / x without forming the cancelling subtraction: x sinc(x/2)^2 / 2.
 template <typename T>
 GPUhdi() GPUAlwaysInline() T versine(T x)
 {
@@ -55,7 +112,8 @@ GPUhdi() GPUAlwaysInline() T versine(T x)
 /// sinc(x) and versine(x) of one angle from one sincos of x / 2, h: sin(x) =
 /// 2 sin(h) cos(h) and 1 - cos(x) = 2 sin(h)^2, so sinc(x) = sinc(h) cos(h)
 /// and versine(x) = x sinc(h)^2 / 2, neither cancelling. One evaluation
-/// instead of the two sines `sinc` and `versine` take apart.
+/// instead of the two sines `sinc` and `versine` take apart; sinc(h) from
+/// its sine, 1 where h is 0 (x/2 can underflow where x is not).
 template <typename T>
 GPUhdi() GPUAlwaysInline() void sincVersine(T x, T& sincX, T& versineX)
 {
@@ -63,31 +121,44 @@ GPUhdi() GPUAlwaysInline() void sincVersine(T x, T& sincX, T& versineX)
   T s = T(0);
   T c = T(1);
   sincosOf(h, s, c);
-  const T sincH = o2::gpu::GPUCommonMath::Abs(h) < T(1e-4) ? T(1) - h * h / T(6) : s / h;
+  const T sincH = h == T(0) ? T(1) : s / h;
   sincX = sincH * c;
   versineX = T(0.5) * x * sincH * sincH;
 }
 
-/// d/dx of sinc, with a series where cos(x) - sinc(x) cancels.
+/// d/dx of sinc: its series below the type's switch, the closed form
+/// (cos x - sinc x) / x above, each within `detail::kDSincTarget` eps of the
+/// truth by the model of `detail::DSincSeries`.
 template <typename T>
 GPUhdi() GPUAlwaysInline() T dSinc(T x)
 {
-  if (o2::gpu::GPUCommonMath::Abs(x) < T(0.05)) {
+  using Series = detail::DSincSeries<T>;
+  if (o2::gpu::GPUCommonMath::Abs(x) < Series::kSwitch) {
     const T x2 = x * x;
-    return -x / T(3) + x * x2 / T(30) - x * x2 * x2 / T(840);
+    T nested = T(1);
+    for (int n = Series::kTerms - 1; n >= 1; --n) {
+      nested = T(1) - (x2 * nested * (T(1) / T(2 * n * ((2 * n) + 3))));
+    }
+    return -(x / T(3)) * nested;
   }
   return (cosOf(x) - sinc<T>(x)) / x;
 }
 
-/// d/dx of versine, with a series around zero.
+/// d/dx of versine, from the half angle h = x/2 without cancelling:
+/// V'(x) = sinc(x) - V(x)/x = H (cos h - H/2), H = sinc(h); 1/2 at 0.
 template <typename T>
 GPUhdi() GPUAlwaysInline() T dVersine(T x)
 {
-  if (o2::gpu::GPUCommonMath::Abs(x) < T(0.05)) {
-    const T x2 = x * x;
-    return T(0.5) - x2 / T(8) + x2 * x2 / T(144) - x2 * x2 * x2 / T(5760);
-  }
-  return (sinOf(x) - versine<T>(x)) / x;
+  const T h = x / T(2);
+  const T sincH = sinc<T>(h);
+  return sincH * (cosOf(h) - (T(0.5) * sincH));
+}
+
+/// sinc of a dual number: the value and its derivative chained.
+template <int N, typename T>
+[[nodiscard]] dual::Dual<N, T> sinc(const dual::Dual<N, T>& a)
+{
+  return dual::chain(a, sinc<T>(a.v), dSinc<T>(a.v));
 }
 
 namespace detail
@@ -211,34 +282,51 @@ GPUhdi() GPUAlwaysInline() void covarianceFromUD(const T (&upper)[kBoundUpperSiz
   }
 }
 
-/// asin(x) / x, evaluated without a singularity or an unnecessary asin near zero.
+/// asin(x) / x, 1 at 0: the quotient does not cancel.
 template <typename T>
 GPUhdi() GPUAlwaysInline() T asinOverArgument(T x)
 {
-  if (o2::gpu::GPUCommonMath::Abs(x) < T(0.05)) {
-    const T x2 = x * x;
-    return T(1) + x2 * (T(1) / T(6) + x2 * T(3) / T(40));
-  }
-  return asinOf(x) / x;
+  return x == T(0) ? T(1) : asinOf(x) / x;
+}
+
+/// atan(x) / x, 1 at 0: the quotient does not cancel.
+template <typename T>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() T atanOverArgument(T x)
+{
+  return x == T(0) ? T(1) : atanOf(x) / x;
 }
 
 template <typename T>
 struct AsinOverArgument {
-  T value;
-  T derivative;
+  T value;      ///< A = asin(x) / x
+  T derivative; ///< dA / dx
+  T angle;      ///< asin(x)
 };
 
 /// `asinOverArgument(x)` and its derivative with one asin; the value is
-/// `asinOverArgument(x)` to the bit.
+/// `asinOverArgument(x)` to the bit. With theta = asin x, A = theta / sin theta
+/// = 1 / sinc(theta), so dA/dx = -sinc'(theta) A^2 / cos theta: `dSinc`'s
+/// accuracy without the closed form's cancellation, cos theta as
+/// sqrt((1 - x)(1 + x)), which keeps its digits as x nears 1 (where the
+/// derivative is infinite).
 template <typename T>
 GPUhdi() GPUAlwaysInline() AsinOverArgument<T> asinOverArgumentWithDerivative(T x)
 {
-  if (o2::gpu::GPUCommonMath::Abs(x) < T(0.05)) {
-    const T x2 = x * x;
-    return {.value = T(1) + x2 * (T(1) / T(6) + x2 * T(3) / T(40)), .derivative = x * (T(1) / T(3) + x2 * (T(3) / T(10) + x2 * T(15) / T(56)))};
+  const T angle = asinOf(x);
+  if (x == T(0)) {
+    return {.value = T(1), .derivative = T(0), .angle = angle};
   }
-  const T arcsine = asinOf(x);
-  return {.value = arcsine / x, .derivative = ((x / o2::math_utils::detail::sqrt(T(1) - (x * x))) - arcsine) / (x * x)};
+  const T value = angle / x;
+  const T root = o2::math_utils::detail::sqrt((T(1) - x) * (T(1) + x));
+  return {.value = value, .derivative = -dSinc<T>(angle) * value * value / root, .angle = angle};
+}
+
+/// asin(x) / x of a dual number: the value and its derivative chained.
+template <int N, typename T>
+[[nodiscard]] dual::Dual<N, T> asinOverArgument(const dual::Dual<N, T>& a)
+{
+  const auto both = asinOverArgumentWithDerivative<T>(a.v);
+  return dual::chain(a, both.value, both.derivative);
 }
 
 /// Signed-curvature chord length converted to positive transverse arc length.
