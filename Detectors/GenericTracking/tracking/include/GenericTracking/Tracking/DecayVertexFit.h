@@ -172,6 +172,8 @@ struct SolveSpace {
   S* gradient = nullptr;     ///< n
   S* factor = nullptr;       ///< max(n, m), packed: a Cholesky factor
   S* step = nullptr;         ///< n
+  S* damped = nullptr;       ///< n x n, packed: the damped normal matrix
+  S* dampedStep = nullptr;   ///< n
   double* trial = nullptr;   ///< n
   S* multipliers = nullptr;  ///< m
   LagrangeSpace<S> lagrange; ///< the Lagrange system's
@@ -180,18 +182,32 @@ struct SolveSpace {
 /// The Gauss-Newton minimum under a fixed model -- the carried measurements,
 /// the material along a trajectory --: smooth; the model evaluated in M, the
 /// solves in S, the parameters, chi2, merit and the stopping test in double.
-/// Each step solves
-/// the normal equations, under hard constraints the Lagrange system; it is
-/// halved until it lowers the merit, the chi2 plus 2 mu |c|_1 with mu the
-/// largest |lambda| seen (the exact penalty: the constrained step is a descent
-/// direction of it for mu >= |lambda|_inf). Converged when the step's
-/// predicted gain, step^T N step + mu |c|_1 - lambda.c (the merit's halved
-/// first-order decrease), is no larger than what the inputs resolve: they are
-/// floats, each measured value m known to epsilon_float |m|, which moves the
-/// solution by R = sum (epsilon_float |m|)^2 w in the same metric (\a
-/// evaluate's `rounding`); plus the model arithmetic's rounding of the chi2,
-/// epsilon_M (chi2 + ndf). A step that no halving makes lower the merit above
-/// that is a failure, not a minimum.
+///
+/// Converged when the Gauss-Newton step's predicted gain, step^T N step +
+/// mu |c|_1 - lambda.c (the merit's halved first-order decrease), is no larger
+/// than what the inputs resolve: they are floats, each measured value m known
+/// to epsilon_float |m|, which moves the solution by R = sum (epsilon_float
+/// |m|)^2 w in the same metric (\a evaluate's `rounding`); plus the model
+/// arithmetic's rounding of the chi2, epsilon_M (chi2 + ndf). The merit is the
+/// chi2 plus 2 mu |c|_1, mu the largest |lambda| of the Gauss-Newton steps seen
+/// (the exact penalty: the constrained step is a descent direction of it for
+/// mu >= |lambda|_inf).
+///
+/// The step taken is Levenberg-Marquardt's: (N + tau D) d = g, D = diag N,
+/// under hard constraints the Lagrange system with N + tau D. Where N is
+/// nearly singular (two nearly parallel daughters: their vertex along their
+/// line) the Gauss-Newton step overshoots, as the curvature there is the
+/// residuals' second-order terms it leaves out; the damping tau stands in for
+/// them. tau starts at 0 (Gauss-Newton) and follows Nielsen's update from the
+/// full step's gain ratio rho = (merit - merit(full)) / predicted: accepted,
+/// tau x max(1/3, 1 - (2 rho - 1)^3) and nu = 2; rejected, tau x nu (at least
+/// the curvature the model missed along the step, (merit(full) - model(full))
+/// / d^T D d, which also gives tau's first value), nu doubled. A damped step
+/// that is no descent of the merit by its predicted gain (the constraints'
+/// restoring part costs more chi2 than the penalty gains) is replaced by the
+/// Gauss-Newton step, tau back to 0. Each step is then halved until it lowers
+/// the merit; a step that no halving makes lower it above the resolution is a
+/// failure, not a minimum.
 ///
 /// \a evaluate(p, chi2, rounding, normal*, gradient*); \a constraintsAt(p)
 /// fills \a values and \a rows (m x n). \a steps: the steps taken; \a
@@ -214,6 +230,8 @@ template <typename M, typename S, typename Evaluate, typename ConstraintsAt>
     }
     return sum;
   };
+  double damping = 0.;
+  double growth = 2.;
   steps = 0;
   for (int iteration = 0; iteration < kMaxSteps; ++iteration) {
     ++iterations;
@@ -257,20 +275,75 @@ template <typename M, typename S, typename Evaluate, typename ConstraintsAt>
       return DecayFitStatus::kOk;
     }
     const double merit = chi2 + (2. * mu * violation);
+    // The step d, damped while tau > 0; its quadratic forms and predicted gain.
+    S* d = step;
+    if (damping > 0.) {
+      d = space.dampedStep;
+      for (int a = 0; a < n; ++a) {
+        for (int b = 0; b <= a; ++b) {
+          space.damped[covIndex(a, b)] = normal[covIndex(a, b)] + (a == b ? static_cast<S>(damping) * normal[covIndex(a, a)] : S(0.));
+        }
+      }
+      if (constrained) {
+        if (!constrainedStep(space.lagrange, space.damped, n, gradient, rows, values, d, nullptr)) {
+          return DecayFitStatus::kSingular;
+        }
+      } else {
+        if (!llt.factor(space.damped, n)) {
+          return DecayFitStatus::kSingular;
+        }
+        decay_fit_detail::copyN(gradient, n, d);
+        llt.solve(d);
+      }
+    }
+    double gd = 0.;
+    double dNd = 0.;
+    double dDd = 0.;
+    const auto formsOf = [&](const S* v) {
+      gd = dNd = dDd = 0.;
+      for (int a = 0; a < n; ++a) {
+        gd += static_cast<double>(gradient[a]) * static_cast<double>(v[a]);
+        dDd += static_cast<double>(normal[covIndex(a, a)]) * static_cast<double>(v[a]) * static_cast<double>(v[a]);
+        for (int b = 0; b < n; ++b) {
+          dNd += static_cast<double>(v[a]) * static_cast<double>(normal[covIndex(a, b)]) * static_cast<double>(v[b]);
+        }
+      }
+      return (2. * gd) - dNd + (constrained ? 2. * mu * violation : 0.);
+    };
+    double predicted = formsOf(d);
+    if (damping > 0. && !(predicted > 0.)) {
+      d = step;
+      damping = 0.;
+      predicted = formsOf(d);
+    }
     bool reached = false;
     bool taken = false;
     double scale = 1.;
     for (int halving = 0; halving < kMaxSteps && !taken; ++halving, scale *= 0.5) {
       for (int j = 0; j < n; ++j) {
-        trial[j] = parameters[j] + (scale * static_cast<double>(step[j]));
+        trial[j] = parameters[j] + (scale * static_cast<double>(d[j]));
       }
       double trialChi2 = 0.;
       double trialRounding = 0.;
-      if (!evaluate(trial, trialChi2, trialRounding, nullptr, nullptr) || (constrained && !constraintsAt(trial))) {
+      const bool evaluated = evaluate(trial, trialChi2, trialRounding, nullptr, nullptr) && (!constrained || constraintsAt(trial));
+      const double trialMerit = evaluated ? trialChi2 + (constrained ? 2. * mu * violationOf() : 0.) : 0.;
+      if (halving == 0) {
+        // Nielsen's update from the full step.
+        if (evaluated && trialMerit < merit) {
+          const double t = (2. * (merit - trialMerit) / predicted) - 1.;
+          damping *= o2::gpu::CAMath::Max(1. / 3., 1. - (t * t * t));
+          growth = 2.;
+        } else {
+          const double missed = !(dDd > 0.) ? 0. : (evaluated ? (trialMerit - (merit - predicted)) / dDd : dNd / dDd);
+          damping = o2::gpu::CAMath::Max(damping * growth, missed);
+          growth *= 2.;
+        }
+      }
+      if (!evaluated) {
         continue;
       }
       reached = true;
-      taken = trialChi2 + (constrained ? 2. * mu * violationOf() : 0.) < merit;
+      taken = trialMerit < merit;
     }
     if (!taken) {
       return reached ? DecayFitStatus::kNotConverged : DecayFitStatus::kNoCrossing;
@@ -964,6 +1037,8 @@ class DecayVertexFitter
     space.solve.gradient = place<S>(base, at, n);
     space.solve.factor = place<S>(base, at, packed(larger));
     space.solve.step = place<S>(base, at, n);
+    space.solve.damped = place<S>(base, at, packed(n));
+    space.solve.dampedStep = place<S>(base, at, n);
     space.solve.multipliers = place<S>(base, at, m);
     space.rows = place<S>(base, at, m * n);
     space.values = place<S>(base, at, m);
