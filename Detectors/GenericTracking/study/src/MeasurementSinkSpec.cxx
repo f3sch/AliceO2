@@ -118,6 +118,17 @@ using Controller = workflow::TrackingInterface<Det>::Controller;
 /// reports per iteration.
 using Funnel = StageFunnel<Det, Controller>;
 
+/// Whether two frames' bounds are the same, bit for bit.
+[[nodiscard]] bool sameBounds(const HaloBounds<Det>& a, const HaloBounds<Det>& b)
+{
+  for (std::size_t layer = 0; layer < HaloBounds<Det>::kLayerCount; ++layer) {
+    if (a.widthPS[layer] != b.widthPS[layer] || a.rowsAreFrames[layer] != b.rowsAreFrames[layer] || !sameBits(a.varLoc[layer], b.varLoc[layer]) || !sameBits(a.target[layer].varZ, b.target[layer].varZ) || !sameBits(a.target[layer].varR, b.target[layer].varR) || !sameBits(a.target[layer].varRPhi, b.target[layer].varRPhi)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /// The layer of \a frame's measurement at \a row, through the tracking's
 /// surfaces or the sensor geometry, whichever the caller holds.
 [[nodiscard]] LayerID layerOfRow(const Frame& frame, const TrackingGeometry<Det>& geometry, Frame::Index row) { return geometry.surface(frame.measurement(row).surface).layer; }
@@ -2316,7 +2327,7 @@ class OriginZTally
 /// if a good track is its; each further good track of it is a **clone**.
 /// \a tracked, the comparisons, gets the tracks of a complete run first. The
 /// run is \a interface's; its timeframe ends with the caller's guard.
-void measureTracks(const Frame& frame, const RecoSettings& param, const VertexConstraint& beamSpot, std::span<const VertexSeed> vertices, std::span<const TruthRow> truthRows, const ParticleTable& truth, const Funnel* funnel, const ComparisonSettings& findableRule, workflow::TrackingInterface<Det>& interface, const std::function<void(const TrackStore<Det>&)>& tracked = {}, const TrueCrossings& crossings = {})
+void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const RecoSettings& param, const VertexConstraint& beamSpot, std::span<const VertexSeed> vertices, std::span<const TruthRow> truthRows, const ParticleTable& truth, const Funnel* funnel, const ComparisonSettings& findableRule, workflow::TrackingInterface<Det>& interface, const std::function<void(const TrackStore<Det>&)>& tracked = {}, const TrueCrossings& crossings = {})
 {
   const auto* label = interface.trackerLabel().c_str();
   const auto& tracking = interface.tracking();
@@ -2327,7 +2338,7 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
   const auto minLayers = static_cast<std::uint32_t>(findableRule.minLayers);
   const auto iterations = static_cast<std::size_t>(workflow::iterationCount(param));
   auto& tracker = interface.tracker();
-  const auto run = interface.track(frame, vertices);
+  const auto run = interface.track(frame, bounds, vertices);
   if (run.dropped) {
     return;
   }
@@ -3075,9 +3086,16 @@ class MeasurementSinkTask : public Task
     }
 
     const Frame frame{view, geometry, offsets};
+    // The shipped bounds, the frame's as the producer took them, compared
+    // with a scan of the rows.
+    const auto& bounds = input.shipped.bounds;
+    if (!sameBounds(bounds, frameBounds(frame))) {
+      LOGP(fatal, "the shipped bounds are not those of the shipped measurements");
+      return;
+    }
     // The vertex list: the input's, or the own vertexer's, which keeps its
     // triplets' claims for the QA with MC.
-    const auto found = mInterface.vertices(frame, input.seeds, mUseMC);
+    const auto found = mInterface.vertices(frame, bounds, input.seeds, mUseMC);
     if (found.dropped) {
       ++mTimeframe;
       return;
@@ -3265,7 +3283,7 @@ class MeasurementSinkTask : public Task
       };
     };
     makeFunnel(mObservers.funnel);
-    measureTracks(frame, param, beamSpot, seeds, comparisonRows, comparisonParticles, funnelOf(mObservers.funnel), findableRule(), mInterface, withDevice(withStudies(withQA(comparisons()))), crossingsOf);
+    measureTracks(frame, bounds, param, beamSpot, seeds, comparisonRows, comparisonParticles, funnelOf(mObservers.funnel), findableRule(), mInterface, withDevice(withStudies(withQA(comparisons()))), crossingsOf);
     if (mTruthOutput) {
       // The first iteration's.
       if (!mObservers.summaries.empty()) {

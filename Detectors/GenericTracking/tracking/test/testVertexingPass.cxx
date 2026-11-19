@@ -92,7 +92,7 @@ constexpr std::int32_t kSliceBlocks = 3;
 Pass::Result findVertices(const Fixture& fixture, int threads, std::int32_t sliceBlocks = kSliceBlocks)
 {
   Pass pass{passSettings(), VertexerSettings{}, Fixture::kBeamConstraint, noScattering(), std::make_shared<BoundedMemoryResource>(), 2U, threads};
-  auto result = pass.find(*fixture.frame, sliceBlocks);
+  auto result = pass.find(*fixture.frame, frameBounds(*fixture.frame), sliceBlocks);
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   return result;
 }
@@ -117,7 +117,7 @@ std::vector<Found> trackFrom(const Fixture& fixture, std::span<const VertexSeed>
   Tracker<Det, UniformMaterial> tracker{settings, Fixture::kBeamConstraint, noScattering(), std::make_shared<BoundedMemoryResource>(), 2U, 1};
   static const UniformMaterial none{};
   tracker.setTrackModel(trackingGeometry(), none, Propagator{});
-  const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, vertices, 3));
+  const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, frameBounds(*fixture.frame), vertices, 3));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   std::vector<Found> tracks;
   tracks.reserve(result.store->size());
@@ -147,7 +147,7 @@ BOOST_AUTO_TEST_CASE(EndTimeframeGivesTheMemoryBack)
       Pass pass{passSettings(), VertexerSettings{}, Fixture::kBeamConstraint, noScattering(), memory, 2U, threads};
       const auto before = memory->getUsedMemory();
       for (int timeframe = 0; timeframe < 2; ++timeframe) {
-        const auto result = pass.find(*fixture.frame, kSliceBlocks);
+        const auto result = pass.find(*fixture.frame, frameBounds(*fixture.frame), kSliceBlocks);
         BOOST_REQUIRE(result.status == StageStatus::kComplete);
         BOOST_TEST(result.found.vertices.size() == kCollisions);
         BOOST_TEST(memory->getUsedMemory() > before);
@@ -205,7 +205,7 @@ BOOST_AUTO_TEST_CASE(TheListDoesNotDependOnTheSlices)
   const Fixture fixture{hits(), kDurationNS};
   const auto find = [&](std::int32_t width) {
     Pass pass{passSettings(), VertexerSettings{}, Fixture::kBeamConstraint, noScattering(), std::make_shared<BoundedMemoryResource>(), 2U, 2};
-    auto result = pass.find(*fixture.frame, width, true);
+    auto result = pass.find(*fixture.frame, frameBounds(*fixture.frame), width, true);
     BOOST_REQUIRE(result.status == StageStatus::kComplete);
     std::ranges::sort(result.claims, {}, [](const TripletClaim& claim) { return std::pair{claim.rows, claim.vertex}; });
     return result;

@@ -23,8 +23,10 @@
 #ifndef GTRK_TRACKING_SLICEPLAN_H_
 #define GTRK_TRACKING_SLICEPLAN_H_
 
+#include "GenericTracking/Base/FrameTiming.h"
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Base/LayerSpec.h"
+#include "GenericTracking/Base/TimeEstPS.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/LayerRowMap.h"
 #include "GenericTracking/Tracking/PairCut.h"
@@ -53,6 +55,10 @@ namespace o2::gtrk
 /// overlap partners' search spreads by (OverlapPartners.h); and whether
 /// every row's box is exactly one of the layer's readout frames
 /// (`FrameTiming::isFrame`), which the slices' reach reads (`sliceReach`).
+///
+/// The bounds over a whole frame (`frameBounds`) are the measurement
+/// producer's: it adds every row as it places it and ships them with the grid,
+/// so that no consumer scans the frame again.
 template <DetectorLayout Det>
 struct HaloBounds {
   static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
@@ -60,25 +66,39 @@ struct HaloBounds {
   std::array<TripletTargetBounds, kLayerCount> target{};
   std::array<Scalar, kLayerCount> varLoc{};
   std::array<bool, kLayerCount> rowsAreFrames{};
+
+  /// The bounds over no rows: zero, and every layer's rows (none) frames.
+  [[nodiscard]] static HaloBounds none()
+  {
+    HaloBounds bounds;
+    bounds.rowsAreFrames.fill(true);
+    return bounds;
+  }
+
+  /// One more row of \a layer, whose readout frames are \a frames: its time
+  /// box \a box, its z, r and r-phi variances and its two local ones.
+  void add(std::size_t layer, const FrameTiming& frames, const TimeEstPS& box, Scalar varZ, Scalar varR, Scalar varRPhi, Scalar varLoc0, Scalar varLoc1)
+  {
+    auto& bounds = target[layer];
+    widthPS[layer] = std::max(widthPS[layer], box.width);
+    rowsAreFrames[layer] = rowsAreFrames[layer] && frames.isFrame(box);
+    bounds.varZ = std::max(bounds.varZ, varZ);
+    bounds.varR = std::max(bounds.varR, varR);
+    bounds.varRPhi = std::max(bounds.varRPhi, varRPhi);
+    varLoc[layer] = std::max({varLoc[layer], varLoc0, varLoc1});
+  }
 };
 
 template <DetectorLayout Det>
 [[nodiscard]] HaloBounds<Det> boundsOver(const TimeFrame<Det>& frame, std::span<const MeasurementRange, HaloBounds<Det>::kLayerCount> rows)
 {
-  HaloBounds<Det> result;
+  auto result = HaloBounds<Det>::none();
   const auto columns = frame.measurements();
   const auto& geometry = frame.grid().geometry();
   for (std::size_t layer = 0; layer < HaloBounds<Det>::kLayerCount; ++layer) {
-    auto& target = result.target[layer];
     const auto& frames = geometry.frames(static_cast<LayerID>(layer));
-    result.rowsAreFrames[layer] = true;
     for (auto row = rows[layer].begin; row < rows[layer].end; ++row) {
-      result.widthPS[layer] = std::max(result.widthPS[layer], columns.widthPS[row]);
-      result.rowsAreFrames[layer] = result.rowsAreFrames[layer] && frames.isFrame({.start = columns.timePS[row], .width = columns.widthPS[row]});
-      target.varZ = std::max(target.varZ, columns.varZ[row]);
-      target.varR = std::max(target.varR, columns.varR[row]);
-      target.varRPhi = std::max(target.varRPhi, columns.varRPhi[row]);
-      result.varLoc[layer] = std::max({result.varLoc[layer], columns.varLoc0[row], columns.varLoc1[row]});
+      result.add(layer, frames, {.start = columns.timePS[row], .width = columns.widthPS[row]}, columns.varZ[row], columns.varR[row], columns.varRPhi[row], columns.varLoc0[row], columns.varLoc1[row]);
     }
   }
   return result;
@@ -279,12 +299,13 @@ template <DetectorLayout Det>
 /// \a sliceWidthBlocks grid blocks (`GridGeometry::blocksPerSlice` of the
 /// configured width) with the halo the frame's reach needs
 /// (`SliceReach::haloPS`) -- the vertexing pass too, each
-/// slice finding its core's frames' vertices (`OwnedFrames`). \a
+/// slice finding its core's frames' vertices (`OwnedFrames`). \a bounds are
+/// the frame's (`frameBounds`, as the measurement producer ships them); \a
 /// windowSettings are the settings each iteration's parameters were derived
 /// from; \a beamLine the seed a beam-line iteration reads; \a vertices the
 /// timeframe's vertex list, sorted by time.
 template <DetectorLayout Det>
-[[nodiscard]] TimeframePlan<Det> planTimeframe(const TimeFrame<Det>& frame, std::span<const IterationParameters<Det>> iterations, std::span<const SearchWindowParams> windowSettings, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, std::int32_t sliceWidthBlocks)
+[[nodiscard]] TimeframePlan<Det> planTimeframe(const TimeFrame<Det>& frame, const HaloBounds<Det>& bounds, std::span<const IterationParameters<Det>> iterations, std::span<const SearchWindowParams> windowSettings, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, std::int32_t sliceWidthBlocks)
 {
   if (windowSettings.size() != iterations.size()) {
     throw std::invalid_argument("planTimeframe needs one window setting per iteration");
@@ -296,7 +317,6 @@ template <DetectorLayout Det>
   plan.parameters.assign(iterations.begin(), iterations.end());
   plan.beamLine = beamLine;
   plan.vertices.assign(vertices.begin(), vertices.end());
-  const auto bounds = frameBounds(frame);
   plan.layerMaxWidthPS = bounds.widthPS;
   plan.layerTargetBounds = bounds.target;
   plan.layerMaxLocVariance = bounds.varLoc;

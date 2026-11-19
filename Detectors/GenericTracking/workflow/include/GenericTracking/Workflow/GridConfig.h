@@ -24,6 +24,7 @@
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
 #include "GenericTracking/Tracking/Propagator.h"
+#include "GenericTracking/Tracking/SlicePlan.h"
 #include "GenericTracking/Tracking/VertexStage.h"
 #include "GenericTracking/Workflow/BeamLine.h"
 #include "GenericTracking/Workflow/RecoParam.h"
@@ -345,12 +346,14 @@ inline void checkRecoParam(const RecoSettings& param)
 /// What a timeframe's measurements are relative to, which the producer ships
 /// beside them (DataSpecs.h's kMeasurementGeometry): the beam line subtracted
 /// from their x and y, and the grid they are binned in, built from the
-/// configuration and the timeframe's conditions. Whoever reads
-/// the measurements takes both from here.
+/// configuration and the timeframe's conditions; and their bounds over the
+/// whole frame (`frameBounds`), which the producer takes as it places them.
+/// Whoever reads the measurements takes all three from here.
 template <DetectorLayout Det>
 struct MeasurementGeometry {
   BeamLine beamLine;
   GridGeometry<Det> grid;
+  HaloBounds<Det> bounds;
 };
 
 /// A tracker's sources as the log lines name them: "beam line" or "vertex
