@@ -151,9 +151,10 @@ struct SliceReach {
   [[nodiscard]] std::int64_t haloPS() const { return gatePS() + std::max(pairForwardPS, pairBackwardPS); }
 };
 
-/// The reach of a frame whose rows have \a bounds, on \a geometry's frames.
+/// The reach of a frame whose rows have \a bounds, on \a geometry's frames,
+/// along the links \a taken marks, or every link without it.
 template <DetectorLayout Det>
-[[nodiscard]] SliceReach sliceReach(const HaloBounds<Det>& bounds, const GridGeometry<Det>& geometry)
+[[nodiscard]] SliceReach sliceReach(const HaloBounds<Det>& bounds, const GridGeometry<Det>& geometry, const std::array<bool, nLinks<Det>>* taken = nullptr)
 {
   const auto sameFrames = [&](const LayerLink& link) {
     const auto& frames = geometry.frames(link.from);
@@ -166,6 +167,9 @@ template <DetectorLayout Det>
     result.forwardPS = std::max(result.forwardPS, forwardTo[layer]);
     result.backwardPS = std::max(result.backwardPS, backwardTo[layer]);
     for (auto i = outLinks<Det>.begin(layer); i < outLinks<Det>.end(layer); ++i) {
+      if (taken != nullptr && !(*taken)[outLinks<Det>.links[i]]) {
+        continue;
+      }
       const auto& link = Det::layerLinks[outLinks<Det>.links[i]];
       const bool zero = sameFrames(link);
       const std::int64_t forward = zero ? 0 : bounds.widthPS[link.from];
@@ -175,6 +179,134 @@ template <DetectorLayout Det>
       forwardTo[link.to] = std::max(forwardTo[link.to], forwardTo[layer] + forward);
       backwardTo[link.to] = std::max(backwardTo[link.to], backwardTo[layer] + backward);
     }
+  }
+  return result;
+}
+
+/// The reach of the chains one iteration builds on the links \a taken marks,
+/// with the triplets' time cut: in a chain `m0 m1 ... mk` of measurements on
+/// consecutive links, every pair `m(i) m(i+1)` overlaps (the tracklet) and so
+/// does every `m(i) m(i+2)` (`tripletTimeCompatible`, the triplet's first and
+/// third). So `m(i+2)` reaches `m(i)` as a pair on the layers two links
+/// apart, 0 both ways when those two share frames and their rows are them,
+/// whatever the layer between -- a narrow box, a TOF hit's, between two
+/// layers of the same frames moves neither.
+///
+/// Each bound is a sum of link and two-link reaches along the chain. For a
+/// chain ending `x -> a -> b`, `b` drifts from `m0` by at most the bound at `a`
+/// plus the link's reach and at most the bound at `x` plus the two-link
+/// reach: the lesser of the two. Per link, the largest such bound over the
+/// chains ending on it (`forwardTo`), and per layer over the chains ending
+/// there (`forwardAt`); upper bounds of the same terms, so the lesser of
+/// them bounds every chain (by induction along `layerOrder`). `R+` and `R-`
+/// are the largest over the links, the forward and the backward bound alike;
+/// the pair reaches are the links' own, as in `sliceReach`. A chain of two
+/// measurements alone -- a tracklet no triplet takes -- is on no road and in
+/// no level (a road holds a triplet), so a chain's first link counts in `R+`
+/// and `R-` only where a taken link goes on from its target; it always counts
+/// in the pair reaches, which size the halo's edge. Never more than
+/// `sliceReach` along the same links.
+template <DetectorLayout Det>
+[[nodiscard]] SliceReach chainReach(const HaloBounds<Det>& bounds, const GridGeometry<Det>& geometry, const std::array<bool, nLinks<Det>>& taken)
+{
+  constexpr auto kLayers = HaloBounds<Det>::kLayerCount;
+  const auto zero = [&](LayerID from, LayerID to) {
+    return geometry.frames(from) == geometry.frames(to) && bounds.rowsAreFrames[from] && bounds.rowsAreFrames[to];
+  };
+  const auto forwardOf = [&](LayerID from, LayerID to) -> std::int64_t { return zero(from, to) ? 0 : bounds.widthPS[from]; };
+  const auto backwardOf = [&](LayerID from, LayerID to) -> std::int64_t { return zero(from, to) ? 0 : bounds.widthPS[to]; };
+  SliceReach result;
+  std::array<std::int64_t, nLinks<Det>> forwardTo{};
+  std::array<std::int64_t, nLinks<Det>> backwardTo{};
+  std::array<std::int64_t, kLayers> forwardAt{};
+  std::array<std::int64_t, kLayers> backwardAt{};
+  for (const auto layer : layerOrder<Det>) {
+    // Every link into this layer is done: its source comes earlier in the order.
+    for (auto i = inLinks<Det>.begin(layer); i < inLinks<Det>.end(layer); ++i) {
+      if (taken[inLinks<Det>.links[i]]) {
+        forwardAt[layer] = std::max(forwardAt[layer], forwardTo[inLinks<Det>.links[i]]);
+        backwardAt[layer] = std::max(backwardAt[layer], backwardTo[inLinks<Det>.links[i]]);
+      }
+    }
+    for (auto o = outLinks<Det>.begin(layer); o < outLinks<Det>.end(layer); ++o) {
+      const auto out = outLinks<Det>.links[o];
+      if (!taken[out]) {
+        continue;
+      }
+      const LayerID target = Det::layerLinks[out].to;
+      const std::int64_t forward = forwardOf(layer, target);
+      const std::int64_t backward = backwardOf(layer, target);
+      result.pairForwardPS = std::max(result.pairForwardPS, forward);
+      result.pairBackwardPS = std::max(result.pairBackwardPS, backward);
+      // The chains with a measurement before this layer: three or more.
+      std::int64_t longerForward = 0;
+      std::int64_t longerBackward = 0;
+      for (auto i = inLinks<Det>.begin(layer); i < inLinks<Det>.end(layer); ++i) {
+        const auto in = inLinks<Det>.links[i];
+        if (!taken[in]) {
+          continue;
+        }
+        const LayerID before = Det::layerLinks[in].from;
+        longerForward = std::max(longerForward, std::min(forwardTo[in] + forward, forwardAt[before] + forwardOf(before, target)));
+        longerBackward = std::max(longerBackward, std::min(backwardTo[in] + backward, backwardAt[before] + backwardOf(before, target)));
+      }
+      // A chain starting on this layer is this link's pair, the bound of the
+      // longer chains it starts.
+      forwardTo[out] = std::max(forward, longerForward);
+      backwardTo[out] = std::max(backward, longerBackward);
+      // Only a chain of three or more measurements -- one with a triplet --
+      // is on a road or a level: the pair alone counts where a taken link
+      // goes on from its target.
+      const bool continues = outLinks<Det>.end(target) > outLinks<Det>.begin(target) && [&] {
+        for (auto n = outLinks<Det>.begin(target); n < outLinks<Det>.end(target); ++n) {
+          if (taken[outLinks<Det>.links[n]]) {
+            return true;
+          }
+        }
+        return false;
+      }();
+      result.forwardPS = std::max({result.forwardPS, longerForward, continues ? forward : std::int64_t{0}});
+      result.backwardPS = std::max({result.backwardPS, longerBackward, continues ? backward : std::int64_t{0}});
+    }
+  }
+  return result;
+}
+
+/// The time a slice's seeding needs past its core: the gate and the halo
+/// (`SliceReach::gatePS`, `haloPS`), each the largest of the iterations'.
+struct SeedingReach {
+  std::int64_t gatePS = 0;
+  std::int64_t haloPS = 0;
+};
+
+/// The reach the seeding of \a iterations needs: each iteration's along the
+/// links it takes (its out-link lists, `takenLinks`), with the triplets' time
+/// cut (`chainReach`); of their gates and of their halos the largest. A
+/// chain -- tracklet, triplet, neighbour, road, and the chains into a road its
+/// levels count -- belongs to one iteration (an iteration on its
+/// predecessor's graph, `sharedGraph`, takes the same links) and lies on its
+/// taken links, every three consecutive measurements a triplet; so a link no
+/// iteration takes, or a path through two iterations' links, widens no gate.
+/// The gate is each iteration's `R+ + R-`, and the largest of those -- not
+/// the largest `R+` plus the largest `R-`, which two iterations can make
+/// without either needing it. The follow does not work in slices. With no
+/// iterations, every link's pairwise (`sliceReach`).
+template <DetectorLayout Det>
+[[nodiscard]] SeedingReach seedingReach(const HaloBounds<Det>& bounds, const GridGeometry<Det>& geometry, std::span<const IterationParameters<Det>> iterations)
+{
+  if (iterations.empty()) {
+    const auto every = sliceReach(bounds, geometry);
+    return {.gatePS = every.gatePS(), .haloPS = every.haloPS()};
+  }
+  SeedingReach result;
+  for (const auto& parameters : iterations) {
+    std::array<bool, nLinks<Det>> taken{};
+    for (auto i = parameters.outLinkOffsets[0]; i < parameters.outLinkOffsets[HaloBounds<Det>::kLayerCount]; ++i) {
+      taken[parameters.outLinkIndices[i]] = true;
+    }
+    const auto reach = chainReach(bounds, geometry, taken);
+    result.gatePS = std::max(result.gatePS, reach.gatePS());
+    result.haloPS = std::max(result.haloPS, reach.haloPS());
   }
   return result;
 }
@@ -277,7 +409,7 @@ struct TimeframePlan {
 /// \a plan with the vertex list \a vertices, sorted by time, and each
 /// iteration's vertex windows from it and \a windowSettings, the settings its
 /// parameters were derived from. The slices and the frame's bounds stay as
-/// they are: they depend on the frame alone, so a plan made before the
+/// they are: they depend on the frame and iterations, so a plan made before the
 /// vertexer's list was known is replanned with it without scanning the frame
 /// again.
 template <DetectorLayout Det>
@@ -297,8 +429,8 @@ template <DetectorLayout Det>
 
 /// Plan every iteration of \a iterations over \a frame in slices of
 /// \a sliceWidthBlocks grid blocks (`GridGeometry::blocksPerSlice` of the
-/// configured width) with the halo the frame's reach needs
-/// (`SliceReach::haloPS`) -- the vertexing pass too, each
+/// configured width) with the halo the iterations' chains need
+/// (`seedingReach`). The vertexing pass uses the same planner, each
 /// slice finding its core's frames' vertices (`OwnedFrames`). \a bounds are
 /// the frame's (`frameBounds`, as the measurement producer ships them); \a
 /// windowSettings are the settings each iteration's parameters were derived
@@ -320,12 +452,12 @@ template <DetectorLayout Det>
   plan.layerMaxWidthPS = bounds.widthPS;
   plan.layerTargetBounds = bounds.target;
   plan.layerMaxLocVariance = bounds.varLoc;
-  const auto reach = sliceReach(bounds, frame.grid().geometry());
-  plan.haloPS = reach.haloPS();
+  const auto reach = seedingReach(bounds, frame.grid().geometry(), iterations);
+  plan.haloPS = reach.haloPS;
   const auto width = std::max<std::int32_t>(1, sliceWidthBlocks);
   for (std::int32_t begin = 0; begin < plan.blockCount; begin += width) {
     const typename TimeFrame<Det>::TimeSlice slice{frame, {.begin = begin, .end = std::min(plan.blockCount, begin + width)}, plan.haloPS};
-    plan.slices.push_back(planSlice(frame, slice, reach.gatePS()));
+    plan.slices.push_back(planSlice(frame, slice, reach.gatePS));
   }
   return planWithVertices<Det>(std::move(plan), windowSettings, vertices);
 }

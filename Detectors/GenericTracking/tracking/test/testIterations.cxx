@@ -427,8 +427,18 @@ BOOST_AUTO_TEST_CASE(ASlicePlanHoldsTheSlicesBoundsAndGate)
   const auto plan = tracker->planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, 3);
   const auto& frame = *fixture.frame;
   BOOST_TEST(plan.slices.size() == static_cast<std::size_t>((fixture.geometry.blockCount() + 2) / 3));
-  // The toys' blocks start at 0 and are whole picoseconds.
-  const auto reach = sliceReach(frameBounds(frame), fixture.geometry).gatePS();
+  // The toys' blocks start at 0 and are whole picoseconds. The gate is the
+  // iterations' chains' (`chainReach`): the toy's rows are boxes of one width,
+  // not frames, so a link reaches that width and so does a triplet's two, and
+  // along the eight layers a chain drifts 4 widths each way -- 7 pairwise.
+  const std::vector<IterationParameters<Det>> parameters{tracker->iteration(0U), tracker->iteration(1U)};
+  const auto chains = chainReach(frameBounds(frame), fixture.geometry, takenLinks<Det>(iterations().front()));
+  BOOST_TEST(seedingReach(frameBounds(frame), fixture.geometry, std::span<const IterationParameters<Det>>{parameters}).gatePS == chains.gatePS());
+  const std::int64_t boxPS = test::kToyBoxWidthPS;
+  BOOST_TEST(chains.forwardPS == 4 * boxPS);
+  BOOST_TEST(chains.backwardPS == 4 * boxPS);
+  BOOST_TEST(sliceReach(frameBounds(frame), fixture.geometry).forwardPS == 7 * boxPS);
+  const auto reach = chains.gatePS();
   const auto width = fixture.geometry.blockWidth();
   BOOST_REQUIRE(fixture.geometry.partsPerPS() == 1);
   for (const auto& slicePlan : plan.slices) {
@@ -736,9 +746,9 @@ struct FramedRun {
   std::int64_t haloPS = 0;
 };
 
-FramedRun trackFramed(const Fixture& fixture, std::int32_t widthBlocks)
+FramedRun trackFramed(const Fixture& fixture, std::int32_t widthBlocks, const std::vector<IterationSettings>& settings = iterations())
 {
-  auto tracker = makeTracker(iterations(), false);
+  auto tracker = makeTracker(settings, false);
   const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, widthBlocks));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   FramedRun run{.tracks = found(result), .times = std::vector<TimeEstPS>(kCrossingBC.size()), .haloPS = result.iterations.front().haloPS};
@@ -794,6 +804,103 @@ BOOST_AUTO_TEST_CASE(TwoFrameLengthsSliceWithOneOuterFrameOfHalo)
     {
       const auto sliced = trackFramed(fixture, width);
       BOOST_TEST((sliced.tracks == whole.tracks));
+    }
+  }
+}
+
+/// The two-length toy with one outer layer of narrow boxes, as a TOF layer
+/// between two of the same frames: its grid frames 1 BC, each hit's box the
+/// BC before its time, [t - 1 BC, t], at the hit's picosecond, not a frame.
+/// The crossings at 81, 162, 243, 324 and 648 BC -- outer frames' starts,
+/// blocks' at 162, 324, 648 -- give narrow boxes straddling an outer frame's
+/// edge, and a block's. A triplet's third box overlaps its first, so through
+/// the narrow layer the two outer layers beside it stay in one frame.
+///
+/// On the outer layers alone (3-7, every frame 81 BC, as ALICE 3's ML 3-7
+/// pass with the iTOF): pairwise every link into the narrow layer reaches the
+/// long frame forward and the narrow box backward, every link out of it the
+/// reverse, `R+ = R- = long + narrow`. The chains: into the narrow layer the
+/// long frame forward and its box backward; after it, the next layer back in
+/// the frame before it, 0. Out of the narrow layer a chain starting on it
+/// reaches the long frame backward -- if a link goes on from its target
+/// (narrow layer 5: 5 -> 6 -> 7), not for the last link alone (6 -> 7,
+/// a tracklet no triplet takes). And on every layer, both iterations: less
+/// than pairwise. Each way the slices give the one-slice tracks.
+BOOST_AUTO_TEST_CASE(ANarrowBoxLayerBetweenLayersOfTheSameFrames)
+{
+  constexpr std::array<std::int64_t, 12> kCrossings{5, 81, 100, 162, 170, 243, 324, 400, 480, 520, 648, 700};
+  const auto longPS = psOfBC(kOuterFrameBC);
+  const auto narrowPS = psOfBC(1);
+  auto outer = iterations();
+  for (auto& iteration : outer) {
+    iteration.layerMask = 0xF8U;
+  }
+  for (const LayerID narrow : {LayerID{6}, LayerID{5}}) {
+    BOOST_TEST_CONTEXT("narrow layer " << int{narrow})
+    {
+      auto params = twoLengthGrid();
+      params.frames[narrow] = {.lengthBC = 1, .firstStartBC = 0};
+      const auto boxOf = [&](const Hit& hit) {
+        if (hit.point.layer != narrow) {
+          return frameOf(hit, 0);
+        }
+        const auto t = std::llround(hit.timeNS * 1000.);
+        return TimeEstPS{.start = static_cast<std::uint32_t>(t - narrowPS), .width = static_cast<std::uint32_t>(narrowPS)};
+      };
+      std::vector<Hit> hits;
+      for (std::size_t track = 0; track < kCrossings.size(); ++track) {
+        const auto k = static_cast<double>(track);
+        const double pt = stiff(track) ? 2. + (0.2 * static_cast<double>(track % 5U)) : 0.4 + (0.06 * static_cast<double>(track % 5U));
+        const auto one = sensorHelixHits(std::fmod(0.3 + (0.9 * k), 2 * std::numbers::pi_v<double>), 0.03 * std::cos(1.3 * k), pt, (static_cast<double>(kCrossings[track]) * kBunchNS) + 5.);
+        BOOST_REQUIRE(one.size() == kLayers);
+        hits.insert(hits.end(), one.begin(), one.end());
+      }
+      const Fixture fixture{hits, kFramedDurationNS, params, boxOf};
+      const auto bounds = frameBounds(*fixture.frame);
+      BOOST_TEST(!bounds.rowsAreFrames[narrow]);
+      BOOST_TEST(bounds.widthPS[narrow] == narrowPS);
+      const auto& geometry = fixture.geometry;
+      std::size_t acrossFrame = 0, acrossBlock = 0;
+      for (const auto& hit : hits) {
+        if (hit.point.layer == narrow) {
+          const auto box = boxOf(hit);
+          // The BC a picosecond lies in, rounded down (bcOfPS rounds up: it inverts psOfBC).
+          const auto bcAt = [](std::int64_t ps) { return (ps * kPSPerBCDenominator) / kPSPerBCNumerator; };
+          acrossFrame += bcAt(box.start) / kOuterFrameBC != bcAt(box.start + box.width - 1) / kOuterFrameBC;
+          acrossBlock += geometry.blockOfPS(box.start) != geometry.blockOfPS(box.start + box.width - 1);
+        }
+      }
+      BOOST_TEST(acrossFrame >= 4U);
+      BOOST_TEST(acrossBlock >= 2U);
+
+      const auto outerTracker = makeTracker(outer, false);
+      const auto taken = takenLinks<Det>(outer.front());
+      for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+        BOOST_TEST(taken[link] == (Det::layerLinks[link].from >= 3));
+      }
+      const auto pairwise = sliceReach(bounds, geometry, &taken);
+      BOOST_TEST(pairwise.forwardPS == longPS + narrowPS);
+      BOOST_TEST(pairwise.backwardPS == longPS + narrowPS);
+      const auto chains = chainReach(bounds, geometry, taken);
+      BOOST_TEST(chains.forwardPS == longPS);
+      BOOST_TEST(chains.backwardPS == (narrow == 6 ? narrowPS : longPS));
+      BOOST_TEST(outerTracker->planTimeframe(*fixture.frame, bounds, {}, 1).haloPS == chains.haloPS());
+      BOOST_TEST(chains.haloPS() < pairwise.haloPS());
+      const auto every = makeTracker(iterations(), false)->planTimeframe(*fixture.frame, bounds, {}, 1).haloPS;
+      BOOST_TEST(every < sliceReach(bounds, geometry).haloPS());
+
+      const auto everyLayer = iterations();
+      for (const auto* settings : std::array<const std::vector<IterationSettings>*, 2>{&outer, &everyLayer}) {
+        const auto& chosen = *settings;
+        BOOST_TEST_CONTEXT((settings == &outer ? "layers 3-7" : "every layer"))
+        {
+          const auto whole = trackFramed(fixture, geometry.blockCount(), chosen);
+          BOOST_TEST(whole.tracks.size() == kCrossings.size());
+          for (const std::int32_t width : {1, 2, 3}) {
+            BOOST_TEST_CONTEXT("slices of " << width << " blocks") { BOOST_TEST((trackFramed(fixture, width, chosen).tracks == whole.tracks)); }
+          }
+        }
+      }
     }
   }
 }
