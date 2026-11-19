@@ -300,6 +300,108 @@ BOOST_AUTO_TEST_CASE(LayersSharingFramesDoNotReach)
   BOOST_TEST(shiftedReach.backwardPS == 3 * std::int64_t{longPS});
 }
 
+/// The reach of iterations is each one's along the links it takes: on the
+/// layers of LayersSharingFramesDoNotReach, iterations on the 22-BC layers
+/// alone or on the 81-BC layers alone take no reaching link (gate 0), however
+/// the layout links the two groups; one across them reaches as every link
+/// does; and of several, the largest.
+BOOST_AUTO_TEST_CASE(AnIterationReachesAlongTheLinksItTakes)
+{
+  using Det = detectors::ToyBarrel8;
+  constexpr FrameTiming kShort{.lengthBC = 22, .firstStartBC = 0};
+  constexpr FrameTiming kLong{.lengthBC = 81, .firstStartBC = 0};
+  const auto shortPS = static_cast<std::uint32_t>(psOfBC(22));
+  const auto longPS = static_cast<std::uint32_t>(psOfBC(81));
+  const auto grid = chainGrid({kShort, kShort, kShort, kLong, kLong, kLong, kLong, kLong});
+  const auto bounds = framedBounds({shortPS, shortPS, shortPS, longPS, longPS, longPS, longPS, longPS});
+  const auto taking = [](std::uint64_t mask) {
+    IterationSettings settings;
+    settings.layerMask = mask;
+    settings.minClusters = 3;
+    const auto taken = takenLinks<Det>(settings);
+    IterationParameters<Det> parameters;
+    std::uint32_t kept = 0U;
+    for (std::size_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
+      parameters.outLinkOffsets[layer] = kept;
+      for (auto i = outLinks<Det>.begin(static_cast<LayerID>(layer)); i < outLinks<Det>.end(static_cast<LayerID>(layer)); ++i) {
+        if (taken[outLinks<Det>.links[i]]) {
+          parameters.outLinkIndices[kept++] = static_cast<std::uint16_t>(outLinks<Det>.links[i]);
+        }
+      }
+    }
+    parameters.outLinkOffsets[IterationParameters<Det>::kLayerCount] = kept;
+    return parameters;
+  };
+  const std::vector<IterationParameters<Det>> inner{taking(0x07U)};
+  const std::vector<IterationParameters<Det>> outer{taking(0xF8U)};
+  const std::vector<IterationParameters<Det>> across{taking(0xFFU)};
+  const std::vector<IterationParameters<Det>> both{taking(0x07U), taking(0xF8U)};
+  const auto seeding = [&](const std::vector<IterationParameters<Det>>& iterations) { return seedingReach(bounds, grid, std::span<const IterationParameters<Det>>{iterations}); };
+  BOOST_TEST(seeding(inner).gatePS == 0);
+  BOOST_TEST(seeding(outer).gatePS == 0);
+  BOOST_TEST(seeding(both).gatePS == 0);
+  BOOST_TEST(sliceReach(bounds, grid).gatePS() == std::int64_t{shortPS} + longPS);
+  // Across: 2 -> 3 the short frame forward and the long one backward.
+  BOOST_TEST(seeding(across).gatePS == std::int64_t{shortPS} + longPS);
+  BOOST_TEST(seeding(across).haloPS == std::int64_t{shortPS} + (2 * std::int64_t{longPS}));
+  BOOST_TEST(seeding({}).gatePS == sliceReach(bounds, grid).gatePS());
+  BOOST_TEST(seeding({}).haloPS == sliceReach(bounds, grid).haloPS());
+}
+
+/// Of several iterations the gate is the largest of their gates, each its own
+/// `R+ + R-` -- not the largest `R+` plus the largest `R-`: one iteration on
+/// layers 3-6 across a narrow-box layer 5 of 1 BC frames (`R+` the long frame,
+/// `R-` the narrow box: its link out goes nowhere on in the iteration), one
+/// on layers 0-3 across the short-long frame edge (`R+` the short frame, `R-`
+/// the long one).
+BOOST_AUTO_TEST_CASE(TheGateIsTheLargestIterationsNotItsLargestParts)
+{
+  using Det = detectors::ToyBarrel8;
+  constexpr FrameTiming kShort{.lengthBC = 22, .firstStartBC = 0};
+  constexpr FrameTiming kLong{.lengthBC = 81, .firstStartBC = 0};
+  constexpr FrameTiming kNarrow{.lengthBC = 1, .firstStartBC = 0};
+  const std::int64_t shortPS = psOfBC(22);
+  const std::int64_t longPS = psOfBC(81);
+  const std::int64_t narrowPS = psOfBC(1);
+  const auto grid = chainGrid({kShort, kShort, kShort, kLong, kLong, kNarrow, kLong, kLong});
+  auto bounds = framedBounds({static_cast<std::uint32_t>(shortPS), static_cast<std::uint32_t>(shortPS), static_cast<std::uint32_t>(shortPS), static_cast<std::uint32_t>(longPS), static_cast<std::uint32_t>(longPS),
+                              static_cast<std::uint32_t>(narrowPS), static_cast<std::uint32_t>(longPS), static_cast<std::uint32_t>(longPS)});
+  bounds.rowsAreFrames[5] = false;
+  const auto taken = [](std::uint64_t mask) {
+    IterationSettings settings;
+    settings.layerMask = mask;
+    settings.minClusters = 3;
+    return takenLinks<Det>(settings);
+  };
+  const auto narrow = chainReach(bounds, grid, taken(0x78U));
+  BOOST_TEST(narrow.forwardPS == longPS);
+  BOOST_TEST(narrow.backwardPS == narrowPS);
+  // Pairwise the link out of the narrow layer reaches the long frame back.
+  const auto narrowLinks = taken(0x78U);
+  BOOST_TEST(sliceReach(bounds, grid, &narrowLinks).backwardPS == narrowPS + longPS);
+  const auto edge = chainReach(bounds, grid, taken(0x0FU));
+  BOOST_TEST(edge.forwardPS == shortPS);
+  BOOST_TEST(edge.backwardPS == longPS);
+  std::vector<IterationParameters<Det>> iterations(2);
+  for (std::size_t i = 0; i < 2; ++i) {
+    const auto links = taken(i == 0 ? 0x78U : 0x0FU);
+    std::uint32_t kept = 0U;
+    for (std::size_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
+      iterations[i].outLinkOffsets[layer] = kept;
+      for (auto o = outLinks<Det>.begin(static_cast<LayerID>(layer)); o < outLinks<Det>.end(static_cast<LayerID>(layer)); ++o) {
+        if (links[outLinks<Det>.links[o]]) {
+          iterations[i].outLinkIndices[kept++] = static_cast<std::uint16_t>(outLinks<Det>.links[o]);
+        }
+      }
+    }
+    iterations[i].outLinkOffsets[IterationParameters<Det>::kLayerCount] = kept;
+  }
+  const auto seeding = seedingReach(bounds, grid, std::span<const IterationParameters<Det>>{iterations});
+  BOOST_TEST(seeding.gatePS == std::max(longPS + narrowPS, shortPS + longPS));
+  BOOST_TEST(seeding.gatePS < 2 * longPS);
+  BOOST_TEST(seeding.haloPS == std::max(narrow.haloPS(), edge.haloPS()));
+}
+
 /// A layer whose rows are not exactly its frames -- widened by a margin the
 /// producer applied, whatever the configuration says now -- reaches on both
 /// of its links.
