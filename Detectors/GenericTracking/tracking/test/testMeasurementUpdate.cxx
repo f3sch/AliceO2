@@ -14,11 +14,12 @@
 
 #define BOOST_TEST_MODULE Test GTRK Measurement Update
 #define BOOST_TEST_DYN_LINK
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/MeasurementUpdate.h"
+
 #include "Oracles.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

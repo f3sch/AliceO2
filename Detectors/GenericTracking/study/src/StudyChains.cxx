@@ -10,6 +10,7 @@
 // or submit itself to any jurisdiction.
 
 #include "GenericTracking/Study/StudyChains.h"
+
 #include "GenericTracking/Study/TruthStudies.h"
 
 #include <charconv>

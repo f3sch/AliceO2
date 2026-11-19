@@ -10,6 +10,7 @@
 // or submit itself to any jurisdiction.
 
 #include "GenericTracking/Study/Alice/Tracks.h"
+
 #include "GenericTracking/Study/TrackingQA.h"
 
 #include "DataFormatsITS/TrackITS.h"

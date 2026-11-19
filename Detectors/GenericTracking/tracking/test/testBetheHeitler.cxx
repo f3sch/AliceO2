@@ -18,12 +18,11 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Bethe Heitler
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Tracking/BetheHeitler.h"
 #include "GenericTracking/Tracking/MeasurementUpdate.h"
 
 #include <boost/math/special_functions/gamma.hpp>
+#include <boost/test/unit_test.hpp>
 #include <fmt/format.h>
 
 #include <algorithm>

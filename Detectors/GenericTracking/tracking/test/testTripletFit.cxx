@@ -15,21 +15,22 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Triplet Fit
-#include <boost/test/unit_test.hpp>
-
-#include "ToyBarrel4Disc8.h"
-#include "Oracles.h"
+#include "GenericTracking/Base/Dual.h"
 #include "GenericTracking/Tracking/Triplet.h"
 #include "GenericTracking/Tracking/TripletFit.h"
-#include "GenericTracking/Base/Dual.h"
 #include "GenericTracking/Study/Validation.h"
+
+#include "Oracles.h"
+#include "ToyBarrel4Disc8.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <random>
 #include <cstddef>
 #include <cstdint>
+#include <random>
 
 namespace o2::gtrk
 {

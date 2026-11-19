@@ -11,9 +11,9 @@
 
 /// \file GPUChainGenericTracking.cxx
 
-#include "GPUO2ExternalUser.h" // first of O2's GPU headers outside GPU/
-
 #include "GPUChainGenericTracking.h"
+
+#include "GPUO2ExternalUser.h" // first of O2's GPU headers outside GPU/
 
 #include "GPUConstantMem.h"
 #include "GPUReconstruction.h"

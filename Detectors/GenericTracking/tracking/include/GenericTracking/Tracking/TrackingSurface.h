@@ -28,12 +28,12 @@
 #define GTRK_TRACKING_TRACKINGSURFACE_H_
 
 #include "GenericTracking/Base/Definitions.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/SurfaceMaterial.h"
-#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "GPUCommonMath.h"
 

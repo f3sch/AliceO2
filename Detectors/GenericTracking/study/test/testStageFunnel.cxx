@@ -15,12 +15,12 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK stage funnel
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Study/StageFunnel.h"
 
 #include "ToyBarrel8Fixture.h"
 #include "UniformMaterial.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <array>
 #include <cstdint>

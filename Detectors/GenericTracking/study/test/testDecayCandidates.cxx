@@ -16,9 +16,9 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK decay candidates
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Study/DecayCandidates.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <cstdint>
 #include <cstdlib>

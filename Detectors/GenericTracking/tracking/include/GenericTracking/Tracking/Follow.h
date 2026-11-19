@@ -25,13 +25,15 @@
 #ifndef GTRK_TRACKING_FOLLOW_H_
 #define GTRK_TRACKING_FOLLOW_H_
 
+#include "GenericTracking/Base/BoundedAllocator.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
-#include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Tracking/CovarianceTransport.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Iteration.h"
+#include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
 #include "GenericTracking/Tracking/MeasurementUpdate.h"
@@ -40,10 +42,8 @@
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/SensorCells.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
-#include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
-#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
 
 #include "GPUCommonMath.h"

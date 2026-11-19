@@ -27,9 +27,9 @@
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 
+#include "CommonConstants/PhysicsConstants.h"
 #include "CommonUtils/ConfigurableParam.h"
 #include "CommonUtils/ConfigurableParamHelper.h"
-#include "CommonConstants/PhysicsConstants.h"
 #include "DetectorsCommonDataFormats/DetID.h"
 
 // ENABLE_UPGRADES comes with DetID.h (UpgradesStatus.h).

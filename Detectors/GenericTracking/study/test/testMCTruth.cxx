@@ -14,9 +14,9 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK MCTruth
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Study/MCTruth.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <vector>
 

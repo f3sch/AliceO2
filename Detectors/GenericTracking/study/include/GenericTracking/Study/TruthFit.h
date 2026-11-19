@@ -26,9 +26,8 @@
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 
-#include "ReconstructionDataFormats/PID.h"
-
 #include "CommonConstants/PhysicsConstants.h"
+#include "ReconstructionDataFormats/PID.h"
 
 #include <array>
 #include <cmath>

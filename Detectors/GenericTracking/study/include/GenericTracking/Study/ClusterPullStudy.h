@@ -33,11 +33,11 @@
 #ifndef GTRK_STUDY_CLUSTERPULLSTUDY_H_
 #define GTRK_STUDY_CLUSTERPULLSTUDY_H_
 
+#include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/StateTruth.h"
 #include "GenericTracking/Study/StudyChains.h"
 #include "GenericTracking/Study/TruthEvent.h"
-#include "GenericTracking/Tracking/Material.h"
 
 #include "SimulationDataFormat/O2DatabasePDG.h"
 

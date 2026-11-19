@@ -23,6 +23,7 @@
 #include "GenericTracking/Study/Alice/Hits.h"
 
 #include "ReconstructionDataFormats/Track.h"
+
 #include <cstdint>
 #include <memory>
 #include <string>

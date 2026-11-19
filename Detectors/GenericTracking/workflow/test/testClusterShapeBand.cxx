@@ -15,10 +15,10 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK cluster shape band
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Tracking/ShapeCut.h"
 #include "GenericTracking/Workflow/ClusterShapeBand.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <cstddef>
 #include <vector>

@@ -65,6 +65,7 @@
 
 #include "DeviceAlgorithms.cuh"
 #include "Platform.cuh"
+
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Tracking/GPU/DeviceStageOutput.h"

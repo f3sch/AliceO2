@@ -10,6 +10,7 @@
 // or submit itself to any jurisdiction.
 
 #include "GenericTracking/WorkflowITSMFT/Clusters.h"
+
 #include "GenericTracking/WorkflowITSMFT/Placement.h"
 
 #include "DataFormatsITSMFT/ClusterPattern.h"

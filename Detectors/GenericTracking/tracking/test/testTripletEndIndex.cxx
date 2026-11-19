@@ -15,13 +15,13 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK TripletEndIndex
-#include <boost/test/unit_test.hpp>
-
-#include "GenericTracking/Tracking/TripletEndIndex.h"
-
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/Neighbour.h"
+#include "GenericTracking/Tracking/TripletEndIndex.h"
+
 #include "SerialReferences.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <cstddef>
 #include <cstdint>

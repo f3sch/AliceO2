@@ -22,14 +22,14 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK selection glue
-#include <boost/test/unit_test.hpp>
+#include "GenericTracking/Tracking/Definitions.h"
+#include "GenericTracking/Tracking/Selection.h"
 
 #include "DeviceTestFixture.h"
 #include "DeviceTestKernels.h"
-
-#include "GenericTracking/Tracking/Definitions.h"
-#include "GenericTracking/Tracking/Selection.h"
 #include "SerialReferences.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

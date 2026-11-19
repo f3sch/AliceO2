@@ -30,7 +30,6 @@
 #define GTRK_TRACKING_GPU_SLICEGLUE_CUH_
 
 #include "DeviceAlgorithms.cuh"
-#include "GenericTracking/Tracking/TrackletPaths.h"
 #include "Platform.cuh"
 
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
@@ -40,6 +39,7 @@
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/LayerRowMap.h"
 #include "GenericTracking/Tracking/Tracklet.h"
+#include "GenericTracking/Tracking/TrackletPaths.h"
 #include "GenericTracking/Tracking/TrackletSort.h"
 #include "GenericTracking/Tracking/Triplet.h"
 #include "GenericTracking/Tracking/TripletPermutation.h"

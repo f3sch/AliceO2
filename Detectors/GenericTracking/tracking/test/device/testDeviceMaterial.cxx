@@ -19,12 +19,12 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK device material
-#include <boost/test/unit_test.hpp>
-
 #include "DeviceTestFixture.h"
 #include "DeviceTestKernels.h"
 
 #include "DetectorsBase/MatLayerCylSet.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

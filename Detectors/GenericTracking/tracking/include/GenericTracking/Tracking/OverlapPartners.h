@@ -51,8 +51,8 @@
 #ifndef GTRK_TRACKING_OVERLAPPARTNERS_H_
 #define GTRK_TRACKING_OVERLAPPARTNERS_H_
 
-#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/BoundedAllocator.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/Definitions.h"

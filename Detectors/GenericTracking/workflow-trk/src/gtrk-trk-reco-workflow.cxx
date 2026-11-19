@@ -37,11 +37,10 @@ void customize(std::vector<o2::framework::ConfigParamSpec>& workflowOptions) { o
 
 #include "GenericTracking/Detectors/TRKFT3.h"
 
+#include "Framework/runDataProcessing.h" // IWYU pragma: keep
 #include "TRKWorkflow/ClusterReaderSpec.h"
 
 #include <string>
-
-#include "Framework/runDataProcessing.h" // IWYU pragma: keep
 
 WorkflowSpec defineDataProcessing(const ConfigContext& context)
 {

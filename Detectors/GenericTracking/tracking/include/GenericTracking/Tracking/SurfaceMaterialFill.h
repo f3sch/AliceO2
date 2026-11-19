@@ -27,10 +27,10 @@
 
 #include <algorithm>
 #include <array>
-#include <functional>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <span>
 #include <vector>

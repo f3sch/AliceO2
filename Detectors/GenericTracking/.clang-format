@@ -1,0 +1,53 @@
+---
+# O2's style, with the includes grouped and sorted; a file's own header
+# stays first. Groups, one block each: the headers others need before them
+# (below); GenericTracking from the bottom up (Base, Detectors, Alice and
+# Clustering, Tracking, the workflows, Study and Tools); the directory's own
+# local headers; the rest of O2 (its GPU headers without a directory too);
+# third-party libraries; the standard and system headers. Alphabetical
+# within a group.
+BasedOnStyle: InheritParentConfig
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  # First, what the headers after them need: O2's GPU headers outside GPU/
+  # need GPUO2ExternalUser.h; device code the backend's runtime, which the
+  # local .cuh headers (Platform.cuh) bring.
+  - Regex: '^"GPUO2ExternalUser\.h"$'
+    Priority: 1
+  - Regex: '^<(cuda_runtime|hip/hip_runtime)\.h>$'
+    Priority: 1
+  - Regex: '^"[A-Za-z0-9_]+\.cuh"$'
+    Priority: 1
+  - Regex: '^"GenericTracking/Base/'
+    Priority: 2
+    SortPriority: 2
+  - Regex: '^"GenericTracking/Detectors/'
+    Priority: 2
+    SortPriority: 3
+  - Regex: '^"GenericTracking/(Alice|Clustering)/'
+    Priority: 2
+    SortPriority: 4
+  - Regex: '^"GenericTracking/Tracking/'
+    Priority: 2
+    SortPriority: 5
+  - Regex: '^"GenericTracking/Workflow'
+    Priority: 2
+    SortPriority: 6
+  - Regex: '^"GenericTracking/'
+    Priority: 2
+    SortPriority: 7
+  - Regex: '^"GPUChainGenericTracking\.h"$'
+    Priority: 8
+  - Regex: '^"(GPU[A-Za-z0-9]*|FlatObject)\.h"$'
+    Priority: 9
+  - Regex: '^"[A-Za-z0-9_]+\.(h|cuh)"$'
+    Priority: 8
+  - Regex: '^"'
+    Priority: 9
+  - Regex: '^<((unistd|sched|pthread)\.h|(sys|linux)/.*)>$'
+    Priority: 11
+  - Regex: '^<[a-z_0-9]+>$'
+    Priority: 11
+  - Regex: '^<'
+    Priority: 10

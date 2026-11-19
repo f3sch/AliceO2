@@ -14,7 +14,6 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK placed layouts
-#include <boost/test/unit_test.hpp>
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerEnvelopes.h"
 #include "GenericTracking/Detectors/ITS.h"
@@ -22,10 +21,14 @@
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/Tracker.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
+
 #include "GridTestSupport.h"
-#include "UniformMaterial.h"
 #include "ToyBarrel3.h"
 #include "ToyBarrel4Disc8.h"
+#include "UniformMaterial.h"
+
+#include <boost/test/unit_test.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>

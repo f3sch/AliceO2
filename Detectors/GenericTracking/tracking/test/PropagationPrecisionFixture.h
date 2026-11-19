@@ -12,6 +12,7 @@
 #define GTRK_TEST_PROPAGATIONPRECISIONFIXTURE_H_
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/Propagator.h"
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>

@@ -17,10 +17,10 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK PortableMath
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/PortableMath.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <bit>
 #include <cmath>

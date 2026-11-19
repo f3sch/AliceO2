@@ -17,9 +17,6 @@
 #include <linux/perf_event.h>
 #include <sys/syscall.h>
 #endif
-#include <sys/resource.h>
-#include <unistd.h>
-
 #include <algorithm>
 #include <bit>
 #include <chrono>
@@ -30,6 +27,8 @@
 #include <limits>
 #include <ostream>
 #include <string>
+#include <sys/resource.h>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 

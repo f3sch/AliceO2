@@ -14,15 +14,15 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Device Runtime
-#include <boost/test/unit_test.hpp>
+#include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Tracking/GPU/DeviceArena.h"
+#include "GenericTracking/Tracking/GPU/DeviceStorage.h"
 
 #include "DeviceTestFixture.h"
 #include "DeviceTestKernels.h"
 #include "PropagationPrecisionFixture.h"
 
-#include "GenericTracking/Base/ElementaryMath.h"
-#include "GenericTracking/Tracking/GPU/DeviceArena.h"
-#include "GenericTracking/Tracking/GPU/DeviceStorage.h"
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

@@ -11,9 +11,6 @@
 
 // Test-only CUDA kernels, hipified verbatim for HIP.
 
-#include <cuda_runtime.h>
-
-#include "DeviceTestKernels.h"
 #include "DeviceAlgorithms.cuh"
 #include "DeviceTracker.cuh"
 #include "FlatStage.cuh"
@@ -21,11 +18,14 @@
 #include "RoadGlue.cuh"
 #include "SelectionGlue.cuh"
 #include "SliceGlue.cuh"
+#include <cuda_runtime.h>
 
 #include "GenericTracking/Base/ElementaryMath.h"
 
-#include "DetectorsBase/MatLayerCylSet.h"
+#include "DeviceTestKernels.h"
 #include "UniformMaterial.h"
+
+#include "DetectorsBase/MatLayerCylSet.h"
 
 #include <cstdint>
 #include <stdexcept>

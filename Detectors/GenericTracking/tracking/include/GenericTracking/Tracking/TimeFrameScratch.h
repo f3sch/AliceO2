@@ -21,16 +21,16 @@
 #ifndef GTRK_TRACKING_TIMEFRAMESCRATCH_H_
 #define GTRK_TRACKING_TIMEFRAMESCRATCH_H_
 
+#include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Base/LayerSpec.h"
-#include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Tracking/LayerRowMap.h"
 #include "GenericTracking/Tracking/MeasurementRange.h"
 #include "GenericTracking/Tracking/Neighbour.h"
 #include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/Tracklet.h"
-#include "GenericTracking/Tracking/Triplet.h"
 #include "GenericTracking/Tracking/TrackletPaths.h"
+#include "GenericTracking/Tracking/Triplet.h"
 #include "GenericTracking/Tracking/TripletEndIndex.h"
 #include "GenericTracking/Tracking/TripletPaths.h"
 #include "GenericTracking/Tracking/TripletPermutation.h"

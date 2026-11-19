@@ -47,14 +47,14 @@
 #ifndef GTRK_TRACKING_MEASUREMENTGRID_H_
 #define GTRK_TRACKING_MEASUREMENTGRID_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/FrameTiming.h"
+#include "GenericTracking/Base/Lanes.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
-#include "GenericTracking/Base/Lanes.h"
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/MeasurementRange.h"
 #include "GenericTracking/Tracking/SearchWindow.h"
-#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
 
 #include "GPUCommonAlgorithm.h"

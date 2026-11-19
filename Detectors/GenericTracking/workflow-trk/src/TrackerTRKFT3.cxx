@@ -14,8 +14,8 @@
 ///        each instantiating the tracker.
 
 #include "GenericTracking/Detectors/TRKFT3.h"
-#include "GenericTracking/WorkflowTRK/ConditionsTRK.h"
 #include "GenericTracking/Workflow/TrackerDevice.h"
+#include "GenericTracking/WorkflowTRK/ConditionsTRK.h"
 
 namespace o2::gtrk
 {

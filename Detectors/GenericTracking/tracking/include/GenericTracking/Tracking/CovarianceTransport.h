@@ -17,11 +17,11 @@
 #define GTRK_TRACKING_COVARIANCETRANSPORT_H_
 
 #include "GenericTracking/Base/Definitions.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/Propagator.h"
-#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "CommonConstants/MathConstants.h"
 

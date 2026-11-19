@@ -34,13 +34,14 @@
 #ifndef GTRK_WORKFLOW_ITSROFSELECTION_H_
 #define GTRK_WORKFLOW_ITSROFSELECTION_H_
 
-#include "ITSMFTInput.h"
-
 #include "GenericTracking/Base/FrameTiming.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Workflow/FrameSelection.h"
+
+#include "ITSMFTInput.h"
+
 #include "Framework/InputSpec.h"
 #include "Framework/OutputSpec.h"
 

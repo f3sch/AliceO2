@@ -22,8 +22,8 @@
 #ifndef GTRK_WORKFLOWITSMFT_PLACEMENT_H_
 #define GTRK_WORKFLOWITSMFT_PLACEMENT_H_
 
-#include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Base/Sensor.h"
+#include "GenericTracking/Alice/Placement.h"
 
 #include "MathUtils/Utils.h"
 

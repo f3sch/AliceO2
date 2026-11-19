@@ -34,8 +34,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <span>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace o2::gtrk::test

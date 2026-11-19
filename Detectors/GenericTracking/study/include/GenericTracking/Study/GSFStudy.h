@@ -29,14 +29,14 @@
 #ifndef GTRK_STUDY_GSFSTUDY_H_
 #define GTRK_STUDY_GSFSTUDY_H_
 
-#include "GenericTracking/Study/RecordWriter.h"
-#include "GenericTracking/Study/StateTruth.h"
-#include "GenericTracking/Study/StudyChains.h"
-#include "GenericTracking/Study/TruthEvent.h"
 #include "GenericTracking/Tracking/GSFTrackFitter.h"
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/RoadFit.h"
+#include "GenericTracking/Study/RecordWriter.h"
+#include "GenericTracking/Study/StateTruth.h"
+#include "GenericTracking/Study/StudyChains.h"
+#include "GenericTracking/Study/TruthEvent.h"
 
 #include "CommonConstants/PhysicsConstants.h"
 

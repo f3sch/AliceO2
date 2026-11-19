@@ -15,8 +15,8 @@
 ///        reconstruction (GPURecoTracking.h).
 
 #include "GenericTracking/Detectors/MFT.h"
-#include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
 #include "GenericTracking/Workflow/TrackerDevice.h"
+#include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
 
 namespace o2::gtrk
 {

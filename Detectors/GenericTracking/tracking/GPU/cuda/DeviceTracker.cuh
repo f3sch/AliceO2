@@ -42,16 +42,18 @@
 #define GTRK_TRACKING_GPU_DEVICETRACKER_CUH_
 
 #include "DeviceAlgorithms.cuh"
+#include "DeviceMaterial.cuh"
+#include "FlatStage.cuh"
 #include "GpuStage.cuh"
-#include "RoadGlue.cuh"
-#include "Platform.cuh"
 #include "PathGlue.cuh"
+#include "Platform.cuh"
+#include "RoadGlue.cuh"
 #include "SelectionGlue.cuh"
 #include "SliceGlue.cuh"
 #include "VertexGlue.cuh"
-#include "DeviceMaterial.cuh"
 
 #include "GenericTracking/Tracking/Definitions.h"
+#include "GenericTracking/Tracking/Follow.h"
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Tracking/GPU/DeviceStageOutput.h"
@@ -59,31 +61,29 @@
 #include "GenericTracking/Tracking/GPU/DeviceTracker.h"
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/NeighbourStage.h"
-#include "GenericTracking/Tracking/Follow.h"
+#include "GenericTracking/Tracking/OverlapPartners.h"
 #include "GenericTracking/Tracking/RoadCount.h"
 #include "GenericTracking/Tracking/RoadFit.h"
-#include "GenericTracking/Tracking/OverlapPartners.h"
 #include "GenericTracking/Tracking/SensorCells.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
 #include "GenericTracking/Tracking/TrackletStage.h"
-#include "FlatStage.cuh"
 #include "GenericTracking/Tracking/TripletStage.h"
 
 #include "FlatObject.h"
 
 #include <algorithm>
 #include <array>
-#include <string>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <limits>
 #include <optional>
-#include <type_traits>
-#include <utility>
 #include <span>
 #include <stdexcept>
+#include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE

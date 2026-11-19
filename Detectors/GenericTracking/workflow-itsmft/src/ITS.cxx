@@ -13,15 +13,16 @@
 /// \brief The ITS's own: its chips placed, its cluster converter and its
 ///        measurement producer.
 
-#include "GenericTracking/WorkflowITSMFT/Placement.h"
 #include "GenericTracking/Detectors/ITS.h"
+
 #include "GenericTracking/Workflow/ClusterConverterSpec.h"
+#include "GenericTracking/Workflow/MeasurementProducer.h"
+#include "GenericTracking/Workflow/MeasurementProducerSpec.h"
 #include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
 #include "GenericTracking/WorkflowITSMFT/ITSMFTOptions.h"
-#include "GenericTracking/Workflow/MeasurementProducerSpec.h"
+#include "GenericTracking/WorkflowITSMFT/Placement.h"
 
 #include "ClusterConverterITSMFT.h"
-#include "GenericTracking/Workflow/MeasurementProducer.h"
 #include "ITSROFSelection.h"
 
 #include "ITSBase/GeometryTGeo.h"

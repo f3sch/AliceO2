@@ -16,9 +16,6 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK NeighbourStage
-#include <boost/test/unit_test.hpp>
-
-#include "ToyBarrel8.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/NeighbourStage.h"
@@ -28,11 +25,14 @@
 #include "GenericTracking/Tracking/TripletPaths.h"
 #include "GenericTracking/Tracking/TripletPermutation.h"
 
-#include "Oracles.h"
-#include "StageOutputComparison.h"
-#include "ToyBarrel8Fixture.h"
-#include "SerialReferences.h"
 #include "FixedPointReferences.h"
+#include "Oracles.h"
+#include "SerialReferences.h"
+#include "StageOutputComparison.h"
+#include "ToyBarrel8.h"
+#include "ToyBarrel8Fixture.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

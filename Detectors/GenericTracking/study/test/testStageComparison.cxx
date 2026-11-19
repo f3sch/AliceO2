@@ -14,20 +14,21 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK StageComparison
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Tracking/RoadFit.h"
-#include "GenericTracking/Study/StageComparison.h"
 #include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
 #include "GenericTracking/Tracking/Tracklet.h"
+#include "GenericTracking/Study/StageComparison.h"
+
 #include "SerialReferences.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
-#include <cstring>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <vector>
 

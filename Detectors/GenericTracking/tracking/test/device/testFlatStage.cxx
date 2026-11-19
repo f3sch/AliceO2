@@ -20,16 +20,16 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK FlatStage
-#include <boost/test/unit_test.hpp>
+#include "GenericTracking/Tracking/GPU/DeviceArena.h"
+#include "GenericTracking/Tracking/StageOutput.h"
 
 #include "DeviceTestFixture.h"
 #include "DeviceTestKernels.h"
+#include "SerialReferences.h"
 #include "StageOutputComparison.h"
 #include "SyntheticStage.h"
 
-#include "GenericTracking/Tracking/GPU/DeviceArena.h"
-#include "GenericTracking/Tracking/StageOutput.h"
-#include "SerialReferences.h"
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

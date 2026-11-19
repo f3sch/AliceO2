@@ -17,10 +17,12 @@
 /// The chain sets aside one permanent block of the reconstruction's device
 /// pool per tracker, of the size its creator asks for before Init, and hands
 /// it out after Init.
-/// DeviceContext's alone: include GPUO2ExternalUser.h before it.
+/// DeviceContext's alone.
 
 #ifndef GTRK_TRACKING_GPU_GPUCHAINGENERICTRACKING_H_
 #define GTRK_TRACKING_GPU_GPUCHAINGENERICTRACKING_H_
+
+#include "GPUO2ExternalUser.h" // first of O2's GPU headers outside GPU/
 
 #include "GPUChain.h"
 #include "GPUProcessor.h"

@@ -9,51 +9,54 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-#include "DataFormatsITSMFT/ClusterID.h"
-#include "GenericTracking/Base/ElementaryMath.h"
-#include "GenericTracking/Study/MCVertexReaderSpec.h"
-#include "GenericTracking/Study/Digest.h"
 #include "GenericTracking/Study/MeasurementSinkSpec.h"
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/LayerLinks.h"
-#include "GenericTracking/Study/Alice/Hits.h"
-#include "GenericTracking/Study/Alice/Tracks.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Tracking/Iteration.h"
-#include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/LayerMaterial.h"
+#include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/Tracker.h"
-#include "GenericTracking/Study/Validation.h"
 #include "GenericTracking/Tracking/VertexingPass.h"
-#include "GenericTracking/Study/VertexQA.h"
-#include "GenericTracking/Workflow/DataSpecs.h"
 #include "GenericTracking/Workflow/BeamLine.h"
+#include "GenericTracking/Workflow/DataSpecs.h"
+#include "GenericTracking/Workflow/GridConfig.h"
+#include "GenericTracking/Workflow/RecoParam.h"
+#include "GenericTracking/Workflow/TrackerSpec.h"
+#include "GenericTracking/Workflow/TrackingInterface.h"
 #include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
 #include "GenericTracking/WorkflowTRK/ConditionsTRK.h"
-#include "GenericTracking/Workflow/TrackingInterface.h"
-#include "GenericTracking/Workflow/TrackerSpec.h"
+#include "GenericTracking/Study/Alice/Hits.h"
+#include "GenericTracking/Study/Alice/Tracks.h"
+#include "GenericTracking/Study/Digest.h"
+#include "GenericTracking/Study/MCTruth.h"
+#include "GenericTracking/Study/MCVertexReaderSpec.h"
+#include "GenericTracking/Study/ProfileReport.h"
+#include "GenericTracking/Study/StageFunnel.h"
+#include "GenericTracking/Study/StateTruth.h"
+#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/TrackPulls.h"
-#include "GenericTracking/Workflow/GridConfig.h"
-#include "GenericTracking/Study/MCTruth.h"
-#include "GenericTracking/Workflow/RecoParam.h"
-#include "GenericTracking/Study/StageFunnel.h"
-#include "GenericTracking/Study/ProfileReport.h"
-#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackingInput.h"
-#include "GenericTracking/Study/StateTruth.h"
-#include "GenericTracking/Study/TruthStudies.h"
 #include "GenericTracking/Study/TrackingQA.h"
+#include "GenericTracking/Study/TruthStudies.h"
+#include "GenericTracking/Study/Validation.h"
+#include "GenericTracking/Study/VertexQA.h"
 
+#include "CommonConstants/LHCConstants.h"
+#include "CommonUtils/StringUtils.h"
+#include "CommonUtils/TreeStreamRedirector.h"
+#include "DataFormatsITSMFT/ClusterID.h"
+#include "Framework/ConfigParamRegistry.h"
 #include "Framework/DataProcessorSpec.h"
 #include "Framework/EndOfStreamContext.h"
-#include "Framework/ConfigParamRegistry.h"
 #include "Framework/Logger.h"
 #include "Framework/Task.h"
 #include "Framework/TimingInfo.h"
@@ -63,17 +66,12 @@
 #include "SimulationDataFormat/MCTrack.h"
 #include "SimulationDataFormat/O2DatabasePDG.h"
 #include "Steer/MCKinematicsReader.h"
-#include "CommonConstants/LHCConstants.h"
-
-#include "CommonUtils/StringUtils.h"
-#include "CommonUtils/TreeStreamRedirector.h"
 
 #include <fmt/format.h>
 #include <gsl/span>
 
 #include <algorithm>
 #include <array>
-#include <initializer_list>
 #include <bit>
 #include <cmath>
 #include <cstddef>
@@ -81,17 +79,18 @@
 #include <cstring>
 #include <fstream>
 #include <functional>
+#include <initializer_list>
 #include <iterator>
 #include <limits>
 #include <map>
+#include <memory>
 #include <numeric>
 #include <optional>
-#include <memory>
 #include <ranges>
 #include <span>
 #include <stdexcept>
-#include <tuple>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>

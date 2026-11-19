@@ -14,6 +14,7 @@
 
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
+
 #include "DataFormatsITSMFT/DPLAlpideParamInitializer.h"
 #include "Framework/ConfigContext.h"
 #include "Framework/ConfigParamSpec.h"

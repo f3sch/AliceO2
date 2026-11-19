@@ -22,9 +22,9 @@
 #define GTRK_TRACKING_TRIPLETFIT_H_
 
 #include "GenericTracking/Base/DenseSolve.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/PairCut.h"
-#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/Triplet.h"
 
 #include "GPUCommonMath.h"

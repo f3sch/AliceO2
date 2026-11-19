@@ -12,13 +12,14 @@
 #ifndef GTRK_WORKFLOW_ITSMFTINPUT_H_
 #define GTRK_WORKFLOW_ITSMFTINPUT_H_
 
-#include "GenericTracking/WorkflowITSMFT/Clusters.h"
 #include "GenericTracking/Base/FrameTiming.h"
+#include "GenericTracking/WorkflowITSMFT/Clusters.h"
+
 #include "DataFormatsITSMFT/ClusterID.h"
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/ROFRecord.h"
-#include "Framework/InputSpec.h"
 #include "Framework/InputRecord.h"
+#include "Framework/InputSpec.h"
 #include "Framework/ProcessingContext.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"

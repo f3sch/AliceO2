@@ -9,8 +9,9 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tools/Material.h"
+
+#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "DetectorsBase/MatLayerCylSet.h"
 #include "TRKBase/GeometryTGeo.h"

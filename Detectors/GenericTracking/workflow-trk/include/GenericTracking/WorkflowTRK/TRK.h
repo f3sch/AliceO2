@@ -40,8 +40,8 @@
 #ifndef GTRK_ALICE_TRK_H_
 #define GTRK_ALICE_TRK_H_
 
-#include "GenericTracking/Alice/Clusters.h"
 #include "GenericTracking/Base/FrameTiming.h"
+#include "GenericTracking/Alice/Clusters.h"
 
 #include "DataFormatsTRKFT3/Cluster.h"
 #include "DetectorsCommonDataFormats/DetID.h"

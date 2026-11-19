@@ -14,14 +14,14 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Hypothesis Refit
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Tracking/HypothesisRefit.h"
+
 #include "ElectronChain.h"
 #include "UniformMaterial.h"
 
 #include "MathUtils/detail/trigonometric.h"
 
+#include <boost/test/unit_test.hpp>
 #include <fmt/format.h>
 
 #include <algorithm>

@@ -15,12 +15,12 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK time box
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/FrameTiming.h"
 #include "GenericTracking/Base/TimeEstPS.h"
 
 #include "CommonConstants/LHCConstants.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <array>
 #include <cmath>

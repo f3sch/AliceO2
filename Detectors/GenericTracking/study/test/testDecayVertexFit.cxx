@@ -16,17 +16,17 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK decay vertex fit
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Tracking/DecayFitBatch.h"
 #include "GenericTracking/Tracking/DecayFitConstraints.h"
 #include "GenericTracking/Tracking/DecayVertexFit.h"
-#include "GenericTracking/Detectors/TRKFT3.h"
 
 #include "UniformMaterial.h"
 
 #include "DetectorsBase/MatCell.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <array>
 #include <cmath>

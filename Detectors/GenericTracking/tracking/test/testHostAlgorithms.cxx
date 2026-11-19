@@ -15,12 +15,12 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK HostAlgorithms
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/HostAlgorithms.h"
 #include "GenericTracking/Tracking/Parallel.h"
 
 #include "SerialReferences.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

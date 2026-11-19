@@ -15,12 +15,12 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Device Arena
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Tracking/GPU/DeviceStorage.h"
 #include "GenericTracking/Tracking/Tracklet.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <array>
 #include <bit>

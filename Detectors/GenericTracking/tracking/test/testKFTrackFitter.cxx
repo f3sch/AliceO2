@@ -14,22 +14,23 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK KF Track Fitter
-#include <boost/test/unit_test.hpp>
-
-#include "GridTestSupport.h"
-#include "Oracles.h"
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
-#include "ToyBarrel4Disc8.h"
-#include "ToyBarrel3.h"
 #include "GenericTracking/Tracking/BeamConstraint.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Material.h"
 
+#include "GridTestSupport.h"
+#include "Oracles.h"
+#include "ToyBarrel3.h"
+#include "ToyBarrel4Disc8.h"
+#include "UniformMaterial.h"
+
 #include "ReconstructionDataFormats/PID.h"
 #include "ReconstructionDataFormats/Track.h"
 #include "ReconstructionDataFormats/TrackUtils.h"
-#include "UniformMaterial.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <array>
 #include <cmath>

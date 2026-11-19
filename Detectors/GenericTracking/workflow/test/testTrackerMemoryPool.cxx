@@ -14,13 +14,13 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK tracker memory pool
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Workflow/GridConfig.h"
 #include "GenericTracking/Workflow/RecoParam.h"
 
 #include "CommonUtils/ConfigurableParam.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <cstddef>
 #include <limits>

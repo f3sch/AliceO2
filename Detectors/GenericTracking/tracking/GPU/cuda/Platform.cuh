@@ -25,9 +25,11 @@
 
 #ifdef __HIPCC__
 #include <hip/hip_runtime.h>
+
 #include <hipcub/hipcub.hpp>
 #else
 #include <cuda_runtime.h>
+
 #include <cub/cub.cuh>
 #endif
 

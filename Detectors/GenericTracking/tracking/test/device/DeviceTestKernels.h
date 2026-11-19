@@ -14,30 +14,30 @@
 #ifndef GTRK_TEST_DEVICE_DEVICETESTKERNELS_H_
 #define GTRK_TEST_DEVICE_DEVICETESTKERNELS_H_
 
-#include "ToyBarrel8.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
-#include "GenericTracking/Tracking/GPU/DeviceStorage.h"
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
-#include "GenericTracking/Tracking/Measurement.h"
-#include "GenericTracking/Tracking/StageOutput.h"
+#include "GenericTracking/Tracking/GPU/DeviceStorage.h"
+#include "GenericTracking/Tracking/GPU/DeviceTracker.h"
 #include "GenericTracking/Tracking/Iteration.h"
-#include "GenericTracking/Tracking/Material.h"
-#include "GenericTracking/Tracking/Neighbour.h"
 #include "GenericTracking/Tracking/LayerRowMap.h"
+#include "GenericTracking/Tracking/Material.h"
+#include "GenericTracking/Tracking/Measurement.h"
+#include "GenericTracking/Tracking/Neighbour.h"
+#include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/Tracklet.h"
 #include "GenericTracking/Tracking/Triplet.h"
 #include "GenericTracking/Tracking/TripletCut.h"
-#include "GenericTracking/Base/ElementaryMath.h"
-#include "GenericTracking/Tracking/GPU/DeviceTracker.h"
 
 #include "SyntheticStage.h"
-
-#include "FlatObject.h"
+#include "ToyBarrel8.h"
 #include "UniformMaterial.h"
 
-#include <cstddef>
+#include "FlatObject.h"
+
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>

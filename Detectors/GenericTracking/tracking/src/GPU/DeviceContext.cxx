@@ -11,10 +11,12 @@
 
 #include "GenericTracking/Tracking/GPU/DeviceContext.h"
 
+#include "GPUO2ExternalUser.h" // first of O2's GPU headers outside GPU/
+
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 
-#include "GPUO2ExternalUser.h" // first of O2's GPU headers outside GPU/
 #include "GPUChainGenericTracking.h"
+
 #include "GPUMemoryResource.h"
 #include "GPUReconstruction.h"
 #include "GPUSettings.h"

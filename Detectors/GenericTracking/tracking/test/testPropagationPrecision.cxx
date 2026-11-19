@@ -28,10 +28,11 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Propagation Precision
-#include <boost/test/unit_test.hpp>
+#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "PropagationPrecisionFixture.h"
-#include "GenericTracking/Base/ElementaryMath.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <cmath>

@@ -15,14 +15,14 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK tracking QA
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/MathUtils.h"
-#include "GenericTracking/Study/TrackingQA.h"
 #include "GenericTracking/Study/TrackComparison.h"
+#include "GenericTracking/Study/TrackingQA.h"
 
 #include "CommonConstants/MathConstants.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

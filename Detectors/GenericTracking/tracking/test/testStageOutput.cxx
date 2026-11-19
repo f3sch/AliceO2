@@ -15,15 +15,15 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK StageOutput
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/StageOutput.h"
-#include "SyntheticStage.h"
 #include "GenericTracking/Tracking/Tracklet.h"
 
-#include "StageOutputComparison.h"
 #include "SerialReferences.h"
+#include "StageOutputComparison.h"
+#include "SyntheticStage.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

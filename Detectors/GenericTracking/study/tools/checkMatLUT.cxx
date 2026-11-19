@@ -56,12 +56,12 @@
 /// --output writes the steps as a tree for plots.
 
 #include "GenericTracking/Base/ElementaryMath.h"
-#include "GenericTracking/Study/Alice/Hits.h"
-#include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Alice/Placement.h"
+#include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Study/Statistics.h"
 
 #include "DetectorsBase/GeometryManager.h"
@@ -72,7 +72,6 @@
 #include <TFile.h>
 #include <TGeoManager.h>
 #include <TTree.h>
-
 #include <boost/program_options.hpp>
 
 #include <algorithm>

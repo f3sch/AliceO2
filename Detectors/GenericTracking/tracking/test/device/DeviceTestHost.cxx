@@ -13,9 +13,9 @@
 /// \brief The host code of the test-kernel library: what O2 compiles only
 ///        outside GPU translation units.
 
-#include "DeviceTestKernels.h"
-
 #include "GenericTracking/Tracking/GPU/DeviceStorage.h"
+
+#include "DeviceTestKernels.h"
 
 namespace o2::gtrk
 {

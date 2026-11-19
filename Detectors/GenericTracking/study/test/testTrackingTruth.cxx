@@ -15,10 +15,10 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK tracking truth
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Study/TrackingInput.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

@@ -14,16 +14,16 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK LayerLinks
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/LayerLinks.h"
-#include "ToyBarrel3.h"
-#include "ToyBarrel4Disc8.h"
 #include "GenericTracking/Tracking/GridSizing.h"
 #include "GenericTracking/Tracking/LinkHoles.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
 
 #include "GridTestSupport.h"
+#include "ToyBarrel3.h"
+#include "ToyBarrel4Disc8.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

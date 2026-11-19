@@ -42,23 +42,23 @@
 #define GTRK_STUDY_DECAYFITSTUDY_H_
 
 #include "GenericTracking/Base/ElementaryMath.h"
-#include "GenericTracking/Study/DecayCandidates.h"
-#include "GenericTracking/Tracking/DecayFitConstraints.h"
-#include "GenericTracking/Study/TrackComparison.h"
-#include "GenericTracking/Study/DecayTrees.h"
-#include "GenericTracking/Tracking/DecayVertexFit.h"
 #include "GenericTracking/Tracking/DecayFitBatch.h"
+#include "GenericTracking/Tracking/DecayFitConstraints.h"
+#include "GenericTracking/Tracking/DecayVertexFit.h"
 #include "GenericTracking/Tracking/GPU/DeviceContext.h"
 #include "GenericTracking/Tracking/GPU/DeviceDecayFitter.h"
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
-#include "GenericTracking/Study/RecordWriter.h"
-#include "GenericTracking/Study/StateTruth.h"
-#include "GenericTracking/Study/StudyChains.h"
-#include "GenericTracking/Study/TruthEvent.h"
-#include "GenericTracking/Study/TruthFit.h"
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/RoadFit.h"
+#include "GenericTracking/Study/DecayCandidates.h"
+#include "GenericTracking/Study/DecayTrees.h"
+#include "GenericTracking/Study/RecordWriter.h"
+#include "GenericTracking/Study/StateTruth.h"
+#include "GenericTracking/Study/StudyChains.h"
+#include "GenericTracking/Study/TrackComparison.h"
+#include "GenericTracking/Study/TruthEvent.h"
+#include "GenericTracking/Study/TruthFit.h"
 
 #include <algorithm>
 #include <array>
