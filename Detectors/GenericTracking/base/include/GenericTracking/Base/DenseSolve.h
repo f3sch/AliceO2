@@ -313,12 +313,15 @@ template <typename View, typename Size>
       detail::exchange(a, n, swapped, pivot);
     }
     swaps[swapped] = pivot;
+    // The updates walk rows (i, j <= i) and columns (j, k < j) by their rows'
+    // first entries: a lower triangle's row is contiguous.
     if (step == 1) {
       const T d = a(k, k);
       for (int i = k + 1; i < n; ++i) {
-        const T factor = a(i, k) / d;
+        T* row = &a(i, 0);
+        const T factor = row[k] / d;
         for (int j = k + 1; j <= i; ++j) {
-          a(i, j) -= factor * a(j, k);
+          row[j] -= factor * (&a(j, 0))[k];
         }
       }
       for (int i = k + 1; i < n; ++i) {
@@ -334,8 +337,10 @@ template <typename View, typename Size>
         T first = a(i, k);
         T second = a(i, k + 1);
         block.solve(first, second);
+        T* row = &a(i, 0);
         for (int j = k + 2; j <= i; ++j) {
-          a(i, j) -= (first * a(j, k)) + (second * a(j, k + 1));
+          const T* other = &a(j, 0);
+          row[j] -= (first * other[k]) + (second * other[k + 1]);
         }
       }
       for (int i = k + 2; i < n; ++i) {
@@ -367,7 +372,7 @@ GPUhdi() GPUAlwaysInline() void ldltSolve(View ldl, Size size, const int* swaps,
   for (int k = 0; k < n; ++k) {
     const int first = blocks[k] == 0 ? k + 1 : k + blocks[k];
     for (int i = first; i < n; ++i) {
-      x[i] -= ldl(i, k) * x[k];
+      x[i] -= (&ldl(i, 0))[k] * x[k];
     }
   }
   // D z = y
@@ -390,7 +395,7 @@ GPUhdi() GPUAlwaysInline() void ldltSolve(View ldl, Size size, const int* swaps,
     const int first = blocks[k] == 0 ? k + 1 : k + blocks[k];
     T value = x[k];
     for (int i = first; i < n; ++i) {
-      value -= ldl(i, k) * x[i];
+      value -= (&ldl(i, 0))[k] * x[i];
     }
     x[k] = value;
   }
