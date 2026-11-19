@@ -16,14 +16,14 @@
 #ifndef GTRK_STUDY_TRUTHEVENT_H_
 #define GTRK_STUDY_TRUTHEVENT_H_
 
-#include "GenericTracking/Study/Alice/Hits.h"
-#include "GenericTracking/Study/DecayTrees.h"
-#include "GenericTracking/Study/ParticleChains.h"
-#include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
+#include "GenericTracking/Study/Alice/Hits.h"
+#include "GenericTracking/Study/DecayTrees.h"
+#include "GenericTracking/Study/ParticleChains.h"
+#include "GenericTracking/Study/TrackComparison.h"
 
 #include "DetectorsBase/MatLayerCylSet.h"
 

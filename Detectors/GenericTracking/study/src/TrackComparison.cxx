@@ -9,16 +9,17 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/TrackComparison.h"
+
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/Statistics.h"
 
 #include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
-#include <cstdlib>
 #include <cstddef>
+#include <cstdlib>
 #include <format>
 #include <functional>
 #include <iterator>

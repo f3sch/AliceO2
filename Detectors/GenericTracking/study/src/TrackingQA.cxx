@@ -9,9 +9,9 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/TrackingQA.h"
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 
 #include "CommonUtils/TreeStreamRedirector.h"
@@ -21,8 +21,8 @@
 #include <cmath>
 #include <format>
 #include <limits>
-#include <stdexcept>
 #include <optional>
+#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>

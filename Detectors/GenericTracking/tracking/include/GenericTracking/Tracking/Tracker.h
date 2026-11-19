@@ -16,13 +16,13 @@
 #ifndef GTRK_TRACKING_TRACKER_H_
 #define GTRK_TRACKING_TRACKER_H_
 
-#include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Base/CapacityEstimator.h"
+#include "GenericTracking/Base/HostAlgorithms.h"
+#include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Follow.h"
-#include "GenericTracking/Base/HostAlgorithms.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/NeighbourStage.h"
 #include "GenericTracking/Tracking/OverlapPartners.h"
@@ -46,17 +46,17 @@
 #include "GPUCommonAlgorithm.h"
 
 #include <algorithm>
-#include <cassert>
 #include <array>
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
-#include <stdexcept>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <type_traits>

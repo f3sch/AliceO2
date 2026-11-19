@@ -13,17 +13,16 @@
 /// \brief Build the tracking material LUT from an o2sim geometry for the ITS,
 ///        the MFT or the ALICE 3 barrel tracker.
 
-#include "GenericTracking/Tools/Material.h"
-#include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Alice/Placement.h"
+#include "GenericTracking/Tools/Material.h"
 
 #include "DetectorsBase/GeometryManager.h"
 #include "DetectorsBase/MatLayerCylSet.h"
 
 #include <TGeoNavigator.h>
-
 #include <boost/program_options.hpp>
 
 #include <algorithm>

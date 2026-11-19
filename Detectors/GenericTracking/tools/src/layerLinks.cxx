@@ -38,13 +38,13 @@
 /// geometry.
 
 #include "GenericTracking/Base/ElementaryMath.h"
-#include "GenericTracking/WorkflowTRK/TRK.h"
-#include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Tracking/SearchWindow.h"
+#include "GenericTracking/WorkflowTRK/TRK.h"
 #include "GenericTracking/Tools/SensorFrame.h"
 
 #include "DataFormatsParameters/GRPMagField.h"

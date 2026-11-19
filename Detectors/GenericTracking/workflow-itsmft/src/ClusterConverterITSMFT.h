@@ -16,13 +16,13 @@
 #ifndef GTRK_WORKFLOW_CLUSTERCONVERTERITSMFT_H_
 #define GTRK_WORKFLOW_CLUSTERCONVERTERITSMFT_H_
 
-#include "ITSMFTInput.h"
-#include "ITSROFSelection.h"
-
 #include "GenericTracking/Alice/Clusters.h"
 #include "GenericTracking/Clustering/Cluster.h"
-#include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
 #include "GenericTracking/Workflow/DataSpecs.h"
+#include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
+
+#include "ITSMFTInput.h"
+#include "ITSROFSelection.h"
 
 #include "DataFormatsITSMFT/CompCluster.h"
 #include "DataFormatsITSMFT/ROFRecord.h"

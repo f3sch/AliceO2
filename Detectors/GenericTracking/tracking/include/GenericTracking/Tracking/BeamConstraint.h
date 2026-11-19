@@ -33,6 +33,7 @@
 #ifndef GTRK_TRACKING_BEAMCONSTRAINT_H_
 #define GTRK_TRACKING_BEAMCONSTRAINT_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/CovarianceTransport.h"
 #include "GenericTracking/Tracking/Iteration.h"
@@ -40,7 +41,6 @@
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
-#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "GPUCommonMath.h"
 #include "MathUtils/detail/trigonometric.h"

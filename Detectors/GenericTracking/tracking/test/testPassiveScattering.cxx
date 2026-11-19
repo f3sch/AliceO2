@@ -22,20 +22,20 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Passive Scattering
-#include <boost/test/unit_test.hpp>
-
-#include "BetweenBoundCheck.h"
-
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerSpec.h"
-#include "ToyBarrel3.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/LayerMaterial.h"
 #include "GenericTracking/Tracking/NeighbourCut.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/SearchWindow.h"
 #include "GenericTracking/Tracking/TripletCut.h"
+
+#include "BetweenBoundCheck.h"
+#include "ToyBarrel3.h"
 #include "UniformMaterial.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

@@ -12,9 +12,9 @@
 #define BOOST_TEST_MODULE GenericTrackingBoundedAllocator
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/BoundedAllocator.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <stdexcept>
 

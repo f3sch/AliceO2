@@ -14,10 +14,6 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK TripletStage
-#include <boost/test/unit_test.hpp>
-
-#include "ToyBarrel4Disc8.h"
-#include "ToyBarrel3.h"
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
@@ -28,9 +24,13 @@
 
 #include "GridTestSupport.h"
 #include "Oracles.h"
-#include "StageOutputComparison.h"
 #include "SerialReferences.h"
+#include "StageOutputComparison.h"
+#include "ToyBarrel3.h"
+#include "ToyBarrel4Disc8.h"
 #include "UniformMaterial.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

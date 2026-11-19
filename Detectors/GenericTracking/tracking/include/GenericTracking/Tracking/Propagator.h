@@ -22,11 +22,11 @@
 #define GTRK_TRACKING_PROPAGATOR_H_
 
 #include "GenericTracking/Base/Definitions.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
-#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
 
 #include "CommonConstants/MathConstants.h"

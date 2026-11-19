@@ -54,12 +54,11 @@ void customize(std::vector<o2::framework::ConfigParamSpec>& workflowOptions)
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/WorkflowITSMFT/AdaptorSpec.h"
 
+#include "Framework/runDataProcessing.h" // IWYU pragma: keep
 #include "ITSMFTCAWriter/MFTCATrackWriterSpec.h"
 #include "ITSMFTWorkflow/ClusterReaderSpec.h"
 
 #include <string>
-
-#include "Framework/runDataProcessing.h" // IWYU pragma: keep
 
 WorkflowSpec defineDataProcessing(const ConfigContext& context)
 {

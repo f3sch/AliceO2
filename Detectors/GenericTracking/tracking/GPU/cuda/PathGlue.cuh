@@ -17,6 +17,7 @@
 #define GTRK_TRACKING_GPU_PATHGLUE_CUH_
 
 #include "DeviceAlgorithms.cuh"
+
 #include "GenericTracking/Tracking/GPU/DeviceStageOutput.h"
 #include "GenericTracking/Tracking/TrackletPaths.h"
 #include "GenericTracking/Tracking/Triplet.h"

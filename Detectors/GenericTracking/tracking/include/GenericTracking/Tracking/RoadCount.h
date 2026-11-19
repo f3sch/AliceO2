@@ -27,13 +27,13 @@
 #define GTRK_TRACKING_ROADCOUNT_H_
 
 #include "GenericTracking/Base/BoundedAllocator.h"
-#include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Base/HostAlgorithms.h"
+#include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/MeasurementRange.h"
 #include "GenericTracking/Tracking/Neighbour.h"
 #include "GenericTracking/Tracking/OrderedRoadCounts.h"
-#include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/Profile.h"
+#include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/Tracklet.h"
 #include "GenericTracking/Tracking/Triplet.h"
 

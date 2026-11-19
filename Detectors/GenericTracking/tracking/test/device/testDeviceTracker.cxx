@@ -24,22 +24,22 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK device tracker
-#include <boost/test/unit_test.hpp>
-
-#include "DeviceTestFixture.h"
-#include "DeviceTestKernels.h"
-#include "FixedPointReferences.h"
-#include "ToyBarrel8Fixture.h"
-
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Tracking/GPU/DeviceTracker.h"
 #include "GenericTracking/Tracking/Material.h"
-#include "GenericTracking/Study/StageComparison.h"
 #include "GenericTracking/Tracking/Tracker.h"
 #include "GenericTracking/Tracking/VertexingPass.h"
+#include "GenericTracking/Study/StageComparison.h"
+
+#include "DeviceTestFixture.h"
+#include "DeviceTestKernels.h"
+#include "FixedPointReferences.h"
+#include "ToyBarrel8Fixture.h"
 #include "UniformMaterial.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

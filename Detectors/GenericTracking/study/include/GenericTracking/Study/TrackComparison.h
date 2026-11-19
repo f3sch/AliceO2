@@ -59,9 +59,9 @@
 #include "GenericTracking/Workflow/TrackLabel.h"
 
 #include <algorithm>
-#include <cmath>
 #include <array>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>

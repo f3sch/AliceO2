@@ -24,12 +24,12 @@
 #ifndef GTRK_STUDY_STUDYCHAINS_H_
 #define GTRK_STUDY_STUDYCHAINS_H_
 
+#include "GenericTracking/Tracking/TrackRefit.h"
+#include "GenericTracking/Tracking/TrackStore.h"
 #include "GenericTracking/Study/ParticleChains.h"
 #include "GenericTracking/Study/StateTruth.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/TruthEvent.h"
-#include "GenericTracking/Tracking/TrackRefit.h"
-#include "GenericTracking/Tracking/TrackStore.h"
 
 #include <algorithm>
 #include <cstdint>

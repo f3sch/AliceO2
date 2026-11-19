@@ -16,20 +16,20 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK RoadFit
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/ElementaryMath.h"
-#include "GenericTracking/Study/Validation.h"
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Tracking/RoadCount.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/Selection.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
+#include "GenericTracking/Study/Validation.h"
 
-#include "ToyBarrel8Fixture.h"
-#include "SerialReferences.h"
 #include "FixedPointReferences.h"
+#include "SerialReferences.h"
+#include "ToyBarrel8Fixture.h"
 #include "UniformMaterial.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

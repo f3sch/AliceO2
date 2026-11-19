@@ -25,23 +25,23 @@
 #define GTRK_TRACKING_GPU_DEVICETRACKER_H_
 
 #include "GenericTracking/Base/Columns.h"
+#include "GenericTracking/Tracking/Follow.h"
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
 #include "GenericTracking/Tracking/GPU/DeviceStageOutput.h"
 #include "GenericTracking/Tracking/Iteration.h"
+#include "GenericTracking/Tracking/Neighbour.h"
+#include "GenericTracking/Tracking/OverlapPartners.h"
+#include "GenericTracking/Tracking/Profile.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
-#include "GenericTracking/Tracking/Follow.h"
-#include "GenericTracking/Tracking/OverlapPartners.h"
-#include "GenericTracking/Tracking/TrackRefit.h"
-#include "GenericTracking/Tracking/VertexStage.h"
-#include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
+#include "GenericTracking/Tracking/TrackRefit.h"
+#include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Tracking/Tracklet.h"
-#include "GenericTracking/Tracking/Neighbour.h"
-#include "GenericTracking/Tracking/Profile.h"
 #include "GenericTracking/Tracking/Triplet.h"
+#include "GenericTracking/Tracking/VertexStage.h"
 
 #include <chrono>
 #include <cstddef>

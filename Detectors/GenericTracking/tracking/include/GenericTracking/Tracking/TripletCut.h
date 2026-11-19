@@ -33,11 +33,11 @@
 #ifndef GTRK_TRACKING_TRIPLETCUT_H_
 #define GTRK_TRACKING_TRIPLETCUT_H_
 
-#include "GenericTracking/Tracking/Iteration.h"
-#include "GenericTracking/Tracking/Measurement.h"
-#include "GenericTracking/Tracking/MathUtils.h"
-#include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Tracking/Iteration.h"
+#include "GenericTracking/Tracking/MathUtils.h"
+#include "GenericTracking/Tracking/Measurement.h"
+#include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/TripletFit.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
 

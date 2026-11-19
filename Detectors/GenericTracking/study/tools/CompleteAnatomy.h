@@ -60,25 +60,25 @@
 #define GTRK_STUDY_COMPLETEANATOMY_H_
 
 #include "GenericTracking/Base/ElementaryMath.h"
-#include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Tracking/BeamConstraint.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Follow.h"
+#include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/NeighbourCut.h"
+#include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/SensorCells.h"
-#include "GenericTracking/Tracking/Parallel.h"
-#include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/TripletCut.h"
-#include "GenericTracking/Study/Validation.h"
+#include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Study/MCTruth.h"
 #include "GenericTracking/Study/ParticleChains.h"
-#include "GenericTracking/Study/StateTruth.h"
-#include "GenericTracking/Study/TruthFit.h"
 #include "GenericTracking/Study/StageFunnel.h"
+#include "GenericTracking/Study/StateTruth.h"
 #include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/TrackingInput.h"
+#include "GenericTracking/Study/TruthFit.h"
+#include "GenericTracking/Study/Validation.h"
 
 #include "CommonConstants/PhysicsConstants.h"
 #include "SimulationDataFormat/MCCompLabel.h"
@@ -89,8 +89,8 @@
 #include <bit>
 #include <chrono>
 #include <cmath>
-#include <cstring>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -100,9 +100,9 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <random>
 #include <numeric>
 #include <optional>
+#include <random>
 #include <span>
 #include <stdexcept>
 #include <string>

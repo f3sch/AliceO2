@@ -19,11 +19,12 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK CovarianceTransport
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Tracking/CovarianceTransport.h"
 #include "GenericTracking/Tracking/Material.h"
+
 #include "Oracles.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <array>
 #include <cmath>

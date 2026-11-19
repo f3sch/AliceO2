@@ -37,31 +37,32 @@
 #ifndef GTRK_TRACKING_DECAYVERTEXFIT_H_
 #define GTRK_TRACKING_DECAYVERTEXFIT_H_
 
-#include "GenericTracking/Tracking/DecayFitConstraints.h"
-#include "GenericTracking/Tracking/DecayFitMath.h"
 #include "GenericTracking/Base/LayerLinks.h"
-#include "DetectorsBase/MatCell.h"
 #include "GenericTracking/Tracking/BeamConstraint.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
+#include "GenericTracking/Tracking/DecayFitConstraints.h"
+#include "GenericTracking/Tracking/DecayFitMath.h"
 #include "GenericTracking/Tracking/GSFTrackFitter.h"
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/TrackFitterUtils.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
+#include "DetectorsBase/MatCell.h"
+
 #include <algorithm>
-#include <functional>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
-#include <utility>
 #include <new>
-#include <numeric>
 #include <numbers>
+#include <numeric>
 #include <optional>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace o2::gtrk

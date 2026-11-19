@@ -21,14 +21,15 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK TrackingSurface
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/Geometry.h"
-#include "ToyBarrel4Disc8.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/Definitions.h"
-#include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Tracking/ShapeCut.h"
+#include "GenericTracking/Tracking/TrackingSurface.h"
+
+#include "ToyBarrel4Disc8.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <cmath>
 #include <limits>

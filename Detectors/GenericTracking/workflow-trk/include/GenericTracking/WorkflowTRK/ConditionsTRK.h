@@ -26,14 +26,14 @@
 #ifndef GTRK_WORKFLOWS_CONDITIONSTRK_H_
 #define GTRK_WORKFLOWS_CONDITIONSTRK_H_
 
-#include "GenericTracking/WorkflowTRK/TRK.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Workflow/Conditions.h"
+#include "GenericTracking/WorkflowTRK/TRK.h"
 
 #include "DetectorsBase/GRPGeomHelper.h"
-#include "DetectorsRaw/HBFUtils.h"
 #include "DetectorsBase/Propagator.h"
+#include "DetectorsRaw/HBFUtils.h"
 #include "Framework/CCDBParamSpec.h"
 #include "Framework/ConcreteDataMatcher.h"
 #include "Framework/InitContext.h"

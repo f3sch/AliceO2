@@ -17,21 +17,20 @@
 #ifndef GTRK_WORKFLOW_MEASUREMENTPRODUCER_H_
 #define GTRK_WORKFLOW_MEASUREMENTPRODUCER_H_
 
-#include "GenericTracking/Workflow/MeasurementProducerSpec.h"
-
 #include "GenericTracking/Base/FrameTiming.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/TimeEstPS.h"
 #include "GenericTracking/Clustering/Cluster.h"
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
-#include "GenericTracking/Workflow/DataSpecs.h"
-#include "GenericTracking/Workflow/FrameSelection.h"
 #include "GenericTracking/Workflow/BeamLine.h"
 #include "GenericTracking/Workflow/ClusterShapeBand.h"
 #include "GenericTracking/Workflow/Conditions.h"
+#include "GenericTracking/Workflow/DataSpecs.h"
+#include "GenericTracking/Workflow/FrameSelection.h"
 #include "GenericTracking/Workflow/GeometryProvider.h"
 #include "GenericTracking/Workflow/GridConfig.h"
+#include "GenericTracking/Workflow/MeasurementProducerSpec.h"
 #include "GenericTracking/Workflow/RecoParam.h"
 
 #include "DataFormatsCalibration/MeanVertexObject.h"
@@ -45,13 +44,13 @@
 #include <array>
 #include <chrono>
 #include <cmath>
-#include <optional>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <span>
-#include <format>
 #include <stdexcept>
 #include <string>
 #include <type_traits>

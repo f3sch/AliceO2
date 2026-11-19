@@ -14,11 +14,12 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK track comparison
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/TrackPulls.h"
+
 #include "ToyBarrel3.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

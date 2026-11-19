@@ -17,8 +17,9 @@
 #ifndef GTRK_WORKFLOW_ADAPTORSPEC_H_
 #define GTRK_WORKFLOW_ADAPTORSPEC_H_
 
-#include "Framework/DataProcessorSpec.h"
 #include "GenericTracking/Base/LayerSpec.h"
+
+#include "Framework/DataProcessorSpec.h"
 
 namespace o2::gtrk::workflow
 {

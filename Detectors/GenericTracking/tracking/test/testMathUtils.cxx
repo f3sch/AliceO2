@@ -14,19 +14,19 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK MathUtils
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Tracking/MathUtils.h"
 
 #include "CommonConstants/MathConstants.h"
 
-#include <bit>
-#include <vector>
-#include <limits>
+#include <boost/test/unit_test.hpp>
+
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <type_traits>
+#include <vector>
 
 namespace o2::gtrk
 {

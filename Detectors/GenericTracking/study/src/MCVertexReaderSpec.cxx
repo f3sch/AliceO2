@@ -10,16 +10,16 @@
 // or submit itself to any jurisdiction.
 
 #include "GenericTracking/Study/MCVertexReaderSpec.h"
-#include "GenericTracking/Study/MCVertexParam.h"
 
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
-#include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
-#include "GenericTracking/WorkflowTRK/ConditionsTRK.h"
 #include "GenericTracking/Workflow/DataSpecs.h"
 #include "GenericTracking/Workflow/GridConfig.h"
 #include "GenericTracking/Workflow/RecoParam.h"
+#include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
+#include "GenericTracking/WorkflowTRK/ConditionsTRK.h"
+#include "GenericTracking/Study/MCVertexParam.h"
 
 #include "CommonConstants/LHCConstants.h"
 #include "CommonUtils/StringUtils.h"

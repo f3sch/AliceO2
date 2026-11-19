@@ -13,12 +13,15 @@
 /// \brief Profile activation, nested zones, pool peaks and stage loops.
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK tracking profile
-#include <boost/test/unit_test.hpp>
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/Profile.h"
 #include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/Tracklet.h"
+
 #include "SyntheticStage.h"
+
+#include <boost/test/unit_test.hpp>
+
 #include <cstdint>
 #include <memory>
 #include <sstream>

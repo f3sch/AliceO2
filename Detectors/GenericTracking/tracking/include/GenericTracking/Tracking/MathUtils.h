@@ -18,11 +18,11 @@
 #define GTRK_TRACKING_MATHUTILS_H_
 
 #include "GenericTracking/Base/Dual.h"
-#include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Tracking/Definitions.h"
 
-#include "GPUCommonMath.h"
 #include "CommonConstants/MathConstants.h"
+#include "GPUCommonMath.h"
 
 #include <cmath>
 #include <limits>

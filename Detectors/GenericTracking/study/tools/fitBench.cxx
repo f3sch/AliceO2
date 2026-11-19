@@ -21,12 +21,13 @@
 /// chi2 bound, and prints a digest of every result: a faster fit must leave
 /// the digests alone.
 
-#include "FitInputs.h"
-#include <boost/program_options.hpp>
-
-#include "GenericTracking/Study/Digest.h"
 #include "GenericTracking/Tracking/TripletFit.h"
+#include "GenericTracking/Study/Digest.h"
 #include "GenericTracking/Study/Validation.h"
+
+#include "FitInputs.h"
+
+#include <boost/program_options.hpp>
 
 #include <algorithm>
 #include <array>

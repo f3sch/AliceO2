@@ -17,12 +17,12 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK TrackStore
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Tracking/OverlapPartners.h"
 #include "GenericTracking/Tracking/TrackStore.h"
 
 #include "ToyBarrel8Fixture.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <cstddef>

@@ -17,12 +17,12 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Profile
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Tracking/BoundTrackState.h"
+#include "GenericTracking/Tracking/Profile.h"
 #include "GenericTracking/Study/Digest.h"
 #include "GenericTracking/Study/ProfileReport.h"
-#include "GenericTracking/Tracking/Profile.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <array>
 #include <cmath>

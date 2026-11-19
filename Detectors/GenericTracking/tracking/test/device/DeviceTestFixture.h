@@ -22,18 +22,18 @@
 #ifndef GTRK_TEST_DEVICE_DEVICETESTFIXTURE_H_
 #define GTRK_TEST_DEVICE_DEVICETESTFIXTURE_H_
 
-#include "DeviceTestKernels.h"
-
 #include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
 #include "GenericTracking/Tracking/GPU/DeviceContext.h"
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Tracking/GPU/DeviceStream.h"
 #include "GenericTracking/Tracking/StageOutput.h"
+
+#include "DeviceTestKernels.h"
 #include "SerialReferences.h"
 
-#include <boost/test/unit_test.hpp>
 #include <boost/test/tree/observer.hpp>
+#include <boost/test/unit_test.hpp>
 
 #include <array>
 #include <cstddef>

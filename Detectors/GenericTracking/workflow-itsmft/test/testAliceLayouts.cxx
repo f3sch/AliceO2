@@ -15,19 +15,19 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK ALICE layouts
-#include <boost/test/unit_test.hpp>
-
-#include "GenericTracking/WorkflowITSMFT/Placement.h"
-#include "GenericTracking/Base/LayerEnvelopes.h"
 #include "GenericTracking/Base/Geometry.h"
+#include "GenericTracking/Base/LayerEnvelopes.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
+#include "GenericTracking/WorkflowITSMFT/Placement.h"
 
 #include "DetectorsBase/GeometryManager.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "MFTBase/GeometryTGeo.h"
 #include "MathUtils/Cartesian.h"
 #include "MathUtils/Utils.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <array>
 #include <cmath>

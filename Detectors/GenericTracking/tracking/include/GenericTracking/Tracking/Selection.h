@@ -30,8 +30,8 @@
 
 #include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Base/Columns.h"
-#include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Base/HostAlgorithms.h"
+#include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Profile.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/StageOutput.h"

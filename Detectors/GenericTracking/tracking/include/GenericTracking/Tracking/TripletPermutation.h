@@ -15,9 +15,9 @@
 #ifndef GTRK_TRACKING_TRIPLETPERMUTATION_H_
 #define GTRK_TRACKING_TRIPLETPERMUTATION_H_
 
-#include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Base/HostAlgorithms.h"
+#include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/LayerRowMap.h"
 #include "GenericTracking/Tracking/StageOutput.h"

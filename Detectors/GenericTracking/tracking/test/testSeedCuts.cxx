@@ -14,16 +14,16 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK SeedCuts
-#include <boost/test/unit_test.hpp>
-
-#include "ToyBarrel4Disc8.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/LayerMaterial.h"
-#include "GenericTracking/Tracking/TripletCut.h"
 #include "GenericTracking/Tracking/NeighbourCut.h"
+#include "GenericTracking/Tracking/TripletCut.h"
 
 #include "GeneratedHelixFixture.h"
 #include "Oracles.h"
+#include "ToyBarrel4Disc8.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <array>
 #include <cmath>

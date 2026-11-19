@@ -14,18 +14,18 @@
 ///        cluster format, its dictionaries' depths, frames and field (TRK.h),
 ///        its cluster converter and its measurement producer.
 
+#include "GenericTracking/WorkflowTRK/TRK.h"
+
+#include "GenericTracking/Base/LayerSpec.h"
+#include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Alice/Clusters.h"
 #include "GenericTracking/Alice/Placement.h"
-#include "GenericTracking/WorkflowTRK/TRK.h"
-#include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Clustering/Cluster.h"
-#include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Workflow/ClusterConverterSpec.h"
-#include "GenericTracking/WorkflowTRK/ConditionsTRK.h"
 #include "GenericTracking/Workflow/DataSpecs.h"
-#include "GenericTracking/Workflow/MeasurementProducerSpec.h"
-
 #include "GenericTracking/Workflow/MeasurementProducer.h"
+#include "GenericTracking/Workflow/MeasurementProducerSpec.h"
+#include "GenericTracking/WorkflowTRK/ConditionsTRK.h"
 
 #include "DataFormatsTRKFT3/Cluster.h"
 #include "DataFormatsTRKFT3/ROFRecord.h"

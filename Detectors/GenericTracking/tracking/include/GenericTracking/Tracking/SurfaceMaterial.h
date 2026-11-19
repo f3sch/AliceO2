@@ -27,8 +27,8 @@
 #ifndef GTRK_TRACKING_SURFACEMATERIAL_H_
 #define GTRK_TRACKING_SURFACEMATERIAL_H_
 
-#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Definitions.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
 

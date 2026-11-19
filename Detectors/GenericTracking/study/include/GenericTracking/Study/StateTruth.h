@@ -16,12 +16,12 @@
 #ifndef GTRK_STUDY_STATETRUTH_H_
 #define GTRK_STUDY_STATETRUTH_H_
 
-#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Definitions.h"
-#include "GenericTracking/Study/Alice/Hits.h"
-#include "GenericTracking/Study/TrackComparison.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
+#include "GenericTracking/Study/Alice/Hits.h"
+#include "GenericTracking/Study/TrackComparison.h"
 
 #include "SimulationDataFormat/O2DatabasePDG.h"
 

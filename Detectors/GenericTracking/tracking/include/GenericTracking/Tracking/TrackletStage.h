@@ -15,8 +15,9 @@
 #ifndef GTRK_TRACKING_TRACKLETSTAGE_H_
 #define GTRK_TRACKING_TRACKLETSTAGE_H_
 
-#include "GenericTracking/Base/LayerLinks.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Lanes.h"
+#include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/DisplacedPair.h"
@@ -27,7 +28,6 @@
 #include "GenericTracking/Tracking/ShapeCut.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/Tracklet.h"
-#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
 
 #include "GPUCommonAlgorithm.h"

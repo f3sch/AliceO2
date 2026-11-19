@@ -16,17 +16,20 @@
 #ifndef GTRK_WORKFLOWS_GRIDCONFIG_H_
 #define GTRK_WORKFLOWS_GRIDCONFIG_H_
 
+#include "GenericTracking/Base/BoundedAllocator.h"
+#include "GenericTracking/Base/FrameTiming.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Base/TimeEstPS.h"
-#include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Tracking/GridSizing.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/VertexStage.h"
 #include "GenericTracking/Workflow/BeamLine.h"
-#include "GenericTracking/Base/FrameTiming.h"
 #include "GenericTracking/Workflow/RecoParam.h"
+
+#include "CommonConstants/LHCConstants.h"
+#include "DetectorsBase/Propagator.h"
 
 #include <algorithm>
 #include <array>
@@ -41,9 +44,6 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-
-#include "CommonConstants/LHCConstants.h"
-#include "DetectorsBase/Propagator.h"
 
 namespace o2::gtrk::workflow
 {

@@ -10,6 +10,7 @@
 // or submit itself to any jurisdiction.
 
 #include "GenericTracking/Study/Alice/Hits.h"
+
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Workflow/TrackLabel.h"
 

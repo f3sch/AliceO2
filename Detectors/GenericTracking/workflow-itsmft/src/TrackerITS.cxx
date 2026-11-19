@@ -15,8 +15,8 @@
 ///        reconstruction (GPURecoTracking.h).
 
 #include "GenericTracking/Detectors/ITS.h"
-#include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
 #include "GenericTracking/Workflow/TrackerDevice.h"
+#include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
 
 #include "ITSROFSelection.h"
 

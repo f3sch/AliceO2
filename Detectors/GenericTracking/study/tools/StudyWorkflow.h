@@ -34,12 +34,12 @@
 #ifndef GTRK_STUDY_STUDYWORKFLOW_H_
 #define GTRK_STUDY_STUDYWORKFLOW_H_
 
-#include "GenericTracking/Study/MCVertexReaderSpec.h"
-#include "GenericTracking/Study/MeasurementSinkSpec.h"
 #include "GenericTracking/Workflow/ClusterConverterSpec.h"
-#include "GenericTracking/WorkflowITSMFT/ITSMFTOptions.h"
 #include "GenericTracking/Workflow/MeasurementProducerSpec.h"
 #include "GenericTracking/Workflow/TrackerSpec.h"
+#include "GenericTracking/WorkflowITSMFT/ITSMFTOptions.h"
+#include "GenericTracking/Study/MCVertexReaderSpec.h"
+#include "GenericTracking/Study/MeasurementSinkSpec.h"
 
 #include "DetectorsRaw/HBFUtilsInitializer.h"
 #include "Framework/ConfigContext.h"

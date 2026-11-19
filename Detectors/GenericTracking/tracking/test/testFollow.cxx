@@ -17,21 +17,21 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Follow
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/LayerLinks.h"
-#include "ToyBarrel4Disc8.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/Follow.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/SensorCells.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
 
-#include "ToyBarrel8Fixture.h"
 #include "SerialReferences.h"
+#include "ToyBarrel4Disc8.h"
+#include "ToyBarrel8Fixture.h"
 #include "UniformMaterial.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <cmath>

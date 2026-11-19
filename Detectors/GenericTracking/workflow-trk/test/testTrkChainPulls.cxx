@@ -37,25 +37,24 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK TRK
-#include <boost/test/unit_test.hpp>
-#include "PullStatistics.h"
-
-#include "BetweenBoundCheck.h"
-#include "GridTestSupport.h"
-
 #include "GenericTracking/Base/ElementaryMath.h"
-#include "GenericTracking/Alice/Placement.h"
-#include "GenericTracking/WorkflowTRK/TRK.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/LayerMaterial.h"
 #include "GenericTracking/Tracking/Material.h"
+#include "GenericTracking/WorkflowTRK/TRK.h"
+
+#include "BetweenBoundCheck.h"
+#include "GridTestSupport.h"
+#include "PullStatistics.h"
+#include "UniformMaterial.h"
 
 #include "CommonUtils/ConfigurableParam.h"
 #include "DetectorsBase/GeometryManager.h"
-#include "UniformMaterial.h"
 
+#include <boost/test/unit_test.hpp>
 #include <fmt/format.h>
 
 #include <algorithm>

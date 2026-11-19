@@ -23,10 +23,11 @@
 #ifndef GTRK_WORKFLOW_O2PARAMETERS_H_
 #define GTRK_WORKFLOW_O2PARAMETERS_H_
 
-#include "CommonConstants/MathConstants.h"
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
+
+#include "CommonConstants/MathConstants.h"
 #include "ReconstructionDataFormats/Track.h"
 #include "ReconstructionDataFormats/TrackFwd.h"
 

@@ -11,9 +11,9 @@
 
 #include "GenericTracking/Base/BoundedAllocator.h"
 
-#include <format>
-
 #include "GPUCommonLogger.h"
+
+#include <format>
 
 namespace o2::gtrk
 {

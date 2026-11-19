@@ -14,14 +14,16 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK grid configuration
-#include <boost/test/unit_test.hpp>
-
-#include "GenericTracking/Workflow/GridConfig.h"
-#include "GenericTracking/Workflow/RecoParam.h"
-#include "ToyBarrel3.h"
 #include "GenericTracking/Tracking/GridSizing.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
+#include "GenericTracking/Workflow/GridConfig.h"
+#include "GenericTracking/Workflow/RecoParam.h"
+
+#include "ToyBarrel3.h"
+
 #include "CommonConstants/LHCConstants.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <cstdint>

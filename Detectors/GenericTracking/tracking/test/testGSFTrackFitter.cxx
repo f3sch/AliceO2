@@ -14,16 +14,16 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK GSF Track Fitter
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Tracking/GSFTrackFitter.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Propagator.h"
+
 #include "ElectronChain.h"
 #include "ToyBarrel4Disc8.h"
 #include "UniformMaterial.h"
 
+#include <boost/test/unit_test.hpp>
 #include <fmt/format.h>
 
 #include <algorithm>

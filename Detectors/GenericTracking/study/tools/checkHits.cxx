@@ -20,17 +20,18 @@
 /// lies off its chip's silicon by more than its float precision; the reach
 /// only informs.
 
-#include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Study/Statistics.h"
-#include <boost/program_options.hpp>
 #include "GenericTracking/Tools/SensorFrame.h"
 
 #include "DetectorsBase/GeometryManager.h"
+
+#include <boost/program_options.hpp>
 
 #include <algorithm>
 #include <cmath>

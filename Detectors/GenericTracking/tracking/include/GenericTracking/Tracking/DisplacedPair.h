@@ -42,8 +42,8 @@
 #define GTRK_TRACKING_DISPLACEDPAIR_H_
 
 #include "GenericTracking/Base/Definitions.h"
-#include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Tracking/MathUtils.h"
 
 #include "GPUCommonMath.h"
 

@@ -14,12 +14,12 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK TimeFrame
-#include <boost/test/unit_test.hpp>
-
-#include "ToyBarrel3.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 
 #include "GridTestSupport.h"
+#include "ToyBarrel3.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <array>
 #include <cmath>

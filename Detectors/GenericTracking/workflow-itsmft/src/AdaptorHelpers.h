@@ -12,11 +12,13 @@
 #ifndef GTRK_WORKFLOW_ADAPTORHELPERS_H_
 #define GTRK_WORKFLOW_ADAPTORHELPERS_H_
 
-#include "ITSMFTInput.h"
-#include "GenericTracking/WorkflowITSMFT/Clusters.h"
 #include "GenericTracking/Base/FrameTiming.h"
 #include "GenericTracking/Tracking/TrackStore.h"
 #include "GenericTracking/Workflow/TrackLabel.h"
+#include "GenericTracking/WorkflowITSMFT/Clusters.h"
+
+#include "ITSMFTInput.h"
+
 #include "DataFormatsITSMFT/TopologyDictionary.h"
 
 #include <algorithm>

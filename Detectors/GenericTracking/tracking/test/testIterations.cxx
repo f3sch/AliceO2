@@ -16,17 +16,18 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Iterations
-#include <boost/test/unit_test.hpp>
-#include "CommonConstants/LHCConstants.h"
-
 #include "GenericTracking/Base/ElementaryMath.h"
-#include "GenericTracking/Study/Digest.h"
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
 #include "GenericTracking/Tracking/Tracker.h"
+#include "GenericTracking/Study/Digest.h"
 
 #include "ToyBarrel8Fixture.h"
 #include "UniformMaterial.h"
+
+#include "CommonConstants/LHCConstants.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

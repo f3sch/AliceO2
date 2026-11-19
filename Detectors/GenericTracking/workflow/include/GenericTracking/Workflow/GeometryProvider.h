@@ -25,9 +25,9 @@
 #ifndef GTRK_WORKFLOW_GEOMETRYPROVIDER_H_
 #define GTRK_WORKFLOW_GEOMETRYPROVIDER_H_
 
-#include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/LayerEnvelopes.h"
+#include "GenericTracking/Alice/Placement.h"
 
 #include <fairlogger/Logger.h>
 

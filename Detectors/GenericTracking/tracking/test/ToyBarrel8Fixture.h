@@ -16,15 +16,15 @@
 #ifndef GTRK_TEST_TOYBARREL8FIXTURE_H_
 #define GTRK_TEST_TOYBARREL8FIXTURE_H_
 
-#include "ToyBarrel8.h"
 #include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/Tracker.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
-#include "GenericTracking/Base/Geometry.h"
 
 #include "GridTestSupport.h"
+#include "ToyBarrel8.h"
 #include "UniformMaterial.h"
 
 #include <algorithm>

@@ -44,16 +44,16 @@
 /// The closure of GTRK's converter and geometry against O2 on real files:
 /// run it whenever the geometry, the placement or the converter changes.
 
-#include "GenericTracking/WorkflowITSMFT/Clusters.h"
-#include "GenericTracking/Study/Alice/Hits.h"
-#include "GenericTracking/Study/Statistics.h"
-#include "GenericTracking/Alice/Placement.h"
-#include "GenericTracking/WorkflowTRK/TRK.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
+#include "GenericTracking/WorkflowITSMFT/Clusters.h"
+#include "GenericTracking/WorkflowTRK/TRK.h"
+#include "GenericTracking/Study/Alice/Hits.h"
+#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Tools/SensorFrame.h"
 
 #include "CommonConstants/LHCConstants.h"
@@ -65,20 +65,19 @@
 #include "DataFormatsTRKFT3/ROFRecord.h"
 #include "DetectorsBase/GeometryManager.h"
 #include "DetectorsRaw/HBFUtils.h"
+#include "FT3Base/GeometryTGeo.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "MFTBase/GeometryTGeo.h"
-#include "FT3Base/GeometryTGeo.h"
-#include "TRKBase/GeometryTGeo.h"
-#include "TRKBase/SegmentationChip.h"
-#include "TRKReconstruction/TopologyDictionary.h"
 #include "MathUtils/Cartesian.h"
 #include "MathUtils/Utils.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "SimulationDataFormat/MCTruthContainer.h"
+#include "TRKBase/GeometryTGeo.h"
+#include "TRKBase/SegmentationChip.h"
+#include "TRKReconstruction/TopologyDictionary.h"
 
 #include <TFile.h>
 #include <TTree.h>
-
 #include <boost/program_options.hpp>
 
 #include <algorithm>
@@ -88,9 +87,9 @@
 #include <exception>
 #include <format>
 #include <functional>
-#include <map>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>

@@ -23,13 +23,9 @@
 #ifndef GTRK_WORKFLOW_ADAPTORDEVICE_H_
 #define GTRK_WORKFLOW_ADAPTORDEVICE_H_
 
-#include "AdaptorHelpers.h"
-
-#include "GenericTracking/Alice/Clusters.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
-#include "GenericTracking/WorkflowITSMFT/AdaptorSpec.h"
-#include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
+#include "GenericTracking/Alice/Clusters.h"
 #include "GenericTracking/Workflow/DataSpecs.h"
 #include "GenericTracking/Workflow/GeometryProvider.h"
 #include "GenericTracking/Workflow/GridConfig.h"
@@ -37,6 +33,10 @@
 #include "GenericTracking/Workflow/RecoParam.h"
 #include "GenericTracking/Workflow/TrackLabel.h"
 #include "GenericTracking/Workflow/TrackerSpec.h"
+#include "GenericTracking/WorkflowITSMFT/AdaptorSpec.h"
+#include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
+
+#include "AdaptorHelpers.h"
 
 #include "CommonConstants/LHCConstants.h"
 #include "CommonDataFormat/IRFrame.h"

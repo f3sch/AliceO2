@@ -17,20 +17,20 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK slice glue
-#include <boost/test/unit_test.hpp>
-
-#include "DeviceTestFixture.h"
-#include "DeviceTestKernels.h"
-#include "ToyBarrel8Fixture.h"
-
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Tracking/TrackletPaths.h"
 #include "GenericTracking/Tracking/TripletEndIndex.h"
 #include "GenericTracking/Tracking/TripletPaths.h"
 #include "GenericTracking/Tracking/TripletPermutation.h"
+
+#include "DeviceTestFixture.h"
+#include "DeviceTestKernels.h"
 #include "FixedPointReferences.h"
 #include "SerialReferences.h"
+#include "ToyBarrel8Fixture.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

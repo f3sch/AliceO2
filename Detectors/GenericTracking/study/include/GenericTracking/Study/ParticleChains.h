@@ -28,10 +28,10 @@
 #ifndef GTRK_STUDY_PARTICLECHAINS_H_
 #define GTRK_STUDY_PARTICLECHAINS_H_
 
-#include "GenericTracking/Study/Alice/Hits.h"
-#include "GenericTracking/Study/TrackingInput.h"
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
+#include "GenericTracking/Study/Alice/Hits.h"
+#include "GenericTracking/Study/TrackingInput.h"
 
 #include <algorithm>
 #include <array>

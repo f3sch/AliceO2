@@ -29,25 +29,25 @@
 /// on their chips: o2-gtrk-check-hits.)
 
 #include "GenericTracking/Base/ElementaryMath.h"
-#include "GenericTracking/Tools/Material.h"
-#include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/LayerEnvelopes.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Alice/Placement.h"
+#include "GenericTracking/Tools/Material.h"
 
 #include "DetectorsBase/GeometryManager.h"
-#include "MathUtils/Cartesian.h"
 #include "FT3Base/GeometryTGeo.h"
+#include "MathUtils/Cartesian.h"
 #include "TRKBase/GeometryTGeo.h"
 #include "TRKBase/SegmentationChip.h"
 
 #include <boost/program_options.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <concepts>
 #include <cstddef>

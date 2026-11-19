@@ -18,59 +18,54 @@
 #define GTRK_STUDY_TRACKBENCH_H_
 
 #include "GenericTracking/Base/ElementaryMath.h"
-#include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
-#include "GenericTracking/Study/Digest.h"
-#include "GenericTracking/Study/ProfileReport.h"
-#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/Profile.h"
-#include "GenericTracking/Study/StageComparison.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/Tracker.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
-#include "GenericTracking/Study/Validation.h"
 #include "GenericTracking/Workflow/GeometryProvider.h"
 #include "GenericTracking/Workflow/GridConfig.h"
 #include "GenericTracking/Workflow/MaterialLUT.h"
 #include "GenericTracking/Workflow/RecoParam.h"
 #include "GenericTracking/Workflow/TrackingInterface.h"
+#include "GenericTracking/Study/Alice/Hits.h"
+#include "GenericTracking/Study/Digest.h"
+#include "GenericTracking/Study/ProfileReport.h"
+#include "GenericTracking/Study/StageComparison.h"
+#include "GenericTracking/Study/StageFunnel.h"
+#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackingInput.h"
 #include "GenericTracking/Study/TruthStudies.h"
+#include "GenericTracking/Study/Validation.h"
 
-#include "CCDB/BasicCCDBManager.h"
-#include "DataFormatsParameters/GRPECSObject.h"
-#include "DetectorsRaw/HBFUtils.h"
-#include "CommonUtils/ConfigurableParam.h"
-#include "CommonUtils/NameConf.h"
-#include "DetectorsBase/MatLayerCylSet.h"
-
-#include <TGeoManager.h>
-#include <iomanip>
-
-#include "FitInputs.h"
-#include <boost/program_options.hpp>
-#include "GenericTracking/Study/StageFunnel.h"
 #include "CompleteAnatomy.h"
+#include "FitInputs.h"
 #include "FollowAnatomy.h"
 #include "SeedingStrategy.h"
 #include "TrackBreakdown.h"
 #include "VertexStudy.h"
 
-#include <sys/resource.h>
-#include <unistd.h>
+#include "CCDB/BasicCCDBManager.h"
+#include "CommonUtils/ConfigurableParam.h"
+#include "CommonUtils/NameConf.h"
+#include "DataFormatsParameters/GRPECSObject.h"
+#include "DetectorsBase/MatLayerCylSet.h"
+#include "DetectorsRaw/HBFUtils.h"
+
+#include <TGeoManager.h>
+#include <boost/program_options.hpp>
 
 #include <algorithm>
 #include <array>
 #include <bit>
-#include <type_traits>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -78,6 +73,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -88,6 +84,9 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <sys/resource.h>
+#include <type_traits>
+#include <unistd.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>

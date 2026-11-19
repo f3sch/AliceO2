@@ -12,13 +12,12 @@
 /// \file DeviceRuntime.cu
 /// \brief CUDA runtime implementation, hipified verbatim for HIP.
 
+#include "Platform.cuh"
 #include <cuda_runtime.h>
 
-#include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Tracking/GPU/DeviceDecayFitter.h"
+#include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Tracking/GPU/DeviceTracker.h"
-
-#include "Platform.cuh"
 
 #include "GPUCommonHelpers.h"
 

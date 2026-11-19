@@ -25,21 +25,21 @@
 #ifndef GTRK_TEST_ORACLES_H_
 #define GTRK_TEST_ORACLES_H_
 
-#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Definitions.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/CovarianceTransport.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/MeasurementUpdate.h"
+#include "GenericTracking/Tracking/NeighbourCut.h"
+#include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/Seed.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
-#include "GenericTracking/Tracking/NeighbourCut.h"
 #include "GenericTracking/Tracking/TripletCut.h"
 #include "GenericTracking/Tracking/TripletFit.h"
-#include "GenericTracking/Tracking/PairCut.h"
 
 #include "MathUtils/detail/trigonometric.h"
 

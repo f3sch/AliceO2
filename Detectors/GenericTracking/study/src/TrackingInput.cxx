@@ -11,8 +11,8 @@
 
 #include "GenericTracking/Study/TrackingInput.h"
 
-#include "GenericTracking/Study/Digest.h"
 #include "GenericTracking/Workflow/RecoParam.h"
+#include "GenericTracking/Study/Digest.h"
 
 #include "CommonUtils/ConfigurableParam.h"
 

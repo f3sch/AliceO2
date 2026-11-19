@@ -37,10 +37,10 @@
 #define GTRK_STUDY_OVERLAPSTUDY_H_
 
 #include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Tracking/TrackRefit.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/StudyChains.h"
 #include "GenericTracking/Study/TruthEvent.h"
-#include "GenericTracking/Tracking/TrackRefit.h"
 
 #include <algorithm>
 #include <array>

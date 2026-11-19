@@ -15,12 +15,12 @@
 #ifndef GTRK_TRACKING_SEED_H_
 #define GTRK_TRACKING_SEED_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
-#include "GenericTracking/Base/ElementaryMath.h"
 
 #include "GPUCommonMath.h"
 

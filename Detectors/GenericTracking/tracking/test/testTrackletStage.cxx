@@ -14,11 +14,8 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK TrackletStage
-#include <boost/test/unit_test.hpp>
-
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerLinks.h"
-#include "ToyBarrel3.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/LayerRowMap.h"
@@ -27,10 +24,14 @@
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackletStage.h"
 
-#include "GPUCommonMath.h"
 #include "GridTestSupport.h"
-#include "StageOutputComparison.h"
 #include "SerialReferences.h"
+#include "StageOutputComparison.h"
+#include "ToyBarrel3.h"
+
+#include "GPUCommonMath.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <algorithm>
 #include <array>

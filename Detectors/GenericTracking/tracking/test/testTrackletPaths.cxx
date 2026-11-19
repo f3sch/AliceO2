@@ -15,14 +15,15 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK TrackletPaths
-#include <boost/test/unit_test.hpp>
-
-#include "ToyBarrel8.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/Neighbour.h"
 #include "GenericTracking/Tracking/TrackletPaths.h"
 #include "GenericTracking/Tracking/TripletPaths.h"
+
 #include "SerialReferences.h"
+#include "ToyBarrel8.h"
+
+#include <boost/test/unit_test.hpp>
 
 #include <array>
 #include <cstdint>
