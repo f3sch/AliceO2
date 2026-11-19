@@ -186,6 +186,9 @@ static int run(int argc, char** argv)
     ("mock-pt", bpo::value(&options.mockPt)->default_value("0.1,0.5"), "with --mock-upc: the prongs' pT range, low,high [GeV]")         //
     ("mock-count", bpo::value(&options.mockCount)->default_value(20), "with --mock-upc: at most this many vertices a timeframe")        //
     ("mock-list", bpo::value(&options.mockList)->default_value(""), "with --mock-upc: the mock vertices as CSV")                        //
+    ("vertex-trace", bpo::value(&options.vertexTrace)->default_value(""),
+     "the vertex study's pass on the particles of the collisions of at most 10 particles: their layer 0-2 measurements, true tracklets and triplets "
+     "and their states, as CSV") //
     ("vertex-candidates", bpo::value(&options.vertexCandidates)->default_value(""),
      "the vertex study's true triplets as candidates here, one CSV line each: truth, state, z at the beam against the collision's, "
      "its z0 error as the vertexer has it, with the true pT, and layer 1's kick on the intercept") //
