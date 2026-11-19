@@ -174,6 +174,18 @@ static int run(int argc, char** argv)
      "the score again over the particles of these MC sources alone (the collisions added to a mixed timeframe), against every track") //
     ("vertex-list", bpo::value(&options.vertexList)->default_value(""),
      "the vertex study's vertexer vertices here, one CSV line each with its collision and makeup, for tools/vertexMakeup.py") //
+    ("overlay-dz", bpo::value(&options.overlayDzUM),
+     "with --vertices-only: close collisions from the timeframe's own, pairs of collisions alone in their frame, the smaller moved into "
+     "the larger's frame at this true z distance [um] (signed) from it; the global coordinates only") //
+    ("overlay-list", bpo::value(&options.overlayList)->default_value(""),
+     "with --overlay-dz: the pairs as CSV (the collisions, their true z before and after, the rows, the frames)") //
+    ("mock-upc", bpo::value(&options.mockUpc)->default_value(""),
+     "with --vertices-only: few-prong vertices of soft primaries moved out of the densest collisions, at this true z distance [um] "
+     "from a collision alone in its frame, or \"empty\": into frames without a collision, at their own z; the global coordinates only") //
+    ("mock-prongs", bpo::value(&options.mockProngs)->default_value(2), "with --mock-upc: the prongs a vertex")                          //
+    ("mock-pt", bpo::value(&options.mockPt)->default_value("0.1,0.5"), "with --mock-upc: the prongs' pT range, low,high [GeV]")         //
+    ("mock-count", bpo::value(&options.mockCount)->default_value(20), "with --mock-upc: at most this many vertices a timeframe")        //
+    ("mock-list", bpo::value(&options.mockList)->default_value(""), "with --mock-upc: the mock vertices as CSV")                        //
     ("vertex-candidates", bpo::value(&options.vertexCandidates)->default_value(""),
      "the vertex study's true triplets as candidates here, one CSV line each: truth, state, z at the beam against the collision's, "
      "its z0 error as the vertexer has it, with the true pT, and layer 1's kick on the intercept") //

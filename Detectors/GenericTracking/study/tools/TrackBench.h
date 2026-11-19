@@ -76,10 +76,12 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <numeric>
 #include <optional>
 #include <ranges>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -113,13 +115,20 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   bool digestStages = false;
   bool funnel = false;
   bool vertexStudy = false;
-  bool verticesOnly = false;     ///< --vertices-only: the vertexing pass alone, its vertices against the truth
-  std::vector<int> scoreSources; ///< --score-sources: the score again over these MC sources' particles only; empty for none
-  double beamWidthCM = 0.;       ///< --beam-width: the beam's transverse width the windows take, instead of the dump's
-  std::string vertexList;        ///< --vertex-list: the vertexer's vertices against the truth, as CSV; empty for none
-  std::string vertexCandidates;  ///< --vertex-candidates: the true triplets as vertex candidates with their z0 errors, as CSV; empty for none
-  std::string vertexReplay;      ///< --vertex-replay: the replay's vertices and collisions, as CSV with this prefix; empty for none
-  std::string vertexPrior;       ///< --vertex-prior: an earlier pass's replay vertices the prior-* variants start from
+  bool verticesOnly = false;                                     ///< --vertices-only: the vertexing pass alone, its vertices against the truth
+  std::vector<int> scoreSources;                                 ///< --score-sources: the score again over these MC sources' particles only; empty for none
+  double beamWidthCM = 0.;                                       ///< --beam-width: the beam's transverse width the windows take, instead of the dump's
+  std::string vertexList;                                        ///< --vertex-list: the vertexer's vertices against the truth, as CSV; empty for none
+  std::string vertexCandidates;                                  ///< --vertex-candidates: the true triplets as vertex candidates with their z0 errors, as CSV; empty for none
+  double overlayDzUM = std::numeric_limits<double>::quiet_NaN(); ///< --overlay-dz: close collisions made at this true z distance [um] (`overlayCollisions`)
+  std::string overlayList;                                       ///< --overlay-list: the overlay's pairs as CSV; empty for none
+  std::string mockUpc;                                           ///< --mock-upc: few-prong vertices made of soft primaries, at dz [um] from a collision or "empty" (`mockUpcVertices`)
+  int mockProngs = 2;                                            ///< --mock-prongs
+  std::string mockPt = "0.1,0.5";                                ///< --mock-pt: the prongs' pT range [GeV]
+  int mockCount = 20;                                            ///< --mock-count: at most this many a timeframe
+  std::string mockList;                                          ///< --mock-list: the mock vertices as CSV; empty for none
+  std::string vertexReplay;                                      ///< --vertex-replay: the replay's vertices and collisions, as CSV with this prefix; empty for none
+  std::string vertexPrior;                                       ///< --vertex-prior: an earlier pass's replay vertices the prior-* variants start from
   double findableMinPtGeV = 0.1;
   std::uint64_t findableAllLayers = 0U; ///< the score's "on every layer" mask; 0, every layer
   std::string seedCoverage;             ///< --seed-coverage: layer masks, comma separated
@@ -1154,6 +1163,296 @@ void writeCloneJoins(const std::string& path, const TrackStore<Det>& tracks, con
   }
 }
 
+/// Close collisions for the vertexer's study, made from \a input's own: the
+/// collisions alone in their readout frame (no other collision's measurement
+/// on layer 0 at their box start), in order of their true z, paired with the
+/// next one, and of each pair the one with fewer measurements (B) moved into
+/// the other's (A's) frame at \a dzCM from A's true z. B's measurements move
+/// by B's time box offset to A's, layer by layer, and in global z by
+/// delta = zA + dz - zB; its particles' production points and its collision's
+/// vertex move with them; the rows are binned again by the grid afterwards
+/// (`rebin`). The local coordinates stay: only the vertexing pass, which reads
+/// the global ones, sees the overlay right. A measurement goes with the
+/// collision of its first particle. The pairs into \a listPath (CSV) unless
+/// empty. Returns a summary.
+inline std::string overlayCollisions(study::TrackingInput& input, study::TrackingTruth& truth, double dzCM, const std::string& listPath)
+{
+  auto& columns = input.columns;
+  const std::size_t rows = columns.clusterIndex.size();
+  constexpr std::uint64_t kNone = std::numeric_limits<std::uint64_t>::max();
+  std::vector<std::uint64_t> collisionOfRow(rows, kNone);
+  for (std::size_t row = 0; row < rows; ++row) {
+    const auto& t = truth.rows[row];
+    if (t.count > 0U && truth.collisions.contains(study::collisionOf(t.particles[0]))) {
+      collisionOfRow[row] = study::collisionOf(t.particles[0]);
+    }
+  }
+  // Each collision's rows, and its layer-0 box start: the most common one of
+  // its layer-0 rows.
+  struct Members {
+    std::vector<std::uint32_t> rows;
+    std::map<std::uint32_t, std::uint32_t> starts;
+    std::uint32_t start = 0U;
+  };
+  std::map<std::uint64_t, Members> members;
+  std::map<std::uint32_t, std::set<std::uint64_t>> byStart; // layer-0 box start -> the collisions with a row there
+  for (std::size_t row = 0; row < rows; ++row) {
+    if (collisionOfRow[row] == kNone) {
+      continue;
+    }
+    auto& m = members[collisionOfRow[row]];
+    m.rows.push_back(static_cast<std::uint32_t>(row));
+    if (truth.rows[row].layer == 0) {
+      ++m.starts[columns.timePS[row]];
+      byStart[columns.timePS[row]].insert(collisionOfRow[row]);
+    }
+  }
+  std::vector<std::uint64_t> alone;
+  for (auto& [collision, m] : members) {
+    if (m.starts.empty()) {
+      continue;
+    }
+    m.start = std::ranges::max_element(m.starts, {}, [](const auto& entry) { return entry.second; })->first;
+    if (byStart[m.start].size() == 1U) {
+      alone.push_back(collision);
+    }
+  }
+  std::ranges::sort(alone, {}, [&](std::uint64_t c) { return truth.collisions.at(c)[2]; });
+  // A row's layer-wise box start of a collision: the most common one there.
+  const auto startOn = [&](const Members& m, LayerID layer) {
+    std::map<std::uint32_t, std::uint32_t> counts;
+    for (const auto row : m.rows) {
+      if (truth.rows[row].layer == layer) {
+        ++counts[columns.timePS[row]];
+      }
+    }
+    return counts.empty() ? std::optional<std::uint32_t>{} : std::optional<std::uint32_t>{std::ranges::max_element(counts, {}, [](const auto& entry) { return entry.second; })->first};
+  };
+  std::ofstream list;
+  if (!listPath.empty()) {
+    list.open(listPath);
+    if (!list) {
+      throw std::runtime_error(std::format("cannot write the overlay list {}", listPath));
+    }
+    list << "collisionA,collisionB,zA,zBBefore,zB,deltaUM,rowsA,rowsB,startA,startBBefore\n";
+  }
+  std::size_t pairs = 0U;
+  double largestShiftCM = 0.;
+  for (std::size_t i = 0; i + 1U < alone.size(); i += 2U) {
+    auto a = alone[i];
+    auto b = alone[i + 1U];
+    if (members[b].rows.size() > members[a].rows.size()) {
+      std::swap(a, b);
+    }
+    const auto& ma = members[a];
+    const auto& mb = members[b];
+    const double zA = truth.collisions.at(a)[2];
+    const double zBBefore = truth.collisions.at(b)[2];
+    const double delta = zA + dzCM - zBBefore;
+    // The time offset per layer: A's box start less B's, the layer-0 one
+    // where A or B has none there.
+    const auto offset0 = static_cast<std::int64_t>(ma.start) - static_cast<std::int64_t>(mb.start);
+    std::map<LayerID, std::int64_t> offsets;
+    for (const auto row : mb.rows) {
+      const auto layer = truth.rows[row].layer;
+      if (!offsets.contains(layer)) {
+        const auto sa = startOn(ma, layer);
+        const auto sb = startOn(mb, layer);
+        offsets[layer] = sa && sb ? static_cast<std::int64_t>(*sa) - static_cast<std::int64_t>(*sb) : offset0;
+      }
+      columns.z[row] = static_cast<Scalar>(static_cast<double>(columns.z[row]) + delta);
+      truth.rows[row].z = columns.z[row];
+      columns.timePS[row] = static_cast<std::uint32_t>(static_cast<std::int64_t>(columns.timePS[row]) + offsets[layer]);
+    }
+    for (auto& [particle, info] : truth.particles) {
+      if (study::collisionOf(particle) == b) {
+        info.vz = static_cast<float>(static_cast<double>(info.vz) + delta);
+      }
+    }
+    truth.collisions.at(b)[2] += delta;
+    largestShiftCM = std::max(largestShiftCM, std::abs(delta));
+    ++pairs;
+    if (list) {
+      list << std::format("{},{},{:.5f},{:.5f},{:.5f},{:.1f},{},{},{},{}\n", a, b, zA, zBBefore, zBBefore + delta, delta * 1.e4, ma.rows.size(), mb.rows.size(), ma.start, mb.start);
+    }
+  }
+  return std::format("overlay: {} collisions alone in their frame, {} pairs, B at {:.1f} um from A, B moved by at most {:.3f} cm", alone.size(), pairs, dzCM * 1.e4, largestShiftCM);
+}
+
+/// Few-prong vertices for the vertexer's study, made of soft primaries of the
+/// timeframe's own collisions (a mock of the ultra-peripheral ones): from the
+/// collisions with the most measurements in turn (the donors), \a prongs
+/// physical primaries -- pi, K or p, of alternating charge, pT in
+/// [\a ptLow, \a ptHigh), each with a measurement on layers 0, 1 and 2 -- become
+/// a collision of their own: their measurements (those whose first particle
+/// they are) move in time to a target's readout frame and in global z by
+/// delta, their production points with them, their identities to a new
+/// collision whose vertex is the donor's moved by delta. The target: with
+/// \a dzCM, the collisions alone in their frame (as `overlayCollisions`), the
+/// most measurements first, the mock at dz from one's true z; without
+/// (\a empty), the frames whose layer-0 measurements belong to no collision,
+/// the mock at the donor's own z. Each donor and target serves once; at most
+/// \a count. The global coordinates only, as the overlay. Into \a listPath
+/// (CSV) unless empty; returns a summary.
+inline std::string mockUpcVertices(study::TrackingInput& input, study::TrackingTruth& truth, bool empty, double dzCM, int prongs, double ptLow, double ptHigh, int count, const std::string& listPath)
+{
+  auto& columns = input.columns;
+  const std::size_t rows = columns.clusterIndex.size();
+  constexpr std::uint64_t kNone = std::numeric_limits<std::uint64_t>::max();
+  const auto firstParticle = [&](std::size_t row) { return truth.rows[row].count > 0U ? truth.rows[row].particles[0] : kNone; };
+  std::map<std::uint64_t, std::vector<std::uint32_t>> rowsOfCollision;
+  std::map<std::uint64_t, std::vector<std::uint32_t>> rowsOfParticle;
+  std::map<std::uint32_t, std::set<std::uint64_t>> collisionsAtStart; // layer-0 box start -> collisions with a row there
+  std::set<std::uint32_t> starts;                                     // every layer-0 box start
+  for (std::size_t row = 0; row < rows; ++row) {
+    const auto particle = firstParticle(row);
+    const bool layer0 = truth.rows[row].layer == 0;
+    if (layer0) {
+      starts.insert(columns.timePS[row]);
+    }
+    if (particle == kNone || !truth.collisions.contains(study::collisionOf(particle))) {
+      continue;
+    }
+    rowsOfCollision[study::collisionOf(particle)].push_back(static_cast<std::uint32_t>(row));
+    rowsOfParticle[particle].push_back(static_cast<std::uint32_t>(row));
+    if (layer0) {
+      collisionsAtStart[columns.timePS[row]].insert(study::collisionOf(particle));
+    }
+  }
+  const auto startOf = [&](const std::vector<std::uint32_t>& members) {
+    std::map<std::uint32_t, std::uint32_t> counts;
+    for (const auto row : members) {
+      if (truth.rows[row].layer == 0) {
+        ++counts[columns.timePS[row]];
+      }
+    }
+    return counts.empty() ? std::optional<std::uint32_t>{} : std::optional<std::uint32_t>{std::ranges::max_element(counts, {}, [](const auto& e) { return e.second; })->first};
+  };
+  // Donors: the most measurements first; their prongs.
+  std::vector<std::uint64_t> donors;
+  for (const auto& [collision, members] : rowsOfCollision) {
+    donors.push_back(collision);
+  }
+  std::ranges::stable_sort(donors, std::greater{}, [&](std::uint64_t c) { return rowsOfCollision[c].size(); });
+  const auto prongsOf = [&](std::uint64_t collision) {
+    std::vector<std::uint64_t> picked;
+    int sign = 0;
+    for (const auto& [particle, members] : rowsOfParticle) {
+      if (study::collisionOf(particle) != collision || static_cast<int>(picked.size()) == prongs) {
+        continue;
+      }
+      const auto& info = truth.particles.at(particle);
+      const auto species = std::abs(info.pdg);
+      const int charge = info.pdg > 0 ? 1 : -1;
+      if (info.origin != study::ParticleOrigin::kPhysicalPrimary || !(species == 211 || species == 321 || species == 2212) || static_cast<double>(info.pt) < ptLow || static_cast<double>(info.pt) >= ptHigh || charge == sign) {
+        continue;
+      }
+      std::uint32_t layers = 0U;
+      for (const auto row : members) {
+        layers |= 1U << truth.rows[row].layer;
+      }
+      if ((layers & 7U) != 7U) {
+        continue;
+      }
+      picked.push_back(particle);
+      sign = charge;
+    }
+    return static_cast<int>(picked.size()) == prongs ? picked : std::vector<std::uint64_t>{};
+  };
+  // Targets: (box start, z) and the target collision, or none.
+  struct Target {
+    std::uint32_t start = 0U;
+    std::uint64_t collision = kNone;
+  };
+  std::vector<Target> targets;
+  if (empty) {
+    for (const auto start : starts) {
+      if (!collisionsAtStart.contains(start)) {
+        targets.push_back({.start = start});
+      }
+    }
+  } else {
+    std::vector<std::uint64_t> alone;
+    for (const auto& [collision, members] : rowsOfCollision) {
+      const auto start = startOf(members);
+      if (start && collisionsAtStart[*start].size() == 1U) {
+        alone.push_back(collision);
+      }
+    }
+    std::ranges::stable_sort(alone, std::greater{}, [&](std::uint64_t c) { return rowsOfCollision[c].size(); });
+    for (const auto collision : alone) {
+      targets.push_back({.start = *startOf(rowsOfCollision[collision]), .collision = collision});
+    }
+  }
+  std::uint64_t nextKey = 0U;
+  for (const auto& [collision, vertex] : truth.collisions) {
+    nextKey = std::max(nextKey, collision + 1U);
+  }
+  const std::uint64_t trackMask = (std::uint64_t{1} << o2::MCCompLabel::nbitsTrackID) - 1U;
+  std::ofstream list;
+  if (!listPath.empty()) {
+    list.open(listPath);
+    if (!list) {
+      throw std::runtime_error(std::format("cannot write the mock list {}", listPath));
+    }
+    list << "collision,donor,target,zTarget,zMock,deltaUM,prongs,pts,targetStart,donorStart\n";
+  }
+  std::set<std::uint64_t> used;
+  int made = 0;
+  std::size_t t = 0;
+  for (const auto donor : donors) {
+    if (made == count || t == targets.size()) {
+      break;
+    }
+    while (t < targets.size() && targets[t].collision != kNone && used.contains(targets[t].collision)) {
+      ++t;
+    }
+    if (t == targets.size() || donor == targets[t].collision) {
+      continue;
+    }
+    const auto picked = prongsOf(donor);
+    const auto donorStart = startOf(rowsOfCollision[donor]);
+    if (picked.empty() || !donorStart) {
+      continue;
+    }
+    const auto& target = targets[t++];
+    used.insert(donor);
+    if (target.collision != kNone) {
+      used.insert(target.collision);
+    }
+    const auto& donorVertex = truth.collisions.at(donor);
+    const double zMock = target.collision == kNone ? donorVertex[2] : truth.collisions.at(target.collision)[2] + dzCM;
+    const double delta = zMock - donorVertex[2];
+    const auto offset = static_cast<std::int64_t>(target.start) - static_cast<std::int64_t>(*donorStart);
+    const auto key = nextKey++;
+    truth.collisions[key] = {donorVertex[0], donorVertex[1], zMock};
+    std::string pts;
+    for (const auto particle : picked) {
+      const auto moved = (key << o2::MCCompLabel::nbitsTrackID) | (particle & trackMask);
+      for (const auto row : rowsOfParticle[particle]) {
+        columns.z[row] = static_cast<Scalar>(static_cast<double>(columns.z[row]) + delta);
+        truth.rows[row].z = columns.z[row];
+        columns.timePS[row] = static_cast<std::uint32_t>(static_cast<std::int64_t>(columns.timePS[row]) + offset);
+      }
+      for (auto& row : truth.rows) {
+        for (std::size_t k = 0; k < row.count; ++k) {
+          row.particles[k] = row.particles[k] == particle ? moved : row.particles[k];
+        }
+      }
+      auto info = truth.particles.at(particle);
+      info.vz = static_cast<float>(static_cast<double>(info.vz) + delta);
+      truth.particles.erase(particle);
+      truth.particles.emplace(moved, info);
+      pts += std::format("{}{:.3f}", pts.empty() ? "" : ";", info.pt);
+    }
+    ++made;
+    if (list) {
+      list << std::format("{},{},{},{:.5f},{:.5f},{:.1f},{},{},{},{}\n", key, donor, target.collision == kNone ? std::string{"-1"} : std::to_string(target.collision), target.collision == kNone ? zMock : truth.collisions.at(target.collision)[2], zMock, delta * 1.e4, prongs, pts, target.start, *donorStart);
+    }
+  }
+  return std::format("mock UPC: {} vertices of {} prongs, pT [{}, {}) GeV, {}; {} targets", made, prongs, ptLow, ptHigh, empty ? "in frames without a collision, at the donor's z" : std::format("at {:.1f} um from a collision alone in its frame", dzCM * 1.e4), targets.size());
+}
+
 /// A block's width [ps], for printing.
 template <DetectorLayout Det>
 double blockWidthPS(const GridGeometry<Det>& geometry)
@@ -1557,6 +1856,23 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   if (!options.truth.empty() || std::filesystem::exists(truthPath)) {
     truth = study::readTrackingTruth(truthPath, input);
     std::cout << std::format("{} truth rows, {} particles read from {}\n", truth->rows.size(), truth->particles.size(), truthPath);
+  }
+  if (!std::isnan(options.overlayDzUM)) {
+    if (!truth || !options.verticesOnly) {
+      throw std::runtime_error("--overlay-dz needs the MC truth and --vertices-only: it moves the global coordinates only");
+    }
+    std::cout << overlayCollisions(input, *truth, options.overlayDzUM * 1.e-4, options.overlayList) << '\n';
+  }
+  if (!options.mockUpc.empty()) {
+    if (!truth || !options.verticesOnly) {
+      throw std::runtime_error("--mock-upc needs the MC truth and --vertices-only: it moves the global coordinates only");
+    }
+    const bool empty = options.mockUpc == "empty";
+    const auto comma = options.mockPt.find(',');
+    if (comma == std::string::npos) {
+      throw std::runtime_error("--mock-pt: low,high [GeV]");
+    }
+    std::cout << mockUpcVertices(input, *truth, empty, empty ? 0. : std::stod(options.mockUpc) * 1.e-4, options.mockProngs, std::stod(options.mockPt.substr(0, comma)), std::stod(options.mockPt.substr(comma + 1)), options.mockCount, options.mockList) << '\n';
   }
   // The geometry first: a placed layout's extents, which the grid and the
   // windows below are sized from, are the loaded geometry's (Base/LayerEnvelopes.h);
