@@ -40,6 +40,7 @@
 #include <cstring>
 #include <span>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace o2::gtrk
@@ -253,6 +254,27 @@ struct TimeframePlan {
   }
 };
 
+/// \a plan with the vertex list \a vertices, sorted by time, and each
+/// iteration's vertex windows from it and \a windowSettings, the settings its
+/// parameters were derived from. The slices and the frame's bounds stay as
+/// they are: they depend on the frame alone, so a plan made before the
+/// vertexer's list was known is replanned with it without scanning the frame
+/// again.
+template <DetectorLayout Det>
+[[nodiscard]] TimeframePlan<Det> planWithVertices(TimeframePlan<Det> plan, std::span<const SearchWindowParams> windowSettings, std::span<const VertexSeed> vertices)
+{
+  if (windowSettings.size() != plan.parameters.size()) {
+    throw std::invalid_argument("planWithVertices needs one window setting per iteration");
+  }
+  plan.vertices.assign(vertices.begin(), vertices.end());
+  plan.vertexWindows.clear();
+  plan.vertexWindows.reserve(plan.parameters.size());
+  for (std::size_t iteration = 0; iteration < plan.parameters.size(); ++iteration) {
+    plan.vertexWindows.push_back(vertexWindowParameters<Det>(plan.parameters[iteration], windowSettings[iteration], vertices));
+  }
+  return plan;
+}
+
 /// Plan every iteration of \a iterations over \a frame in slices of
 /// \a sliceWidthBlocks grid blocks (`GridGeometry::blocksPerSlice` of the
 /// configured width) with the halo the frame's reach needs
@@ -285,11 +307,7 @@ template <DetectorLayout Det>
     const typename TimeFrame<Det>::TimeSlice slice{frame, {.begin = begin, .end = std::min(plan.blockCount, begin + width)}, plan.haloPS};
     plan.slices.push_back(planSlice(frame, slice, reach.gatePS()));
   }
-  plan.vertexWindows.reserve(iterations.size());
-  for (std::size_t iteration = 0; iteration < iterations.size(); ++iteration) {
-    plan.vertexWindows.push_back(vertexWindowParameters<Det>(iterations[iteration], windowSettings[iteration], vertices));
-  }
-  return plan;
+  return planWithVertices<Det>(std::move(plan), windowSettings, vertices);
 }
 
 } // namespace o2::gtrk

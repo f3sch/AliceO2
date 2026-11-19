@@ -496,7 +496,12 @@ class TrackingInterface
     const auto& param = recoParam<Det>();
     const bool replaced = mVertexed;
     const std::size_t iterations = mTracker->iterationCount();
-    mDeviceTrackingPlan = mVertexing != nullptr ? planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), seeds, blocksPerSlice) : mTracker->planTimeframe(frame, seeds, blocksPerSlice);
+    // After the device's vertexer, its plan of this frame with the vertices.
+    if (replaced) {
+      mDeviceTrackingPlan = planWithVertices<Det>(mDevicePlan, mDeviceWindows, seeds);
+    } else {
+      mDeviceTrackingPlan = mVertexing != nullptr ? planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), seeds, blocksPerSlice) : mTracker->planTimeframe(frame, seeds, blocksPerSlice);
+    }
     Tracked tracked;
     tracked.planSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     if (!beginDeviceTimeframe()) {
