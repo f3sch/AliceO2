@@ -120,7 +120,7 @@ inline constexpr float kTrkRMax = 83.F; ///< beyond the OT's carbon support, and
 inline constexpr float kTrkGapDr = 1.F; ///< the widest band in a gap
 
 /// The bands of the barrel's layers, \a envelopes with their stacks; the discs' follow none.
-std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelopes, const o2::gtrk::tools::SideWalls& walls, std::span<const double> faces, std::span<const double> chipThickness)
+std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelopes, const o2::gtrk::tools::SideWalls& walls, std::span<const double> faces, std::span<const double> chipThickness, float rMaxCM, float zMaxCM)
 {
   std::vector<LUTLayer> layers;
   const auto cell = [&](float inner, float outer, float drPhi) {
@@ -134,7 +134,7 @@ std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
     for (int band = 0; band < bands; ++band) {
       const float low = band == 0 ? inner : inner + ((outer - inner) * static_cast<float>(band) / static_cast<float>(bands));
       const float high = band + 1 == bands ? outer : inner + ((outer - inner) * static_cast<float>(band + 1) / static_cast<float>(bands));
-      layers.push_back({.rMin = low, .rMax = high, .zMax = kTrkZMax, .dz = 1.F, .drPhi = cell(low, high, drPhi)});
+      layers.push_back({.rMin = low, .rMax = high, .zMax = zMaxCM, .dz = 1.F, .drPhi = cell(low, high, drPhi)});
     }
   };
   // a face closer than this to a band's edge makes no band of its own
@@ -179,11 +179,11 @@ std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
     for (int part = 0; part < parts; ++part) {
       const float low = part == 0 ? rMin : rMin + ((rMax - rMin) * static_cast<float>(part) / static_cast<float>(parts));
       const float high = part + 1 == parts ? rMax : rMin + ((rMax - rMin) * static_cast<float>(part + 1) / static_cast<float>(parts));
-      layers.push_back({.rMin = low, .rMax = high, .zMax = kTrkZMax, .dz = 1.F, .drPhi = cell(low, high, drPhi)});
+      layers.push_back({.rMin = low, .rMax = high, .zMax = zMaxCM, .dz = 1.F, .drPhi = cell(low, high, drPhi)});
     }
     previous = rMax;
   }
-  addGap(previous, kTrkRMax, 0.5F);
+  addGap(previous, rMaxCM, 0.5F);
   return layers;
 }
 
@@ -264,7 +264,7 @@ void populate(o2::base::MatLayerCylSet& lut, int trials, int threads)
 
 /// The TRK's bands from the loaded geometry, its stacks, side walls and
 /// cylinder faces printed (the LUT's provenance in its log).
-std::vector<LUTLayer> trkBands(int threads)
+std::vector<LUTLayer> trkBands(int threads, float rMaxCM, float zMaxCM)
 {
   using TRKFT3 = o2::gtrk::detectors::TRKFT3;
   const o2::gtrk::Geometry<TRKFT3> geometry(o2::gtrk::alice::placeChecked<TRKFT3>());
@@ -279,7 +279,7 @@ std::vector<LUTLayer> trkBands(int threads)
   std::cout << '\n';
   const auto walls = o2::gtrk::tools::trkSideWalls();
   std::cout << "VD side walls: " << walls.thickness * 1e4 << " um thick, r " << walls.rMin << " .. " << walls.rMax << " cm\n";
-  const auto faces = o2::gtrk::tools::beamLineCylinderFaces(kTrkRMax, kTrkZMax, 1., threads);
+  const auto faces = o2::gtrk::tools::beamLineCylinderFaces(rMaxCM, zMaxCM, 1., threads);
   std::cout << "cylinder faces around the beam line [cm]:";
   for (const double face : faces) {
     std::cout << ' ' << face;
@@ -290,7 +290,7 @@ std::vector<LUTLayer> trkBands(int threads)
     const auto l = static_cast<std::size_t>(layer);
     chipThickness.push_back((2. * specs[l].halfThickness) + stack[l].inner + stack[l].outer);
   }
-  return trkLayers(std::span{chips}.first(static_cast<std::size_t>(kBarrel)), walls, faces, chipThickness);
+  return trkLayers(std::span{chips}.first(static_cast<std::size_t>(kBarrel)), walls, faces, chipThickness, rMaxCM, zMaxCM);
 }
 
 /// The ITS's region, from the loaded geometry: the layers' silicon hulls
@@ -408,6 +408,8 @@ int run(int argc, char** argv)
   std::string output;
   std::string geometryFile;
   std::string detector;
+  float trkRMaxCM = kTrkRMax;
+  float trkZMaxCM = kTrkZMax;
   int trials = 10;
   int threads = -1;
   float maxRelativeDifference = 0.05F;
@@ -423,6 +425,10 @@ int run(int argc, char** argv)
      "an o2sim geometry file (o2sim_geometry-aligned.root)")                                //
     ("threads,j", bpo::value(&threads)->default_value(-1),                                  //
      "fill threads; negative uses NTHREADS_MATBUD")                                         //
+    ("trk-rmax-cm", bpo::value(&trkRMaxCM)->default_value(kTrkRMax),                        //
+     "TRKFT3's radial coverage [cm]; 95 reaches past the outer TOF")                        //
+    ("trk-zmax-cm", bpo::value(&trkZMaxCM)->default_value(kTrkZMax),                        //
+     "TRKFT3's longitudinal coverage [cm]; 350 reaches the TOF's acceptance")               //
     ("max-relative-difference", bpo::value(&maxRelativeDifference)->default_value(0.05F),   //
      "maximum relative difference when merging adjacent phi slices");
 
@@ -444,6 +450,9 @@ int run(int argc, char** argv)
               << opts << '\n';
     return 1;
   }
+  if (!std::isfinite(trkRMaxCM) || !std::isfinite(trkZMaxCM) || trkRMaxCM < kTrkRMax || trkZMaxCM < kTrkZMax) {
+    throw std::invalid_argument("TRKFT3 material coverage can only extend the default tracker region");
+  }
   threads = o2::gtrk::tools::fillThreads(threads);
 
   o2::base::GeometryManager::loadGeometry(geometryFile);
@@ -458,9 +467,9 @@ int run(int argc, char** argv)
     layers = kMftLayers;
     radialCheck = 20.F;
   } else {
-    bands = trkBands(threads);
+    bands = trkBands(threads, trkRMaxCM, trkZMaxCM);
     layers = bands;
-    radialCheck = kTrkRMax;
+    radialCheck = trkRMaxCM;
   }
 
   o2::base::MatLayerCylSet lut;

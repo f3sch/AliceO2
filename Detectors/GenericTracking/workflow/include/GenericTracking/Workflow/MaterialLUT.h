@@ -17,6 +17,7 @@
 /// | ITS | `GLO/Param/MatLUT` (O2's, or `o2-gtrk-build-matlut -d ITS`) |
 /// | MFT | `MFT/Param/MatLUT` (`o2-gtrk-build-matlut -d MFT`) |
 /// | TRKFT3 | `TRK/Param/MatLUT` (`o2-gtrk-build-matlut -d TRKFT3`, one LUT for TRK and FT3) |
+/// | TRKFT3TOF | `TRK/Param/MatLUTTOF` (`o2-gtrk-build-matlut -d TRKFT3 --trk-rmax-cm 95 --trk-zmax-cm 350`, to the TOF) |
 ///
 /// `MaterialCondition<Det>` is the condition input `Conditions<Det, true>`
 /// holds (Conditions.h): the devices that track fetch it, the measurement
@@ -34,6 +35,7 @@
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Workflow/DataSpecs.h"
 
 #include "DetectorsBase/GRPGeomHelper.h"
@@ -62,11 +64,12 @@ template <DetectorLayout Det>
   return std::same_as<Det, detectors::ITS> ? o2::header::DataOrigin{"GLO"} : detectorOrigin<Det>();
 }
 
-/// The CCDB path of \a Det's material LUT.
+/// The CCDB path of \a Det's material LUT: TRKFT3TOF's its own, which
+/// reaches the TOF, so that TRKFT3's stays TRKFT3's.
 template <DetectorLayout Det>
 [[nodiscard]] std::string materialLutPath()
 {
-  return materialLutOrigin<Det>().template as<std::string>() + "/Param/MatLUT";
+  return materialLutOrigin<Det>().template as<std::string>() + (std::same_as<Det, detectors::TRKFT3TOF> ? "/Param/MatLUTTOF" : "/Param/MatLUT");
 }
 
 /// \a Det's material LUT as a condition input (see above).
