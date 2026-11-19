@@ -174,6 +174,9 @@ static int run(int argc, char** argv)
      "the score again over the particles of these MC sources alone (the collisions added to a mixed timeframe), against every track") //
     ("vertex-list", bpo::value(&options.vertexList)->default_value(""),
      "the vertex study's vertexer vertices here, one CSV line each with its collision and makeup, for tools/vertexMakeup.py") //
+    ("vertex-candidates", bpo::value(&options.vertexCandidates)->default_value(""),
+     "the vertex study's true triplets as candidates here, one CSV line each: truth, state, z at the beam against the collision's, "
+     "its z0 error as the vertexer has it, with the true pT, and layer 1's kick on the intercept") //
     ("vertex-prior", bpo::value(&options.vertexPrior)->default_value(""),
      "an earlier pass's --vertex-replay <prefix>-vertices.csv: the replay's prior-* variants start each frame from its stage vertices") //
     ("vertex-replay", bpo::value(&options.vertexReplay)->default_value(""),

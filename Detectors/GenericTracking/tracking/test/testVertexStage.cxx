@@ -44,7 +44,7 @@ constexpr Vec3D kRadii{2.34, 3.15, 3.93};
 /// The vertexer's candidate errors from the points alone: the r-z line's,
 /// no scattering in the kink.
 struct LineErrors {
-  [[nodiscard]] Scalar operator()(const PairPoint& /*first*/, const VertexCandidateFit& fit) const { return fit.varZ0Line; }
+  [[nodiscard]] VertexCandidateVariances operator()(const PairPoint& /*a*/, const PairPoint& /*b*/, const PairPoint& /*c*/, const VertexCandidateFit& fit) const { return {.weight = fit.varZ0Line, .reach = fit.varZ0Line}; }
   [[nodiscard]] static Scalar kinkScattering(const PairPoint& /*a*/, const PairPoint& /*b*/, const PairPoint& /*c*/, Scalar /*radius*/) { return 0.F; }
 };
 

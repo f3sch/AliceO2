@@ -80,9 +80,9 @@ constexpr Index kNoIndex = std::numeric_limits<Index>::max();
 constexpr std::uint64_t kNoBid = std::numeric_limits<std::uint64_t>::max();
 
 /// Candidates: each triplet's candidate key (0 for none), its key as an ownership
-/// source (0 for a degenerate one), its r-z chi2, its weight
-/// from its z0 error -- the pass's material and the beam's transverse spread,
-/// `ScatteringErrors` -- and its box.
+/// source (0 for a degenerate one), its r-z chi2, its weights in its vertex's
+/// mean and for its reach from its z0 errors -- the pass's material and the
+/// beam's transverse spread, `ScatteringErrors` -- and its box.
 template <DetectorLayout Det>
 struct CandidateMap {
   MeasurementView measurements;
@@ -95,6 +95,7 @@ struct CandidateMap {
   std::uint64_t* sourceKeys = nullptr;
   float* chi2 = nullptr;
   std::uint64_t* weights = nullptr;
+  std::uint64_t* reachWeights = nullptr;
   Index* lower = nullptr;
   Index* upper = nullptr;
   GPUdi() void operator()(Index triplet) const
@@ -102,7 +103,7 @@ struct CandidateMap {
     const ScatteringErrors<Det> errors{.table = &pass->scattering, .cut = pass->pairCut, .varTransverse = varTransverse};
     VertexCandidateFit fit;
     TimeEstPS box;
-    const auto status = measureCandidate(measurements, tracklets, triplets, triplet, settings, errors, fit, weights[triplet], box, nullptr);
+    const auto status = measureCandidate(measurements, tracklets, triplets, triplet, settings, errors, fit, weights[triplet], reachWeights[triplet], box, nullptr);
     keys[triplet] = status == VertexCandidateStatus::kAccepted ? fit.key : 0U;
     sourceKeys[triplet] = status != VertexCandidateStatus::kDegenerate ? fit.key : 0U;
     chi2[triplet] = fit.chi2RZ;
@@ -237,15 +238,17 @@ struct GatherKept {
   }
 };
 
-/// The sorted candidates' z [um] and box, and whether each begins a frame.
+/// The sorted candidates' z [um], weights and box, and whether each begins a frame.
 struct SortedColumns {
   const std::uint64_t* sortedKeys = nullptr;
   const Index* sortedTriplets = nullptr;
   const Index* lower = nullptr;
   const Index* upper = nullptr;
   const std::uint64_t* weights = nullptr;
+  const std::uint64_t* reachWeights = nullptr;
   long long* z = nullptr;
   std::uint64_t* weight = nullptr;
+  std::uint64_t* reachWeight = nullptr;
   Index* boxLower = nullptr;
   Index* boxUpper = nullptr;
   Index* frameStart = nullptr;
@@ -255,6 +258,7 @@ struct SortedColumns {
     z[candidate] = vertexKeyZUM(key);
     const Index triplet = sortedTriplets[candidate];
     weight[candidate] = weights[triplet];
+    reachWeight[candidate] = reachWeights[triplet];
     boxLower[candidate] = lower[triplet];
     boxUpper[candidate] = upper[triplet];
     frameStart[candidate] = candidate == 0U || vertexKeyFrame(key) != vertexKeyFrame(sortedKeys[candidate - 1U]) ? 1U : 0U;
@@ -338,7 +342,7 @@ struct SourceColumns {
   const std::uint64_t* sortedKeys = nullptr;
   const Index* frameBegin = nullptr;
   Index frames = 0U;
-  const std::uint64_t* weights = nullptr;
+  const std::uint64_t* reachWeights = nullptr;
   Index* sourceSlots = nullptr;
   long long* sourceZ = nullptr;
   std::uint64_t* sourceWeight = nullptr;
@@ -349,7 +353,7 @@ struct SourceColumns {
     const std::uint64_t key = sourceKeys[triplet];
     slotsOf(key, triplet, sourceSlots + (3U * source));
     sourceZ[source] = vertexKeyZUM(key);
-    sourceWeight[source] = weights[triplet];
+    sourceWeight[source] = reachWeights[triplet];
     const std::int64_t frame = vertexKeyFrame(key);
     const Index f = o2::gpu::CAAlgo::partitionPoint(Index{0}, frames, [&](Index g) { return vertexKeyFrame(sortedKeys[frameBegin[g]]) < frame; });
     sourceFrame[source] = f < frames && vertexKeyFrame(sortedKeys[frameBegin[f]]) == frame ? f : kNoIndex;
@@ -368,7 +372,8 @@ struct CandidateSlots {
 /// What the rounds read of the candidates and their frames.
 struct Candidates {
   const long long* z = nullptr;
-  const std::uint64_t* weight = nullptr;
+  const std::uint64_t* weight = nullptr;      ///< in the vertex's mean
+  const std::uint64_t* reachWeight = nullptr; ///< for the reach (`claimReach`)
   const Index* boxLower = nullptr;
   const Index* boxUpper = nullptr;
   const Index* frame = nullptr;
@@ -515,7 +520,7 @@ struct Claim {
     if (round.bestIndex[f] == kNoIndex) {
       return;
     }
-    if (!withinZ(candidates.z[i], round.centre[f], claimReach(candidates.weight[i], claim, nSigma))) {
+    if (!withinZ(candidates.z[i], round.centre[f], claimReach(candidates.reachWeight[i], claim, nSigma))) {
       return;
     }
     claims[i] = vertexBase + static_cast<std::int32_t>(f);
@@ -707,9 +712,10 @@ template <DetectorLayout Det>
   DeviceSpan<std::uint64_t> sourceKeys;
   DeviceSpan<float> chi2;
   DeviceSpan<std::uint64_t> weights;
+  DeviceSpan<std::uint64_t> reachWeights;
   DeviceSpan<Index> lower;
   DeviceSpan<Index> upper;
-  if (!keys.allocate(arena, tripletCount) || !sourceKeys.allocate(arena, tripletCount) || !chi2.allocate(arena, tripletCount) || !weights.allocate(arena, tripletCount) || !lower.allocate(arena, tripletCount) || !upper.allocate(arena, tripletCount)) {
+  if (!keys.allocate(arena, tripletCount) || !sourceKeys.allocate(arena, tripletCount) || !chi2.allocate(arena, tripletCount) || !weights.allocate(arena, tripletCount) || !reachWeights.allocate(arena, tripletCount) || !lower.allocate(arena, tripletCount) || !upper.allocate(arena, tripletCount)) {
     return StageStatus::kOutOfMemory;
   }
   algorithms::forEach(runtime, stream, tripletCount,
@@ -724,6 +730,7 @@ template <DetectorLayout Det>
                         .sourceKeys = sourceKeys.data(),
                         .chi2 = chi2.data(),
                         .weights = weights.data(),
+                        .reachWeights = reachWeights.data(),
                         .lower = lower.data(),
                         .upper = upper.data(),
                       });
@@ -799,7 +806,8 @@ template <DetectorLayout Det>
   DeviceSpan<Index> startsBefore;
   DeviceSpan<Index> frameOf;
   DeviceSpan<std::uint64_t> weight;
-  if (!weight.allocate(arena, count) || !z.allocate(arena, count) || !boxLower.allocate(arena, count) || !boxUpper.allocate(arena, count) || !frameStart.allocate(arena, count) || !startsBefore.allocate(arena, count) || !frameOf.allocate(arena, count)) {
+  DeviceSpan<std::uint64_t> reachWeight;
+  if (!weight.allocate(arena, count) || !reachWeight.allocate(arena, count) || !z.allocate(arena, count) || !boxLower.allocate(arena, count) || !boxUpper.allocate(arena, count) || !frameStart.allocate(arena, count) || !startsBefore.allocate(arena, count) || !frameOf.allocate(arena, count)) {
     return StageStatus::kOutOfMemory;
   }
   algorithms::forEach(runtime, stream, count,
@@ -809,8 +817,10 @@ template <DetectorLayout Det>
                         .lower = lower.data(),
                         .upper = upper.data(),
                         .weights = weights.data(),
+                        .reachWeights = reachWeights.data(),
                         .z = z.data(),
                         .weight = weight.data(),
+                        .reachWeight = reachWeight.data(),
                         .boxLower = boxLower.data(),
                         .boxUpper = boxUpper.data(),
                         .frameStart = frameStart.data(),
@@ -829,6 +839,7 @@ template <DetectorLayout Det>
   const Candidates candidates{
     .z = z.data(),
     .weight = weight.data(),
+    .reachWeight = reachWeight.data(),
     .boxLower = boxLower.data(),
     .boxUpper = boxUpper.data(),
     .frame = frameOf.data(),
@@ -889,7 +900,7 @@ template <DetectorLayout Det>
                         .sortedKeys = std::as_const(sortedKeys).data(),
                         .frameBegin = std::as_const(frameBegin).data(),
                         .frames = frames,
-                        .weights = std::as_const(weights).data(),
+                        .reachWeights = std::as_const(reachWeights).data(),
                         .sourceSlots = sourceSlots.data(),
                         .sourceZ = sourceZ.data(),
                         .sourceWeight = sourceWeight.data(),
