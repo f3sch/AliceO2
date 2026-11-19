@@ -1078,7 +1078,6 @@ class StageTruth
     const auto* material = mMaterial;
     const auto vertexSource = parameters.vertexSource;
     const auto initialPredictionMisses = mInitialPredictionMisses;
-    const std::int64_t requiredHalo = sliceReach(frameBounds(frame), frame.grid().geometry()).haloPS();
     auto& summary = mSummary;
     if (vertexSource == VertexSource::kBeamLine) {
       reportLostPairs(frame, parameters, beamLine, truePairs, pairKept, rows, crossings, &scattering, mBzKiloGauss, settings.windows.minPtGeV, material);
@@ -1164,7 +1163,7 @@ class StageTruth
     const auto allTracklets = summary.tracklets + summary.haloSourceTracklets;
     const double haloTrackletFraction = allTracklets == 0U ? 0. : static_cast<double>(summary.haloSourceTracklets) / static_cast<double>(allTracklets);
     LOGP(info, "  halo-source tracklets, within the slice gate: {}/{} ({:.3f}%)", summary.haloSourceTracklets, allTracklets, 100. * haloTrackletFraction);
-    LOGP(info, "  halo configured/required/used {}/{}/{} ps", param.sliceHaloPS, requiredHalo, observed.summary->haloPS);
+    LOGP(info, "  halo {} ps", observed.summary->haloPS);
     LOGP(info,
          "  arena/staging high-water {} / {} records ({:.1f} / {:.1f} MB), "
          "pool {:.1f} MB, {} staging prediction misses",
@@ -3095,7 +3094,7 @@ class MeasurementSinkTask : public Task
     }
 
     const auto blocksPerSlice = geometry.blocksPerSlice(param.sliceWidthPS);
-    LOGP(info, "slicing {} blocks in groups of {} with halo {} ps", geometry.blockCount(), blocksPerSlice, param.sliceHaloPS);
+    LOGP(info, "slicing {} blocks in groups of {}", geometry.blockCount(), blocksPerSlice);
 
     std::vector<TruePair> truePairs;
     const bool dumping = !mDumpInput.empty() && n != 0U && mTimeframe == mDumpTimeframe;

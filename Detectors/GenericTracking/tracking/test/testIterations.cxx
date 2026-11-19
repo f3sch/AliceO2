@@ -136,7 +136,7 @@ Outcome track(const Fixture& fixture, std::int32_t widthBlocks, int threads)
 {
   auto owned = makeTracker(iterations(), false, 0U, threads);
   auto& tracker = *owned;
-  const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, {}, widthBlocks, 0.));
+  const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, {}, widthBlocks));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   // Every iteration's tracks committed, on any number of threads.
   BOOST_REQUIRE(result.store != nullptr);
@@ -201,7 +201,7 @@ BOOST_AUTO_TEST_CASE(AnyMemoryLimitEndsARunWithAStatus)
     tracker.setTrackModel(trackingGeometry(), none, Propagator{});
     for (int run = 0; run < 2; ++run) {
       Tracker<Det, UniformMaterial>::TimeframeResult result;
-      BOOST_CHECK_NO_THROW(result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, {}, kWidth, 0.)));
+      BOOST_CHECK_NO_THROW(result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, {}, kWidth)));
       statuses.push_back(result.status);
     }
   };
@@ -286,7 +286,7 @@ BOOST_AUTO_TEST_CASE(TheSliceObserverSeesEverySliceWithItsUsedMask)
     ++slicesPerIteration[slice.iteration];
     exclusivePerIteration[slice.iteration] = static_cast<std::size_t>(std::ranges::count(observed.used(), std::uint8_t{kExclusive}));
   });
-  const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, {}, kWidth, 0.));
+  const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, {}, kWidth));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   const auto slices = static_cast<std::size_t>((fixture.geometry.blockCount() + kWidth - 1) / kWidth);
   BOOST_TEST(slicesPerIteration[0] == slices);
@@ -333,7 +333,7 @@ BOOST_AUTO_TEST_CASE(TheIterationObserverSeesEveryIterationsSelection)
     const auto exclusive = std::ranges::count(observed.used(), std::uint8_t{kExclusive});
     BOOST_TEST(static_cast<std::size_t>(exclusive) == (iteration.iteration + 1U) * (kTracks / 2U) * kLayers);
   });
-  const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, {}, 3, 0.));
+  const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, {}, 3));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   BOOST_TEST((seen == std::vector<std::size_t>{0U, 1U}));
 }
@@ -374,10 +374,10 @@ BOOST_AUTO_TEST_CASE(APlannedRunGivesThePlanningRunsTracks)
     {
       const auto settings = iterations(source);
       auto planning = makeTracker(settings);
-      const auto expected = planning->run(*fixture.frame, planning->planTimeframe(*fixture.frame, vertices, 3, 0.));
+      const auto expected = planning->run(*fixture.frame, planning->planTimeframe(*fixture.frame, vertices, 3));
       BOOST_REQUIRE(expected.status == StageStatus::kComplete);
       auto planned = makeTracker(settings);
-      const auto plan = planned->planTimeframe(*fixture.frame, vertices, 3, 0.);
+      const auto plan = planned->planTimeframe(*fixture.frame, vertices, 3);
       BOOST_TEST(plan.beamLine.varZ == planned->beamLine().varZ);
       BOOST_TEST(plan.vertices.size() == vertices.size());
       const auto result = planned->run(*fixture.frame, plan);
@@ -396,19 +396,19 @@ BOOST_AUTO_TEST_CASE(AResumedRunIsTheWholeRun)
   const Fixture fixture{hits(), kDurationNS};
   const auto settings = iterations();
   auto whole = makeTracker(settings);
-  const auto plan = whole->planTimeframe(*fixture.frame, {}, 3, 0.);
+  const auto plan = whole->planTimeframe(*fixture.frame, {}, 3);
   const auto expected = whole->run(*fixture.frame, plan);
   BOOST_REQUIRE(expected.status == StageStatus::kComplete);
   const auto expectedDigest = study::trackingDigest(expected, whole->used());
   // A plan is its tracker's: each plans its own.
   auto first = makeTracker(settings);
-  const auto part = first->run(*fixture.frame, first->planTimeframe(*fixture.frame, {}, 3, 0.), 1U);
+  const auto part = first->run(*fixture.frame, first->planTimeframe(*fixture.frame, {}, 3), 1U);
   BOOST_REQUIRE(part.status == StageStatus::kComplete);
   BOOST_TEST(part.iterations.size() == 1U);
   const auto checkpoint = first->checkpoint(part);
   BOOST_TEST(checkpoint.tracks.size() == kTracks / 2U);
   auto resumed = makeTracker(settings);
-  const auto result = resumed->resume(*fixture.frame, resumed->planTimeframe(*fixture.frame, {}, 3, 0.), checkpoint);
+  const auto result = resumed->resume(*fixture.frame, resumed->planTimeframe(*fixture.frame, {}, 3), checkpoint);
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   BOOST_TEST(study::trackingDigest(result, resumed->used()) == expectedDigest);
   BOOST_TEST((found(result) == found(expected)));
@@ -424,7 +424,7 @@ BOOST_AUTO_TEST_CASE(ASlicePlanHoldsTheSlicesBoundsAndGate)
 {
   const Fixture fixture{hits(), kDurationNS};
   const auto tracker = makeTracker(iterations());
-  const auto plan = tracker->planTimeframe(*fixture.frame, {}, 3, 0.);
+  const auto plan = tracker->planTimeframe(*fixture.frame, {}, 3);
   const auto& frame = *fixture.frame;
   BOOST_TEST(plan.slices.size() == static_cast<std::size_t>((fixture.geometry.blockCount() + 2) / 3));
   // The toys' blocks start at 0 and are whole picoseconds.
@@ -449,7 +449,7 @@ BOOST_AUTO_TEST_CASE(APlanOfAnotherFrameOrConfigurationIsRefused)
   const Fixture fixture{hits(), kDurationNS};
   const Fixture longer{hits(), 2. * kDurationNS};
   const auto tracker = makeTracker(iterations());
-  const auto plan = tracker->planTimeframe(*fixture.frame, {}, 3, 0.);
+  const auto plan = tracker->planTimeframe(*fixture.frame, {}, 3);
   BOOST_CHECK_THROW(static_cast<void>(tracker->run(*longer.frame, plan)), std::invalid_argument);
 
   const auto one = makeTracker({iterations().front()});
@@ -482,7 +482,7 @@ BOOST_AUTO_TEST_CASE(TheIterationObservationCarriesMaskTracksAndProposals)
         offsets.push_back(iteration.trackOffset);
         proposals.push_back(iteration.proposals.size());
       });
-      const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3, 0.));
+      const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3));
       BOOST_REQUIRE(result.status == StageStatus::kComplete);
       BOOST_TEST((offsets == std::vector<std::uint32_t>{0U, static_cast<std::uint32_t>(kTracks / 2U)}));
       const std::vector<std::size_t> expected = follow ? std::vector<std::size_t>{kTracks / 2U, kTracks / 2U} : std::vector<std::size_t>{0U, 0U};
@@ -500,7 +500,7 @@ BOOST_AUTO_TEST_CASE(InnerSeedsFollowOverEveryLayerAndShortTracksGiveTheirRowsBa
 {
   const Fixture fixture{hits(), kDurationNS};
   const auto everyLayerTracker = makeTracker(iterations(), false);
-  const auto everyLayer = everyLayerTracker->run(*fixture.frame, everyLayerTracker->planTimeframe(*fixture.frame, {}, 3, 0.));
+  const auto everyLayer = everyLayerTracker->run(*fixture.frame, everyLayerTracker->planTimeframe(*fixture.frame, {}, 3));
   BOOST_REQUIRE(everyLayer.status == StageStatus::kComplete);
   const auto expected = found(everyLayer);
   BOOST_REQUIRE(expected.size() == kTracks);
@@ -517,7 +517,7 @@ BOOST_AUTO_TEST_CASE(InnerSeedsFollowOverEveryLayerAndShortTracksGiveTheirRowsBa
   };
   {
     auto tracker = makeTracker(seeded({0, 0}));
-    const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3, 0.));
+    const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3));
     BOOST_REQUIRE(result.status == StageStatus::kComplete);
     const auto tracks = found(result);
     BOOST_TEST(tracks.size() == kTracks);
@@ -537,7 +537,7 @@ BOOST_AUTO_TEST_CASE(InnerSeedsFollowOverEveryLayerAndShortTracksGiveTheirRowsBa
       BOOST_TEST(iteration.proposals.size() == iteration.tracks->size() - iteration.trackOffset);
       observed.push_back(iteration.tracks->size());
     });
-    const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3, 0.));
+    const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3));
     BOOST_REQUIRE(result.status == StageStatus::kComplete);
     BOOST_TEST(result.iterations[0].tracksDropped == kTracks / 2U);
     BOOST_TEST(result.iterations[1].tracksDropped == 0U);
@@ -550,7 +550,7 @@ BOOST_AUTO_TEST_CASE(InnerSeedsFollowOverEveryLayerAndShortTracksGiveTheirRowsBa
   {
     // Both ask too much: nothing is kept, and every row is free again.
     auto tracker = makeTracker(seeded({kWhole + 1, kWhole + 1}));
-    const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3, 0.));
+    const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3));
     BOOST_REQUIRE(result.status == StageStatus::kComplete);
     BOOST_TEST(result.store->size() == 0U);
     BOOST_TEST(std::ranges::all_of(tracker->used(), [](std::uint8_t state) { return state == kFree; }));
@@ -564,7 +564,7 @@ BOOST_AUTO_TEST_CASE(OuterSeedsOnTheBeamLineFollowInwardWhole)
 {
   const Fixture fixture{hits(), kDurationNS};
   const auto everyLayerTracker = makeTracker(iterations(), false);
-  const auto everyLayer = everyLayerTracker->run(*fixture.frame, everyLayerTracker->planTimeframe(*fixture.frame, {}, 3, 0.));
+  const auto everyLayer = everyLayerTracker->run(*fixture.frame, everyLayerTracker->planTimeframe(*fixture.frame, {}, 3));
   BOOST_REQUIRE(everyLayer.status == StageStatus::kComplete);
 
   const auto expected = rows(found(everyLayer));
@@ -576,7 +576,7 @@ BOOST_AUTO_TEST_CASE(OuterSeedsOnTheBeamLineFollowInwardWhole)
     iteration.beamConstraint = true;
   }
   auto tracker = makeTracker(settings);
-  const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3, 0.));
+  const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   BOOST_TEST((rows(found(result)) == expected));
   BOOST_TEST(result.iterations[0].clustersFollowedInward == 3U * kTracks / 2U);
@@ -593,7 +593,7 @@ BOOST_AUTO_TEST_CASE(TheRecoveryPassKeepsWholeTracksWhole)
   const Fixture fixture{hits(), kDurationNS};
 
   const auto everyLayerTracker = makeTracker(iterations(), false);
-  const auto expected = rows(found(everyLayerTracker->run(*fixture.frame, everyLayerTracker->planTimeframe(*fixture.frame, {}, 3, 0.))));
+  const auto expected = rows(found(everyLayerTracker->run(*fixture.frame, everyLayerTracker->planTimeframe(*fixture.frame, {}, 3))));
   BOOST_REQUIRE(expected.size() == kTracks);
   auto settings = iterations();
   for (auto& iteration : settings) {
@@ -606,7 +606,7 @@ BOOST_AUTO_TEST_CASE(TheRecoveryPassKeepsWholeTracksWhole)
   settings[1].followEarlier = true;
   settings[1].minClustersAfterFollow = static_cast<int>(kLayers);
   auto tracker = makeTracker(settings);
-  const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3, 0.));
+  const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   BOOST_TEST((rows(found(result)) == expected));
   BOOST_TEST(result.store->holds(tracker->workingTracks()));
@@ -649,11 +649,11 @@ BOOST_AUTO_TEST_CASE(TheRecoveryPassOnOneGraphFindsTheTwoGraphsTracks)
   settings[1].followEarlier = true;
   settings[1].minClustersAfterFollow = static_cast<int>(kLayers);
   auto separate = makeTracker(settings);
-  const auto twoGraphs = separate->run(*fixture.frame, separate->planTimeframe(*fixture.frame, {}, 3, 0.));
+  const auto twoGraphs = separate->run(*fixture.frame, separate->planTimeframe(*fixture.frame, {}, 3));
   BOOST_REQUIRE(twoGraphs.status == StageStatus::kComplete);
   settings[1].sharedGraph = true;
   auto tracker = makeTracker(settings);
-  const auto oneGraph = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3, 0.));
+  const auto oneGraph = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, 3));
   BOOST_REQUIRE(oneGraph.status == StageStatus::kComplete);
   // Both at the first iteration's floor: the stiffer half of the tracks.
   BOOST_TEST(found(oneGraph).size() == kTracks / 2U);
@@ -739,7 +739,7 @@ struct FramedRun {
 FramedRun trackFramed(const Fixture& fixture, std::int32_t widthBlocks)
 {
   auto tracker = makeTracker(iterations(), false);
-  const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, widthBlocks, 0.));
+  const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, {}, widthBlocks));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   FramedRun run{.tracks = found(result), .times = std::vector<TimeEstPS>(kCrossingBC.size()), .haloPS = result.iterations.front().haloPS};
   const auto view = result.store->tracks().view();

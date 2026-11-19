@@ -255,14 +255,14 @@ struct TimeframePlan {
 
 /// Plan every iteration of \a iterations over \a frame in slices of
 /// \a sliceWidthBlocks grid blocks (`GridGeometry::blocksPerSlice` of the
-/// configured width) with at least \a configuredHaloPS of halo, more when
-/// the frame's reach needs it -- the vertexing pass too, each
+/// configured width) with the halo the frame's reach needs
+/// (`SliceReach::haloPS`) -- the vertexing pass too, each
 /// slice finding its core's frames' vertices (`OwnedFrames`). \a
 /// windowSettings are the settings each iteration's parameters were derived
 /// from; \a beamLine the seed a beam-line iteration reads; \a vertices the
 /// timeframe's vertex list, sorted by time.
 template <DetectorLayout Det>
-[[nodiscard]] TimeframePlan<Det> planTimeframe(const TimeFrame<Det>& frame, std::span<const IterationParameters<Det>> iterations, std::span<const SearchWindowParams> windowSettings, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, std::int32_t sliceWidthBlocks, std::int64_t configuredHaloPS)
+[[nodiscard]] TimeframePlan<Det> planTimeframe(const TimeFrame<Det>& frame, std::span<const IterationParameters<Det>> iterations, std::span<const SearchWindowParams> windowSettings, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, std::int32_t sliceWidthBlocks)
 {
   if (windowSettings.size() != iterations.size()) {
     throw std::invalid_argument("planTimeframe needs one window setting per iteration");
@@ -279,7 +279,7 @@ template <DetectorLayout Det>
   plan.layerTargetBounds = bounds.target;
   plan.layerMaxLocVariance = bounds.varLoc;
   const auto reach = sliceReach(bounds, frame.grid().geometry());
-  plan.haloPS = std::max(configuredHaloPS, reach.haloPS());
+  plan.haloPS = reach.haloPS();
   const auto width = std::max<std::int32_t>(1, sliceWidthBlocks);
   for (std::int32_t begin = 0; begin < plan.blockCount; begin += width) {
     const typename TimeFrame<Det>::TimeSlice slice{frame, {.begin = begin, .end = std::min(plan.blockCount, begin + width)}, plan.haloPS};

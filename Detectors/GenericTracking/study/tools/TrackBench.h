@@ -635,8 +635,8 @@ std::uint64_t checkpointFrame(const TimeFrame<Det>& frame)
   return digest.result();
 }
 
-/// Its conditions' fingerprint: \a beamLine, \a vertices, \a blocksPerSlice and \a haloPS.
-inline std::uint64_t checkpointConditions(const workflow::BeamLine& beamLine, std::span<const VertexSeed> vertices, std::int32_t blocksPerSlice, std::int64_t haloPS)
+/// Its conditions' fingerprint: \a beamLine, \a vertices and \a blocksPerSlice.
+inline std::uint64_t checkpointConditions(const workflow::BeamLine& beamLine, std::span<const VertexSeed> vertices, std::int32_t blocksPerSlice)
 {
   Digest digest;
   for (const double value : {beamLine.x, beamLine.y, beamLine.z, beamLine.sigmaX, beamLine.sigmaY, beamLine.sigmaZ}) {
@@ -651,7 +651,6 @@ inline std::uint64_t checkpointConditions(const workflow::BeamLine& beamLine, st
     digest.add(vertex.varTransverse);
   }
   digest.add(blocksPerSlice);
-  digest.add(haloPS);
   return digest.result();
 }
 
@@ -1322,7 +1321,7 @@ int seedingStrategy(const Options& options, Controller<Det>& tracker, const Time
   }
   std::optional<typename Controller<Det>::Checkpoint> resumeFrom;
   if (!options.resumeState.empty()) {
-    resumeFrom = readCheckpoint<typename Controller<Det>::Checkpoint>(options.resumeState, settings, checkpointFrame(frame), checkpointConditions(beamLine, vertices, blocksPerSlice, param.sliceHaloPS));
+    resumeFrom = readCheckpoint<typename Controller<Det>::Checkpoint>(options.resumeState, settings, checkpointFrame(frame), checkpointConditions(beamLine, vertices, blocksPerSlice));
   }
   const std::size_t first = resumeFrom ? resumeFrom->summaries.size() : 0U;
   std::ofstream json(options.seedingStrategy);
@@ -1330,7 +1329,7 @@ int seedingStrategy(const Options& options, Controller<Det>& tracker, const Time
     throw std::runtime_error("cannot write " + options.seedingStrategy);
   }
   tracker.setProfiling(false);
-  const auto plan = tracker.planTimeframe(frame, vertices, blocksPerSlice, param.sliceHaloPS);
+  const auto plan = tracker.planTimeframe(frame, vertices, blocksPerSlice);
   if (tracker.beginTimeframe(frame) != StageStatus::kComplete) {
     throw std::runtime_error("--seeding-strategy: the timeframe's used mask does not fit the pool");
   }
@@ -1980,7 +1979,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   if (!options.saveState.empty() && (options.stateIterations == 0U || options.stateIterations > settings.size() || !options.resumeState.empty())) {
     throw std::runtime_error("--save-state needs --state-iterations between 1 and the configuration's iterations, and no --resume-state");
   }
-  const auto checkpointConditionsOf = [&](std::span<const VertexSeed> vertices) { return checkpointConditions(input.beamLine, vertices, blocksPerSlice, param.sliceHaloPS); };
+  const auto checkpointConditionsOf = [&](std::span<const VertexSeed> vertices) { return checkpointConditions(input.beamLine, vertices, blocksPerSlice); };
   std::optional<typename Controller::Checkpoint> resumeFrom;
   if (!options.resumeState.empty() && (device || kWorkCounters || options.funnel || completeAnatomy || studies.active() || seedingReal || options.digestStages || !options.fitInputs.empty() || options.vertexStudy || options.verticesOnly)) {
     throw std::runtime_error("--resume-state runs the host tracker without observers");
@@ -2112,7 +2111,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     if (!device) {
       const profile::Activation activation{planProfile, pool.get()};
       const profile::Zone zone{profile::Phase::kPlan};
-      plan.emplace(tracker.planTimeframe(frame, vertices, blocksPerSlice, param.sliceHaloPS));
+      plan.emplace(tracker.planTimeframe(frame, vertices, blocksPerSlice));
     }
     planSeconds = planProfile[profile::Phase::kPlan].seconds + vertexSeconds;
     if (device) {
@@ -2131,7 +2130,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         std::cout << std::format("digest, vertices: {:016x}\n", vertexDigest(vertexed.found->vertices, vertexed.found->contributors));
         if (last) {
           // The host's list on the same frame, against the device's.
-          auto host = vertexing->find(frame, blocksPerSlice, param.sliceHaloPS);
+          auto host = vertexing->find(frame, blocksPerSlice);
           if (host.status != StageStatus::kComplete) {
             throw std::runtime_error(std::format("the host's vertexing pass failed with status {}", static_cast<int>(host.status)));
           }
@@ -2206,7 +2205,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       }
       if (options.hostReference && last) {
         const std::span<const VertexSeed> vertices = vertexing ? std::span<const VertexSeed>{foundVertices} : std::span<const VertexSeed>{input.vertices};
-        const auto plan = tracker.planTimeframe(frame, vertices, blocksPerSlice, param.sliceHaloPS);
+        const auto plan = tracker.planTimeframe(frame, vertices, blocksPerSlice);
         const auto result = tracker.run(frame, plan);
         if (result.status != StageStatus::kComplete) {
           throw std::runtime_error(std::format("the host reference failed with status {}", static_cast<int>(result.status)));

@@ -59,10 +59,6 @@ struct SearchWindowParams {
   /// rest of O2 are written in.  2 T is 20 kG.
   double bzKiloGauss = 20.;
 
-  /// The mass hypothesis [GeV] (`Propagator::massGeV`, positive): the softest
-  /// momentum the windows admit scatters as 1 / (beta p).
-  double massGeV = o2::constants::physics::MassPionCharged;
-
   /// Radiation lengths crossed between two layers: the uniform material that
   /// sizes the grid's cells (`uniformSourceKink`); the pair queries take the
   /// scattering table's per-layer values (`layerPairWindow` in PairCut.h).
@@ -247,16 +243,20 @@ template <DetectorLayout Det>
   return radius > 0. ? 1. / radius : std::numeric_limits<double>::infinity();
 }
 
+/// The mass the windows take for beta [GeV]: the charged pion's. The softest
+/// momentum they admit scatters as 1 / (beta p).
+inline constexpr double kWindowMassGeV = o2::constants::physics::MassPionCharged;
+
 /// 1 / (beta p)^2 [GeV^-2] at the softest momentum the windows admit, pT_min:
 /// what their scattering scales as, and an upper bound over every momentum
 /// above it.
 [[nodiscard]] inline double invBetaMomentumMin2(const SearchWindowParams& params)
 {
   const double pt2 = params.minPtGeV * params.minPtGeV;
-  return (1. + (params.massGeV * params.massGeV / pt2)) / pt2;
+  return (1. + (kWindowMassGeV * kWindowMassGeV / pt2)) / pt2;
 }
 
-/// `1 / (beta pT_min)^2` over `1 / pT_min^2`: what the mass hypothesis
+/// `1 / (beta pT_min)^2` over `1 / pT_min^2`: what the windows' mass
 /// multiplies the scattering at pT_min by.
 [[nodiscard]] inline double betaMomentumFactor(const SearchWindowParams& params) { return invBetaMomentumMin2(params) * params.minPtGeV * params.minPtGeV; }
 
@@ -264,7 +264,7 @@ template <DetectorLayout Det>
 /// at normal incidence in the seed's layer alone. It sizes the grid's cells;
 /// the pair queries take the pair cut's own table (`sourceKinkBound` in
 /// `PairCut.h`).
-[[nodiscard]] inline double uniformSourceKink(const SearchWindowParams& params) { return static_cast<double>(highlandTheta0(static_cast<Scalar>(params.materialX2X0), static_cast<Scalar>(params.materialX2X0), static_cast<Scalar>(params.minPtGeV), static_cast<Scalar>(params.massGeV))); }
+[[nodiscard]] inline double uniformSourceKink(const SearchWindowParams& params) { return static_cast<double>(highlandTheta0(static_cast<Scalar>(params.materialX2X0), static_cast<Scalar>(params.materialX2X0), static_cast<Scalar>(params.minPtGeV), static_cast<Scalar>(kWindowMassGeV))); }
 
 /// How far the scattering before the seed moves the target's second
 /// coordinate, in one standard deviation [cm], for vertices in \a vertexZ and
