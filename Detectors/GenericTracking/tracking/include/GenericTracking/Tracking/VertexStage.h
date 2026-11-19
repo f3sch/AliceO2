@@ -367,6 +367,54 @@ struct ScatteringErrors {
   /// 0.3-1.2 per unit of 1/pT (the ITS's 0.4-0.6 and 0.6).
   static constexpr int kPosteriorSteps = 64;
 
+  /// The mean of x^2 = 1/pT^2 [1/GeV^2] given the triplet \a a, \a b, \a c's
+  /// curvature (`operator()`'s posterior: a flat prior on [0, 1/floor], the
+  /// folded Gaussian likelihood of the points' and the kick's errors);
+  /// \a kinkFloor is `kinkScattering` at the floor. Needs a field.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar meanInvPt2(const PairPoint& a, const PairPoint& b, const PairPoint& c, const VertexCandidateFit& fit, Scalar kinkFloor) const
+  {
+    const Scalar halfRMin = 0.5F * cut.twoRMin;
+    // The curvature as a measurement of x = 1/pT [1/GeV]: m, the points' part
+    // of its error from the middle point's sagitta h to the chord AC
+    // (curvature 2 h / (|AB| |BC|); h moves with each point's r-phi
+    // displacement across the chord, b's whole, a's and c's by their share at
+    // b's place along it), and the kick's part per unit of x.
+    const Scalar xFloor = 1.F / (cut.momentumCurvature * halfRMin);
+    const Scalar m = fit.radius < 1.e29F ? 1.F / (cut.momentumCurvature * fit.radius) : 0.F;
+    const Scalar acX = c.x - a.x;
+    const Scalar acY = c.y - a.y;
+    const Scalar ac = hypotOf(acX, acY);
+    const Scalar nX = -acY / ac;
+    const Scalar nY = acX / ac;
+    const Scalar along = (((b.x - a.x) * acX) + ((b.y - a.y) * acY)) / (ac * ac);
+    const auto across = [&](const PairPoint& p) { return ((nX * -p.y) + (nY * p.x)) / p.r; };
+    const Scalar acrossA = (1.F - along) * across(a);
+    const Scalar acrossB = across(b);
+    const Scalar acrossC = along * across(c);
+    const Scalar varH = (acrossB * acrossB * b.varRPhi) + (acrossA * acrossA * a.varRPhi) + (acrossC * acrossC * c.varRPhi);
+    const Scalar sides = hypotOf(b.x - a.x, b.y - a.y) * hypotOf(c.x - b.x, c.y - b.y);
+    const Scalar varPoints = 4.F * varH / (sides * sides * cut.momentumCurvature * cut.momentumCurvature);
+    const Scalar kick2 = 4.F * kinkFloor / (ac * ac * cut.momentumCurvature * cut.momentumCurvature * xFloor * xFloor);
+    // E[x^2 | m] by the trapezoid rule on [0, 1/floor].
+    Scalar sum = 0.F;
+    Scalar sumX2 = 0.F;
+    for (int step = 0; step <= kPosteriorSteps; ++step) {
+      const Scalar x = xFloor * static_cast<Scalar>(step) / static_cast<Scalar>(kPosteriorSteps);
+      const Scalar s2 = varPoints + (kick2 * x * x);
+      if (!(s2 > 0.F)) {
+        continue;
+      }
+      const Scalar below = (m - x) * (m - x) / s2;
+      const Scalar above = (m + x) * (m + x) / s2;
+      const Scalar edge = step == 0 || step == kPosteriorSteps ? 0.5F : 1.F;
+      const Scalar like = edge * (expOf(-0.5F * below) + expOf(-0.5F * above)) / sqrtOf(s2);
+      sum += like;
+      sumX2 += like * x * x;
+    }
+    const Scalar meanX2 = sum > 0.F ? sumX2 / sum : xFloor * xFloor;
+    return meanX2;
+  }
+
   /// The triplet \a a, \a b, \a c's z0 variances (`VertexCandidateVariances`).
   /// Its curvature reads the momentum only roughly: three points over the
   /// vertexing layers' span, the points' transverse errors and the kick at the
@@ -415,44 +463,8 @@ struct ScatteringErrors {
     const Scalar lever = (1.F + (t2 * t2)) * (c.r - b.r);
     const Scalar kinkFloor = kinkScattering(a, b, c, halfRMin);
     const Scalar layer1Floor = dz0dz2 * dz0dz2 * lever * lever * kinkFloor;
-    // The curvature as a measurement of x = 1/pT [1/GeV]: m, the points' part
-    // of its error from the middle point's sagitta h to the chord AC
-    // (curvature 2 h / (|AB| |BC|); h moves with each point's r-phi
-    // displacement across the chord, b's whole, a's and c's by their share at
-    // b's place along it), and the kick's part per unit of x.
     const Scalar xFloor = 1.F / (cut.momentumCurvature * halfRMin);
-    const Scalar m = fit.radius < 1.e29F ? 1.F / (cut.momentumCurvature * fit.radius) : 0.F;
-    const Scalar acX = c.x - a.x;
-    const Scalar acY = c.y - a.y;
-    const Scalar ac = hypotOf(acX, acY);
-    const Scalar nX = -acY / ac;
-    const Scalar nY = acX / ac;
-    const Scalar along = (((b.x - a.x) * acX) + ((b.y - a.y) * acY)) / (ac * ac);
-    const auto across = [&](const PairPoint& p) { return ((nX * -p.y) + (nY * p.x)) / p.r; };
-    const Scalar acrossA = (1.F - along) * across(a);
-    const Scalar acrossB = across(b);
-    const Scalar acrossC = along * across(c);
-    const Scalar varH = (acrossB * acrossB * b.varRPhi) + (acrossA * acrossA * a.varRPhi) + (acrossC * acrossC * c.varRPhi);
-    const Scalar sides = hypotOf(b.x - a.x, b.y - a.y) * hypotOf(c.x - b.x, c.y - b.y);
-    const Scalar varPoints = 4.F * varH / (sides * sides * cut.momentumCurvature * cut.momentumCurvature);
-    const Scalar kick2 = 4.F * kinkFloor / (ac * ac * cut.momentumCurvature * cut.momentumCurvature * xFloor * xFloor);
-    // E[x^2 | m] by the trapezoid rule on [0, 1/floor].
-    Scalar sum = 0.F;
-    Scalar sumX2 = 0.F;
-    for (int step = 0; step <= kPosteriorSteps; ++step) {
-      const Scalar x = xFloor * static_cast<Scalar>(step) / static_cast<Scalar>(kPosteriorSteps);
-      const Scalar s2 = varPoints + (kick2 * x * x);
-      if (!(s2 > 0.F)) {
-        continue;
-      }
-      const Scalar below = (m - x) * (m - x) / s2;
-      const Scalar above = (m + x) * (m + x) / s2;
-      const Scalar edge = step == 0 || step == kPosteriorSteps ? 0.5F : 1.F;
-      const Scalar like = edge * (expOf(-0.5F * below) + expOf(-0.5F * above)) / sqrtOf(s2);
-      sum += like;
-      sumX2 += like * x * x;
-    }
-    const Scalar meanX2 = sum > 0.F ? sumX2 / sum : xFloor * xFloor;
+    const Scalar meanX2 = meanInvPt2(a, b, c, fit, kinkFloor);
     const Scalar posterior = line + ((scatterFloor + layer1Floor) * meanX2 / (xFloor * xFloor));
     return {.weight = posterior, .reach = o2::gpu::GPUCommonMath::Max(posterior, own)};
   }
