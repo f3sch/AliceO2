@@ -78,6 +78,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <new>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -799,6 +800,21 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   void downloadTracks(Tracks& tracks) final
   {
     requireNoIteration("downloadTracks");
+    // The iterations' chunks gathered into one block first, while the host
+    // sizes the tracks: one copy a column instead of one a column and chunk,
+    // each of them a wait for the device.
+    if (mTrackChunks.chunks().size() > 1U) {
+      auto scratch = mArena.scope(ArenaEnd::kScratch);
+      DeviceColumns<TrackRecord::template RecordT> gathered;
+      if (!gathered.allocate(mArena, mTrackChunks.rows(), ArenaEnd::kScratch)) {
+        throw std::bad_alloc();
+      }
+      mTrackChunks.gather(gathered, 0U, mStream);
+      tracks.resize(mTrackChunks.rows());
+      gtrk::download(gathered, tracks, 0U, gathered.size(), mStream);
+      mStream.synchronize();
+      return;
+    }
     tracks.resize(mTrackChunks.rows());
     mTrackChunks.download(tracks, 0U, mStream);
     mStream.synchronize();
