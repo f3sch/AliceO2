@@ -18,6 +18,7 @@
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/LayerMaterial.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
@@ -112,6 +113,8 @@ namespace
 #error "GTRK_SINK_DETECTOR names the sink's detector"
 #endif
 using Det = detectors::GTRK_SINK_DETECTOR;
+/// ALICE 3's tracker, with or without its TOF layers: TRK's and FT3's MC files.
+constexpr bool kAlice3Tracker = std::is_same_v<Det, detectors::TRKFT3> || std::is_same_v<Det, detectors::TRKFT3TOF>;
 using Frame = TimeFrame<Det>;
 using Tracklets = StageOutput<TrackletT>;
 using Controller = workflow::TrackingInterface<Det>::Controller;
@@ -2918,7 +2921,7 @@ class MeasurementSinkTask : public Task
     // The MC hits: the pulls with --o2-tracks, the true kinks behind the
     // lost pairs and the tracks found incomplete, and the QA's outward legs.
     if (mUseMC) {
-      mHits = openHits<Det>(ic.options().get<std::string>("mc-hits"), std::is_same_v<Det, detectors::TRKFT3> ? ic.options().get<std::string>("mc-ft3-hits") : "");
+      mHits = openHits<Det>(ic.options().get<std::string>("mc-hits"), kAlice3Tracker ? ic.options().get<std::string>("mc-ft3-hits") : "");
       if (mHits) {
         mHitIndex.emplace(*mHits);
       }
@@ -3308,7 +3311,7 @@ class MeasurementSinkTask : public Task
     const std::string name = mQAOutput->GetFile()->GetName();
     if (mInterface.configured()) {
       // The MC events: the signal source's, as the truth is.
-      streamRun(*mQAOutput, workflow::iterationCount(recoParam<Det>()), etaReach(PlacedEnvelopes<Det>::all()), findableRule(), mKinematics ? mKinematics->getNEvents(0) : 0U, std::is_same_v<Det, detectors::TRKFT3> ? 0U : (std::uint64_t{1} << Detector<Det>::nLayers) - 1U);
+      streamRun(*mQAOutput, workflow::iterationCount(recoParam<Det>()), etaReach(PlacedEnvelopes<Det>::all()), findableRule(), mKinematics ? mKinematics->getNEvents(0) : 0U, kAlice3Tracker ? 0U : (std::uint64_t{1} << Detector<Det>::nLayers) - 1U);
     }
     mQAOutput->Close();
     mQAOutput.reset();
@@ -3594,7 +3597,7 @@ class MeasurementSinkTask : public Task
             layers.push_back(crossing.layer);
           }
         }
-        if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
+        if constexpr (kAlice3Tracker) {
           if (std::cmp_greater_equal(outward[id], findableRule().minLayers)) {
             for (const auto& crossing : leg) {
               outwardMasks[id] |= std::uint64_t{1} << crossing.layer;
@@ -3614,7 +3617,7 @@ class MeasurementSinkTask : public Task
       }
       const auto& helix = label->second.helix;
       auto& extra = extras[id];
-      if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
+      if constexpr (kAlice3Tracker) {
         if (const auto mask = outwardMasks.find(id); mask != outwardMasks.end()) {
           extra.expectedLayerMask = mask->second;
         }
@@ -4488,7 +4491,7 @@ class MeasurementSinkTask : public Task
 {
   if constexpr (std::is_same_v<Det, detectors::MFT>) {
     return "sgn_HitsMFT.root";
-  } else if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
+  } else if constexpr (kAlice3Tracker) {
     return "sgn_HitsTRK.root";
   } else {
     return "sgn_HitsITS.root";
@@ -4520,7 +4523,7 @@ DataProcessorSpec getMeasurementSinkSpec<Det>(bool useMC, bool withVertices, Tra
     .algorithm = AlgorithmSpec{adaptFromTask<MeasurementSinkTask>(useMC, withVertices, products, conditions)},
     .options = Options{{"collision-context", VariantType::String, "collisioncontext.root", {"collision context and MC-event mapping"}}, {"input-dir", VariantType::String, "none", {"input directory"}}, {"tracklet-truth-output", VariantType::String, "gtrk_tracklet_truth.csv", {"per-link pT and cot(theta) truth breakdown; empty disables"}}, {"dump-tracking-input", VariantType::String, "", {"write one timeframe's tracking input here, for o2-gtrk-track-bench"}}, {"dump-timeframe", VariantType::Int, 0, {"which timeframe --dump-tracking-input writes, counting from 0"}}, {"dump-only", VariantType::Bool, false, {"with --dump-tracking-input, the dumped timeframe is not tracked"}}, {"qa-output", VariantType::String, "", {"the MC truth QA as ROOT trees; empty disables"}}, {"outward-momenta", VariantType::Bool, false, {"with --qa-output and MC hits, the momenta tree: |p| along the outward leg of every findable electron and every 16th pion"}}, {"truth-study", VariantType::String, "", {"truth studies, <module>:<source>:<path> separated by ',': module gsf, species, decaycensus or decayfit, source truth (the particles' own rows) or tracks (the good tracks' rows), a .csv or .root path; with MC and its hits"}}, {"truth-select", VariantType::String, "", {"the truth studies' particles: key=value items separated by ';' -- origins=primary+decay+material, pdg=11+211, minPt=<GeV>, minRows=<n>, layers=<mask>, findable"}}, {"no-truth-reports", VariantType::Bool, false, {"with MC, no truth reports in the log (stages, true roads' chi2, fake anatomy): for the QA alone"}}, {"findable-min-pt", VariantType::Double, 0.1, {"the findable rule's pT floor [GeV]: the QA, the comparisons, the funnel"}}, {"o2-tracks", VariantType::String, "", {"O2's tracks of the same clusters (o2trac_its.root, mfttracks.root), compared under one set of truth rules"}}, {"mc-hits", VariantType::String, hitFileName(), {"O2's MC hits, for the pulls, the true kinks and the QA's outward legs"}}},
   };
-  if constexpr (std::is_same_v<Det, detectors::TRKFT3>) {
+  if constexpr (kAlice3Tracker) {
     spec.options.push_back({"mc-ft3-hits", VariantType::String, "sgn_HitsFT3.root", {"O2's MC hits of FT3's discs, with --mc-hits TRK's"}});
   }
   return spec;

@@ -20,6 +20,7 @@
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Detectors/TRKFT3TOF.h"
 
 #include <concepts>
 #include <cstdint>
@@ -45,9 +46,10 @@ enum class Chips : std::uint8_t { kITS,
                                   kMFT,
                                   kTRK };
 
-/// Whose MC files a layout's are.
+/// Whose MC files a layout's are: TRKFT3TOF's are the TRK's and FT3's, its
+/// TRK sensors TRKFT3's (the TOF's hits are not read).
 template <DetectorLayout Det>
-  requires std::same_as<Det, detectors::ITS> || std::same_as<Det, detectors::MFT> || std::same_as<Det, detectors::TRKFT3>
+  requires std::same_as<Det, detectors::ITS> || std::same_as<Det, detectors::MFT> || std::same_as<Det, detectors::TRKFT3> || std::same_as<Det, detectors::TRKFT3TOF>
 [[nodiscard]] constexpr Chips chipsOf()
 {
   if constexpr (std::same_as<Det, detectors::ITS>) {

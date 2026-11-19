@@ -23,6 +23,7 @@
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
@@ -1885,7 +1886,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   // (Conditions::orbitsPerTimeframe): its GRPECS's; ALICE 3's simulation
   // writes none, and the dump's HBFUtils is its.
   int orbitsPerTimeframe = 0;
-  if constexpr (std::same_as<Det, detectors::TRKFT3>) {
+  if constexpr (std::same_as<Det, detectors::TRKFT3> || std::same_as<Det, detectors::TRKFT3TOF>) {
     orbitsPerTimeframe = o2::raw::HBFUtils::Instance().getNOrbitsPerTF();
   } else {
     const auto* ecs = ccdb.get<o2::parameters::GRPECSObject>("GLO/Config/GRPECS");
@@ -1971,7 +1972,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       throw std::runtime_error("--complete-anatomy and --truth-study need the MC truth");
     }
     if (!options.hits.empty()) {
-      hitFile = std::make_unique<study::HitFile>(options.hits, study::chipsOf<Det>(), std::is_same_v<Det, detectors::TRKFT3> ? options.ft3Hits : std::string{});
+      hitFile = std::make_unique<study::HitFile>(options.hits, study::chipsOf<Det>(), std::is_same_v<Det, detectors::TRKFT3> || std::is_same_v<Det, detectors::TRKFT3TOF> ? options.ft3Hits : std::string{});
       hitIndex.emplace(*hitFile);
     }
     particleChains.emplace(study::ParticleChains::build(truth->rows, truth->particles, frame, hitIndex ? &*hitIndex : nullptr, *studyArena));
@@ -2777,6 +2778,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
 extern template int track<detectors::ITS>(const Options& options);
 extern template int track<detectors::MFT>(const Options& options);
 extern template int track<detectors::TRKFT3>(const Options& options);
+extern template int track<detectors::TRKFT3TOF>(const Options& options);
 
 } // namespace o2::gtrk::study
 
