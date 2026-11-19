@@ -597,7 +597,8 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
     const auto h = helix(index);
     BOOST_TEST_CONTEXT("track " << index)
     {
-      // Both passes, as fitMeasurements gives them on the same rows.
+      // Both passes on the same rows: the road fit's outward pass (in the
+      // tracking's float) and the refit's inward pass from its end state.
       BOOST_REQUIRE(tracks.status[track] == PropagationStatus::kOk);
       BOOST_TEST(tracks.count[track] == kLayers);
       std::array<Measurement, kLayers> copied{};
@@ -605,8 +606,10 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
       for (std::size_t i = 0; i < kLayers; ++i) {
         copied[i] = chain[static_cast<int>(i)];
       }
-      const auto full = fitMeasurements(kPropagator, trackingGeometry(), kNoMaterial, copied.data(), static_cast<int>(kLayers));
-      BOOST_TEST(tracks.chi2[track] == full.chi2);
+      const auto road = fitRoad<false>(iteration, kPropagator, trackingGeometry(), kNoMaterial, copied.data(), static_cast<int>(kLayers));
+      BOOST_REQUIRE((road.status == RoadFitStatus::kAccepted));
+      const auto inward = fitInward(kPropagator, trackingGeometry(), kNoMaterial, copied.data(), static_cast<int>(kLayers), road.state, kinkBudget(iteration));
+      BOOST_TEST(tracks.chi2[track] == inward.chi2);
 
       BOOST_TEST(tracks.ndf[track] == (2 * static_cast<int>(kLayers)) - 5);
       // On the innermost surface, and the generating helix.
