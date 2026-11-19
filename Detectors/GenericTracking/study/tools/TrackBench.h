@@ -117,6 +117,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::vector<int> scoreSources; ///< --score-sources: the score again over these MC sources' particles only; empty for none
   double beamWidthCM = 0.;       ///< --beam-width: the beam's transverse width the windows take, instead of the dump's
   std::string vertexList;        ///< --vertex-list: the vertexer's vertices against the truth, as CSV; empty for none
+  std::string vertexCandidates;  ///< --vertex-candidates: the true triplets as vertex candidates with their z0 errors, as CSV; empty for none
   std::string vertexReplay;      ///< --vertex-replay: the replay's vertices and collisions, as CSV with this prefix; empty for none
   std::string vertexPrior;       ///< --vertex-prior: an earlier pass's replay vertices the prior-* variants start from
   double findableMinPtGeV = 0.1;
@@ -1754,6 +1755,10 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     if (!options.vertexList.empty()) {
       vertexStudy->writeStageVertices(options.vertexList);
       std::cout << std::format("the vertexer's vertices written to {}\n", options.vertexList);
+    }
+    if (!options.vertexCandidates.empty()) {
+      vertexStudy->writeCandidates(options.vertexCandidates);
+      std::cout << std::format("the true triplets as candidates written to {}\n", options.vertexCandidates);
     }
     if (!options.vertexReplay.empty()) {
       vertexStudy->writeReplay(options.vertexReplay);

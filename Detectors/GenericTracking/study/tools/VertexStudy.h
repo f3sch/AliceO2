@@ -258,7 +258,7 @@ class VertexStudy
       VertexCandidateFit fit;
       StageFit stageFit;
       BeamTerm term;
-      stageFit.status = measureCandidate(measurements, tracklets, triplets, static_cast<std::uint32_t>(t), open, errors, fit, stageFit.weight, stageFit.box, &term);
+      stageFit.status = measureCandidate(measurements, tracklets, triplets, static_cast<std::uint32_t>(t), open, errors, fit, stageFit.weight, stageFit.reachWeight, stageFit.box, &term);
       stageFit.chi2RZ = fit.chi2RZ;
       stageFit.zUM = stageFit.status == VertexCandidateStatus::kAccepted ? vertexKeyZUM(fit.key) : 0;
       stageFit.dcaCM = term.d;
@@ -399,7 +399,7 @@ class VertexStudy
       throw std::runtime_error(std::format("cannot write the replay's lists {}-*.csv", prefix));
     }
     vertices << "variant,id,listed,framePS,round,windowStartUM,centreUM,zUM,window,sidebands,hidden,contributors,selected,dropped,reuse,"
-                "collision,trueZUM,findable,reference,startPS,widthPS,denseShare,softShare,noParticleShare\n";
+                "collision,trueZUM,findable,reference,startPS,widthPS,denseShare,softShare,noParticleShare,sigmaZUM,sigmaModelUM\n";
     collisions << "variant,collision,trueZUM,framePS,inner,findable,found,vertexZUM,contributors,round,accepted,kept,core,chi2,dca,"
                   "degenerate,deduplicated,free,own,other,fake,dropped,dense,denseFindable,denseDzUM,denseContributors,vetoedWindow,vetoedSidebands\n";
     // The vertexer's owned rows (the first run's) as their clusters, one per
@@ -419,7 +419,7 @@ class VertexStudy
       for (std::size_t v = 0; v < run.vertices.size(); ++v) {
         const auto& r = run.vertices[v];
         const auto* collision = r.collision < 0 ? nullptr : &mCollisions[static_cast<std::size_t>(r.collision)];
-        vertices << std::format("{},{},{},{},{},{},{:.1f},{:.1f},{},{},{},{},{},{},{:.4f},{},{:.1f},{},{},{},{},{:.3f},{:.3f},{:.3f}\n", run.name, v, r.listed, mFrameTimes[static_cast<std::size_t>(r.frame)], r.round, r.windowStartUM, r.centreUM, r.zUM, r.window, r.sidebands, r.hidden, r.contributors, r.selected, r.dropped, r.reuse, r.collision, collision == nullptr ? 0. : collision->z * 1.e4, collision == nullptr ? 0U : collision->findable, r.reference, r.startPS, r.widthPS, r.denseShare, r.softShare, r.noParticleShare);
+        vertices << std::format("{},{},{},{},{},{},{:.1f},{:.1f},{},{},{},{},{},{},{:.4f},{},{:.1f},{},{},{},{},{:.3f},{:.3f},{:.3f},{:.2f},{:.2f}\n", run.name, v, r.listed, mFrameTimes[static_cast<std::size_t>(r.frame)], r.round, r.windowStartUM, r.centreUM, r.zUM, r.window, r.sidebands, r.hidden, r.contributors, r.selected, r.dropped, r.reuse, r.collision, collision == nullptr ? 0. : collision->z * 1.e4, collision == nullptr ? 0U : collision->findable, r.reference, r.startPS, r.widthPS, r.denseShare, r.softShare, r.noParticleShare, std::sqrt(static_cast<double>(r.seed.varZ)) * 1.e4, std::sqrt(r.modelVarUM2));
       }
       for (std::size_t c = 0; c < mCollisions.size(); ++c) {
         const auto& collision = mCollisions[c];
@@ -442,6 +442,51 @@ class VertexStudy
         const auto& source = mCandidates[drop.source];
         drops << std::format("{},{},{},{},{},{},{:.1f},{},{},{},{},{},{}\n", run.name, candidate.collision, mCollisions[static_cast<std::size_t>(candidate.collision)].findable, candidate.fit.zUM, drop.owner, owner.collision, owner.zUM, drop.source, source.collision, kStateNames[static_cast<std::size_t>(run.base[drop.source])], source.fit.zUM, drop.row, rowCollision(drop.row));
       }
+    }
+  }
+
+  /// Every true triplet of a collision as a vertex candidate into \a path, one
+  /// CSV line each: its particle's truth, its state after the vertexer's cuts
+  /// and deduplication (the first replay's), its z at the beam against the
+  /// collision's, and its z0 error [um] four ways: the vertexer's weight's and
+  /// reach's (`ScatteringErrors`), the one at the triplet's own curvature
+  /// (`ownCurvature`) with layer 1's kick there, and at the particle's true
+  /// pT with layer 1's kick there (the reference the vertexer cannot have).
+  void writeCandidates(const std::string& path) const
+  {
+    if (!mPass) {
+      throw std::logic_error("VertexStudy: candidates before a pass was observed");
+    }
+    std::ofstream out(path);
+    if (!out) {
+      throw std::runtime_error(std::format("cannot write the candidates {}", path));
+    }
+    constexpr std::array<std::string_view, kReplayStates> kStateNames{"chi2", "dca", "degenerate", "deduplicated", "kept", "own", "other", "fake", "dropped"};
+    out << "collision,pdg,origin,ptTrue,eta,prodR,prodDzUM,ptFit,state,chi2RZ,dcaUM,dzUM,sigmaUM,sigmaReachUM,sigmaOwnUM,sigmaL1OwnUM,sigmaTruePtUM,sigmaL1TruePtUM\n";
+    const auto errors = scatteringErrors();
+    const auto curvature = static_cast<double>(mPass->pairCut.momentumCurvature);
+    const auto* base = mReplays.empty() ? nullptr : &mReplays.front().base;
+    for (std::size_t i = 0; i < mCandidates.size(); ++i) {
+      const auto& c = mCandidates[i];
+      if (!c.trueTriplet || c.collision < 0) {
+        continue;
+      }
+      const auto terms = errorTerms(c);
+      if (!terms) {
+        continue;
+      }
+      const auto& t = *terms;
+      const auto& info = mParticles->at(c.particle);
+      const auto& collision = mCollisions[static_cast<std::size_t>(c.collision)];
+      VertexCandidateFit truePt = t.fit;
+      truePt.radius = curvature > 0. ? static_cast<Scalar>(static_cast<double>(info.pt) / curvature) : t.fit.radius;
+      const auto variances = errors(t.a, t.b, t.d, t.fit);
+      const double dzUM = (static_cast<double>(t.fit.z0) - collision.z) * 1.e4;
+      const auto state = base == nullptr ? std::string_view{"-"} : kStateNames[static_cast<std::size_t>((*base)[i])];
+      out << std::format("{},{},{},{:.4f},{:.3f},{:.4f},{:.1f},{:.4f},{},{:.3f},{:.1f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f}\n", c.collision, info.pdg, static_cast<int>(info.origin), info.pt, info.eta, std::hypot(static_cast<double>(info.vx), static_cast<double>(info.vy)), (static_cast<double>(info.vz) - collision.z) * 1.e4,
+                         std::isfinite(t.fit.radius) && t.fit.radius < 1.e29F ? curvature * static_cast<double>(t.fit.radius) : -1., state, t.fit.chi2RZ, c.dcaXY * 1.e4, dzUM,
+                         std::sqrt(static_cast<double>(variances.weight)) * 1.e4, std::sqrt(static_cast<double>(variances.reach)) * 1.e4, std::sqrt(static_cast<double>(errors.ownCurvature(t.a, t.fit))) * 1.e4, layer1UM(t, t.fit.radius),
+                         std::sqrt(static_cast<double>(errors.ownCurvature(t.a, truePt))) * 1.e4, layer1UM(t, truePt.radius));
     }
   }
 
@@ -490,6 +535,7 @@ class VertexStudy
     std::int64_t zUM = 0;
     Scalar dcaCM = 0.F;
     std::uint64_t weight = 0U;
+    std::uint64_t reachWeight = 0U;
     TimeEstPS box;
   };
 
@@ -511,6 +557,57 @@ class VertexStudy
     double radius = 0.;              ///< and its radius [cm], infinite for a straight line: the transverse momentum's order
     StageFit fit{};                  ///< the vertexer's measure of it, for the replay
   };
+
+  /// What the candidates' table adds to the vertexer's errors: the triplet's
+  /// points and fit, and layer 1's kick on the intercept at any momentum
+  /// (`layer1UM`: dz0/dz2 of the weighted line times the lever to the outer
+  /// point and the dip-angle kink's scattering, as `ScatteringErrors` has it).
+  struct ErrorTerms {
+    VertexCandidateFit fit{};
+    PairPoint a{}, b{}, d{};
+    double dz0dz2 = 0.;
+    double lever = 0.;
+  };
+
+  [[nodiscard]] ScatteringErrors<Det> scatteringErrors() const { return {.table = &mPass->scattering, .cut = mPass->pairCut, .varTransverse = mBeamVarTransverse}; }
+
+  /// Layer 1's kick on the intercept [um] at the circle's \a radius.
+  [[nodiscard]] double layer1UM(const ErrorTerms& t, Scalar radius) const { return std::abs(t.dz0dz2) * t.lever * std::sqrt(static_cast<double>(scatteringErrors().kinkScattering(t.a, t.b, t.d, radius))) * 1.e4; }
+
+  /// \a c's error terms, or none for a degenerate triplet.
+  [[nodiscard]] std::optional<ErrorTerms> errorTerms(const Candidate& c) const
+  {
+    const auto columns = mFrame->measurements();
+    VertexerSettings open = mStage.settings();
+    open.maxChi2RZ = 0.F;
+    open.maxDcaCM = 0.F;
+    ErrorTerms t;
+    t.a = pairPointAt(columns, c.triple[0]);
+    t.b = pairPointAt(columns, c.triple[1]);
+    t.d = pairPointAt(columns, c.triple[2]);
+    if (vertexCandidate(t.a, t.b, t.d, 0U, open, scatteringErrors(), t.fit) == VertexCandidateStatus::kDegenerate) {
+      return std::nullopt;
+    }
+    const std::array<PairPoint, 3> points{t.a, t.b, t.d};
+    double sw = 0.;
+    double swr = 0.;
+    std::array<double, 3> w{};
+    for (std::size_t k = 0; k < 3U; ++k) {
+      w[k] = 1. / std::max(static_cast<double>(points[k].varZ), 1.e-12);
+      sw += w[k];
+      swr += w[k] * static_cast<double>(points[k].r);
+    }
+    const double rMean = swr / sw;
+    double srr = 0.;
+    for (std::size_t k = 0; k < 3U; ++k) {
+      const double dr = static_cast<double>(points[k].r) - rMean;
+      srr += w[k] * dr * dr;
+    }
+    t.dz0dz2 = (w[2] / sw) - (rMean * w[2] * (static_cast<double>(t.d.r) - rMean) / srr);
+    const double t2 = static_cast<double>(t.d.z - t.b.z) / static_cast<double>(t.d.r - t.b.r);
+    t.lever = (1. + (t2 * t2)) * static_cast<double>(t.d.r - t.b.r);
+    return t;
+  }
 
   void buildCollisions()
   {
@@ -938,6 +1035,9 @@ class VertexStudy
       std::vector<double> dca;
       std::vector<double> rz;
       std::vector<double> ptRatio;
+      /// |z at the beam - the collision's true z| over the error the
+      /// vertexer weighs the candidate by (`candidateWeight`), true primaries.
+      std::vector<double> z0;
       double dcaSum = 0.;
       std::array<std::uint64_t, 5> both{}, onlyDca{}, onlyRz{};
       std::uint64_t absolute = 0U;
@@ -986,6 +1086,8 @@ class VertexStudy
         out.dcaSum += pulls.dca;
         if (ptTrue > 0.) {
           out.ptRatio.push_back(pulls.ptGeV / ptTrue);
+          const double dzUM = static_cast<double>(c.fit.zUM) - (mCollisions[static_cast<std::size_t>(c.collision)].z * 1.e4);
+          out.z0.push_back(std::abs(dzUM) / std::sqrt(static_cast<double>(kVertexWeightScale) / static_cast<double>(std::max<std::uint64_t>(c.fit.weight, 1U))));
         }
         out.absolute += absolute ? 1U : 0U;
         out.absoluteChi2 += chi2In ? 1U : 0U;
@@ -1002,7 +1104,7 @@ class VertexStudy
     const auto at = [](std::vector<double>& values, double q) { return values.empty() ? std::numeric_limits<double>::quiet_NaN() : quantile(values, q); };
     lines.push_back(
       std::format("triplet pulls: the triplets past the pass's cuts; |pull| 50/68/95/99 %, transverse and r-z; the transverse "
-                  "pull's mean; the radius's pT over the true one 16/50/84 %; kept by both pulls < 2/3/4/5/6 sigma; by the absolute cuts "
+                  "pull's mean; the radius's pT over the true one 16/50/84 %; the z at the beam against the true collision's over the vertexer's error, |pull| 50/68/95/99 %; kept by both pulls < 2/3/4/5/6 sigma; by the absolute cuts "
                   "(chi2 {}, dca {} um)",
                   settings.maxChi2RZ, settings.maxDcaCM * 1.e4F));
     for (auto& out : classes) {
@@ -1023,9 +1125,9 @@ class VertexStudy
       }
       const double mean = out.dcaSum / static_cast<double>(n);
       lines.push_back(
-        std::format("  {}: {} | dca {:.2f} {:.2f} {:.2f} {:.2f} mean {:+.2f} | rz {:.2f} {:.2f} {:.2f} {:.2f} | pT ratio {:.2f} {:.2f} {:.2f} | "
+        std::format("  {}: {} | dca {:.2f} {:.2f} {:.2f} {:.2f} mean {:+.2f} | rz {:.2f} {:.2f} {:.2f} {:.2f} | pT ratio {:.2f} {:.2f} {:.2f} | z0 {:.2f} {:.2f} {:.2f} {:.2f} | "
                     "kept both{} | dca only{} | rz only{} | absolute {} (chi2 {}, dca {})",
-                    out.name, n, at(out.dca, 0.5), at(out.dca, 0.68), at(out.dca, 0.95), at(out.dca, 0.99), mean, at(out.rz, 0.5), at(out.rz, 0.68), at(out.rz, 0.95), at(out.rz, 0.99), at(out.ptRatio, 0.16), at(out.ptRatio, 0.5), at(out.ptRatio, 0.84), kept, dcaOnly, rzOnly, share(out.absolute), share(out.absoluteChi2), share(out.absoluteDca)));
+                    out.name, n, at(out.dca, 0.5), at(out.dca, 0.68), at(out.dca, 0.95), at(out.dca, 0.99), mean, at(out.rz, 0.5), at(out.rz, 0.68), at(out.rz, 0.95), at(out.rz, 0.99), at(out.ptRatio, 0.16), at(out.ptRatio, 0.5), at(out.ptRatio, 0.84), at(out.z0, 0.5), at(out.z0, 0.68), at(out.z0, 0.95), at(out.z0, 0.99), kept, dcaOnly, rzOnly, share(out.absolute), share(out.absoluteChi2), share(out.absoluteDca)));
     }
   }
 
@@ -1471,6 +1573,12 @@ class VertexStudy
     CutMode cuts = CutMode::kAbsolute;
     double sigma = 0.;  ///< the pulls' cut
     bool prior = false; ///< starting from `setPriorVertices`'
+    /// The claim and the ownership by each candidate's own error, at least
+    /// the peak's window (`claimReach` without the fixed claim), not the vertexer's.
+    bool ownReach = false;
+    /// The rerun at `aloneMinContributors` in every frame after its rounds,
+    /// from what they left free, not only in a frame without a vertex.
+    bool aloneEverywhere = false;
   };
 
   struct ReplayVertex {
@@ -1494,6 +1602,9 @@ class VertexStudy
     std::uint32_t startPS = 0U;
     std::uint32_t widthPS = 0U;
     VertexSeed seed{}; ///< as the vertexer lists it
+    /// The variance of z [um^2] from the selected candidates' own errors
+    /// alone, 1 / the sum of their weights, beside the seed's from their scatter.
+    double modelVarUM2 = 0.;
     /// Of its claimed candidates' measurements, the shares whose first label
     /// is the frame's strongest other vertex's collision, a particle below the
     /// pass's pT floor, and no particle.
@@ -1668,9 +1779,13 @@ class VertexStudy
       const auto at = [&](std::int64_t value) { return static_cast<std::size_t>(std::ranges::lower_bound(z, value) - z.begin()); };
       const auto isFree = [&](std::size_t k) { return claimedBy[kept[k]] < 0 && dropped[kept[k]] == 0U; };
       // A candidate's reach (`claimReach`), and the farthest of a list's.
-      const auto reachOf = [&](std::size_t i) { return claimReach(mCandidates[i].fit.weight, static_cast<Scalar>(claim), s.clipNSigma); };
+      // `ownReach`: no fixed claim, but the peak's window, which holds every
+      // member of the window about its centre, so that each round claims them.
+      const auto claimFloor = static_cast<Scalar>(variant.ownReach ? window : claim);
+      const auto weightOf = [&](std::size_t i) { return mCandidates[i].fit.weight; };
+      const auto reachOf = [&](std::size_t i) { return claimReach(mCandidates[i].fit.reachWeight, claimFloor, s.clipNSigma); };
       const auto farthestOf = [&](const std::vector<std::size_t>& list) {
-        auto farthest = static_cast<Scalar>(claim);
+        auto farthest = claimFloor;
         for (const auto i : list) {
           farthest = std::max(farthest, reachOf(i));
         }
@@ -1718,6 +1833,10 @@ class VertexStudy
       }
       std::vector<std::uint32_t> count(m + 1U, 0U);
       std::uint32_t rounds = 0U;
+      // The vertexer's rerun at `aloneMinContributors` in a frame whose rounds
+      // found no vertex (`findInFrame`), or, `aloneEverywhere`, in every frame.
+      std::uint32_t minContributors = s.minContributors;
+      const auto frameFirst = run.vertices.size();
       while (true) {
         ++rounds;
         for (std::size_t k = 0; k < m; ++k) {
@@ -1730,15 +1849,20 @@ class VertexStudy
           if (!isFree(k)) {
             continue;
           }
-          const auto excess = peakExcess(z[k], window, claim, s.minContributors, k2, countIn);
+          const auto excess = peakExcess(z[k], window, claim, minContributors, k2, countIn);
           if (excess > bestExcess) {
             bestExcess = excess;
             best = k;
           }
         }
         if (best == m) {
+          if ((variant.aloneEverywhere || run.vertices.size() == frameFirst) && s.aloneMinContributors != 0U && s.aloneMinContributors < minContributors) {
+            minContributors = s.aloneMinContributors;
+            rounds = 0U;
+            continue;
+          }
           for (std::size_t k = 0; k < m; ++k) {
-            if (isFree(k) && countIn(z[k], z[k] + window) >= s.minContributors) {
+            if (isFree(k) && countIn(z[k], z[k] + window) >= minContributors) {
               run.vetoes.push_back({
                 .frame = mCandidates[begin].frame,
                 .zUM = z[k],
@@ -1781,8 +1905,12 @@ class VertexStudy
           earliest = std::min(earliest, fit.box.lower());
           latest = std::max(latest, fit.box.upper());
           claimedZ.push_back(z[k]);
-          claimedWeight.push_back(fit.weight);
+          claimedWeight.push_back(weightOf(kept[k]));
           claimedIndex.push_back(kept[k]);
+        }
+        // A round that claims nothing would find the same peak again.
+        if (claimedZ.empty()) {
+          throw std::runtime_error(std::format("vertex replay {}: a round in frame {} claimed no candidate", variant.name, mCandidates[begin].frame));
         }
         std::vector<std::uint8_t> selected(claimedZ.size(), 0U);
         std::uint64_t weightSum = 0U;
@@ -1822,6 +1950,7 @@ class VertexStudy
         vertex.startPS = seed.timePS;
         vertex.widthPS = seed.widthPS;
         vertex.seed = seed;
+        vertex.modelVarUM2 = weightSum == 0U ? 0. : static_cast<double>(kVertexWeightScale) / static_cast<double>(weightSum);
         // The reuse share against the earlier vertices of the frame, then
         // this one's triplets past the cuts within its claim.
         std::uint32_t reused = 0U;
@@ -2010,6 +2139,9 @@ class VertexStudy
       {.name = "rz3", .cuts = CutMode::kRzPull, .sigma = 3.},
       {.name = "pulls3", .cuts = CutMode::kPulls, .sigma = 3.},
       {.name = "pulls3-cap", .cuts = CutMode::kPullsCapped, .sigma = 3.},
+      {.name = "own-reach", .ownReach = true},
+      {.name = "alone-everywhere", .aloneEverywhere = true},
+      {.name = "own-reach-alone-everywhere", .ownReach = true, .aloneEverywhere = true},
     };
     if (!mPriorVertices.empty()) {
       variants.push_back({.name = "prior-stage", .prior = true});

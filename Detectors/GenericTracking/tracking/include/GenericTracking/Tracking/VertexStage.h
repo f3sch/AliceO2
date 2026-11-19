@@ -290,6 +290,14 @@ template <typename CountIn>
   return excessF * excessF < k2 * static_cast<Scalar>(sidebands) ? 0 : excess;
 }
 
+/// A candidate's two z0 variances [cm^2]: the one its weight in its vertex's
+/// mean takes, and the one its reach takes (`claimReach`): whether it can
+/// belong to a vertex asks for the wider of the two errors the triplet admits.
+struct VertexCandidateVariances {
+  Scalar weight = 0.F;
+  Scalar reach = 0.F;
+};
+
 /// The vertexer's candidate errors with the scattering of the pass's
 /// material and the beam's transverse spread.
 template <DetectorLayout Det>
@@ -297,7 +305,8 @@ struct ScatteringErrors {
   const ScatteringTable<Det>* table = nullptr;
   PairCut cut;
   Scalar varTransverse = 0.F;
-  /// A candidate's z0 variance [cm^2]: its r-z line's (\a fit's
+  /// A candidate's z0 variance [cm^2] at the momentum its own curvature
+  /// reads: its r-z line's (\a fit's
   /// `varZ0Line`), the scattering before and at its first point \a a at its
   /// own momentum -- the pair cut's `sourceScattering` from the fit's z0 at
   /// the pass's pT floor, its logarithm at the candidate's own beta, scaled by
@@ -313,7 +322,7 @@ struct ScatteringErrors {
   /// innermost layers, so every triplet starts there. A pass on other layers
   /// has to take its first layer here, or its own layer's scattering is left
   /// out.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar operator()(const PairPoint& a, const VertexCandidateFit& fit) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar ownCurvature(const PairPoint& a, const VertexCandidateFit& fit) const
   {
     const VertexSeed from{.z = fit.z0};
     const Scalar halfRMin = 0.5F * cut.twoRMin;
@@ -350,6 +359,102 @@ struct ScatteringErrors {
       own.logBeta2 = logOf(momentum2 / (momentum2 + cut.mass2));
     }
     return tripletScattering<Det>(*table, own, LayerID{1}, a, b, c, detail::referenceSinTheta(a, c));
+  }
+
+  /// The steps of `operator()`'s trapezoid integral over 1/pT: its error goes
+  /// as 1/steps^2, and at 64 the variance is within 0.3 % of the converged
+  /// integral for the points' part of the width 0.15-1 / GeV and the kick's
+  /// 0.3-1.2 per unit of 1/pT (the ITS's 0.4-0.6 and 0.6).
+  static constexpr int kPosteriorSteps = 64;
+
+  /// The triplet \a a, \a b, \a c's z0 variances (`VertexCandidateVariances`).
+  /// Its curvature reads the momentum only roughly: three points over the
+  /// vertexing layers' span, the points' transverse errors and the kick at the
+  /// middle one. So the weight's variance is its expectation given the
+  /// curvature: the line's and the beam's part, and the scattering before
+  /// and at \a a and the kick at \a b on the intercept through \a c (dz0/dz2
+  /// of the line, the lever to \a c), both as x^2 = 1/pT^2 from the pass
+  /// floor's, at the mean of x^2 given the curvature's measurement m of x --
+  /// a flat prior on [0, 1/floor], the likelihood a folded Gaussian (the
+  /// curvature is unsigned) of variance s_points^2 + (k x)^2: the points'
+  /// part of the middle point's sagitta, and the kick, k per unit of x (the
+  /// turning angle at \a b, 2 / |AC| per radian, `kinkScattering` at the
+  /// floor). The reach's is the larger of that and `ownCurvature`'s: a
+  /// candidate whose curvature reads it soft reaches as far as its own
+  /// momentum lets it. Without a field both are `ownCurvature`'s, the floor's.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() VertexCandidateVariances operator()(const PairPoint& a, const PairPoint& b, const PairPoint& c, const VertexCandidateFit& fit) const
+  {
+    const Scalar own = ownCurvature(a, fit);
+    const Scalar halfRMin = 0.5F * cut.twoRMin;
+    if (!(halfRMin > 0.F) || !(cut.momentumCurvature > 0.F)) {
+      return {.weight = own, .reach = own};
+    }
+    const Scalar slope = a.r > 0.F ? (a.z - fit.z0) / a.r : 0.F;
+    const Scalar line = fit.varZ0Line + (slope * slope * varTransverse);
+    VertexCandidateFit atFloor = fit;
+    atFloor.radius = halfRMin;
+    const Scalar scatterFloor = o2::gpu::GPUCommonMath::Max(ownCurvature(a, atFloor) - line, 0.F);
+    // Layer 1's kick on the intercept: the outer point moves by the lever
+    // times the dip angle's kink, the weighted line's z0 by dz0/dz2 of that.
+    const PairPoint points[3] = {a, b, c};
+    Scalar w[3] = {};
+    Scalar sw = 0.F;
+    Scalar swr = 0.F;
+    for (int i = 0; i < 3; ++i) {
+      w[i] = 1.F / (points[i].varZ > 1.e-12F ? points[i].varZ : 1.e-12F);
+      sw += w[i];
+      swr += w[i] * points[i].r;
+    }
+    const Scalar rMean = swr / sw;
+    Scalar srr = 0.F;
+    for (int i = 0; i < 3; ++i) {
+      srr += w[i] * (points[i].r - rMean) * (points[i].r - rMean);
+    }
+    const Scalar dz0dz2 = (w[2] / sw) - (rMean * w[2] * (c.r - rMean) / srr);
+    const Scalar t2 = (c.z - b.z) / (c.r - b.r);
+    const Scalar lever = (1.F + (t2 * t2)) * (c.r - b.r);
+    const Scalar kinkFloor = kinkScattering(a, b, c, halfRMin);
+    const Scalar layer1Floor = dz0dz2 * dz0dz2 * lever * lever * kinkFloor;
+    // The curvature as a measurement of x = 1/pT [1/GeV]: m, the points' part
+    // of its error from the middle point's sagitta h to the chord AC
+    // (curvature 2 h / (|AB| |BC|); h moves with each point's r-phi
+    // displacement across the chord, b's whole, a's and c's by their share at
+    // b's place along it), and the kick's part per unit of x.
+    const Scalar xFloor = 1.F / (cut.momentumCurvature * halfRMin);
+    const Scalar m = fit.radius < 1.e29F ? 1.F / (cut.momentumCurvature * fit.radius) : 0.F;
+    const Scalar acX = c.x - a.x;
+    const Scalar acY = c.y - a.y;
+    const Scalar ac = hypotOf(acX, acY);
+    const Scalar nX = -acY / ac;
+    const Scalar nY = acX / ac;
+    const Scalar along = (((b.x - a.x) * acX) + ((b.y - a.y) * acY)) / (ac * ac);
+    const auto across = [&](const PairPoint& p) { return ((nX * -p.y) + (nY * p.x)) / p.r; };
+    const Scalar acrossA = (1.F - along) * across(a);
+    const Scalar acrossB = across(b);
+    const Scalar acrossC = along * across(c);
+    const Scalar varH = (acrossB * acrossB * b.varRPhi) + (acrossA * acrossA * a.varRPhi) + (acrossC * acrossC * c.varRPhi);
+    const Scalar sides = hypotOf(b.x - a.x, b.y - a.y) * hypotOf(c.x - b.x, c.y - b.y);
+    const Scalar varPoints = 4.F * varH / (sides * sides * cut.momentumCurvature * cut.momentumCurvature);
+    const Scalar kick2 = 4.F * kinkFloor / (ac * ac * cut.momentumCurvature * cut.momentumCurvature * xFloor * xFloor);
+    // E[x^2 | m] by the trapezoid rule on [0, 1/floor].
+    Scalar sum = 0.F;
+    Scalar sumX2 = 0.F;
+    for (int step = 0; step <= kPosteriorSteps; ++step) {
+      const Scalar x = xFloor * static_cast<Scalar>(step) / static_cast<Scalar>(kPosteriorSteps);
+      const Scalar s2 = varPoints + (kick2 * x * x);
+      if (!(s2 > 0.F)) {
+        continue;
+      }
+      const Scalar below = (m - x) * (m - x) / s2;
+      const Scalar above = (m + x) * (m + x) / s2;
+      const Scalar edge = step == 0 || step == kPosteriorSteps ? 0.5F : 1.F;
+      const Scalar like = edge * (expOf(-0.5F * below) + expOf(-0.5F * above)) / sqrtOf(s2);
+      sum += like;
+      sumX2 += like * x * x;
+    }
+    const Scalar meanX2 = sum > 0.F ? sumX2 / sum : xFloor * xFloor;
+    const Scalar posterior = line + ((scatterFloor + layer1Floor) * meanX2 / (xFloor * xFloor));
+    return {.weight = posterior, .reach = o2::gpu::GPUCommonMath::Max(posterior, own)};
   }
 };
 
@@ -451,10 +556,11 @@ struct VertexClaim {
 };
 
 /// The seed of a vertex from its \a claim: z the selected candidates'
-/// weighted mean, each weight the inverse of the candidate's own z0 variance,
-/// and its variance the sandwich one, sum w^2 (z - mean)^2 / (sum w)^2 times
-/// n / (n - 1): the error from the candidates' scatter, honest whatever the
-/// model's tails -- its box the claimed
+/// weighted mean, each weight the inverse of the candidate's z0 variance,
+/// and its variance the larger of the model's, 1 / sum w, and the sandwich
+/// one, sum w^2 (z - mean)^2 / (sum w)^2 times n / (n - 1): the scatter
+/// covers what the model leaves out, the model a scatter from a handful of
+/// residuals -- its box the claimed
 /// ones' extent, its transverse spread \a beamSpot's. The host's rounds and
 /// the device's read-back sums both end here.
 [[nodiscard]] inline VertexSeed vertexSeedOf(const VertexClaim& claim, const VertexConstraint& beamSpot)
@@ -464,7 +570,8 @@ struct VertexClaim {
   if (claim.count > 1 && claim.weightSum != 0U) {
     const auto weightSum = static_cast<Scalar>(claim.weightSum);
     const auto n = static_cast<Scalar>(claim.count);
-    varMeanUM2 = (kVertexWeightScale / weightSum) * (static_cast<Scalar>(claim.scatterSum) / weightSum) * (n / (n - 1.F));
+    const Scalar sandwich = (kVertexWeightScale / weightSum) * (static_cast<Scalar>(claim.scatterSum) / weightSum) * (n / (n - 1.F));
+    varMeanUM2 = sandwich > varMeanUM2 ? sandwich : varMeanUM2;
   }
   return {
     .timePS = claim.earliestPS,
@@ -486,19 +593,26 @@ template <typename Tracklets, typename Triplets>
 }
 
 /// One triplet as a vertex candidate: its fit (`vertexCandidate`) into
-/// \a fit, its weight from \a errors (`candidateWeight` of `errors(a, fit)`,
-/// \a a its first point) into \a weight and
+/// \a fit, its weights from \a errors (`candidateWeight` of
+/// `errors(a, b, c, fit)`'s two variances) into \a weight, for its vertex's
+/// mean, and \a reachWeight, for its reach, none for a degenerate triplet;
 /// its rows' time box into \a box; \a term as `vertexCandidate` takes it.
 /// The host's map and a device's are this.
 template <typename Measurements, typename Tracklets, typename Triplets, typename Errors>
-GPUhdi() GPUAlwaysInline() VertexCandidateStatus measureCandidate(const Measurements& measurements, const Tracklets& tracklets, const Triplets& triplets, std::uint32_t triplet, const VertexerSettings& settings, const Errors& errors, VertexCandidateFit& fit, std::uint64_t& weight, TimeEstPS& box, BeamTerm* term)
+GPUhdi() GPUAlwaysInline() VertexCandidateStatus measureCandidate(const Measurements& measurements, const Tracklets& tracklets, const Triplets& triplets, std::uint32_t triplet, const VertexerSettings& settings, const Errors& errors, VertexCandidateFit& fit, std::uint64_t& weight, std::uint64_t& reachWeight, TimeEstPS& box, BeamTerm* term)
 {
   const auto rows = tripletRows(tracklets, triplets, triplet);
   const auto pa = pairPointAt(measurements, rows[0]);
   const auto pb = pairPointAt(measurements, rows[1]);
   const auto pc = pairPointAt(measurements, rows[2]);
   const auto status = vertexCandidate(pa, pb, pc, measurements.timePS[rows[1]], settings, errors, fit, term);
-  weight = candidateWeight(errors(pa, fit));
+  weight = 0U;
+  reachWeight = 0U;
+  if (status != VertexCandidateStatus::kDegenerate) {
+    const auto variances = errors(pa, pb, pc, fit);
+    weight = candidateWeight(variances.weight);
+    reachWeight = candidateWeight(variances.reach);
+  }
   box = timeBoxAt(measurements, rows[0]);
   box += timeBoxAt(measurements, rows[1]);
   box += timeBoxAt(measurements, rows[2]);
@@ -613,6 +727,7 @@ class Vertexer
     BoundedVector<std::uint64_t> keys(tripletCount, 0U, resource);
     BoundedVector<Scalar> chi2(tripletCount, 0.F, resource);
     BoundedVector<std::uint64_t> weights(tripletCount, 0U, resource);
+    BoundedVector<std::uint64_t> reachWeights(tripletCount, 0U, resource);
     BoundedVector<TimeEstPS> boxes(tripletCount, resource);
     BoundedVector<VertexCandidateStatus> status(tripletCount, VertexCandidateStatus::kDegenerate, resource);
     // body(begin, end) over [0, n) in \a arena, in pieces of \a grain, or at once.
@@ -626,7 +741,7 @@ class Vertexer
     const auto map = [&](std::size_t begin, std::size_t end) {
       for (auto t = begin; t < end; ++t) {
         VertexCandidateFit fit;
-        status[t] = measureCandidate(measurements, tracklets, triplets, static_cast<std::uint32_t>(t), mSettings, errors, fit, weights[t], boxes[t], nullptr);
+        status[t] = measureCandidate(measurements, tracklets, triplets, static_cast<std::uint32_t>(t), mSettings, errors, fit, weights[t], reachWeights[t], boxes[t], nullptr);
         keys[t] = fit.key;
         chi2[t] = fit.chi2RZ;
       }
@@ -666,7 +781,7 @@ class Vertexer
     BoundedVector<Source> sources(resource);
     for (std::size_t t = 0; t < tripletCount; ++t) {
       if (status[t] != VertexCandidateStatus::kDegenerate && owned.owns(vertexKeyFrame(keys[t]))) {
-        sources.push_back({.key = keys[t], .triplet = static_cast<std::uint32_t>(t), .weight = weights[t]});
+        sources.push_back({.key = keys[t], .triplet = static_cast<std::uint32_t>(t), .reachWeight = reachWeights[t]});
       }
     }
     std::ranges::stable_sort(sources, {}, &Source::key);
@@ -698,7 +813,7 @@ class Vertexer
     candidates.reserve(accepted.size());
     for (const auto t : accepted) {
       if (kept[t] != 0U && owned.owns(vertexKeyFrame(keys[t]))) {
-        candidates.push_back({.key = keys[t], .triplet = t, .box = boxes[t], .weight = weights[t], .slots = slotsOf(keys[t], t)});
+        candidates.push_back({.key = keys[t], .triplet = t, .box = boxes[t], .weight = weights[t], .reachWeight = reachWeights[t], .slots = slotsOf(keys[t], t)});
       }
     }
     result.candidates = candidates.size();
@@ -766,6 +881,7 @@ class Vertexer
     std::uint32_t triplet = 0U;
     TimeEstPS box;                        ///< the triplet's, its boxes' intersection
     std::uint64_t weight = 0U;            ///< in its vertex's mean (`candidateWeight`)
+    std::uint64_t reachWeight = 0U;       ///< for its reach (`claimReach`)
     std::array<std::uint32_t, 3> slots{}; ///< its measurements' ownership slots
   };
 
@@ -774,7 +890,7 @@ class Vertexer
   struct Source {
     std::uint64_t key = 0U;
     std::uint32_t triplet = 0U;
-    std::uint64_t weight = 0U; ///< its z0 error's (`candidateWeight`), for its reach
+    std::uint64_t reachWeight = 0U; ///< its z0 error's for its reach (`candidateWeight`)
     std::array<std::uint32_t, 3> slots{};
   };
 
@@ -808,11 +924,11 @@ class Vertexer
     const auto reachOf = [&](std::uint64_t weight) { return claimReach(weight, static_cast<Scalar>(claim), mSettings.clipNSigma); };
     auto farthest = static_cast<Scalar>(claim);
     for (const auto& candidate : segment) {
-      farthest = std::max(farthest, reachOf(candidate.weight));
+      farthest = std::max(farthest, reachOf(candidate.reachWeight));
     }
     auto farthestSource = static_cast<Scalar>(claim);
     for (const auto& source : sources) {
-      farthestSource = std::max(farthestSource, reachOf(source.weight));
+      farthestSource = std::max(farthestSource, reachOf(source.reachWeight));
     }
     // The test (2W - S)^2 >= 2 k^2 S, with W the window's count and S the
     // two sidebands': the excess over the sidebands' mean against k times its
@@ -864,7 +980,7 @@ class Vertexer
       std::uint32_t earliest = std::numeric_limits<std::uint32_t>::max();
       std::uint32_t latest = 0U;
       for (auto i = at(static_cast<std::int64_t>(centre - farthest) - 1); i < n && static_cast<Scalar>(z[i]) <= centre + farthest; ++i) {
-        if (claims[i] != kClaimFree || !withinZ(z[i], centre, reachOf(segment[i].weight))) {
+        if (claims[i] != kClaimFree || !withinZ(z[i], centre, reachOf(segment[i].reachWeight))) {
           continue;
         }
         claims[i] = id;
@@ -916,7 +1032,7 @@ class Vertexer
       // the next round counts.
       const auto sourceZ = [](const Source& source) { return vertexKeyZUM(source.key); };
       for (auto it = std::ranges::lower_bound(sources, static_cast<std::int64_t>(centre - farthestSource) - 1, {}, sourceZ); it != sources.end() && static_cast<Scalar>(sourceZ(*it)) <= centre + farthestSource; ++it) {
-        if (withinZ(sourceZ(*it), centre, reachOf(it->weight))) {
+        if (withinZ(sourceZ(*it), centre, reachOf(it->reachWeight))) {
           for (const auto slot : it->slots) {
             ownedSlots[slot] = 1U;
           }
