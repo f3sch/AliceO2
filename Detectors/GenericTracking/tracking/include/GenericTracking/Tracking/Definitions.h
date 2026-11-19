@@ -25,6 +25,7 @@
 #define GTRK_TRACKING_DEFINITIONS_H_
 
 #include "GenericTracking/Base/Definitions.h"
+#include "GenericTracking/Base/DenseSolve.h"
 
 #include <cstdint>
 #include <type_traits>

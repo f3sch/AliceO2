@@ -12,7 +12,8 @@
 /// \file DenseSolve.h
 /// \brief Small dense factorisations of symmetric matrices: Cholesky, the
 ///        symmetric indefinite L D L^T (Bunch-Kaufman), and the factor of a
-///        positive semi-definite matrix.
+///        positive semi-definite matrix; the packed index of a symmetric
+///        matrix (`covIndex`).
 ///
 /// Every routine works in place on a view of an n x n matrix in memory the
 /// caller owns and allocates nothing. A view is a row-major `MatrixView` or a
@@ -33,6 +34,37 @@
 #include "GPUCommonMath.h"
 
 #include <type_traits>
+
+namespace o2::gtrk
+{
+
+/// Index of element (row, col) of a symmetric matrix in its packed lower
+/// triangle, row-major:
+///
+///     0
+///     1  2
+///     3  4  5
+///     6  7  8  9
+///    10 11 12 13 14
+///
+/// For the 5x5 track covariance this is the layout O2 uses: o2::track::CovarMap
+/// is {{0,1,3,6,10},...} with DiagMap {0,2,5,9,14}, which is what this formula
+/// produces.  O2 tabulates it and we compute it.
+///
+/// Symmetric in its arguments, so a caller never has to know which of the two
+/// indices is the larger one -- which is exactly the mistake that makes a
+/// packed covariance silently wrong rather than loudly broken.
+GPUhdi() GPUAlwaysInline() constexpr int covIndex(int row, int col)
+{
+  const int hi = row > col ? row : col;
+  const int lo = row > col ? col : row;
+  return (hi * (hi + 1)) / 2 + lo;
+}
+
+/// The entries a packed symmetric n x n matrix holds, n (n + 1) / 2.
+GPUhdi() GPUAlwaysInline() constexpr int covSize(int n) { return (n * (n + 1)) / 2; }
+
+} // namespace o2::gtrk
 
 namespace o2::gtrk::dense
 {
