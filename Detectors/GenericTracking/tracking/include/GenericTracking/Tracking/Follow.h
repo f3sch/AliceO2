@@ -310,6 +310,11 @@ struct FollowProposal {
   std::uint32_t outward[K]{};
   std::uint32_t inward[K]{};
   std::uint32_t replacedEnd = std::numeric_limits<std::uint32_t>::max();
+  /// A row on an inactive layer between two of the track's rows (LayerSpec.h),
+  /// inserted before its row `interiorAt` (`FollowStage::interior`); none
+  /// without.
+  std::uint32_t interior = std::numeric_limits<std::uint32_t>::max();
+  std::uint8_t interiorAt = 0U;
   std::uint8_t outwardCount = 0U;
   std::uint8_t inwardCount = 0U;
 };
@@ -869,6 +874,22 @@ struct NoBeamEndHistory {
 template <bool BeamEnd>
 using BeamEndHistoryOf = std::conditional_t<BeamEnd, BeamEndHistory, NoBeamEndHistory>;
 
+/// \a rows with \a row inserted before their \a at-th, as the fit reads a
+/// chain: a track with its interior row (`FollowStage::interior`).
+template <DetectorLayout Det>
+struct InsertedChain {
+  const TimeFrame<Det>* frame = nullptr;
+  const std::uint32_t* rows = nullptr;
+  std::uint32_t at = 0U;
+  std::uint32_t row = 0U;
+
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Measurement operator[](int i) const
+  {
+    const auto k = static_cast<std::uint32_t>(i);
+    return measurementAt(*frame, k < at ? rows[k] : (k == at ? row : rows[k - 1U]));
+  }
+};
+
 /// A layer a step may reach: its nominal crossing and its distance from the
 /// track, squared.
 struct Target {
@@ -1018,8 +1039,14 @@ class FollowStage
         return;
       }
     }
-    const std::uint32_t capacity = static_cast<std::uint32_t>(kMaxClusters) - count;
+    std::uint32_t capacity = static_cast<std::uint32_t>(kMaxClusters) - count;
     auto box = trackTimeBox(mFrame->measurements(), rows, static_cast<std::uint8_t>(count));
+    // A row on an inactive layer the track's road straddles (`interior`).
+    if constexpr (Detector<Det>::inactiveLayers != 0U) {
+      if (capacity > 1U && interior(outer, rows, count, box, proposal)) {
+        --capacity;
+      }
+    }
     proposal.outwardCount = walk(outer, PropagationDirection::kForward, proposal.outward, capacity, box, observe, std::numeric_limits<std::uint32_t>::max(), group);
     walkInward(inner, rows.index[0], capacity - proposal.outwardCount, box, proposal, observe, group);
   }
@@ -1145,6 +1172,11 @@ class FollowStage
     // Whether the latest step saw a row near where it took none (the unconfirmed drop, below).
     bool nearMiss = false;
     [[maybe_unused]] follow::BeamEndHistoryOf<BeamEnd> history; // NOLINT(misc-const-correctness): written in a dependent call the check does not see
+    // The inactive layers' tail resumes from the state and time box before
+    // the last row when the unconfirmed drop removes it.
+    [[maybe_unused]] BoundParameters beforeLast = branch.state;
+    [[maybe_unused]] CovarianceFactors beforeLastFactors = branch.factors;
+    [[maybe_unused]] TimeEstPS beforeLastBox = box;
     while (branch.count < capacity) {
       const LayerID current = mGeometry->surface(branch.state.surface).layer;
       observe.step(current, branch.state, branch.factors, branch.count);
@@ -1164,6 +1196,11 @@ class FollowStage
             history.remember(branch.state, branch.factors);
           }
         }
+        if constexpr (Detector<Det>::inactiveLayers != 0U) {
+          beforeLast = branch.state;
+          beforeLastFactors = branch.factors;
+          beforeLastBox = box;
+        }
         take(branch, box, child);
         continue;
       }
@@ -1181,8 +1218,10 @@ class FollowStage
     const bool evidence = (direction == PropagationDirection::kBackward && nearMiss) || branch.lastChi2 < mParameters->followKeepChi2;
     // With EndDensity also an
     // outward last row of a high density stays (`densityKept`).
+    [[maybe_unused]] bool dropped = false;
     if (branch.crossed && !evidence && branch.count != 0U && !densityKept(branch, direction)) {
       --branch.count;
+      dropped = true;
       countWork(WorkCounter::kFollowUnconfirmed);
       observe.unconfirmed(branch.rows[branch.count]);
     }
@@ -1203,6 +1242,30 @@ class FollowStage
         --branch.count;
         countWork(WorkCounter::kFollowBeamEndRefused);
         observe.refusedBeamEnd(branch.rows[branch.count]);
+      }
+    }
+    if constexpr (Detector<Det>::inactiveLayers != 0U) {
+      // The inactive layers' tail: outward, where the walk ended before them
+      // -- a hole, no row, or no link on -- one nominal step after another
+      // from its last state onto the inactive layers it has no row on,
+      // nearest crossing first (`inactiveLayerTail`), until a step takes none.
+      // Where the unconfirmed drop removed the last row, from the state
+      // before that row.
+      if (dropped) {
+        branch.state = beforeLast;
+        branch.factors = beforeLastFactors;
+        box = beforeLastBox;
+      }
+      if (direction == PropagationDirection::kForward && end != FollowEnd::kCapacity) {
+        while (branch.count < capacity) {
+          Child child;
+          bool nearTail = false;
+          if (!inactiveLayerTail(branch, box, direction, child, nearTail, observe, group)) {
+            break;
+          }
+          observe.taken(child.row, child.chi2);
+          take(branch, box, child);
+        }
       }
     }
     observe.end(end);
@@ -1395,6 +1458,161 @@ class FollowStage
     return false;
   }
 
+  /// The interior row: the first inactive layer between two
+  /// consecutive rows of the track, \a rows' i and i + 1 -- a link from the
+  /// first's layer onto it, and one from it onto the second's -- which a road
+  /// crosses without a row on it, the follow never visiting it. From the
+  /// track's forward pass cut at row i (its first i + 1 rows, at least
+  /// three), or else its inward pass from \a outer, its outward state, cut at
+  /// row i + 1 (at least three rows), a nominal step onto it, with the
+  /// track's time \a box: of the
+  /// free rows it passes (the four best), the one whose insertion raises the
+  /// track's fit chi2 least, under the layer's gate, goes into \a proposal
+  /// before row i + 1 and narrows \a box. Whether one did.
+  [[nodiscard]] GPUhdi() bool interior(const BoundTrackState& outer, const ClusterList<kMaxClusters>& rows, std::uint32_t count, TimeEstPS& box, Proposal& proposal) const
+  {
+    const auto& measurements = mFrame->measurements();
+    const auto linked = [&](LayerID from, LayerID to) {
+      for (auto at = mParameters->allOutLinkOffsets[from]; at < mParameters->allOutLinkOffsets[from + 1U]; ++at) {
+        if (mParameters->linkTargets[mParameters->allOutLinkIndices[at]] == to) {
+          return true;
+        }
+      }
+      return false;
+    };
+    for (std::uint32_t i = 0U; i + 1U < count; ++i) {
+      const LayerID before = mGeometry->surface(measurements.surface[rows.index[i]]).layer;
+      const LayerID after = mGeometry->surface(measurements.surface[rows.index[i + 1U]]).layer;
+      for (std::uint64_t left = Detector<Det>::inactiveLayers; left != 0U; left &= left - 1U) {
+        const auto layer = static_cast<LayerID>(o2::gpu::CAMath::Ctz64(left));
+        if (layer == before || layer == after || !linked(before, layer) || !linked(layer, after)) {
+          continue;
+        }
+        const bool forward = i + 1U >= 3U;
+        if (!forward && count - i - 1U < 3U) {
+          return false;
+        }
+        const auto direction = forward ? PropagationDirection::kForward : PropagationDirection::kBackward;
+        const RowChain<Det> chain{.frame = mFrame, .rows = rows.index};
+        BoundTrackState state;
+        Scalar chi2 = 0.F;
+        std::int16_t failed = -1;
+        std::int16_t kinkAt = -1;
+        int kinks = 0;
+        // A pass takes its start's values alone (`runPass`): the whole
+        // chain's helix forward, the outward state inward.
+        const BoundTrackState start = forward ? makeChainSeed(mPropagator, *mGeometry, chain, static_cast<int>(count)) : outer;
+        const RowChain<Det> side{.frame = mFrame, .rows = forward ? rows.index : rows.index + i + 1U};
+        const auto sideCount = static_cast<int>(forward ? i + 1U : count - i - 1U);
+        const auto span = detail::spanMaterial(*mGeometry, *mMaterial, side, sideCount);
+        if (detail::runPass(mPropagator, *mGeometry, span, side, sideCount, direction, start, state, chi2, failed, KinkBudget{}, kinks, kinkAt, NoFitObserver{}) != PropagationStatus::kOk) {
+          return false;
+        }
+        const auto prediction = predictLayerCrossing(mPropagator, *mParameters, mGeometry->planeOf(state), state, layer, direction);
+        if (prediction.status != PropagationStatus::kOk) {
+          return false;
+        }
+        const follow::Target target{.distance2 = 0.F, .layer = layer, .prediction = prediction};
+        const auto factors = factorCovariance(state.cov);
+        CandidateWindow window;
+        Scalar reach[2]{};
+        detail::StepMaterial traversed;
+        if (!targetWindow(state, factors, box, target, direction, window, reach, traversed, SoloGroup{})) {
+          return false;
+        }
+        constexpr std::uint32_t kKept = 4U;
+        std::uint32_t candidates[kKept];
+        Scalar chi2s[kKept];
+        std::uint32_t n = 0U;
+        follow::visitInline<false, false, false, Shape>(
+          context(), state, factors, 0.F, 0.F, layer, direction, window, traversed, 0U, WorkCounter::kFollowUpdates, SoloGroup{}, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},
+          [&](const auto& candidate) {
+            std::uint32_t slot = n < kKept ? n++ : kKept;
+            if (slot == kKept && !(candidate.chi2 < chi2s[kKept - 1U])) {
+              return;
+            }
+            slot = slot == kKept ? kKept - 1U : slot;
+            while (slot > 0U && candidate.chi2 < chi2s[slot - 1U]) {
+              candidates[slot] = candidates[slot - 1U];
+              chi2s[slot] = chi2s[slot - 1U];
+              --slot;
+            }
+            candidates[slot] = candidate.row;
+            chi2s[slot] = candidate.chi2;
+          });
+        if (n == 0U) {
+          return false;
+        }
+        const auto budget = kinkBudget(*mParameters);
+        const auto plain = fitMeasurements(mPropagator, *mGeometry, *mMaterial, chain, static_cast<int>(count), budget);
+        if (plain.status != PropagationStatus::kOk) {
+          return false;
+        }
+        std::uint32_t best = ClusterList<kMaxClusters>::kNoCluster;
+        Scalar bestDelta = mParameters->clusterChi2Max;
+        for (std::uint32_t c = 0; c < n; ++c) {
+          const follow::InsertedChain<Det> with{.frame = mFrame, .rows = rows.index, .at = i + 1U, .row = candidates[c]};
+          const auto fit = fitMeasurements(mPropagator, *mGeometry, *mMaterial, with, static_cast<int>(count + 1U), budget);
+          if (fit.status == PropagationStatus::kOk && fit.chi2 - plain.chi2 <= bestDelta) {
+            bestDelta = fit.chi2 - plain.chi2;
+            best = candidates[c];
+          }
+        }
+        if (best == ClusterList<kMaxClusters>::kNoCluster) {
+          return false;
+        }
+        proposal.interior = best;
+        proposal.interiorAt = static_cast<std::uint8_t>(i + 1U);
+        box += timeBoxAt(measurements, best);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// The inactive layers' tail of \a branch's walk (\a Det's
+  /// `inactiveLayers`): the inactive layers it holds no row on and its state
+  /// crosses ahead, nearest first, searched as a nominal step is
+  /// (`nominal`), the holes not counted. Whether it found a row, into \a child.
+  template <typename Observer, typename Group>
+  [[nodiscard]] GPUhdi() bool inactiveLayerTail(Branch& branch, const TimeEstPS& box, PropagationDirection direction, Child& child, bool& nearMiss, const Observer& observe, const Group& group) const
+  {
+    follow::Target targets[follow::maxDegree<Det>];
+    std::uint32_t nTargets = 0U;
+    const auto& from = mGeometry->planeOf(branch.state);
+    Scalar here[3]{};
+    surfaceToGlobal(from, branch.state.loc0(), branch.state.loc1(), here);
+    for (std::uint64_t left = Detector<Det>::inactiveLayers; left != 0U && nTargets < follow::maxDegree<Det>; left &= left - 1U) {
+      const auto layer = static_cast<LayerID>(o2::gpu::CAMath::Ctz64(left));
+      bool held = mGeometry->surface(branch.state.surface).layer == layer;
+      for (std::uint32_t i = 0; i < branch.count; ++i) {
+        held = held || mGeometry->surface(mFrame->measurements().surface[branch.rows[i]]).layer == layer;
+      }
+      if (held) {
+        continue;
+      }
+      const auto prediction = predictLayerCrossing(mPropagator, *mParameters, from, branch.state, layer, direction);
+      if (prediction.status != PropagationStatus::kOk) {
+        continue;
+      }
+      Scalar point[3]{};
+      follow::crossingPoint(*mParameters, layer, prediction, point);
+      const Scalar d2 = ((point[0] - here[0]) * (point[0] - here[0])) + ((point[1] - here[1]) * (point[1] - here[1])) + ((point[2] - here[2]) * (point[2] - here[2]));
+      std::uint32_t slot = nTargets++;
+      while (slot > 0U && d2 < targets[slot - 1U].distance2) {
+        targets[slot] = targets[slot - 1U];
+        --slot;
+      }
+      targets[slot] = {.distance2 = d2, .layer = layer, .prediction = prediction};
+    }
+    if (nTargets == 0U) {
+      return false;
+    }
+    Branch tail = branch;
+    tail.holes = 0U;
+    return nominal(tail, box, direction, targets, nTargets, child, nearMiss, observe, group);
+  }
+
   /// The nominal pass of a step of \a branch over its \a nTargets
   /// \a targets (`overTargets`): the first target with a row in the gate
   /// gives \a child -- the row, or, with more than one, the lookahead's best confirmed
@@ -1565,6 +1783,12 @@ class FollowStage
   /// crossing's angle.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() bool crossesSensor(const BoundParameters& state, const follow::Target& target, const Scalar* reach, PropagationDirection direction) const
   {
+    // An inactive layer is never a hole, nor a crossing the unconfirmed drop reads (LayerSpec.h).
+    if constexpr (Detector<Det>::inactiveLayers != 0U) {
+      if (Detector<Det>::isInactiveLayer(target.layer)) {
+        return false;
+      }
+    }
     countWork(WorkCounter::kFollowHoleTests);
     const auto& from = mGeometry->planeOf(state);
     Scalar point[3]{};
@@ -1675,6 +1899,9 @@ struct Bid {
     for (std::uint32_t i = 0; i < proposal.inwardCount; ++i) {
       o2::gpu::CAMath::AtomicMax(slots + proposal.inward[i], priority);
     }
+    if (proposal.interior != ClusterList<K>::kNoCluster) {
+      o2::gpu::CAMath::AtomicMax(slots + proposal.interior, priority);
+    }
   }
 };
 
@@ -1697,6 +1924,9 @@ struct Resolve {
     const std::uint32_t proposed = static_cast<std::uint32_t>(proposal.outwardCount) + proposal.inwardCount;
     proposal.outwardCount = kept(proposal.outward, proposal.outwardCount, priority);
     proposal.inwardCount = kept(proposal.inward, proposal.inwardCount, priority);
+    if (proposal.interior != ClusterList<K>::kNoCluster && slots[proposal.interior] != priority) {
+      proposal.interior = ClusterList<K>::kNoCluster;
+    }
     countWork(earlier ? WorkCounter::kFollowEarlierProposed : WorkCounter::kFollowProposed, proposed);
     countWork(earlier ? WorkCounter::kFollowEarlierOutbid : WorkCounter::kFollowOutbid, proposed - proposal.outwardCount - proposal.inwardCount);
   }
@@ -1735,10 +1965,19 @@ struct Combine {
     }
     // A replaced end goes with the outward rows that replace it.
     const bool replaced = proposal.replacedEnd != ClusterList<K>::kNoCluster && proposal.outwardCount != 0U;
-    const std::uint32_t kept = originalCount[track] - (replaced ? 1U : 0U);
-    for (std::uint32_t i = 0; i < kept; ++i) {
-      combined.index[static_cast<std::uint32_t>(proposal.inwardCount) + i] = original[track].index[i];
+    std::uint32_t kept = originalCount[track] - (replaced ? 1U : 0U);
+    // An interior row goes before the track's row it was found before.
+    const bool interior = proposal.interior != ClusterList<K>::kNoCluster;
+    for (std::uint32_t i = 0, at = proposal.inwardCount; i < kept; ++i) {
+      if (interior && i == proposal.interiorAt) {
+        combined.index[at++] = proposal.interior;
+      }
+      combined.index[at++] = original[track].index[i];
     }
+    if (interior && proposal.interiorAt >= kept) {
+      combined.index[static_cast<std::uint32_t>(proposal.inwardCount) + kept] = proposal.interior;
+    }
+    kept += interior ? 1U : 0U;
     for (std::uint32_t i = 0; i < proposal.outwardCount; ++i) {
       combined.index[static_cast<std::uint32_t>(proposal.inwardCount) + kept + i] = proposal.outward[i];
     }
@@ -1782,7 +2021,7 @@ struct Refit {
   {
     const std::uint32_t track = trackOffset + element;
     auto& proposal = proposals[element];
-    const std::uint32_t added = static_cast<std::uint32_t>(proposal.outwardCount) + proposal.inwardCount;
+    const std::uint32_t added = static_cast<std::uint32_t>(proposal.outwardCount) + proposal.inwardCount + (proposal.interior != ClusterList<kMaxClusters>::kNoCluster ? 1U : 0U);
     if (added == 0U) {
       return;
     }
@@ -1796,6 +2035,7 @@ struct Refit {
       countWork(earlier ? WorkCounter::kFollowEarlierRefitRejected : WorkCounter::kFollowRefitRejected, added);
       proposal.outwardCount = 0U;
       proposal.inwardCount = 0U;
+      proposal.interior = ClusterList<kMaxClusters>::kNoCluster;
     }
   }
 
@@ -1894,6 +2134,12 @@ struct TrimAmbiguous {
     // The outward rows are the track's last (`Combine`).
     ClusterList<kMaxClusters> rows = tracks.clusters[track];
     const std::uint32_t row = rows.index[count - 1U];
+    // Preserve the last row when it comes from an inactive layer.
+    if constexpr (Detector<Det>::inactiveLayers != 0U) {
+      if (Detector<Det>::isInactiveLayer(geometry->surface(frame->measurements().surface[row]).layer)) {
+        return;
+      }
+    }
     rows.index[count - 1U] = ClusterList<kMaxClusters>::kNoCluster;
     const auto shorter = static_cast<std::uint8_t>(count - 1U);
     countWork(WorkCounter::kFollowTrimFits);
@@ -1932,6 +2178,9 @@ struct Mark {
     }
     for (std::uint32_t i = 0; i < proposal.inwardCount; ++i) {
       used[proposal.inward[i]] = kExclusive;
+    }
+    if (proposal.interior != ClusterList<K>::kNoCluster) {
+      used[proposal.interior] = kExclusive;
     }
   }
 };

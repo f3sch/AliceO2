@@ -202,7 +202,8 @@ template <DetectorLayout Det>
   std::uint64_t holes = 0U;
   for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
     const auto id = static_cast<LayerID>(layer);
-    if (id == from || id == to) {
+    // An inactive layer leaves no hole (LayerSpec.h).
+    if (id == from || id == to || Detector<Det>::isInactiveLayer(id)) {
       continue;
     }
     const bool barrel = Detector<Det>::isBarrelLayer(id);

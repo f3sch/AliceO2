@@ -60,5 +60,6 @@ gtrk_tracking_test(hypothesis-refit testHypothesisRefit.cxx O2::ReconstructionDa
 gtrk_tracking_test(passive-scattering testPassiveScattering.cxx)
 gtrk_tracking_test(displaced-pair testDisplacedPair.cxx)
 gtrk_tracking_test(follow testFollow.cxx)
+gtrk_tracking_test(inactive-layers testInactiveLayers.cxx)
 
 add_subdirectory(device)

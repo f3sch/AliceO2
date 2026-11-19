@@ -193,7 +193,12 @@ template <DetectorLayout Det>
 
   // The half-gaps to the neighbours of the same kind and, for discs, side.
   const auto neighbour = [&](int step) -> double {
-    const auto other = static_cast<int>(layer) + step;
+    auto other = static_cast<int>(layer) + step;
+    // A layer's slab reaches past an inactive neighbour (LayerSpec.h), as
+    // in the layout without it: its material stays where it was.
+    while (!Detector<Det>::isInactiveLayer(id) && other >= 0 && std::cmp_less(other, kLayers) && Detector<Det>::isInactiveLayer(static_cast<LayerID>(other))) {
+      other += step;
+    }
     if (other < 0 || std::cmp_greater_equal(other, kLayers)) {
       return 0.;
     }
