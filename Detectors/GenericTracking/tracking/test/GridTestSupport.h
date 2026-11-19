@@ -231,7 +231,7 @@ std::unique_ptr<TimeFrame<Det>> frameOf(const GridGeometry<Det>& geometry, std::
 template <typename Tracker, DetectorLayout Det>
 [[nodiscard]] auto runSlice(Tracker& tracker, std::size_t iteration, const TimeFrame<Det>& frame, const typename TimeFrame<Det>::TimeSlice& slice, std::span<const VertexSeed> vertices)
 {
-  const auto plan = tracker.planTimeframe(frame, vertices, frame.grid().geometry().blockCount());
+  const auto plan = tracker.planTimeframe(frame, frameBounds(frame), vertices, frame.grid().geometry().blockCount());
   const auto slicePlan = planSlice(frame, slice, sliceReach(frameBounds(frame), frame.grid().geometry()).gatePS());
   return tracker.runSlice(iteration, frame, plan, slicePlan, vertices, plan.vertexWindows[iteration]);
 }

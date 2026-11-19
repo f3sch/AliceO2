@@ -76,16 +76,17 @@ class VertexingPass
   [[nodiscard]] const IterationParameters<Det>& passParameters() const { return mPass.iteration(0U); }
   [[nodiscard]] const VertexerSettings& settings() const { return mVertexer.settings(); }
 
-  /// The vertices of \a frame, sorted by time, the pass in slices of
-  /// \a sliceWidthBlocks blocks, as `planTimeframe` plans the tracking's; with \a keepClaims the claims too.
-  [[nodiscard]] Result find(const Frame& frame, std::int32_t sliceWidthBlocks, bool keepClaims = false)
+  /// The vertices of \a frame, whose bounds are \a bounds, sorted by time, the
+  /// pass in slices of \a sliceWidthBlocks blocks, as `planTimeframe` plans the
+  /// tracking's; with \a keepClaims the claims too.
+  [[nodiscard]] Result find(const Frame& frame, const HaloBounds<Det>& bounds, std::int32_t sliceWidthBlocks, bool keepClaims = false)
   {
     Result result;
     result.status = mPass.beginTimeframe(frame);
     if (result.status != StageStatus::kComplete) {
       return result;
     }
-    const auto plan = mPass.planTimeframe(frame, {}, sliceWidthBlocks);
+    const auto plan = mPass.planTimeframe(frame, bounds, {}, sliceWidthBlocks);
     // Each candidate's z0 error from the pass's material at its own momentum
     // and the beam's transverse spread.
     const ScatteringErrors<Det> errors{

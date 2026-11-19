@@ -1329,7 +1329,7 @@ int seedingStrategy(const Options& options, Controller<Det>& tracker, const Time
     throw std::runtime_error("cannot write " + options.seedingStrategy);
   }
   tracker.setProfiling(false);
-  const auto plan = tracker.planTimeframe(frame, vertices, blocksPerSlice);
+  const auto plan = tracker.planTimeframe(frame, frameBounds(frame), vertices, blocksPerSlice);
   if (tracker.beginTimeframe(frame) != StageStatus::kComplete) {
     throw std::runtime_error("--seeding-strategy: the timeframe's used mask does not fit the pool");
   }
@@ -1623,6 +1623,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   }
   std::cout << std::format("; {} buckets, offsets {:.1f} MB\n", geometry.bucketCount(), static_cast<double>(input.offsets.size() * sizeof(std::uint32_t)) / 1.e6);
   const Frame frame{measurementView(input.columns), geometry, std::span<const typename Frame::Index>{input.offsets}};
+  // The frame's bounds, which the measurement producer ships with the grid and a
+  // dump does not hold: taken once here, outside the timed runs, as it would.
+  const auto bounds = frameBounds(frame);
   if (const auto* why = interface.checkInput(input.columns, input.offsets, geometry.bucketCount(), input.vertices)) {
     throw std::runtime_error(why);
   }
@@ -2057,7 +2060,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     // The pool's peak over the vertexing, which shares the tracker's pool
     // (TrackingInterface): with the run's peak, what the timeframe takes.
     pool->resetPeakMemory();
-    const auto vertexed = interface.vertices(frame, input.vertices, options.verticesOnly && repetition == 0U);
+    const auto vertexed = interface.vertices(frame, bounds, input.vertices, options.verticesOnly && repetition == 0U);
     const std::size_t vertexerPoolPeak = pool->getPeakMemory();
     if (vertexed.dropped) {
       throw std::runtime_error("the vertexing pass ran out of memory");
@@ -2111,11 +2114,11 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     if (!device) {
       const profile::Activation activation{planProfile, pool.get()};
       const profile::Zone zone{profile::Phase::kPlan};
-      plan.emplace(tracker.planTimeframe(frame, vertices, blocksPerSlice));
+      plan.emplace(tracker.planTimeframe(frame, bounds, vertices, blocksPerSlice));
     }
     planSeconds = planProfile[profile::Phase::kPlan].seconds + vertexSeconds;
     if (device) {
-      const auto run = interface.track(frame, vertices);
+      const auto run = interface.track(frame, bounds, vertices);
       if (run.dropped) {
         throw std::runtime_error("the tracking ran out of device memory");
       }
@@ -2130,7 +2133,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         std::cout << std::format("digest, vertices: {:016x}\n", vertexDigest(vertexed.found->vertices, vertexed.found->contributors));
         if (last) {
           // The host's list on the same frame, against the device's.
-          auto host = vertexing->find(frame, blocksPerSlice);
+          auto host = vertexing->find(frame, bounds, blocksPerSlice);
           if (host.status != StageStatus::kComplete) {
             throw std::runtime_error(std::format("the host's vertexing pass failed with status {}", static_cast<int>(host.status)));
           }
@@ -2205,7 +2208,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       }
       if (options.hostReference && last) {
         const std::span<const VertexSeed> vertices = vertexing ? std::span<const VertexSeed>{foundVertices} : std::span<const VertexSeed>{input.vertices};
-        const auto plan = tracker.planTimeframe(frame, vertices, blocksPerSlice);
+        const auto plan = tracker.planTimeframe(frame, bounds, vertices, blocksPerSlice);
         const auto result = tracker.run(frame, plan);
         if (result.status != StageStatus::kComplete) {
           throw std::runtime_error(std::format("the host reference failed with status {}", static_cast<int>(result.status)));

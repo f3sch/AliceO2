@@ -49,7 +49,7 @@ std::unique_ptr<Funnel> runFunnel(const toybarrel8::Fixture& fixture, std::span<
   auto funnel = std::make_unique<Funnel>(*fixture.frame, rows, truth, comparisonSettings<Det>(), vertexSeed(Fixture::kBeamConstraint), floors);
   tracker.setSliceObserver([&](const Controller& observed, const Controller::SliceObservation& slice) { funnel->observeSlice(observed, slice); });
   tracker.setIterationObserver([&](const Controller& observed, const Controller::IterationObservation& iteration) { funnel->observeIteration(observed, iteration); });
-  const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, {}, fixture.geometry.blockCount()));
+  const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, fixture.geometry.blockCount()));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   return funnel;
 }

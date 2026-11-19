@@ -177,7 +177,6 @@ class MeasurementProducerTask : public o2::framework::Task
     const auto clusterOf = [&](std::size_t row) { return selected ? kept[row] : static_cast<std::uint32_t>(row); };
     const auto& param = recoParam<Det>();
     const auto& grid = *mGrid;
-    pc.outputs().snapshot(o2::framework::Output{gDataOrigin, description<Det>(kMeasurementGeometry), 0}, MeasurementGeometry<Det>{mBeamLine, grid});
     const auto systematic2 = static_cast<Scalar>(param.clusterSystematicSigmaCM * param.clusterSystematicSigmaCM);
     const auto localVariance = [systematic2](float sigma) { return (sigma * sigma) + systematic2; };
     const auto start = std::chrono::steady_clock::now();
@@ -188,6 +187,8 @@ class MeasurementProducerTask : public o2::framework::Task
     std::vector<std::uint32_t> buckets(n);
     std::vector<TimeEstPS> boxes(n);
     std::vector<std::array<Scalar, 8>> positions(n); // x, y, z, r, phi, varZ, varR, varRPhi
+    // The frame's bounds, row by row as the columns get them (`frameBounds`).
+    auto bounds = HaloBounds<Det>::none();
     // The slope intervals only with a band: without one every measurement takes kEvery.
     const auto* band = mShapeBand;
     std::vector<ClusterShapeBand::Interval> slopes(band != nullptr ? n : 0U);
@@ -213,6 +214,7 @@ class MeasurementProducerTask : public o2::framework::Task
       boxes[i] = measurementTimeBox(cluster, point.layer, param, frames);
       buckets[i] = grid.bucketAt(point.layer, boxes[i].start, point.phi, point.second);
       positions[i] = {point.x, point.y, point.z, point.r, point.phi, variances.z, variances.r, variances.rPhi};
+      bounds.add(static_cast<std::size_t>(point.layer), grid.frames(point.layer), boxes[i], positions[i][5], positions[i][6], positions[i][7], varLoc0, varLoc1);
       if (band != nullptr) {
         slopes[i] = band->interval(static_cast<std::size_t>(point.layer), cluster.rowSpan, cluster.colSpan);
       }
@@ -250,6 +252,7 @@ class MeasurementProducerTask : public o2::framework::Task
                        });
     }
     builder.finish();
+    pc.outputs().snapshot(o2::framework::Output{gDataOrigin, description<Det>(kMeasurementGeometry), 0}, MeasurementGeometry<Det>{mBeamLine, grid, bounds});
 
     const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - start;
     const auto payloadBytes = n * kMeasurementRowBytes + offsets.size() * sizeof(std::uint32_t);

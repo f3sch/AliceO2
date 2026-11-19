@@ -280,8 +280,9 @@ class TrackingInterface
     return nullptr;
   }
 
-  /// The timeframe's vertex list: \a input, or the own vertexer's, which
-  /// keeps its triplets' claims with \a keepClaims. Valid until endTimeframe.
+  /// The timeframe's vertex list: \a input, or the own vertexer's on \a frame,
+  /// whose bounds are \a bounds (the producer's), which keeps its triplets'
+  /// claims with \a keepClaims. Valid until endTimeframe.
   struct Vertices {
     std::span<const VertexSeed> seeds;
     const VertexerResult* found = nullptr;            ///< the own vertexer's list and contributors, host or device; none without it
@@ -290,7 +291,7 @@ class TrackingInterface
     double planSeconds = 0.; ///< the initial device plan, before upload and vertex finding
     bool dropped = false;    ///< out of memory, dropped (dropTFUponFailure): no tracking
   };
-  [[nodiscard]] Vertices vertices(const Frame& frame, std::span<const VertexSeed> input, bool keepClaims)
+  [[nodiscard]] Vertices vertices(const Frame& frame, const HaloBounds<Det>& bounds, std::span<const VertexSeed> input, bool keepClaims)
   {
     if (!mVertexing) {
       return {.seeds = input};
@@ -300,7 +301,7 @@ class TrackingInterface
     mVertexed = true;
     if (mDevice) {
       // The run's every iteration, the pass last, with an empty list.
-      mDevicePlan = planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), {}, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS));
+      mDevicePlan = planTimeframe<Det>(frame, bounds, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), {}, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS));
       const double planSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
       if (!beginDeviceTimeframe()) {
         return {.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), .planSeconds = planSeconds, .dropped = true};
@@ -312,7 +313,7 @@ class TrackingInterface
       }
       return {.seeds = mDeviceFound.vertices, .found = &mDeviceFound, .seconds = seconds, .planSeconds = planSeconds};
     }
-    mPass.emplace(mVertexing->find(frame, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS), keepClaims));
+    mPass.emplace(mVertexing->find(frame, bounds, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS), keepClaims));
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     if (mPass->status != StageStatus::kComplete) {
       return {.pass = &*mPass, .seconds = seconds, .dropped = dropOrFail(mPass->status, "the vertexing pass")};
@@ -320,23 +321,24 @@ class TrackingInterface
     return {.seeds = mPass->found.vertices, .found = &mPass->found, .pass = &*mPass, .seconds = seconds};
   }
 
-  /// The tracker's run on \a frame from \a seeds. Valid until endTimeframe.
+  /// The tracker's run on \a frame, whose bounds are \a bounds, from \a seeds.
+  /// Valid until endTimeframe.
   struct Tracked {
     TimeframeResult result;
     double seconds = 0.;
     double planSeconds = 0.; ///< included in seconds: the tracking plan, before the run
     bool dropped = false;    ///< out of memory, dropped (dropTFUponFailure): no tracks
   };
-  [[nodiscard]] Tracked track(const Frame& frame, std::span<const VertexSeed> seeds)
+  [[nodiscard]] Tracked track(const Frame& frame, const HaloBounds<Det>& bounds, std::span<const VertexSeed> seeds)
   {
     const auto& param = recoParam<Det>();
     const auto blocksPerSlice = frame.grid().geometry().blocksPerSlice(param.sliceWidthPS);
     const auto start = std::chrono::steady_clock::now();
     if (mDevice) {
-      return trackOnDevice(frame, seeds, blocksPerSlice, start);
+      return trackOnDevice(frame, bounds, seeds, blocksPerSlice, start);
     }
     mTracked = true;
-    const auto plan = mTracker->planTimeframe(frame, seeds, blocksPerSlice);
+    const auto plan = mTracker->planTimeframe(frame, bounds, seeds, blocksPerSlice);
     const double planSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     Tracked tracked{.result = mTracker->run(frame, plan), .planSeconds = planSeconds};
     tracked.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -491,7 +493,7 @@ class TrackingInterface
   /// The tracking on the device: with the own vertexer, the tracking's plan
   /// with its list replacing the timeframe's; else the timeframe begun with
   /// the tracking's plan from \a seeds.
-  [[nodiscard]] Tracked trackOnDevice(const Frame& frame, std::span<const VertexSeed> seeds, std::int32_t blocksPerSlice, std::chrono::steady_clock::time_point start)
+  [[nodiscard]] Tracked trackOnDevice(const Frame& frame, const HaloBounds<Det>& bounds, std::span<const VertexSeed> seeds, std::int32_t blocksPerSlice, std::chrono::steady_clock::time_point start)
   {
     const auto& param = recoParam<Det>();
     const bool replaced = mVertexed;
@@ -500,7 +502,7 @@ class TrackingInterface
     if (replaced) {
       mDeviceTrackingPlan = planWithVertices<Det>(mDevicePlan, mDeviceWindows, seeds);
     } else {
-      mDeviceTrackingPlan = mVertexing != nullptr ? planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), seeds, blocksPerSlice) : mTracker->planTimeframe(frame, seeds, blocksPerSlice);
+      mDeviceTrackingPlan = mVertexing != nullptr ? planTimeframe<Det>(frame, bounds, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), seeds, blocksPerSlice) : mTracker->planTimeframe(frame, bounds, seeds, blocksPerSlice);
     }
     Tracked tracked;
     tracked.planSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();

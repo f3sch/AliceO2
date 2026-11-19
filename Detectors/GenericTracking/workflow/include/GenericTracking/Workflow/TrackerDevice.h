@@ -126,7 +126,7 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
   auto offsets = input.offsets;
   std::span<const std::uint32_t> originalRows;
   const TimeFrame<Det> vertexFrame{measurements, interface.grid(), offsets};
-  const auto found = interface.vertices(vertexFrame, input.seeds, false);
+  const auto found = interface.vertices(vertexFrame, input.shipped.bounds, input.seeds, false);
   if (found.dropped) {
     return;
   }
@@ -151,7 +151,8 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
     selectedROFs.assign(mask.begin(), mask.end());
   }
   const TimeFrame<Det> frame{measurements, interface.grid(), offsets};
-  const auto tracked = interface.track(frame, trackingSeeds);
+  // The vertex cut's frames are fewer rows than the producer bounded.
+  const auto tracked = interface.track(frame, afterVertices ? frameBounds(frame) : input.shipped.bounds, trackingSeeds);
   if (tracked.dropped) {
     return;
   }
