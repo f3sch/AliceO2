@@ -62,6 +62,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -399,7 +400,7 @@ class VertexStudy
       throw std::runtime_error(std::format("cannot write the replay's lists {}-*.csv", prefix));
     }
     vertices << "variant,id,listed,framePS,round,windowStartUM,centreUM,zUM,window,sidebands,hidden,contributors,selected,dropped,reuse,"
-                "collision,trueZUM,findable,reference,startPS,widthPS,denseShare,softShare,noParticleShare,sigmaZUM,sigmaModelUM\n";
+                "collision,trueZUM,findable,reference,startPS,widthPS,denseShare,softShare,noParticleShare,sigmaZUM,sigmaModelUM,splitLambda,splitZ2UM,splitN2\n";
     collisions << "variant,collision,trueZUM,framePS,inner,findable,found,vertexZUM,contributors,round,accepted,kept,core,chi2,dca,"
                   "degenerate,deduplicated,free,own,other,fake,dropped,dense,denseFindable,denseDzUM,denseContributors,vetoedWindow,vetoedSidebands\n";
     // The vertexer's owned rows (the first run's) as their clusters, one per
@@ -419,7 +420,7 @@ class VertexStudy
       for (std::size_t v = 0; v < run.vertices.size(); ++v) {
         const auto& r = run.vertices[v];
         const auto* collision = r.collision < 0 ? nullptr : &mCollisions[static_cast<std::size_t>(r.collision)];
-        vertices << std::format("{},{},{},{},{},{},{:.1f},{:.1f},{},{},{},{},{},{},{:.4f},{},{:.1f},{},{},{},{},{:.3f},{:.3f},{:.3f},{:.2f},{:.2f}\n", run.name, v, r.listed, mFrameTimes[static_cast<std::size_t>(r.frame)], r.round, r.windowStartUM, r.centreUM, r.zUM, r.window, r.sidebands, r.hidden, r.contributors, r.selected, r.dropped, r.reuse, r.collision, collision == nullptr ? 0. : collision->z * 1.e4, collision == nullptr ? 0U : collision->findable, r.reference, r.startPS, r.widthPS, r.denseShare, r.softShare, r.noParticleShare, std::sqrt(static_cast<double>(r.seed.varZ)) * 1.e4, std::sqrt(r.modelVarUM2));
+        vertices << std::format("{},{},{},{},{},{},{:.1f},{:.1f},{},{},{},{},{},{},{:.4f},{},{:.1f},{},{},{},{},{:.3f},{:.3f},{:.3f},{:.2f},{:.2f},{:.3f},{:.1f},{:.2f}\n", run.name, v, r.listed, mFrameTimes[static_cast<std::size_t>(r.frame)], r.round, r.windowStartUM, r.centreUM, r.zUM, r.window, r.sidebands, r.hidden, r.contributors, r.selected, r.dropped, r.reuse, r.collision, collision == nullptr ? 0. : collision->z * 1.e4, collision == nullptr ? 0U : collision->findable, r.reference, r.startPS, r.widthPS, r.denseShare, r.softShare, r.noParticleShare, std::sqrt(static_cast<double>(r.seed.varZ)) * 1.e4, std::sqrt(r.modelVarUM2), r.splitLambda, r.splitZ2UM, r.splitN2);
       }
       for (std::size_t c = 0; c < mCollisions.size(); ++c) {
         const auto& collision = mCollisions[c];
@@ -1579,6 +1580,13 @@ class VertexStudy
     /// The rerun at `aloneMinContributors` in every frame after its rounds,
     /// from what they left free, not only in a frame without a vertex.
     bool aloneEverywhere = false;
+    /// A vertex whose claimed candidates the one-or-two test (`splitTest`)
+    /// finds two collisions in at twice the log-likelihood ratio of at least
+    /// k^2 (the peak test's significance) becomes two: the candidates the
+    /// second core holds most (at least the floor of contributors) go to the
+    /// second, both fitted from their members, each source owned by the one
+    /// it is nearer to in its own reach's errors.
+    bool split = false;
   };
 
   struct ReplayVertex {
@@ -1611,6 +1619,12 @@ class VertexStudy
     double denseShare = 0.;
     double softShare = 0.;
     double noParticleShare = 0.;
+    /// The one-or-two test on its claimed candidates (`splitTest`): twice the
+    /// log-likelihood ratio of two components over one, the second's z [um]
+    /// and its expected count; 0, 0, 0 where no second component was tried.
+    double splitLambda = 0.;
+    double splitZ2UM = 0.;
+    double splitN2 = 0.;
   };
 
   /// A true triplet of a collision dropped by a vertex's ownership: the row
@@ -1730,6 +1744,149 @@ class VertexStudy
       throw std::logic_error("the replay: a triplet not in the slice that owns its frame");
     }
     return state;
+  }
+
+  /// What `splitTest` gives a vertex.
+  struct SplitTest {
+    double lambda = 0.;
+    double z2UM = 0.;
+    double n2 = 0.;
+    std::vector<std::uint8_t> second; ///< per candidate: 1 where the second collision's share is above the first's (core and tail) and the debris
+  };
+
+  /// The one-or-two test on a vertex's claimed candidates \a z [um] with their
+  /// weights \a w (variance v = 2^32 / w [um^2]): one collision against two.
+  /// One collision is a core, each candidate a Gaussian of its own variance
+  /// about z1, and its tail, the same about z1 with the variance scaled by a
+  /// fitted t^2 >= 1 (the errors' tails); a second collision adds a core at
+  /// z2; both have a debris component uniform over the candidates' span
+  /// widened by \a window. EM from \a z1 and, for z2, from the densest window
+  /// of the candidates the one-collision fit gives to tail or debris (at least
+  /// \a minContributors), until the log-likelihood moves by less than 1e-6 or
+  /// 200 steps. A study's diagnostic: nothing acts on it.
+  [[nodiscard]] static SplitTest splitTest(std::span<const std::int64_t> z, std::span<const std::uint64_t> w, double z1, double window, std::uint32_t minContributors)
+  {
+    const std::size_t n = z.size();
+    if (n < 2U * minContributors) {
+      return {};
+    }
+    std::vector<double> zs(n);
+    std::vector<double> var(n);
+    double lo = std::numeric_limits<double>::infinity();
+    double hi = -lo;
+    for (std::size_t k = 0; k < n; ++k) {
+      zs[k] = static_cast<double>(z[k]);
+      var[k] = static_cast<double>(kVertexWeightScale) / static_cast<double>(std::max<std::uint64_t>(w[k], 1U));
+      lo = std::min(lo, zs[k]);
+      hi = std::max(hi, zs[k]);
+    }
+    const double uniform = 1. / (hi - lo + window);
+    const auto gauss = [&](std::size_t k, double mu, double scale2) { return std::exp(-0.5 * (zs[k] - mu) * (zs[k] - mu) / (var[k] * scale2)) / std::sqrt(2. * std::numbers::pi * var[k] * scale2); };
+    constexpr int kSteps = 200;
+    constexpr double kTolerance = 1.e-6;
+    // The EM of up to two cores, one tail about the first and the debris;
+    // \a second false keeps the second core's share at zero.
+    struct Fit {
+      double mu1, mu2, t2, f1, f2, ft, fu, logL;
+    };
+    std::vector<double> away(n); // the one-collision fit's tail and debris share of each candidate
+    const auto em = [&](Fit fit, bool second) {
+      std::vector<double> r1(n), r2(n), rt(n);
+      for (int step = 0; step < kSteps; ++step) {
+        // E: the shares and the log-likelihood at the current parameters.
+        double logL = 0.;
+        for (std::size_t k = 0; k < n; ++k) {
+          const double g1 = fit.f1 * gauss(k, fit.mu1, 1.);
+          const double g2 = second ? fit.f2 * gauss(k, fit.mu2, 1.) : 0.;
+          const double gt = fit.ft * gauss(k, fit.mu1, fit.t2);
+          const double total = g1 + g2 + gt + (fit.fu * uniform);
+          logL += std::log(total);
+          r1[k] = g1 / total;
+          r2[k] = g2 / total;
+          rt[k] = gt / total;
+          if (!second) {
+            away[k] = 1. - r1[k];
+          }
+        }
+        const bool done = step > 0 && std::abs(logL - fit.logL) < kTolerance;
+        fit.logL = logL;
+        if (done) {
+          break; // the parameters are the ones the log-likelihood and the shares are of
+        }
+        // M: the means, then the tail's scale about the new first mean, then the fractions.
+        double s1 = 0., s2 = 0., st = 0., n1 = 0., d1 = 0., n2 = 0., d2 = 0.;
+        for (std::size_t k = 0; k < n; ++k) {
+          s1 += r1[k];
+          s2 += r2[k];
+          st += rt[k];
+          n1 += (r1[k] + rt[k] / fit.t2) * zs[k] / var[k];
+          d1 += (r1[k] + rt[k] / fit.t2) / var[k];
+          n2 += r2[k] * zs[k] / var[k];
+          d2 += r2[k] / var[k];
+        }
+        fit.mu1 = d1 > 0. ? n1 / d1 : fit.mu1;
+        fit.mu2 = second && d2 > 0. ? n2 / d2 : fit.mu2;
+        double tq = 0.;
+        for (std::size_t k = 0; k < n; ++k) {
+          tq += rt[k] * (zs[k] - fit.mu1) * (zs[k] - fit.mu1) / var[k];
+        }
+        fit.t2 = st > 0. ? std::max(1., tq / st) : fit.t2;
+        fit.f1 = s1 / static_cast<double>(n);
+        fit.f2 = s2 / static_cast<double>(n);
+        fit.ft = st / static_cast<double>(n);
+        fit.fu = std::max(0., 1. - fit.f1 - fit.f2 - fit.ft);
+      }
+      return fit;
+    };
+    const auto one = em({.mu1 = z1, .mu2 = 0., .t2 = 9., .f1 = 0.7, .f2 = 0., .ft = 0.2, .fu = 0.1, .logL = 0.}, false);
+    // The second's start: the densest window of the candidates away from the first core.
+    std::vector<std::size_t> order;
+    for (std::size_t k = 0; k < n; ++k) {
+      if (away[k] > 0.5) {
+        order.push_back(k);
+      }
+    }
+    std::ranges::sort(order, {}, [&](std::size_t k) { return zs[k]; });
+    std::size_t best = 0U;
+    std::size_t bestCount = 0U;
+    for (std::size_t a = 0, b = 0; a < order.size(); ++a) {
+      while (b < order.size() && zs[order[b]] < zs[order[a]] + window) {
+        ++b;
+      }
+      if (b - a > bestCount) {
+        bestCount = b - a;
+        best = a;
+      }
+    }
+    if (bestCount < minContributors) {
+      return {};
+    }
+    double mu2 = 0.;
+    for (std::size_t c = best; c < best + bestCount; ++c) {
+      mu2 += zs[order[c]];
+    }
+    mu2 /= static_cast<double>(bestCount);
+    const double share = static_cast<double>(bestCount) / static_cast<double>(n);
+    Fit start = one;
+    start.mu2 = mu2;
+    start.f2 = share;
+    start.ft = std::max(0.5 * one.ft, one.ft - share);
+    start.fu = std::max(0., 1. - start.f1 - start.f2 - start.ft);
+    const double norm = start.f1 + start.f2 + start.ft + start.fu;
+    start.f1 /= norm;
+    start.f2 /= norm;
+    start.ft /= norm;
+    start.fu /= norm;
+    const auto two = em(start, true);
+    std::vector<std::uint8_t> second(n, 0U);
+    for (std::size_t k = 0; k < n; ++k) {
+      const double g1 = two.f1 * gauss(k, two.mu1, 1.);
+      const double g2 = two.f2 * gauss(k, two.mu2, 1.);
+      const double gt = two.ft * gauss(k, two.mu1, two.t2);
+      const double gu = two.fu * uniform;
+      second[k] = g2 > g1 + gt && g2 > gu ? 1U : 0U;
+    }
+    return {.lambda = std::max(0., 2. * (two.logL - one.logL)), .z2UM = two.mu2, .n2 = two.f2 * static_cast<double>(n), .second = std::move(second)};
   }
 
   [[nodiscard]] ReplayRun replay(const ReplayVariant& variant, const std::vector<ReplayState>& base) const
@@ -1912,45 +2069,108 @@ class VertexStudy
         if (claimedZ.empty()) {
           throw std::runtime_error(std::format("vertex replay {}: a round in frame {} claimed no candidate", variant.name, mCandidates[begin].frame));
         }
-        std::vector<std::uint8_t> selected(claimedZ.size(), 0U);
-        std::uint64_t weightSum = 0U;
-        std::int64_t weightedZSum = 0;
-        std::int64_t selectedCount = 0;
-        const auto select = [&](std::size_t k) {
-          selected[k] = 1U;
-          weightSum += claimedWeight[k];
-          weightedZSum += static_cast<std::int64_t>(claimedWeight[k]) * claimedZ[k];
-          ++selectedCount;
+        // The weighted selection of the claimed candidates \a member holds,
+        // grown from those within the window of \a about, and its seed.
+        struct Fitted {
+          VertexSeed seed{};
+          std::uint32_t selected = 0U;
+          double modelVarUM2 = 0.;
         };
-        for (std::size_t k = 0; k < claimedZ.size(); ++k) {
-          if (withinZ(claimedZ[k], centre, static_cast<Scalar>(window))) {
-            select(k);
-          }
-        }
-        for (bool grew = true; grew;) {
-          grew = false;
-          const auto moments = zMoments(weightSum, weightedZSum);
+        const auto fitMembers = [&](const std::vector<std::uint8_t>& member, Scalar about) {
+          std::vector<std::uint8_t> selected(claimedZ.size(), 0U);
+          std::uint64_t weightSum = 0U;
+          std::int64_t weightedZSum = 0;
+          std::int64_t selectedCount = 0;
+          std::uint32_t first = std::numeric_limits<std::uint32_t>::max();
+          std::uint32_t last = 0U;
+          const auto select = [&](std::size_t k) {
+            selected[k] = 1U;
+            weightSum += claimedWeight[k];
+            weightedZSum += static_cast<std::int64_t>(claimedWeight[k]) * claimedZ[k];
+            ++selectedCount;
+          };
           for (std::size_t k = 0; k < claimedZ.size(); ++k) {
-            if (selected[k] == 0U && withinError(claimedZ[k], claimedWeight[k], moments, s.clipNSigma)) {
-              select(k);
-              grew = true;
+            if (member[k] != 0U) {
+              const auto& box = mCandidates[claimedIndex[k]].fit.box;
+              first = std::min(first, box.lower());
+              last = std::max(last, box.upper());
+              if (withinZ(claimedZ[k], about, static_cast<Scalar>(window))) {
+                select(k);
+              }
             }
           }
-        }
-        const auto settled = zMoments(weightSum, weightedZSum);
-        std::uint64_t scatterSum = 0U;
-        for (std::size_t k = 0; k < claimedZ.size(); ++k) {
-          if (selected[k] != 0U) {
-            scatterSum += candidateScatter(claimedZ[k], claimedWeight[k], settled.mean);
+          for (bool grew = true; grew;) {
+            grew = false;
+            const auto moments = zMoments(weightSum, weightedZSum);
+            for (std::size_t k = 0; k < claimedZ.size(); ++k) {
+              if (member[k] != 0U && selected[k] == 0U && withinError(claimedZ[k], claimedWeight[k], moments, s.clipNSigma)) {
+                select(k);
+                grew = true;
+              }
+            }
+          }
+          const auto settled = zMoments(weightSum, weightedZSum);
+          std::uint64_t scatterSum = 0U;
+          for (std::size_t k = 0; k < claimedZ.size(); ++k) {
+            if (selected[k] != 0U) {
+              scatterSum += candidateScatter(claimedZ[k], claimedWeight[k], settled.mean);
+            }
+          }
+          return Fitted{
+            .seed = vertexSeedOf({.weightSum = weightSum, .weightedZSum = weightedZSum, .scatterSum = scatterSum, .count = selectedCount, .earliestPS = first, .latestPS = last}, VertexConstraint{}),
+            .selected = static_cast<std::uint32_t>(selectedCount),
+            .modelVarUM2 = weightSum == 0U ? 0. : static_cast<double>(kVertexWeightScale) / static_cast<double>(weightSum),
+          };
+        };
+        std::vector<std::uint8_t> ofFirst(claimedZ.size(), 1U);
+        auto fitted = fitMembers(ofFirst, centre);
+        static_cast<void>(earliest);
+        static_cast<void>(latest);
+        const auto test = splitTest(claimedZ, claimedWeight, static_cast<double>(fitted.seed.z) * 1.e4, static_cast<double>(window), s.minContributors);
+        vertex.splitLambda = test.lambda;
+        vertex.splitZ2UM = test.z2UM;
+        vertex.splitN2 = test.n2;
+        // The split: the second's members out of the first, both fitted again.
+        std::optional<ReplayVertex> second;
+        const double k2Split = static_cast<double>(s.significance) * static_cast<double>(s.significance);
+        if (variant.split && test.lambda >= k2Split && static_cast<std::uint32_t>(std::ranges::count(test.second, std::uint8_t{1})) >= s.minContributors) {
+          std::vector<std::uint8_t> ofSecond(test.second);
+          for (std::size_t k = 0; k < claimedZ.size(); ++k) {
+            ofFirst[k] = ofSecond[k] == 0U ? 1U : 0U;
+          }
+          const auto firstAgain = fitMembers(ofFirst, fitted.seed.z * 1.e4F);
+          const auto fittedSecond = fitMembers(ofSecond, static_cast<Scalar>(test.z2UM));
+          const auto firstMembers = static_cast<std::uint32_t>(std::ranges::count(ofFirst, std::uint8_t{1}));
+          if (firstMembers < s.minContributors || firstAgain.selected < s.minContributors || fittedSecond.selected < s.minContributors) {
+            std::ranges::fill(ofFirst, std::uint8_t{1}); // the split refused: the one vertex as it was
+          } else {
+            fitted = firstAgain;
+            ReplayVertex other{.frame = vertex.frame, .round = vertex.round, .windowStartUM = static_cast<std::int64_t>(test.z2UM), .centreUM = test.z2UM};
+            other.seed = fittedSecond.seed;
+            other.zUM = static_cast<double>(fittedSecond.seed.z) * 1.e4;
+            other.selected = fittedSecond.selected;
+            other.startPS = fittedSecond.seed.timePS;
+            other.widthPS = fittedSecond.seed.widthPS;
+            other.modelVarUM2 = fittedSecond.modelVarUM2;
+            other.splitLambda = test.lambda;
+            const auto otherId = id + 1;
+            for (std::size_t k = 0; k < claimedZ.size(); ++k) {
+              if (ofSecond[k] != 0U) {
+                claimedBy[claimedIndex[k]] = otherId;
+                ++other.contributors;
+                --vertex.contributors;
+              }
+            }
+            second = other;
           }
         }
-        const auto seed = vertexSeedOf({.weightSum = weightSum, .weightedZSum = weightedZSum, .scatterSum = scatterSum, .count = selectedCount, .earliestPS = earliest, .latestPS = latest}, VertexConstraint{});
+        const auto& seed = fitted.seed;
         vertex.zUM = static_cast<double>(seed.z) * 1.e4;
-        vertex.selected = static_cast<std::uint32_t>(selectedCount);
+        vertex.selected = fitted.selected;
         vertex.startPS = seed.timePS;
         vertex.widthPS = seed.widthPS;
         vertex.seed = seed;
-        vertex.modelVarUM2 = weightSum == 0U ? 0. : static_cast<double>(kVertexWeightScale) / static_cast<double>(weightSum);
+        vertex.modelVarUM2 = fitted.modelVarUM2;
         // The reuse share against the earlier vertices of the frame, then
         // this one's triplets past the cuts within its claim.
         std::uint32_t reused = 0U;
@@ -1964,17 +2184,33 @@ class VertexStudy
             touched.push_back(row);
           }
         });
-        // The ownership, and the free candidates it drops.
-        within(sources, centre, farthestSources, [&](std::size_t i) {
+        // The ownership, and the free candidates it drops; with a split each
+        // source to the vertex it is nearer to in its reach's errors, then the
+        // second's own reach.
+        const auto ownerOf = [&](std::size_t i) {
+          if (!second) {
+            return id;
+          }
+          const double zi = static_cast<double>(zOf(i));
+          return std::abs(zi - vertex.zUM) <= std::abs(zi - second->zUM) ? id : id + 1;
+        };
+        const auto own = [&](std::size_t i) {
+          const auto owner = ownerOf(i);
           for (const auto row : mCandidates[i].triple) {
             if (rowOwner[row] < 0) {
-              rowOwner[row] = id;
+              rowOwner[row] = owner;
               rowSource[row] = i;
               touched.push_back(row);
               run.owned.push_back(row);
             }
           }
-        });
+        };
+        if (second) {
+          within(sources, static_cast<Scalar>(vertex.zUM), farthestSources, own);
+          within(sources, static_cast<Scalar>(second->zUM), farthestSources, own);
+        } else {
+          within(sources, centre, farthestSources, own);
+        }
         for (std::size_t k = 0; k < m; ++k) {
           const auto& rows = mCandidates[kept[k]].triple;
           const auto owned = std::ranges::find_if(rows, [&](std::uint32_t row) { return rowOwner[row] >= 0; });
@@ -1982,12 +2218,15 @@ class VertexStudy
             dropped[kept[k]] = 1U;
             ++vertex.dropped;
             if (mCandidates[kept[k]].collision >= 0) {
-              run.drops.push_back({.candidate = kept[k], .owner = id, .source = rowSource[*owned], .row = *owned});
+              run.drops.push_back({.candidate = kept[k], .owner = rowOwner[*owned], .source = rowSource[*owned], .row = *owned});
             }
           }
         }
         run.dropped += vertex.dropped;
         run.vertices.push_back(vertex);
+        if (second) {
+          run.vertices.push_back(*second);
+        }
       }
       for (const auto row : touched) {
         rowOwner[row] = -1;
@@ -2142,6 +2381,7 @@ class VertexStudy
       {.name = "own-reach", .ownReach = true},
       {.name = "alone-everywhere", .aloneEverywhere = true},
       {.name = "own-reach-alone-everywhere", .ownReach = true, .aloneEverywhere = true},
+      {.name = "split", .split = true},
     };
     if (!mPriorVertices.empty()) {
       variants.push_back({.name = "prior-stage", .prior = true});
