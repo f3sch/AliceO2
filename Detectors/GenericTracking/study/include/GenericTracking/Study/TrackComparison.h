@@ -121,7 +121,7 @@ using ParticleTable = std::unordered_map<std::uint64_t, ParticleTruth>;
 
 /// Each MC collision's vertex [cm], its MC event header's, by the collision a
 /// packed particle identity names (`collisionOf`, MCTruth.h): source and event.
-using CollisionTable = std::unordered_map<std::uint64_t, std::array<double, 3>>;
+using CollisionTable = std::unordered_map<std::uint64_t, Vec3D>;
 
 /// Tracks as the measurement rows they hold, in any order.
 using TrackRows = std::vector<std::vector<std::uint32_t>>;

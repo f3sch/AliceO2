@@ -101,7 +101,7 @@ template <DetectorLayout Det>
 
 /// The distance [cm] of \a vertex from the vertex of the collision
 /// \a particle was made in; none without that collision.
-[[nodiscard]] inline std::optional<double> productionOffset(const CollisionTable& collisions, std::uint64_t particle, const std::array<double, 3>& vertex)
+[[nodiscard]] inline std::optional<double> productionOffset(const CollisionTable& collisions, std::uint64_t particle, const Vec3D& vertex)
 {
   const auto found = collisions.find(collisionOf(particle));
   if (found == collisions.end()) {

@@ -75,7 +75,6 @@
 #include <boost/program_options.hpp>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstddef>
@@ -101,6 +100,9 @@ namespace
 {
 
 using o2::gtrk::LayerID;
+using o2::gtrk::Vec2D;
+using o2::gtrk::Vec2F;
+using o2::gtrk::Vec3D;
 
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 
@@ -125,8 +127,8 @@ struct Options {
 
 /// A point on the path [cm] with the momentum there [GeV].
 struct Point {
-  std::array<double, 3> x{};
-  std::array<double, 3> p{};
+  Vec3D x{};
+  Vec3D p{};
 };
 
 /// One step: from a crossing's entry (or the vertex) to the next one's.
@@ -142,24 +144,24 @@ struct Step {
   Point a;
   Point b;
   double turn = 0.;            ///< the circle's direction at b against the true one [rad]
-  std::array<double, 2> geo{}; ///< x/X0, near and far half
-  std::array<double, 2> lut{};
+  Vec2D geo{};                 ///< x/X0, near and far half
+  Vec2D lut{};
   bool lastOfLeg = false;
 };
 
 /// The step's path, \a pieces + 1 points: the transverse circle tangent to a's
 /// momentum through b, z linear in the arc. Also the circle's direction at b.
-std::vector<std::array<double, 3>> path(const Step& step, int pieces, double& directionAtB)
+std::vector<Vec3D> path(const Step& step, int pieces, double& directionAtB)
 {
   const auto& [ax, ap] = step.a;
   const auto& bx = step.b.x;
   const double tNorm = std::hypot(ap[0], ap[1]);
-  const std::array<double, 2> t{ap[0] / tNorm, ap[1] / tNorm};
-  const std::array<double, 2> n{-t[1], t[0]};
-  const std::array<double, 2> d{bx[0] - ax[0], bx[1] - ax[1]};
+  const Vec2D t{ap[0] / tNorm, ap[1] / tNorm};
+  const Vec2D n{-t[1], t[0]};
+  const Vec2D d{bx[0] - ax[0], bx[1] - ax[1]};
   const double dd = (d[0] * d[0]) + (d[1] * d[1]);
   const double dn = (d[0] * n[0]) + (d[1] * n[1]);
-  std::vector<std::array<double, 3>> points;
+  std::vector<Vec3D> points;
   points.reserve(static_cast<std::size_t>(pieces) + 1U);
   if (std::abs(dn) < 1e-9 * dd) {
     for (int i = 0; i <= pieces; ++i) {
@@ -170,7 +172,7 @@ std::vector<std::array<double, 3>> path(const Step& step, int pieces, double& di
     return points;
   }
   const double radius = dd / (2. * dn); // signed, along n
-  const std::array<double, 2> centre{ax[0] + (radius * n[0]), ax[1] + (radius * n[1])};
+  const Vec2D centre{ax[0] + (radius * n[0]), ax[1] + (radius * n[1])};
   const double start = std::atan2(ax[1] - centre[1], ax[0] - centre[0]);
   double sweep = std::atan2(bx[1] - centre[1], bx[0] - centre[0]) - start;
   // the direction of travel: counter-clockwise for a positive radius
@@ -221,13 +223,13 @@ void measure(Step& step, int pieces, const o2::base::MatLayerCylSet& lut, TGeoNa
 double highland(double x2X0, double betaP, double beta2) { return x2X0 > 0. ? 0.0136 / betaP * std::sqrt(x2X0) * (1. + (0.038 * std::log(x2X0 / beta2))) : 0.; }
 
 /// beta p of momentum \a p and \a mass [GeV], the tracking's `betaMomentum` in double.
-double betaMomentum(const std::array<double, 3>& momentum, double mass)
+double betaMomentum(const Vec3D& momentum, double mass)
 {
   const double p = std::sqrt((momentum[0] * momentum[0]) + (momentum[1] * momentum[1]) + (momentum[2] * momentum[2]));
   return p * p / std::sqrt((p * p) + (mass * mass));
 }
 
-double polar(const std::array<double, 3>& p) { return std::atan2(std::hypot(p[0], p[1]), p[2]); }
+double polar(const Vec3D& p) { return std::atan2(std::hypot(p[0], p[1]), p[2]); }
 
 double quantile(std::vector<double> v, double q)
 {
@@ -494,8 +496,8 @@ void write(const std::string& path, const std::vector<Step>& steps)
   float turn = 0.F;
   float dTheta = 0.F;
   float betaP = 0.F;
-  std::array<float, 2> geo{};
-  std::array<float, 2> lut{};
+  Vec2F geo{};
+  Vec2F lut{};
   tree.Branch("event", &s.event);
   tree.Branch("track", &s.track);
   tree.Branch("pdg", &s.pdg);

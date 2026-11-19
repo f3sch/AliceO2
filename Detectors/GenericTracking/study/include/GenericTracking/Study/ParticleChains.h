@@ -94,7 +94,7 @@ class ParticleChains
 
   /// The production vertex in r-z [cm] of a particle with \a truth, the
   /// origin for one without (nullptr): the reference of `pathDistance`.
-  [[nodiscard]] static std::array<double, 2> vertexRZ(const ParticleTruth* truth)
+  [[nodiscard]] static Vec2D vertexRZ(const ParticleTruth* truth)
   {
     if (truth == nullptr) {
       return {0., 0.};
@@ -102,7 +102,7 @@ class ParticleChains
     return {std::hypot(static_cast<double>(truth->vx), static_cast<double>(truth->vy)), static_cast<double>(truth->vz)};
   }
   /// How far \a row is from a production \a vertex (`vertexRZ`) in r-z [cm].
-  [[nodiscard]] static double pathDistance(std::span<const TruthRow> rows, std::uint32_t row, const std::array<double, 2>& vertex)
+  [[nodiscard]] static double pathDistance(std::span<const TruthRow> rows, std::uint32_t row, const Vec2D& vertex)
   {
     return std::hypot(static_cast<double>(rows[row].r) - vertex[0], static_cast<double>(rows[row].z) - vertex[1]);
   }

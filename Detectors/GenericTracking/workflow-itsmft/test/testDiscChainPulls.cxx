@@ -298,7 +298,7 @@ std::vector<PullPoint> scan(DiscChain<Det>& chain, std::span<const double> etas,
 constexpr double kTolerance = 0.15;
 constexpr int kTrials = 1000;
 
-constexpr std::array<double, 3> kMftEtas{-2.6, -3.0, -3.4};
+constexpr Vec3D kMftEtas{-2.6, -3.0, -3.4};
 
 struct Scans {
   std::vector<PullPoint> clean;

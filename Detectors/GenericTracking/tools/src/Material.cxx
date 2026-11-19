@@ -26,7 +26,6 @@
 #include <TGeoVoxelFinder.h>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstddef>
@@ -102,8 +101,8 @@ SideWalls trkSideWalls()
     }
     const TGeoMatrix* matrix = next.GetCurrentMatrix();
     const auto radius = [&](double x) {
-      const std::array<double, 3> local{x, 0., 0.};
-      std::array<double, 3> global{};
+      const Vec3D local{x, 0., 0.};
+      Vec3D global{};
       matrix->LocalToMaster(local.data(), global.data());
       return std::hypot(global[0], global[1]);
     };
@@ -131,8 +130,8 @@ std::vector<double> beamLineCylinderFaces(double rMax, double zMax, double dz, i
     std::map<long, int> seen; // per radius, the azimuths meeting it
     for (int ia = 0; ia < kAzimuths; ++ia) {
       const double phi = ia * golden;
-      const std::array<double, 3> direction{std::cos(phi), std::sin(phi), 0.};
-      std::array<double, 3> start{0., 0., z};
+      const Vec3D direction{std::cos(phi), std::sin(phi), 0.};
+      Vec3D start{0., 0., z};
       navigator->InitTrack(start.data(), direction.data());
       std::set<long> mine;
       double r = 0.;

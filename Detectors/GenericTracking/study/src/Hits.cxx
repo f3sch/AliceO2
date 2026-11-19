@@ -133,7 +133,7 @@ std::span<const HitSegment* const> HitIndex::segments(std::uint64_t particle) co
   return found != mSegments.end() ? std::span<const HitSegment* const>{found->second} : std::span<const HitSegment* const>{};
 }
 
-const HitSegment* HitIndex::crossing(std::uint64_t particle, std::uint32_t chip, const std::array<double, 3>& near) const
+const HitSegment* HitIndex::crossing(std::uint64_t particle, std::uint32_t chip, const Vec3D& near) const
 {
   const HitSegment* best = nullptr;
   double bestDistance = std::numeric_limits<double>::infinity();

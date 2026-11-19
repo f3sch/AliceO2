@@ -3466,11 +3466,11 @@ class CompleteAnatomy
   [[nodiscard]] double truePt(study::ParticleTable::const_iterator found) const { return found != mTruth->particles.end() ? static_cast<double>(found->second.pt) : 0.; }
   /// The production vertex in r-z [cm] of the particle \a found points to,
   /// the origin for none (the table's end): the reference of `pathDistance`.
-  [[nodiscard]] std::array<double, 2> vertexRZ(study::ParticleTable::const_iterator found) const { return study::ParticleChains::vertexRZ(found != mTruth->particles.end() ? &found->second : nullptr); }
+  [[nodiscard]] Vec2D vertexRZ(study::ParticleTable::const_iterator found) const { return study::ParticleChains::vertexRZ(found != mTruth->particles.end() ? &found->second : nullptr); }
   /// How far \a row is from a particle's production \a vertex (`vertexRZ`)
   /// in r-z [cm]: the order of "further along the particle's path" for the
   /// fake transitions, the end decisions and the hole calls.
-  [[nodiscard]] double pathDistance(std::uint32_t row, const std::array<double, 2>& vertex) const { return study::ParticleChains::pathDistance(mTruth->rows, row, vertex); }
+  [[nodiscard]] double pathDistance(std::uint32_t row, const Vec2D& vertex) const { return study::ParticleChains::pathDistance(mTruth->rows, row, vertex); }
 
   /// Where the iteration's fakes came from: each fake track after the iteration, by its length, as an
   /// earlier track it was before -- a fake kept, a fake lengthened, a good
@@ -5349,7 +5349,7 @@ class CompleteAnatomy
       double pTrue = nan;
       double phiTrue = nan;
       double thetaTrue = nan;
-      std::array<double, 2> locTrue{nan, nan};
+      Vec2D locTrue{nan, nan};
       if (segment != nullptr) {
         pTrue = std::hypot(segment->momentum[0], segment->momentum[1], segment->momentum[2]);
         phiTrue = std::atan2(segment->momentum[1], segment->momentum[0]);
@@ -8170,7 +8170,7 @@ class CompleteAnatomy
   }
 
   /// The MC segment's crossing of \a plane in its local coordinates.
-  [[nodiscard]] static std::array<double, 2> crossingOn(const study::HitSegment& segment, const TrackingSurface& plane)
+  [[nodiscard]] static Vec2D crossingOn(const study::HitSegment& segment, const TrackingSurface& plane)
   {
     double along[3]{};
     double offset = 0.;
@@ -8359,7 +8359,7 @@ class CompleteAnatomy
                  "plane's the same\n";
     const auto summary = [&](const auto& select) {
       std::array<std::size_t, 2> count{};
-      std::array<double, 2> core2{};
+      Vec2D core2{};
       std::array<std::array<std::size_t, 2>, 2> beyond{};
       std::size_t all = 0U;
       for (const auto& kink : mKinks) {

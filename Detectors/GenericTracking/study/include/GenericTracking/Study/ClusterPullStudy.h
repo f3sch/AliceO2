@@ -136,7 +136,7 @@ class ClusterPullStudy
         float theta0 = 0.F;
         if (i + 1 < chain.rows.size()) {
           if (const auto* next = segmentOf(chain.particle, chain.rows[i + 1]); next != nullptr) {
-            const auto thetaOf = [](const std::array<double, 3>& q) { return std::atan2(std::hypot(q[0], q[1]), q[2]); };
+            const auto thetaOf = [](const Vec3D& q) { return std::atan2(std::hypot(q[0], q[1]), q[2]); };
             dTheta = static_cast<float>(thetaOf(next->momentum) - thetaOf(mom));
             const auto& a = segment->start;
             const auto& b = next->start;

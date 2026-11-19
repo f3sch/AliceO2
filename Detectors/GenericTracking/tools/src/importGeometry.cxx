@@ -272,7 +272,7 @@ double wrap(double angle)
 }
 
 /// The shorter arc between the azimuths of two points.
-Arc arcBetween(const std::array<double, 2>& a, const std::array<double, 2>& b)
+Arc arcBetween(const Vec2D& a, const Vec2D& b)
 {
   const double from = std::atan2(a[1], a[0]);
   double delta = std::atan2(b[1], b[0]) - from;
@@ -281,10 +281,10 @@ Arc arcBetween(const std::array<double, 2>& a, const std::array<double, 2>& b)
 }
 
 /// A flat sensor's active area in its mid-plane, its corners in order around it, global.
-std::array<std::array<double, 3>, 4> midPlane(const Sensor& sensor, const SensorSpec& spec)
+std::array<Vec3D, 4> midPlane(const Sensor& sensor, const SensorSpec& spec)
 {
-  const std::array<std::array<double, 2>, 4> local{{{-spec.halfX, -spec.halfY}, {spec.halfX, -spec.halfY}, {spec.halfX, spec.halfY}, {-spec.halfX, spec.halfY}}};
-  std::array<std::array<double, 3>, 4> result{};
+  const std::array<Vec2D, 4> local{{{-spec.halfX, -spec.halfY}, {spec.halfX, -spec.halfY}, {spec.halfX, spec.halfY}, {-spec.halfX, spec.halfY}}};
+  std::array<Vec3D, 4> result{};
   for (std::size_t i = 0; i < local.size(); ++i) {
     const double point[3] = {local[i][0], local[i][1], 0.};
     sensor.toGlobal(point, result[i].data());
@@ -299,7 +299,7 @@ constexpr double kAzimuthRounding = 1e-9;
 /// Whether \a arcs cover every azimuth.
 bool coversCircle(std::vector<Arc>& arcs)
 {
-  std::vector<std::array<double, 2>> pieces;
+  std::vector<Vec2D> pieces;
   for (const auto& arc : arcs) {
     if (arc.length >= kTwoPi<double>) {
       return true;
@@ -325,7 +325,7 @@ bool coversCircle(std::vector<Arc>& arcs)
 
 /// A disc sensor's arcs on the circle of radius \a r about the beam line,
 /// from its mid-plane projected along the beam: a convex quadrilateral.
-void discArcs(const std::array<std::array<double, 3>, 4>& quad, double r, std::vector<Arc>& arcs)
+void discArcs(const std::array<Vec3D, 4>& quad, double r, std::vector<Arc>& arcs)
 {
   const auto inside = [&](double x, double y) {
     bool positive = false;
@@ -377,7 +377,7 @@ void discArcs(const std::array<std::array<double, 3>, 4>& quad, double r, std::v
 }
 
 /// Where segments p0-p1 and q0-q1 of the transverse plane cross, if they do.
-std::optional<std::array<double, 2>> crossing(const std::array<double, 3>& p0, const std::array<double, 3>& p1, const std::array<double, 3>& q0, const std::array<double, 3>& q1)
+std::optional<Vec2D> crossing(const Vec3D& p0, const Vec3D& p1, const Vec3D& q0, const Vec3D& q1)
 {
   const double rx = p1[0] - p0[0];
   const double ry = p1[1] - p0[1];
@@ -392,7 +392,7 @@ std::optional<std::array<double, 2>> crossing(const std::array<double, 3>& p0, c
   if (t < 0. || t > 1. || u < 0. || u > 1.) {
     return std::nullopt;
   }
-  return std::array<double, 2>{p0[0] + (t * rx), p0[1] + (t * ry)};
+  return Vec2D{p0[0] + (t * rx), p0[1] + (t * ry)};
 }
 
 /// A barrel sensor's arc at \a z: a flat one's cut with the plane at z, seen
@@ -400,7 +400,7 @@ std::optional<std::array<double, 2>> crossing(const std::array<double, 3>& p0, c
 void barrelArcs(const Sensor& sensor, const SensorSpec& spec, double z, std::vector<Arc>& arcs)
 {
   if (spec.curved()) {
-    std::array<std::array<double, 2>, 2> ends{};
+    std::array<Vec2D, 2> ends{};
     for (std::size_t i = 0; i < 2; ++i) {
       double frame[3];
       spec.unrolledToFrame(i == 0 ? -spec.halfX : spec.halfX, 0., spec.halfThickness, frame);
@@ -412,7 +412,7 @@ void barrelArcs(const Sensor& sensor, const SensorSpec& spec, double z, std::vec
     return;
   }
   const auto quad = midPlane(sensor, spec);
-  std::vector<std::array<double, 2>> cut;
+  std::vector<Vec2D> cut;
   for (std::size_t i = 0; i < quad.size(); ++i) {
     const auto& p = quad[i];
     const auto& q = quad[(i + 1) % quad.size()];
@@ -433,14 +433,14 @@ void barrelArcs(const Sensor& sensor, const SensorSpec& spec, double z, std::vec
 /// barrel sensor counts with its cut by the plane at that z, seen from the
 /// beam line; a disc sensor with its mid-plane projected along the beam.
 /// Layers numbered barrel first, as for `measureEnvelopes`.
-std::vector<std::vector<std::array<double, 2>>> measureCoverage(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers)
+std::vector<std::vector<Vec2D>> measureCoverage(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers)
 {
   const auto nLayers = specs.size();
   std::vector<std::vector<std::size_t>> byLayer(nLayers);
   for (std::size_t i = 0; i < sensors.size(); ++i) {
     byLayer[sensors[i].layer].push_back(i);
   }
-  std::vector<std::vector<std::array<double, 2>>> result(nLayers);
+  std::vector<std::vector<Vec2D>> result(nLayers);
   for (std::size_t layer = 0; layer < nLayers; ++layer) {
     const bool barrel = std::cmp_less(layer, nBarrelLayers);
     const auto& spec = specs[layer];
@@ -455,7 +455,7 @@ std::vector<std::vector<std::array<double, 2>>> measureCoverage(std::span<const 
     };
     std::vector<Span> spans;
     std::vector<double> critical;
-    std::vector<std::array<std::array<double, 3>, 4>> quads;
+    std::vector<std::array<Vec3D, 4>> quads;
     for (const auto index : byLayer[layer]) {
       const auto extent = extentOf(sensors[index], spec);
       spans.push_back({.low = barrel ? extent.zMin : extent.rMin, .high = barrel ? extent.zMax : extent.rMax, .sensor = quads.size()});

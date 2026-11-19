@@ -856,13 +856,13 @@ class VertexStudy
     const double ownInvPt2 = curved ? (1. + (mass2 / (out.ptGeV * out.ptGeV))) / (out.ptGeV * out.ptGeV) : 0.;
     const double scale = cut.invBetaMomentum2 > 0.F ? ownInvPt2 / static_cast<double>(cut.invBetaMomentum2) : 0.;
     // Transverse.
-    const std::array<std::array<double, 2>, 3> points{{{a.x, a.y}, {b.x, b.y}, {d.x, d.y}}};
-    const std::array<double, 3> radii{a.r, b.r, d.r};
-    const auto dcaOf = [&](const std::array<std::array<double, 2>, 3>& p) { return circleDca(p[0][0], p[0][1], p[1][0], p[1][1], p[2][0], p[2][1]); };
+    const std::array<Vec2D, 3> points{{{a.x, a.y}, {b.x, b.y}, {d.x, d.y}}};
+    const Vec3D radii{a.r, b.r, d.r};
+    const auto dcaOf = [&](const std::array<Vec2D, 3>& p) { return circleDca(p[0][0], p[0][1], p[1][0], p[1][1], p[2][0], p[2][1]); };
     const double dca0 = dcaOf(points);
     constexpr double kStep = 1.e-5; // [cm]
     double varPoints = 0.;
-    const std::array<double, 3> varRPhi{a.varRPhi, b.varRPhi, d.varRPhi};
+    const Vec3D varRPhi{a.varRPhi, b.varRPhi, d.varRPhi};
     for (std::size_t i = 0; i < 3U; ++i) {
       auto moved = points;
       moved[i][0] += -kStep * points[i][1] / radii[i];

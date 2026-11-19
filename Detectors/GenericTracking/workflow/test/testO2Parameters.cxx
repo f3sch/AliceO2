@@ -43,7 +43,7 @@ void cross(const double a[3], const double b[3], double out[3])
 
 /// A plane through \a origin with normal \a n (unit) and loc1 along the
 /// component of \a up orthogonal to it.
-TrackingSurface plane(const std::array<double, 3>& origin, const double n[3], const double up[3])
+TrackingSurface plane(const Vec3D& origin, const double n[3], const double up[3])
 {
   const double dot = (up[0] * n[0]) + (up[1] * n[1]) + (up[2] * n[2]);
   double a1[3] = {up[0] - (dot * n[0]), up[1] - (dot * n[1]), up[2] - (dot * n[2])};
@@ -209,7 +209,7 @@ BOOST_AUTO_TEST_CASE(BarrelParametersAreTheStatesPointMomentumAndCharge)
     double mom[3];
     globalOf(s, p, r, mom);
     const auto xyz = t.getXYZGlo();
-    std::array<float, 3> pxyz{};
+    Vec3F pxyz{};
     BOOST_TEST(t.getPxPyPzGlo(pxyz));
     BOOST_TEST(std::abs(xyz.X() - r[0]) < 1e-4);
     BOOST_TEST(std::abs(xyz.Y() - r[1]) < 1e-4);

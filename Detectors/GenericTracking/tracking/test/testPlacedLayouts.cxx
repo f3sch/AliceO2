@@ -268,7 +268,7 @@ namespace
 constexpr SensorSpec kCurved{.shape = ShapeType::kCylinder, .halfX = 0.3112, .halfY = 25., .halfThickness = 0.001, .pitchX = 0.001, .pitchY = 0.001, .radius = 0.5};
 
 /// A sensor rotated by \a angle about the beam axis and moved by \a t.
-Sensor rotatedAboutBeam(double angle, std::array<double, 3> t)
+Sensor rotatedAboutBeam(double angle, Vec3D t)
 {
   Sensor sensor{};
   const double c = std::cos(angle);
@@ -300,7 +300,7 @@ BOOST_AUTO_TEST_CASE(CurvedEnvelopeIsTheHullOfItsSilicon)
 {
   // On the beam axis, and moved off it so far that the nearest and farthest
   // points lie inside the arc rather than at its ends.
-  for (const auto& t : {std::array<double, 3>{0., 0., 0.}, std::array<double, 3>{0.03, -0.02, 1.}, std::array<double, 3>{0.2, 0.25, -2.}}) {
+  for (const auto& t : {Vec3D{0., 0., 0.}, Vec3D{0.03, -0.02, 1.}, Vec3D{0.2, 0.25, -2.}}) {
     const auto sensor = rotatedAboutBeam(kPi<double> / 4., t);
     const std::array<SensorSpec, 1> specs{kCurved};
     const auto envelope = measureEnvelopes(std::span(&sensor, 1), specs, 1).front();

@@ -62,10 +62,10 @@ struct StateTruth {
 
 /// Where the straight MC segment from \a start to \a end crosses \a plane:
 /// its loc0, loc1 there; none for a segment along the plane.
-[[nodiscard]] inline std::optional<std::array<double, 2>> segmentCrossing(const TrackingSurface& plane, const std::array<double, 3>& start, const std::array<double, 3>& end)
+[[nodiscard]] inline std::optional<Vec2D> segmentCrossing(const TrackingSurface& plane, const Vec3D& start, const Vec3D& end)
 {
-  const auto local = [&](const std::array<double, 3>& global) {
-    std::array<double, 3> l{};
+  const auto local = [&](const Vec3D& global) {
+    Vec3D l{};
     for (std::size_t i = 0; i < 3U; ++i) {
       const double d = global[i] - static_cast<double>(plane.origin[i]);
       l[0] += d * static_cast<double>(plane.axis0[i]);
@@ -80,7 +80,7 @@ struct StateTruth {
     return std::nullopt;
   }
   const double t = a[2] / (a[2] - b[2]);
-  return std::array<double, 2>{a[0] + (t * (b[0] - a[0])), a[1] + (t * (b[1] - a[1]))};
+  return Vec2D{a[0] + (t * (b[0] - a[0])), a[1] + (t * (b[1] - a[1]))};
 }
 
 /// \a state of particle \a particle (of charge \a charge) against the

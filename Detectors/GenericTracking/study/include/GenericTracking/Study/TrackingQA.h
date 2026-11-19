@@ -184,15 +184,15 @@ struct QAParticle {
 /// One crossing of a sensor by a particle, from its MC hit [cm].
 struct HitCrossing {
   double time = 0.; ///< any clock along the particle's path
-  std::array<double, 3> position{};
+  Vec3D position{};
   LayerID layer = 0;
-  std::array<double, 3> momentum{}; ///< [GeV]
+  Vec3D momentum{}; ///< [GeV]
 };
 
 /// A particle's outward leg: its \a crossings in time order up to the first
 /// one nearer its \a production point than the one before -- a curler's turn
 /// back.
-[[nodiscard]] std::vector<HitCrossing> outwardLeg(std::vector<HitCrossing> crossings, const std::array<double, 3>& production);
+[[nodiscard]] std::vector<HitCrossing> outwardLeg(std::vector<HitCrossing> crossings, const Vec3D& production);
 
 /// The layers of an outward \a leg (`outwardLeg`), a layer counted once
 /// however often it is crossed.
@@ -200,8 +200,8 @@ struct HitCrossing {
 
 /// A particle's helix as the MC kinematics give it at its production point.
 struct TruthHelix {
-  std::array<double, 3> position{}; ///< [cm]
-  std::array<double, 3> momentum{}; ///< [GeV]
+  Vec3D position{};                 ///< [cm]
+  Vec3D momentum{};                 ///< [GeV]
   double charge = 0.;               ///< [e]
 };
 
@@ -225,7 +225,7 @@ struct HelixImpact {
 /// its direction from the centre; the same direction as at production for a
 /// neutral, no field or no transverse momentum. NaN for kinematics, a field or
 /// a point not finite, no momentum, or the point at the centre.
-[[nodiscard]] std::array<double, 3> helixDirectionAt(const TruthHelix& helix, double bzKiloGauss, double x, double y);
+[[nodiscard]] Vec3D helixDirectionAt(const TruthHelix& helix, double bzKiloGauss, double x, double y);
 
 /// The transverse distance of (\a x, \a y) from \a helix's circle, or its
 /// straight line [cm], a line along z without transverse momentum; NaN for
@@ -289,17 +289,17 @@ struct QAResolution {
   /// fit's sigma of each (J C J^T), and the scattering's between the vertex
   /// and the innermost measurement as the beam-line update takes it
   /// (`vertexApproach`); NaN where the propagation failed.
-  std::array<float, 2> dca{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
-  std::array<float, 2> dcaSigma{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
-  std::array<float, 2> dcaScattering{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
+  Vec2F dca{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
+  Vec2F dcaSigma{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
+  Vec2F dcaScattering{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
   /// The MC state on the innermost measurement's plane carried to the same
   /// plane, d0 and z0 [cm]: what the scattering between the vertex and that
   /// crossing made of the particle's own; `dca` less it is the fit's error
   /// there, carried.
-  std::array<float, 2> dcaTrue{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
+  Vec2F dcaTrue{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
   /// The scattering as the pair cuts take it from the vertex to the source
   /// (`sourceScattering`, the source's layer whole), at the track's momentum.
-  std::array<float, 2> dcaScatteringSource{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
+  Vec2F dcaScatteringSource{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
   /// The particle's production point's distance from that vertex [cm]: 0
   /// for one made at the collision, a heavy-flavour decay's daughter's
   /// flight otherwise, whose d0 is its own and not a residual.

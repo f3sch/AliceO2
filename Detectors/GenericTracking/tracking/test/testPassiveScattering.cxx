@@ -372,7 +372,7 @@ BOOST_AUTO_TEST_CASE(ThePipeIsInTheTable)
   BOOST_TEST(nominal.passives[0].at.x2X0 == 0.01F);
   BOOST_TEST(table(0.02).passives[0].at.x2X0 == 0.02F);
   BOOST_TEST(nominalPassiveMaterial<Det>()[0] == 0.01);
-  BOOST_CHECK_THROW(static_cast<void>(scatteringTable<Det>(uniformLayerMaterial<Det>(kLayerX2X0), std::array<double, 2>{0.01, 0.01})), std::invalid_argument);
+  BOOST_CHECK_THROW(static_cast<void>(scatteringTable<Det>(uniformLayerMaterial<Det>(kLayerX2X0), Vec2D{0.01, 0.01})), std::invalid_argument);
 }
 
 /// Only the link across the pipe has it between its layers; a source beyond

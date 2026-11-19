@@ -116,7 +116,7 @@ const std::array<Case, 5> kCases{{
 BOOST_AUTO_TEST_CASE(TrueTripletsPassEveryCut)
 {
   for (const auto& c : kCases) {
-    for (const auto& [pt, minPt] : std::array<std::array<double, 2>, 4>{{{1., 1.}, {1.5, 1.}, {5., 1.}, {0.3, 0.3}}}) {
+    for (const auto& [pt, minPt] : std::array<Vec2D, 4>{{{1., 1.}, {1.5, 1.}, {5., 1.}, {0.3, 0.3}}}) {
       const auto kept = rates(c, pt, minPt);
       BOOST_TEST_CONTEXT("layers " << int(c.layers[0]) << " " << int(c.layers[1]) << " " << int(c.layers[2]) << " pT " << pt << " min " << minPt)
       {
@@ -299,7 +299,7 @@ const std::array<Case, 5> kCases{{
 BOOST_AUTO_TEST_CASE(TrueNeighboursPassEveryCut)
 {
   for (const auto& c : kCases) {
-    for (const auto& [pt, minPt] : std::array<std::array<double, 2>, 4>{{{1., 1.}, {1.5, 1.}, {5., 1.}, {0.3, 0.3}}}) {
+    for (const auto& [pt, minPt] : std::array<Vec2D, 4>{{{1., 1.}, {1.5, 1.}, {5., 1.}, {0.3, 0.3}}}) {
       const auto kept = rates(c, pt, minPt);
       BOOST_TEST_CONTEXT("layers " << int(c.layers[0]) << " " << int(c.layers[1]) << " " << int(c.layers[2]) << " " << int(c.layers[3]) << " slope " << c.slope << " pT " << pt << " min " << minPt)
       {

@@ -16,14 +16,15 @@
 /// host/device annotations arrive identically everywhere.
 ///
 /// Nothing in this file may depend on ROOT or on anything that cannot be
-/// compiled by a device compiler. The STL is limited to <cstdint> and <limits>,
-/// both of which are pure compile-time facilities here.
+/// compiled by a device compiler. The STL is limited to <array>, <cstdint> and
+/// <limits>, which every device compiler takes.
 
 #ifndef GTRK_BASE_DEFINITIONS_H_
 #define GTRK_BASE_DEFINITIONS_H_
 
 #include "GPUCommonDef.h"
 
+#include <array>
 #include <cstdint>
 #include <limits>
 
@@ -78,6 +79,15 @@ inline constexpr SensorID kInvalidSensorID = std::numeric_limits<SensorID>::max(
 
 /// Sentinel for "no layer", same reasoning as kInvalidSensorID.
 inline constexpr LayerID kInvalidLayerID = std::numeric_limits<LayerID>::max();
+
+/// A few numbers that belong together, by count and precision (D double, F
+/// float): a point, a direction, a momentum, a local position or a packed 2x2
+/// covariance. Wider rows (track parameters, packed covariances of more than
+/// two coordinates) stay std::array.
+using Vec2D = std::array<double, 2>;
+using Vec3D = std::array<double, 3>;
+using Vec2F = std::array<float, 2>;
+using Vec3F = std::array<float, 3>;
 
 /// `a == b` for floating point, for values that are equal by construction
 /// rather than by arithmetic: a switched-off field, an absent neighbour's

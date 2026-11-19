@@ -45,7 +45,7 @@ using detectors::TRKFT3;
 namespace
 {
 
-constexpr std::array<double, 3> kVertex{0.3, -0.2, 1.};
+constexpr Vec3D kVertex{0.3, -0.2, 1.};
 constexpr std::array<double, 5> kSigmas{1e-3, 1e-3, 1e-3, 1e-3, 0.01}; ///< loc0, loc1, phi, theta [cm, rad]; q/p relative
 
 struct Truth {
@@ -53,14 +53,14 @@ struct Truth {
 };
 
 /// \a truth's momentum vector [GeV], computed apart from the fit's.
-std::array<double, 3> vectorOf(const Truth& truth)
+Vec3D vectorOf(const Truth& truth)
 {
   const double p = 1. / std::abs(truth.qOverP);
   return {p * std::cos(truth.phi) * std::sin(truth.theta), p * std::sin(truth.phi) * std::sin(truth.theta), p * std::cos(truth.theta)};
 }
 
 /// The truth of momentum vector \a v and \a charge (q/p 1/p for a neutral one).
-Truth truthOf(const std::array<double, 3>& v, double charge)
+Truth truthOf(const Vec3D& v, double charge)
 {
   const double p = std::hypot(v[0], v[1], v[2]);
   return Truth{.phi = std::atan2(v[1], v[0]), .theta = std::atan2(std::hypot(v[0], v[1]), v[2]), .qOverP = (charge != 0. ? charge : 1.) / p};
@@ -69,7 +69,7 @@ const std::array<Truth, 3> kDaughters{Truth{.phi = 0.3, .theta = 1.2, .qOverP = 
 
 /// A daughter of \a truth from kVertex, exact on a plane 3 cm downstream, its
 /// covariance kSigmas's.
-DecayDaughter daughterOf(const Truth& truth, const Propagator& prop, const std::array<double, 3>& vertex = kVertex)
+DecayDaughter daughterOf(const Truth& truth, const Propagator& prop, const Vec3D& vertex = kVertex)
 {
   const auto start = beamLinePlane(static_cast<Scalar>(vertex[0]), static_cast<Scalar>(vertex[1]), static_cast<Scalar>(truth.phi));
   BoundTrackState state;
@@ -100,19 +100,19 @@ DecayDaughter daughterOf(const Truth& truth, const Propagator& prop, const std::
 /// kDecay; its two pions' momenta sum to its momentum along the flight.
 constexpr double kMass = 0.497611;
 constexpr double kPion = 0.13957;
-constexpr std::array<double, 3> kPoint{0.01, -0.02, 0.5};
-constexpr std::array<double, 3> kDecay{1.21, 0.98, 1.7};
+constexpr Vec3D kPoint{0.01, -0.02, 0.5};
+constexpr Vec3D kDecay{1.21, 0.98, 1.7};
 
 std::array<Truth, 2> pionPair()
 {
-  std::array<double, 3> dir{kDecay[0] - kPoint[0], kDecay[1] - kPoint[1], kDecay[2] - kPoint[2]};
+  Vec3D dir{kDecay[0] - kPoint[0], kDecay[1] - kPoint[1], kDecay[2] - kPoint[2]};
   const double length = std::hypot(dir[0], dir[1], dir[2]);
   for (auto& d : dir) {
     d /= length;
   }
   // A unit vector across the flight, in the transverse plane.
   const double across = std::hypot(dir[0], dir[1]);
-  const std::array<double, 3> normal{-dir[1] / across, dir[0] / across, 0.};
+  const Vec3D normal{-dir[1] / across, dir[0] / across, 0.};
   // p1 = a dir + b normal, p2 = c dir - b normal; c from the mass.
   const double a = 0.7;
   const double b = 0.15;
@@ -129,8 +129,8 @@ std::array<Truth, 2> pionPair()
     (massOf(mid) > kMass ? low : high) = mid;
   }
   const double c = 0.5 * (low + high);
-  const std::array<double, 3> p1{(a * dir[0]) + (b * normal[0]), (a * dir[1]) + (b * normal[1]), (a * dir[2]) + (b * normal[2])};
-  const std::array<double, 3> p2{(c * dir[0]) - (b * normal[0]), (c * dir[1]) - (b * normal[1]), (c * dir[2]) - (b * normal[2])};
+  const Vec3D p1{(a * dir[0]) + (b * normal[0]), (a * dir[1]) + (b * normal[1]), (a * dir[2]) + (b * normal[2])};
+  const Vec3D p2{(c * dir[0]) - (b * normal[0]), (c * dir[1]) - (b * normal[1]), (c * dir[2]) - (b * normal[2])};
   return {truthOf(p1, 1.), truthOf(p2, -1.)};
 }
 
@@ -232,7 +232,7 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
   std::mt19937 random{777U};
   std::normal_distribution<double> gauss;
   constexpr int kTrials = 1000;
-  const std::array<double, 2> masses{kPion, kPion};
+  const Vec2D masses{kPion, kPion};
   for (const int set : {1, 2, 3}) {
     const DecayConstraints constraints{.mass = (set & 1) != 0, .massGeV = kMass, .production = (set & 2) != 0, .point = kPoint};
     {
@@ -257,7 +257,7 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
         std::array<double, decay_fit_detail::kMaxHardRows> values{};
         std::array<double, static_cast<std::size_t>(decay_fit_detail::kMaxHardRows) * decay_fit_detail::kConstraintInputs> unused{};
         int written = 0;
-        BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, std::array<double, 2>{1., -1.}, values.data(), unused.data(), decay_fit_detail::kConstraintInputs, decay_fit_detail::kMaxHardRows, written));
+        BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, Vec2D{1., -1.}, values.data(), unused.data(), decay_fit_detail::kConstraintInputs, decay_fit_detail::kMaxHardRows, written));
         for (int j = 0; j < written; ++j) {
           worst = std::max(worst, std::abs(values[j]));
         }
@@ -288,7 +288,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
   const Truth proton{.phi = 0.25, .theta = 1.2, .qOverP = 1.};
   const Truth pion{.phi = 0.45, .theta = 1.25, .qOverP = -1. / 0.25};
   const Truth bachelor{.phi = -0.3, .theta = 1.4, .qOverP = -1. / 0.4};
-  std::array<double, 3> lambda{};
+  Vec3D lambda{};
   for (const auto& t : {proton, pion}) {
     const auto v = vectorOf(t);
     for (int c = 0; c < 3; ++c) {
@@ -296,10 +296,10 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
     }
   }
   const double norm = std::hypot(lambda[0], lambda[1], lambda[2]);
-  const std::array<double, 3> second{kVertex[0] + (2. * lambda[0] / norm), kVertex[1] + (2. * lambda[1] / norm), kVertex[2] + (2. * lambda[2] / norm)};
+  const Vec3D second{kVertex[0] + (2. * lambda[0] / norm), kVertex[1] + (2. * lambda[1] / norm), kVertex[2] + (2. * lambda[2] / norm)};
   const DecayTopology topology{.vertexOf = {1, 1, 0}, .parent = {-1, 0}};
   const std::vector<DecayDaughter> exactStates{daughterOf(proton, prop, second), daughterOf(pion, prop, second), daughterOf(bachelor, prop, kVertex)};
-  const std::array<std::array<double, 3>, 2> truth{kVertex, second};
+  const std::array<Vec3D, 2> truth{kVertex, second};
 
   const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, UniformMaterial{}, {}, topology);
   BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
@@ -345,7 +345,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
   // Tracked: the Xi's crossings of planes 1, 2, ... cm before its decay
   // vertex (the outermost first), one, two or four of them, with and without
   // its production point 6 cm before.
-  std::array<double, 3> xi{};
+  Vec3D xi{};
   for (const auto& t : {proton, pion, bachelor}) {
     const auto v = vectorOf(t);
     for (int c = 0; c < 3; ++c) {
@@ -383,8 +383,8 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
   }
   for (const int rowCount : {1, 2, 4}) {
     std::vector<TrackingSurface> planes;
-    std::vector<std::array<double, 2>> exactPositions;
-    std::vector<std::array<double, 3>> covariance;
+    std::vector<Vec2D> exactPositions;
+    std::vector<Vec3D> covariance;
     for (int r = 0; r < rowCount; ++r) {
       const auto plane = planeBefore(1. + r, 20 + r);
       const auto out = crossing(plane);
@@ -468,14 +468,14 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
   BOOST_REQUIRE(status == PropagationStatus::kOk || status == PropagationStatus::kOutOfBounds);
   Scalar xiDecay[3]{};
   surfaceToGlobal(on, there.loc0(), there.loc1(), xiDecay);
-  const std::array<double, 3> second{xiDecay[0], xiDecay[1], xiDecay[2]};
+  const Vec3D second{xiDecay[0], xiDecay[1], xiDecay[2]};
   const auto xi = vectorOf(Truth{.phi = static_cast<double>(there.phi()), .theta = static_cast<double>(there.theta()), .qOverP = static_cast<double>(there.qOverP())});
   // its daughters at its decay: a pi-, the Lambda the rest
   const Truth bachelor{.phi = 0.5, .theta = 1.25, .qOverP = -1. / 0.3};
   const auto b = vectorOf(bachelor);
-  const std::array<double, 3> lambda{xi[0] - b[0], xi[1] - b[1], xi[2] - b[2]};
+  const Vec3D lambda{xi[0] - b[0], xi[1] - b[1], xi[2] - b[2]};
   const double lambdaP = std::hypot(lambda[0], lambda[1], lambda[2]);
-  const std::array<double, 3> third{second[0] + (3. * lambda[0] / lambdaP), second[1] + (3. * lambda[1] / lambdaP), second[2] + (3. * lambda[2] / lambdaP)};
+  const Vec3D third{second[0] + (3. * lambda[0] / lambdaP), second[1] + (3. * lambda[1] / lambdaP), second[2] + (3. * lambda[2] / lambdaP)};
   const Truth proton{.phi = 0.1, .theta = 1.2, .qOverP = 1. / 0.8};
   const auto pr = vectorOf(proton);
   const Truth lambdaPion = truthOf({lambda[0] - pr[0], lambda[1] - pr[1], lambda[2] - pr[2]}, -1.);
@@ -483,7 +483,7 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
   const Truth piPlusB{.phi = 0.7, .theta = 1.1, .qOverP = 1. / 0.4};
   const DecayTopology topology{.vertexOf = {0, 0, 1, 2, 2}, .parent = {-1, 0, 1}};
   const std::vector<DecayDaughter> exactStates{daughterOf(piPlusA, prop, kVertex), daughterOf(piPlusB, prop, kVertex), daughterOf(bachelor, prop, second), daughterOf(proton, prop, third), daughterOf(lambdaPion, prop, third)};
-  const std::array<std::array<double, 3>, 3> truth{kVertex, second, third};
+  const std::array<Vec3D, 3> truth{kVertex, second, third};
 
   const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, UniformMaterial{}, {}, topology);
   BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
@@ -543,11 +543,11 @@ BOOST_AUTO_TEST_CASE(ElectronMixturesSumOverTheirComponents)
   for (const auto& truth : pair) {
     exactStates.push_back(daughterOf(truth, prop, kVertex));
   }
-  constexpr std::array<double, 2> kWeight{0.75, 0.25};
-  constexpr std::array<double, 2> kShift{0., 0.15}; ///< relative, |q/p| up
-  constexpr std::array<double, 2> kWidth{0.01, 0.05};
+  constexpr Vec2D kWeight{0.75, 0.25};
+  constexpr Vec2D kShift{0., 0.15}; ///< relative, |q/p| up
+  constexpr Vec2D kWidth{0.01, 0.05};
   double energy = 0.;
-  std::array<double, 3> total{};
+  Vec3D total{};
   for (const auto& truth : pair) {
     const double p = 1. / std::abs(truth.qOverP);
     energy += std::hypot(p, 0.000511);
@@ -634,10 +634,10 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
   prop.bzKiloGauss = 20.F;
   const Truth kaon{.phi = 0.35, .theta = 1.25, .qOverP = -1. / 1.1};
   const Truth positron{.phi = 0.05, .theta = 1.4, .qOverP = 1. / 0.7};
-  const std::array<double, 3> neutrino{0.3, 0.25, 0.1};
+  const Vec3D neutrino{0.3, 0.25, 0.1};
   constexpr double kKaon = 0.493677;
   constexpr double kElectron = 0.000511;
-  std::array<double, 3> total = neutrino;
+  Vec3D total = neutrino;
   double energy = std::hypot(neutrino[0], neutrino[1], neutrino[2]);
   for (const auto& [truth, mass] : {std::pair{kaon, kKaon}, std::pair{positron, kElectron}}) {
     const auto v = vectorOf(truth);
@@ -648,7 +648,7 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
   }
   const double pMother = std::hypot(total[0], total[1], total[2]);
   const double massMother = std::sqrt((energy * energy) - (pMother * pMother));
-  const std::array<double, 3> made{kVertex[0] - (0.1 * total[0] / pMother), kVertex[1] - (0.1 * total[1] / pMother), kVertex[2] - (0.1 * total[2] / pMother)};
+  const Vec3D made{kVertex[0] - (0.1 * total[0] / pMother), kVertex[1] - (0.1 * total[1] / pMother), kVertex[2] - (0.1 * total[2] / pMother)};
   Propagator kaonProp = prop;
   kaonProp.massGeV = static_cast<Scalar>(kKaon);
   Propagator positronProp = prop;
@@ -658,9 +658,9 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
   auto exactE = daughterOf(positron, positronProp, kVertex);
   exactE.mass = kElectron;
   const std::vector<DecayDaughter> visible{exactK, exactE};
-  const std::array<double, 2> visibleMasses{kKaon, kElectron};
+  const Vec2D visibleMasses{kKaon, kElectron};
   const DecayConstraints constraints{.mass = true, .massGeV = massMother, .production = true, .point = made};
-  const auto fitFrom = [&](const std::vector<DecayDaughter>& states, const std::array<double, 3>& start) {
+  const auto fitFrom = [&](const std::vector<DecayDaughter>& states, const Vec3D& start) {
     auto all = states;
     DecayDaughter unseen{.mass = 0., .neutral = true, .unmeasured = true};
     startUnmeasured(unseen, start);
@@ -679,7 +679,7 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
       if (fit.status == DecayFitStatus::kOk) {
         const auto& q = fit.momenta[2];
         const double p = 1. / q[2];
-        const std::array<double, 3> v{p * std::cos(q[0]) * std::sin(q[1]), p * std::sin(q[0]) * std::sin(q[1]), p * std::cos(q[1])};
+        const Vec3D v{p * std::cos(q[0]) * std::sin(q[1]), p * std::sin(q[0]) * std::sin(q[1]), p * std::cos(q[1])};
         best = std::min(best, std::hypot(v[0] - neutrino[0], v[1] - neutrino[1], v[2] - neutrino[2]));
       }
     }
@@ -754,7 +754,7 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
   const Truth kaon{.phi = 0.2, .theta = 1.3, .qOverP = -1. / 0.9};
   const double phiPi = 0.55;
   const double thetaPi = 1.2;
-  const auto unit = [](double phi, double theta) { return std::array<double, 3>{std::cos(phi) * std::sin(theta), std::sin(phi) * std::sin(theta), std::cos(theta)}; };
+  const auto unit = [](double phi, double theta) { return Vec3D{std::cos(phi) * std::sin(theta), std::sin(phi) * std::sin(theta), std::cos(theta)}; };
   const auto k = unit(kaon.phi, kaon.theta);
   const double pk = 1. / std::abs(kaon.qOverP);
   const double ek = std::hypot(pk, kKaon);
@@ -828,7 +828,7 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
   const Truth helium{.phi = 0.3, .theta = 1.25, .qOverP = 2. / 2.4}; // q / p, |q| = 2
   const Truth pion{.phi = 0.7, .theta = 1.4, .qOverP = -1. / 0.25};
   double energy = 0.;
-  std::array<double, 3> total{};
+  Vec3D total{};
   for (const auto& [truth, mass, charge] : {std::tuple{helium, kHelium3, 2.}, std::tuple{pion, kPion, 1.}}) {
     const double p = charge / std::abs(truth.qOverP);
     energy += std::hypot(p, mass);
@@ -851,7 +851,7 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
     const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, UniformMaterial{});
     BOOST_REQUIRE(fit.status == DecayFitStatus::kOk);
     double e = 0.;
-    std::array<double, 3> sum{};
+    Vec3D sum{};
     for (int i = 0; i < 2; ++i) {
       const auto& q = fit.momenta[i];
       const double p = std::abs(fit.charges[i]) / std::abs(q[2]);
@@ -1076,8 +1076,8 @@ BOOST_AUTO_TEST_CASE(InputsOutsideTheCapacitiesAreRefused)
   const DecayMother elsewhere{.vertex = 1};
   BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, {}, std::span<const DecayMother>{&elsewhere, 1}).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
   const std::vector<TrackingSurface> planes(maxChainLayers<TRKFT3> + 1U);
-  const std::vector<std::array<double, 2>> positions(planes.size());
-  const std::vector<std::array<double, 3>> covariance(planes.size());
+  const std::vector<Vec2D> positions(planes.size());
+  const std::vector<Vec3D> covariance(planes.size());
   const DecayMother longer{.planes = planes, .positions = positions, .covariance = covariance};
   BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, {}, std::span<const DecayMother>{&longer, 1}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
   const std::vector<DecayDaughter> six(6);
@@ -1108,8 +1108,8 @@ BOOST_AUTO_TEST_CASE(InputsBuiltBeyondTheirCapacityOrInconsistentAreRefused)
   // A tracked mother with fewer positions than planes, through a batch: the
   // batch keeps each array's length, so the fit's check sees the mismatch.
   const std::vector<TrackingSurface> planes(2);
-  const std::vector<std::array<double, 2>> positions(1);
-  const std::vector<std::array<double, 3>> covariance(2);
+  const std::vector<Vec2D> positions(1);
+  const std::vector<Vec3D> covariance(2);
   const DecayMother ragged{.planes = planes, .positions = positions, .covariance = covariance};
   DecayFitBatch batch;
   batch.add(std::span<const DecayDaughter>{two}, {}, {}, std::span<const DecayMother>{&ragged, 1});
@@ -1177,7 +1177,7 @@ BOOST_AUTO_TEST_CASE(TheFitsCrossingIsThePropagatorsOne)
     return reached;
   };
   for (const Truth& truth : {Truth{.phi = 0.3, .theta = 1.2, .qOverP = 1. / 0.3}, Truth{.phi = -0.4, .theta = 1.9, .qOverP = -1.}, Truth{.phi = 2.5, .theta = 0.6, .qOverP = 0.2}}) {
-    const std::array<double, 3> vertex{0.2, -0.1, 0.4};
+    const Vec3D vertex{0.2, -0.1, 0.4};
     const auto start = beamLinePlane(static_cast<Scalar>(vertex[0]), static_cast<Scalar>(vertex[1]), static_cast<Scalar>(truth.phi));
     BoundTrackState state;
     state.par[kLoc1] = static_cast<Scalar>(vertex[2]);
@@ -1258,7 +1258,7 @@ BOOST_AUTO_TEST_CASE(ReducedPrecisionOnHardCases)
   {
     const auto pions = pionPair();
     const auto visible = smeared({daughterOf(pions[0], prop, kDecay), daughterOf(pions[1], prop, kDecay)}, 13U);
-    const std::array<double, 2> masses{kPion, kPion};
+    const Vec2D masses{kPion, kPion};
     const auto free = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{visible}, UniformMaterial{});
     BOOST_REQUIRE(free.status == DecayFitStatus::kOk);
     // a mother heavier than the pair: room for the unseen one
@@ -1285,7 +1285,7 @@ BOOST_AUTO_TEST_CASE(ReducedPrecisionOnHardCases)
     for (const double ratio : {0.9, 0.99, 0.999, 0.9999, 0.99999}) {
       const double radius = kD / ratio;
       const double qOverPt = 1. / (fieldScale * radius); // rho = fieldScale q/pT
-      const auto crossing = [&]<typename T>(std::array<double, 2>& at) {
+      const auto crossing = [&]<typename T>(Vec2D& at) {
         FreeState<6, T> from{};
         for (int c = 0; c < 6; ++c) {
           from[c].d[c] = T(1.);
@@ -1299,8 +1299,8 @@ BOOST_AUTO_TEST_CASE(ReducedPrecisionOnHardCases)
         at = {static_cast<double>(local[0].v), static_cast<double>(local[1].v)};
         return reached;
       };
-      std::array<double, 2> inDouble{};
-      std::array<double, 2> inFloat{};
+      Vec2D inDouble{};
+      Vec2D inFloat{};
       const bool reachedDouble = crossing.template operator()<double>(inDouble);
       const bool reachedFloat = crossing.template operator()<float>(inFloat);
       BOOST_TEST_MESSAGE("quarter turn, d / R " << ratio << ": reached in double " << reachedDouble << ", in float " << reachedFloat << ", loc0 " << inDouble[0] << ", float less double [um] " << 1e4 * (inFloat[0] - inDouble[0]));

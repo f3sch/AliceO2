@@ -452,7 +452,7 @@ template <typename U, typename V, typename At>
   return full;
 }
 
-[[nodiscard]] inline Kinematics kinematicsOf(std::span<const std::array<double, 3>> momenta, std::span<const double> masses, std::span<const double> charges, std::span<const double> covariance, int stride, int offset)
+[[nodiscard]] inline Kinematics kinematicsOf(std::span<const Vec3D> momenta, std::span<const double> masses, std::span<const double> charges, std::span<const double> covariance, int stride, int offset)
 {
   using D = dual::Dual<3 * decay_fit_detail::kMaxConstrainedDaughters>;
   const int count = static_cast<int>(momenta.size());
@@ -482,7 +482,7 @@ struct MotherQuantities {
   double sTheta = 0.;
 };
 
-[[nodiscard]] inline MotherQuantities motherQuantities(const std::array<double, 3>& vertex, std::span<const std::array<double, 3>> momenta, std::span<const double> charges, const std::array<double, 3>& point, double mass, std::span<const double> covariance, int vertices)
+[[nodiscard]] inline MotherQuantities motherQuantities(const Vec3D& vertex, std::span<const Vec3D> momenta, std::span<const double> charges, const Vec3D& point, double mass, std::span<const double> covariance, int vertices)
 {
   using namespace decay_fit_detail;
   using D = Dual<kConstraintInputs>;
@@ -533,13 +533,13 @@ struct MotherQuantities {
 /// \a out; \a masses the daughters' (the fitted mass), \a across the true
 /// flight's transverse normal (sT). Returns the double fit's result.
 template <DetectorLayout Det, DecayFitVariant Variant, typename Material>
-DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, const Material& material, const DecayConstraints& constraints, const DecayTopology& topology, std::span<const DecayMother> mothers, std::span<const double> masses, const std::array<double, 3>& across,
+DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, const Material& material, const DecayConstraints& constraints, const DecayTopology& topology, std::span<const DecayMother> mothers, std::span<const double> masses, const Vec3D& across,
                                       const DecayPrecisionRecord& base, std::vector<DecayPrecisionRecord>& out)
 {
   const auto massOf = [&](const DecayVertexFitResult& fit) {
     const int n = (3 * static_cast<int>(fit.vertices.size())) + (3 * static_cast<int>(fit.momenta.size()));
     const auto full = fullCovariance(fit);
-    return kinematicsOf(std::span<const std::array<double, 3>>{fit.momenta.data(), fit.momenta.size()}, masses, std::span<const double>{fit.charges.data(), fit.charges.size()}, full, n, 3 * static_cast<int>(fit.vertices.size())).mass;
+    return kinematicsOf(std::span<const Vec3D>{fit.momenta.data(), fit.momenta.size()}, masses, std::span<const double>{fit.charges.data(), fit.charges.size()}, full, n, 3 * static_cast<int>(fit.vertices.size())).mass;
   };
   const auto sigmaT = [&](const DecayVertexFitResult& fit) { return sigmaOf(quadraticForm(across, across, 3, [&](int a, int b) { return fit.covarianceAt(a, b); })); };
   using Reference = DecayVertexFitter<Det, Variant, Material, double, double>;
@@ -607,8 +607,8 @@ DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, 
 /// daughters' masses.
 struct FitSummary {
   std::uint8_t status = 0U;
-  FixedVector<std::array<double, 3>, DecayVertexFitResult::kVertices> vertices;
-  FixedVector<std::array<double, 3>, DecayVertexFitResult::kDaughters> momenta;
+  FixedVector<Vec3D, DecayVertexFitResult::kVertices> vertices;
+  FixedVector<Vec3D, DecayVertexFitResult::kDaughters> momenta;
   FixedVector<double, (3 * DecayVertexFitResult::kVertices) + (3 * DecayVertexFitResult::kDaughters)> diagonal;
   double chi2 = 0.;
   double mass = 0.;
@@ -763,7 +763,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     std::vector<const TreeParticle*> leaves;
     std::vector<const TreeParticle*> composites; ///< a tree's, vertex 1 on
     DecayTopology topology;
-    std::array<double, 3> decay{};               ///< the root's true decay point
+    Vec3D decay{};                               ///< the root's true decay point
     const TreeParticle* unseen = nullptr;        ///< the root's one unseen neutral product, if any
     std::vector<const TreeParticle*> resonances; ///< composites that decay where they are made: transparent
     std::vector<DecayFitRecord> records;
@@ -897,10 +897,10 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       // The truth.
       const auto& mother = *one.mother;
       const auto& decay = one.decay;
-      std::array<double, 3> pTrue{};
+      Vec3D pTrue{};
       double eTrue = 0.;
       double minPt = std::numeric_limits<double>::infinity();
-      std::vector<std::array<double, 3>> qTrue(count);
+      std::vector<Vec3D> qTrue(count);
       for (std::size_t i = 0; i < count; ++i) {
         const auto& m = one.leaves[i]->momentum;
         const double p = std::hypot(m[0], m[1], m[2]);
@@ -921,19 +921,19 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       const double pTotal = std::hypot(pTrue[0], pTrue[1], pTrue[2]);
       // The flight's frame: along it, across it in the transverse plane, and
       // the third axis.
-      std::array<double, 3> along{decay[0] - mother.vertex[0], decay[1] - mother.vertex[1], decay[2] - mother.vertex[2]};
+      Vec3D along{decay[0] - mother.vertex[0], decay[1] - mother.vertex[1], decay[2] - mother.vertex[2]};
       const double flight = std::hypot(along[0], along[1], along[2]);
       for (auto& component : along) {
         component /= flight;
       }
-      std::array<double, 3> across{-along[1], along[0], 0.};
+      Vec3D across{-along[1], along[0], 0.};
       const double acrossNorm = std::hypot(across[0], across[1]);
       if (acrossNorm > 0.) {
         across = {across[0] / acrossNorm, across[1] / acrossNorm, 0.};
       } else {
         across = {1., 0., 0.};
       }
-      const std::array<double, 3> third{(along[1] * across[2]) - (along[2] * across[1]), (along[2] * across[0]) - (along[0] * across[2]), (along[0] * across[1]) - (along[1] * across[0])};
+      const Vec3D third{(along[1] * across[2]) - (along[2] * across[1]), (along[2] * across[0]) - (along[0] * across[2]), (along[0] * across[1]) - (along[1] * across[0])};
 
       DecayFitRecord base{
         .timeframe = event.timeframe,
@@ -979,7 +979,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       const double motherMass = particleMass(mother.pdg);
       const auto collision = event.collisions->find(collisionOf(mother.id));
       const bool hasCollision = collision != event.collisions->end();
-      const std::array<double, 3> point = hasCollision ? collision->second : std::array<double, 3>{};
+      const Vec3D point = hasCollision ? collision->second : Vec3D{};
       // Made at the collision: its production point is the collision's to
       // the precision the kinematics store it (float); otherwise (a Lambda
       // from a Xi) a production point at the collision is false.
@@ -1006,8 +1006,8 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       // reserved so that the spans stay valid.
       struct OwnRows {
         std::vector<TrackingSurface> planes;
-        std::vector<std::array<double, 2>> positions;
-        std::vector<std::array<double, 3>> covariance;
+        std::vector<Vec2D> positions;
+        std::vector<Vec3D> covariance;
       };
       std::vector<OwnRows> motherRows;
       std::vector<DecayMother> trackedMothers;
@@ -1102,13 +1102,13 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         one.topology.massGeV.push_back(m);
       }
       std::vector<std::size_t> childLeaves; // the first composite's leaves
-      std::array<double, 3> childDecay{};
-      std::array<double, 3> childAxis{}; // its true flight direction
-      std::array<double, 3> childAcross{};
+      Vec3D childDecay{};
+      Vec3D childAxis{}; // its true flight direction
+      Vec3D childAcross{};
       if (tree) {
         base.childPdg = one.composites.front()->pdg;
         childDecay = decayProducts(trees, *one.composites.front()).front()->vertex;
-        std::array<double, 3> childP{};
+        Vec3D childP{};
         double childE = 0.;
         for (std::size_t i = 0; i < count; ++i) {
           if (one.topology.under(static_cast<int>(i), 1)) {
@@ -1126,7 +1126,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           childAxis[c] = childP[c] / childPTotal;
         }
         const double t = std::hypot(childAxis[0], childAxis[1]);
-        childAcross = t > 0. ? std::array<double, 3>{-childAxis[1] / t, childAxis[0] / t, 0.} : std::array<double, 3>{1., 0., 0.};
+        childAcross = t > 0. ? Vec3D{-childAxis[1] / t, childAxis[0] / t, 0.} : Vec3D{1., 0., 0.};
         base.childLengthTrue = static_cast<float>(((childDecay[0] - decay[0]) * childAxis[0]) + ((childDecay[1] - decay[1]) * childAxis[1]) + ((childDecay[2] - decay[2]) * childAxis[2]));
         base.childMassTrue = static_cast<float>(std::sqrt(std::max((childE * childE) - (childPTotal * childPTotal), 0.)));
       }
@@ -1181,7 +1181,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         auto jobTopology = one.topology;
         const bool wantMissing = (job.constraints & 64U) != 0U;
         if (wantMissing) {
-          std::optional<std::array<double, 3>> start;
+          std::optional<Vec3D> start;
           if (free.status == DecayFitStatus::kOk) {
             const auto starts = missingMomentumStarts(free, masses, point, motherMass, unseenMass);
             if (static_cast<std::size_t>(job.branch) < starts.size()) {
@@ -1250,14 +1250,14 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.chi2 = static_cast<float>(fit.chi2);
         record.ndf = static_cast<std::int16_t>(fit.ndf);
         record.maxCarryX2X0 = static_cast<float>(*std::ranges::max_element(fit.carryX2X0));
-        const std::array<double, 3> d{fit.vertex[0] - decay[0], fit.vertex[1] - decay[1], fit.vertex[2] - decay[2]};
+        const Vec3D d{fit.vertex[0] - decay[0], fit.vertex[1] - decay[1], fit.vertex[2] - decay[2]};
         record.dX = static_cast<float>(d[0]);
         record.dY = static_cast<float>(d[1]);
         record.dZ = static_cast<float>(d[2]);
         record.sX = static_cast<float>(std::sqrt(c[0]));
         record.sY = static_cast<float>(std::sqrt(c[n + 1]));
         record.sZ = static_cast<float>(std::sqrt(c[2 * n + 2]));
-        const auto project = [&](const std::array<double, 3>& axis, float& residual, float& sigma) {
+        const auto project = [&](const Vec3D& axis, float& residual, float& sigma) {
           residual = static_cast<float>((d[0] * axis[0]) + (d[1] * axis[1]) + (d[2] * axis[2]));
           sigma = static_cast<float>(sigmaOf(quadraticForm(axis, axis, 3, [&](int a, int b) { return c[a * n + b]; })));
         };
@@ -1283,10 +1283,10 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         // The child: its vertex, decay length and mass.
         if (tree) {
           const auto& child = fit.vertices[1];
-          const std::array<double, 3> e{child[0] - childDecay[0], child[1] - childDecay[1], child[2] - childDecay[2]};
+          const Vec3D e{child[0] - childDecay[0], child[1] - childDecay[1], child[2] - childDecay[2]};
           // the covariance of projections of the vertices from \a first and \a second (0: the parent's, 3: the child's)
-          const auto vertexCovariance = [&](const std::array<double, 3>& axis, int first, int second) { return quadraticForm(axis, axis, 3, [&](int a, int b) { return c[((first + a) * n) + second + b]; }); };
-          const auto childVariance = [&](const std::array<double, 3>& axis) { return vertexCovariance(axis, 3, 3); };
+          const auto vertexCovariance = [&](const Vec3D& axis, int first, int second) { return quadraticForm(axis, axis, 3, [&](int a, int b) { return c[((first + a) * n) + second + b]; }); };
+          const auto childVariance = [&](const Vec3D& axis) { return vertexCovariance(axis, 3, 3); };
           record.dChildL = static_cast<float>((e[0] * childAxis[0]) + (e[1] * childAxis[1]) + (e[2] * childAxis[2]));
           record.sChildL = static_cast<float>(sigmaOf(childVariance(childAxis)));
           record.dChildT = static_cast<float>((e[0] * childAcross[0]) + (e[1] * childAcross[1]) + (e[2] * childAcross[2]));
@@ -1298,7 +1298,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           record.sChildLength = static_cast<float>(sigmaOf(lengthVariance));
           {
             // the child's leaves' momenta and their covariance block
-            std::vector<std::array<double, 3>> childMomenta;
+            std::vector<Vec3D> childMomenta;
             std::vector<double> childMasses;
             for (const auto i : childLeaves) {
               childMomenta.push_back(fit.momenta[i]);

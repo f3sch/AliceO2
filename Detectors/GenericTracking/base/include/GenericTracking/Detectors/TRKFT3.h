@@ -54,8 +54,8 @@ inline constexpr double kUm = 1e-4;
 /// A VD sensor: a quarter of a cylinder of radius kVDRadius less the gap
 /// between petals, 50 cm long, 20 um of silicon, 10 um pixels. O2 measures its
 /// flat coordinate on the inner surface (SensorSpec::radius).
-inline constexpr std::array<double, 3> kVDRadius{0.5 * kCm, 1.2 * kCm, 2.5 * kCm};
-inline constexpr std::array<double, 3> kVDPetalGap{1.63 * kMm, 1.2 * kMm, 1.2 * kMm};
+inline constexpr Vec3D kVDRadius{0.5 * kCm, 1.2 * kCm, 2.5 * kCm};
+inline constexpr Vec3D kVDPetalGap{1.63 * kMm, 1.2 * kMm, 1.2 * kMm};
 inline constexpr double kVDLength = 50 * kCm;
 inline constexpr double kVDThickness = 20 * kUm;
 inline constexpr double kVDPitch = 10 * kUm;
