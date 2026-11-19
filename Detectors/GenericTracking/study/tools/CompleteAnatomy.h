@@ -2337,8 +2337,8 @@ class CompleteAnatomy
   /// How a follow walk ended (`FollowEnd`), as the printed tables name it.
   static constexpr std::array<const char*, 4> kFollowEndNames{"no target", "holes", "no row", "capacity"};
   /// A replayed step's outcome on a row, as the printed tables name it: the
-  /// six `StepOutcome`s, then `kNotVisited`.
-  static constexpr std::array<const char*, 7> kStepOutcomeNames{"held", "outside the window", "crossing a layer", "no update", "chi2", "passing", "not visited"};
+  /// seven `StepOutcome`s, then `kNotVisited`.
+  static constexpr std::array<const char*, 8> kStepOutcomeNames{"held", "outside the window", "crossing a layer", "no update", "chi2", "passing", "cluster shape", "not visited"};
   /// The names of the bins of `kWalkPtEdges` [GeV].
   static constexpr std::array<const char*, 5> kWalkPtNames{"< 0.2", "0.2-0.3", "0.3-0.6", "0.6-1", ">= 1"};
 
@@ -3320,13 +3320,13 @@ class CompleteAnatomy
   void withFollowStage(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const std::uint8_t* used, std::uint32_t first, const Body& body)
   {
     withBools(
-      [&]<bool BeamLine, bool Greedy, bool EndDensity, bool BeamEnd>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>) {
+      [&]<bool BeamLine, bool Greedy, bool EndDensity, bool BeamEnd, bool Shape>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>, std::bool_constant<Shape>) {
         if constexpr (BeamLine || !BeamEnd) {
-          const FollowStage<Det, Material, BeamLine, false, Greedy, EndDensity, BeamEnd> stage{&parameters, &frame, &geometry, &material, propagator, iteration.tracks->view(), used, mMaxWidthPS.data(), mCells.view(), nullptr, parameters.sharedInnermost == 0U, first};
+          const FollowStage<Det, Material, BeamLine, false, Greedy, EndDensity, BeamEnd, Shape> stage{&parameters, &frame, &geometry, &material, propagator, iteration.tracks->view(), used, mMaxWidthPS.data(), mCells.view(), nullptr, parameters.sharedInnermost == 0U, first};
           body(stage);
         }
       },
-      parameters.beamConstraint, parameters.followGreedy, Follow<Det>::endDensity(parameters), parameters.followBeamEnd);
+      parameters.beamConstraint, parameters.followGreedy, Follow<Det>::endDensity(parameters), parameters.followBeamEnd, parameters.shapeTest);
   }
 
   /// Both walks through the stage's sequencing: outward first, its narrowed
@@ -3410,7 +3410,7 @@ class CompleteAnatomy
     // its last one; its own row passing with the taken row's chi2 below,
     // equal to or above its own (the lookahead's choice); the walk's replay
     // not agreeing with the rows the iteration kept.
-    enum OwnStatus : std::uint8_t { kOwnNotVisited = 6,
+    enum OwnStatus : std::uint8_t { kOwnNotVisited = 7,
                                     kOwnGapFree,
                                     kOwnNotReplayed,
                                     kOwnPastLast,
@@ -3420,7 +3420,7 @@ class CompleteAnatomy
                                     kOwnDisagrees,
                                     kOwnPastLastReturn,
                                     kOwnStatuses };
-    constexpr std::array<const char*, kOwnStatuses> kOwnNames{"held", "outside the window", "crossing a layer", "no update", "chi2", "passing, taken lower", "not visited", "no own row, free own rows beyond", "not replayed", "no own row, past its last", "passing, taken higher", "passing, equal", "no own row, own rows beyond all held", "replay disagrees", "no own row, past its last on this leg, own rows on later legs"};
+    constexpr std::array<const char*, kOwnStatuses> kOwnNames{"held", "outside the window", "crossing a layer", "no update", "chi2", "passing, taken lower", "cluster shape", "not visited", "no own row, free own rows beyond", "not replayed", "no own row, past its last", "passing, taken higher", "passing, equal", "no own row, own rows beyond all held", "replay disagrees", "no own row, past its last on this leg, own rows on later legs"};
     constexpr std::array<double, 4> kPtEdges{0.2, 0.3, 0.6, 1e9};
     constexpr std::array<const char*, 4> kPtNames{"< 0.2", "0.2-0.3", "0.3-0.6", ">= 0.6"};
     std::array<std::array<std::array<std::size_t, kOwnStatuses>, kPtEdges.size()>, 2> byPt{}; // [inward, outward][pT][own status]
@@ -7159,6 +7159,7 @@ class CompleteAnatomy
       case StepOutcome::kNoUpdate:
         return kNoUpdate;
       case StepOutcome::kChi2:
+      case StepOutcome::kShape:
         return kChi2;
       case StepOutcome::kPasses:
         return step->lookahead ? kLookaheadOther : kOtherTaken;
@@ -8503,7 +8504,7 @@ class CompleteAnatomy
   std::vector<std::uint8_t> mSnapshotUsed;                    ///< and its mask
   /// A step's outcome on a row past the six `StepOutcome`s: the row not
   /// among its candidates.
-  static constexpr std::size_t kNotVisited = 6U;
+  static constexpr std::size_t kNotVisited = 7U;
   std::unique_ptr<std::ofstream> mCsv;
   const study::HitIndex* mHits = nullptr;              ///< the MC hits, if given
   std::vector<std::vector<int>> mMothers;              ///< `openKine`'s: per MC event, each track's mother
