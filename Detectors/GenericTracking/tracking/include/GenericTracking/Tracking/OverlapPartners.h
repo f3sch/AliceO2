@@ -23,8 +23,9 @@
 ///    row's filtered state kept, the inward pass's where it has one
 ///    (`ObservesFitStates`);
 ///  - from each row's state, the other sensors of its layer the track
-///    crosses -- listed near enough by `SensorCells` (`partnerReach`), and
-///    crossed within their bounds widened by the gate's spread -- and on each
+///    crosses -- those whose footprint meets the range the track sweeps
+///    within the layer's envelope (`partnerReach`), and crossed within their
+///    bounds widened by the gate's spread -- and on each
 ///    its free rows, compatible in time, within that spread of the crossing,
 ///    each predicted on the sensor and tested with the follow's
 ///    two-coordinate cut (`clusterChi2Max`); per sensor the best is the
@@ -166,45 +167,104 @@ struct RowStateObserver {
 };
 
 /// Where a track's state \a state on its row's sensor, on \a layer, may
-/// cross another sensor of the layer: about its point there (the detector's
-/// frame, as `SensorCells` lists the sensors), as far as the layer's whole
-/// envelope lets the crossing move along the track's slope, both sensors
-/// anywhere in it, plus \a spread.
+/// cross another sensor of the layer that the later tests accept: the range
+/// in azimuth about the detector's axis and in the second coordinate (z on a
+/// barrel layer, the radius on a disc) that the track's line sweeps within
+/// the layer's envelope (`LayerSpan`), widened by how far an accepted
+/// crossing may lie off that line. That margin is a sensor's bounds widened
+/// by \a spread in both local coordinates (up to sqrt(2) spread off the
+/// sensor) and the helix's departure from its line, taken as the line test
+/// takes it (half \a curvature times the step squared) over the line's
+/// longer step to the envelope's edges. The line's sweep is exact: its
+/// azimuth changes monotonically along it, so the range is that of its ends.
 struct PartnerReach {
-  Scalar point[3]{}; ///< the state's point [cm]
-  Scalar phi = 0.F;  ///< its azimuth about the detector's axis
-  Scalar second = 0.F;
-  Scalar phiReach = 0.F;
+  Scalar point[3]{};     ///< the state's point [cm]
+  Scalar phi = 0.F;      ///< the range's centre in azimuth
+  Scalar second = 0.F;   ///< and in the second coordinate
+  Scalar phiReach = 0.F; ///< its half-widths
   Scalar secondReach = 0.F;
 };
 
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() PartnerReach partnerReach(const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, LayerID layer, const BoundParameters& state, Scalar spread)
+[[nodiscard]] GPUhdi() PartnerReach partnerReach(const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, LayerID layer, const BoundParameters& state, Scalar spread, Scalar curvature)
 {
   using Math = o2::gpu::CAMath;
+  constexpr Scalar kPi = std::numbers::pi_v<Scalar>;
   PartnerReach reach;
   surfaceToGlobal(geometry.planeOf(state), state.loc0(), state.loc1(), reach.point);
   const Scalar r = Math::Hypot(reach.point[0], reach.point[1]);
   const bool barrel = ((parameters.barrelLayers >> layer) & 1U) != 0U;
-  reach.phi = azimuth(reach.point[0], reach.point[1]);
-  reach.second = barrel ? reach.point[2] : r;
-  const Scalar alpha = state.phi() - reach.phi;
-  const Scalar sinAlpha = Math::Abs(Math::Sin(alpha));
-  const Scalar cosAlpha = Math::Abs(Math::Cos(alpha));
-  const Scalar sinTheta = Math::Abs(Math::Sin(state.theta()));
-  const Scalar cosTheta = Math::Abs(Math::Cos(state.theta()));
-  // How far the crossing moves per unit of the layer's position (radius on
-  // a barrel layer, z on a disc), along the track there.
-  const Scalar transverse = barrel ? 1.F / cosAlpha : sinTheta / cosTheta;
   const auto& span = parameters.layerSpans[layer];
-  const Scalar envelope = span.positionMax - span.positionMin;
-  reach.phiReach = Math::Min(((transverse * sinAlpha * envelope) + spread) / r, std::numbers::pi_v<Scalar>);
-  reach.secondReach = Math::Min((transverse * (barrel ? cosTheta / sinTheta : cosAlpha) * envelope) + spread, follow::kOpenBound);
-  // A NaN reach (a slope at a singular angle) looks at the whole layer.
-  if (!(reach.phiReach >= 0.F)) {
-    reach.phiReach = std::numbers::pi_v<Scalar>;
+  // The line in the transverse plane, in the frame where the point is at
+  // (r, 0): direction (cosAlpha, sinAlpha), z changing by cotTheta per step.
+  const Scalar alpha = state.phi() - azimuth(reach.point[0], reach.point[1]);
+  const Scalar cosAlpha = Math::Cos(alpha);
+  const Scalar sinAlpha = Math::Sin(alpha);
+  const Scalar sinTheta = Math::Abs(Math::Sin(state.theta()));
+  const Scalar cotTheta = Math::Cos(state.theta()) / sinTheta;
+  const Scalar dilation = std::numbers::sqrt2_v<Scalar> * spread;
+  const auto departure = [&](Scalar step) { return 0.5F * Math::Abs(curvature) * step * step; };
+  // The steps back and ahead along the line to the envelope's edges.
+  Scalar back = 0.F;
+  Scalar ahead = 0.F;
+  Scalar margin = 0.F;
+  if (barrel) {
+    // Radius squared along the line: (s + c)^2 + b^2.
+    const Scalar c = r * cosAlpha;
+    const Scalar b2 = (r * sinAlpha) * (r * sinAlpha);
+    const auto edges = [&](Scalar widening) {
+      const Scalar inner = Math::Max(span.positionMin - widening, 0.F);
+      const Scalar outer = span.positionMax + widening;
+      const auto root = [&](Scalar radius) { return Math::Sqrt(Math::Max((radius * radius) - b2, 0.F)); };
+      // Inwards, the line leaves the envelope at its inner edge if it gets
+      // that close to the axis, else at its outer edge beyond.
+      const bool dips = b2 < inner * inner;
+      ahead = (c < 0.F && dips) ? -c - root(inner) : -c + root(outer);
+      back = (c > 0.F && dips) ? c - root(inner) : c + root(outer);
+    };
+    // The departure over the line's longer step to the edges, as the line
+    // test takes it over its step to a sensor's plane.
+    edges(dilation);
+    margin = dilation + departure(Math::Max(ahead, back) / sinTheta);
+    edges(margin);
+  } else {
+    const Scalar z = reach.point[2];
+    const Scalar above = span.positionMax + dilation - z;
+    const Scalar below = z - (span.positionMin - dilation);
+    margin = dilation + departure(Math::Max(above, below) * Math::Sqrt(1.F + (1.F / (cotTheta * cotTheta))));
+    const Scalar up = (above + margin) / Math::Abs(cotTheta);
+    const Scalar down = (below + margin) / Math::Abs(cotTheta);
+    ahead = cotTheta >= 0.F ? up : down;
+    back = cotTheta >= 0.F ? down : up;
   }
-  if (!(reach.secondReach >= 0.F)) {
+  ahead = Math::Max(ahead, 0.F);
+  back = Math::Max(back, 0.F);
+  const Scalar phiAhead = Math::ATan2(ahead * sinAlpha, r + (ahead * cosAlpha));
+  const Scalar phiBack = Math::ATan2(-back * sinAlpha, r - (back * cosAlpha));
+  const auto radiusAt = [&](Scalar step) { return Math::Sqrt(Math::Max((r * r) + (2.F * step * r * cosAlpha) + (step * step), 0.F)); };
+  const Scalar closest = -r * cosAlpha;
+  const Scalar rMin = (closest > -back && closest < ahead) ? Math::Abs(r * sinAlpha) : Math::Min(radiusAt(ahead), radiusAt(-back));
+  const Scalar rMax = Math::Max(radiusAt(ahead), radiusAt(-back));
+  // The margin's azimuth about the nearest the line comes to the axis.
+  const Scalar widen = rMin > margin ? Math::ASin(margin / rMin) : kPi;
+  reach.phi = azimuth(reach.point[0], reach.point[1]) + (0.5F * (phiAhead + phiBack));
+  reach.phiReach = Math::Min((0.5F * Math::Abs(phiAhead - phiBack)) + widen, kPi);
+  if (barrel) {
+    const Scalar zAhead = reach.point[2] + (ahead * cotTheta);
+    const Scalar zBack = reach.point[2] - (back * cotTheta);
+    reach.second = 0.5F * (zAhead + zBack);
+    reach.secondReach = Math::Min((0.5F * Math::Abs(zAhead - zBack)) + margin, follow::kOpenBound);
+  } else {
+    reach.second = 0.5F * (rMin + rMax);
+    reach.secondReach = Math::Min((0.5F * (rMax - rMin)) + margin, follow::kOpenBound);
+  }
+  // A NaN range (a slope at a singular angle) looks at the whole layer.
+  if (!(reach.phiReach >= 0.F) || !(Math::Abs(reach.phi) <= 4.F * kPi)) {
+    reach.phi = 0.F;
+    reach.phiReach = kPi;
+  }
+  if (!(reach.secondReach >= 0.F) || !(Math::Abs(reach.second) <= follow::kOpenBound)) {
+    reach.second = 0.F;
     reach.secondReach = follow::kOpenBound;
   }
   return reach;
@@ -215,8 +275,10 @@ template <DetectorLayout Det>
 /// One element per track of the iteration (from \a offset): its proposals
 /// (see the file's comment), one per other sensor of each layer it has a row
 /// on that the layout allows (`overlapLayers`). From each row's state, the
-/// layer's sensors near enough (`partnerReach`, `SensorCellsView`) that the
-/// track crosses within their bounds, wider by the gate's spread; on each,
+/// layer's sensors whose footprint meets the range the track can cross the
+/// layer in (`partnerReach`; listed by `SensorCellsView`, then each tested
+/// on its `SensorFootprint`) that the track crosses within their bounds,
+/// wider by the gate's spread; on each,
 /// the rows within that spread of the crossing, its own rows only. Its
 /// pointers may be a device's.
 template <DetectorLayout Det, typename Material>
@@ -236,6 +298,7 @@ struct ProposePartners {
   const std::uint8_t* used = nullptr;
   const std::uint32_t* maxWidthPS = nullptr;   ///< per layer, `TimeframePlan::layerMaxWidthPS`
   const Scalar* measurementVariance = nullptr; ///< per layer, `TimeframePlan::layerMaxLocVariance`
+  const SensorFootprint* footprints = nullptr; ///< per sensor, `SensorCells::footprints`
 
   template <typename Emitter>
   GPUhdi() void operator()(std::uint32_t element, Emitter& emitter) const
@@ -280,12 +343,14 @@ struct ProposePartners {
       const Scalar spread = nSigma * Math::Sqrt(Math::Max(cov[varIndex(kLoc0)], cov[varIndex(kLoc1)]) + parameters->followPositionVariance + measurementVariance[layer]);
       const Scalar sinTheta = Math::Sin(state.theta());
       const Scalar direction[3] = {sinTheta * Math::Cos(state.phi()), sinTheta * Math::Sin(state.phi()), Math::Cos(state.theta())};
-      const auto reach = overlap::partnerReach<Det>(*parameters, *geometry, layer, state, spread);
       const auto& from = geometry->planeOf(state);
       const auto& stepPropagator = pointPropagator(propagator, from, state);
       const ExactScalar curvature = stepPropagator.curvature(static_cast<ExactScalar>(state.qOverP()), 1.);
+      const auto reach = overlap::partnerReach<Det>(*parameters, *geometry, layer, state, spread, static_cast<Scalar>(curvature));
       cells.forEachSensorOnce(layer, reach.phi, reach.phiReach, reach.second, reach.secondReach, [&](std::uint32_t id) {
-        if (id == ownSurface) {
+        // The cells list sensors near the range; its own footprint tells,
+        // before its surface is read.
+        if (id == ownSurface || !footprints[id].meets(reach.phi, reach.phiReach, reach.second, reach.secondReach)) {
           return;
         }
         const TrackingSurface& surface = geometry->surface(static_cast<SensorID>(id));
@@ -523,14 +588,14 @@ class OverlapPartners
   /// \a forEach(n, body) runs body(i) for every i below n, serially or in
   /// parallel; \a chunk is the proposals' stage's chunk.
   template <typename Material, typename ForEach>
-  [[nodiscard]] StageStatus run(const ForEach& forEach, std::uint32_t chunk, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& lut, const Propagator& propagator, const SensorCellsView& cells, Tracks& tracks, std::uint32_t trackOffset, std::span<std::uint8_t> used, std::span<const std::uint32_t> maxWidthPS, std::span<const Scalar> measurementVariance)
+  [[nodiscard]] StageStatus run(const ForEach& forEach, std::uint32_t chunk, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& lut, const Propagator& propagator, const SensorCellsView& cells, std::span<const SensorFootprint> footprints, Tracks& tracks, std::uint32_t trackOffset, std::span<std::uint8_t> used, std::span<const std::uint32_t> maxWidthPS, std::span<const Scalar> measurementVariance)
   {
     return guardOutOfMemory([&] {
       mCounts = {};
       const auto n = static_cast<std::uint32_t>(tracks.size() - trackOffset);
       // Each track's proposals: count, scan, place.
       mProposals.prepare(n);
-      const ProposePartners<Det, Material> propose{.parameters = &parameters, .frame = &frame, .geometry = &geometry, .material = &lut, .propagator = propagator, .cells = cells, .tracks = std::as_const(tracks).view(), .offset = trackOffset, .used = used.data(), .maxWidthPS = maxWidthPS.data(), .measurementVariance = measurementVariance.data()};
+      const ProposePartners<Det, Material> propose{.parameters = &parameters, .frame = &frame, .geometry = &geometry, .material = &lut, .propagator = propagator, .cells = cells, .tracks = std::as_const(tracks).view(), .offset = trackOffset, .used = used.data(), .maxWidthPS = maxWidthPS.data(), .measurementVariance = measurementVariance.data(), .footprints = footprints.data()};
       const auto staged = mStage.run(mProposals, chunk, propose);
       if (staged != StageStatus::kComplete) {
         return staged;
