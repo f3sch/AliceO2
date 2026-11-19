@@ -75,7 +75,9 @@ namespace o2::gtrk::workflow
 /// ordered by (layer, time block, phi cell, second cell, box start), plus the
 /// prefix offsets for those buckets.
 ///
-/// Clusters arrive ordered by their readout frame. The counting sort is
+/// Clusters arrive ordered by their readout frame -- on a layer timed per hit
+/// (LayerSpec.h, `hitTimedLayers`) by their own box's start, which they keep
+/// as their converter wrote it. The counting sort is
 /// stable, so the box starts inside every bucket remain ordered without
 /// another sort. The
 /// geometry transform runs once per cluster, from its sensor ID and local
@@ -180,6 +182,7 @@ class MeasurementProducerTask : public o2::framework::Task
     const auto systematic2 = static_cast<Scalar>(param.clusterSystematicSigmaCM * param.clusterSystematicSigmaCM);
     const auto localVariance = [systematic2](float sigma) { return (sigma * sigma) + systematic2; };
     const auto start = std::chrono::steady_clock::now();
+    const std::int64_t durationPS = timeframeDurationPS(mConditions->orbitsPerTimeframe());
 
     auto offsets = pc.outputs().make<std::uint32_t>(o2::framework::Output{gDataOrigin, description<Det>(kMeasurements), kColGridOffsets}, static_cast<std::size_t>(grid.bucketCount()) + 1U);
     MeasurementGridBuilder builder{std::span<std::uint32_t>{offsets.data(), offsets.size()}};
@@ -206,12 +209,21 @@ class MeasurementProducerTask : public o2::framework::Task
       const auto variances = pointVariances<Det>(*mGeometry, cluster.chipID, static_cast<double>(cluster.xLocal), point, varLoc0, 0.F, varLoc1);
       // Every frame's record where its layer's frames have theirs, every
       // lengthBC from BC 0: the boxes, the blocks and the slices' reach follow them.
+      // A layer timed per hit keeps the cluster's own box.
       const auto& frames = mFrames[point.layer];
-      if (bcOfPS(cluster.timePS) % frames.lengthBC != 0 || bcOfPS(cluster.widthPS) != frames.lengthBC) {
-        LOGP(fatal, "a {} cluster's readout frame record [{}, {}) ps on layer {} is not one of the layer's frames of {} BC", Det::name, cluster.timePS, static_cast<std::int64_t>(cluster.timePS) + cluster.widthPS, point.layer, frames.lengthBC);
-        return;
+      if (Detector<Det>::isHitTimedLayer(point.layer)) {
+        if (cluster.widthPS == 0U || static_cast<std::int64_t>(cluster.timePS) + cluster.widthPS > durationPS) {
+          LOGP(fatal, "a {} cluster's time box [{}, {}) ps on layer {} is empty or outside the timeframe", Det::name, cluster.timePS, static_cast<std::int64_t>(cluster.timePS) + cluster.widthPS, point.layer);
+          return;
+        }
+        boxes[i] = {.start = cluster.timePS, .width = cluster.widthPS};
+      } else {
+        if (bcOfPS(cluster.timePS) % frames.lengthBC != 0 || bcOfPS(cluster.widthPS) != frames.lengthBC) {
+          LOGP(fatal, "a {} cluster's readout frame record [{}, {}) ps on layer {} is not one of the layer's frames of {} BC", Det::name, cluster.timePS, static_cast<std::int64_t>(cluster.timePS) + cluster.widthPS, point.layer, frames.lengthBC);
+          return;
+        }
+        boxes[i] = measurementTimeBox(cluster, point.layer, param, frames);
       }
-      boxes[i] = measurementTimeBox(cluster, point.layer, param, frames);
       buckets[i] = grid.bucketAt(point.layer, boxes[i].start, point.phi, point.second);
       positions[i] = {point.x, point.y, point.z, point.r, point.phi, variances.z, variances.r, variances.rPhi};
       bounds.add(static_cast<std::size_t>(point.layer), grid.frames(point.layer), boxes[i], positions[i][5], positions[i][6], positions[i][7], varLoc0, varLoc1);

@@ -221,8 +221,43 @@ struct Detector {
     }
   }();
 
+  /// A crossing without a hit on an inactive layer consumes zero holes in
+  /// both the pair test (LinkHoles.h) and the follower (Follow.h).
+  /// Hits can enter the fit through seeding or following, including between
+  /// two rows of a road and after the
+  /// outward walk. Inactive layers leave the other layers' material slab
+  /// boundaries in place (LayerMaterial.h). One bit per layer, or zero when
+  /// the layout has no inactive layers. ALICE 3's iTOF and oTOF use this policy.
+  static constexpr std::uint64_t inactiveLayers = [] {
+    if constexpr (requires { Layout::inactiveLayers; }) {
+      return static_cast<std::uint64_t>(Layout::inactiveLayers);
+    } else {
+      return std::uint64_t{0};
+    }
+  }();
+
+  /// The layers whose clusters carry their own time box, not a readout
+  /// frame's record (`Layout::hitTimedLayers`, a bit per layer; none if the
+  /// layout declares none): the measurement producer keeps a cluster's box
+  /// there as its converter wrote it. ALICE 3's TOF, whose box is the bunch
+  /// crossing that ends at the hit's time, in TRKFT3TOF. Their readout frames
+  /// (`FrameTiming`) only lay out the grid's time blocks.
+  static constexpr std::uint64_t hitTimedLayers = [] {
+    if constexpr (requires { Layout::hitTimedLayers; }) {
+      return static_cast<std::uint64_t>(Layout::hitTimedLayers);
+    } else {
+      return std::uint64_t{0};
+    }
+  }();
+
   /// Layers are numbered barrel first, then discs.
   [[nodiscard]] static constexpr bool isBarrelLayer(LayerID layer) { return hasBarrel && std::cmp_less(layer, nBarrelLayers); }
+
+  /// Whether \a layer is inactive (`inactiveLayers`).
+  [[nodiscard]] static constexpr bool isInactiveLayer(LayerID layer) { return std::cmp_less(layer, 64) && ((inactiveLayers >> layer) & 1U) != 0U; }
+
+  /// Whether \a layer's clusters carry their own time box (`hitTimedLayers`).
+  [[nodiscard]] static constexpr bool isHitTimedLayer(LayerID layer) { return std::cmp_less(layer, 64) && ((hitTimedLayers >> layer) & 1U) != 0U; }
 
   /// Position of a disc layer within Layout::discLayers.
   [[nodiscard]] static constexpr std::size_t discIndex(LayerID layer) { return static_cast<std::size_t>(layer) - static_cast<std::size_t>(nBarrelLayers); }
