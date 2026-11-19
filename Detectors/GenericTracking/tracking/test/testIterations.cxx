@@ -18,8 +18,8 @@
 #define BOOST_TEST_MODULE Test GTRK Iterations
 #include <boost/test/unit_test.hpp>
 #include "CommonConstants/LHCConstants.h"
-#include <numbers>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/Digest.h"
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
@@ -61,7 +61,7 @@ std::vector<Hit> hits()
   for (std::size_t track = 0; track < kTracks; ++track) {
     const auto k = static_cast<double>(track);
     const double pt = stiff(track) ? 2. + (0.2 * static_cast<double>(track % 5U)) : 0.4 + (0.06 * static_cast<double>(track % 5U));
-    const auto one = sensorHelixHits(std::fmod(0.3 + (0.9 * k), 2 * std::numbers::pi_v<double>), 0.03 * std::cos(1.3 * k), pt, 37. + (83. * k));
+    const auto one = sensorHelixHits(std::fmod(0.3 + (0.9 * k), kTwoPi<double>), 0.03 * std::cos(1.3 * k), pt, 37. + (83. * k));
     BOOST_REQUIRE(one.size() == kLayers);
     result.insert(result.end(), one.begin(), one.end());
   }
@@ -722,7 +722,7 @@ std::vector<Hit> framedHits()
     const auto k = static_cast<double>(track);
     const double pt = stiff(track) ? 2. + (0.2 * static_cast<double>(track % 5U)) : 0.4 + (0.06 * static_cast<double>(track % 5U));
     const double startNS = (static_cast<double>(kCrossingBC[track]) * kBunchNS) + 5.;
-    const auto one = sensorHelixHits(std::fmod(0.3 + (0.9 * k), 2 * std::numbers::pi_v<double>), 0.03 * std::cos(1.3 * k), pt, startNS);
+    const auto one = sensorHelixHits(std::fmod(0.3 + (0.9 * k), kTwoPi<double>), 0.03 * std::cos(1.3 * k), pt, startNS);
     BOOST_REQUIRE(one.size() == kLayers);
     result.insert(result.end(), one.begin(), one.end());
   }

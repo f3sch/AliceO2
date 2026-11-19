@@ -20,6 +20,7 @@
 #define BOOST_TEST_MODULE Test GTRK displaced pair
 #include <boost/test/unit_test.hpp>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/DisplacedPair.h"
 #include "GenericTracking/Tracking/PairCut.h"
 
@@ -28,7 +29,6 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
-#include <numbers>
 #include <optional>
 #include <random>
 #include <utility>
@@ -42,7 +42,6 @@ namespace
 using displaced::displacedPair;
 
 constexpr std::array<double, 7> kRadii{2.3, 3.1, 3.9, 19.6, 24.5, 34.4, 39.3};
-constexpr double kPi = std::numbers::pi;
 constexpr double kInfinity = std::numeric_limits<double>::infinity();
 
 /// The curvature of a track of \a ptGeV in 0.5 T [1/cm].
@@ -76,7 +75,7 @@ std::optional<Crossing> crossing(const Helix& h, double r)
   double best = kInfinity;
   for (const double side : {1., -1.}) {
     const double theta = toward + (side * std::acos(cosine));
-    const double turn = std::fmod((sense * (theta - start)) + (4. * kPi), 2. * kPi);
+    const double turn = std::fmod((sense * (theta - start)) + (4. * kPi<double>), kTwoPi<double>);
     best = std::min(best, turn);
   }
   const double theta = start + (sense * best);
@@ -125,7 +124,7 @@ Circle circleThrough(double x1, double y1, double z1, double x2, double y2, doub
   const double cx = mx + (sense * offset * -uy);
   const double cy = my + (sense * offset * ux);
   const double theta1 = std::atan2(y1 - cy, x1 - cx);
-  const double turn = std::remainder(sense * (std::atan2(y2 - cy, x2 - cx) - theta1), 2. * kPi);
+  const double turn = std::remainder(sense * (std::atan2(y2 - cy, x2 - cx) - theta1), kTwoPi<double>);
   for (int i = 1; i <= kSamples; ++i) {
     const double theta = theta1 + (sense * turn * i / kSamples);
     const double r = std::hypot(cx + (radius * std::cos(theta)), cy + (radius * std::sin(theta)));
@@ -137,7 +136,7 @@ Circle circleThrough(double x1, double y1, double z1, double x2, double y2, doub
   circle.impact = sense * (centre - radius);
   if (centre > 0.) {
     const double middle = theta1 + (0.5 * sense * turn);
-    const double phi = std::remainder(sense * (std::atan2(-cy, -cx) - middle), 2. * kPi);
+    const double phi = std::remainder(sense * (std::atan2(-cy, -cx) - middle), kTwoPi<double>);
     circle.z = (0.5 * (z1 + z2)) + (phi * (z2 - z1) / turn);
   }
   return circle;
@@ -182,12 +181,12 @@ BOOST_AUTO_TEST_CASE(ADisplacedHelixsPairsPassAtTheirOwnImpactAndZ)
   for (int trial = 0; trial < 20000; ++trial) {
     const double pt = 0.05 * std::exp(unit(rng) * std::log(60.));
     const double production = 18. * unit(rng);
-    const double azimuth = 2. * kPi * unit(rng);
+    const double azimuth = kTwoPi<double> * unit(rng);
     const Helix h{
       .x0 = production * std::cos(azimuth),
       .y0 = production * std::sin(azimuth),
       .z0 = -10. + (20. * unit(rng)),
-      .phi = 2. * kPi * unit(rng),
+      .phi = kTwoPi<double> * unit(rng),
       .k = (unit(rng) < 0.5 ? -1. : 1.) * curvatureAt(pt),
       .tanLambda = -1. + (2. * unit(rng)),
     };
@@ -235,7 +234,7 @@ BOOST_AUTO_TEST_CASE(TheTestAgreesWithAScanOfExplicitCircles)
   for (int trial = 0; trial < 1500; ++trial) {
     const auto inner = static_cast<std::size_t>(unit(rng) * 6.);
     const std::size_t outer = std::min<std::size_t>(inner + 1U + static_cast<std::size_t>(unit(rng) * 2.), kRadii.size() - 1U);
-    const double phi1 = 2. * kPi * unit(rng);
+    const double phi1 = kTwoPi<double> * unit(rng);
     const double phi2 = phi1 + std::normal_distribution<double>{0., 0.3}(rng);
     const double x1 = kRadii[inner] * std::cos(phi1);
     const double y1 = kRadii[inner] * std::sin(phi1);
@@ -292,7 +291,7 @@ BOOST_AUTO_TEST_CASE(AtZeroImpactItIsThePairCutsTransverseTest)
   for (int trial = 0; trial < 20000; ++trial) {
     const auto inner = static_cast<std::size_t>(unit(rng) * 6.);
     const std::size_t outer = inner + 1U;
-    const double phi1 = 2. * kPi * unit(rng);
+    const double phi1 = kTwoPi<double> * unit(rng);
     const double phi2 = phi1 + std::normal_distribution<double>{0., 0.2}(rng);
     const PairPoint source{
       .x = static_cast<Scalar>(kRadii[inner] * std::cos(phi1)),
@@ -373,12 +372,12 @@ BOOST_AUTO_TEST_CASE(SmearedPairsPassAtThreeSigmaOfTheirOwnImpactAndZ)
   for (int trial = 0; trial < 20000; ++trial) {
     const double pt = 0.05 * std::exp(unit(rng) * std::log(60.));
     const double production = 18. * unit(rng);
-    const double azimuth = 2. * kPi * unit(rng);
+    const double azimuth = kTwoPi<double> * unit(rng);
     const Helix h{
       .x0 = production * std::cos(azimuth),
       .y0 = production * std::sin(azimuth),
       .z0 = -10. + (20. * unit(rng)),
-      .phi = 2. * kPi * unit(rng),
+      .phi = kTwoPi<double> * unit(rng),
       .k = (unit(rng) < 0.5 ? -1. : 1.) * curvatureAt(pt),
       .tanLambda = -1. + (2. * unit(rng)),
     };

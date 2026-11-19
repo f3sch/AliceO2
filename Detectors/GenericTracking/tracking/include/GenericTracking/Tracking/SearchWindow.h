@@ -28,6 +28,7 @@
 #ifndef GTRK_TRACKING_SEARCHWINDOW_H_
 #define GTRK_TRACKING_SEARCHWINDOW_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerEnvelopes.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
@@ -40,7 +41,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <numbers>
 
 namespace o2::gtrk
 {
@@ -386,7 +386,7 @@ struct VertexPairWindow {
 template <DetectorLayout Det>
 [[nodiscard]] inline double phiWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, double sourceKink, double betweenKink = 0.)
 {
-  constexpr double kQuarter = 0.5 * std::numbers::pi_v<double>;
+  constexpr double kQuarter = 0.5 * kPi<double>;
   constexpr double kStep = 1.e-3;
   constexpr int kSteps = static_cast<int>(kQuarter / kStep) + 1;
   constexpr int kSamples = 5;
@@ -420,7 +420,7 @@ template <DetectorLayout Det>
     double toLow = radiusMin<Det>(to);
     double toHigh = radiusMax<Det>(to);
     if (discs) {
-      const double turn = std::min(std::asin(std::min(rFrom / twoR, 1.)), 0.5 * std::numbers::pi_v<double> / std::max(rhoLow, 1.));
+      const double turn = std::min(std::asin(std::min(rFrom / twoR, 1.)), 0.5 * kPi<double> / std::max(rhoLow, 1.));
       toLow = std::max(toLow, turn > 0. ? rFrom * std::sin(rhoLow * turn) / std::sin(turn) : rhoLow * rFrom);
       toHigh = std::min(toHigh, rhoHigh * rFrom);
       if (toHigh < toLow) {
@@ -739,7 +739,7 @@ template <DetectorLayout Det>
 template <DetectorLayout Det>
 [[nodiscard]] inline double displacedPhiWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, double sourceKink, double betweenKink = 0.)
 {
-  constexpr double kHalf = std::numbers::pi_v<double>;
+  constexpr double kHalf = kPi<double>;
   constexpr double kStep = 1.e-3;
   constexpr int kSteps = static_cast<int>(kHalf / kStep) + 1;
   constexpr int kSamples = 5;

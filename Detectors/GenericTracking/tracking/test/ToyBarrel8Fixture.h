@@ -17,6 +17,7 @@
 #define GTRK_TEST_TOYBARREL8FIXTURE_H_
 
 #include "ToyBarrel8.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/Tracker.h"
@@ -32,7 +33,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <numbers>
 #include <span>
 #include <vector>
 
@@ -89,7 +89,7 @@ inline InputPoint helixAt(double phi0, double slope, double ptGeV, LayerID layer
   const double y = (std::cos(phi0) - std::cos(direction)) / curvature;
   double phi = std::atan2(y, x);
   if (phi < 0.) {
-    phi += 2 * std::numbers::pi_v<double>;
+    phi += kTwoPi<double>;
   }
   return {
     .layer = layer,
@@ -182,7 +182,7 @@ inline std::vector<Hit> sensorHelixHits(double phi0, double slope, double ptGeV,
       }
       double phi = std::atan2(position[1], position[0]);
       if (phi < 0.) {
-        phi += 2 * std::numbers::pi_v<double>;
+        phi += kTwoPi<double>;
       }
       hits.push_back({
         .point =
@@ -317,7 +317,7 @@ inline std::vector<Hit> sliceHits()
   constexpr std::array<double, kLayers> kSteps{{0., 0., 0., 25., 25., 25., 50., 50.}};
   std::vector<Hit> hits;
   for (std::size_t track = 0; track < kSliceTracks; ++track) {
-    const double phi0 = std::fmod(0.3 + (0.9 * static_cast<double>(track)), 2 * std::numbers::pi_v<double>);
+    const double phi0 = std::fmod(0.3 + (0.9 * static_cast<double>(track)), kTwoPi<double>);
     const double slope = (track % 2U == 0U ? 0.03 : -0.02) + (0.002 * static_cast<double>(track));
     const double pt = 1.2 + (0.3 * static_cast<double>(track % 4U));
     const double start = 37. + (83. * static_cast<double>(track));

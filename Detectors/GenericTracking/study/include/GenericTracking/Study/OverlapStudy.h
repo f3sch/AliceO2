@@ -36,6 +36,7 @@
 #ifndef GTRK_STUDY_OVERLAPSTUDY_H_
 #define GTRK_STUDY_OVERLAPSTUDY_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/StudyChains.h"
 #include "GenericTracking/Study/TruthEvent.h"
@@ -48,7 +49,6 @@
 #include <cstdint>
 #include <format>
 #include <limits>
-#include <numbers>
 #include <span>
 #include <string>
 #include <string_view>
@@ -397,7 +397,7 @@ class OverlapStudy
           const double rb = std::hypot(static_cast<double>(b.x), static_cast<double>(b.y));
           const double phia = std::atan2(static_cast<double>(a.y), static_cast<double>(a.x));
           double dphi = std::atan2(static_cast<double>(b.y), static_cast<double>(b.x)) - phia;
-          dphi -= dphi > std::numbers::pi ? 2. * std::numbers::pi : (dphi < -std::numbers::pi ? -2. * std::numbers::pi : 0.);
+          dphi -= dphi > kPi<double> ? kTwoPi<double> : (dphi < -kPi<double> ? -kTwoPi<double> : 0.);
           const auto& na = geometry.planeOf(a).normal;
           const auto& nb = geometry.planeOf(b).normal;
           OverlapRecord record{

@@ -15,13 +15,12 @@
 #ifndef GTRK_TRACKING_MEASUREMENTUPDATE_H_
 #define GTRK_TRACKING_MEASUREMENTUPDATE_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/Measurement.h"
 
 #include "MathUtils/detail/trigonometric.h"
-
-#include <numbers>
 
 namespace o2::gtrk
 {
@@ -54,7 +53,7 @@ GPUhdi() GPUAlwaysInline() void canonicalizeDirection(BoundParameters& state, Co
   math_utils::detail::bringToPMPi<Scalar>(state.par[kTheta]);
   if (state.theta() < 0.F) {
     state.par[kTheta] = -state.theta();
-    state.par[kPhi] += std::numbers::pi_v<Scalar>;
+    state.par[kPhi] += kPi<Scalar>;
     for (int i = 0; i < kTheta; ++i) {
       factors.upper[strictUpperIndex(i, kTheta)] = -factors.upper[strictUpperIndex(i, kTheta)];
     }

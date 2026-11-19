@@ -223,10 +223,10 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
   // Evaluate the stored direction in Scalar, then retain FP64 throughout the
   // plane solve. The independent helix-closure sweep bounds the direction
   // rounding together with the solve/storage error.
-  Solve sinPhi = Solve{0};
-  Solve cosPhi = Solve{0};
-  Solve sinTheta = Solve{0};
-  Solve cosTheta = Solve{0};
+  auto sinPhi = Solve{0};
+  auto cosPhi = Solve{0};
+  auto sinTheta = Solve{0};
+  auto cosTheta = Solve{0};
   directionSincosOf(static_cast<Scalar>(phi0), sinPhi, cosPhi);
   directionSincosOf(static_cast<Scalar>(theta0), sinTheta, cosTheta);
 
@@ -256,12 +256,12 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
   const auto ny = static_cast<Solve>(to.normal[1]);
   const auto nz = static_cast<Solve>(to.normal[2]);
 
-  Solve path = Solve{0};   // 3D path length
-  Solve psi = Solve{0};    // turn angle
-  Solve dxy[2] = {}; // transverse displacement from r0
+  auto path = Solve{0}; // 3D path length
+  auto psi = Solve{0};  // turn angle
+  Solve dxy[2] = {};    // transverse displacement from r0
   // The turn's sine and cosine, kept because the chord already contains them.
-  Solve turnSin = Solve{0};
-  Solve turnCos = Solve{1};
+  auto turnSin = Solve{0};
+  auto turnCos = Solve{1};
 
   if (Math::Abs(nz) > Solve{0.5}) {
     // A disc: the normal is along z, so z is linear in path length and the
@@ -273,8 +273,8 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
     path = -fromTarget[2] / cosTheta;
     const Solve ell = path * sinTheta;
     psi = kappa * ell;
-    Solve sA = Solve{0};
-    Solve sB = Solve{0};
+    auto sA = Solve{0};
+    auto sB = Solve{0};
     sincVersine(psi, sA, sB);
     dxy[0] = ell * (dT[0] * sA + perp[0] * sB);
     dxy[1] = ell * (dT[1] * sA + perp[1] * sB);
@@ -369,7 +369,7 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
     // The default: the first root, unless it is not usable and the second
     // lands nearer the centre. The other rules, each its own instantiation:
     // the second where the rule moves off the first.
-    [[maybe_unused]] Solve firstOffCentre = Solve{0}; // NOLINT(misc-const-correctness): written in a dependent call the check does not see
+    [[maybe_unused]] auto firstOffCentre = Solve{0};  // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     [[maybe_unused]] detail::CrossingPlace first;     // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     [[maybe_unused]] bool firstAhead = false;         // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     for (int root = 0; root < 2; ++root) {

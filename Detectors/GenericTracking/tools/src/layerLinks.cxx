@@ -37,6 +37,7 @@
 /// charges, against a raster of the sensors' active silicon placed from the
 /// geometry.
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/WorkflowTRK/TRK.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Base/Geometry.h"
@@ -62,7 +63,6 @@
 #include <limits>
 #include <map>
 #include <memory>
-#include <numbers>
 #include <span>
 #include <sstream>
 #include <stdexcept>
@@ -263,7 +263,7 @@ LinkMap trace(const Options& options, std::span<const DiscCoverage> placedDiscs)
       const double z0 = step(options.beamSpotZ - options.beamSpotHalfRange, options.beamSpotZ + options.beamSpotHalfRange, options.z0Steps, iz);
       for (int ik = 0; ik < options.curvatureSteps; ++ik) {
         const double k = options.curvatureSteps > 1 ? maxCurvature * ik / (options.curvatureSteps - 1) : 0.;
-        const double halfTurn = k > 0. ? std::numbers::pi_v<double> / k : std::numeric_limits<double>::infinity();
+        const double halfTurn = k > 0. ? kPi<double> / k : std::numeric_limits<double>::infinity();
         crossings.clear();
         for (const auto& surface : layout) {
           if (k * surface.position > 2.) {
@@ -318,7 +318,7 @@ LinkMap trace(const Options& options, std::span<const DiscCoverage> placedDiscs)
         }
         for (const double charge : {-1., 1.}) {
           for (int ip = 0; ip < options.phiSteps; ++ip) {
-            const double phi0 = 2. * std::numbers::pi_v<double> * ip / options.phiSteps;
+            const double phi0 = kTwoPi<double> * ip / options.phiSteps;
             all = crossings;
             for (const auto& [disc, s] : reached) {
               const double turn = charge * k;

@@ -55,6 +55,7 @@
 ///
 /// --output writes the steps as a tree for plots.
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Base/Geometry.h"
@@ -87,7 +88,6 @@
 #include <limits>
 #include <map>
 #include <memory>
-#include <numbers>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -177,11 +177,11 @@ std::vector<std::array<double, 3>> path(const Step& step, int pieces, double& di
   // the direction of travel: counter-clockwise for a positive radius
   if (radius > 0.) {
     while (sweep < 0.) {
-      sweep += 2. * std::numbers::pi;
+      sweep += o2::gtrk::kTwoPi<double>;
     }
   } else {
     while (sweep > 0.) {
-      sweep -= 2. * std::numbers::pi;
+      sweep -= o2::gtrk::kTwoPi<double>;
     }
   }
   const double r = std::abs(radius);
@@ -194,7 +194,7 @@ std::vector<std::array<double, 3>> path(const Step& step, int pieces, double& di
   return points;
 }
 
-double wrapped(double angle) { return std::remainder(angle, 2. * std::numbers::pi); }
+double wrapped(double angle) { return std::remainder(angle, o2::gtrk::kTwoPi<double>); }
 
 /// The step's material along its path, near and far half, from the geometry
 /// (on \a navigator) and from \a lut.
@@ -389,7 +389,7 @@ void report(const Options& options, const std::vector<Step>& steps)
     const double l = in.lut[1] + out.lut[0];
     nodes[in.to].add(g, l);
     const auto& x = in.b.x;
-    double phi = std::atan2(x[1], x[0]) * 180. / std::numbers::pi;
+    double phi = std::atan2(x[1], x[0]) * 180. / o2::gtrk::kPi<double>;
     phi = phi < 0. ? phi + 360. : phi;
     const bool barrel = o2::gtrk::Detector<Det>::isBarrelLayer(static_cast<LayerID>(in.to));
     const double coordinate = barrel ? x[2] : std::hypot(x[0], x[1]);

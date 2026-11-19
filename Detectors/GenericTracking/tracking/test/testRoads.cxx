@@ -17,6 +17,7 @@
 #define BOOST_TEST_MODULE Test GTRK Roads
 #include <boost/test/unit_test.hpp>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/RoadCount.h"
 
 #include "ToyBarrel8Fixture.h"
@@ -30,7 +31,6 @@
 #include <cstdint>
 #include <iterator>
 #include <memory>
-#include <numbers>
 #include <set>
 #include <span>
 #include <vector>
@@ -406,7 +406,7 @@ std::vector<Hit> staggeredHits()
 {
   std::vector<Hit> hits;
   for (std::size_t track = 0; track < kSliceTracks; ++track) {
-    const double phi0 = std::fmod(0.3 + (0.9 * static_cast<double>(track)), 2 * std::numbers::pi_v<double>);
+    const double phi0 = std::fmod(0.3 + (0.9 * static_cast<double>(track)), kTwoPi<double>);
     const double slope = (track % 2U == 0U ? 0.03 : -0.02) + (0.002 * static_cast<double>(track));
     const double pt = 1.2 + (0.3 * static_cast<double>(track % 4U));
     const double start = 37. + (83. * static_cast<double>(track));

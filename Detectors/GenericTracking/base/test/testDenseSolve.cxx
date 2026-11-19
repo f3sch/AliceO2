@@ -32,7 +32,7 @@ namespace
 
 using Matrix = std::vector<double>;
 
-MatrixView<double> view(Matrix& a, int n) { return {a.data(), n}; }
+MatrixView<double> view(Matrix& a, int n) { return {.data = a.data(), .stride = n}; }
 
 // a b^T + c I for the rows of b (n x k): positive definite for c > 0,
 // semi-definite of rank k for c = 0.

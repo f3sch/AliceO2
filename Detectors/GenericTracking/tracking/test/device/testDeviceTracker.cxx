@@ -25,13 +25,13 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK device tracker
 #include <boost/test/unit_test.hpp>
-#include <numbers>
 
 #include "DeviceTestFixture.h"
 #include "DeviceTestKernels.h"
 #include "FixedPointReferences.h"
 #include "ToyBarrel8Fixture.h"
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Tracking/GPU/DeviceTracker.h"
@@ -83,7 +83,7 @@ std::vector<Hit> hits(bool twins = false)
     const auto k = static_cast<double>(track);
     const bool stiff = track % 2U == 0U;
     const double pt = stiff ? 2. + (0.2 * static_cast<double>(track % 5U)) : 0.4 + (0.06 * static_cast<double>(track % 5U));
-    const auto one = sensorHelixHits(std::fmod(0.3 + (0.9 * k), 2 * std::numbers::pi_v<double>), 0.03 * std::cos(1.3 * k), pt, 37. + (83. * k));
+    const auto one = sensorHelixHits(std::fmod(0.3 + (0.9 * k), kTwoPi<double>), 0.03 * std::cos(1.3 * k), pt, 37. + (83. * k));
     result.insert(result.end(), one.begin(), one.end());
     if (!twins || stiff) {
       continue;
@@ -403,13 +403,13 @@ Totals compare(DeviceTracker<Det, UniformMaterial>& device, const Options& optio
   });
   const auto result = tracker->run(*fixture.frame, plan);
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
-  BOOST_TEST(result.tracks->size() > 0U);
+  BOOST_TEST(result.store->size() > 0U);
   BOOST_TEST(totals.iterations == tracker->iterationCount());
   // The timeframe's tracks: every iteration's, in order.
   typename TrackRefit<Det>::Tracks tracks;
   tracks.setMemoryResource(pool.get());
   device.downloadTracks(tracks);
-  BOOST_TEST(sameTracks(std::as_const(*result.tracks).view(), result.tracks->size(), std::as_const(tracks).view(), tracks.size()));
+  BOOST_TEST(sameTracks(tracker->workingTracks().view(), tracker->workingTracks().size(), std::as_const(tracks).view(), tracks.size()));
   return totals;
 }
 
@@ -566,7 +566,7 @@ BOOST_AUTO_TEST_CASE(ARunAloneGivesTheHostsTracks)
       BOOST_REQUIRE((tracker->trackTimeframe(*fixture.frame, plan, plan.parameters.size(), false, tracks, report) == StageStatus::kComplete));
       tracker->endTimeframe();
       BOOST_TEST(tracks.size() == kTracks);
-      BOOST_TEST(sameTracks(std::as_const(*expected.tracks).view(), expected.tracks->size(), std::as_const(tracks).view(), tracks.size()));
+      BOOST_TEST(sameTracks(host->workingTracks().view(), host->workingTracks().size(), std::as_const(tracks).view(), tracks.size()));
     }
   }
 }
@@ -704,7 +704,7 @@ std::vector<Hit> hitsWithLonelyRows()
   for (std::size_t i = 0; i < kLonely; ++i) {
     const auto k = static_cast<double>(i);
     result.push_back({
-      .point = helixAt(std::fmod(0.37 * k, 2 * std::numbers::pi_v<double>), 0.02 * std::sin(k), 5., static_cast<LayerID>(kLayers - 1U)),
+      .point = helixAt(std::fmod(0.37 * k, kTwoPi<double>), 0.02 * std::sin(k), 5., static_cast<LayerID>(kLayers - 1U)),
       .timeNS = 1000. + (99. * k / static_cast<double>(kLonely)),
     });
   }
@@ -733,7 +733,7 @@ std::vector<Hit> collisionHits()
   for (std::size_t track = 0; track < kTracksPerCollision * kCollisionsNS.size(); ++track) {
     const auto k = static_cast<double>(track);
     const double pt = 0.5 + (0.3 * static_cast<double>(track % kTracksPerCollision));
-    const auto one = sensorHelixHits(std::fmod(0.3 + (2.1 * k), 2 * std::numbers::pi_v<double>), 0.03 * std::cos(1.3 * k), pt, kCollisionsNS[track / kTracksPerCollision]);
+    const auto one = sensorHelixHits(std::fmod(0.3 + (2.1 * k), kTwoPi<double>), 0.03 * std::cos(1.3 * k), pt, kCollisionsNS[track / kTracksPerCollision]);
     result.insert(result.end(), one.begin(), one.end());
   }
   return result;
@@ -826,7 +826,7 @@ BOOST_AUTO_TEST_CASE(TheVertexingPassGivesTheHostsListAndTracks)
   const auto hostPlan = host->planTimeframe(*fixture.frame, expected.found.vertices, 13, 0.);
   const auto hostRun = host->run(*fixture.frame, hostPlan);
   BOOST_REQUIRE(hostRun.status == StageStatus::kComplete);
-  BOOST_REQUIRE(hostRun.tracks->size() == kTracksPerCollision * kCollisionsNS.size());
+  BOOST_REQUIRE(hostRun.store->size() == kTracksPerCollision * kCollisionsNS.size());
 
   // The device: the tracking's iterations, then the pass.
   auto parameters = parametersOf(*host);
@@ -867,8 +867,8 @@ BOOST_AUTO_TEST_CASE(TheVertexingPassGivesTheHostsListAndTracks)
   typename TrackRefit<Det>::Tracks tracks;
   tracks.setMemoryResource(pool.get());
   tracker->downloadTracks(tracks);
-  BOOST_TEST(tracks.size() == hostRun.tracks->size());
-  BOOST_TEST(sameTracks(std::as_const(*hostRun.tracks).view(), hostRun.tracks->size(), std::as_const(tracks).view(), tracks.size()));
+  BOOST_TEST(tracks.size() == hostRun.store->size());
+  BOOST_TEST(sameTracks(host->workingTracks().view(), host->workingTracks().size(), std::as_const(tracks).view(), tracks.size()));
 
   // Out of order, or with another run's plan: refused.
   tracker->beginIteration(0U);
@@ -969,7 +969,7 @@ BOOST_AUTO_TEST_CASE(AFailedEndLeavesTheMaskAndTheTracks)
         DeviceIterationDownload<Det> onDevice{pool};
         if (tracker->endIteration(&onDevice) == StageStatus::kComplete) {
           BOOST_TEST(onDevice.used == aloneMask, boost::test_tools::per_element());
-          BOOST_TEST(onDevice.tracks.size() == aloneResult.tracks->size());
+          BOOST_TEST(onDevice.tracks.size() == aloneResult.store->size());
         }
       } else {
         static_cast<void>(tracker->endIteration(nullptr));

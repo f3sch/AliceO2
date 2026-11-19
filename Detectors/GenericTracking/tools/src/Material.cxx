@@ -9,6 +9,7 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tools/Material.h"
 
 #include "DetectorsBase/MatLayerCylSet.h"
@@ -31,7 +32,6 @@
 #include <format>
 #include <functional>
 #include <map>
-#include <numbers>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -124,7 +124,7 @@ std::vector<double> beamLineCylinderFaces(double rMax, double zMax, double dz, i
   constexpr int kAzimuths = 256;
   constexpr double kResolution = 1e-4; // cm
   constexpr double kGasDensity = 0.01; // g/cm^3
-  const double golden = std::numbers::pi * (3. - std::sqrt(5.));
+  const double golden = kPi<double> * (3. - std::sqrt(5.));
   const auto nz = static_cast<int>(std::floor(2. * zMax / dz)) + 1;
   const auto facesAt = [&](double z, TGeoNavigator* navigator) {
     std::map<long, int> seen; // per radius, the azimuths meeting it

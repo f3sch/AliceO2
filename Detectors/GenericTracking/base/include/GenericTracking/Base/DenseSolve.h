@@ -199,7 +199,7 @@ GPUhdi() GPUAlwaysInline() void choleskyInverse(View l, Size size, OutView inver
   if constexpr (std::is_same_v<OutView, MatrixView<T>>) {
     for (int row = 0; row < n; ++row) {
       for (int column = row + 1; column < n; ++column) {
-        inverse(row, column) = inverse(column, row);
+        inverse(row, column) = inverse(column, row); // NOLINT(readability-suspicious-call-argument): the transpose
       }
     }
   }

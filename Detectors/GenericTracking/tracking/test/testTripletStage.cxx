@@ -15,10 +15,10 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK TripletStage
 #include <boost/test/unit_test.hpp>
-#include <numbers>
 
 #include "ToyBarrel4Disc8.h"
 #include "ToyBarrel3.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/Tracker.h"
@@ -114,7 +114,7 @@ InputPoint helixPoint(std::size_t track, LayerID layer)
   const double y = (std::cos(kPhi[track]) - std::cos(direction)) / curvature;
   double phi = std::atan2(y, x);
   if (phi < 0.) {
-    phi += 2 * std::numbers::pi_v<double>;
+    phi += kTwoPi<double>;
   }
   return {
     .layer = layer,
@@ -210,7 +210,7 @@ MixedInputPoint mixedHelixPoint(LayerID layer, double phiAtOrigin, double slope,
   const double y = (std::cos(phiAtOrigin) - std::cos(direction)) / curvature;
   double phi = std::atan2(y, x);
   if (phi < 0.) {
-    phi += 2 * std::numbers::pi_v<double>;
+    phi += kTwoPi<double>;
   }
   return {
     .layer = layer,

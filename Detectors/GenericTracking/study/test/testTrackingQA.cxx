@@ -17,6 +17,7 @@
 #define BOOST_TEST_MODULE Test GTRK tracking QA
 #include <boost/test/unit_test.hpp>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Study/TrackingQA.h"
 #include "GenericTracking/Study/TrackComparison.h"
@@ -160,12 +161,11 @@ BOOST_AUTO_TEST_CASE(EveryPhiInZeroToTwoPi)
   const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, nullptr, 2, toy.settings);
   BOOST_TEST(particleOf(qa, 0.5F)->phi == wrapPhi(-1.));
   BOOST_TEST(qa.tracks[1].phi == wrapPhi(-1.));
-  constexpr double kTwoPi = 2. * std::numbers::pi;
-  BOOST_TEST(wrapPhi(-1.) == static_cast<float>(kTwoPi - 1.));
-  BOOST_TEST(wrapPhi(kTwoPi) == 0.F);
-  BOOST_TEST(wrapPhi(std::nextafter(kTwoPi, 0.)) == 0.F); // 2 pi as a float
-  BOOST_TEST(wrapPhi(-std::numbers::pi) == static_cast<float>(std::numbers::pi));
-  BOOST_TEST(wrapPhi(7.) == static_cast<float>(7. - kTwoPi));
+  BOOST_TEST(wrapPhi(-1.) == static_cast<float>(kTwoPi<double> - 1.));
+  BOOST_TEST(wrapPhi(kTwoPi<double>) == 0.F);
+  BOOST_TEST(wrapPhi(std::nextafter(kTwoPi<double>, 0.)) == 0.F); // 2 pi as a float
+  BOOST_TEST(wrapPhi(-kPi<double>) == static_cast<float>(kPi<double>));
+  BOOST_TEST(wrapPhi(7.) == static_cast<float>(7. - kTwoPi<double>));
 }
 
 BOOST_AUTO_TEST_CASE(TheTotalsAreTheTextScore)
@@ -310,7 +310,7 @@ BOOST_AUTO_TEST_CASE(ADisplacedHelixMissesTheBeamLineByItsCircle)
         // The nearer pass: half a turn back and half a turn ahead, step by step.
         double best = std::hypot(helix.position[0], helix.position[1]);
         double bestZ = helix.position[2];
-        const int halfTurn = static_cast<int>(std::numbers::pi * radius / 1e-3);
+        const int halfTurn = static_cast<int>(kPi<double> * radius / 1e-3);
         for (const double step : {-1e-3, 1e-3}) {
           auto walker = helix;
           for (int i = 0; i < halfTurn; ++i) {
@@ -337,7 +337,7 @@ BOOST_AUTO_TEST_CASE(HalfATurnAwayIsTheTurnBehind)
   const TruthHelix helix{.position = {0., 1., 0.}, .momentum = {pt, 0., pt}, .charge = 1.};
   const auto impact = helixImpact(helix, bz, 0., -1.);
   BOOST_TEST(std::abs(impact.d0) < 1e-12);
-  BOOST_TEST(std::abs(impact.z + std::numbers::pi) < 1e-12);
+  BOOST_TEST(std::abs(impact.z + kPi<double>) < 1e-12);
 }
 
 BOOST_AUTO_TEST_CASE(KinematicsNoHelixFollowsAreNaN)

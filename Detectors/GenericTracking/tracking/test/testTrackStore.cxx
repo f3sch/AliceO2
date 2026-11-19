@@ -42,7 +42,7 @@ namespace
 using Det = toybarrel8::Det;
 using Store = TrackStore<Det>;
 using Tracks = Store::Tracks;
-constexpr std::size_t K = Store::kMaxClusters;
+constexpr std::size_t kClusters = Store::kMaxClusters;
 
 /// A matching step's record, as another component would add: per committed
 /// track, any number of hits of its detector with their chi2.
@@ -68,6 +68,7 @@ const auto serial = [](std::uint32_t n, const auto& body) {
 const auto threaded = [](std::uint32_t n, const auto& body) {
   constexpr std::uint32_t kThreads = 4U;
   std::vector<std::jthread> threads;
+  threads.reserve(kThreads);
   for (std::uint32_t t = 0; t < kThreads; ++t) {
     threads.emplace_back([&, t] {
       for (std::uint32_t i = (n * t) / kThreads; i < (n * (t + 1U)) / kThreads; ++i) {
@@ -86,7 +87,7 @@ void appendTracks(Tracks& tracks, const std::vector<std::uint8_t>& counts)
   for (std::size_t i = 0; i < counts.size(); ++i) {
     const auto track = begin + i;
     view.count[track] = counts[i];
-    std::fill(std::begin(view.clusters[track].index), std::end(view.clusters[track].index), ClusterList<K>::kNoCluster);
+    std::ranges::fill(view.clusters[track].index, ClusterList<kClusters>::kNoCluster);
     for (std::uint8_t k = 0; k < counts[i]; ++k) {
       view.clusters[track].index[k] = static_cast<std::uint32_t>((100U * track) + k);
     }
@@ -114,13 +115,13 @@ BOOST_AUTO_TEST_CASE(EachCommittedTrackRefersToItsRows)
   store.setMemoryPool(pool);
   Tracks tracks;
   tracks.setMemoryResource(pool.get());
-  appendTracks(tracks, {3U, 0U, static_cast<std::uint8_t>(K)});
+  appendTracks(tracks, {3U, 0U, static_cast<std::uint8_t>(kClusters)});
   BOOST_REQUIRE(store.commit(serial, 2U, tracks) == StageStatus::kComplete);
   appendTracks(tracks, {4U, 2U});
   BOOST_REQUIRE(store.commit(serial, 2U, tracks) == StageStatus::kComplete);
   BOOST_TEST(store.size() == 5U);
   BOOST_TEST(store.holds(tracks));
-  BOOST_TEST(store.references().recordCount() == 3U + 0U + K + 4U + 2U);
+  BOOST_TEST(store.references().recordCount() == 3U + 0U + kClusters + 4U + 2U);
   std::uint32_t next = 0U;
   for (std::size_t track = 0; track < store.size(); ++track) {
     const auto range = store.references().range(track);
@@ -142,8 +143,9 @@ BOOST_AUTO_TEST_CASE(AParallelCommitIsTheSerialOne)
 {
   Tracks tracks;
   std::vector<std::uint8_t> counts;
+  counts.reserve(101U);
   for (std::size_t track = 0; track < 101U; ++track) {
-    counts.push_back(static_cast<std::uint8_t>((track * 7U) % (K + 1U)));
+    counts.push_back(static_cast<std::uint8_t>((track * 7U) % (kClusters + 1U)));
   }
   appendTracks(tracks, counts);
   Store one;
@@ -255,10 +257,10 @@ BOOST_AUTO_TEST_CASE(PartnersGoBesideTheirRows)
   }
   BOOST_TEST(store.rows(3).size() == 2U);
   BOOST_TEST(store.holds(tracks));
-  const auto inline_ = inlineTracks(store, std::pmr::get_default_resource());
-  BOOST_TEST(inline_.view().count[2] == 3U);
-  BOOST_TEST(inline_.view().clusters[2].index[1] == 201U);
-  BOOST_TEST(inline_.view().clusters[2].index[3] == ClusterList<K>::kNoCluster);
+  const auto inlined = inlineTracks(store, std::pmr::get_default_resource());
+  BOOST_TEST(inlined.view().count[2] == 3U);
+  BOOST_TEST(inlined.view().clusters[2].index[1] == 201U);
+  BOOST_TEST(inlined.view().clusters[2].index[3] == ClusterList<kClusters>::kNoCluster);
 }
 
 /// A new timeframe starts with no tracks in any table, the tables still

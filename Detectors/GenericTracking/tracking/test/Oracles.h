@@ -25,6 +25,7 @@
 #ifndef GTRK_TEST_ORACLES_H_
 #define GTRK_TEST_ORACLES_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Definitions.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/CovarianceTransport.h"
@@ -44,7 +45,6 @@
 
 #include <cmath>
 #include <cstddef>
-#include <numbers>
 
 namespace o2::gtrk
 {
@@ -222,7 +222,7 @@ GPUhdi() GPUAlwaysInline() void canonicalizeDirection(BoundTrackState& state)
   math_utils::detail::bringToPMPi<Scalar>(state.par[kTheta]);
   if (state.theta() < 0.F) {
     state.par[kTheta] = -state.theta();
-    state.par[kPhi] += std::numbers::pi_v<Scalar>;
+    state.par[kPhi] += kPi<Scalar>;
     for (int i = 0; i < kNBoundParams; ++i) {
       if (i != kTheta) {
         state.covAt(kTheta, i) = -state.covAt(kTheta, i);

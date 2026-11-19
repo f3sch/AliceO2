@@ -16,6 +16,7 @@
 #ifndef GTRK_STUDY_STATETRUTH_H_
 #define GTRK_STUDY_STATETRUTH_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Definitions.h"
 #include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Study/TrackComparison.h"
@@ -28,7 +29,6 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <numbers>
 #include <optional>
 
 namespace o2::gtrk::study
@@ -109,7 +109,7 @@ template <DetectorLayout Det>
   truth.pt = std::hypot(p[0], p[1]);
   const double momentum = std::hypot(truth.pt, p[2]);
   truth.momentum = momentum;
-  truth.residual = {static_cast<double>(state.par[kLoc0]) - (*crossing)[0], static_cast<double>(state.par[kLoc1]) - (*crossing)[1], std::remainder(static_cast<double>(state.par[kPhi]) - std::atan2(p[1], p[0]), 2. * std::numbers::pi), static_cast<double>(state.par[kTheta]) - std::atan2(truth.pt, p[2]), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
+  truth.residual = {static_cast<double>(state.par[kLoc0]) - (*crossing)[0], static_cast<double>(state.par[kLoc1]) - (*crossing)[1], std::remainder(static_cast<double>(state.par[kPhi]) - std::atan2(p[1], p[0]), kTwoPi<double>), static_cast<double>(state.par[kTheta]) - std::atan2(truth.pt, p[2]), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
   for (int i = 0; i < 5; ++i) {
     truth.sigma[static_cast<std::size_t>(i)] = std::sqrt(std::max(static_cast<double>(state.covAt(i, i)), 0.));
   }
@@ -140,7 +140,7 @@ struct PerigeeTruth {
   const auto eta = static_cast<double>(truth.eta);
   const double momentum = static_cast<double>(truth.pt) * std::cosh(eta);
   PerigeeTruth result;
-  result.residual = {static_cast<double>(state.par[kLoc0]), static_cast<double>(state.par[kLoc1]) - static_cast<double>(truth.vz), std::remainder(static_cast<double>(state.par[kPhi]) - static_cast<double>(truth.phi), 2. * std::numbers::pi), static_cast<double>(state.par[kTheta]) - (2. * std::atan(std::exp(-eta))), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
+  result.residual = {static_cast<double>(state.par[kLoc0]), static_cast<double>(state.par[kLoc1]) - static_cast<double>(truth.vz), std::remainder(static_cast<double>(state.par[kPhi]) - static_cast<double>(truth.phi), kTwoPi<double>), static_cast<double>(state.par[kTheta]) - (2. * std::atan(std::exp(-eta))), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
   for (int i = 0; i < 5; ++i) {
     result.sigma[static_cast<std::size_t>(i)] = std::sqrt(std::max(static_cast<double>(state.covAt(i, i)), 0.));
   }

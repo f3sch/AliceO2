@@ -40,6 +40,7 @@
 #ifndef GTRK_STUDY_VERTEXSTUDY_H_
 #define GTRK_STUDY_VERTEXSTUDY_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/ShapeCut.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Study/Validation.h"
@@ -61,7 +62,6 @@
 #include <map>
 #include <memory>
 #include <limits>
-#include <numbers>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -651,7 +651,7 @@ class VertexStudy
       candidate.radius = radius;
       candidate.sharedFirst = firstShared.at({triple[0], triple[1]});
       candidate.sharedSecond = secondShared.at({triple[1], triple[2]});
-      candidate.sector = static_cast<std::uint8_t>(std::min(15., std::floor(static_cast<double>(columns.phi[triple[1]]) * 16. / (2. * std::numbers::pi))));
+      candidate.sector = static_cast<std::uint8_t>(std::min(15., std::floor(static_cast<double>(columns.phi[triple[1]]) * 16. / kTwoPi<double>)));
       if (const auto particle = commonParticle(mRows, triple)) {
         candidate.trueTriplet = true;
         candidate.particle = *particle;

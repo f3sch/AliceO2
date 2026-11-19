@@ -25,7 +25,6 @@
 #include "GPUCommonMath.h"
 
 #include <cstddef>
-#include <numbers>
 #include <utility>
 
 namespace o2::gtrk
@@ -171,7 +170,7 @@ GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<D
   if (cosPhi * second[0] + sinPhi * second[1] < T(0)) {
     sinPhi = -sinPhi;
     cosPhi = -cosPhi;
-    phi += phi > T(0) ? -std::numbers::pi_v<T> : std::numbers::pi_v<T>;
+    phi += phi > T(0) ? -kPi<T> : kPi<T>;
     rho = -rho;
     dca = -dca;
   }

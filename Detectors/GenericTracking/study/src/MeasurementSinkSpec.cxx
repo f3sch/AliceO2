@@ -10,6 +10,7 @@
 // or submit itself to any jurisdiction.
 
 #include "DataFormatsITSMFT/ClusterID.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/MCVertexReaderSpec.h"
 #include "GenericTracking/Study/Digest.h"
 #include "GenericTracking/Study/MeasurementSinkSpec.h"
@@ -83,7 +84,6 @@
 #include <iterator>
 #include <limits>
 #include <map>
-#include <numbers>
 #include <numeric>
 #include <optional>
 #include <memory>
@@ -1371,7 +1371,7 @@ void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFa
           hardest = std::isfinite(report.kink) ? std::max(hardest, report.kink) : hardest;
         }
         hits += fmt::format("; p last/first {:.3f}, hardest kink {:.1f} theta0, largest turn {:.2f} rad", ratio, hardest, maxTurn);
-        if (maxTurn > std::numbers::pi) {
+        if (maxTurn > kPi<double>) {
           kind = kLoops;
         } else if (back) {
           kind = kTurnsBack;
@@ -3354,8 +3354,8 @@ class MeasurementSinkTask : public Task
           difference = fmt::format("track {}, field {} (memlayout order)", track, field);
           break;
         }
-        const auto mine = tracks.references();
-        const auto other = theirs.references();
+        const auto& mine = tracks.references();
+        const auto& other = theirs.references();
         const auto range = mine.range(track);
         bool same = range.count == other.range(track).count;
         for (std::uint32_t k = 0; same && k < range.count; ++k) {
@@ -3549,7 +3549,7 @@ class MeasurementSinkTask : public Task
         .origin = static_cast<std::uint8_t>(found->second.origin),
         .iteration = view.iteration[track],
         .kinks = view.kinks[track],
-        .clusters = tracks.rows(track).size(),
+        .clusters = static_cast<std::uint8_t>(tracks.rows(track).size()),
         .layer = static_cast<std::uint8_t>(rows[*innermost].layer),
         .fitPt = static_cast<float>(truth->fittedPt),
         .ptResidual = static_cast<float>((truth->fittedPt / truth->pt) - 1.),
@@ -3928,7 +3928,6 @@ class MeasurementSinkTask : public Task
     constexpr std::uint32_t kSharedToMatch = 4U;
     const auto rowOfCluster = rowsOfClusters(frame);
     // Which GTRK tracks hold each row.
-    const auto view = tracks.tracks().view();
     std::vector<std::vector<std::uint32_t>> tracksOfRow(frame.size());
     std::vector<std::uint32_t> ourCount(tracks.size(), 0U);
     for (std::size_t track = 0; track < tracks.size(); ++track) {

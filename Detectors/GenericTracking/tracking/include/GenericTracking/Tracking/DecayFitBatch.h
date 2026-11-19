@@ -103,7 +103,7 @@ class DecayFitBatch
     if (mothers.size() > static_cast<std::size_t>(decay_fit_detail::kMaxConstrainedVertices)) {
       throw std::invalid_argument("decay fit batch: more tracked mothers than vertices");
     }
-    DecayFitInput input{.firstDaughter = static_cast<std::uint32_t>(mDaughters.size()), .daughters = static_cast<std::uint32_t>(daughters.size()), .firstMother = static_cast<std::uint32_t>(mMothers.size()), .mothers = static_cast<std::uint32_t>(mothers.size()), .constraints = constraints, .topology = topology};
+    const DecayFitInput input{.firstDaughter = static_cast<std::uint32_t>(mDaughters.size()), .daughters = static_cast<std::uint32_t>(daughters.size()), .firstMother = static_cast<std::uint32_t>(mMothers.size()), .mothers = static_cast<std::uint32_t>(mothers.size()), .constraints = constraints, .topology = topology};
     mDaughters.insert(mDaughters.end(), daughters.begin(), daughters.end());
     for (const auto& mother : mothers) {
       mMothers.push_back({.vertex = mother.vertex, .propagator = mother.propagator, .firstRow = static_cast<std::uint32_t>(mPlanes.size()), .rows = static_cast<std::uint32_t>(mother.planes.size()), .firstPosition = static_cast<std::uint32_t>(mPositions.size()), .positions = static_cast<std::uint32_t>(mother.positions.size()), .firstCovariance = static_cast<std::uint32_t>(mCovariance.size()), .covariances = static_cast<std::uint32_t>(mother.covariance.size())});
@@ -208,7 +208,7 @@ void fitDecayBatch(const DecayFitBatchView& batch, const Material& material, std
     if (storage.size() < words) {
       storage.resize(words);
     }
-    fitter.fit(std::span<std::byte>{reinterpret_cast<std::byte*>(storage.data()), bytes}, results[i]);
+    fitter.fit(std::as_writable_bytes(std::span{storage}).first(bytes), results[i]);
   }
 }
 

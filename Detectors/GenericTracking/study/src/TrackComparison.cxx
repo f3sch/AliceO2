@@ -9,6 +9,7 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/Statistics.h"
 
@@ -22,7 +23,6 @@
 #include <functional>
 #include <iterator>
 #include <map>
-#include <numbers>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -220,9 +220,8 @@ std::size_t etaBin(float eta, const EtaEdges& edges)
 /// In double, unlike `wrapPhi` (TrackingQA.h).
 std::size_t phiBin(float phi)
 {
-  constexpr double kTwoPi = 2. * std::numbers::pi;
-  const double wrapped = std::fmod(std::fmod(static_cast<double>(phi), kTwoPi) + kTwoPi, kTwoPi);
-  return std::min(static_cast<std::size_t>(wrapped / kTwoPi * static_cast<double>(kScorePhiBins)), kScorePhiBins - 1U);
+  const double wrapped = std::fmod(std::fmod(static_cast<double>(phi), kTwoPi<double>) + kTwoPi<double>, kTwoPi<double>);
+  return std::min(static_cast<std::size_t>(wrapped / kTwoPi<double> * static_cast<double>(kScorePhiBins)), kScorePhiBins - 1U);
 }
 
 /// Efficiency, fake-only and clone rates of one tracker for one findable class.

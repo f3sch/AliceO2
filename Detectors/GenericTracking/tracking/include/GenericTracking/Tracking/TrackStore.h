@@ -413,7 +413,7 @@ class TrackStore
   template <template <template <class> class> class S>
   [[nodiscard]] const TrackTable<S>* findTable() const
   {
-    return const_cast<TrackStore*>(this)->template findTable<S>();
+    return const_cast<TrackStore*>(this)->template findTable<S>(); // NOLINT(cppcoreguidelines-pro-type-const-cast): the same lookup, read only
   }
 
   /// A source of measurements that references name, \a name for reports:
@@ -579,9 +579,11 @@ class TrackStore
   {
     const auto mine = mTrackColumns.read(track);
     TrackRecord theirs{};
-    const typename TrackColumns::View one{CommittedTrack::RecordT<memlayout::pointer>{&theirs.state, &theirs.outwardState, &theirs.timePS, &theirs.widthPS, &theirs.chi2, &theirs.outwardChi2, &theirs.ndf, &theirs.status, &theirs.iteration, &theirs.addedOutward, &theirs.addedInward, &theirs.kinks, &theirs.kinkCluster}};
+    const typename TrackColumns::View one{CommittedTrack::RecordT<memlayout::pointer>{.state = &theirs.state, .outwardState = &theirs.outwardState, .timePS = &theirs.timePS, .widthPS = &theirs.widthPS, .chi2 = &theirs.chi2, .outwardChi2 = &theirs.outwardChi2, .ndf = &theirs.ndf, .status = &theirs.status, .iteration = &theirs.iteration, .addedOutward = &theirs.addedOutward, .addedInward = &theirs.addedInward, .kinks = &theirs.kinks, .kinkCluster = &theirs.kinkCluster}};
     copyTrackFields(view, track, one, 0U);
     bool same = true;
+    // Bit for bit is the comparison asked for: a column's bytes as stored.
+    // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison)
     mine.apply([&](const auto&... a) { theirs.apply([&](const auto&... b) { ((same = same && std::memcmp(&a, &b, sizeof(a)) == 0), ...); }); });
     return same;
   }
@@ -645,7 +647,7 @@ template <typename Columns>
 template <DetectorLayout Det>
 [[nodiscard]] typename TrackStore<Det>::Tracks inlineTracks(const TrackStore<Det>& store, std::pmr::memory_resource* resource)
 {
-  constexpr std::size_t K = TrackStore<Det>::kMaxClusters;
+  constexpr std::size_t kClusters = TrackStore<Det>::kMaxClusters;
   typename TrackStore<Det>::Tracks tracks;
   tracks.setMemoryResource(resource);
   tracks.resize(store.size());
@@ -653,7 +655,7 @@ template <DetectorLayout Det>
   const auto committed = store.tracks().view();
   for (std::size_t track = 0; track < store.size(); ++track) {
     copyTrackFields<true>(view, track, committed, track);
-    std::fill(std::begin(view.clusters[track].index), std::end(view.clusters[track].index), ClusterList<K>::kNoCluster);
+    std::fill(std::begin(view.clusters[track].index), std::end(view.clusters[track].index), ClusterList<kClusters>::kNoCluster);
     const auto range = store.references().range(track);
     const auto references = store.references().view().records;
     std::uint8_t count = 0U;
@@ -661,7 +663,7 @@ template <DetectorLayout Det>
       if ((references.role[at] & static_cast<std::uint8_t>(ReferenceRole::kLayerRow)) == 0U) {
         continue;
       }
-      if (count == K) {
+      if (count == kClusters) {
         throw std::length_error("a committed track with more layer rows than a chain holds");
       }
       view.clusters[track].index[count++] = references.row[at];

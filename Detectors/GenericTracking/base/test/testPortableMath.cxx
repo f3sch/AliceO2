@@ -19,13 +19,13 @@
 #define BOOST_TEST_MODULE Test GTRK PortableMath
 #include <boost/test/unit_test.hpp>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/PortableMath.h"
 
 #include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include <numbers>
 #include <random>
 #include <vector>
 
@@ -58,7 +58,7 @@ std::vector<double> nearMultiplesOfHalfPi()
 {
   std::vector<double> values;
   for (int n = -2000; n <= 2000; ++n) {
-    double x = n * (std::numbers::pi / 2.);
+    double x = n * (o2::gtrk::kPi<double> / 2.);
     for (int step = 0; step < 4; ++step) {
       values.push_back(x);
       x = std::nextafter(x, std::numeric_limits<double>::infinity());
@@ -166,34 +166,34 @@ BOOST_AUTO_TEST_CASE(SpecialValues)
   BOOST_TEST(std::isnan(portable::sin(kNaN)));
 
   BOOST_TEST(sameBits(portable::atan(-0.), -0.));
-  BOOST_TEST(sameBits(portable::atan(kInf), std::numbers::pi / 2.));
-  BOOST_TEST(sameBits(portable::atan(-kInf), -std::numbers::pi / 2.));
+  BOOST_TEST(sameBits(portable::atan(kInf), o2::gtrk::kPi<double> / 2.));
+  BOOST_TEST(sameBits(portable::atan(-kInf), -o2::gtrk::kPi<double> / 2.));
   BOOST_TEST(std::isnan(portable::atan(kNaN)));
 
   BOOST_TEST(sameBits(portable::atan2(0., 1.), 0.));
   BOOST_TEST(sameBits(portable::atan2(-0., 1.), -0.));
   BOOST_TEST(sameBits(portable::atan2(0., 0.), 0.));
   BOOST_TEST(sameBits(portable::atan2(-0., 0.), -0.));
-  BOOST_TEST(sameBits(portable::atan2(0., -0.), std::numbers::pi));
-  BOOST_TEST(sameBits(portable::atan2(-0., -0.), -std::numbers::pi));
-  BOOST_TEST(sameBits(portable::atan2(0., -1.), std::numbers::pi));
-  BOOST_TEST(sameBits(portable::atan2(-0., -1.), -std::numbers::pi));
-  BOOST_TEST(sameBits(portable::atan2(1., 0.), std::numbers::pi / 2.));
-  BOOST_TEST(sameBits(portable::atan2(-1., -0.), -std::numbers::pi / 2.));
-  BOOST_TEST(sameBits(portable::atan2(kInf, kInf), std::numbers::pi / 4.));
-  BOOST_TEST(sameBits(portable::atan2(-kInf, -kInf), -3. * std::numbers::pi / 4.));
+  BOOST_TEST(sameBits(portable::atan2(0., -0.), o2::gtrk::kPi<double>));
+  BOOST_TEST(sameBits(portable::atan2(-0., -0.), -o2::gtrk::kPi<double>));
+  BOOST_TEST(sameBits(portable::atan2(0., -1.), o2::gtrk::kPi<double>));
+  BOOST_TEST(sameBits(portable::atan2(-0., -1.), -o2::gtrk::kPi<double>));
+  BOOST_TEST(sameBits(portable::atan2(1., 0.), o2::gtrk::kPi<double> / 2.));
+  BOOST_TEST(sameBits(portable::atan2(-1., -0.), -o2::gtrk::kPi<double> / 2.));
+  BOOST_TEST(sameBits(portable::atan2(kInf, kInf), o2::gtrk::kPi<double> / 4.));
+  BOOST_TEST(sameBits(portable::atan2(-kInf, -kInf), -3. * o2::gtrk::kPi<double> / 4.));
   BOOST_TEST(sameBits(portable::atan2(1., kInf), 0.));
   BOOST_TEST(sameBits(portable::atan2(-1., kInf), -0.));
-  BOOST_TEST(sameBits(portable::atan2(1., -kInf), std::numbers::pi));
-  BOOST_TEST(sameBits(portable::atan2(-kInf, 1.), -std::numbers::pi / 2.));
-  BOOST_TEST(sameBits(portable::atan2(1.e300, 1.e-300), std::numbers::pi / 2.));
-  BOOST_TEST(sameBits(portable::atan2(1.e-300, -1.e300), std::numbers::pi));
+  BOOST_TEST(sameBits(portable::atan2(1., -kInf), o2::gtrk::kPi<double>));
+  BOOST_TEST(sameBits(portable::atan2(-kInf, 1.), -o2::gtrk::kPi<double> / 2.));
+  BOOST_TEST(sameBits(portable::atan2(1.e300, 1.e-300), o2::gtrk::kPi<double> / 2.));
+  BOOST_TEST(sameBits(portable::atan2(1.e-300, -1.e300), o2::gtrk::kPi<double>));
   BOOST_TEST(sameBits(portable::atan2(0.5, 1.), portable::atan(0.5)));
   BOOST_TEST(std::isnan(portable::atan2(kNaN, 1.)));
   BOOST_TEST(std::isnan(portable::atan2(1., kNaN)));
 
-  BOOST_TEST(sameBits(portable::asin(1.), std::numbers::pi / 2.));
-  BOOST_TEST(sameBits(portable::asin(-1.), -std::numbers::pi / 2.));
+  BOOST_TEST(sameBits(portable::asin(1.), o2::gtrk::kPi<double> / 2.));
+  BOOST_TEST(sameBits(portable::asin(-1.), -o2::gtrk::kPi<double> / 2.));
   BOOST_TEST(sameBits(portable::asin(-0.), -0.));
   BOOST_TEST(std::isnan(portable::asin(1.0000000000000002)));
   BOOST_TEST(std::isnan(portable::asin(-2.)));

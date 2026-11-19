@@ -138,14 +138,15 @@ template <typename T>
 std::vector<T> argumentsUpTo(double end)
 {
   std::vector<T> xs;
-  for (double e = -30.; e <= std::log10(end); e += 0.005) {
-    const T x = static_cast<T>(std::pow(10., e));
+  const int steps = static_cast<int>(std::floor((std::log10(end) + 30.) / 0.005));
+  for (int step = 0; step <= steps; ++step) {
+    const T x = static_cast<T>(std::pow(10., -30. + (step * 0.005)));
     if (x > T(0) && static_cast<double>(x) <= end) {
       xs.push_back(x);
       xs.push_back(-x);
     }
   }
-  const double at = static_cast<double>(detail::DSincSeries<T>::kSwitch);
+  const auto at = static_cast<double>(detail::DSincSeries<T>::kSwitch);
   for (int i = -500; i <= 500; ++i) {
     xs.push_back(static_cast<T>(at * (1. + (i * 1e-4))));
   }

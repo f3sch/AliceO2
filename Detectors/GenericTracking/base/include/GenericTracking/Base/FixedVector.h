@@ -67,7 +67,7 @@ struct FixedVector {
     count = 0;
     overflow = false;
   }
-  GPUhdi() void push_back(const T& value)
+  GPUhdi() void push_back(const T& value) // NOLINT(readability-identifier-naming): the std containers' name
   {
     if (count < Capacity) {
       items[count++] = value;
@@ -75,7 +75,7 @@ struct FixedVector {
       overflow = true;
     }
   }
-  GPUhdi() void pop_back() { --count; }
+  GPUhdi() void pop_back() { --count; } // NOLINT(readability-identifier-naming): the std containers' name
   GPUhdi() void resize(std::size_t size)
   {
     if (size > Capacity) {

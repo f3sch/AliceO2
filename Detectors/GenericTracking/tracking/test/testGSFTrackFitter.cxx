@@ -558,8 +558,9 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseAloneIsFinishMixtureWithoutTheMode)
   Scalar mode = 0.F;
   detail::gsf::finishMixture(mixture, finished, mode);
   detail::gsf::collapseMixture(alone, collapsed);
-  BOOST_TEST(std::memcmp(finished.par, collapsed.par, sizeof(finished.par)) == 0);
-  BOOST_TEST(std::memcmp(finished.cov, collapsed.cov, sizeof(finished.cov)) == 0);
+  // One component: the finished state is the collapse's, bit for bit.
+  BOOST_TEST(std::memcmp(finished.par, collapsed.par, sizeof(finished.par)) == 0); // NOLINT(bugprone-suspicious-memory-comparison)
+  BOOST_TEST(std::memcmp(finished.cov, collapsed.cov, sizeof(finished.cov)) == 0); // NOLINT(bugprone-suspicious-memory-comparison)
   BOOST_TEST(mode == detail::gsf::momentumModeOf(alone));
 }
 

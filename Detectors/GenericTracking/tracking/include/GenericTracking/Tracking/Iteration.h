@@ -30,6 +30,7 @@
 #ifndef GTRK_TRACKING_ITERATION_H_
 #define GTRK_TRACKING_ITERATION_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
@@ -47,7 +48,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <numbers>
 #include <span>
 #include <stdexcept>
 
@@ -55,6 +55,7 @@ namespace o2::gtrk
 {
 
 /// What a person configures for one iteration. Host-side.
+// NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): the fields follow the configuration; their order is the designated initialisers'
 struct IterationSettings {
   /// The window physics. The minimum pT, nSigma and a displaced iteration's
   /// bounds are what an iteration sets; the field, the mass, the uniform
@@ -230,7 +231,7 @@ template <DetectorLayout Det>
   const double radialMax = std::max(std::abs(toHigh - fromLow), std::abs(fromHigh - toLow));
   // Half a turn at most: a prompt window stays within a quarter, a displaced
   // one may not.
-  const double azimuth = std::min(phiHalfWidth, std::numbers::pi_v<double>);
+  const double azimuth = std::min(phiHalfWidth, kPi<double>);
   const double chordMax = std::sqrt((radialMax * radialMax) + (2. * fromHigh * toHigh * (1. - std::cos(azimuth))));
   return {.lengthMin = narrowedLength, .chordMax = conservativeScalarBound(chordMax)};
 }

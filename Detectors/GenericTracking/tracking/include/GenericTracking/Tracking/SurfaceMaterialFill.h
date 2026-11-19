@@ -16,6 +16,7 @@
 #ifndef GTRK_TRACKING_SURFACEMATERIALFILL_H_
 #define GTRK_TRACKING_SURFACEMATERIALFILL_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/SearchWindow.h"
@@ -31,7 +32,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <numbers>
 #include <span>
 #include <vector>
 
@@ -81,7 +81,7 @@ class SensorPlaneGrid
             }
           }
           double phi = std::atan2(g[1], g[0]) - reference;
-          phi -= 2. * std::numbers::pi * std::round(phi / (2. * std::numbers::pi));
+          phi -= kTwoPi<double> * std::round(phi / kTwoPi<double>);
           phiLo = std::min(phiLo, reference + phi);
           phiHi = std::max(phiHi, reference + phi);
           const double second = mBarrel ? g[2] : std::hypot(g[0], g[1]);
@@ -91,8 +91,8 @@ class SensorPlaneGrid
       }
       const int s0 = std::max(0, static_cast<int>(std::floor((sLo - mSecondMin) * mPerCm)));
       const int s1 = std::min(kSecond - 1, static_cast<int>(std::floor((sHi - mSecondMin) * mPerCm)));
-      const int p0 = static_cast<int>(std::floor(phiLo * kPhi / (2. * std::numbers::pi)));
-      const int p1 = static_cast<int>(std::floor(phiHi * kPhi / (2. * std::numbers::pi)));
+      const int p0 = static_cast<int>(std::floor(phiLo * kPhi / kTwoPi<double>));
+      const int p1 = static_cast<int>(std::floor(phiHi * kPhi / kTwoPi<double>));
       for (int ip = p0; ip <= p1; ++ip) {
         const int wrapped = ((ip % kPhi) + kPhi) % kPhi;
         for (int is = s0; is <= s1; ++is) {
@@ -280,7 +280,7 @@ inline void fillSurfaceMaterial(SurfaceMaterialMap<Det>& map, const o2::base::Ma
       for (int iSecond = 0; iSecond < Map::kSecondBins; ++iSecond) {
         sums.assign(mine.size(), {});
         for (int a = 0; a < kSubPhi; ++a) {
-          const double phi = 2. * std::numbers::pi * (iPhi + ((a + 0.5) / kSubPhi)) / Map::kPhiBins;
+          const double phi = kTwoPi<double> * (iPhi + ((a + 0.5) / kSubPhi)) / Map::kPhiBins;
           const double c = std::cos(phi);
           const double s = std::sin(phi);
           for (int b = 0; b < kSubSecond; ++b) {
@@ -301,7 +301,7 @@ inline void fillSurfaceMaterial(SurfaceMaterialMap<Det>& map, const o2::base::Ma
             // The ray keeps its azimuth; the sensors are looked up only on the
             // layers between the own layer's pairs' ends, where a pair reads
             // them.
-            const int phiBin = static_cast<int>(phi * Map::kPhiBins / (2. * std::numbers::pi));
+            const int phiBin = static_cast<int>(phi * Map::kPhiBins / kTwoPi<double>);
             const double axial = std::hypot(u[0], u[1]);
             for (int layer = 0; layer < kL; ++layer) {
               auto& at = crossing[layer];

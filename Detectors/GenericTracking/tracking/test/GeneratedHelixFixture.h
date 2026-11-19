@@ -15,6 +15,7 @@
 #ifndef GTRK_TEST_GENERATEDHELIXFIXTURE_H_
 #define GTRK_TEST_GENERATEDHELIXFIXTURE_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/TripletCut.h"
 
@@ -23,7 +24,6 @@
 
 #include <cmath>
 #include <cstddef>
-#include <numbers>
 #include <random>
 #include <stdexcept>
 
@@ -82,7 +82,7 @@ struct GeneratedHelixFixture {
     }
     const double radius = layerDistance<Det>(layer);
     double low = 0.;
-    double high = std::numbers::pi_v<double> / curvature;
+    double high = kPi<double> / curvature;
     for (int i = 0; i < 100; ++i) {
       const double middle = 0.5 * (low + high);
       const State at = propagate(start, curvature, middle);

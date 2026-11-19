@@ -20,6 +20,7 @@
 #define BOOST_TEST_MODULE Test GTRK Propagator
 #include <boost/test/unit_test.hpp>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/CovarianceTransport.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "Oracles.h"
@@ -111,10 +112,10 @@ BOOST_AUTO_TEST_CASE(ABackwardStepAtLowMomentumIsNeverRefusedForRunningForwards)
   for (int degrees = -80; degrees <= 80; degrees += 5) {
     // The plane always passes through the true crossing; only its orientation
     // about that point changes, and with it which root carries the crossing.
-    const double radial = std::atan2(to.second, to.first) + (static_cast<double>(degrees) * M_PI / 180.);
+    const double radial = std::atan2(to.second, to.first) + (static_cast<double>(degrees) * kPi<double> / 180.);
     const auto source = planeAt(from.first, from.second, 0., std::cos(radial), std::sin(radial), 0., 1);
     const auto target = planeAt(to.first, to.second, 0., std::cos(radial), std::sin(radial), 0., 2);
-    auto st = stateOn(source, psiFrom, M_PI / 2., qOverP);
+    auto st = stateOn(source, psiFrom, kPi<double> / 2., qOverP);
 
     const auto res = propagate(prop, st, source, target, PropagationDirection::kBackward);
     BOOST_TEST_CONTEXT("plane rotated " << degrees << " deg off radial")
@@ -163,20 +164,20 @@ BOOST_AUTO_TEST_CASE(AStraightTrackCrossesAPlaneWhereGeometrySaysItShould)
   const TrackingSurface target = planeAt(10., 0., 0., 1., 0., 0., 9);
 
   // Heading out at 30 degrees in phi and 60 in theta.
-  BoundTrackState st = stateOn(start, 30. * M_PI / 180., 60. * M_PI / 180., 1.);
+  BoundTrackState st = stateOn(start, 30. * kPi<double> / 180., 60. * kPi<double> / 180., 1.);
   const auto res = propagate(prop, st, start, target, PropagationDirection::kForward);
 
   BOOST_TEST((res.status == PropagationStatus::kOk));
   BOOST_TEST(st.surface == 9U);
 
   // Straight line: the transverse step is 8 cm along x, so the path follows.
-  const double sT = 8. / std::cos(30. * M_PI / 180.);
-  const double path = sT / std::sin(60. * M_PI / 180.);
+  const double sT = 8. / std::cos(30. * kPi<double> / 180.);
+  const double path = sT / std::sin(60. * kPi<double> / 180.);
   BOOST_TEST(std::abs(static_cast<double>(res.pathLength) - path) < kPosTol);
 
   // Angles are untouched by a zero field.
-  BOOST_TEST(std::abs(static_cast<double>(st.phi()) - 30. * M_PI / 180.) < kAngTol);
-  BOOST_TEST(std::abs(static_cast<double>(st.theta()) - 60. * M_PI / 180.) < kAngTol);
+  BOOST_TEST(std::abs(static_cast<double>(st.phi()) - 30. * kPi<double> / 180.) < kAngTol);
+  BOOST_TEST(std::abs(static_cast<double>(st.theta()) - 60. * kPi<double> / 180.) < kAngTol);
 }
 
 BOOST_AUTO_TEST_CASE(ADiscIsReachedByADivision)
@@ -303,11 +304,11 @@ BOOST_AUTO_TEST_CASE(TheOtherCrossingRulesTakeTheSensorsCrossing)
 
   int changed = 0;
   for (int degrees = -80; degrees <= 80; degrees += 5) {
-    const double radial = std::atan2(to.second, to.first) + (static_cast<double>(degrees) * M_PI / 180.);
+    const double radial = std::atan2(to.second, to.first) + (static_cast<double>(degrees) * kPi<double> / 180.);
     const auto source = planeAt(from.first, from.second, 0., std::cos(radial), std::sin(radial), 0., 1);
     auto target = planeAt(to.first, to.second, 0., std::cos(radial), std::sin(radial), 0., 2);
     target.bounds = SurfaceBounds{.halfX = 3.F, .halfY = 10.F};
-    const auto st = stateOn(source, psiFrom, M_PI / 2., qOverP);
+    const auto st = stateOn(source, psiFrom, kPi<double> / 2., qOverP);
 
     auto first = st;
     auto nearer = st;

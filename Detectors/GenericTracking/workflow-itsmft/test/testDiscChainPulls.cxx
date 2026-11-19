@@ -35,6 +35,7 @@
 #include "PullStatistics.h"
 
 #include "GridTestSupport.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Detectors/MFT.h"
@@ -51,7 +52,6 @@
 #include <cmath>
 #include <cstdlib>
 #include <memory>
-#include <numbers>
 #include <random>
 #include <span>
 #include <string>
@@ -258,7 +258,7 @@ PullPoint pullsAt(DiscChain<Det>& chain, double ptGeV, double eta, bool withMate
   const double p = ptGeV / std::sin(theta);
   std::mt19937 rng(seed);
   std::normal_distribution<double> gauss(0., 1.);
-  std::uniform_real_distribution<double> uniformPhi(-std::numbers::pi, std::numbers::pi);
+  std::uniform_real_distribution<double> uniformPhi(-kPi<double>, kPi<double>);
   return collectPulls(chain, ptGeV, eta, trials, [&](int trial) {
     const Scalar charge = (trial % 2) != 0 ? 1.F : -1.F;
     bool built = false;

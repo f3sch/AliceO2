@@ -15,6 +15,7 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK placed layouts
 #include <boost/test/unit_test.hpp>
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerEnvelopes.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
@@ -29,7 +30,6 @@
 #include <array>
 #include <cmath>
 #include <memory>
-#include <numbers>
 #include <span>
 #include <stdexcept>
 #include <utility>
@@ -287,7 +287,7 @@ BOOST_AUTO_TEST_CASE(CurvedSensorUnrollsOntoItsCylinder)
   BOOST_TEST(std::abs(frame[1]) < kPositionTolerance);
   BOOST_TEST(std::abs(frame[2] - 3.) < kPositionTolerance);
   // The unrolled x is the arc length on the inner surface, counter-clockwise.
-  kCurved.unrolledToFrame(0.5 * std::numbers::pi / 4., 0., 0., frame);
+  kCurved.unrolledToFrame(0.5 * kPi<double> / 4., 0., 0., frame);
   BOOST_TEST(std::abs(frame[0] - frame[1]) < kPositionTolerance);
   BOOST_TEST(frame[1] > 0.);
   static_assert(exactlyEqual(kCurved.surfaceMin(), 0.) && exactlyEqual(kCurved.surfaceMax(), 2. * kCurved.halfThickness));
@@ -298,7 +298,7 @@ BOOST_AUTO_TEST_CASE(CurvedEnvelopeIsTheHullOfItsSilicon)
   // On the beam axis, and moved off it so far that the nearest and farthest
   // points lie inside the arc rather than at its ends.
   for (const auto& t : {std::array<double, 3>{0., 0., 0.}, std::array<double, 3>{0.03, -0.02, 1.}, std::array<double, 3>{0.2, 0.25, -2.}}) {
-    const auto sensor = rotatedAboutBeam(std::numbers::pi / 4., t);
+    const auto sensor = rotatedAboutBeam(kPi<double> / 4., t);
     const std::array<SensorSpec, 1> specs{kCurved};
     const auto envelope = measureEnvelopes(std::span(&sensor, 1), specs, 1).front();
     // The silicon sampled densely lies within the hull and reaches it.
@@ -344,8 +344,8 @@ BOOST_AUTO_TEST_CASE(TangentPlaneTouchesItsCylinder)
 {
   TrackingSurface cylinder{};
   // A petal rotated by 135 degrees about a beam moved off the origin.
-  const Scalar c = std::cos(0.75F * std::numbers::pi_v<Scalar>);
-  const Scalar s = std::sin(0.75F * std::numbers::pi_v<Scalar>);
+  const Scalar c = std::cos(0.75F * kPi<Scalar>);
+  const Scalar s = std::sin(0.75F * kPi<Scalar>);
   cylinder.axis0[0] = c;
   cylinder.axis0[1] = s;
   cylinder.axis1[0] = -s;

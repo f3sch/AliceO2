@@ -23,6 +23,7 @@
 #ifndef GTRK_TEST_ANALYTICLAYOUT_H_
 #define GTRK_TEST_ANALYTICLAYOUT_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Base/Sensor.h"
@@ -31,7 +32,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <numbers>
 #include <vector>
 
 namespace o2::gtrk
@@ -140,7 +140,7 @@ template <AnalyticToy Toy>
   sensors.reserve(static_cast<std::size_t>(Toy::nSensors));
   LayerID layer = 0;
   for (const auto& spec : Toy::barrelSpecs) {
-    const double dPhi = 2. * std::numbers::pi / static_cast<double>(spec.nStaves);
+    const double dPhi = kTwoPi<double> / static_cast<double>(spec.nStaves);
     const double pitchZ = 2. * spec.sensor.halfY + spec.moduleGap;
     const double z0 = -0.5 * static_cast<double>(spec.nModulesPerStave - 1) * pitchZ;
     for (int iStave = 0; iStave < spec.nStaves; ++iStave) {
@@ -160,7 +160,7 @@ template <AnalyticToy Toy>
   for (const auto& spec : Toy::discSpecs) {
     for (int iRing = 0; iRing < spec.nRings; ++iRing) {
       const RingSpec& ring = spec.rings[iRing];
-      const double dPhi = 2. * std::numbers::pi / static_cast<double>(ring.nModules);
+      const double dPhi = kTwoPi<double> / static_cast<double>(ring.nModules);
       for (int iMod = 0; iMod < ring.nModules; ++iMod) {
         const double phi = ring.phi0 + dPhi * static_cast<double>(iMod);
         const double cosP = std::cos(phi);
