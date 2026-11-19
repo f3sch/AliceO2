@@ -24,6 +24,7 @@
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
 #include "GenericTracking/Tracking/GPU/DeviceStream.h"
 
@@ -111,6 +112,8 @@ class DeviceRuntime
       return makeMFTTracker(block);
     } else if constexpr (std::is_same_v<D, detectors::TRKFT3>) {
       return makeTRKFT3Tracker(block);
+    } else if constexpr (std::is_same_v<D, detectors::TRKFT3TOF>) {
+      return makeTRKFT3TOFTracker(block);
     } else {
       throw std::runtime_error(std::string{"GPU backend "} + backend() + ": no device tracker is built for " + D::name);
     }
@@ -141,6 +144,7 @@ class DeviceRuntime
   [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::ITS, o2::base::MatLayerCylSet>> makeITSTracker(DeviceBlock block) = 0;
   [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::MFT, o2::base::MatLayerCylSet>> makeMFTTracker(DeviceBlock block) = 0;
   [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3Tracker(DeviceBlock block) = 0;
+  [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::TRKFT3TOF, o2::base::MatLayerCylSet>> makeTRKFT3TOFTracker(DeviceBlock block) = 0;
   [[nodiscard]] virtual std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3DecayFitter(DeviceBlock block) = 0;
 };
 

@@ -42,6 +42,7 @@
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Tracking/SearchWindow.h"
 #include "GenericTracking/WorkflowTRK/TRK.h"
@@ -439,7 +440,7 @@ int run(int argc, char** argv)
   bpo::options_description description("Trace a detector's layer links");
   description.add_options()                                                                                      //
     ("help,h", "this message")                                                                                   //
-    ("detector,d", bpo::value(&options.detector)->required(), "ITS, MFT or TRKFT3")                              //
+    ("detector,d", bpo::value(&options.detector)->required(), "ITS, MFT, TRKFT3 or TRKFT3TOF")                   //
     ("beam-spot-z", bpo::value(&options.beamSpotZ)->default_value(0.), "centre of the traced vertex range [cm]") //
     ("beam-spot-range", bpo::value(&options.beamSpotHalfRange)->default_value(18.),
      "half-width of the traced vertex range [cm]; 3 sigma of a 6 cm spot by default") //
@@ -476,7 +477,7 @@ int run(int argc, char** argv)
   }
   // The field as the tracking takes it: O2's nominal Bz of the run's map;
   // for ALICE 3, whose GRP records none, its field object's Bz at the origin.
-  if (options.detector == "TRKFT3") {
+  if (options.detector == "TRKFT3" || options.detector == "TRKFT3TOF") {
     options.bzKiloGauss = alice::alice3BzKiloGauss();
   } else {
     if (options.field.empty()) {
@@ -497,6 +498,9 @@ int run(int argc, char** argv)
   }
   if (options.detector == "TRKFT3") {
     return runFor<TRKFT3>(options);
+  }
+  if (options.detector == "TRKFT3TOF") {
+    return runFor<TRKFT3TOF>(options);
   }
   std::cerr << "unknown detector '" << options.detector << "'\n";
   return 1;

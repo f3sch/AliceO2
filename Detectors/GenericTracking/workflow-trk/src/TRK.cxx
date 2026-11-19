@@ -12,7 +12,8 @@
 /// \file TRK.cxx
 /// \brief ALICE 3's own, TRK's barrel and FT3's discs: its chips placed, its
 ///        cluster format, its dictionaries' depths, frames and field (TRK.h),
-///        its cluster converter and its measurement producer.
+///        its cluster converter (TrkClusterConverter.h) and its measurement
+///        producer.
 
 #include "GenericTracking/WorkflowTRK/TRK.h"
 
@@ -26,6 +27,8 @@
 #include "GenericTracking/Workflow/MeasurementProducer.h"
 #include "GenericTracking/Workflow/MeasurementProducerSpec.h"
 #include "GenericTracking/WorkflowTRK/ConditionsTRK.h"
+
+#include "TrkClusterConverter.h"
 
 #include "DataFormatsTRKFT3/Cluster.h"
 #include "DataFormatsTRKFT3/ROFRecord.h"
@@ -234,129 +237,12 @@ double alice3BzKiloGauss()
 namespace o2::gtrk::workflow
 {
 
-using namespace o2::framework;
-
-namespace
-{
-
-/// ALICE 3's TRK and FT3 clusters, one stream per barrel layer and one per
-/// disc as O2's cluster readers publish them (TRK/COMPCLUSTERS/<layer>,
-/// FT3/COMPCLUSTERS/<disc> and the rest), turned into GTRK/TRKCLUSTERS and
-/// GTRK/TRKCLUSMCTR: each layer's
-/// stream converted with its own readout frames, each cluster with its
-/// position and errors from the topology dictionaries, CCDB conditions,
-/// then the layers
-/// concatenated in order, barrel first, so a measurement's cluster index is
-/// its position in that concatenation and the labels follow it.
-class TrkClusterConverterTask : public Task
-{
- public:
-  static constexpr int kLayers = Detector<detectors::TRKFT3>::nLayers;
-  static constexpr int kBarrelLayers = Detector<detectors::TRKFT3>::nBarrelLayers;
-
-  /// Our layer \a layer's stream: TRK's barrel layer, or FT3's disc after them.
-  [[nodiscard]] static o2::header::DataOrigin originOf(int layer) { return layer < kBarrelLayers ? o2::header::DataOrigin{"TRK"} : o2::header::DataOrigin{"FT3"}; }
-  [[nodiscard]] static o2::header::DataHeader::SubSpecificationType subspecOf(int layer) { return static_cast<o2::header::DataHeader::SubSpecificationType>(layer < kBarrelLayers ? layer : layer - kBarrelLayers); }
-
-  TrkClusterConverterTask(bool useMC, TrkDictionaryConditions dictionaries, std::shared_ptr<o2::base::GRPGeomRequest> geometryRequest)
-    : mUseMC(useMC), mDictionaries(dictionaries), mGeometryRequest(std::move(geometryRequest)) {}
-
-  void init(InitContext& /*ic*/) final { o2::base::GRPGeomHelper::instance().setRequest(mGeometryRequest); }
-
-  void finaliseCCDB(ConcreteDataMatcher& matcher, void* obj) final
-  {
-    if (!o2::base::GRPGeomHelper::instance().finaliseCCDB(matcher, obj)) {
-      mDictionaries.finaliseCCDB(matcher, obj);
-    }
-  }
-
-  void run(ProcessingContext& pc) final
-  {
-    o2::base::GRPGeomHelper::instance().checkUpdates(pc);
-    // Dictionary coordinates use the VD segmentation's petal count, which
-    // GeometryTGeo derives from the loaded geometry in this device's process.
-    o2::trk::GeometryTGeo::Instance();
-    TrkDictionaryConditions::checkUpdates(pc);
-    const auto& timing = pc.services().get<o2::framework::TimingInfo>();
-    std::vector<Cluster> clusters;
-    o2::dataformats::MCTruthContainer<o2::MCCompLabel> labels;
-    for (int layer = 0; layer < kLayers; ++layer) {
-      const auto patterns = pc.inputs().get<gsl::span<unsigned char>>(std::format("patterns_{}", layer));
-      const auto rofs = pc.inputs().get<gsl::span<o2::trkft3::ROFRecord>>(std::format("rofs_{}", layer));
-      if (rofs.empty()) {
-        continue;
-      }
-      // The timeframe's first orbit as DPL announces it, held to the one the
-      // frames imply, as for the ITS.
-      const auto implied = o2::raw::HBFUtils::Instance().getFirstIRofTF(rofs.front().getBCData()).orbit;
-      if (implied != timing.firstTForbit) {
-        LOGP(fatal, "TRKFT3 layer {}: the readout frames belong to the timeframe starting at orbit {}, DPL says {}", layer, implied, timing.firstTForbit);
-      }
-      const std::span<const unsigned char> patternBytes{patterns.data(), patterns.size()};
-      const auto local = [&]() {
-        if (layer < kBarrelLayers) {
-          const auto compact = pc.inputs().get<gsl::span<o2::trkft3::TRKCluster>>(std::format("compclusters_{}", layer));
-          return alice::trkLocalClusters(std::span{compact.data(), compact.size()}, patternBytes, *mDictionaries.trk());
-        }
-        const auto compact = pc.inputs().get<gsl::span<o2::trkft3::FT3Cluster>>(std::format("compclusters_{}", layer));
-        return alice::ft3LocalClusters(std::span{compact.data(), compact.size()}, patternBytes, *mDictionaries.ft3());
-      }();
-      const std::span<const o2::trkft3::ROFRecord> frames{rofs.data(), rofs.size()};
-      const auto converted = alice::toClusters(local, frames, alice::readoutFrames(frames), timing.firstTForbit);
-      clusters.insert(clusters.end(), converted.begin(), converted.end());
-      if (mUseMC) {
-        const auto layerLabels = pc.inputs().get<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>(std::format("labels_{}", layer));
-        if (layerLabels->getIndexedSize() != converted.size()) {
-          LOGP(fatal, "TRKFT3 layer {}: {} labelled clusters for {} clusters", layer, layerLabels->getIndexedSize(), converted.size());
-        }
-        labels.mergeAtBack(*layerLabels);
-      }
-    }
-    LOGP(info, "TRKFT3: {} clusters on {} layers for the timeframe at orbit {}", clusters.size(), kLayers, timing.firstTForbit);
-    pc.outputs().snapshot(Output{gDataOrigin, description<detectors::TRKFT3>(kClusters), 0}, clusters);
-    if (mUseMC) {
-      auto& flat = pc.outputs().make<o2::dataformats::ConstMCTruthContainer<o2::MCCompLabel>>(Output{gDataOrigin, description<detectors::TRKFT3>(kClustersMCTruth), 0});
-      labels.flatten_to(flat);
-    }
-  }
-
- private:
-  bool mUseMC;
-  TrkDictionaryConditions mDictionaries;
-  std::shared_ptr<o2::base::GRPGeomRequest> mGeometryRequest;
-};
-
-} // namespace
-
 template <>
-DataProcessorSpec getClusterConverterSpec<detectors::TRKFT3>(const ConfigContext& /*context*/, bool useMC)
+o2::framework::DataProcessorSpec getClusterConverterSpec<detectors::TRKFT3>(const o2::framework::ConfigContext& /*context*/, bool useMC)
 {
-  std::vector<InputSpec> inputs;
-  std::vector<OutputSpec> outputs{OutputSpec{gDataOrigin, description<detectors::TRKFT3>(kClusters), 0, Lifetime::Timeframe}};
-  for (int layer = 0; layer < TrkClusterConverterTask::kLayers; ++layer) {
-    const auto origin = TrkClusterConverterTask::originOf(layer);
-    const auto subspec = TrkClusterConverterTask::subspecOf(layer);
-    inputs.emplace_back(std::format("compclusters_{}", layer), origin, "COMPCLUSTERS", subspec, Lifetime::Timeframe);
-    inputs.emplace_back(std::format("patterns_{}", layer), origin, "PATTERNS", subspec, Lifetime::Timeframe);
-    inputs.emplace_back(std::format("rofs_{}", layer), origin, "CLUSTERSROF", subspec, Lifetime::Timeframe);
-    if (useMC) {
-      inputs.emplace_back(std::format("labels_{}", layer), origin, "CLUSTERSMCTR", subspec, Lifetime::Timeframe);
-    }
-  }
-  if (useMC) {
-    outputs.emplace_back(gDataOrigin, description<detectors::TRKFT3>(kClustersMCTruth), 0, Lifetime::Timeframe);
-  }
-  const TrkDictionaryConditions dictionaries(inputs);
-  auto geometryRequest = std::make_shared<o2::base::GRPGeomRequest>(false, false, false, false, false, o2::base::GRPGeomRequest::Aligned, inputs);
-  return DataProcessorSpec{
-    .name = deviceName<detectors::TRKFT3>("cluster-converter"),
-    .inputs = inputs,
-    .outputs = outputs,
-    .algorithm = AlgorithmSpec{adaptFromTask<TrkClusterConverterTask>(useMC, dictionaries, geometryRequest)},
-    .options = Options{},
-  };
+  return trkClusterConverterSpec<detectors::TRKFT3>(useMC);
 }
 
-template DataProcessorSpec getMeasurementProducerSpec<detectors::TRKFT3>();
+template o2::framework::DataProcessorSpec getMeasurementProducerSpec<detectors::TRKFT3>();
 
 } // namespace o2::gtrk::workflow
