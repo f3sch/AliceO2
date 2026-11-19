@@ -35,6 +35,7 @@
 #ifndef GTRK_TRACKING_DECAYFITCONSTRAINTS_H_
 #define GTRK_TRACKING_DECAYFITCONSTRAINTS_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/FixedVector.h"
 #include "GenericTracking/Tracking/DecayFitMath.h"
 
@@ -229,9 +230,12 @@ template <typename M = double, typename S>
     for (auto& c : u1) {
       c = c / across;
     }
-    const std::array<D, 3> u2{((total[1] * u1[2]) - (total[2] * u1[1])) / p, ((total[2] * u1[0]) - (total[0] * u1[2])) / p, ((total[0] * u1[1]) - (total[1] * u1[0])) / p};
-    push((offset[0] * u1[0]) + (offset[1] * u1[1]) + (offset[2] * u1[2]));
-    push((offset[0] * u2[0]) + (offset[1] * u2[1]) + (offset[2] * u2[2]));
+    std::array<D, 3> u2 = crossOf(total, u1);
+    for (auto& c : u2) {
+      c = c / p;
+    }
+    push(dotOf(offset, u1));
+    push(dotOf(offset, u2));
   }
   for (int w = 1; w < k && w - 1 < static_cast<int>(constraints.compositeMasses.size()); ++w) {
     if (constraints.compositeMasses[w - 1] > 0.) {

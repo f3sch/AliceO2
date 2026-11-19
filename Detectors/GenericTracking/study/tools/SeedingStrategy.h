@@ -66,9 +66,9 @@
 #define GTRK_STUDY_SEEDINGSTRATEGY_H_
 
 #include "GenericTracking/Base/LayerSpec.h"
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/RoadCount.h"
-#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/TrackingInput.h"
 #include "GenericTracking/Study/Validation.h"
@@ -279,7 +279,7 @@ class SeedingStrategy
       held += mHeld[row];
     }
     mPassIndex = static_cast<std::uint32_t>(iterations);
-    std::string line = std::format("after the run's first {} iterations: {} tracks, {} fake; {} rows held ({:.2f} %); found of the findable {} at or above:", iterations, tracks.size(), fakes, held, study::percent(held, mHeld.size()), mPopulation);
+    std::string line = std::format("after the run's first {} iterations: {} tracks, {} fake; {} rows held ({:.2f} %); found of the findable {} at or above:", iterations, tracks.size(), fakes, held, percent(held, mHeld.size()), mPopulation);
     for (const auto step : mSteps) {
       std::uint64_t findable = 0U;
       std::uint64_t found = 0U;
@@ -289,7 +289,7 @@ class SeedingStrategy
           found += mSeededBy[particle.particle] != kUnseeded ? 1U : 0U;
         }
       }
-      line += std::format(" {} {:.2f}", step, study::percent(found, findable));
+      line += std::format(" {} {:.2f}", step, percent(found, findable));
     }
     out << line << '\n';
   }
@@ -447,14 +447,14 @@ class SeedingStrategy
     out << std::format(
              "pass {}{}: floor {} GeV, layers {} (mask {}), starts {}, {} clusters, kink sigma {}; {} tracklets, {} triplets{}, {} neighbours{}, {} roads "
              "({:.2f} % impure, {:.2f} owners per seeded particle); {:.3f} s, pool peak {:.2f} GB\n",
-             mPassIndex, mShadow ? " (shadow: holds nothing)" : "", floor, layerList(settings.layerMask), settings.layerMask, settings.roadStartLayers == 0U ? "any" : layerList(settings.roadStartLayers), settings.minClusters, settings.graphKinkSigma > 0. ? std::format("{} (graph {})", settings.kinkSigma, settings.graphKinkSigma) : std::format("{}", settings.kinkSigma), mPass.tracklets, mPass.triplets, cost.counted ? std::format(" ({} fits)", cost.tripletFits) : std::string{}, mPass.neighbours, cost.counted ? std::format(" ({} fits)", cost.neighbourFits) : std::string{}, mPass.roads, study::percent(mPass.impureRoads, mPass.roads), multiplicity, cost.seconds, static_cast<double>(cost.poolPeakBytes) / 1.e9)
+             mPassIndex, mShadow ? " (shadow: holds nothing)" : "", floor, layerList(settings.layerMask), settings.layerMask, settings.roadStartLayers == 0U ? "any" : layerList(settings.roadStartLayers), settings.minClusters, settings.graphKinkSigma > 0. ? std::format("{} (graph {})", settings.kinkSigma, settings.graphKinkSigma) : std::format("{}", settings.kinkSigma), mPass.tracklets, mPass.triplets, cost.counted ? std::format(" ({} fits)", cost.tripletFits) : std::string{}, mPass.neighbours, cost.counted ? std::format(" ({} fits)", cost.neighbourFits) : std::string{}, mPass.roads, percent(mPass.impureRoads, mPass.roads), multiplicity, cost.seconds, static_cast<double>(cost.poolPeakBytes) / 1.e9)
         << std::format("  seeded {} particles: {} findable {} ({} first seeded here); by origin {} primaries, {} decay daughters, {} material; {} rows held\n", mSeeded.size(), seededFindable, mPopulation, firstFindable, seededByOrigin[static_cast<std::size_t>(study::ParticleOrigin::kPhysicalPrimary)], seededByOrigin[static_cast<std::size_t>(study::ParticleOrigin::kDecay)], seededByOrigin[static_cast<std::size_t>(study::ParticleOrigin::kMaterial)], hold.size());
     std::uint64_t lost = 0U;
     for (const auto count : lostByLength) {
       lost += count;
     }
     if (mFit) {
-      std::string line = std::format("  road fit: {} records ({} pure) in {:.3f} s; findable {} with a pure road {}, without a pure record {} ({:.2f} %), by pure road length:", mPass.records, mPass.pureRecords, cost.fitSeconds, mPopulation, roadFindable, lost, study::percent(lost, roadFindable));
+      std::string line = std::format("  road fit: {} records ({} pure) in {:.3f} s; findable {} with a pure road {}, without a pure record {} ({:.2f} %), by pure road length:", mPass.records, mPass.pureRecords, cost.fitSeconds, mPopulation, roadFindable, lost, percent(lost, roadFindable));
       for (std::size_t length = 0; length < lostByLength.size(); ++length) {
         line += lostByLength[length] == 0U ? std::string{} : std::format(" {}: {}", length, lostByLength[length]);
       }
@@ -468,19 +468,19 @@ class SeedingStrategy
       out << std::format(
         "  real run: {} tracks, {} good, {} fake; held rows {}, of them {} carry no found particle; the found particles' rows {}, {} of them "
         "free ({:.2f} %), on {} particles ({} findable {})\n",
-        mReal->tracks, mReal->tracks - mReal->fakes, mReal->fakes, mReal->heldRows, mReal->wrongHeld, mReal->foundRows, mReal->foundRowsFree, study::percent(mReal->foundRowsFree, mReal->foundRows), mReal->foundWithFree, mReal->findableWithFree, mPopulation);
+        mReal->tracks, mReal->tracks - mReal->fakes, mReal->fakes, mReal->heldRows, mReal->wrongHeld, mReal->foundRows, mReal->foundRowsFree, percent(mReal->foundRowsFree, mReal->foundRows), mReal->foundWithFree, mReal->findableWithFree, mPopulation);
     }
     if (versus) {
       out << std::format("  against shadow pass {}: both seed {} findable {}; only this pass {} (in the shadow: {}), only the shadow {} (here: {})\n", mShadowPass, bothSeeded, mPopulation, mainOnly[0] + mainOnly[1] + mainOnly[2] + mainOnly[3], mechanismLine(mainOnly), shadowOnly[0] + shadowOnly[1] + shadowOnly[2] + shadowOnly[3], mechanismLine(shadowOnly));
     }
     std::string line = std::format("  coverage of the findable {} at or above:", mPopulation);
     for (std::size_t step = 0; step < mSteps.size(); ++step) {
-      line += std::format(" {} {:.2f}", mSteps[step], study::percent(covered[step], findable[step]));
+      line += std::format(" {} {:.2f}", mSteps[step], percent(covered[step], findable[step]));
     }
     out << line << '\n';
     line = std::format("  at the floor, by class, covered % (this pass's gain %) of the findable:");
     for (std::size_t kind = 0; kind < kClasses; ++kind) {
-      line += std::format(" {} {:.2f} ({:+.2f}) of {}", kClassNames[kind], study::percent(classCovered[kind], classFindable[kind]), study::percent(classGained[kind], classFindable[kind]), classFindable[kind]);
+      line += std::format(" {} {:.2f} ({:+.2f}) of {}", kClassNames[kind], percent(classCovered[kind], classFindable[kind]), percent(classGained[kind], classFindable[kind]), classFindable[kind]);
     }
     out << line << '\n';
     // The rows left free: noise, a findable particle's (unseeded), another
@@ -508,7 +508,7 @@ class SeedingStrategy
     out << std::format(
       "  rows free after the pass: {:.2f} % of all; of them noise {:.2f} %, findable {} {:.2f} %, other particles >= {} GeV {:.2f} %, "
       "only particles below {:.2f} %\n",
-      study::percent(freeTotal, mHeld.size()), study::percent(free[0], freeTotal), mPopulation, study::percent(free[1], freeTotal), lowest, study::percent(free[2], freeTotal), study::percent(free[3], freeTotal));
+      percent(freeTotal, mHeld.size()), percent(free[0], freeTotal), mPopulation, percent(free[1], freeTotal), lowest, percent(free[2], freeTotal), percent(free[3], freeTotal));
     std::vector<std::pair<std::uint64_t, std::uint64_t>> patterns(unseeded.begin(), unseeded.end());
     std::ranges::sort(patterns, [](const auto& a, const auto& b) { return a.second != b.second ? a.second > b.second : a.first < b.first; });
     std::uint64_t unseededTotal = 0U;
@@ -517,7 +517,7 @@ class SeedingStrategy
     }
     out << std::format("  unseeded at the floor: {} (over the passes so far: {}); the most common layer patterns:\n", unseededTotal, mechanismLine(unseededBy));
     for (std::size_t at = 0; at < std::min<std::size_t>(patterns.size(), kPatterns); ++at) {
-      out << std::format("    {:7d} ({:5.2f} %)  {} (mask {})\n", patterns[at].second, study::percent(patterns[at].second, unseededTotal), layerList(patterns[at].first), patterns[at].first);
+      out << std::format("    {:7d} ({:5.2f} %)  {} (mask {})\n", patterns[at].second, percent(patterns[at].second, unseededTotal), layerList(patterns[at].first), patterns[at].first);
     }
     if (json != nullptr) {
       std::string coverage;

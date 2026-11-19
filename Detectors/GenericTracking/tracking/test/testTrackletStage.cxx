@@ -98,23 +98,7 @@ struct InputPoint {
   Scalar z = 0.F;
 };
 
-SearchWindowParams windowParameters()
-{
-  SearchWindowParams result;
-  result.minPtGeV = 1.;
-  result.bzKiloGauss = 20.;
-  result.materialX2X0 = 0.;
-  result.positionSigma = 0.01;
-  result.nSigma = 3.;
-  return result;
-}
-
-GridParams gridParameters()
-{
-  GridParams result;
-  result.blockWidth = 20'000;
-  return test::withToyFrames(result);
-}
+SearchWindowParams windowParameters() { return test::toyWindows(0.01); }
 
 class Fixture
 {
@@ -122,7 +106,7 @@ class Fixture
   static constexpr VertexConstraint kBeamConstraint{.z = 0., .sigmaZ = 0.5, .sigmaTransverse = 0.001};
 
   Fixture()
-    : geometry(test::cappedGrid<StageToy>(20., gridParameters(), windowParameters(), kBeamConstraint, 8, 4)),
+    : geometry(test::cappedGrid<StageToy>(20., test::toyGridParameters(), windowParameters(), kBeamConstraint, 8, 4)),
       offsets(static_cast<std::size_t>(geometry.bucketCount()) + 1U)
   {
     constexpr std::array<InputPoint, kReferenceMeasurements> reference{{

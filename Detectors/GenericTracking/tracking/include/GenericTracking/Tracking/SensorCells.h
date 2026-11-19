@@ -232,9 +232,7 @@ class SensorCells
     } else {
       const auto at = [&](double u, double v) {
         Vec3D point{};
-        for (std::size_t i = 0; i < 3; ++i) {
-          point[i] = static_cast<double>(surface.origin[i]) + (u * static_cast<double>(surface.axis0[i])) + (v * static_cast<double>(surface.axis1[i]));
-        }
+        surfaceToGlobal(surface, u, v, point.data());
         return point;
       };
       const auto halfY = static_cast<double>(surface.bounds.halfY);
@@ -266,7 +264,7 @@ class SensorCells
     result.secondLow = std::numeric_limits<double>::infinity();
     result.secondHigh = -std::numeric_limits<double>::infinity();
     for (const auto& point : points) {
-      const double phi = std::remainder(std::atan2(point[1], point[0]) - result.phiCentre, kTwoPi<double>);
+      const double phi = toPMPiOf(std::atan2(point[1], point[0]) - result.phiCentre);
       const double second = barrel ? point[2] : std::hypot(point[0], point[1]);
       result.phiLow = std::min(result.phiLow, phi);
       result.phiHigh = std::max(result.phiHigh, phi);

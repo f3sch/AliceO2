@@ -285,7 +285,7 @@ template <typename M, typename S, typename Evaluate, typename ConstraintsAt>
 [[nodiscard]] GPUhdi() Vec3D positionOf(const BoundTrackState& state, const TrackingSurface& surface)
 {
   Vec3D position{};
-  o2::gtrk::detail::boundToGlobal(surface, static_cast<ExactScalar>(state.loc0()), static_cast<ExactScalar>(state.loc1()), position.data());
+  surfaceToGlobal(surface, static_cast<ExactScalar>(state.loc0()), static_cast<ExactScalar>(state.loc1()), position.data());
   return position;
 }
 
@@ -336,7 +336,7 @@ struct StartEntry {
     points.push_back({one.cx + (along * ex), one.cy + (along * ey)});
   } else {
     const double along = ((one.radius * one.radius) - (two.radius * two.radius) + (d * d)) / (2. * d);
-    const double across = sqrtOf(o2::gpu::CAMath::Max(0., (one.radius * one.radius) - (along * along)));
+    const double across = sqrtClampedOf((one.radius * one.radius) - (along * along));
     points.push_back({one.cx + (along * ex) - (across * ey), one.cy + (along * ey) + (across * ex)});
     points.push_back({one.cx + (along * ex) + (across * ey), one.cy + (along * ey) - (across * ex)});
   }
@@ -367,9 +367,9 @@ struct StartEntry {
 [[nodiscard]] GPUhdi() bool closestOfLines(const Vec3D& a, const Vec3D& u, const Vec3D& b, const Vec3D& w, Vec3D& start)
 {
   const Vec3D d{a[0] - b[0], a[1] - b[1], a[2] - b[2]};
-  const double uw = (u[0] * w[0]) + (u[1] * w[1]) + (u[2] * w[2]);
-  const double ud = (u[0] * d[0]) + (u[1] * d[1]) + (u[2] * d[2]);
-  const double wd = (w[0] * d[0]) + (w[1] * d[1]) + (w[2] * d[2]);
+  const double uw = dotOf(u, w);
+  const double ud = dotOf(u, d);
+  const double wd = dotOf(w, d);
   const double det = 1. - (uw * uw);
   if (!(det > 0.)) {
     return false;
@@ -489,7 +489,7 @@ struct StartEntry {
     u[c] /= length;
   }
   const double p2 = sum.squared();
-  const double b = (u[0] * total[0]) + (u[1] * total[1]) + (u[2] * total[2]);
+  const double b = dotOf(u, total);
   const double kappa = (motherMass * motherMass) - (unseenMass * unseenMass) - (energy * energy) - p2; // 2 E E_n = kappa + 2 x b
   const double qa = 4. * ((b * b) - (energy * energy));
   const double qb = 4. * ((kappa * b) + (2. * energy * energy * b));
@@ -1169,13 +1169,8 @@ class DecayVertexFitter
         }
         // the end point's own place on the plane
         const auto point = endPoint(p, chain);
-        const auto& plane = chain.endPlane;
-        std::array<Dual<kConstraintInputs, M>, 2> target{};
-        for (int c = 0; c < 3; ++c) {
-          const auto d = point[c] + (-static_cast<double>(plane.origin[c]));
-          target[0] = target[0] + (static_cast<double>(plane.axis0[c]) * d);
-          target[1] = target[1] + (static_cast<double>(plane.axis1[c]) * d);
-        }
+        Dual<kConstraintInputs, M> target[3];
+        surfaceToLocal(chain.endPlane, point.data(), target);
         push(local[0] - target[0]);
         push(local[1] - target[1]);
       }

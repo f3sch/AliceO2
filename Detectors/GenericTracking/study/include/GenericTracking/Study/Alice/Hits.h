@@ -35,6 +35,11 @@ class TTree;
 namespace o2::gtrk::study
 {
 
+/// Two 32-bit numbers as one key, \a high in the upper half: an event and a
+/// track within it, a chip, a pair of rows (the source's upper). Keys of one
+/// \a high sort together, in \a low's order.
+[[nodiscard]] constexpr std::uint64_t packKey(std::uint32_t high, std::uint32_t low) { return (static_cast<std::uint64_t>(high) << 32U) | low; }
+
 /// Whose MC files: the ITS's, the MFT's, or the ALICE 3 tracker's (TRK's barrel, then FT3's discs).
 enum class Chips : std::uint8_t { kITS,
                                   kMFT,

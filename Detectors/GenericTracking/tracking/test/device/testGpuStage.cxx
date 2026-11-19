@@ -33,7 +33,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -52,30 +51,11 @@ using Output = StageOutput<TrackletT>;
 using synthetic::Kind;
 
 /// The host's serial reference for \a kind over \a elements elements.
-std::unique_ptr<Output> serial(Kind kind, std::uint32_t elements, StageStatus expected = StageStatus::kComplete)
-{
-  auto output = std::make_unique<Output>();
-  output->setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  output->prepare(elements);
-  BOOST_REQUIRE((runSerial(*output, synthetic::Generator{.count = {.kind = kind}}) == expected));
-  return output;
-}
+std::unique_ptr<Output> serial(Kind kind, std::uint32_t elements, StageStatus expected = StageStatus::kComplete) { return serialOutput<TrackletT>(synthetic::Generator{.count = {.kind = kind}}, elements, expected); }
 
-/// A device run of \a kind, downloaded into a host StageOutput.
-struct DeviceRun {
-  StageStatus status = StageStatus::kComplete;
-  SyntheticRunInfo info;
-  Output output;
-};
-
-std::unique_ptr<DeviceRun> onDevice(DeviceRuntime& device, DeviceArena& arena, Kind kind, std::uint32_t elements, std::size_t capacity)
+std::unique_ptr<DeviceRun<SyntheticRunInfo>> onDevice(DeviceRuntime& device, DeviceArena& arena, Kind kind, std::uint32_t elements, std::size_t capacity)
 {
-  auto stream = device.createStream();
-  auto run = std::make_unique<DeviceRun>();
-  run->output.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  run->status = kernels().runSynthetic(device, stream, arena, kind, elements, capacity, run->output, run->info);
-  stream.synchronize();
-  return run;
+  return runOnDevice<SyntheticRunInfo>(device, [&](DeviceStream& stream, Output& output, SyntheticRunInfo& info) { return kernels().runSynthetic(device, stream, arena, kind, elements, capacity, output, info); });
 }
 
 } // namespace
@@ -94,7 +74,7 @@ BOOST_AUTO_TEST_CASE(TheSampleGivesTheCanonicalOutput)
   for (std::size_t i = 0; i < targets.size(); ++i) {
     BOOST_TEST(view[i].target == targets[i]);
   }
-  BOOST_TEST(std::bit_cast<std::uint32_t>(static_cast<Scalar>(view[2].lambda)) == std::bit_cast<std::uint32_t>(1.125F));
+  BOOST_TEST(sameBits(static_cast<Scalar>(view[2].lambda), 1.125F));
   BOOST_TEST(sameStageOutput(run->output, *serial(Kind::kSample, 5U)));
 }
 
@@ -129,14 +109,10 @@ BOOST_AUTO_TEST_CASE(AListedRunGivesTheFullOutput)
   for (const Kind kind : {Kind::kUneven, Kind::kIrregular}) {
     constexpr std::uint32_t kElements = 2000U;
     const auto reference = serial(kind, kElements);
-    auto stream = device->createStream();
-    DeviceRun run;
-    run.output.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-    run.status = kernels().runSyntheticListed(*device, stream, arena, kind, kElements, std::size_t{kElements} * 12U, run.output, run.info);
-    stream.synchronize();
-    BOOST_REQUIRE((run.status == StageStatus::kComplete));
-    BOOST_TEST(run.info.listed < kElements);
-    BOOST_TEST(sameStageOutput(run.output, *reference), "kind " << static_cast<int>(kind));
+    const auto run = runOnDevice<SyntheticRunInfo>(*device, [&](DeviceStream& stream, Output& output, SyntheticRunInfo& info) { return kernels().runSyntheticListed(*device, stream, arena, kind, kElements, std::size_t{kElements} * 12U, output, info); });
+    BOOST_REQUIRE((run->status == StageStatus::kComplete));
+    BOOST_TEST(run->info.listed < kElements);
+    BOOST_TEST(sameStageOutput(run->output, *reference), "kind " << static_cast<int>(kind));
   }
 }
 

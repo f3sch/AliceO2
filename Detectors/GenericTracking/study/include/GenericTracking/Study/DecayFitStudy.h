@@ -62,7 +62,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -435,9 +434,6 @@ template <typename U, typename V, typename At>
   return sum;
 }
 
-/// A standard deviation from a \a variance that rounding may leave below 0.
-[[nodiscard]] inline double sigmaOf(double variance) { return std::sqrt(std::max(variance, 0.)); }
-
 /// \a fit's covariance as a full row-major matrix (3K + 3N square), as the
 /// study's sums over it run.
 [[nodiscard]] inline std::vector<double> fullCovariance(const DecayVertexFitResult& fit)
@@ -463,8 +459,8 @@ template <typename U, typename V, typename At>
   }
   const D p = sqrtOf(sum.squared());
   const D m2 = sum.massSquared();
-  const auto sigma = [&](const D& value) { return sigmaOf(quadraticForm(value.d, value.d, 3 * count, [&](int a, int b) { return covariance[((offset + a) * stride) + offset + b]; })); };
-  const double mass = std::sqrt(std::max(m2.v, 0.));
+  const auto sigma = [&](const D& value) { return sqrtClampedOf(quadraticForm(value.d, value.d, 3 * count, [&](int a, int b) { return covariance[((offset + a) * stride) + offset + b]; })); };
+  const double mass = sqrtClampedOf(m2.v);
   return {.mass = mass, .sMass = mass > 0. ? sigma(m2) / (2. * mass) : 0., .p = p.v, .sP = sigma(p)};
 }
 
@@ -504,7 +500,7 @@ struct MotherQuantities {
   const D ct = (mass * length) / p;
   const D& phi = direction.phi;
   const D& theta = direction.theta;
-  const auto sigma = [&](const D& value) { return sigmaOf(quadraticForm(value.d, value.d, n, [&](int a, int b) { return covariance[a * n + b]; })); };
+  const auto sigma = [&](const D& value) { return sqrtClampedOf(quadraticForm(value.d, value.d, n, [&](int a, int b) { return covariance[a * n + b]; })); };
   return {.length = length.v, .sLength = sigma(length), .ct = ct.v, .sCt = sigma(ct), .phi = phi.v, .sPhi = sigma(phi), .theta = theta.v, .sTheta = sigma(theta)};
 }
 
@@ -541,7 +537,7 @@ DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, 
     const auto full = fullCovariance(fit);
     return kinematicsOf(std::span<const Vec3D>{fit.momenta.data(), fit.momenta.size()}, masses, std::span<const double>{fit.charges.data(), fit.charges.size()}, full, n, 3 * static_cast<int>(fit.vertices.size())).mass;
   };
-  const auto sigmaT = [&](const DecayVertexFitResult& fit) { return sigmaOf(quadraticForm(across, across, 3, [&](int a, int b) { return fit.covarianceAt(a, b); })); };
+  const auto sigmaT = [&](const DecayVertexFitResult& fit) { return sqrtClampedOf(quadraticForm(across, across, 3, [&](int a, int b) { return fit.covarianceAt(a, b); })); };
   using Reference = DecayVertexFitter<Det, Variant, Material, double, double>;
   Reference reference(daughters, material, constraints, topology, mothers);
   std::vector<std::byte> workspace(reference.workspace());
@@ -635,26 +631,25 @@ struct FitSummary {
 
 [[nodiscard]] inline bool sameBits(const FitSummary& a, const FitSummary& b)
 {
-  const auto same = [](double x, double y) { return std::bit_cast<std::uint64_t>(x) == std::bit_cast<std::uint64_t>(y); };
-  if (a.status != b.status || a.vertices.size() != b.vertices.size() || a.momenta.size() != b.momenta.size() || a.diagonal.size() != b.diagonal.size() || !same(a.chi2, b.chi2) || !same(a.mass, b.mass)) {
+  if (a.status != b.status || a.vertices.size() != b.vertices.size() || a.momenta.size() != b.momenta.size() || a.diagonal.size() != b.diagonal.size() || !o2::gtrk::sameBits(a.chi2, b.chi2) || !o2::gtrk::sameBits(a.mass, b.mass)) {
     return false;
   }
   for (std::size_t w = 0; w < a.vertices.size(); ++w) {
     for (int c = 0; c < 3; ++c) {
-      if (!same(a.vertices[w][c], b.vertices[w][c])) {
+      if (!o2::gtrk::sameBits(a.vertices[w][c], b.vertices[w][c])) {
         return false;
       }
     }
   }
   for (std::size_t i = 0; i < a.momenta.size(); ++i) {
     for (int c = 0; c < 3; ++c) {
-      if (!same(a.momenta[i][c], b.momenta[i][c])) {
+      if (!o2::gtrk::sameBits(a.momenta[i][c], b.momenta[i][c])) {
         return false;
       }
     }
   }
   for (std::size_t j = 0; j < a.diagonal.size(); ++j) {
-    if (!same(a.diagonal[j], b.diagonal[j])) {
+    if (!o2::gtrk::sameBits(a.diagonal[j], b.diagonal[j])) {
       return false;
     }
   }
@@ -904,16 +899,16 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       for (std::size_t i = 0; i < count; ++i) {
         const auto& m = one.leaves[i]->momentum;
         const double p = std::hypot(m[0], m[1], m[2]);
-        eTrue += std::sqrt((p * p) + (masses[i] * masses[i]));
+        eTrue += energyOf(decay_fit_detail::Momentum<double>{m, p}, masses[i]);
         for (int k = 0; k < 3; ++k) {
           pTrue[k] += m[k];
         }
         minPt = std::min(minPt, std::hypot(m[0], m[1]));
-        qTrue[i] = {std::atan2(m[1], m[0]), std::atan2(std::hypot(m[0], m[1]), m[2]), particleCharge(one.leaves[i]->pdg) / p};
+        qTrue[i] = {phiOf(m), thetaOf(m), particleCharge(one.leaves[i]->pdg) / p};
       }
       if (one.unseen != nullptr) {
         const auto& m = one.unseen->momentum;
-        eTrue += std::sqrt((m[0] * m[0]) + (m[1] * m[1]) + (m[2] * m[2]) + (unseenMass * unseenMass));
+        eTrue += energyOf(decay_fit_detail::Momentum<double>{m, std::hypot(m[0], m[1], m[2])}, unseenMass);
         for (int k = 0; k < 3; ++k) {
           pTrue[k] += m[k];
         }
@@ -933,7 +928,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       } else {
         across = {1., 0., 0.};
       }
-      const Vec3D third{(along[1] * across[2]) - (along[2] * across[1]), (along[2] * across[0]) - (along[0] * across[2]), (along[0] * across[1]) - (along[1] * across[0])};
+      const Vec3D third = crossOf(along, across);
 
       DecayFitRecord base{
         .timeframe = event.timeframe,
@@ -948,7 +943,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         .minDaughterRows = minRows,
         .refitPass = one.refitPass,
         .refitStatus = one.refitStatus,
-        .massTrue = static_cast<float>(std::sqrt(std::max((eTrue * eTrue) - (pTotal * pTotal), 0.))),
+        .massTrue = static_cast<float>(sqrtClampedOf((eTrue * eTrue) - (pTotal * pTotal))),
       };
       // The daughters' energy loss before their first row, true and modelled,
       // and their Kalman fits' momenta there.
@@ -1115,7 +1110,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
             childLeaves.push_back(i);
             const auto& m = one.leaves[i]->momentum;
             const double p = std::hypot(m[0], m[1], m[2]);
-            childE += std::sqrt((p * p) + (masses[i] * masses[i]));
+            childE += energyOf(decay_fit_detail::Momentum<double>{m, p}, masses[i]);
             for (int c = 0; c < 3; ++c) {
               childP[c] += m[c];
             }
@@ -1128,7 +1123,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         const double t = std::hypot(childAxis[0], childAxis[1]);
         childAcross = t > 0. ? Vec3D{-childAxis[1] / t, childAxis[0] / t, 0.} : Vec3D{1., 0., 0.};
         base.childLengthTrue = static_cast<float>(((childDecay[0] - decay[0]) * childAxis[0]) + ((childDecay[1] - decay[1]) * childAxis[1]) + ((childDecay[2] - decay[2]) * childAxis[2]));
-        base.childMassTrue = static_cast<float>(std::sqrt(std::max((childE * childE) - (childPTotal * childPTotal), 0.)));
+        base.childMassTrue = static_cast<float>(sqrtClampedOf((childE * childE) - (childPTotal * childPTotal)));
       }
       DecayVertexFitResult free; // kFull without constraints: the missing momentum's start
       for (const auto& job : jobs) {
@@ -1258,8 +1253,8 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.sY = static_cast<float>(std::sqrt(c[n + 1]));
         record.sZ = static_cast<float>(std::sqrt(c[2 * n + 2]));
         const auto project = [&](const Vec3D& axis, float& residual, float& sigma) {
-          residual = static_cast<float>((d[0] * axis[0]) + (d[1] * axis[1]) + (d[2] * axis[2]));
-          sigma = static_cast<float>(sigmaOf(quadraticForm(axis, axis, 3, [&](int a, int b) { return c[a * n + b]; })));
+          residual = static_cast<float>(dotOf(d, axis));
+          sigma = static_cast<float>(sqrtClampedOf(quadraticForm(axis, axis, 3, [&](int a, int b) { return c[a * n + b]; })));
         };
         project(along, record.dL, record.sL);
         project(across, record.dT, record.sT);
@@ -1275,8 +1270,8 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           record.sDecayLength = static_cast<float>(motherFit.sLength);
           record.ct = static_cast<float>(motherFit.ct);
           record.sCt = static_cast<float>(motherFit.sCt);
-          record.dPhiMother = static_cast<float>(std::remainder(motherFit.phi - std::atan2(pTrue[1], pTrue[0]), kTwoPi<double>));
-          record.dThetaMother = static_cast<float>(motherFit.theta - std::atan2(std::hypot(pTrue[0], pTrue[1]), pTrue[2]));
+          record.dPhiMother = static_cast<float>(toPMPiOf(motherFit.phi - phiOf(pTrue)));
+          record.dThetaMother = static_cast<float>(motherFit.theta - thetaOf(pTrue));
           record.sPhiMother = static_cast<float>(motherFit.sPhi);
           record.sThetaMother = static_cast<float>(motherFit.sTheta);
         }
@@ -1287,15 +1282,15 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           // the covariance of projections of the vertices from \a first and \a second (0: the parent's, 3: the child's)
           const auto vertexCovariance = [&](const Vec3D& axis, int first, int second) { return quadraticForm(axis, axis, 3, [&](int a, int b) { return c[((first + a) * n) + second + b]; }); };
           const auto childVariance = [&](const Vec3D& axis) { return vertexCovariance(axis, 3, 3); };
-          record.dChildL = static_cast<float>((e[0] * childAxis[0]) + (e[1] * childAxis[1]) + (e[2] * childAxis[2]));
-          record.sChildL = static_cast<float>(sigmaOf(childVariance(childAxis)));
-          record.dChildT = static_cast<float>((e[0] * childAcross[0]) + (e[1] * childAcross[1]) + (e[2] * childAcross[2]));
-          record.sChildT = static_cast<float>(sigmaOf(childVariance(childAcross)));
+          record.dChildL = static_cast<float>(dotOf(e, childAxis));
+          record.sChildL = static_cast<float>(sqrtClampedOf(childVariance(childAxis)));
+          record.dChildT = static_cast<float>(dotOf(e, childAcross));
+          record.sChildT = static_cast<float>(sqrtClampedOf(childVariance(childAcross)));
           // The decay length from the parent's vertex along the true flight;
           // its variance the two vertices' with their correlation.
           record.childLength = static_cast<float>(((child[0] - fit.vertex[0]) * childAxis[0]) + ((child[1] - fit.vertex[1]) * childAxis[1]) + ((child[2] - fit.vertex[2]) * childAxis[2]));
           const double lengthVariance = childVariance(childAxis) + vertexCovariance(childAxis, 0, 0) - (2. * vertexCovariance(childAxis, 0, 3));
-          record.sChildLength = static_cast<float>(sigmaOf(lengthVariance));
+          record.sChildLength = static_cast<float>(sqrtClampedOf(lengthVariance));
           {
             // the child's leaves' momenta and their covariance block
             std::vector<Vec3D> childMomenta;
@@ -1339,7 +1334,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.sMassCarried = static_cast<float>(measured.sMass);
         for (std::size_t i = 0; i < std::min(count, DecayFitRecord::kDaughterColumns); ++i) {
           const int q = (3 * vertexCount) + (3 * static_cast<int>(i));
-          record.dPhi[i] = static_cast<float>(std::remainder(fit.momenta[i][0] - qTrue[i][0], kTwoPi<double>));
+          record.dPhi[i] = static_cast<float>(toPMPiOf(fit.momenta[i][0] - qTrue[i][0]));
           record.dTheta[i] = static_cast<float>(fit.momenta[i][1] - qTrue[i][1]);
           record.dQOverP[i] = static_cast<float>(fit.momenta[i][2] - qTrue[i][2]);
           record.sPhi[i] = static_cast<float>(std::sqrt(c[q * n + q]));

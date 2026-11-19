@@ -11,7 +11,7 @@
 
 #include "GenericTracking/Study/TrackPulls.h"
 
-#include "GenericTracking/Study/Statistics.h"
+#include "GenericTracking/Base/Statistics.h"
 
 #include <algorithm>
 #include <cmath>
@@ -24,19 +24,6 @@ namespace o2::gtrk::study
 
 namespace
 {
-
-/// 1.4826 times the median absolute deviation: a Gaussian's sigma, blind to
-/// a tail. Reorders \a values.
-double robustSigma(std::span<double> values)
-{
-  const double centre = median(values);
-  std::vector<double> deviations;
-  deviations.reserve(values.size());
-  for (const double value : values) {
-    deviations.push_back(std::abs(value - centre));
-  }
-  return 1.4826 * median(deviations);
-}
 
 /// Their copies: the medians reorder them.
 std::string summary(std::vector<double> residuals, std::vector<double> pulls, double scale)

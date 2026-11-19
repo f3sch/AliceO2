@@ -41,11 +41,11 @@
 #define GTRK_STUDY_VERTEXSTUDY_H_
 
 #include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Tracking/ShapeCut.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/VertexStage.h"
 #include "GenericTracking/Study/MCTruth.h"
-#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/Validation.h"
 #include "GenericTracking/Study/VertexQA.h"
@@ -564,7 +564,7 @@ class VertexStudy
     for (std::size_t c = 0; c < mCollisions.size(); ++c) {
       auto& zs = productionZ[c];
       if (!zs.empty()) {
-        mCollisions[c].z = study::median(zs);
+        mCollisions[c].z = median(zs);
       }
     }
     for (const auto& [key, histogram] : collisionFrames) {
@@ -696,18 +696,13 @@ class VertexStudy
     return at == mCollisionIndex.end() ? -1 : static_cast<std::int64_t>(at->second);
   }
 
-  /// The element at quantile \a q of \a sorted, the one at min(n - 1, q n):
-  /// every quantile the study prints. \a sorted must not be empty.
-  [[nodiscard]] static double quantileAt(const std::vector<double>& sorted, double q) { return sorted[std::min(sorted.size() - 1U, static_cast<std::size_t>(q * static_cast<double>(sorted.size())))]; }
-
   /// 68/95/99 % and the largest of \a values times \a scale, "n/a" for none.
   static std::string quantiles(std::vector<double> values, double scale)
   {
     if (values.empty()) {
       return "n/a";
     }
-    std::ranges::sort(values);
-    return std::format("{:.0f} {:.0f} {:.0f} {:.0f}", quantileAt(values, 0.68) * scale, quantileAt(values, 0.95) * scale, quantileAt(values, 0.99) * scale, values.back() * scale);
+    return std::format("{:.0f} {:.0f} {:.0f} {:.0f}", quantile(values, 0.68) * scale, quantile(values, 0.95) * scale, quantile(values, 0.99) * scale, quantile(values, 1.) * scale);
   }
 
   void describeCandidates(std::vector<std::string>& lines) const
@@ -730,8 +725,8 @@ class VertexStudy
         ++secondary;
       }
     }
-    const auto n = static_cast<double>(std::max<std::size_t>(mCandidates.size(), 1U));
-    lines.push_back(std::format("candidates {}: primary {} ({:.1f} %), secondary {} ({:.1f} %), fake {} ({:.1f} %); straddling frames {} ({} primary)", mCandidates.size(), primary, 100. * static_cast<double>(primary) / n, secondary, 100. * static_cast<double>(secondary) / n, mCandidates.size() - primary - secondary, 100. * static_cast<double>(mCandidates.size() - primary - secondary) / n, straddling, primaryStraddling));
+    const auto fake = mCandidates.size() - primary - secondary;
+    lines.push_back(std::format("candidates {}: primary {} ({:.1f} %), secondary {} ({:.1f} %), fake {} ({:.1f} %); straddling frames {} ({} primary)", mCandidates.size(), primary, percent(primary, mCandidates.size()), secondary, percent(secondary, mCandidates.size()), fake, percent(fake, mCandidates.size()), straddling, primaryStraddling));
     lines.push_back(std::format("primary candidates' |z0 - z_true| 68/95/99/max [um]: {}; |pull| on the points' errors: {}", quantiles(residuals, 1.e4), quantiles(pulls, 1.)));
     {
       std::vector<double> chi2Primary;
@@ -751,8 +746,7 @@ class VertexStudy
         if (values.empty()) {
           return std::string{"n/a"};
         }
-        std::ranges::sort(values);
-        const auto at = [&](double q) { return quantileAt(values, q) * scale; };
+        const auto at = [&](double q) { return quantile(values, q) * scale; };
         return std::format("10% {:.3g} 50% {:.3g} 90% {:.3g} 99% {:.3g}", at(0.1), at(0.5), at(0.9), at(0.99));
       };
       lines.push_back(std::format("r-z chi2: primary {} | fake {}", spread(chi2Primary, 1.), spread(chi2Fake, 1.)));
@@ -1005,12 +999,7 @@ class VertexStudy
         }
       }
     }
-    for (auto& out : classes) {
-      std::ranges::sort(out.dca);
-      std::ranges::sort(out.rz);
-      std::ranges::sort(out.ptRatio);
-    }
-    const auto at = [](const std::vector<double>& sorted, double q) { return sorted.empty() ? std::numeric_limits<double>::quiet_NaN() : quantileAt(sorted, q); };
+    const auto at = [](std::vector<double>& values, double q) { return values.empty() ? std::numeric_limits<double>::quiet_NaN() : quantile(values, q); };
     lines.push_back(
       std::format("triplet pulls: the triplets past the pass's cuts; |pull| 50/68/95/99 %, transverse and r-z; the transverse "
                   "pull's mean; the radius's pT over the true one 16/50/84 %; kept by both pulls < 2/3/4/5/6 sigma; by the absolute cuts "
@@ -1021,7 +1010,7 @@ class VertexStudy
       if (n == 0U) {
         continue;
       }
-      const auto share = [&](std::uint64_t kept) { return std::format("{:.3f}", static_cast<double>(kept) / static_cast<double>(n)); };
+      const auto share = [&](std::uint64_t kept) { return std::format("{:.3f}", fraction(static_cast<double>(kept), static_cast<double>(n))); };
       std::string kept;
       for (std::size_t s = 0; s < kSigmas.size(); ++s) {
         kept += std::format(" {}", share(out.both[s]));
@@ -1148,7 +1137,6 @@ class VertexStudy
       residuals.push_back(std::abs(vertex.zUM - (collision.z * 1.e4)));
       contributors.push_back(vertex.contributors);
     }
-    std::ranges::sort(contributors);
     // Vertices per frame, the frames in time order.
     std::map<std::uint32_t, std::uint32_t> perFrame;
     for (const auto& [time, frame] : mFrameIndex) {
@@ -1171,7 +1159,7 @@ class VertexStudy
       over += counts[f] > 8U ? 1U : 0U;
       mostThree = std::max(mostThree, counts[f] + (f > 0U ? counts[f - 1U] : 0U) + (f + 1U < counts.size() ? counts[f + 1U] : 0U));
     }
-    return std::format("{:4.0f} {:4.0f} {:5d} {:5d} {:4d} {:2.0f} | {:8d} {:6d}/{:<5d} {:6.1f} % {:8d}/{:<8d} | {:5d} {:6d} {:6d} | {:4d} {:4d} {:4d} | {:>24} | {:.0f}", settings.maxChi2RZ, settings.maxDcaUM, settings.windowUM, settings.claimUM, settings.minContributors, settings.significance, result.vertices.size(), found, mCollisions.size(), 100. * static_cast<double>(foundWithInner) / std::max(1., static_cast<double>(withInner)), covered, findable, result.fakes, result.splits, result.merged, most, mostThree, over, quantiles(residuals, 1.), contributors.empty() ? 0. : contributors[contributors.size() / 2U]);
+    return std::format("{:4.0f} {:4.0f} {:5d} {:5d} {:4d} {:2.0f} | {:8d} {:6d}/{:<5d} {:6.1f} % {:8d}/{:<8d} | {:5d} {:6d} {:6d} | {:4d} {:4d} {:4d} | {:>24} | {:.0f}", settings.maxChi2RZ, settings.maxDcaUM, settings.windowUM, settings.claimUM, settings.minContributors, settings.significance, result.vertices.size(), found, mCollisions.size(), percent(foundWithInner, withInner), covered, findable, result.fakes, result.splits, result.merged, most, mostThree, over, quantiles(residuals, 1.), median(contributors));
   }
 
   /// The efficiency table, its lines, and the diagnostics of the fakes and
@@ -1252,9 +1240,8 @@ class VertexStudy
         if (values.empty()) {
           return std::string{"n/a"};
         }
-        std::ranges::sort(values);
-        const auto at = [&](double q) { return quantileAt(values, q) * scale; };
-        return std::format("min {:.3g} 5% {:.3g} 50% {:.3g} 95% {:.3g} max {:.3g}", values.front() * scale, at(0.05), at(0.5), at(0.95), values.back() * scale);
+        const auto at = [&](double q) { return quantile(values, q) * scale; };
+        return std::format("min {:.3g} 5% {:.3g} 50% {:.3g} 95% {:.3g} max {:.3g}", at(0.), at(0.05), at(0.5), at(0.95), at(1.));
       };
       {
         std::vector<std::uint16_t> sectors(result.vertices.size(), 0U);
@@ -1440,10 +1427,10 @@ class VertexStudy
       }
       m.reuseClaim /= n;
       m.reuseWindow /= n;
-      m.dcaUM = study::median(dca);
-      m.chi2RZ = study::median(chi2);
-      m.radiusM = study::median(radius);
-      m.shared = study::median(shared);
+      m.dcaUM = median(dca);
+      m.chi2RZ = median(chi2);
+      m.radiusM = median(radius);
+      m.shared = median(shared);
     }
     return out;
   }
@@ -1841,7 +1828,7 @@ class VertexStudy
         for (const auto i : claimedIndex) {
           reused += std::ranges::any_of(mCandidates[i].triple, [&](std::uint32_t row) { return rowSeen[row] != 0U; }) ? 1U : 0U;
         }
-        vertex.reuse = vertex.contributors == 0U ? 0. : static_cast<double>(reused) / static_cast<double>(vertex.contributors);
+        vertex.reuse = fraction(static_cast<double>(reused), static_cast<double>(vertex.contributors));
         within(accepted, centre, farthestAccepted, [&](std::size_t i) {
           for (const auto row : mCandidates[i].triple) {
             rowSeen[row] = 1U;
@@ -2042,11 +2029,10 @@ class VertexStudy
     const auto& first = mReplays.front();
     const auto& firstClaims = first.score.claimedBy;
     std::size_t sameVertices = 0U;
-    const auto bits = [](Scalar value) { return std::bit_cast<std::uint32_t>(value); };
     for (std::size_t l = 0; l < std::min(first.listedToId.size(), mStageVertices.size()); ++l) {
       const auto& replayed = first.vertices[static_cast<std::size_t>(first.listedToId[l])];
       const auto& staged = mStageVertices[l];
-      sameVertices += replayed.seed.timePS == staged.timePS && replayed.seed.widthPS == staged.widthPS && bits(replayed.seed.z) == bits(staged.z) && bits(replayed.seed.varZ) == bits(staged.varZ) && replayed.contributors == mStageContributors[l] ? 1U : 0U;
+      sameVertices += replayed.seed.timePS == staged.timePS && replayed.seed.widthPS == staged.widthPS && sameBits<Scalar>(replayed.seed.z, staged.z) && sameBits<Scalar>(replayed.seed.varZ, staged.varZ) && replayed.contributors == mStageContributors[l] ? 1U : 0U;
     }
     std::size_t sameClaims = 0U;
     for (std::size_t i = 0; i < mCandidates.size(); ++i) {

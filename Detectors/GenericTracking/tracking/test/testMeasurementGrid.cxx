@@ -29,7 +29,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -190,10 +189,7 @@ BOOST_AUTO_TEST_CASE(GridPointUsesThePlacedSensor)
   const double local[3] = {kLoc0, kLoc1, 0.};
   double global[3] = {};
   geometry.toGlobal(kSensor, local, global);
-  double expectedPhi = std::atan2(global[1], global[0]);
-  if (expectedPhi < 0.) {
-    expectedPhi += kTwoPi<double>;
-  }
+  const double expectedPhi = to02PiOf(std::atan2(global[1], global[0]));
 
   BOOST_TEST(point.layer == geometry.sensor(kSensor).layer);
   BOOST_TEST(point.phi == static_cast<Scalar>(expectedPhi), boost::test_tools::tolerance(1e-6F));
@@ -201,12 +197,12 @@ BOOST_AUTO_TEST_CASE(GridPointUsesThePlacedSensor)
 
   // The shipped position is the double transform narrowed once, and the grid
   // coordinates come from those floats, exactly as the tracker derives them.
-  BOOST_TEST(std::bit_cast<std::uint32_t>(point.x) == std::bit_cast<std::uint32_t>(static_cast<Scalar>(global[0])));
-  BOOST_TEST(std::bit_cast<std::uint32_t>(point.y) == std::bit_cast<std::uint32_t>(static_cast<Scalar>(global[1])));
-  BOOST_TEST(std::bit_cast<std::uint32_t>(point.z) == std::bit_cast<std::uint32_t>(static_cast<Scalar>(global[2])));
-  BOOST_TEST(std::bit_cast<std::uint32_t>(point.phi) == std::bit_cast<std::uint32_t>(azimuth(point.x, point.y)));
-  BOOST_TEST(std::bit_cast<std::uint32_t>(point.second) == std::bit_cast<std::uint32_t>(secondCoordinate<Toy>(point.layer, point.r, point.z)));
-  BOOST_TEST(std::bit_cast<std::uint32_t>(point.r) == std::bit_cast<std::uint32_t>(o2::gpu::CAMath::Hypot(point.x, point.y)));
+  BOOST_TEST(sameBits(point.x, static_cast<Scalar>(global[0])));
+  BOOST_TEST(sameBits(point.y, static_cast<Scalar>(global[1])));
+  BOOST_TEST(sameBits(point.z, static_cast<Scalar>(global[2])));
+  BOOST_TEST(sameBits(point.phi, azimuth(point.x, point.y)));
+  BOOST_TEST(sameBits(point.second, secondCoordinate<Toy>(point.layer, point.r, point.z)));
+  BOOST_TEST(sameBits(point.r, o2::gpu::CAMath::Hypot(point.x, point.y)));
 }
 
 /// A bin comes from a range check, then the conversion: a NaN or an infinite

@@ -44,6 +44,8 @@
 /// The closure of GTRK's converter and geometry against O2 on real files:
 /// run it whenever the geometry, the placement or the converter changes.
 
+#include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
@@ -53,7 +55,6 @@
 #include "GenericTracking/WorkflowITSMFT/Clusters.h"
 #include "GenericTracking/WorkflowTRK/TRK.h"
 #include "GenericTracking/Study/Alice/Hits.h"
-#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Tools/SensorFrame.h"
 
 #include "CommonConstants/LHCConstants.h"
@@ -290,11 +291,11 @@ int runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& 
   }
   // The error spread as quantiles: a few huge clusters own the mean.
   const auto quantiles = [](std::vector<float> values) {
-    const auto at = [&values](double q) { return values.empty() ? 0. : 1e4 * static_cast<double>(study::quantile(std::span{values}, q)); };
+    const auto at = [&values](double q) { return values.empty() ? 0. : 1e4 * static_cast<double>(quantile(std::span{values}, q)); };
     return std::format("{:.2f} / {:.2f} / {:.2f} / {:.2f}", at(0.5), at(0.9), at(0.99), at(1.));
   };
   const auto spanQuantiles = [](std::vector<float> values) {
-    const auto at = [&values](double q) { return values.empty() ? 0.F : study::quantile(std::span{values}, q); };
+    const auto at = [&values](double q) { return values.empty() ? 0.F : quantile(std::span{values}, q); };
     return std::format("{} / {} / {} / {}", at(0.5), at(0.9), at(0.99), at(1.));
   };
   std::cout << std::format("{}: {} clusters in {} readout frames of {} BC ({} with clusters), first TF orbit {}\n", Det::name, clusters.size(), file.rofs.size(), frames.lengthBC, filled, tfFirstOrbit) << std::format("  per layer:");
@@ -351,25 +352,21 @@ struct Spread {
     if (values.empty()) {
       return "      -";
     }
-    auto sorted = values;
-    std::ranges::sort(sorted);
+    auto sample = values; // the medians and quantiles reorder it
     double sum = 0.;
     double sum2 = 0.;
-    for (const double value : sorted) {
+    for (const double value : sample) {
       sum += value;
       sum2 += value * value;
     }
-    const auto n = static_cast<double>(sorted.size());
+    const auto n = static_cast<double>(sample.size());
     const double mean = sum / n;
-    const auto at = [&sorted](double q) { return study::quantile(std::span{sorted}, q); };
-    const double median = at(0.5);
-    const double width = 0.5 * (at(0.841) - at(0.159));
-    const auto beyond = [&](double k) { return 100. * static_cast<double>(std::ranges::count_if(sorted, [&](double value) { return std::abs(value - median) > k * width; })) / n; };
+    const double centre = median(sample);
+    const double width = halfWidth68(sample);
+    const auto beyond = [&](double k) { return 100. * static_cast<double>(std::ranges::count_if(sample, [&](double value) { return std::abs(value - centre) > k * width; })) / n; };
     // The normalised median absolute deviation beside it: the width the pulls measure (TrackPulls).
-    std::vector<double> deviations(sorted.size());
-    std::ranges::transform(sorted, deviations.begin(), [&](double value) { return std::abs(value - median); });
-    const double mad = 1.4826 * study::median(deviations);
-    return std::format("{:8} {:6.2f} {:6.2f} {:6.2f} {:6.2f} | >3 {:5.2f} % >5 {:5.2f} %", sorted.size(), 1e4 * mean, 1e4 * std::sqrt(std::max(sum2 / n - (mean * mean), 0.)), 1e4 * width, 1e4 * mad, beyond(3.), beyond(5.));
+    const double mad = robustSigma(sample);
+    return std::format("{:8} {:6.2f} {:6.2f} {:6.2f} {:6.2f} | >3 {:5.2f} % >5 {:5.2f} %", sample.size(), 1e4 * mean, 1e4 * sqrtClampedOf(sum2 / n - (mean * mean)), 1e4 * width, 1e4 * mad, beyond(3.), beyond(5.));
   }
 };
 
@@ -422,7 +419,6 @@ int runTRK(const Options& options)
   // a signal cluster looks up its particle's crossings of its chip without
   // scanning its event (Pb-Pb events are large).
   using HitIndex = std::unordered_map<std::uint64_t, std::vector<const study::HitSegment*>>;
-  const auto hitKey = [](int track, std::uint32_t chip) { return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(track)) << 32U) | chip; };
   std::vector<std::optional<HitIndex>> hitIndex(static_cast<std::size_t>(hits.nEvents()));
   const auto segmentsOf = [&](int event, int track, std::uint32_t chip) -> const std::vector<const study::HitSegment*>* {
     if (event < 0 || event >= hits.nEvents()) {
@@ -432,10 +428,10 @@ int runTRK(const Options& options)
     if (!index) {
       index.emplace();
       for (const auto& segment : hits.event(event)) {
-        (*index)[hitKey(segment.track, segment.chip)].push_back(&segment);
+        (*index)[study::packKey(static_cast<std::uint32_t>(segment.track), segment.chip)].push_back(&segment);
       }
     }
-    const auto found = index->find(hitKey(track, chip));
+    const auto found = index->find(study::packKey(static_cast<std::uint32_t>(track), chip));
     return found == index->end() ? nullptr : &found->second;
   };
 

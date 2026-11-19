@@ -534,7 +534,7 @@ struct RoadOrderKey {
     }
     // The azimuth's float bits ordered as unsigned integers: a negative
     // value's bits inverted, a positive value's sign bit set.
-    const std::uint32_t bits = o2::gpu::CAMath::Float2UIntReint(o2::gpu::CAMath::ATan2(columns.y[rows[0]], columns.x[rows[0]]));
+    const std::uint32_t bits = o2::gpu::CAMath::Float2UIntReint(atan2Of(columns.y[rows[0]], columns.x[rows[0]]));
     const std::uint32_t phi = (bits & 0x80000000U) != 0U ? ~bits : bits | 0x80000000U;
     keys[road] = (static_cast<std::uint64_t>(pattern) << 32U) | phi;
     indices[road] = road;

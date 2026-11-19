@@ -80,15 +80,13 @@ inline Shift shiftOnto(const BoundTrackState& state, const TrackingSurface& plan
   s.t[0] = std::cos(phi) * std::sin(theta);
   s.t[1] = std::sin(phi) * std::sin(theta);
   s.t[2] = std::cos(theta);
-  const double et = (e[0] * s.t[0]) + (e[1] * s.t[1]) + (e[2] * s.t[2]);
+  const double et = dotOf(e, s.t);
   // d phi / d s of the helix, GenericTracking's (CovarianceTransport.h).
   const double turn = static_cast<double>(state.qOverP()) * bzKiloGauss * constants::math::B2C;
-  for (int i = 0; i < 3; ++i) {
-    s.r[i] = static_cast<double>(plane.origin[i]) + (static_cast<double>(state.loc0()) * plane.axis0[i]) + (static_cast<double>(state.loc1()) * plane.axis1[i]);
-  }
+  surfaceToGlobal(plane, static_cast<double>(state.loc0()), static_cast<double>(state.loc1()), s.r);
   for (int k = 0; k < 2; ++k) {
     const Scalar* axis = k == 0 ? plane.axis0 : plane.axis1;
-    const double path = -((e[0] * axis[0]) + (e[1] * axis[1]) + (e[2] * axis[2])) / et;
+    const double path = -dotOf(e, axis) / et;
     for (int i = 0; i < 3; ++i) {
       s.dr[k][i] = axis[i] + (s.t[i] * path);
     }

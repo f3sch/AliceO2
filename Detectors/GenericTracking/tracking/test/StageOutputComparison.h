@@ -12,11 +12,27 @@
 #ifndef GTRK_TEST_STAGEOUTPUTCOMPARISON_H_
 #define GTRK_TEST_STAGEOUTPUTCOMPARISON_H_
 
+#include "GenericTracking/Base/Definitions.h"
+#include "GenericTracking/Tracking/Tracklet.h"
+
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <ranges>
 
 namespace o2::gtrk
 {
+
+/// Whether \a a and \a b hold the same values to the bit, element by element
+/// (sameBits), and as many of them.
+template <std::ranges::input_range A, std::ranges::input_range B>
+[[nodiscard]] bool sameBitsEach(const A& a, const B& b)
+{
+  return std::ranges::equal(a, b, [](auto x, auto y) { return sameBits(x, y); });
+}
+
+/// Whether two tracklets are the same, their floats to the bit.
+[[nodiscard]] inline bool sameTracklet(const Tracklet& a, const Tracklet& b) { return a.source == b.source && a.target == b.target && a.link == b.link && sameBits(a.lambda, b.lambda) && sameBits(a.phi, b.phi); }
 
 /// Compare the element-to-output mapping shared by every StageOutput.
 template <typename Output>

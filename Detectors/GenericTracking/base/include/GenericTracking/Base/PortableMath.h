@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 
 /// \file PortableMath.h
-/// \brief sin, cos, atan, atan2, asin and log in double, the same bits on the
+/// \brief sin, cos, atan, atan2, asin, log and exp in double, the same bits on the
 ///        host and on every device.
 ///
 /// The deterministic build asks the host and the devices for bit-identical
@@ -496,6 +496,70 @@ GPUhdi() GPUAlwaysInline() double log(double x)
     return k == 0 ? f - (hfsq - s * (hfsq + r)) : dk * kLn2Hi - ((hfsq - (s * (hfsq + r) + dk * kLn2Lo)) - f);
   }
   return k == 0 ? f - s * (f - r) : dk * kLn2Hi - ((s * (f - r) - dk * kLn2Lo) - f);
+}
+
+/// fdlibm's e_exp.c: x = k ln2 + r, |r| <= ln2 / 2, with ln 2 split in two so
+/// that k ln2's high part is exact, and exp(r) from a rational approximation
+/// of r (e^r + 1) / (e^r - 1).
+GPUhdi() GPUAlwaysInline() double exp(double x)
+{
+  constexpr double kLn2Hi = 6.93147180369123816490e-01; // NOLINT(modernize-use-std-numbers): ln 2 split, not ln 2
+  constexpr double kLn2Lo = 1.90821492927058770002e-10;
+  constexpr double kInvLn2 = 1.44269504088896338700e+00; // NOLINT(modernize-use-std-numbers): fdlibm's rounding of 1 / ln 2
+  constexpr double kOverflow = 7.09782712893383973096e+02;
+  constexpr double kUnderflow = -7.45133219101941108420e+02;
+  constexpr double kTwoM1000 = 9.33263618503218878990e-302; // 2^-1000
+  constexpr double kP1 = 1.66666666666666019037e-01;
+  constexpr double kP2 = -2.77777777770155933842e-03;
+  constexpr double kP3 = 6.61375632143793436117e-05;
+  constexpr double kP4 = -1.65339022054652515390e-06;
+  constexpr double kP5 = 4.13813679705723846039e-08;
+
+  if (detail::isNaN(x)) {
+    return x;
+  }
+  const bool negative = detail::negative(x);
+  const std::uint32_t hx = detail::high(x) & 0x7FFFFFFFU;
+  if (hx >= 0x40862E42U) { // |x| >= 709.78
+    if (hx >= 0x7FF00000U) {
+      return negative ? 0. : x; // exp(-inf) = 0, exp(inf) = inf
+    }
+    if (x > kOverflow) {
+      return detail::infinity();
+    }
+    if (x < kUnderflow) {
+      return 0.;
+    }
+  }
+  double hi = 0.;
+  double lo = 0.;
+  std::int32_t k = 0;
+  if (hx > 0x3FD62E42U) {   // |x| > ln2 / 2
+    if (hx < 0x3FF0A2B2U) { // and |x| < 3 ln2 / 2
+      hi = negative ? x + kLn2Hi : x - kLn2Hi;
+      lo = negative ? -kLn2Lo : kLn2Lo;
+      k = negative ? -1 : 1;
+    } else {
+      k = static_cast<std::int32_t>((kInvLn2 * x) + (negative ? -0.5 : 0.5));
+      const auto t = static_cast<double>(k);
+      hi = x - (t * kLn2Hi); // exact: t ln2Hi has few digits
+      lo = t * kLn2Lo;
+    }
+    x = hi - lo;
+  } else if (hx < 0x3E300000U) { // |x| < 2^-28
+    return 1. + x;
+  }
+  const double t = x * x;
+  const double twoToK = detail::fromBits(static_cast<std::uint64_t>(0x3FF00000U + static_cast<std::uint32_t>((k >= -1021 ? k : k + 1000) << 20)) << 32U);
+  const double c = x - (t * (kP1 + (t * (kP2 + (t * (kP3 + (t * (kP4 + (t * kP5)))))))));
+  if (k == 0) {
+    return 1. - (((x * c) / (c - 2.)) - x);
+  }
+  const double y = 1. - ((lo - ((x * c) / (2. - c))) - hi);
+  if (k == 1024) {
+    return y * 2. * 0x1p1023;
+  }
+  return k >= -1021 ? y * twoToK : y * twoToK * kTwoM1000;
 }
 
 } // namespace o2::gtrk::portable

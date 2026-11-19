@@ -87,7 +87,7 @@ BOOST_AUTO_TEST_CASE(PropagationClosesOnItsOwnHelixWithinOneMicron)
       continue; // beyond a half turn the root policy, not the arithmetic, decides
     }
     ExactScalar origin[3]{};
-    detail::boundToGlobal(from, static_cast<ExactScalar>(initial.loc0()), static_cast<ExactScalar>(initial.loc1()), origin);
+    surfaceToGlobal(from, static_cast<ExactScalar>(initial.loc0()), static_cast<ExactScalar>(initial.loc1()), origin);
     const double transverse = path * std::sin(static_cast<double>(initial.theta()));
     const double along = transverse * sinc(turn);
     const double across = transverse * versine(turn);
@@ -100,9 +100,7 @@ BOOST_AUTO_TEST_CASE(PropagationClosesOnItsOwnHelixWithinOneMicron)
     // line is what a grazing crossing amplifies, so a sweep that always lands
     // on the origin never asks the question.
     const double offset[2] = {sample(-5., 5.), sample(-5., 5.)};
-    for (int i = 0; i < 3; ++i) {
-      to.origin[i] += static_cast<float>(offset[0] * static_cast<double>(to.axis0[i]) + offset[1] * static_cast<double>(to.axis1[i]));
-    }
+    slideOrigin(to, offset[0], offset[1]);
 
     auto state = initial;
     const auto result = propagate(prop, state, from, to, direction);
@@ -152,9 +150,7 @@ BOOST_AUTO_TEST_CASE(GrazingHalfTurnAndStraightLimitsStayWithinOneMicron)
             const double chord = path * std::sin(static_cast<double>(initial.theta())) * sinc(0.5 * actualTurn);
             const double normal = static_cast<double>(initial.phi()) + actualTurn + std::acos(incidence / std::sin(theta));
             auto to = plane(80. + chord * std::cos(middle), -70. + chord * std::sin(middle), 290. + path * std::cos(static_cast<double>(initial.theta())), normal, false, 2);
-            for (int i = 0; i < 3; ++i) {
-              to.origin[i] += static_cast<float>(offset * static_cast<double>(to.axis0[i]));
-            }
+            slideOrigin(to, offset, 0.);
 
             auto state = initial;
             const auto result = propagate(prop, state, from, to, PropagationDirection::kForward);

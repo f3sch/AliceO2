@@ -32,11 +32,15 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <span>
 #include <vector>
 
 namespace o2::gtrk
 {
+
+/// A memory pool of its own for one stage output.
+[[nodiscard]] inline std::shared_ptr<BoundedMemoryResource> freshPool() { return std::make_shared<BoundedMemoryResource>(); }
 
 /// Clear \a output's counts, offsets and result, keeping every allocation.
 template <typename Output>

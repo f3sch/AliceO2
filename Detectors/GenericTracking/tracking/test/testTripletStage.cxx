@@ -70,61 +70,24 @@ constexpr std::size_t kTracks = 4U;
 constexpr std::size_t kNoisePerLayer = 3U;
 constexpr std::size_t kMeasurements = (3U * kTracks) + (3U * kNoisePerLayer);
 
-struct InputPoint {
-  LayerID layer = kInvalidLayerID;
-  Scalar x = 0.F;
-  Scalar y = 0.F;
-  Scalar z = 0.F;
-  Scalar r = 0.F;
-  Scalar phi = 0.F;
-};
+using InputPoint = test::FramePoint;
 
-SearchWindowParams windowParameters()
-{
-  SearchWindowParams result;
-  result.minPtGeV = 1.;
-  result.bzKiloGauss = 20.;
-  result.materialX2X0 = 0.;
-  result.positionSigma = 0.003;
-  result.nSigma = 3.;
-  return result;
-}
-
-GridParams gridParameters()
-{
-  GridParams result;
-  result.blockWidth = 20'000;
-  return test::withToyFrames(result);
-}
+SearchWindowParams windowParameters() { return test::toyWindows(0.003); }
 
 /// The toy's three layers make triplets and no road: its chains are 3
 /// clusters, or no link would be taken (`takenLinks`).
-IterationSettings iterationSettings() { return {.windows = windowParameters(), .vertexSource = VertexSource::kBeamLine, .minClusters = 3}; }
+IterationSettings iterationSettings() { return test::toyIteration(windowParameters(), 3); }
 
 InputPoint helixPoint(std::size_t track, LayerID layer)
 {
   constexpr std::array<double, kTracks> kPhi{{0.10, 1.35, 3.05, 4.75}};
   constexpr std::array<double, kTracks> kSlope{{0.04, -0.06, 0.08, -0.03}};
   constexpr std::array<double, kTracks> kPt{{1.2, 1.8, 3.0, 1.4}};
-  const double radius = layerDistance<Det>(layer);
-  const double curvature = 1. / curvatureRadius(kPt[track], 20.);
-  const double arc = 2. * std::asin(0.5 * curvature * radius) / curvature;
-  const double direction = kPhi[track] + (curvature * arc);
-  const double x = (std::sin(direction) - std::sin(kPhi[track])) / curvature;
-  const double y = (std::cos(kPhi[track]) - std::cos(direction)) / curvature;
-  double phi = std::atan2(y, x);
-  if (phi < 0.) {
-    phi += kTwoPi<double>;
-  }
-  return {
-    .layer = layer,
-    .x = static_cast<Scalar>(x),
-    .y = static_cast<Scalar>(y),
-    .z = static_cast<Scalar>(kSlope[track] * arc),
-    .r = static_cast<Scalar>(radius),
-    .phi = static_cast<Scalar>(phi),
-  };
+  return test::toyHelixAt<Det>(kPhi[track], kSlope[track], kPt[track], layer);
 }
+
+/// The cluster index of track \a track's hit on \a layer, three per track.
+constexpr std::size_t logicalIndex(std::size_t track, std::size_t layer) { return test::logicalIndex(3U, track, layer); }
 
 class Fixture
 {
@@ -132,7 +95,7 @@ class Fixture
   static constexpr VertexConstraint kBeamConstraint{.z = 0., .sigmaZ = 0.02, .sigmaTransverse = 0.001};
 
   Fixture()
-    : geometry(test::cappedGrid<Det>(20., gridParameters(), windowParameters(), kBeamConstraint, 16, 8)),
+    : geometry(test::cappedGrid<Det>(20., test::toyGridParameters(), windowParameters(), kBeamConstraint, 16, 8)),
       offsets(static_cast<std::size_t>(geometry.bucketCount()) + 1U)
   {
     std::array<InputPoint, kMeasurements> input{};
@@ -166,8 +129,6 @@ class Fixture
       columns, offsets);
   }
 
-  [[nodiscard]] static constexpr std::size_t logicalIndex(std::size_t track, std::size_t layer) { return (3U * track) + layer; }
-
   [[nodiscard]] std::uint32_t row(std::size_t logical) const { return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(logical)) - columns.clusterIndex.begin()); }
 
   GridGeometry<Det> geometry;
@@ -193,7 +154,7 @@ struct MixedInputPoint {
   Scalar phi = 0.F;
 };
 
-IterationSettings mixedIterationSettings() { return {.windows = windowParameters(), .vertexSource = VertexSource::kBeamLine}; }
+IterationSettings mixedIterationSettings() { return test::toyIteration(windowParameters()); }
 
 MixedInputPoint mixedHelixPoint(LayerID layer, double phiAtOrigin, double slope, double ptGeV, double timeNS)
 {
@@ -208,10 +169,6 @@ MixedInputPoint mixedHelixPoint(LayerID layer, double phiAtOrigin, double slope,
   const double direction = phiAtOrigin + (curvature * arc);
   const double x = (std::sin(direction) - std::sin(phiAtOrigin)) / curvature;
   const double y = (std::cos(phiAtOrigin) - std::cos(direction)) / curvature;
-  double phi = std::atan2(y, x);
-  if (phi < 0.) {
-    phi += kTwoPi<double>;
-  }
   return {
     .layer = layer,
     .timeNS = timeNS,
@@ -219,7 +176,7 @@ MixedInputPoint mixedHelixPoint(LayerID layer, double phiAtOrigin, double slope,
     .y = static_cast<Scalar>(y),
     .z = static_cast<Scalar>(slope * arc),
     .r = static_cast<Scalar>(std::hypot(x, y)),
-    .phi = static_cast<Scalar>(phi),
+    .phi = static_cast<Scalar>(to02PiOf(std::atan2(y, x))),
   };
 }
 
@@ -248,7 +205,7 @@ class MixedFixture
   static constexpr std::size_t kLate3 = 9U;
 
   MixedFixture()
-    : geometry(test::cappedGrid<Mixed>(80., gridParameters(), windowParameters(), kBeamConstraint, 32, 16)),
+    : geometry(test::cappedGrid<Mixed>(80., test::toyGridParameters(), windowParameters(), kBeamConstraint, 32, 16)),
       offsets(static_cast<std::size_t>(geometry.bucketCount()) + 1U)
   {
     // Flight times between the layers: a nanosecond or less, one tick for all.
@@ -291,7 +248,7 @@ class SliceFixture
   static constexpr VertexConstraint kBeamConstraint = Fixture::kBeamConstraint;
 
   SliceFixture()
-    : geometry(test::cappedGrid<Det>(140., gridParameters(), windowParameters(), kBeamConstraint, 16, 8)),
+    : geometry(test::cappedGrid<Det>(140., test::toyGridParameters(), windowParameters(), kBeamConstraint, 16, 8)),
       offsets(static_cast<std::size_t>(geometry.bucketCount()) + 1U)
   {
     constexpr double flight01 = 0.2; // [ns], a few centimetres at c
@@ -313,8 +270,6 @@ class SliceFixture
 
     frame = test::frameOf(geometry, input.size(), [&](std::size_t i) { return input[i]; }, [&](std::size_t i) { return test::toyTimeBox(times[i]); }, [&](std::size_t /*i*/) { return test::PointVariances{.z = 1.e-6F, .r = 2.e-6F, .rPhi = 3.e-6F}; }, columns, offsets);
   }
-
-  [[nodiscard]] static constexpr std::size_t logicalIndex(std::size_t track, std::size_t layer) { return (3U * track) + layer; }
 
   [[nodiscard]] std::uint32_t row(std::size_t logical) const { return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(logical)) - columns.clusterIndex.begin()); }
 
@@ -664,8 +619,8 @@ BOOST_AUTO_TEST_CASE(TripletsMatchBruteForceAndAllTrueHelicesAreFound)
 
   std::size_t trueTriplets = 0U;
   for (std::size_t track = 0; track < kTracks; ++track) {
-    const auto first = findTracklet(tracklets, fixture.row(Fixture::logicalIndex(track, 0U)), fixture.row(Fixture::logicalIndex(track, 1U)), 0U);
-    const auto second = findTracklet(tracklets, fixture.row(Fixture::logicalIndex(track, 1U)), fixture.row(Fixture::logicalIndex(track, 2U)), 1U);
+    const auto first = findTracklet(tracklets, fixture.row(logicalIndex(track, 0U)), fixture.row(logicalIndex(track, 1U)), 0U);
+    const auto second = findTracklet(tracklets, fixture.row(logicalIndex(track, 1U)), fixture.row(logicalIndex(track, 2U)), 1U);
     BOOST_REQUIRE(first < tracklets.size());
     BOOST_REQUIRE(second < tracklets.size());
     bool found = false;
@@ -812,9 +767,9 @@ BOOST_AUTO_TEST_CASE(TripletsAreInvariantUnderSliceWidthAndOrigin)
   const bool duplicateRows = std::ranges::adjacent_find(whole.triplets, [](const SliceTriplet& lhs, const SliceTriplet& rhs) { return lhs[0] == rhs[0] && lhs[1] == rhs[1] && lhs[2] == rhs[2]; }) != whole.triplets.end();
   BOOST_TEST(!duplicateRows);
 
-  const std::uint32_t crossingFirst = fixture.row(SliceFixture::logicalIndex(1U, 0U));
-  const std::uint32_t crossingMiddle = fixture.row(SliceFixture::logicalIndex(1U, 1U));
-  const std::uint32_t crossingThird = fixture.row(SliceFixture::logicalIndex(1U, 2U));
+  const std::uint32_t crossingFirst = fixture.row(logicalIndex(1U, 0U));
+  const std::uint32_t crossingMiddle = fixture.row(logicalIndex(1U, 1U));
+  const std::uint32_t crossingThird = fixture.row(logicalIndex(1U, 2U));
   const bool crossingFound = std::ranges::any_of(whole.triplets, [&](const SliceTriplet& triplet) { return triplet[0] == crossingFirst && triplet[1] == crossingMiddle && triplet[2] == crossingThird; });
   BOOST_TEST(crossingFound);
 

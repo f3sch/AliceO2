@@ -258,14 +258,9 @@ GPUdi() PropagationStatus jacobianAnalytic(const Propagator& prop, const BoundPa
     v1[i] = static_cast<T>(to.axis1[i]);
   }
 
-  T nD = T(0);
-  T uD = T(0);
-  T vD = T(0);
-  for (int i = 0; i < 3; ++i) {
-    nD += n1[i] * dvec[i];
-    uD += u1[i] * dvec[i];
-    vD += v1[i] * dvec[i];
-  }
+  const T nD = dotOf(n1, dvec);
+  const T uD = dotOf(u1, dvec);
+  const T vD = dotOf(v1, dvec);
   if (Math::Abs(nD) < static_cast<T>(prop.minAbsCosIncidence)) {
     return PropagationStatus::kGrazing;
   }
@@ -288,14 +283,9 @@ GPUdi() PropagationStatus jacobianAnalytic(const Propagator& prop, const BoundPa
   }
 
   for (int x = 0; x < kNBoundParams; ++x) {
-    T ndr = T(0);
-    T udr = T(0);
-    T vdr = T(0);
-    for (int i = 0; i < 3; ++i) {
-      ndr += n1[i] * dr[x][i];
-      udr += u1[i] * dr[x][i];
-      vdr += v1[i] * dr[x][i];
-    }
+    const T ndr = dotOf(n1, dr[x]);
+    const T udr = dotOf(u1, dr[x]);
+    const T vdr = dotOf(v1, dr[x]);
     const T dsdx = -ndr / nD;
 
     jac.loc0[x] = static_cast<Scalar>(udr + uD * dsdx);

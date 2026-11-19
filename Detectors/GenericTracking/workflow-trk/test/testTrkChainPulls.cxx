@@ -49,6 +49,7 @@
 #include "BetweenBoundCheck.h"
 #include "GridTestSupport.h"
 #include "PullStatistics.h"
+#include "ScatteringKick.h"
 #include "UniformMaterial.h"
 
 #include "CommonUtils/ConfigurableParam.h"
@@ -104,13 +105,7 @@ std::optional<std::pair<BoundTrackState, Scalar>> toCylinder(const Propagator& p
     }
     Scalar global[3];
     surfaceToGlobal(plane, probe.loc0(), probe.loc1(), global);
-    Scalar d[3];
-    for (int i = 0; i < 3; ++i) {
-      d[i] = global[i] - cylinder.origin[i];
-    }
-    const Scalar x = (d[0] * cylinder.axis0[0]) + (d[1] * cylinder.axis0[1]) + (d[2] * cylinder.axis0[2]);
-    const Scalar y = (d[0] * cylinder.axis1[0]) + (d[1] * cylinder.axis1[1]) + (d[2] * cylinder.axis1[2]);
-    angle = std::atan2(y, x);
+    angle = angleOn(cylinder, global);
   }
   return std::pair{probe, angle};
 }
@@ -358,10 +353,6 @@ struct BarrelChain {
       const LayerID layer = layers[chosen];
       next = chosen + 1;
       Scalar theta0Half = 0.F;
-      const auto kick = [&](BoundTrackState& state) {
-        state.par[kTheta] += static_cast<Scalar>(gauss(rng)) * theta0Half;
-        state.par[kPhi] += static_cast<Scalar>(gauss(rng)) * theta0Half / std::sin(state.theta());
-      };
       if (scatter) {
         Scalar a[3]{};
         Scalar b[3]{};
@@ -369,14 +360,14 @@ struct BarrelChain {
         surfaceToGlobal(tracking->planeOf(*unkicked), unkicked->loc0(), unkicked->loc1(), b);
         const Scalar chord = std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
         theta0Half = highlandTheta0(0.5F * static_cast<Scalar>(kX2X0PerCm) * chord, spanX2X0, 1.F / std::abs(outgoing.qOverP()), propagator.massGeV);
-        kick(outgoing);
+        test::scatteringKickKickedTheta(outgoing, theta0Half, gauss, rng);
       }
       auto crossed = cross(outgoing, layer);
       if (!crossed) {
         break;
       }
       if (scatter) {
-        kick(*crossed);
+        test::scatteringKickKickedTheta(*crossed, theta0Half, gauss, rng);
       }
       truth.push_back(*crossed);
     }
@@ -410,7 +401,7 @@ PullPoint pullsAt(BarrelChain& chain, double ptGeV, double eta, bool withMateria
   const bool forward = eta > 1.5;
   const auto layers = BarrelChain::sequence(forward);
   const UniformMaterial material{.x2X0PerCm = withMaterial ? static_cast<Scalar>(kX2X0PerCm) : 0.F};
-  const double theta = 2. * std::atan(std::exp(-eta));
+  const double theta = thetaOfEta(eta);
   const double p = ptGeV / std::sin(theta);
   std::mt19937 rng(seed);
   std::normal_distribution<double> gauss(0., 1.);

@@ -16,8 +16,9 @@
 /// host/device annotations arrive identically everywhere.
 ///
 /// Nothing in this file may depend on ROOT or on anything that cannot be
-/// compiled by a device compiler. The STL is limited to <array>, <cstdint> and
-/// <limits>, which every device compiler takes.
+/// compiled by a device compiler. The STL is limited to <array>, <cstdint>,
+/// <limits> and <type_traits>, which every device compiler takes, and <bit>
+/// for the host-only sameBits.
 
 #ifndef GTRK_BASE_DEFINITIONS_H_
 #define GTRK_BASE_DEFINITIONS_H_
@@ -25,8 +26,12 @@
 #include "GPUCommonDef.h"
 
 #include <array>
+#ifndef GPUCA_GPUCODE_DEVICE
+#include <bit>
+#endif
 #include <cstdint>
 #include <limits>
+#include <type_traits>
 
 // The function qualifiers. GTRK writes them in O2's vocabulary (GPUCommonDef.h),
 // so that a header reads the same here and in O2:
@@ -99,6 +104,19 @@ GPUhdi() constexpr bool exactlyEqual(T a, T b)
 {
   return a <= b && a >= b;
 }
+
+#ifndef GPUCA_GPUCODE_DEVICE
+/// Whether \a a and \a b are the same bits, NaN payloads and the signs of
+/// zero told apart: the comparison of outputs that must be identical
+/// (backends, thread counts, deterministic builds). Host only.
+template <typename T>
+  requires(sizeof(T) == sizeof(std::uint32_t) || sizeof(T) == sizeof(std::uint64_t))
+[[nodiscard]] constexpr bool sameBits(T a, T b)
+{
+  using Bits = std::conditional_t<sizeof(T) == sizeof(std::uint32_t), std::uint32_t, std::uint64_t>;
+  return std::bit_cast<Bits>(a) == std::bit_cast<Bits>(b);
+}
+#endif
 
 } // namespace o2::gtrk
 

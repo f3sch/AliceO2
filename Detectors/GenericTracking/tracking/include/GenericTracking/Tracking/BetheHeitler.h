@@ -27,11 +27,10 @@
 #ifndef GTRK_TRACKING_BETHEHEITLER_H_
 #define GTRK_TRACKING_BETHEHEITLER_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/MathUtils.h"
-
-#include "GPUCommonMath.h"
 
 namespace o2::gtrk
 {
@@ -121,7 +120,7 @@ GPUdi() GPUAlwaysInline() Scalar betheHeitlerPolynomial(int range, int component
   return sum;
 }
 
-GPUhdi() GPUAlwaysInline() Scalar logistic(Scalar x) { return 1.F / (1.F + o2::gpu::GPUCommonMath::Exp(-x)); }
+GPUhdi() GPUAlwaysInline() Scalar logistic(Scalar x) { return 1.F / (1.F + expOf(-x)); }
 
 } // namespace detail
 
@@ -141,8 +140,8 @@ GPUdi() int betheHeitlerMixture(Scalar x2X0, BetheHeitlerComponent (&mixture)[kB
   if (x2X0 < detail::kBetheHeitlerOneGaussianX2X0) {
     // E[z] = 2^-c = e^-t, E[z^2] = 3^-c, c = t / ln 2
     constexpr Scalar kLn3OverLn2 = 1.5849625F;
-    const Scalar mean = o2::gpu::GPUCommonMath::Exp(-x2X0);
-    mixture[0] = {.weight = 1.F, .mean = mean, .variance = o2::gpu::GPUCommonMath::Exp(-kLn3OverLn2 * x2X0) - (mean * mean)};
+    const Scalar mean = expOf(-x2X0);
+    mixture[0] = {.weight = 1.F, .mean = mean, .variance = expOf(-kLn3OverLn2 * x2X0) - (mean * mean)};
     return 1;
   }
   const int range = x2X0 < detail::kBetheHeitlerRangeSplitX2X0 ? 0 : 1;
@@ -150,7 +149,7 @@ GPUdi() int betheHeitlerMixture(Scalar x2X0, BetheHeitlerComponent (&mixture)[kB
   for (int k = 0; k < kBetheHeitlerComponents; ++k) {
     mixture[k] = {.weight = detail::logistic(detail::betheHeitlerPolynomial(range, k, 0, x2X0)),
                   .mean = detail::logistic(detail::betheHeitlerPolynomial(range, k, 1, x2X0)),
-                  .variance = o2::gpu::GPUCommonMath::Exp(detail::betheHeitlerPolynomial(range, k, 2, x2X0))};
+                  .variance = expOf(detail::betheHeitlerPolynomial(range, k, 2, x2X0))};
     sum += mixture[k].weight;
   }
   for (auto& component : mixture) {

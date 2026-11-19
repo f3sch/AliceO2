@@ -12,7 +12,7 @@
 #include "GenericTracking/Study/TrackComparison.h"
 
 #include "GenericTracking/Base/ElementaryMath.h"
-#include "GenericTracking/Study/Statistics.h"
+#include "GenericTracking/Base/Statistics.h"
 
 #include <algorithm>
 #include <array>
@@ -218,10 +218,9 @@ std::size_t etaBin(float eta, const EtaEdges& edges)
   return std::clamp<std::size_t>(bin, 1U, kScoreEtaBins) - 1U;
 }
 
-/// In double, unlike `wrapPhi` (TrackingQA.h).
 std::size_t phiBin(float phi)
 {
-  const double wrapped = std::fmod(std::fmod(static_cast<double>(phi), kTwoPi<double>) + kTwoPi<double>, kTwoPi<double>);
+  const double wrapped = to02PiOf(static_cast<double>(phi));
   return std::min(static_cast<std::size_t>(wrapped / kTwoPi<double> * static_cast<double>(kScorePhiBins)), kScorePhiBins - 1U);
 }
 

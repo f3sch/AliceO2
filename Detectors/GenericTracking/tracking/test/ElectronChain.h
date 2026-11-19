@@ -16,10 +16,12 @@
 #define GTRK_TEST_ELECTRONCHAIN_H_
 
 #include "GenericTracking/Base/Geometry.h"
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Tracking/BeamConstraint.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/TrackFitterUtils.h"
 
+#include "ScatteringKick.h"
 #include "ToyBarrel8.h"
 #include "UniformMaterial.h"
 
@@ -140,8 +142,7 @@ struct ElectronChain {
       const Scalar half = 0.5F * material.x2X0PerCm * segment;
       const Scalar theta0 = highlandTheta0(half, half, 1.F / std::abs(qOverP), propagator.massGeV);
       BoundTrackState leaving = vertex;
-      leaving.par[kTheta] += static_cast<Scalar>(gauss(rng)) * theta0;
-      leaving.par[kPhi] += static_cast<Scalar>(gauss(rng)) * theta0 / std::sin(leaving.theta());
+      scatteringKickKickedTheta(leaving, theta0, gauss, rng);
       crossed = false;
       for (SensorID id = firstSensorOfLayer<Barrel>(0); id < firstSensorOfLayer<Barrel>(1) && !crossed; ++id) {
         start = leaving;
@@ -156,8 +157,7 @@ struct ElectronChain {
         return false;
       }
       start.par[kQOverP] += static_cast<Scalar>(gauss(rng)) * std::sqrt(variance);
-      start.par[kTheta] += static_cast<Scalar>(gauss(rng)) * theta0;
-      start.par[kPhi] += static_cast<Scalar>(gauss(rng)) * theta0 / std::sin(start.theta());
+      scatteringKickKickedTheta(start, theta0, gauss, rng);
       if (radiate) {
         before[0] = fraction(2. * static_cast<double>(half), rng);
         start.par[kQOverP] /= static_cast<Scalar>(before[0]);
@@ -181,17 +181,12 @@ struct ElectronChain {
     for (const Scalar c : chord) {
       span += material.x2X0PerCm * c;
     }
-    const auto kick = [&](BoundTrackState& s, Scalar theta0) {
-      const auto sinTheta = std::sin(s.theta());
-      s.par[kTheta] += static_cast<Scalar>(gauss(rng)) * theta0;
-      s.par[kPhi] += static_cast<Scalar>(gauss(rng)) * theta0 / sinTheta;
-    };
     const auto halfGap = [&](std::size_t layer) { return 0.5 * static_cast<double>(material.x2X0PerCm * chord[layer]); };
     state = start;
     for (std::size_t layer = 0; layer < kLayers; ++layer) {
       if (layer > 0) {
         const Scalar theta0 = highlandTheta0(0.5F * material.x2X0PerCm * chord[layer], span, 1.F / std::abs(state.qOverP()), propagator.massGeV);
-        kick(state, theta0);
+        scatteringKick(state, theta0, gauss, rng);
         if (!cross(state, static_cast<LayerID>(layer))) {
           return false;
         }
@@ -201,7 +196,7 @@ struct ElectronChain {
           return false;
         }
         state.par[kQOverP] += static_cast<Scalar>(gauss(rng)) * std::sqrt(variance); // the straggling the filter takes
-        kick(state, theta0);
+        scatteringKick(state, theta0, gauss, rng);
         if (radiate) {
           before[layer] = fraction(halfGap(layer), rng);
           state.par[kQOverP] /= static_cast<Scalar>(before[layer]);
@@ -228,12 +223,12 @@ struct ElectronChain {
   }
 };
 
-/// The median and half the 16-84 % width of \a values.
+/// The median (quantile 0.5) and the half central 68 % width (halfWidth68)
+/// of \a values.
 inline std::pair<double, double> medianWidth(std::vector<double> values)
 {
-  std::ranges::sort(values);
-  const auto at = [&](double q) { return values[static_cast<std::size_t>(q * static_cast<double>(values.size() - 1))]; };
-  return {at(0.5), 0.5 * (at(0.84) - at(0.16))};
+  const double median = quantile(values, 0.5);
+  return {median, halfWidth68(values)};
 }
 
 } // namespace o2::gtrk::test

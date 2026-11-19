@@ -30,8 +30,6 @@ namespace o2::gtrk::study
 namespace
 {
 
-/// An index key: an event and a track within it.
-[[nodiscard]] std::uint64_t segmentKey(int event, int track) { return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(event)) << 32U) | static_cast<std::uint32_t>(track); }
 /// Every event's hits of type \a HitType from \a branch, as segments, appended to its event's.
 template <typename HitType>
 void readSegments(TTree& tree, const char* branch, std::vector<std::vector<HitSegment>>& events, std::uint32_t firstSensor = 0U)
@@ -118,7 +116,7 @@ HitIndex::HitIndex(HitFile& file)
 {
   for (int event = 0; event < file.nEvents(); ++event) {
     for (const auto& segment : file.event(event)) {
-      mSegments[segmentKey(event, segment.track)].push_back(&segment);
+      mSegments[packKey(static_cast<std::uint32_t>(event), static_cast<std::uint32_t>(segment.track))].push_back(&segment);
     }
   }
 }
@@ -129,7 +127,7 @@ std::span<const HitSegment* const> HitIndex::segments(std::uint64_t particle) co
   if (label.getSourceID() != 0) {
     return {};
   }
-  const auto found = mSegments.find(segmentKey(label.getEventID(), label.getTrackID()));
+  const auto found = mSegments.find(packKey(static_cast<std::uint32_t>(label.getEventID()), static_cast<std::uint32_t>(label.getTrackID())));
   return found != mSegments.end() ? std::span<const HitSegment* const>{found->second} : std::span<const HitSegment* const>{};
 }
 

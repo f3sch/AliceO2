@@ -33,7 +33,9 @@
 #ifndef GTRK_STUDY_CLUSTERPULLSTUDY_H_
 #define GTRK_STUDY_CLUSTERPULLSTUDY_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/Material.h"
+#include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/StateTruth.h"
 #include "GenericTracking/Study/StudyChains.h"
@@ -130,13 +132,12 @@ class ClusterPullStudy
         }
         const auto& mom = segment->momentum;
         const double momentum = std::hypot(mom[0], mom[1], mom[2]);
-        const double along = std::abs((mom[0] * static_cast<double>(plane.normal[0])) + (mom[1] * static_cast<double>(plane.normal[1])) + (mom[2] * static_cast<double>(plane.normal[2])));
+        const double along = std::abs(cosIncidence(plane, mom.data()));
         float dTheta = 0.F;
         float chordX2X0 = 0.F;
         float theta0 = 0.F;
         if (i + 1 < chain.rows.size()) {
           if (const auto* next = segmentOf(chain.particle, chain.rows[i + 1]); next != nullptr) {
-            const auto thetaOf = [](const Vec3D& q) { return std::atan2(std::hypot(q[0], q[1]), q[2]); };
             dTheta = static_cast<float>(thetaOf(next->momentum) - thetaOf(mom));
             const auto& a = segment->start;
             const auto& b = next->start;

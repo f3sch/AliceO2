@@ -27,6 +27,7 @@
 #ifndef GTRK_TRACKING_MEASUREMENTGRIDBUILDER_H_
 #define GTRK_TRACKING_MEASUREMENTGRIDBUILDER_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
@@ -126,8 +127,8 @@ template <DetectorLayout Det>
   const double azimuthal[3] = {-radial[1], radial[0], 0.};
   const double axial[3] = {0., 0., 1.};
   const auto project = [&](const double (&n)[3]) {
-    const double a = (u[0] * n[0]) + (u[1] * n[1]) + (u[2] * n[2]);
-    const double b = (v[0] * n[0]) + (v[1] * n[1]) + (v[2] * n[2]);
+    const double a = dotOf(u, n);
+    const double b = dotOf(v, n);
     return static_cast<Scalar>((static_cast<double>(varLoc0) * a * a) + (2. * static_cast<double>(covLoc01) * a * b) + (static_cast<double>(varLoc1) * b * b));
   };
   return {.z = project(axial), .r = project(radial), .rPhi = project(azimuthal)};

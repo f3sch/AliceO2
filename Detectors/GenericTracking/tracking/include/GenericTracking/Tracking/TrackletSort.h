@@ -60,6 +60,9 @@ namespace o2::gtrk
   return target < otherTarget;
 }
 
+/// The same order on two whole tracklets.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool trackletBefore(const Tracklet& a, const Tracklet& b) { return trackletBefore(a.link, a.lambda, a.target, b.link, b.lambda, b.target); }
+
 /// The counters build's tally of one source's range of \a length tracklets.
 GPUhdi() GPUAlwaysInline() void countSortSegment(std::uint32_t length)
 {
@@ -138,7 +141,7 @@ inline void sortTrackletSegmentOnHost(const TrackletView& tracklets, std::uint32
       .phi = tracklets.phi[at],
     };
   }
-  std::ranges::sort(records, [](const Tracklet& a, const Tracklet& b) { return trackletBefore(a.link, a.lambda, a.target, b.link, b.lambda, b.target); });
+  std::ranges::sort(records, [](const Tracklet& a, const Tracklet& b) { return trackletBefore(a, b); });
   for (std::uint32_t i = 0; i < count; ++i) {
     const auto at = begin + i;
     tracklets.source[at] = records[i].source;

@@ -21,12 +21,12 @@
 /// only informs.
 
 #include "GenericTracking/Base/Geometry.h"
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Study/Alice/Hits.h"
-#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Tools/SensorFrame.h"
 
 #include "DetectorsBase/GeometryManager.h"
@@ -96,7 +96,7 @@ int checkHits(const Geometry<Det>& geometry, study::Chips chips, const std::stri
     if (values.empty()) {
       return {0.F, 0.F};
     }
-    return {study::quantile(std::span{values}, 0.999), *std::ranges::max_element(values)};
+    return {quantile(std::span{values}, 0.999), *std::ranges::max_element(values)};
   };
   int status = 0;
   for (std::size_t layer = 0; layer < total.size(); ++layer) {

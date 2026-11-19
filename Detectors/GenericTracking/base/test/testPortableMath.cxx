@@ -30,6 +30,7 @@
 #include <vector>
 
 namespace portable = o2::gtrk::portable;
+using o2::gtrk::sameBits;
 
 namespace
 {
@@ -69,8 +70,6 @@ std::vector<double> nearMultiplesOfHalfPi()
   values.push_back(-1.6e6);
   return values;
 }
-
-bool sameBits(double a, double b) { return std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(b); }
 
 constexpr double kInf = std::numeric_limits<double>::infinity();
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
@@ -155,6 +154,22 @@ BOOST_AUTO_TEST_CASE(LogWithinAnUlp)
   BOOST_TEST(worst < 1.);
 }
 
+BOOST_AUTO_TEST_CASE(ExpWithinAnUlp)
+{
+  // No results below the smallest normal (x < -708.4), for DAZ as in LogWithinAnUlp.
+  auto values = uniform(-708., 709.7, 1'000'000U, 12U);
+  const auto small = uniform(-1., 1., 100'000U, 13U);
+  values.insert(values.end(), small.begin(), small.end());
+  const auto tiny = uniform(-1.e-8, 1.e-8, 10'000U, 14U);
+  values.insert(values.end(), tiny.begin(), tiny.end());
+  double worst = 0.;
+  for (const double x : values) {
+    worst = std::max(worst, ulpError(portable::exp(x), std::exp(static_cast<long double>(x))));
+  }
+  BOOST_TEST_MESSAGE("exp " << worst << " ulp");
+  BOOST_TEST(worst < 1.);
+}
+
 BOOST_AUTO_TEST_CASE(SpecialValues)
 {
   BOOST_TEST(sameBits(portable::sin(0.), 0.));
@@ -205,6 +220,14 @@ BOOST_AUTO_TEST_CASE(SpecialValues)
   BOOST_TEST(std::isnan(portable::log(-1.)));
   BOOST_TEST(std::isnan(portable::log(-kInf)));
   BOOST_TEST(std::isnan(portable::log(kNaN)));
+
+  BOOST_TEST(sameBits(portable::exp(0.), 1.));
+  BOOST_TEST(sameBits(portable::exp(-0.), 1.));
+  BOOST_TEST(sameBits(portable::exp(kInf), kInf));
+  BOOST_TEST(sameBits(portable::exp(-kInf), 0.));
+  BOOST_TEST(sameBits(portable::exp(710.), kInf));
+  BOOST_TEST(sameBits(portable::exp(-746.), 0.));
+  BOOST_TEST(std::isnan(portable::exp(kNaN)));
 }
 
 /// Invalid arguments give one NaN, the same bits everywhere, not whichever

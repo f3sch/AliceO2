@@ -31,7 +31,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -103,7 +102,7 @@ void benchTriplets(const std::vector<TripletFitInput>& inputs, unsigned repeat)
     TripletFitResult result;
     const bool fitted = fitTripletInput(input, result);
     addResult(digest, fitted, result);
-    same += static_cast<std::size_t>(fitted && std::bit_cast<std::uint32_t>(result.curvature) == std::bit_cast<std::uint32_t>(input.curvature) && std::bit_cast<std::uint32_t>(result.varCurvature) == std::bit_cast<std::uint32_t>(input.varCurvature));
+    same += static_cast<std::size_t>(fitted && sameBits<Scalar>(result.curvature, input.curvature) && sameBits<Scalar>(result.varCurvature, input.varCurvature));
     passed += static_cast<std::size_t>(fitted && result.chi2 <= input.chi2Max);
   }
 

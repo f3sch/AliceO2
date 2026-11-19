@@ -132,17 +132,6 @@ SensorExtent curvedExtentOf(const Sensor& sensor, const SensorSpec& spec)
   return extent;
 }
 
-/// Where a sensor's silicon is centred, in the global frame: a flat sensor's
-/// origin, a curved sensor's middle of the silicon at the middle of its arc.
-Vec3D centreOf(const Sensor& sensor, const SensorSpec& spec)
-{
-  double local[3];
-  spec.unrolledToFrame(0., 0., 0.5 * (spec.surfaceMin() + spec.surfaceMax()), local);
-  Vec3D global{};
-  sensor.toGlobal(local, global.data());
-  return global;
-}
-
 // The value in units of the resolution, floored, ceiled or rounded, as the
 // nearest double to that decimal: the integer divided by the units per cm.
 double down(double value, double resolution) { return std::floor(value / resolution) / std::round(1. / resolution); }
@@ -184,7 +173,7 @@ std::vector<LayerEnvelope> measureEnvelopes(std::span<const Sensor> sensors, std
     layer.rMax = std::max(layer.rMax, extent.rMax);
     layer.zMin = std::min(layer.zMin, extent.zMin);
     layer.zMax = std::max(layer.zMax, extent.zMax);
-    const auto centre = centreOf(sensor, spec);
+    const auto centre = siliconCentreOf(sensor, spec);
     position[sensor.layer] += std::cmp_less(sensor.layer, nBarrelLayers) ? std::hypot(centre[0], centre[1]) : centre[2];
     ++count[sensor.layer];
   }

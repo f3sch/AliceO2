@@ -23,26 +23,22 @@ constexpr double kMicron = 1.e-4; ///< [cm]
 
 inline TrackingSurface plane(double x, double y, double z, double angle, bool disc, SensorID id)
 {
-  TrackingSurface result;
+  const Scalar origin[3]{static_cast<Scalar>(x), static_cast<Scalar>(y), static_cast<Scalar>(z)};
+  const auto sinAngle = static_cast<Scalar>(std::sin(angle));
+  const auto cosAngle = static_cast<Scalar>(std::cos(angle));
+  TrackingSurface result = disc ? discPlane(origin, sinAngle, cosAngle) : radialPlane(origin, sinAngle, cosAngle);
   result.id = id;
-  result.origin[0] = static_cast<float>(x);
-  result.origin[1] = static_cast<float>(y);
-  result.origin[2] = static_cast<float>(z);
-  if (disc) {
-    result.normal[2] = 1.F;
-    result.axis0[0] = static_cast<float>(std::cos(angle));
-    result.axis0[1] = static_cast<float>(std::sin(angle));
-    result.axis1[0] = -result.axis0[1];
-    result.axis1[1] = result.axis0[0];
-  } else {
-    result.normal[0] = static_cast<float>(std::cos(angle));
-    result.normal[1] = static_cast<float>(std::sin(angle));
-    result.axis0[0] = -result.normal[1];
-    result.axis0[1] = result.normal[0];
-    result.axis1[2] = 1.F;
-  }
   result.bounds = {.halfX = 1.e5F, .halfY = 1.e5F};
   return result;
+}
+
+/// Slide \a surface's origin by \a offset0 and \a offset1 along its own
+/// axes: the same plane, its centre elsewhere.
+inline void slideOrigin(TrackingSurface& surface, double offset0, double offset1)
+{
+  for (int i = 0; i < 3; ++i) {
+    surface.origin[i] += static_cast<Scalar>(offset0 * static_cast<double>(surface.axis0[i]) + offset1 * static_cast<double>(surface.axis1[i]));
+  }
 }
 
 /// How far the stored answer is from the helix it claims to be on.
@@ -67,19 +63,18 @@ inline Closure closure(const Propagator& prop, const BoundTrackState& before, co
   const double across = transverse * versine(turn);
   const double step[3] = {along * std::cos(phi) - across * std::sin(phi), along * std::sin(phi) + across * std::cos(phi), path * std::cos(theta)};
 
-  double local[2] = {0., 0.};
-  double residual = 0.;
+  double point[3];
+  surfaceToGlobal(from, before.loc0(), before.loc1(), point);
   for (int i = 0; i < 3; ++i) {
-    const double delta = (static_cast<double>(from.origin[i]) - static_cast<double>(to.origin[i])) + static_cast<double>(before.loc0()) * static_cast<double>(from.axis0[i]) + static_cast<double>(before.loc1()) * static_cast<double>(from.axis1[i]) + step[i];
-    local[0] += delta * static_cast<double>(to.axis0[i]);
-    local[1] += delta * static_cast<double>(to.axis1[i]);
-    residual += delta * static_cast<double>(to.normal[i]);
+    point[i] += step[i];
   }
+  double local[3];
+  surfaceToLocal(to, point, local);
 
   Closure out;
   out.position = std::hypot(local[0] - static_cast<double>(after.loc0()), local[1] - static_cast<double>(after.loc1()));
-  out.plane = std::abs(residual);
-  out.azimuth = std::abs(std::remainder(phi + turn - static_cast<double>(after.phi()), kTwoPi<double>));
+  out.plane = std::abs(local[2]);
+  out.azimuth = std::abs(toPMPiOf(phi + turn - static_cast<double>(after.phi())));
   return out;
 }
 

@@ -124,7 +124,7 @@ Circle circleThrough(double x1, double y1, double z1, double x2, double y2, doub
   const double cx = mx + (sense * offset * -uy);
   const double cy = my + (sense * offset * ux);
   const double theta1 = std::atan2(y1 - cy, x1 - cx);
-  const double turn = std::remainder(sense * (std::atan2(y2 - cy, x2 - cx) - theta1), kTwoPi<double>);
+  const double turn = toPMPiOf(sense * (std::atan2(y2 - cy, x2 - cx) - theta1));
   for (int i = 1; i <= kSamples; ++i) {
     const double theta = theta1 + (sense * turn * i / kSamples);
     const double r = std::hypot(cx + (radius * std::cos(theta)), cy + (radius * std::sin(theta)));
@@ -136,7 +136,7 @@ Circle circleThrough(double x1, double y1, double z1, double x2, double y2, doub
   circle.impact = sense * (centre - radius);
   if (centre > 0.) {
     const double middle = theta1 + (0.5 * sense * turn);
-    const double phi = std::remainder(sense * (std::atan2(-cy, -cx) - middle), kTwoPi<double>);
+    const double phi = toPMPiOf(sense * (std::atan2(-cy, -cx) - middle));
     circle.z = (0.5 * (z1 + z2)) + (phi * (z2 - z1) / turn);
   }
   return circle;

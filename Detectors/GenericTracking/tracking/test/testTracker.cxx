@@ -55,22 +55,7 @@ struct InputPoint {
   Scalar r = 0.F;
 };
 
-SearchWindowParams windowParameters()
-{
-  SearchWindowParams result;
-  result.minPtGeV = 1.;
-  result.bzKiloGauss = 20.;
-  result.positionSigma = 0.01;
-  result.nSigma = 3.;
-  return result;
-}
-
-GridParams gridParameters()
-{
-  GridParams result;
-  result.blockWidth = 20'000;
-  return test::withToyFrames(result);
-}
+SearchWindowParams windowParameters() { return test::toyWindows(0.01, SearchWindowParams{}.materialX2X0); }
 
 class Fixture
 {
@@ -78,7 +63,7 @@ class Fixture
   static constexpr VertexConstraint kBeamConstraint{.z = 0., .sigmaZ = 0.5, .sigmaTransverse = 0.001};
 
   Fixture()
-    : geometry(test::cappedGrid<Det>(60., gridParameters(), windowParameters(), kBeamConstraint, 1, 1)),
+    : geometry(test::cappedGrid<Det>(60., test::toyGridParameters(), windowParameters(), kBeamConstraint, 1, 1)),
       offsets(static_cast<std::size_t>(geometry.bucketCount()) + 1U)
   {
     // Rows 0 and 1 form a valid halo-only pair before the core and so inside
@@ -119,7 +104,7 @@ std::array<std::uint32_t, Sources::kLayerCount> candidateWidthBounds(const Fixtu
 
 /// The toy's three layers make triplets and no road: its chains are 3
 /// clusters, or no link would be taken (`takenLinks`).
-IterationSettings iterationSettings() { return {.windows = windowParameters(), .vertexSource = VertexSource::kBeamLine, .minClusters = 3}; }
+IterationSettings iterationSettings() { return test::toyIteration(windowParameters(), 3); }
 
 } // namespace
 

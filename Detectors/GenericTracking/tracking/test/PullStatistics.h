@@ -13,6 +13,7 @@
 /// \brief Pull collection, widths, reports and closure checks for sensor chains.
 #ifndef GTRK_TEST_PULLSTATISTICS_H_
 #define GTRK_TEST_PULLSTATISTICS_H_
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Tracking/TrackFitterUtils.h"
 
 #include "MathUtils/detail/trigonometric.h"
@@ -52,14 +53,7 @@ inline PullWidth widthOf(std::vector<double> pulls)
     w.beyond5 += std::abs(p) > 5. ? 1. / n : 0.;
   }
   w.plain = std::sqrt(var / (n - 1.));
-  const auto middle = pulls.begin() + static_cast<std::ptrdiff_t>(pulls.size() / 2);
-  std::ranges::nth_element(pulls, middle);
-  const double median = *middle;
-  for (double& p : pulls) {
-    p = std::abs(p - median);
-  }
-  std::ranges::nth_element(pulls, middle);
-  w.robust = 1.4826 * *middle;
+  w.robust = robustSigma(pulls);
   return w;
 }
 

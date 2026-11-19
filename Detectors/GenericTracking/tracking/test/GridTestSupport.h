@@ -20,11 +20,13 @@
 #ifndef GTRK_TEST_GRIDTESTSUPPORT_H_
 #define GTRK_TEST_GRIDTESTSUPPORT_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/FrameTiming.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Base/TimeEstPS.h"
 #include "GenericTracking/Tracking/GridSizing.h"
 #include "GenericTracking/Tracking/Iteration.h"
+#include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/SearchWindow.h"
@@ -72,6 +74,32 @@ inline constexpr FrameTiming kToyFrames{.lengthBC = 1, .firstStartBC = 0};
   std::ranges::fill(params.frames, kToyFrames);
   return params;
 }
+
+/// The toys' grid parameters: 20 ns blocks and the toys' frames.
+[[nodiscard]] inline GridParams toyGridParameters()
+{
+  GridParams result;
+  result.blockWidth = 20'000;
+  return withToyFrames(result);
+}
+
+/// The toys' search windows: 1 GeV in their 2 T field at 3 sigma, the
+/// position resolution \a positionSigma [cm] and \a materialX2X0 between
+/// layers.
+[[nodiscard]] inline SearchWindowParams toyWindows(double positionSigma, double materialX2X0 = 0.)
+{
+  SearchWindowParams result;
+  result.minPtGeV = 1.;
+  result.bzKiloGauss = 20.;
+  result.materialX2X0 = materialX2X0;
+  result.positionSigma = positionSigma;
+  result.nSigma = 3.;
+  return result;
+}
+
+/// A toy iteration with \a windows on the beam line, its chains of at least
+/// \a minClusters clusters.
+[[nodiscard]] inline IterationSettings toyIteration(const SearchWindowParams& windows, int minClusters = IterationSettings{}.minClusters) { return {.windows = windows, .vertexSource = VertexSource::kBeamLine, .minClusters = minClusters}; }
 
 /// The windows of one iteration with \a windows, taking every link (chains
 /// of two clusters, `takenLinks`) and extending: every layer a link touches
@@ -126,6 +154,32 @@ struct FramePoint {
   Scalar r = 0.F;
   Scalar phi = 0.F;
 };
+
+/// Where a track from the origin with direction \a phi0, dip slope \a slope
+/// and \a ptGeV in the toys' 2 T field crosses barrel layer \a layer, its
+/// azimuth in [0, 2 pi).
+template <DetectorLayout Det>
+[[nodiscard]] FramePoint toyHelixAt(double phi0, double slope, double ptGeV, LayerID layer)
+{
+  const double radius = layerDistance<Det>(layer);
+  const double curvature = 1. / curvatureRadius(ptGeV, 20.);
+  const double arc = 2. * std::asin(0.5 * curvature * radius) / curvature;
+  const double direction = phi0 + (curvature * arc);
+  const double x = (std::sin(direction) - std::sin(phi0)) / curvature;
+  const double y = (std::cos(phi0) - std::cos(direction)) / curvature;
+  return {
+    .layer = layer,
+    .x = static_cast<Scalar>(x),
+    .y = static_cast<Scalar>(y),
+    .z = static_cast<Scalar>(slope * arc),
+    .r = static_cast<Scalar>(radius),
+    .phi = static_cast<Scalar>(to02PiOf(std::atan2(y, x))),
+  };
+}
+
+/// The cluster index of track \a track's hit on \a layer in a fixture that
+/// lists \a layers hits per track, track after track.
+[[nodiscard]] constexpr std::size_t logicalIndex(std::size_t layers, std::size_t track, std::size_t layer) { return (layers * track) + layer; }
 
 struct PointVariances {
   Scalar z = 0.F;

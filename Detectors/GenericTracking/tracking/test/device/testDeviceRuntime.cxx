@@ -26,7 +26,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -105,8 +104,7 @@ BOOST_AUTO_TEST_CASE(TrigGivesTheHostsBitsInTheDeterministicBuild)
   constexpr std::array<const char*, kFunctions> kNames{"sin", "cos", "sincos.sin", "sincos.cos", "asin", "atan", "atan2", "sinf", "cosf", "sincosf.sin", "sincosf.cos", "asinf", "atanf", "atan2f", "logf"};
   std::array<std::size_t, kFunctions> differ{};
   const auto compare = [&](std::size_t function, auto host, auto onDevice) {
-    using Bits = std::conditional_t<sizeof(host) == sizeof(std::uint64_t), std::uint64_t, std::uint32_t>;
-    differ[function] += std::bit_cast<Bits>(host) == std::bit_cast<Bits>(onDevice) ? 0U : 1U;
+    differ[function] += sameBits(host, onDevice) ? 0U : 1U;
   };
   for (std::uint32_t i = 0; i < count; ++i) {
     const TrigRow host = trigRow(ys[i], xs[i]);
@@ -219,7 +217,7 @@ BOOST_AUTO_TEST_CASE(DevicePropagationClosesWithinOneMicron)
       continue;
     }
     ExactScalar origin[3]{};
-    detail::boundToGlobal(probe.from, static_cast<ExactScalar>(state.loc0()), static_cast<ExactScalar>(state.loc1()), origin);
+    surfaceToGlobal(probe.from, static_cast<ExactScalar>(state.loc0()), static_cast<ExactScalar>(state.loc1()), origin);
     const double transverse = path * std::sin(static_cast<double>(state.theta()));
     const double along = transverse * sinc(turn);
     const double across = transverse * versine(turn);
@@ -228,9 +226,7 @@ BOOST_AUTO_TEST_CASE(DevicePropagationClosesWithinOneMicron)
     const double endZ = origin[2] + path * std::cos(static_cast<double>(state.theta()));
     probe.to = plane(endX, endY, endZ, sample(-kPi<double>, kPi<double>), trial % 3 == 1, 2);
     const double offsets[2]{sample(-5., 5.), sample(-5., 5.)};
-    for (int axis = 0; axis < 3; ++axis) {
-      probe.to.origin[axis] += static_cast<Scalar>(offsets[0] * static_cast<double>(probe.to.axis0[axis]) + offsets[1] * static_cast<double>(probe.to.axis1[axis]));
-    }
+    slideOrigin(probe.to, offsets[0], offsets[1]);
     probes.push_back(probe);
   }
   // Match the CPU's million-trial coverage without enlarging the device

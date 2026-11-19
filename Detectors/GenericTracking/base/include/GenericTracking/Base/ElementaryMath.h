@@ -11,7 +11,8 @@
 
 /// \file ElementaryMath.h
 /// \brief The elementary functions of shared code, overloaded for float and
-///        double, for host and device alike, and the finiteness test.
+///        double, for host and device alike, the finiteness test, and the
+///        small vector and angle arithmetic built on them.
 ///
 /// Outside O2's deterministic mode they are `CAMath`'s: `Sin`, `ATan2`,
 /// `SinCos`, ... in float and `Sind`, `ATan2d`, `SinCosd`, ... in double.
@@ -37,6 +38,9 @@
 #include <cstdint>
 #include <limits>
 #include <numbers>
+#ifndef GPUCA_GPUCODE_DEVICE
+#include <cmath>
+#endif
 
 // The documented libdevice float implementation, called directly so CUDA's
 // --use-fast-math does not substitute the lower-accuracy intrinsic.
@@ -101,6 +105,15 @@ GPUhdi() GPUAlwaysInline() float logOf(float x)
 #endif
 }
 
+GPUhdi() GPUAlwaysInline() float expOf(float x)
+{
+#ifdef GPUCA_DETERMINISTIC_MODE
+  return static_cast<float>(portable::exp(static_cast<double>(x)));
+#else
+  return o2::gpu::CAMath::Exp(x);
+#endif
+}
+
 GPUhdi() GPUAlwaysInline() float atan2Of(float y, float x)
 {
 #ifdef GPUCA_DETERMINISTIC_MODE
@@ -117,6 +130,7 @@ GPUhdi() GPUAlwaysInline() double asinOf(double x) { return portable::asin(x); }
 GPUhdi() GPUAlwaysInline() double atanOf(double x) { return portable::atan(x); }
 GPUhdi() GPUAlwaysInline() double atan2Of(double y, double x) { return portable::atan2(y, x); }
 GPUhdi() GPUAlwaysInline() double logOf(double x) { return portable::log(x); }
+GPUhdi() GPUAlwaysInline() double expOf(double x) { return portable::exp(x); }
 #else
 GPUhdi() GPUAlwaysInline() double sinOf(double x) { return o2::gpu::CAMath::Sind(x); }
 GPUhdi() GPUAlwaysInline() double cosOf(double x) { return o2::gpu::CAMath::Cosd(x); }
@@ -124,6 +138,7 @@ GPUhdi() GPUAlwaysInline() double asinOf(double x) { return o2::gpu::CAMath::ASi
 GPUhdi() GPUAlwaysInline() double atanOf(double x) { return o2::gpu::CAMath::ATand(x); }
 GPUhdi() GPUAlwaysInline() double atan2Of(double y, double x) { return o2::gpu::CAMath::ATan2d(y, x); }
 GPUhdi() GPUAlwaysInline() double logOf(double x) { return o2::gpu::CAMath::Logd(x); }
+GPUhdi() GPUAlwaysInline() double expOf(double x) { return o2::gpu::CAMath::Expd(x); }
 #endif
 
 GPUhdi() GPUAlwaysInline() float sqrtOf(float x) { return o2::gpu::CAMath::Sqrt(x); }
@@ -222,6 +237,67 @@ template <typename T>
 /// `std::numeric_limits` call may not.
 GPUhdi() GPUAlwaysInline() constexpr bool isFiniteOf(float x) { return x >= -FLT_MAX && x <= FLT_MAX; }
 GPUhdi() GPUAlwaysInline() constexpr bool isFiniteOf(double x) { return x >= -DBL_MAX && x <= DBL_MAX; }
+
+/// An angle brought to [0, 2 pi) by whole turns (toPMPiOf, then a turn up if
+/// negative); a negative angle a hair below 0, whose turn up rounds to 2 pi,
+/// gives 0.
+template <typename T>
+[[nodiscard]] GPUhdi() T to02PiOf(T x)
+{
+  T reduced = toPMPiOf(x);
+  if (reduced < T(0)) {
+    reduced += kTwoPi<T>;
+  }
+  return reduced < kTwoPi<T> ? reduced : T(0);
+}
+
+/// The root of \a x clamped at 0: of a variance a covariance's rounding takes
+/// below 0, of a squared distance that cancels; 0 for NaN too, as the
+/// device's max() gives.
+template <typename T>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() T sqrtClampedOf(T x)
+{
+  return x > T(0) ? sqrtOf(x) : T(0);
+}
+
+/// The dot product of two 3-vectors: arrays, std::arrays or anything else
+/// indexed 0 to 2, of float, double or Dual.
+template <typename A, typename B>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() auto dotOf(const A& a, const B& b)
+{
+  return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
+}
+
+/// The cross product \a a x \a b of two 3-vectors of one std::array type.
+template <typename V>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() V crossOf(const V& a, const V& b)
+{
+  return {(a[1] * b[2]) - (a[2] * b[1]), (a[2] * b[0]) - (a[0] * b[2]), (a[0] * b[1]) - (a[1] * b[0])};
+}
+
+/// The azimuth of a 3-vector \a v, in [-pi, pi].
+template <typename V>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() auto phiOf(const V& v)
+{
+  return atan2Of(v[1], v[0]);
+}
+
+/// The polar angle of a 3-vector \a v from +z, in [0, pi].
+template <typename V>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() auto thetaOf(const V& v)
+{
+  return atan2Of(hypotOf(v[0], v[1]), v[2]);
+}
+
+#ifndef GPUCA_GPUCODE_DEVICE
+/// The pseudorapidity of the direction at polar angle \a theta, and the
+/// polar angle of pseudorapidity \a eta; host only, for the studies.
+[[nodiscard]] inline double etaOfTheta(double theta) { return -std::log(std::tan(0.5 * theta)); }
+[[nodiscard]] inline double thetaOfEta(double eta) { return 2. * std::atan(std::exp(-eta)); }
+/// The pseudorapidity of a point or direction at transverse distance \a r and
+/// longitudinal \a z.
+[[nodiscard]] inline double etaOf(double r, double z) { return std::asinh(z / r); }
+#endif
 
 } // namespace o2::gtrk
 

@@ -46,8 +46,8 @@
 #include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
 
+#include "CommonConstants/MathConstants.h"
 #include "GPUCommonMath.h"
-#include "MathUtils/detail/trigonometric.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -281,7 +281,7 @@ template <DetectorLayout Det>
     }
   }
 
-  result.phi = o2::math_utils::detail::to02Pi<Scalar>(Math::ATan2(y, x));
+  result.phi = azimuth(x, y);
   result.second = Detector<Det>::isBarrelLayer(layer) ? z : Math::Sqrt((x * x) + (y * y));
   result.status = isFiniteOf(result.phi) && isFiniteOf(result.second) ? PropagationStatus::kOk : PropagationStatus::kNotFinite;
   return result;
@@ -464,18 +464,8 @@ GPUhdi() bool predictedWindow(const Prop& prop, const IterationParameters<Det>& 
   Scalar sinPhi = 0.F;
   Scalar cosPhi = 0.F;
   sincosOf(nominal.phi, sinPhi, cosPhi);
-  TrackingSurface plane;
-  plane.origin[0] = radius * cosPhi;
-  plane.origin[1] = radius * sinPhi;
-  plane.origin[2] = barrel ? nominal.second : position;
-  const Scalar radial[3] = {cosPhi, sinPhi, 0.F};
-  const Scalar azimuthal[3] = {-sinPhi, cosPhi, 0.F};
-  const Scalar along[3] = {0.F, 0.F, 1.F};
-  for (int i = 0; i < 3; ++i) {
-    plane.axis0[i] = barrel ? azimuthal[i] : radial[i];
-    plane.axis1[i] = barrel ? along[i] : azimuthal[i];
-    plane.normal[i] = barrel ? radial[i] : along[i];
-  }
+  const Scalar origin[3] = {radius * cosPhi, radius * sinPhi, barrel ? nominal.second : position};
+  TrackingSurface plane = barrel ? radialPlane(origin, sinPhi, cosPhi) : discPlane(origin, sinPhi, cosPhi);
   plane.bounds = {.halfX = kOpenBound, .halfY = kOpenBound};
   plane.layer = target;
   BoundParameters predicted;
@@ -1065,7 +1055,7 @@ class FollowStage
     // A track as long as a chain can be is not followed, nor one below the
     // follow's pT minimum: its windows, sized by the scattering at its
     // momentum, would take in whole layers.
-    if (count >= kMaxClusters || !(o2::gpu::CAMath::Abs(o2::gpu::CAMath::Sin(inner.theta())) >= mParameters->followMinPt * o2::gpu::CAMath::Abs(inner.qOverP()))) {
+    if (count >= kMaxClusters || !reachesPt(inner, mParameters->followMinPt)) {
       return;
     }
     if constexpr (DecidesEnd) {
@@ -1316,9 +1306,8 @@ class FollowStage
   [[nodiscard]] GPUhdi() GPUAlwaysInline() bool densityKept(const Branch& branch, PropagationDirection direction) const
   {
     if constexpr (EndDensity) {
-      using Math = o2::gpu::CAMath;
       const Scalar key = mParameters->followKeepDensity;
-      const bool kept = direction == PropagationDirection::kForward && key > 0.F && !branch.lastKink && branch.lastDeterminant > 0.F && branch.lastChi2 + Math::Log(branch.lastDeterminant) < -2.F * Math::Log(kTwoPi<Scalar> * key);
+      const bool kept = direction == PropagationDirection::kForward && key > 0.F && !branch.lastKink && branch.lastDeterminant > 0.F && branch.lastChi2 + logOf(branch.lastDeterminant) < -2.F * logOf(kTwoPi<Scalar> * key);
       countWork(WorkCounter::kFollowDensityKept, kept ? 1U : 0U);
       return kept;
     } else {
@@ -1736,17 +1725,7 @@ class FollowStage
     const auto& propagator = pointPropagator(mPropagator, from, state);
     const Scalar curvature = state.qOverP() * propagator.bzKiloGauss * static_cast<Scalar>(constants::math::B2C);
     const bool crossed = mCells.anySensor(target.layer, target.prediction.phi, reach[0], target.prediction.second, reach[1], [&](std::uint32_t id) {
-      const TrackingSurface& surface = mGeometry->surface(static_cast<SensorID>(id));
-      TrackingSurface plane = surface;
-      if (surface.radius > 0.F) {
-        Scalar along0 = 0.F;
-        Scalar along1 = 0.F;
-        for (int i = 0; i < 3; ++i) {
-          along0 += (point[i] - surface.origin[i]) * surface.axis0[i];
-          along1 += (point[i] - surface.origin[i]) * surface.axis1[i];
-        }
-        plane = tangentPlane(surface, o2::gpu::CAMath::ATan2(along1, along0));
-      }
+      const TrackingSurface plane = mGeometry->planeAt(static_cast<SensorID>(id), point);
       BoundParameters at = state;
       const auto result = propagate<CrossingRule::kFirstAhead, Scalar>(propagator, at, from, plane, direction);
       return result.status == PropagationStatus::kOk && !follow::beyondHalfTurn(curvature * result.pathLength);

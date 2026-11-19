@@ -19,6 +19,7 @@
 #ifndef GTRK_TRACKING_TRACKFITTERUTILS_H_
 #define GTRK_TRACKING_TRACKFITTERUTILS_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/CovarianceTransport.h"
 #include "GenericTracking/Tracking/Definitions.h"
@@ -430,7 +431,7 @@ GPUdi() GPUAlwaysInline() PropagationStatus filterStepBody(const Prop& prop, con
   referenceQOverP = nextReference;
   chi2 += update.chi2;
   if constexpr (Likelihood) {
-    *logLikelihood = -0.5F * (update.chi2 + o2::gpu::GPUCommonMath::Log(determinant));
+    *logLikelihood = -0.5F * (update.chi2 + logOf(determinant));
   }
   return PropagationStatus::kOk;
 }
@@ -600,7 +601,7 @@ GPUdi() bool diffuseUpdate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams], 
     return false;
   }
   if constexpr (Density) {
-    *density += o2::gpu::GPUCommonMath::Log(g2);
+    *density += logOf(g2);
   }
   Scalar gain[kNBoundParams]{};
   for (int i = 0; i < kNBoundParams; ++i) {
@@ -681,7 +682,7 @@ GPUdi() bool updateCoordinate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams
   detail::applySpatialGain(state, gain, v);
   chi2 += v * v / innovation;
   if constexpr (Density) {
-    *density += o2::gpu::GPUCommonMath::Log(innovation) + (v * v / innovation);
+    *density += logOf(innovation) + (v * v / innovation);
   }
   return true;
 }

@@ -20,6 +20,7 @@
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/SearchWindow.h"
+#include "GenericTracking/Tracking/SensorCells.h"
 #include "GenericTracking/Tracking/SurfaceMaterial.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
@@ -57,38 +58,11 @@ class SensorPlaneGrid
       if (surface.layer != id) {
         continue;
       }
-      double phiLo = 1e9;
-      double phiHi = -1e9;
-      double sLo = 1e9;
-      double sHi = -1e9;
-      const bool curved = surface.radius > 0.F;
-      double centre[3];
-      for (int k = 0; k < 3; ++k) {
-        centre[k] = curved ? surface.origin[k] + (surface.radius * surface.axis0[k]) : surface.origin[k];
-      }
-      const double reference = std::atan2(centre[1], centre[0]);
-      for (const Scalar i : {-1.F, 1.F}) {
-        for (const Scalar j : {-1.F, 1.F}) {
-          double g[3];
-          for (int k = 0; k < 3; ++k) {
-            if (curved) {
-              // A curved sensor: its unrolled x is the arc at its radius about
-              // its axis (the normal), x along axis0 at angle 0.
-              const double angle = i * surface.bounds.halfX / surface.radius;
-              g[k] = surface.origin[k] + (surface.radius * ((std::cos(angle) * surface.axis0[k]) + (std::sin(angle) * surface.axis1[k]))) + (j * surface.bounds.halfY * surface.normal[k]);
-            } else {
-              g[k] = surface.origin[k] + (i * surface.bounds.halfX * surface.axis0[k]) + (j * surface.bounds.halfY * surface.axis1[k]);
-            }
-          }
-          double phi = std::atan2(g[1], g[0]) - reference;
-          phi -= kTwoPi<double> * std::round(phi / kTwoPi<double>);
-          phiLo = std::min(phiLo, reference + phi);
-          phiHi = std::max(phiHi, reference + phi);
-          const double second = mBarrel ? g[2] : std::hypot(g[0], g[1]);
-          sLo = std::min(sLo, second);
-          sHi = std::max(sHi, second);
-        }
-      }
+      const auto footprint = SensorCells<Det>::footprint(surface, mBarrel);
+      const double phiLo = footprint.phiCentre + footprint.phiLow;
+      const double phiHi = footprint.phiCentre + footprint.phiHigh;
+      const double sLo = footprint.secondLow;
+      const double sHi = footprint.secondHigh;
       const int s0 = std::max(0, static_cast<int>(std::floor((sLo - mSecondMin) * mPerCm)));
       const int s1 = std::min(kSecond - 1, static_cast<int>(std::floor((sHi - mSecondMin) * mPerCm)));
       const int p0 = static_cast<int>(std::floor(phiLo * kPhi / kTwoPi<double>));
@@ -119,18 +93,18 @@ class SensorPlaneGrid
       if (surface->radius > 0.F) {
         // |w - (w.n) n| = radius for w = t u - origin, n the axis.
         const double o[3] = {surface->origin[0], surface->origin[1], surface->origin[2]};
-        const double un = (u[0] * surface->normal[0]) + (u[1] * surface->normal[1]) + (u[2] * surface->normal[2]);
-        const double on = (o[0] * surface->normal[0]) + (o[1] * surface->normal[1]) + (o[2] * surface->normal[2]);
+        const double un = dotOf(u, surface->normal);
+        const double on = dotOf(o, surface->normal);
         double up[3];
         double op[3];
         for (int k = 0; k < 3; ++k) {
           up[k] = u[k] - (un * surface->normal[k]);
           op[k] = o[k] - (on * surface->normal[k]);
         }
-        const double qa = (up[0] * up[0]) + (up[1] * up[1]) + (up[2] * up[2]);
-        const double qb = -2. * ((up[0] * op[0]) + (up[1] * op[1]) + (up[2] * op[2]));
+        const double qa = dotOf(up, up);
+        const double qb = -2. * dotOf(up, op);
         const double reach = double(surface->radius) + surface->depth;
-        const double qc = (op[0] * op[0]) + (op[1] * op[1]) + (op[2] * op[2]) - (reach * reach);
+        const double qc = dotOf(op, op) - (reach * reach);
         const double disc = (qb * qb) - (4. * qa * qc);
         if (qa <= 0. || disc < 0.) {
           continue;
@@ -139,34 +113,22 @@ class SensorPlaneGrid
         if (!(t > 0.)) {
           continue;
         }
-        double w[3];
-        for (int k = 0; k < 3; ++k) {
-          w[k] = (t * u[k]) - o[k];
-        }
-        const double x = (w[0] * surface->axis0[0]) + (w[1] * surface->axis0[1]) + (w[2] * surface->axis0[2]);
-        const double y = (w[0] * surface->axis1[0]) + (w[1] * surface->axis1[1]) + (w[2] * surface->axis1[2]);
-        const double along = (w[0] * surface->normal[0]) + (w[1] * surface->normal[1]) + (w[2] * surface->normal[2]);
-        if (!surface->bounds.isInside(static_cast<Scalar>(surface->radius * std::atan2(y, x)), static_cast<Scalar>(along))) {
+        const double point[3] = {t * u[0], t * u[1], t * u[2]};
+        double local[3];
+        surfaceToLocal(*surface, point, local);
+        if (!surface->bounds.isInside(static_cast<Scalar>(surface->radius * std::atan2(local[1], local[0])), static_cast<Scalar>(local[2]))) {
           continue;
         }
         take(t);
         continue;
       }
-      const double nu = (surface->normal[0] * u[0]) + (surface->normal[1] * u[1]) + (surface->normal[2] * u[2]);
-      if (std::abs(nu) < 1e-9) {
+      constexpr double kVertex[3] = {0., 0., 0.};
+      double t = 0.;
+      double loc[2];
+      if (std::abs(cosIncidence(*surface, u)) < 1e-9 || !lineCrossing(*surface, kVertex, u, t, loc) || !(t > 0.)) {
         continue;
       }
-      const double t = ((surface->normal[0] * surface->origin[0]) + (surface->normal[1] * surface->origin[1]) + (surface->normal[2] * surface->origin[2])) / nu;
-      if (!(t > 0.)) {
-        continue;
-      }
-      double d[3];
-      for (int k = 0; k < 3; ++k) {
-        d[k] = (t * u[k]) - surface->origin[k];
-      }
-      const double loc0 = (d[0] * surface->axis0[0]) + (d[1] * surface->axis0[1]) + (d[2] * surface->axis0[2]);
-      const double loc1 = (d[0] * surface->axis1[0]) + (d[1] * surface->axis1[1]) + (d[2] * surface->axis1[2]);
-      if (!surface->bounds.isInside(static_cast<Scalar>(loc0), static_cast<Scalar>(loc1))) {
+      if (!surface->bounds.isInside(static_cast<Scalar>(loc[0]), static_cast<Scalar>(loc[1]))) {
         continue;
       }
       take(t);
@@ -296,7 +258,7 @@ inline void fillSurfaceMaterial(SurfaceMaterialMap<Det>& map, const o2::base::Ma
               p[1] = second * s;
               p[2] = discZ<Det>(own);
             }
-            const double norm = std::sqrt((p[0] * p[0]) + (p[1] * p[1]) + (p[2] * p[2]));
+            const double norm = std::sqrt(dotOf(p, p));
             const double u[3] = {p[0] / norm, p[1] / norm, p[2] / norm};
             // The ray keeps its azimuth; the sensors are looked up only on the
             // layers between the own layer's pairs' ends, where a pair reads

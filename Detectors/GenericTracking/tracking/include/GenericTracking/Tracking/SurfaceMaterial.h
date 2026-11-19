@@ -129,7 +129,7 @@ struct SurfaceMaterialMap {
       }
       Scalar scale = stepCosine > 0.F ? rayCosine / stepCosine : 5.F;
       scale = scale < 0.2F ? 0.2F : (scale > 5.F ? 5.F : scale);
-      const MaterialCell& c = cells[index(pair, half, Math::ATan2(p[1], p[0]), s.barrel != 0U ? p[2] : r)];
+      const MaterialCell& c = cells[index(pair, half, atan2Of(p[1], p[0]), s.barrel != 0U ? p[2] : r)];
       return MaterialCell{.x2X0 = scale * c.x2X0, .xRho = scale * c.xRho};
     };
     const MaterialCell first = read(0, reversed ? end : start);

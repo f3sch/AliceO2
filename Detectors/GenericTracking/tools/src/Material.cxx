@@ -12,6 +12,7 @@
 #include "GenericTracking/Tools/Material.h"
 
 #include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Base/LayerEnvelopes.h"
 
 #include "DetectorsBase/MatLayerCylSet.h"
 #include "TRKBase/GeometryTGeo.h"
@@ -191,10 +192,7 @@ std::vector<ChipStack> trkStackThickness(std::span<const Sensor> sensors, std::s
     // The centre of the silicon, and the normal away from the beam: a flat
     // sensor's local z, a curved one's radius from its axis.
     const auto& spec = specs[sensor.layer];
-    double local[3];
-    spec.unrolledToFrame(0., 0., 0.5 * (spec.surfaceMin() + spec.surfaceMax()), local);
-    double centre[3];
-    sensor.toGlobal(local, centre);
+    const Vec3D centre = siliconCentreOf(sensor, spec);
     double normal[3];
     if (spec.curved()) {
       const double dx = centre[0] - sensor.trans[0];
@@ -216,7 +214,7 @@ std::vector<ChipStack> trkStackThickness(std::span<const Sensor> sensors, std::s
     // Out of the sensor along the normal, then through the stack's volumes.
     const auto stackAlong = [&](double sign) {
       const double direction[3] = {sign * normal[0], sign * normal[1], sign * normal[2]};
-      gGeoManager->InitTrack(centre, direction);
+      gGeoManager->InitTrack(centre.data(), direction);
       if (!named(sensorPattern)) {
         throw std::runtime_error(std::format("trkStackThickness: the centre of a sensor of layer {} is in {}, not a sensor", sensor.layer, gGeoManager->GetCurrentVolume()->GetName()));
       }

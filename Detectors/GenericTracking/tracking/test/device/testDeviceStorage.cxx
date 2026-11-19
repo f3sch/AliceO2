@@ -22,6 +22,7 @@
 
 #include "DeviceTestFixture.h"
 #include "DeviceTestKernels.h"
+#include "StageOutputComparison.h"
 
 #include <boost/test/unit_test.hpp>
 
@@ -41,8 +42,6 @@ namespace
 {
 
 using namespace device_test;
-
-bool sameTracklet(const Tracklet& lhs, const Tracklet& rhs) { return lhs.source == rhs.source && lhs.target == rhs.target && lhs.link == rhs.link && std::bit_cast<std::uint32_t>(lhs.lambda) == std::bit_cast<std::uint32_t>(rhs.lambda) && std::bit_cast<std::uint32_t>(lhs.phi) == std::bit_cast<std::uint32_t>(rhs.phi); }
 
 } // namespace
 

@@ -486,7 +486,7 @@ template <DetectorLayout Det>
   if (Detector<Det>::isBarrelLayer(middleLayer)) {
     return material * sineTheta * cut.invBetaMomentum2;
   }
-  const Scalar cosineTheta = o2::gpu::GPUCommonMath::Sqrt(o2::gpu::GPUCommonMath::Max(0.F, 1.F - sineTheta * sineTheta));
+  const Scalar cosineTheta = sqrtClampedOf(1.F - sineTheta * sineTheta);
   return cosineTheta > 0.F ? material * sineTheta * sineTheta * cut.invBetaMomentum2 / cosineTheta : 0.F;
 }
 
@@ -500,7 +500,7 @@ template <DetectorLayout Det>
   if (passive.barrel) {
     return highlandK(passive.at, cut.logBeta2) * sineTheta * cut.invBetaMomentum2;
   }
-  const Scalar cosineTheta = o2::gpu::GPUCommonMath::Sqrt(o2::gpu::GPUCommonMath::Max(0.F, 1.F - sineTheta * sineTheta));
+  const Scalar cosineTheta = sqrtClampedOf(1.F - sineTheta * sineTheta);
   return cosineTheta > 0.F ? highlandK(passive.at, cut.logBeta2) * sineTheta * sineTheta * cut.invBetaMomentum2 / cosineTheta : 0.F;
 }
 

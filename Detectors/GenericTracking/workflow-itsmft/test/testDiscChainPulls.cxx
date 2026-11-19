@@ -40,6 +40,7 @@
 
 #include "GridTestSupport.h"
 #include "PullStatistics.h"
+#include "ScatteringKick.h"
 #include "UniformMaterial.h"
 
 #include "DetectorsBase/GeometryManager.h"
@@ -130,14 +131,12 @@ struct DiscChain {
   {
     Scalar d[3];
     directionFromAngles(phi, theta, d);
+    constexpr Scalar kOrigin[3]{};
     for (const SensorID id : sensorsOfStep[0]) {
       const auto& s = tracking->surface(id);
-      const Scalar along = (s.origin[0] * s.normal[0]) + (s.origin[1] * s.normal[1]) + (s.origin[2] * s.normal[2]);
-      const Scalar t = along / cosIncidence(s, d);
-      const Scalar g[3]{t * d[0], t * d[1], t * d[2]};
-      Scalar l[3];
-      surfaceToLocal(s, g, l);
-      if (t > 0.F && s.bounds.isInside(l[0], l[1])) {
+      Scalar t = 0.F;
+      Scalar l[2];
+      if (lineCrossing(s, kOrigin, d, t, l) && t > 0.F && s.bounds.isInside(l[0], l[1])) {
         truth[0] = BoundTrackState{};
         truth[0].par[kLoc0] = l[0];
         truth[0].par[kLoc1] = l[1];
@@ -196,10 +195,6 @@ struct DiscChain {
       // kicked on leaving the sensor behind, half on reaching the next, so
       // truth[k] is the state at sensor k's mid-plane.
       Scalar theta0Half = 0.F;
-      const auto kick = [&](BoundTrackState& state) {
-        state.par[kTheta] += static_cast<Scalar>(gauss(rng)) * theta0Half;
-        state.par[kPhi] += static_cast<Scalar>(gauss(rng)) * theta0Half / std::sin(state.theta());
-      };
       if (scatter) {
         BoundTrackState probe = outgoing;
         (void)propagate(propagator, probe, from, tracking->surface(unkicked), PropagationDirection::kForward);
@@ -209,7 +204,7 @@ struct DiscChain {
         surfaceToGlobal(tracking->surface(unkicked), probe.loc0(), probe.loc1(), b);
         const Scalar chord = std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
         theta0Half = highlandTheta0(0.5F * x2X0PerCm * chord, spanX2X0, 1.F / std::abs(outgoing.qOverP()), propagator.massGeV);
-        kick(outgoing);
+        test::scatteringKickKickedTheta(outgoing, theta0Half, gauss, rng);
       }
       const auto id = crossed(outgoing, from, step);
       if (id == kInvalidSensorID) {
@@ -220,7 +215,7 @@ struct DiscChain {
         return false;
       }
       if (scatter) {
-        kick(truth.back());
+        test::scatteringKickKickedTheta(truth.back(), theta0Half, gauss, rng);
       }
     }
     if (truth.size() < setup.minMeasurements) {
@@ -254,7 +249,7 @@ template <DetectorLayout Det>
 PullPoint pullsAt(DiscChain<Det>& chain, double ptGeV, double eta, bool withMaterial, int trials, std::uint32_t seed)
 {
   const UniformMaterial material{.x2X0PerCm = withMaterial ? static_cast<Scalar>(chain.setup.x2X0PerCm) : 0.F};
-  const double theta = 2. * std::atan(std::exp(-eta));
+  const double theta = thetaOfEta(eta);
   const double p = ptGeV / std::sin(theta);
   std::mt19937 rng(seed);
   std::normal_distribution<double> gauss(0., 1.);

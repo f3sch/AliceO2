@@ -164,7 +164,7 @@ GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<D
   sincosOf(phi, sinPhi, cosPhi);
   const T scaledKappa = (sinPhi * scaledCXR - cosPhi * scaledCYR) / scaledCRR;
   const T delta = -scaledKappa * scaledMeanR2 + sinPhi * scaledMeanX - cosPhi * scaledMeanY;
-  const T root = sqrtOf(o2::gpu::GPUCommonMath::Max(T(0), T(1) - T(4) * delta * scaledKappa));
+  const T root = sqrtClampedOf(T(1) - T(4) * delta * scaledKappa);
   T rho = T(2) * scaledKappa * invScale / root;
   T dca = T(2) * delta * transverseScale / (T(1) + root);
   if (cosPhi * second[0] + sinPhi * second[1] < T(0)) {
