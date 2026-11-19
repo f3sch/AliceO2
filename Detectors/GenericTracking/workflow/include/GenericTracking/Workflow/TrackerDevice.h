@@ -108,10 +108,9 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
   // The detector's frame selection (FrameSelection.h): the mask's frames,
   // published on every way out, the vertex cut's once it has run.
   using Selection = typename FrameSelectionOf<Det>::type;
-  std::unique_ptr<Selection> selection;
-  if (Selection::configured()) {
-    selection = std::make_unique<Selection>(Selection::receiveMask(pc), conditions.frameTiming());
-    const auto mask = selection->clockMask();
+  Selection selection{Selection::receiveMask(pc), conditions.frameTiming()};
+  {
+    const auto mask = selection.clockMask();
     selectedROFs.assign(mask.begin(), mask.end());
   }
   if (const char* invalid = TrackingInterface<Det>::checkInput(input.columns, input.offsets, static_cast<std::size_t>(interface.grid().bucketCount()), input.seeds)) {
@@ -140,15 +139,15 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
     foundVertices = found.found->vertices;
     foundContributors = found.found->contributors;
   }
-  if (selection && selection->cut(foundVertices, foundContributors)) {
-    afterVertices = selection->filter(measurements, offsets, [&](SensorID sensor) { return static_cast<int>(interface.geometry().sensor(sensor).layer); });
+  if (selection.cut(foundVertices, foundContributors)) {
+    afterVertices = selection.filter(measurements, offsets, [&](SensorID sensor) { return static_cast<int>(interface.geometry().sensor(sensor).layer); });
     if (afterVertices) {
       interface.endTimeframe();
       measurements = measurementView(afterVertices->columns);
       offsets = afterVertices->offsets;
       originalRows = afterVertices->originalRows;
     }
-    const auto mask = selection->clockMask();
+    const auto mask = selection.clockMask();
     selectedROFs.assign(mask.begin(), mask.end());
   }
   const TimeFrame<Det> frame{measurements, interface.grid(), offsets};
@@ -236,9 +235,7 @@ o2::framework::DataProcessorSpec getTrackerSpec(bool withVertices)
 {
   using namespace o2::framework;
   auto inputs = measurementInputs<Det>(withVertices);
-  if (FrameSelectionOf<Det>::type::configured()) {
-    FrameSelectionOf<Det>::type::addMaskInputs(inputs);
-  }
+  FrameSelectionOf<Det>::type::addMaskInputs(inputs);
   auto conditions = std::make_shared<Conditions<Det, true>>(inputs);
   return DataProcessorSpec{
     .name = deviceName<Det>("tracker"),
@@ -265,9 +262,7 @@ class GPURecoTrackingOf final : public GPURecoTracking
   void appendInputs(std::vector<o2::framework::InputSpec>& inputs) final
   {
     auto own = measurementInputs<Det>(false);
-    if (FrameSelectionOf<Det>::type::configured()) {
-      FrameSelectionOf<Det>::type::addMaskInputs(own);
-    }
+    FrameSelectionOf<Det>::type::addMaskInputs(own);
     mConditions = std::make_unique<RunConditions>(own);
     inputs.insert(inputs.end(), own.begin(), own.end());
   }

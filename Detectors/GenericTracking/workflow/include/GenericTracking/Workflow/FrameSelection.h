@@ -14,13 +14,12 @@
 ///        `FrameSelectionOf<Det>::type`, none by default (`NoFrameSelection`);
 ///        the ITS's in WorkflowITSMFT/ITSROFSelection.h.
 ///
-/// What the measurement producer and the tracker ask of it:
+/// What the measurement producer and the tracker ask of it, every timeframe:
 ///
-/// - `configured()`, whether the run selects frames at all; nothing below is
-///   used without;
 /// - `addMaskInputs(inputs)`, the frames' mask among a device's inputs, and
 ///   `receiveMask(pc)`, the timeframe's; `Mask::enabled(layer, frame)`, the
-///   producer's test of a cluster's frame;
+///   producer's test of a cluster's frame, and `Mask::allEnabled()`, whether
+///   it can skip the test;
 /// - the tracker's selection, from the mask and the layers' frames:
 ///   `cut(vertices, contributors)`, the cut by the vertices' contributors,
 ///   true if configured; `filter(measurements, offsets, layerOf)`, the
@@ -63,9 +62,9 @@ class NoFrameSelection
  public:
   struct Mask {
     [[nodiscard]] static bool enabled(int /*layer*/, std::uint32_t /*frame*/) { return true; }
+    [[nodiscard]] static bool allEnabled() { return true; }
   };
 
-  [[nodiscard]] static bool configured() { return false; }
   static void addMaskInputs(std::vector<o2::framework::InputSpec>& /*inputs*/) {}
   [[nodiscard]] static Mask receiveMask(o2::framework::ProcessingContext& /*pc*/) { return {}; }
 

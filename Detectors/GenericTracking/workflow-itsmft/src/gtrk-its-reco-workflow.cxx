@@ -54,34 +54,26 @@ void customize(std::vector<o2::framework::ConfigParamSpec>& workflowOptions)
 }
 
 #include "GenericTracking/Detectors/ITS.h"
-#include "GenericTracking/Workflow/RecoParam.h"
 #include "GenericTracking/WorkflowITSMFT/AdaptorSpec.h"
+
+#include "ITSROFSelection.h"
 
 #include "Framework/runDataProcessing.h" // IWYU pragma: keep
 #include "GlobalTrackingWorkflowWriters/IRFrameWriterSpec.h"
 #include "ITSMFTWorkflow/ClusterReaderSpec.h"
 #include "ITSWorkflow/TrackWriterSpec.h"
 
-#include <stdexcept>
 #include <string>
 
 WorkflowSpec defineDataProcessing(const ConfigContext& context)
 {
   o2::conf::ConfigurableParam::updateFromString(context.options().get<std::string>("configKeyValues"));
 
-  const auto trigger = context.options().get<std::string>("select-with-triggers");
-  if (trigger != "none") {
-    if (trigger != "phys" && trigger != "trd") {
-      throw std::invalid_argument("--select-with-triggers expects phys, trd or none");
-    }
-    o2::conf::ConfigurableParam::updateFromString("GTRKRecoITS.selectWithTriggers=" + std::string(trigger == "phys" ? "1" : "2"));
-  }
-
   namespace gw = o2::gtrk::workflow;
   using Det = o2::gtrk::detectors::ITS;
   const bool useMC = !context.options().get<bool>("disable-mc");
   const bool staggered = gw::staggeredInput<Det>(context);
-  auto specs = gw::trackingChain<Det>(context, {o2::itsmft::getITSClusterReaderSpec(useMC, staggered, true, o2::gtrk::recoParam<Det>().selectWithTriggers == 1)});
+  auto specs = gw::trackingChain<Det>(context, {o2::itsmft::getITSClusterReaderSpec(useMC, staggered, true, gw::itsTriggers(context) == gw::ITSTriggers::kPhysics)});
   // The adaptor reads the tracks: after the GPU reconstruction when the tracking runs inside it.
   if (!context.options().get<bool>("disable-adaptor") && !gw::trackingInGPUReco(context)) {
     specs.push_back(gw::getAdaptorSpec<Det>(useMC, staggered));

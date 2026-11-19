@@ -15,7 +15,8 @@
 ///
 /// - the cluster converter, which reads O2's clusters, selects the frames
 ///   by the clusters' multiplicity, the random rejection and the triggers
-///   (`selectFrames`) and ships the frames' mask (`kFrameMask`);
+///   (`selectFrames`) and ships the frames' mask (`kFrameMask`), every frame
+///   enabled without a selection;
 /// - the measurement producer, which writes no measurement of a frame the
 ///   mask disables (`FrameMask::enabled`);
 /// - the tracker, which applies the vertex-multiplicity cut to the mask,
@@ -27,9 +28,9 @@
 /// MeasurementProducer.h, Workflow/TrackerDevice.h): they take it as the
 /// ITS's `FrameSelectionOf` (Workflow/FrameSelection.h).
 ///
-/// Without a selection configured (`frameSelection()`) none of them takes
-/// part: the converter ships no mask and the tracker an empty list, every
-/// frame selected.
+/// The trigger input is the workflow's `--select-with-triggers` (`itsTriggers`),
+/// the converter's alone: the producer and the tracker take the mask whatever
+/// made it.
 
 #ifndef GTRK_WORKFLOW_ITSROFSELECTION_H_
 #define GTRK_WORKFLOW_ITSROFSELECTION_H_
@@ -42,6 +43,7 @@
 
 #include "ITSMFTInput.h"
 
+#include "Framework/ConfigContext.h"
 #include "Framework/InputSpec.h"
 #include "Framework/OutputSpec.h"
 
@@ -59,10 +61,18 @@ class ProcessingContext;
 namespace o2::gtrk::workflow
 {
 
-/// Whether the ITS selects frames: a cut of `fastMultConfig` or a trigger
-/// (`GTRKRecoITS.selectWithTriggers`). Read where the devices are defined and
-/// in each device, from the same configuration.
-[[nodiscard]] bool frameSelection();
+/// The triggers the ITS's frames are selected with, as O2's ITS takes them:
+/// none, the ITS's physics triggers (`phys`, ITS/PHYSTRIG) or the TRD's
+/// trigger records with tracklets (`trd`, TRD/TRKTRGRD).
+enum class ITSTriggers : std::uint8_t {
+  kNone,
+  kPhysics,
+  kTRD
+};
+
+/// The workflow's `--select-with-triggers` (phys, trd or none); none for a
+/// workflow without that option.
+[[nodiscard]] ITSTriggers itsTriggers(const o2::framework::ConfigContext& context);
 
 /// The frames' mask as the converter ships it: each layer's frame count, then
 /// one byte per frame, layer by layer (O2's `ROFMaskTable` layout).
@@ -73,17 +83,20 @@ struct FrameMask {
   /// Whether frame \a frame of layer \a layer is enabled; throws
   /// std::out_of_range for a frame the mask does not have.
   [[nodiscard]] bool enabled(int layer, std::uint32_t frame) const;
+  /// Whether every frame is.
+  [[nodiscard]] bool allEnabled() const;
 };
 
-/// The converter's inputs and outputs for the selection: the trigger stream,
-/// if one is configured, and the mask.
-void addFrameSelectionInputs(std::vector<o2::framework::InputSpec>& inputs);
+/// The converter's inputs and outputs for the selection: the stream of
+/// \a triggers, if any, and the mask.
+void addFrameSelectionInputs(std::vector<o2::framework::InputSpec>& inputs, ITSTriggers triggers);
 void addFrameMaskOutputs(std::vector<o2::framework::OutputSpec>& outputs);
 /// The mask's inputs, the producer's and the tracker's.
 void addFrameMaskInputs(std::vector<o2::framework::InputSpec>& inputs);
 
-/// The converter's selection of \a input's frames, \a timing each layer's.
-[[nodiscard]] FrameMask selectFrames(o2::framework::ProcessingContext& pc, const ITSMFTInput& input, std::span<const FrameTiming> timing);
+/// The converter's selection of \a input's frames, \a timing each layer's, by
+/// `fastMultConfig` and \a triggers; every frame without either.
+[[nodiscard]] FrameMask selectFrames(o2::framework::ProcessingContext& pc, const ITSMFTInput& input, std::span<const FrameTiming> timing, ITSTriggers triggers);
 /// The converter's mask into its outputs.
 void shipFrameMask(o2::framework::ProcessingContext& pc, const FrameMask& mask);
 /// The mask from the inputs of `addFrameMaskInputs`.
@@ -95,7 +108,6 @@ void shipFrameMask(o2::framework::ProcessingContext& pc, const FrameMask& mask);
 class ITSFrameSelection
 {
  public:
-  [[nodiscard]] static bool configured() { return frameSelection(); }
   static void addMaskInputs(std::vector<o2::framework::InputSpec>& inputs) { addFrameMaskInputs(inputs); }
   [[nodiscard]] static FrameMask receiveMask(o2::framework::ProcessingContext& pc) { return receiveFrameMask(pc); }
 

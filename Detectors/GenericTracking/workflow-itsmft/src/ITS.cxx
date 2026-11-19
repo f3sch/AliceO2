@@ -42,7 +42,7 @@ std::vector<Sensor> alice::placeChips<detectors::ITS>()
 template <>
 o2::framework::DataProcessorSpec workflow::getClusterConverterSpec<detectors::ITS>(const o2::framework::ConfigContext& context, bool useMC)
 {
-  return workflow::getITSMFTClusterConverterSpec<detectors::ITS>(useMC, workflow::staggeredInput<detectors::ITS>(context));
+  return workflow::getITSMFTClusterConverterSpec<detectors::ITS>(useMC, workflow::staggeredInput<detectors::ITS>(context), workflow::itsTriggers(context));
 }
 
 // The producer takes the ITS's frame selection, which must be the one seen here.

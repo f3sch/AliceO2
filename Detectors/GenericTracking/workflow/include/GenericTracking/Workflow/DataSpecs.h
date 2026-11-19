@@ -113,12 +113,13 @@ inline constexpr std::string_view kVertexContributors{"VTXCONTR"};
 
 /// The ITS's frame mask from the converter's selection (ITSROFSelection.h):
 /// part 0 each layer's frame count, a std::uint32_t per layer; part 1 a
-/// std::uint8_t per frame, layer by layer. Only with a selection configured.
+/// std::uint8_t per frame, layer by layer; every frame enabled without a
+/// selection.
 inline constexpr std::string_view kFrameMask{"FRMASK"};
 
 /// The ITS's selected frames on its clock layer, after the vertex cut: a
-/// std::uint8_t per frame, 1 for selected; empty without a selection
-/// configured, every frame selected.
+/// std::uint8_t per frame, 1 for selected; empty for a detector without a
+/// frame selection (FrameSelection.h), every frame selected.
 inline constexpr std::string_view kSelectedROFs{"ROFSEL"};
 
 /// Detector \a Det's name in lower case: "its", "mft", "trk".

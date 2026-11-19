@@ -90,7 +90,7 @@ class MeasurementProducerTask : public o2::framework::Task
  public:
   using Selection = typename FrameSelectionOf<Det>::type;
 
-  MeasurementProducerTask(std::shared_ptr<Conditions<Det>> conditions, bool testsShapes, bool selectsFrames) : mConditions(std::move(conditions)), mTestsShapes(testsShapes), mSelectsFrames(selectsFrames) {}
+  MeasurementProducerTask(std::shared_ptr<Conditions<Det>> conditions, bool testsShapes) : mConditions(std::move(conditions)), mTestsShapes(testsShapes) {}
 
   void init(o2::framework::InitContext& ic) final
   {
@@ -162,8 +162,9 @@ class MeasurementProducerTask : public o2::framework::Task
     // frame its mask disables; a measurement keeps its cluster's index. A
     // cluster's record is a whole number of frames from BC 0.
     std::vector<std::uint32_t> kept;
-    if (mSelectsFrames) {
-      const auto mask = Selection::receiveMask(pc);
+    const auto mask = Selection::receiveMask(pc);
+    const bool selected = !mask.allEnabled();
+    if (selected) {
       kept.reserve(clusters.size());
       for (std::uint32_t i = 0; i < clusters.size(); ++i) {
         const auto layer = mGeometry->sensor(clusters[i].chipID).layer;
@@ -172,7 +173,6 @@ class MeasurementProducerTask : public o2::framework::Task
         }
       }
     }
-    const bool selected = mSelectsFrames;
     const std::size_t n = selected ? kept.size() : clusters.size();
     const auto clusterOf = [&](std::size_t row) { return selected ? kept[row] : static_cast<std::uint32_t>(row); };
     const auto& param = recoParam<Det>();
@@ -267,7 +267,6 @@ class MeasurementProducerTask : public o2::framework::Task
   std::shared_ptr<Conditions<Det>> mConditions;   ///< the run's field, geometry and frames (Conditions.h)
   bool mTestsShapes = false;                      ///< whether a pass tests the cluster shapes, which takes the detector's band
   const ClusterShapeBand* mShapeBand = nullptr;   ///< the CCDB cache's, with a pass that tests the shapes
-  bool mSelectsFrames = false;                    ///< whether the run selects the detector's frames (FrameSelection.h)
 };
 
 template <DetectorLayout Det>
@@ -287,11 +286,7 @@ o2::framework::DataProcessorSpec getMeasurementProducerSpec()
   if constexpr (Conditions<Det>::kMeanVertex) {
     inputs.emplace_back("meanVertex", "GLO", "MEANVERTEX", 0, Lifetime::Condition, ccdbParamSpec("GLO/Calib/MeanVertex", {}, 1));
   }
-  using Selection = typename FrameSelectionOf<Det>::type;
-  const bool selectsFrames = Selection::configured();
-  if (selectsFrames) {
-    Selection::addMaskInputs(inputs);
-  }
+  FrameSelectionOf<Det>::type::addMaskInputs(inputs);
   // A pass testing the shapes takes the detector's band.
   const bool shapes = testsShapes(recoParam<Det>());
   if (shapes) {
@@ -303,7 +298,7 @@ o2::framework::DataProcessorSpec getMeasurementProducerSpec()
     .name = deviceName<Det>("measurement-producer"),
     .inputs = inputs,
     .outputs = outputs,
-    .algorithm = AlgorithmSpec{adaptFromTask<MeasurementProducerTask<Det>>(conditions, shapes, selectsFrames)},
+    .algorithm = AlgorithmSpec{adaptFromTask<MeasurementProducerTask<Det>>(conditions, shapes)},
     .options = Options{},
   };
 }
