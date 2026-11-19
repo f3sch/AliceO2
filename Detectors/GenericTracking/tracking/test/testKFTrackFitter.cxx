@@ -15,10 +15,10 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK KF Track Fitter
 #include <boost/test/unit_test.hpp>
-#include <numbers>
 
 #include "GridTestSupport.h"
 #include "Oracles.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "ToyBarrel4Disc8.h"
 #include "ToyBarrel3.h"
@@ -728,7 +728,7 @@ BOOST_AUTO_TEST_CASE(PerigeePhiIsTheDirectionAtTheTransverseClosestApproach)
   const double sinTheta = std::sin(static_cast<double>(state.theta()));
   const double turn = chain.propagator.curvature(static_cast<double>(state.qOverP()), sinTheta) * path * sinTheta;
   const double expected = static_cast<double>(state.phi()) + turn;
-  const double difference = std::remainder(static_cast<double>(perigeePhi(chain.propagator, state, surface)) - expected, 2. * std::numbers::pi);
+  const double difference = std::remainder(static_cast<double>(perigeePhi(chain.propagator, state, surface)) - expected, kTwoPi<double>);
   BOOST_TEST(std::abs(difference) < 1e-5);
 }
 
@@ -740,7 +740,7 @@ BOOST_AUTO_TEST_CASE(StraightTrackPerigeeHasNoCurvatureSpecialCase)
   surface.origin[2] = 3.F;
   BoundTrackState state;
   state.par[kPhi] = 0.F;
-  state.par[kTheta] = std::numbers::pi_v<Scalar> / 2;
+  state.par[kTheta] = kPi<Scalar> / 2;
   state.par[kQOverP] = 0.F;
 
   const Propagator propagator;

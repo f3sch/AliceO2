@@ -67,7 +67,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <numbers>
 #include <span>
 #include <stdexcept>
 #include <utility>
@@ -82,9 +81,8 @@ namespace o2::gtrk
 /// and reads rows over (1 + 1/c) W. The best c balances the cost of a cell
 /// against the cost of a row read, which depends on the rows per window -- the
 /// occupancy the grid is never sized from -- and on the backend; so c is a
-/// constant, not derived: ACTS's convention, 2 in phi (one cell per one-sided
-/// deflection), 1 along the second coordinate, which the 6 cm beam spot makes
-/// coarse.
+/// constant, not derived: 2 in phi (one cell per one-sided deflection), 1
+/// along the second coordinate, which the 6 cm beam spot makes coarse.
 inline constexpr double kPhiCellsPerWindow = 2.;
 inline constexpr double kSecondCellsPerWindow = 1.;
 
@@ -322,7 +320,7 @@ class GridGeometry
       auto& axes = mAxes[layer];
       axes.nPhi = params.phiBins[layer];
       if (axes.nPhi <= 0) {
-        axes.nPhi = window.queried ? balancedBinCount(2 * std::numbers::pi_v<double>, 2. * narrowPhi, 2. * window.phiHalfWidth, kPhiCellsPerWindow) : 1;
+        axes.nPhi = window.queried ? balancedBinCount(kTwoPi<double>, 2. * narrowPhi, 2. * window.phiHalfWidth, kPhiCellsPerWindow) : 1;
       }
       axes.nSecond = derived(params.secondBins[layer], extent, narrowSecond, kSecondCellsPerWindow);
       // A count past int32 comes back as 0: the layout is refused, and the
@@ -332,7 +330,7 @@ class GridGeometry
         axes.nPhi = std::max(axes.nPhi, 1);
         axes.nSecond = std::max(axes.nSecond, 1);
       }
-      axes.phiInvWidth = static_cast<Scalar>(static_cast<double>(axes.nPhi) / (2 * std::numbers::pi_v<double>));
+      axes.phiInvWidth = static_cast<Scalar>(static_cast<double>(axes.nPhi) / kTwoPi<double>);
       axes.secondMin = static_cast<Scalar>(secondMinValue);
       axes.secondInvWidth = extent > 0. ? static_cast<Scalar>(static_cast<double>(axes.nSecond) / extent) : 0.F;
 
@@ -750,14 +748,14 @@ class MeasurementGrid
     // before the loop, so the walk needs neither a modulo nor a per-cell
     // wrap test.
     span.phiEnd = axes.nPhi;
-    if (2.F * window.phiHalfWidth < (2 * std::numbers::pi_v<Scalar>)) {
+    if (2.F * window.phiHalfWidth < kTwoPi<Scalar>) {
       Scalar low = window.phiCentre - window.phiHalfWidth;
       Scalar high = window.phiCentre + window.phiHalfWidth;
       if (low < 0.F) {
-        low += 2 * std::numbers::pi_v<Scalar>;
+        low += kTwoPi<Scalar>;
       }
-      if (high >= 2 * std::numbers::pi_v<Scalar>) {
-        high -= 2 * std::numbers::pi_v<Scalar>;
+      if (high >= kTwoPi<Scalar>) {
+        high -= kTwoPi<Scalar>;
       }
       const auto firstPhi = mGrid.phiBinOf(target, low);
       const auto lastPhi = mGrid.phiBinOf(target, high);

@@ -24,6 +24,7 @@
 #define GTRK_WORKFLOW_O2PARAMETERS_H_
 
 #include "CommonConstants/MathConstants.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 #include "ReconstructionDataFormats/Track.h"
@@ -31,7 +32,6 @@
 
 #include <array>
 #include <cmath>
-#include <numbers>
 
 namespace o2::gtrk::workflow
 {
@@ -145,8 +145,8 @@ inline Jacobian forwardJacobian(const BoundTrackState& state, const Shift& s)
 /// parameters are the branch with momentum along +x. In [-pi, pi).
 [[nodiscard]] inline double frameAlpha(const BoundTrackState& state, double sensorAlpha)
 {
-  const double alpha = std::cos(static_cast<double>(state.phi()) - sensorAlpha) < 0. ? sensorAlpha + std::numbers::pi : sensorAlpha;
-  return alpha - (2. * std::numbers::pi * std::floor((alpha + std::numbers::pi) / (2. * std::numbers::pi)));
+  const double alpha = std::cos(static_cast<double>(state.phi()) - sensorAlpha) < 0. ? sensorAlpha + kPi<double> : sensorAlpha;
+  return alpha - (kTwoPi<double> * std::floor((alpha + kPi<double>) / kTwoPi<double>));
 }
 
 /// \a state, bound to \a plane, as O2's barrel parameters in the frame of

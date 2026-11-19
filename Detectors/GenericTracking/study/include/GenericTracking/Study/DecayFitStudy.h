@@ -41,6 +41,7 @@
 #ifndef GTRK_STUDY_DECAYFITSTUDY_H_
 #define GTRK_STUDY_DECAYFITSTUDY_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/DecayCandidates.h"
 #include "GenericTracking/Tracking/DecayFitConstraints.h"
 #include "GenericTracking/Study/TrackComparison.h"
@@ -69,7 +70,6 @@
 #include <format>
 #include <limits>
 #include <memory>
-#include <numbers>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -625,6 +625,7 @@ struct FitSummary {
     summary.diagonal.push_back(fit.covarianceAt(a, a));
   }
   std::vector<double> masses;
+  masses.reserve(fit.momenta.size());
   for (std::size_t i = 0; i < fit.momenta.size(); ++i) {
     masses.push_back(daughters[i].mass);
   }
@@ -807,7 +808,6 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     // one's its helix (the fit's chains).
     std::vector<const TreeParticle*> composites;
     std::unordered_map<std::uint64_t, int> vertexOf{{member.id, 0}};
-    bool linkable = true;
     std::vector<const TreeParticle*> resonances;
     for (const auto* composite : shape.composites) {
       const auto own = decayProducts(trees, *composite);
@@ -824,7 +824,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       vertexOf[composite->id] = static_cast<int>(composites.size()) + 1;
       composites.push_back(composite);
     }
-    if (!linkable || composites.size() + 1U > static_cast<std::size_t>(decay_fit_detail::kMaxConstrainedVertices)) {
+    if (composites.size() + 1U > static_cast<std::size_t>(decay_fit_detail::kMaxConstrainedVertices)) {
       continue;
     }
     DecayTopology topology;
@@ -1091,6 +1091,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       }
       // A tree's composites: their PDG masses, the first one's truth.
       std::vector<double> compositeMasses;
+      compositeMasses.reserve(one.composites.size());
       for (const auto* composite : one.composites) {
         compositeMasses.push_back(particleMass(composite->pdg));
       }
@@ -1274,7 +1275,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           record.sDecayLength = static_cast<float>(motherFit.sLength);
           record.ct = static_cast<float>(motherFit.ct);
           record.sCt = static_cast<float>(motherFit.sCt);
-          record.dPhiMother = static_cast<float>(std::remainder(motherFit.phi - std::atan2(pTrue[1], pTrue[0]), 2. * std::numbers::pi));
+          record.dPhiMother = static_cast<float>(std::remainder(motherFit.phi - std::atan2(pTrue[1], pTrue[0]), kTwoPi<double>));
           record.dThetaMother = static_cast<float>(motherFit.theta - std::atan2(std::hypot(pTrue[0], pTrue[1]), pTrue[2]));
           record.sPhiMother = static_cast<float>(motherFit.sPhi);
           record.sThetaMother = static_cast<float>(motherFit.sTheta);
@@ -1313,6 +1314,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
               }
             }
             std::vector<double> childCharges;
+            childCharges.reserve(childLeaves.size());
             for (const auto i : childLeaves) {
               childCharges.push_back(fit.charges[i]);
             }
@@ -1337,7 +1339,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.sMassCarried = static_cast<float>(measured.sMass);
         for (std::size_t i = 0; i < std::min(count, DecayFitRecord::kDaughterColumns); ++i) {
           const int q = (3 * vertexCount) + (3 * static_cast<int>(i));
-          record.dPhi[i] = static_cast<float>(std::remainder(fit.momenta[i][0] - qTrue[i][0], 2. * std::numbers::pi));
+          record.dPhi[i] = static_cast<float>(std::remainder(fit.momenta[i][0] - qTrue[i][0], kTwoPi<double>));
           record.dTheta[i] = static_cast<float>(fit.momenta[i][1] - qTrue[i][1]);
           record.dQOverP[i] = static_cast<float>(fit.momenta[i][2] - qTrue[i][2]);
           record.sPhi[i] = static_cast<float>(std::sqrt(c[q * n + q]));

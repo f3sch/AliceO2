@@ -9,6 +9,7 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/TrackingQA.h"
 
 #include "GenericTracking/Tracking/MathUtils.h"
@@ -20,7 +21,6 @@
 #include <cmath>
 #include <format>
 #include <limits>
-#include <numbers>
 #include <stdexcept>
 #include <optional>
 #include <unordered_map>
@@ -143,8 +143,8 @@ HelixImpact helixImpact(const TruthHelix& helix, double bzKiloGauss, double x, d
   const double px = helix.position[0] - circle->x;
   const double py = helix.position[1] - circle->y;
   double turn = std::atan2((cx * py) - (cy * px), (cx * px) + (cy * py)) * circle->sense;
-  if (turn <= -std::numbers::pi) {
-    turn += 2. * std::numbers::pi; // the half turn's tie: the convention's +pi
+  if (turn <= -kPi<double>) {
+    turn += kTwoPi<double>; // the half turn's tie: the convention's +pi
   }
   return {.d0 = distance - circle->radius, .z = helix.position[2] - (circle->radius * turn * cotTheta)};
 }

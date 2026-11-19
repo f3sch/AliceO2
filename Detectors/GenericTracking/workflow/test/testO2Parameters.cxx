@@ -19,12 +19,12 @@
 #define BOOST_TEST_MODULE Test GTRK O2Parameters
 #include <boost/test/unit_test.hpp>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Workflow/O2Parameters.h"
 
 #include <array>
 #include <cmath>
-#include <numbers>
 #include <random>
 
 namespace o2::gtrk::workflow
@@ -164,10 +164,10 @@ detail::Jacobian finiteDifferences(const BoundTrackState& s, const TrackingSurfa
     const auto m = params(minus);
     for (int i = 0; i < kNBoundParams; ++i) {
       double d = p[i] - m[i];
-      if (i == 2 && d > std::numbers::pi) { // a forward phi across its seam
-        d -= 2. * std::numbers::pi;
-      } else if (i == 2 && d < -std::numbers::pi) {
-        d += 2. * std::numbers::pi;
+      if (i == 2 && d > kPi<double>) { // a forward phi across its seam
+        d -= kTwoPi<double>;
+      } else if (i == 2 && d < -kPi<double>) {
+        d += kTwoPi<double>;
       }
       jac[i][k] = d / h;
     }
@@ -193,17 +193,17 @@ BOOST_AUTO_TEST_CASE(BarrelParametersAreTheStatesPointMomentumAndCharge)
   unsigned inward = 0U;
   unsigned tested = 0U;
   while (tested < 2000U) {
-    const double sensorAlpha = (2. * uniform(random) - 1.) * std::numbers::pi;
+    const double sensorAlpha = (2. * uniform(random) - 1.) * kPi<double>;
     const auto p = barrelSensor(sensorAlpha, 2. + (40. * uniform(random)), 30. * (uniform(random) - 0.5), 0.2 * (uniform(random) - 0.5), 0.05 * (uniform(random) - 0.5));
-    const auto s = state(1.5 * (uniform(random) - 0.5), 10. * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * std::numbers::pi, 0.1 + (2.94 * uniform(random)), (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (10. * uniform(random))));
+    const auto s = state(1.5 * (uniform(random) - 0.5), 10. * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * kPi<double>, 0.1 + (2.94 * uniform(random)), (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (10. * uniform(random))));
     if (std::abs(cosIncidenceOf(s, p)) < 0.05) {
       continue;
     }
     ++tested;
     const double alpha = frameAlpha(s, sensorAlpha);
-    BOOST_TEST(alpha >= -std::numbers::pi);
-    BOOST_TEST(alpha < std::numbers::pi);
-    inward += std::abs(std::remainder(alpha - sensorAlpha, 2. * std::numbers::pi)) > 1. ? 1U : 0U;
+    BOOST_TEST(alpha >= -kPi<double>);
+    BOOST_TEST(alpha < kPi<double>);
+    inward += std::abs(std::remainder(alpha - sensorAlpha, kTwoPi<double>)) > 1. ? 1U : 0U;
     const auto t = toTrackParCov(s, p, alpha, kBz);
     double r[3];
     double mom[3];
@@ -237,8 +237,8 @@ BOOST_AUTO_TEST_CASE(ForwardParametersAreTheStatesPointMomentumAndCharge)
   for (int n = 0; n < 2000; ++n) {
     const auto p = discSensor(20. * (uniform(random) - 0.5), 20. * (uniform(random) - 0.5), -45. - (30. * uniform(random)), uniform(random) < 0.5 ? -1. : 1., 0.02 * (uniform(random) - 0.5));
     // Towards the muon arm, sin(theta) down to 0.05; some moving back.
-    const double theta = uniform(random) < 0.9 ? std::numbers::pi - 0.05 - (0.6 * uniform(random)) : 0.05 + (0.6 * uniform(random));
-    const auto s = state(1.5 * (uniform(random) - 0.5), 0.7 * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * std::numbers::pi, theta, (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (10. * uniform(random))));
+    const double theta = uniform(random) < 0.9 ? kPi<double> - 0.05 - (0.6 * uniform(random)) : 0.05 + (0.6 * uniform(random));
+    const auto s = state(1.5 * (uniform(random) - 0.5), 0.7 * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * kPi<double>, theta, (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (10. * uniform(random))));
     const auto t = toTrackParCovFwd(s, p, kBz, 3.5);
     double r[3];
     double mom[3];
@@ -260,9 +260,9 @@ BOOST_AUTO_TEST_CASE(BarrelJacobianIsThePropagatorsOntoTheFrame)
   std::uniform_real_distribution<double> uniform{0., 1.};
   unsigned tested = 0U;
   for (int n = 0; n < 4000 && tested < 400U; ++n) {
-    const double sensorAlpha = (2. * uniform(random) - 1.) * std::numbers::pi;
+    const double sensorAlpha = (2. * uniform(random) - 1.) * kPi<double>;
     const auto p = barrelSensor(sensorAlpha, 3. + (40. * uniform(random)), 20. * (uniform(random) - 0.5), 1.2 * (uniform(random) - 0.5), 0.6 * (uniform(random) - 0.5));
-    const auto s = state(1.5 * (uniform(random) - 0.5), 10. * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * std::numbers::pi, 0.3 + (2.54 * uniform(random)), (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (8. * uniform(random))));
+    const auto s = state(1.5 * (uniform(random) - 0.5), 10. * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * kPi<double>, 0.3 + (2.54 * uniform(random)), (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (8. * uniform(random))));
     if (std::abs(cosIncidenceOf(s, p)) < 0.2) {
       continue;
     }
@@ -294,8 +294,8 @@ BOOST_AUTO_TEST_CASE(ForwardJacobianIsThePropagatorsOntoFixedZ)
   unsigned tested = 0U;
   for (int n = 0; n < 4000 && tested < 400U; ++n) {
     const auto p = discSensor(20. * (uniform(random) - 0.5), 20. * (uniform(random) - 0.5), -45. - (30. * uniform(random)), uniform(random) < 0.5 ? -1. : 1., 0.6 * (uniform(random) - 0.5));
-    const double theta = std::numbers::pi - 0.1 - (0.6 * uniform(random));
-    const auto s = state(1.5 * (uniform(random) - 0.5), 0.7 * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * std::numbers::pi, theta, (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (8. * uniform(random))));
+    const double theta = kPi<double> - 0.1 - (0.6 * uniform(random));
+    const auto s = state(1.5 * (uniform(random) - 0.5), 0.7 * (uniform(random) - 0.5), (2. * uniform(random) - 1.) * kPi<double>, theta, (uniform(random) < 0.5 ? -1. : 1.) * (0.1 + (8. * uniform(random))));
     double r[3];
     double mom[3];
     globalOf(s, p, r, mom);

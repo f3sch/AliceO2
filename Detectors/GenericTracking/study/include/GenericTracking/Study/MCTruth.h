@@ -16,6 +16,7 @@
 #ifndef GTRK_STUDY_MCTRUTH_H_
 #define GTRK_STUDY_MCTRUTH_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/MathUtils.h"
@@ -28,7 +29,6 @@
 #include "SimulationDataFormat/MCUtils.h"
 
 #include <TMCProcess.h>
-#include <numbers>
 
 #include <algorithm>
 #include <array>
@@ -62,12 +62,12 @@ template <DetectorLayout Det>
   const double deflection = std::asin(layerRadius / (2. * radius));
   const double cotTheta = mc.GetStartVertexMomentumZ() / pt;
   const double predictedZ = mc.Vz() + (cotTheta * 2. * radius * deflection);
-  const double zTolerance = std::max(kZTolerance, std::numbers::pi_v<double> * radius * std::abs(cotTheta));
+  const double zTolerance = std::max(kZTolerance, kPi<double> * radius * std::abs(cotTheta));
   if (std::abs(static_cast<double>(second) - predictedZ) > zTolerance) {
     return false;
   }
   const double phi0 = std::atan2(mc.GetStartVertexMomentumY(), mc.GetStartVertexMomentumX());
-  const auto offset = [phi](double predicted) { return std::abs(std::remainder(static_cast<double>(phi) - predicted, 2 * std::numbers::pi_v<double>)); };
+  const auto offset = [phi](double predicted) { return std::abs(std::remainder(static_cast<double>(phi) - predicted, kTwoPi<double>)); };
   return std::min(offset(phi0 + deflection), offset(phi0 - deflection)) < kPhiTolerance;
 }
 

@@ -17,8 +17,8 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK RoadFit
 #include <boost/test/unit_test.hpp>
-#include <numbers>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/Validation.h"
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Tracking/RoadCount.h"
@@ -72,7 +72,7 @@ Helix helix(std::size_t track)
 {
   const auto k = static_cast<double>(track);
   return {
-    .phi0 = std::fmod(0.4 + (2.3 * k), 2 * std::numbers::pi_v<double>),
+    .phi0 = std::fmod(0.4 + (2.3 * k), kTwoPi<double>),
     .slope = 0.04 * std::sin(1.7 * k),
     .ptGeV = 1.5 + (0.25 * static_cast<double>(track % 5U)),
   };

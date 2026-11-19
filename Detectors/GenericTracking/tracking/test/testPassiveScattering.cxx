@@ -26,6 +26,7 @@
 
 #include "BetweenBoundCheck.h"
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "ToyBarrel3.h"
 #include "GenericTracking/Tracking/Iteration.h"
@@ -40,7 +41,6 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <numbers>
 #include <random>
 #include <span>
 #include <stdexcept>
@@ -238,7 +238,7 @@ std::array<LinkCount, 5> countPairs(const ScatteringTable<Det>& cutTable, bool w
   const std::array<double, 1> scattererX2X0{pipeX2X0};
   std::array<LinkCount, 5> counts{};
   for (int track = 0; track < tracks; ++track) {
-    const double phi = 2. * std::numbers::pi * uniform(rng);
+    const double phi = kTwoPi<double> * uniform(rng);
     const double cotTheta = -0.5 + uniform(rng);
     const double charge = track % 2 == 0 ? 1. : -1.;
     const double vertexZ = gauss(rng) * kBeamSpot.sigmaZ;
@@ -258,7 +258,7 @@ std::array<LinkCount, 5> countPairs(const ScatteringTable<Det>& cutTable, bool w
       }
       ++count.accepted;
       const auto& window = parameters.windows[link];
-      const double dPhi = std::remainder(std::atan2(target.y, target.x) - std::atan2(source.y, source.x), 2. * std::numbers::pi);
+      const double dPhi = std::remainder(std::atan2(target.y, target.x) - std::atan2(source.y, source.x), kTwoPi<double>);
       count.inPhiWindow += std::abs(dPhi) <= static_cast<double>(window.phiHalfWidth) ? 1 : 0;
       const double centre = (static_cast<double>(window.secondScale) * static_cast<double>(source.z)) + static_cast<double>(window.secondOffset);
       count.inSecondWindow += std::abs(static_cast<double>(target.z) - centre) <= static_cast<double>(window.secondHalfWidth) ? 1 : 0;
@@ -291,7 +291,7 @@ ChainCounts countChains(const ScatteringTable<Det>& cutTable, double pipeX2X0, i
   const TripletTargetBounds bounds{.varZ = 2.5e-7F, .varR = 2.5e-7F, .varRPhi = 2.5e-7F};
   ChainCounts counts;
   for (int track = 0; track < tracks; ++track) {
-    const double phi = 2. * std::numbers::pi * uniform(rng);
+    const double phi = kTwoPi<double> * uniform(rng);
     const double cotTheta = -0.5 + uniform(rng);
     const double charge = track % 2 == 0 ? 1. : -1.;
     const double vertexZ = gauss(rng) * kBeamSpot.sigmaZ;

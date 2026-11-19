@@ -28,6 +28,7 @@
 /// segmentation and L2G matrix and by our sensor, must coincide. (The MC hits
 /// on their chips: o2-gtrk-check-hits.)
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tools/Material.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Base/Geometry.h"
@@ -54,7 +55,6 @@
 #include <format>
 #include <iostream>
 #include <limits>
-#include <numbers>
 #include <optional>
 #include <random>
 #include <string>
@@ -137,7 +137,7 @@ void printPassives(const Geometry<Det>& geometry)
   constexpr int kStepSamples = 2048;
   const auto budget = [](double r0, double r1, double phi, double z) { return static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{r0 * std::cos(phi), r0 * std::sin(phi), z}, o2::math_utils::Point3D<double>{r1 * std::cos(phi), r1 * std::sin(phi), z}).meanX2X0); };
   std::mt19937 rng(20261007);
-  std::uniform_real_distribution<double> uniformPhi(0., 2. * std::numbers::pi);
+  std::uniform_real_distribution<double> uniformPhi(0., kTwoPi<double>);
   const auto envelopes = PlacedEnvelopes<Det>::all();
   // The TRK's chips carry a metal stack beyond the silicon; the others' layers end at it.
   std::vector<LayerEnvelope> chips(envelopes.begin(), envelopes.end());
@@ -196,7 +196,7 @@ void printForwardMaterial(int side)
   constexpr double kStep = 0.05; // [cm]
   const auto budget = [](double r, double phi, double z0, double z1) { return static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{r * std::cos(phi), r * std::sin(phi), z0}, o2::math_utils::Point3D<double>{r * std::cos(phi), r * std::sin(phi), z1}).meanX2X0); };
   std::mt19937 rng(20261022);
-  std::uniform_real_distribution<double> uniformPhi(0., 2. * std::numbers::pi);
+  std::uniform_real_distribution<double> uniformPhi(0., kTwoPi<double>);
   const auto envelopes = PlacedEnvelopes<Det>::all();
   std::vector<double> boundaries;
   std::vector<double> radii{0.};
@@ -265,12 +265,10 @@ struct Arc {
   double length = 0.;
 };
 
-constexpr double kTwoPi = 2. * std::numbers::pi;
-
 double wrap(double angle)
 {
-  const double wrapped = std::fmod(angle, kTwoPi);
-  return wrapped < 0. ? wrapped + kTwoPi : wrapped;
+  const double wrapped = std::fmod(angle, kTwoPi<double>);
+  return wrapped < 0. ? wrapped + kTwoPi<double> : wrapped;
 }
 
 /// The shorter arc between the azimuths of two points.
@@ -278,7 +276,7 @@ Arc arcBetween(const std::array<double, 2>& a, const std::array<double, 2>& b)
 {
   const double from = std::atan2(a[1], a[0]);
   double delta = std::atan2(b[1], b[0]) - from;
-  delta = std::remainder(delta, kTwoPi);
+  delta = std::remainder(delta, kTwoPi<double>);
   return delta >= 0. ? Arc{.start = wrap(from), .length = delta} : Arc{.start = wrap(from + delta), .length = -delta};
 }
 
@@ -303,13 +301,13 @@ bool coversCircle(std::vector<Arc>& arcs)
 {
   std::vector<std::array<double, 2>> pieces;
   for (const auto& arc : arcs) {
-    if (arc.length >= kTwoPi) {
+    if (arc.length >= kTwoPi<double>) {
       return true;
     }
     const double end = arc.start + arc.length;
-    if (end > kTwoPi) {
-      pieces.push_back({arc.start, kTwoPi});
-      pieces.push_back({0., end - kTwoPi});
+    if (end > kTwoPi<double>) {
+      pieces.push_back({arc.start, kTwoPi<double>});
+      pieces.push_back({0., end - kTwoPi<double>});
     } else {
       pieces.push_back({arc.start, end});
     }
@@ -322,7 +320,7 @@ bool coversCircle(std::vector<Arc>& arcs)
     }
     reach = std::max(reach, high);
   }
-  return reach >= kTwoPi - kAzimuthRounding;
+  return reach >= kTwoPi<double> - kAzimuthRounding;
 }
 
 /// A disc sensor's arcs on the circle of radius \a r about the beam line,
@@ -363,14 +361,14 @@ void discArcs(const std::array<std::array<double, 3>, 4>& quad, double r, std::v
   }
   if (angles.empty()) {
     if (inside(r, 0.)) {
-      arcs.push_back({.start = 0., .length = kTwoPi});
+      arcs.push_back({.start = 0., .length = kTwoPi<double>});
     }
     return;
   }
   std::ranges::sort(angles);
   for (std::size_t i = 0; i < angles.size(); ++i) {
     const double from = angles[i];
-    const double length = i + 1 < angles.size() ? angles[i + 1] - from : angles[0] + kTwoPi - from;
+    const double length = i + 1 < angles.size() ? angles[i + 1] - from : angles[0] + kTwoPi<double> - from;
     const double middle = from + (0.5 * length);
     if (length > 0. && inside(r * std::cos(middle), r * std::sin(middle))) {
       arcs.push_back({.start = from, .length = length});

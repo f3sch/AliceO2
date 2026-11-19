@@ -303,10 +303,9 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
   return PropagationStatus::kOk;
 }
 
-/// The inward pass of `fitMeasurements`: from the outward pass's end state,
-/// as ACTS's reverse filter starts from the forward one's (the whole-chain
-/// helix carried there unfitted misses the outermost rows at low momentum);
-/// its values only, so no measurement counts twice.
+/// The inward pass of `fitMeasurements`: from the outward pass's end state
+/// (the whole-chain helix carried there unfitted misses the outermost rows at
+/// low momentum); its values only, so no measurement counts twice.
 template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer>
 GPUdi() void inwardPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, const KinkBudget& kinkBudget, const Observer& observe, TrackFitResult& fit)
 {
@@ -328,12 +327,12 @@ GPUdi() void inwardPass(const Prop& prop, const TrackingGeometry<Det>& geometry,
 /// Neither pass takes a prior: each starts with what its own first
 /// measurements determine (`startPass`). The outward one starts from a
 /// helix fitted through every measurement of the chain (`makeChainSeed`),
-/// the inward one from the outward filter's end state, as ACTS's reverse
-/// filter; each step linearises about the filtered state it starts from
-/// (`filterStep`), its material at the pass's reference momentum, the start
-/// state's carried along (`predictStep`). The inward filter takes no
-/// covariance from the outward one, so no measurement's weight is counted
-/// twice in the returned state. Both take the scattering of the chain's span
+/// the inward one from the outward filter's end state; each step linearises
+/// about the filtered state it starts from (`filterStep`), its material at the
+/// pass's reference momentum, the start state's carried along
+/// (`predictStep`). The inward filter takes no covariance from the outward
+/// one, so no measurement's weight is counted twice in the returned state.
+/// Both take the scattering of the chain's span
 /// as a whole (`SpanMaterial`), as `fitInward` and `fitOutward` do.
 ///
 /// The measurements' times are boxes, which the fit does not take: the

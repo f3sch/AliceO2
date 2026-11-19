@@ -20,6 +20,7 @@
 #include "DeviceTestKernels.h"
 #include "PropagationPrecisionFixture.h"
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
 #include "GenericTracking/Tracking/GPU/DeviceStorage.h"
 
@@ -30,7 +31,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <numbers>
 #include <random>
 #include <span>
 #include <type_traits>
@@ -64,7 +64,7 @@ BOOST_AUTO_TEST_CASE(TrigGivesTheHostsBitsInTheDeterministicBuild)
   // Multiples of pi/2 and the next two doubles above each, where sin and cos
   // reduce with most cancellation; not above zero, where they are subnormal.
   for (int n = -200; n <= 200; ++n) {
-    double y = n * (std::numbers::pi / 2.);
+    double y = n * (kPi<double> / 2.);
     for (int step = 0; step < (n == 0 ? 1 : 3); ++step) {
       ys.push_back(y);
       xs.push_back(-y);
@@ -193,14 +193,14 @@ BOOST_AUTO_TEST_CASE(DevicePropagationClosesWithinOneMicron)
   constexpr int kTrials = 1000000;
   probes.reserve(kTrials);
   for (int trial = 0; trial < kTrials; ++trial) {
-    const double phi = sample(-std::numbers::pi, std::numbers::pi);
-    const double theta = sample(0.01, std::numbers::pi - 0.01);
+    const double phi = sample(-kPi<double>, kPi<double>);
+    const double theta = sample(0.01, kPi<double> - 0.01);
     const double pt = std::exp(sample(std::log(0.03), std::log(10000.)));
     const double charge = trial % 2 == 0 ? 1. : -1.;
     const double radius = sample(0., 90.);
-    const double azimuth = sample(-std::numbers::pi, std::numbers::pi);
+    const double azimuth = sample(-kPi<double>, kPi<double>);
     PropagationProbe probe;
-    probe.from = plane(radius * std::cos(azimuth), radius * std::sin(azimuth), sample(-300., 300.), sample(-std::numbers::pi, std::numbers::pi), trial % 3 == 0, 1);
+    probe.from = plane(radius * std::cos(azimuth), radius * std::sin(azimuth), sample(-300., 300.), sample(-kPi<double>, kPi<double>), trial % 3 == 0, 1);
     auto& state = probe.before;
     state.surface = probe.from.id;
     state.par[kLoc0] = static_cast<Scalar>(sample(-1.5, 1.5));
@@ -219,14 +219,14 @@ BOOST_AUTO_TEST_CASE(DevicePropagationClosesWithinOneMicron)
       continue;
     }
     ExactScalar origin[3]{};
-    detail::boundToGlobal(probe.from, state.loc0(), state.loc1(), origin);
+    detail::boundToGlobal(probe.from, static_cast<ExactScalar>(state.loc0()), static_cast<ExactScalar>(state.loc1()), origin);
     const double transverse = path * std::sin(static_cast<double>(state.theta()));
     const double along = transverse * sinc(turn);
     const double across = transverse * versine(turn);
     const double endX = origin[0] + along * std::cos(static_cast<double>(state.phi())) - across * std::sin(static_cast<double>(state.phi()));
     const double endY = origin[1] + along * std::sin(static_cast<double>(state.phi())) + across * std::cos(static_cast<double>(state.phi()));
     const double endZ = origin[2] + path * std::cos(static_cast<double>(state.theta()));
-    probe.to = plane(endX, endY, endZ, sample(-std::numbers::pi, std::numbers::pi), trial % 3 == 1, 2);
+    probe.to = plane(endX, endY, endZ, sample(-kPi<double>, kPi<double>), trial % 3 == 1, 2);
     const double offsets[2]{sample(-5., 5.), sample(-5., 5.)};
     for (int axis = 0; axis < 3; ++axis) {
       probe.to.origin[axis] += static_cast<Scalar>(offsets[0] * static_cast<double>(probe.to.axis0[axis]) + offsets[1] * static_cast<double>(probe.to.axis1[axis]));

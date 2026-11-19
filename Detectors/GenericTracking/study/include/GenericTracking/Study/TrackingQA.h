@@ -45,6 +45,7 @@
 #ifndef GTRK_STUDY_TRACKINGQA_H_
 #define GTRK_STUDY_TRACKINGQA_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Study/TrackComparison.h"
@@ -53,7 +54,6 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include <numbers>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -82,9 +82,8 @@ struct EtaRange {
 /// float).
 [[nodiscard]] inline float wrapPhi(double phi)
 {
-  constexpr double kTwoPi = 2. * std::numbers::pi;
-  const auto wrapped = static_cast<float>(phi - (kTwoPi * std::floor(phi / kTwoPi)));
-  return wrapped < static_cast<float>(kTwoPi) ? wrapped : 0.F;
+  const auto wrapped = static_cast<float>(phi - (kTwoPi<double> * std::floor(phi / kTwoPi<double>)));
+  return wrapped < static_cast<float>(kTwoPi<double>) ? wrapped : 0.F;
 }
 
 /// A track as the QA reads it besides its rows: its fitted pT, eta and phi

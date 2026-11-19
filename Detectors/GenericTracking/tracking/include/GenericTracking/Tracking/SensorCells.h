@@ -30,6 +30,7 @@
 #ifndef GTRK_TRACKING_SENSORCELLS_H_
 #define GTRK_TRACKING_SENSORCELLS_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
@@ -42,13 +43,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <numbers>
 #include <vector>
 
 namespace o2::gtrk
 {
 
-/// One layer's cells: \a nPhi azimuth cells of `kTwoPi / nPhi` from 0, and
+/// One layer's cells: \a nPhi azimuth cells of `kTwoPi<Scalar> / nPhi` from 0, and
 /// \a nSecond cells of \a secondBin from \a secondLow; its cells are the
 /// CSR's from \a cellOffset on, the second coordinate's index major.
 struct SensorCellLayer {
@@ -74,17 +74,16 @@ struct SensorFootprint {
   [[nodiscard]] GPUhdi() bool meets(Scalar phi, Scalar phiReach, Scalar second, Scalar secondReach) const
   {
     using Math = o2::gpu::CAMath;
-    constexpr Scalar kTwoPi = 2.F * std::numbers::pi_v<Scalar>;
     if (secondLow > second + secondReach || secondHigh < second - secondReach) {
       return false;
     }
-    if (phiReach >= std::numbers::pi_v<Scalar>) {
+    if (phiReach >= kPi<Scalar>) {
       return true;
     }
     // Its start about phi in [-pi, pi); past pi its end continues from -pi.
-    const Scalar low = (phiLow - phi) - (kTwoPi * Math::Floor(((phiLow - phi) / kTwoPi) + 0.5F));
+    const Scalar low = (phiLow - phi) - (kTwoPi<Scalar> * Math::Floor(((phiLow - phi) / kTwoPi<Scalar>)+0.5F));
     const Scalar high = low + (phiHigh - phiLow);
-    return (low <= phiReach && high >= -phiReach) || (high - kTwoPi >= -phiReach);
+    return (low <= phiReach && high >= -phiReach) || (high - kTwoPi<Scalar> >= -phiReach);
   }
 };
 
@@ -267,7 +266,7 @@ class SensorCells
     result.secondLow = std::numeric_limits<double>::infinity();
     result.secondHigh = -std::numeric_limits<double>::infinity();
     for (const auto& point : points) {
-      const double phi = std::remainder(std::atan2(point[1], point[0]) - result.phiCentre, 2 * std::numbers::pi_v<double>);
+      const double phi = std::remainder(std::atan2(point[1], point[0]) - result.phiCentre, kTwoPi<double>);
       const double second = barrel ? point[2] : std::hypot(point[0], point[1]);
       result.phiLow = std::min(result.phiLow, phi);
       result.phiHigh = std::max(result.phiHigh, phi);
@@ -301,7 +300,7 @@ class SensorCells
     mLayers.assign(kLayers, SensorCellLayer{});
     std::vector<std::vector<std::uint32_t>> lists;
     for (std::size_t layer = 0; layer < kLayers; ++layer) {
-      double phiWidth = 2 * std::numbers::pi_v<double>;
+      double phiWidth = kTwoPi<double>;
       double secondWidth = std::numeric_limits<double>::infinity();
       double low = std::numeric_limits<double>::infinity();
       double high = -std::numeric_limits<double>::infinity();
@@ -320,8 +319,8 @@ class SensorCells
       if (!(low <= high) || !(phiWidth > 0.) || !(secondWidth > 0.)) {
         continue;
       }
-      cells.nPhi = static_cast<std::uint32_t>(std::max(1., std::floor((2 * std::numbers::pi_v<double>) / phiWidth)));
-      cells.phiBin = static_cast<Scalar>((2 * std::numbers::pi_v<double>) / cells.nPhi);
+      cells.nPhi = static_cast<std::uint32_t>(std::max(1., std::floor(kTwoPi<double> / phiWidth)));
+      cells.phiBin = static_cast<Scalar>(kTwoPi<double> / cells.nPhi);
       cells.nSecond = static_cast<std::uint32_t>(std::max(1., std::ceil((high - low) / secondWidth)));
       cells.secondLow = static_cast<Scalar>(low);
       cells.secondBin = static_cast<Scalar>((high - low) / cells.nSecond);

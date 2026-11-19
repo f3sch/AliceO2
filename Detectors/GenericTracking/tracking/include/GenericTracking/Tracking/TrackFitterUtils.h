@@ -854,7 +854,7 @@ GPUdi() SpanMaterial<Material> spanMaterial(const TrackingGeometry<Det>& geometr
     const auto& plane = geometry.planeOf(measurement);
     surfaceToGlobal(plane, measurement.loc0, measurement.loc1, point);
     // A layer's two sensors: its material is in the steps to and from it.
-    bool sameLayer = false;
+    bool sameLayer = false; // NOLINT(misc-const-correctness): set under if constexpr, which the check does not see
     if constexpr (IsLayerMaterial<Material>::value) {
       sameLayer = previousLayer == plane.layer;
     }

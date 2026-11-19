@@ -15,8 +15,8 @@
 #define BOOST_TEST_MODULE Test GTRK Measurement Update
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
-#include <numbers>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/MeasurementUpdate.h"
 #include "Oracles.h"
 
@@ -251,7 +251,7 @@ BOOST_AUTO_TEST_CASE(TheInnovationsMultiplyToTheJointDeterminant)
 BOOST_AUTO_TEST_CASE(DirectionIsCanonicalAfterTheUpdate)
 {
   auto state = makePrior();
-  state.par[kPhi] = std::numbers::pi_v<Scalar> - 0.05F;
+  state.par[kPhi] = kPi<Scalar> - 0.05F;
   state.par[kTheta] = 0.02F;
   state.covAt(kTheta, kLoc0) = 0.2F;
   state.covAt(kPhi, kLoc0) = 0.2F;
@@ -263,10 +263,10 @@ BOOST_AUTO_TEST_CASE(DirectionIsCanonicalAfterTheUpdate)
   const auto result = updateWithMeasurement(state, measurement);
 
   BOOST_TEST(result.chi2 > 0.F);
-  BOOST_TEST(state.phi() >= -std::numbers::pi_v<Scalar>);
-  BOOST_TEST(state.phi() <= std::numbers::pi_v<Scalar>);
+  BOOST_TEST(state.phi() >= -kPi<Scalar>);
+  BOOST_TEST(state.phi() <= kPi<Scalar>);
   BOOST_TEST(state.theta() >= 0.F);
-  BOOST_TEST(state.theta() <= std::numbers::pi_v<Scalar>);
+  BOOST_TEST(state.theta() <= kPi<Scalar>);
   BOOST_TEST(state.covAt(kTheta, kLoc0) < 0.F);
 }
 

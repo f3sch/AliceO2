@@ -18,8 +18,8 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK VertexingPass
 #include <boost/test/unit_test.hpp>
-#include <numbers>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Tracking/Tracker.h"
 #include "GenericTracking/Tracking/VertexingPass.h"
@@ -60,7 +60,7 @@ std::vector<Hit> hits()
   for (std::size_t track = 0; track < kTracks; ++track) {
     const auto k = static_cast<double>(track);
     const double pt = 0.5 + (0.3 * static_cast<double>(track % kTracksPerCollision));
-    const auto one = sensorHelixHits(std::fmod(0.3 + (2.1 * k), 2 * std::numbers::pi_v<double>), 0.03 * std::cos(1.3 * k), pt, kStartNS[track / kTracksPerCollision]);
+    const auto one = sensorHelixHits(std::fmod(0.3 + (2.1 * k), kTwoPi<double>), 0.03 * std::cos(1.3 * k), pt, kStartNS[track / kTracksPerCollision]);
     BOOST_REQUIRE(one.size() == kLayers);
     result.insert(result.end(), one.begin(), one.end());
   }

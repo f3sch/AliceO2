@@ -18,8 +18,8 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Follow
 #include <boost/test/unit_test.hpp>
-#include <numbers>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/LayerLinks.h"
 #include "ToyBarrel4Disc8.h"
@@ -369,7 +369,7 @@ BOOST_AUTO_TEST_CASE(PredictionRefusesACrossingPastHalfATurn)
   // cot(theta) = 0.0103 and p = 0.5 GeV: a track that loops many times
   // before it reaches the disc.
   constexpr Scalar kNearlyTransverse = 1.5605F;
-  state.par[kTheta] = forwardZ ? kNearlyTransverse : std::numbers::pi_v<Scalar> - kNearlyTransverse;
+  state.par[kTheta] = forwardZ ? kNearlyTransverse : kPi<Scalar> - kNearlyTransverse;
   state.par[kQOverP] = 2.F;
   const auto looper = predictLayerCrossing(propagator, iteration, start, state, disc, PropagationDirection::kForward);
   BOOST_TEST((looper.status == PropagationStatus::kTooManyTurns));
@@ -818,7 +818,7 @@ BOOST_AUTO_TEST_CASE(ADenseLastRowStaysOutwardWhereTheUnconfirmedDropWouldRemove
   std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
   used[fixture.row(6U)] = kExclusive;
   const auto [chi2, sqrtDet] = firstStep(fixture, tracks.view().outwardState[0], fixture.row(5U), PropagationDirection::kForward);
-  const double density = std::exp(-0.5 * chi2) / (2. * std::numbers::pi * sqrtDet);
+  const double density = std::exp(-0.5 * chi2) / (kTwoPi<double> * sqrtDet);
   auto parameters = followParameters();
   parameters.followKeepDensity = static_cast<Scalar>(0.99 * density);
   BOOST_TEST(followTrack(fixture, tracks, used, parameters).outwardCount == 0U);
@@ -1350,14 +1350,14 @@ BOOST_AUTO_TEST_CASE(AQueryAtAFootprintsOuterEdgeVisitsItsSensor)
   const SensorCells<toybarrel8::Det> cells(toy);
   for (const auto& surface : toy.surfaces()) {
     const auto footprint = SensorCells<toybarrel8::Det>::footprint(surface, true);
-    const auto phi = static_cast<Scalar>(footprint.phiCentre < 0. ? footprint.phiCentre + (2 * std::numbers::pi_v<double>) : footprint.phiCentre);
+    const auto phi = static_cast<Scalar>(footprint.phiCentre < 0. ? footprint.phiCentre + kTwoPi<double> : footprint.phiCentre);
     for (const double edge : {footprint.secondLow, footprint.secondHigh}) {
       BOOST_TEST(cells.view().anySensor(surface.layer, phi, 0.F, static_cast<Scalar>(edge), 0.F, [&](std::uint32_t id) { return id == surface.id; }));
     }
   }
   const auto& layer = cells.layers()[0];
   const Scalar beyond = layer.secondLow + (static_cast<Scalar>(layer.nSecond) * layer.secondBin) + 1.F;
-  BOOST_TEST(!cells.view().anySensor(0U, 0.F, std::numbers::pi_v<Scalar>, beyond, 0.F, [](std::uint32_t /*id*/) { return true; }));
+  BOOST_TEST(!cells.view().anySensor(0U, 0.F, kPi<Scalar>, beyond, 0.F, [](std::uint32_t /*id*/) { return true; }));
 }
 
 } // namespace o2::gtrk

@@ -43,6 +43,7 @@
 #include "BetweenBoundCheck.h"
 #include "GridTestSupport.h"
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/WorkflowTRK/TRK.h"
 #include "GenericTracking/Base/Geometry.h"
@@ -64,7 +65,6 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
-#include <numbers>
 #include <optional>
 #include <random>
 #include <span>
@@ -415,7 +415,7 @@ PullPoint pullsAt(BarrelChain& chain, double ptGeV, double eta, bool withMateria
   const double p = ptGeV / std::sin(theta);
   std::mt19937 rng(seed);
   std::normal_distribution<double> gauss(0., 1.);
-  std::uniform_real_distribution<double> uniformPhi(-std::numbers::pi, std::numbers::pi);
+  std::uniform_real_distribution<double> uniformPhi(-kPi<double>, kPi<double>);
   // Vertices along the beam, so that the chains cross the chips everywhere
   // and not all on the seams between them at z = 0.
   std::uniform_real_distribution<double> uniformZ(-5., 5.);
@@ -621,7 +621,7 @@ BOOST_AUTO_TEST_CASE(LutHoldsTheGeometrysMaterial)
     double error;
   };
   std::mt19937 rng(20261007);
-  std::uniform_real_distribution<double> uniformPhi(0., 2. * std::numbers::pi);
+  std::uniform_real_distribution<double> uniformPhi(0., kTwoPi<double>);
   const auto fromGeometry = [&](double low, double high, double zMin, double zMax) {
     constexpr int kSamples = 65536;
     std::uniform_real_distribution<double> uniformZ(zMin, zMax);

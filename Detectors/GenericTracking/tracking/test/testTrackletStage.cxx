@@ -15,8 +15,8 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK TrackletStage
 #include <boost/test/unit_test.hpp>
-#include <numbers>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerLinks.h"
 #include "ToyBarrel3.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
@@ -129,10 +129,10 @@ class Fixture
       {.layer = 0, .r = 2.F, .phi = 0.4F, .z = -0.5F},
       {.layer = 0, .r = 2.F, .phi = 1.F, .z = 20.F},
       {.layer = 1, .r = 4.F, .phi = 0.003F, .z = 2.F},
-      {.layer = 1, .r = 4.F, .phi = (2 * std::numbers::pi_v<Scalar>)-0.003F, .z = 2.F},
+      {.layer = 1, .r = 4.F, .phi = kTwoPi<Scalar> - 0.003F, .z = 2.F},
       {.layer = 1, .r = 4.F, .phi = 0.F, .z = 0.2F},
       {.layer = 2, .r = 8.F, .phi = 0.005F, .z = 4.F},
-      {.layer = 2, .r = 8.F, .phi = (2 * std::numbers::pi_v<Scalar>)-0.005F, .z = 4.F},
+      {.layer = 2, .r = 8.F, .phi = kTwoPi<Scalar> - 0.005F, .z = 4.F},
       {.layer = 2, .r = 8.F, .phi = 0.F, .z = 0.F},
     }};
     std::array<InputPoint, kMeasurements> input{};
@@ -141,7 +141,7 @@ class Fixture
       input[kReferenceMeasurements + i] = {
         .layer = 0,
         .r = 2.F,
-        .phi = (2 * std::numbers::pi_v<Scalar>)*static_cast<Scalar>(i) / static_cast<Scalar>(kExtraSources),
+        .phi = kTwoPi<Scalar> * static_cast<Scalar>(i) / static_cast<Scalar>(kExtraSources),
         .z = 20.F,
       };
     }

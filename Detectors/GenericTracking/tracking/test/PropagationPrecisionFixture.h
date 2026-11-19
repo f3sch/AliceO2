@@ -10,11 +10,11 @@
 // or submit itself to any jurisdiction.
 #ifndef GTRK_TEST_PROPAGATIONPRECISIONFIXTURE_H_
 #define GTRK_TEST_PROPAGATIONPRECISIONFIXTURE_H_
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
-#include <numbers>
 namespace o2::gtrk::propagation_precision
 {
 
@@ -78,7 +78,7 @@ inline Closure closure(const Propagator& prop, const BoundTrackState& before, co
   Closure out;
   out.position = std::hypot(local[0] - static_cast<double>(after.loc0()), local[1] - static_cast<double>(after.loc1()));
   out.plane = std::abs(residual);
-  out.azimuth = std::abs(std::remainder(phi + turn - static_cast<double>(after.phi()), 2. * std::numbers::pi));
+  out.azimuth = std::abs(std::remainder(phi + turn - static_cast<double>(after.phi()), kTwoPi<double>));
   return out;
 }
 

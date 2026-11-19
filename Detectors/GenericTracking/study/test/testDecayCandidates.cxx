@@ -73,6 +73,7 @@ DecayTrees someTrees()
 std::vector<std::uint64_t> idsOf(const std::vector<const TreeParticle*>& particles)
 {
   std::vector<std::uint64_t> ids;
+  ids.reserve(particles.size());
   for (const auto* particle : particles) {
     ids.push_back(particle->id);
   }

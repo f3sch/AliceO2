@@ -26,9 +26,7 @@
 
 #include <array>
 #include <cstddef>
-#include <cstdint>
 #include <limits>
-#include <numbers>
 #include <span>
 #include <type_traits>
 
@@ -38,40 +36,6 @@ namespace o2::gtrk::decay_fit_detail
 using o2::gtrk::dual::Dual;
 
 /// Small arithmetic the fit's code shares, on the host and the device.
-[[nodiscard]] GPUhdi() double hypotOf(double a, double b) { return sqrtOf((a * a) + (b * b)); }
-[[nodiscard]] GPUhdi() double hypotOf(double a, double b, double c) { return sqrtOf((a * a) + (b * b) + (c * c)); }
-/// ln(1 + x) without losing x's digits to the sum: ln(u) x / (u - 1) with
-/// u = 1 + x rounded, exact where u is 1 (Goldberg's form).
-[[nodiscard]] GPUhdi() double log1pOf(double x)
-{
-  const double u = 1. + x;
-  return u == 1. ? x : logOf(u) * x / (u - 1.);
-}
-/// An angle brought to [-pi, pi] by whole turns, any number of them, with pi
-/// in T's own precision (as std::remainder by 2 pi): the nearest whole number
-/// of turns through an integer, exact while it is below 2^(digits - 1); an
-/// angle beyond that (or not finite) has no meaningful turn and is returned
-/// as it is.
-template <typename T>
-[[nodiscard]] GPUhdi() T angleInPMPi(T x)
-{
-  constexpr T kPi = std::numbers::pi_v<T>;
-  constexpr T kTwoPi = T(2) * kPi;
-  constexpr T kExact = static_cast<T>(std::uint64_t{1} << (std::numeric_limits<T>::digits - 1));
-  const T turns = x / kTwoPi;
-  if (!(turns < kExact && turns > -kExact)) {
-    return x;
-  }
-  const T whole = static_cast<T>(static_cast<std::int64_t>(turns + (turns >= T(0) ? T(0.5) : T(-0.5))));
-  T reduced = x - (kTwoPi * whole);
-  // the rounded quotient can leave the result a hair outside
-  if (reduced > kPi) {
-    reduced -= kTwoPi;
-  } else if (reduced < -kPi) {
-    reduced += kTwoPi;
-  }
-  return reduced;
-}
 template <typename From, typename To>
 GPUhdi() void copyN(const From* from, std::size_t n, To* to)
 {

@@ -59,6 +59,7 @@
 #ifndef GTRK_STUDY_COMPLETEANATOMY_H_
 #define GTRK_STUDY_COMPLETEANATOMY_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Tracking/BeamConstraint.h"
 #include "GenericTracking/Tracking/Definitions.h"
@@ -100,7 +101,6 @@
 #include <memory>
 #include <mutex>
 #include <random>
-#include <numbers>
 #include <numeric>
 #include <optional>
 #include <span>
@@ -1133,7 +1133,7 @@ class CompleteAnatomy
         const auto phiMc = static_cast<Scalar>(std::atan2(p[1], p[0]));
         const auto thetaMc = static_cast<Scalar>(std::atan2(std::hypot(p[0], p[1]), p[2]));
         const auto qOverPMc = static_cast<Scalar>(std::copysign(1. / pMc, static_cast<double>(inward.state.qOverP())));
-        entry.dPhi = static_cast<float>(std::remainder(static_cast<double>(inward.state.phi() - phiMc), 2. * std::numbers::pi));
+        entry.dPhi = static_cast<float>(std::remainder(static_cast<double>(inward.state.phi() - phiMc), kTwoPi<double>));
         entry.dTheta = inward.state.theta() - thetaMc;
         entry.dQOverPRel = static_cast<float>((static_cast<double>(inward.state.qOverP()) - static_cast<double>(qOverPMc)) * pMc);
         const auto replaced = [&](bool angles, bool momentum) {
@@ -5363,7 +5363,7 @@ class CompleteAnatomy
           ++mChargeAgree[kind][(static_cast<double>(state.qOverP()) * truthQOverP) > 0. ? 0U : 1U];
         }
         by.ratio.push_back(p / pTrue);
-        const double dphi = std::remainder(static_cast<double>(state.phi()) - phiTrue, 2. * std::numbers::pi);
+        const double dphi = std::remainder(static_cast<double>(state.phi()) - phiTrue, kTwoPi<double>);
         by.dphi.push_back(1e3 * dphi);
         if (one.determined) {
           by.pullQOverP.push_back((static_cast<double>(state.qOverP()) - truthQOverP) / sigmaQOverP);
@@ -5392,7 +5392,7 @@ class CompleteAnatomy
             const Root& other = taken == &first ? second : first;
             stepRoot = std::hypot(taken->loc0 - locTrue[0], taken->loc1 - locTrue[1]) <= std::hypot(other.loc0 - locTrue[0], other.loc1 - locTrue[1]) ? 1 : 2;
             // Whether the sensor's bounds tell the two apart, and the turns.
-            const auto turnBin = [](double turn) { return std::abs(turn) < std::numbers::pi / 2. ? "< 90" : "90-180"; };
+            const auto turnBin = [](double turn) { return std::abs(turn) < kPi<double> / 2. ? "< 90" : "90-180"; };
             ++mStepRootDetail[std::format("{} | {} | taken {} the sensor, turn {} deg, path {} | the other {} the sensor, turn {} deg, path {}", kInwardKindNames[kind], stepRoot == 1 ? "the solve's the particle's" : "the other the particle's", taken->inside ? "inside" : "outside", turnBin(taken->turn), taken->path >= 0. ? "ahead" : "behind", other.inside ? "inside" : "outside", turnBin(other.turn), other.path >= 0. ? "ahead" : "behind")];
             // A rule among the crossings ahead:
             // the one nearer the plane's centre, against the particle's.
@@ -5434,7 +5434,7 @@ class CompleteAnatomy
         } else if (second.offCentre < first.offCentre) {
           what = "the second ahead and nearer the centre: the solve takes it";
         } else {
-          what = std::format("the second ahead, farther from the centre (the guard), {} the sensor, turn {}", second.inside ? "inside" : "outside", std::abs(second.turn) < std::numbers::pi / 2. ? "< 90 deg" : "90-180 deg");
+          what = std::format("the second ahead, farther from the centre (the guard), {} the sensor, turn {}", second.inside ? "inside" : "outside", std::abs(second.turn) < kPi<double> / 2. ? "< 90 deg" : "90-180 deg");
         }
         ++mRoots[key + " | " + what];
         // Which crossing the particle's own row is at (own rows only).
@@ -5555,7 +5555,7 @@ class CompleteAnatomy
         const auto locTrue = crossingOn(*inner, geometry.planeOf(state));
         tally.pullLoc0.push_back((static_cast<double>(state.loc0()) - locTrue[0]) / sigma[kLoc0]);
         tally.pullLoc1.push_back((static_cast<double>(state.loc1()) - locTrue[1]) / sigma[kLoc1]);
-        tally.pullPhi.push_back(std::remainder(static_cast<double>(state.phi()) - std::atan2(inner->momentum[1], inner->momentum[0]), 2. * std::numbers::pi) / sigma[kPhi]);
+        tally.pullPhi.push_back(std::remainder(static_cast<double>(state.phi()) - std::atan2(inner->momentum[1], inner->momentum[0]), kTwoPi<double>) / sigma[kPhi]);
         tally.pullTheta.push_back((static_cast<double>(state.theta()) - std::atan2(std::hypot(inner->momentum[0], inner->momentum[1]), inner->momentum[2])) / sigma[kTheta]);
         if (charge != 0) {
           tally.pullQOverP.push_back((static_cast<double>(state.qOverP()) - (static_cast<double>(charge) * kChargeSign / pTrue)) / sigma[kQOverP]);
@@ -5831,7 +5831,7 @@ class CompleteAnatomy
   {
     const bool barrel = ((parameters.barrelLayers >> layer) & 1U) != 0U;
     const double radius = barrel ? static_cast<double>(parameters.layerSpans[layer].position) : static_cast<double>(window.secondCentre);
-    return 4. * std::min(static_cast<double>(window.phiHalfWidth), std::numbers::pi) * radius * static_cast<double>(window.secondHalfWidth);
+    return 4. * std::min(static_cast<double>(window.phiHalfWidth), kPi<double>) * radius * static_cast<double>(window.secondHalfWidth);
   }
 
   /// The clutter test: the follow's steps from
@@ -6011,7 +6011,7 @@ class CompleteAnatomy
                 sqrtDet += one.sqrtDet;
               }
               sqrtDet /= static_cast<double>(inBox.size());
-              const double ellipse = std::numbers::pi * gate * sqrtDet;
+              const double ellipse = kPi<double> * gate * sqrtDet;
               if (boxArea > 1.25 * ellipse) {
                 // The measured targets: the strangers seen and expected on the same ones.
                 ++tally.measured;
@@ -6032,7 +6032,7 @@ class CompleteAnatomy
                 }
                 const double rho = static_cast<double>(outside) / (boxArea - ellipse);
                 for (std::size_t e = 0; e < edges.size(); ++e) {
-                  tally.expected[e] += rho * std::numbers::pi * edges[e] * sqrtDet;
+                  tally.expected[e] += rho * kPi<double> * edges[e] * sqrtDet;
                 }
                 tally.expectedLayer += layerDensity(target.layer, target.window) * ellipse;
                 tally.anyStrangerInGate += stranger ? 1U : 0U;
@@ -6309,7 +6309,7 @@ class CompleteAnatomy
     }
     auto factors = factorCovariance(state.cov);
     double evidence = 0.;
-    const double log2pi = std::log(2. * std::numbers::pi);
+    const double log2pi = std::log(kTwoPi<double>);
     for (int k = 0; k < n; ++k) {
       const auto measurement = chain[k];
       if (k > 0) {
@@ -6442,7 +6442,7 @@ class CompleteAnatomy
       const auto measurement = frame.measurement(candidate.row);
       outside += one.valid && one.chi2 > gate && spatiallyCompatible(window, measurement.phi, secondCoordinate<Det>(layer, measurement.r, measurement.z)) ? 1U : 0U;
     }
-    const double ellipse = std::numbers::pi * gate * sqrtDet;
+    const double ellipse = kPi<double> * gate * sqrtDet;
     return boxArea > 1.25 * ellipse ? std::max(static_cast<double>(outside), 0.5) / (boxArea - ellipse) : missing;
   }
 
@@ -6613,7 +6613,7 @@ class CompleteAnatomy
         tally.reachSum += p;
         ++tally.reach[p < 0.25 ? 0U : (p < 0.5 ? 1U : (p < 0.9 ? 2U : 3U))];
         const double odds = std::log(p / (1. - p));
-        const auto logG = [](const Alternative& one) { return (-0.5 * one.chi2) - std::log(one.sqrtDet) - std::log(2. * std::numbers::pi); };
+        const auto logG = [](const Alternative& one) { return (-0.5 * one.chi2) - std::log(one.sqrtDet) - std::log(kTwoPi<double>); };
         const auto choose = [&](double rho) {
           std::array<double, kDecisions> score{-std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(), 0.};
           if (taken.valid) {
@@ -7506,7 +7506,7 @@ class CompleteAnatomy
       };
       follow::predictedWindow<false>(propagator, *scaled, geometry, material, step.state, step.factors, target, direction, nominal, window, 1.F);
       if (ratios != nullptr) {
-        const Scalar dPhi = std::remainder(point.phi - phiCentre, 2.F * std::numbers::pi_v<Scalar>);
+        const Scalar dPhi = std::remainder(point.phi - phiCentre, kTwoPi<Scalar>);
         (*ratios)[0] = static_cast<float>(std::abs(dPhi) / window.phiHalfWidth);
         (*ratios)[1] = static_cast<float>(std::abs(second - secondCentre) / window.secondHalfWidth);
         (*ratios)[2] = static_cast<float>((step.state.qOverP() < 0.F ? -dPhi : dPhi) / window.phiHalfWidth);
@@ -8257,7 +8257,7 @@ class CompleteAnatomy
     const double radius = 100. * pt / (0.0299792458 * std::abs(bzKiloGauss));
     const double chord = std::hypot(static_cast<double>(midOf(b, 0) - midOf(a, 0)), static_cast<double>(midOf(b, 1) - midOf(a, 1)));
     const double turn = 2. * std::asin(std::min(1., 0.5 * chord / radius));
-    const double dphi = std::remainder(std::atan2(pb[1], pb[0]) - std::atan2(pa[1], pa[0]), 2. * std::numbers::pi);
+    const double dphi = std::remainder(std::atan2(pb[1], pb[0]) - std::atan2(pa[1], pa[0]), kTwoPi<double>);
     const double phi = (std::abs(dphi - turn) < std::abs(dphi + turn) ? dphi - turn : dphi + turn) * pt / p;
     return {theta, phi};
   }
@@ -8522,7 +8522,7 @@ class CompleteAnatomy
       qj1 = static_cast<double>(joint.loc1()) - local[1];
       const auto& p = segment->momentum;
       hitP = std::hypot(p[0], p[1], p[2]);
-      dphi = std::remainder(static_cast<double>(predicted.phi()) - std::atan2(p[1], p[0]), 2. * std::numbers::pi);
+      dphi = std::remainder(static_cast<double>(predicted.phi()) - std::atan2(p[1], p[0]), kTwoPi<double>);
       dtheta = static_cast<double>(predicted.theta()) - std::atan2(std::hypot(p[0], p[1]), p[2]);
     }
     // The start against the truth there, and across the start's own stave:
@@ -8536,7 +8536,7 @@ class CompleteAnatomy
     double staveX2x0 = 0.;
     if (startSegment != nullptr) {
       const auto& ps = startSegment->momentum;
-      sdphi = std::remainder(static_cast<double>(start.phi()) - std::atan2(ps[1], ps[0]), 2. * std::numbers::pi);
+      sdphi = std::remainder(static_cast<double>(start.phi()) - std::atan2(ps[1], ps[0]), kTwoPi<double>);
       sdtheta = static_cast<double>(start.theta()) - std::atan2(std::hypot(ps[0], ps[1]), ps[2]);
       // The stave beyond the start: the layer numbered one above (the
       // class's barrel layers consecutive from the beam outward).

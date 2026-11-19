@@ -18,6 +18,7 @@
 #define BOOST_TEST_MODULE Test GTRK decay vertex fit
 #include <boost/test/unit_test.hpp>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/DecayFitBatch.h"
 #include "GenericTracking/Tracking/DecayFitConstraints.h"
 #include "GenericTracking/Tracking/DecayVertexFit.h"
@@ -31,7 +32,6 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
-#include <numbers>
 #include <random>
 #include <string>
 #include <tuple>
@@ -63,9 +63,9 @@ std::array<double, 3> vectorOf(const Truth& truth)
 Truth truthOf(const std::array<double, 3>& v, double charge)
 {
   const double p = std::hypot(v[0], v[1], v[2]);
-  return Truth{std::atan2(v[1], v[0]), std::atan2(std::hypot(v[0], v[1]), v[2]), (charge != 0. ? charge : 1.) / p};
+  return Truth{.phi = std::atan2(v[1], v[0]), .theta = std::atan2(std::hypot(v[0], v[1]), v[2]), .qOverP = (charge != 0. ? charge : 1.) / p};
 }
-const std::array<Truth, 3> kDaughters{Truth{0.3, 1.2, 2.}, Truth{-0.4, 1.6, -1.25}, Truth{0.1, 1.4, -0.8}};
+const std::array<Truth, 3> kDaughters{Truth{.phi = 0.3, .theta = 1.2, .qOverP = 2.}, Truth{.phi = -0.4, .theta = 1.6, .qOverP = -1.25}, Truth{.phi = 0.1, .theta = 1.4, .qOverP = -0.8}};
 
 /// A daughter of \a truth from kVertex, exact on a plane 3 cm downstream, its
 /// covariance kSigmas's.
@@ -225,13 +225,13 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
   prop.massGeV = static_cast<Scalar>(kPion);
   const auto pions = pionPair();
   std::vector<DecayDaughter> exactStates;
+  exactStates.reserve(pions.size());
   for (const auto& truth : pions) {
     exactStates.push_back(daughterOf(truth, prop, kDecay));
   }
   std::mt19937 random{777U};
   std::normal_distribution<double> gauss;
   constexpr int kTrials = 1000;
-  const double fieldScale = 20. * static_cast<double>(constants::math::B2C);
   const std::array<double, 2> masses{kPion, kPion};
   for (const int set : {1, 2, 3}) {
     const DecayConstraints constraints{.mass = (set & 1) != 0, .massGeV = kMass, .production = (set & 2) != 0, .point = kPoint};
@@ -249,16 +249,15 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
         }
         ++fitted;
         ndf = fit.ndf;
-        const int n = 3 + 6;
         for (int k = 0; k < 3; ++k) {
           const double pull = (fit.vertex[k] - kDecay[k]) / std::sqrt(fit.covarianceAt(k, k));
           pulls[k].add(pull);
         }
         chi2 += fit.chi2;
         std::array<double, decay_fit_detail::kMaxHardRows> values{};
-        std::array<double, decay_fit_detail::kMaxHardRows * decay_fit_detail::kConstraintInputs> unused{};
+        std::array<double, static_cast<std::size_t>(decay_fit_detail::kMaxHardRows) * decay_fit_detail::kConstraintInputs> unused{};
         int written = 0;
-        BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, std::array<double, 2>{1., -1.}, fieldScale, values.data(), unused.data(), decay_fit_detail::kConstraintInputs, decay_fit_detail::kMaxHardRows, written));
+        BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, std::array<double, 2>{1., -1.}, values.data(), unused.data(), decay_fit_detail::kConstraintInputs, decay_fit_detail::kMaxHardRows, written));
         for (int j = 0; j < written; ++j) {
           worst = std::max(worst, std::abs(values[j]));
         }
@@ -286,9 +285,9 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
 {
   Propagator prop;
   prop.bzKiloGauss = 20.F;
-  const Truth proton{0.25, 1.2, 1. / 1.0};
-  const Truth pion{0.45, 1.25, -1. / 0.25};
-  const Truth bachelor{-0.3, 1.4, -1. / 0.4};
+  const Truth proton{.phi = 0.25, .theta = 1.2, .qOverP = 1.};
+  const Truth pion{.phi = 0.45, .theta = 1.25, .qOverP = -1. / 0.25};
+  const Truth bachelor{.phi = -0.3, .theta = 1.4, .qOverP = -1. / 0.4};
   std::array<double, 3> lambda{};
   for (const auto& t : {proton, pion}) {
     const auto v = vectorOf(t);
@@ -326,7 +325,6 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
       }
       ++fitted;
       ndf = fit.ndf;
-      const int n = 6 + 9;
       for (int k = 0; k < 6; ++k) {
         const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covarianceAt(k, k));
         pulls[k].add(pull);
@@ -355,7 +353,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
     }
   }
   const double xiP = std::hypot(xi[0], xi[1], xi[2]);
-  const Truth xiTruth{std::atan2(xi[1], xi[0]), std::atan2(std::hypot(xi[0], xi[1]), xi[2]), -1. / xiP};
+  const Truth xiTruth{.phi = std::atan2(xi[1], xi[0]), .theta = std::atan2(std::hypot(xi[0], xi[1]), xi[2]), .qOverP = -1. / xiP};
   Propagator xiProp = prop;
   xiProp.massGeV = 1.32171F;
   const auto at = beamLinePlane(static_cast<Scalar>(kVertex[0]), static_cast<Scalar>(kVertex[1]), static_cast<Scalar>(xiTruth.phi));
@@ -414,7 +412,6 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
         }
         ++tfitted;
         tndf = fit.ndf;
-        const int n = 6 + 9;
         for (int k = 0; k < 6; ++k) {
           const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covarianceAt(k, k));
           tpulls[k].add(pull);
@@ -447,7 +444,7 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
   prop.bzKiloGauss = 20.F;
   // the Xi- at the root, carried 2 cm along its helix: its decay vertex and
   // its momentum there
-  const Truth xiAtRoot{0.2, 1.3, -1. / 1.2};
+  const Truth xiAtRoot{.phi = 0.2, .theta = 1.3, .qOverP = -1. / 1.2};
   Propagator xiProp = prop;
   xiProp.massGeV = 1.32171F;
   const auto start = beamLinePlane(static_cast<Scalar>(kVertex[0]), static_cast<Scalar>(kVertex[1]), static_cast<Scalar>(xiAtRoot.phi));
@@ -472,18 +469,18 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
   Scalar xiDecay[3]{};
   surfaceToGlobal(on, there.loc0(), there.loc1(), xiDecay);
   const std::array<double, 3> second{xiDecay[0], xiDecay[1], xiDecay[2]};
-  const auto xi = vectorOf(Truth{static_cast<double>(there.phi()), static_cast<double>(there.theta()), static_cast<double>(there.qOverP())});
+  const auto xi = vectorOf(Truth{.phi = static_cast<double>(there.phi()), .theta = static_cast<double>(there.theta()), .qOverP = static_cast<double>(there.qOverP())});
   // its daughters at its decay: a pi-, the Lambda the rest
-  const Truth bachelor{0.5, 1.25, -1. / 0.3};
+  const Truth bachelor{.phi = 0.5, .theta = 1.25, .qOverP = -1. / 0.3};
   const auto b = vectorOf(bachelor);
   const std::array<double, 3> lambda{xi[0] - b[0], xi[1] - b[1], xi[2] - b[2]};
   const double lambdaP = std::hypot(lambda[0], lambda[1], lambda[2]);
   const std::array<double, 3> third{second[0] + (3. * lambda[0] / lambdaP), second[1] + (3. * lambda[1] / lambdaP), second[2] + (3. * lambda[2] / lambdaP)};
-  const Truth proton{0.1, 1.2, 1. / 0.8};
+  const Truth proton{.phi = 0.1, .theta = 1.2, .qOverP = 1. / 0.8};
   const auto pr = vectorOf(proton);
   const Truth lambdaPion = truthOf({lambda[0] - pr[0], lambda[1] - pr[1], lambda[2] - pr[2]}, -1.);
-  const Truth piPlusA{-0.3, 1.5, 1. / 0.6};
-  const Truth piPlusB{0.7, 1.1, 1. / 0.4};
+  const Truth piPlusA{.phi = -0.3, .theta = 1.5, .qOverP = 1. / 0.6};
+  const Truth piPlusB{.phi = 0.7, .theta = 1.1, .qOverP = 1. / 0.4};
   const DecayTopology topology{.vertexOf = {0, 0, 1, 2, 2}, .parent = {-1, 0, 1}};
   const std::vector<DecayDaughter> exactStates{daughterOf(piPlusA, prop, kVertex), daughterOf(piPlusB, prop, kVertex), daughterOf(bachelor, prop, second), daughterOf(proton, prop, third), daughterOf(lambdaPion, prop, third)};
   const std::array<std::array<double, 3>, 3> truth{kVertex, second, third};
@@ -510,7 +507,6 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
     }
     ++fitted;
     ndf = fit.ndf;
-    const int n = 9 + 15;
     for (int k = 0; k < 9; ++k) {
       const double pull = (fit.vertices[k / 3][k % 3] - truth[k / 3][k % 3]) / std::sqrt(fit.covarianceAt(k, k));
       pulls[k].add(pull);
@@ -541,8 +537,9 @@ BOOST_AUTO_TEST_CASE(ElectronMixturesSumOverTheirComponents)
   Propagator prop;
   prop.bzKiloGauss = 20.F;
   prop.massGeV = 0.000511F;
-  const std::array<Truth, 2> pair{Truth{0.3, 1.2, 1. / 0.6}, Truth{0.9, 1.35, -1. / 0.4}};
+  const std::array<Truth, 2> pair{Truth{.phi = 0.3, .theta = 1.2, .qOverP = 1. / 0.6}, Truth{.phi = 0.9, .theta = 1.35, .qOverP = -1. / 0.4}};
   std::vector<DecayDaughter> exactStates;
+  exactStates.reserve(pair.size());
   for (const auto& truth : pair) {
     exactStates.push_back(daughterOf(truth, prop, kVertex));
   }
@@ -562,7 +559,7 @@ BOOST_AUTO_TEST_CASE(ElectronMixturesSumOverTheirComponents)
   for (auto& daughter : exactStates) {
     daughter.mass = 0.000511;
   }
-  std::mt19937 random{2468U};
+  std::mt19937 const random{2468U};
   std::normal_distribution<double> gauss;
   std::uniform_real_distribution<double> uniform;
   constexpr int kTrials = 1000;
@@ -605,7 +602,6 @@ BOOST_AUTO_TEST_CASE(ElectronMixturesSumOverTheirComponents)
         continue;
       }
       ++fitted;
-      const int n = 3 + 6;
       for (int i = 0; i < 2; ++i) {
         const int q = 3 + (3 * i) + 2;
         const double residual = fit.momenta[i][2] - pair[i].qOverP;
@@ -636,8 +632,8 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
 {
   Propagator prop;
   prop.bzKiloGauss = 20.F;
-  const Truth kaon{0.35, 1.25, -1. / 1.1};
-  const Truth positron{0.05, 1.4, 1. / 0.7};
+  const Truth kaon{.phi = 0.35, .theta = 1.25, .qOverP = -1. / 1.1};
+  const Truth positron{.phi = 0.05, .theta = 1.4, .qOverP = 1. / 0.7};
   const std::array<double, 3> neutrino{0.3, 0.25, 0.1};
   constexpr double kKaon = 0.493677;
   constexpr double kElectron = 0.000511;
@@ -725,7 +721,6 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
     }
     ++fitted;
     ndf = nearest.ndf;
-    const int n = 3 + 9;
     for (int c = 0; c < 3; ++c) {
       const double pull = (nearest.vertex[c] - kVertex[c]) / std::sqrt(nearest.covarianceAt(c, c));
       pulls[c].add(pull);
@@ -756,7 +751,7 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
   constexpr double kWidth = 0.0473;
   // the K- and the pi+ of the K*0: their momenta at the K*'s mass, the
   // pion's magnitude solved for it
-  const Truth kaon{0.2, 1.3, -1. / 0.9};
+  const Truth kaon{.phi = 0.2, .theta = 1.3, .qOverP = -1. / 0.9};
   const double phiPi = 0.55;
   const double thetaPi = 1.2;
   const auto unit = [](double phi, double theta) { return std::array<double, 3>{std::cos(phi) * std::sin(theta), std::sin(phi) * std::sin(theta), std::cos(theta)}; };
@@ -773,8 +768,8 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
     const double m2 = (kKaon * kKaon) + (kPion * kPion) + (2. * ((ek * std::hypot(p, kPion)) - (pk * p * cosine)));
     (m2 < kKStar * kKStar ? low : high) = p;
   }
-  const Truth pion{phiPi, thetaPi, 1. / (0.5 * (low + high))};
-  const Truth other{-0.4, 1.5, 1. / 0.6};
+  const Truth pion{.phi = phiPi, .theta = thetaPi, .qOverP = 1. / (0.5 * (low + high))};
+  const Truth other{.phi = -0.4, .theta = 1.5, .qOverP = 1. / 0.6};
   Propagator kaonProp = prop;
   kaonProp.massGeV = static_cast<Scalar>(kKaon);
   Propagator pionProp = prop;
@@ -805,7 +800,6 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
         continue;
       }
       ++fitted;
-      const int n = 3 + 9;
       for (int i = 0; i < 3; ++i) {
         const double pull = (fit.vertex[i] - kVertex[i]) / std::sqrt(fit.covarianceAt(i, i));
         pulls[i].add(pull);
@@ -831,8 +825,8 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
   Propagator prop;
   prop.bzKiloGauss = 20.F;
   constexpr double kHelium3 = 2.80839;
-  const Truth helium{0.3, 1.25, 2. / 2.4}; // q / p, |q| = 2
-  const Truth pion{0.7, 1.4, -1. / 0.25};
+  const Truth helium{.phi = 0.3, .theta = 1.25, .qOverP = 2. / 2.4}; // q / p, |q| = 2
+  const Truth pion{.phi = 0.7, .theta = 1.4, .qOverP = -1. / 0.25};
   double energy = 0.;
   std::array<double, 3> total{};
   for (const auto& [truth, mass, charge] : {std::tuple{helium, kHelium3, 2.}, std::tuple{pion, kPion, 1.}}) {
@@ -886,7 +880,6 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
     }
     ++fitted;
     ndf = fit.ndf;
-    const int n = 3 + 6;
     for (int c = 0; c < 3; ++c) {
       const double pull = (fit.vertex[c] - kVertex[c]) / std::sqrt(fit.covarianceAt(c, c));
       pulls[c].add(pull);
@@ -910,6 +903,7 @@ BOOST_AUTO_TEST_CASE(ExactStatesGiveTheTruthBack)
   Propagator prop;
   prop.bzKiloGauss = 20.F;
   std::vector<DecayDaughter> daughters;
+  daughters.reserve(kDaughters.size());
   for (const auto& truth : kDaughters) {
     daughters.push_back(daughterOf(truth, prop));
   }
@@ -933,6 +927,7 @@ BOOST_AUTO_TEST_CASE(SmearedStatesGiveUnitPulls)
   Propagator prop;
   prop.bzKiloGauss = 20.F;
   std::vector<DecayDaughter> exact;
+  exact.reserve(kDaughters.size());
   for (const auto& truth : kDaughters) {
     exact.push_back(daughterOf(truth, prop));
   }
@@ -949,7 +944,6 @@ BOOST_AUTO_TEST_CASE(SmearedStatesGiveUnitPulls)
       continue;
     }
     ++fitted;
-    const int n = 3 + (3 * static_cast<int>(daughters.size()));
     for (int k = 0; k < 3; ++k) {
       const double pull = (fit.vertex[k] - kVertex[k]) / std::sqrt(fit.covarianceAt(k, k));
       pulls[k].add(pull);
@@ -975,6 +969,7 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseIsTheTwoPassOne)
   // halves, against the normalised two-pass collapse.
   using decay_fit_detail::MixtureCollapse;
   constexpr int n = 3;
+  constexpr std::size_t kEntries = static_cast<std::size_t>(n) * n; // a full n x n matrix
   std::mt19937 random(7U);
   std::normal_distribution<double> gauss;
   struct Component {
@@ -985,8 +980,8 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseIsTheTwoPassOne)
   };
   std::vector<Component> mixture;
   for (const double logWeight : {-3., 1.5, -700., 2., 0.5, -1., 2.5, -20.}) {
-    Component c{.logWeight = logWeight, .p = {gauss(random), gauss(random), gauss(random)}, .sigma = std::vector<double>(n * n, 0.), .chi2 = 3. + gauss(random)};
-    std::array<double, n * n> b{};
+    Component c{.logWeight = logWeight, .p = {gauss(random), gauss(random), gauss(random)}, .sigma = std::vector<double>(kEntries, 0.), .chi2 = 3. + gauss(random)};
+    std::array<double, kEntries> b{};
     for (auto& v : b) {
       v = gauss(random);
     }
@@ -1016,7 +1011,7 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseIsTheTwoPassOne)
     }
     chi2 += w * c.chi2;
   }
-  std::vector<double> covariance(n * n, 0.);
+  std::vector<double> covariance(kEntries, 0.);
   for (const auto& c : mixture) {
     const double w = std::exp(c.logWeight - largest) / total;
     for (int i = 0; i < n; ++i) {
@@ -1038,7 +1033,7 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseIsTheTwoPassOne)
     }
     c.sigma = packedSigma;
   }
-  const auto collapseIn = [&](int at) { return MixtureCollapse(std::span<double>{storage[2 * at].data(), n}, std::span<double>{storage[(2 * at) + 1]}); };
+  const auto collapseIn = [&](int at) { return MixtureCollapse(std::span<double>{storage[2U * static_cast<std::size_t>(at)].data(), n}, std::span<double>{storage[(2U * static_cast<std::size_t>(at)) + 1]}); };
   auto stream = collapseIn(0);
   auto first = collapseIn(1);
   auto second = collapseIn(2);
@@ -1073,7 +1068,7 @@ BOOST_AUTO_TEST_CASE(InputsOutsideTheCapacitiesAreRefused)
   // itself, a resonance of a third daughter, a tracked mother at a vertex
   // that is not there, one with more rows than a track holds.
   const std::vector<DecayDaughter> two(2);
-  DecayTopology loop{.vertexOf = {0, 1}, .parent = {-1, 1}};
+  const DecayTopology loop{.vertexOf = {0, 1}, .parent = {-1, 1}};
   BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, loop).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
   DecayConstraints resonance;
   resonance.resonances.push_back({.daughters = {0, 2}, .massGeV = 1., .widthGeV = 0.1});
@@ -1103,7 +1098,7 @@ BOOST_AUTO_TEST_CASE(InputsBuiltBeyondTheirCapacityOrInconsistentAreRefused)
   BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, crowded)) == static_cast<int>(DecayFitStatus::kTooLarge));
   // A mixture that claims more components than it holds.
   auto mixed = two;
-  mixed[0].mixture.size = mixed[0].mixture.kCapacity + 1;
+  mixed[0].mixture.size = std::remove_cvref_t<decltype(mixed[0].mixture)>::kCapacity + 1;
   BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{mixed}, UniformMaterial{})) == static_cast<int>(DecayFitStatus::kInvalidInput));
   // A composite's mass where the tree has no composite: no equation, no
   // degree of freedom either.
@@ -1127,11 +1122,10 @@ BOOST_AUTO_TEST_CASE(AnAzimuthAnyTurnsAwayIsReduced)
 {
   // Newton's steps are not bounded in phi: an azimuth whole turns away
   // reduces as std::remainder does.
-  constexpr double kPi = std::numbers::pi;
   for (const int turns : {-7, -5, -1, 0, 1, 5, 7}) {
     for (const double offset : {-3., -0.3, 0., 0.3, 3.}) {
-      const double x = offset + (2. * kPi * turns);
-      BOOST_TEST(std::abs(decay_fit_detail::angleInPMPi(x) - std::remainder(x, 2. * kPi)) < 1e-12);
+      const double x = offset + (kTwoPi<double> * turns);
+      BOOST_TEST(std::abs(toPMPiOf(x) - std::remainder(x, kTwoPi<double>)) < 1e-12);
     }
   }
 }
@@ -1182,7 +1176,7 @@ BOOST_AUTO_TEST_CASE(TheFitsCrossingIsThePropagatorsOne)
     out = {local[0], local[1], to[3]};
     return reached;
   };
-  for (const Truth& truth : {Truth{0.3, 1.2, 1. / 0.3}, Truth{-0.4, 1.9, -1.}, Truth{2.5, 0.6, 0.2}}) {
+  for (const Truth& truth : {Truth{.phi = 0.3, .theta = 1.2, .qOverP = 1. / 0.3}, Truth{.phi = -0.4, .theta = 1.9, .qOverP = -1.}, Truth{.phi = 2.5, .theta = 0.6, .qOverP = 0.2}}) {
     const std::array<double, 3> vertex{0.2, -0.1, 0.4};
     const auto start = beamLinePlane(static_cast<Scalar>(vertex[0]), static_cast<Scalar>(vertex[1]), static_cast<Scalar>(truth.phi));
     BoundTrackState state;
@@ -1212,7 +1206,7 @@ BOOST_AUTO_TEST_CASE(TheFitsCrossingIsThePropagatorsOne)
       const double tolerance = 64. * std::numeric_limits<Scalar>::epsilon() * 10.;
       BOOST_TEST(std::abs(fit[0].v - static_cast<double>(reference.loc0())) < tolerance);
       BOOST_TEST(std::abs(fit[1].v - static_cast<double>(reference.loc1())) < tolerance);
-      BOOST_TEST(std::abs(angleInPMPi(fit[2].v - static_cast<double>(reference.phi()))) < tolerance);
+      BOOST_TEST(std::abs(toPMPiOf(fit[2].v - static_cast<double>(reference.phi()))) < tolerance);
       for (int k = 0; k < 6; ++k) {
         const double h = 1e-6 * std::max(std::abs(free[k]), 1.);
         auto up = free;
@@ -1242,8 +1236,8 @@ BOOST_AUTO_TEST_CASE(ReducedPrecisionOnHardCases)
   for (const double opening : {1e-3, 1e-2}) {
     constexpr double kP = 25.;
     const double half = 0.5 * opening;
-    const Truth plus{0.4 + half, 1.3, 1. / kP};
-    const Truth minus{0.4 - half, 1.3, -1. / kP};
+    const Truth plus{.phi = 0.4 + half, .theta = 1.3, .qOverP = 1. / kP};
+    const Truth minus{.phi = 0.4 - half, .theta = 1.3, .qOverP = -1. / kP};
     const auto pair = smeared({daughterOf(plus, prop, kDecay), daughterOf(minus, prop, kDecay)}, 11U);
     const double e = std::hypot(kP, kPion);
     const double mass = std::sqrt((2. * kPion * kPion) + (2. * ((e * e) - (kP * kP * std::cos(opening)))));
@@ -1297,7 +1291,7 @@ BOOST_AUTO_TEST_CASE(ReducedPrecisionOnHardCases)
           from[c].d[c] = T(1.);
         }
         from[3].v = T(0.);
-        from[4].v = static_cast<T>(std::numbers::pi / 2.);
+        from[4].v = static_cast<T>(kPi<double> / 2.);
         from[5].v = static_cast<T>(qOverPt);
         FreeState<6, T> to{};
         std::array<Dual<6, T>, 2> local{};

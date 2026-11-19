@@ -27,6 +27,7 @@
 #ifndef GTRK_TRACKING_SURFACEMATERIAL_H_
 #define GTRK_TRACKING_SURFACEMATERIAL_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Definitions.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
@@ -80,9 +81,8 @@ struct SurfaceMaterialMap {
 
   [[nodiscard]] GPUhdi() GPUAlwaysInline() std::size_t index(int pair, int half, Scalar phi, Scalar second) const
   {
-    constexpr Scalar kTwoPi = 6.283185307F;
     const MaterialSurface& s = surfaces[pair][half];
-    int iPhi = static_cast<int>((phi < 0.F ? phi + kTwoPi : phi) * (kPhiBins / kTwoPi));
+    int iPhi = static_cast<int>((phi < 0.F ? phi + kTwoPi<Scalar> : phi) * (kPhiBins / kTwoPi<Scalar>));
     iPhi = iPhi < 0 ? 0 : (iPhi >= kPhiBins ? kPhiBins - 1 : iPhi);
     int iSecond = static_cast<int>((second - s.secondMin) * s.secondBinsPerCm);
     iSecond = iSecond < 0 ? 0 : (iSecond >= kSecondBins ? kSecondBins - 1 : iSecond);

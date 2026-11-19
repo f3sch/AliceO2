@@ -34,11 +34,11 @@
 #ifndef GTRK_DETECTORS_TRKFT3_H_
 #define GTRK_DETECTORS_TRKFT3_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerSpec.h"
 
 #include <array>
 #include <cstddef>
-#include <numbers>
 
 namespace o2::gtrk::detectors
 {
@@ -61,7 +61,7 @@ inline constexpr double kVDThickness = 20 * kUm;
 inline constexpr double kVDPitch = 10 * kUm;
 
 /// The arc width of a VD sensor of layer \a layer [cm], as O2 computes it.
-[[nodiscard]] constexpr double vdWidth(int layer) { return (kVDRadius[static_cast<std::size_t>(layer)] * 2 * std::numbers::pi / 4) - kVDPetalGap[static_cast<std::size_t>(layer)]; }
+[[nodiscard]] constexpr double vdWidth(int layer) { return (kVDRadius[static_cast<std::size_t>(layer)] * kTwoPi<double> / 4) - kVDPetalGap[static_cast<std::size_t>(layer)]; }
 
 [[nodiscard]] constexpr SensorSpec vdSensor(int layer)
 {

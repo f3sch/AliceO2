@@ -54,7 +54,6 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
-#include <numbers>
 #include <span>
 #include <type_traits>
 
@@ -79,7 +78,7 @@ GPUhdi() GPUAlwaysInline() T directedTurn(T turn, T curvature, PropagationDirect
 {
   const auto wanted = static_cast<T>(static_cast<int>(direction));
   if ((turn / curvature) * wanted < T{0}) {
-    turn += wanted * (curvature > T{0} ? T{2} * std::numbers::pi_v<T> : -(T{2} * std::numbers::pi_v<T>));
+    turn += wanted * (curvature > T{0} ? kTwoPi<T> : -kTwoPi<T>);
   }
   return turn;
 }
@@ -89,7 +88,10 @@ GPUhdi() GPUAlwaysInline() T directedTurn(T turn, T curvature, PropagationDirect
 /// a forward disc after about ten turns -- and not the next layer of the same
 /// arc; its transported covariance is also past what float can factorise.
 template <typename T>
-GPUhdi() GPUAlwaysInline() bool beyondHalfTurn(T turn) { return o2::gpu::CAMath::Abs(turn) > std::numbers::pi_v<T>; }
+GPUhdi() GPUAlwaysInline() bool beyondHalfTurn(T turn)
+{
+  return o2::gpu::CAMath::Abs(turn) > kPi<T>;
+}
 
 template <typename T>
 GPUhdi() GPUAlwaysInline() bool nearerPath(T candidate, T chosen) { return exactlyEqual(chosen, T{0}) || o2::gpu::CAMath::Abs(candidate) < o2::gpu::CAMath::Abs(chosen); }
@@ -129,14 +131,14 @@ template <typename Prop>
   const auto& propagator = pointPropagator(prop, from, state);
   surfaceToGlobal(from, state.loc0(), state.loc1(), s.position);
   for (int i = 0; i < 3; ++i) {
-    s.start[i] = static_cast<Scalar>(s.position[i]);
+    s.start[i] = s.position[i];
   }
-  sincosOf(static_cast<Scalar>(state.phi()), s.sinPhi, s.cosPhi);
-  sincosOf(static_cast<Scalar>(state.theta()), s.sinTheta, s.cosTheta);
+  sincosOf(state.phi(), s.sinPhi, s.cosPhi);
+  sincosOf(state.theta(), s.sinTheta, s.cosTheta);
   if (Math::Abs(s.sinTheta) < 1.e-9F) {
     return s;
   }
-  s.curvature = (static_cast<Scalar>(state.qOverP()) / s.sinTheta) * static_cast<Scalar>(propagator.bzKiloGauss) * static_cast<Scalar>(constants::math::B2C);
+  s.curvature = (state.qOverP() / s.sinTheta) * static_cast<Scalar>(propagator.bzKiloGauss) * static_cast<Scalar>(constants::math::B2C);
   s.minAbsCosIncidence = static_cast<Scalar>(propagator.minAbsCosIncidence);
   if (!(Math::Abs(s.curvature) < 1.e-12F)) {
     s.inverse = 1.F / s.curvature;
@@ -279,8 +281,8 @@ template <DetectorLayout Det>
     }
   }
 
-  result.phi = o2::math_utils::detail::to02Pi<Scalar>(Math::ATan2(static_cast<Scalar>(y), static_cast<Scalar>(x)));
-  result.second = Detector<Det>::isBarrelLayer(layer) ? static_cast<Scalar>(z) : Math::Sqrt(static_cast<Scalar>((x * x) + (y * y)));
+  result.phi = o2::math_utils::detail::to02Pi<Scalar>(Math::ATan2(y, x));
+  result.second = Detector<Det>::isBarrelLayer(layer) ? z : Math::Sqrt((x * x) + (y * y));
   result.status = isFiniteOf(result.phi) && isFiniteOf(result.second) ? PropagationStatus::kOk : PropagationStatus::kNotFinite;
   return result;
 }
@@ -533,7 +535,7 @@ template <typename Prop, DetectorLayout Det, typename Material>
   if (nominal.status != PropagationStatus::kOk) {
     return false;
   }
-  CandidateWindow window{.phiHalfWidth = std::numbers::pi_v<Scalar>, .secondHalfWidth = kOpenBound};
+  CandidateWindow window{.phiHalfWidth = kPi<Scalar>, .secondHalfWidth = kOpenBound};
   return predictedWindow<false>(prop, parameters, geometry, material, state, factors, layer, direction, nominal, window, 1.F, nullptr, &traversed);
 }
 
@@ -1316,7 +1318,7 @@ class FollowStage
     if constexpr (EndDensity) {
       using Math = o2::gpu::CAMath;
       const Scalar key = mParameters->followKeepDensity;
-      const bool kept = direction == PropagationDirection::kForward && key > 0.F && !branch.lastKink && branch.lastDeterminant > 0.F && branch.lastChi2 + Math::Log(branch.lastDeterminant) < -2.F * Math::Log(2.F * std::numbers::pi_v<Scalar> * key);
+      const bool kept = direction == PropagationDirection::kForward && key > 0.F && !branch.lastKink && branch.lastDeterminant > 0.F && branch.lastChi2 + Math::Log(branch.lastDeterminant) < -2.F * Math::Log(kTwoPi<Scalar> * key);
       countWork(WorkCounter::kFollowDensityKept, kept ? 1U : 0U);
       return kept;
     } else {
@@ -1399,7 +1401,7 @@ class FollowStage
       .latestPS = static_cast<std::int64_t>(box.upper()) - 1,
       .afterPS = box.lower(),
       .phiCentre = phiCentre,
-      .phiHalfWidth = std::numbers::pi_v<Scalar>,
+      .phiHalfWidth = kPi<Scalar>,
       .secondCentre = secondCentre,
       .secondHalfWidth = follow::kOpenBound,
     };

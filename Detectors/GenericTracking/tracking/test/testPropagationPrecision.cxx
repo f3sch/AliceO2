@@ -31,11 +31,11 @@
 #include <boost/test/unit_test.hpp>
 
 #include "PropagationPrecisionFixture.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 
 #include <algorithm>
 #include <cmath>
 #include <iostream>
-#include <numbers>
 #include <random>
 
 namespace o2::gtrk
@@ -55,13 +55,13 @@ BOOST_AUTO_TEST_CASE(PropagationClosesOnItsOwnHelixWithinOneMicron)
   Worst worst;
 
   for (int trial = 0; trial < trials; ++trial) {
-    const double phi = sample(-std::numbers::pi, std::numbers::pi);
-    const double theta = sample(0.01, std::numbers::pi - 0.01);
+    const double phi = sample(-kPi<double>, kPi<double>);
+    const double theta = sample(0.01, kPi<double> - 0.01);
     const double pt = std::exp(sample(std::log(0.03), std::log(10000.)));
     const double charge = trial % 2 == 0 ? 1. : -1.;
     const double radius = sample(0., 90.);
-    const double azimuth = sample(-std::numbers::pi, std::numbers::pi);
-    const auto from = plane(radius * std::cos(azimuth), radius * std::sin(azimuth), sample(-300., 300.), sample(-std::numbers::pi, std::numbers::pi), trial % 3 == 0, 1);
+    const double azimuth = sample(-kPi<double>, kPi<double>);
+    const auto from = plane(radius * std::cos(azimuth), radius * std::sin(azimuth), sample(-300., 300.), sample(-kPi<double>, kPi<double>), trial % 3 == 0, 1);
 
     BoundTrackState initial;
     initial.surface = from.id;
@@ -93,7 +93,7 @@ BOOST_AUTO_TEST_CASE(PropagationClosesOnItsOwnHelixWithinOneMicron)
     const double endX = origin[0] + along * std::cos(static_cast<double>(initial.phi())) - across * std::sin(static_cast<double>(initial.phi()));
     const double endY = origin[1] + along * std::sin(static_cast<double>(initial.phi())) + across * std::cos(static_cast<double>(initial.phi()));
     const double endZ = origin[2] + path * std::cos(static_cast<double>(initial.theta()));
-    auto to = plane(endX, endY, endZ, sample(-std::numbers::pi, std::numbers::pi), trial % 3 == 1, 2);
+    auto to = plane(endX, endY, endZ, sample(-kPi<double>, kPi<double>), trial % 3 == 1, 2);
     // Slide the target's origin inside its own plane. The plane is unchanged,
     // but the crossing is no longer at its centre -- and the offset along the
     // line is what a grazing crossing amplifies, so a sweep that always lands
@@ -128,8 +128,8 @@ BOOST_AUTO_TEST_CASE(GrazingHalfTurnAndStraightLimitsStayWithinOneMicron)
   const auto from = plane(80., -70., 290., 0.3, false, 1);
 
   for (const double phi : {-3.1, -1.7, -0.01, 0., 0.6, 2.7, 3.1}) {
-    for (const double theta : {0.05, 0.3, 0.5 * std::numbers::pi, 2.9}) {
-      for (const double turn : {-std::numbers::pi + 1.e-6, -2.8, -0.5, -1.e-6, 0., 1.e-9, 1.e-4, 0.499999, 0.500001, 2.8, std::numbers::pi - 1.e-6}) {
+    for (const double theta : {0.05, 0.3, 0.5 * kPi<double>, 2.9}) {
+      for (const double turn : {-kPi<double> + 1.e-6, -2.8, -0.5, -1.e-6, 0., 1.e-9, 1.e-4, 0.499999, 0.500001, 2.8, kPi<double> - 1.e-6}) {
         for (const double incidence : {0.00999, 0.01001, 0.011, 0.02, 0.1, 0.7}) {
           if (incidence > std::sin(theta)) {
             continue;

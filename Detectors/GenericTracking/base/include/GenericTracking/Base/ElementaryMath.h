@@ -34,6 +34,9 @@
 #include "GPUCommonMath.h"
 
 #include <cfloat>
+#include <cstdint>
+#include <limits>
+#include <numbers>
 
 // The documented libdevice float implementation, called directly so CUDA's
 // --use-fast-math does not substitute the lower-accuracy intrinsic.
@@ -43,6 +46,15 @@ extern "C" __device__ void __nv_sincosf(float, float*, float*);
 
 namespace o2::gtrk
 {
+
+/// pi and 2 pi in T's own precision, the one definition for GenericTracking:
+/// `kPi<Scalar>` for the tracking's float, `kPi<double>` for the exact
+/// solves, the fits and the studies. O2's `constants::math::PI` is a float:
+/// in double it is 9e-8 off pi.
+template <typename T>
+inline constexpr T kPi = std::numbers::pi_v<T>;
+template <typename T>
+inline constexpr T kTwoPi = T(2) * std::numbers::pi_v<T>;
 
 GPUhdi() GPUAlwaysInline() float sinOf(float x)
 {
@@ -117,6 +129,22 @@ GPUhdi() GPUAlwaysInline() double logOf(double x) { return o2::gpu::CAMath::Logd
 GPUhdi() GPUAlwaysInline() float sqrtOf(float x) { return o2::gpu::CAMath::Sqrt(x); }
 GPUhdi() GPUAlwaysInline() double sqrtOf(double x) { return o2::gpu::CAMath::Sqrtd(x); }
 
+/// The length of a vector of two or three components. CAMath's `Hypot` is
+/// float's only; double's is its sum of squares under `Sqrtd`, the same form.
+GPUhdi() GPUAlwaysInline() float hypotOf(float a, float b) { return o2::gpu::CAMath::Hypot(a, b); }
+GPUhdi() GPUAlwaysInline() float hypotOf(float a, float b, float c) { return o2::gpu::CAMath::Hypot(a, b, c); }
+GPUhdi() GPUAlwaysInline() double hypotOf(double a, double b) { return sqrtOf((a * a) + (b * b)); }
+GPUhdi() GPUAlwaysInline() double hypotOf(double a, double b, double c) { return sqrtOf((a * a) + (b * b) + (c * c)); }
+
+/// ln(1 + x) without losing x's digits to the sum: ln(u) x / (u - 1) with
+/// u = 1 + x rounded, exact where u is 1 (Goldberg's form). CAMath has no
+/// log1p; `logOf` keeps the deterministic mode's.
+GPUhdi() GPUAlwaysInline() double log1pOf(double x)
+{
+  const double u = 1. + x;
+  return u == 1. ? x : logOf(u) * x / (u - 1.);
+}
+
 GPUhdi() GPUAlwaysInline() void sincosOf(float x, float& s, float& c)
 {
 #ifdef GPUCA_DETERMINISTIC_MODE
@@ -160,6 +188,31 @@ GPUhdi() GPUAlwaysInline() void directionSincosOf(float angle, double& sine, dou
 #endif
   sine = s;
   cosine = c;
+}
+
+/// An angle brought to [-pi, pi] by whole turns, any number of them, with pi
+/// in T's own precision (as std::remainder by 2 pi): the nearest whole number
+/// of turns through an integer, exact while it is below 2^(digits - 1); an
+/// angle beyond that (or not finite) has no meaningful turn and is returned
+/// as it is. O2's `toPMPi` takes one turn and float's pi; this one any, for
+/// an angle a fit's unbounded steps may carry turns away.
+template <typename T>
+[[nodiscard]] GPUhdi() T toPMPiOf(T x)
+{
+  constexpr T kExact = static_cast<T>(std::uint64_t{1} << (std::numeric_limits<T>::digits - 1));
+  const T turns = x / kTwoPi<T>;
+  if (!(turns < kExact && turns > -kExact)) {
+    return x;
+  }
+  const T whole = static_cast<T>(static_cast<std::int64_t>(turns + (turns >= T(0) ? T(0.5) : T(-0.5))));
+  T reduced = x - (kTwoPi<T> * whole);
+  // the rounded quotient can leave the result a hair outside
+  if (reduced > kPi<T>) {
+    reduced -= kTwoPi<T>;
+  } else if (reduced < -kPi<T>) {
+    reduced += kTwoPi<T>;
+  }
+  return reduced;
 }
 
 /// Whether \a x is finite, in every build: O2's `GPUCommonMath::Finite`

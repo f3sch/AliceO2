@@ -39,11 +39,11 @@ struct Dual {
 /// A scalar or a dual number's arithmetic.
 template <typename T>
 struct ScalarOf {
-  using type = T;
+  using type = T; // NOLINT(readability-identifier-naming): a type trait's member
 };
 template <int N, typename T>
 struct ScalarOf<Dual<N, T>> {
-  using type = T;
+  using type = T; // NOLINT(readability-identifier-naming): a type trait's member
 };
 
 template <int N, typename T>

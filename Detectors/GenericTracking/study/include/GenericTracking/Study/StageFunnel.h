@@ -45,6 +45,7 @@
 #ifndef GTRK_STUDY_STAGEFUNNEL_H_
 #define GTRK_STUDY_STAGEFUNNEL_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/LinkHoles.h"
@@ -72,7 +73,6 @@
 #include <format>
 #include <limits>
 #include <map>
-#include <numbers>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -171,7 +171,7 @@ template <DetectorLayout Det>
   }
   const auto& grid = frame.grid();
   const auto cells = grid.cellSpan(to, window, grid.geometry().allBlocks());
-  const Scalar phi = targetMeasurement.phi < 0.F ? targetMeasurement.phi + (2 * std::numbers::pi_v<Scalar>) : targetMeasurement.phi;
+  const Scalar phi = targetMeasurement.phi < 0.F ? targetMeasurement.phi + kTwoPi<Scalar> : targetMeasurement.phi;
   const auto phiBin = grid.geometry().phiBinOf(to, phi);
   const auto secondBin = grid.geometry().secondBinOf(to, secondCoordinate<Det>(to, target.r, target.z));
   const bool inPhi = (phiBin >= cells.firstPhi && phiBin < cells.phiEnd) || phiBin < cells.wrapEnd;

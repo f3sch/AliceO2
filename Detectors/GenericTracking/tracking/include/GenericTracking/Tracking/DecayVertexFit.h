@@ -309,7 +309,7 @@ struct StartEntry {
     const double phi = entry.state->phi();
     const double theta = entry.state->theta();
     const double rho = entry.propagator->curvature(entry.state->qOverP(), sinOf(theta));
-    return Circle{position[0] - (sinOf(phi) / rho), position[1] + (cosOf(phi) / rho), 1. / o2::gpu::CAMath::Abs(rho), rho, position[0], position[1], position[2], cosOf(theta) / sinOf(theta)};
+    return Circle{.cx = position[0] - (sinOf(phi) / rho), .cy = position[1] + (cosOf(phi) / rho), .radius = 1. / o2::gpu::CAMath::Abs(rho), .rho = rho, .px = position[0], .py = position[1], .pz = position[2], .cotTheta = cosOf(theta) / sinOf(theta)};
   };
   const auto one = circleOf(a);
   const auto two = circleOf(b);
@@ -318,7 +318,7 @@ struct StartEntry {
   }
   const double ux = two.cx - one.cx;
   const double uy = two.cy - one.cy;
-  const double d = decay_fit_detail::hypotOf(ux, uy);
+  const double d = hypotOf(ux, uy);
   if (!(d > 0.)) {
     return false;
   }
@@ -343,7 +343,7 @@ struct StartEntry {
   const auto zAt = [](const Circle& circle, const std::array<double, 2>& point) {
     const double from = atan2Of(circle.py - circle.cy, circle.px - circle.cx);
     const double to = atan2Of(point[1] - circle.cy, point[0] - circle.cx);
-    const double turn = decay_fit_detail::angleInPMPi(to - from);
+    const double turn = toPMPiOf(to - from);
     return circle.pz + ((turn / circle.rho) * circle.cotTheta);
   };
   bool found = false;
@@ -479,7 +479,7 @@ struct StartEntry {
   const auto& total = sum.vector;
   const double energy = sum.energy;
   std::array<double, 3> u{visible.vertex[0] - point[0], visible.vertex[1] - point[1], visible.vertex[2] - point[2]};
-  const double length = decay_fit_detail::hypotOf(u[0], u[1], u[2]);
+  const double length = hypotOf(u[0], u[1], u[2]);
   if (!(length > 0.)) {
     return {};
   }
@@ -515,7 +515,7 @@ struct StartEntry {
   FixedVector<std::array<double, 3>, 2> starts;
   for (const double x : roots) {
     const std::array<double, 3> q{(x * u[0]) - total[0], (x * u[1]) - total[1], (x * u[2]) - total[2]};
-    if (decay_fit_detail::hypotOf(q[0], q[1], q[2]) > 0.) {
+    if (hypotOf(q[0], q[1], q[2]) > 0.) {
       starts.push_back(q);
     }
   }
@@ -556,11 +556,12 @@ template <DetectorLayout Det>
     return DecayFitStatus::kTooLarge;
   }
   for (const auto& daughter : daughters) {
-    if (daughter.mixture.size < 0 || daughter.mixture.size > daughter.mixture.kCapacity) {
+    if (daughter.mixture.size < 0 || daughter.mixture.size > std::remove_cvref_t<decltype(daughter.mixture)>::kCapacity) {
       return DecayFitStatus::kInvalidInput;
     }
   }
-  if (!topology.vertexOf.empty() && static_cast<int>(topology.vertexOf.size()) != count) {
+  const int vertexOfCount = static_cast<int>(topology.vertexOf.size());
+  if (vertexOfCount != 0 && vertexOfCount != count) {
     return DecayFitStatus::kInvalidInput;
   }
   for (const int v : topology.vertexOf) {
@@ -568,13 +569,16 @@ template <DetectorLayout Det>
       return DecayFitStatus::kInvalidInput;
     }
   }
-  for (int v = 0; v < static_cast<int>(topology.parent.size()); ++v) {
+  const int parentCount = static_cast<int>(topology.parent.size());
+  for (int v = 0; v < parentCount; ++v) {
     if (v == 0 ? topology.parent[v] != -1 : (topology.parent[v] < 0 || topology.parent[v] >= v)) {
       return DecayFitStatus::kInvalidInput;
     }
   }
   // composite masses are per vertex below the root: k - 1 of them at most
-  if (static_cast<int>(topology.massGeV.size()) > k || static_cast<int>(constraints.compositeMasses.size()) > k - 1) {
+  const int vertexMasses = static_cast<int>(topology.massGeV.size());
+  const int compositeMasses = static_cast<int>(constraints.compositeMasses.size());
+  if (vertexMasses > k || compositeMasses > k - 1) {
     return DecayFitStatus::kInvalidInput;
   }
   for (const auto& resonance : constraints.resonances) {
@@ -682,7 +686,7 @@ class DecayVertexFitter
     [[nodiscard]] GPUhdi() std::size_t size() const { return count; }
     [[nodiscard]] GPUhdi() bool empty() const { return count == 0U; }
     GPUhdi() void clear() { count = 0U; }
-    GPUhdi() void push_back(const Component& component) { items[count++] = component; }
+    GPUhdi() void push_back(const Component& component) { items[count++] = component; } // NOLINT(readability-identifier-naming): the std containers' name
     [[nodiscard]] GPUhdi() const Component& operator[](std::size_t i) const { return items[i]; }
   };
   /// The chains' model's scratch, for the longest chain (`refreshChains`).
@@ -762,7 +766,7 @@ class DecayVertexFitter
       return;
     }
     result.charges = mCharges;
-    if (workspace.size() < workspaceSize(counts()) || reinterpret_cast<std::uintptr_t>(workspace.data()) % kAlignment != 0U) {
+    if (workspace.size() < workspaceSize(counts()) || reinterpret_cast<std::uintptr_t>(workspace.data()) % kAlignment != 0U) { // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): the address's alignment
       result.status = DecayFitStatus::kTooLarge;
       return;
     }
@@ -842,7 +846,6 @@ class DecayVertexFitter
     decay_fit_detail::copyN(mSpace.covariance, covSize(mCore), mResult->covariance.data());
     mResult->chi2 = mChi2;
     mResult->ndf = mNdf;
-    return;
   }
 
   /// After `fit`: its parameters (n: the vertices, the momenta, the chains'
@@ -931,7 +934,7 @@ class DecayVertexFitter
   [[nodiscard]] GPUhdi() static T* place(std::byte* base, std::size_t& at, std::size_t count)
   {
     at = (at + alignof(T) - 1U) / alignof(T) * alignof(T);
-    T* first = base != nullptr ? reinterpret_cast<T*>(base + at) : nullptr;
+    T* first = base != nullptr ? reinterpret_cast<T*>(base + at) : nullptr; // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): the workspace's bytes, constructed as Ts below
     if (first != nullptr) {
       for (std::size_t i = 0; i < count; ++i) {
         new (first + i) T{};
@@ -1004,7 +1007,7 @@ class DecayVertexFitter
       decay_fit_detail::fillN(chain.loss, chain.rowCount, M(1.));
       first += chain.rowCount;
     }
-    int electron = 0;
+    int electron = 0; // NOLINT(misc-const-correctness): incremented under if constexpr, which the check does not see
     for (int i = 0; i < mCount; ++i) {
       mComponents[i] = {};
       if constexpr (Variant == DecayFitVariant::kGaussianSum) {
@@ -1267,7 +1270,7 @@ class DecayVertexFitter
         } else if (scatters) {
           // the last segment, from the innermost row (or V) to the end point, t from it
           last = mMaterial.getMatMoment(static_cast<Scalar>(end[0]), static_cast<Scalar>(end[1]), static_cast<Scalar>(end[2]), a[0], a[1], a[2]);
-          lastLength = decay_fit_detail::hypotOf(state[0] - end[0], state[1] - end[1], state[2] - end[2]);
+          lastLength = hypotOf(state[0] - end[0], state[1] - end[1], state[2] - end[2]);
           totalX2X0 += static_cast<double>(last.x2X0);
         }
       }
@@ -1342,7 +1345,7 @@ class DecayVertexFitter
         }
       }
       if (chain.end != -2 && last.x2X0 > 0.F) {
-        const double t0 = static_cast<double>(highlandTheta0(last.x2X0, static_cast<Scalar>(totalX2X0), static_cast<Scalar>(o2::gpu::CAMath::Abs(chain.charge / state[5])), static_cast<Scalar>(chain.mass)));
+        const auto t0 = static_cast<double>(highlandTheta0(last.x2X0, static_cast<Scalar>(totalX2X0), static_cast<Scalar>(o2::gpu::CAMath::Abs(chain.charge / state[5])), static_cast<Scalar>(chain.mass)));
         const double across = t0 * t0 * lastLength * lastLength * static_cast<double>(last.x2X0T2) / static_cast<double>(last.x2X0);
         const double sinTheta = sinOf(static_cast<double>(state[4]));
         const int e = 2 * rows;
@@ -1372,8 +1375,8 @@ class DecayVertexFitter
         mResult->carried[i] = {daughter.innermost.phi(), daughter.innermost.theta(), daughter.innermost.qOverP()};
         continue;
       }
-      const int w = mTopology.vertexOfDaughter(i);
-      const auto plane = detail::hypothesis::perigeePlaneOf(daughter.propagator, daughter.innermost, daughter.surface, static_cast<Scalar>(at[3 * w]), static_cast<Scalar>(at[(3 * w) + 1]));
+      const auto first = 3U * static_cast<std::size_t>(mTopology.vertexOfDaughter(i)); // its vertex's first coordinate
+      const auto plane = detail::hypothesis::perigeePlaneOf(daughter.propagator, daughter.innermost, daughter.surface, static_cast<Scalar>(at[first]), static_cast<Scalar>(at[first + 1]));
       BoundTrackState state = daughter.innermost;
       mResult->carryX2X0[i] = detail::hypothesis::segmentRadiation(daughter.propagator, mMaterial, daughter.innermost, daughter.surface, plane);
       std::array<S, kBoundCovSize> factorStorage{};
@@ -1465,7 +1468,7 @@ class DecayVertexFitter
       for (int r = 0; r < 5; ++r) {
         residual[r] = static_cast<M>(mSpace.measurements[i].value[r]) - predicted[r].v;
       }
-      residual[2] = decay_fit_detail::angleInPMPi(residual[2]);
+      residual[2] = toPMPiOf(residual[2]);
       const auto& weight = mSpace.measurements[i].weight;
       for (int r = 0; r < 5; ++r) {
         rounding += ((kEpsilon * mSpace.measurements[i].value[r]) * (kEpsilon * mSpace.measurements[i].value[r])) * static_cast<double>(weight[covIndex(r, r)]);
@@ -1523,7 +1526,7 @@ class DecayVertexFitter
       const double big = resonance.massGeV;
       const DR u = (mass2 + (-(big * big))) / DR{static_cast<M>(big * resonance.widthGeV)};
       const M u2 = u.v * u.v;
-      chi2 += 2. * decay_fit_detail::log1pOf(static_cast<double>(u2));
+      chi2 += 2. * log1pOf(static_cast<double>(u2));
       const M weight = 0.5;                       // the Fisher information of chi2 / 2 per unit u^2
       const M slope = M(2.) * u.v / (M(1.) + u2); // d(chi2 / 2) / du
       if (normal == nullptr) {
@@ -1546,7 +1549,8 @@ class DecayVertexFitter
     using namespace decay_fit_detail;
     std::array<std::array<double, 3>, kMaxVertices> vertices{};
     for (int w = 0; w < mVertexCount; ++w) {
-      vertices[w] = {p[3 * w], p[(3 * w) + 1], p[(3 * w) + 2]};
+      const auto first = 3U * static_cast<std::size_t>(w);
+      vertices[w] = {p[first], p[first + 1], p[first + 2]};
     }
     std::array<std::array<double, 3>, kMaxDaughters> momenta{};
     for (int i = 0; i < mCount; ++i) {
@@ -1554,7 +1558,7 @@ class DecayVertexFitter
       momenta[i] = {p[q], p[q + 1], p[q + 2]};
     }
     int written = 0;
-    if (!evaluateConstraints<M>(mConstraints, mTopology, std::span<const std::array<double, 3>>{vertices.data(), static_cast<std::size_t>(mVertexCount)}, std::span<const std::array<double, 3>>{momenta.data(), static_cast<std::size_t>(mCount)}, std::span<const double>{mMasses}, std::span<const double>{mCharges}, mPhysicalField, mSpace.values, mSpace.rows, mParameterCount, mValueCount, written)) {
+    if (!evaluateConstraints<M>(mConstraints, mTopology, std::span<const std::array<double, 3>>{vertices.data(), static_cast<std::size_t>(mVertexCount)}, std::span<const std::array<double, 3>>{momenta.data(), static_cast<std::size_t>(mCount)}, std::span<const double>{mMasses}, std::span<const double>{mCharges}, mSpace.values, mSpace.rows, mParameterCount, mValueCount, written)) {
       return false;
     }
     mScattered.row = written;
@@ -1761,9 +1765,10 @@ class DecayVertexFitter
   }
 
   std::span<const DecayDaughter> mDaughters;
-  const Material& mMaterial;
-  const DecayConstraints& mConstraints;
-  const DecayTopology& mTopology;
+  // The fitter lives for one fit over its caller's inputs.
+  const Material& mMaterial;            // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  const DecayConstraints& mConstraints; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
+  const DecayTopology& mTopology;       // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   std::span<const DecayMother> mMothers;
   DecayVertexFitResult* mResult = nullptr;      ///< the caller's, during `fit`
   DecayFitStatus mStatus = DecayFitStatus::kOk; ///< `prepare`'s verdict

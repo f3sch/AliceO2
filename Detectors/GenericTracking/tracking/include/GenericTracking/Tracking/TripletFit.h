@@ -712,7 +712,7 @@ constexpr int kAdjacentKinks = 4;
   // The kinks whitened by the covariance's Cholesky factor L: the curvature
   // fit needs only contractions with C^-1 = L^-T L^-1, so L^-1 alone.
   constexpr std::integral_constant<int, detail::kAdjacentKinks> kKinks{};
-  const dense::MatrixView<Scalar> lower{&covariance[0][0], detail::kAdjacentKinks};
+  const dense::MatrixView<Scalar> lower{.data = &covariance[0][0], .stride = detail::kAdjacentKinks};
   if (!dense::choleskyFactor(lower, kKinks)) {
     return false;
   }

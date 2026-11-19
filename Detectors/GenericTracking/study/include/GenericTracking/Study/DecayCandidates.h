@@ -36,8 +36,10 @@
 
 #include "GenericTracking/Study/DecayTrees.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <ranges>
 #include <vector>
 
 namespace o2::gtrk::study
@@ -105,14 +107,9 @@ struct DecayShape {
 
 /// Whether a final charged particle (a leaf) is among \a particle's decay
 /// products, or theirs.
-[[nodiscard]] inline bool hasLeafBelow(const DecayTrees& trees, const TreeParticle& particle)
+[[nodiscard]] inline bool hasLeafBelow(const DecayTrees& trees, const TreeParticle& particle) // NOLINT(misc-no-recursion): a decay tree's generations
 {
-  for (const auto* product : decayProducts(trees, particle)) {
-    if (isFinalCharged(product->pdg) || hasLeafBelow(trees, *product)) {
-      return true;
-    }
-  }
-  return false;
+  return std::ranges::any_of(decayProducts(trees, particle), [&](const TreeParticle* product) { return isFinalCharged(product->pdg) || hasLeafBelow(trees, *product); }); // NOLINT(misc-no-recursion)
 }
 
 /// \a root's decay down to its leaves; \a chargeOf(pdg) a species' charge
@@ -128,8 +125,8 @@ template <typename ChargeOf>
   std::vector<Visit> stack;
   const auto rootProducts = decayProducts(trees, root);
   shape.products = static_cast<std::uint8_t>(rootProducts.size());
-  for (auto product = rootProducts.rbegin(); product != rootProducts.rend(); ++product) {
-    stack.push_back({*product, 1U});
+  for (const auto* rootProduct : std::ranges::reverse_view(rootProducts)) {
+    stack.push_back({rootProduct, 1U});
   }
   while (!stack.empty()) {
     const auto [particle, generation] = stack.back();

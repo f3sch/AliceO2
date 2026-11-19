@@ -44,7 +44,6 @@
 #include "GPUCommonMath.h"
 
 #include <cstddef>
-#include <numbers>
 
 namespace o2::gtrk
 {
@@ -207,7 +206,7 @@ template <DetectorLayout Det>
 {
   const auto& bounds = parameters.tripletBounds[secondLink];
   if (!first.valid || !(bounds.lengthMin > 0.F)) {
-    return std::numbers::pi_v<Scalar>;
+    return kPi<Scalar>;
   }
   const Scalar longest = o2::gpu::CAMath::Max(first.chord, bounds.chordMax);
   const Scalar excess = detail::chordDipExcess(0.5F * parameters.pairCut.maxCurvature * longest, first.slope, first.atanSlope);
@@ -240,7 +239,7 @@ template <DetectorLayout Det>
 /// displacement over `d_ab`, `c` over `d_bc`, and `b` over both. The
 /// displacements are the measurements' errors across the chord `a -> c`, and
 /// the scattering at `b` turns the second chord by `theta_0 / cos(lambda)`.
-/// This is ACTS's circle, without the conformal map. \a middleScale multiplies
+/// \a middleScale multiplies
 /// the middle layer's scattering: the kink allowance (1 for the nominal cut).
 /// \a chords are the points' (`tripletChords`).
 template <DetectorLayout Det>

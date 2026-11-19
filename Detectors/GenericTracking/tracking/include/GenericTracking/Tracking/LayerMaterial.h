@@ -23,6 +23,7 @@
 #ifndef GTRK_TRACKING_LAYERMATERIAL_H_
 #define GTRK_TRACKING_LAYERMATERIAL_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/SearchWindow.h"
 
@@ -32,7 +33,6 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <numbers>
 #include <utility>
 #include <vector>
 
@@ -100,7 +100,7 @@ using LayerBudget = std::array<double, static_cast<std::size_t>(Detector<Det>::n
       const int phiCells = layer.getNPhiBins();
       double sum = 0.;
       for (int iPhi = 0; iPhi < phiCells; ++iPhi) {
-        const double phi = (2 * std::numbers::pi_v<double>)*(static_cast<double>(iPhi) + 0.5) / phiCells;
+        const double phi = kTwoPi<double> * (static_cast<double>(iPhi) + 0.5) / phiCells;
         const double c = std::cos(phi);
         const double s = std::sin(phi);
         for (const auto& [z, weight] : along) {

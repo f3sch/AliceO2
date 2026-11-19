@@ -17,6 +17,7 @@
 #ifndef GTRK_STUDY_TRACKBENCH_H_
 #define GTRK_STUDY_TRACKBENCH_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Detectors/ITS.h"
@@ -80,7 +81,6 @@
 #include <iostream>
 #include <limits>
 #include <memory>
-#include <numbers>
 #include <numeric>
 #include <optional>
 #include <ranges>
@@ -1111,7 +1111,7 @@ void writeCloneJoins(const std::string& path, const TrackStore<Det>& tracks, con
           .latestPS = static_cast<std::int64_t>(box.upper()) - 1,
           .afterPS = box.lower(),
           .phiCentre = phiCentre,
-          .phiHalfWidth = std::numbers::pi_v<Scalar>,
+          .phiHalfWidth = kPi<Scalar>,
           .secondCentre = secondCentre,
           .secondHalfWidth = 1.e4F,
         };

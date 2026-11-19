@@ -153,7 +153,7 @@ inline constexpr int kMaxHardRows = 1 + (3 * (kMaxConstrainedVertices - 1));
 /// \a capacity of them; false if the tree is too large or they are more.
 /// Evaluated in the arithmetic M, stored in S.
 template <typename M = double, typename S>
-[[nodiscard]] GPUhdi() bool evaluateConstraints(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const std::array<double, 3>> vertices, std::span<const std::array<double, 3>> momenta, std::span<const double> masses, std::span<const double> charges, double fieldScale, S* values, S* rows, int stride, int capacity, int& written)
+[[nodiscard]] GPUhdi() bool evaluateConstraints(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const std::array<double, 3>> vertices, std::span<const std::array<double, 3>> momenta, std::span<const double> masses, std::span<const double> charges, S* values, S* rows, int stride, int capacity, int& written)
 {
   using D = Dual<kConstraintInputs, M>;
   const int count = static_cast<int>(momenta.size());

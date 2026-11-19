@@ -19,6 +19,7 @@
 #define BOOST_TEST_MODULE Test GTRK VertexStage
 #include <boost/test/unit_test.hpp>
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/VertexStage.h"
 
@@ -27,7 +28,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <bit>
-#include <numbers>
 #include <random>
 #include <vector>
 
@@ -117,7 +117,7 @@ class Event
   /// \a count tracks from \a zVertex in \a frame, spread in azimuth and dip.
   void vertex(double zVertex, std::size_t count, std::int64_t frame)
   {
-    std::uniform_real_distribution<double> phi{0., 2. * std::numbers::pi};
+    std::uniform_real_distribution<double> phi{0., kTwoPi<double>};
     std::uniform_real_distribution<double> cot{-1.2, 1.2};
     std::uniform_real_distribution<double> radius{300., 1500.};
     for (std::size_t i = 0; i < count; ++i) {
@@ -128,7 +128,7 @@ class Event
   /// \a count triplets of unrelated points in \a frame.
   void noise(std::size_t count, std::int64_t frame)
   {
-    std::uniform_real_distribution<double> phi{0., 2. * std::numbers::pi};
+    std::uniform_real_distribution<double> phi{0., kTwoPi<double>};
     std::uniform_real_distribution<double> z{-15., 15.};
     for (std::size_t i = 0; i < count; ++i) {
       std::array<std::uint32_t, 3> rows{};

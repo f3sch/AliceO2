@@ -51,6 +51,7 @@
 #ifndef GTRK_TRACKING_OVERLAPPARTNERS_H_
 #define GTRK_TRACKING_OVERLAPPARTNERS_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Tracking/CpuBackend.h"
@@ -189,7 +190,6 @@ template <DetectorLayout Det>
 [[nodiscard]] GPUhdi() PartnerReach partnerReach(const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, LayerID layer, const BoundParameters& state, Scalar spread, Scalar curvature)
 {
   using Math = o2::gpu::CAMath;
-  constexpr Scalar kPi = std::numbers::pi_v<Scalar>;
   PartnerReach reach;
   surfaceToGlobal(geometry.planeOf(state), state.loc0(), state.loc1(), reach.point);
   const Scalar r = Math::Hypot(reach.point[0], reach.point[1]);
@@ -246,9 +246,9 @@ template <DetectorLayout Det>
   const Scalar rMin = (closest > -back && closest < ahead) ? Math::Abs(r * sinAlpha) : Math::Min(radiusAt(ahead), radiusAt(-back));
   const Scalar rMax = Math::Max(radiusAt(ahead), radiusAt(-back));
   // The margin's azimuth about the nearest the line comes to the axis.
-  const Scalar widen = rMin > margin ? Math::ASin(margin / rMin) : kPi;
+  const Scalar widen = rMin > margin ? Math::ASin(margin / rMin) : kPi<Scalar>;
   reach.phi = azimuth(reach.point[0], reach.point[1]) + (0.5F * (phiAhead + phiBack));
-  reach.phiReach = Math::Min((0.5F * Math::Abs(phiAhead - phiBack)) + widen, kPi);
+  reach.phiReach = Math::Min((0.5F * Math::Abs(phiAhead - phiBack)) + widen, kPi<Scalar>);
   if (barrel) {
     const Scalar zAhead = reach.point[2] + (ahead * cotTheta);
     const Scalar zBack = reach.point[2] - (back * cotTheta);
@@ -259,9 +259,9 @@ template <DetectorLayout Det>
     reach.secondReach = Math::Min((0.5F * (rMax - rMin)) + margin, follow::kOpenBound);
   }
   // A NaN range (a slope at a singular angle) looks at the whole layer.
-  if (!(reach.phiReach >= 0.F) || !(Math::Abs(reach.phi) <= 4.F * kPi)) {
+  if (!(reach.phiReach >= 0.F) || !(Math::Abs(reach.phi) <= 4.F * kPi<Scalar>)) {
     reach.phi = 0.F;
-    reach.phiReach = kPi;
+    reach.phiReach = kPi<Scalar>;
   }
   if (!(reach.secondReach >= 0.F) || !(Math::Abs(reach.second) <= follow::kOpenBound)) {
     reach.second = 0.F;
@@ -283,8 +283,8 @@ template <DetectorLayout Det>
 /// pointers may be a device's.
 template <DetectorLayout Det, typename Material>
 struct ProposePartners {
-  static constexpr std::size_t K = maxChainLayers<Det>;
-  using TrackView = typename BoundedColumns<TrackOf<K>::template RecordT>::ConstView;
+  static constexpr std::size_t kChainLayers = maxChainLayers<Det>;
+  using TrackView = typename BoundedColumns<TrackOf<kChainLayers>::template RecordT>::ConstView;
   using Record = typename BoundedColumns<PartnerProposal::template RecordT>::Record;
 
   const IterationParameters<Det>* parameters = nullptr;
@@ -316,8 +316,8 @@ struct ProposePartners {
     if (!anyLayer) {
       return;
     }
-    overlap::RowStates<K> states;
-    const auto fit = fitMeasurements(propagator, *geometry, *material, RowChain<Det>{.frame = frame, .rows = rows.index}, static_cast<int>(count), kinkBudget(*parameters), overlap::RowStateObserver<K>{.states = &states});
+    overlap::RowStates<kChainLayers> states;
+    const auto fit = fitMeasurements(propagator, *geometry, *material, RowChain<Det>{.frame = frame, .rows = rows.index}, static_cast<int>(count), kinkBudget(*parameters), overlap::RowStateObserver<kChainLayers>{.states = &states});
     if (fit.failedPass == FitPass::kOutward) {
       return;
     }
@@ -416,7 +416,7 @@ struct ProposePartners {
           .latestPS = static_cast<std::int64_t>(box.upper()) - 1,
           .afterPS = box.lower(),
           .phiCentre = azimuth(x, y),
-          .phiHalfWidth = Math::Min(spread / r, std::numbers::pi_v<Scalar>),
+          .phiHalfWidth = Math::Min(spread / r, kPi<Scalar>),
           .secondCentre = secondCoordinate<Det>(layer, r, point[2]),
           .secondHalfWidth = spread,
         };
@@ -457,12 +457,12 @@ struct ProposePartners {
 /// the proposals `winners` names, from `winnerOffsets[element]` to the next,
 /// which this sorts into path order -- by their row's position, then their
 /// distance along the track, those before the row first; `merged` holds the
-/// rows it fits, from `element * K + winnerOffsets[element]` on. Its pointers
+/// rows it fits, from `element * kChainLayers + winnerOffsets[element]` on. Its pointers
 /// may be a device's.
 template <DetectorLayout Det, typename Material>
 struct RefitWithPartners {
-  static constexpr std::size_t K = maxChainLayers<Det>;
-  using TrackView = typename BoundedColumns<TrackOf<K>::template RecordT>::View;
+  static constexpr std::size_t kChainLayers = maxChainLayers<Det>;
+  using TrackView = typename BoundedColumns<TrackOf<kChainLayers>::template RecordT>::View;
   using ProposalView = typename BoundedColumns<PartnerProposal::template RecordT>::ConstView;
 
   const IterationParameters<Det>* parameters = nullptr;
@@ -500,7 +500,7 @@ struct RefitWithPartners {
     const auto track = offset + element;
     const auto& rows = tracks.clusters[track];
     const auto count = tracks.count[track];
-    const auto base = (static_cast<std::size_t>(element) * K) + first;
+    const auto base = (static_cast<std::size_t>(element) * kChainLayers) + first;
     std::uint32_t n = 0U;
     auto next = first;
     for (std::uint8_t k = 0; k < count; ++k) {
@@ -537,7 +537,7 @@ struct RefitWithPartners {
     tracks.ndf[track] = fit.ndf;
     tracks.status[track] = fit.status;
     tracks.kinks[track] = fit.kinks;
-    tracks.kinkCluster[track] = fit.kinkMeasurement < 0 ? TrackOf<K>::kNoKink : layerRowOf[base + static_cast<std::size_t>(fit.kinkMeasurement)];
+    tracks.kinkCluster[track] = fit.kinkMeasurement < 0 ? TrackOf<kChainLayers>::kNoKink : layerRowOf[base + static_cast<std::size_t>(fit.kinkMeasurement)];
     kept[element] = 1U;
   }
 };
@@ -548,7 +548,7 @@ template <DetectorLayout Det>
 class OverlapPartners
 {
  public:
-  static constexpr std::size_t K = maxChainLayers<Det>;
+  static constexpr std::size_t kChainLayers = maxChainLayers<Det>;
   using Tracks = typename TrackRefit<Det>::Tracks;
   using Proposals = StageOutput<PartnerProposal::template RecordT>;
 
@@ -639,7 +639,7 @@ class OverlapPartners
         }
       }
       // Each track with partners fitted again with them, in parallel.
-      std::vector<std::uint32_t> merged((std::size_t{n} * K) + winners.size());
+      std::vector<std::uint32_t> merged((std::size_t{n} * kChainLayers) + winners.size());
       std::vector<std::uint8_t> layerRowOf(merged.size());
       std::vector<std::uint8_t> kept(n, 0U);
       const RefitWithPartners<Det, detail::LayerMaterial<Material>> refit{.parameters = &parameters, .frame = &frame, .geometry = &geometry, .material = {.lut = &lut}, .propagator = propagator, .tracks = tracks.view(), .offset = trackOffset, .proposals = proposals, .winnerOffsets = winnerOffsets.data(), .winners = winners.data(), .merged = merged.data(), .layerRowOf = layerRowOf.data(), .kept = kept.data()};
