@@ -209,7 +209,7 @@ ReferenceFit referenceAdjacentFit(const std::array<PairPoint, 4>& points, double
     const double radialX = static_cast<double>(points[hit].x) / r;
     const double radialY = static_cast<double>(points[hit].y) / r;
     // gradient[kink][axis], axes radial, r-phi, z
-    std::array<std::array<double, 3>, 4> gradient{};
+    std::array<Vec3D, 4> gradient{};
     for (std::size_t triplet = 0; triplet < 2U; ++triplet) {
       if (hit < triplet || hit > triplet + 2U) {
         continue;
@@ -226,7 +226,7 @@ ReferenceFit referenceAdjacentFit(const std::array<PairPoint, 4>& points, double
         gradient[2U * triplet + angle] = {dX * radialX + dY * radialY, -dX * radialY + dY * radialX, dZ};
       }
     }
-    const std::array<double, 3> variance{static_cast<double>(points[hit].varR), static_cast<double>(points[hit].varRPhi), static_cast<double>(points[hit].varZ)};
+    const Vec3D variance{static_cast<double>(points[hit].varR), static_cast<double>(points[hit].varRPhi), static_cast<double>(points[hit].varZ)};
     for (std::size_t row = 0; row < 4U; ++row) {
       for (std::size_t column = 0; column < 4U; ++column) {
         for (std::size_t axis = 0; axis < 3U; ++axis) {
@@ -285,7 +285,7 @@ PairPoint helixPoint(double curvature, double arc, double cotangentTheta)
   };
 }
 
-std::array<PairPoint, 3> helixPoints(double curvature, double cotangentTheta, const std::array<double, 3>& arcs) { return {helixPoint(curvature, arcs[0], cotangentTheta), helixPoint(curvature, arcs[1], cotangentTheta), helixPoint(curvature, arcs[2], cotangentTheta)}; }
+std::array<PairPoint, 3> helixPoints(double curvature, double cotangentTheta, const Vec3D& arcs) { return {helixPoint(curvature, arcs[0], cotangentTheta), helixPoint(curvature, arcs[1], cotangentTheta), helixPoint(curvature, arcs[2], cotangentTheta)}; }
 
 void checkClose(Scalar actual, Scalar expected, Scalar relativeTolerance, Scalar absoluteTolerance = 0.F)
 {
@@ -300,7 +300,7 @@ constexpr Scalar kExactHelixChi2 = 1.e-2F;
 
 /// The fit's curvature is the triplet fit's own parameter: the 3D curvature,
 /// proportional to q/p, which is the transverse curvature times sin(theta).
-void checkHelix(double ptGeV, const std::array<double, 3>& arcs, double cotangentTheta)
+void checkHelix(double ptGeV, const Vec3D& arcs, double cotangentTheta)
 {
   constexpr double kBzKiloGauss = 5.;
   constexpr double kB2C = 0.000299792458;
@@ -366,7 +366,7 @@ BOOST_AUTO_TEST_CASE(KinkGradientMatchesTheCopiedItsFactor)
 
 BOOST_AUTO_TEST_CASE(HelixCurvatureAcrossLayerKindsAndMomenta)
 {
-  const std::array<std::array<double, 3>, 3> geometries{{{{2., 4., 7.}}, {{4., 8., 12.}}, {{2., 6., 11.}}}};
+  const std::array<Vec3D, 3> geometries{{{{2., 4., 7.}}, {{4., 8., 12.}}, {{2., 6., 11.}}}};
   const double cotangents[3]{0.25, 1.5, 0.8};
   const double momenta[3]{0.1, 1., 10.};
   for (std::size_t geometry = 0; geometry < geometries.size(); ++geometry) {

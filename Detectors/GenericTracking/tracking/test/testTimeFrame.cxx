@@ -112,7 +112,7 @@ BOOST_AUTO_TEST_CASE(HalfOpenCoresAndWideHalos)
 
 BOOST_AUTO_TEST_CASE(EmptyLayersAndEmptyTimeframe)
 {
-  const std::array<double, 3> times{0., 10., 15.};
+  const Vec3D times{0., 10., 15.};
   const auto columns = timeColumns(times);
   const auto geometry = gridGeometry();
   const std::array<Frame::Index, 10> offsets{0, 1, 2, 2, 2, 2, 2, 2, 3, 3};

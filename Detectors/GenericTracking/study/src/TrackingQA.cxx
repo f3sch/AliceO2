@@ -30,7 +30,7 @@
 namespace o2::gtrk::study
 {
 
-std::vector<HitCrossing> outwardLeg(std::vector<HitCrossing> crossings, const std::array<double, 3>& production)
+std::vector<HitCrossing> outwardLeg(std::vector<HitCrossing> crossings, const Vec3D& production)
 {
   std::ranges::stable_sort(crossings, {}, &HitCrossing::time);
   double last = 0.;
@@ -106,7 +106,7 @@ std::optional<Circle> circleOf(const TruthHelix& helix, double bzKiloGauss)
 /// and the helix has some momentum.
 bool followable(const TruthHelix& helix, double bzKiloGauss, double x, double y)
 {
-  const auto finite = [](const std::array<double, 3>& v) { return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]); };
+  const auto finite = [](const Vec3D& v) { return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]); };
   return finite(helix.position) && finite(helix.momentum) && std::isfinite(helix.charge) && std::isfinite(bzKiloGauss) && std::isfinite(x) && std::isfinite(y) && std::hypot(helix.momentum[0], helix.momentum[1], helix.momentum[2]) > 0.;
 }
 
@@ -149,7 +149,7 @@ HelixImpact helixImpact(const TruthHelix& helix, double bzKiloGauss, double x, d
   return {.d0 = distance - circle->radius, .z = helix.position[2] - (circle->radius * turn * cotTheta)};
 }
 
-std::array<double, 3> helixDirectionAt(const TruthHelix& helix, double bzKiloGauss, double x, double y)
+Vec3D helixDirectionAt(const TruthHelix& helix, double bzKiloGauss, double x, double y)
 {
   if (!followable(helix, bzKiloGauss, x, y)) {
     return {kNaN, kNaN, kNaN};

@@ -37,6 +37,7 @@
 #ifndef GTRK_TRACKING_DECAYVERTEXFIT_H_
 #define GTRK_TRACKING_DECAYVERTEXFIT_H_
 
+#include "GenericTracking/Base/FixedVector.h"
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Tracking/BeamConstraint.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
@@ -98,8 +99,8 @@ struct DecayDaughter {
 struct DecayMother {
   int vertex = 0;                                    ///< the vertex it decayed at: the root's, or a charged composite's
   std::span<const TrackingSurface> planes;           ///< the caller's storage, as the others
-  std::span<const std::array<double, 2>> positions;  ///< loc0, loc1 [cm]
-  std::span<const std::array<double, 3>> covariance; ///< loc0, loc0 loc1, loc1 [cm^2]
+  std::span<const Vec2D> positions;                  ///< loc0, loc1 [cm]
+  std::span<const Vec3D> covariance;                 ///< loc0, loc0 loc1, loc1 [cm^2]
   Propagator propagator;                             ///< the field, with its mass
 };
 
@@ -117,12 +118,12 @@ struct DecayVertexFitResult {
   std::uint16_t combinationsTried = 0U; ///< and all combinations tried
   static constexpr std::size_t kVertices = decay_fit_detail::kMaxConstrainedVertices;
   static constexpr std::size_t kDaughters = decay_fit_detail::kMaxConstrainedDaughters;
-  std::array<double, 3> vertex{};                         ///< the root's, `vertices[0]`
-  FixedVector<std::array<double, 3>, kVertices> vertices; ///< every vertex of the tree (DecayTopology)
+  Vec3D vertex{};                         ///< the root's, `vertices[0]`
+  FixedVector<Vec3D, kVertices> vertices; ///< every vertex of the tree (DecayTopology)
   /// Per daughter: its charge [e] (|p| = |q| / |q/p|; a neutral one's q/p is 1/p).
   FixedVector<double, kDaughters> charges;
   /// Per daughter: phi, theta, q/p at its vertex.
-  FixedVector<std::array<double, 3>, kDaughters> momenta;
+  FixedVector<Vec3D, kDaughters> momenta;
   /// The covariance of (the vertices, the daughters' momenta in order),
   /// 3K + 3N square, packed (`covIndex`; `covarianceAt`).
   FixedVector<double, covSize((3 * kVertices) + (3 * kDaughters))> covariance;
@@ -130,7 +131,7 @@ struct DecayVertexFitResult {
   int ndf = 0;
   /// The daughters' last carried states' phi, theta, q/p: their momenta
   /// without the vertex's information.
-  FixedVector<std::array<double, 3>, kDaughters> carried;
+  FixedVector<Vec3D, kDaughters> carried;
   /// The covariance of each carried state's phi, theta, q/p, packed.
   FixedVector<std::array<double, 6>, kDaughters> carriedCovariance;
   /// The material [x/X0] each daughter's last carry crossed.
@@ -281,9 +282,9 @@ template <typename M, typename S, typename Evaluate, typename ConstraintsAt>
 }
 
 /// The global position of \a state on \a surface [cm].
-[[nodiscard]] GPUhdi() std::array<double, 3> positionOf(const BoundTrackState& state, const TrackingSurface& surface)
+[[nodiscard]] GPUhdi() Vec3D positionOf(const BoundTrackState& state, const TrackingSurface& surface)
 {
-  std::array<double, 3> position{};
+  Vec3D position{};
   o2::gtrk::detail::boundToGlobal(surface, static_cast<ExactScalar>(state.loc0()), static_cast<ExactScalar>(state.loc1()), position.data());
   return position;
 }
@@ -300,7 +301,7 @@ struct StartEntry {
 /// The start: where the transverse circles of the first two entries come
 /// closest -- their crossing with the smaller z gap, or the point between
 /// them on the line of their centres --, at the mean of their z there.
-[[nodiscard]] GPUhdi() bool closestApproach(const StartEntry& a, const StartEntry& b, std::array<double, 3>& start)
+[[nodiscard]] GPUhdi() bool closestApproach(const StartEntry& a, const StartEntry& b, Vec3D& start)
 {
   struct Circle {
     double cx, cy, radius, rho, px, py, pz, cotTheta;
@@ -325,7 +326,7 @@ struct StartEntry {
   }
   const double ex = ux / d;
   const double ey = uy / d;
-  FixedVector<std::array<double, 2>, 2> points;
+  FixedVector<Vec2D, 2> points;
   if (d > one.radius + two.radius) {
     const double along = one.radius + (0.5 * (d - one.radius - two.radius));
     points.push_back({one.cx + (along * ex), one.cy + (along * ey)});
@@ -341,7 +342,7 @@ struct StartEntry {
   }
   // z on a circle's helix at a transverse point: the nearer way round from
   // the daughter's innermost position.
-  const auto zAt = [](const Circle& circle, const std::array<double, 2>& point) {
+  const auto zAt = [](const Circle& circle, const Vec2D& point) {
     const double from = atan2Of(circle.py - circle.cy, circle.px - circle.cx);
     const double to = atan2Of(point[1] - circle.cy, point[0] - circle.cx);
     const double turn = toPMPiOf(to - from);
@@ -363,9 +364,9 @@ struct StartEntry {
 
 /// The closest points of two lines (a point and a unit direction each):
 /// their middle; none if they are parallel.
-[[nodiscard]] GPUhdi() bool closestOfLines(const std::array<double, 3>& a, const std::array<double, 3>& u, const std::array<double, 3>& b, const std::array<double, 3>& w, std::array<double, 3>& start)
+[[nodiscard]] GPUhdi() bool closestOfLines(const Vec3D& a, const Vec3D& u, const Vec3D& b, const Vec3D& w, Vec3D& start)
 {
-  const std::array<double, 3> d{a[0] - b[0], a[1] - b[1], a[2] - b[2]};
+  const Vec3D d{a[0] - b[0], a[1] - b[1], a[2] - b[2]};
   const double uw = (u[0] * w[0]) + (u[1] * w[1]) + (u[2] * w[2]);
   const double ud = (u[0] * d[0]) + (u[1] * d[1]) + (u[2] * d[2]);
   const double wd = (w[0] * d[0]) + (w[1] * d[1]) + (w[2] * d[2]);
@@ -380,7 +381,7 @@ struct StartEntry {
 }
 
 /// A state's direction (unit).
-[[nodiscard]] GPUhdi() std::array<double, 3> directionOf(const BoundTrackState& state)
+[[nodiscard]] GPUhdi() Vec3D directionOf(const BoundTrackState& state)
 {
   return momentumOf<double>(state.phi(), state.theta(), 1., 1.).vector;
 }
@@ -391,7 +392,7 @@ struct StartEntry {
 /// closest approach (`closestApproach`); otherwise the closest points of two
 /// lines, an entry's from its point along its direction. Into \a starts
 /// (one per vertex); false if a vertex has none.
-[[nodiscard]] GPUhdi() bool treeStart(std::span<const DecayDaughter> daughters, const DecayTopology& topology, std::span<std::array<double, 3>> starts)
+[[nodiscard]] GPUhdi() bool treeStart(std::span<const DecayDaughter> daughters, const DecayTopology& topology, std::span<Vec3D> starts)
 {
   const int k = topology.vertices();
   const int count = static_cast<int>(daughters.size());
@@ -469,7 +470,7 @@ struct StartEntry {
 /// 2 E E_n = M^2 - m^2 - E^2 - P^2 + 2 x (u.P), squared a quadratic in x;
 /// its roots with x > 0 that solve it unsquared (the smaller first). Smeared past the touching point (no real root), its
 /// nearest. Each start the unseen one's momentum vector [GeV].
-[[nodiscard]] GPUhdi() FixedVector<std::array<double, 3>, 2> missingMomentumStarts(const DecayVertexFitResult& visible, std::span<const double> masses, const std::array<double, 3>& point, double motherMass, double unseenMass)
+[[nodiscard]] GPUhdi() FixedVector<Vec3D, 2> missingMomentumStarts(const DecayVertexFitResult& visible, std::span<const double> masses, const Vec3D& point, double motherMass, double unseenMass)
 {
   decay_fit_detail::MomentumSum<double> sum;
   for (std::size_t i = 0; i < visible.momenta.size(); ++i) {
@@ -479,7 +480,7 @@ struct StartEntry {
   }
   const auto& total = sum.vector;
   const double energy = sum.energy;
-  std::array<double, 3> u{visible.vertex[0] - point[0], visible.vertex[1] - point[1], visible.vertex[2] - point[2]};
+  Vec3D u{visible.vertex[0] - point[0], visible.vertex[1] - point[1], visible.vertex[2] - point[2]};
   const double length = hypotOf(u[0], u[1], u[2]);
   if (!(length > 0.)) {
     return {};
@@ -513,9 +514,9 @@ struct StartEntry {
   } else if (-qb / (2. * qa) > 0.) {
     roots.push_back(-qb / (2. * qa));
   }
-  FixedVector<std::array<double, 3>, 2> starts;
+  FixedVector<Vec3D, 2> starts;
   for (const double x : roots) {
-    const std::array<double, 3> q{(x * u[0]) - total[0], (x * u[1]) - total[1], (x * u[2]) - total[2]};
+    const Vec3D q{(x * u[0]) - total[0], (x * u[1]) - total[1], (x * u[2]) - total[2]};
     if (hypotOf(q[0], q[1], q[2]) > 0.) {
       starts.push_back(q);
     }
@@ -525,7 +526,7 @@ struct StartEntry {
 
 /// An unseen neutral's start from its momentum vector \a start [GeV] (one of
 /// `missingMomentumStarts`): \a daughter's phi, theta and 1/p.
-GPUhdi() void startUnmeasured(DecayDaughter& daughter, const std::array<double, 3>& start)
+GPUhdi() void startUnmeasured(DecayDaughter& daughter, const Vec3D& start)
 {
   const auto direction = decay_fit_detail::directionOfMomentum(start);
   daughter.innermost.par[kPhi] = static_cast<Scalar>(direction.phi);
@@ -775,7 +776,7 @@ class DecayVertexFitter
     if (mCount < 2) {
       return;
     }
-    std::array<std::array<double, 3>, kMaxVertices> start{};
+    std::array<Vec3D, kMaxVertices> start{};
     if (!treeStart(mDaughters, mTopology, start)) {
       return;
     }
@@ -1121,7 +1122,7 @@ class DecayVertexFitter
   }
 
   // The plane about \a point for a state at (x, y) with direction phi.
-  [[nodiscard]] GPUd() TrackingSurface endPlaneOf(const std::array<double, 3>& point, double x, double y, double phi, double theta, double qOverP) const
+  [[nodiscard]] GPUd() TrackingSurface endPlaneOf(const Vec3D& point, double x, double y, double phi, double theta, double qOverP) const
   {
     using namespace decay_fit_detail;
     const double curvature = mPhysicalField * qOverP / sinOf(theta);
@@ -1197,7 +1198,7 @@ class DecayVertexFitter
       const int rows = chain.rowCount;
       const bool scatters = chain.charge != 0.;
       const int planes = rows + (chain.end != -2 ? 1 : 0);
-      std::array<double, 3> end{};
+      Vec3D end{};
       if (chain.end != -2) {
         const auto point = endPoint(p, chain);
         end = {point[0].v, point[1].v, point[2].v};
@@ -1548,18 +1549,18 @@ class DecayVertexFitter
   [[nodiscard]] GPUd() bool constraintsAt(std::span<const double> p)
   {
     using namespace decay_fit_detail;
-    std::array<std::array<double, 3>, kMaxVertices> vertices{};
+    std::array<Vec3D, kMaxVertices> vertices{};
     for (int w = 0; w < mVertexCount; ++w) {
       const auto first = 3U * static_cast<std::size_t>(w);
       vertices[w] = {p[first], p[first + 1], p[first + 2]};
     }
-    std::array<std::array<double, 3>, kMaxDaughters> momenta{};
+    std::array<Vec3D, kMaxDaughters> momenta{};
     for (int i = 0; i < mCount; ++i) {
       const int q = (3 * mVertexCount) + (3 * i);
       momenta[i] = {p[q], p[q + 1], p[q + 2]};
     }
     int written = 0;
-    if (!evaluateConstraints<M>(mConstraints, mTopology, std::span<const std::array<double, 3>>{vertices.data(), static_cast<std::size_t>(mVertexCount)}, std::span<const std::array<double, 3>>{momenta.data(), static_cast<std::size_t>(mCount)}, std::span<const double>{mMasses}, std::span<const double>{mCharges}, mSpace.values, mSpace.rows, mParameterCount, mValueCount, written)) {
+    if (!evaluateConstraints<M>(mConstraints, mTopology, std::span<const Vec3D>{vertices.data(), static_cast<std::size_t>(mVertexCount)}, std::span<const Vec3D>{momenta.data(), static_cast<std::size_t>(mCount)}, std::span<const double>{mMasses}, std::span<const double>{mCharges}, mSpace.values, mSpace.rows, mParameterCount, mValueCount, written)) {
       return false;
     }
     mScattered.row = written;

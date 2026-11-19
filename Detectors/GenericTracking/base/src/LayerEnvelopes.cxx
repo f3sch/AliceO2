@@ -27,9 +27,9 @@ namespace
 {
 
 /// The eight corners of a sensor's active silicon, in the global frame.
-std::array<std::array<double, 3>, 8> corners(const Sensor& sensor, const SensorSpec& spec)
+std::array<Vec3D, 8> corners(const Sensor& sensor, const SensorSpec& spec)
 {
-  std::array<std::array<double, 3>, 8> result{};
+  std::array<Vec3D, 8> result{};
   std::size_t n = 0;
   for (const double u : {-spec.halfX, spec.halfX}) {
     for (const double v : {-spec.halfY, spec.halfY}) {
@@ -45,16 +45,16 @@ std::array<std::array<double, 3>, 8> corners(const Sensor& sensor, const SensorS
 /// Distance from the beam line to the nearest point of a convex body, given
 /// its corners: the distance from the origin to the convex hull of their
 /// transverse projections, zero if the hull contains it.
-double nearestRadius(const std::array<std::array<double, 3>, 8>& points)
+double nearestRadius(const std::array<Vec3D, 8>& points)
 {
-  std::array<std::array<double, 2>, 8> p{};
+  std::array<Vec2D, 8> p{};
   for (std::size_t i = 0; i < p.size(); ++i) {
     p[i] = {points[i][0], points[i][1]};
   }
   std::ranges::sort(p);
   const auto cross = [](const auto& o, const auto& a, const auto& b) { return ((a[0] - o[0]) * (b[1] - o[1])) - ((a[1] - o[1]) * (b[0] - o[0])); };
   // Andrew's monotone chain, counter-clockwise.
-  std::array<std::array<double, 2>, 16> hull{};
+  std::array<Vec2D, 16> hull{};
   std::size_t k = 0;
   for (const auto& point : p) {
     while (k >= 2 && cross(hull[k - 2], hull[k - 1], point) <= 0.) {
@@ -71,7 +71,7 @@ double nearestRadius(const std::array<std::array<double, 3>, 8>& points)
   const std::size_t n = k - 1; // the last point repeats the first
   bool inside = n >= 3;
   double nearest = std::numeric_limits<double>::infinity();
-  const std::array<double, 2> origin{0., 0.};
+  const Vec2D origin{0., 0.};
   for (std::size_t i = 0; i < std::max<std::size_t>(n, 1); ++i) {
     const auto& a = hull[i];
     const auto& b = hull[(i + 1) % std::max<std::size_t>(n, 1)];
@@ -101,18 +101,18 @@ SensorExtent curvedExtentOf(const Sensor& sensor, const SensorSpec& spec)
   const double rhoMin = spec.radius + spec.surfaceMin();
   const double rhoMax = spec.radius + spec.surfaceMax();
   const double halfAngle = spec.halfX / spec.radius;
-  const std::array<double, 2> c{sensor.trans[0], sensor.trans[1]};
+  const Vec2D c{sensor.trans[0], sensor.trans[1]};
   // A transverse direction of the sensor's frame, in the global one.
   const auto direction = [&](double angle) {
     const double local[3] = {std::cos(angle), std::sin(angle), 0.};
-    return std::array<double, 2>{(sensor.rot[0] * local[0]) + (sensor.rot[1] * local[1]), (sensor.rot[3] * local[0]) + (sensor.rot[4] * local[1])};
+    return Vec2D{(sensor.rot[0] * local[0]) + (sensor.rot[1] * local[1]), (sensor.rot[3] * local[0]) + (sensor.rot[4] * local[1])};
   };
   const auto middle = direction(0.);
-  std::vector<std::array<double, 2>> directions{direction(-halfAngle), direction(halfAngle)};
+  std::vector<Vec2D> directions{direction(-halfAngle), direction(halfAngle)};
   const double cNorm = std::hypot(c[0], c[1]);
   if (cNorm > 0.) {
     for (const double sign : {1., -1.}) {
-      const std::array<double, 2> d{sign * c[0] / cNorm, sign * c[1] / cNorm};
+      const Vec2D d{sign * c[0] / cNorm, sign * c[1] / cNorm};
       if ((d[0] * middle[0]) + (d[1] * middle[1]) >= std::cos(halfAngle)) {
         directions.push_back(d);
       }
@@ -134,11 +134,11 @@ SensorExtent curvedExtentOf(const Sensor& sensor, const SensorSpec& spec)
 
 /// Where a sensor's silicon is centred, in the global frame: a flat sensor's
 /// origin, a curved sensor's middle of the silicon at the middle of its arc.
-std::array<double, 3> centreOf(const Sensor& sensor, const SensorSpec& spec)
+Vec3D centreOf(const Sensor& sensor, const SensorSpec& spec)
 {
   double local[3];
   spec.unrolledToFrame(0., 0., 0.5 * (spec.surfaceMin() + spec.surfaceMax()), local);
-  std::array<double, 3> global{};
+  Vec3D global{};
   sensor.toGlobal(local, global.data());
   return global;
 }

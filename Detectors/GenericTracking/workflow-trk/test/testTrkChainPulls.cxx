@@ -439,13 +439,13 @@ PullPoint pullsAt(BarrelChain& chain, double ptGeV, double eta, bool withMateria
 /// From where a 2 T track still crosses the ML (0.2 GeV curls at 33 cm), to
 /// where it is nearly straight; at |eta| the OT still covers.
 constexpr std::array<double, 5> kPtScan{0.2, 0.5, 1., 5., 20.};
-constexpr std::array<double, 3> kEtas{0., 0.6, 1.1};
+constexpr Vec3D kEtas{0., 0.6, 1.1};
 /// Forward: through the VD and the inner ML onto FT3's +z discs (their |eta|
 /// 1.5-3.2). At high momentum there a float covariance cannot hold the track
 /// (VD to VD at |eta| 3 moves loc1 by 71 cm per radian of theta); the fit
 /// carries it as factors.
 constexpr std::array<double, 5> kForwardPtScan{0.2, 0.5, 1., 5., 20.};
-constexpr std::array<double, 3> kForwardEtas{2., 2.5, 3.};
+constexpr Vec3D kForwardEtas{2., 2.5, 3.};
 /// The widths of n unit-Gaussian pulls scatter by 1 / sqrt(2 n) (plain) and
 /// about 1.6 times that (robust, the median's): at 2000, 1.6 % and 2.6 %, so
 /// 15 % is beyond 5 sigma of either over the scan's 600 widths.

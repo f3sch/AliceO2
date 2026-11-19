@@ -123,8 +123,8 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
     DeviceSpan<DecayDaughter> daughters;
     DeviceSpan<DecayMotherRows> mothers;
     DeviceSpan<TrackingSurface> planes;
-    DeviceSpan<std::array<double, 2>> positions;
-    DeviceSpan<std::array<double, 3>> covariance;
+    DeviceSpan<Vec2D> positions;
+    DeviceSpan<Vec3D> covariance;
     DeviceSpan<std::uint64_t> bytes;
     const auto allocated = decays.allocate(mArena, count) && daughters.allocate(mArena, batch.daughters().size()) && mothers.allocate(mArena, batch.mothers().size()) && planes.allocate(mArena, batch.planes().size()) && positions.allocate(mArena, batch.positions().size()) && covariance.allocate(mArena, batch.covariance().size()) && bytes.allocate(mArena, count);
     if (!allocated) {

@@ -40,7 +40,7 @@ namespace
 /// The ITS's readout frame [BC].
 constexpr std::int64_t kFrameBC = 198;
 constexpr double kSigmaZ = 5.e-4; // [cm]
-constexpr std::array<double, 3> kRadii{2.34, 3.15, 3.93};
+constexpr Vec3D kRadii{2.34, 3.15, 3.93};
 
 /// The vertexer's candidate errors from the points alone: the r-z line's,
 /// no scattering in the kink.

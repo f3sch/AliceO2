@@ -68,8 +68,8 @@ struct DecayFitBatchView {
   const DecayDaughter* daughters = nullptr;
   const DecayMotherRows* mothers = nullptr;
   const TrackingSurface* planes = nullptr;
-  const std::array<double, 2>* positions = nullptr;
-  const std::array<double, 3>* covariance = nullptr;
+  const Vec2D* positions = nullptr;
+  const Vec3D* covariance = nullptr;
   std::uint32_t count = 0U; ///< decays
 };
 
@@ -148,16 +148,16 @@ class DecayFitBatch
   [[nodiscard]] std::span<const DecayDaughter> daughters() const noexcept { return mDaughters; }
   [[nodiscard]] std::span<const DecayMotherRows> mothers() const noexcept { return mMothers; }
   [[nodiscard]] std::span<const TrackingSurface> planes() const noexcept { return mPlanes; }
-  [[nodiscard]] std::span<const std::array<double, 2>> positions() const noexcept { return mPositions; }
-  [[nodiscard]] std::span<const std::array<double, 3>> covariance() const noexcept { return mCovariance; }
+  [[nodiscard]] std::span<const Vec2D> positions() const noexcept { return mPositions; }
+  [[nodiscard]] std::span<const Vec3D> covariance() const noexcept { return mCovariance; }
 
  private:
   std::vector<DecayFitInput> mDecays;
   std::vector<DecayDaughter> mDaughters;
   std::vector<DecayMotherRows> mMothers;
   std::vector<TrackingSurface> mPlanes;
-  std::vector<std::array<double, 2>> mPositions;
-  std::vector<std::array<double, 3>> mCovariance;
+  std::vector<Vec2D> mPositions;
+  std::vector<Vec3D> mCovariance;
 };
 
 namespace decay_fit_detail

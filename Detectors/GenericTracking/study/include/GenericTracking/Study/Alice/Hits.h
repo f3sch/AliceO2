@@ -21,7 +21,6 @@
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 
-#include <array>
 #include <concepts>
 #include <cstdint>
 #include <memory>
@@ -59,9 +58,9 @@ template <DetectorLayout Det>
 struct HitSegment {
   int track = -1;          ///< MC track ID within its event
   std::uint32_t chip = 0U; ///< our sensor ID: O2's chip ID; FT3's after TRK's (TRKFT3::kFirstDiscSensor)
-  std::array<double, 3> start{};
-  std::array<double, 3> end{};
-  std::array<double, 3> momentum{}; ///< at the start
+  Vec3D start{};
+  Vec3D end{};
+  Vec3D momentum{};                 ///< at the start
   double time = 0.;                 ///< the time of flight at the end: the order along the particle's path
 };
 
@@ -111,7 +110,7 @@ class HitIndex
   /// \a particle's segment on \a chip whose middle is nearest \a near (the
   /// squared distance, the first in the file's order on a tie); none without
   /// one.
-  [[nodiscard]] const HitSegment* crossing(std::uint64_t particle, std::uint32_t chip, const std::array<double, 3>& near) const;
+  [[nodiscard]] const HitSegment* crossing(std::uint64_t particle, std::uint32_t chip, const Vec3D& near) const;
   /// \a particle's segment on a measurement's chip nearest it (\a point's
   /// `surface` and x, y, z).
   template <typename Point>

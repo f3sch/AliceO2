@@ -282,7 +282,7 @@ BOOST_AUTO_TEST_CASE(BunchKaufmanRefusesANonFiniteSystem)
   BOOST_TEST(!ldltFactor(PackedView<double>{nan.data()}, 1, swaps.data(), blocks.data()));
   BOOST_TEST(swaps[1] == -7);
   BOOST_TEST(blocks[1] == -7);
-  std::array<double, 3> infinite{1., std::numeric_limits<double>::infinity(), 2.};
+  Vec3D infinite{1., std::numeric_limits<double>::infinity(), 2.};
   BOOST_TEST(!ldltFactor(PackedView<double>{infinite.data()}, 2, swaps.data(), blocks.data()));
 }
 
@@ -292,11 +292,11 @@ BOOST_AUTO_TEST_CASE(BunchKaufmanHoldsAnyScale)
   // any t the type represents with its inverse: the 2 x 2 block's arithmetic
   // forms no product of two entries.
   for (const double t : {1e-200, 1e-100, 1., 1e100, 1e200}) {
-    std::array<double, 3> a{0., t, 0.};
+    Vec3D a{0., t, 0.};
     std::array<int, 2> swaps{};
     std::array<int, 2> blocks{};
     BOOST_REQUIRE(ldltFactor(PackedView<double>{a.data()}, 2, swaps.data(), blocks.data()));
-    std::array<double, 2> x{1., 1.};
+    Vec2D x{1., 1.};
     ldltSolve(PackedView<double>{a.data()}, 2, swaps.data(), blocks.data(), x.data());
     BOOST_TEST(std::abs((x[0] * t) - 1.) < 1e-15);
     BOOST_TEST(std::abs((x[1] * t) - 1.) < 1e-15);

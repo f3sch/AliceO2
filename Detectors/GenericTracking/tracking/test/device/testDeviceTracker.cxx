@@ -724,7 +724,7 @@ namespace
 /// Two collisions of eight tracks each, 500 ns apart: one vertex each for
 /// the vertexing pass.
 constexpr std::size_t kTracksPerCollision = 8U;
-constexpr std::array<double, 2> kCollisionsNS{37., 537.};
+constexpr Vec2D kCollisionsNS{37., 537.};
 constexpr double kCollisionDurationNS = 600.;
 
 std::vector<Hit> collisionHits()

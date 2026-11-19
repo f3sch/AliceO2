@@ -31,8 +31,9 @@
 #ifndef GTRK_STUDY_DECAYTREES_H_
 #define GTRK_STUDY_DECAYTREES_H_
 
+#include "GenericTracking/Base/Definitions.h"
+
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
@@ -51,8 +52,8 @@ struct TreeParticle {
   std::int32_t pdg = 0;
   std::uint8_t process = 0U; ///< how it was made: a TMCProcess (kPPrimary for the generator's)
   std::uint64_t mother = kNoTreeParticle;
-  std::array<double, 3> vertex{};   ///< its production point [cm]
-  std::array<double, 3> momentum{}; ///< at production [GeV]
+  Vec3D vertex{};                   ///< its production point [cm]
+  Vec3D momentum{};                 ///< at production [GeV]
   std::uint32_t firstDaughter = 0U; ///< into `DecayTrees::daughters`
   std::uint32_t daughterCount = 0U;
 };

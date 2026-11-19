@@ -212,8 +212,8 @@ class SensorCells
   /// The footprint of \a surface, a sensor of a barrel layer when \a barrel.
   [[nodiscard]] static Footprint footprint(const TrackingSurface& surface, bool barrel)
   {
-    std::vector<std::array<double, 3>> points;
-    const auto add = [&](const std::array<double, 3>& point) { points.push_back(point); };
+    std::vector<Vec3D> points;
+    const auto add = [&](const Vec3D& point) { points.push_back(point); };
     if (surface.radius > 0.F) {
       // A curved sensor: its unrolled corners on the cylinder at its
       // measurement depth, and the middle of each long edge.
@@ -221,7 +221,7 @@ class SensorCells
       for (const double u : {-halfX, 0., halfX}) {
         const double angle = u / static_cast<double>(surface.radius);
         for (const double v : {-static_cast<double>(surface.bounds.halfY), static_cast<double>(surface.bounds.halfY)}) {
-          std::array<double, 3> point{};
+          Vec3D point{};
           for (std::size_t i = 0; i < 3; ++i) {
             const double radial = (std::cos(angle) * static_cast<double>(surface.axis0[i])) + (std::sin(angle) * static_cast<double>(surface.axis1[i]));
             point[i] = static_cast<double>(surface.origin[i]) + (static_cast<double>(surface.radius + surface.depth) * radial) + (v * static_cast<double>(surface.normal[i]));
@@ -231,14 +231,14 @@ class SensorCells
       }
     } else {
       const auto at = [&](double u, double v) {
-        std::array<double, 3> point{};
+        Vec3D point{};
         for (std::size_t i = 0; i < 3; ++i) {
           point[i] = static_cast<double>(surface.origin[i]) + (u * static_cast<double>(surface.axis0[i])) + (v * static_cast<double>(surface.axis1[i]));
         }
         return point;
       };
       const auto halfY = static_cast<double>(surface.bounds.halfY);
-      const std::array<std::array<double, 3>, 4> corners = {at(-static_cast<double>(surface.bounds.halfX), -halfY), at(static_cast<double>(surface.bounds.halfX), -halfY), at(static_cast<double>(surface.bounds.halfX), halfY), at(-static_cast<double>(surface.bounds.halfX), halfY)};
+      const std::array<Vec3D, 4> corners = {at(-static_cast<double>(surface.bounds.halfX), -halfY), at(static_cast<double>(surface.bounds.halfX), -halfY), at(static_cast<double>(surface.bounds.halfX), halfY), at(-static_cast<double>(surface.bounds.halfX), halfY)};
       for (std::size_t i = 0; i < corners.size(); ++i) {
         const auto& a = corners[i];
         const auto& b = corners[(i + 1U) % corners.size()];
@@ -253,7 +253,7 @@ class SensorCells
         }
       }
     }
-    std::array<double, 3> centre{};
+    Vec3D centre{};
     for (const auto& point : points) {
       for (std::size_t i = 0; i < 3; ++i) {
         centre[i] += point[i] / static_cast<double>(points.size());

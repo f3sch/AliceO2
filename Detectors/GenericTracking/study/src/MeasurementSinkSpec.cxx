@@ -301,8 +301,8 @@ void logTripletCurvature(const TrackletRunSummary& summary)
 struct TrueCrossing {
   std::uint32_t layer = 0U;
   Frame::Index row = 0U; ///< the cluster the crossing made
-  std::array<double, 3> position{};
-  std::array<double, 3> momentum{};
+  Vec3D position{};
+  Vec3D momentum{};
   double mass = 0.;
   int pdg = 0;
 };
@@ -373,10 +373,10 @@ std::vector<TrueCrossingReport> trueAnatomy(const Frame& frame, const Scattering
         const double sign = (pa[0] * cy) - (pa[1] * cx) >= 0. ? 1. : -1.;
         const double phi = std::atan2(pa[1], pa[0]) + (sign * alpha);
         const double lambda = std::atan2(pa[2], ptA);
-        const std::array<double, 3> expected{std::cos(lambda) * std::cos(phi), std::cos(lambda) * std::sin(phi), std::sin(lambda)};
-        const std::array<double, 3> actual{p[0] / pB, p[1] / pB, p[2] / pB};
+        const Vec3D expected{std::cos(lambda) * std::cos(phi), std::cos(lambda) * std::sin(phi), std::sin(lambda)};
+        const Vec3D actual{p[0] / pB, p[1] / pB, p[2] / pB};
         const double dot = (expected[0] * actual[0]) + (expected[1] * actual[1]) + (expected[2] * actual[2]);
-        const std::array<double, 3> cross{(expected[1] * actual[2]) - (expected[2] * actual[1]), (expected[2] * actual[0]) - (expected[0] * actual[2]), (expected[0] * actual[1]) - (expected[1] * actual[0])};
+        const Vec3D cross{(expected[1] * actual[2]) - (expected[2] * actual[1]), (expected[2] * actual[0]) - (expected[0] * actual[2]), (expected[0] * actual[1]) - (expected[1] * actual[0])};
         const double angle = std::atan2(std::hypot(cross[0], cross[1], cross[2]), dot);
         // Highland's theta0 for the previous layer at the true momentum and
         // incidence: k x (path factor) / (beta p)^2.
@@ -4369,8 +4369,8 @@ class MeasurementSinkTask : public Task
       ours.add(pt, residual, sigma);
       const double fittedPt = truth->fittedPt;
       oursCommon.add(pt, std::array<double, 5>{residual[0], residual[1], residual[2], -residual[3], (fittedPt / pt) - 1.}, std::array<double, 5>{});
-      const std::array<double, 2> qOverP{residual[4], (fittedPt / pt) - 1.};
-      const std::array<double, 2> qOverPSigma{sigma[4], 0.};
+      const Vec2D qOverP{residual[4], (fittedPt / pt) - 1.};
+      const Vec2D qOverPSigma{sigma[4], 0.};
       oursBySpecies[speciesOf(mParticleLabels[particle].pdg)].add(pt, qOverP, qOverPSigma);
       oursByKink[view.kinks[track] == 0U ? 0U : 1U].add(pt, qOverP, qOverPSigma);
     }
@@ -4389,7 +4389,7 @@ class MeasurementSinkTask : public Task
     if constexpr (std::is_same_v<Det, detectors::ITS>) {
       const auto point = [&](Frame::Index row) {
         const auto m = frame.measurement(row);
-        return std::array<double, 3>{static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z)};
+        return Vec3D{static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z)};
       };
       const auto states = mO2Tracks->innerStates(static_cast<long long>(mTimeframe));
       PullTable o2{"O2 at the innermost cluster, tracking-frame parameters", {{.name = "y", .unit = "um", .scale = 1e4}, {.name = "z", .unit = "um", .scale = 1e4}, {.name = "snp", .unit = "1e-3", .scale = 1e3}, {.name = "tgl", .unit = "1e-3", .scale = 1e3}, {.name = "q/pT", .unit = "1/GeV", .scale = 1.}}};
@@ -4410,7 +4410,7 @@ class MeasurementSinkTask : public Task
         const auto& state = states[track];
         const double c = std::cos(static_cast<double>(state.getAlpha()));
         const double s = std::sin(static_cast<double>(state.getAlpha()));
-        const auto rotate = [&](const std::array<double, 3>& v) { return std::array<double, 3>{(c * v[0]) + (s * v[1]), (c * v[1]) - (s * v[0]), v[2]}; };
+        const auto rotate = [&](const Vec3D& v) { return Vec3D{(c * v[0]) + (s * v[1]), (c * v[1]) - (s * v[0]), v[2]}; };
         const auto a = rotate(segment->start);
         const auto b = rotate(segment->end);
         const auto p = rotate(segment->momentum);
@@ -4428,7 +4428,7 @@ class MeasurementSinkTask : public Task
         }
         o2.add(pt, residual, sigma);
         o2Common.add(pt, std::array<double, 5>{residual[0], residual[1], std::asin(std::clamp(static_cast<double>(state.getParam(2)), -1., 1.)) - std::asin(truth[2]), std::atan(static_cast<double>(state.getParam(3))) - std::atan(truth[3]), (std::abs(truth[4]) / std::abs(static_cast<double>(state.getParam(4)))) - 1.}, std::array<double, 5>{});
-        o2BySpecies[speciesOf(mParticleLabels[particle].pdg)].add(pt, std::array<double, 2>{residual[4], (std::abs(truth[4]) / std::abs(static_cast<double>(state.getParam(4)))) - 1.}, std::array<double, 2>{sigma[4], 0.});
+        o2BySpecies[speciesOf(mParticleLabels[particle].pdg)].add(pt, Vec2D{residual[4], (std::abs(truth[4]) / std::abs(static_cast<double>(state.getParam(4)))) - 1.}, Vec2D{sigma[4], 0.});
       }
       append(o2);
       append(o2Common);

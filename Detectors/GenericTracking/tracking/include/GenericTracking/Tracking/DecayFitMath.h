@@ -19,7 +19,6 @@
 
 #include "GenericTracking/Base/DenseSolve.h"
 #include "GenericTracking/Base/Dual.h"
-#include "GenericTracking/Base/FixedVector.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"

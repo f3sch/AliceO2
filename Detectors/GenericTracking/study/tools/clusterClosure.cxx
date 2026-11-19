@@ -457,8 +457,8 @@ int runTRK(const Options& options)
     int subDet = 0;
     int rowSpan = 0;
     int colSpan = 0;
-    std::array<double, 2> cluster{};
-    std::array<std::array<double, 3>, 2> ends{};
+    Vec2D cluster{};
+    std::array<Vec3D, 2> ends{};
   };
   std::vector<Match> matches;
   std::cout << "TRKFT3 layer | clusters | frames: records' length, configured length@first start\n";
@@ -547,7 +547,7 @@ int runTRK(const Options& options)
       static const std::vector<const study::HitSegment*> kNone;
       const auto* crossings = segmentsOf(label->getEventID(), label->getTrackID(), cluster.chipID);
       for (const auto* segment : crossings != nullptr ? *crossings : kNone) {
-        std::array<std::array<double, 3>, 2> ends{};
+        std::array<Vec3D, 2> ends{};
         for (std::size_t end = 0; end < 2; ++end) {
           double hitFrame[3];
           tools::toLocal(geometry->sensor(cluster.chipID), end == 0 ? segment->start.data() : segment->end.data(), hitFrame);
@@ -593,13 +593,13 @@ int runTRK(const Options& options)
   // (where O2's CheckTopologyDictionary.C leaves them out).
   constexpr std::size_t kSubDets = 3;
   const std::array<const char*, kSubDets> subDets{"VD", "ML/OT", "FT3"};
-  const std::array<std::array<double, 2>, kSubDets> pitches{{{static_cast<double>(Segmentation::PitchRowVD), static_cast<double>(Segmentation::PitchColVD)}, {static_cast<double>(Segmentation::PitchRowMLOT), static_cast<double>(Segmentation::PitchColMLOT)}, {static_cast<double>(Segmentation::PitchRowMLOT), static_cast<double>(Segmentation::PitchColMLOT)}}};
+  const std::array<Vec2D, kSubDets> pitches{{{static_cast<double>(Segmentation::PitchRowVD), static_cast<double>(Segmentation::PitchColVD)}, {static_cast<double>(Segmentation::PitchRowMLOT), static_cast<double>(Segmentation::PitchColMLOT)}, {static_cast<double>(Segmentation::PitchRowMLOT), static_cast<double>(Segmentation::PitchColMLOT)}}};
   const auto residualAt = [](const Match& match, double depth) {
     const auto& [a, b] = match.ends;
     // On the segment: a particle that starts or stops in the silicon
     // crosses no deeper plane than its own end.
     const double t = std::abs(b[2] - a[2]) > 1e-9 ? std::clamp((depth - a[2]) / (b[2] - a[2]), 0., 1.) : 0.5;
-    return std::array<double, 2>{match.cluster[0] - (a[0] + (t * (b[0] - a[0]))), match.cluster[1] - (a[1] + (t * (b[1] - a[1])))};
+    return Vec2D{match.cluster[0] - (a[0] + (t * (b[0] - a[0]))), match.cluster[1] - (a[1] + (t * (b[1] - a[1])))};
   };
   std::cout << "  each layer's measurement depth, the dictionaries' (our unrolled z) [um]:";
   for (int layer = 0; layer < kLayers; ++layer) {
