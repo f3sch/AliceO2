@@ -188,10 +188,11 @@ struct IterationSettings {
   /// minClusters, skipLinks, layerMask, roadEndLayers, roadStartLayers and the pT floors by
   /// cluster count), and no kink allowance there and one here.
   bool sharedGraph = false;
-  /// Whether the iteration tests its pairs and triplets against their
-  /// measurements' cluster shapes: each measurement's slope interval
-  /// (`MeasurementT::slopeLow`, `slopeHigh`) must hold the candidate's local
-  /// slope there (ShapeCut.h).
+  /// Whether the iteration tests its pairs, its triplets and its follow's rows
+  /// against their measurements' cluster shapes: each measurement's slope
+  /// interval (`MeasurementT::slopeLow`, `slopeHigh`) must hold the
+  /// candidate's local slope there -- the pair's or triplet's line, the
+  /// follow's updated direction (ShapeCut.h).
   /// False, the default, off.
   bool shapeTest = false;
 
@@ -376,7 +377,7 @@ struct IterationParameters {
   /// (`FollowStage`'s BeamEnd).
   bool followBeamEnd = false;
   /// `IterationSettings::shapeTest`, read on the host only to choose the
-  /// tracklet and triplet stages' instantiations.
+  /// tracklet, triplet and follow stages' instantiations.
   bool shapeTest = false;
   /// `IterationSettings::overlapPartners`, read on the host only to run the
   /// overlap partners' stage (OverlapPartners.h). Last, so that no other

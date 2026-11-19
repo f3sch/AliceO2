@@ -157,13 +157,17 @@ enum class PairKind : std::uint8_t {
 
 /// What a step did with a row it visited, in the order its tests run: held
 /// by a track, outside the step's window, crossing another layer
-/// (LinkHoles.h), no usable update, above the chi2 gate, or passing.
+/// (LinkHoles.h), no usable update, above the chi2 gate, or passing; last, as
+/// the value added after the others: in an iteration testing the cluster
+/// shapes, its cluster's slope interval refusing the updated direction, a test
+/// made after the update and before the gate (ShapeCut.h).
 enum class StepOutcome : std::uint8_t { kUsed,
                                         kOutsideWindow,
                                         kHole,
                                         kNoUpdate,
                                         kChi2,
-                                        kPasses };
+                                        kPasses,
+                                        kShape };
 
 /// Why a direction of a follow ended: no layer to search from where it
 /// stands; a sensor crossed without a row past the iteration's holes; every

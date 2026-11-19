@@ -41,6 +41,7 @@
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/SensorCells.h"
+#include "GenericTracking/Tracking/ShapeCut.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
@@ -614,9 +615,11 @@ using ChildOf = std::conditional_t<EndDensity, DensityChild, Child>;
 /// the group's collectives. One lane has nothing to keep in step: it calls
 /// \a step for each row passing the gate alone, right after its report, in
 /// the grid's order. \a Inlined: the transport of each row inlined
-/// (`updateCandidate`). The body, inlined where it is called; the follow
-/// calls `visit`.
-template <bool Own = false, bool EndDensity = false, bool Inlined = false, DetectorLayout Det, typename Material, typename Group, typename Report, typename Step>
+/// (`updateCandidate`). With \a Shape, the iteration's `shapeTest`, a usable
+/// update is refused where the row's slope interval does not hold the
+/// updated state's direction (`slopeAdmits`, StepOutcome::kShape), before
+/// the gate. The body, inlined where it is called; the follow calls `visit`.
+template <bool Own = false, bool EndDensity = false, bool Inlined = false, bool Shape = false, DetectorLayout Det, typename Material, typename Group, typename Report, typename Step>
 GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det, Material>& context, const BoundParameters& state, const CovarianceFactors& factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& window, const detail::StepMaterial& traversed, std::uint64_t holes, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
 {
   const auto& parameters = *context.parameters;
@@ -649,6 +652,16 @@ GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det, Material>& co
     if (!usable) {
       report(row, StepOutcome::kNoUpdate, 0.F);
       return;
+    }
+    if constexpr (Shape) {
+      const auto measurement = frame.measurement(row);
+      const Scalar theta = candidate.state.theta();
+      const Scalar phi = candidate.state.phi();
+      const Scalar sinTheta = o2::gpu::CAMath::Sin(theta);
+      if (!slopeAdmits(measurement.slopeLow, measurement.slopeHigh, measurement.x, measurement.y, measurement.r, o2::gpu::CAMath::Cos(phi) * sinTheta, o2::gpu::CAMath::Sin(phi) * sinTheta, o2::gpu::CAMath::Cos(theta))) {
+        report(row, StepOutcome::kShape, chi2);
+        return;
+      }
     }
     const bool passes = chi2 <= parameters.clusterChi2Max;
     report(row, passes ? StepOutcome::kPasses : StepOutcome::kChi2, chi2);
@@ -690,10 +703,10 @@ GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det, Material>& co
 
 /// `visitInline`, never inlined on the device: one copy for each call site,
 /// which the kernels then do not absorb.
-template <bool Own = false, bool EndDensity = false, DetectorLayout Det, typename Material, typename Group, typename Report, typename Step>
+template <bool Own = false, bool EndDensity = false, bool Shape = false, DetectorLayout Det, typename Material, typename Group, typename Report, typename Step>
 GPUhdnii() void visit(const StepContext<Det, Material>& GPUrestrict() context, const BoundParameters& GPUrestrict() state, const CovarianceFactors& GPUrestrict() factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& GPUrestrict() window, const detail::StepMaterial& GPUrestrict() traversed, std::uint64_t holes, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
 {
-  visitInline<Own, EndDensity>(context, state, factors, r, z, layer, direction, window, traversed, holes, counter, group, report, step, own);
+  visitInline<Own, EndDensity, false, Shape>(context, state, factors, r, z, layer, direction, window, traversed, holes, counter, group, report, step, own);
 }
 
 /// \a candidate of lane \a from of \a group, on every lane: its row, chi2,
@@ -926,7 +939,7 @@ struct Target {
 /// the gate. Its own step saw only the rows outside; the beam line is the
 /// evidence beyond the last row inward, where the strangers of the vertex
 /// detector -- QED pairs in Pb-Pb -- pass the step alone.
-template <DetectorLayout Det, typename Material, bool BeamLine = false, bool DecidesEnd = false, bool Greedy = false, bool EndDensity = false, bool BeamEnd = false>
+template <DetectorLayout Det, typename Material, bool BeamLine = false, bool DecidesEnd = false, bool Greedy = false, bool EndDensity = false, bool BeamEnd = false, bool Shape = false>
 class FollowStage
 {
  public:
@@ -1031,7 +1044,7 @@ class FollowStage
       follow::Passing passing;
       // The search inlined with its transports: called, it slows
       // `TrimAmbiguous`'s kernel on a device.
-      follow::visitInline<false, false, true>(
+      follow::visitInline<false, false, true, Shape>(
         context(), state, factors, 0.F, 0.F, target.layer, direction, window, traversed, 0U, WorkCounter::kFollowTrimUpdates, SoloGroup{}, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},
         [&](const follow::Child& candidate) {
           ++passing.count;
@@ -1399,7 +1412,7 @@ class FollowStage
       std::uint32_t firstLane = 0U; // \a child holds the first passing row on this lane
       Confirmed confirmed;
       bool gated = false; // this lane saw a row refused above the gate
-      follow::visit<DecidesEnd, EndDensity>(
+      follow::visit<DecidesEnd, EndDensity, Shape>(
         context(), branch.state, branch.factors, 0.F, 0.F, target.layer, direction, window, traversed, 0U, WorkCounter::kFollowUpdates, group,
         [&](std::uint32_t row, StepOutcome outcome, Scalar chi2) {
           gated = gated || outcome == StepOutcome::kChi2;
@@ -1462,7 +1475,7 @@ class FollowStage
   {
     return overTargets(branch, box, direction, targets, nTargets, follow::NoObserver{}, group, [&](const follow::Target& target, const CandidateWindow& window, const detail::StepMaterial& traversed) {
       follow::Witness own;
-      follow::visit<DecidesEnd>(
+      follow::visit<DecidesEnd, false, Shape>(
         context(), branch.state, branch.factors, 0.F, 0.F, target.layer, direction, window, traversed, 0U, counter, group, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},
         [&](const follow::Child& candidate) {
           if (candidate.row != ClusterList<kMaxClusters>::kNoCluster && follow::beats(candidate.row, candidate.chi2, own)) {
@@ -1849,13 +1862,14 @@ struct Refit {
 /// track stays as the refit left it. The row dropped is not marked: it is free for the
 /// iterations after. Not with `followEnd`, whose replaced end goes with the
 /// outward rows.
-template <DetectorLayout Det, typename Material, CrossingRule Rule = CrossingRule::kFirstAhead>
+template <DetectorLayout Det, typename Material, CrossingRule Rule = CrossingRule::kFirstAhead, bool Shape = false>
 struct TrimAmbiguous {
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using TrackView = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::View;
 
-  /// The search of the step's rows, as a nominal step makes it.
-  FollowStage<Det, Material> search;
+  /// The search of the step's rows, as a nominal step makes it (with \a Shape,
+  /// the iteration's shape test).
+  FollowStage<Det, Material, false, false, false, false, false, Shape> search;
   const IterationParameters<Det>* parameters = nullptr;
   const TimeFrame<Det>* frame = nullptr;
   const TrackingGeometry<Det>* geometry = nullptr;
@@ -2030,13 +2044,13 @@ void runSequence(const Launch& launch, const Inputs<Det, Material>& in)
   // The iteration's choice among the passing rows, its end decisions on the
   // last row's density and against the beam line (with the beam line only).
   withBools(
-    [&]<bool BeamLine, bool DecidesEnd, bool Greedy, bool EndDensity, bool BeamEnd>(std::bool_constant<BeamLine>, std::bool_constant<DecidesEnd>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>) {
+    [&]<bool BeamLine, bool DecidesEnd, bool Greedy, bool EndDensity, bool BeamEnd, bool Shape>(std::bool_constant<BeamLine>, std::bool_constant<DecidesEnd>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>, std::bool_constant<Shape>) {
       if constexpr (BeamLine || !BeamEnd) {
-        const FollowStage<Det, Material, BeamLine, DecidesEnd, Greedy, EndDensity, BeamEnd> stage{in.parameters, in.frame, in.geometry, in.material, in.propagator, in.constTracks, in.used, in.maxCandidateWidthPS, in.cells, in.proposals, in.inward, in.trackOffset, DecidesEnd ? in.endStarts : nullptr};
+        const FollowStage<Det, Material, BeamLine, DecidesEnd, Greedy, EndDensity, BeamEnd, Shape> stage{in.parameters, in.frame, in.geometry, in.material, in.propagator, in.constTracks, in.used, in.maxCandidateWidthPS, in.cells, in.proposals, in.inward, in.trackOffset, DecidesEnd ? in.endStarts : nullptr};
         launch.propose(Phase::kFollowPropose, elements, stage);
       }
     },
-    choices.beamConstraint, end, choices.followGreedy, Follow<Det>::endDensity(choices), choices.followBeamEnd);
+    choices.beamConstraint, end, choices.followGreedy, Follow<Det>::endDensity(choices), choices.followBeamEnd, choices.shapeTest);
   launch.pass(Phase::kFollowResolve, elements, Bid<kMaxClusters>{in.proposals, in.bids, in.trackOffset, in.trackCount});
   launch.pass(Phase::kFollowResolve, elements, Resolve<kMaxClusters>{in.proposals, in.bids, in.trackOffset, in.trackCount, in.earlier});
   launch.pass(Phase::kFollowResolve, elements, Combine<kMaxClusters>{in.constTracks.clusters, in.constTracks.count, in.proposals, in.rows, in.counts, in.trackOffset});
@@ -2046,21 +2060,24 @@ void runSequence(const Launch& launch, const Inputs<Det, Material>& in)
   // The ambiguous last rows trimmed, on the iteration's own
   // tracks, before the marks.
   if (choices.followTrimMargin > 0.F && !end && !in.earlier) {
-    const FollowStage<Det, Material> search{in.parameters, in.frame, in.geometry, in.material, in.propagator, in.constTracks, in.used, in.maxCandidateWidthPS, in.cells, nullptr, false, in.trackOffset};
-    withCrossingRule(choices.crossingRule, [&]<CrossingRule Rule>(std::integral_constant<CrossingRule, Rule>) {
-      launch.pass(Phase::kFollowRefit, elements,
-                  TrimAmbiguous<Det, Material, Rule>{
-                    .search = search,
-                    .parameters = in.parameters,
-                    .frame = in.frame,
-                    .geometry = in.geometry,
-                    .material = in.material,
-                    .propagator = in.propagator,
-                    .tracks = in.tracks,
-                    .proposals = in.proposals,
-                    .trackOffset = in.trackOffset,
-                  });
-    });
+    withBools([&]<bool Shape>(std::bool_constant<Shape>) {
+      const FollowStage<Det, Material, false, false, false, false, false, Shape> search{in.parameters, in.frame, in.geometry, in.material, in.propagator, in.constTracks, in.used, in.maxCandidateWidthPS, in.cells, nullptr, false, in.trackOffset};
+      withCrossingRule(choices.crossingRule, [&]<CrossingRule Rule>(std::integral_constant<CrossingRule, Rule>) {
+        launch.pass(Phase::kFollowRefit, elements,
+                    TrimAmbiguous<Det, Material, Rule, Shape>{
+                      .search = search,
+                      .parameters = in.parameters,
+                      .frame = in.frame,
+                      .geometry = in.geometry,
+                      .material = in.material,
+                      .propagator = in.propagator,
+                      .tracks = in.tracks,
+                      .proposals = in.proposals,
+                      .trackOffset = in.trackOffset,
+                    });
+      });
+    },
+              choices.shapeTest);
   }
   launch.pass(Phase::kFollowMark, elements, Mark<kMaxClusters>{in.proposals, in.used});
 }
