@@ -85,8 +85,8 @@ struct IterationSettings {
   /// no link that skips a layer (`LayerLink::skipsLayer`) and on the others no pair
   /// that crosses one, so a track beyond a shorter layer's end is still made.
   bool skipLinks = true;
-  /// The layers this iteration's links join, a bit per layer; 0 for every
-  /// layer. A link is taken only when both its layers are in the mask: the
+  /// The layers this iteration's links join, a bit per layer; 0 for the
+  /// layout's default (every layer unless the layout sets a default mask). A link is taken only when both its layers are in the mask: the
   /// vertexing pass takes the three innermost.
   std::uint64_t layerMask = 0U;
   /// The layers a road may end on, a bit per layer; 0 for any. With a mask a
@@ -445,7 +445,13 @@ template <DetectorLayout Det>
 template <DetectorLayout Det>
 [[nodiscard]] inline std::array<bool, nLinks<Det>> takenLinks(const IterationSettings& settings)
 {
-  const auto inMask = [&](LayerID layer) { return settings.layerMask == 0U || ((settings.layerMask >> layer) & 1U) != 0U; };
+  auto mask = settings.layerMask;
+  if constexpr (requires { Det::defaultSeedingMask; }) {
+    if (mask == 0U) {
+      mask = Det::defaultSeedingMask;
+    }
+  }
+  const auto inMask = [&](LayerID layer) { return mask == 0U || ((mask >> layer) & 1U) != 0U; };
   std::array<bool, nLinks<Det>> allowed{};
   for (std::size_t link = 0; link < nLinks<Det>; ++link) {
     const auto& pair = Det::layerLinks[link];

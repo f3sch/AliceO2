@@ -15,10 +15,10 @@
 /// A ConfigurableParam, where `--configKeyValues "GTRKReco<DET>.<field>=<value>"`
 /// reaches them and every device of the chain sees the same value.
 ///
-/// The fields are one struct, `RecoSettings`; each detector has its own
-/// parameter of them, `RecoParam<DetID>` (as `DPLAlpideParam<N>`):
-/// `GTRKRecoITS`, `GTRKRecoMFT`, `GTRKRecoTRK`, so that one workflow carries
-/// every detector's. A detector layout's is `recoParam<Det>()`.
+/// The layouts share the `RecoSettings` fields. Each layout reads its own
+/// parameter through `recoParam<Det>()`: `GTRKRecoITS`, `GTRKRecoMFT`,
+/// `GTRKRecoTRK` or `GTRKRecoTRKTOF`. Layer-indexed keys use the selected
+/// layout's numbering.
 
 #ifndef GTRK_WORKFLOW_RECOPARAM_H_
 #define GTRK_WORKFLOW_RECOPARAM_H_
@@ -34,11 +34,14 @@
 // ENABLE_UPGRADES comes with DetID.h (UpgradesStatus.h).
 #ifdef ENABLE_UPGRADES
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Detectors/TRKFT3TOF.h"
 #endif
 
+#include <cstddef>
 #include <cstdint>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace o2::gtrk
@@ -143,8 +146,8 @@ struct RecoSettings {
   /// tracks past a shorter layer's end are kept and those through a gap
   /// are not.
   std::vector<int> iterationSkipLinks;
-  /// The layers each iteration's links join, a bit per layer; 0 for every
-  /// layer (the default). The vertexing pass's 7 takes layers 0-2 alone.
+  /// The layers each iteration's links join, a bit per layer; 0 takes the
+  /// layout's default seeding mask. The vertexing pass's 7 takes layers 0-2 alone.
   std::vector<long> iterationLayerMask;
   /// The layers each iteration's roads may end on, a bit per layer; 0 for any
   /// (the default). O2's ITS async asks layer 3 or 6 of its third,
@@ -282,8 +285,7 @@ struct RecoParam : public o2::conf::ConfigurableParamPromoter<RecoParam<N>, Reco
 template <int N>
 RecoParam<N> RecoParam<N>::sInstance;
 
-/// A detector layout's O2 detector: its parameter's, its data origin's
-/// (DataSpecs.h's `detectorOrigin`).
+/// A detector layout's O2 detector and data origin (DataSpecs.h).
 template <DetectorLayout Det>
 struct DetIDOf;
 template <>
@@ -296,15 +298,29 @@ struct DetIDOf<detectors::MFT> : std::integral_constant<o2::detectors::DetID::ID
 template <>
 struct DetIDOf<detectors::TRKFT3> : std::integral_constant<o2::detectors::DetID::ID, o2::detectors::DetID::TRK> {
 };
+/// TRKFT3TOF publishes tracks with TRK's data origin.
+template <>
+struct DetIDOf<detectors::TRKFT3TOF> : std::integral_constant<o2::detectors::DetID::ID, o2::detectors::DetID::TRK> {
+};
 #endif
 
-/// A detector layout's parameter.
+/// A detector layout's reconstruction parameters.
 template <DetectorLayout Det>
 struct RecoParamOf {
   using type = RecoParam<DetIDOf<Det>::value>; // NOLINT(readability-identifier-naming): a type trait's member
 };
 
-/// The settings of \a Det's parameter.
+#ifdef ENABLE_UPGRADES
+struct RecoParamTRKTOF : public o2::conf::ConfigurableParamPromoter<RecoParamTRKTOF, RecoSettings> {
+  O2ParamDef(RecoParamTRKTOF, "GTRKRecoTRKTOF");
+};
+
+template <>
+struct RecoParamOf<detectors::TRKFT3TOF> {
+  using type = RecoParamTRKTOF;
+};
+#endif
+
 template <DetectorLayout Det>
 [[nodiscard]] const RecoSettings& recoParam()
 {
