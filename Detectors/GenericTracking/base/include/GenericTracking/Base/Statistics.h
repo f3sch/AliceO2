@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <iterator>
 #include <ranges>
+#include <utility>
 #include <vector>
 
 namespace o2::gtrk
@@ -38,7 +39,7 @@ template <std::ranges::random_access_range R>
     return T{};
   }
   const auto middle = std::ranges::begin(values) + static_cast<std::ptrdiff_t>(std::ranges::size(values) / 2U);
-  std::ranges::nth_element(values, middle);
+  std::ranges::nth_element(std::forward<R>(values), middle);
   return *middle;
 }
 
@@ -49,7 +50,7 @@ template <std::ranges::random_access_range R>
 [[nodiscard]] std::ranges::range_value_t<R> quantile(R&& values, double q)
 {
   const auto at = std::ranges::begin(values) + static_cast<std::ptrdiff_t>(q * static_cast<double>(std::ranges::size(values) - 1U));
-  std::ranges::nth_element(values, at);
+  std::ranges::nth_element(std::forward<R>(values), at);
   return *at;
 }
 
@@ -61,7 +62,7 @@ template <std::ranges::random_access_range R>
 {
   constexpr double kBelowOneSigma = 0.15865525393145707; // Phi(-1)
   const auto low = quantile(values, kBelowOneSigma);
-  return static_cast<std::ranges::range_value_t<R>>(0.5 * (quantile(values, 1. - kBelowOneSigma) - low));
+  return static_cast<std::ranges::range_value_t<R>>(0.5 * (quantile(std::forward<R>(values), 1. - kBelowOneSigma) - low));
 }
 
 /// 1.4826 times the median absolute deviation, the factor making it a
@@ -74,7 +75,7 @@ template <std::ranges::random_access_range R>
   const T centre = median(values);
   std::vector<T> deviations;
   deviations.reserve(std::ranges::size(values));
-  for (const T value : values) {
+  for (const T value : std::forward<R>(values)) {
     deviations.push_back(std::abs(value - centre));
   }
   return static_cast<T>(1.4826 * median(deviations));

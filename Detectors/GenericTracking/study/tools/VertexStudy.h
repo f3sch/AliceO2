@@ -627,7 +627,13 @@ class VertexStudy
     double lever = 0.;
   };
 
-  [[nodiscard]] ScatteringErrors<Det> scatteringErrors() const { return {.table = &mPass->scattering, .cut = mPass->pairCut, .varTransverse = mBeamVarTransverse}; }
+  [[nodiscard]] ScatteringErrors<Det> scatteringErrors() const
+  {
+    if (!mPass) {
+      throw std::logic_error("vertex study: the scattering errors before a pass was observed");
+    }
+    return {.table = &mPass->scattering, .cut = mPass->pairCut, .varTransverse = mBeamVarTransverse};
+  }
 
   /// Layer 1's kick on the intercept [um] at the circle's \a radius.
   [[nodiscard]] double layer1UM(const ErrorTerms& t, Scalar radius) const { return std::abs(t.dz0dz2) * t.lever * std::sqrt(static_cast<double>(scatteringErrors().kinkScattering(t.a, t.b, t.d, radius))) * 1.e4; }
@@ -1822,7 +1828,7 @@ class VertexStudy
   [[nodiscard]] static SplitTest splitTest(std::span<const std::int64_t> z, std::span<const std::uint64_t> w, double z1, double window, std::uint32_t minContributors)
   {
     const std::size_t n = z.size();
-    if (n < 2U * minContributors) {
+    if (n < 2U * static_cast<std::size_t>(minContributors)) {
       return {};
     }
     std::vector<double> zs(n);
@@ -1846,7 +1852,9 @@ class VertexStudy
     };
     std::vector<double> away(n); // the one-collision fit's tail and debris share of each candidate
     const auto em = [&](Fit fit, bool second) {
-      std::vector<double> r1(n), r2(n), rt(n);
+      std::vector<double> r1(n);
+      std::vector<double> r2(n);
+      std::vector<double> rt(n);
       for (int step = 0; step < kSteps; ++step) {
         // E: the shares and the log-likelihood at the current parameters.
         double logL = 0.;
@@ -1869,7 +1877,13 @@ class VertexStudy
           break; // the parameters are the ones the log-likelihood and the shares are of
         }
         // M: the means, then the tail's scale about the new first mean, then the fractions.
-        double s1 = 0., s2 = 0., st = 0., n1 = 0., d1 = 0., n2 = 0., d2 = 0.;
+        double s1 = 0.;
+        double s2 = 0.;
+        double st = 0.;
+        double n1 = 0.;
+        double d1 = 0.;
+        double n2 = 0.;
+        double d2 = 0.;
         for (std::size_t k = 0; k < n; ++k) {
           s1 += r1[k];
           s2 += r2[k];
@@ -2261,7 +2275,7 @@ class VertexStudy
           if (!second) {
             return id;
           }
-          const double zi = static_cast<double>(zOf(i));
+          const auto zi = static_cast<double>(zOf(i));
           return std::abs(zi - vertex.zUM) <= std::abs(zi - second->zUM) ? id : id + 1;
         };
         const auto own = [&](std::size_t i) {

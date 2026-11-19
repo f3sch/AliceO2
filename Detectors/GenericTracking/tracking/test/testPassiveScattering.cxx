@@ -259,7 +259,7 @@ std::array<LinkCount, 5> countPairs(const ScatteringTable<Det>& cutTable, bool w
       }
       ++count.accepted;
       const auto& window = parameters.windows[link];
-      const double dPhi = toPMPiOf<double>(std::atan2(target.y, target.x) - std::atan2(source.y, source.x));
+      const auto dPhi = toPMPiOf<double>(std::atan2(target.y, target.x) - std::atan2(source.y, source.x));
       count.inPhiWindow += std::abs(dPhi) <= static_cast<double>(window.phiHalfWidth) ? 1 : 0;
       const double centre = (static_cast<double>(window.secondScale) * static_cast<double>(source.z)) + static_cast<double>(window.secondOffset);
       count.inSecondWindow += std::abs(static_cast<double>(target.z) - centre) <= static_cast<double>(window.secondHalfWidth) ? 1 : 0;
