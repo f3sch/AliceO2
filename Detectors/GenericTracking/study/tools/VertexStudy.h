@@ -406,7 +406,7 @@ class VertexStudy
       throw std::runtime_error(std::format("cannot write the replay's lists {}-*.csv", prefix));
     }
     vertices << "variant,id,listed,framePS,round,windowStartUM,centreUM,zUM,window,sidebands,hidden,contributors,selected,dropped,reuse,"
-                "collision,trueZUM,findable,reference,startPS,widthPS,denseShare,softShare,noParticleShare,sigmaZUM,sigmaModelUM,splitLambda,splitZ2UM,splitN2\n";
+                "collision,trueZUM,findable,reference,startPS,widthPS,denseShare,softShare,noParticleShare,sigmaZUM,sigmaModelUM,splitLambda,splitZ2UM,splitN2,trueTripletShare,primaryShare\n";
     collisions << "variant,collision,trueZUM,framePS,inner,findable,found,vertexZUM,contributors,round,accepted,kept,core,chi2,dca,"
                   "degenerate,deduplicated,free,own,other,fake,dropped,dense,denseFindable,denseDzUM,denseContributors,vetoedWindow,vetoedSidebands\n";
     // The vertexer's owned rows (the first run's) as their clusters, one per
@@ -426,7 +426,7 @@ class VertexStudy
       for (std::size_t v = 0; v < run.vertices.size(); ++v) {
         const auto& r = run.vertices[v];
         const auto* collision = r.collision < 0 ? nullptr : &mCollisions[static_cast<std::size_t>(r.collision)];
-        vertices << std::format("{},{},{},{},{},{},{:.1f},{:.1f},{},{},{},{},{},{},{:.4f},{},{:.1f},{},{},{},{},{:.3f},{:.3f},{:.3f},{:.2f},{:.2f},{:.3f},{:.1f},{:.2f}\n", run.name, v, r.listed, mFrameTimes[static_cast<std::size_t>(r.frame)], r.round, r.windowStartUM, r.centreUM, r.zUM, r.window, r.sidebands, r.hidden, r.contributors, r.selected, r.dropped, r.reuse, r.collision, collision == nullptr ? 0. : collision->z * 1.e4, collision == nullptr ? 0U : collision->findable, r.reference, r.startPS, r.widthPS, r.denseShare, r.softShare, r.noParticleShare, std::sqrt(static_cast<double>(r.seed.varZ)) * 1.e4, std::sqrt(r.modelVarUM2), r.splitLambda, r.splitZ2UM, r.splitN2);
+        vertices << std::format("{},{},{},{},{},{},{:.1f},{:.1f},{},{},{},{},{},{},{:.4f},{},{:.1f},{},{},{},{},{:.3f},{:.3f},{:.3f},{:.2f},{:.2f},{:.3f},{:.1f},{:.2f},{:.3f},{:.3f}\n", run.name, v, r.listed, mFrameTimes[static_cast<std::size_t>(r.frame)], r.round, r.windowStartUM, r.centreUM, r.zUM, r.window, r.sidebands, r.hidden, r.contributors, r.selected, r.dropped, r.reuse, r.collision, collision == nullptr ? 0. : collision->z * 1.e4, collision == nullptr ? 0U : collision->findable, r.reference, r.startPS, r.widthPS, r.denseShare, r.softShare, r.noParticleShare, std::sqrt(static_cast<double>(r.seed.varZ)) * 1.e4, std::sqrt(r.modelVarUM2), r.splitLambda, r.splitZ2UM, r.splitN2, r.trueTripletShare, r.primaryShare);
       }
       for (std::size_t c = 0; c < mCollisions.size(); ++c) {
         const auto& collision = mCollisions[c];
@@ -628,19 +628,6 @@ class VertexStudy
   };
 
   [[nodiscard]] ScatteringErrors<Det> scatteringErrors() const { return {.table = &mPass->scattering, .cut = mPass->pairCut, .varTransverse = mBeamVarTransverse}; }
-
-  /// The pT [GeV] whose 1/pT^2 is \a c's posterior mean (`ScatteringErrors::meanInvPt2`), or none.
-  [[nodiscard]] std::optional<double> scatterPtOf(const Candidate& c) const
-  {
-    const auto t = errorTerms(c);
-    const auto errors = scatteringErrors();
-    const Scalar halfRMin = 0.5F * mPass->pairCut.twoRMin;
-    if (!t || !(halfRMin > 0.F) || !(mPass->pairCut.momentumCurvature > 0.F)) {
-      return std::nullopt;
-    }
-    const double meanX2 = static_cast<double>(errors.meanInvPt2(t->a, t->b, t->d, t->fit, errors.kinkScattering(t->a, t->b, t->d, halfRMin)));
-    return meanX2 > 0. ? std::optional<double>{1. / std::sqrt(meanX2)} : std::nullopt;
-  }
 
   /// Layer 1's kick on the intercept [um] at the circle's \a radius.
   [[nodiscard]] double layer1UM(const ErrorTerms& t, Scalar radius) const { return std::abs(t.dz0dz2) * t.lever * std::sqrt(static_cast<double>(scatteringErrors().kinkScattering(t.a, t.b, t.d, radius))) * 1.e4; }
@@ -997,9 +984,7 @@ class VertexStudy
     return ((ax * cy) - (ay * cx)) / std::hypot(dx, dy);
   }
 
-  /// \a c's pulls; its scattering at \a scatterPtGeV where given (e.g. the
-  /// posterior's, `scatterPtOf`), else at the pT its radius reads.
-  [[nodiscard]] TripletPulls tripletPulls(const Candidate& c, std::optional<double> scatterPtGeV = std::nullopt) const
+  [[nodiscard]] TripletPulls tripletPulls(const Candidate& c) const
   {
     if (!mPass) {
       throw std::logic_error("VertexStudy: triplet pulls before a pass was observed");
@@ -1013,8 +998,6 @@ class VertexStudy
     TripletPulls out;
     const bool curved = std::isfinite(c.radius) && c.radius > 0.;
     out.ptGeV = curved ? static_cast<double>(cut.momentumCurvature) * c.radius : std::numeric_limits<double>::infinity();
-    const double scatterPt = scatterPtGeV ? *scatterPtGeV : out.ptGeV;
-    const bool scatters = scatterPtGeV ? std::isfinite(*scatterPtGeV) && *scatterPtGeV > 0. : curved;
     const double slope = static_cast<double>(d.z - a.z) / static_cast<double>(d.r - a.r);
     const double g = std::sqrt(1. + (slope * slope));
     const auto mass2 = static_cast<double>(cut.mass2);
@@ -1044,7 +1027,7 @@ class VertexStudy
     const double ny = chordX / chord;
     double varScattering = 0.;
     // Highland's factor of a scatterer at the candidate's beta, p = pT g.
-    const double momentum2 = scatterPt * scatterPt * g * g;
+    const double momentum2 = out.ptGeV * out.ptGeV * g * g;
     const auto factor = [&](const ScatteringLayer& scatterer) { return static_cast<double>(highlandK(scatterer, static_cast<Scalar>(std::log(momentum2 / (momentum2 + mass2))))); };
     const auto kick = [&](double rs, double k) {
       if (!(rs < radii[2]) || !(k > 0.)) {
@@ -1059,10 +1042,10 @@ class VertexStudy
       }
       const double derivative = (dcaOf(moved) - dca0) / kStep;
       // theta0^2 = k g / (beta p)^2 at p = pT g; the azimuthal kick theta0 g.
-      const double theta2 = k * g * (1. + (mass2 / (scatterPt * scatterPt * g * g))) / (scatterPt * scatterPt * g * g);
+      const double theta2 = k * g * (1. + (mass2 / (out.ptGeV * out.ptGeV * g * g))) / (out.ptGeV * out.ptGeV * g * g);
       varScattering += derivative * derivative * theta2 * g * g;
     };
-    if (scatters) {
+    if (curved) {
       const double z0 = c.z0;
       const auto crosses = [&](const ScatteringLayer& layer) {
         const double zAt = z0 + (slope * static_cast<double>(layer.position));
@@ -1641,28 +1624,13 @@ class VertexStudy
   enum class CutMode : std::uint8_t { kAbsolute,
                                       kRzPull,
                                       kPulls,
-                                      kPullsCapped,
-                                      kDcaPull }; ///< the chi2 absolute, the dca in sigmas of its own error at the posterior's pT
-
-  /// Which measurements a found vertex owns: those of every source within
-  /// its reach (the vertexer's), those of its claimed candidates only, or a
-  /// source's within its reach unless the measurement's home -- the kept
-  /// candidate holding it -- lies out of the vertex's reach.
-  enum class Ownership : std::uint8_t { kSources,
-                                        kClaimed,
-                                        kHome };
+                                      kPullsCapped };
 
   struct ReplayVariant {
     std::string name;
     CutMode cuts = CutMode::kAbsolute;
     double sigma = 0.;  ///< the pulls' cut
     bool prior = false; ///< starting from `setPriorVertices`'
-    /// The claim and the ownership by each candidate's own error, at least
-    /// the peak's window (`claimReach` without the fixed claim), not the vertexer's.
-    bool ownReach = false;
-    /// The rerun at `aloneMinContributors` in every frame after its rounds,
-    /// from what they left free, not only in a frame without a vertex.
-    bool aloneEverywhere = false;
     /// A vertex whose claimed candidates the one-or-two test (`splitTest`)
     /// finds two collisions in at twice the log-likelihood ratio of at least
     /// k^2 (the peak test's significance) becomes two: the candidates the
@@ -1670,7 +1638,6 @@ class VertexStudy
     /// second, both fitted from their members, each source owned by the one
     /// it is nearer to in its own reach's errors.
     bool split = false;
-    Ownership ownership = Ownership::kSources;
   };
 
   struct ReplayVertex {
@@ -1709,6 +1676,10 @@ class VertexStudy
     double splitLambda = 0.;
     double splitZ2UM = 0.;
     double splitN2 = 0.;
+    /// Of its claimed candidates, the share that are one particle's triplets,
+    /// and of all of them those of a physical primary.
+    double trueTripletShare = 0.;
+    double primaryShare = 0.;
   };
 
   /// A true triplet of a collision dropped by a vertex's ownership: the row
@@ -1767,12 +1738,10 @@ class VertexStudy
     std::vector<std::uint8_t> passes(mCandidates.size(), 0U);
     for (std::size_t i = 0; i < mCandidates.size(); ++i) {
       const auto& c = mCandidates[i];
-      const bool chi2Out = variant.cuts == CutMode::kAbsolute || variant.cuts == CutMode::kDcaPull ? s.maxChi2RZ > 0.F && c.fit.chi2RZ > s.maxChi2RZ : !(std::abs(mPulls[i].rz) < variant.sigma);
+      const bool chi2Out = variant.cuts == CutMode::kAbsolute ? s.maxChi2RZ > 0.F && c.fit.chi2RZ > s.maxChi2RZ : !(std::abs(mPulls[i].rz) < variant.sigma);
       const bool dcaAbsoluteOut = s.maxDcaCM > 0.F && std::abs(c.fit.dcaCM) > s.maxDcaCM;
       const bool dcaPullOut = !(std::abs(mPulls[i].dca) < variant.sigma);
-      const bool dcaPosteriorOut = !(std::abs(mPullsPosterior[i].dca) < variant.sigma);
       const bool dcaOut = variant.cuts == CutMode::kPulls ? dcaPullOut : variant.cuts == CutMode::kPullsCapped ? dcaPullOut || dcaAbsoluteOut
-                                                                       : variant.cuts == CutMode::kDcaPull     ? dcaPosteriorOut
                                                                                                                : dcaAbsoluteOut;
       if (c.fit.status != VertexCandidateStatus::kAccepted) {
         state[i] = ReplayState::kDegenerate;
@@ -1989,7 +1958,6 @@ class VertexStudy
     std::vector<std::size_t> rowSource(mFrame->size(), 0U);
     std::vector<std::uint8_t> rowSeen(mFrame->size(), 0U);  // for the reuse share
     std::vector<std::uint8_t> rowPrior(mFrame->size(), 0U); // owned by an earlier pass's vertex
-    std::vector<std::int64_t> homeOf(mFrame->size(), -1);   // the kept candidate holding the row, this frame
     std::vector<std::uint32_t> touched;
     const auto zOf = [&](std::size_t i) { return mCandidates[i].fit.zUM; };
     for (std::size_t begin = 0; begin < n;) {
@@ -2016,13 +1984,6 @@ class VertexStudy
       std::ranges::stable_sort(sources, {}, zOf);
       std::ranges::stable_sort(accepted, {}, zOf);
       const auto m = kept.size();
-      // Each kept candidate's measurements' home: the deduplication keeps one
-      // candidate per measurement.
-      for (const auto i : kept) {
-        for (const auto row : mCandidates[i].triple) {
-          homeOf[row] = static_cast<std::int64_t>(i);
-        }
-      }
       std::vector<std::int64_t> z(m);
       for (std::size_t k = 0; k < m; ++k) {
         z[k] = zOf(kept[k]);
@@ -2030,13 +1991,10 @@ class VertexStudy
       const auto at = [&](std::int64_t value) { return static_cast<std::size_t>(std::ranges::lower_bound(z, value) - z.begin()); };
       const auto isFree = [&](std::size_t k) { return claimedBy[kept[k]] < 0 && dropped[kept[k]] == 0U; };
       // A candidate's reach (`claimReach`), and the farthest of a list's.
-      // `ownReach`: no fixed claim, but the peak's window, which holds every
-      // member of the window about its centre, so that each round claims them.
-      const auto claimFloor = static_cast<Scalar>(variant.ownReach ? window : claim);
       const auto weightOf = [&](std::size_t i) { return mCandidates[i].fit.weight; };
-      const auto reachOf = [&](std::size_t i) { return claimReach(mCandidates[i].fit.reachWeight, claimFloor, s.clipNSigma); };
+      const auto reachOf = [&](std::size_t i) { return claimReach(mCandidates[i].fit.reachWeight, static_cast<Scalar>(claim), s.clipNSigma); };
       const auto farthestOf = [&](const std::vector<std::size_t>& list) {
-        auto farthest = claimFloor;
+        auto farthest = static_cast<Scalar>(claim);
         for (const auto i : list) {
           farthest = std::max(farthest, reachOf(i));
         }
@@ -2085,7 +2043,7 @@ class VertexStudy
       std::vector<std::uint32_t> count(m + 1U, 0U);
       std::uint32_t rounds = 0U;
       // The vertexer's rerun at `aloneMinContributors` in a frame whose rounds
-      // found no vertex (`findInFrame`), or, `aloneEverywhere`, in every frame.
+      // found no vertex (`findInFrame`).
       std::uint32_t minContributors = s.minContributors;
       const auto frameFirst = run.vertices.size();
       while (true) {
@@ -2107,7 +2065,7 @@ class VertexStudy
           }
         }
         if (best == m) {
-          if ((variant.aloneEverywhere || run.vertices.size() == frameFirst) && s.aloneMinContributors != 0U && s.aloneMinContributors < minContributors) {
+          if (run.vertices.size() == frameFirst && s.aloneMinContributors != 0U && s.aloneMinContributors < minContributors) {
             minContributors = s.aloneMinContributors;
             rounds = 0U;
             continue;
@@ -2265,6 +2223,24 @@ class VertexStudy
         vertex.widthPS = seed.widthPS;
         vertex.seed = seed;
         vertex.modelVarUM2 = fitted.modelVarUM2;
+        {
+          std::size_t trueOnes = 0U;
+          std::size_t primaries = 0U;
+          for (std::size_t k = 0; k < claimedIndex.size(); ++k) {
+            if (second && test.second[k] != 0U) {
+              continue;
+            }
+            const auto& c = mCandidates[claimedIndex[k]];
+            if (c.trueTriplet) {
+              ++trueOnes;
+              const auto info = mParticles->find(c.particle);
+              primaries += info != mParticles->end() && info->second.origin == study::ParticleOrigin::kPhysicalPrimary ? 1U : 0U;
+            }
+          }
+          const auto n = static_cast<double>(std::max<std::uint32_t>(vertex.contributors, 1U));
+          vertex.trueTripletShare = static_cast<double>(trueOnes) / n;
+          vertex.primaryShare = static_cast<double>(primaries) / n;
+        }
         // The reuse share against the earlier vertices of the frame, then
         // this one's triplets past the cuts within its claim.
         std::uint32_t reused = 0U;
@@ -2291,12 +2267,6 @@ class VertexStudy
         const auto own = [&](std::size_t i) {
           const auto owner = ownerOf(i);
           for (const auto row : mCandidates[i].triple) {
-            if (variant.ownership == Ownership::kHome) {
-              const auto home = homeOf[row];
-              if (home >= 0 && static_cast<std::size_t>(home) != i && !withinZ(zOf(static_cast<std::size_t>(home)), owner == id ? static_cast<Scalar>(vertex.zUM) : static_cast<Scalar>(second->zUM), reachOf(static_cast<std::size_t>(home)))) {
-                continue;
-              }
-            }
             if (rowOwner[row] < 0) {
               rowOwner[row] = owner;
               rowSource[row] = i;
@@ -2305,11 +2275,7 @@ class VertexStudy
             }
           }
         };
-        if (variant.ownership == Ownership::kClaimed) {
-          for (const auto i : claimedIndex) {
-            own(i);
-          }
-        } else if (second) {
+        if (second) {
           within(sources, static_cast<Scalar>(vertex.zUM), farthestSources, own);
           within(sources, static_cast<Scalar>(second->zUM), farthestSources, own);
         } else {
@@ -2336,11 +2302,6 @@ class VertexStudy
         rowOwner[row] = -1;
         rowSeen[row] = 0U;
         rowPrior[row] = 0U;
-      }
-      for (const auto i : kept) {
-        for (const auto row : mCandidates[i].triple) {
-          homeOf[row] = -1;
-        }
       }
       touched.clear();
       begin = end;
@@ -2479,11 +2440,6 @@ class VertexStudy
     for (const auto& c : mCandidates) {
       mPulls.push_back(c.fit.status == VertexCandidateStatus::kAccepted ? tripletPulls(c) : TripletPulls{});
     }
-    mPullsPosterior.clear();
-    mPullsPosterior.reserve(mCandidates.size());
-    for (const auto& c : mCandidates) {
-      mPullsPosterior.push_back(c.fit.status == VertexCandidateStatus::kAccepted ? tripletPulls(c, scatterPtOf(c)) : TripletPulls{});
-    }
     mReplays.clear();
     // The vertexer (first, the gate's), and its cuts in sigmas of the
     // candidate's own errors.
@@ -2492,16 +2448,7 @@ class VertexStudy
       {.name = "rz3", .cuts = CutMode::kRzPull, .sigma = 3.},
       {.name = "pulls3", .cuts = CutMode::kPulls, .sigma = 3.},
       {.name = "pulls3-cap", .cuts = CutMode::kPullsCapped, .sigma = 3.},
-      {.name = "own-reach", .ownReach = true},
-      {.name = "alone-everywhere", .aloneEverywhere = true},
-      {.name = "own-reach-alone-everywhere", .ownReach = true, .aloneEverywhere = true},
       {.name = "split", .split = true},
-      {.name = "own-claimed", .ownership = Ownership::kClaimed},
-      {.name = "own-home", .ownership = Ownership::kHome},
-      {.name = "own-claimed-alone-everywhere", .aloneEverywhere = true, .ownership = Ownership::kClaimed},
-      {.name = "own-home-alone-everywhere", .aloneEverywhere = true, .ownership = Ownership::kHome},
-      {.name = "dca-pull3", .cuts = CutMode::kDcaPull, .sigma = 3.},
-      {.name = "dca-pull3-alone-everywhere", .cuts = CutMode::kDcaPull, .sigma = 3., .aloneEverywhere = true},
     };
     if (!mPriorVertices.empty()) {
       variants.push_back({.name = "prior-stage", .prior = true});
@@ -2609,7 +2556,6 @@ class VertexStudy
   std::vector<std::pair<OwnedFrames, std::vector<Triple>>> mSliceTriplets;        ///< per slice, its triplets and the frames it owns
   std::map<std::uint32_t, std::vector<Scalar>> mPriorVertices;                    ///< an earlier pass's vertices' z [um] by frame time
   std::vector<std::uint32_t> mFrameTimes;                                         ///< by frame index, its box start
-  std::vector<TripletPulls> mPullsPosterior;                                      ///< per candidate: its pulls with the scattering at the posterior's pT
   std::unordered_map<std::uint64_t, std::array<std::uint32_t, 3>> mTrueTracklets; ///< per particle: its true tracklets by the source's layer
   std::vector<ReplayRun> mReplays;
   std::vector<TripletPulls> mPulls; ///< per candidate, its pulls (`tripletPulls`)
