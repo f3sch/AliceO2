@@ -108,7 +108,7 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
   // The detector's frame selection (FrameSelection.h): the mask's frames,
   // published on every way out, the vertex cut's once it has run.
   using Selection = typename FrameSelectionOf<Det>::type;
-  Selection selection{Selection::receiveMask(pc), conditions.frameTiming()};
+  Selection selection{Selection::receiveMask(pc), conditions.frameTiming()}; // NOLINT(misc-const-correctness): the ITS selection's cut() records the cut
   {
     const auto mask = selection.clockMask();
     selectedROFs.assign(mask.begin(), mask.end());

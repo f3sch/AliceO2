@@ -91,6 +91,7 @@
 #include <unistd.h>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace o2::gtrk::study
@@ -1331,6 +1332,7 @@ inline std::string mockUpcVertices(study::TrackingInput& input, study::TrackingT
   };
   // Donors: the most measurements first; their prongs.
   std::vector<std::uint64_t> donors;
+  donors.reserve(rowsOfCollision.size());
   for (const auto& [collision, members] : rowsOfCollision) {
     donors.push_back(collision);
   }
@@ -1339,13 +1341,13 @@ inline std::string mockUpcVertices(study::TrackingInput& input, study::TrackingT
     std::vector<std::uint64_t> picked;
     int sign = 0;
     for (const auto& [particle, members] : rowsOfParticle) {
-      if (study::collisionOf(particle) != collision || static_cast<int>(picked.size()) == prongs) {
+      if (study::collisionOf(particle) != collision || std::cmp_equal(picked.size(), prongs)) {
         continue;
       }
       const auto& info = truth.particles.at(particle);
       const auto species = std::abs(info.pdg);
       const int charge = info.pdg > 0 ? 1 : -1;
-      if (info.origin != study::ParticleOrigin::kPhysicalPrimary || !(species == 211 || species == 321 || species == 2212) || static_cast<double>(info.pt) < ptLow || static_cast<double>(info.pt) >= ptHigh || charge == sign) {
+      if (info.origin != study::ParticleOrigin::kPhysicalPrimary || (species != 211 && species != 321 && species != 2212) || static_cast<double>(info.pt) < ptLow || static_cast<double>(info.pt) >= ptHigh || charge == sign) {
         continue;
       }
       std::uint32_t layers = 0U;
@@ -1358,7 +1360,7 @@ inline std::string mockUpcVertices(study::TrackingInput& input, study::TrackingT
       picked.push_back(particle);
       sign = charge;
     }
-    return static_cast<int>(picked.size()) == prongs ? picked : std::vector<std::uint64_t>{};
+    return std::cmp_equal(picked.size(), prongs) ? picked : std::vector<std::uint64_t>{};
   };
   // Targets: (box start, z) and the target collision, or none.
   struct Target {
@@ -1373,17 +1375,15 @@ inline std::string mockUpcVertices(study::TrackingInput& input, study::TrackingT
       }
     }
   } else {
-    std::vector<std::uint64_t> alone;
+    std::vector<Target> alone;
     for (const auto& [collision, members] : rowsOfCollision) {
       const auto start = startOf(members);
       if (start && collisionsAtStart[*start].size() == 1U) {
-        alone.push_back(collision);
+        alone.push_back({.start = *start, .collision = collision});
       }
     }
-    std::ranges::stable_sort(alone, std::greater{}, [&](std::uint64_t c) { return rowsOfCollision[c].size(); });
-    for (const auto collision : alone) {
-      targets.push_back({.start = *startOf(rowsOfCollision[collision]), .collision = collision});
-    }
+    std::ranges::stable_sort(alone, std::greater{}, [&](const Target& t) { return rowsOfCollision[t.collision].size(); });
+    targets.insert(targets.end(), alone.begin(), alone.end());
   }
   std::uint64_t nextKey = 0U;
   for (const auto& [collision, vertex] : truth.collisions) {
