@@ -18,6 +18,7 @@
 #include "DataFormatsITSMFT/DPLAlpideParam.h"
 #include "DataFormatsITSMFT/PhysTrigger.h"
 #include "DataFormatsTRD/TriggerRecord.h"
+#include "Framework/ConfigParamRegistry.h"
 #include "Framework/DataAllocator.h"
 #include "Framework/InputRecord.h"
 #include "Framework/Logger.h"
@@ -44,15 +45,6 @@ using Timing = o2::itsmft::tracking::ROFTimingLayer;
 using Alpide = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>;
 constexpr int kLayers = Estimator::NLayers;
 
-int triggerType()
-{
-  const auto type = recoParam<detectors::ITS>().selectWithTriggers;
-  if (type < 0 || type > 2) {
-    throw std::invalid_argument("GTRKRecoITS.selectWithTriggers must be 0 (none), 1 (ITS physics) or 2 (TRD)");
-  }
-  return type;
-}
-
 /// O2's frame tables of \a counts frames per layer: the layer's length, its
 /// delay and bias from AlpideParam, its margin.
 Overlap overlapTable(std::span<const std::uint32_t> counts, std::span<const FrameTiming> timing)
@@ -73,7 +65,24 @@ Overlap overlapTable(std::span<const std::uint32_t> counts, std::span<const Fram
 std::string binding(std::string_view name) { return inputBinding<detectors::ITS>(name); }
 } // namespace
 
-bool frameSelection() { return o2::its::FastMultEstConfig::Instance().isRequested() || triggerType() != 0; }
+ITSTriggers itsTriggers(const o2::framework::ConfigContext& context)
+{
+  constexpr const char* kOption = "select-with-triggers";
+  if (!context.options().hasOption(kOption)) {
+    return ITSTriggers::kNone;
+  }
+  const auto name = context.options().get<std::string>(kOption);
+  if (name == "none") {
+    return ITSTriggers::kNone;
+  }
+  if (name == "phys") {
+    return ITSTriggers::kPhysics;
+  }
+  if (name == "trd") {
+    return ITSTriggers::kTRD;
+  }
+  throw std::invalid_argument(std::format("--{} is {}: phys, trd or none", kOption, name));
+}
 
 bool FrameMask::enabled(int layer, std::uint32_t frame) const
 {
@@ -84,12 +93,17 @@ bool FrameMask::enabled(int layer, std::uint32_t frame) const
   return mask[std::accumulate(counts.begin(), counts.begin() + layer, std::size_t{0}) + frame] != 0U;
 }
 
-void addFrameSelectionInputs(std::vector<o2::framework::InputSpec>& inputs)
+bool FrameMask::allEnabled() const
+{
+  return std::ranges::all_of(mask, [](std::uint8_t enabled) { return enabled != 0U; });
+}
+
+void addFrameSelectionInputs(std::vector<o2::framework::InputSpec>& inputs, ITSTriggers triggers)
 {
   using o2::framework::Lifetime;
-  if (triggerType() == 1) {
+  if (triggers == ITSTriggers::kPhysics) {
     inputs.emplace_back(binding("triggers"), "ITS", "PHYSTRIG", 0, Lifetime::Timeframe);
-  } else if (triggerType() == 2) {
+  } else if (triggers == ITSTriggers::kTRD) {
     inputs.emplace_back(binding("triggers"), "TRD", "TRKTRGRD", 0, Lifetime::Timeframe);
   }
 }
@@ -111,7 +125,7 @@ void addFrameMaskInputs(std::vector<o2::framework::InputSpec>& inputs)
   inputs.emplace_back(binding("frameMask"), gDataOrigin, description<detectors::ITS>(kFrameMask), 1, Lifetime::Timeframe);
 }
 
-FrameMask selectFrames(o2::framework::ProcessingContext& pc, const ITSMFTInput& input, std::span<const FrameTiming> timing)
+FrameMask selectFrames(o2::framework::ProcessingContext& pc, const ITSMFTInput& input, std::span<const FrameTiming> timing, ITSTriggers triggers)
 {
   const auto streams = input.streams();
   if (streams.size() != 1U && streams.size() != static_cast<std::size_t>(kLayers)) {
@@ -131,35 +145,39 @@ FrameMask selectFrames(o2::framework::ProcessingContext& pc, const ITSMFTInput& 
   for (int layer = 0; layer < kLayers; ++layer) {
     result.counts[layer] = static_cast<std::uint32_t>(rofs[staggered ? layer : 0].size());
   }
+  const auto& mult = o2::its::FastMultEstConfig::Instance();
+  if (!mult.isRequested() && triggers == ITSTriggers::kNone) {
+    result.mask.assign(std::accumulate(result.counts.begin(), result.counts.end(), std::size_t{0}), 1U);
+    return result;
+  }
   auto overlap = overlapTable(result.counts, timing);
   Mask mask{overlap};
 
   const auto firstOrbit = pc.services().get<o2::framework::TimingInfo>().firstTForbit;
   const o2::InteractionRecord firstIR{0, firstOrbit};
-  std::vector<o2::itsmft::PhysTrigger> triggers;
-  if (triggerType() == 1) {
+  std::vector<o2::itsmft::PhysTrigger> fired;
+  if (triggers == ITSTriggers::kPhysics) {
     const auto received = pc.inputs().get<gsl::span<o2::itsmft::PhysTrigger>>(binding("triggers").c_str());
-    triggers.assign(received.begin(), received.end());
-  } else if (triggerType() == 2) {
+    fired.assign(received.begin(), received.end());
+  } else if (triggers == ITSTriggers::kTRD) {
     auto lastIR = firstIR;
     const auto received = pc.inputs().get<gsl::span<o2::trd::TriggerRecord>>(binding("triggers").c_str());
     for (const auto& trigger : received) {
       if (trigger.getBCData() >= lastIR && trigger.getNumberOfTracklets() != 0) {
         lastIR = trigger.getBCData();
-        triggers.push_back({.ir = lastIR, .data = 0});
+        fired.push_back({.ir = lastIR, .data = 0});
       }
     }
   }
   // The estimator indexes the selection layer's frames with a trigger's
   // frame: the triggers outside this input's frames are not handed to it.
-  const auto& mult = o2::its::FastMultEstConfig::Instance();
   const int layer = mult.isMultCutRequested() ? std::clamp(mult.cutMultClusLayer, 0, kLayers - 1) : overlap.getView().getClock();
   const auto count = rofs[staggered ? layer : 0].size();
-  std::erase_if(triggers, [&](const auto& trigger) {
+  std::erase_if(fired, [&](const auto& trigger) {
     const auto bc = trigger.ir.differenceInBC(firstIR);
     return bc < 0 || bc > std::numeric_limits<Timing::BCType>::max() || static_cast<std::size_t>(overlap.getLayer(layer).getROF(static_cast<Timing::BCType>(bc))) >= count;
   });
-  const auto selected = Estimator{}.selectROFs(rofs, clusters, triggers, firstOrbit, staggered, overlap.getView(), mask);
+  const auto selected = Estimator{}.selectROFs(rofs, clusters, fired, firstOrbit, staggered, overlap.getView(), mask);
   LOGP(info, "ITS frame selection: {} of {} frames on selection layer {}", selected, count, layer);
 
   const auto view = mask.getView();

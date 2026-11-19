@@ -54,7 +54,7 @@ template <DetectorLayout Det>
 class ClusterConverterTask : public o2::framework::Task
 {
  public:
-  ClusterConverterTask(bool useMC, bool staggered, bool selectsFrames) : mUseMC(useMC), mStreams(staggered ? Detector<Det>::nLayers : 1), mSelectsFrames(selectsFrames) {}
+  ClusterConverterTask(bool useMC, bool staggered, ITSTriggers triggers) : mUseMC(useMC), mStreams(staggered ? Detector<Det>::nLayers : 1), mTriggers(triggers) {}
 
   void finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj) final
   {
@@ -91,8 +91,8 @@ class ClusterConverterTask : public o2::framework::Task
     }
     LOGP(info, "{}: {} clusters in {} readout frames from {} streams for the timeframe at orbit {}", Det::name, clusters.size(), rofCount, mStreams, orbit);
     pc.outputs().snapshot(o2::framework::Output{gDataOrigin, description<Det>(kClusters), 0}, clusters);
-    if (mSelectsFrames) {
-      shipFrameMask(pc, selectFrames(pc, input, timings));
+    if constexpr (std::same_as<Det, detectors::ITS>) {
+      shipFrameMask(pc, selectFrames(pc, input, timings, mTriggers));
     }
 
     if (mUseMC) {
@@ -104,13 +104,14 @@ class ClusterConverterTask : public o2::framework::Task
  private:
   bool mUseMC;
   int mStreams;
-  bool mSelectsFrames;                                         ///< the ITS's frame selection (ITSROFSelection.h)
+  ITSTriggers mTriggers;                                       ///< the ITS's frame selection's (ITSROFSelection.h)
   const o2::itsmft::TopologyDictionary* mDictionary = nullptr; ///< the CCDB cache's, from the run's ITS/MFT Calib/ClusterDictionary
 };
 
-/// The converter's device for the ITS or the MFT.
+/// The converter's device for the ITS or the MFT; the ITS's ships its frame
+/// mask, selected with \a triggers (ITSROFSelection.h).
 template <DetectorLayout Det>
-o2::framework::DataProcessorSpec getITSMFTClusterConverterSpec(bool useMC, bool staggered)
+o2::framework::DataProcessorSpec getITSMFTClusterConverterSpec(bool useMC, bool staggered, ITSTriggers triggers)
 {
   using namespace o2::framework;
   const auto origin = Conditions<Det>::origin();
@@ -124,16 +125,15 @@ o2::framework::DataProcessorSpec getITSMFTClusterConverterSpec(bool useMC, bool 
   if (useMC) {
     outputs.emplace_back(gDataOrigin, description<Det>(kClustersMCTruth), 0, Lifetime::Timeframe);
   }
-  const bool selectsFrames = std::same_as<Det, detectors::ITS> && frameSelection();
-  if (selectsFrames) {
-    addFrameSelectionInputs(inputs);
+  if constexpr (std::same_as<Det, detectors::ITS>) {
+    addFrameSelectionInputs(inputs, triggers);
     addFrameMaskOutputs(outputs);
   }
   return DataProcessorSpec{
     .name = deviceName<Det>("cluster-converter"),
     .inputs = inputs,
     .outputs = outputs,
-    .algorithm = AlgorithmSpec{adaptFromTask<ClusterConverterTask<Det>>(useMC, staggered, selectsFrames)},
+    .algorithm = AlgorithmSpec{adaptFromTask<ClusterConverterTask<Det>>(useMC, staggered, triggers)},
     .options = Options{},
   };
 }
