@@ -114,12 +114,7 @@ enum class WorkCounter : std::uint8_t {
   kFollowProposed,             ///< rows the follow proposes, before the bidding
   kFollowOutbid,               ///< of them, cut by the bidding: on or after a row another track won
   kFollowRefitRejected,        ///< of the rest, dropped with their track's failed refit
-  kFollowKinkSteps,            ///< steps no row passed that tried the kink allowance
-  kFollowKinksTaken,           ///< of them, taking a confirmed row
   kFollowLookaheads,           ///< steps more than one row passed that ranked them by their confirmation
-  kFollowKinkUpdates,          ///< the kink passes' candidates reaching the update's chi2
-  kFollowWitnessUpdates,       ///< the kink rows' confirmations' candidates reaching the update's chi2
-  kFollowWitnessTrimmed,       ///< rows the bidding left that are dropped with the witness of a kink step
   kFollowHoleTests,            ///< layers without a passing row tested for the track crossing a sensor
   kFollowHoles,                ///< of them, holes: a sensor crossed within its bounds
   kFollowUnconfirmed,          ///< last rows dropped, no row confirming them where a sensor was crossed

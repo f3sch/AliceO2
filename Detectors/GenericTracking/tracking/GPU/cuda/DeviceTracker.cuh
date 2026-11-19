@@ -94,7 +94,7 @@ namespace tracker_detail
 
 /// The lanes that follow one track together, on every iteration: a step's
 /// window holds many
-/// candidates, each an update, and the kink step confirms every row it admits
+/// candidates, each an update, and the lookahead confirms every row passing
 /// by the next step's search -- long windows a group shares. 16 on both
 /// backends, for warps of 32 and waves of 64 alike.
 inline constexpr std::uint32_t kFollowLanes = 16U;
@@ -1343,13 +1343,11 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     const Index trackCount = selected.tracks;
     DeviceColumns<TrackRecord::template RecordT> tracks;
     DeviceSpan<Proposal> proposals;
-    DeviceSpan<follow::KinkSteps> kinkSteps;
     DeviceSpan<ClusterList<kMaxClusters>> followRows;
     DeviceSpan<std::uint8_t> followCounts;
     DeviceSpan<BoundTrackState> endStarts;
     const Index followCount = hostParameters.follow || hostParameters.followEnd ? trackCount : 0U;
-    const Index kinkStepCount = Follow<Det>::takesKinkSteps(hostParameters) ? followCount : 0U;
-    if (!tracks.allocate(mArena, trackCount) || !proposals.allocate(mArena, followCount) || !kinkSteps.allocate(mArena, kinkStepCount) || !followRows.allocate(mArena, followCount) || !followCounts.allocate(mArena, followCount) || !endStarts.allocate(mArena, hostParameters.followEnd ? trackCount : 0U)) {
+    if (!tracks.allocate(mArena, trackCount) || !proposals.allocate(mArena, followCount) || !followRows.allocate(mArena, followCount) || !followCounts.allocate(mArena, followCount) || !endStarts.allocate(mArena, hostParameters.followEnd ? trackCount : 0U)) {
       return StageStatus::kOutOfMemory;
     }
     const TrackRefitElement<Det, Material> refit{mFrame.data(), mGeometry.data(), mMaterial.data(), mPropagator, records.clusters, records.count, records.outwardState, records.chi2, std::as_const(selected.selected).data(), tracks.view(), 0U, static_cast<std::uint8_t>(mIteration), kinkBudget(hostParameters)};
@@ -1360,7 +1358,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     // priority, trackCount - (trackOffset + track), is the iteration's count
     // less the track.
     if ((hostParameters.follow || hostParameters.followEnd) && trackCount != 0U) {
-      runFollow(mIteration, tracks, trackCount, false, proposals.data(), kinkStepCount != 0U ? kinkSteps.data() : nullptr, followRows, followCounts, selected.slots, rows, working, hostParameters.followEnd ? endStarts.data() : nullptr);
+      runFollow(mIteration, tracks, trackCount, false, proposals.data(), followRows, followCounts, selected.slots, rows, working, hostParameters.followEnd ? endStarts.data() : nullptr);
     }
 
     // A length or a pT floor after the follow (the host:
@@ -1557,16 +1555,14 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     const Index total = earlier + trackCount;
     DeviceColumns<TrackRecord::template RecordT> all;
     DeviceSpan<Proposal> proposals;
-    DeviceSpan<follow::KinkSteps> kinkSteps;
     DeviceSpan<ClusterList<kMaxClusters>> followRows;
     DeviceSpan<std::uint8_t> followCounts;
-    const Index kinkStepCount = Follow<Det>::takesKinkSteps(host) ? total : 0U;
-    if (!all.allocate(mArena, total) || !proposals.allocate(mArena, total) || !kinkSteps.allocate(mArena, kinkStepCount) || !followRows.allocate(mArena, total) || !followCounts.allocate(mArena, total)) {
+    if (!all.allocate(mArena, total) || !proposals.allocate(mArena, total) || !followRows.allocate(mArena, total) || !followCounts.allocate(mArena, total)) {
       return StageStatus::kOutOfMemory;
     }
     mTrackChunks.gather(all, 0U, mStream);
     copyColumns(tracks, 0U, all, earlier, trackCount, mStream);
-    runFollow(successor, all, total, true, proposals.data(), kinkStepCount != 0U ? kinkSteps.data() : nullptr, followRows, followCounts, slots, rows, working, nullptr);
+    runFollow(successor, all, total, true, proposals.data(), followRows, followCounts, slots, rows, working, nullptr);
     mTrackChunks.clear();
     if (!mTrackChunks.append(mArena, ArenaEnd::kScratch, all, 0U, total, mStream)) {
       return StageStatus::kOutOfMemory;
@@ -1577,12 +1573,11 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   /// The follow of iteration \a iteration over \a count tracks of \a tracks
   /// (`follow::runSequence`, as the host's `Follow::run`): \a earlier the
   /// earlier iterations' tracks (`followEarlier`), the proposals into
-  /// \a settled, the kink steps into \a steps where the iteration keeps
-  /// them, the combined rows into \a followRows and \a followCounts, the
+  /// \a settled, the combined rows into \a followRows and \a followCounts, the
   /// bids in \a slots (one per row, \a rows of them), the marks in
   /// \a working, the end starts in \a endStarts where the iteration decides
   /// the end again.
-  void runFollow(std::size_t iteration, DeviceColumns<TrackRecord::template RecordT>& tracks, Index count, bool earlier, Proposal* settled, follow::KinkSteps* steps, DeviceSpan<ClusterList<kMaxClusters>>& followRows, DeviceSpan<std::uint8_t>& followCounts, DeviceSpan<Index>& slots, Index rows, DeviceSpan<std::uint8_t>& working, BoundTrackState* endStarts)
+  void runFollow(std::size_t iteration, DeviceColumns<TrackRecord::template RecordT>& tracks, Index count, bool earlier, Proposal* settled, DeviceSpan<ClusterList<kMaxClusters>>& followRows, DeviceSpan<std::uint8_t>& followCounts, DeviceSpan<Index>& slots, Index rows, DeviceSpan<std::uint8_t>& working, BoundTrackState* endStarts)
   {
     const IterationParameters<Det>& host = mHostParameters[iteration];
     follow::runSequence(tracker_detail::FollowLaunch{.runtime = *mRuntime, .stream = mStream}, follow::Inputs<Det, Material>{
@@ -1606,7 +1601,6 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
                                                                                                  .bids = slots.data(),
                                                                                                  .rows = followRows.data(),
                                                                                                  .counts = followCounts.data(),
-                                                                                                 .steps = steps,
                                                                                                  .endStarts = endStarts,
                                                                                                });
   }

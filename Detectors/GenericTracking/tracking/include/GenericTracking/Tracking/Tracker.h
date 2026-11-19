@@ -475,10 +475,6 @@ class Tracker
     /// With followEarlier, one per earlier track: their follow before this
     /// iteration's seeds.
     std::span<const typename Follow<Det>::Proposal> earlierProposals;
-    /// The kink steps of `proposals` and of `earlierProposals`, where the
-    /// iteration takes them (`Follow::kinkSteps`).
-    std::span<const follow::KinkSteps> kinkSteps;
-    std::span<const follow::KinkSteps> earlierKinkSteps;
     /// With the follow, each of the iteration's tracks as the follow started
     /// from it: its inner and outward states and its rows then (the first
     /// `followStartCount` of its clusters), for a replay;
@@ -820,8 +816,6 @@ class Tracker
                                   .trackOffset = trackOffset,
                                   .proposals = followed ? mFollow.proposals() : std::span<const typename Follow<Det>::Proposal>{},
                                   .earlierProposals = earlier ? mFollowEarlier.proposals() : std::span<const typename Follow<Det>::Proposal>{},
-                                  .kinkSteps = followed ? mFollow.kinkSteps() : std::span<const follow::KinkSteps>{},
-                                  .earlierKinkSteps = earlier ? mFollowEarlier.kinkSteps() : std::span<const follow::KinkSteps>{},
                                   .followStartInner = started ? std::span<const BoundTrackState>{mFollowStartInner} : std::span<const BoundTrackState>{},
                                   .followStart = started ? std::span<const BoundTrackState>{mFollowStart} : std::span<const BoundTrackState>{},
                                   .followStartCount = started ? std::span<const std::uint8_t>{mFollowStartCount} : std::span<const std::uint8_t>{},
