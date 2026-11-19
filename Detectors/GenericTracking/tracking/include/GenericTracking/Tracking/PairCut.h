@@ -203,18 +203,18 @@ struct PairCut {
   /// a fitted curvature into the momentum its scattering is taken at; 0 with
   /// no field.
   Scalar momentumCurvature = 0.F;
-  Scalar mass2 = 0.F; ///< the mass hypothesis squared [GeV^2], for beta
+  Scalar mass2 = 0.F; ///< the windows' mass squared [GeV^2] (`kWindowMassGeV`), for beta
   /// ln(beta^2) of the momentum `invBetaMomentum2` is at, for the Highland
   /// factors' logarithm (`highlandK`); 0, beta = 1, with no pT cut.
   Scalar logBeta2 = 0.F;
 };
 
-/// ln(beta^2) at pT_min for the mass hypothesis: the least of an iteration's
+/// ln(beta^2) at pT_min for the windows' mass: the least of an iteration's
 /// tracks, at which its cuts take the scattering (`invBetaMomentumMin2`).
 [[nodiscard]] inline double logBeta2Min(const SearchWindowParams& params)
 {
   const double pt2 = params.minPtGeV * params.minPtGeV;
-  return params.minPtGeV > 0. ? std::log(pt2 / (pt2 + (params.massGeV * params.massGeV))) : 0.;
+  return params.minPtGeV > 0. ? std::log(pt2 / (pt2 + (kWindowMassGeV * kWindowMassGeV))) : 0.;
 }
 
 [[nodiscard]] inline PairCut pairCut(const SearchWindowParams& params)
@@ -226,7 +226,7 @@ struct PairCut {
     .invBetaMomentum2 = params.minPtGeV > 0. ? static_cast<Scalar>(invBetaMomentumMin2(params)) : 0.F,
     .maxCurvature = static_cast<Scalar>(maxCurvature(params)),
     .momentumCurvature = static_cast<Scalar>(std::abs(static_cast<double>(o2::constants::math::B2C) * params.bzKiloGauss)),
-    .mass2 = static_cast<Scalar>(params.massGeV * params.massGeV),
+    .mass2 = static_cast<Scalar>(kWindowMassGeV * kWindowMassGeV),
     .logBeta2 = static_cast<Scalar>(logBeta2Min(params)),
   };
 }

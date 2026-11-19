@@ -133,7 +133,7 @@ void runEmpty()
   const IterationSettings settings{.windows = windows, .vertexSource = VertexSource::kBeamLine};
   Tracker<Det, UniformMaterial> tracker{settings, beamSpot, scatteringTable<Det>(uniformLayerMaterial<Det>(0.01)), std::make_shared<BoundedMemoryResource>(), 1U};
   tracker.setTrackModel(*tracking, UniformMaterial{}, Propagator{.bzKiloGauss = 5.F});
-  const auto result = tracker.run(frame, tracker.planTimeframe(frame, {}, 1, 0.));
+  const auto result = tracker.run(frame, tracker.planTimeframe(frame, {}, 1));
   BOOST_TEST((result.status == StageStatus::kComplete));
   BOOST_REQUIRE(result.store != nullptr);
   BOOST_TEST(result.store->size() == 0U);

@@ -94,7 +94,6 @@ namespace o2::gtrk::workflow
 {
   return {
     .bzKiloGauss = nominalBzKiloGauss(),
-    .massGeV = param.massHypothesisGeV,
     .materialX2X0 = param.materialX2X0,
     .positionSigma = param.positionSigma,
     .nSigma = param.windowNSigma,
@@ -102,8 +101,7 @@ namespace o2::gtrk::workflow
 }
 
 /// Refuse a configuration \a Det's tracking cannot run with: margins of
-/// another length than one per layer or none, a negative margin, a mass
-/// hypothesis that is not positive (every charged particle has one). Called
+/// another length than one per layer or none, a negative margin. Called
 /// where a configuration is first read: the producer's init and the bench.
 template <DetectorLayout Det>
 inline void checkRecoParam(const RecoSettings& param)
@@ -114,9 +112,6 @@ inline void checkRecoParam(const RecoSettings& param)
   }
   if (!std::isfinite(param.followMinPtGeV) || !(param.followMinPtGeV >= 0.)) {
     throw std::invalid_argument(std::format("GTRKReco<DET>.followMinPtGeV is {}: the follow's pT minimum must not be negative", param.followMinPtGeV));
-  }
-  if (!std::isfinite(param.massHypothesisGeV) || !(param.massHypothesisGeV > 0.)) {
-    throw std::invalid_argument(std::format("GTRKReco<DET>.massHypothesisGeV is {}: the mass hypothesis must be positive", param.massHypothesisGeV));
   }
   for (const auto margin : param.frameMarginBC) {
     if (margin < 0) {

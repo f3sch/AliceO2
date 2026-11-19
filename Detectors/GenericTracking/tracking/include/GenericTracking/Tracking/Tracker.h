@@ -365,11 +365,11 @@ class Tracker
   }
 
   /// The plan of a timeframe for this tracker's iterations: every slice of
-  /// \a sliceWidthBlocks blocks with at least \a configuredHaloPS of halo --
-  /// more when the frame's reach needs it (`SliceReach::haloPS`). \a vertices
+  /// \a sliceWidthBlocks blocks with the halo the frame's reach needs
+  /// (`SliceReach::haloPS`). \a vertices
   /// are the timeframe's vertex list, sorted by time, for the iterations that
   /// use it.
-  [[nodiscard]] TimeframePlan<Det> planTimeframe(const Frame& frame, std::span<const VertexSeed> vertices, std::int32_t sliceWidthBlocks, std::int64_t configuredHaloPS) const { return o2::gtrk::planTimeframe<Det>(frame, mIterations, mWindowSettings, mBeamLine, vertices, sliceWidthBlocks, configuredHaloPS); }
+  [[nodiscard]] TimeframePlan<Det> planTimeframe(const Frame& frame, std::span<const VertexSeed> vertices, std::int32_t sliceWidthBlocks) const { return o2::gtrk::planTimeframe<Det>(frame, mIterations, mWindowSettings, mBeamLine, vertices, sliceWidthBlocks); }
 
   /// The whole timeframe as \a plan has it: for every iteration, every slice,
   /// then the selection, the refit and the follow. \a plan must be this

@@ -27,7 +27,6 @@
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 
-#include "CommonConstants/PhysicsConstants.h"
 #include "CommonUtils/ConfigurableParam.h"
 #include "CommonUtils/ConfigurableParamHelper.h"
 #include "DetectorsCommonDataFormats/DetID.h"
@@ -60,10 +59,6 @@ struct RecoSettings {
 
   // The grid's cells are derived from the iterations' queries, with no key of
   // their own (GridSizing.h).
-  /// The mass hypothesis [GeV], positive (`checkRecoParam`): beta for the
-  /// scattering, in the windows at pT_min and in the fit, and the fit's energy
-  /// loss. The charged pion's by default.
-  double massHypothesisGeV = o2::constants::physics::MassPionCharged;
   /// The uniform material per layer [X/X0] that sizes the windows and the
   /// grid, and the scattering when no material LUT is given; with a LUT the
   /// tracking takes its budgets.
@@ -257,11 +252,6 @@ struct RecoSettings {
   /// Requested width of one time slice [ps]. The actual width is rounded up
   /// to whole grid blocks, and zero means one slice over the timeframe.
   std::int64_t sliceWidthPS = 10'000'000;
-
-  /// How far a slice reads beyond its core on each side [ps], rounded up to
-  /// whole blocks. The workflow raises this to `requiredHaloPS` when
-  /// necessary, so the output does not depend on the slicing.
-  std::int64_t sliceHaloPS = 100'000;
 
   /// Consecutive source elements assigned to one CPU task.
   int trackletChunkSize = 256;

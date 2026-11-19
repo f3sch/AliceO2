@@ -300,7 +300,7 @@ class TrackingInterface
     mVertexed = true;
     if (mDevice) {
       // The run's every iteration, the pass last, with an empty list.
-      mDevicePlan = planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), {}, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS), param.sliceHaloPS);
+      mDevicePlan = planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), {}, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS));
       const double planSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
       if (!beginDeviceTimeframe()) {
         return {.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), .planSeconds = planSeconds, .dropped = true};
@@ -312,7 +312,7 @@ class TrackingInterface
       }
       return {.seeds = mDeviceFound.vertices, .found = &mDeviceFound, .seconds = seconds, .planSeconds = planSeconds};
     }
-    mPass.emplace(mVertexing->find(frame, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS), param.sliceHaloPS, keepClaims));
+    mPass.emplace(mVertexing->find(frame, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS), keepClaims));
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     if (mPass->status != StageStatus::kComplete) {
       return {.pass = &*mPass, .seconds = seconds, .dropped = dropOrFail(mPass->status, "the vertexing pass")};
@@ -336,7 +336,7 @@ class TrackingInterface
       return trackOnDevice(frame, seeds, blocksPerSlice, start);
     }
     mTracked = true;
-    const auto plan = mTracker->planTimeframe(frame, seeds, blocksPerSlice, param.sliceHaloPS);
+    const auto plan = mTracker->planTimeframe(frame, seeds, blocksPerSlice);
     const double planSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     Tracked tracked{.result = mTracker->run(frame, plan), .planSeconds = planSeconds};
     tracked.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -422,8 +422,8 @@ class TrackingInterface
   /// The tracker's first iteration's source, and its sources as the log lines name them.
   [[nodiscard]] VertexSource trackerSource() const { return mTrackerSource; }
   [[nodiscard]] const std::string& trackerLabel() const { return mTrackerLabel; }
-  /// The track model's propagator: the run's field, the mass hypothesis.
-  [[nodiscard]] Propagator propagator() const { return {.bzKiloGauss = static_cast<Scalar>(mBzKiloGauss), .massGeV = static_cast<Scalar>(recoParam<Det>().massHypothesisGeV)}; }
+  /// The track model's propagator: the run's field, the charged pion's mass.
+  [[nodiscard]] Propagator propagator() const { return {.bzKiloGauss = static_cast<Scalar>(mBzKiloGauss)}; }
 
  private:
   /// The layers' and the passive scatterers' budgets from \a material and
@@ -496,7 +496,7 @@ class TrackingInterface
     const auto& param = recoParam<Det>();
     const bool replaced = mVertexed;
     const std::size_t iterations = mTracker->iterationCount();
-    mDeviceTrackingPlan = mVertexing != nullptr ? planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), seeds, blocksPerSlice, param.sliceHaloPS) : mTracker->planTimeframe(frame, seeds, blocksPerSlice, param.sliceHaloPS);
+    mDeviceTrackingPlan = mVertexing != nullptr ? planTimeframe<Det>(frame, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), seeds, blocksPerSlice) : mTracker->planTimeframe(frame, seeds, blocksPerSlice);
     Tracked tracked;
     tracked.planSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     if (!beginDeviceTimeframe()) {
