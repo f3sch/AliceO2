@@ -192,8 +192,8 @@ BOOST_AUTO_TEST_CASE(TheListDoesNotDependOnTheThreads)
   for (std::size_t v = 0; v < one.vertices.size(); ++v) {
     BOOST_TEST(one.vertices[v].timePS == four.vertices[v].timePS);
     BOOST_TEST(one.vertices[v].widthPS == four.vertices[v].widthPS);
-    BOOST_TEST(std::bit_cast<std::uint32_t>(one.vertices[v].z) == std::bit_cast<std::uint32_t>(four.vertices[v].z));
-    BOOST_TEST(std::bit_cast<std::uint32_t>(one.vertices[v].varZ) == std::bit_cast<std::uint32_t>(four.vertices[v].varZ));
+    BOOST_TEST(sameBits(one.vertices[v].z, four.vertices[v].z));
+    BOOST_TEST(sameBits(one.vertices[v].varZ, four.vertices[v].varZ));
     BOOST_TEST(one.contributors[v] == four.contributors[v]);
   }
 }
@@ -221,8 +221,8 @@ BOOST_AUTO_TEST_CASE(TheListDoesNotDependOnTheSlices)
       for (std::size_t v = 0; v < whole.found.vertices.size(); ++v) {
         BOOST_TEST(sliced.found.vertices[v].timePS == whole.found.vertices[v].timePS);
         BOOST_TEST(sliced.found.vertices[v].widthPS == whole.found.vertices[v].widthPS);
-        BOOST_TEST(std::bit_cast<std::uint32_t>(sliced.found.vertices[v].z) == std::bit_cast<std::uint32_t>(whole.found.vertices[v].z));
-        BOOST_TEST(std::bit_cast<std::uint32_t>(sliced.found.vertices[v].varZ) == std::bit_cast<std::uint32_t>(whole.found.vertices[v].varZ));
+        BOOST_TEST(sameBits(sliced.found.vertices[v].z, whole.found.vertices[v].z));
+        BOOST_TEST(sameBits(sliced.found.vertices[v].varZ, whole.found.vertices[v].varZ));
         BOOST_TEST(sliced.found.contributors[v] == whole.found.contributors[v]);
       }
       BOOST_TEST(std::ranges::equal(sliced.claims, whole.claims, [](const TripletClaim& a, const TripletClaim& b) { return a.rows == b.rows && a.vertex == b.vertex; }));

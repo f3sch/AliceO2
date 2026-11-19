@@ -26,7 +26,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -70,12 +69,6 @@ struct Generator {
   }
 };
 
-std::shared_ptr<BoundedMemoryResource> pool() { return std::make_shared<BoundedMemoryResource>(); }
-
-bool before(const Tracklet& a, const Tracklet& b) { return trackletBefore(a.link, a.lambda, a.target, b.link, b.lambda, b.target); }
-
-bool sameTracklet(const Tracklet& a, const Tracklet& b) { return a.source == b.source && a.target == b.target && a.link == b.link && std::bit_cast<std::uint32_t>(a.lambda) == std::bit_cast<std::uint32_t>(b.lambda) && std::bit_cast<std::uint32_t>(a.phi) == std::bit_cast<std::uint32_t>(b.phi); }
-
 std::vector<Tracklet> segment(const Output& output, Index element)
 {
   const auto view = output.view();
@@ -88,7 +81,7 @@ std::vector<Tracklet> segment(const Output& output, Index element)
 
 void generateSerial(Output& output)
 {
-  output.setMemoryPool(pool());
+  output.setMemoryPool(freshPool());
   output.prepare(kElements);
   BOOST_REQUIRE((runSerial(output, Generator{}) == StageStatus::kComplete));
 }
@@ -110,12 +103,12 @@ BOOST_AUTO_TEST_CASE(EverySegmentIsInKeyOrderAndKeepsItsTracklets)
     const auto after = segment(sorted, element);
     BOOST_REQUIRE(after.size() == before.size());
     for (std::size_t i = 1; i < after.size(); ++i) {
-      BOOST_TEST(o2::gtrk::before(after[i - 1U], after[i]), "element " << element << " position " << i);
+      BOOST_TEST(trackletBefore(after[i - 1U], after[i]), "element " << element << " position " << i);
       anyTie = anyTie || (after[i - 1U].link == after[i].link && !(after[i - 1U].lambda < after[i].lambda));
     }
     // The same tracklets, in the order std::sort gives with the same key.
     auto expected = before;
-    std::ranges::sort(expected, o2::gtrk::before);
+    std::ranges::sort(expected, [](const Tracklet& a, const Tracklet& b) { return trackletBefore(a, b); });
     BOOST_TEST(std::ranges::equal(after, expected, sameTracklet), "element " << element);
   }
   BOOST_TEST(anyTie); // the target decided at least one equal link and lambda
@@ -175,7 +168,7 @@ struct LongGenerator {
 BOOST_AUTO_TEST_CASE(TheHostSortGivesTheReferenceOrderForAnyLengthAndTies)
 {
   Output serial;
-  serial.setMemoryPool(pool());
+  serial.setMemoryPool(freshPool());
   serial.prepare(kVariedElements);
   BOOST_REQUIRE((runSerial(serial, VariedGenerator{}) == StageStatus::kComplete));
   sortTrackletSegments(serial);
@@ -183,7 +176,7 @@ BOOST_AUTO_TEST_CASE(TheHostSortGivesTheReferenceOrderForAnyLengthAndTies)
   for (const int threads : {1, 2, 4}) {
     for (const Index chunk : {1U, 3U, 64U}) {
       Output parallel;
-      const auto parallelPool = pool();
+      const auto parallelPool = freshPool();
       parallel.setMemoryPool(parallelPool);
       parallel.prepare(kVariedElements);
       detail::TaskArena cpuArena{threads};
@@ -208,11 +201,11 @@ BOOST_AUTO_TEST_CASE(TheHostSortTakesOneLongSourceOfOneLambda)
   // decides within a link. The serial reference would take ~10^9 moves here,
   // so the expectation is std::sort's on the same key.
   Output output;
-  output.setMemoryPool(pool());
+  output.setMemoryPool(freshPool());
   output.prepare(1U);
   BOOST_REQUIRE((runSerial(output, LongGenerator{}) == StageStatus::kComplete));
   auto expected = segment(output, 0U);
-  std::ranges::sort(expected, o2::gtrk::before);
+  std::ranges::sort(expected, [](const Tracklet& a, const Tracklet& b) { return trackletBefore(a, b); });
 
   sortTrackletSegmentOnHost(output.view(), output.offsets()[0], output.offsets()[1]);
   BOOST_TEST(std::ranges::equal(segment(output, 0U), expected, sameTracklet));

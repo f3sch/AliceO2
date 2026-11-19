@@ -33,6 +33,7 @@
 #ifndef GTRK_TRACKING_GSFTRACKFITTER_H_
 #define GTRK_TRACKING_GSFTRACKFITTER_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/BetheHeitler.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/Definitions.h"
@@ -160,7 +161,7 @@ GPUdi() bool branch(const GSFMixture<N, Factors>& from, const BetheHeitlerCompon
     for (int j = 0; j < m; ++j) {
       auto& component = to.components[to.size++];
       component = from.components[k];
-      component.logWeight += o2::gpu::GPUCommonMath::Log(loss[j].weight);
+      component.logWeight += logOf(loss[j].weight);
       if (!applyLoss(loss[j], direction, component)) {
         return false;
       }
@@ -303,7 +304,7 @@ GPUhdi() Scalar mergeCost(Scalar wa, Scalar ma, Scalar sa, Scalar logSa, Scalar 
   }
   const Scalar d = ma - mb;
   const Scalar merged = ((wa * sa) + (wb * sb)) / total + (wa * wb / (total * total)) * d * d;
-  return 0.5F * ((total * o2::gpu::GPUCommonMath::Log(merged)) - (wa * logSa) - (wb * logSb));
+  return 0.5F * ((total * logOf(merged)) - (wa * logSa) - (wb * logSb));
 }
 
 /// \a from's components reduced to at most \a K into \a to: until K remain,
@@ -323,8 +324,8 @@ GPUdi() void reduce(GSFMixture<N>& from, GSFMixture<K>& to)
   bool alive[N];
   bool merged[N];
   for (int k = 0; k < from.size; ++k) {
-    weight[k] = o2::gpu::GPUCommonMath::Exp(c[k].logWeight - maxLog);
-    logVariance[k] = o2::gpu::GPUCommonMath::Log(c[k].factors.diagonal[kQOverP]);
+    weight[k] = expOf(c[k].logWeight - maxLog);
+    logVariance[k] = logOf(c[k].factors.diagonal[kQOverP]);
     alive[k] = true;
     merged[k] = false;
   }
@@ -358,7 +359,7 @@ GPUdi() void reduce(GSFMixture<N>& from, GSFMixture<K>& to)
       mergeInto(weight[bestA], weight[bestB], c[bestA], c[bestB]);
       weight[bestA] += weight[bestB];
       merged[bestA] = true;
-      logVariance[bestA] = o2::gpu::GPUCommonMath::Log(c[bestA].factors.diagonal[kQOverP]);
+      logVariance[bestA] = logOf(c[bestA].factors.diagonal[kQOverP]);
       alive[bestB] = false;
       --remaining;
       for (int k = 0; k < from.size; ++k) {
@@ -377,7 +378,7 @@ GPUdi() void reduce(GSFMixture<N>& from, GSFMixture<K>& to)
     component = c[k];
     // An unmerged component keeps its weight's logarithm as it was, however small.
     if (merged[k]) {
-      component.logWeight = maxLog + o2::gpu::GPUCommonMath::Log(weight[k]);
+      component.logWeight = maxLog + logOf(weight[k]);
     }
   }
 }
@@ -416,9 +417,9 @@ GPUhdi() Scalar normalise(Mixture& mixture)
   }
   Scalar sum = 0.F;
   for (int k = 0; k < mixture.size; ++k) {
-    sum += o2::gpu::GPUCommonMath::Exp(mixture.components[k].logWeight - maxLog);
+    sum += expOf(mixture.components[k].logWeight - maxLog);
   }
-  const Scalar logSum = maxLog + o2::gpu::GPUCommonMath::Log(sum);
+  const Scalar logSum = maxLog + logOf(sum);
   for (int k = 0; k < mixture.size; ++k) {
     mixture.components[k].logWeight -= logSum;
   }
@@ -551,7 +552,7 @@ GPUhdi() BoundTrackState collapse(const GSFMixture<K>& mixture)
   Scalar mean[kNBoundParams]{};
   Scalar weights[K];
   for (int k = 0; k < mixture.size; ++k) {
-    weights[k] = o2::gpu::GPUCommonMath::Exp(c[k].logWeight);
+    weights[k] = expOf(c[k].logWeight);
     for (int i = 0; i < kNBoundParams; ++i) {
       Scalar value = c[k].state.par[i] - out.par[i];
       if (i == kPhi) {
@@ -601,7 +602,7 @@ GPUhdi() Scalar momentumModeOf(const GSFMixture<K>& mixture)
     for (int k = 0; k < mixture.size; ++k) {
       const Scalar s = c[k].state.cov[covIndex(kQOverP, kQOverP)];
       const Scalar d = u - c[k].state.qOverP();
-      logTerm[k] = c[k].logWeight - (0.5F * o2::gpu::GPUCommonMath::Log(s)) - (0.5F * d * d / s);
+      logTerm[k] = c[k].logWeight - (0.5F * logOf(s)) - (0.5F * d * d / s);
       maxLog = o2::gpu::GPUCommonMath::Max(maxLog, logTerm[k]);
     }
     Scalar f = 0.F;
@@ -610,7 +611,7 @@ GPUhdi() Scalar momentumModeOf(const GSFMixture<K>& mixture)
     for (int k = 0; k < mixture.size; ++k) {
       const Scalar s = c[k].state.cov[covIndex(kQOverP, kQOverP)];
       const Scalar d = u - c[k].state.qOverP();
-      const Scalar term = o2::gpu::GPUCommonMath::Exp(logTerm[k] - maxLog);
+      const Scalar term = expOf(logTerm[k] - maxLog);
       f += term;
       f1 -= term * d / s;
       f2 += term * (((d * d) / (s * s)) - (1.F / s));
@@ -620,7 +621,7 @@ GPUhdi() Scalar momentumModeOf(const GSFMixture<K>& mixture)
     const Scalar g2 = (f2 / f) - ((f1 * f1) / (f * f)) - (2.F / (u * u));
     gradient = g1;
     curvature = g2;
-    return maxLog + o2::gpu::GPUCommonMath::Log(f) + (2.F * o2::gpu::GPUCommonMath::Log(o2::gpu::GPUCommonMath::Abs(u)));
+    return maxLog + logOf(f) + (2.F * logOf(o2::gpu::GPUCommonMath::Abs(u)));
   };
   Scalar best = c[0].state.qOverP();
   Scalar bestValue = -FLT_MAX;
@@ -733,7 +734,7 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
   finishMixture(mixture, end, momentumMode);
   chi2 = 0.F;
   for (int k = 0; k < mixture.size; ++k) {
-    chi2 += o2::gpu::GPUCommonMath::Exp(mixture.components[k].logWeight) * mixture.components[k].chi2;
+    chi2 += expOf(mixture.components[k].logWeight) * mixture.components[k].chi2;
   }
   return PropagationStatus::kOk;
 }

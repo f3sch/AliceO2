@@ -26,6 +26,7 @@
 
 #include "FixedPointReferences.h"
 #include "SerialReferences.h"
+#include "StageOutputComparison.h"
 #include "ToyBarrel8Fixture.h"
 #include "UniformMaterial.h"
 
@@ -33,7 +34,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -633,16 +633,15 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
     BOOST_REQUIRE(parallel.run([&](std::uint32_t elements, const auto& body) { cpu.forEachElement(elements, 1U, body); }, selection, iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, 0U) == StageStatus::kComplete);
     // Bit for bit.
     const auto other = parallel.tracks().view();
-    const auto bits = [](Scalar value) { return std::bit_cast<std::uint32_t>(value); };
     for (std::uint32_t track = 0; track < kTracks; ++track) {
       const auto& a = other.state[track];
       const auto& b = tracks.state[track];
-      BOOST_TEST(std::ranges::equal(a.par, b.par, {}, bits, bits));
-      BOOST_TEST(std::ranges::equal(a.cov, b.cov, {}, bits, bits));
+      BOOST_TEST(sameBitsEach(a.par, b.par));
+      BOOST_TEST(sameBitsEach(a.cov, b.cov));
       BOOST_TEST(other.timePS[track] == tracks.timePS[track]);
       BOOST_TEST(other.widthPS[track] == tracks.widthPS[track]);
       BOOST_TEST(a.surface == b.surface);
-      BOOST_TEST(bits(other.chi2[track]) == bits(tracks.chi2[track]));
+      BOOST_TEST(sameBits(other.chi2[track], tracks.chi2[track]));
       BOOST_TEST(std::ranges::equal(other.clusters[track].index, tracks.clusters[track].index));
     }
   }

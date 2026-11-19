@@ -19,6 +19,7 @@
 #define BOOST_TEST_MODULE Test GTRK O2Parameters
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/Propagator.h"
+#include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Workflow/O2Parameters.h"
 
 #include <boost/test/unit_test.hpp>
@@ -34,25 +35,18 @@ namespace
 
 constexpr double kBz = 5.; // the ITS's and the MFT's 0.5 T [kG]
 
-void cross(const double a[3], const double b[3], double out[3])
-{
-  out[0] = (a[1] * b[2]) - (a[2] * b[1]);
-  out[1] = (a[2] * b[0]) - (a[0] * b[2]);
-  out[2] = (a[0] * b[1]) - (a[1] * b[0]);
-}
-
 /// A plane through \a origin with normal \a n (unit) and loc1 along the
 /// component of \a up orthogonal to it.
 TrackingSurface plane(const Vec3D& origin, const double n[3], const double up[3])
 {
-  const double dot = (up[0] * n[0]) + (up[1] * n[1]) + (up[2] * n[2]);
-  double a1[3] = {up[0] - (dot * n[0]), up[1] - (dot * n[1]), up[2] - (dot * n[2])};
+  const Vec3D normal{n[0], n[1], n[2]};
+  const double along = dotOf(up, normal);
+  Vec3D a1{up[0] - (along * n[0]), up[1] - (along * n[1]), up[2] - (along * n[2])};
   const double norm = std::hypot(a1[0], a1[1], a1[2]);
   for (auto& v : a1) {
     v /= norm;
   }
-  double a0[3];
-  cross(a1, n, a0); // axis0 x axis1 = normal
+  const Vec3D a0 = crossOf(a1, normal); // axis0 x axis1 = normal
   TrackingSurface s{};
   for (int i = 0; i < 3; ++i) {
     s.origin[i] = static_cast<Scalar>(origin[i]);
@@ -100,15 +94,17 @@ BoundTrackState state(double loc0, double loc1, double phi, double theta, double
 void globalOf(const BoundTrackState& s, const TrackingSurface& p, double r[3], double mom[3])
 {
   const double pAbs = 1. / std::abs(static_cast<double>(s.qOverP()));
-  for (int i = 0; i < 3; ++i) {
-    r[i] = static_cast<double>(p.origin[i]) + (static_cast<double>(s.loc0()) * p.axis0[i]) + (static_cast<double>(s.loc1()) * p.axis1[i]);
-  }
+  surfaceToGlobal(p, s.loc0(), s.loc1(), r);
   mom[0] = pAbs * std::cos(s.phi()) * std::sin(s.theta());
   mom[1] = pAbs * std::sin(s.phi()) * std::sin(s.theta());
   mom[2] = pAbs * std::cos(s.theta());
 }
 
-double cosIncidenceOf(const BoundTrackState& s, const TrackingSurface& p) { return (p.normal[0] * std::cos(s.phi()) * std::sin(s.theta())) + (p.normal[1] * std::sin(s.phi()) * std::sin(s.theta())) + (p.normal[2] * std::cos(s.theta())); }
+double cosIncidenceOf(const BoundTrackState& s, const TrackingSurface& p)
+{
+  const Scalar direction[3]{std::cos(s.phi()) * std::sin(s.theta()), std::sin(s.phi()) * std::sin(s.theta()), std::cos(s.theta())};
+  return cosIncidence(p, direction);
+}
 
 /// The state propagated onto \a to: forward, else backward (the points are on
 /// both sides at a perturbation's distance).
@@ -163,12 +159,7 @@ detail::Jacobian finiteDifferences(const BoundTrackState& s, const TrackingSurfa
     const auto p = params(plus);
     const auto m = params(minus);
     for (int i = 0; i < kNBoundParams; ++i) {
-      double d = p[i] - m[i];
-      if (i == 2 && d > kPi<double>) { // a forward phi across its seam
-        d -= kTwoPi<double>;
-      } else if (i == 2 && d < -kPi<double>) {
-        d += kTwoPi<double>;
-      }
+      const double d = i == 2 ? toPMPiOf(p[i] - m[i]) : p[i] - m[i]; // a forward phi across its seam
       jac[i][k] = d / h;
     }
   }
@@ -203,7 +194,7 @@ BOOST_AUTO_TEST_CASE(BarrelParametersAreTheStatesPointMomentumAndCharge)
     const double alpha = frameAlpha(s, sensorAlpha);
     BOOST_TEST(alpha >= -kPi<double>);
     BOOST_TEST(alpha < kPi<double>);
-    inward += std::abs(std::remainder(alpha - sensorAlpha, kTwoPi<double>)) > 1. ? 1U : 0U;
+    inward += std::abs(toPMPiOf(alpha - sensorAlpha)) > 1. ? 1U : 0U;
     const auto t = toTrackParCov(s, p, alpha, kBz);
     double r[3];
     double mom[3];

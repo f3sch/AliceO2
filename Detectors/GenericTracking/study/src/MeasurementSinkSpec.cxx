@@ -14,6 +14,7 @@
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/LayerLinks.h"
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
@@ -41,7 +42,6 @@
 #include "GenericTracking/Study/ProfileReport.h"
 #include "GenericTracking/Study/StageFunnel.h"
 #include "GenericTracking/Study/StateTruth.h"
-#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/TrackPulls.h"
 #include "GenericTracking/Study/TrackingInput.h"
@@ -117,6 +117,11 @@ using Controller = workflow::TrackingInterface<Det>::Controller;
 /// The stage funnel of a tracker's own run (StageFunnel.h), read by the text
 /// reports per iteration.
 using Funnel = StageFunnel<Det, Controller>;
+
+/// The layer of \a frame's measurement at \a row, through the tracking's
+/// surfaces or the sensor geometry, whichever the caller holds.
+[[nodiscard]] LayerID layerOfRow(const Frame& frame, const TrackingGeometry<Det>& geometry, Frame::Index row) { return geometry.surface(frame.measurement(row).surface).layer; }
+[[nodiscard]] LayerID layerOfRow(const Frame& frame, const Geometry<Det>& geometry, Frame::Index row) { return geometry.sensor(frame.measurement(row).surface).layer; }
 
 /// One tracklet's bytes across its columns.
 constexpr std::size_t kTrackletBytes = Tracklet{}.apply([](const auto&... field) { return (sizeof(field) + ... + 0U); });
@@ -226,7 +231,7 @@ struct TrueChain {
     changed = false;
     for (std::size_t pair = 0; pair < pairs.size(); ++pair) {
       const auto target = pairs[pair].key & 0xffffffffU;
-      const auto next = std::ranges::lower_bound(pairs, target << 32U, {}, &TruePair::key);
+      const auto next = std::ranges::lower_bound(pairs, packKey(static_cast<std::uint32_t>(target), 0U), {}, &TruePair::key);
       for (auto at = next; at != pairs.end() && (at->key >> 32U) == target; ++at) {
         const auto successor = static_cast<std::size_t>(at - pairs.begin());
         if (at->particle == pairs[pair].particle && chains[pair].length + 1U > chains[successor].length) {
@@ -266,13 +271,13 @@ void logTripletCurvature(const TrackletRunSummary& summary)
   const auto count = static_cast<double>(summary.trueTripletsKept);
   if (count > 0.) {
     const double mean = summary.curvaturePullSum / count;
-    LOGP(info, "  curvature against MC 1/R(p): pull mean {:.3f}, rms {:.3f}; relative residual rms {:.4f}", mean, std::sqrt(std::max(summary.curvaturePullSum2 / count - (mean * mean), 0.)), std::sqrt(summary.curvatureResidualSum2 / count));
+    LOGP(info, "  curvature against MC 1/R(p): pull mean {:.3f}, rms {:.3f}; relative residual rms {:.4f}", mean, sqrtClampedOf(summary.curvaturePullSum2 / count - (mean * mean)), std::sqrt(summary.curvatureResidualSum2 / count));
     std::string pullByPt;
     for (std::size_t bin = 1; bin < kPtBins; ++bin) {
       const auto inBin = static_cast<double>(summary.trueTripletsKeptByPt[bin]);
       if (inBin > 0.) {
         const double binMean = summary.curvaturePullSumByPt[bin] / inBin;
-        pullByPt += fmt::format(" {}-{}: {:.2f} ({:.2f})", kPtEdges[bin], kPtEdges[bin + 1U], binMean, std::sqrt(std::max(summary.curvaturePullSum2ByPt[bin] / inBin - (binMean * binMean), 0.)));
+        pullByPt += fmt::format(" {}-{}: {:.2f} ({:.2f})", kPtEdges[bin], kPtEdges[bin + 1U], binMean, sqrtClampedOf(summary.curvaturePullSum2ByPt[bin] / inBin - (binMean * binMean)));
       }
     }
     LOGP(info, "    by pT [GeV], pull mean (rms), the scattering at pT_min:{}", pullByPt);
@@ -375,8 +380,8 @@ std::vector<TrueCrossingReport> trueAnatomy(const Frame& frame, const Scattering
         const double lambda = std::atan2(pa[2], ptA);
         const Vec3D expected{std::cos(lambda) * std::cos(phi), std::cos(lambda) * std::sin(phi), std::sin(lambda)};
         const Vec3D actual{p[0] / pB, p[1] / pB, p[2] / pB};
-        const double dot = (expected[0] * actual[0]) + (expected[1] * actual[1]) + (expected[2] * actual[2]);
-        const Vec3D cross{(expected[1] * actual[2]) - (expected[2] * actual[1]), (expected[2] * actual[0]) - (expected[0] * actual[2]), (expected[0] * actual[1]) - (expected[1] * actual[0])};
+        const double dot = dotOf(expected, actual);
+        const Vec3D cross = crossOf(expected, actual);
         const double angle = std::atan2(std::hypot(cross[0], cross[1], cross[2]), dot);
         // Highland's theta0 for the previous layer at the true momentum and
         // incidence: k x (path factor) / (beta p)^2.
@@ -492,7 +497,7 @@ template <typename McOf>
     std::ranges::sort(firstPass, {}, distance);
 
     for (std::size_t from = 0; from < firstPass.size();) {
-      const auto layerOf = [&](std::size_t at) { return geometry.sensor(frame.measurement(firstPass[at]).surface).layer; };
+      const auto layerOf = [&](std::size_t at) { return layerOfRow(frame, geometry, firstPass[at]); };
       const auto fromLayer = layerOf(from);
       std::size_t fromEnd = from + 1U;
       while (fromEnd < firstPass.size() && layerOf(fromEnd) == fromLayer) {
@@ -511,7 +516,7 @@ template <typename McOf>
         for (std::size_t source = from; source < fromEnd; ++source) {
           for (std::size_t target = fromEnd; target < toEnd; ++target) {
             result.push_back({
-              .key = pairKey(firstPass[source], firstPass[target]),
+              .key = packKey(firstPass[source], firstPass[target]),
               .particle = signalRows[begin].track,
               .link = static_cast<std::uint16_t>(link),
               .pt = static_cast<Scalar>(mc->GetPt()),
@@ -882,7 +887,7 @@ class StageTruth
     // in truePairs.
     for (std::size_t first = 0; first < truePairs.size(); ++first) {
       const auto middle = static_cast<std::uint32_t>(truePairs[first].key & 0xffffffffU);
-      const auto next = std::ranges::lower_bound(truePairs, pairKey(middle, 0U), {}, &TruePair::key);
+      const auto next = std::ranges::lower_bound(truePairs, packKey(middle, 0U), {}, &TruePair::key);
       for (auto second = next; second != truePairs.end() && (second->key >> 32U) == middle; ++second) {
         if (second->particle == truePairs[first].particle) {
           mTrueTriplets.emplace_back(first, static_cast<std::size_t>(second - truePairs.begin()));
@@ -921,7 +926,7 @@ class StageTruth
     const auto& slice = *observation.slice;
     const auto& run = *observation.result;
     const auto truePairIndex = [&](Frame::Index source, Frame::Index target) {
-      const auto key = pairKey(source, target);
+      const auto key = packKey(source, target);
       const auto found = std::ranges::lower_bound(truePairs, key, {}, &TruePair::key);
       return found != truePairs.end() && found->key == key ? static_cast<std::size_t>(found - truePairs.begin()) : truePairs.size();
     };
@@ -956,7 +961,7 @@ class StageTruth
         continue;
       }
       ++summary.tracklets;
-      const auto key = pairKey(tracklets[i].source, tracklets[i].target);
+      const auto key = packKey(tracklets[i].source, tracklets[i].target);
       const auto found = std::ranges::lower_bound(truePairs, key, {}, &TruePair::key);
       if (found != truePairs.end() && found->key == key) {
         ++summary.truePairsKept[link];
@@ -981,10 +986,10 @@ class StageTruth
       ++summary.triplets;
       const bool kinkedTriplet = tripletView.kinked[i] != 0U;
       summary.tripletsKinked += kinkedTriplet ? 1U : 0U;
-      const auto firstPair = std::ranges::lower_bound(truePairs, pairKey(tracklets[first].source, tracklets[first].target), {}, &TruePair::key);
-      const auto secondPair = std::ranges::lower_bound(truePairs, pairKey(tracklets[second].source, tracklets[second].target), {}, &TruePair::key);
-      const bool trueFirst = firstPair != truePairs.end() && firstPair->key == pairKey(tracklets[first].source, tracklets[first].target);
-      const bool trueSecond = secondPair != truePairs.end() && secondPair->key == pairKey(tracklets[second].source, tracklets[second].target);
+      const auto firstPair = std::ranges::lower_bound(truePairs, packKey(tracklets[first].source, tracklets[first].target), {}, &TruePair::key);
+      const auto secondPair = std::ranges::lower_bound(truePairs, packKey(tracklets[second].source, tracklets[second].target), {}, &TruePair::key);
+      const bool trueFirst = firstPair != truePairs.end() && firstPair->key == packKey(tracklets[first].source, tracklets[first].target);
+      const bool trueSecond = secondPair != truePairs.end() && secondPair->key == packKey(tracklets[second].source, tracklets[second].target);
       if (!trueFirst || !trueSecond) {
         classify({tracklets[first].source, tracklets[first].target, tracklets[second].target}, summary.notTrueCombinatorial, summary.notTrueSecondary, summary.notTrueSoftPrimary, summary.notTrueOtherPrimary);
         continue;
@@ -1324,7 +1329,7 @@ void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFa
     const auto& rows = failure.rows;
     const auto& fit = failure.fit;
     const int n = static_cast<int>(rows.size());
-    const auto layerOf = [&](int index) { return static_cast<int>(tracking.surface(frame.measurement(rows[static_cast<std::size_t>(index)]).surface).layer); };
+    const auto layerOf = [&](int index) { return static_cast<int>(layerOfRow(frame, tracking, rows[static_cast<std::size_t>(index)])); };
     const int to = fit.failedMeasurement;
     const int from = fit.failedPass == FitPass::kInward ? to + 1 : to - 1;
     const bool stepInChain = std::min(from, to) >= 0 && std::max(from, to) < n;
@@ -1518,7 +1523,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
     const int outwardNdf = (2 * n) - kNBoundParams - (2 * fit.outwardKinks);
     chi2Sum += static_cast<double>(fit.outwardChi2);
     ndfSum += static_cast<double>(outwardNdf);
-    const auto layerOf = [&](int index) { return static_cast<std::size_t>(tracking.surface(frame.measurement(rows[static_cast<std::size_t>(index)]).surface).layer); };
+    const auto layerOf = [&](int index) { return static_cast<std::size_t>(layerOfRow(frame, tracking, rows[static_cast<std::size_t>(index)])); };
     for (int index = 0; index < n; ++index) {
       const auto at = static_cast<std::size_t>(index);
       if (index >= 3) {
@@ -1596,9 +1601,8 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
   LOGP(info, "  by clusters, chains and failing:{}", lengths);
   reportTrueRoadFitFailures(frame, failures, particles, tracking, propagator, crossings, scattering, material);
   if (!chi2PerNdf.empty()) {
-    std::ranges::sort(chi2PerNdf);
-    const auto quantile = [&](double q) { return static_cast<double>(chi2PerNdf[std::min(chi2PerNdf.size() - 1U, static_cast<std::size_t>(q * static_cast<double>(chi2PerNdf.size())))]); };
-    LOGP(info, "  outward chi2/ndf quantiles: 50% {:.2f}, 90% {:.2f}, 99% {:.2f}, 99.9% {:.2f}, max {:.1f}", quantile(0.5), quantile(0.9), quantile(0.99), quantile(0.999), static_cast<double>(chi2PerNdf.back()));
+    const auto at = [&](double q) { return static_cast<double>(quantile(chi2PerNdf, q)); };
+    LOGP(info, "  outward chi2/ndf quantiles: 50% {:.2f}, 90% {:.2f}, 99% {:.2f}, 99.9% {:.2f}, max {:.1f}", at(0.5), at(0.9), at(0.99), at(0.999), at(1.));
   }
   LOGP(info,
        "  failing chains by outward steps beyond the kink gate: 0 {}, 1 {}, 2 {}, 3+ {}; by the worst step's share of the chi2: <25% {}, 25-50% {}, "
@@ -1822,14 +1826,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
     }
   }
 
-  const auto quantile = [](std::vector<float>& values, double q) {
-    if (values.empty()) {
-      return 0.;
-    }
-    const auto at = std::min(values.size() - 1U, static_cast<std::size_t>(q * static_cast<double>(values.size())));
-    std::ranges::nth_element(values, values.begin() + static_cast<std::ptrdiff_t>(at));
-    return static_cast<double>(values[at]);
-  };
+  const auto at = [](std::vector<float>& values, double q) { return values.empty() ? 0. : static_cast<double>(quantile(values, q)); };
   LOGP(info, "fake anatomy, {}: the comparison's rule, by the track's layers; the one-wrong-cluster fakes by the label's own cluster on that layer", label);
   for (std::size_t cls = 0; cls < kClasses; ++cls) {
     const auto good = tracksByClass[cls][0];
@@ -1839,13 +1836,13 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
     }
     auto& goodChi2 = chi2PerNdf[cls][0];
     auto& fakeChi2 = chi2PerNdf[cls][1];
-    const double good90 = quantile(goodChi2, 0.9);
-    const double good99 = quantile(goodChi2, 0.99);
+    const double good90 = at(goodChi2, 0.9);
+    const double good99 = at(goodChi2, 0.99);
     const auto fakesAbove = [&](double bound) { return percent(static_cast<std::uint64_t>(std::ranges::count_if(fakeChi2, [&](float v) { return static_cast<double>(v) > bound; })), fakeChi2.size()); };
     LOGP(info,
          "  {:<14} {:>7} tracks, {:>6} fake ({:.2f} %); kinked {:.1f} % of the good, {:.1f} % of the fakes; refit chi2/ndf 50/90/99 %: good "
          "{:.2f}/{:.2f}/{:.2f}, fakes {:.2f}/{:.2f}/{:.2f}; fakes above the good's 90 % {:.1f} %, above its 99 % {:.1f} %",
-         kClassNames[cls], good + bad, bad, percent(bad, good + bad), percent(kinkedByClass[cls][0], good), percent(kinkedByClass[cls][1], bad), quantile(goodChi2, 0.5), good90, good99, quantile(fakeChi2, 0.5), quantile(fakeChi2, 0.9), quantile(fakeChi2, 0.99), fakesAbove(good90), fakesAbove(good99));
+         kClassNames[cls], good + bad, bad, percent(bad, good + bad), percent(kinkedByClass[cls][0], good), percent(kinkedByClass[cls][1], bad), at(goodChi2, 0.5), good90, good99, at(fakeChi2, 0.5), at(fakeChi2, 0.9), at(fakeChi2, 0.99), fakesAbove(good90), fakesAbove(good99));
     const auto& t = tally[cls];
     if (t.oneWrong == 0U) {
       continue;
@@ -1857,7 +1854,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
          "that layer {} (ended before it {}, skipped it {}), its own there {}: with it the track fails to fit {}, fails the road cut {}, passes and "
          "outranks the fake {} (its chain lost at tracklets {}, triplets {}, neighbours {}, roads {}, the road cut {}; not lost {}; no record {}: a "
          "primary below the pT floor {}, a secondary {}, other {}), passes but ranks below the fake {} (the chi2 gap, 10/50/90 %: {:.2f}/{:.2f}/{:.2f})",
-         t.oneWrong, percent(t.oneWrong, bad), t.wrongAt[0], t.wrongAt[1], t.wrongAt[2], percent(t.wrongSecondary, t.oneWrong), t.holeEnded + t.holeSkipped, t.holeEnded, t.holeSkipped, swaps, t.altFitFailed, t.altFailsCut, t.altAbove, t.aboveLostAt[0], t.aboveLostAt[1], t.aboveLostAt[2], t.aboveLostAt[3], t.aboveLostAt[4], t.aboveLostAt[5], t.aboveLostAt[6], t.noRecord[0], t.noRecord[1], t.noRecord[2], t.altBelow, quantile(gap, 0.1), quantile(gap, 0.5), quantile(gap, 0.9));
+         t.oneWrong, percent(t.oneWrong, bad), t.wrongAt[0], t.wrongAt[1], t.wrongAt[2], percent(t.wrongSecondary, t.oneWrong), t.holeEnded + t.holeSkipped, t.holeEnded, t.holeSkipped, swaps, t.altFitFailed, t.altFailsCut, t.altAbove, t.aboveLostAt[0], t.aboveLostAt[1], t.aboveLostAt[2], t.aboveLostAt[3], t.aboveLostAt[4], t.aboveLostAt[5], t.aboveLostAt[6], t.noRecord[0], t.noRecord[1], t.noRecord[2], t.altBelow, at(gap, 0.1), at(gap, 0.5), at(gap, 0.9));
   }
 }
 
@@ -1945,7 +1942,6 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
       }
     }
   }
-  const auto layerOfRow = [&](Frame::Index row) { return static_cast<std::uint32_t>(tracking.surface(frame.measurement(row).surface).layer); };
   enum Why : std::uint8_t { kWhyBelowFloor,
                             kWhyTaken,
                             kWhyFreeTracklets,
@@ -2052,7 +2048,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
     ++byIteration[iteration];
     std::uint32_t has = 0U;
     for (std::uint32_t i = 0; i < tracks.rows(best).size(); ++i) {
-      has |= 1U << layerOfRow(tracks.rows(best)[i]);
+      has |= 1U << layerOfRow(frame, tracking, tracks.rows(best)[i]);
     }
     const auto innermost = static_cast<std::uint32_t>(std::countr_zero(has));
     const auto outermost = static_cast<std::uint32_t>(std::bit_width(has)) - 1U;
@@ -2060,7 +2056,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
     bool inner = true;
     bool anyTaken = false;
     for (const auto row : rows) {
-      const auto layer = layerOfRow(row);
+      const auto layer = static_cast<std::uint32_t>(layerOfRow(frame, tracking, row));
       if ((has & (1U << layer)) != 0U) {
         continue;
       }
@@ -2125,7 +2121,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
     if (!outer) {
       brokenInner = 0U;
       for (const auto row : rows) {
-        const auto layer = layerOfRow(row);
+        const auto layer = static_cast<std::uint32_t>(layerOfRow(frame, tracking, row));
         if ((has & (1U << layer)) == 0U && layer < innermost) {
           brokenInner = std::max(brokenInner, layer);
         }
@@ -2464,7 +2460,7 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
       ++kinkedTracks;
       kinkedFakes += one ? 0U : 1U;
       const auto kinkRow = tracks.rows(track)[view.kinkCluster[track]];
-      ++kinksByLayer[static_cast<std::size_t>(tracking.surface(frame.measurement(kinkRow).surface).layer)];
+      ++kinksByLayer[layerOfRow(frame, tracking, kinkRow)];
     }
     if (one) {
       ++good;
@@ -2723,19 +2719,6 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
   // by the iterations that found them and by where B lies -- inside A's
   // innermost cluster, beyond its outermost (by distance from the origin), on
   // layers A has too, or interleaved with A.
-  std::array<std::pair<Frame::Index, Frame::Index>, Frame::kLayerCount> layerRows{};
-  for (std::size_t layer = 0; layer < Frame::kLayerCount; ++layer) {
-    const auto rows = frame.grid().layerRows(static_cast<LayerID>(layer));
-    layerRows[layer] = {rows.begin, rows.end};
-  }
-  const auto layerOf = [&](Frame::Index row) {
-    for (std::size_t layer = 0; layer < Frame::kLayerCount; ++layer) {
-      if (row >= layerRows[layer].first && row < layerRows[layer].second) {
-        return layer;
-      }
-    }
-    return Frame::kLayerCount;
-  };
   const auto distance = [&](Frame::Index row) {
     const auto m = frame.measurement(row);
     return std::hypot(static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z));
@@ -2774,7 +2757,7 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
       const auto row = tracks.rows(a)[i];
       innerA = std::min(innerA, distance(row));
       outerA = std::max(outerA, distance(row));
-      layersA[std::min(layerOf(row), Frame::kLayerCount - 1U)] = true;
+      layersA[layerOfRow(frame, tracking, row)] = true;
     }
     for (std::size_t other = 1; other < list.size(); ++other) {
       const auto b = list[other];
@@ -2785,7 +2768,7 @@ void measureTracks(const Frame& frame, const RecoSettings& param, const VertexCo
         const auto row = tracks.rows(b)[i];
         innerB = std::min(innerB, distance(row));
         outerB = std::max(outerB, distance(row));
-        sameLayers &= layersA[std::min(layerOf(row), Frame::kLayerCount - 1U)];
+        sameLayers &= layersA[layerOfRow(frame, tracking, row)];
       }
       Relation relation = kInterleaved;
       if (outerB < innerA) {
@@ -2946,7 +2929,7 @@ class MeasurementSinkTask : public Task
       const auto& parts = mContext->getEventParts();
       for (std::size_t collision = 0; collision < records.size() && collision < parts.size(); ++collision) {
         for (const auto& part : parts[collision]) {
-          mCollisionTimeNS.try_emplace(eventKey(part.sourceID, part.entryID), records[collision].getTimeNS());
+          mCollisionTimeNS.try_emplace(packKey(static_cast<std::uint32_t>(part.sourceID), static_cast<std::uint32_t>(part.entryID)), records[collision].getTimeNS());
         }
       }
       const auto truthOutput = ic.options().get<std::string>("tracklet-truth-output");
@@ -3066,7 +3049,6 @@ class MeasurementSinkTask : public Task
     // tracker will see it, and the shipped position -- Cartesian, radius,
     // azimuth and projected variances -- is compared bit for bit with what the
     // geometry gives for the row's own sensor and local measurement.
-    const auto sameBits = [](Scalar a, Scalar b) { return std::bit_cast<std::uint32_t>(a) == std::bit_cast<std::uint32_t>(b); };
     const auto& sensors = mInterface.geometry();
     const auto& beamLine = mInterface.beamLine();
     bool bucketsValid = true;
@@ -3424,11 +3406,6 @@ class MeasurementSinkTask : public Task
     return -1;
   }
 
-  /// The tracker's tracks of this timeframe into the QA's trees;
-  /// \a theirs O2's (`o2TrackRows`), none
-  /// without --o2-tracks.
-  [[nodiscard]] static std::uint64_t eventKey(int source, int event) { return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(source)) << 32U) | static_cast<std::uint32_t>(event); }
-
   /// The charged physical primaries the generator made in \a source's
   /// \a event at |eta| < 0.5.
   [[nodiscard]] std::uint32_t chargedPrimariesMidrapidity(int source, int event) const
@@ -3484,7 +3461,7 @@ class MeasurementSinkTask : public Task
         .merged = match.merged,
         .splits = match.splits,
       };
-      if (const auto time = mCollisionTimeNS.find(eventKey(label.source, label.event)); time != mCollisionTimeNS.end()) {
+      if (const auto time = mCollisionTimeNS.find(packKey(static_cast<std::uint32_t>(label.source), static_cast<std::uint32_t>(label.event))); time != mCollisionTimeNS.end()) {
         entry.tMC = static_cast<float>(time->second - startNS);
       }
       if (header.hasInfo(o2::dataformats::MCInfoKeys::impactParameter)) {
@@ -3508,6 +3485,9 @@ class MeasurementSinkTask : public Task
     streamVertices(*mQAOutput, vertices);
   }
 
+  /// The tracker's tracks of this timeframe into the QA's trees;
+  /// \a theirs O2's (`o2TrackRows`), none
+  /// without --o2-tracks.
   void streamQA(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& particles, const Funnel* funnel, const TrackStore<Det>& tracks, const TrackRows* theirs)
   {
     const auto view = tracks.tracks().view();
@@ -3521,7 +3501,7 @@ class MeasurementSinkTask : public Task
       const auto theta = static_cast<double>(state.theta());
       kinematics[track] = {
         .pt = static_cast<float>(std::sin(theta) / std::abs(static_cast<double>(state.qOverP()))),
-        .eta = static_cast<float>(-std::log(std::tan(theta / 2.))),
+        .eta = static_cast<float>(etaOfTheta(theta)),
         .phi = state.phi(),
         .iteration = view.iteration[track],
         .chi2 = view.chi2[track],
@@ -3637,7 +3617,7 @@ class MeasurementSinkTask : public Task
       if (const auto& mother = label->second.mother; mother.has_value()) {
         const auto direction = helixDirectionAt(*mother, bz, helix.position[0], helix.position[1]);
         const double p = std::hypot(helix.momentum[0], helix.momentum[1], helix.momentum[2]);
-        const double cosine = ((direction[0] * helix.momentum[0]) + (direction[1] * helix.momentum[1]) + (direction[2] * helix.momentum[2])) / p;
+        const double cosine = dotOf(direction, helix.momentum) / p;
         extra.openingAngle = static_cast<float>(std::acos(std::clamp(cosine, -1., 1.)));
         extra.motherMiss = static_cast<float>(helixMiss(*mother, bz, helix.position[0], helix.position[1]));
       }
@@ -3969,7 +3949,6 @@ class MeasurementSinkTask : public Task
       }
       return bin;
     };
-    const auto layerOfRow = [&](std::uint32_t row) { return static_cast<std::size_t>(mInterface.geometry().sensor(frame.measurement(row).surface).layer); };
     for (std::size_t theirIndex = 0; theirIndex < theirs.size(); ++theirIndex) {
       const auto& track = theirs[theirIndex];
       touched.clear();
@@ -4018,7 +3997,7 @@ class MeasurementSinkTask : public Task
             const auto row = rowOfCluster[cluster];
             const auto& ours = tracksOfRow[row];
             if (std::ranges::find(ours, bestTrack) == ours.end()) {
-              ++lackingLayer[std::min(layerOfRow(row), kMaxClusters - 1U)];
+              ++lackingLayer[std::min<std::size_t>(layerOfRow(frame, mInterface.geometry(), row), kMaxClusters - 1U)];
               taken |= !ours.empty();
             }
           }
@@ -4048,7 +4027,7 @@ class MeasurementSinkTask : public Task
       if (ourCount[track] < static_cast<std::uint32_t>(Detector<Det>::nLayers)) {
         std::uint32_t mask = 0U;
         for (std::uint32_t i = 0; i < tracks.rows(track).size(); ++i) {
-          mask |= 1U << layerOfRow(tracks.rows(track)[i]);
+          mask |= 1U << layerOfRow(frame, mInterface.geometry(), tracks.rows(track)[i]);
         }
         ++shortPatterns[mask];
       }
@@ -4146,7 +4125,7 @@ class MeasurementSinkTask : public Task
     auto tracks = mO2Tracks->read(static_cast<long long>(mTimeframe));
     std::array<std::uint32_t, Detector<Det>::nLayers + 1U> offsets{};
     for (Frame::Index row = 0U; row < frame.size(); ++row) {
-      ++offsets[mInterface.geometry().sensor(frame.measurement(row).surface).layer + 1U];
+      ++offsets[layerOfRow(frame, mInterface.geometry(), row) + 1U];
     }
     std::partial_sum(offsets.begin(), offsets.end(), offsets.begin());
     for (auto& track : tracks) {
@@ -4293,7 +4272,7 @@ class MeasurementSinkTask : public Task
     const double sinTheta = std::abs(std::sin(static_cast<double>(state.theta())));
     const Scalar momentum = 1.F / std::abs(state.qOverP());
     entry.dca = {predicted.loc0(), static_cast<float>(static_cast<double>(predicted.loc1()) - header.GetZ())};
-    entry.dcaSigma = {static_cast<float>(std::sqrt(std::max(variance(jacobian.loc0), 0.))), static_cast<float>(std::sqrt(std::max(variance(jacobian.loc1), 0.)))};
+    entry.dcaSigma = {static_cast<float>(sqrtClampedOf(variance(jacobian.loc0))), static_cast<float>(sqrtClampedOf(variance(jacobian.loc1)))};
     {
       // The beam-line update's scattering (`beamScattering`), from the beam
       // line at the vertex's z; and the pair cuts' (`sourceScattering`), at
@@ -4424,7 +4403,7 @@ class MeasurementSinkTask : public Task
         std::array<double, 5> sigma{};
         for (std::size_t i = 0; i < 5U; ++i) {
           residual[i] = static_cast<double>(state.getParam(static_cast<int>(i))) - truth[i];
-          sigma[i] = std::sqrt(std::max(static_cast<double>(state.getDiagError2(static_cast<int>(i))), 0.));
+          sigma[i] = sqrtClampedOf(static_cast<double>(state.getDiagError2(static_cast<int>(i))));
         }
         o2.add(pt, residual, sigma);
         o2Common.add(pt, std::array<double, 5>{residual[0], residual[1], std::asin(std::clamp(static_cast<double>(state.getParam(2)), -1., 1.)) - std::asin(truth[2]), std::atan(static_cast<double>(state.getParam(3))) - std::atan(truth[3]), (std::abs(truth[4]) / std::abs(static_cast<double>(state.getParam(4)))) - 1.}, std::array<double, 5>{});
@@ -4459,7 +4438,7 @@ class MeasurementSinkTask : public Task
     std::optional<TruthHelix> mother{}; ///< the mother's at its own production
   };
   std::unordered_map<std::uint64_t, ParticleLabel> mParticleLabels;
-  std::unordered_map<std::uint64_t, double> mCollisionTimeNS; ///< by eventKey: the MC event's collision time [ns]
+  std::unordered_map<std::uint64_t, double> mCollisionTimeNS; ///< by packKey(source, event): the MC event's collision time [ns]
   /// The findable rule of the QA, the comparisons and the funnel; it needs the geometry, so it is made where it is used.
   [[nodiscard]] ComparisonSettings findableRule() const { return comparisonSettings<Det>(4, mFindableMinPtGeV); }
   bool mUseMC = true;

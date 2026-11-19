@@ -28,7 +28,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -81,7 +80,7 @@ BOOST_AUTO_TEST_CASE(TheLutGivesTheHostsBudgetsOnTheDevice)
     bool same = true;
     for (std::size_t q = 0; q < host.size(); ++q) {
       hosts[q].push_back(host[q]);
-      same = same && std::bit_cast<std::uint32_t>(host[q]) == std::bit_cast<std::uint32_t>(onDevice[i][q]);
+      same = same && sameBits(host[q], onDevice[i][q]);
     }
     differing += same ? 0U : 1U;
   }

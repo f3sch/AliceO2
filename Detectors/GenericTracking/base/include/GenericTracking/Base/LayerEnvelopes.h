@@ -39,6 +39,17 @@
 namespace o2::gtrk
 {
 
+/// Where a sensor's silicon is centred, in the global frame: a flat sensor's
+/// origin, a curved sensor's middle of the silicon at the middle of its arc.
+[[nodiscard]] inline Vec3D siliconCentreOf(const Sensor& sensor, const SensorSpec& spec)
+{
+  double local[3];
+  spec.unrolledToFrame(0., 0., 0.5 * (spec.surfaceMin() + spec.surfaceMax()), local);
+  Vec3D global{};
+  sensor.toGlobal(local, global.data());
+  return global;
+}
+
 /// The rounding a geometry measures its envelopes with [cm]: 1 um, the
 /// minima down, the maxima up, the position to the nearest.
 inline constexpr double kEnvelopeResolution = 1e-4;

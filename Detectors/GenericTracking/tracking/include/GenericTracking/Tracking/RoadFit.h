@@ -103,13 +103,20 @@ struct RowChain {
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Measurement operator[](int i) const { return measurementAt(*frame, rows[i]); }
 };
 
+/// Whether \a state's pT reaches \a floor [GeV], as |sin theta| >= floor |q/p|
+/// (no division); a state with a NaN fails.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool reachesPt(const BoundParameters& state, Scalar floor)
+{
+  return o2::gpu::CAMath::Abs(sinOf(state.theta())) >= floor * o2::gpu::CAMath::Abs(state.qOverP());
+}
+
 /// Whether \a state, a fit of \a count clusters, is at or above the
 /// iteration's pT floor for that count.
 template <DetectorLayout Det>
 [[nodiscard]] GPUhdi() GPUAlwaysInline() bool clearsPtFloor(const IterationParameters<Det>& parameters, std::uint32_t count, const BoundTrackState& state)
 {
   const Scalar floor = parameters.minPtByClusters[count];
-  return !(floor > 0.F) || o2::gpu::CAMath::Abs(o2::gpu::CAMath::Sin(state.theta())) >= floor * o2::gpu::CAMath::Abs(state.qOverP());
+  return !(floor > 0.F) || reachesPt(state, floor);
 }
 
 /// Whether a road of \a count clusters the fit accepted clears the

@@ -47,6 +47,7 @@
 
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerLinks.h"
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/LinkHoles.h"
 #include "GenericTracking/Tracking/Measurement.h"
@@ -56,8 +57,8 @@
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackletStage.h"
+#include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Study/MCTruth.h"
-#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/Validation.h"
 
@@ -302,9 +303,6 @@ template <typename LayerOf>
   return result;
 }
 
-/// A pair of rows as one key, the source's in the upper half.
-[[nodiscard]] inline std::uint64_t pairKey(std::uint32_t source, std::uint32_t target) { return (static_cast<std::uint64_t>(source) << 32U) | static_cast<std::uint64_t>(target); }
-
 template <DetectorLayout Det, typename Controller>
 class StageFunnel
 {
@@ -319,6 +317,9 @@ class StageFunnel
   }();
   /// The barrel layers, for the hole test (`segmentLeavesHole`).
   static constexpr std::uint64_t kBarrels = barrelLayerBits<Det>();
+
+  /// The rank (kLayerRank) of \a row's layer.
+  [[nodiscard]] std::uint32_t layerRankOf(std::uint32_t row) const { return kLayerRank[mRows[row].layer]; }
 
  public:
   using Frame = TimeFrame<Det>;
@@ -387,7 +388,7 @@ class StageFunnel
       const std::array<std::uint32_t, 2> ends{tracklets.source[i], tracklets.target[i]};
       const bool owned = forEachOwner(ends, [&](std::uint32_t particle) { mPairs[particle].emplace_back(ends[0], ends[1]); });
       if (owned) {
-        mKept.insert(pairKey(ends[0], ends[1]));
+        mKept.insert(packKey(ends[0], ends[1]));
       }
     }
     for (std::size_t i = 0; i < result.triplets->size(); ++i) {
@@ -397,9 +398,9 @@ class StageFunnel
       const auto core = slice.slice->core[parameters.linkSources[tracklets.link[first]]];
       const bool owned = rows[0] >= core.begin && rows[0] < core.end;
       forEachOwner(rows, [&](std::uint32_t particle) {
-        mTriplets[particle].emplace_back(pairKey(rows[0], rows[1]), pairKey(rows[1], rows[2]));
+        mTriplets[particle].emplace_back(packKey(rows[0], rows[1]), packKey(rows[1], rows[2]));
         if (owned) {
-          mTripletInfo[particle][{pairKey(rows[0], rows[1]), rows[2]}] = {
+          mTripletInfo[particle][{packKey(rows[0], rows[1]), rows[2]}] = {
             .level = triplets.level[i],
             .successorAbove = slice.roads->successorAbove()[i] != 0U,
             .endLayer = parameters.linkTargets[tracklets.link[triplets.second[i]]],
@@ -473,12 +474,12 @@ class StageFunnel
   void observeIteration(const Controller& tracker, const IterationObservation& iteration)
   {
     beginIteration();
-    const auto layerOf = [&](std::uint32_t row) { return kLayerRank[mRows[row].layer]; };
+    const auto layerOf = [this](std::uint32_t row) { return layerRankOf(row); };
     if (mKeepOwnKept) {
       for (const auto& [particle, edges] : mPairs) {
         auto& kept = mOwnKept[particle];
         for (const auto& [a, b] : edges) {
-          kept.insert(pairKey(a, b));
+          kept.insert(packKey(a, b));
         }
       }
     }
@@ -493,7 +494,7 @@ class StageFunnel
       const auto id = [&](std::uint64_t key) {
         const auto [at, inserted] = ids.try_emplace(key, static_cast<std::uint32_t>(ids.size()));
         if (inserted) {
-          layers.push_back(kLayerRank[mRows[static_cast<std::uint32_t>(key >> 32U)].layer]);
+          layers.push_back(layerRankOf(static_cast<std::uint32_t>(key >> 32U)));
         }
         return at->second;
       };
@@ -507,9 +508,9 @@ class StageFunnel
       std::map<std::pair<std::uint64_t, std::uint32_t>, std::uint32_t> ids;
       std::vector<std::uint32_t> layers;
       const auto id = [&](std::uint32_t a, std::uint32_t b, std::uint32_t c) {
-        const auto [at, inserted] = ids.try_emplace({pairKey(a, b), c}, static_cast<std::uint32_t>(ids.size()));
+        const auto [at, inserted] = ids.try_emplace({packKey(a, b), c}, static_cast<std::uint32_t>(ids.size()));
         if (inserted) {
-          layers.push_back(kLayerRank[mRows[a].layer]);
+          layers.push_back(layerRankOf(a));
         }
         return at->second;
       };
@@ -1051,7 +1052,7 @@ class StageFunnel
           direct.emplace_back(a, b);
         }
       }
-      const auto layerOrderOf = [&](std::uint32_t row) { return kLayerRank[mRows[row].layer]; };
+      const auto layerOrderOf = [this](std::uint32_t row) { return layerRankOf(row); };
       const auto directPath = longestPath(direct, layerOrderOf);
       const auto directCeiling = static_cast<std::uint32_t>(directPath.size());
       const auto ceiling = std::max(longestChain(std::move(edges), layerOrderOf), found[index]);
@@ -1084,7 +1085,7 @@ class StageFunnel
             for (std::size_t i = 1; i < directPath.size(); ++i) {
               const auto a = directPath[i - 1U];
               const auto b = directPath[i];
-              if (kept != mOwnKept.end() && kept->second.contains(pairKey(a, b))) {
+              if (kept != mOwnKept.end() && kept->second.contains(packKey(a, b))) {
                 continue;
               }
               const auto link = linkOf<Det>(mRows[a].layer, mRows[b].layer);
@@ -1337,10 +1338,10 @@ class StageFunnel
       const auto level = infos.at(current).level;
       bool predecessor = false;
       for (const auto& rows : chains) {
-        if (pairKey(rows[1], rows[2]) != current.first || rows[3] != current.second) {
+        if (packKey(rows[1], rows[2]) != current.first || rows[3] != current.second) {
           continue;
         }
-        const std::pair<std::uint64_t, std::uint32_t> below{pairKey(rows[0], rows[1]), rows[2]};
+        const std::pair<std::uint64_t, std::uint32_t> below{packKey(rows[0], rows[1]), rows[2]};
         const auto found = infos.find(below);
         if (found == infos.end()) {
           continue;
@@ -1482,7 +1483,7 @@ class StageFunnel
         if (at->kept) {
           continue;
         }
-        if (mKept.contains(pairKey(source, target))) {
+        if (mKept.contains(packKey(source, target))) {
           at->kept = true;
           continue;
         }

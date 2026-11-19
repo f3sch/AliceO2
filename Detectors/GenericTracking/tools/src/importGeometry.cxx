@@ -265,19 +265,13 @@ struct Arc {
   double length = 0.;
 };
 
-double wrap(double angle)
-{
-  const double wrapped = std::fmod(angle, kTwoPi<double>);
-  return wrapped < 0. ? wrapped + kTwoPi<double> : wrapped;
-}
-
 /// The shorter arc between the azimuths of two points.
 Arc arcBetween(const Vec2D& a, const Vec2D& b)
 {
   const double from = std::atan2(a[1], a[0]);
   double delta = std::atan2(b[1], b[0]) - from;
-  delta = std::remainder(delta, kTwoPi<double>);
-  return delta >= 0. ? Arc{.start = wrap(from), .length = delta} : Arc{.start = wrap(from + delta), .length = -delta};
+  delta = toPMPiOf(delta);
+  return delta >= 0. ? Arc{.start = to02PiOf(from), .length = delta} : Arc{.start = to02PiOf(from + delta), .length = -delta};
 }
 
 /// A flat sensor's active area in its mid-plane, its corners in order around it, global.
@@ -355,7 +349,7 @@ void discArcs(const std::array<Vec3D, 4>& quad, double r, std::vector<Arc>& arcs
     for (const double sign : {-1., 1.}) {
       const double t = (-b + (sign * std::sqrt(discriminant))) / (2. * a);
       if (t >= 0. && t <= 1.) {
-        angles.push_back(wrap(std::atan2(p[1] + (t * dy), p[0] + (t * dx))));
+        angles.push_back(to02PiOf(std::atan2(p[1] + (t * dy), p[0] + (t * dx))));
       }
     }
   }

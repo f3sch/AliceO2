@@ -61,8 +61,6 @@ const auto kUneven = [](Index element) { return element < 40U ? 6U : 0U; };
 /// Irregular, including zero.
 const auto kIrregular = [](Index element) { return (element * 7U) % 11U; };
 
-std::shared_ptr<BoundedMemoryResource> pool() { return std::make_shared<BoundedMemoryResource>(); }
-
 struct LayeredDependencyGenerator {
   std::array<Index, 5> layerBoundaries{0U, 37U, 1000U, 1000U, 1127U};
   /// The layers by depth, as `layerDepthGroups` lists a layout's: layer 3
@@ -109,7 +107,7 @@ BOOST_AUTO_TEST_CASE(EveryColumnReadsBackThroughItsOwnField)
     .lambda = std::bit_cast<Scalar>(0x3ED4D4D4U),
     .phi = std::bit_cast<Scalar>(0xBEE5E5E5U),
   };
-  const auto memory = pool();
+  const auto memory = freshPool();
   BoundedColumns<TrackletT> columns;
   columns.setMemoryResource(memory.get());
   columns.resize(3U);
@@ -126,26 +124,26 @@ BOOST_AUTO_TEST_CASE(EveryColumnReadsBackThroughItsOwnField)
     BOOST_TEST(view.source[i] == sentinel.source + i);
     BOOST_TEST(view.target[i] == sentinel.target);
     BOOST_TEST(view.link[i] == sentinel.link + i);
-    BOOST_TEST(std::bit_cast<std::uint32_t>(view.lambda[i]) == std::bit_cast<std::uint32_t>(sentinel.lambda));
-    BOOST_TEST(std::bit_cast<std::uint32_t>(view.phi[i]) == std::bit_cast<std::uint32_t>(sentinel.phi));
+    BOOST_TEST(sameBits(view.lambda[i], sentinel.lambda));
+    BOOST_TEST(sameBits(view.phi[i], sentinel.phi));
 
     BOOST_TEST(constView.source[i] == view.source[i]);
     BOOST_TEST(constView.target[i] == view.target[i]);
     BOOST_TEST(constView.link[i] == view.link[i]);
-    BOOST_TEST(std::bit_cast<std::uint32_t>(constView.lambda[i]) == std::bit_cast<std::uint32_t>(view.lambda[i]));
-    BOOST_TEST(std::bit_cast<std::uint32_t>(constView.phi[i]) == std::bit_cast<std::uint32_t>(view.phi[i]));
+    BOOST_TEST(sameBits(constView.lambda[i], view.lambda[i]));
+    BOOST_TEST(sameBits(constView.phi[i], view.phi[i]));
 
     const Tracklet back = columns.read(i);
     BOOST_TEST(back.source == view.source[i]);
     BOOST_TEST(back.link == view.link[i]);
-    BOOST_TEST(std::bit_cast<std::uint32_t>(back.phi) == std::bit_cast<std::uint32_t>(sentinel.phi));
+    BOOST_TEST(sameBits(back.phi, sentinel.phi));
   }
 }
 
 BOOST_AUTO_TEST_CASE(TheSerialReferenceDefinesTheCanonicalOutput)
 {
   Output output;
-  output.setMemoryPool(pool());
+  output.setMemoryPool(freshPool());
   output.prepare(5U);
   const auto counts = [](Index element) { return std::array<Index, 5>{1, 2, 0, 2, 0}[element]; };
   BOOST_REQUIRE((runSerial(output, generator(counts)) == StageStatus::kComplete));
@@ -158,7 +156,7 @@ BOOST_AUTO_TEST_CASE(TheSerialReferenceDefinesTheCanonicalOutput)
   for (std::size_t i = 0; i < targets.size(); ++i) {
     BOOST_TEST(view[i].target == targets[i]);
   }
-  BOOST_TEST(std::bit_cast<std::uint32_t>(static_cast<Scalar>(view[2].lambda)) == std::bit_cast<std::uint32_t>(1.125F));
+  BOOST_TEST(sameBits(static_cast<Scalar>(view[2].lambda), 1.125F));
 }
 
 BOOST_AUTO_TEST_CASE(TheCpuBackendMatchesTheSerialReference)
@@ -166,7 +164,7 @@ BOOST_AUTO_TEST_CASE(TheCpuBackendMatchesTheSerialReference)
   constexpr Index kElements = 97;
   for (const bool uneven : {true, false}) {
     Output serial;
-    serial.setMemoryPool(pool());
+    serial.setMemoryPool(freshPool());
     serial.prepare(kElements);
     const StageStatus serialStatus = uneven ? runSerial(serial, generator(kUneven)) : runSerial(serial, generator(kIrregular));
     BOOST_REQUIRE((serialStatus == StageStatus::kComplete));
@@ -174,7 +172,7 @@ BOOST_AUTO_TEST_CASE(TheCpuBackendMatchesTheSerialReference)
     for (const int threads : {1, 2, 4}) {
       for (const Index chunk : {1U, 3U, 8U, 64U, 1000U}) {
         Output parallel;
-        const auto parallelPool = pool();
+        const auto parallelPool = freshPool();
         parallel.setMemoryPool(parallelPool);
         parallel.prepare(kElements);
         detail::TaskArena cpuArena{threads};
@@ -195,12 +193,12 @@ BOOST_AUTO_TEST_CASE(AStagingOverflowGivesTheExactRetrySize)
   const auto generate = generator(kUneven);
 
   Output generous;
-  generous.setMemoryPool(pool());
+  generous.setMemoryPool(freshPool());
   generous.prepare(kElements);
   BOOST_REQUIRE((runSerial(generous, generate) == StageStatus::kComplete));
 
   Output tight;
-  tight.setMemoryPool(pool());
+  tight.setMemoryPool(freshPool());
   tight.prepare(kElements);
   SerialStage<TrackletT> one{1U};
   BOOST_TEST((one.run(tight, generate) == StageStatus::kStagingOverflow));
@@ -217,7 +215,7 @@ BOOST_AUTO_TEST_CASE(TheCpuStagingPredictionAvoidsGrowthAndAMissStaysExact)
   constexpr std::size_t kRecords = 240U;
 
   Output predicted;
-  const auto predictedPool = pool();
+  const auto predictedPool = freshPool();
   predicted.setMemoryPool(predictedPool);
   predicted.prepare(kElements);
   detail::TaskArena preparedArena{1};
@@ -229,7 +227,7 @@ BOOST_AUTO_TEST_CASE(TheCpuStagingPredictionAvoidsGrowthAndAMissStaysExact)
   BOOST_TEST(prepared.stagingCapacity() == kRecords);
 
   Output missed;
-  const auto missedPool = pool();
+  const auto missedPool = freshPool();
   missed.setMemoryPool(missedPool);
   missed.prepare(kElements);
   detail::TaskArena smallArena{1};
@@ -243,7 +241,7 @@ BOOST_AUTO_TEST_CASE(TheCpuStagingPredictionAvoidsGrowthAndAMissStaysExact)
 
 BOOST_AUTO_TEST_CASE(ResetKeepsTheStorageAndReleaseReturnsIt)
 {
-  const auto memory = pool();
+  const auto memory = freshPool();
   Output output;
   output.setMemoryPool(memory);
   output.prepare(50U);
@@ -266,12 +264,12 @@ BOOST_AUTO_TEST_CASE(TooManyRecordsForOneElementFailAlikeOnBothPaths)
   const auto generate = generator(count);
 
   Output serial;
-  serial.setMemoryPool(pool());
+  serial.setMemoryPool(freshPool());
   serial.prepare(3U);
   BOOST_TEST((runSerial(serial, generate) == StageStatus::kOrdinalOverflow));
 
   Output parallel;
-  const auto parallelPool = pool();
+  const auto parallelPool = freshPool();
   parallel.setMemoryPool(parallelPool);
   parallel.prepare(3U);
   detail::TaskArena cpuArena;
@@ -348,7 +346,7 @@ BOOST_AUTO_TEST_CASE(AStagesSortRunsOnItsArenaAlone)
 BOOST_AUTO_TEST_CASE(AnEmptyStageIsAValidEmptyOutput)
 {
   Output output;
-  const auto outputPool = pool();
+  const auto outputPool = freshPool();
   output.setMemoryPool(outputPool);
   output.prepare(0U);
   bool visited = false;
@@ -376,10 +374,10 @@ BOOST_AUTO_TEST_CASE(LayeredGenerationHonoursDependenciesAndCanonicalPlacement)
     for (const auto chunk : {1U, 7U, 256U, 1000U}) {
       detail::TaskArena cpuArena{threads};
       Cpu cpu{cpuArena};
-      cpu.setMemoryPool(pool());
+      cpu.setMemoryPool(freshPool());
       cpu.prepareStagingPerThread(1U);
       Output output;
-      output.setMemoryPool(pool());
+      output.setMemoryPool(freshPool());
       output.prepare(kElements);
       std::array<Index, kElements> values{};
       const LayeredDependencyGenerator generate{.values = values};

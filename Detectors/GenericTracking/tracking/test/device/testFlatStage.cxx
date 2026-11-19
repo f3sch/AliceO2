@@ -48,29 +48,11 @@ using Output = StageOutput<TrackletT>;
 using synthetic::Kind;
 
 /// The host's serial reference: the same candidates, the same test.
-std::unique_ptr<Output> serial(Kind kind, std::uint32_t divisor, std::uint32_t elements, StageStatus expected = StageStatus::kComplete)
-{
-  auto output = std::make_unique<Output>();
-  output->setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  output->prepare(elements);
-  BOOST_REQUIRE((runSerial(*output, synthetic::FlatGenerator{.count = {.kind = kind}, .accept = {.divisor = divisor}}) == expected));
-  return output;
-}
+std::unique_ptr<Output> serial(Kind kind, std::uint32_t divisor, std::uint32_t elements, StageStatus expected = StageStatus::kComplete) { return serialOutput<TrackletT>(synthetic::FlatGenerator{.count = {.kind = kind}, .accept = {.divisor = divisor}}, elements, expected); }
 
-struct DeviceRun {
-  StageStatus status = StageStatus::kComplete;
-  FlatRunInfo info;
-  Output output;
-};
-
-std::unique_ptr<DeviceRun> onDevice(DeviceRuntime& device, DeviceArena& arena, Kind kind, std::uint32_t divisor, std::uint32_t elements, bool listed = false, std::size_t maxChunkPairs = 0U)
+std::unique_ptr<DeviceRun<FlatRunInfo>> onDevice(DeviceRuntime& device, DeviceArena& arena, Kind kind, std::uint32_t divisor, std::uint32_t elements, bool listed = false, std::size_t maxChunkPairs = 0U)
 {
-  auto stream = device.createStream();
-  auto run = std::make_unique<DeviceRun>();
-  run->output.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  run->status = kernels().runFlatSynthetic(device, stream, arena, kind, divisor, elements, listed, maxChunkPairs, run->output, run->info);
-  stream.synchronize();
-  return run;
+  return runOnDevice<FlatRunInfo>(device, [&](DeviceStream& stream, Output& output, FlatRunInfo& info) { return kernels().runFlatSynthetic(device, stream, arena, kind, divisor, elements, listed, maxChunkPairs, output, info); });
 }
 
 } // namespace

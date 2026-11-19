@@ -19,6 +19,7 @@
 
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
@@ -41,7 +42,6 @@
 #include "GenericTracking/Study/ProfileReport.h"
 #include "GenericTracking/Study/StageComparison.h"
 #include "GenericTracking/Study/StageFunnel.h"
-#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackingInput.h"
 #include "GenericTracking/Study/TruthStudies.h"
 #include "GenericTracking/Study/Validation.h"
@@ -504,7 +504,6 @@ inline void printSeedCoverage(const study::TrackingTruth& truth, const study::Co
       counts[c].allButOne.back() += anyAllButOne ? 1U : 0U;
     }
   }
-  using study::percent;
   std::cout << "seed coverage of the findable, % on every layer of a set (on all but one):\n";
   for (std::size_t c = 0; c < kClasses; ++c) {
     std::string line = std::format("  {:<11} {:8d}:", kNames[c], counts[c].findable);
@@ -885,7 +884,7 @@ void writeFakes(const std::string& path, const TrackStore<Det>& tracks, const st
     for (const auto row : own) {
       layerBits |= std::uint64_t{1} << truth.rows[row].layer;
     }
-    out << std::format(" {:.4f} {:.4f} {}\n", -std::log(std::tan(static_cast<double>(view.state[track].theta()) / 2.)), majorityFound != truth.particles.end() ? static_cast<double>(majorityFound->second.eta) : -99., layerBits);
+    out << std::format(" {:.4f} {:.4f} {}\n", etaOfTheta(static_cast<double>(view.state[track].theta())), majorityFound != truth.particles.end() ? static_cast<double>(majorityFound->second.eta) : -99., layerBits);
     if (goodOf[track] != study::kNoTrackParticle) {
       continue;
     }
@@ -1249,13 +1248,12 @@ inline std::string describeVertexAgreement(const VertexerResult& device, const V
   std::size_t identical = 0U;
   std::size_t sameClaim = 0U;
   double maxDzUM = 0.;
-  const auto bits = [](Scalar value) { return std::bit_cast<std::uint32_t>(value); };
   for (std::size_t v = 0; v < paired; ++v) {
     const auto& d = device.vertices[v];
     const auto& h = host.vertices[v];
     const bool claim = d.timePS == h.timePS && d.widthPS == h.widthPS && device.contributors[v] == host.contributors[v];
     sameClaim += claim ? 1U : 0U;
-    identical += claim && bits(d.z) == bits(h.z) && bits(d.varZ) == bits(h.varZ) && bits(d.varTransverse) == bits(h.varTransverse) ? 1U : 0U;
+    identical += claim && sameBits<Scalar>(d.z, h.z) && sameBits<Scalar>(d.varZ, h.varZ) && sameBits<Scalar>(d.varTransverse, h.varTransverse) ? 1U : 0U;
     maxDzUM = std::max(maxDzUM, std::abs(static_cast<double>(d.z) - static_cast<double>(h.z)) * 1.e4);
   }
   return std::format(

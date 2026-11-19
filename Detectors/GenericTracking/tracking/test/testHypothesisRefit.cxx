@@ -17,6 +17,7 @@
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 
 #include "ElectronChain.h"
+#include "StageOutputComparison.h"
 #include "UniformMaterial.h"
 
 #include "MathUtils/detail/trigonometric.h"
@@ -27,7 +28,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstring>
 #include <random>
 #include <vector>
 
@@ -39,8 +39,6 @@ namespace
 using test::ElectronChain;
 using test::medianWidth;
 constexpr int kLayers = static_cast<int>(ElectronChain::kLayers);
-
-bool sameBits(const Scalar* a, const Scalar* b, int n) { return std::memcmp(a, b, sizeof(Scalar) * static_cast<std::size_t>(n)) == 0; }
 
 double standardDeviation(const std::vector<double>& values)
 {
@@ -75,8 +73,8 @@ BOOST_AUTO_TEST_CASE(AHadronIsTheKalmanFitAtItsMass)
     BOOST_TEST_CONTEXT(pid.getName())
     {
       BOOST_REQUIRE(refit.status == PropagationStatus::kOk);
-      BOOST_TEST(sameBits(refit.innermost.par, kalman.state.par, kNBoundParams));
-      BOOST_TEST(sameBits(refit.innermost.cov, kalman.state.cov, kBoundCovSize));
+      BOOST_TEST(sameBitsEach(refit.innermost.par, kalman.state.par));
+      BOOST_TEST(sameBitsEach(refit.innermost.cov, kalman.state.cov));
       BOOST_TEST(refit.chi2 == kalman.chi2);
       BOOST_TEST(refit.perigeeMixture.size == 0);
     }

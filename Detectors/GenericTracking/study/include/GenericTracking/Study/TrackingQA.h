@@ -51,7 +51,6 @@
 #include "GenericTracking/Study/TrackComparison.h"
 
 #include <array>
-#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <span>
@@ -79,10 +78,10 @@ struct EtaRange {
 
 /// \a phi [rad] in [0, 2 pi), the one wrapping of every phi the QA keeps:
 /// in double for any number of turns, then float (O2's `bringTo02Pi` works in
-/// float).
+/// float), whose rounding may carry an angle just below 2 pi up to it.
 [[nodiscard]] inline float wrapPhi(double phi)
 {
-  const auto wrapped = static_cast<float>(phi - (kTwoPi<double> * std::floor(phi / kTwoPi<double>)));
+  const auto wrapped = static_cast<float>(to02PiOf(phi));
   return wrapped < static_cast<float>(kTwoPi<double>) ? wrapped : 0.F;
 }
 

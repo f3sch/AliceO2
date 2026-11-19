@@ -24,7 +24,6 @@
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
-#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -171,7 +170,7 @@ bool sameVertices(const VertexerResult& a, const VertexerResult& b)
     return false;
   }
   // Bit for bit: every field widened to double exactly, then its bits.
-  const auto same = [](auto x, auto y) { return std::bit_cast<std::uint64_t>(static_cast<double>(x)) == std::bit_cast<std::uint64_t>(static_cast<double>(y)); };
+  const auto same = [](auto x, auto y) { return sameBits(static_cast<double>(x), static_cast<double>(y)); };
   for (std::size_t v = 0; v < a.vertices.size(); ++v) {
     const auto& x = a.vertices[v];
     const auto& y = b.vertices[v];

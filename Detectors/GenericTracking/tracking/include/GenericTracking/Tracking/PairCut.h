@@ -46,6 +46,7 @@
 #include <limits>
 #include <span>
 #include <stdexcept>
+#include <type_traits>
 
 namespace o2::gtrk
 {
@@ -66,14 +67,19 @@ struct ScatteringLayer {
 };
 
 /// `(0.0136 GeV)^2 x (1 + 0.038 ln(x / beta^2))^2`: Highland's theta0^2
-/// (beta p)^2 at normal incidence for \a scatterer's x = x/X0, at
-/// \a logBeta2 = ln(beta^2) (`highlandTheta0`); 0 without material or where
-/// the logarithm turns it negative.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar highlandK(const ScatteringLayer& scatterer, Scalar logBeta2)
+/// (beta p)^2 at normal incidence (`highlandTheta0`), for \a x2X0 = x/X0 and
+/// \a logRatio = ln(x / beta^2), in T; 0 without material or where the
+/// logarithm turns it negative.
+template <typename T>
+  requires std::is_floating_point_v<T>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() T highlandK(T x2X0, std::type_identity_t<T> logRatio)
 {
-  const Scalar highland = 1.F + (0.038F * (scatterer.logX2X0 - logBeta2));
-  return scatterer.x2X0 > 0.F && highland > 0.F ? 0.0136F * 0.0136F * scatterer.x2X0 * highland * highland : 0.F;
+  const T highland = T(1) + (T(0.038) * logRatio);
+  return x2X0 > T(0) && highland > T(0) ? T(0.0136) * T(0.0136) * x2X0 * highland * highland : T(0);
 }
+
+/// `highlandK` for \a scatterer's x = x/X0 at \a logBeta2 = ln(beta^2).
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar highlandK(const ScatteringLayer& scatterer, Scalar logBeta2) { return highlandK(scatterer.x2X0, scatterer.logX2X0 - logBeta2); }
 
 /// A passive scatterer as multiple scattering sees it (`PassiveSpec`): a
 /// layer's fields, and its kind, which device code cannot read off the
@@ -115,14 +121,7 @@ namespace detail
 {
 
 /// `highlandK` for \a x = x/X0 and \a beta2 = beta^2, in double.
-[[nodiscard]] inline double highlandFactor(double x, double beta2)
-{
-  if (!(x > 0.) || !(beta2 > 0.)) {
-    return 0.;
-  }
-  const double highland = 1. + (0.038 * std::log(x / beta2));
-  return highland > 0. ? 0.0136 * 0.0136 * x * highland * highland : 0.;
-}
+[[nodiscard]] inline double highlandFactor(double x, double beta2) { return x > 0. && beta2 > 0. ? highlandK(x, std::log(x / beta2)) : 0.; }
 
 } // namespace detail
 

@@ -21,7 +21,6 @@
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
-#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -53,11 +52,11 @@ BOOST_AUTO_TEST_CASE(AsinOverArgumentWithDerivativeIsTheQuotient)
   for (int i = -20000; i <= 20000; ++i) {
     const float x = static_cast<float>(i) / 20000.F;
     const auto both = detail::asinOverArgumentWithDerivative(x);
-    mismatches += std::bit_cast<std::uint32_t>(both.value) != std::bit_cast<std::uint32_t>(detail::asinOverArgument(x)) ? 1 : 0;
+    mismatches += sameBits(both.value, detail::asinOverArgument(x)) ? 0 : 1;
   }
   for (const float x : {0.05F, -0.05F, std::nextafter(0.05F, 0.F), 1.F, -1.F}) {
     const auto both = detail::asinOverArgumentWithDerivative(x);
-    mismatches += std::bit_cast<std::uint32_t>(both.value) != std::bit_cast<std::uint32_t>(detail::asinOverArgument(x)) ? 1 : 0;
+    mismatches += sameBits(both.value, detail::asinOverArgument(x)) ? 0 : 1;
   }
   BOOST_TEST(mismatches == 0);
 }

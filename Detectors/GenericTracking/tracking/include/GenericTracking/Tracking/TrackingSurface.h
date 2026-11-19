@@ -51,6 +51,8 @@ struct SurfaceBounds {
 
   /// Written so that a NaN coordinate is outside.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() bool isInside(Scalar loc0, Scalar loc1) const { return loc1 >= -halfY && loc1 <= halfY && loc0 >= -halfX && loc0 <= halfX; }
+  /// Inside the rectangle grown by \a margin on every side; NaN is outside.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool isInside(Scalar loc0, Scalar loc1, Scalar margin) const { return loc1 >= -(halfY + margin) && loc1 <= halfY + margin && loc0 >= -(halfX + margin) && loc0 <= halfX + margin; }
 };
 
 /// One sensor plane.
@@ -117,31 +119,119 @@ GPUhdi() GPUAlwaysInline() TrackingSurface tangentPlane(const TrackingSurface& c
   return plane;
 }
 
-/// global = origin + loc0 * axis0 + loc1 * axis1
-GPUhdi() GPUAlwaysInline() void surfaceToGlobal(const TrackingSurface& s, Scalar loc0, Scalar loc1, Scalar g[3])
+/// global = origin + loc0 * axis0 + loc1 * axis1, in the precision T of \a g
+/// (Scalar, ExactScalar, or a Dual of the fits).
+template <typename T>
+GPUhdi() GPUAlwaysInline() void surfaceToGlobal(const TrackingSurface& s, std::type_identity_t<T> loc0, std::type_identity_t<T> loc1, T g[3])
 {
+  // The surface's floats as plain numbers: a Dual multiplies them as
+  // scalars; in float or double the same sum as origin + loc0 a0 + loc1 a1.
   for (int i = 0; i < 3; ++i) {
-    g[i] = s.origin[i] + loc0 * s.axis0[i] + loc1 * s.axis1[i];
+    g[i] = ((s.axis0[i] * loc0) + s.origin[i]) + (s.axis1[i] * loc1);
   }
 }
 
-/// The inverse, including the out-of-plane component.
+/// The inverse, including the out-of-plane component (the height above the
+/// plane along its normal).
 ///
 /// l[2] is returned rather than discarded so that a caller can check that a
 /// point it believes is on the surface actually is, instead of assuming it.
-GPUhdi() GPUAlwaysInline() void surfaceToLocal(const TrackingSurface& s, const Scalar g[3], Scalar l[3])
+template <typename T>
+GPUhdi() GPUAlwaysInline() void surfaceToLocal(const TrackingSurface& s, const T g[3], T l[3])
 {
-  const Scalar d0 = g[0] - s.origin[0];
-  const Scalar d1 = g[1] - s.origin[1];
-  const Scalar d2 = g[2] - s.origin[2];
-  l[0] = d0 * s.axis0[0] + d1 * s.axis0[1] + d2 * s.axis0[2];
-  l[1] = d0 * s.axis1[0] + d1 * s.axis1[1] + d2 * s.axis1[2];
-  l[2] = d0 * s.normal[0] + d1 * s.normal[1] + d2 * s.normal[2];
+  // As in surfaceToGlobal, the surface's floats enter as plain numbers.
+  const T d0 = g[0] + -s.origin[0];
+  const T d1 = g[1] + -s.origin[1];
+  const T d2 = g[2] + -s.origin[2];
+  l[0] = s.axis0[0] * d0 + s.axis0[1] * d1 + s.axis0[2] * d2;
+  l[1] = s.axis1[0] * d0 + s.axis1[1] * d1 + s.axis1[2] * d2;
+  l[2] = s.normal[0] * d0 + s.normal[1] * d1 + s.normal[2] * d2;
 }
 
 /// \a n dot \a d, the cosine of incidence on a surface.  Its magnitude is what
 /// the grazing check thresholds on.
-GPUhdi() GPUAlwaysInline() Scalar cosIncidence(const TrackingSurface& s, const Scalar d[3]) { return s.normal[0] * d[0] + s.normal[1] * d[1] + s.normal[2] * d[2]; }
+template <typename T>
+GPUhdi() GPUAlwaysInline() T cosIncidence(const TrackingSurface& s, const T d[3])
+{
+  return s.normal[0] * d[0] + s.normal[1] * d[1] + s.normal[2] * d[2];
+}
+
+/// Where the straight line through \a point along \a direction crosses plane
+/// \a s: the line's parameter \a step (in units of \a direction) and the local
+/// position \a loc there. False, and nothing written, for a line parallel to
+/// the plane; a caller that needs a margin from grazing checks
+/// cosIncidence first.
+template <typename T>
+GPUhdi() GPUAlwaysInline() bool lineCrossing(const TrackingSurface& s, const T point[3], const T direction[3], T& step, T loc[2])
+{
+  T normalDirection = T(0);
+  T normalOffset = T(0);
+  for (int i = 0; i < 3; ++i) {
+    normalDirection += static_cast<T>(s.normal[i]) * direction[i];
+    normalOffset += static_cast<T>(s.normal[i]) * (static_cast<T>(s.origin[i]) - point[i]);
+  }
+  if (!(normalDirection > T(0) || normalDirection < T(0))) {
+    return false;
+  }
+  step = normalOffset / normalDirection;
+  loc[0] = T(0);
+  loc[1] = T(0);
+  for (int i = 0; i < 3; ++i) {
+    const T offset = point[i] + (step * direction[i]) - static_cast<T>(s.origin[i]);
+    loc[0] += offset * static_cast<T>(s.axis0[i]);
+    loc[1] += offset * static_cast<T>(s.axis1[i]);
+  }
+  return true;
+}
+
+/// The plane through \a origin facing the transverse direction (cos phi,
+/// sin phi), given as \a sinPhi, \a cosPhi: loc0 along (-sin phi, cos phi),
+/// loc1 along z, the frame of a barrel layer at azimuth phi. No sensor, no
+/// layer, empty bounds: the caller sets what it needs.
+GPUhdi() GPUAlwaysInline() TrackingSurface radialPlane(const Scalar origin[3], Scalar sinPhi, Scalar cosPhi)
+{
+  TrackingSurface plane;
+  for (int i = 0; i < 3; ++i) {
+    plane.origin[i] = origin[i];
+  }
+  plane.axis0[0] = -sinPhi;
+  plane.axis0[1] = cosPhi;
+  plane.axis1[2] = 1.F;
+  plane.normal[0] = cosPhi;
+  plane.normal[1] = sinPhi;
+  return plane;
+}
+
+/// The plane through \a origin facing +z: loc0 along the transverse direction
+/// (cos phi, sin phi), loc1 along (-sin phi, cos phi), the frame of a disc at
+/// azimuth phi. As radialPlane, no sensor, no layer, empty bounds.
+GPUhdi() GPUAlwaysInline() TrackingSurface discPlane(const Scalar origin[3], Scalar sinPhi, Scalar cosPhi)
+{
+  TrackingSurface plane;
+  for (int i = 0; i < 3; ++i) {
+    plane.origin[i] = origin[i];
+  }
+  plane.axis0[0] = cosPhi;
+  plane.axis0[1] = sinPhi;
+  plane.axis1[0] = -sinPhi;
+  plane.axis1[1] = cosPhi;
+  plane.normal[2] = 1.F;
+  return plane;
+}
+
+/// The angle in curved sensor \a cylinder of global point \a g, as
+/// tangentPlane takes it: of g's offset from the axis point, in the plane of
+/// axis0 and axis1, from axis0.
+GPUhdi() GPUAlwaysInline() Scalar angleOn(const TrackingSurface& cylinder, const Scalar g[3])
+{
+  Scalar along0 = 0.F;
+  Scalar along1 = 0.F;
+  for (int i = 0; i < 3; ++i) {
+    along0 += (g[i] - cylinder.origin[i]) * cylinder.axis0[i];
+    along1 += (g[i] - cylinder.origin[i]) * cylinder.axis1[i];
+  }
+  return atan2Of(along1, along0);
+}
 
 /// Every sensor plane of one detector, as the tracking sees them.
 ///
@@ -177,6 +267,18 @@ class TrackingGeometry
       return s.radius > 0.F ? tangentPlane(s, measurement.loc0 / s.radius) : s;
     } else {
       return mSurfaces[measurement.surface];
+    }
+  }
+
+  /// Sensor \a id's plane, or a curved sensor's tangent plane where global
+  /// point \a g lies (angleOn).
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Plane planeAt(SensorID id, [[maybe_unused]] const Scalar g[3]) const
+  {
+    if constexpr (Detector<Det>::hasCurvedSensors) {
+      const TrackingSurface& s = mSurfaces[id];
+      return s.radius > 0.F ? tangentPlane(s, angleOn(s, g)) : s;
+    } else {
+      return mSurfaces[id];
     }
   }
 

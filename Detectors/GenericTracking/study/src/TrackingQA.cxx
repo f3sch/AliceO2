@@ -62,7 +62,7 @@ EtaRange etaReach(std::span<const LayerEnvelope> envelopes)
   for (const auto& envelope : envelopes) {
     for (const double r : {envelope.rMin, envelope.rMax}) {
       for (const double z : {envelope.zMin, envelope.zMax}) {
-        const double eta = std::asinh(z / r);
+        const double eta = etaOf(r, z);
         low = std::min(low, eta);
         high = std::max(high, eta);
       }

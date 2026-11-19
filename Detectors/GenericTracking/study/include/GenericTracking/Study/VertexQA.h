@@ -29,9 +29,9 @@
 #define GTRK_STUDY_VERTEXQA_H_
 
 #include "GenericTracking/Base/LayerSpec.h"
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Tracking/VertexStage.h"
 #include "GenericTracking/Study/MCTruth.h"
-#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackComparison.h"
 
 #include <algorithm>
@@ -226,12 +226,11 @@ template <DetectorLayout Det>
 [[nodiscard]] inline std::string describe(const VertexScore& score)
 {
   auto residuals = score.residualsUM;
-  std::ranges::sort(residuals);
-  const auto at = [&](double q) { return residuals.empty() ? 0. : residuals[std::min(residuals.size() - 1U, static_cast<std::size_t>(q * static_cast<double>(residuals.size())))]; };
+  const auto at = [&](double q) { return residuals.empty() ? 0. : quantile(residuals, q); };
   return std::format(
     "vertex QA: {} vertices; collisions found {}/{}, their findable primaries {}/{} ({:.2f} %); fakes {}, splits {}, merged {}; "
     "|dz| 68/95/99/max [um] {:.0f} {:.0f} {:.0f} {:.0f}",
-    score.vertices, score.found, score.collisions, score.covered, score.findable, 100. * static_cast<double>(score.covered) / std::max(1., static_cast<double>(score.findable)), score.fakes, score.splits, score.merged, at(0.68), at(0.95), at(0.99), residuals.empty() ? 0. : residuals.back());
+    score.vertices, score.found, score.collisions, score.covered, score.findable, percent(score.covered, score.findable), score.fakes, score.splits, score.merged, at(0.68), at(0.95), at(0.99), at(1.));
 }
 
 /// \a score's missed collisions by their findable primaries: per bin the

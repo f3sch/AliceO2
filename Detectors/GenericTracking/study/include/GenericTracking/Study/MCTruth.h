@@ -67,7 +67,7 @@ template <DetectorLayout Det>
     return false;
   }
   const double phi0 = std::atan2(mc.GetStartVertexMomentumY(), mc.GetStartVertexMomentumX());
-  const auto offset = [phi](double predicted) { return std::abs(std::remainder(static_cast<double>(phi) - predicted, kTwoPi<double>)); };
+  const auto offset = [phi](double predicted) { return std::abs(toPMPiOf(static_cast<double>(phi) - predicted)); };
   return std::min(offset(phi0 + deflection), offset(phi0 - deflection)) < kPhiTolerance;
 }
 

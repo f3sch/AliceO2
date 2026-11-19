@@ -22,6 +22,7 @@
 
 #include "GridTestSupport.h"
 #include "Oracles.h"
+#include "ScatteringKick.h"
 #include "ToyBarrel3.h"
 #include "ToyBarrel4Disc8.h"
 #include "UniformMaterial.h"
@@ -171,7 +172,7 @@ BOOST_AUTO_TEST_CASE(TransverseArcHasFiniteInfiniteCurvatureLimit)
   const auto scalar = detail::transverseArc<Scalar>(std::numeric_limits<Scalar>::infinity(), kChord, 0.F);
   const auto exact = detail::transverseArc<ExactScalar>(std::numeric_limits<ExactScalar>::infinity(), static_cast<ExactScalar>(kChord), 0.);
   const auto negative = detail::transverseArc<Scalar>(-std::numeric_limits<Scalar>::infinity(), kChord, 0.F);
-  const auto expected = 0.5 * std::acos(-1.) * static_cast<double>(kChord);
+  const auto expected = 0.5 * kPi<double> * static_cast<double>(kChord);
 
   BOOST_TEST(std::isfinite(scalar));
   BOOST_TEST(std::isfinite(exact));
@@ -258,13 +259,15 @@ BOOST_AUTO_TEST_CASE(LayerZeroAtShallowIncidenceFitsBothWays)
   }
   const auto& first = tracking.surface(start);
   std::array<BoundTrackState, 5> truth;
-  truth[0].par[kPhi] = std::atan2(first.origin[1], first.origin[0]);
+  truth[0].par[kPhi] = phiOf(first.origin);
   truth[0].par[kTheta] = 0.048F;
   truth[0].par[kQOverP] = 0.05F;
   truth[0].surface = start;
-  const double cosIncidence = std::sin(0.048) * (std::cos(static_cast<double>(truth[0].phi())) * static_cast<double>(first.normal[0]) + std::sin(static_cast<double>(truth[0].phi())) * static_cast<double>(first.normal[1]));
-  BOOST_TEST_REQUIRE(std::abs(cosIncidence) < 0.05);
-  BOOST_TEST_REQUIRE(std::abs(cosIncidence) > static_cast<double>(propagator.minAbsCosIncidence));
+  const auto phi = static_cast<double>(truth[0].phi());
+  const double direction[3]{std::sin(0.048) * std::cos(phi), std::sin(0.048) * std::sin(phi), std::cos(0.048)};
+  const double incidence = cosIncidence(first, direction);
+  BOOST_TEST_REQUIRE(std::abs(incidence) < 0.05);
+  BOOST_TEST_REQUIRE(std::abs(incidence) > static_cast<double>(propagator.minAbsCosIncidence));
 
   constexpr std::array<LayerID, 4> kDiscs{8, 9, 10, 11};
   for (std::size_t i = 0; i < kDiscs.size(); ++i) {
@@ -425,11 +428,6 @@ struct BarrelChain {
     truth[0].surface = firstSensorOfLayer<Mixed>(0);
 
     std::normal_distribution<double> gauss(0., 1.);
-    const auto kick = [&](BoundTrackState& state, Scalar theta0) {
-      const auto sinTheta = std::sin(state.theta());
-      state.par[kTheta] += static_cast<Scalar>(gauss(*rng)) * theta0;
-      state.par[kPhi] += static_cast<Scalar>(gauss(*rng)) * theta0 / sinTheta;
-    };
     for (std::size_t layer = 1; layer < truth.size(); ++layer) {
       const auto& from = tracking->surface(truth[layer - 1].surface);
       BoundTrackState outgoing = truth[layer - 1];
@@ -447,7 +445,7 @@ struct BarrelChain {
         surfaceToGlobal(tracking->surface(unkicked), probe.loc0(), probe.loc1(), b);
         const Scalar chord = std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
         theta0Half = highlandTheta0(0.5F * x2X0PerCm * chord, spanX2X0, 1.F / std::abs(outgoing.qOverP()), propagator.massGeV);
-        kick(outgoing, theta0Half); // behind the sensor just left
+        test::scatteringKick(outgoing, theta0Half, gauss, *rng); // behind the sensor just left
       }
       const auto id = crossedSensor(outgoing, from, static_cast<LayerID>(layer));
       if (id == kInvalidSensorID) {
@@ -470,7 +468,7 @@ struct BarrelChain {
         }
       }
       if (theta0Half > 0.F) {
-        kick(truth[layer], theta0Half); // in front of the sensor reached: the direction at its mid-plane
+        test::scatteringKick(truth[layer], theta0Half, gauss, *rng); // in front of the sensor reached: the direction at its mid-plane
       }
     }
     for (std::size_t i = 0; i < measurements.size(); ++i) {
@@ -729,7 +727,7 @@ BOOST_AUTO_TEST_CASE(PerigeePhiIsTheDirectionAtTheTransverseClosestApproach)
   const double sinTheta = std::sin(static_cast<double>(state.theta()));
   const double turn = chain.propagator.curvature(static_cast<double>(state.qOverP()), sinTheta) * path * sinTheta;
   const double expected = static_cast<double>(state.phi()) + turn;
-  const double difference = std::remainder(static_cast<double>(perigeePhi(chain.propagator, state, surface)) - expected, kTwoPi<double>);
+  const double difference = toPMPiOf(static_cast<double>(perigeePhi(chain.propagator, state, surface)) - expected);
   BOOST_TEST(std::abs(difference) < 1e-5);
 }
 

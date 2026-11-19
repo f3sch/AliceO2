@@ -57,12 +57,13 @@
 
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Alice/Placement.h"
+#include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Study/Alice/Hits.h"
-#include "GenericTracking/Study/Statistics.h"
 
 #include "DetectorsBase/GeometryManager.h"
 #include "DetectorsBase/MatLayerCylSet.h"
@@ -195,15 +196,13 @@ std::vector<Vec3D> path(const Step& step, int pieces, double& directionAtB)
   return points;
 }
 
-double wrapped(double angle) { return std::remainder(angle, o2::gtrk::kTwoPi<double>); }
-
 /// The step's material along its path, near and far half, from the geometry
 /// (on \a navigator) and from \a lut.
 void measure(Step& step, int pieces, const o2::base::MatLayerCylSet& lut, TGeoNavigator* navigator)
 {
   double direction = 0.;
   const auto points = path(step, pieces, direction);
-  step.turn = std::abs(wrapped(direction - std::atan2(step.b.p[1], step.b.p[0])));
+  step.turn = std::abs(o2::gtrk::toPMPiOf(direction - o2::gtrk::phiOf(step.b.p)));
   for (int i = 0; i < pieces; ++i) {
     const auto& p = points[static_cast<std::size_t>(i)];
     const auto& q = points[static_cast<std::size_t>(i) + 1U];
@@ -217,39 +216,29 @@ void measure(Step& step, int pieces, const o2::base::MatLayerCylSet& lut, TGeoNa
   }
 }
 
-/// Highland's theta0 of \a x2X0 alone, its logarithm at its own material, at
-/// \a betaP = beta p and \a beta2 = beta^2: the tracking's formula
-/// (`Tracking/Material.h`, `highlandTheta0`) in double; x/X0 <= 0 gives 0.
-double highland(double x2X0, double betaP, double beta2) { return x2X0 > 0. ? 0.0136 / betaP * std::sqrt(x2X0) * (1. + (0.038 * std::log(x2X0 / beta2))) : 0.; }
-
 /// beta p of momentum \a p and \a mass [GeV], the tracking's `betaMomentum` in double.
 double betaMomentum(const Vec3D& momentum, double mass)
 {
-  const double p = std::sqrt((momentum[0] * momentum[0]) + (momentum[1] * momentum[1]) + (momentum[2] * momentum[2]));
+  const double p = std::sqrt(o2::gtrk::dotOf(momentum, momentum));
   return p * p / std::sqrt((p * p) + (mass * mass));
 }
 
-double polar(const Vec3D& p) { return std::atan2(std::hypot(p[0], p[1]), p[2]); }
-
+/// o2::gtrk::quantile of a copy of \a v, NaN for none.
 double quantile(std::vector<double> v, double q)
 {
   if (v.empty()) {
     return kNaN;
   }
-  return o2::gtrk::study::quantile(std::span{v}, q);
+  return o2::gtrk::quantile(std::span{v}, q);
 }
 
-/// 1.4826 MAD.
+/// 1.4826 MAD (robustSigma), NaN for fewer than 20 values.
 double core(std::vector<double> v)
 {
   if (v.size() < 20U) {
     return kNaN;
   }
-  const double median = quantile(v, 0.5);
-  for (auto& x : v) {
-    x = std::abs(x - median);
-  }
-  return 1.4826 * quantile(v, 0.5);
+  return o2::gtrk::robustSigma(v);
 }
 
 double beyond(const std::vector<double>& v, double width, double k)
@@ -429,14 +418,13 @@ void report(const Options& options, const std::vector<Step>& steps)
     if (std::abs(step.pdg) == 11) {
       continue;
     }
-    const double betaP = betaMomentum(step.a.p, step.mass);
-    const double p2 = (step.a.p[0] * step.a.p[0]) + (step.a.p[1] * step.a.p[1]) + (step.a.p[2] * step.a.p[2]);
-    const double beta2 = p2 / (p2 + (step.mass * step.mass));
-    const double dTheta = polar(step.b.p) - polar(step.a.p);
-    // the step's two halves, each alone (the follow's steps; a fit takes its
-    // span's logarithm, `SpanMaterial`)
-    const double geoTheta = std::hypot(highland(step.geo[0], betaP, beta2), highland(step.geo[1], betaP, beta2));
-    const double lutTheta = std::hypot(highland(step.lut[0], betaP, beta2), highland(step.lut[1], betaP, beta2));
+    const double p = std::hypot(step.a.p[0], step.a.p[1], step.a.p[2]);
+    const double dTheta = o2::gtrk::thetaOf(step.b.p) - o2::gtrk::thetaOf(step.a.p);
+    // the step's two halves, each alone, its logarithm at its own material
+    // (the follow's steps; a fit takes its span's logarithm, `SpanMaterial`)
+    const auto highland = [&](double x2X0) { return o2::gtrk::highlandTheta0(x2X0, x2X0, p, step.mass); };
+    const double geoTheta = std::hypot(highland(step.geo[0]), highland(step.geo[1]));
+    const double lutTheta = std::hypot(highland(step.lut[0]), highland(step.lut[1]));
     if (geoTheta > 0. && lutTheta > 0.) {
       s.pullGeo.push_back(dTheta / geoTheta);
       s.pullLut.push_back(dTheta / lutTheta);
@@ -527,7 +515,7 @@ void write(const std::string& path, const std::vector<Step>& steps)
     pt = static_cast<float>(step.pt);
     eta = static_cast<float>(step.eta);
     turn = static_cast<float>(step.turn);
-    dTheta = static_cast<float>(polar(step.b.p) - polar(step.a.p));
+    dTheta = static_cast<float>(o2::gtrk::thetaOf(step.b.p) - o2::gtrk::thetaOf(step.a.p));
     betaP = static_cast<float>(betaMomentum(step.a.p, step.mass));
     geo = {static_cast<float>(step.geo[0]), static_cast<float>(step.geo[1])};
     lut = {static_cast<float>(step.lut[0]), static_cast<float>(step.lut[1])};

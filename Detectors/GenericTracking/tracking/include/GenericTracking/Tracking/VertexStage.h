@@ -57,6 +57,7 @@
 #define GTRK_TRACKING_VERTEXSTAGE_H_
 
 #include "GenericTracking/Base/Definitions.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/TimeEstPS.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Measurement.h"
@@ -243,7 +244,7 @@ template <typename Errors>
     // 1 / (1 + t^2) along each chord.
     const Scalar t1 = (b.z - a.z) / d1;
     const Scalar t2 = (c.z - b.z) / d2;
-    const Scalar kink = GPUCommonMath::ATan2(t2 - t1, 1.F + (t1 * t2));
+    const Scalar kink = atan2Of(t2 - t1, 1.F + (t1 * t2));
     const Scalar a1 = 1.F / (1.F + (t1 * t1));
     const Scalar a2 = 1.F / (1.F + (t2 * t2));
     const Scalar middle = (a1 / d1) + (a2 / d2);

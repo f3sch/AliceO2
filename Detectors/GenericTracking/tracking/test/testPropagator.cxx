@@ -34,6 +34,7 @@
 #include <cstring>
 #include <iterator>
 #include <limits>
+#include <utility>
 #include <vector>
 
 namespace o2::gtrk
@@ -42,25 +43,14 @@ namespace o2::gtrk
 constexpr double kPosTol = 1e-4; // cm -- 1 um
 constexpr double kAngTol = 1e-6; // rad
 
-/// A plane, built by hand so a test does not depend on a layout's numbers.
+/// A plane, built by hand so a test does not depend on a layout's numbers,
+/// through (x, y, z): a disc facing +z where the normal (nxIn, nyIn, nzIn)
+/// is mostly along z, else a barrel-like plane facing (nxIn, nyIn, 0) with
+/// loc1 along the beam.
 static TrackingSurface planeAt(double x, double y, double z, double nxIn, double nyIn, double nzIn, SensorID id = 0)
 {
-  TrackingSurface s{};
-  s.origin[0] = static_cast<Scalar>(x);
-  s.origin[1] = static_cast<Scalar>(y);
-  s.origin[2] = static_cast<Scalar>(z);
-  s.normal[0] = static_cast<Scalar>(nxIn);
-  s.normal[1] = static_cast<Scalar>(nyIn);
-  s.normal[2] = static_cast<Scalar>(nzIn);
-  // Any orthonormal pair spanning the plane will do for these tests.
-  if (std::abs(nzIn) > 0.5) { // a disc
-    s.axis0[0] = 1.F;
-    s.axis1[1] = 1.F;
-  } else { // a barrel-like plane: loc1 along the beam
-    s.axis0[0] = static_cast<Scalar>(-nyIn);
-    s.axis0[1] = static_cast<Scalar>(nxIn);
-    s.axis1[2] = 1.F;
-  }
+  const Scalar origin[3]{static_cast<Scalar>(x), static_cast<Scalar>(y), static_cast<Scalar>(z)};
+  TrackingSurface s = std::abs(nzIn) > 0.5 ? discPlane(origin, 0.F, 1.F) : radialPlane(origin, static_cast<Scalar>(nyIn), static_cast<Scalar>(nxIn));
   s.bounds = SurfaceBounds{.halfX = 1e6F, .halfY = 1e6F};
   s.id = id;
   return s;
@@ -78,6 +68,13 @@ static BoundTrackState stateOn(const TrackingSurface& s, double phi, double thet
   return st;
 }
 
+/// R = 50 cm, so 0.3 GeV at 2 T: the circle through the origin with centre
+/// (0, R), its point at turn \a psi, and the turn 2 asin(r / 2R) at which it
+/// reaches radius \a r.
+constexpr double kR = 50.;
+static std::pair<double, double> circleAt(double psi) { return {kR * std::sin(psi), kR * (1. - std::cos(psi))}; }
+static double turnAt(double r) { return 2. * std::asin(r / (2. * kR)); }
+
 /// A backward step at low pT, on a target plane rotated off radial.
 ///
 /// The transverse solve is a quadratic and both roots are crossings of the
@@ -93,20 +90,14 @@ static BoundTrackState stateOn(const TrackingSurface& s, double phi, double thet
 /// -40 deg below are exactly that, and the assertions do not claim otherwise.
 BOOST_AUTO_TEST_CASE(ABackwardStepAtLowMomentumIsNeverRefusedForRunningForwards)
 {
-  // R = 50 cm, so 0.3 GeV at 2 T: the circle through the origin with centre
-  // (0, R) reaches radius r at a turn of 2 asin(r / 2R).
-  constexpr double kR = 50.;
   const Propagator prop;
   const double kappa = 1. / kR;
   const auto qOverP = kappa / (static_cast<double>(o2::constants::math::B2C) * static_cast<double>(prop.bzKiloGauss));
 
-  const auto at = [](double psi) { return std::pair<double, double>{kR * std::sin(psi), kR * (1. - std::cos(psi))}; };
-  const auto turnAt = [](double r) { return 2. * std::asin(r / (2. * kR)); };
-
   const double psiFrom = turnAt(82.);
   const double psiTo = turnAt(66.);
-  const auto from = at(psiFrom);
-  const auto to = at(psiTo);
+  const auto from = circleAt(psiFrom);
+  const auto to = circleAt(psiTo);
   const double truePath = (psiTo - psiFrom) / kappa; // negative: it is behind
 
   int reachedTheSensor = 0;
@@ -127,9 +118,9 @@ BOOST_AUTO_TEST_CASE(ABackwardStepAtLowMomentumIsNeverRefusedForRunningForwards)
       // Whichever root it is, it is a real crossing: on the target's plane by
       // construction of loc0/loc1, and on the circle of the state it started
       // from. loc0 runs around the beam, loc1 along it.
-      const double x = static_cast<double>(target.origin[0]) + (static_cast<double>(st.loc0()) * static_cast<double>(target.axis0[0]));
-      const double y = static_cast<double>(target.origin[1]) + (static_cast<double>(st.loc0()) * static_cast<double>(target.axis0[1]));
-      BOOST_TEST(std::abs(std::hypot(x, y - kR) - kR) < 1e-2);
+      double crossing[3];
+      surfaceToGlobal(target, st.loc0(), st.loc1(), crossing);
+      BOOST_TEST(std::abs(std::hypot(crossing[0], crossing[1] - kR) - kR) < 1e-2);
 
       reachedTheSensor += std::abs(static_cast<double>(res.pathLength) - truePath) < 1e-3 ? 1 : 0;
     }
@@ -289,18 +280,14 @@ BOOST_AUTO_TEST_CASE(ChargeSignsBendOppositeWays)
 /// finite differences of the same rule.
 BOOST_AUTO_TEST_CASE(TheOtherCrossingRulesTakeTheSensorsCrossing)
 {
-  constexpr double kR = 50.;
   const Propagator prop;
   const double kappa = 1. / kR;
   const auto qOverP = kappa / (static_cast<double>(o2::constants::math::B2C) * static_cast<double>(prop.bzKiloGauss));
 
-  const auto at = [](double psi) { return std::pair<double, double>{kR * std::sin(psi), kR * (1. - std::cos(psi))}; };
-  const auto turnAt = [](double r) { return 2. * std::asin(r / (2. * kR)); };
-
   const double psiFrom = turnAt(82.);
   const double psiTo = turnAt(66.);
-  const auto from = at(psiFrom);
-  const auto to = at(psiTo);
+  const auto from = circleAt(psiFrom);
+  const auto to = circleAt(psiTo);
   const double truePath = (psiTo - psiFrom) / kappa;
 
   int changed = 0;

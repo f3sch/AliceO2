@@ -169,8 +169,7 @@ struct GridSlice {
 /// evaluates either again.
 [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar azimuth(Scalar x, Scalar y)
 {
-  const Scalar phi = atan2Of(y, x);
-  return o2::math_utils::detail::to02Pi<Scalar>(phi);
+  return o2::math_utils::detail::to02Pi<Scalar>(atan2Of(y, x));
 }
 
 /// The second binning coordinate, picked from the cached ones: z on a barrel

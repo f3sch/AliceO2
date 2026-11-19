@@ -60,21 +60,23 @@
 #define GTRK_STUDY_COMPLETEANATOMY_H_
 
 #include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Tracking/BeamConstraint.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Follow.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
+#include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Tracking/NeighbourCut.h"
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/SensorCells.h"
+#include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Tracking/TripletCut.h"
 #include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Study/MCTruth.h"
 #include "GenericTracking/Study/ParticleChains.h"
 #include "GenericTracking/Study/StageFunnel.h"
 #include "GenericTracking/Study/StateTruth.h"
-#include "GenericTracking/Study/Statistics.h"
 #include "GenericTracking/Study/TrackComparison.h"
 #include "GenericTracking/Study/TrackingInput.h"
 #include "GenericTracking/Study/TruthFit.h"
@@ -1130,10 +1132,10 @@ class CompleteAnatomy
       if (firstHit != nullptr) {
         const auto& p = firstHit->momentum;
         const double pMc = std::hypot(p[0], p[1], p[2]);
-        const auto phiMc = static_cast<Scalar>(std::atan2(p[1], p[0]));
-        const auto thetaMc = static_cast<Scalar>(std::atan2(std::hypot(p[0], p[1]), p[2]));
+        const auto phiMc = static_cast<Scalar>(phiOf(p));
+        const auto thetaMc = static_cast<Scalar>(thetaOf(p));
         const auto qOverPMc = static_cast<Scalar>(std::copysign(1. / pMc, static_cast<double>(inward.state.qOverP())));
-        entry.dPhi = static_cast<float>(std::remainder(static_cast<double>(inward.state.phi() - phiMc), kTwoPi<double>));
+        entry.dPhi = static_cast<float>(toPMPiOf(static_cast<double>(inward.state.phi() - phiMc)));
         entry.dTheta = inward.state.theta() - thetaMc;
         entry.dQOverPRel = static_cast<float>((static_cast<double>(inward.state.qOverP()) - static_cast<double>(qOverPMc)) * pMc);
         const auto replaced = [&](bool angles, bool momentum) {
@@ -2510,7 +2512,7 @@ class CompleteAnatomy
       "back";
     for (std::size_t b = 0; b < bins.size(); ++b) {
       const auto& one = bins[b];
-      text += std::format("\n      {}: {} ({}) | {} / {} / {} | {:.2f} / {:.2f} / {:.2f} | {:.2f} / {:.2f} | {:.1f} / {:.1f}", kPathPtNames[b], one.particles, one.timed, one.overlapOnly, one.returnOnly, one.both, mean(one.rows0, one.timed), mean(one.rows1, one.timed), mean(one.rows2, one.timed), mean(one.ceiling0, one.timed), mean(one.ceilingBack, one.timed), study::percent(one.reach7, one.timed), study::percent(one.reach7Back, one.timed));
+      text += std::format("\n      {}: {} ({}) | {} / {} / {} | {:.2f} / {:.2f} / {:.2f} | {:.2f} / {:.2f} | {:.1f} / {:.1f}", kPathPtNames[b], one.particles, one.timed, one.overlapOnly, one.returnOnly, one.both, mean(one.rows0, one.timed), mean(one.rows1, one.timed), mean(one.rows2, one.timed), mean(one.ceiling0, one.timed), mean(one.ceilingBack, one.timed), percent(one.reach7, one.timed), percent(one.reach7Back, one.timed));
     }
     text += "\n    the good tracks by pT: found | mean own rows held / the ceiling out | rows held from the first way back / later legs | where the track ends:";
     for (std::size_t end = 0; end < kPathEnds; ++end) {
@@ -2578,7 +2580,7 @@ class CompleteAnatomy
       ++fates[fate];
     }
     const auto n = mFindable.size();
-    const auto pc = [&](std::size_t count) { return study::percent(count, n); };
+    const auto pc = [&](std::size_t count) { return percent(count, n); };
     std::cout << std::format(
       "complete anatomy: {} physical primaries on every layer of mask {}: complete {} ({:.2f} %), short {} ({:.2f} %), not found {} "
       "({:.2f} %); the replayed follow agrees with the iteration's on {} of {} tracks\n",
@@ -2758,7 +2760,7 @@ class CompleteAnatomy
           for (std::size_t layer = 0; layer < kLayers; ++layer) {
             if (group->count[layer] != 0U) {
               const auto c = static_cast<double>(group->count[layer]);
-              line += std::format(" {}: {:.2f} / {:.1f} / {:.1f};", layer, group->sum[layer] / c, study::percent(group->above[layer], group->count[layer]), study::percent(group->largest[layer], group->tracks));
+              line += std::format(" {}: {:.2f} / {:.1f} / {:.1f};", layer, group->sum[layer] / c, percent(group->above[layer], group->count[layer]), percent(group->largest[layer], group->tracks));
             }
           }
           std::cout << line << '\n';
@@ -2943,15 +2945,15 @@ class CompleteAnatomy
           std::cout << "(capital: inside)\n";
         }
         // How far outside the gate's window the outward rows lie, per axis.
-        auto offsets = mOutWindowOffsets[kind];
+        const auto& offsets = mOutWindowOffsets[kind];
         if (!offsets.empty()) {
           std::string offsetLine = std::format("  outward, {}, the row's offset from the window's centre over the gate window's half-width, 50/90/99 % (1/50/99 % signed):", kind == 0U ? "outside the window" : "not queried");
+          std::vector<float> values(offsets.size());
           for (std::size_t axis = 0; axis < 4U; ++axis) {
-            std::ranges::sort(offsets, {}, [axis](const std::array<float, 4>& offset) { return offset[axis]; });
-            const auto quantile = [&](double q) { return offsets[std::min(offsets.size() - 1U, static_cast<std::size_t>(q * static_cast<double>(offsets.size())))][axis]; };
+            std::ranges::transform(offsets, values.begin(), [axis](const std::array<float, 4>& offset) { return offset[axis]; });
             constexpr std::array<const char*, 4> kAxes{"azimuth", "second", "azimuth times the charge's sign", "azimuth half-width [um]"};
             const bool signedAxis = axis == 2U;
-            offsetLine += std::format(" {} {:.2f} {:.2f} {:.2f};", kAxes[axis], quantile(signedAxis ? 0.01 : 0.5), quantile(signedAxis ? 0.5 : 0.9), quantile(0.99));
+            offsetLine += std::format(" {} {:.2f} {:.2f} {:.2f};", kAxes[axis], quantile(values, signedAxis ? 0.01 : 0.5), quantile(values, signedAxis ? 0.5 : 0.9), quantile(values, 0.99));
           }
           std::cout << offsetLine << '\n';
         }
@@ -3139,7 +3141,7 @@ class CompleteAnatomy
         std::cout << std::format(
           "  the class's production vertices: mean ({:.2f}, {:.2f}) um, rms ({:.2f}, {:.2f}) um, core sigma from the median |v| ({:.2f}, "
           "{:.2f}) um, beyond 100 um from the axis {:.2f} %\n",
-          1.e4 * mx, 1.e4 * my, 1.e4 * std::sqrt(std::max(0., (sx / c) - (mx * mx))), 1.e4 * std::sqrt(std::max(0., (sy / c) - (my * my))), 1.e4 * study::median(ax) / 0.6745, 1.e4 * study::median(ay) / 0.6745, study::percent(beyond, vertices));
+          1.e4 * mx, 1.e4 * my, 1.e4 * sqrtClampedOf((sx / c) - (mx * mx)), 1.e4 * sqrtClampedOf((sy / c) - (my * my)), 1.e4 * median(ax) / 0.6745, 1.e4 * median(ay) / 0.6745, percent(beyond, vertices));
       }
       constexpr std::array<const char*, 3> kConstructions{"follow", "clusters only", "joint"};
       std::cout << "  truth walk (every findable, its own rows inward whatever their chi2): prediction against the MC crossing, pull rms loc0 / loc1 (% beyond 3)\n";
@@ -3156,7 +3158,7 @@ class CompleteAnatomy
               continue;
             }
             const auto count = static_cast<double>(sum.n);
-            text += std::format(" | {} {}: {:.2f} ({:.2f}) / {:.2f} ({:.2f})", kConstructions[construction], sum.n, std::sqrt(sum.s0 / count), study::percent(sum.out0, sum.n), std::sqrt(sum.s1 / count), study::percent(sum.out1, sum.n));
+            text += std::format(" | {} {}: {:.2f} ({:.2f}) / {:.2f} ({:.2f})", kConstructions[construction], sum.n, std::sqrt(sum.s0 / count), percent(sum.out0, sum.n), std::sqrt(sum.s1 / count), percent(sum.out1, sum.n));
           }
           std::cout << text << '\n';
         }
@@ -3169,19 +3171,12 @@ class CompleteAnatomy
         "(1.4826 MAD) loc0 / loc1 | % beyond 3 loc0 / loc1 | % chi2 above the gate ({:.2f}) | transport failed\n",
         static_cast<double>(mWalkGate));
       const auto robust = [](std::vector<float> values) {
-        std::ranges::sort(values);
-        const auto med = static_cast<double>(values[values.size() / 2U]);
-        std::vector<float> deviations(values.size());
-        for (std::size_t i = 0; i < values.size(); ++i) {
-          deviations[i] = std::abs(values[i] - static_cast<float>(med));
-        }
-        std::ranges::sort(deviations);
-        const double width = 1.4826 * static_cast<double>(deviations[deviations.size() / 2U]);
         std::size_t beyond = 0U;
         for (const auto value : values) {
           beyond += std::abs(value) > 3.F ? 1U : 0U;
         }
-        return std::tuple{med, width, study::percent(beyond, values.size())};
+        const auto centre = static_cast<double>(median(values));
+        return std::tuple{centre, static_cast<double>(robustSigma(values)), percent(beyond, values.size())};
       };
       for (std::size_t direction = 0; direction < 3U; ++direction) {
         for (std::size_t layer = 0; layer < kLayers; ++layer) {
@@ -3196,7 +3191,7 @@ class CompleteAnatomy
             }
             const auto [med0, width0, beyond0] = robust(pulls.pull0);
             const auto [med1, width1, beyond1] = robust(pulls.pull1);
-            std::cout << std::format("    {} target {} pT {}: {} | {:+.3f} / {:+.3f} | {:.3f} / {:.3f} | {:.2f} / {:.2f} | {:.2f} | {}\n", kWalkDirectionNames[direction], layer, kWalkPtNames[bin], pulls.pull0.size(), med0, med1, width0, width1, beyond0, beyond1, study::percent(pulls.overGate, pulls.pull0.size()), pulls.fails);
+            std::cout << std::format("    {} target {} pT {}: {} | {:+.3f} / {:+.3f} | {:.3f} / {:.3f} | {:.2f} / {:.2f} | {:.2f} | {}\n", kWalkDirectionNames[direction], layer, kWalkPtNames[bin], pulls.pull0.size(), med0, med1, width0, width1, beyond0, beyond1, percent(pulls.overGate, pulls.pull0.size()), pulls.fails);
           }
         }
       }
@@ -3214,7 +3209,7 @@ class CompleteAnatomy
           continue;
         }
         const std::string range = bin + 1U == mReach.size() ? std::format(">= {:.2f}", 0.05 * static_cast<double>(bin)) : std::format("{:.2f}-{:.2f}", 0.05 * static_cast<double>(bin), 0.05 * static_cast<double>(bin + 1U));
-        text += std::format("\n    {} GeV: {} of {} ({:.1f} %)", range, mReach[bin][1], mReach[bin][0], study::percent(mReach[bin][1], mReach[bin][0]));
+        text += std::format("\n    {} GeV: {} of {} ({:.1f} %)", range, mReach[bin][1], mReach[bin][0], percent(mReach[bin][1], mReach[bin][0]));
       }
       std::cout << text << '\n';
     }
@@ -3464,13 +3459,16 @@ class CompleteAnatomy
   /// The true pT [GeV] of the particle \a found points to, 0 for none (the
   /// table's end).
   [[nodiscard]] double truePt(study::ParticleTable::const_iterator found) const { return found != mTruth->particles.end() ? static_cast<double>(found->second.pt) : 0.; }
-  /// The production vertex in r-z [cm] of the particle \a found points to,
-  /// the origin for none (the table's end): the reference of `pathDistance`.
-  [[nodiscard]] Vec2D vertexRZ(study::ParticleTable::const_iterator found) const { return study::ParticleChains::vertexRZ(found != mTruth->particles.end() ? &found->second : nullptr); }
-  /// How far \a row is from a particle's production \a vertex (`vertexRZ`)
-  /// in r-z [cm]: the order of "further along the particle's path" for the
-  /// fake transitions, the end decisions and the hole calls.
-  [[nodiscard]] double pathDistance(std::uint32_t row, const Vec2D& vertex) const { return study::ParticleChains::pathDistance(mTruth->rows, row, vertex); }
+  /// How far a row is in r-z [cm] from the production vertex of the particle
+  /// \a found points to, the origin for none (the table's end), as a function
+  /// of the row (`ParticleChains::pathDistance`): the order of "further along
+  /// the particle's path" for the fake transitions, the end decisions and the
+  /// hole calls.
+  [[nodiscard]] auto distanceFromVertex(study::ParticleTable::const_iterator found) const
+  {
+    const auto vertex = study::ParticleChains::vertexRZ(found != mTruth->particles.end() ? &found->second : nullptr);
+    return [this, vertex](std::uint32_t row) { return study::ParticleChains::pathDistance(mTruth->rows, row, vertex); };
+  }
 
   /// Where the iteration's fakes came from: each fake track after the iteration, by its length, as an
   /// earlier track it was before -- a fake kept, a fake lengthened, a good
@@ -3636,8 +3634,7 @@ class CompleteAnatomy
       } else if (!onLayer) {
         // Further along the particle's path than the taken row, in the
         // walk's direction: free at the follow, or all held.
-        const auto vertex = vertexRZ(found);
-        const auto distance = [&](std::uint32_t one) { return pathDistance(one, vertex); };
+        const auto distance = distanceFromVertex(found);
         const double here = distance(row);
         bool beyond = false;
         bool free = false;
@@ -4200,8 +4197,7 @@ class CompleteAnatomy
           trackLayers |= std::uint64_t{1} << mTruth->rows[row].layer;
           ownLayers |= particle != study::kNoTrackParticle && mTruth->rows[row].carries(particle) ? std::uint64_t{1} << mTruth->rows[row].layer : 0U;
         }
-        const auto vertex = vertexRZ(found);
-        const auto distance = [&](std::uint32_t one) { return pathDistance(one, vertex); };
+        const auto distance = distanceFromVertex(found);
         // What \a row is to the road's particle, and for a row past its end
         // its own rows beyond.
         const auto kindOf = [&](std::uint32_t row, bool outward) -> std::pair<const char*, const char*> {
@@ -4807,8 +4803,7 @@ class CompleteAnatomy
           rowLayers |= std::uint64_t{1} << mTruth->rows[row].layer;
         }
       }
-      const auto vertex = vertexRZ(mTruth->particles.find(particle));
-      const auto distance = [&](std::uint32_t row) { return pathDistance(row, vertex); };
+      const auto distance = distanceFromVertex(mTruth->particles.find(particle));
       const auto tally = [&](const Walk& walk, std::size_t direction) {
         if (!walk.agrees) {
           return;
@@ -5098,7 +5093,7 @@ class CompleteAnatomy
       if (n == 0U) {
         continue;
       }
-      const auto pc = [&](std::size_t k) { return study::percent(k, n); };
+      const auto pc = [&](std::size_t k) { return percent(k, n); };
       const std::string name = range == ranges - 1U ? std::string{"all"} : (range + 1U < edges.size() ? std::format("{}-{} GeV", edges[range], edges[range + 1U]) : std::format(">= {} GeV", edges[range]));
       text += std::format("\n    {} ({}): {:.2f} / {:.2f} / {:.2f} / {:.2f}", name, n, pc(c[kComplete]), pc(c[kShortFate]), pc(c[kNotFound]), pc(c[kComplete] + c[kShortFate]));
     }
@@ -5270,13 +5265,16 @@ class CompleteAnatomy
       root.path = sense * ell / sinTheta;
       root.mu = (ax * tx) + (ay * ty);
       const double pz = z0 + (ell / sinTheta * cosTheta);
-      const double rel[3] = {px - ox, py - oy, pz - oz};
-      root.loc0 = (rel[0] * static_cast<double>(to.axis0[0])) + (rel[1] * static_cast<double>(to.axis0[1])) + (rel[2] * static_cast<double>(to.axis0[2]));
-      root.loc1 = (rel[0] * static_cast<double>(to.axis1[0])) + (rel[1] * static_cast<double>(to.axis1[1])) + (rel[2] * static_cast<double>(to.axis1[2]));
+      const double point[3] = {px, py, pz};
+      double local[3]{};
+      surfaceToLocal(to, point, local);
+      root.loc0 = local[0];
+      root.loc1 = local[1];
       root.inside = to.bounds.isInside(static_cast<Scalar>(root.loc0), static_cast<Scalar>(root.loc1));
       const double phi1 = phi + turn;
-      root.cosInc = (static_cast<double>(to.normal[0]) * sinTheta * std::cos(phi1)) + (static_cast<double>(to.normal[1]) * sinTheta * std::sin(phi1)) + (static_cast<double>(to.normal[2]) * cosTheta);
-      root.offCentre = std::hypot(rel[0], rel[1], rel[2]);
+      const double heading[3] = {sinTheta * std::cos(phi1), sinTheta * std::sin(phi1), cosTheta};
+      root.cosInc = cosIncidence(to, heading);
+      root.offCentre = std::hypot(px - ox, py - oy, pz - oz);
     }
     out.first = std::abs(out.root[0].mu) <= std::abs(out.root[1].mu) ? 0U : 1U;
     return out;
@@ -5344,16 +5342,16 @@ class CompleteAnatomy
       const auto& state = one.state;
       const auto* segment = mTruth->rows[one.row].carries(particle) ? segmentOfRow(particle, frame, one.row) : nullptr;
       const double p = 1. / std::abs(static_cast<double>(state.qOverP()));
-      const double sigmaQOverP = std::sqrt(std::max(0., static_cast<double>(state.variance(kQOverP))));
-      const double sigmaPhi = std::sqrt(std::max(0., static_cast<double>(state.variance(kPhi))));
+      const double sigmaQOverP = sqrtClampedOf(static_cast<double>(state.variance(kQOverP)));
+      const double sigmaPhi = sqrtClampedOf(static_cast<double>(state.variance(kPhi)));
       double pTrue = nan;
       double phiTrue = nan;
       double thetaTrue = nan;
       Vec2D locTrue{nan, nan};
       if (segment != nullptr) {
         pTrue = std::hypot(segment->momentum[0], segment->momentum[1], segment->momentum[2]);
-        phiTrue = std::atan2(segment->momentum[1], segment->momentum[0]);
-        thetaTrue = std::atan2(std::hypot(segment->momentum[0], segment->momentum[1]), segment->momentum[2]);
+        phiTrue = phiOf(segment->momentum);
+        thetaTrue = thetaOf(segment->momentum);
         locTrue = crossingOn(*segment, geometry.planeOf(state));
         auto& by = mInwardSteps[kind][std::min<std::size_t>(k, kInwardStepSlots - 1U)];
         // Signed: the state's q/p against the truth's charge over its
@@ -5363,7 +5361,7 @@ class CompleteAnatomy
           ++mChargeAgree[kind][(static_cast<double>(state.qOverP()) * truthQOverP) > 0. ? 0U : 1U];
         }
         by.ratio.push_back(p / pTrue);
-        const double dphi = std::remainder(static_cast<double>(state.phi()) - phiTrue, kTwoPi<double>);
+        const double dphi = toPMPiOf(static_cast<double>(state.phi()) - phiTrue);
         by.dphi.push_back(1e3 * dphi);
         if (one.determined) {
           by.pullQOverP.push_back((static_cast<double>(state.qOverP()) - truthQOverP) / sigmaQOverP);
@@ -5463,8 +5461,8 @@ class CompleteAnatomy
           other.par[kQOverP] = static_cast<Scalar>(charge != 0 ? static_cast<double>(charge) * kChargeSign / pTrue : (seed.qOverP() < 0.F ? -1. : 1.) / pTrue);
         }
         if (variant != 2U) {
-          other.par[kPhi] = static_cast<Scalar>(std::atan2(outer->momentum[1], outer->momentum[0]));
-          other.par[kTheta] = static_cast<Scalar>(std::atan2(std::hypot(outer->momentum[0], outer->momentum[1]), outer->momentum[2]));
+          other.par[kPhi] = static_cast<Scalar>(phiOf(outer->momentum));
+          other.par[kTheta] = static_cast<Scalar>(thetaOf(outer->momentum));
         }
       }
       const auto again = runInward(other, rows, parameters, frame, geometry, material, propagator, false);
@@ -5555,8 +5553,8 @@ class CompleteAnatomy
         const auto locTrue = crossingOn(*inner, geometry.planeOf(state));
         tally.pullLoc0.push_back((static_cast<double>(state.loc0()) - locTrue[0]) / sigma[kLoc0]);
         tally.pullLoc1.push_back((static_cast<double>(state.loc1()) - locTrue[1]) / sigma[kLoc1]);
-        tally.pullPhi.push_back(std::remainder(static_cast<double>(state.phi()) - std::atan2(inner->momentum[1], inner->momentum[0]), kTwoPi<double>) / sigma[kPhi]);
-        tally.pullTheta.push_back((static_cast<double>(state.theta()) - std::atan2(std::hypot(inner->momentum[0], inner->momentum[1]), inner->momentum[2])) / sigma[kTheta]);
+        tally.pullPhi.push_back(toPMPiOf(static_cast<double>(state.phi()) - phiOf(inner->momentum)) / sigma[kPhi]);
+        tally.pullTheta.push_back((static_cast<double>(state.theta()) - thetaOf(inner->momentum)) / sigma[kTheta]);
         if (charge != 0) {
           tally.pullQOverP.push_back((static_cast<double>(state.qOverP()) - (static_cast<double>(charge) * kChargeSign / pTrue)) / sigma[kQOverP]);
         }
@@ -6275,6 +6273,10 @@ class CompleteAnatomy
     }
   }
 
+  /// The index of (\a row, \a column) in a row-major square of
+  /// kNBoundParams.
+  static constexpr std::size_t squareIndex(int row, int column) { return (static_cast<std::size_t>(row) * kNBoundParams) + static_cast<std::size_t>(column); }
+
   template <typename Material>
   [[nodiscard]] double chainEvidence(const std::vector<std::uint32_t>& rows, double scale, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, std::vector<double>* running = nullptr) const
   {
@@ -6287,23 +6289,22 @@ class CompleteAnatomy
     BoundTrackState state = makeChainSeed(propagator, geometry, chain, n);
     evidencePrior(state, scale);
     // log|P0| by Cholesky, in double.
-    std::array<double, static_cast<std::size_t>(kNBoundParams) * kNBoundParams> l{}; // NOLINT(misc-const-correctness): written through at(), which the check does not follow
-    const auto at = [](int row, int column) { return (static_cast<std::size_t>(row) * kNBoundParams) + static_cast<std::size_t>(column); };
+    std::array<double, static_cast<std::size_t>(kNBoundParams) * kNBoundParams> l{}; // NOLINT(misc-const-correctness): written through squareIndex() indices, which the check does not follow
     double logDet = 0.;
     for (int i = 0; i < kNBoundParams; ++i) {
       for (int j = 0; j <= i; ++j) {
         auto sum = static_cast<double>(state.cov[covIndex(i, j)]);
         for (int k = 0; k < j; ++k) {
-          sum -= l[at(i, k)] * l[at(j, k)];
+          sum -= l[squareIndex(i, k)] * l[squareIndex(j, k)];
         }
         if (i == j) {
           if (!(sum > 0.)) {
             return nan;
           }
-          l[at(i, i)] = std::sqrt(sum);
+          l[squareIndex(i, i)] = std::sqrt(sum);
           logDet += std::log(sum);
         } else {
-          l[at(i, j)] = sum / l[at(j, j)];
+          l[squareIndex(i, j)] = sum / l[squareIndex(j, j)];
         }
       }
     }
@@ -6348,19 +6349,18 @@ class CompleteAnatomy
   {
     BoundTrackState mean = state;
     covarianceFromFactors(factors, mean.cov);
-    std::array<double, static_cast<std::size_t>(kNBoundParams) * kNBoundParams> l{}; // NOLINT(misc-const-correctness): written through at(), which the check does not follow
-    const auto at = [](int row, int column) { return (static_cast<std::size_t>(row) * kNBoundParams) + static_cast<std::size_t>(column); };
+    std::array<double, static_cast<std::size_t>(kNBoundParams) * kNBoundParams> l{}; // NOLINT(misc-const-correctness): written through squareIndex() indices, which the check does not follow
     for (int i = 0; i < kNBoundParams; ++i) {
       for (int j = 0; j <= i; ++j) {
         auto sum = static_cast<double>(mean.cov[covIndex(i, j)]);
         for (int k = 0; k < j; ++k) {
-          sum -= l[at(i, k)] * l[at(j, k)];
+          sum -= l[squareIndex(i, k)] * l[squareIndex(j, k)];
         }
         if (i == j) {
-          l[at(i, i)] = sum > 0. ? std::sqrt(sum) : 0.;
+          l[squareIndex(i, i)] = sum > 0. ? std::sqrt(sum) : 0.;
         } else {
-          const double d = l[at(j, j)];
-          l[at(i, j)] = d > 0. ? sum / d : 0.;
+          const double d = l[squareIndex(j, j)];
+          l[squareIndex(i, j)] = d > 0. ? sum / d : 0.;
         }
       }
     }
@@ -6379,25 +6379,15 @@ class CompleteAnatomy
       for (int i = 0; i < kNBoundParams; ++i) {
         double shift = 0.;
         for (int k = 0; k <= i; ++k) {
-          shift += l[at(i, k)] * normal[static_cast<std::size_t>(k)];
+          shift += l[squareIndex(i, k)] * normal[static_cast<std::size_t>(k)];
         }
         sample.par[i] = static_cast<Scalar>(static_cast<double>(state.par[i]) + shift);
       }
       const auto phiReach = window.phiHalfWidth;
       const auto secondReach = window.secondHalfWidth;
       const bool hit = mCells.view().anySensor(layer, window.phiCentre, phiReach, window.secondCentre, secondReach, [&](std::uint32_t id) {
-        const TrackingSurface& surface = geometry.surface(static_cast<SensorID>(id));
-        TrackingSurface plane = surface;
-        if (surface.radius > 0.F) {
-          // The tangent plane at the stage's nominal layer crossing.
-          Scalar along0 = 0.F;
-          Scalar along1 = 0.F;
-          for (int i = 0; i < 3; ++i) {
-            along0 += (crossing[i] - surface.origin[i]) * surface.axis0[i];
-            along1 += (crossing[i] - surface.origin[i]) * surface.axis1[i];
-          }
-          plane = tangentPlane(surface, o2::gpu::CAMath::ATan2(along1, along0));
-        }
+        // The sensor's plane; on a curved one, the tangent plane at the stage's nominal layer crossing.
+        const TrackingSurface plane = geometry.planeAt(static_cast<SensorID>(id), crossing);
         BoundTrackState at = sample;
         const auto result = propagate(propagator, at, from, plane, direction);
         // The half-turn veto at the sample's own curvature.
@@ -6859,18 +6849,14 @@ class CompleteAnatomy
     if (mInwardCount[0] + mInwardCount[1] + mInwardCount[2] == 0U) {
       return;
     }
-    const auto median = [](std::vector<double> values) {
+    // The median and the robust width of the finite values, NaN for none.
+    const auto finiteMedian = [](std::vector<double> values) {
       std::erase_if(values, [](double v) { return !std::isfinite(v); });
-      return values.empty() ? std::numeric_limits<double>::quiet_NaN() : study::median(values);
+      return values.empty() ? std::numeric_limits<double>::quiet_NaN() : median(values);
     };
-    const auto width = [&](const std::vector<double>& values) {
-      const double centre = median(values);
-      std::vector<double> deviations;
-      deviations.reserve(values.size());
-      for (const auto v : values) {
-        deviations.push_back(std::abs(v - centre));
-      }
-      return 1.4826 * median(deviations);
+    const auto width = [](std::vector<double> values) {
+      std::erase_if(values, [](double v) { return !std::isfinite(v); });
+      return values.empty() ? std::numeric_limits<double>::quiet_NaN() : robustSigma(values);
     };
     std::string text = std::format(
       "  the refit's inward pass against the truth: passes replayed {} / {} / {} ({}, {}, {}); not reproduced {} / {} / {}\n"
@@ -6889,7 +6875,7 @@ class CompleteAnatomy
           off += std::abs(by.ratio[i] - 1.) > 0.2 ? 1U : 0U;
           absPhi.push_back(std::abs(by.dphi[i]));
         }
-        text += std::format("\n    {} | {}{}: {} | {:.3f} | {:.1f} | {:+.2f} / {:.2f} | {:.2f} | {:.2f} | {:.3f}", kInwardKindNames[kind], k, k + 1U == kInwardStepSlots ? "+" : "", by.ratio.size(), median(by.ratio), 100. * static_cast<double>(off) / static_cast<double>(by.ratio.size()), median(by.pullQOverP), width(by.pullQOverP), median(absPhi), width(by.pullPhi), median(by.relSigma));
+        text += std::format("\n    {} | {}{}: {} | {:.3f} | {:.1f} | {:+.2f} / {:.2f} | {:.2f} | {:.2f} | {:.3f}", kInwardKindNames[kind], k, k + 1U == kInwardStepSlots ? "+" : "", by.ratio.size(), finiteMedian(by.ratio), percent(off, by.ratio.size()), finiteMedian(by.pullQOverP), width(by.pullQOverP), finiteMedian(absPhi), width(by.pullPhi), finiteMedian(by.relSigma));
       }
     }
     text += std::format("\n    the seed's q/p sign against the MC charge (convention: q/p = {} charge / p): agree / disagree:", kChargeSign > 0. ? "+" : "-");
@@ -6928,7 +6914,7 @@ class CompleteAnatomy
           const auto& t = mRuleTallies[kind][rule][seed];
           text += std::format("\n      {} | {} | {}: {} / {} / {} / {} | {} / {} / {} |", kInwardKindNames[kind], kRuleSeedNames[seed], kCrossingRuleNames[rule], t.outcome[kRuleOutward], t.outcome[kRuleInward], t.outcome[kRuleChi2], t.outcome[kRuleAccepted], t.against[0], t.against[1], t.against[2]);
           for (const auto* pulls : {&t.pullQOverP, &t.pullPhi, &t.pullTheta, &t.pullLoc0, &t.pullLoc1}) {
-            text += std::format(" {:+.2f} / {:.2f};", median(*pulls), width(*pulls));
+            text += std::format(" {:+.2f} / {:.2f};", finiteMedian(*pulls), width(*pulls));
           }
         }
       }
@@ -7506,7 +7492,7 @@ class CompleteAnatomy
       };
       follow::predictedWindow<false>(propagator, *scaled, geometry, material, step.state, step.factors, target, direction, nominal, window, 1.F);
       if (ratios != nullptr) {
-        const Scalar dPhi = std::remainder(point.phi - phiCentre, kTwoPi<Scalar>);
+        const Scalar dPhi = toPMPiOf(point.phi - phiCentre);
         (*ratios)[0] = static_cast<float>(std::abs(dPhi) / window.phiHalfWidth);
         (*ratios)[1] = static_cast<float>(std::abs(second - secondCentre) / window.secondHalfWidth);
         (*ratios)[2] = static_cast<float>((step.state.qOverP() < 0.F ? -dPhi : dPhi) / window.phiHalfWidth);
@@ -8169,22 +8155,18 @@ class CompleteAnatomy
     }
   }
 
-  /// The MC segment's crossing of \a plane in its local coordinates.
+  /// The MC segment's line's crossing of \a plane in its local coordinates;
+  /// for a segment parallel to the plane, its midpoint's projection.
   [[nodiscard]] static Vec2D crossingOn(const study::HitSegment& segment, const TrackingSurface& plane)
   {
-    double along[3]{};
-    double offset = 0.;
-    double slope = 0.;
-    for (std::size_t i = 0; i < 3U; ++i) {
-      along[i] = segment.end[i] - segment.start[i];
-      offset += (segment.start[i] - static_cast<double>(plane.origin[i])) * static_cast<double>(plane.normal[i]);
-      slope += along[i] * static_cast<double>(plane.normal[i]);
+    const double along[3] = {segment.end[0] - segment.start[0], segment.end[1] - segment.start[1], segment.end[2] - segment.start[2]};
+    double step = 0.;
+    double local[3]{};
+    if (!lineCrossing(plane, segment.start.data(), along, step, local)) {
+      const double middle[3] = {segment.start[0] + (0.5 * along[0]), segment.start[1] + (0.5 * along[1]), segment.start[2] + (0.5 * along[2])};
+      surfaceToLocal(plane, middle, local);
     }
-    const double t = std::abs(slope) > 0. ? -offset / slope : 0.5;
-    const Scalar global[3] = {static_cast<Scalar>(segment.start[0] + (t * along[0])), static_cast<Scalar>(segment.start[1] + (t * along[1])), static_cast<Scalar>(segment.start[2] + (t * along[2]))};
-    Scalar local[3]{};
-    surfaceToLocal(plane, global, local);
-    return {static_cast<double>(local[0]), static_cast<double>(local[1])};
+    return {local[0], local[1]};
   }
 
   /// \a particle's rows in path order (`ParticleChains`).
@@ -8237,10 +8219,7 @@ class CompleteAnatomy
   {
     const auto budget = material.getMatBudget(midOf(a, 0), midOf(a, 1), midOf(a, 2), midOf(b, 0), midOf(b, 1), midOf(b, 2));
     const auto x2x0 = static_cast<double>(budget.meanX2X0);
-    const auto mass = static_cast<double>(propagator.massGeV);
-    const double beta2 = p * p / ((p * p) + (mass * mass));
-    const double betaP = p * std::sqrt(beta2);
-    return {x2x0 > 0. ? 0.0136 / betaP * std::sqrt(x2x0) * (1. + (0.038 * std::log(x2x0 / beta2))) : 0., x2x0};
+    return {highlandTheta0<double>(x2x0, x2x0, p, static_cast<double>(propagator.massGeV)), x2x0};
   }
 
   /// The true kinks from crossing \a a to crossing \a b, theta and the
@@ -8251,13 +8230,13 @@ class CompleteAnatomy
   {
     const auto& pa = a.momentum;
     const auto& pb = b.momentum;
-    const double theta = std::atan2(std::hypot(pb[0], pb[1]), pb[2]) - std::atan2(std::hypot(pa[0], pa[1]), pa[2]);
+    const double theta = thetaOf(pb) - thetaOf(pa);
     const double pt = std::hypot(pa[0], pa[1]);
     const double p = std::hypot(pa[0], pa[1], pa[2]);
     const double radius = 100. * pt / (0.0299792458 * std::abs(bzKiloGauss));
     const double chord = std::hypot(static_cast<double>(midOf(b, 0) - midOf(a, 0)), static_cast<double>(midOf(b, 1) - midOf(a, 1)));
     const double turn = 2. * std::asin(std::min(1., 0.5 * chord / radius));
-    const double dphi = std::remainder(std::atan2(pb[1], pb[0]) - std::atan2(pa[1], pa[0]), kTwoPi<double>);
+    const double dphi = toPMPiOf(phiOf(pb) - phiOf(pa));
     const double phi = (std::abs(dphi - turn) < std::abs(dphi + turn) ? dphi - turn : dphi + turn) * pt / p;
     return {theta, phi};
   }
@@ -8377,9 +8356,8 @@ class CompleteAnatomy
           beyond[plane][1] += a > 5. ? 1U : 0U;
         }
       }
-      const auto share = [&](std::size_t k) { return all != 0U ? 100. * static_cast<double>(k) / static_cast<double>(all) : 0.; };
       const auto rms = [&](std::size_t plane) { return count[plane] != 0U ? std::sqrt(core2[plane] / static_cast<double>(count[plane])) : 0.; };
-      return std::format("{}: {:.2f} {:.2f} {:.3f} | {:.2f} {:.2f} {:.3f}", all, rms(0), share(beyond[0][0]), share(beyond[0][1]), rms(1), share(beyond[1][0]), share(beyond[1][1]));
+      return std::format("{}: {:.2f} {:.2f} {:.3f} | {:.2f} {:.2f} {:.3f}", all, rms(0), percent(beyond[0][0], all), percent(beyond[0][1], all), rms(1), percent(beyond[1][0], all), percent(beyond[1][1], all));
     };
     for (std::size_t layer = 0; layer + 1U < kLayers; ++layer) {
       if (std::ranges::any_of(mKinks, [&](const TrueKink& kink) { return kink.layer == layer; })) {
@@ -8415,17 +8393,16 @@ class CompleteAnatomy
           ++missed[mReason[index]];
         }
       }
-      const auto share = [&](std::size_t k) { return count != 0U ? 100. * static_cast<double>(k) / static_cast<double>(count) : 0.; };
-      std::string line = std::format("    {}: {} ({:.2f} %) | {:.2f} {:.2f} {:.2f} |", name, count, 100. * static_cast<double>(count) / static_cast<double>(std::max<std::size_t>(mFindable.size(), 1U)), share(fates[0]), share(fates[1]), share(fates[2]));
+      std::string line = std::format("    {}: {} ({:.2f} %) | {:.2f} {:.2f} {:.2f} |", name, count, percent(count, mFindable.size()), percent(fates[0], count), percent(fates[1], count), percent(fates[2], count));
       for (std::size_t reason = 0; reason < kShortReasons; ++reason) {
         if (stops[reason] != 0U) {
-          line += std::format(" {} {:.2f};", kShortNames[reason], share(stops[reason]));
+          line += std::format(" {} {:.2f};", kShortNames[reason], percent(stops[reason], count));
         }
       }
       line += " |";
       for (std::size_t reason = 0; reason < kMissedReasons; ++reason) {
         if (missed[reason] != 0U) {
-          line += std::format(" {} {:.2f};", kMissedNames[reason], share(missed[reason]));
+          line += std::format(" {} {:.2f};", kMissedNames[reason], percent(missed[reason], count));
         }
       }
       std::cout << line << '\n';
@@ -8522,8 +8499,8 @@ class CompleteAnatomy
       qj1 = static_cast<double>(joint.loc1()) - local[1];
       const auto& p = segment->momentum;
       hitP = std::hypot(p[0], p[1], p[2]);
-      dphi = std::remainder(static_cast<double>(predicted.phi()) - std::atan2(p[1], p[0]), kTwoPi<double>);
-      dtheta = static_cast<double>(predicted.theta()) - std::atan2(std::hypot(p[0], p[1]), p[2]);
+      dphi = toPMPiOf(static_cast<double>(predicted.phi()) - phiOf(p));
+      dtheta = static_cast<double>(predicted.theta()) - thetaOf(p);
     }
     // The start against the truth there, and across the start's own stave:
     // from entering the start's layer to entering the next one out.
@@ -8536,8 +8513,8 @@ class CompleteAnatomy
     double staveX2x0 = 0.;
     if (startSegment != nullptr) {
       const auto& ps = startSegment->momentum;
-      sdphi = std::remainder(static_cast<double>(start.phi()) - std::atan2(ps[1], ps[0]), kTwoPi<double>);
-      sdtheta = static_cast<double>(start.theta()) - std::atan2(std::hypot(ps[0], ps[1]), ps[2]);
+      sdphi = toPMPiOf(static_cast<double>(start.phi()) - phiOf(ps));
+      sdtheta = static_cast<double>(start.theta()) - thetaOf(ps);
       // The stave beyond the start: the layer numbered one above (the
       // class's barrel layers consecutive from the beam outward).
       const auto next = ownRowOn(particle, static_cast<LayerID>(mTruth->rows[step.from].layer + 1U));

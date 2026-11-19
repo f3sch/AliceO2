@@ -63,7 +63,7 @@ Vec3D vectorOf(const Truth& truth)
 Truth truthOf(const Vec3D& v, double charge)
 {
   const double p = std::hypot(v[0], v[1], v[2]);
-  return Truth{.phi = std::atan2(v[1], v[0]), .theta = std::atan2(std::hypot(v[0], v[1]), v[2]), .qOverP = (charge != 0. ? charge : 1.) / p};
+  return Truth{.phi = phiOf(v), .theta = thetaOf(v), .qOverP = (charge != 0. ? charge : 1.) / p};
 }
 const std::array<Truth, 3> kDaughters{Truth{.phi = 0.3, .theta = 1.2, .qOverP = 2.}, Truth{.phi = -0.4, .theta = 1.6, .qOverP = -1.25}, Truth{.phi = 0.1, .theta = 1.4, .qOverP = -0.8}};
 
@@ -353,7 +353,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
     }
   }
   const double xiP = std::hypot(xi[0], xi[1], xi[2]);
-  const Truth xiTruth{.phi = std::atan2(xi[1], xi[0]), .theta = std::atan2(std::hypot(xi[0], xi[1]), xi[2]), .qOverP = -1. / xiP};
+  const Truth xiTruth{.phi = phiOf(xi), .theta = thetaOf(xi), .qOverP = -1. / xiP};
   Propagator xiProp = prop;
   xiProp.massGeV = 1.32171F;
   const auto at = beamLinePlane(static_cast<Scalar>(kVertex[0]), static_cast<Scalar>(kVertex[1]), static_cast<Scalar>(xiTruth.phi));
@@ -454,14 +454,8 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
   xiState.par[kPhi] = static_cast<Scalar>(xiAtRoot.phi);
   xiState.par[kTheta] = static_cast<Scalar>(xiAtRoot.theta);
   xiState.par[kQOverP] = static_cast<Scalar>(xiAtRoot.qOverP);
-  TrackingSurface on;
-  on.origin[0] = static_cast<Scalar>(kVertex[0] + (2. * std::cos(xiAtRoot.phi)));
-  on.origin[1] = static_cast<Scalar>(kVertex[1] + (2. * std::sin(xiAtRoot.phi)));
-  on.axis0[0] = static_cast<Scalar>(-std::sin(xiAtRoot.phi));
-  on.axis0[1] = static_cast<Scalar>(std::cos(xiAtRoot.phi));
-  on.axis1[2] = 1.F;
-  on.normal[0] = static_cast<Scalar>(std::cos(xiAtRoot.phi));
-  on.normal[1] = static_cast<Scalar>(std::sin(xiAtRoot.phi));
+  const Scalar onOrigin[3]{static_cast<Scalar>(kVertex[0] + (2. * std::cos(xiAtRoot.phi))), static_cast<Scalar>(kVertex[1] + (2. * std::sin(xiAtRoot.phi))), 0.F};
+  const TrackingSurface on = radialPlane(onOrigin, static_cast<Scalar>(std::sin(xiAtRoot.phi)), static_cast<Scalar>(std::cos(xiAtRoot.phi)));
   SolenoidJacobian jacobian;
   BoundTrackState there = xiState;
   const auto status = jacobianAnalytic(xiProp, xiState, start, on, PropagationDirection::kForward, jacobian, &there);
@@ -759,7 +753,7 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
   const double pk = 1. / std::abs(kaon.qOverP);
   const double ek = std::hypot(pk, kKaon);
   const auto u = unit(phiPi, thetaPi);
-  const double cosine = (k[0] * u[0]) + (k[1] * u[1]) + (k[2] * u[2]);
+  const double cosine = dotOf(k, u);
   // M^2 = mK^2 + mpi^2 + 2 (ek epi - pk p cos): bisect p
   double low = 1e-3;
   double high = 10.;

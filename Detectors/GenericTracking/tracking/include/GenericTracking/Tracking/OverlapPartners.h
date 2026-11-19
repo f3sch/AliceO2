@@ -198,10 +198,10 @@ template <DetectorLayout Det>
   // The line in the transverse plane, in the frame where the point is at
   // (r, 0): direction (cosAlpha, sinAlpha), z changing by cotTheta per step.
   const Scalar alpha = state.phi() - azimuth(reach.point[0], reach.point[1]);
-  const Scalar cosAlpha = Math::Cos(alpha);
-  const Scalar sinAlpha = Math::Sin(alpha);
-  const Scalar sinTheta = Math::Abs(Math::Sin(state.theta()));
-  const Scalar cotTheta = Math::Cos(state.theta()) / sinTheta;
+  const Scalar cosAlpha = cosOf(alpha);
+  const Scalar sinAlpha = sinOf(alpha);
+  const Scalar sinTheta = Math::Abs(sinOf(state.theta()));
+  const Scalar cotTheta = cosOf(state.theta()) / sinTheta;
   const Scalar dilation = std::numbers::sqrt2_v<Scalar> * spread;
   const auto departure = [&](Scalar step) { return 0.5F * Math::Abs(curvature) * step * step; };
   // The steps back and ahead along the line to the envelope's edges.
@@ -215,7 +215,7 @@ template <DetectorLayout Det>
     const auto edges = [&](Scalar widening) {
       const Scalar inner = Math::Max(span.positionMin - widening, 0.F);
       const Scalar outer = span.positionMax + widening;
-      const auto root = [&](Scalar radius) { return Math::Sqrt(Math::Max((radius * radius) - b2, 0.F)); };
+      const auto root = [&](Scalar radius) { return sqrtClampedOf((radius * radius) - b2); };
       // Inwards, the line leaves the envelope at its inner edge if it gets
       // that close to the axis, else at its outer edge beyond.
       const bool dips = b2 < inner * inner;
@@ -239,14 +239,14 @@ template <DetectorLayout Det>
   }
   ahead = Math::Max(ahead, 0.F);
   back = Math::Max(back, 0.F);
-  const Scalar phiAhead = Math::ATan2(ahead * sinAlpha, r + (ahead * cosAlpha));
-  const Scalar phiBack = Math::ATan2(-back * sinAlpha, r - (back * cosAlpha));
-  const auto radiusAt = [&](Scalar step) { return Math::Sqrt(Math::Max((r * r) + (2.F * step * r * cosAlpha) + (step * step), 0.F)); };
+  const Scalar phiAhead = atan2Of(ahead * sinAlpha, r + (ahead * cosAlpha));
+  const Scalar phiBack = atan2Of(-back * sinAlpha, r - (back * cosAlpha));
+  const auto radiusAt = [&](Scalar step) { return sqrtClampedOf((r * r) + (2.F * step * r * cosAlpha) + (step * step)); };
   const Scalar closest = -r * cosAlpha;
   const Scalar rMin = (closest > -back && closest < ahead) ? Math::Abs(r * sinAlpha) : Math::Min(radiusAt(ahead), radiusAt(-back));
   const Scalar rMax = Math::Max(radiusAt(ahead), radiusAt(-back));
   // The margin's azimuth about the nearest the line comes to the axis.
-  const Scalar widen = rMin > margin ? Math::ASin(margin / rMin) : kPi<Scalar>;
+  const Scalar widen = rMin > margin ? asinOf(margin / rMin) : kPi<Scalar>;
   reach.phi = azimuth(reach.point[0], reach.point[1]) + (0.5F * (phiAhead + phiBack));
   reach.phiReach = Math::Min((0.5F * Math::Abs(phiAhead - phiBack)) + widen, kPi<Scalar>);
   if (barrel) {
@@ -341,8 +341,8 @@ struct ProposePartners {
       // variance and the follow's position term (`predictedWindow`), and the
       // layer's largest measurement variance, which the gate adds.
       const Scalar spread = nSigma * Math::Sqrt(Math::Max(cov[varIndex(kLoc0)], cov[varIndex(kLoc1)]) + parameters->followPositionVariance + measurementVariance[layer]);
-      const Scalar sinTheta = Math::Sin(state.theta());
-      const Scalar direction[3] = {sinTheta * Math::Cos(state.phi()), sinTheta * Math::Sin(state.phi()), Math::Cos(state.theta())};
+      const Scalar sinTheta = sinOf(state.theta());
+      const Scalar direction[3] = {sinTheta * cosOf(state.phi()), sinTheta * sinOf(state.phi()), cosOf(state.theta())};
       const auto& from = geometry->planeOf(state);
       const auto& stepPropagator = pointPropagator(propagator, from, state);
       const ExactScalar curvature = stepPropagator.curvature(static_cast<ExactScalar>(state.qOverP()), 1.);
@@ -357,38 +357,17 @@ struct ProposePartners {
         if (surface.layer != layer) {
           return;
         }
-        TrackingSurface plane = surface;
-        if (surface.radius > 0.F) {
-          Scalar along0 = 0.F;
-          Scalar along1 = 0.F;
-          for (int i = 0; i < 3; ++i) {
-            along0 += (reach.point[i] - surface.origin[i]) * surface.axis0[i];
-            along1 += (reach.point[i] - surface.origin[i]) * surface.axis1[i];
-          }
-          plane = tangentPlane(surface, Math::ATan2(along1, along0));
-        }
+        const TrackingSurface plane = geometry->planeAt(static_cast<SensorID>(id), reach.point);
         // The straight line along the track first: off the sensor by more
         // than the spread and the helix's departure from the line over the
         // step, it is not crossed.
-        Scalar normalDirection = 0.F;
-        Scalar normalOffset = 0.F;
-        for (int i = 0; i < 3; ++i) {
-          normalDirection += plane.normal[i] * direction[i];
-          normalOffset += plane.normal[i] * (plane.origin[i] - reach.point[i]);
-        }
-        if (!(Math::Abs(normalDirection) > 0.F)) {
+        Scalar step = 0.F;
+        Scalar line[2]{};
+        if (!lineCrossing(plane, reach.point, direction, step, line)) {
           return;
         }
-        const Scalar step = normalOffset / normalDirection;
-        Scalar line0 = 0.F;
-        Scalar line1 = 0.F;
-        for (int i = 0; i < 3; ++i) {
-          const Scalar offsetAlong = reach.point[i] + (step * direction[i]) - plane.origin[i];
-          line0 += offsetAlong * plane.axis0[i];
-          line1 += offsetAlong * plane.axis1[i];
-        }
         const Scalar departure = 0.5F * static_cast<Scalar>(Math::Abs(curvature)) * step * step;
-        if (Math::Abs(line0) > surface.bounds.halfX + spread + departure || Math::Abs(line1) > surface.bounds.halfY + spread + departure) {
+        if (!surface.bounds.isInside(line[0], line[1], spread + departure)) {
           return;
         }
         // Where the track crosses it, ahead or behind its row.
@@ -402,7 +381,7 @@ struct ProposePartners {
             return;
           }
         }
-        if (Math::Abs(at.loc0()) > surface.bounds.halfX + spread || Math::Abs(at.loc1()) > surface.bounds.halfY + spread) {
+        if (!surface.bounds.isInside(at.loc0(), at.loc1(), spread)) {
           return;
         }
         // Its rows about the crossing.

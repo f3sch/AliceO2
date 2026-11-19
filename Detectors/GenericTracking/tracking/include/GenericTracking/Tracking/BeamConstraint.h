@@ -90,7 +90,7 @@ template <typename Prop>
 [[nodiscard]] GPUdi() Scalar perigeePhi(const Prop& prop, const BoundTrackState& state, const TrackingSurface& surface, Scalar x = 0.F, Scalar y = 0.F)
 {
   ExactScalar position[3]{};
-  detail::boundToGlobal(surface, static_cast<ExactScalar>(state.loc0()), static_cast<ExactScalar>(state.loc1()), position);
+  surfaceToGlobal(surface, static_cast<ExactScalar>(state.loc0()), static_cast<ExactScalar>(state.loc1()), position);
   position[0] -= static_cast<ExactScalar>(x);
   position[1] -= static_cast<ExactScalar>(y);
 
@@ -112,15 +112,8 @@ GPUhdi() GPUAlwaysInline() TrackingSurface beamLinePlane(Scalar x, Scalar y, Sca
   Scalar sinPhi = 0.F;
   Scalar cosPhi = 0.F;
   sincosOf(phi, sinPhi, cosPhi);
-  TrackingSurface plane;
-  plane.origin[0] = x;
-  plane.origin[1] = y;
-  plane.axis0[0] = -sinPhi;
-  plane.axis0[1] = cosPhi;
-  plane.axis1[2] = 1.F;
-  plane.normal[0] = cosPhi;
-  plane.normal[1] = sinPhi;
-  return plane;
+  const Scalar origin[3] = {x, y, 0.F};
+  return radialPlane(origin, sinPhi, cosPhi);
 }
 
 /// The variance [cm^2] of the d0 a state on \a innermost's measurement

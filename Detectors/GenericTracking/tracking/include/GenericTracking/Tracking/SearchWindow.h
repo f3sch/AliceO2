@@ -408,7 +408,7 @@ template <DetectorLayout Det>
     if (std::cos(phi) * std::max(rFrom, rTo) < std::min(rFrom, rTo)) {
       return false;
     }
-    const double chord = std::sqrt(std::max((rFrom * rFrom) + (rTo * rTo) - (2. * rFrom * rTo * std::cos(phi)), 0.));
+    const double chord = sqrtClampedOf((rFrom * rFrom) + (rTo * rTo) - (2. * rFrom * rTo * std::cos(phi)));
     const double lever = chord / rTo;
     const double gaussian = std::sqrt((variance * ((1. / (rFrom * rFrom)) + (1. / (rTo * rTo)))) + (lever * lever * sourceKink * sourceKink) + (betweenKink * betweenKink / (rTo * rTo)));
     return std::sin(phi) <= (chord / twoR) + (params.nSigma * gaussian);

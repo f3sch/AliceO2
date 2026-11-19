@@ -48,58 +48,15 @@ constexpr std::size_t kLayers = 8U;
 /// The helices of the fixtures by index: direction, dip slope and pT.
 constexpr std::size_t kHelixTracks = 5U;
 
-struct InputPoint {
-  LayerID layer = kInvalidLayerID;
-  Scalar x = 0.F;
-  Scalar y = 0.F;
-  Scalar z = 0.F;
-  Scalar r = 0.F;
-  Scalar phi = 0.F;
-};
+using InputPoint = test::FramePoint;
 
-inline SearchWindowParams windowParameters()
-{
-  SearchWindowParams result;
-  result.minPtGeV = 1.;
-  result.bzKiloGauss = 20.;
-  result.materialX2X0 = 0.;
-  result.positionSigma = 0.003;
-  result.nSigma = 3.;
-  return result;
-}
+inline SearchWindowParams windowParameters() { return test::toyWindows(0.003); }
 
-inline GridParams gridParameters()
-{
-  GridParams result;
-  result.blockWidth = 20'000;
-  return test::withToyFrames(result);
-}
-
-inline IterationSettings iterationSettings() { return {.windows = windowParameters(), .vertexSource = VertexSource::kBeamLine}; }
+inline IterationSettings iterationSettings() { return test::toyIteration(windowParameters()); }
 
 /// Where a track from the origin with direction \a phi0, dip slope \a slope
 /// and \a ptGeV crosses \a layer.
-inline InputPoint helixAt(double phi0, double slope, double ptGeV, LayerID layer)
-{
-  const double radius = layerDistance<Det>(layer);
-  const double curvature = 1. / curvatureRadius(ptGeV, 20.);
-  const double arc = 2. * std::asin(0.5 * curvature * radius) / curvature;
-  const double direction = phi0 + (curvature * arc);
-  const double x = (std::sin(direction) - std::sin(phi0)) / curvature;
-  const double y = (std::cos(phi0) - std::cos(direction)) / curvature;
-  double phi = std::atan2(y, x);
-  if (phi < 0.) {
-    phi += kTwoPi<double>;
-  }
-  return {
-    .layer = layer,
-    .x = static_cast<Scalar>(x),
-    .y = static_cast<Scalar>(y),
-    .z = static_cast<Scalar>(slope * arc),
-    .r = static_cast<Scalar>(radius),
-    .phi = static_cast<Scalar>(phi),
-  };
-}
+inline InputPoint helixAt(double phi0, double slope, double ptGeV, LayerID layer) { return test::toyHelixAt<Det>(phi0, slope, ptGeV, layer); }
 
 inline InputPoint helixPoint(std::size_t track, LayerID layer)
 {
@@ -156,11 +113,9 @@ inline std::vector<Hit> sensorHelixHits(double phi0, double slope, double ptGeV,
       const auto height = [&](double arc) {
         double position[3]{};
         at(arc, position);
-        double result = 0.;
-        for (int i = 0; i < 3; ++i) {
-          result += (position[i] - static_cast<double>(surface.origin[i])) * static_cast<double>(surface.normal[i]);
-        }
-        return result;
+        double local[3];
+        surfaceToLocal(surface, position, local);
+        return local[2];
       };
       double low = 0.8 * crossing;
       double high = 1.3 * crossing;
@@ -180,10 +135,6 @@ inline std::vector<Hit> sensorHelixHits(double phi0, double slope, double ptGeV,
       if (!surface.bounds.isInside(local[0], local[1])) {
         continue;
       }
-      double phi = std::atan2(position[1], position[0]);
-      if (phi < 0.) {
-        phi += kTwoPi<double>;
-      }
       hits.push_back({
         .point =
           {
@@ -192,7 +143,7 @@ inline std::vector<Hit> sensorHelixHits(double phi0, double slope, double ptGeV,
             .y = global[1],
             .z = global[2],
             .r = static_cast<Scalar>(std::hypot(position[0], position[1])),
-            .phi = static_cast<Scalar>(phi),
+            .phi = static_cast<Scalar>(to02PiOf(std::atan2(position[1], position[0]))),
           },
         .timeNS = startNS + (arc * std::hypot(1., slope) / static_cast<double>(constants::physics::LightSpeedCm2NS)),
         .surface = sensor,
@@ -222,7 +173,7 @@ class Fixture
   static constexpr VertexConstraint kBeamConstraint{.z = 0., .sigmaZ = 0.02, .sigmaTransverse = 0.001};
 
   explicit Fixture(const std::vector<Hit>& hits, double durationNS = 20.)
-    : Fixture(hits, durationNS, gridParameters(), [](const Hit& hit) { return test::toyTimeBox(hit.timeNS); })
+    : Fixture(hits, durationNS, test::toyGridParameters(), [](const Hit& hit) { return test::toyTimeBox(hit.timeNS); })
   {
   }
 
@@ -248,7 +199,7 @@ class Fixture
   {
   }
 
-  [[nodiscard]] static constexpr std::size_t logicalIndex(std::size_t track, std::size_t layer) { return (kLayers * track) + layer; }
+  [[nodiscard]] static constexpr std::size_t logicalIndex(std::size_t track, std::size_t layer) { return test::logicalIndex(kLayers, track, layer); }
 
   [[nodiscard]] std::uint32_t row(std::size_t logical) const { return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(logical)) - columns.clusterIndex.begin()); }
 

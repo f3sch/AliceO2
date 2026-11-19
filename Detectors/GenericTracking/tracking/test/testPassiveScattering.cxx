@@ -24,6 +24,7 @@
 #define BOOST_TEST_MODULE Test GTRK Passive Scattering
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerSpec.h"
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/LayerMaterial.h"
 #include "GenericTracking/Tracking/NeighbourCut.h"
@@ -258,7 +259,7 @@ std::array<LinkCount, 5> countPairs(const ScatteringTable<Det>& cutTable, bool w
       }
       ++count.accepted;
       const auto& window = parameters.windows[link];
-      const double dPhi = std::remainder(std::atan2(target.y, target.x) - std::atan2(source.y, source.x), kTwoPi<double>);
+      const double dPhi = toPMPiOf<double>(std::atan2(target.y, target.x) - std::atan2(source.y, source.x));
       count.inPhiWindow += std::abs(dPhi) <= static_cast<double>(window.phiHalfWidth) ? 1 : 0;
       const double centre = (static_cast<double>(window.secondScale) * static_cast<double>(source.z)) + static_cast<double>(window.secondOffset);
       count.inSecondWindow += std::abs(static_cast<double>(target.z) - centre) <= static_cast<double>(window.secondHalfWidth) ? 1 : 0;
@@ -266,8 +267,6 @@ std::array<LinkCount, 5> countPairs(const ScatteringTable<Det>& cutTable, bool w
   }
   return counts;
 }
-
-double share(int part, int whole) { return whole == 0 ? 0. : static_cast<double>(part) / static_cast<double>(whole); }
 
 /// Consecutive triplets and neighbours of tracks at pT_min, through the
 /// stages' own cuts with \a cutTable: a triplet counted when both its pairs
@@ -433,7 +432,7 @@ BOOST_AUTO_TEST_CASE(TruePairsPassAcrossAndBeyondThePipe)
     {
       BOOST_TEST(count.pairs > kTracks / 2);
       // 3 sigma: 0.13 % one-sided on the curvature, 0.27 % on the pitch.
-      BOOST_TEST(share(count.accepted, count.pairs) > 0.993);
+      BOOST_TEST(fraction(count.accepted, count.pairs) > 0.993);
       BOOST_TEST(count.inPhiWindow == count.accepted);
       BOOST_TEST(count.inSecondWindow == count.accepted);
     }
@@ -441,11 +440,11 @@ BOOST_AUTO_TEST_CASE(TruePairsPassAcrossAndBeyondThePipe)
 
   const auto noBetween = countPairs(table(kPipeX2X0), false, kPipeX2X0, kTracks);
   BOOST_TEST_MESSAGE("without the kink between: link 2 " << noBetween[kCrossingLink].accepted << "/" << noBetween[kCrossingLink].pairs);
-  BOOST_TEST(share(noBetween[kCrossingLink].accepted, noBetween[kCrossingLink].pairs) < 0.98);
+  BOOST_TEST(fraction(noBetween[kCrossingLink].accepted, noBetween[kCrossingLink].pairs) < 0.98);
 
   const auto noPipe = countPairs(table(0.), true, kPipeX2X0, kTracks);
   BOOST_TEST_MESSAGE("without the pipe in the table: link 3 " << noPipe[kBeyondLink].accepted << "/" << noPipe[kBeyondLink].pairs);
-  BOOST_TEST(share(noPipe[kBeyondLink].accepted, noPipe[kBeyondLink].pairs) < 0.98);
+  BOOST_TEST(fraction(noPipe[kBeyondLink].accepted, noPipe[kBeyondLink].pairs) < 0.98);
 }
 
 /// Triplets and neighbours with the pipe between their points, of every kind
@@ -460,18 +459,18 @@ BOOST_AUTO_TEST_CASE(TripletsAndNeighboursAcrossThePipe)
   const auto without = countChains(table(0.), kPipeX2X0, kTracks);
   for (std::size_t first = 0; first < full.triplets.size(); ++first) {
     BOOST_TEST_MESSAGE("triplet " << first << "-" << first + 2U << ": " << full.triplets[first].accepted << "/" << full.triplets[first].pairs << ", without the pipe " << without.triplets[first].accepted << "/" << without.triplets[first].pairs);
-    BOOST_TEST_CONTEXT("triplet from layer " << first) { BOOST_TEST(share(full.triplets[first].accepted, full.triplets[first].pairs) > 0.99); }
+    BOOST_TEST_CONTEXT("triplet from layer " << first) { BOOST_TEST(fraction(full.triplets[first].accepted, full.triplets[first].pairs) > 0.99); }
   }
   for (std::size_t first = 0; first < full.neighbours.size(); ++first) {
     BOOST_TEST_MESSAGE("neighbour " << first << "-" << first + 3U << ": " << full.neighbours[first].accepted << "/" << full.neighbours[first].pairs << ", without the pipe " << without.neighbours[first].accepted << "/" << without.neighbours[first].pairs);
-    BOOST_TEST_CONTEXT("neighbour from layer " << first) { BOOST_TEST(share(full.neighbours[first].accepted, full.neighbours[first].pairs) > 0.99); }
+    BOOST_TEST_CONTEXT("neighbour from layer " << first) { BOOST_TEST(fraction(full.neighbours[first].accepted, full.neighbours[first].pairs) > 0.99); }
   }
   // The pipe lies 0.5 cm beyond layer 2 of the 4.5 between layers 2 and 3.
   // Between the middle points it matters: the triplet 1-3 and the neighbour
   // 1-4 fail without it. Just past the first point, t = 0.11, it turns the
   // angle at `b` by 0.11 theta_p and hardly shows (triplet 2-4).
-  BOOST_TEST(share(without.triplets[1].accepted, without.triplets[1].pairs) < 0.9);
-  BOOST_TEST(share(without.neighbours[1].accepted, without.neighbours[1].pairs) < 0.95);
+  BOOST_TEST(fraction(without.triplets[1].accepted, without.triplets[1].pairs) < 0.9);
+  BOOST_TEST(fraction(without.neighbours[1].accepted, without.neighbours[1].pairs) < 0.95);
 }
 
 } // namespace o2::gtrk

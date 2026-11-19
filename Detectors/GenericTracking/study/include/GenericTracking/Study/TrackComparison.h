@@ -51,6 +51,7 @@
 #define GTRK_STUDY_TRACKCOMPARISON_H_
 
 #include "GenericTracking/Base/Definitions.h"
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/LayerEnvelopes.h"
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Base/LayerSpec.h"
@@ -237,11 +238,10 @@ template <DetectorLayout Det>
     }
   }
   if constexpr (!Detector<Det>::hasBarrel && Detector<Det>::hasDiscs) {
-    const auto eta = [](double r, double z) { return std::asinh(z / r); };
     const auto& first = PlacedEnvelopes<Det>::get(static_cast<LayerID>(0));
     const auto& last = PlacedEnvelopes<Det>::get(static_cast<LayerID>(Detector<Det>::nLayers - 1));
-    const double wide = eta(static_cast<double>(first.rMax), static_cast<double>(first.position));
-    const double narrow = eta(static_cast<double>(last.rMin), static_cast<double>(last.position));
+    const double wide = etaOf(static_cast<double>(first.rMax), static_cast<double>(first.position));
+    const double narrow = etaOf(static_cast<double>(last.rMin), static_cast<double>(last.position));
     // Rounded outwards to 0.1, then split evenly.
     const double low = std::floor(std::min(wide, narrow) * 10.) / 10.;
     const double high = std::ceil(std::max(wide, narrow) * 10.) / 10.;

@@ -142,16 +142,45 @@ struct Device {
   DeviceStream stream;
 };
 
+/// The host stage output the serial reference makes of \a generate over
+/// \a elements elements, its run ending in \a expected.
+template <template <template <class> class> class S, typename Generate>
+std::unique_ptr<StageOutput<S>> serialOutput(Generate generate, std::uint32_t elements, StageStatus expected = StageStatus::kComplete)
+{
+  auto output = std::make_unique<StageOutput<S>>();
+  output->setMemoryPool(std::make_shared<BoundedMemoryResource>());
+  output->prepare(elements);
+  BOOST_REQUIRE((runSerial(*output, generate) == expected));
+  return output;
+}
+
 /// A host stage output of one record per element, made by the serial
 /// reference.
 template <template <template <class> class> class S, typename Record>
 std::unique_ptr<StageOutput<S>> recordsOf(const std::vector<Record>& records)
 {
-  auto output = std::make_unique<StageOutput<S>>();
-  output->setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  output->prepare(static_cast<std::uint32_t>(records.size()));
-  BOOST_REQUIRE(runSerial(*output, [&](std::uint32_t element, auto& emitter) { emitter.emit(records[element]); }) == StageStatus::kComplete);
-  return output;
+  return serialOutput<S>([&](std::uint32_t element, auto& emitter) { emitter.emit(records[element]); }, static_cast<std::uint32_t>(records.size()));
+}
+
+/// A device run of a synthetic stage, downloaded into a host StageOutput,
+/// with the run's report \a Info.
+template <typename Info>
+struct DeviceRun {
+  StageStatus status = StageStatus::kComplete;
+  Info info;
+  StageOutput<TrackletT> output;
+};
+
+/// \a run(stream, output, info) on a stream of its own on \a device, finished.
+template <typename Info, typename Run>
+std::unique_ptr<DeviceRun<Info>> runOnDevice(DeviceRuntime& device, const Run& run)
+{
+  auto stream = device.createStream();
+  auto result = std::make_unique<DeviceRun<Info>>();
+  result->output.setMemoryPool(std::make_shared<BoundedMemoryResource>());
+  result->status = run(stream, result->output, result->info);
+  stream.synchronize();
+  return result;
 }
 
 } // namespace o2::gtrk::device_test

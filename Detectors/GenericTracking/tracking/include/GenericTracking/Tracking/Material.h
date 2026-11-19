@@ -20,6 +20,8 @@
 
 #include "GPUCommonMath.h"
 
+#include <type_traits>
+
 namespace o2::gtrk
 {
 
@@ -49,18 +51,20 @@ GPUhdi() GPUAlwaysInline() Scalar betaMomentum(Scalar momentumGeV, Scalar massGe
 /// The logarithmic correction turns negative below X/X0 / beta^2 =
 /// exp(-1/0.038), about 4e-12, which is far outside anything a detector
 /// produces but is guarded because a negative sigma is worse than a zero one.
-GPUhdi() GPUAlwaysInline() Scalar highlandTheta0(Scalar x2X0, Scalar logX2X0, Scalar momentumGeV, Scalar massGeV)
+/// In the precision T of \a x2X0, the others converted to it.
+template <typename T>
+GPUhdi() GPUAlwaysInline() T highlandTheta0(T x2X0, std::type_identity_t<T> logX2X0, std::type_identity_t<T> momentumGeV, std::type_identity_t<T> massGeV)
 {
-  if (x2X0 <= 0.F || logX2X0 <= 0.F || momentumGeV <= 0.F) {
-    return 0.F;
+  if (x2X0 <= T(0) || logX2X0 <= T(0) || momentumGeV <= T(0)) {
+    return T(0);
   }
-  const Scalar energy2 = (momentumGeV * momentumGeV) + (massGeV * massGeV);
-  const Scalar beta2 = momentumGeV * momentumGeV / energy2;
-  const Scalar corr = 1.F + 0.038F * logOf(logX2X0 / beta2);
-  if (corr <= 0.F) {
-    return 0.F;
+  const T energy2 = (momentumGeV * momentumGeV) + (massGeV * massGeV);
+  const T beta2 = momentumGeV * momentumGeV / energy2;
+  const T corr = T(1) + T(0.038) * logOf(logX2X0 / beta2);
+  if (corr <= T(0)) {
+    return T(0);
   }
-  return (0.0136F / (momentumGeV * o2::gpu::GPUCommonMath::Sqrt(beta2))) * o2::gpu::GPUCommonMath::Sqrt(x2X0) * corr;
+  return (T(0.0136) / (momentumGeV * sqrtOf(beta2))) * sqrtOf(x2X0) * corr;
 }
 
 /// O2's mean Bethe-Bloch for silicon, `o2::track::BetheBlochSolidOpt`, at
@@ -79,7 +83,7 @@ GPUhdi() GPUAlwaysInline() Scalar betheBlochSolid(Scalar betaGamma)
   const Scalar bg2 = betaGamma * betaGamma;
   const Scalar beta2 = bg2 / (1.F + bg2);
   Scalar d2 = 0.F;
-  const Scalar x = o2::gpu::GPUCommonMath::Log(betaGamma);
+  const Scalar x = logOf(betaGamma);
   if (x > kP2) {
     d2 = kLhwI - 0.5F + x;
   } else if (x > kP1) {

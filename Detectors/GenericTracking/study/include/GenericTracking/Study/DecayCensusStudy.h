@@ -27,6 +27,7 @@
 #ifndef GTRK_STUDY_DECAYCENSUSSTUDY_H_
 #define GTRK_STUDY_DECAYCENSUSSTUDY_H_
 
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Study/DecayCandidates.h"
 #include "GenericTracking/Study/DecayTrees.h"
 #include "GenericTracking/Study/MCTruth.h"
@@ -196,7 +197,7 @@ void DecayCensusStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     const double pt = ptOf(member);
     record.p = static_cast<float>(p);
     record.pt = static_cast<float>(pt);
-    record.eta = static_cast<float>(pt > 0. ? std::asinh(momentum[2] / pt) : std::copysign(std::numeric_limits<double>::infinity(), momentum[2]));
+    record.eta = static_cast<float>(pt > 0. ? etaOf(pt, momentum[2]) : std::copysign(std::numeric_limits<double>::infinity(), momentum[2]));
     if (const auto offset = productionOffset(*event.collisions, member.id, member.vertex)) {
       record.productionOffset = static_cast<float>(*offset);
     }

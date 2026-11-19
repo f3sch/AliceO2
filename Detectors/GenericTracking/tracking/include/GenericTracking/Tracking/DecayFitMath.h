@@ -107,7 +107,7 @@ struct MomentumSum {
     energy = energy + itsEnergy;
   }
   /// |P|^2.
-  [[nodiscard]] GPUhdi() T squared() const { return (vector[0] * vector[0]) + (vector[1] * vector[1]) + (vector[2] * vector[2]); }
+  [[nodiscard]] GPUhdi() T squared() const { return dotOf(vector, vector); }
   /// The invariant mass squared, E^2 - |P|^2.
   [[nodiscard]] GPUhdi() T massSquared() const { return (energy * energy) - squared(); }
 };
@@ -124,7 +124,7 @@ template <typename T>
 [[nodiscard]] GPUhdi() DirectionOfMomentum<T> directionOfMomentum(const std::array<T, 3>& momentum)
 {
   const T pt = sqrtOf((momentum[0] * momentum[0]) + (momentum[1] * momentum[1]));
-  return {.phi = atan2Of(momentum[1], momentum[0]), .theta = atan2Of(pt, momentum[2]), .p = sqrtOf((pt * pt) + (momentum[2] * momentum[2]))};
+  return {.phi = phiOf(momentum), .theta = atan2Of(pt, momentum[2]), .p = sqrtOf((pt * pt) + (momentum[2] * momentum[2]))};
 }
 
 /// The most iterations of a fit's loops, and the most halvings of one step:
@@ -261,9 +261,10 @@ template <int N, typename T>
   to[3] = phi + (rho * s);
   to[4] = theta;
   to[5] = from[5];
-  const std::array<D, 3> d{to[0] + (-static_cast<T>(plane.origin[0])), to[1] + (-static_cast<T>(plane.origin[1])), to[2] + (-static_cast<T>(plane.origin[2]))};
-  local[0] = (static_cast<T>(plane.axis0[0]) * d[0]) + (static_cast<T>(plane.axis0[1]) * d[1]) + (static_cast<T>(plane.axis0[2]) * d[2]);
-  local[1] = (static_cast<T>(plane.axis1[0]) * d[0]) + (static_cast<T>(plane.axis1[1]) * d[1]) + (static_cast<T>(plane.axis1[2]) * d[2]);
+  D onPlane[3];
+  surfaceToLocal(plane, to.data(), onPlane);
+  local[0] = onPlane[0];
+  local[1] = onPlane[1];
   return true;
 }
 
@@ -360,8 +361,8 @@ struct MixtureCollapse {
       return;
     }
     const double h = o2::gpu::CAMath::Max(logScale, logScaleB);
-    const double a = o2::gpu::CAMath::Expd(logScale - h);
-    const double b = o2::gpu::CAMath::Expd(logScaleB - h);
+    const double a = expOf(logScale - h);
+    const double b = expOf(logScaleB - h);
     const double u = a * weight;
     const double v = b * weightB;
     const double w = u + v;

@@ -15,11 +15,13 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK GSF Track Fitter
 #include "GenericTracking/Base/Geometry.h"
+#include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Tracking/GSFTrackFitter.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Propagator.h"
 
 #include "ElectronChain.h"
+#include "StageOutputComparison.h"
 #include "ToyBarrel4Disc8.h"
 #include "UniformMaterial.h"
 
@@ -31,7 +33,6 @@
 #include <cfloat>
 #include <chrono>
 #include <cmath>
-#include <cstring>
 #include <memory>
 #include <random>
 #include <vector>
@@ -230,8 +231,6 @@ std::string describe(const std::string& label, const Coverage& c)
                      1e3 * c.seconds / std::max(1, c.fits), 1e3 * c.kalmanSeconds / std::max(1, c.fits));
 }
 
-bool sameBits(const Scalar* a, const Scalar* b, int n) { return std::memcmp(a, b, sizeof(Scalar) * static_cast<std::size_t>(n)) == 0; }
-
 } // namespace
 
 /// One component that never loses: the filter is the Kalman fit, both
@@ -250,10 +249,10 @@ BOOST_AUTO_TEST_CASE(WithoutLossItIsTheKalmanFit)
     BOOST_REQUIRE(gsf.fit.status == PropagationStatus::kOk);
     BOOST_TEST(gsf.outwardMixture.size == 1);
     BOOST_TEST(gsf.mixture.size == 1);
-    BOOST_TEST(sameBits(gsf.fit.outwardState.par, kalman.outwardState.par, kNBoundParams));
-    BOOST_TEST(sameBits(gsf.fit.outwardState.cov, kalman.outwardState.cov, kBoundCovSize));
-    BOOST_TEST(sameBits(gsf.fit.state.par, kalman.state.par, kNBoundParams));
-    BOOST_TEST(sameBits(gsf.fit.state.cov, kalman.state.cov, kBoundCovSize));
+    BOOST_TEST(sameBitsEach(gsf.fit.outwardState.par, kalman.outwardState.par));
+    BOOST_TEST(sameBitsEach(gsf.fit.outwardState.cov, kalman.outwardState.cov));
+    BOOST_TEST(sameBitsEach(gsf.fit.state.par, kalman.state.par));
+    BOOST_TEST(sameBitsEach(gsf.fit.state.cov, kalman.state.cov));
     BOOST_TEST(gsf.fit.outwardChi2 == kalman.outwardChi2);
     BOOST_TEST(gsf.fit.chi2 == kalman.chi2);
     BOOST_TEST(gsf.fit.ndf == kalman.ndf);
@@ -517,10 +516,6 @@ BOOST_AUTO_TEST_CASE(TheReductionConverges)
     compare(2, fitGaussianSum(chain.propagator, chain.tracking, thick, measurements, kLayers));
     compare(3, fitGaussianSum<BetheHeitlerLoss, 12>(chain.propagator, chain.tracking, thick, measurements, kLayers));
   }
-  const auto quantile = [](std::vector<double> v, double q) {
-    std::ranges::sort(v);
-    return v[static_cast<std::size_t>(q * static_cast<double>(v.size() - 1))];
-  };
   BOOST_TEST_MESSAGE("against K 24, |difference| / sigma (median, 95 %) of loc0 loc1 phi theta q/p; the mode, relative");
   const int ks[] = {1, 4, BetheHeitlerLoss::kComponents, 12};
   for (int slot = 0; slot < 4; ++slot) {
@@ -559,8 +554,8 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseAloneIsFinishMixtureWithoutTheMode)
   detail::gsf::finishMixture(mixture, finished, mode);
   detail::gsf::collapseMixture(alone, collapsed);
   // One component: the finished state is the collapse's, bit for bit.
-  BOOST_TEST(std::memcmp(finished.par, collapsed.par, sizeof(finished.par)) == 0); // NOLINT(bugprone-suspicious-memory-comparison)
-  BOOST_TEST(std::memcmp(finished.cov, collapsed.cov, sizeof(finished.cov)) == 0); // NOLINT(bugprone-suspicious-memory-comparison)
+  BOOST_TEST(sameBitsEach(finished.par, collapsed.par));
+  BOOST_TEST(sameBitsEach(finished.cov, collapsed.cov));
   BOOST_TEST(mode == detail::gsf::momentumModeOf(alone));
 }
 

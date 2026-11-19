@@ -53,6 +53,18 @@ struct BetweenBoundRatio {
   int sourcePartMismatches = 0;
 };
 
+/// The value a fraction \a u of the way from \a low to \a high.
+[[nodiscard]] inline double interpolate(double low, double high, double u) { return low + (u * (high - low)); }
+
+/// The point of layer \a layer at azimuth 0, fractions \a u of the way
+/// through its radii and \a v through its z.
+template <DetectorLayout Det>
+[[nodiscard]] PairPoint extentPoint(LayerID layer, double u, double v)
+{
+  const auto r = static_cast<Scalar>(interpolate(radiusMin<Det>(layer), radiusMax<Det>(layer), u));
+  return PairPoint{.x = r, .z = static_cast<Scalar>(interpolate(zMin<Det>(layer), zMax<Det>(layer), v)), .r = r};
+}
+
 /// Per link with a passive between, `betweenScattering` at points over both
 /// layers' extents -- every corner, then uniform draws -- and vertices over
 /// the beam spot's reach, over the link's `betweenBound`: at most one where
@@ -68,17 +80,12 @@ std::vector<BetweenBoundRatio> betweenOverBound(const ScatteringTable<Det>& scat
   const double reach = windows.nSigma * beamSpot.sigmaZ;
   std::mt19937 rng(20261010);
   std::uniform_real_distribution<double> uniform(0., 1.);
-  const auto at = [](double low, double high, double u) { return low + (u * (high - low)); };
   std::vector<BetweenBoundRatio> ratios;
   for (std::size_t link = 0; link < Det::layerLinks.size(); ++link) {
     if (!parameters.passiveBetween[link]) {
       continue;
     }
     const auto& pair = Det::layerLinks[link];
-    const auto point = [&](LayerID layer, double u, double v) {
-      const auto r = static_cast<Scalar>(at(radiusMin<Det>(layer), radiusMax<Det>(layer), u));
-      return PairPoint{.x = r, .z = static_cast<Scalar>(at(zMin<Det>(layer), zMax<Det>(layer), v)), .r = r};
-    };
     BetweenBoundRatio ratio{.from = pair.from, .to = pair.to};
     for (int draw = 0; draw < kCorners + kDraws; ++draw) {
       std::array<double, 5> u{};
@@ -86,14 +93,14 @@ std::vector<BetweenBoundRatio> betweenOverBound(const ScatteringTable<Det>& scat
         u[i] = draw < kCorners ? static_cast<double>((draw >> i) & 1) : uniform(rng);
       }
       auto vertex = vertexSeed(beamSpot);
-      vertex.z = static_cast<Scalar>(at(beamSpot.z - reach, beamSpot.z + reach, u[4]));
-      const auto source = point(pair.from, u[0], u[1]);
-      const auto target = point(pair.to, u[2], u[3]);
+      vertex.z = static_cast<Scalar>(interpolate(beamSpot.z - reach, beamSpot.z + reach, u[4]));
+      const auto source = extentPoint<Det>(pair.from, u[0], u[1]);
+      const auto target = extentPoint<Det>(pair.to, u[2], u[3]);
       const Scalar kink = betweenScattering<Det>(parameters.scattering, parameters.pairCut, vertex, source, target);
       const Scalar masked = betweenScattering<Det>(parameters.scattering, parameters.pairCut, vertex, source, target, parameters.betweenPassives[link]);
-      ratio.maskMismatches += std::bit_cast<std::uint32_t>(masked) != std::bit_cast<std::uint32_t>(kink) ? 1 : 0;
+      ratio.maskMismatches += sameBits(masked, kink) ? 0 : 1;
       const Scalar fromSource = betweenScattering<Det>(betweenSource<Det>(parameters.scattering, vertex, source, parameters.pairCut.logBeta2), parameters.pairCut, vertex, target, parameters.betweenPassives[link]);
-      ratio.sourcePartMismatches += std::bit_cast<std::uint32_t>(fromSource) != std::bit_cast<std::uint32_t>(masked) ? 1 : 0;
+      ratio.sourcePartMismatches += sameBits(fromSource, masked) ? 0 : 1;
       ratio.worst = std::max(ratio.worst, static_cast<double>(kink) / static_cast<double>(parameters.betweenBound[link]));
     }
     ratios.push_back(ratio);
@@ -112,21 +119,16 @@ int segmentMaskMismatches(const ScatteringTable<Det>& table)
   constexpr int kDraws = 4096;
   std::mt19937 rng(20261015);
   std::uniform_real_distribution<double> uniform(0., 1.);
-  const auto at = [](double low, double high, double u) { return low + (u * (high - low)); };
   const PairCut cut{.invBetaMomentum2 = 1.F};
   int mismatches = 0;
   for (const auto& link : Det::layerLinks) {
-    const auto point = [&](LayerID layer, double u, double v) {
-      const auto r = static_cast<Scalar>(at(radiusMin<Det>(layer), radiusMax<Det>(layer), u));
-      return PairPoint{.x = r, .z = static_cast<Scalar>(at(zMin<Det>(layer), zMax<Det>(layer), v)), .r = r};
-    };
     for (int draw = 0; draw < kCorners + kDraws; ++draw) {
       std::array<double, 4> u{};
       for (std::size_t i = 0; i < u.size(); ++i) {
         u[i] = draw < kCorners ? static_cast<double>((draw >> i) & 1) : uniform(rng);
       }
-      const auto from = point(link.from, u[0], u[1]);
-      const auto to = point(link.to, u[2], u[3]);
+      const auto from = extentPoint<Det>(link.from, u[0], u[1]);
+      const auto to = extentPoint<Det>(link.to, u[2], u[3]);
       const auto visits = [&](std::uint64_t passives) {
         std::vector<std::uint32_t> seen;
         visitPassivesBetween(table, cut, from, to, 1.F, [&](Scalar variance, Scalar t) { seen.push_back(std::bit_cast<std::uint32_t>(variance * t)); }, passives);

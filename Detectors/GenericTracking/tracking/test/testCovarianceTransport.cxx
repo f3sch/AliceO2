@@ -19,8 +19,10 @@
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK CovarianceTransport
+#include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/CovarianceTransport.h"
 #include "GenericTracking/Tracking/Material.h"
+#include "GenericTracking/Tracking/TrackingSurface.h"
 
 #include "Oracles.h"
 
@@ -37,23 +39,17 @@ namespace o2::gtrk
 
 static TrackingSurface barrelPlane(double x, SensorID id)
 {
-  TrackingSurface s{};
-  s.origin[0] = static_cast<Scalar>(x);
-  s.normal[0] = 1.F;
-  s.axis0[1] = 1.F; // loc0 around the beam
-  s.axis1[2] = 1.F; // loc1 along it
+  const Scalar origin[3]{static_cast<Scalar>(x), 0.F, 0.F};
+  TrackingSurface s = radialPlane(origin, 0.F, 1.F);
   s.bounds = SurfaceBounds{.halfX = 1e6F, .halfY = 1e6F};
   s.id = id;
   return s;
 }
 
-static TrackingSurface discPlane(double z, SensorID id)
+static TrackingSurface discAt(double z, SensorID id)
 {
-  TrackingSurface s{};
-  s.origin[2] = static_cast<Scalar>(z);
-  s.normal[2] = 1.F;
-  s.axis0[0] = 1.F;
-  s.axis1[1] = 1.F;
+  const Scalar origin[3]{0.F, 0.F, static_cast<Scalar>(z)};
+  TrackingSurface s = discPlane(origin, 0.F, 1.F);
   s.bounds = SurfaceBounds{.halfX = 1e6F, .halfY = 1e6F};
   s.id = id;
   return s;
@@ -80,7 +76,7 @@ BOOST_AUTO_TEST_CASE(JacobianPublishesItsCrossingWithoutChangingTheResult)
   unsigned successful = 0U;
   unsigned failed = 0U;
   for (unsigned trial = 0U; trial < 1000U; ++trial) {
-    const auto to = trial % 2U == 0U ? barrelPlane(17.2, 2) : discPlane(trial % 4U == 1U ? 29. : -29., 2);
+    const auto to = trial % 2U == 0U ? barrelPlane(17.2, 2) : discAt(trial % 4U == 1U ? 29. : -29., 2);
     const auto seed = makeState(1, phi(random), theta(random), qOverP(random));
     SolenoidJacobian expectedJacobian;
     const auto expectedStatus = jacobianAnalytic(prop, seed, from, to, PropagationDirection::kForward, expectedJacobian);
@@ -203,7 +199,7 @@ BOOST_AUTO_TEST_CASE(TransportedCovarianceMatchesAMonteCarloAtHighEta)
   // 1/sin(theta), so theta and q/p are amplified twentyfold and strongly
   // correlated exactly here -- and nowhere near mid-rapidity, where a
   // barrel-only test would never see it.
-  checkMonteCarloClosure(discPlane(0., 1), discPlane(152., 2), makeState(1, 0.3, 0.05, 1. / 5.), 0.05);
+  checkMonteCarloClosure(discAt(0., 1), discAt(152., 2), makeState(1, 0.3, 0.05, 1. / 5.), 0.05);
 }
 
 BOOST_AUTO_TEST_CASE(AnalyticJacobianAgreesWithTheReferenceAcrossTheAcceptance)
@@ -221,7 +217,7 @@ BOOST_AUTO_TEST_CASE(AnalyticJacobianAgreesWithTheReferenceAcrossTheAcceptance)
   // reach 150 at high eta. So: an absolute floor for what the reference cannot
   // resolve, and a relative term for what it can.
   const Propagator prop;
-  const TrackingSurface pairs[3][2] = {{barrelPlane(3.4, 1), barrelPlane(7.0, 2)}, {barrelPlane(3.4, 1), barrelPlane(17.2, 2)}, {discPlane(0., 1), discPlane(152., 2)}};
+  const TrackingSurface pairs[3][2] = {{barrelPlane(3.4, 1), barrelPlane(7.0, 2)}, {barrelPlane(3.4, 1), barrelPlane(17.2, 2)}, {discAt(0., 1), discAt(152., 2)}};
 
   int checked = 0;
   for (const auto& pair : pairs) {
@@ -245,7 +241,8 @@ BOOST_AUTO_TEST_CASE(AnalyticJacobianAgreesWithTheReferenceAcrossTheAcceptance)
             BOOST_REQUIRE(propagate(prop, arrived, pair[0], pair[1], PropagationDirection::kForward).status == PropagationStatus::kOk);
             const auto arrivedTheta = static_cast<double>(arrived.theta());
             const auto arrivedPhi = static_cast<double>(arrived.phi());
-            const double incidence = std::abs((std::sin(arrivedTheta) * ((std::cos(arrivedPhi) * static_cast<double>(pair[1].normal[0])) + (std::sin(arrivedPhi) * static_cast<double>(pair[1].normal[1])))) + (std::cos(arrivedTheta) * static_cast<double>(pair[1].normal[2])));
+            const double direction[3]{std::sin(arrivedTheta) * std::cos(arrivedPhi), std::sin(arrivedTheta) * std::sin(arrivedPhi), std::cos(arrivedTheta)};
+            const double incidence = std::abs(cosIncidence(pair[1], direction));
             const double floor = 1e-3 / incidence;
             BOOST_TEST((jacobianAnalytic<Scalar>(prop, st, pair[0], pair[1], PropagationDirection::kForward, sol) == PropagationStatus::kOk));
             BOOST_TEST((jacobianAnalytic<ExactScalar>(prop, st, pair[0], pair[1], PropagationDirection::kForward, exactSol) == PropagationStatus::kOk));
@@ -280,7 +277,7 @@ BOOST_AUTO_TEST_CASE(ScalarJacobianMatchesExactNearTheGrazingLimit)
 
   for (const double incidence : {0.0101, 0.011, 0.02, 0.05, 0.06}) {
     const auto phi = std::acos(incidence);
-    const BoundTrackState st = makeState(1, phi, 0.5 * std::acos(-1.), 0.);
+    const BoundTrackState st = makeState(1, phi, 0.5 * kPi<double>, 0.);
     SolenoidJacobian scalarSol;
     SolenoidJacobian exactSol;
     const auto scalarStatus = jacobianAnalytic<Scalar>(prop, st, from, to, PropagationDirection::kForward, scalarSol);
@@ -309,7 +306,7 @@ BOOST_AUTO_TEST_CASE(TheAnalyticJacobianAlsoClosesAgainstTheMonteCarlo)
   // accident if they share a mistake; agreeing with propagated samples as well
   // rules that out.
   checkMonteCarloClosure(barrelPlane(3.4, 1), barrelPlane(17.2, 2), makeState(1, 0.1, 1.2, 1. / 2.), 0.05, true);
-  checkMonteCarloClosure(discPlane(0., 1), discPlane(152., 2), makeState(1, 0.3, 0.05, 1. / 5.), 0.05, true);
+  checkMonteCarloClosure(discAt(0., 1), discAt(152., 2), makeState(1, 0.3, 0.05, 1. / 5.), 0.05, true);
 }
 
 BOOST_AUTO_TEST_CASE(HighlandReproducesASensorByHand)
@@ -347,7 +344,7 @@ BOOST_AUTO_TEST_CASE(ScatteringProjectsOntoTheTwoAngles)
 BOOST_AUTO_TEST_CASE(FactoredPredictionMatchesTheDoubleOne)
 {
   const Propagator prop;
-  const TrackingSurface pairs[3][2] = {{barrelPlane(3.4, 1), barrelPlane(7.0, 2)}, {barrelPlane(3.4, 1), barrelPlane(17.2, 2)}, {discPlane(0., 1), discPlane(152., 2)}};
+  const TrackingSurface pairs[3][2] = {{barrelPlane(3.4, 1), barrelPlane(7.0, 2)}, {barrelPlane(3.4, 1), barrelPlane(17.2, 2)}, {discAt(0., 1), discAt(152., 2)}};
   std::mt19937 rng(11);
   std::uniform_real_distribution<double> unit(-1., 1.);
   std::uniform_real_distribution<double> positive(0.1, 1.);

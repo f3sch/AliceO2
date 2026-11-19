@@ -123,15 +123,6 @@ struct PropagationTrig {
   Scalar cosPhiArrival = 0.F;
 };
 
-/// Global position of a bound state on its own surface.
-template <typename T = ExactScalar>
-GPUhdi() GPUAlwaysInline() void boundToGlobal(const TrackingSurface& surface, T loc0, T loc1, T global[3])
-{
-  for (int i = 0; i < 3; ++i) {
-    global[i] = static_cast<T>(surface.origin[i]) + loc0 * static_cast<T>(surface.axis0[i]) + loc1 * static_cast<T>(surface.axis1[i]);
-  }
-}
-
 /// Displacement of a bound state from the target surface origin.
 ///
 /// Keeping the origin difference separate avoids forming a large global point

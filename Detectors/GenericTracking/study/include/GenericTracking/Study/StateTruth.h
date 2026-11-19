@@ -25,7 +25,6 @@
 
 #include "SimulationDataFormat/O2DatabasePDG.h"
 
-#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -64,23 +63,13 @@ struct StateTruth {
 /// its loc0, loc1 there; none for a segment along the plane.
 [[nodiscard]] inline std::optional<Vec2D> segmentCrossing(const TrackingSurface& plane, const Vec3D& start, const Vec3D& end)
 {
-  const auto local = [&](const Vec3D& global) {
-    Vec3D l{};
-    for (std::size_t i = 0; i < 3U; ++i) {
-      const double d = global[i] - static_cast<double>(plane.origin[i]);
-      l[0] += d * static_cast<double>(plane.axis0[i]);
-      l[1] += d * static_cast<double>(plane.axis1[i]);
-      l[2] += d * static_cast<double>(plane.normal[i]);
-    }
-    return l;
-  };
-  const auto a = local(start);
-  const auto b = local(end);
-  if (std::abs(a[2] - b[2]) < 1e-9) {
+  const Vec3D along{end[0] - start[0], end[1] - start[1], end[2] - start[2]};
+  double step = 0.;
+  Vec2D loc{};
+  if (!lineCrossing(plane, start.data(), along.data(), step, loc.data())) {
     return std::nullopt;
   }
-  const double t = a[2] / (a[2] - b[2]);
-  return Vec2D{a[0] + (t * (b[0] - a[0])), a[1] + (t * (b[1] - a[1]))};
+  return loc;
 }
 
 /// \a state of particle \a particle (of charge \a charge) against the
@@ -109,9 +98,9 @@ template <DetectorLayout Det>
   truth.pt = std::hypot(p[0], p[1]);
   const double momentum = std::hypot(truth.pt, p[2]);
   truth.momentum = momentum;
-  truth.residual = {static_cast<double>(state.par[kLoc0]) - (*crossing)[0], static_cast<double>(state.par[kLoc1]) - (*crossing)[1], std::remainder(static_cast<double>(state.par[kPhi]) - std::atan2(p[1], p[0]), kTwoPi<double>), static_cast<double>(state.par[kTheta]) - std::atan2(truth.pt, p[2]), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
+  truth.residual = {static_cast<double>(state.par[kLoc0]) - (*crossing)[0], static_cast<double>(state.par[kLoc1]) - (*crossing)[1], toPMPiOf(static_cast<double>(state.par[kPhi]) - phiOf(p)), static_cast<double>(state.par[kTheta]) - std::atan2(truth.pt, p[2]), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
   for (int i = 0; i < 5; ++i) {
-    truth.sigma[static_cast<std::size_t>(i)] = std::sqrt(std::max(static_cast<double>(state.covAt(i, i)), 0.));
+    truth.sigma[static_cast<std::size_t>(i)] = sqrtClampedOf(static_cast<double>(state.covAt(i, i)));
   }
   // pT = sin(theta) / |q/p|: d/dtheta = cos(theta) / |q/p|, d/d(q/p) = -pT / (q/p).
   const auto theta = static_cast<double>(state.par[kTheta]);
@@ -120,7 +109,7 @@ template <DetectorLayout Det>
   const double dTheta = std::cos(theta) / std::abs(qOverP);
   const double dQOverP = -truth.fittedPt / qOverP;
   const double variance = (dTheta * dTheta * static_cast<double>(state.covAt(kTheta, kTheta))) + (2. * dTheta * dQOverP * static_cast<double>(state.covAt(kTheta, kQOverP))) + (dQOverP * dQOverP * static_cast<double>(state.covAt(kQOverP, kQOverP)));
-  truth.ptSigma = std::sqrt(std::max(variance, 0.));
+  truth.ptSigma = sqrtClampedOf(variance);
   return truth;
 }
 
@@ -140,9 +129,9 @@ struct PerigeeTruth {
   const auto eta = static_cast<double>(truth.eta);
   const double momentum = static_cast<double>(truth.pt) * std::cosh(eta);
   PerigeeTruth result;
-  result.residual = {static_cast<double>(state.par[kLoc0]), static_cast<double>(state.par[kLoc1]) - static_cast<double>(truth.vz), std::remainder(static_cast<double>(state.par[kPhi]) - static_cast<double>(truth.phi), kTwoPi<double>), static_cast<double>(state.par[kTheta]) - (2. * std::atan(std::exp(-eta))), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
+  result.residual = {static_cast<double>(state.par[kLoc0]), static_cast<double>(state.par[kLoc1]) - static_cast<double>(truth.vz), toPMPiOf(static_cast<double>(state.par[kPhi]) - static_cast<double>(truth.phi)), static_cast<double>(state.par[kTheta]) - thetaOfEta(eta), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
   for (int i = 0; i < 5; ++i) {
-    result.sigma[static_cast<std::size_t>(i)] = std::sqrt(std::max(static_cast<double>(state.covAt(i, i)), 0.));
+    result.sigma[static_cast<std::size_t>(i)] = sqrtClampedOf(static_cast<double>(state.covAt(i, i)));
   }
   return result;
 }
