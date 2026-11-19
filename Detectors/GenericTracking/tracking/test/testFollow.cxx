@@ -107,46 +107,28 @@ const SensorCells<toybarrel8::Det>& toyCells()
   return cells;
 }
 
-/// The material the kink tests step through: enough that the kink
-/// allowance's scaled scattering opens the step.
-constexpr UniformMaterial kKinkMaterial{.x2X0PerCm = 0.002F, .rho = 0.F};
-
-/// The kinks the budget test turns the track by beyond layer 5 and inside
-/// layer 2 [rad]: each in the middle of the range the nominal step refuses
-/// and the allowance admits.
-constexpr double kKinkOut = 0.0175;
-constexpr double kKinkIn = 0.0225;
-/// The kink allowance of the budget test [sigma]: both kinks fit well
-/// inside it, neither in the nominal step.
-constexpr double kBudgetKinkSigma = 30.;
-
-/// An iteration that follows, \a holes allowed, a kink allowance of
-/// \a kinkSigma with \a maxKinks, the beam constraint with \a beamLine, the
-/// end decided again with \a followEnd.
-IterationParameters<toybarrel8::Det> followParameters(int holes = 0, double kinkSigma = 1., int maxKinks = 1, bool beamLine = false, bool followEnd = false)
+/// An iteration that follows, \a holes allowed, the beam constraint with
+/// \a beamLine, the end decided again with \a followEnd.
+IterationParameters<toybarrel8::Det> followParameters(int holes = 0, bool beamLine = false, bool followEnd = false)
 {
   auto settings = toybarrel8::iterationSettings();
   settings.follow = true;
   settings.followEnd = followEnd;
   settings.followHoles = holes;
-  settings.kinkSigma = kinkSigma;
-  settings.maxKinks = maxKinks;
   settings.beamConstraint = beamLine;
   return iterationParameters<toybarrel8::Det>(settings, VertexConstraint{}, scatteringTable<toybarrel8::Det>(uniformLayerMaterial<toybarrel8::Det>(0.)));
 }
 
 /// Track \a track of \a tracks followed (`FollowStage`, the end decided
-/// again with \a DecidesEnd), its kink steps into \a steps where given,
-/// inward too with \a inward; serially, or on \a threads in chunks of
+/// again with \a DecidesEnd), inward too with \a inward; serially, or on \a threads in chunks of
 /// \a chunkSize; with \a Greedy, the smallest chi2 instead of the lookahead; with
 /// \a EndDensity, the ends decided on the last row's density; with
 /// \a BeamEnd, the inward end against the beam line.
 template <bool BeamLine = false, bool DecidesEnd = false, bool Greedy = false, bool EndDensity = false, bool BeamEnd = false>
-ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tracks, const std::vector<std::uint8_t>& used, const IterationParameters<toybarrel8::Det>& parameters, const UniformMaterial& material = UniformMaterial{}, follow::KinkSteps* steps = nullptr, bool inward = true, int threads = 0, std::uint32_t chunkSize = 1U)
+ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tracks, const std::vector<std::uint8_t>& used, const IterationParameters<toybarrel8::Det>& parameters, const UniformMaterial& material = UniformMaterial{}, bool inward = true, int threads = 0, std::uint32_t chunkSize = 1U)
 {
   const auto widths = widthBounds(fixture);
   std::vector<ToyProposal> proposals(tracks.size());
-  std::vector<follow::KinkSteps> kinks(tracks.size());
   // The end decided again starts from the fit without it, a pass of its own.
   std::vector<BoundTrackState> starts(tracks.size());
   if constexpr (DecidesEnd) {
@@ -164,7 +146,7 @@ ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tra
       fit(track);
     }
   }
-  const FollowStage<toybarrel8::Det, UniformMaterial, BeamLine, DecidesEnd, Greedy, EndDensity, BeamEnd> stage{&parameters, fixture.frame.get(), &toybarrel8::trackingGeometry(), &material, Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), kinks.data(), inward, 0U, DecidesEnd ? starts.data() : nullptr};
+  const FollowStage<toybarrel8::Det, UniformMaterial, BeamLine, DecidesEnd, Greedy, EndDensity, BeamEnd> stage{&parameters, fixture.frame.get(), &toybarrel8::trackingGeometry(), &material, Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), inward, 0U, DecidesEnd ? starts.data() : nullptr};
   if (threads == 0) {
     for (std::uint32_t track = 0; track < tracks.size(); ++track) {
       stage(track);
@@ -174,9 +156,6 @@ ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tra
     CpuStage<TrackletT> cpu{cpuArena};
     cpu.setMemoryPool(std::make_shared<BoundedMemoryResource>());
     cpu.forEachElement(static_cast<std::uint32_t>(tracks.size()), chunkSize, stage);
-  }
-  if (steps != nullptr) {
-    *steps = kinks.front();
   }
   return proposals.front();
 }
@@ -221,21 +200,6 @@ void checkAgainstSensor(const TrackingGeometry<Det>& geometry, const IterationPa
   BOOST_TEST(o2::gpu::CAMath::Abs(prediction.second - second) <= iteration.windows[link].secondHalfWidth);
 }
 
-/// \a hits with the ones inside layer \a layer turned there by \a angle in
-/// the transverse plane: a kink at that layer.
-std::vector<toybarrel8::Hit> kinkedAt(std::vector<toybarrel8::Hit> hits, LayerID layer, double angle)
-{
-  const double at = layerDistance<toybarrel8::Det>(layer);
-  for (auto& hit : hits) {
-    if (hit.point.layer < layer) {
-      const double shift = angle * (at - static_cast<double>(hit.point.r));
-      hit.point = toybarrel8::moved(hit.point, 0., shift);
-      hit.loc0 += static_cast<Scalar>(shift);
-    }
-  }
-  return hits;
-}
-
 /// \a hits with the ones outside layer \a layer turned there by \a angle.
 std::vector<toybarrel8::Hit> kinkedBeyond(std::vector<toybarrel8::Hit> hits, LayerID layer, double angle)
 {
@@ -258,7 +222,7 @@ std::pair<double, double> firstStep(const toybarrel8::Fixture& fixture, const Bo
   CovarianceFactors factors;
   Scalar chi2 = 0.F;
   Scalar determinant = 0.F;
-  BOOST_REQUIRE((follow::updateCandidate<false, true>(Propagator{}, toybarrel8::trackingGeometry(), material, measurementAt(*fixture.frame, row), direction, state, factorCovariance(state.cov), updated, factors, chi2, 1.F, &determinant)));
+  BOOST_REQUIRE((follow::updateCandidate<true>(Propagator{}, toybarrel8::trackingGeometry(), material, measurementAt(*fixture.frame, row), direction, state, factorCovariance(state.cov), updated, factors, chi2, &determinant)));
   return {static_cast<double>(chi2), std::sqrt(static_cast<double>(determinant))};
 }
 
@@ -420,7 +384,7 @@ BOOST_AUTO_TEST_CASE(UpdateRefusesAnIndefiniteCovariance)
   BoundTrackState output;
   CovarianceFactors outputFactors;
   Scalar chi2 = 0.F;
-  BOOST_REQUIRE(follow::updateCandidate<false>(propagator, geometry, material, measurement, PropagationDirection::kForward, state, factorCovariance(state.cov), output, outputFactors, chi2, 1.F));
+  BOOST_REQUIRE(follow::updateCandidate(propagator, geometry, material, measurement, PropagationDirection::kForward, state, factorCovariance(state.cov), output, outputFactors, chi2));
   BOOST_TEST(chi2 >= 0.F);
 
   // The source may also be the destination buffer. Material must still
@@ -431,11 +395,11 @@ BOOST_AUTO_TEST_CASE(UpdateRefusesAnIndefiniteCovariance)
   BoundParameters separate;
   CovarianceFactors separateFactors;
   Scalar separateChi2 = 0.F;
-  BOOST_REQUIRE(follow::updateCandidate<false>(massive, geometry, filled, measurement, PropagationDirection::kForward, state, factorCovariance(state.cov), separate, separateFactors, separateChi2, 1.F));
+  BOOST_REQUIRE(follow::updateCandidate(massive, geometry, filled, measurement, PropagationDirection::kForward, state, factorCovariance(state.cov), separate, separateFactors, separateChi2));
   BoundParameters aliased = static_cast<const BoundParameters&>(state);
   auto aliasedFactors = factorCovariance(state.cov);
   Scalar aliasedChi2 = 0.F;
-  BOOST_REQUIRE(follow::updateCandidate<false>(massive, geometry, filled, measurement, PropagationDirection::kForward, aliased, aliasedFactors, aliased, aliasedFactors, aliasedChi2, 1.F));
+  BOOST_REQUIRE(follow::updateCandidate(massive, geometry, filled, measurement, PropagationDirection::kForward, aliased, aliasedFactors, aliased, aliasedFactors, aliasedChi2));
   // Bit identity is intentional, including floating-point encodings; these records have no padding.
   // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison)
   BOOST_TEST(std::memcmp(&aliased, &separate, sizeof(BoundParameters)) == 0);
@@ -450,7 +414,7 @@ BOOST_AUTO_TEST_CASE(UpdateRefusesAnIndefiniteCovariance)
   state.variance(kLoc0) = -1.e-2F;
   Measurement displaced = measurement;
   displaced.loc0 += 0.01F;
-  BOOST_TEST(!follow::updateCandidate<false>(propagator, geometry, material, displaced, PropagationDirection::kForward, state, factorCovariance(state.cov), output, outputFactors, chi2, 1.F));
+  BOOST_TEST(!follow::updateCandidate(propagator, geometry, material, displaced, PropagationDirection::kForward, state, factorCovariance(state.cov), output, outputFactors, chi2));
 }
 
 /// Navigation, both ways: a track on layers 0-4 takes 5-7 outward, one on
@@ -491,7 +455,7 @@ BOOST_AUTO_TEST_CASE(AFollowTakesTheRowsBeyondTheTrackBothWays)
 
   for (const int threads : {1, 2, 4}) {
     for (const std::uint32_t chunk : {1U, 2U, 7U}) {
-      BOOST_TEST(sameProposal(followTrack(fixture, middleTracks, used, parameters, UniformMaterial{}, nullptr, true, threads, chunk), both));
+      BOOST_TEST(sameProposal(followTrack(fixture, middleTracks, used, parameters, UniformMaterial{}, true, threads, chunk), both));
     }
   }
   const auto whole = fittedTrack(fixture, 0U, kLayers - 1U, pool);
@@ -508,7 +472,7 @@ BOOST_AUTO_TEST_CASE(InwardStaysOffWithSharedInnermostRows)
   const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
   const auto pool = std::make_shared<BoundedMemoryResource>();
   const auto tracks = fittedTrack(fixture, 2U, 5U, pool);
-  const auto proposal = followTrack(fixture, tracks, used, followParameters(), UniformMaterial{}, nullptr, false);
+  const auto proposal = followTrack(fixture, tracks, used, followParameters(), UniformMaterial{}, false);
   BOOST_TEST(proposal.outwardCount == 2U);
   BOOST_TEST(proposal.inwardCount == 0U);
 }
@@ -524,7 +488,7 @@ BOOST_AUTO_TEST_CASE(InwardFromTheBeamLineTakesTheSameRows)
   const auto pool = std::make_shared<BoundedMemoryResource>();
   const auto tracks = fittedTrack(fixture, 3U, 7U, pool);
   const auto plain = followTrack(fixture, tracks, used, followParameters());
-  const auto beam = followTrack<true>(fixture, tracks, used, followParameters(0, 1., 1, true));
+  const auto beam = followTrack<true>(fixture, tracks, used, followParameters(0, true));
   BOOST_REQUIRE(plain.inwardCount == 3U);
   BOOST_TEST(sameProposal(beam, plain));
 }
@@ -540,7 +504,7 @@ BOOST_AUTO_TEST_CASE(AnInwardLastRowOffTheBeamLineIsRefused)
 {
   using namespace toybarrel8;
   const auto pool = std::make_shared<BoundedMemoryResource>();
-  const auto parameters = followParameters(0, 1., 1, true);
+  const auto parameters = followParameters(0, true);
   const auto clean = sensorHelixHits(1.1, -0.02, 2.2);
   const auto follow = [&](const std::vector<Hit>& hits) {
     const Fixture fixture{hits};
@@ -715,12 +679,11 @@ BOOST_AUTO_TEST_CASE(ARowRefusedAboveTheGateKeepsTheRowBeforeInwardOnly)
       }
       const auto widths = widthBounds(fixture);
       std::vector<ToyProposal> proposals(1U);
-      std::vector<follow::KinkSteps> kinks(1U);
-      const FollowStage<Det, UniformMaterial> stage{&parameters, fixture.frame.get(), &trackingGeometry(), &material, Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), kinks.data(), true, 0U, nullptr};
+      const FollowStage<Det, UniformMaterial> stage{&parameters, fixture.frame.get(), &trackingGeometry(), &material, Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), true, 0U, nullptr};
       std::vector<std::tuple<LayerID, std::uint32_t, StepOutcome>> seen;
       const Seen observer{{}, &seen};
       const auto view = tracks.view();
-      stage.follow(view.state[0], view.outwardState[0], view.clusters[0], view.count[0], proposals[0], kinks[0], observer);
+      stage.follow(view.state[0], view.outwardState[0], view.clusters[0], view.count[0], proposals[0], observer);
       const auto outcome = outcomeOf(seen, fixture.row(movedLayer));
       BOOST_REQUIRE(outcome.has_value());
       if (*outcome == StepOutcome::kChi2) { // NOLINT(bugprone-unchecked-optional-access): BOOST_REQUIRE checks it
@@ -775,32 +738,6 @@ BOOST_AUTO_TEST_CASE(AtTheLayoutsEndAWidePredictionLosesItsLastRow)
   const auto inward = followTrack<false, false, false, true>(fixture, fittedTrack(fixture, 2U, 6U, pool), outerTaken, parameters);
   BOOST_REQUIRE(inward.inwardCount == 1U);
   BOOST_TEST(inward.inward[0] == fixture.row(1U));
-}
-
-/// The layout-end refusal and a kink step's witness: a track turned at layer 2 takes row 1
-/// by the kink allowance, standing on row 0; refusing row 0 at the layout's
-/// end leaves the kink step without its witness, and `KeepWitnesses` takes
-/// row 1 with it.
-BOOST_AUTO_TEST_CASE(ARefusedLastRowTakesTheKinkItWitnessed)
-{
-  using namespace toybarrel8;
-  const auto pool = std::make_shared<BoundedMemoryResource>();
-  const auto kinked = kinkedAt(sensorHelixHits(0.42, 0.025, 1.8), 2U, 0.012);
-  const Fixture fixture{kinked};
-  const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
-  const auto tracks = fittedTrack(fixture, 2U, 7U, pool);
-  auto parameters = followParameters(0, 10., 1);
-  follow::KinkSteps steps;
-  const auto kept = followTrack<false, false, false, true>(fixture, tracks, used, parameters, kKinkMaterial, &steps);
-  BOOST_REQUIRE(kept.inwardCount == 2U);
-  BOOST_REQUIRE(steps.inward == 1U);
-  BOOST_REQUIRE(steps.inwardWitnessed == 1U);
-  parameters.followEndMaxSqrtDet = 1e-12F;
-  auto refused = followTrack<false, false, false, true>(fixture, tracks, used, parameters, kKinkMaterial, &steps);
-  BOOST_REQUIRE(refused.inwardCount == 1U);
-  BOOST_TEST(refused.inward[0] == fixture.row(1U));
-  follow::KeepWitnesses<kMaxClusters>{.proposals = &refused, .steps = &steps}(0U);
-  BOOST_TEST(refused.inwardCount == 0U);
 }
 
 /// EndDensity's density keep: row 6 taken, the outward walk takes row 5 and
@@ -922,83 +859,6 @@ BOOST_AUTO_TEST_CASE(UnconfirmedRowsRankByTheirChi2)
   BOOST_TEST(decoyFirst);
 }
 
-/// The kink pass (the recovery pass): a track turned
-/// at layer 3 by more than the nominal step admits is followed inward by the
-/// kink allowance, its row on layer 2 standing on layer 1's, which confirms
-/// it; without the allowance, or with the budget spent, no kink step;
-/// without the rows inside, nothing confirms it and it takes nothing.
-BOOST_AUTO_TEST_CASE(AKinkStepNeedsItsWitness)
-{
-  using namespace toybarrel8;
-  const auto pool = std::make_shared<BoundedMemoryResource>();
-  const auto kinked = kinkedAt(sensorHelixHits(0.42, 0.025, 1.8), 3U, 0.012);
-  const Fixture fixture{kinked};
-  const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
-  const auto tracks = fittedTrack(fixture, 3U, 7U, pool);
-  follow::KinkSteps steps;
-  BOOST_TEST(followTrack(fixture, tracks, used, followParameters(0, 1., 1), kKinkMaterial, &steps).inwardCount == 0U);
-  const auto recovered = followTrack(fixture, tracks, used, followParameters(0, 10., 1), kKinkMaterial, &steps);
-  BOOST_REQUIRE(recovered.inwardCount == 3U);
-  for (std::size_t i = 0; i < 3U; ++i) {
-    BOOST_TEST(recovered.inward[i] == fixture.row(2U - i));
-  }
-  BOOST_TEST(steps.inward == 1U);
-  BOOST_TEST(steps.outward == 0U);
-  BOOST_TEST(steps.inwardWitnessed == 1U);
-  BOOST_TEST(followTrack(fixture, tracks, used, followParameters(0, 10., 0), kKinkMaterial, &steps).inwardCount == 0U);
-
-  const std::vector<Hit> outer(kinked.begin() + 2, kinked.end());
-  const Fixture unwitnessed{outer};
-  const std::vector<std::uint8_t> outerUsed(unwitnessed.frame->size(), kFree);
-  const auto outerTracks = fittedTrack(unwitnessed, 1U, 5U, pool);
-  BOOST_TEST(followTrack(unwitnessed, outerTracks, outerUsed, followParameters(0, 10., 1), kKinkMaterial, &steps).inwardCount == 0U);
-  BOOST_TEST(steps.inward == 0U);
-}
-
-/// The nominal pass first: on a clean track with the kink allowance, every
-/// row is taken by the nominal step, and no kink is charged.
-BOOST_AUTO_TEST_CASE(TheNominalPassComesFirst)
-{
-  using namespace toybarrel8;
-  const auto pool = std::make_shared<BoundedMemoryResource>();
-  const Fixture fixture{sensorHelixHits(0.42, 0.025, 1.8)};
-  const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
-  const auto tracks = fittedTrack(fixture, 2U, 5U, pool);
-  follow::KinkSteps steps;
-  const auto proposal = followTrack(fixture, tracks, used, followParameters(0, 10., 1), kKinkMaterial, &steps);
-  BOOST_TEST(proposal.outwardCount == 2U);
-  BOOST_TEST(proposal.inwardCount == 2U);
-  BOOST_TEST(steps.outward + steps.inward == 0U);
-  BOOST_TEST(steps.outwardWitnessed + steps.inwardWitnessed == 0U);
-}
-
-/// One kink budget for both directions: a track turned beyond layer 5 and
-/// inside layer 2 takes the outward kink step first; with one kink, the
-/// inward one is not made; with two, both are.
-BOOST_AUTO_TEST_CASE(TheDirectionsShareTheKinkBudget)
-{
-  using namespace toybarrel8;
-  const auto pool = std::make_shared<BoundedMemoryResource>();
-  const auto hits = kinkedAt(kinkedBeyond(sensorHelixHits(0.42, 0.025, 1.8), 5U, kKinkOut), 2U, kKinkIn);
-  const Fixture fixture{hits};
-  const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
-  const auto tracks = fittedTrack(fixture, 2U, 5U, pool);
-  follow::KinkSteps steps;
-  // Without the allowance neither side is reached.
-  const auto none = followTrack(fixture, tracks, used, followParameters(0, 1., 2), kKinkMaterial, &steps);
-  BOOST_TEST(none.outwardCount + none.inwardCount == 0U);
-  const auto one = followTrack(fixture, tracks, used, followParameters(0, kBudgetKinkSigma, 1), kKinkMaterial, &steps);
-  BOOST_TEST(steps.outward == 1U);
-  BOOST_TEST(steps.inward == 0U);
-  BOOST_TEST(one.outwardCount == 2U);
-  BOOST_TEST(one.inwardCount == 0U);
-  const auto two = followTrack(fixture, tracks, used, followParameters(0, kBudgetKinkSigma, 2), kKinkMaterial, &steps);
-  BOOST_TEST(steps.outward == 1U);
-  BOOST_TEST(steps.inward == 1U);
-  BOOST_TEST(two.outwardCount == 2U);
-  BOOST_TEST(two.inwardCount == 2U);
-}
-
 /// One time box for both directions: the road's rows at 30 ns, its outer
 /// rows at 55 ns and its inner ones at 10 ns. Each fits the road's box
 /// alone; once the outer rows have narrowed it, the inner ones no longer do.
@@ -1027,32 +887,6 @@ BOOST_AUTO_TEST_CASE(TheDirectionsShareTheTimeBox)
   const auto inward = followTrack(fixture, tracks, outerTaken, followParameters());
   BOOST_TEST(inward.outwardCount == 0U);
   BOOST_TEST(inward.inwardCount == 3U);
-}
-
-/// A kink step keeps its witness through the bidding (the recovery pass): a
-/// direction cut by the bidding on the witness drops
-/// the kink step with it, and the rows from it on.
-BOOST_AUTO_TEST_CASE(AKinkStepFallsWithItsWitness)
-{
-  BOOST_TEST(follow::keptWithWitnesses(3U, 0b001U) == 3U);
-  BOOST_TEST(follow::keptWithWitnesses(1U, 0b001U) == 0U);
-  BOOST_TEST(follow::keptWithWitnesses(2U, 0b011U) == 0U);
-  BOOST_TEST(follow::keptWithWitnesses(3U, 0b011U) == 3U);
-  BOOST_TEST(follow::keptWithWitnesses(2U, 0b100U) == 2U);
-  BOOST_TEST(follow::keptWithWitnesses(3U, 0b100U) == 2U);
-  BOOST_TEST(follow::keptWithWitnesses(0U, 0b111U) == 0U);
-
-  ToyProposal proposal;
-  proposal.inward[0] = 7U;
-  proposal.inward[1] = 8U;
-  proposal.inward[2] = 9U;
-  proposal.inwardCount = 1U; // the bidding cut it on its second row
-  proposal.outward[0] = 3U;
-  proposal.outwardCount = 1U;
-  const follow::KinkSteps steps{.outwardWitnessed = 0U, .inwardWitnessed = 0b001U, .outward = 0U, .inward = 1U};
-  follow::KeepWitnesses<kMaxClusters>{.proposals = &proposal, .steps = &steps}(0U);
-  BOOST_TEST(proposal.inwardCount == 0U);
-  BOOST_TEST(proposal.outwardCount == 1U);
 }
 
 BOOST_AUTO_TEST_CASE(BiddingKeepsTheBetterTrackAndTruncatesTheOther)
@@ -1259,7 +1093,7 @@ BOOST_AUTO_TEST_CASE(TheFollowReplacesARoadEndTheNextLayerRefuses)
 
   const auto plain = followTrack(fixture, tracks, used, followParameters());
   BOOST_TEST(plain.replacedEnd == ClusterList<kMaxClusters>::kNoCluster);
-  const auto parameters = followParameters(0, 1., 1, false, true);
+  const auto parameters = followParameters(0, false, true);
   const auto proposal = followTrack<false, true>(fixture, tracks, used, parameters);
   BOOST_TEST(proposal.replacedEnd == noiseRow);
   BOOST_REQUIRE(proposal.outwardCount == 4U);
@@ -1294,7 +1128,7 @@ BOOST_AUTO_TEST_CASE(TheFollowKeepsACleanRoadEnd)
     used[fixture.row(layer)] = kExclusive;
   }
   const auto plain = followTrack(fixture, tracks, used, followParameters());
-  const auto again = followTrack<false, true>(fixture, tracks, used, followParameters(0, 1., 1, false, true));
+  const auto again = followTrack<false, true>(fixture, tracks, used, followParameters(0, false, true));
   BOOST_TEST(again.replacedEnd == ClusterList<kMaxClusters>::kNoCluster);
   BOOST_TEST(sameProposal(again, plain));
 }
@@ -1313,7 +1147,7 @@ BOOST_AUTO_TEST_CASE(WithoutTheFollowOnlyTheEndIsDecidedAgain)
   const auto noiseRow = fixture.row(kLayers);
   const auto tracks = fittedRows(fixture, {fixture.row(1U), fixture.row(2U), fixture.row(3U), noiseRow}, pool);
   const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
-  auto parameters = followParameters(0, 1., 1, false, true);
+  auto parameters = followParameters(0, false, true);
   parameters.follow = false;
   const auto proposal = followTrack<false, true>(fixture, tracks, used, parameters);
   BOOST_TEST(proposal.replacedEnd == noiseRow);

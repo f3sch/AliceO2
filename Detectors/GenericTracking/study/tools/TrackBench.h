@@ -340,10 +340,9 @@ inline void printWork(const WorkCounts& work, std::size_t iteration)
     "rows, {} in the time bound, {} past the time cut; {} updates; {} rows proposed, {} outbid, {} with a failed refit\n",
     iteration, at(kFollowGridQueries), at(kFollowGridBlocks), at(kFollowGridRanges), at(kFollowGridCells), at(kFollowGridSearchedCells), at(kFollowGridRows), at(kFollowGridInBound), at(kFollowGridVisits), at(kFollowUpdates), at(kFollowProposed), at(kFollowOutbid), at(kFollowRefitRejected));
   std::cout << std::format(
-    "  work, iteration {}, follow: {} layers without a row tested, {} of them holes; {} lookaheads; {} kink passes, {} taken, {} "
-    "updates, {} witness updates, {} rows dropped with a witness; {} last rows unconfirmed, {} kept on their density, {} refused at "
-    "the layout's end, {} against the beam line; {} road ends fitted again, {} replaced\n",
-    iteration, at(kFollowHoleTests), at(kFollowHoles), at(kFollowLookaheads), at(kFollowKinkSteps), at(kFollowKinksTaken), at(kFollowKinkUpdates), at(kFollowWitnessUpdates), at(kFollowWitnessTrimmed), at(kFollowUnconfirmed), at(kFollowDensityKept), at(kFollowEndRefused), at(kFollowBeamEndRefused), at(kFollowEndFits), at(kFollowEndReplaced));
+    "  work, iteration {}, follow: {} layers without a row tested, {} of them holes; {} lookaheads; {} last rows unconfirmed, {} kept "
+    "on their density, {} refused at the layout's end, {} against the beam line; {} road ends fitted again, {} replaced\n",
+    iteration, at(kFollowHoleTests), at(kFollowHoles), at(kFollowLookaheads), at(kFollowUnconfirmed), at(kFollowDensityKept), at(kFollowEndRefused), at(kFollowBeamEndRefused), at(kFollowEndFits), at(kFollowEndReplaced));
   if (at(kTrackletShape) != 0U || at(kTripletShape) != 0U) {
     std::cout << std::format("  work, iteration {}, shapes: {} tracklet candidates and {} thirds refused\n", iteration, at(kTrackletShape), at(kTripletShape));
   }
@@ -1115,7 +1114,7 @@ void writeCloneJoins(const std::string& path, const TrackStore<Det>& tracks, con
         };
         // The follow's step: no window, no search; its rows take the window's material.
         detail::StepMaterial traversed;
-        if (!follow::predictedWindow<false>(propagator, parameters, geometry, material, state, factors, target, PropagationDirection::kForward, prediction, window, 1.F, nullptr, &traversed)) {
+        if (!follow::predictedWindow(propagator, parameters, geometry, material, state, factors, target, PropagationDirection::kForward, prediction, window, nullptr, &traversed)) {
           out << std::format("S {} nopred\n", static_cast<int>(target));
           break;
         }
@@ -1134,7 +1133,7 @@ void writeCloneJoins(const std::string& path, const TrackStore<Det>& tracks, con
           BoundTrackState updated;
           CovarianceFactors updatedFactors;
           Scalar chi2 = 0.F;
-          if (follow::updateCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, measurementAt(frame, candidate), PropagationDirection::kForward, state, factors, updated, updatedFactors, chi2, 1.F) && chi2 <= parameters.clusterChi2Max) {
+          if (follow::updateCandidate(propagator, geometry, detail::GivenMaterial{traversed}, measurementAt(frame, candidate), PropagationDirection::kForward, state, factors, updated, updatedFactors, chi2) && chi2 <= parameters.clusterChi2Max) {
             ++wrongPassing;
             wrongBest = std::min(wrongBest, chi2);
           }
@@ -1142,7 +1141,7 @@ void writeCloneJoins(const std::string& path, const TrackStore<Det>& tracks, con
         BoundTrackState updated;
         CovarianceFactors updatedFactors;
         Scalar chi2 = 0.F;
-        if (!follow::updateCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, measurementAt(frame, row), PropagationDirection::kForward, state, factors, updated, updatedFactors, chi2, 1.F)) {
+        if (!follow::updateCandidate(propagator, geometry, detail::GivenMaterial{traversed}, measurementAt(frame, row), PropagationDirection::kForward, state, factors, updated, updatedFactors, chi2)) {
           out << std::format("S {} noupdate {} {}\n", static_cast<int>(target), inWindow ? 1 : 0, wrongPassing);
           break;
         }

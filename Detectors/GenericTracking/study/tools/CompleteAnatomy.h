@@ -46,13 +46,10 @@
 /// crossing rule). What that gives is checked against what the
 /// iteration kept (`fidelity`), and a short track's stop is the decision
 /// that made it: its particle's next row lost in the bidding, dropped with
-/// a kink step's witness, dropped with the refit (failed or above its
-/// chi2), or, at the proposal step, never queried, held, outside the
-/// window, crossing a layer, without an update, above the chi2 gate, or
-/// passing with another row taken (by the lookahead or not); where the step
-/// had the kink allowance, what its kink step did with the row instead: no
-/// budget left, refused under the scaled gate, passing it but unconfirmed,
-/// or another confirmed row taken. With followEarlier the earlier tracks'
+/// the refit (failed or above its chi2), or, at the proposal step, never
+/// queried, held, outside the window, crossing a layer, without an update,
+/// above the chi2 gate, or passing with another row taken (by the lookahead
+/// or not). With followEarlier the earlier tracks'
 /// follow before the iteration's seeds is replayed the same way, from the
 /// tracks and the mask as the previous iteration left them.
 
@@ -130,27 +127,22 @@ class CompleteAnatomy
   /// Why a short track is short: its particle's next row inward, the first
   /// layer of the mask it misses.
   enum Short : std::uint8_t {
-    kGapInside,       ///< a layer missing between the track's own
-    kLostBid,         ///< proposed, lost in the bidding on that row or one before
-    kWitnessLost,     ///< proposed and won, dropped with a kink step's witness lost in the bidding
-    kRefitFailed,     ///< proposed and won, dropped with the extended refit: the fit failed
-    kRefitChi2,       ///< proposed and won, dropped with the extended refit: above its chi2
-    kNotQueried,      ///< the step's grid query never visited it
-    kUsed,            ///< held by a track when the step ran
-    kWindow,          ///< visited, outside the step's window
-    kHole,            ///< crossing another layer
-    kNoUpdate,        ///< no usable update
-    kChi2,            ///< above the chi2 gate
-    kOtherTaken,      ///< passing, another row taken
-    kLookaheadOther,  ///< passing, the lookahead took another row
-    kKinkBudget,      ///< refused by the step, its kink step not made: the budget spent
-    kKinkRefused,     ///< refused by the step and by its kink step's scaled gate (or window)
-    kKinkUnconfirmed, ///< refused by the step, passing its kink step's, nothing confirming it
-    kKinkOther,       ///< refused by the step, passing its kink step's, confirmed, another row taken
-    kNoStep,          ///< the proposal never stepped from the layer outside it
+    kGapInside,      ///< a layer missing between the track's own
+    kLostBid,        ///< proposed, lost in the bidding on that row or one before
+    kRefitFailed,    ///< proposed and won, dropped with the extended refit: the fit failed
+    kRefitChi2,      ///< proposed and won, dropped with the extended refit: above its chi2
+    kNotQueried,     ///< the step's grid query never visited it
+    kUsed,           ///< held by a track when the step ran
+    kWindow,         ///< visited, outside the step's window
+    kHole,           ///< crossing another layer
+    kNoUpdate,       ///< no usable update
+    kChi2,           ///< above the chi2 gate
+    kOtherTaken,     ///< passing, another row taken
+    kLookaheadOther, ///< passing, the lookahead took another row
+    kNoStep,         ///< the proposal never stepped from the layer outside it
     kShortReasons
   };
-  static constexpr std::array<const char*, kShortReasons> kShortNames{"gap inside", "lost the bid", "dropped with a kink step's witness", "refit failed", "refit chi2", "not queried", "held", "outside the window", "crossing a layer", "no update", "chi2", "passing, another row taken", "passing, the lookahead took another", "kink budget spent", "kink step refused it", "kink step unconfirmed", "kink step took another", "no step from the layer outside"};
+  static constexpr std::array<const char*, kShortReasons> kShortNames{"gap inside", "lost the bid", "refit failed", "refit chi2", "not queried", "held", "outside the window", "crossing a layer", "no update", "chi2", "passing, another row taken", "passing, the lookahead took another", "no step from the layer outside"};
   /// Who holds a particle's own row at the end (the short tracks that lost
   /// the bid): an earlier iteration's track, or this one's.
   enum Holder : std::uint8_t { kNoOwnRow = 0U,
@@ -265,7 +257,6 @@ class CompleteAnatomy
     mReason.assign(mFindable.size(), 0U);
     mGraph.assign(mFindable.size(), kGraphReasons);
     mStop.assign(mFindable.size(), kShortReasons);
-    mStopDetail.assign(mFindable.size(), 0U);
     mStopLayer.assign(mFindable.size(), kInvalidLayerID);
     mStopTaken.assign(mFindable.size(), kNoTaken);
     mOutStop.assign(mFindable.size(), kShortReasons);
@@ -316,7 +307,7 @@ class CompleteAnatomy
     if (!*mEndCsv) {
       throw std::runtime_error("cannot write " + csv);
     }
-    *mEndCsv << "track,iteration,direction,particle,pt,end,crossed,links,unconfirmedDrop,walked,bidKept,kept,lastRow,lastLayer,lastChi2,lastKink,lastKind,lastBeyond,"
+    *mEndCsv << "track,iteration,direction,particle,pt,end,crossed,links,unconfirmedDrop,walked,kept,lastRow,lastLayer,lastChi2,lastKind,lastBeyond,"
                 "droppedRow,droppedLayer,droppedChi2,droppedKind,droppedBeyond,survives,refit,agrees,trackGood,trackCount,trackLayers,ownLayers,"
                 "endWindows,endSeen,endRefused,lastStepChi2,lastSqrtDet,lastRhoWindow,lastRhoLayer,lastReach,lastOverlapPS,lastBoxPS,lastRowPS,lastRest,"
                 "lastBeamWith,lastBeamWithout,lastFloatDet,lastFactorDet,"
@@ -493,10 +484,10 @@ class CompleteAnatomy
     // and no proposals: the mask after it, which nothing replays.
     std::vector<std::uint8_t> ownUsed = iteration.followUsed.empty() ? std::vector<std::uint8_t>(iteration.used.begin(), iteration.used.end()) : std::vector<std::uint8_t>(iteration.followUsed.begin(), iteration.followUsed.end());
     mFollowUsedNow = ownUsed;
-    const auto replayed = replayExtension(iteration, iteration.trackOffset, static_cast<std::uint32_t>(tracks), iteration.proposals, iteration.kinkSteps, ownUsed, false, parameters, frame, geometry, material, propagator);
+    const auto replayed = replayExtension(iteration, iteration.trackOffset, static_cast<std::uint32_t>(tracks), iteration.proposals, ownUsed, false, parameters, frame, geometry, material, propagator);
     std::vector<Replay> recovered;
     if (!iteration.earlierProposals.empty() && iteration.earlierProposals.size() == mSnapshot.size()) {
-      recovered = replayExtension(iteration, 0U, iteration.trackOffset, iteration.earlierProposals, iteration.earlierKinkSteps, mSnapshotUsed, true, parameters, frame, geometry, material, propagator);
+      recovered = replayExtension(iteration, 0U, iteration.trackOffset, iteration.earlierProposals, mSnapshotUsed, true, parameters, frame, geometry, material, propagator);
     }
     phases.replay = seconds(clock, now());
     clock = now();
@@ -616,7 +607,7 @@ class CompleteAnatomy
           const auto below = layers & ((std::uint64_t{1} << gap) - 1U);
           const auto outside = static_cast<LayerID>(63 - std::countl_zero(below));
           const auto ownRow = ownRowOn(particle, gap);
-          mOutStop[index] = stopReason(replay->outward.front(), ownRow, outside, particle, mStopDetail[index]);
+          mOutStop[index] = stopReason(replay->outward.front(), ownRow, outside);
           mOutStepKink[index] = kinkBin(largestKink(particle, outside, gap));
           mOutStopLayer[index] = gap;
           if (mOutStop[index] == kWindow || mOutStop[index] == kNotQueried) {
@@ -675,7 +666,7 @@ class CompleteAnatomy
             for (std::uint32_t i = 0; i < out.kept; ++i) {
               wrong += mTruth->rows[out.raw[i]].carries(particle) ? 0U : 1U;
             }
-            mOutRefitWrong[index] = static_cast<std::uint8_t>(std::min(wrong, 2U) + (std::ranges::any_of(out.steps, &Step::kink) ? 3U : 0U));
+            mOutRefitWrong[index] = static_cast<std::uint8_t>(std::min(wrong, 2U));
             mOutRefitRows[index] = static_cast<std::uint8_t>(out.kept);
             // The particle's largest true kink from the road's first layer to the last outward row's.
             const auto last = out.kept == 0U ? gap : mTruth->rows[out.raw[out.kept - 1U]].layer;
@@ -701,7 +692,7 @@ class CompleteAnatomy
           mOutStopTaken[index] = takenKind(replay->outward.front(), ownRow, outside, particle);
           mOutChi2[index] = candidateChi2(replay->outward.front(), ownRow, outside);
           // A direct unconfirmed drop: the step took the own row and nothing later
-          // (the bid, a witness, the refit) accounts for its loss.
+          // (the bid, the refit) accounts for its loss.
           if (mOutStopTaken[index] == kOwnDropped && (mOutStop[index] == kOtherTaken || mOutStop[index] == kLookaheadOther)) {
             std::tie(mOutNext[index], mOutNextChi2[index]) = afterDrop(replay->outward.front(), ownRow, particle);
             // The particle's true deflection over the step that refused its
@@ -728,7 +719,7 @@ class CompleteAnatomy
           break;
         }
       }
-      mStop[index] = stopReason(*replay, row, static_cast<LayerID>(target + 1U), particle, mStopDetail[index]);
+      mStop[index] = stopReason(*replay, row, static_cast<LayerID>(target + 1U));
       mStopLayer[index] = target;
       mStopTaken[index] = takenKind(*replay, row, static_cast<LayerID>(target + 1U), particle);
       mInChi2[index] = candidateChi2(*replay, row, static_cast<LayerID>(target + 1U));
@@ -1398,7 +1389,7 @@ class CompleteAnatomy
         const_cast<BoundParameters&>(state).par[kQOverP] *= ratio->second[direction]; // NOLINT(cppcoreguidelines-pro-type-const-cast): the oracle's change, see above
       }
     }
-    void taken(std::uint32_t row, Scalar /*chi2*/, bool /*kinked*/) const { from = row; }
+    void taken(std::uint32_t row, Scalar /*chi2*/) const { from = row; }
   };
 
   /// The follow oracle of \a iteration's `FollowLossRow`s: what the
@@ -1429,7 +1420,6 @@ class CompleteAnatomy
     for (std::size_t track = 0; track < selected.size(); ++track) {
       trackOf.emplace(static_cast<std::uint32_t>(selected[track]), static_cast<std::uint32_t>(track));
     }
-    const bool kinkSteps = parameters.kinkScale2 > 1.F && parameters.maxKinks != 0U;
     const auto minimum = static_cast<std::size_t>(parameters.minClustersAfterFollow);
     // The cut's verdict on a track of \a count rows, \a wrong of them not
     // the particle's, in \a state: the length, then the pT floor.
@@ -1594,17 +1584,16 @@ class CompleteAnatomy
               continue;
             }
             FollowProposal<kMaxClusters> proposal{};
-            follow::KinkSteps steps{};
             const auto& inner = start ? innerMC : fit.state;
             const auto& outerStart = start ? outerMC : outer;
             if (loss) {
               const LossInjector injector{{}, &ratios, road.index[count - 1U], road.index[0]};
-              stage.follow(inner, outerStart, road, static_cast<std::uint32_t>(count), proposal, steps, injector);
+              stage.follow(inner, outerStart, road, static_cast<std::uint32_t>(count), proposal, injector);
             } else {
-              stage.follow(inner, outerStart, road, static_cast<std::uint32_t>(count), proposal, steps, follow::NoObserver{});
+              stage.follow(inner, outerStart, road, static_cast<std::uint32_t>(count), proposal, follow::NoObserver{});
             }
-            const auto keptOut = kinkSteps ? follow::keptWithWitnesses(proposal.outwardCount, steps.outwardWitnessed) : proposal.outwardCount;
-            const auto keptIn = kinkSteps ? follow::keptWithWitnesses(proposal.inwardCount, steps.inwardWitnessed) : proposal.inwardCount;
+            const auto keptOut = proposal.outwardCount;
+            const auto keptIn = proposal.inwardCount;
             std::vector<std::uint32_t> chain;
             for (auto k = static_cast<std::size_t>(keptIn); k-- > 0U;) {
               chain.push_back(proposal.inward[k]);
@@ -1681,7 +1670,6 @@ class CompleteAnatomy
       }
     }
     const auto minimum = static_cast<std::size_t>(parameters.minClustersAfterFollow);
-    const bool kinkSteps = parameters.kinkScale2 > 1.F && parameters.maxKinks != 0U;
     const auto cut = [&](std::size_t count, bool good, const BoundTrackState& state) {
       if (count < minimum) {
         return kOracleShort;
@@ -1720,10 +1708,9 @@ class CompleteAnatomy
           w.fitted = true;
           w.recordState = fit.state;
           FollowProposal<kMaxClusters> proposal{};
-          follow::KinkSteps steps{};
-          stage.follow(fit.state, outer, road, static_cast<std::uint32_t>(count), proposal, steps, follow::NoObserver{});
-          const auto keptOut = kinkSteps ? follow::keptWithWitnesses(proposal.outwardCount, steps.outwardWitnessed) : proposal.outwardCount;
-          const auto keptIn = kinkSteps ? follow::keptWithWitnesses(proposal.inwardCount, steps.inwardWitnessed) : proposal.inwardCount;
+          stage.follow(fit.state, outer, road, static_cast<std::uint32_t>(count), proposal, follow::NoObserver{});
+          const auto keptOut = proposal.outwardCount;
+          const auto keptIn = proposal.inwardCount;
           for (auto k = static_cast<std::size_t>(keptIn); k-- > 0U;) {
             w.chain.push_back(proposal.inward[k]);
           }
@@ -2126,22 +2113,17 @@ class CompleteAnatomy
             if (!mDroppedWalks.empty()) {
               mDroppedWalks[i] = {.outward = outward, .inward = inward, .road = road, .roadCount = static_cast<std::uint8_t>(count), .walked = true};
             }
-            // Each direction cut back to its kink steps' witnesses, as
-            // before the refit (`KeepWitnesses`); no bidding.
-            const bool kinkSteps = parameters.kinkScale2 > 1.F && parameters.maxKinks != 0U;
-            const auto keptOut = kinkSteps ? follow::keptWithWitnesses(walked, outward.witnessed) : walked;
-            const auto keptIn = kinkSteps ? follow::keptWithWitnesses(inWalked, inward.witnessed) : inWalked;
             std::vector<std::uint32_t> combined;
-            for (auto k = static_cast<std::size_t>(keptIn); k-- > 0U;) {
+            for (auto k = static_cast<std::size_t>(inWalked); k-- > 0U;) {
               combined.push_back(inRows[k]);
             }
             combined.insert(combined.end(), road.index, road.index + count);
-            combined.insert(combined.end(), outRows, outRows + keptOut);
+            combined.insert(combined.end(), outRows, outRows + walked);
             const auto need = parameters.minClustersAfterFollow > count ? parameters.minClustersAfterFollow - count : 0U;
-            const auto added = static_cast<std::uint32_t>(keptOut + keptIn);
+            const auto added = static_cast<std::uint32_t>(walked + inWalked);
             std::size_t wrong = 0U;
             for (std::size_t k = 0; k < added; ++k) {
-              wrong += mTruth->rows[k < keptOut ? outRows[k] : inRows[k - keptOut]].carries(particle) ? 0U : 1U;
+              wrong += mTruth->rows[k < walked ? outRows[k] : inRows[k - walked]].carries(particle) ? 0U : 1U;
             }
             const std::string took = std::format("took +{} ({} not its own) of the +{} needed", added, wrong, need);
             // The outward walk's first wrong row: its layer and the particle's
@@ -2151,12 +2133,12 @@ class CompleteAnatomy
             std::string cut = "cut before it: n/a";
             std::size_t wayBack = 0U;
             if (timedAt(index) && last < own.size()) {
-              for (std::size_t k = 0; k < keptOut; ++k) {
+              for (std::size_t k = 0; k < walked; ++k) {
                 const auto here = std::ranges::find(own, outRows[k]);
                 wayBack += here != own.end() && legsAt(index)[static_cast<std::size_t>(here - own.begin())] > legsAt(index)[last] ? 1U : 0U;
               }
             }
-            for (std::size_t w = 0; w < keptOut; ++w) {
+            for (std::size_t w = 0; w < walked; ++w) {
               if (mTruth->rows[outRows[w]].carries(particle)) {
                 continue;
               }
@@ -2169,7 +2151,7 @@ class CompleteAnatomy
                   continue;
                 }
                 onLayer = true;
-                const auto& seen = step->kink ? step->scaled : step->candidates;
+                const auto& seen = step->candidates;
                 const auto at = std::ranges::find(seen, row, &Candidate::row);
                 const auto taken = std::ranges::find(seen, outRows[w], &Candidate::row);
                 if (at == seen.end()) {
@@ -2196,19 +2178,16 @@ class CompleteAnatomy
                 }
                 own0 = sameLeg ? "no own row on its layer, own rows of its leg beyond" : (later ? "past its last on its leg, the way back beyond" : "past its last row");
               }
-              firstWrong = std::format("first wrong row: layer {}, {}{}", static_cast<int>(layer), own0, step != outward.steps.end() && step->kink ? " (kink step)" : "");
+              firstWrong = std::format("first wrong row: layer {}, {}", static_cast<int>(layer), own0);
               std::vector<std::uint32_t> trimmed(road.index, road.index + count);
-              // The prefix's own witnesses kept too: a kink step whose
-              // witness the cut removes goes with it.
-              const auto prefix = kinkSteps ? follow::keptWithWitnesses(static_cast<std::uint8_t>(w), outward.witnessed) : static_cast<std::uint8_t>(w);
-              trimmed.insert(trimmed.end(), outRows, outRows + prefix);
+              trimmed.insert(trimmed.end(), outRows, outRows + w);
               if (trimmed.size() < parameters.minClustersAfterFollow) {
                 cut = std::format("cut before it: {} rows, short of the length", trimmed.size());
               } else {
                 const auto refit = fitMeasurements(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = trimmed.data()}, static_cast<int>(trimmed.size()), kinkBudget(parameters));
                 // Kept by the refit and the length: and its rows still free
                 // after the iteration's bids and marks?
-                const bool held = std::any_of(outRows, outRows + prefix, [&](std::uint32_t row) { return iteration.used[row] != kFree; });
+                const bool held = std::any_of(outRows, outRows + w, [&](std::uint32_t row) { return iteration.used[row] != kFree; });
                 cut = refit.status != PropagationStatus::kOk ? std::format("cut before it: the refit fails in the {} pass", refit.failedPass == FitPass::kInward ? "inward" : "outward") : (follow::passesRoadChi2(parameters, refit) ? std::string{held ? "cut before it: kept, a row held after the iteration" : "cut before it: kept"} : std::string{"cut before it: chi2 over the cut"});
               }
               break;
@@ -2236,11 +2215,9 @@ class CompleteAnatomy
               if (next == kNoTrack) {
                 why = std::format("the walks short, {}: no own row beyond on its leg, {}", took, laterLeg ? "the way back beyond" : "none beyond");
               } else {
-                outward.bidKept = walked;
                 outward.kept = walked;
                 outward.refit = kRefitKept;
-                std::uint8_t detail = 0U;
-                const auto reason = stopReason(outward, next, mTruth->rows[own[at]].layer, particle, detail);
+                const auto reason = stopReason(outward, next, mTruth->rows[own[at]].layer);
                 const bool droppedUnconfirmed = outward.dropped == next;
                 why = std::format("the walks short, {}: its next row (layer {}) {}", took, static_cast<int>(mTruth->rows[next].layer), droppedUnconfirmed ? "taken, dropped after (the unconfirmed drop)" : kShortNames[reason]);
               }
@@ -2360,8 +2337,8 @@ class CompleteAnatomy
   /// How a follow walk ended (`FollowEnd`), as the printed tables name it.
   static constexpr std::array<const char*, 4> kFollowEndNames{"no target", "holes", "no row", "capacity"};
   /// A replayed step's outcome on a row, as the printed tables name it: the
-  /// six `StepOutcome`s, then `kNotVisited` and `kNoOwnNext`.
-  static constexpr std::array<const char*, 8> kStepOutcomeNames{"held", "outside the window", "crossing a layer", "no update", "chi2", "passing", "not visited", "no own next row"};
+  /// six `StepOutcome`s, then `kNotVisited`.
+  static constexpr std::array<const char*, 7> kStepOutcomeNames{"held", "outside the window", "crossing a layer", "no update", "chi2", "passing", "not visited"};
   /// The names of the bins of `kWalkPtEdges` [GeV].
   static constexpr std::array<const char*, 5> kWalkPtNames{"< 0.2", "0.2-0.3", "0.3-0.6", "0.6-1", ">= 1"};
 
@@ -2614,33 +2591,6 @@ class CompleteAnatomy
     // The blocks of the follow's replay, on a run whose iterations followed
     // (none on the ITS: they would be empty or zero).
     const bool followed = mReplayed + mOutReplayed != 0U;
-    if (followed) {
-      std::array<std::size_t, 8> kinkRefused{};
-      std::array<std::array<std::size_t, 8>, 2> unconfirmed{};
-      for (std::size_t index = 0; index < n; ++index) {
-        if (mFate[index] == kShortFate && mStop[index] == kKinkRefused) {
-          ++kinkRefused[mStopDetail[index] % 8U];
-        } else if (mFate[index] == kShortFate && mStop[index] == kKinkUnconfirmed) {
-          ++unconfirmed[mStopDetail[index] / 8U][mStopDetail[index] % 8U];
-        }
-      }
-      line = "  kink step refused it, under the scaled gate:";
-      for (std::size_t outcome = 0; outcome < kStepOutcomeNames.size(); ++outcome) {
-        if (kinkRefused[outcome] != 0U) {
-          line += std::format(" {} {};", kStepOutcomeNames[outcome], kinkRefused[outcome]);
-        }
-      }
-      std::cout << line << '\n';
-      for (std::size_t beam = 0; beam < 2U; ++beam) {
-        line = beam == 0U ? "  kink step unconfirmed, the particle's next row under the nominal gate:" : "  kink step unconfirmed, the beam line:";
-        for (std::size_t outcome = 0; outcome < kStepOutcomeNames.size(); ++outcome) {
-          if (unconfirmed[beam][outcome] != 0U) {
-            line += std::format(" {} {};", kStepOutcomeNames[outcome], unconfirmed[beam][outcome]);
-          }
-        }
-        std::cout << line << '\n';
-      }
-    }
     line = "  short, by the layer it missed:";
     std::array<std::size_t, kLayers> stopLayers{};
     for (std::size_t index = 0; index < n; ++index) {
@@ -2718,7 +2668,7 @@ class CompleteAnatomy
         {
           // The refit-chi2 stops: the outward rows the refit took, the wrong
           // ones among them, and the chi2 over the cut.
-          std::array<std::array<std::size_t, 6>, 6> bins{};
+          std::array<std::array<std::size_t, 6>, 3> bins{};
           std::array<std::size_t, kMaxClusters + 1U> rows{};
           constexpr std::array<double, 5> kEdges{1.5, 2., 3., 5., 10.};
           for (std::size_t index = 0; index < n; ++index) {
@@ -2730,14 +2680,14 @@ class CompleteAnatomy
             }
           }
           line =
-            "  short of an outer layer, refit chi2: outward rows not the particle's 0 / 1 / 2+ (k: with a kink step), by chi2 over the cut (1-1.5 / 1.5-2 / 2-3 "
+            "  short of an outer layer, refit chi2: outward rows not the particle's 0 / 1 / 2+, by chi2 over the cut (1-1.5 / 1.5-2 / 2-3 "
             "/ 3-5 / 5-10 / >10):";
-          for (std::size_t wrong = 0; wrong < 6U; ++wrong) {
-            line += std::format(" [{}{}] {} {} {} {} {} {};", wrong % 3U, wrong >= 3U ? "k" : "", bins[wrong][0], bins[wrong][1], bins[wrong][2], bins[wrong][3], bins[wrong][4], bins[wrong][5]);
+          for (std::size_t wrong = 0; wrong < 3U; ++wrong) {
+            line += std::format(" [{}] {} {} {} {} {} {};", wrong, bins[wrong][0], bins[wrong][1], bins[wrong][2], bins[wrong][3], bins[wrong][4], bins[wrong][5]);
           }
           std::array<std::array<std::size_t, 6>, 4> kinkBins{};
           for (std::size_t index = 0; index < n; ++index) {
-            if (mFate[index] == kShortFate && mStop[index] == kGapInside && mOutStop[index] == kRefitChi2 && mOutRefitWrong[index] % 3U == 0U) {
+            if (mFate[index] == kShortFate && mStop[index] == kGapInside && mOutStop[index] == kRefitChi2 && mOutRefitWrong[index] == 0U) {
               const auto ratio = static_cast<double>(mOutRefitRatio[index]);
               ++kinkBins[mOutRefitKink[index]][static_cast<std::size_t>(std::ranges::upper_bound(kEdges, ratio) - kEdges.begin())];
             }
@@ -2857,27 +2807,11 @@ class CompleteAnatomy
           std::cout << kinkText << '\n';
         }
       }
-      // The outward kink step's refusal of the own row, under the scaled
-      // gate (the inward one is printed with the short reasons), and the
-      // outward decisions by the particle's pT.
+      // The outward decisions: the particle's true kink over the step from
+      // the layer below the gap, and by the particle's pT.
       {
         if (followed) {
-          std::array<std::size_t, kNextOutcomes> refused{};
-          for (std::size_t index = 0; index < n; ++index) {
-            if (mFate[index] == kShortFate && mStop[index] == kGapInside && mOutStop[index] == kKinkRefused && mStopDetail[index] % 8U < kNextOutcomes) {
-              ++refused[mStopDetail[index] % 8U];
-            }
-          }
-          std::string text = "  short of an outer layer, kink step refused it, under the scaled gate:";
-          for (std::size_t outcome = 0; outcome < kNextOutcomes; ++outcome) {
-            if (refused[outcome] != 0U) {
-              text += std::format(" {} {};", kStepOutcomeNames[outcome], refused[outcome]);
-            }
-          }
-          std::cout << text << '\n';
-          // The particle's true kink over the step from the layer below the
-          // gap, by the decision there.
-          text =
+          std::string text =
             "  short of an outer layer, by the decision at the first it missed, the particle's true kink over the step from the layer below (<= 3 / 3-5 / > 5 "
             "theta0 / no hits):";
           for (std::size_t reason = 0; reason <= kShortReasons; ++reason) {
@@ -3250,20 +3184,9 @@ class CompleteAnatomy
     LayerID layer = 0;
     CandidateWindow window;
   };
-  /// A row a recovery search's confirmation visited for \a row: \a next,
-  /// kNoRow for the beam line, and its outcome under the nominal gate.
-  struct Witness {
-    std::uint32_t row = 0U;
-    std::uint32_t next = 0U;
-    StepOutcome outcome = StepOutcome::kPasses;
-    Scalar chi2 = 0.F;
-  };
   /// One step of a replayed proposal: the layer it stepped from, its state
   /// and factors before it, the row it stepped from, what it visited, what
-  /// it took; of the recovery pass's searches, the kink budget left where
-  /// the kink step was considered (-1: not), whether it looked ahead, the
-  /// rows their search visited under its gate and their witnesses, and
-  /// whether it took a kink step.
+  /// it took, and whether it looked ahead.
   struct Step {
     LayerID layer = 0;
     BoundTrackState state;
@@ -3272,12 +3195,8 @@ class CompleteAnatomy
     std::vector<Candidate> candidates;
     std::vector<TargetSeen> targets;
     std::uint32_t choice = 0U;
-    int kinksLeft = -1;
     bool lookahead = false;
-    bool kink = false;
-    std::vector<Candidate> scaled;
-    std::vector<Witness> witnesses;
-    /// The lookahead's confirmations at a nominal step more than one row passed:
+    /// The lookahead's confirmations at a step more than one row passed:
     /// each passing row, its chi2, the next step's row that
     /// confirmed it (kNoCluster: none) and that row's chi2.
     struct Lookahead {
@@ -3287,7 +3206,7 @@ class CompleteAnatomy
       Scalar nextChi2 = 0.F;
     };
     std::vector<Lookahead> lookaheads;
-    /// The nominal pass's targets without a row, each with whether
+    /// The step's targets without a row, each with whether
     /// `crossesSensor` called it crossed.
     std::vector<std::pair<LayerID, bool>> holes;
   };
@@ -3310,15 +3229,12 @@ class CompleteAnatomy
     float startMiss = 0.F;     ///< the pass's seed against its first measurement, on its surface [cm]
   };
   /// One replayed walk of the follow: its raw proposal, its steps, the
-  /// rows the bidding kept of it, of them the rows every kept kink step's
-  /// witness is among, and what the refit did with them.
+  /// rows the bidding kept of it, and what the refit did with them.
   struct Walk {
     ClusterList<kMaxClusters> road{};
     std::uint8_t roadCount = 0U;
     std::vector<std::uint32_t> raw;
     std::vector<Step> steps;
-    std::uint64_t witnessed = 0U;
-    std::uint32_t bidKept = 0U;
     std::uint32_t kept = 0U;
     RefitOutcome refit = kRefitKept;
     Scalar refitChi2 = 0;    ///< the extended refit's chi2
@@ -3387,16 +3303,12 @@ class CompleteAnatomy
     void target(LayerID layer, const CandidateWindow& window) const { replay->steps.back().targets.push_back({.layer = layer, .window = window}); }
     void hole(LayerID layer, bool crossed) const { replay->steps.back().holes.emplace_back(layer, crossed); }
     void candidate(LayerID layer, std::uint32_t row, StepOutcome outcome, Scalar chi2) const { replay->steps.back().candidates.push_back({.row = row, .outcome = outcome, .chi2 = chi2, .layer = layer}); }
-    void taken(std::uint32_t row, Scalar /*chi2*/, bool kinked) const
+    void taken(std::uint32_t row, Scalar /*chi2*/) const
     {
       replay->steps.back().choice = row;
-      replay->steps.back().kink = kinked;
       *from = row;
     }
-    void kink(std::uint32_t kinksLeft) const { replay->steps.back().kinksLeft = static_cast<int>(kinksLeft); }
     void lookahead(std::uint32_t /*passing*/) const { replay->steps.back().lookahead = true; }
-    void scaled(LayerID /*layer*/, std::uint32_t row, StepOutcome outcome, Scalar chi2) const { replay->steps.back().scaled.push_back({.row = row, .outcome = outcome, .chi2 = chi2}); }
-    void confirmation(std::uint32_t row, bool confirmed, std::uint32_t next, Scalar chi2) const { replay->steps.back().witnesses.push_back({.row = row, .next = next, .outcome = confirmed ? StepOutcome::kPasses : StepOutcome::kChi2, .chi2 = chi2}); }
     void lookaheadConfirmation(std::uint32_t row, Scalar chi2, std::uint32_t next, Scalar nextChi2) const { replay->steps.back().lookaheads.push_back({.row = row, .chi2 = chi2, .next = next, .nextChi2 = nextChi2}); }
     void unconfirmed(std::uint32_t row) const { replay->dropped = row; }
     void refusedEnd(std::uint32_t row) const { replay->refused = row; }
@@ -3410,7 +3322,7 @@ class CompleteAnatomy
     withBools(
       [&]<bool BeamLine, bool Greedy, bool EndDensity, bool BeamEnd>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>) {
         if constexpr (BeamLine || !BeamEnd) {
-          const FollowStage<Det, Material, BeamLine, false, Greedy, EndDensity, BeamEnd> stage{&parameters, &frame, &geometry, &material, propagator, iteration.tracks->view(), used, mMaxWidthPS.data(), mCells.view(), nullptr, nullptr, parameters.sharedInnermost == 0U, first};
+          const FollowStage<Det, Material, BeamLine, false, Greedy, EndDensity, BeamEnd> stage{&parameters, &frame, &geometry, &material, propagator, iteration.tracks->view(), used, mMaxWidthPS.data(), mCells.view(), nullptr, parameters.sharedInnermost == 0U, first};
           body(stage);
         }
       },
@@ -3423,14 +3335,11 @@ class CompleteAnatomy
   static auto recordFollow(const Stage& stage, const BoundTrackState& inner, const BoundTrackState& outer, const ClusterList<kMaxClusters>& road, std::uint8_t count, Walk& inward, Walk& outward)
   {
     FollowProposal<kMaxClusters> proposal{};
-    follow::KinkSteps steps{};
     std::uint32_t from = road.index[0];
     const Recorder recorder{{}, &inward, &from, &outward, &inward, road.index[count - 1U], road.index[0]};
-    stage.follow(inner, outer, road, count, proposal, steps, recorder);
+    stage.follow(inner, outer, road, count, proposal, recorder);
     outward.raw.assign(proposal.outward, proposal.outward + proposal.outwardCount);
-    outward.witnessed = steps.outwardWitnessed;
     inward.raw.assign(proposal.inward, proposal.inward + proposal.inwardCount);
-    inward.witnessed = steps.inwardWitnessed;
     return proposal;
   }
 
@@ -3475,8 +3384,8 @@ class CompleteAnatomy
   /// track made fake by the rows its follow again added -- or as the
   /// iteration's own, its road holding a wrong row or its follow adding
   /// one. Of the rows made wrong by a follow, the first: the step that
-  /// took it (a kink step, a step more than one row passed, a step one row
-  /// passed, outward) and what that step did with the particle's own row on
+  /// took it (a step more than one row passed, a step one row passed,
+  /// outward) and what that step did with the particle's own row on
   /// its layer.
   template <typename Observation>
   void fakeTransitions(const Observation& iteration, const std::vector<Replay>& replayed, const std::vector<Replay>& recovered)
@@ -3489,12 +3398,11 @@ class CompleteAnatomy
                                kRoadFake,
                                kFollowFake,
                                kKinds };
-    enum Source : std::uint8_t { kKinkSource,
-                                 kSeveralPassed,
+    enum Source : std::uint8_t { kSeveralPassed,
                                  kOnePassed,
                                  kSources };
     constexpr std::array<const char*, kKinds> kKindNames{"earlier fake, kept", "earlier fake, lengthened", "earlier good, made fake", "own: road holds a wrong row", "own: its follow adds one"};
-    constexpr std::array<const char*, kSources> kSourceNames{"kink step", "more than one row passed", "one row passed"};
+    constexpr std::array<const char*, kSources> kSourceNames{"more than one row passed", "one row passed"};
     // The particle's own rows at the step (StepOutcome's names first, the
     // best outcome of its rows on the layer), and the refinements: no
     // own row there with own rows further along the particle's path (by
@@ -3583,12 +3491,9 @@ class CompleteAnatomy
       for (const auto& candidate : step->candidates) {
         passed += candidate.outcome == StepOutcome::kPasses ? 1U : 0U;
       }
-      Source source = passed > 1U ? kSeveralPassed : kOnePassed;
-      if (step->kink) {
-        source = kKinkSource;
-      }
+      const Source source = passed > 1U ? kSeveralPassed : kOnePassed;
       const auto layer = mTruth->rows[row].layer;
-      const auto& seen = step->kink ? step->scaled : step->candidates;
+      const auto& seen = step->candidates;
       const auto taken = std::ranges::find(seen, row, &Candidate::row);
       // Every own row on the layer: the best outcome among them (passing
       // first, then by StepOutcome's order from the end).
@@ -3852,22 +3757,16 @@ class CompleteAnatomy
   /// over the walks of the iteration's own good roads: whether the dropped
   /// row was the road's particle's, and what the step that found nothing
   /// (the walk's last) had seen: a row of the particle or of another within
-  /// the window but above the gate (a failed update does not count), a row
-  /// passing the kink pass's scaled gate (unconfirmed, or the pass not made
-  /// for want of a budget or an allowance), or nothing of either. The
-  /// strongest kind is counted: scaled before gated, the particle's before
-  /// another's.
+  /// the window but above the gate (a failed update does not count), or
+  /// nothing. The particle's is counted before another's.
   template <typename Observation>
   void endEvidence(const Observation& iteration, const std::vector<Replay>& replayed)
   {
-    enum Seen : std::uint8_t { kSeenOwnScaled,
-                               kSeenOtherScaled,
-                               kSeenOwnGated,
+    enum Seen : std::uint8_t { kSeenOwnGated,
                                kSeenOtherGated,
                                kSeenNone,
-                               kSeenNoKinkPass,
                                kSeenKinds };
-    constexpr std::array<const char*, kSeenKinds> kSeenNames{"the particle's row passing the scaled gate", "another row passing the scaled gate", "the particle's row within the window, above the gate", "another row within the window, above the gate", "nothing in the window", "nothing in the window, no kink pass"};
+    constexpr std::array<const char*, kSeenKinds> kSeenNames{"the particle's row within the window, above the gate", "another row within the window, above the gate", "nothing in the window"};
     constexpr std::array<double, 4> kPtEdges{0.3, 0.6, 1., 1e9};
     constexpr std::array<const char*, 4> kPtNames{"< 0.3", "0.3-0.6", "0.6-1", ">= 1"};
     // [walk][dropped the particle's / another's][pT][seen]
@@ -3883,27 +3782,19 @@ class CompleteAnatomy
       const auto bin = std::min(static_cast<std::size_t>(std::ranges::upper_bound(kPtEdges, pt) - kPtEdges.begin()), kPtEdges.size() - 1U);
       const auto one = [&](const Walk& walk, std::size_t direction) {
         // Agreeing walks only; a gated row is one the update was made for
-        // (a failed update is no evidence); the scaled evidence exists only
-        // where the kink pass ran (a spent budget shows as none).
+        // (a failed update is no evidence).
         if (walk.dropped == kNoRow || walk.steps.empty() || !walk.agrees) {
           return;
         }
         const auto& last = walk.steps.back();
-        bool ownScaled = false;
-        bool otherScaled = false;
         bool ownGated = false;
         bool otherGated = false;
-        for (const auto& candidate : last.scaled) {
-          if (candidate.outcome == StepOutcome::kPasses) {
-            (mTruth->rows[candidate.row].carries(particle) ? ownScaled : otherScaled) = true;
-          }
-        }
         for (const auto& candidate : last.candidates) {
           if (candidate.outcome == StepOutcome::kChi2) {
             (mTruth->rows[candidate.row].carries(particle) ? ownGated : otherGated) = true;
           }
         }
-        const std::size_t seen = ownScaled ? kSeenOwnScaled : (otherScaled ? kSeenOtherScaled : (ownGated ? kSeenOwnGated : (otherGated ? kSeenOtherGated : (last.kinksLeft < 0 ? kSeenNoKinkPass : kSeenNone))));
+        const std::size_t seen = ownGated ? kSeenOwnGated : (otherGated ? kSeenOtherGated : kSeenNone);
         ++counts[direction][mTruth->rows[walk.dropped].carries(particle) ? 0U : 1U][bin][seen];
       };
       one(replay, 0U);
@@ -3933,7 +3824,7 @@ class CompleteAnatomy
   }
 
   /// The lookahead against the step's own chi2
-  /// ranking, paired, at every nominal step of the iteration's own tracks'
+  /// ranking, paired, at every step of the iteration's own tracks'
   /// agreeing walks where more than one row passed and the road's particle
   /// is among them: whether the lookahead's choice and the smallest chi2 are the
   /// particle's row (both, the lookahead corrects, the lookahead spoils, neither), by the rows
@@ -3976,7 +3867,7 @@ class CompleteAnatomy
           return;
         }
         for (const auto& step : walk.steps) {
-          if (step.kink || step.lookaheads.size() < 2U || step.choice == kNoRow) {
+          if (step.lookaheads.size() < 2U || step.choice == kNoRow) {
             continue;
           }
           ++steps;
@@ -4003,7 +3894,7 @@ class CompleteAnatomy
       }
     }
     std::string text = std::format(
-      "  the lookahead against the smallest chi2 after iteration {} (nominal steps of agreeing walks, more than one row passing: {}, "
+      "  the lookahead against the smallest chi2 after iteration {} (steps of agreeing walks, more than one row passing: {}, "
       "{} without the particle's row among them):",
       iteration.iteration, steps, noOwn);
     const auto line = [&](const char* name, const std::array<std::size_t, kPairs>& counts) {
@@ -4077,7 +3968,7 @@ class CompleteAnatomy
               passed += candidate.outcome == StepOutcome::kPasses ? 1U : 0U;
             }
           }
-          const bool lone = step != walk.steps.end() && !step->kink && passed == 1U;
+          const bool lone = step != walk.steps.end() && passed == 1U;
           const bool searching = walk.end == FollowEnd::kHoles || walk.end == FollowEnd::kNoRow;
           if (rule == kTrimLast || (lone && searching)) {
             dropped.push_back(last);
@@ -4140,8 +4031,8 @@ class CompleteAnatomy
   /// (none: the layout's end; else a `noTarget` is a failed prediction);
   /// the unconfirmed drop's verdict -- the last row dropped, kept on evidence (the keep's chi2
   /// or inward's near miss), kept unconfirmed (no sensor crossed), or no row
-  /// walked; the rows walked, kept by the bid, kept with the witnesses; the
-  /// last row walked (with whether a kink step took it) and the row the unconfirmed drop
+  /// walked; the rows walked and kept by the bid; the
+  /// last row walked and the row the unconfirmed drop
   /// dropped, each with its layer, chi2 and what it is to the road's particle: its
   /// own, noise, past the end (no own row on that layer; then its own rows
   /// further along its path in the walk's direction, by the distance from
@@ -4164,8 +4055,8 @@ class CompleteAnatomy
   /// layers (hex). Between them: what the ending step saw --
   /// windows opened, rows in them, rows the gate refused -- and the evidence
   /// for the last row (when it ends the track that way) and the unconfirmed
-  /// drop's row, truth-free, from the state before the row: the nominal chi2 and
-  /// sqrt|V| (`oneStep`; a kink step's own chi2 is the scaled one), the
+  /// drop's row, truth-free, from the state before the row: the chi2 and
+  /// sqrt|V| (`oneStep`), the
   /// density of the window's other rows beyond the gate and the layer's, the
   /// reach of its layer (`reachChance`), its time box's overlap with the
   /// walk's box before it, both widths [ps]; the chi2 predicted for it from the
@@ -4234,15 +4125,14 @@ class CompleteAnatomy
           }
           return {"past", !beyond ? "none" : (free ? "free" : "held")};
         };
-        // The chi2 of \a row at the step that took it, and whether a kink step did.
-        const auto chi2Of = [](const Walk& walk, std::uint32_t row) -> std::pair<double, int> {
+        // The chi2 of \a row at the step that took it.
+        const auto chi2Of = [](const Walk& walk, std::uint32_t row) {
           const auto step = std::ranges::find(walk.steps, row, &Step::choice);
           if (step == walk.steps.end()) {
-            return {-1., -1};
+            return -1.;
           }
-          const auto& seen = step->kink ? step->scaled : step->candidates;
-          const auto at = std::ranges::find(seen, row, &Candidate::row);
-          return {at == seen.end() ? -1. : static_cast<double>(at->chi2), step->kink ? 1 : 0};
+          const auto at = std::ranges::find(step->candidates, row, &Candidate::row);
+          return at == step->candidates.end() ? -1. : static_cast<double>(at->chi2);
         };
         // The fits of the track's rows: all of them, without the
         // outermost, without the innermost, with a row before the innermost.
@@ -4352,9 +4242,9 @@ class CompleteAnatomy
           const bool dropped = walk.dropped != kNoRow;
           const char* verdict = dropped ? "dropped" : (walk.raw.empty() ? "none" : (crossed ? "evidence" : "unconfirmed"));
           const std::uint32_t last = walk.raw.empty() ? kNoRow : walk.raw.back();
-          const auto [lastChi2, lastKink] = last == kNoRow ? std::pair{-1., -1} : chi2Of(walk, last);
+          const double lastChi2 = last == kNoRow ? -1. : chi2Of(walk, last);
           const auto [lastKind, lastBeyond] = last == kNoRow ? std::pair{"-", "-"} : kindOf(last, outward);
-          const double droppedChi2 = dropped ? chi2Of(walk, walk.dropped).first : -1.;
+          const double droppedChi2 = dropped ? chi2Of(walk, walk.dropped) : -1.;
           const auto [droppedKind, droppedBeyond] = dropped ? kindOf(walk.dropped, outward) : std::pair{"-", "-"};
           const bool survives = last != kNoRow && std::ranges::find(rows, last) != rows.end();
           wrongLast += survives && particle != study::kNoTrackParticle && !mTruth->rows[last].carries(particle) ? 1U : 0U;
@@ -4409,9 +4299,8 @@ class CompleteAnatomy
           }
           const auto evidence = [](const Evidence& e) { return std::format("{:.5g},{:.5g},{:.5g},{:.5g},{:.4g},{:.0f},{:.0f},{:.0f},{:.5g},{:.5g},{:.5g},{:.9g},{:.9g}", e.chi2, e.sqrtDet, e.rhoWindow, e.rhoLayer, e.reach, e.overlapPS, e.boxPS, e.rowPS, e.rest, e.beamWith, e.beamWithout, e.floatDet, e.factorDet); };
           // The beam line inward: its update's chi2 at the state after
-          // the last row walked, as `confirmation` makes it for a kink row at
-          // the innermost layer, and whether it passes beamChi2Max; and the
-          // beam line as the reference of each nominal step (`oneStep` with
+          // the last row walked, and whether it passes beamChi2Max; and the
+          // beam line as the reference of each step (`oneStep` with
           // it): the rows the walk took that the reference's prediction puts
           // above the gate, the first of them -- its position among the rows
           // taken, whether it is the walk's last kept row (1) or the unconfirmed
@@ -4419,10 +4308,9 @@ class CompleteAnatomy
           // first target with one, the smallest chi2) -- and, where it refuses
           // none, a row of the ending step the nominal gate refused that the
           // reference passes; the reference's chi2 of the walk's last kept row
-          // on its own, whatever came before (-1: a kink step's, -2: the
+          // on its own, whatever came before (-1: none, -2: the
           // transport or the beam update failed); the rows taken it could not
-          // judge so. Kink steps are not judged; a row it cannot judge is not
-          // refused.
+          // judge so. A row it cannot judge is not refused.
           double endBeam = -1.;
           int endBeamPasses = -1;
           int refRefused = -1;
@@ -4479,7 +4367,7 @@ class CompleteAnatomy
                 }
                 continue;
               }
-              const double chi2 = step.kink ? -1. : referenced(step.choice);
+              const double chi2 = referenced(step.choice);
               lastRef = step.choice == last ? chi2 : lastRef;
               refInvalid += chi2 < -1.5 ? 1 : 0;
               if (chi2 > gate) {
@@ -4513,7 +4401,7 @@ class CompleteAnatomy
             }
           }
           const auto beam = std::format("{:.5g},{},{},{},{},{},{},{},{},{},{},{:.5g},{},{},{}", endBeam, endBeamPasses, refRefused, refStep, rowOf(refRow), kindName(refRow), refLast, rowOf(refAlt), kindName(refAlt), rowOf(refNew), kindName(refNew), lastRef, lastRef >= 0. ? (lastRef <= gate ? 1 : 0) : -1, refInvalid, search);
-          lines.push_back(std::format("{},{},{},{},{:.6g},{},{},{},{},{},{},{},{},{},{:.5g},{},{},{},{},{},{:.5g},{},{},{},{},{},{},{},{:x},{:x},{},{},{},{},{}", track, iteration.iteration, outward ? "out" : "in", particle == study::kNoTrackParticle ? 0U : particle, pt, kEnds[static_cast<std::size_t>(walk.end)], crossed ? 1 : 0, links, verdict, walk.raw.size(), walk.bidKept, walk.kept, last == kNoRow ? -1 : static_cast<std::int64_t>(last), last == kNoRow ? -1 : static_cast<int>(mTruth->rows[last].layer), lastChi2, lastKink, lastKind, lastBeyond, dropped ? static_cast<std::int64_t>(walk.dropped) : -1, dropped ? static_cast<int>(mTruth->rows[walk.dropped].layer) : -1, droppedChi2, droppedKind, droppedBeyond, survives ? 1 : 0, kRefits[replay.refit], walk.agrees ? 1 : 0, trackGood ? 1 : 0, rows.size(), trackLayers, ownLayers, windows, seen, refused, evidence(lastEvidence), evidence(droppedEvidence)) + "," + beam);
+          lines.push_back(std::format("{},{},{},{},{:.6g},{},{},{},{},{},{},{},{},{:.5g},{},{},{},{},{:.5g},{},{},{},{},{},{},{},{:x},{:x},{},{},{},{},{}", track, iteration.iteration, outward ? "out" : "in", particle == study::kNoTrackParticle ? 0U : particle, pt, kEnds[static_cast<std::size_t>(walk.end)], crossed ? 1 : 0, links, verdict, walk.raw.size(), walk.kept, last == kNoRow ? -1 : static_cast<std::int64_t>(last), last == kNoRow ? -1 : static_cast<int>(mTruth->rows[last].layer), lastChi2, lastKind, lastBeyond, dropped ? static_cast<std::int64_t>(walk.dropped) : -1, dropped ? static_cast<int>(mTruth->rows[walk.dropped].layer) : -1, droppedChi2, droppedKind, droppedBeyond, survives ? 1 : 0, kRefits[replay.refit], walk.agrees ? 1 : 0, trackGood ? 1 : 0, rows.size(), trackLayers, ownLayers, windows, seen, refused, evidence(lastEvidence), evidence(droppedEvidence)) + "," + beam);
           allAgree = allAgree && walk.agrees;
         };
         if (!replay.outward.empty()) {
@@ -4759,7 +4647,7 @@ class CompleteAnatomy
 
   /// The follow's hole calls against the MC hits: on
   /// the agreeing walks of the iteration's correct roads (every road row the
-  /// road's particle's), each nominal target without a row, by direction and
+  /// road's particle's), each target without a row, by direction and
   /// layer: whether `crossesSensor` called it crossed, whether the particle
   /// has an MC hit on that layer, and whether it has a row there. Crossed
   /// without a hit is a gap called a crossing; a hit and no row the
@@ -4923,8 +4811,6 @@ class CompleteAnatomy
     constexpr std::array<double, 8> kChi2Edges{0., 2., 4., 6., 9., 13.8, 25., 100.};
     std::array<std::array<std::size_t, 16>, kPopulations> needs{};
     std::array<std::array<std::size_t, kChi2Edges.size() + 1U>, kPopulations> chi2s{};
-    std::array<std::array<std::size_t, kChi2Edges.size() + 1U>, kPopulations> scaledChi2s{};
-    std::array<std::size_t, kPopulations> scaledPass{};
     std::array<std::size_t, kPopulations> counts{};
     std::array<std::size_t, kPopulations> unfitted{};
     for (std::uint32_t track = iteration.trackOffset; track < tracks; ++track) {
@@ -5009,7 +4895,7 @@ class CompleteAnatomy
       detail::StepMaterial traversed;
       if (inner.status != RoadFitStatus::kAccepted ||
           !follow::windowMaterial(propagator, parameters, geometry, material, inner.state, factorCovariance(inner.state.cov), geometry.planeOf(measurementAt(frame, outer)).layer, PropagationDirection::kForward, traversed) ||
-          !follow::updateCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, measurementAt(frame, outer), PropagationDirection::kForward, inner.state, factorCovariance(inner.state.cov), output, outputFactors, chi2, 1.F)) {
+          !follow::updateCandidate(propagator, geometry, detail::GivenMaterial{traversed}, measurementAt(frame, outer), PropagationDirection::kForward, inner.state, factorCovariance(inner.state.cov), output, outputFactors, chi2)) {
         ++unfitted[population];
         continue;
       }
@@ -5021,13 +4907,6 @@ class CompleteAnatomy
         return bin;
       };
       ++chi2s[population][binOf(chi2)];
-      // The same step with its scattering scaled by the allowance, as the
-      // follow's kink step takes it, against the follow's gate.
-      Scalar scaled = 0.F;
-      if (follow::updateCandidate<true>(propagator, geometry, detail::GivenMaterial{traversed}, measurementAt(frame, outer), PropagationDirection::kForward, inner.state, factorCovariance(inner.state.cov), output, outputFactors, scaled, std::sqrt(parameters.kinkScale2))) {
-        ++scaledChi2s[population][binOf(scaled)];
-        scaledPass[population] += scaled <= parameters.clusterChi2Max ? 1U : 0U;
-      }
     }
     std::string text = std::format("  the road ends after iteration {} (its own roads; the allowance's tests each needs, against its nominal twin):", iteration.iteration);
     constexpr std::array<const char*, 4> kNeedNames{"outer triplet", "inner triplet", "last-step kink", "beam tail"};
@@ -5054,13 +4933,7 @@ class CompleteAnatomy
           text += bin == kChi2Edges.size() ? std::format(" >= {} {};", kChi2Edges.back(), chi2s[population][bin]) : std::format(" < {} {};", kChi2Edges[bin], chi2s[population][bin]);
         }
       }
-      text += std::format(" the rest not fitted {} | scaled by the allowance:", unfitted[population]);
-      for (std::size_t bin = 0; bin <= kChi2Edges.size(); ++bin) {
-        if (scaledChi2s[population][bin] != 0U) {
-          text += bin == kChi2Edges.size() ? std::format(" >= {} {};", kChi2Edges.back(), scaledChi2s[population][bin]) : std::format(" < {} {};", kChi2Edges[bin], scaledChi2s[population][bin]);
-        }
-      }
-      text += std::format(" within the step gate ({:.1f}) {}", parameters.clusterChi2Max, scaledPass[population]);
+      text += std::format(" the rest not fitted {}", unfitted[population]);
     }
     mTransitionLines.push_back(text);
   }
@@ -5624,12 +5497,12 @@ class CompleteAnatomy
     /// The swaps, the held-out own row within the gate and a stranger (not
     /// the particle's) taken on its layer: the own row available to the step
     /// (it passed in production) or not (held, refused), by whether the step
-    /// looked ahead: [available][plain, lookahead, kink]; of the available,
+    /// looked ahead: [available][plain, lookahead]; of the available,
     /// the stranger's chi2 the lower, and the one-step evidence (-chi2/2 -
     /// log sqrt|V|) preferring the own row.
-    std::array<std::array<std::size_t, 3>, 2> swaps{};
-    std::array<std::size_t, 3> swapsTakenLower{};
-    std::array<std::size_t, 3> swapsEvidenceOwn{};
+    std::array<std::array<std::size_t, 2>, 2> swaps{};
+    std::array<std::size_t, 2> swapsTakenLower{};
+    std::array<std::size_t, 2> swapsEvidenceOwn{};
     std::size_t swapsVolumeDecides = 0U; ///< available: the evidence prefers the own row while its chi2 is the larger
     std::size_t ownOtherTaken = 0U;      ///< the held-out row in the gate, an own row of an overlap or another leg taken
     /// The lookahead against the greedy choice at the steps that looked ahead: of the
@@ -5922,7 +5795,7 @@ class CompleteAnatomy
                 const auto at = measurementAt(frame, candidate.row);
                 BoundTrackState predicted;
                 CovarianceFactors factors;
-                if (!windowed || !follow::transportCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, geometry.planeOf(at), direction, step.state, step.factors, predicted, factors, 1.F)) {
+                if (!windowed || !follow::transportCandidate(propagator, geometry, detail::GivenMaterial{traversed}, geometry.planeOf(at), direction, step.state, step.factors, predicted, factors)) {
                   continue;
                 }
                 covarianceFromFactors(factors, predicted.cov);
@@ -6048,7 +5921,7 @@ class CompleteAnatomy
                 if (mTruth->rows[step.choice].carries(particle)) {
                   ++tally.ownOtherTaken;
                 } else {
-                  const std::size_t how = step.kink ? 2U : (step.lookahead ? 1U : 0U);
+                  const std::size_t how = step.lookahead ? 1U : 0U;
                   const bool available = ownSeen->outcome == StepOutcome::kPasses;
                   ++tally.swaps[available ? 1U : 0U][how];
                   if (available) {
@@ -6115,7 +5988,7 @@ class CompleteAnatomy
             sum.noOwn[r][c] += one.noOwn[r][c];
           }
         }
-        for (std::size_t h = 0; h < 3U; ++h) {
+        for (std::size_t h = 0; h < 2U; ++h) {
           sum.swaps[0][h] += one.swaps[0][h];
           sum.swaps[1][h] += one.swaps[1][h];
           sum.swapsTakenLower[h] += one.swapsTakenLower[h];
@@ -6170,8 +6043,8 @@ class CompleteAnatomy
     }
     text +=
       "\n    the same keys: the targets without the held-out own row, by why: targets / a stranger taken / an own row of another leg taken | the swaps "
-      "(the held-out row in the gate, a stranger taken), the own row not available to the step (held, refused) plain / lookahead / kink, and "
-      "available: plain / lookahead / kink, each (the stranger's chi2 the lower, the one-step evidence -chi2/2 - log sqrt|V| preferring the own "
+      "(the held-out row in the gate, a stranger taken), the own row not available to the step (held, refused) plain / lookahead, and "
+      "available: plain / lookahead, each (the stranger's chi2 the lower, the one-step evidence -chi2/2 - log sqrt|V| preferring the own "
       "row); the own preferred while its chi2 is the larger | an own row of an overlap or another leg taken instead | the lookahead against the greedy "
       "smallest chi2 among the passing rows: both own / greedy own, lookahead not (it costs) / greedy not, lookahead own (it saves) / neither | the "
       "recomputed chi2 against production's: |relative difference| < 1e-4 / 1e-3 / 1e-2 / more, the gate decided otherwise";
@@ -6181,9 +6054,9 @@ class CompleteAnatomy
         text += t.noOwn[r][0] != 0U ? std::format(" {} {} / {} / {};", kNoOwnNames[r], t.noOwn[r][0], t.noOwn[r][1], t.noOwn[r][2]) : std::string{};
       }
       text += std::format(" (seen not: not visited {}, outside the box {}, transport {})", t.outsideWhy[0], t.outsideWhy[1], t.outsideWhy[2]);
-      text += std::format(" | not available {} / {} / {}; available", t.swaps[0][0], t.swaps[0][1], t.swaps[0][2]);
-      for (std::size_t h = 0; h < 3U; ++h) {
-        text += std::format(" {} ({}, {}){}", t.swaps[1][h], t.swapsTakenLower[h], t.swapsEvidenceOwn[h], h < 2U ? " /" : ";");
+      text += std::format(" | not available {} / {}; available", t.swaps[0][0], t.swaps[0][1]);
+      for (std::size_t h = 0; h < 2U; ++h) {
+        text += std::format(" {} ({}, {}){}", t.swaps[1][h], t.swapsTakenLower[h], t.swapsEvidenceOwn[h], h < 1U ? " /" : ";");
       }
       text += std::format(" {} | {} | {} / {} / {} / {} | {} / {} / {} / {}, {}", t.swapsVolumeDecides, t.ownOtherTaken, t.versusGreedy[1][1], t.versusGreedy[1][0], t.versusGreedy[0][1], t.versusGreedy[0][0], t.chi2Agreement[0], t.chi2Agreement[1], t.chi2Agreement[2], t.chi2Agreement[3], t.chi2Agreement[4]);
     }
@@ -6316,7 +6189,7 @@ class CompleteAnatomy
       if (k > 0) {
         BoundTrackState next;
         CovarianceFactors nextFactors;
-        if (!follow::transportCandidate<false>(propagator, geometry, material, geometry.planeOf(measurement), PropagationDirection::kForward, state, factors, next, nextFactors, 1.F)) {
+        if (!follow::transportCandidate(propagator, geometry, material, geometry.planeOf(measurement), PropagationDirection::kForward, state, factors, next, nextFactors)) {
           return nan;
         }
         state = next;
@@ -6444,7 +6317,7 @@ class CompleteAnatomy
     CovarianceFactors carried;
     detail::StepMaterial traversed;
     if (!follow::windowMaterial(propagator, parameters, geometry, material, state, factors, geometry.planeOf(measurement).layer, direction, traversed) ||
-        !follow::transportCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, geometry.planeOf(measurement), direction, state, factors, predicted, carried, 1.F)) {
+        !follow::transportCandidate(propagator, geometry, detail::GivenMaterial{traversed}, geometry.planeOf(measurement), direction, state, factors, predicted, carried)) {
       return {};
     }
     double floatDet = -1.;
@@ -7008,14 +6881,13 @@ class CompleteAnatomy
   }
 
   /// One follow of the iteration again (see the file's comment): of the
-  /// tracks from \a first to \a last, with their \a proposals and
-  /// \a kinkSteps as it made them, on the mask \a used as it found it; each
+  /// tracks from \a first to \a last, with their \a proposals as it made
+  /// them, on the mask \a used as it found it; each
   /// track from the refit of its road, or with \a fromSnapshot from the
   /// previous iteration's track whole (followEarlier).
   template <typename Observation, typename Proposals, typename Material>
-  [[nodiscard]] std::vector<Replay> replayExtension(const Observation& iteration, std::uint32_t first, std::uint32_t last, const Proposals& proposals, std::span<const follow::KinkSteps> kinkSteps, std::vector<std::uint8_t>& used, bool fromSnapshot, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator)
+  [[nodiscard]] std::vector<Replay> replayExtension(const Observation& iteration, std::uint32_t first, std::uint32_t last, const Proposals& proposals, std::vector<std::uint8_t>& used, bool fromSnapshot, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator)
   {
-    const bool kinks = !kinkSteps.empty();
     const auto view = iteration.tracks->view();
     std::vector<Replay> replays(last - first);
     if (!parameters.follow || proposals.size() != replays.size()) {
@@ -7077,7 +6949,6 @@ class CompleteAnatomy
           replay.agrees = walked.inwardCount >= proposal.inwardCount && std::equal(proposal.inward, proposal.inward + proposal.inwardCount, walked.inward);
           outward.road = road;
           outward.roadCount = count;
-          outward.bidKept = proposal.outwardCount;
           outward.kept = proposal.outwardCount;
           outward.agrees = walked.outwardCount >= proposal.outwardCount && std::equal(proposal.outward, proposal.outward + proposal.outwardCount, walked.outward);
           replay.outward.push_back(std::move(outward));
@@ -7092,9 +6963,8 @@ class CompleteAnatomy
     }
     // The bidding: each row to the proposing track first in output order;
     // each track keeps its proposal up to its first row lost (`Bid`,
-    // `Resolve`), then up to the last kink step whose witness it keeps
-    // (`KeepWitnesses`). Outward proposals bid with what the iteration kept
-    // of them.
+    // `Resolve`). Outward proposals bid with what the iteration kept of
+    // them.
     std::vector<std::uint32_t> slots(mTruth->rows.size(), 0U);
     for (std::uint32_t track = first; track < last; ++track) {
       const std::uint32_t priority = last - track;
@@ -7121,25 +6991,23 @@ class CompleteAnatomy
       for (auto track = static_cast<std::uint32_t>(a); track < b; ++track) {
         auto& replay = replays[track - first];
         const std::uint32_t priority = last - track;
-        replay.bidKept = static_cast<std::uint32_t>(replay.raw.size());
+        replay.kept = static_cast<std::uint32_t>(replay.raw.size());
         for (std::uint32_t i = 0; i < replay.raw.size(); ++i) {
           if (slots[replay.raw[i]] != priority) {
-            replay.bidKept = i;
+            replay.kept = i;
             break;
           }
         }
-        replay.kept = kinks ? follow::keptWithWitnesses(static_cast<std::uint8_t>(replay.bidKept), replay.witnessed) : replay.bidKept;
         // The outward walk's bid the same way.
         const auto& proposal = proposals[track - first];
         for (auto& outward : replay.outward) {
-          outward.bidKept = static_cast<std::uint32_t>(outward.raw.size());
+          outward.kept = static_cast<std::uint32_t>(outward.raw.size());
           for (std::uint32_t i = 0; i < outward.raw.size(); ++i) {
             if (slots[outward.raw[i]] != priority) {
-              outward.bidKept = i;
+              outward.kept = i;
               break;
             }
           }
-          outward.kept = kinks ? follow::keptWithWitnesses(static_cast<std::uint8_t>(outward.bidKept), outward.witnessed) : outward.bidKept;
         }
         const std::uint32_t outwardKept = replay.outward.empty() ? proposal.outwardCount : replay.outward.front().kept;
         // The extended refit's acceptance (`follow::Refit`): the inward rows
@@ -7211,9 +7079,9 @@ class CompleteAnatomy
           outward.refitCount = replay.refitCount;
         }
         // Fidelity: the rows the replay says the iteration kept are the ones it
-        // kept, and its kink steps' witnesses are the ones it recorded.
+        // kept.
         const std::uint32_t replayKept = replay.refit == kRefitKept ? replay.kept : 0U;
-        bool agrees = replayKept == proposal.inwardCount && (!kinks || replay.witnessed == kinkSteps[track - first].inwardWitnessed);
+        bool agrees = replayKept == proposal.inwardCount;
         for (std::uint32_t i = 0; agrees && i < replayKept; ++i) {
           agrees = replay.raw[i] == proposal.inward[i];
         }
@@ -7259,9 +7127,8 @@ class CompleteAnatomy
 
   /// The decision that left \a row, the particle's next row inward, out of
   /// the track: in the bidding or the refit if the replay proposed it, else
-  /// at the step from \a outside, the layer just outside it -- or, where the
-  /// step had the kink allowance, at its kink step.
-  [[nodiscard]] Short stopReason(const Walk& replay, std::uint32_t row, LayerID outside, std::uint64_t particle, std::uint8_t& detail) const
+  /// at the step from \a outside, the layer just outside it.
+  [[nodiscard]] Short stopReason(const Walk& replay, std::uint32_t row, LayerID outside) const
   {
     if (row == kNoTrack) {
       return kNoStep;
@@ -7269,11 +7136,8 @@ class CompleteAnatomy
     const auto at = std::ranges::find(replay.raw, row);
     if (at != replay.raw.end()) {
       const auto position = static_cast<std::uint32_t>(at - replay.raw.begin());
-      if (position >= replay.bidKept) {
-        return kLostBid;
-      }
       if (position >= replay.kept) {
-        return kWitnessLost;
+        return kLostBid;
       }
       return replay.refit == kRefitFailedFit ? kRefitFailed : kRefitChi2;
     }
@@ -7282,42 +7146,6 @@ class CompleteAnatomy
       return kNoStep;
     }
     const auto seen = std::ranges::find(step->candidates, row, &Candidate::row);
-    if (step->kinksLeft >= 0 && (seen == step->candidates.end() || seen->outcome != StepOutcome::kUsed)) {
-      // No row passed the step: its kink step decided.
-      if (step->kinksLeft == 0) {
-        return kKinkBudget;
-      }
-      const auto scaled = std::ranges::find(step->scaled, row, &Candidate::row);
-      if (scaled == step->scaled.end() || scaled->outcome != StepOutcome::kPasses) {
-        detail = static_cast<std::uint8_t>(scaled == step->scaled.end() ? kNotVisited : static_cast<std::size_t>(scaled->outcome));
-        return kKinkRefused;
-      }
-      bool confirmed = false;
-      for (const auto& witness : step->witnesses) {
-        confirmed = confirmed || (witness.row == row && witness.outcome == StepOutcome::kPasses);
-      }
-      if (confirmed) {
-        return kKinkOther;
-      }
-      // What became of the particle's own next row, or of the beam line. The
-      // next row is taken on the layer numbered two below \a outside: the
-      // class's barrel layers numbered consecutively from the beam outward
-      // and an inward walk (an outward one's witness is on the layer above;
-      // a skipped layer or a disc is not supported).
-      const auto next = outside >= 2U ? ownRowOn(particle, static_cast<LayerID>(outside - 2U)) : kNoTrack;
-      std::size_t beam = 0U;
-      std::size_t outcome = next == kNoTrack ? kNoOwnNext : kNotVisited;
-      for (const auto& witness : step->witnesses) {
-        if (witness.row == row && witness.next == kNoRow) {
-          beam = 1U;
-          outcome = static_cast<std::size_t>(witness.outcome);
-        } else if (witness.row == row && next != kNoTrack && witness.next == next) {
-          outcome = static_cast<std::size_t>(witness.outcome);
-        }
-      }
-      detail = static_cast<std::uint8_t>((8U * beam) + outcome);
-      return kKinkUnconfirmed;
-    }
     if (seen == step->candidates.end()) {
       return kNotQueried;
     }
@@ -7405,7 +7233,7 @@ class CompleteAnatomy
     }
     std::cout << '\n';
     for (const auto& step : walk.steps) {
-      std::cout << std::format("    step from layer {} row {}: choice {}{}{}, candidates:", static_cast<int>(step.layer), step.from, step.choice, step.kink ? " (kink)" : "", step.lookahead ? " (lookahead)" : "");
+      std::cout << std::format("    step from layer {} row {}: choice {}{}, candidates:", static_cast<int>(step.layer), step.from, step.choice, step.lookahead ? " (lookahead)" : "");
       for (const auto& candidate : step.candidates) {
         std::cout << std::format(" [{} L{} {} {:.2f}{}]", candidate.row, static_cast<int>(mTruth->rows[candidate.row].layer), kOutcomeNames[static_cast<std::size_t>(candidate.outcome)], static_cast<double>(candidate.chi2), mTruth->rows[candidate.row].carries(particle) ? " own" : "");
       }
@@ -7490,7 +7318,7 @@ class CompleteAnatomy
         .secondCentre = secondCentre,
         .secondHalfWidth = std::numeric_limits<Scalar>::infinity(),
       };
-      follow::predictedWindow<false>(propagator, *scaled, geometry, material, step.state, step.factors, target, direction, nominal, window, 1.F);
+      follow::predictedWindow(propagator, *scaled, geometry, material, step.state, step.factors, target, direction, nominal, window);
       if (ratios != nullptr) {
         const Scalar dPhi = toPMPiOf(point.phi - phiCentre);
         (*ratios)[0] = static_cast<float>(std::abs(dPhi) / window.phiHalfWidth);
@@ -7917,7 +7745,7 @@ class CompleteAnatomy
         const auto ptBin = static_cast<std::size_t>(std::ranges::upper_bound(kWalkPtEdges, pt) - kWalkPtEdges.begin());
         // The step's prediction at the
         // particle's own row \a row from \a state in \a dir, as the follow's
-        // step makes it (`transportCandidate`, the nominal noise), against the
+        // step makes it (`transportCandidate`), against the
         // cluster -- the residuals, the innovation's diagonal, the update's
         // chi2, the gate's quantity -- and against the MC crossing; the true
         // kink over the step and over the one before. One CSV line and the
@@ -7937,7 +7765,7 @@ class CompleteAnatomy
           CovarianceFactors predictedFactors;
           detail::StepMaterial traversed;
           if (!follow::windowMaterial(propagator, parameters, geometry, material, state, stateFactors, plane.layer, dir, traversed) ||
-              !follow::transportCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, plane, dir, state, stateFactors, predicted, predictedFactors, 1.F)) {
+              !follow::transportCandidate(propagator, geometry, detail::GivenMaterial{traversed}, plane, dir, state, stateFactors, predicted, predictedFactors)) {
             ++pulls.fails;
             if (mWalkCsv) {
               csv += std::format("{},{},{},{:.4f},{:.3f},{},{},{},1,0,0,0,0,0,0,0,0,0,{:.3f},{:.3f},{}\n", direction, iteration, particle, pt, eta, pdg, static_cast<int>(fromLayer), static_cast<int>(layer), static_cast<double>(local), static_cast<double>(upstream), onLayer);
@@ -8002,7 +7830,7 @@ class CompleteAnatomy
             BoundTrackState output;
             CovarianceFactors outputFactors;
             Scalar chi2 = 0.F;
-            if (!follow::updateCandidate<false>(propagator, geometry, material, measurementAt(frame, row), PropagationDirection::kForward, state, factors, output, outputFactors, chi2, 1.F)) {
+            if (!follow::updateCandidate(propagator, geometry, material, measurementAt(frame, row), PropagationDirection::kForward, state, factors, output, outputFactors, chi2)) {
               break;
             }
             state = output;
@@ -8032,7 +7860,7 @@ class CompleteAnatomy
                 BoundTrackState output;
                 CovarianceFactors outputFactors;
                 Scalar chi2 = 0.F;
-                if (!follow::updateCandidate<false>(propagator, geometry, material, measurementAt(frame, row), PropagationDirection::kForward, state, factors, output, outputFactors, chi2, 1.F)) {
+                if (!follow::updateCandidate(propagator, geometry, material, measurementAt(frame, row), PropagationDirection::kForward, state, factors, output, outputFactors, chi2)) {
                   break;
                 }
                 state = output;
@@ -8064,12 +7892,12 @@ class CompleteAnatomy
           std::array<BoundTrackState, 3> predicted{};
           std::array<bool, 3> ok{};
           CovarianceFactors factors;
-          ok[0] = follow::transportCandidate<false>(propagator, geometry, material, plane, PropagationDirection::kBackward, input, inputFactors, predicted[0], factors, 1.F);
+          ok[0] = follow::transportCandidate(propagator, geometry, material, plane, PropagationDirection::kBackward, input, inputFactors, predicted[0], factors);
           if (ok[0]) {
             covarianceFromFactors(factors, predicted[0].cov);
           }
           if (clusters.status == PropagationStatus::kOk) {
-            ok[1] = follow::transportCandidate<false>(propagator, geometry, material, plane, PropagationDirection::kBackward, clusters.state, factorCovariance(clusters.state.cov), predicted[1], factors, 1.F);
+            ok[1] = follow::transportCandidate(propagator, geometry, material, plane, PropagationDirection::kBackward, clusters.state, factorCovariance(clusters.state.cov), predicted[1], factors);
             if (ok[1]) {
               covarianceFromFactors(factors, predicted[1].cov);
               predicted[2] = predicted[1];
@@ -8105,7 +7933,7 @@ class CompleteAnatomy
           Scalar chi2 = 0.F;
           detail::StepMaterial traversed;
           if (!follow::windowMaterial(propagator, parameters, geometry, material, input, inputFactors, plane.layer, PropagationDirection::kBackward, traversed) ||
-              !follow::updateCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, measurement, PropagationDirection::kBackward, input, inputFactors, output, outputFactors, chi2, 1.F)) {
+              !follow::updateCandidate(propagator, geometry, detail::GivenMaterial{traversed}, measurement, PropagationDirection::kBackward, input, inputFactors, output, outputFactors, chi2)) {
             break;
           }
           input = output;
@@ -8426,7 +8254,7 @@ class CompleteAnatomy
     CovarianceFactors predictedFactors;
     detail::StepMaterial traversed;
     if (!follow::windowMaterial(propagator, parameters, geometry, material, step.state, step.factors, plane.layer, PropagationDirection::kBackward, traversed) ||
-        !follow::transportCandidate<false>(propagator, geometry, detail::GivenMaterial{traversed}, plane, PropagationDirection::kBackward, step.state, step.factors, predicted, predictedFactors, 1.F)) {
+        !follow::transportCandidate(propagator, geometry, detail::GivenMaterial{traversed}, plane, PropagationDirection::kBackward, step.state, step.factors, predicted, predictedFactors)) {
       return;
     }
     covarianceFromFactors(predictedFactors, predicted.cov);
@@ -8454,7 +8282,7 @@ class CompleteAnatomy
     bool references = false;
     if (clusters.status == PropagationStatus::kOk) {
       CovarianceFactors noBeamFactors;
-      references = follow::transportCandidate<false>(propagator, geometry, material, plane, PropagationDirection::kBackward, clusters.state, factorCovariance(clusters.state.cov), noBeam, noBeamFactors, 1.F);
+      references = follow::transportCandidate(propagator, geometry, material, plane, PropagationDirection::kBackward, clusters.state, factorCovariance(clusters.state.cov), noBeam, noBeamFactors);
       if (references) {
         covarianceFromFactors(noBeamFactors, noBeam.cov);
         joint = noBeam;
@@ -8580,7 +8408,7 @@ class CompleteAnatomy
   std::size_t mDebugDrops = 0U;                      ///< unconfirmed drops whose next step saw the own row passing, dumped
   std::vector<Scalar> mInChi2;                       ///< the own row's chi2 at the deciding step, inward
   std::vector<Scalar> mOutChi2;                      ///< the same outward
-  std::vector<std::uint8_t> mOutRefitWrong;          ///< refit-chi2 stops: the outward rows kept not the particle's (0, 1, 2+), +3 with a kink step
+  std::vector<std::uint8_t> mOutRefitWrong;          ///< refit-chi2 stops: the outward rows kept not the particle's (0, 1, 2+)
   std::vector<std::uint8_t> mOutRefitRows;           ///< and how many outward rows the refit took
   std::vector<Scalar> mOutRefitRatio;                ///< and its chi2 over the cut
   std::map<std::string, std::size_t> mRefitFailures; ///< refit-failed stops: status / pass / layer
@@ -8673,13 +8501,9 @@ class CompleteAnatomy
   double mLowestPt = std::numeric_limits<double>::infinity(); ///< the lowest pT of one on every layer
   std::vector<Snapshot> mSnapshot;                            ///< the tracks as the last iteration observed left them
   std::vector<std::uint8_t> mSnapshotUsed;                    ///< and its mask
-  /// A kink step's refusals of the particle's row by its outcome
-  /// (StepOutcome, then not visited); its unconfirmed rows by what became
-  /// of their witness, the particle's next row [0] or the beam line [1]
-  /// (StepOutcome, not visited, no own next row).
+  /// A step's outcome on a row past the six `StepOutcome`s: the row not
+  /// among its candidates.
   static constexpr std::size_t kNotVisited = 6U;
-  static constexpr std::size_t kNoOwnNext = 7U;
-  std::vector<std::uint8_t> mStopDetail; ///< for kKinkRefused and kKinkUnconfirmed: the outcome, plus 8 for the beam line
   std::unique_ptr<std::ofstream> mCsv;
   const study::HitIndex* mHits = nullptr;              ///< the MC hits, if given
   std::vector<std::vector<int>> mMothers;              ///< `openKine`'s: per MC event, each track's mother

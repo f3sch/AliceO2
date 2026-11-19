@@ -413,7 +413,7 @@ struct ProposePartners {
           CovarianceFactors predictedFactors;
           Scalar chi2 = 0.F;
           // The transport inlined: the follow's shared copy stays its own.
-          if (!follow::updateCandidate<false, false, true>(propagator, *geometry, *material, measurementAt(*frame, row), towards, state, factors, predicted, predictedFactors, chi2, 1.F) || !(chi2 <= parameters->clusterChi2Max)) {
+          if (!follow::updateCandidate<false, true>(propagator, *geometry, *material, measurementAt(*frame, row), towards, state, factors, predicted, predictedFactors, chi2) || !(chi2 <= parameters->clusterChi2Max)) {
             return;
           }
           if (!found || chi2 < best.chi2 || (!(best.chi2 < chi2) && row < best.row)) {
