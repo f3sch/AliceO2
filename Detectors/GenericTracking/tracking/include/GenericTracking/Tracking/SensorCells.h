@@ -60,6 +60,34 @@ struct SensorCellLayer {
   std::uint32_t cellOffset = 0U;
 };
 
+/// A sensor's footprint about the detector's axis: its azimuth from
+/// \a phiLow to \a phiHigh, continuous (\a phiHigh may pass pi), and its
+/// second coordinate's range (`SensorCells::footprint`, rounded outwards).
+struct SensorFootprint {
+  Scalar phiLow = 0.F;
+  Scalar phiHigh = 0.F;
+  Scalar secondLow = 0.F;
+  Scalar secondHigh = 0.F;
+
+  /// Whether it meets the range \a phi +- \a phiReach, \a second +-
+  /// \a secondReach.
+  [[nodiscard]] GPUhdi() bool meets(Scalar phi, Scalar phiReach, Scalar second, Scalar secondReach) const
+  {
+    using Math = o2::gpu::CAMath;
+    constexpr Scalar kTwoPi = 2.F * std::numbers::pi_v<Scalar>;
+    if (secondLow > second + secondReach || secondHigh < second - secondReach) {
+      return false;
+    }
+    if (phiReach >= std::numbers::pi_v<Scalar>) {
+      return true;
+    }
+    // Its start about phi in [-pi, pi); past pi its end continues from -pi.
+    const Scalar low = (phiLow - phi) - (kTwoPi * Math::Floor(((phiLow - phi) / kTwoPi) + 0.5F));
+    const Scalar high = low + (phiHigh - phiLow);
+    return (low <= phiReach && high >= -phiReach) || (high - kTwoPi >= -phiReach);
+  }
+};
+
 /// What a stage reads: per layer its cells, then per cell its sensors.
 struct SensorCellsView {
   const SensorCellLayer* layers = nullptr;
@@ -169,6 +197,8 @@ class SensorCells
   [[nodiscard]] const std::vector<std::uint32_t>& offsets() const { return mOffsets; }
   [[nodiscard]] const std::vector<std::uint32_t>& sensors() const { return mSensors; }
   [[nodiscard]] bool empty() const { return mLayers.empty(); }
+  /// Per sensor, its footprint (`SensorFootprint`).
+  [[nodiscard]] const std::vector<SensorFootprint>& footprints() const { return mFootprints; }
 
   /// A surface's footprint: its azimuth range about \a phiCentre, and its
   /// second coordinate's range.
@@ -255,6 +285,19 @@ class SensorCells
     for (std::size_t id = 0; id < surfaces.size(); ++id) {
       footprints[id] = footprint(surfaces[id], Detector<Det>::isBarrelLayer(surfaces[id].layer));
     }
+    const auto down = [](double value) {
+      const auto rounded = static_cast<Scalar>(value);
+      return static_cast<double>(rounded) > value ? std::nextafter(rounded, -std::numeric_limits<Scalar>::infinity()) : rounded;
+    };
+    const auto up = [](double value) {
+      const auto rounded = static_cast<Scalar>(value);
+      return static_cast<double>(rounded) < value ? std::nextafter(rounded, std::numeric_limits<Scalar>::infinity()) : rounded;
+    };
+    mFootprints.resize(surfaces.size());
+    for (std::size_t id = 0; id < surfaces.size(); ++id) {
+      const auto& at = footprints[id];
+      mFootprints[id] = {.phiLow = down(at.phiCentre + at.phiLow), .phiHigh = up(at.phiCentre + at.phiHigh), .secondLow = down(at.secondLow), .secondHigh = up(at.secondHigh)};
+    }
     mLayers.assign(kLayers, SensorCellLayer{});
     std::vector<std::vector<std::uint32_t>> lists;
     for (std::size_t layer = 0; layer < kLayers; ++layer) {
@@ -316,6 +359,7 @@ class SensorCells
   std::vector<SensorCellLayer> mLayers;
   std::vector<std::uint32_t> mOffsets;
   std::vector<std::uint32_t> mSensors;
+  std::vector<SensorFootprint> mFootprints;
 };
 
 } // namespace o2::gtrk

@@ -620,13 +620,14 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
         std::memcpy(mHostCellsGeometry.data(), static_cast<const void*>(&geometry), sizeof(geometry));
       }
       const SensorCells<Det>& cells = *mHostCells;
-      if (!mCellLayers.allocate(mArena, cells.layers().size()) || !mCellOffsets.allocate(mArena, cells.offsets().size()) || !mCellSensors.allocate(mArena, std::max<std::size_t>(cells.sensors().size(), 1U))) {
+      if (!mCellLayers.allocate(mArena, cells.layers().size()) || !mCellOffsets.allocate(mArena, cells.offsets().size()) || !mCellSensors.allocate(mArena, std::max<std::size_t>(cells.sensors().size(), 1U)) || !mCellFootprints.allocate(mArena, std::max<std::size_t>(cells.footprints().size(), 1U))) {
         closeFrom(Scope::kRun);
         return StageStatus::kOutOfMemory;
       }
       upload(cells.layers().data(), mCellLayers, cells.layers().size(), mStream);
       upload(cells.offsets().data(), mCellOffsets, cells.offsets().size(), mStream);
       upload(cells.sensors().data(), mCellSensors, cells.sensors().size(), mStream);
+      upload(cells.footprints().data(), mCellFootprints, cells.footprints().size(), mStream);
       mSensorCells = {.layers = mCellLayers.data(), .offsets = mCellOffsets.data(), .sensors = mCellSensors.data()};
     }
     mStream.synchronize(); // the host objects may go once this returns
@@ -1465,7 +1466,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
       return StageStatus::kOutOfMemory;
     }
     mPartnerStage.prepareStaging(std::max<std::size_t>(mPartnerStage.stagingCapacity(), count));
-    const ProposePartners<Det, Material> propose{.parameters = parameters, .frame = mFrame.data(), .geometry = mGeometry.data(), .material = mMaterial.data(), .propagator = mPropagator, .cells = mSensorCells, .tracks = std::as_const(tracks).view(), .offset = 0U, .used = std::as_const(working).data(), .maxWidthPS = std::as_const(mLayerMaxWidthPS).data(), .measurementVariance = std::as_const(mLayerMaxLocVariance).data()};
+    const ProposePartners<Det, Material> propose{.parameters = parameters, .frame = mFrame.data(), .geometry = mGeometry.data(), .material = mMaterial.data(), .propagator = mPropagator, .cells = mSensorCells, .tracks = std::as_const(tracks).view(), .offset = 0U, .used = std::as_const(working).data(), .maxWidthPS = std::as_const(mLayerMaxWidthPS).data(), .measurementVariance = std::as_const(mLayerMaxLocVariance).data(), .footprints = std::as_const(mCellFootprints).data()};
     StageStatus status = runStage(mPartnerStage, proposals, propose);
     if (status != StageStatus::kComplete) {
       return status;
@@ -1693,6 +1694,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     mCellLayers = {};
     mCellOffsets = {};
     mCellSensors = {};
+    mCellFootprints = {};
     mSensorCells = {};
   }
 
@@ -1737,6 +1739,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   DeviceSpan<SensorCellLayer> mCellLayers; ///< the sensors by place, for the outward follow
   DeviceSpan<std::uint32_t> mCellOffsets;
   DeviceSpan<std::uint32_t> mCellSensors;
+  DeviceSpan<SensorFootprint> mCellFootprints; ///< per sensor, for the overlap partners' search
   SensorCellsView mSensorCells;
   /// The sensor cells on the host and the geometry they were built from.
   std::optional<SensorCells<Det>> mHostCells;
