@@ -120,6 +120,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   double beamWidthCM = 0.;                                       ///< --beam-width: the beam's transverse width the windows take, instead of the dump's
   std::string vertexList;                                        ///< --vertex-list: the vertexer's vertices against the truth, as CSV; empty for none
   std::string vertexCandidates;                                  ///< --vertex-candidates: the true triplets as vertex candidates with their z0 errors, as CSV; empty for none
+  std::string vertexTrace;                                       ///< --vertex-trace: the vertexing pass on the small collisions' particles, as CSV; empty for none
   double overlayDzUM = std::numeric_limits<double>::quiet_NaN(); ///< --overlay-dz: close collisions made at this true z distance [um] (`overlayCollisions`)
   std::string overlayList;                                       ///< --overlay-list: the overlay's pairs as CSV; empty for none
   std::string mockUpc;                                           ///< --mock-upc: few-prong vertices made of soft primaries, at dz [um] from a collision or "empty" (`mockUpcVertices`)
@@ -2071,6 +2072,10 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     if (!options.vertexList.empty()) {
       vertexStudy->writeStageVertices(options.vertexList);
       std::cout << std::format("the vertexer's vertices written to {}\n", options.vertexList);
+    }
+    if (!options.vertexTrace.empty()) {
+      vertexStudy->writeTrace(options.vertexTrace);
+      std::cout << std::format("the small collisions' particles traced to {}\n", options.vertexTrace);
     }
     if (!options.vertexCandidates.empty()) {
       vertexStudy->writeCandidates(options.vertexCandidates);
