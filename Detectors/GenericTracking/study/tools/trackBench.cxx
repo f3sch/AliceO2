@@ -56,9 +56,9 @@ static int run(int argc, char** argv)
 {
   Options options;
   bpo::options_description description("Track a dumped tracking input");
-  description.add_options()                                                                                                             //
-    ("help,h", "this message")                                                                                                          //
-    ("detector,d", bpo::value(&options.detector)->required(), "its, mft or trk: the ITS, the MFT or ALICE 3's barrel on O2's clusters") //
+  description.add_options()                                                                                                                                           //
+    ("help,h", "this message")                                                                                                                                        //
+    ("detector,d", bpo::value(&options.detector)->required(), "its, mft, trk or trktof: the ITS, the MFT, ALICE 3's barrel on O2's clusters, or with its TOF layers") //
     ("ccdb-url", bpo::value(&options.ccdbUrl)->default_value(o2::base::NameConf::getCCDBServer()),
      "the conditions' CCDB, e.g. file://<sample>/ccdb for its snapshots: the aligned geometry (GLO/Config/GeometryAligned), the field (GLO/Config/GRPMagField, not "
      "for trk) and the material LUT (GLO/Param/MatLUT, MFT/Param/MatLUT, TRK/Param/MatLUT), the sink's conditions") //
@@ -238,14 +238,13 @@ static int run(int argc, char** argv)
 
   // The trial's keys and --threads go on in track, after the dump's own grid
   // is known.
-  // The detector's parameter: GTRKRecoITS, GTRKRecoMFT, GTRKRecoTRK.
   std::string detector = options.detector;
   std::ranges::transform(detector, detector.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
   loadConfiguration(options.config.empty() ? options.input + ".ini" : options.config, "GTRKReco" + detector);
   // The conditions' CCDB: TrackBench.h reads the geometry and the material LUT from it too.
   o2::ccdb::BasicCCDBManager::instance().setURL(options.ccdbUrl);
   double bz = 0.;
-  if (options.detector == "trk") {
+  if (options.detector == "trk" || options.detector == "trktof") {
     // ALICE 3's field is not in its GRP: O2's ALICE 3 field, as the workflow's conditions take it.
     bz = alice::alice3BzKiloGauss();
     o2::base::Propagator::Instance(true)->setNominalBz(static_cast<float>(bz));
@@ -263,7 +262,10 @@ static int run(int argc, char** argv)
   if (options.detector == "trk") {
     return track<detectors::TRKFT3>(options);
   }
-  throw std::runtime_error("no detector called '" + options.detector + "'; its, mft or trk");
+  if (options.detector == "trktof") {
+    return track<detectors::TRKFT3TOF>(options);
+  }
+  throw std::runtime_error("no detector called '" + options.detector + "'; its, mft, trk or trktof");
 }
 
 } // namespace o2::gtrk::study

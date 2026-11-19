@@ -50,7 +50,7 @@ o2_target_root_dictionary(GTrkStudy
                           LINKDEF src/GTrkStudyLinkDef.h)
 
 # The sink, one unit per detector: each instantiates the tracker and its QA.
-foreach(detector ITS MFT TRKFT3)
+foreach(detector ITS MFT TRKFT3 TRKFT3TOF)
   add_library(gtrk_sink_${detector} OBJECT src/MeasurementSinkSpec.cxx)
   set_property(TARGET gtrk_sink_${detector} PROPERTY POSITION_INDEPENDENT_CODE ON)
   target_compile_definitions(gtrk_sink_${detector} PRIVATE GTRK_SINK_DETECTOR=${detector})
@@ -72,12 +72,12 @@ o2_add_executable(mft-study-workflow
 o2_add_executable(trk-study-workflow
                   SOURCES tools/gtrk-trk-study-workflow.cxx
                   COMPONENT_NAME gtrk
-                  PUBLIC_LINK_LIBRARIES O2::GTrkStudy O2::DetectorsRaw O2::TRKWorkflow)
+                  PUBLIC_LINK_LIBRARIES O2::GTrkStudy O2::DetectorsRaw O2::TRKWorkflow O2::IOTOFWorkflow)
 
 # One unit per detector's run (TrackBench.h), the options and the dispatch in
 # trackBench.cxx: the detectors compile in parallel.
 o2_add_executable(track-bench
-                  SOURCES tools/trackBench.cxx tools/trackBenchITS.cxx tools/trackBenchMFT.cxx tools/trackBenchTRKFT3.cxx
+                  SOURCES tools/trackBench.cxx tools/trackBenchITS.cxx tools/trackBenchMFT.cxx tools/trackBenchTRKFT3.cxx tools/trackBenchTRKFT3TOF.cxx
                   COMPONENT_NAME gtrk
                   PUBLIC_LINK_LIBRARIES O2::GTrkStudy O2::Steer O2::CCDB Boost::program_options
                   TARGETVARNAME benchTarget)

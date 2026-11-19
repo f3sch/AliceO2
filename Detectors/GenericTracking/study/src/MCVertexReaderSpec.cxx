@@ -14,6 +14,7 @@
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Workflow/DataSpecs.h"
 #include "GenericTracking/Workflow/GridConfig.h"
 #include "GenericTracking/Workflow/RecoParam.h"
@@ -171,5 +172,6 @@ DataProcessorSpec getMCVertexReaderSpec()
 template DataProcessorSpec getMCVertexReaderSpec<detectors::ITS>();
 template DataProcessorSpec getMCVertexReaderSpec<detectors::MFT>();
 template DataProcessorSpec getMCVertexReaderSpec<detectors::TRKFT3>();
+template DataProcessorSpec getMCVertexReaderSpec<detectors::TRKFT3TOF>();
 
 } // namespace o2::gtrk::study
