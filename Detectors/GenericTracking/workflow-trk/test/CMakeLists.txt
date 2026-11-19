@@ -19,3 +19,4 @@ function(gtrk_workflow_trk_test name source)
 endfunction()
 
 gtrk_workflow_trk_test(trk testTrkChainPulls.cxx O2::MathUtils)
+gtrk_workflow_trk_test(trk-tof testTrkTof.cxx O2::DataFormatsIOTOF O2::CommonConstants)

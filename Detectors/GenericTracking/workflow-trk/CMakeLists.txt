@@ -11,11 +11,11 @@
 
 # ALICE 3's TRK and FT3 workflow: their sensors, clusters and conditions, the
 # converter, the measurement producer and the tracker (its unit instantiating
-# the tracker).
-set(trackerUnits src/TrackerTRKFT3.cxx)
+# the tracker); TRKFT3 alone and TRKFT3TOF, with the IOTOF's layers.
+set(trackerUnits src/TrackerTRKFT3.cxx src/TrackerTRKFT3TOF.cxx)
 o2_add_library(GTrkWorkflowTRK
-               SOURCES src/TRK.cxx ${trackerUnits}
-               PUBLIC_LINK_LIBRARIES O2::GTrkWorkflow O2::DataFormatsTRKFT3 O2::TRKReconstruction O2::TRKBase
+               SOURCES src/TRK.cxx src/TRKTOF.cxx ${trackerUnits}
+               PUBLIC_LINK_LIBRARIES O2::GTrkWorkflow O2::DataFormatsTRKFT3 O2::TRKReconstruction O2::TRKBase O2::DataFormatsIOTOF O2::IOTOFBase
                PRIVATE_LINK_LIBRARIES O2::FT3Base O2::Field O2::SimulationDataFormat O2::CommonConstants ROOT::Geom
                TARGETVARNAME targetName)
 
@@ -29,6 +29,6 @@ install(DIRECTORY include/GenericTracking DESTINATION ${CMAKE_INSTALL_INCLUDEDIR
 o2_add_executable(trk-reco-workflow
                   SOURCES src/gtrk-trk-reco-workflow.cxx
                   COMPONENT_NAME gtrk
-                  PUBLIC_LINK_LIBRARIES O2::GTrkWorkflowTRK O2::DetectorsRaw O2::TRKWorkflow)
+                  PUBLIC_LINK_LIBRARIES O2::GTrkWorkflowTRK O2::DetectorsRaw O2::TRKWorkflow O2::IOTOFWorkflow)
 
 add_subdirectory(test)

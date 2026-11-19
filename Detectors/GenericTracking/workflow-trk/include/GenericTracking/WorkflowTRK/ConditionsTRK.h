@@ -28,8 +28,10 @@
 
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Workflow/Conditions.h"
 #include "GenericTracking/WorkflowTRK/TRK.h"
+#include "GenericTracking/WorkflowTRK/TRKTOF.h"
 
 #include "DetectorsBase/GRPGeomHelper.h"
 #include "DetectorsBase/Propagator.h"
@@ -176,6 +178,57 @@ class Conditions<detectors::TRKFT3, WithMaterial>
   std::shared_ptr<o2::base::GRPGeomRequest> mRequest;
   TrkDictionaryConditions mDictionaries;
   [[no_unique_address]] MaterialConditionOf<detectors::TRKFT3, WithMaterial> mMaterial;
+};
+
+/// ALICE 3's with its TOF layers (TRKTOF.h): TRKFT3's, its frames and
+/// depths on TRKFT3TOF's layers, and its own material LUT
+/// (`TRK/Param/MatLUTTOF`, MaterialLUT.h), which reaches the TOF.
+template <bool WithMaterial>
+class Conditions<detectors::TRKFT3TOF, WithMaterial>
+{
+ public:
+  explicit Conditions(std::vector<o2::framework::InputSpec>& inputs) : mTrk(inputs)
+  {
+    MaterialConditionOf<detectors::TRKFT3TOF, WithMaterial>::declare(inputs);
+  }
+
+  [[nodiscard]] static int orbitsPerTimeframe() { return Conditions<detectors::TRKFT3>::orbitsPerTimeframe(); }
+
+  static constexpr bool kMeanVertex = false;
+
+  [[nodiscard]] static o2::header::DataOrigin origin() { return detectorOrigin<detectors::TRKFT3TOF>(); }
+
+  void init(o2::framework::InitContext& ic) { mTrk.init(ic); }
+
+  void checkUpdates(o2::framework::ProcessingContext& pc) const
+  {
+    mTrk.checkUpdates(pc);
+    MaterialConditionOf<detectors::TRKFT3TOF, WithMaterial>::checkUpdates(pc);
+  }
+
+  void finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj)
+  {
+    if (!mMaterial.finaliseCCDB(matcher, obj)) {
+      mTrk.finaliseCCDB(matcher, obj);
+    }
+  }
+
+  /// TRKFT3's on its layers, a bunch crossing on the TOF's (TRKTOF.h).
+  [[nodiscard]] std::vector<FrameTiming> frameTiming() const { return alice::trktofFrameTiming(mTrk.frameTiming()); }
+
+  /// TRKFT3's on its layers, 0 on the TOF's (TRKTOF.h).
+  [[nodiscard]] std::vector<double> measurementDepthsCM() const { return alice::trktofMeasurementDepthsCM(mTrk.measurementDepthsCM()); }
+
+  /// The run's material LUT, the CCDB cache's; null before the first timeframe.
+  [[nodiscard]] const o2::base::MatLayerCylSet* materialLut() const
+    requires WithMaterial
+  {
+    return mMaterial.lut();
+  }
+
+ private:
+  Conditions<detectors::TRKFT3, false> mTrk;
+  [[no_unique_address]] MaterialConditionOf<detectors::TRKFT3TOF, WithMaterial> mMaterial;
 };
 
 } // namespace o2::gtrk::workflow
