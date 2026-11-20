@@ -73,9 +73,11 @@
 #include <limits>
 #include <memory_resource>
 #endif
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <numeric>
 #include <span>
 #include <vector>
 
@@ -662,7 +664,7 @@ template <typename Geometry, typename Blocks>
 
 /// What the vertexer found in one timeframe, or in one slice's frames.
 struct VertexerResult {
-  std::vector<VertexSeed> vertices;        ///< sorted by time, then z
+  std::vector<VertexSeed> vertices;        ///< a timeframe's in `orderVertices`'s order
   std::vector<std::uint32_t> contributors; ///< per vertex: the candidates it claimed
   /// `tripletVertex`'s codes other than a vertex's index: a free candidate;
   /// none (cut, degenerate or deduplicated); another slice's (its frame not
@@ -690,8 +692,9 @@ struct TripletClaim {
 };
 
 /// A slice's vertices and counts after \a into's, as the pass gathers the
-/// timeframe's slice by slice (the slices in time order, so the list stays in
-/// it); the per-triplet claims are each slice's own and stay out.
+/// timeframe's slice by slice, frame by frame; `orderVertices` orders the
+/// whole list after the last slice. The per-triplet claims are each slice's
+/// own and stay out.
 inline void appendVertices(VertexerResult& into, const VertexerResult& slice)
 {
   into.vertices.insert(into.vertices.end(), slice.vertices.begin(), slice.vertices.end());
@@ -700,6 +703,42 @@ inline void appendVertices(VertexerResult& into, const VertexerResult& slice)
   into.accepted += slice.accepted;
   into.candidates += slice.candidates;
   into.rounds = into.rounds > slice.rounds ? into.rounds : slice.rounds;
+}
+
+/// \a found's vertices and their contributor counts in the vertex list's
+/// order: by time (the box's start), then the more contributors first, then
+/// the smaller z variance; equal ones in the order found. A vertex's box
+/// spans its contributors' boxes, which a frame margin lets start in the
+/// frame before the one it was found in, so the frames' order alone is not
+/// the time's. Returns each vertex's place in the new order, by its place in
+/// the old.
+inline std::vector<std::int32_t> orderVertices(VertexerResult& found)
+{
+  const auto n = found.vertices.size();
+  std::vector<std::uint32_t> order(n);
+  std::iota(order.begin(), order.end(), 0U);
+  std::ranges::stable_sort(order, [&](std::uint32_t a, std::uint32_t b) {
+    const auto& first = found.vertices[a];
+    const auto& second = found.vertices[b];
+    if (first.timePS != second.timePS) {
+      return first.timePS < second.timePS;
+    }
+    if (found.contributors[a] != found.contributors[b]) {
+      return found.contributors[a] > found.contributors[b];
+    }
+    return first.varZ < second.varZ;
+  });
+  std::vector<std::int32_t> placeOf(n);
+  std::vector<VertexSeed> vertices(n);
+  std::vector<std::uint32_t> contributors(n);
+  for (std::size_t place = 0; place < n; ++place) {
+    placeOf[order[place]] = static_cast<std::int32_t>(place);
+    vertices[place] = found.vertices[order[place]];
+    contributors[place] = found.contributors[order[place]];
+  }
+  found.vertices.swap(vertices);
+  found.contributors.swap(contributors);
+  return placeOf;
 }
 
 #ifndef GPUCA_GPUCODE_DEVICE

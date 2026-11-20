@@ -114,6 +114,10 @@ class VertexingPass
       }
       appendVertices(result.found, found);
     }
+    const auto placeOf = orderVertices(result.found);
+    for (auto& claim : result.claims) {
+      claim.vertex = claim.vertex < 0 ? claim.vertex : placeOf[static_cast<std::size_t>(claim.vertex)];
+    }
     return result;
   }
 

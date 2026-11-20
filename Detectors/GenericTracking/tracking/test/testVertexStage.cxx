@@ -244,6 +244,28 @@ BOOST_AUTO_TEST_CASE(FramesStaySeparateAndInTimeOrder)
   BOOST_TEST(result.vertices[1].timePS == Event::frameTime(9).start);
 }
 
+/// A vertex found in a later frame whose box starts earlier (a margin into
+/// the frame before) goes first; at the same time the more contributors,
+/// then the smaller z variance; the counts move with their vertices.
+BOOST_AUTO_TEST_CASE(TheListIsOrderedByTimeThenQuality)
+{
+  VertexerResult found;
+  found.vertices = {{.timePS = 2000U, .z = 1.F, .varZ = 1.F},
+                    {.timePS = 1000U, .z = 2.F, .varZ = 4.F},
+                    {.timePS = 1000U, .z = 3.F, .varZ = 2.F},
+                    {.timePS = 1000U, .z = 4.F, .varZ = 1.F}};
+  found.contributors = {9U, 6U, 8U, 6U};
+  const auto placeOf = orderVertices(found);
+  const std::vector<float> z{3.F, 4.F, 2.F, 1.F};
+  const std::vector<std::uint32_t> contributors{8U, 6U, 6U, 9U};
+  const std::vector<std::int32_t> places{3, 2, 0, 1};
+  for (std::size_t place = 0; place < z.size(); ++place) {
+    BOOST_TEST(found.vertices[place].z == z[place]);
+  }
+  BOOST_TEST(found.contributors == contributors, boost::test_tools::per_element());
+  BOOST_TEST(placeOf == places, boost::test_tools::per_element());
+}
+
 BOOST_AUTO_TEST_CASE(TheContributorFloor)
 {
   const std::uint32_t floor = VertexerSettings{}.minContributors;
