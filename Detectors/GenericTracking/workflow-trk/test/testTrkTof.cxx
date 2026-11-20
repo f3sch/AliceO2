@@ -166,7 +166,7 @@ BOOST_AUTO_TEST_CASE(TheFramesAndDepthsAreTRKFT3sOnItsLayers)
 }
 
 /// The native grid and tracker accept pT floors through the longest TOF
-/// chain. The legacy width remains usable with the shorter TRK layout.
+/// chain.
 BOOST_AUTO_TEST_CASE(TheNativeGridAndFloorsCoverLongTofChains)
 {
   static_assert(maxChainLayers<Base> == 15U && maxChainLayers<Tof> == 17U);
@@ -198,14 +198,6 @@ BOOST_AUTO_TEST_CASE(TheNativeGridAndFloorsCoverLongTofChains)
   const auto scattering = scatteringTable<Tof>(uniformLayerMaterial<Tof>(0.));
   BOOST_TEST(iterationParameters<Tof>(first, VertexConstraint{}, scattering).minPtByClusters[17] == 0.25F);
   BOOST_TEST(iterationParameters<Tof>(second, VertexConstraint{}, scattering).minPtByClusters[16] == 0.5F);
-
-  settings.iterationClusterMinPtGeV.assign(2U * RecoSettings::kLegacyClusterSlots, 0.);
-  settings.iterationClusterMinPtGeV[RecoSettings::kLegacyClusterSlots + 7] = 0.5;
-  BOOST_TEST(workflow::iterationSettings(settings, 1).minPtGeVByClusters[7] == 0.5);
-  BOOST_CHECK_THROW(workflow::makeGridGeometry<Tof>(settings, beam, tofFrames, 32), std::invalid_argument);
-  const auto trkGeometry = std::make_unique<const Geometry<Base>>(alice::placeChecked<Base>());
-  const auto trkGrid = std::make_unique<const GridGeometry<Base>>(workflow::makeGridGeometry<Base>(settings, beam, trkFrames, 32));
-  BOOST_TEST(!trkGrid->overflows());
 }
 
 /// An IOTOF cluster as ours: its fired pixels' mean centre in its chip's

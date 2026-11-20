@@ -655,8 +655,10 @@ template <DetectorLayout Det>
   parameters.minClusters = static_cast<std::uint32_t>(std::max(settings.minClusters, 0));
   parameters.roadEndLayers = settings.roadEndLayers;
   parameters.roadStartLayers = settings.roadStartLayers;
-  constexpr std::size_t kCounts = std::min(maxChainLayers<Det> + 1U, IterationSettings::kClusterSlots);
-  for (std::size_t count = 0; count < kCounts; ++count) {
+  // A pT floor per cluster count has a slot for every chain the layout can
+  // hold, or none would apply to the longest.
+  static_assert(maxChainLayers<Det> + 1U <= IterationSettings::kClusterSlots);
+  for (std::size_t count = 0; count <= maxChainLayers<Det>; ++count) {
     parameters.minPtByClusters[count] = static_cast<Scalar>(settings.minPtGeVByClusters[count]);
   }
   parameters.sharedInnermost = settings.sharedInnermost;
