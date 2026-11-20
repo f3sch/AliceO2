@@ -39,6 +39,7 @@
 #include "GenericTracking/Workflow/TrackingInterface.h"
 #include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Study/Digest.h"
+#include "GenericTracking/Study/OptionText.h"
 #include "GenericTracking/Study/ProfileReport.h"
 #include "GenericTracking/Study/StageComparison.h"
 #include "GenericTracking/Study/StageFunnel.h"
@@ -1566,19 +1567,12 @@ inline std::string describeVertexAgreement(const VertexerResult& device, const V
 [[nodiscard]] inline std::vector<double> seedingSteps(const std::string& text)
 {
   std::vector<double> steps;
-  for (const auto part : text | std::views::split(',')) {
-    const std::string token{part.begin(), part.end()};
-    std::size_t parsed = 0U;
-    double step = 0.;
-    try {
-      step = std::stod(token, &parsed);
-    } catch (const std::logic_error&) {
-      parsed = 0U;
-    }
-    if (parsed == 0U || parsed != token.size() || !std::isfinite(step) || step <= 0.) {
+  for (const auto token : splitList(text, ',')) {
+    const auto step = parseNumber<double>(token);
+    if (!step || !std::isfinite(*step) || *step <= 0.) {
       throw std::runtime_error("--seeding-steps " + text + ": one or more steps, each a positive momentum [GeV]");
     }
-    steps.push_back(step);
+    steps.push_back(*step);
   }
   if (steps.empty()) {
     throw std::runtime_error("--seeding-steps " + text + ": one or more steps, each a positive momentum [GeV]");
@@ -1606,15 +1600,12 @@ int seedingStrategy(const Options& options, Controller<Det>& tracker, const Time
   }
   auto steps = seedingSteps(options.seedingSteps);
   std::vector<std::uint8_t> shadow(settings.size(), std::uint8_t{0});
-  for (const auto part : options.seedingShadow | std::views::split(',')) {
-    if (part.empty()) {
-      continue;
+  for (const auto token : splitList(options.seedingShadow, ',')) {
+    const auto pass = parseNumber<std::size_t>(token);
+    if (!pass || *pass + 1U >= settings.size()) {
+      throw std::runtime_error("--seeding-shadow " + options.seedingShadow + ": pass indices, each with a pass after it");
     }
-    const auto pass = std::stoul(std::string{part.begin(), part.end()});
-    if (pass + 1U >= settings.size()) {
-      throw std::runtime_error("--seeding-shadow " + options.seedingShadow + ": a shadow pass needs a pass after it");
-    }
-    shadow[pass] = 1U;
+    shadow[*pass] = 1U;
   }
   const auto population = study::populationOf(options.seedingPopulation);
   if (!population) {
@@ -1869,11 +1860,17 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       throw std::runtime_error("--mock-upc needs the MC truth and --vertices-only: it moves the global coordinates only");
     }
     const bool empty = options.mockUpc == "empty";
-    const auto comma = options.mockPt.find(',');
-    if (comma == std::string::npos) {
-      throw std::runtime_error("--mock-pt: low,high [GeV]");
+    const auto dzUM = empty ? std::optional<double>{0.} : parseNumber<double>(options.mockUpc);
+    if (!dzUM) {
+      throw std::runtime_error("--mock-upc " + options.mockUpc + ": dz [um] from a collision, or empty");
     }
-    std::cout << mockUpcVertices(input, *truth, empty, empty ? 0. : std::stod(options.mockUpc) * 1.e-4, options.mockProngs, std::stod(options.mockPt.substr(0, comma)), std::stod(options.mockPt.substr(comma + 1)), options.mockCount, options.mockList) << '\n';
+    const auto pt = splitList(options.mockPt, ',');
+    const auto low = pt.size() == 2U ? parseNumber<double>(pt[0]) : std::nullopt;
+    const auto high = pt.size() == 2U ? parseNumber<double>(pt[1]) : std::nullopt;
+    if (!low || !high) {
+      throw std::runtime_error("--mock-pt " + options.mockPt + ": low,high [GeV]");
+    }
+    std::cout << mockUpcVertices(input, *truth, empty, *dzUM * 1.e-4, options.mockProngs, *low, *high, options.mockCount, options.mockList) << '\n';
   }
   // The geometry first: a placed layout's extents, which the grid and the
   // windows below are sized from, are the loaded geometry's (Base/LayerEnvelopes.h);
@@ -2018,8 +2015,12 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       throw std::runtime_error("--seed-coverage needs the MC truth");
     }
     std::vector<std::uint64_t> masks;
-    for (const auto part : options.seedCoverage | std::views::split(',')) {
-      masks.push_back(std::stoull(std::string{part.begin(), part.end()}));
+    for (const auto token : splitList(options.seedCoverage, ',')) {
+      const auto mask = parseNumber<std::uint64_t>(token);
+      if (!mask) {
+        throw std::runtime_error("--seed-coverage " + options.seedCoverage + ": layer masks, comma separated");
+      }
+      masks.push_back(*mask);
     }
     printSeedCoverage(*truth, comparison, masks);
   }
