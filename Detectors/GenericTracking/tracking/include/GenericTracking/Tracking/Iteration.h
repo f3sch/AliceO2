@@ -104,7 +104,7 @@ struct IterationSettings {
   /// count; 0 for none. O2's ITS `TrackingParameters::MinPt`, by track
   /// length. The final track's: where the iteration
   /// follows, after the follow, on the track's count then; else on the road.
-  static constexpr std::size_t kClusterSlots = 16U;
+  static constexpr std::size_t kClusterSlots = 18U;
   std::array<double, kClusterSlots> minPtGeVByClusters{};
   /// How many of a track's innermost clusters this iteration's selection and
   /// follow let it share; 0, strict: the

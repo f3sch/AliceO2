@@ -187,7 +187,10 @@ inline void checkRecoParam(const RecoSettings& param)
   check("iterationBeamConstraint", param.iterationBeamConstraint.size(), 1U);
   check("iterationFollowEarlier", param.iterationFollowEarlier.size(), 1U);
   check("iterationSharedGraph", param.iterationSharedGraph.size(), 1U);
-  check("iterationClusterMinPtGeV", param.iterationClusterMinPtGeV.size(), static_cast<std::size_t>(RecoSettings::kClusterSlots));
+  const auto floors = param.iterationClusterMinPtGeV.size();
+  if (floors != 0U && floors != count * RecoSettings::kClusterSlots && floors != count * RecoSettings::kLegacyClusterSlots) {
+    throw std::invalid_argument(std::format("GTRKReco<DET>.iterationClusterMinPtGeV has {} entries; {} iterations want {} or {} per iteration, or none", floors, count, RecoSettings::kLegacyClusterSlots, RecoSettings::kClusterSlots));
+  }
   return static_cast<int>(count);
 }
 
@@ -216,8 +219,9 @@ inline void checkRecoParam(const RecoSettings& param)
   static_assert(RecoSettings::kClusterSlots == IterationSettings::kClusterSlots);
   std::array<double, IterationSettings::kClusterSlots> floors{};
   if (!param.iterationClusterMinPtGeV.empty()) {
-    for (std::size_t count = 0; count < floors.size(); ++count) {
-      floors[count] = param.iterationClusterMinPtGeV[(index * IterationSettings::kClusterSlots) + count];
+    const auto slots = param.iterationClusterMinPtGeV.size() / param.iterationMinPtGeV.size();
+    for (std::size_t count = 0; count < slots; ++count) {
+      floors[count] = param.iterationClusterMinPtGeV[(index * slots) + count];
     }
   }
   const bool follow = flag(param.iterationFollow, defaults.follow);
@@ -386,10 +390,11 @@ template <DetectorLayout Det>
   if (frames.size() != static_cast<std::size_t>(Detector<Det>::nLayers)) {
     throw std::invalid_argument(std::format("{}'s grid follows its {} layers' readout frames, and {} were given", Det::name, Detector<Det>::nLayers, frames.size()));
   }
-  // A pT floor per cluster count has a slot for every chain the layout can
-  // hold, or none would apply to the longest silently.
-  if (!param.iterationClusterMinPtGeV.empty() && maxChainLayers<Det> + 1U > IterationSettings::kClusterSlots) {
-    throw std::invalid_argument(std::format("GTRKReco<DET>.iterationClusterMinPtGeV has {} slots per iteration, and {}'s chains reach {} clusters", IterationSettings::kClusterSlots, Det::name, maxChainLayers<Det>));
+  if (!param.iterationClusterMinPtGeV.empty()) {
+    const auto slots = param.iterationClusterMinPtGeV.size() / param.iterationMinPtGeV.size();
+    if (slots <= maxChainLayers<Det>) {
+      throw std::invalid_argument(std::format("{}.iterationClusterMinPtGeV has {} slots per iteration, and {}'s chains reach {} clusters", RecoParamOf<Det>::type::Instance().getName(), slots, Det::name, maxChainLayers<Det>));
+    }
   }
   const auto windows = gridLayerWindows<Det>(iterations, beamSpotConstraint(beam, param));
   GridGeometry<Det> geometry{timeframeDurationPS(orbitsPerTimeframe), gridParams(param, frames), windows};
