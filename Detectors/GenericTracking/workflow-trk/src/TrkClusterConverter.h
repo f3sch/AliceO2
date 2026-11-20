@@ -26,6 +26,7 @@
 #include "GenericTracking/WorkflowTRK/TRKTOF.h"
 
 #include "DataFormatsIOTOF/Cluster.h"
+#include "DataFormatsITSMFT/ROFRecord.h"
 #include "DataFormatsTRKFT3/Cluster.h"
 #include "DataFormatsTRKFT3/ROFRecord.h"
 #include "DetectorsBase/GRPGeomHelper.h"
@@ -163,6 +164,7 @@ class TrkClusterConverterTask : public o2::framework::Task
     }
     if constexpr (kTOF) {
       inputs.emplace_back("tofclusters", o2::header::gDataOriginTF3, "CLUSTERS", 0, Lifetime::Timeframe);
+      inputs.emplace_back("tofrofs", o2::header::gDataOriginTF3, "CLUSTERSROF", 0, Lifetime::Timeframe);
       if (useMC) {
         inputs.emplace_back("toflabels", o2::header::gDataOriginTF3, "CLUSTERSMCTR", 0, Lifetime::Timeframe);
       }
@@ -190,12 +192,21 @@ class TrkClusterConverterTask : public o2::framework::Task
       auto& geometry = *o2::iotof::GeometryTGeo::Instance();
       mTofFrame = alice::TofPixelFrame::build(geometry);
     }
+    // The timeframe's first orbit, held to the one the TOF's readout frame
+    // implies, as for the TRK's layers.
+    const auto tofFrames = pc.inputs().get<gsl::span<o2::itsmft::ROFRecord>>("tofrofs");
+    if (!tofFrames.empty()) {
+      const auto implied = o2::raw::HBFUtils::Instance().getFirstIRofTF(tofFrames.front().getBCData()).orbit;
+      if (implied != tfFirstOrbit) {
+        LOGP(fatal, "TRKFT3TOF: the TOF's readout frames belong to the timeframe starting at orbit {}, DPL says {}", implied, tfFirstOrbit);
+      }
+    }
     const auto tof = pc.inputs().get<gsl::span<o2::iotof::Cluster>>("tofclusters");
     std::vector<std::uint32_t> kept;
     alice::TofSkipped skipped;
     const auto converted = alice::tofClusters(std::span{tof.data(), tof.size()}, *mTofFrame, tfFirstOrbit, o2::raw::HBFUtils::Instance().getNOrbitsPerTF(), kept, skipped);
     if (skipped.total() != 0 || skipped.clamped != 0) {
-      LOGP(warn, "TRKFT3TOF: of {} TOF clusters {} left out (no chip {}, time {}, pattern {}), {} moved into the timeframe", tof.size(), skipped.total(), skipped.chip, skipped.time, skipped.pattern, skipped.clamped);
+      LOGP(warn, "TRKFT3TOF: of {} TOF clusters {} left out (no chip {}, time in its crossing {}, pattern {}, outside the timeframe {}), {} boxes started at the timeframe's start", tof.size(), skipped.total(), skipped.chip, skipped.time, skipped.pattern, skipped.outside, skipped.clamped);
     }
     if (mUseMC) {
       const auto tofLabels = pc.inputs().get<const o2::dataformats::MCTruthContainer<o2::MCCompLabel>*>("toflabels");

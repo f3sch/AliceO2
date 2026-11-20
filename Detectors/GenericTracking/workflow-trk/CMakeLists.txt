@@ -15,7 +15,7 @@
 set(trackerUnits src/TrackerTRKFT3.cxx src/TrackerTRKFT3TOF.cxx)
 o2_add_library(GTrkWorkflowTRK
                SOURCES src/TRK.cxx src/TRKTOF.cxx ${trackerUnits}
-               PUBLIC_LINK_LIBRARIES O2::GTrkWorkflow O2::DataFormatsTRKFT3 O2::TRKReconstruction O2::TRKBase O2::DataFormatsIOTOF O2::IOTOFBase
+               PUBLIC_LINK_LIBRARIES O2::GTrkWorkflow O2::DataFormatsTRKFT3 O2::TRKReconstruction O2::TRKBase O2::DataFormatsIOTOF O2::IOTOFBase O2::IOTOFReconstruction
                PRIVATE_LINK_LIBRARIES O2::FT3Base O2::Field O2::SimulationDataFormat O2::CommonConstants ROOT::Geom
                TARGETVARNAME targetName)
 

@@ -34,6 +34,7 @@
 #include "DataFormatsIOTOF/Cluster.h"
 #include "DetectorsBase/GeometryManager.h"
 #include "DetectorsBase/Propagator.h"
+#include "IOTOFReconstruction/TopologyClassifier.h"
 
 #include <boost/test/unit_test.hpp>
 
@@ -203,9 +204,10 @@ BOOST_AUTO_TEST_CASE(TheNativeGridAndFloorsCoverLongTofChains)
 
 /// An IOTOF cluster as ours: its fired pixels' mean centre in its chip's
 /// frame, pitch^2/12 errors, the sensor after TRKFT3's, the box of the bunch
-/// crossing ending at its time; one on no chip, outside its crossing or
-/// without a usable pattern left out and counted; a box past the
-/// timeframe's start or end moved in and counted.
+/// crossing ending at its time; one on no chip, outside its crossing,
+/// without a usable pattern (O2's `kHuge` among them, a full 4 x 4 pattern
+/// not) or outside the timeframe left out and counted; a box starting before
+/// the timeframe started at its start and counted.
 BOOST_AUTO_TEST_CASE(ATOFClusterIsItsPixelsAndTheCrossingEndingAtItsTime)
 {
   alice::TofPixelFrame frame;
@@ -227,39 +229,46 @@ BOOST_AUTO_TEST_CASE(ATOFClusterIsItsPixelsAndTheCrossingEndingAtItsTime)
     Cluster(2, 3, 1, 1, 0b1, 0, 1, 0.F, firstBC + 100, 7.5F),
     // two pixels side by side across the rows (row-major 2 x 1: bits 0 and 1)
     Cluster(4, 1, 2, 1, 0b11, 0, 3, 0.F, firstBC + 2000, 0.F),
-    Cluster(0, 0, 1, 1, 0b1, 0, 4, 0.F, firstBC + 10, 1.F),  // no such chip
-    Cluster(0, 0, 1, 1, 0b1, 0, 0, 0.F, firstBC + 10, 30.F), // outside its crossing
-    Cluster(0, 0, 1, 1, 0, 0, 0, 0.F, firstBC + 10, 1.F),    // no pixel fired
-    Cluster(7, 5, 2, 1, 0b11, 0, 0, 0.F, firstBC + 10, 1.F), // a pixel past the last row
-    Cluster(0, 0, 1, 1, 0b1, 0, 2, 0.F, firstBC, 1.F),       // a box from before the timeframe
+    Cluster(0, 0, 1, 1, 0b1, 0, 4, 0.F, firstBC + 10, 1.F),                                                  // no such chip
+    Cluster(0, 0, 1, 1, 0b1, 0, 0, 0.F, firstBC + 10, 30.F),                                                 // outside its crossing
+    Cluster(0, 0, 1, 1, 0, 0, 0, 0.F, firstBC + 10, 1.F),                                                    // no pixel fired
+    Cluster(7, 5, 2, 1, 0b11, 0, 0, 0.F, firstBC + 10, 1.F),                                                 // a pixel past the last row
+    Cluster(0, 0, 1, 1, 0b1, 0, 2, 0.F, firstBC, 1.F),                                                       // a box from before the timeframe
+    Cluster(0, 0, 4, 4, 0xFFFF, 0, 2, 0.F, firstBC + 50, 2.F),                                               // a full 4 x 4 pattern
+    Cluster(0, 0, 4, 4, Cluster::InvalidPatternID, o2::iotof::Topologies::kHuge, 2, 0.F, firstBC + 60, 2.F), // too large for a pattern
+    Cluster(0, 0, 1, 1, 0b1, 0, 2, 0.F, firstBC - 3, 1.F),                                                   // before the timeframe
+    Cluster(0, 0, 1, 1, 0b1, 0, 2, 0.F, firstBC + (kOrbits * o2::constants::lhc::LHCMaxBunches) + 3, 1.F),   // after it
   };
   std::vector<std::uint32_t> kept;
   alice::TofSkipped skipped;
   const auto ours = alice::tofClusters(clusters, frame, kFirstOrbit, kOrbits, kept, skipped);
-  BOOST_REQUIRE(ours.size() == 3U);
-  // In box-start order: the box moved to the timeframe's start first.
-  BOOST_TEST(kept == (std::vector<std::uint32_t>{6, 0, 1}), boost::test_tools::per_element());
+  BOOST_REQUIRE(ours.size() == 4U);
+  // In box-start order: the box started at the timeframe's start first.
+  BOOST_TEST(kept == (std::vector<std::uint32_t>{6, 7, 0, 1}), boost::test_tools::per_element());
   BOOST_TEST(skipped.chip == 1U);
   BOOST_TEST(skipped.time == 1U);
-  BOOST_TEST(skipped.pattern == 2U);
+  BOOST_TEST(skipped.pattern == 3U);
+  BOOST_TEST(skipped.outside == 2U);
   BOOST_TEST(skipped.clamped == 1U);
+  BOOST_TEST(ours[1].xLocal == 0.25F * (frame.rowX[0] + frame.rowX[1] + frame.rowX[2] + frame.rowX[3]), boost::test_tools::tolerance(1.e-6F));
+  BOOST_TEST(ours[1].yLocal == 0.25F * (frame.columnZ[0] + frame.columnZ[1] + frame.columnZ[2] + frame.columnZ[3]), boost::test_tools::tolerance(1.e-6F));
 
-  BOOST_TEST(ours[1].chipID == static_cast<SensorID>(Tof::kFirstTOFSensor + 1));
-  BOOST_TEST(ours[1].xLocal == frame.rowX[2]);
-  BOOST_TEST(ours[1].yLocal == frame.columnZ[3]);
-  BOOST_TEST(ours[1].sigmaXLocal == frame.sigmaX);
-  BOOST_TEST(ours[1].sigmaYLocal == frame.sigmaZ);
+  BOOST_TEST(ours[2].chipID == static_cast<SensorID>(Tof::kFirstTOFSensor + 1));
+  BOOST_TEST(ours[2].xLocal == frame.rowX[2]);
+  BOOST_TEST(ours[2].yLocal == frame.columnZ[3]);
+  BOOST_TEST(ours[2].sigmaXLocal == frame.sigmaX);
+  BOOST_TEST(ours[2].sigmaYLocal == frame.sigmaZ);
   const std::int64_t t0 = psOfBC(100) + 7500;
-  BOOST_TEST(ours[1].timePS == static_cast<std::uint32_t>(t0 - psOfBC(1)));
-  BOOST_TEST(ours[1].widthPS == static_cast<std::uint32_t>(psOfBC(1)));
-  BOOST_TEST(ours[1].rowSpan == 1U);
-  BOOST_TEST(ours[1].colSpan == 1U);
+  BOOST_TEST(ours[2].timePS == static_cast<std::uint32_t>(t0 - psOfBC(1)));
+  BOOST_TEST(ours[2].widthPS == static_cast<std::uint32_t>(psOfBC(1)));
+  BOOST_TEST(ours[2].rowSpan == 1U);
+  BOOST_TEST(ours[2].colSpan == 1U);
 
-  BOOST_TEST(ours[2].chipID == static_cast<SensorID>(Tof::kFirstTOFSensor + 3));
-  BOOST_TEST(ours[2].xLocal == 0.5F * (frame.rowX[4] + frame.rowX[5]), boost::test_tools::tolerance(1.e-6F));
-  BOOST_TEST(ours[2].yLocal == frame.columnZ[1]);
-  BOOST_TEST(ours[2].timePS == static_cast<std::uint32_t>(psOfBC(2000) - psOfBC(1)));
-  BOOST_TEST(ours[2].rowSpan == 2U);
+  BOOST_TEST(ours[3].chipID == static_cast<SensorID>(Tof::kFirstTOFSensor + 3));
+  BOOST_TEST(ours[3].xLocal == 0.5F * (frame.rowX[4] + frame.rowX[5]), boost::test_tools::tolerance(1.e-6F));
+  BOOST_TEST(ours[3].yLocal == frame.columnZ[1]);
+  BOOST_TEST(ours[3].timePS == static_cast<std::uint32_t>(psOfBC(2000) - psOfBC(1)));
+  BOOST_TEST(ours[3].rowSpan == 2U);
 
   // [t - 1 BC, t] at t = 1 ns reaches before the timeframe: moved to its start.
   BOOST_TEST(ours[0].timePS == 0U);

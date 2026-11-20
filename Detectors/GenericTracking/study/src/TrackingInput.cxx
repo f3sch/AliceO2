@@ -228,6 +228,8 @@ void writeParameters(const std::string& path)
   add(its.getName(), its);
   add(mft.getName(), mft);
   add(trk.getName(), trk);
+  const auto& trktof = RecoParamTRKTOF::Instance();
+  add(trktof.getName(), trktof);
 
   std::vector<std::string> lines;
   {

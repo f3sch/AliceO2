@@ -31,6 +31,7 @@
 #include "DataFormatsIOTOF/Cluster.h"
 #include "IOTOFBase/GeometryTGeo.h"
 #include "IOTOFBase/IOTOFBaseParam.h"
+#include "IOTOFReconstruction/TopologyClassifier.h"
 #include "MathUtils/Cartesian.h"
 
 #include <algorithm>
@@ -178,7 +179,7 @@ std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, c
     const unsigned rows = cluster.getRowSpan();
     const unsigned columns = cluster.getColSpan();
     const unsigned mask = cluster.getPattern();
-    if (mask == o2::iotof::Cluster::InvalidPatternID || rows == 0 || columns == 0 || rows * columns > 16 || cluster.getRow() + rows > frame.rowX.size() || cluster.getCol() + columns > frame.columnZ.size()) {
+    if (cluster.getTopology() == o2::iotof::Topologies::kHuge || rows == 0 || columns == 0 || rows * columns > o2::iotof::ClusterInfo::NBitsPattern || cluster.getRow() + rows > frame.rowX.size() || cluster.getCol() + columns > frame.columnZ.size()) {
       ++skipped.pattern;
       continue;
     }
@@ -197,12 +198,18 @@ std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, c
       continue;
     }
     // Its time from the timeframe's start, the bunch crossings' difference
-    // taken first; the box the crossing that ends there, in the timeframe.
+    // taken first; the box the crossing that ends there, from the
+    // timeframe's start at the earliest. A time outside the timeframe is
+    // another timeframe's.
     const std::int64_t timePS = psOfBC(static_cast<std::int64_t>(cluster.getBc()) - firstBC) + std::llround(static_cast<double>(fineNS) * 1000.);
+    if (timePS < 0 || timePS > durationPS) {
+      ++skipped.outside;
+      continue;
+    }
     std::int64_t start = timePS - widthPS;
-    if (start < 0 || timePS > durationPS) {
+    if (start < 0) {
       ++skipped.clamped;
-      start = std::clamp<std::int64_t>(start, 0, durationPS - widthPS);
+      start = 0;
     }
     result.push_back({
       .chipID = static_cast<SensorID>(detectors::TRKFT3TOF::kFirstTOFSensor + static_cast<int>(chip)),
@@ -249,8 +256,11 @@ std::vector<FrameTiming> trktofFrameTiming(std::span<const FrameTiming> trk)
 std::vector<double> trktofMeasurementDepthsCM(std::span<const double> trk)
 {
   using Layout = detectors::TRKFT3TOF;
+  if (trk.size() != static_cast<std::size_t>(Detector<detectors::TRKFT3>::nLayers)) {
+    throw std::invalid_argument(std::format("TRKFT3TOF: {} TRKFT3 layers' measurement depths, the layout has {}", trk.size(), Detector<detectors::TRKFT3>::nLayers));
+  }
   std::vector<double> depths(static_cast<std::size_t>(Detector<Layout>::nLayers), 0.);
-  for (std::size_t layer = 0; layer < trk.size() && std::cmp_less(layer, Detector<detectors::TRKFT3>::nLayers); ++layer) {
+  for (std::size_t layer = 0; layer < trk.size(); ++layer) {
     depths[detectors::trkft3tof::fromTRKFT3(static_cast<LayerID>(layer))] = trk[layer];
   }
   return depths;

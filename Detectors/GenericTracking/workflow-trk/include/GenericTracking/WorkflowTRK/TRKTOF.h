@@ -62,9 +62,10 @@ struct TofPixelFrame {
 struct TofSkipped {
   std::size_t chip = 0;    ///< on no IOTOF chip
   std::size_t time = 0;    ///< a time in its bunch crossing outside [0, 1 BC)
-  std::size_t pattern = 0; ///< no pixel fired, or one outside the chip
-  std::size_t clamped = 0; ///< kept: its box moved into the timeframe
-  [[nodiscard]] std::size_t total() const { return chip + time + pattern; }
+  std::size_t pattern = 0; ///< too large for a pattern (O2's `kHuge`), no pixel fired, or one outside the chip
+  std::size_t outside = 0; ///< its time outside the timeframe
+  std::size_t clamped = 0; ///< kept: its box's start moved to the timeframe's start
+  [[nodiscard]] std::size_t total() const { return chip + time + pattern + outside; }
 };
 
 /// Every usable cluster of \a clusters as ours, in its box's start order
