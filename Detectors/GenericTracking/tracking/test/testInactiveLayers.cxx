@@ -328,6 +328,13 @@ BOOST_AUTO_TEST_CASE(AnInactiveLayerIsOutsideTheOtherLayersSlabs)
   BOOST_TEST(six.high == 15., boost::test_tools::tolerance(1.e-9));
   // ToyBarrel8's layer 2 stops halfway to its layer 3.
   BOOST_TEST(layerSlab<detectors::ToyBarrel8>(2).high == 7., boost::test_tools::tolerance(1.e-9));
+  // The inactive layers take what their active neighbours leave: nothing
+  // between 2 and 4, which meet halfway; beyond 6, up to layer 7's silicon.
+  const auto three = layerSlab<Det>(3);
+  const auto seven = layerSlab<Det>(7);
+  BOOST_TEST(three.low == three.high, boost::test_tools::tolerance(1.e-9));
+  BOOST_TEST(seven.low == 15., boost::test_tools::tolerance(1.e-9));
+  BOOST_TEST(seven.high == radiusMax<Det>(7), boost::test_tools::tolerance(1.e-9));
 }
 
 /// A road on 0, 1, 2, 4, 5 straddles the inactive layer 3 through the direct

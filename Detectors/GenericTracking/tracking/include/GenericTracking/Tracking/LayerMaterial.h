@@ -212,6 +212,39 @@ template <DetectorLayout Det>
     return barrel ? layerDistance<Det>(otherId) : discZ<Det>(otherId);
   };
   const double here = barrel ? layerDistance<Det>(id) : discZ<Det>(id);
+
+  // An inactive layer inside a passive scatterer's band adds nothing of its
+  // own: the passive holds its material, for the links that pass the layer
+  // as for those through its rows. Elsewhere it takes the gap between its
+  // active neighbours' slabs, on an open side up to its own silicon.
+  if (Detector<Det>::isInactiveLayer(id)) {
+    if constexpr (Detector<Det>::nPassives > 0) {
+      for (std::size_t i = 0; i < static_cast<std::size_t>(Detector<Det>::nPassives); ++i) {
+        const auto& passive = Detector<Det>::passive(i);
+        if ((passive.kind == PassiveSpec::Kind::kBarrel) == barrel && passive.bandLow <= here && here <= passive.bandHigh) {
+          return {.low = here, .high = here};
+        }
+      }
+    }
+    const auto activeNeighbour = [&](int step) -> int {
+      for (auto other = static_cast<int>(layer) + step; other >= 0 && std::cmp_less(other, kLayers); other += step) {
+        const auto otherId = static_cast<LayerID>(other);
+        if (Detector<Det>::isBarrelLayer(otherId) != barrel || (!barrel && discZ<Det>(otherId) * here < 0.)) {
+          return -1;
+        }
+        if (!Detector<Det>::isInactiveLayer(otherId)) {
+          return other;
+        }
+      }
+      return -1;
+    };
+    const auto& envelope = PlacedEnvelopes<Det>::get(id);
+    const int inner = activeNeighbour(-1);
+    const int outer = activeNeighbour(+1);
+    return {.low = inner >= 0 ? layerSlab<Det>(static_cast<LayerID>(inner)).high : (barrel ? envelope.rMin : envelope.zMin),
+            .high = outer >= 0 ? layerSlab<Det>(static_cast<LayerID>(outer)).low : (barrel ? envelope.rMax : envelope.zMax)};
+  }
+
   const double below = neighbour(-1);
   const double above = neighbour(+1);
   double low = !exactlyEqual(below, 0.) ? 0.5 * (below + here) : 0.;
