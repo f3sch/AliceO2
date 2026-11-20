@@ -65,8 +65,8 @@ struct HitSegment {
   std::uint32_t chip = 0U; ///< our sensor ID: O2's chip ID; FT3's after TRK's (TRKFT3::kFirstDiscSensor)
   Vec3D start{};
   Vec3D end{};
-  Vec3D momentum{};                 ///< at the start
-  double time = 0.;                 ///< the time of flight at the end: the order along the particle's path
+  Vec3D momentum{}; ///< at the start
+  double time = 0.; ///< the time of flight at the end: the order along the particle's path
 };
 
 /// `sgn_HitsITS.root`, `sgn_HitsMFT.root` or `sgn_HitsTRK.root`, one tree entry per MC event;

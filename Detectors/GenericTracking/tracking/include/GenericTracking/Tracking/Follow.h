@@ -95,7 +95,10 @@ GPUhdi() GPUAlwaysInline() bool beyondHalfTurn(T turn)
 }
 
 template <typename T>
-GPUhdi() GPUAlwaysInline() bool nearerPath(T candidate, T chosen) { return exactlyEqual(chosen, T{0}) || o2::gpu::CAMath::Abs(candidate) < o2::gpu::CAMath::Abs(chosen); }
+GPUhdi() GPUAlwaysInline() bool nearerPath(T candidate, T chosen)
+{
+  return exactlyEqual(chosen, T{0}) || o2::gpu::CAMath::Abs(candidate) < o2::gpu::CAMath::Abs(chosen);
+}
 
 } // namespace follow
 

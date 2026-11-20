@@ -199,9 +199,9 @@ struct HitCrossing {
 
 /// A particle's helix as the MC kinematics give it at its production point.
 struct TruthHelix {
-  Vec3D position{};                 ///< [cm]
-  Vec3D momentum{};                 ///< [GeV]
-  double charge = 0.;               ///< [e]
+  Vec3D position{};   ///< [cm]
+  Vec3D momentum{};   ///< [GeV]
+  double charge = 0.; ///< [e]
 };
 
 /// Where a helix passes an axis parallel to z: its transverse distance of

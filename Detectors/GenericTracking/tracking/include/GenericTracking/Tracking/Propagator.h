@@ -360,9 +360,9 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
     // The default: the first root, unless it is not usable and the second
     // lands nearer the centre. The other rules, each its own instantiation:
     // the second where the rule moves off the first.
-    [[maybe_unused]] auto firstOffCentre = Solve{0};  // NOLINT(misc-const-correctness): written in a dependent call the check does not see
-    [[maybe_unused]] detail::CrossingPlace first;     // NOLINT(misc-const-correctness): written in a dependent call the check does not see
-    [[maybe_unused]] bool firstAhead = false;         // NOLINT(misc-const-correctness): written in a dependent call the check does not see
+    [[maybe_unused]] auto firstOffCentre = Solve{0}; // NOLINT(misc-const-correctness): written in a dependent call the check does not see
+    [[maybe_unused]] detail::CrossingPlace first;    // NOLINT(misc-const-correctness): written in a dependent call the check does not see
+    [[maybe_unused]] bool firstAhead = false;        // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     for (int root = 0; root < 2; ++root) {
       const Solve mu = root == 0 ? cCoef / den : den / quadratic;
       const Solve tryDxy[2] = {-a * nx + mu * tx, -a * ny + mu * ty};
