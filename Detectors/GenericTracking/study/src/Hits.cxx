@@ -12,6 +12,7 @@
 #include "GenericTracking/Study/Alice/Hits.h"
 
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Workflow/TrackLabel.h"
 
 #include "DataFormatsTRKFT3/Hit.h"
@@ -69,7 +70,7 @@ TTree* openTree(const std::string& path, std::unique_ptr<TFile>& file)
 }
 } // namespace
 
-HitFile::HitFile(const std::string& path, Chips chips, const std::string& discPath) : mChips(chips), mTree(openTree(path, mFile))
+HitFile::HitFile(const std::string& path, Chips chips, const std::string& discPath, const std::string& tofPath) : mChips(chips), mTree(openTree(path, mFile))
 {
   if (!discPath.empty()) {
     if (chips != Chips::kTRK) {
@@ -78,6 +79,15 @@ HitFile::HitFile(const std::string& path, Chips chips, const std::string& discPa
     mDiscTree = openTree(discPath, mDiscFile);
     if (mDiscTree->GetEntries() != mTree->GetEntries()) {
       throw std::runtime_error(std::format("{} has {} events, {} has {}", path, mTree->GetEntries(), discPath, mDiscTree->GetEntries()));
+    }
+  }
+  if (!tofPath.empty()) {
+    if (chips != Chips::kTRK) {
+      throw std::invalid_argument("HitFile: a file of TOF hits is TRKFT3TOF's, for the TRK only");
+    }
+    mTofTree = openTree(tofPath, mTofFile);
+    if (mTofTree->GetEntries() != mTree->GetEntries()) {
+      throw std::runtime_error(std::format("{} has {} events, {} has {}", path, mTree->GetEntries(), tofPath, mTofTree->GetEntries()));
     }
   }
 }
@@ -104,6 +114,9 @@ const std::vector<HitSegment>& HitFile::event(int event)
         readSegments<o2::trkft3::Hit>(*mTree, "TRKHit", mEvents);
         if (mDiscTree != nullptr) {
           readSegments<o2::trkft3::Hit>(*mDiscTree, "FT3Hit", mEvents, static_cast<std::uint32_t>(detectors::TRKFT3::kFirstDiscSensor));
+        }
+        if (mTofTree != nullptr) {
+          readSegments<o2::itsmft::Hit>(*mTofTree, "TF3Hit", mEvents, static_cast<std::uint32_t>(detectors::TRKFT3TOF::kFirstTOFSensor));
         }
         break;
     }

@@ -64,7 +64,7 @@ template <DetectorLayout Det>
 /// One particle's crossing of one chip, in the global frame [cm, GeV].
 struct HitSegment {
   int track = -1;          ///< MC track ID within its event
-  std::uint32_t chip = 0U; ///< our sensor ID: O2's chip ID; FT3's after TRK's (TRKFT3::kFirstDiscSensor)
+  std::uint32_t chip = 0U; ///< our sensor ID: O2's chip ID; FT3's after TRK's (TRKFT3::kFirstDiscSensor), the TOF's after those (TRKFT3TOF::kFirstTOFSensor)
   Vec3D start{};
   Vec3D end{};
   Vec3D momentum{}; ///< at the start
@@ -72,13 +72,14 @@ struct HitSegment {
 };
 
 /// `sgn_HitsITS.root`, `sgn_HitsMFT.root` or `sgn_HitsTRK.root`, one tree entry per MC event;
-/// for the TRK, with `sgn_HitsFT3.root` beside it, FT3's hits too.
+/// for the TRK, with `sgn_HitsFT3.root` beside it, FT3's hits too, and with `sgn_HitsTF3.root`
+/// the TOF's (TRKFT3TOF's sensors).
 class HitFile
 {
  public:
   /// Throws std::runtime_error if \a path, or a non-empty \a discPath, has
-  /// no o2sim tree. \a discPath, FT3's hits, only for Chips::kTRK.
-  HitFile(const std::string& path, Chips chips, const std::string& discPath = {});
+  /// no o2sim tree. \a discPath, FT3's hits, and \a tofPath, the TOF's, only for Chips::kTRK.
+  HitFile(const std::string& path, Chips chips, const std::string& discPath = {}, const std::string& tofPath = {});
   ~HitFile();
   HitFile(const HitFile&) = delete;
   HitFile& operator=(const HitFile&) = delete;
@@ -97,6 +98,8 @@ class HitFile
   TTree* mTree = nullptr;
   std::unique_ptr<TFile> mDiscFile; ///< FT3's, for the TRK
   TTree* mDiscTree = nullptr;
+  std::unique_ptr<TFile> mTofFile; ///< the TOF's, for TRKFT3TOF
+  TTree* mTofTree = nullptr;
   bool mRead = false;
   std::vector<std::vector<HitSegment>> mEvents; ///< by event
 };

@@ -15,6 +15,8 @@
 ///
 ///     o2-gtrk-check-matlut --detector TRKFT3 --sim <dir> --lut gtrk_matlut_trk.root [--events 200]
 ///
+/// TRKFT3TOF reads the TOF's hits (sgn_HitsTF3.root) beside the TRK's and FT3's.
+///
 /// A LUT holds each cell's material evenly, so a thin dense object -- a
 /// layer's metal stack, a petal's side wall, a disc's support -- lands on
 /// every track through its cell, crossing it or not. The radial total cannot
@@ -61,6 +63,7 @@
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Study/Alice/Hits.h"
@@ -78,6 +81,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -275,7 +279,8 @@ std::vector<Step> collect(const Options& options, const o2::gtrk::Geometry<Det>&
     }
   }();
   const std::string discPath = kChips == o2::gtrk::study::Chips::kTRK ? options.sim + "/sgn_HitsFT3.root" : std::string{};
-  o2::gtrk::study::HitFile hits(options.sim + "/sgn_Hits" + hitName + ".root", kChips, discPath);
+  const std::string tofPath = std::same_as<Det, o2::gtrk::detectors::TRKFT3TOF> ? options.sim + "/sgn_HitsTF3.root" : std::string{};
+  o2::gtrk::study::HitFile hits(options.sim + "/sgn_Hits" + hitName + ".root", kChips, discPath, tofPath);
   // The kinematics through O2's reader, each event released once its steps are taken.
   if (!std::filesystem::exists(options.sim + "/sgn_Kine.root")) {
     throw std::runtime_error("no " + options.sim + "/sgn_Kine.root");
@@ -576,7 +581,7 @@ int run(int argc, char** argv)
   bpo::options_description description("Hold a material LUT to the geometry along simulated particles' paths");
   description.add_options()                                                                                                                            //
     ("help,h", "this message")                                                                                                                         //
-    ("detector,d", bpo::value(&options.detector)->default_value(options.detector), "ITS, MFT or TRKFT3")                                               //
+    ("detector,d", bpo::value(&options.detector)->default_value(options.detector), "ITS, MFT, TRKFT3 or TRKFT3TOF")                                               //
     ("sim", bpo::value(&options.sim), "the simulation's directory: sgn_Hits*.root, sgn_Kine.root, sgn_geometry[-aligned].root")                        //
     ("lut", bpo::value(&options.lut), "the material LUT")                                                                                              //
     ("geometry", bpo::value(&options.geometry), "override geometry; default <sim>/sgn_geometry-aligned.root if present, otherwise sgn_geometry.root")  //
@@ -611,6 +616,9 @@ int run(int argc, char** argv)
   }
   if (options.detector == "TRKFT3") {
     return runFor<o2::gtrk::detectors::TRKFT3>(options);
+  }
+  if (options.detector == "TRKFT3TOF") {
+    return runFor<o2::gtrk::detectors::TRKFT3TOF>(options);
   }
   if (options.detector == "ITS") {
     return runFor<o2::gtrk::detectors::ITS>(options);
