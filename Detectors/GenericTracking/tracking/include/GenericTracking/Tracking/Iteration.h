@@ -484,12 +484,7 @@ template <DetectorLayout Det>
 template <DetectorLayout Det>
 [[nodiscard]] inline std::array<bool, nLinks<Det>> takenLinks(const IterationSettings& settings)
 {
-  auto mask = settings.layerMask;
-  if constexpr (requires { Det::defaultSeedingMask; }) {
-    if (mask == 0U) {
-      mask = Det::defaultSeedingMask;
-    }
-  }
+  const auto mask = settings.layerMask;
   const auto inMask = [&](LayerID layer) { return mask == 0U || ((mask >> layer) & 1U) != 0U; };
   std::array<bool, nLinks<Det>> allowed{};
   for (std::size_t link = 0; link < nLinks<Det>; ++link) {

@@ -188,9 +188,9 @@ class TrkClusterConverterTask : public o2::framework::Task
   /// `tofClusters` keeps, the others counted in one warning per timeframe.
   void appendTOF(o2::framework::ProcessingContext& pc, std::uint32_t tfFirstOrbit, std::vector<Cluster>& clusters, o2::dataformats::MCTruthContainer<o2::MCCompLabel>& labels)
   {
-    if (!mTofFrame) {
+    if (!mTOFFrame) {
       auto& geometry = *o2::iotof::GeometryTGeo::Instance();
-      mTofFrame = alice::TofPixelFrame::build(geometry);
+      mTOFFrame = alice::TOFPixelFrame::build(geometry);
     }
     // The timeframe's first orbit, held to the one the TOF's readout frame
     // implies, as for the TRK's layers.
@@ -203,8 +203,8 @@ class TrkClusterConverterTask : public o2::framework::Task
     }
     const auto tof = pc.inputs().get<gsl::span<o2::iotof::Cluster>>("tofclusters");
     std::vector<std::uint32_t> kept;
-    alice::TofSkipped skipped;
-    const auto converted = alice::tofClusters(std::span{tof.data(), tof.size()}, *mTofFrame, tfFirstOrbit, o2::raw::HBFUtils::Instance().getNOrbitsPerTF(), kept, skipped);
+    alice::TOFSkipped skipped;
+    const auto converted = alice::tofClusters(std::span{tof.data(), tof.size()}, *mTOFFrame, tfFirstOrbit, o2::raw::HBFUtils::Instance().getNOrbitsPerTF(), kept, skipped);
     if (skipped.total() != 0 || skipped.clamped != 0) {
       LOGP(warn, "TRKFT3TOF: of {} TOF clusters {} left out (no chip {}, time in its crossing {}, pattern {}, outside the timeframe {}), {} boxes started at the timeframe's start", tof.size(), skipped.total(), skipped.chip, skipped.time, skipped.pattern, skipped.outside, skipped.clamped);
     }
@@ -225,7 +225,7 @@ class TrkClusterConverterTask : public o2::framework::Task
   bool mUseMC;
   TrkDictionaryConditions mDictionaries;
   std::shared_ptr<o2::base::GRPGeomRequest> mGeometryRequest;
-  std::optional<alice::TofPixelFrame> mTofFrame; ///< TRKFT3TOF's, from the first timeframe's geometry
+  std::optional<alice::TOFPixelFrame> mTOFFrame; ///< TRKFT3TOF's, from the first timeframe's geometry
 };
 
 /// `getClusterConverterSpec` of TRKFT3 and TRKFT3TOF.

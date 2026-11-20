@@ -85,9 +85,9 @@ HitFile::HitFile(const std::string& path, Chips chips, const std::string& discPa
     if (chips != Chips::kTRK) {
       throw std::invalid_argument("HitFile: a file of TOF hits is TRKFT3TOF's, for the TRK only");
     }
-    mTofTree = openTree(tofPath, mTofFile);
-    if (mTofTree->GetEntries() != mTree->GetEntries()) {
-      throw std::runtime_error(std::format("{} has {} events, {} has {}", path, mTree->GetEntries(), tofPath, mTofTree->GetEntries()));
+    mTOFTree = openTree(tofPath, mTOFFile);
+    if (mTOFTree->GetEntries() != mTree->GetEntries()) {
+      throw std::runtime_error(std::format("{} has {} events, {} has {}", path, mTree->GetEntries(), tofPath, mTOFTree->GetEntries()));
     }
   }
 }
@@ -115,8 +115,8 @@ const std::vector<HitSegment>& HitFile::event(int event)
         if (mDiscTree != nullptr) {
           readSegments<o2::trkft3::Hit>(*mDiscTree, "FT3Hit", mEvents, static_cast<std::uint32_t>(detectors::TRKFT3::kFirstDiscSensor));
         }
-        if (mTofTree != nullptr) {
-          readSegments<o2::itsmft::Hit>(*mTofTree, "TF3Hit", mEvents, static_cast<std::uint32_t>(detectors::TRKFT3TOF::kFirstTOFSensor));
+        if (mTOFTree != nullptr) {
+          readSegments<o2::itsmft::Hit>(*mTOFTree, "TF3Hit", mEvents, static_cast<std::uint32_t>(detectors::TRKFT3TOF::kFirstTOFSensor));
         }
         break;
     }

@@ -638,7 +638,8 @@ GPUhdi() GPUAlwaysInline() VertexCandidateStatus measureCandidate(const Measurem
 /// `[beginPS, endPS)`, the frames whose block is in the slice's core
 /// (`ownedFrames`). Every frame starts in one core, so the slices' lists
 /// add up to the timeframe's, each vertex once; the frame's triplets are all
-/// in the slice that owns it, its gate reaching past every link.
+/// in the slice that owns it, its gate reaching along every link the pass
+/// takes.
 struct OwnedFrames {
   std::int64_t beginPS = 0;
   std::int64_t endPS = std::int64_t{1} << 32U; ///< past every box start

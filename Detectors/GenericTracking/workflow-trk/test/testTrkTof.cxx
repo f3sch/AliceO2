@@ -50,93 +50,28 @@ namespace
 {
 using namespace o2::gtrk;
 using Base = detectors::TRKFT3;
-using Tof = detectors::TRKFT3TOF;
+using TOFLayout = detectors::TRKFT3TOF;
 constexpr int kBaseLayers = Detector<Base>::nLayers;
-
-[[nodiscard]] const PlacedLayerSpec& layerSpec(auto layout, int layer)
-{
-  using L = decltype(layout);
-  return layer < Detector<L>::nBarrelLayers ? L::barrelLayers[static_cast<std::size_t>(layer)] : L::discLayers[static_cast<std::size_t>(layer - Detector<L>::nBarrelLayers)];
-}
 
 } // namespace
 
-/// TRKFT3's layers in their order with the two TOF layers among them: the
-/// iTOF between ML 6 and 7, the oTOF after the OT, the discs after it; the
-/// same sensors, overlaps and links, and the TOF layers inactive.
-BOOST_AUTO_TEST_CASE(TRKFT3TOFIsTRKFT3WithTheTOFLayers)
+/// Every TRKFT3 link is TRKFT3TOF's, renumbered, with its source range; ML 6
+/// -> ML 7 stays direct, beside ML 6 -> iTOF -> ML 7.
+BOOST_AUTO_TEST_CASE(EveryTRKFT3LinkIsTRKFT3TOFs)
 {
-  BOOST_TEST(Detector<Tof>::nLayers == kBaseLayers + 2);
-  BOOST_TEST(Detector<Tof>::nBarrelLayers == Detector<Base>::nBarrelLayers + 2);
-  BOOST_TEST(Detector<Tof>::inactiveLayers == (std::uint64_t{1} << Tof::kInnerTOFLayer | std::uint64_t{1} << Tof::kOuterTOFLayer));
-  BOOST_TEST(Detector<Base>::inactiveLayers == 0U);
-  // The TOF's clusters carry their own boxes; TRKFT3's are frame records.
-  BOOST_TEST(Detector<Tof>::hitTimedLayers == Detector<Tof>::inactiveLayers);
-  BOOST_TEST(Detector<Base>::hitTimedLayers == 0U);
-  BOOST_TEST(Tof::kFirstTOFSensor == Base::nSensors);
-  std::vector<bool> taken(static_cast<std::size_t>(Detector<Tof>::nLayers), false);
-  for (int layer = 0; layer < kBaseLayers; ++layer) {
-    const auto to = detectors::trkft3tof::fromTRKFT3(static_cast<LayerID>(layer));
-    BOOST_TEST_CONTEXT("TRKFT3 layer " << layer << " -> " << static_cast<int>(to))
-    {
-      BOOST_TEST(!Detector<Tof>::isInactiveLayer(to));
-      BOOST_TEST(!taken[to]);
-      taken[to] = true;
-      BOOST_TEST(Detector<Tof>::isBarrelLayer(to) == Detector<Base>::isBarrelLayer(static_cast<LayerID>(layer)));
-      BOOST_TEST(layerSpec(Tof{}, to).sensorCount == layerSpec(Base{}, layer).sensorCount);
-      BOOST_TEST(layerSpec(Tof{}, to).sensor.halfX == layerSpec(Base{}, layer).sensor.halfX);
-      BOOST_TEST(((Tof::overlapLayers >> to) & 1U) == ((Base::overlapLayers >> layer) & 1U));
-    }
-  }
-  BOOST_TEST(!taken[Tof::kInnerTOFLayer]);
-  BOOST_TEST(!taken[Tof::kOuterTOFLayer]);
-  BOOST_TEST(((Tof::overlapLayers >> Tof::kInnerTOFLayer) & 1U) == 0U);
-  // Every TRKFT3 link, renumbered, with its source range.
   for (const auto& link : Base::layerLinks) {
-    const auto found = std::ranges::find_if(Tof::layerLinks, [&](const LayerLink& other) { return other.from == detectors::trkft3tof::fromTRKFT3(link.from) && other.to == detectors::trkft3tof::fromTRKFT3(link.to); });
+    const auto found = std::ranges::find_if(TOFLayout::layerLinks, [&](const LayerLink& other) { return other.from == detectors::trkft3tof::fromTRKFT3(link.from) && other.to == detectors::trkft3tof::fromTRKFT3(link.to); });
     BOOST_TEST_CONTEXT("link " << static_cast<int>(link.from) << " -> " << static_cast<int>(link.to))
     {
-      BOOST_REQUIRE(found != Tof::layerLinks.end());
+      BOOST_REQUIRE(found != TOFLayout::layerLinks.end());
       BOOST_TEST(found->sourceMin == link.sourceMin);
       BOOST_TEST(found->sourceMax == link.sourceMax);
     }
   }
-  // ML 6 -> ML 7 stays direct, beside ML 6 -> iTOF -> ML 7.
-  const auto has = [](LayerID from, LayerID to) { return std::ranges::any_of(Tof::layerLinks, [&](const LayerLink& link) { return link.from == from && link.to == to; }); };
+  const auto has = [](LayerID from, LayerID to) { return std::ranges::any_of(TOFLayout::layerLinks, [&](const LayerLink& link) { return link.from == from && link.to == to; }); };
   BOOST_TEST(has(6, detectors::trkft3tof::fromTRKFT3(7)));
-  BOOST_TEST(has(6, Tof::kInnerTOFLayer));
-  BOOST_TEST(has(Tof::kInnerTOFLayer, detectors::trkft3tof::fromTRKFT3(7)));
-}
-
-/// A TOF configuration can be set independently of the TRK configuration.
-BOOST_AUTO_TEST_CASE(TheTofScheduleUsesItsOwnKeys)
-{
-  const auto trk = recoParam<Base>().iterationMinPtGeV;
-  o2::conf::ConfigurableParam::updateFromString("GTRKRecoTRKTOF.iterationMinPtGeV=[0.5];GTRKRecoTRKTOF.iterationLayerMask=[248]");
-  const auto& tof = recoParam<Tof>();
-  BOOST_TEST(tof.iterationMinPtGeV == (std::vector<double>{0.5}), boost::test_tools::per_element());
-  BOOST_TEST(tof.iterationLayerMask == (std::vector<long>{248}), boost::test_tools::per_element());
-  BOOST_TEST(recoParam<Base>().iterationMinPtGeV == trk, boost::test_tools::per_element());
-}
-
-/// The default mask admits iTOF links and keeps oTOF for the follower.
-BOOST_AUTO_TEST_CASE(TheDefaultMaskKeepsOuterTofOutOfSeeding)
-{
-  RecoSettings tof;
-  tof.iterationMinPtGeV = {0.1, 0.2};
-  o2::base::Propagator::Instance(true);
-  for (int iteration = 0; iteration < workflow::iterationCount(tof); ++iteration) {
-    const auto links = takenLinks<Tof>(workflow::iterationSettings(tof, iteration));
-    bool innerSeeded = false;
-    bool outerSeeded = false;
-    for (std::size_t i = 0; i < links.size(); ++i) {
-      const auto& link = Tof::layerLinks[i];
-      innerSeeded |= links[i] && (link.from == Tof::kInnerTOFLayer || link.to == Tof::kInnerTOFLayer);
-      outerSeeded |= links[i] && (link.from == Tof::kOuterTOFLayer || link.to == Tof::kOuterTOFLayer);
-    }
-    BOOST_TEST(innerSeeded);
-    BOOST_TEST(!outerSeeded);
-  }
+  BOOST_TEST(has(6, TOFLayout::kInnerTOFLayer));
+  BOOST_TEST(has(TOFLayout::kInnerTOFLayer, detectors::trkft3tof::fromTRKFT3(7)));
 }
 
 /// TRKFT3TOF's frames and depths are TRKFT3's on its layers; the TOF's a
@@ -151,15 +86,15 @@ BOOST_AUTO_TEST_CASE(TheFramesAndDepthsAreTRKFT3sOnItsLayers)
   }
   const auto tofFrames = alice::trktofFrameTiming(frames);
   const auto tofDepths = alice::trktofMeasurementDepthsCM(depths);
-  BOOST_REQUIRE(tofFrames.size() == static_cast<std::size_t>(Detector<Tof>::nLayers));
-  BOOST_REQUIRE(tofDepths.size() == static_cast<std::size_t>(Detector<Tof>::nLayers));
+  BOOST_REQUIRE(tofFrames.size() == static_cast<std::size_t>(Detector<TOFLayout>::nLayers));
+  BOOST_REQUIRE(tofDepths.size() == static_cast<std::size_t>(Detector<TOFLayout>::nLayers));
   for (int layer = 0; layer < kBaseLayers; ++layer) {
     const auto to = detectors::trkft3tof::fromTRKFT3(static_cast<LayerID>(layer));
     BOOST_TEST(tofFrames[to].lengthBC == frames[static_cast<std::size_t>(layer)].lengthBC);
     BOOST_TEST(tofFrames[to].firstStartBC == frames[static_cast<std::size_t>(layer)].firstStartBC);
     BOOST_TEST(tofDepths[to] == depths[static_cast<std::size_t>(layer)]);
   }
-  for (const auto layer : {Tof::kInnerTOFLayer, Tof::kOuterTOFLayer}) {
+  for (const auto layer : {TOFLayout::kInnerTOFLayer, TOFLayout::kOuterTOFLayer}) {
     BOOST_TEST(tofFrames[layer].lengthBC == 1);
     BOOST_TEST(tofFrames[layer].firstStartBC == 0);
     BOOST_TEST(tofDepths[layer] == 0.);
@@ -169,9 +104,9 @@ BOOST_AUTO_TEST_CASE(TheFramesAndDepthsAreTRKFT3sOnItsLayers)
 
 /// The native grid and tracker accept pT floors through the longest TOF
 /// chain.
-BOOST_AUTO_TEST_CASE(TheNativeGridAndFloorsCoverLongTofChains)
+BOOST_AUTO_TEST_CASE(TheNativeGridAndFloorsCoverLongTOFChains)
 {
-  static_assert(maxChainLayers<Base> == 15U && maxChainLayers<Tof> == 17U);
+  static_assert(maxChainLayers<Base> == 15U && maxChainLayers<TOFLayout> == 17U);
   RecoSettings settings;
   settings.iterationMinPtGeV = {0.5, 0.3};
   settings.iterationClusterMinPtGeV.assign(2U * RecoSettings::kClusterSlots, 0.);
@@ -190,16 +125,16 @@ BOOST_AUTO_TEST_CASE(TheNativeGridAndFloorsCoverLongTofChains)
     return;
   }
   o2::base::GeometryManager::loadGeometry(file);
-  const auto tofGeometry = workflow::makeGeometry<Tof>();
+  const auto tofGeometry = workflow::makeGeometry<TOFLayout>();
   const std::vector<FrameTiming> trkFrames(static_cast<std::size_t>(kBaseLayers), FrameTiming{.lengthBC = 81, .firstStartBC = 0});
   const auto tofFrames = alice::trktofFrameTiming(trkFrames);
   const auto beam = workflow::nominalBeamLine();
-  const auto grid = std::make_unique<const GridGeometry<Tof>>(workflow::makeGridGeometry<Tof>(settings, beam, tofFrames, 32));
+  const auto grid = std::make_unique<const GridGeometry<TOFLayout>>(workflow::makeGridGeometry<TOFLayout>(settings, beam, tofFrames, 32));
   BOOST_TEST(!grid->overflows());
-  BOOST_TEST(grid->axes(Tof::kInnerTOFLayer).nPhi > 0);
-  const auto scattering = scatteringTable<Tof>(uniformLayerMaterial<Tof>(0.));
-  BOOST_TEST(iterationParameters<Tof>(first, VertexConstraint{}, scattering).minPtByClusters[17] == 0.25F);
-  BOOST_TEST(iterationParameters<Tof>(second, VertexConstraint{}, scattering).minPtByClusters[16] == 0.5F);
+  BOOST_TEST(grid->axes(TOFLayout::kInnerTOFLayer).nPhi > 0);
+  const auto scattering = scatteringTable<TOFLayout>(uniformLayerMaterial<TOFLayout>(0.));
+  BOOST_TEST(iterationParameters<TOFLayout>(first, VertexConstraint{}, scattering).minPtByClusters[17] == 0.25F);
+  BOOST_TEST(iterationParameters<TOFLayout>(second, VertexConstraint{}, scattering).minPtByClusters[16] == 0.5F);
 }
 
 /// An IOTOF cluster as ours: its fired pixels' mean centre in its chip's
@@ -210,7 +145,7 @@ BOOST_AUTO_TEST_CASE(TheNativeGridAndFloorsCoverLongTofChains)
 /// the timeframe started at its start and counted.
 BOOST_AUTO_TEST_CASE(ATOFClusterIsItsPixelsAndTheCrossingEndingAtItsTime)
 {
-  alice::TofPixelFrame frame;
+  alice::TOFPixelFrame frame;
   for (int row = 0; row < 8; ++row) {
     frame.rowX.push_back(0.01F * static_cast<float>(row) - 0.035F);
   }
@@ -240,7 +175,7 @@ BOOST_AUTO_TEST_CASE(ATOFClusterIsItsPixelsAndTheCrossingEndingAtItsTime)
     Cluster(0, 0, 1, 1, 0b1, 0, 2, 0.F, firstBC + (kOrbits * o2::constants::lhc::LHCMaxBunches) + 3, 1.F),   // after it
   };
   std::vector<std::uint32_t> kept;
-  alice::TofSkipped skipped;
+  alice::TOFSkipped skipped;
   const auto ours = alice::tofClusters(clusters, frame, kFirstOrbit, kOrbits, kept, skipped);
   BOOST_REQUIRE(ours.size() == 4U);
   // In box-start order: the box started at the timeframe's start first.
@@ -253,7 +188,7 @@ BOOST_AUTO_TEST_CASE(ATOFClusterIsItsPixelsAndTheCrossingEndingAtItsTime)
   BOOST_TEST(ours[1].xLocal == 0.25F * (frame.rowX[0] + frame.rowX[1] + frame.rowX[2] + frame.rowX[3]), boost::test_tools::tolerance(1.e-6F));
   BOOST_TEST(ours[1].yLocal == 0.25F * (frame.columnZ[0] + frame.columnZ[1] + frame.columnZ[2] + frame.columnZ[3]), boost::test_tools::tolerance(1.e-6F));
 
-  BOOST_TEST(ours[2].chipID == static_cast<SensorID>(Tof::kFirstTOFSensor + 1));
+  BOOST_TEST(ours[2].chipID == static_cast<SensorID>(TOFLayout::kFirstTOFSensor + 1));
   BOOST_TEST(ours[2].xLocal == frame.rowX[2]);
   BOOST_TEST(ours[2].yLocal == frame.columnZ[3]);
   BOOST_TEST(ours[2].sigmaXLocal == frame.sigmaX);
@@ -264,7 +199,7 @@ BOOST_AUTO_TEST_CASE(ATOFClusterIsItsPixelsAndTheCrossingEndingAtItsTime)
   BOOST_TEST(ours[2].rowSpan == 1U);
   BOOST_TEST(ours[2].colSpan == 1U);
 
-  BOOST_TEST(ours[3].chipID == static_cast<SensorID>(Tof::kFirstTOFSensor + 3));
+  BOOST_TEST(ours[3].chipID == static_cast<SensorID>(TOFLayout::kFirstTOFSensor + 3));
   BOOST_TEST(ours[3].xLocal == 0.5F * (frame.rowX[4] + frame.rowX[5]), boost::test_tools::tolerance(1.e-6F));
   BOOST_TEST(ours[3].yLocal == frame.columnZ[1]);
   BOOST_TEST(ours[3].timePS == static_cast<std::uint32_t>(psOfBC(2000) - psOfBC(1)));

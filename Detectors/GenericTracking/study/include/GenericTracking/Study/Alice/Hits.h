@@ -98,8 +98,8 @@ class HitFile
   TTree* mTree = nullptr;
   std::unique_ptr<TFile> mDiscFile; ///< FT3's, for the TRK
   TTree* mDiscTree = nullptr;
-  std::unique_ptr<TFile> mTofFile; ///< the TOF's, for TRKFT3TOF
-  TTree* mTofTree = nullptr;
+  std::unique_ptr<TFile> mTOFFile; ///< the TOF's, for TRKFT3TOF
+  TTree* mTOFTree = nullptr;
   bool mRead = false;
   std::vector<std::vector<HitSegment>> mEvents; ///< by event
 };

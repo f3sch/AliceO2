@@ -836,7 +836,7 @@ class Tracker
       return status;
     }
     for (const auto& proposal : follow.proposals()) {
-      tracks += static_cast<std::size_t>(proposal.outwardCount + proposal.inwardCount != 0U);
+      tracks += static_cast<std::size_t>(proposal.outwardCount + proposal.inwardCount != 0U || proposal.interior != ClusterList<kMaxClusters>::kNoCluster);
       outward += proposal.outwardCount;
       inward += proposal.inwardCount;
     }

@@ -1265,6 +1265,7 @@ class FollowStage
           if (!inactiveLayerTail(branch, heldLayers, box, direction, child, nearTail, observe, group)) {
             break;
           }
+          countWork(WorkCounter::kFollowInactiveTail);
           observe.taken(child.row, child.chi2);
           take(branch, box, child);
         }
@@ -1541,6 +1542,7 @@ class FollowStage
         if (!targetWindow(state, factors, box, target, direction, window, reach, traversed, SoloGroup{})) {
           return false;
         }
+        countWork(WorkCounter::kFollowInteriorSearches);
         // The row the follow would take there: the best predicted chi2 in
         // the gate, kept where the track's fit with it raises its chi2 by no
         // more than the gate.
@@ -1555,6 +1557,7 @@ class FollowStage
             }
           });
         if (best == ClusterList<kMaxClusters>::kNoCluster) {
+          countWork(WorkCounter::kFollowInteriorEmpty);
           return false;
         }
         const auto budget = kinkBudget(*mParameters);
@@ -1562,6 +1565,7 @@ class FollowStage
         const follow::InsertedChain<Det> with{.frame = mFrame, .rows = rows.index, .at = i + 1U, .row = best};
         const auto fit = fitMeasurements(mPropagator, *mGeometry, *mMaterial, with, static_cast<int>(count + 1U), budget);
         if (plain.status != PropagationStatus::kOk || fit.status != PropagationStatus::kOk || fit.chi2 - plain.chi2 > mParameters->clusterChi2Max) {
+          countWork(WorkCounter::kFollowInteriorRefused);
           return false;
         }
         proposal.interior = best;
@@ -1925,14 +1929,16 @@ struct Resolve {
   {
     const std::uint32_t priority = trackCount - (trackOffset + track);
     auto& proposal = proposals[track];
-    const std::uint32_t proposed = static_cast<std::uint32_t>(proposal.outwardCount) + proposal.inwardCount;
+    const bool interior = proposal.interior != ClusterList<K>::kNoCluster;
+    const std::uint32_t proposed = static_cast<std::uint32_t>(proposal.outwardCount) + proposal.inwardCount + (interior ? 1U : 0U);
     proposal.outwardCount = kept(proposal.outward, proposal.outwardCount, priority);
     proposal.inwardCount = kept(proposal.inward, proposal.inwardCount, priority);
-    if (proposal.interior != ClusterList<K>::kNoCluster && slots[proposal.interior] != priority) {
+    if (interior && slots[proposal.interior] != priority) {
       proposal.interior = ClusterList<K>::kNoCluster;
     }
+    const std::uint32_t left = static_cast<std::uint32_t>(proposal.outwardCount) + proposal.inwardCount + (proposal.interior != ClusterList<K>::kNoCluster ? 1U : 0U);
     countWork(earlier ? WorkCounter::kFollowEarlierProposed : WorkCounter::kFollowProposed, proposed);
-    countWork(earlier ? WorkCounter::kFollowEarlierOutbid : WorkCounter::kFollowOutbid, proposed - proposal.outwardCount - proposal.inwardCount);
+    countWork(earlier ? WorkCounter::kFollowEarlierOutbid : WorkCounter::kFollowOutbid, proposed - left);
   }
 
  private:

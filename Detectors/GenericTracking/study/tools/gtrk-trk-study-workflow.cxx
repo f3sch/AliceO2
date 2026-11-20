@@ -11,7 +11,7 @@
 
 /// \file gtrk-trk-study-workflow.cxx
 /// \brief ALICE 3's TRK and FT3 clusters from O2's readers or upstream, with the study's sink (StudyWorkflow.h);
-///        with `--tof-layers` the TRKFT3TOF layout, the IOTOF's clusters too.
+///        with `--detector trktof` the TRKFT3TOF layout, the IOTOF's clusters too.
 
 #include "StudyWorkflow.h"
 
@@ -29,7 +29,7 @@ void customize(std::vector<o2::framework::CallbacksPolicy>& policies) { o2::raw:
 void customize(std::vector<o2::framework::ConfigParamSpec>& workflowOptions)
 {
   o2::gtrk::study::addStudyOptions(workflowOptions);
-  workflowOptions.push_back(ConfigParamSpec{"tof-layers", VariantType::Bool, false, {"the TRKFT3TOF layout: the IOTOF's clusters tracked as the TRK's"}});
+  workflowOptions.push_back(ConfigParamSpec{"detector", VariantType::String, "trk", {"trk or trktof: the TRKFT3 layout, or TRKFT3TOF with the IOTOF's clusters tracked as the TRK's"}});
 }
 
 #include "GenericTracking/Detectors/TRKFT3.h"
@@ -39,6 +39,7 @@ void customize(std::vector<o2::framework::ConfigParamSpec>& workflowOptions)
 #include "IOTOFWorkflow/ClusterReaderSpec.h"
 #include "TRKWorkflow/ClusterReaderSpec.h"
 
+#include <stdexcept>
 #include <string>
 
 WorkflowSpec defineDataProcessing(const ConfigContext& context)
@@ -46,7 +47,11 @@ WorkflowSpec defineDataProcessing(const ConfigContext& context)
   o2::conf::ConfigurableParam::updateFromString(context.options().get<std::string>("configKeyValues"));
 
   const bool useMC = !context.options().get<bool>("disable-mc");
-  auto specs = context.options().get<bool>("tof-layers")
+  const auto detector = context.options().get<std::string>("detector");
+  if (detector != "trk" && detector != "trktof") {
+    throw std::invalid_argument("--detector " + detector + ": trk or trktof");
+  }
+  auto specs = detector == "trktof"
                  ? o2::gtrk::study::studyChain<o2::gtrk::detectors::TRKFT3TOF>(context, {o2::trk::getTRKClusterReaderSpec(useMC), o2::trk::getFT3ClusterReaderSpec(useMC), o2::iotof::getIOTOFClusterReaderSpec(useMC)})
                  : o2::gtrk::study::studyChain<o2::gtrk::detectors::TRKFT3>(context, {o2::trk::getTRKClusterReaderSpec(useMC), o2::trk::getFT3ClusterReaderSpec(useMC)});
 

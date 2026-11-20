@@ -46,7 +46,7 @@ namespace o2::gtrk::alice
 
 /// Where an IOTOF chip's pixels lie in its frame (`tofClusters`): every
 /// chip's the same, from O2's IOTOF GeometryTGeo and ChipSpecificsParam.
-struct TofPixelFrame {
+struct TOFPixelFrame {
   std::vector<float> rowX;    ///< a row's pixel centre, along the frame's x [cm]
   std::vector<float> columnZ; ///< a column's, along its z [cm]
   float sigmaX = 0.F;         ///< the row pitch over sqrt(12) [cm]
@@ -55,11 +55,11 @@ struct TofPixelFrame {
 
   /// From \a geometry: the frame's origin the active matrix's centre. Throws
   /// std::runtime_error if the geometry has no chips or pixels.
-  [[nodiscard]] static TofPixelFrame build(const o2::iotof::GeometryTGeo& geometry);
+  [[nodiscard]] static TOFPixelFrame build(const o2::iotof::GeometryTGeo& geometry);
 };
 
 /// The clusters `tofClusters` left out, by why.
-struct TofSkipped {
+struct TOFSkipped {
   std::size_t chip = 0;    ///< on no IOTOF chip
   std::size_t time = 0;    ///< a time in its bunch crossing outside [0, 1 BC)
   std::size_t pattern = 0; ///< too large for a pattern (O2's `kHuge`), no pixel fired, or one outside the chip
@@ -75,7 +75,7 @@ struct TofSkipped {
 /// orbits, moved into the timeframe where it reaches past one of its ends
 /// (counted). A cluster on no chip, with a time outside its bunch crossing or
 /// without a usable pattern is left out and counted in \a skipped.
-[[nodiscard]] std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, const TofPixelFrame& frame, std::uint32_t tfFirstOrbit, int orbitsPerTimeframe, std::vector<std::uint32_t>& kept, TofSkipped& skipped);
+[[nodiscard]] std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, const TOFPixelFrame& frame, std::uint32_t tfFirstOrbit, int orbitsPerTimeframe, std::vector<std::uint32_t>& kept, TOFSkipped& skipped);
 
 /// TRKFT3TOF's readout frames: TRKFT3's (\a trk, `trkFrameTiming`) on its
 /// layers, one bunch crossing from BC 0 on the TOF's.

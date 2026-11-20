@@ -146,8 +146,8 @@ struct RecoSettings {
   /// tracks past a shorter layer's end are kept and those through a gap
   /// are not.
   std::vector<int> iterationSkipLinks;
-  /// The layers each iteration's links join, a bit per layer; 0 takes the
-  /// layout's default seeding mask. The vertexing pass's 7 takes layers 0-2 alone.
+  /// The layers each iteration's links join, a bit per layer; 0 for every
+  /// layer (the default). The vertexing pass's 7 takes layers 0-2 alone.
   std::vector<long> iterationLayerMask;
   /// The layers each iteration's roads may end on, a bit per layer; 0 for any
   /// (the default). O2's ITS async asks layer 3 or 6 of its third,

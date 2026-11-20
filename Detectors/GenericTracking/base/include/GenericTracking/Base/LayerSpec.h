@@ -221,13 +221,12 @@ struct Detector {
     }
   }();
 
-  /// A crossing without a hit on an inactive layer consumes zero holes in
-  /// both the pair test (LinkHoles.h) and the follower (Follow.h).
-  /// Hits can enter the fit through seeding or following, including between
-  /// two rows of a road and after the
-  /// outward walk. Inactive layers leave the other layers' material slab
-  /// boundaries in place (LayerMaterial.h). One bit per layer, or zero when
-  /// the layout has no inactive layers. ALICE 3's iTOF and oTOF use this policy.
+  /// The inactive layers, a bit per layer (none if the layout declares
+  /// none): a crossing without a hit on one costs no hole, in the pair test
+  /// (LinkHoles.h) as in the follow (Follow.h). Their rows enter a track
+  /// through the seeding, between two of a road's rows (the follow's interior
+  /// row) or after its outward walk (the walk's tail); their material slabs
+  /// are LayerMaterial.h's `layerSlab`. ALICE 3's iTOF and oTOF.
   static constexpr std::uint64_t inactiveLayers = [] {
     if constexpr (requires { Layout::inactiveLayers; }) {
       return static_cast<std::uint64_t>(Layout::inactiveLayers);

@@ -60,7 +60,7 @@ std::vector<Sensor> placeChips<detectors::TRKFT3TOF>()
   }
   // The IOTOF chips: the plane of O2's sensor volume through the active
   // matrix's centre, loc0 along its x (rows), loc1 along its z (columns), the
-  // normal x cross z, its -y: `tofClusters`' frame (TofPixelFrame).
+  // normal x cross z, its -y: `tofClusters`' frame (TOFPixelFrame).
   auto& tof = *o2::iotof::GeometryTGeo::Instance();
   const auto& specs = o2::iotof::ChipSpecificsParam::Instance();
   const auto first = tof.detectorToLocal(0, 0, 0);
@@ -122,10 +122,10 @@ std::array<SensorSpec, Detector<detectors::TRKFT3TOF>::nLayers> placeSpecs<detec
   return specs;
 }
 
-TofPixelFrame TofPixelFrame::build(const o2::iotof::GeometryTGeo& geometry)
+TOFPixelFrame TOFPixelFrame::build(const o2::iotof::GeometryTGeo& geometry)
 {
   const auto& specs = o2::iotof::ChipSpecificsParam::Instance();
-  TofPixelFrame frame;
+  TOFPixelFrame frame;
   while (geometry.isValidIOTOFChipIndex(static_cast<int>(frame.chips))) {
     ++frame.chips;
   }
@@ -152,7 +152,7 @@ TofPixelFrame TofPixelFrame::build(const o2::iotof::GeometryTGeo& geometry)
   return frame;
 }
 
-std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, const TofPixelFrame& frame, std::uint32_t tfFirstOrbit, int orbitsPerTimeframe, std::vector<std::uint32_t>& kept, TofSkipped& skipped)
+std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, const TOFPixelFrame& frame, std::uint32_t tfFirstOrbit, int orbitsPerTimeframe, std::vector<std::uint32_t>& kept, TOFSkipped& skipped)
 {
   constexpr double kBunchNS = o2::constants::lhc::LHCBunchSpacingNS;
   const auto firstBC = static_cast<std::int64_t>(tfFirstOrbit) * o2::constants::lhc::LHCMaxBunches;

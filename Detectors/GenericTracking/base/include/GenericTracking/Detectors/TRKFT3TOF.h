@@ -17,9 +17,8 @@
 /// inserted as barrel layer 7 between ML layers 6 and 7, and the oTOF (r 92 cm)
 /// as barrel layer 12 after the last OT layer: TRKFT3's layers 7-10 are 8-11
 /// here, its discs 11-22 are 13-24. Both TOF layers are inactive (LayerSpec.h).
-/// Missing hits consume zero holes, and the TRK material slab boundaries
-/// stay in place. The tracking schedule selects the iTOF seeding passes.
-/// The default seeding mask leaves oTOF to the follower.
+/// A crossing without a hit on them costs no hole (`inactiveLayers`); the
+/// schedule's layer masks choose the passes that seed on the iTOF.
 /// Sensor IDs are TRKFT3's, then the IOTOF chips at `kFirstTOFSensor` plus
 /// O2's IOTOF chip ID (iTOF chips first).
 ///
@@ -80,39 +79,21 @@ struct TRKFT3TOF {
   /// The TOF's clusters carry their own time box, [t - 1 BC, t]
   /// (WorkflowTRK/TRKTOF.h), not a readout frame's record.
   static constexpr std::uint64_t hitTimedLayers = inactiveLayers;
-  static constexpr std::uint64_t defaultSeedingMask = ~(std::uint64_t{1} << kOuterTOFLayer);
   /// The layers with overlapping sensors: TRKFT3's (`trkft3tof::kOverlapLayers`).
   static constexpr std::uint64_t overlapLayers = trkft3tof::kOverlapLayers;
+  /// TRKFT3's barrel layers renumbered (`trkft3tof::fromTRKFT3`), with the
+  /// iTOF's and the oTOF's chips.
+  static constexpr std::array<PlacedLayerSpec, 13> barrelLayers = [] {
+    std::array<PlacedLayerSpec, 13> layers{};
+    for (std::size_t layer = 0; layer < TRKFT3::barrelLayers.size(); ++layer) {
+      layers[trkft3tof::fromTRKFT3(static_cast<LayerID>(layer))] = TRKFT3::barrelLayers[layer];
+    }
+    layers[kInnerTOFLayer] = {.sensorCount = 2352, .sensor = trkft3tof::kTOFChip};
+    layers[kOuterTOFLayer] = {.sensorCount = 56544, .sensor = trkft3tof::kTOFChip};
+    return layers;
+  }();
+  static constexpr auto discLayers = TRKFT3::discLayers;
   // clang-format off
-  static constexpr std::array<PlacedLayerSpec, 13> barrelLayers{{
-    {.sensorCount = 4, .sensor = trkft3::vdSensor(0)},
-    {.sensorCount = 4, .sensor = trkft3::vdSensor(1)},
-    {.sensorCount = 4, .sensor = trkft3::vdSensor(2)},
-    {.sensorCount = 880, .sensor = trkft3::kChip},
-    {.sensorCount = 1232, .sensor = trkft3::kChip},
-    {.sensorCount = 1584, .sensor = trkft3::kChip},
-    {.sensorCount = 2288, .sensor = trkft3::kChip},
-    {.sensorCount = 2352, .sensor = trkft3tof::kTOFChip},
-    {.sensorCount = 3344, .sensor = trkft3::kChip},
-    {.sensorCount = 10560, .sensor = trkft3::kChip},
-    {.sensorCount = 13376, .sensor = trkft3::kChip},
-    {.sensorCount = 17600, .sensor = trkft3::kChip},
-    {.sensorCount = 56544, .sensor = trkft3tof::kTOFChip},
-  }};
-  static constexpr std::array<PlacedLayerSpec, 12> discLayers{{
-    {.sensorCount = 440, .sensor = trkft3::kChip},
-    {.sensorCount = 440, .sensor = trkft3::kChip},
-    {.sensorCount = 440, .sensor = trkft3::kChip},
-    {.sensorCount = 1864, .sensor = trkft3::kChip},
-    {.sensorCount = 1864, .sensor = trkft3::kChip},
-    {.sensorCount = 1864, .sensor = trkft3::kChip},
-    {.sensorCount = 440, .sensor = trkft3::kChip},
-    {.sensorCount = 440, .sensor = trkft3::kChip},
-    {.sensorCount = 440, .sensor = trkft3::kChip},
-    {.sensorCount = 1864, .sensor = trkft3::kChip},
-    {.sensorCount = 1864, .sensor = trkft3::kChip},
-    {.sensorCount = 1864, .sensor = trkft3::kChip},
-  }};
   static constexpr std::array<LayerLink, 173> layerLinks{{
     {.from = 0, .to = 1, .sourceMin = -21.42, .sourceMax = 21.42, .skipsLayer = false}, // 0.9664
     {.from = 0, .to = 3, .sourceMin = -21.75, .sourceMax = 21.75, .skipsLayer = false}, // 0.0041
@@ -288,21 +269,10 @@ struct TRKFT3TOF {
     {.from = 22, .to = 24, .sourceMin = 15.18, .sourceMax = 63.29, .skipsLayer = true}, // 0.0412
     {.from = 23, .to = 24, .sourceMin = 15.18, .sourceMax = 68.29, .skipsLayer = false}, // 1.0000
   }};
-  static constexpr std::array<PassiveSpec, 11> passives{{
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 0.4899, .bandLow = 0.0000, .bandHigh = 0.4999, .low = -25.00, .high = 25.00, .x2X0 = 2.224e-03},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 0.8002, .bandLow = 0.5096, .bandHigh = 1.1999, .low = -25.00, .high = 25.00, .x2X0 = 1.228e-03},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 1.7708, .bandLow = 1.2096, .bandHigh = 2.5000, .low = -25.00, .high = 25.00, .x2X0 = 9.985e-04},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 3.7955, .bandLow = 2.5096, .bandHigh = 6.8657, .low = -63.98, .high = 63.98, .x2X0 = 1.132e-02},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 7.9710, .bandLow = 7.8977, .bandHigh = 8.8055, .low = -63.98, .high = 63.98, .x2X0 = 3.692e-04},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 10.0133, .bandLow = 9.8542, .bandHigh = 11.7623, .low = -63.98, .high = 63.98, .x2X0 = 4.094e-04},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 13.8492, .bandLow = 12.7722, .bandHigh = 18.7300, .low = -63.98, .high = 63.98, .x2X0 = 4.863e-04},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 21.2092, .bandLow = 20.1379, .bandHigh = 29.9999, .low = -63.98, .high = 63.98, .x2X0 = 2.027e-02},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 38.2067, .bandLow = 31.0792, .bandHigh = 44.8000, .low = -128.38, .high = 128.38, .x2X0 = 2.557e-02},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 52.1226, .bandLow = 45.3527, .bandHigh = 59.8000, .low = -128.38, .high = 128.38, .x2X0 = 4.899e-04},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 69.6851, .bandLow = 60.2898, .bandHigh = 79.8000, .low = -128.38, .high = 128.38, .x2X0 = 6.376e-04},
-  }};
   // clang-format on
-  static constexpr int nSensors = TRKFT3::nSensors + 2352 + 56544;
+  /// TRKFT3's passive scatterers: the iTOF's material stays passive 7's.
+  static constexpr auto passives = TRKFT3::passives;
+  static constexpr int nSensors = countSensors(barrelLayers, discLayers);
   static constexpr int kFirstDiscSensor = TRKFT3::kFirstDiscSensor;
   /// The first TOF sensor's ID: O2's IOTOF chip 0, after every TRKFT3 chip.
   static constexpr int kFirstTOFSensor = TRKFT3::nSensors;
