@@ -156,6 +156,7 @@ template <DetectorLayout Det>
   // Only this target's membership matters: its width gives the same spatial
   // cells and suffices for the temporal extent of a compatible pair.
   auto window = candidateWindow(parameters.windows[link], timeBox(sourceMeasurement), sourceMeasurement.phi, source.r, source.z, timeBox(targetMeasurement).width);
+  const auto unclipped = window;
   const auto holes = parameters.holeLayers[link];
   if (holes != 0U) {
     const auto& span = parameters.layerSpans[to];
@@ -171,14 +172,19 @@ template <DetectorLayout Det>
     window.secondHalfWidth = 0.5F * (high - low);
   }
   const auto& grid = frame.grid();
-  const auto cells = grid.cellSpan(to, window, grid.geometry().allBlocks());
   const Scalar phi = targetMeasurement.phi < 0.F ? targetMeasurement.phi + kTwoPi<Scalar> : targetMeasurement.phi;
   const auto phiBin = grid.geometry().phiBinOf(to, phi);
   const auto secondBin = grid.geometry().secondBinOf(to, secondCoordinate<Det>(to, target.r, target.z));
-  const bool inPhi = (phiBin >= cells.firstPhi && phiBin < cells.phiEnd) || phiBin < cells.wrapEnd;
-  const bool inSecond = secondBin >= cells.firstSecond && secondBin <= cells.lastSecond;
-  if (cells.blocks.empty() || !inPhi || !inSecond) {
-    verdict.loss = PairLoss::kWindow;
+  const auto visited = [&](const CandidateWindow& query) {
+    const auto cells = grid.cellSpan(to, query, grid.geometry().allBlocks());
+    const bool inPhi = (phiBin >= cells.firstPhi && phiBin < cells.phiEnd) || phiBin < cells.wrapEnd;
+    const bool inSecond = secondBin >= cells.firstSecond && secondBin <= cells.lastSecond;
+    return !cells.blocks.empty() && inPhi && inSecond;
+  };
+  if (!visited(window)) {
+    // Outside the query only for its clip to the direct part: the pair
+    // crosses another layer's envelope, not the window.
+    verdict.loss = holes != 0U && visited(unclipped) ? PairLoss::kHole : PairLoss::kWindow;
     return verdict;
   }
   const auto directPair = [&] {
