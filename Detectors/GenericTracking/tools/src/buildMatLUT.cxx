@@ -16,6 +16,7 @@
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Detectors/ITS.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Tools/Material.h"
 
@@ -28,6 +29,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <concepts>
 #include <cstddef>
 #include <exception>
 #include <iomanip>
@@ -263,16 +265,33 @@ void populate(o2::base::MatLayerCylSet& lut, int trials, int threads)
 }
 
 /// The TRK's bands from the loaded geometry, its stacks, side walls and
-/// cylinder faces printed (the LUT's provenance in its log).
+/// cylinder faces printed (the LUT's provenance in its log). With TRKFT3TOF's
+/// layers the TOF's are bands of their own too: their chips with the staves'
+/// services (`tofSolidThickness`), as a TRK layer's silicon with its stack.
+template <o2::gtrk::DetectorLayout Det>
 std::vector<LUTLayer> trkBands(int threads, float rMaxCM, float zMaxCM)
 {
-  using TRKFT3 = o2::gtrk::detectors::TRKFT3;
-  const o2::gtrk::Geometry<TRKFT3> geometry(o2::gtrk::alice::placeChecked<TRKFT3>());
-  constexpr int kBarrel = o2::gtrk::Detector<TRKFT3>::nBarrelLayers;
-  const auto specs = o2::gtrk::Geometry<TRKFT3>::layerSpecs();
-  const auto stack = o2::gtrk::tools::trkStackThickness(geometry.sensors(), specs, kBarrel);
-  const auto chips = o2::gtrk::tools::withStacks(o2::gtrk::PlacedEnvelopes<TRKFT3>::all(), geometry.sensors(), specs, stack);
-  std::cout << "metal stacks on the silicon, inner/outer face [um]:";
+  // On the heap: the geometry holds every sensor of the layout.
+  const auto geometry = std::make_unique<const o2::gtrk::Geometry<Det>>(o2::gtrk::alice::placeChecked<Det>());
+  constexpr int kBarrel = o2::gtrk::Detector<Det>::nBarrelLayers;
+  const auto specs = o2::gtrk::Geometry<Det>::layerSpecs();
+  const std::span<const o2::gtrk::Sensor> sensors{geometry->sensors()};
+  // TRKFT3TOF's sensors are TRKFT3's, then the TOF's.
+  std::size_t trkSensors = sensors.size();
+  if constexpr (std::same_as<Det, o2::gtrk::detectors::TRKFT3TOF>) {
+    trkSensors = static_cast<std::size_t>(Det::kFirstTOFSensor);
+  }
+  auto stack = o2::gtrk::tools::trkStackThickness(sensors.first(trkSensors), specs, kBarrel);
+  if constexpr (std::same_as<Det, o2::gtrk::detectors::TRKFT3TOF>) {
+    const auto tof = o2::gtrk::tools::tofSolidThickness(sensors.subspan(trkSensors), specs, kBarrel);
+    for (std::size_t layer = 0; layer < stack.size(); ++layer) {
+      if (o2::gtrk::Detector<Det>::isInactiveLayer(static_cast<o2::gtrk::LayerID>(layer))) {
+        stack[layer] = tof[layer];
+      }
+    }
+  }
+  const auto chips = o2::gtrk::tools::withStacks(o2::gtrk::PlacedEnvelopes<Det>::all(), sensors, specs, stack);
+  std::cout << "metal stacks on the silicon (the TOF's: chip and services), inner/outer face [um]:";
   for (const auto& t : stack) {
     std::cout << ' ' << t.inner * 1e4 << '/' << t.outer * 1e4;
   }
@@ -420,7 +439,7 @@ int run(int argc, char** argv)
     ("output,o", bpo::value(&output)->default_value("gtrk_matlut.root"), "output LUT file") //
     ("trials,n", bpo::value(&trials)->default_value(10), "lines per cell axis")             //
     ("detector,d", bpo::value(&detector)->required(),                                       //
-     "ITS, MFT or TRKFT3: the detector's region, from --geometry")                          //
+     "ITS, MFT, TRKFT3 or TRKFT3TOF: the detector's region, from --geometry")                          //
     ("geometry,g", bpo::value(&geometryFile)->required(),                                   //
      "an o2sim geometry file (o2sim_geometry-aligned.root)")                                //
     ("threads,j", bpo::value(&threads)->default_value(-1),                                  //
@@ -445,8 +464,8 @@ int run(int argc, char** argv)
               << opts << '\n';
     return 1;
   }
-  if (detector != "ITS" && detector != "MFT" && detector != "TRKFT3") {
-    std::cerr << "error: --detector is ITS, MFT or TRKFT3\n\n"
+  if (detector != "ITS" && detector != "MFT" && detector != "TRKFT3" && detector != "TRKFT3TOF") {
+    std::cerr << "error: --detector is ITS, MFT, TRKFT3 or TRKFT3TOF\n\n"
               << opts << '\n';
     return 1;
   }
@@ -467,7 +486,7 @@ int run(int argc, char** argv)
     layers = kMftLayers;
     radialCheck = 20.F;
   } else {
-    bands = trkBands(threads, trkRMaxCM, trkZMaxCM);
+    bands = detector == "TRKFT3TOF" ? trkBands<o2::gtrk::detectors::TRKFT3TOF>(threads, trkRMaxCM, trkZMaxCM) : trkBands<o2::gtrk::detectors::TRKFT3>(threads, trkRMaxCM, trkZMaxCM);
     layers = bands;
     radialCheck = trkRMaxCM;
   }

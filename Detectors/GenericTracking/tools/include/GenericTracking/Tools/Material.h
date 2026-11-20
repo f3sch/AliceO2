@@ -61,6 +61,12 @@ struct ChipStack {
 /// not in a sensor volume.
 [[nodiscard]] std::vector<ChipStack> trkStackThickness(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers);
 
+/// The TOF's material on each barrel sensor's silicon, per barrel layer: its
+/// chip and the stave's services behind it, every solid volume (from 0.01
+/// g/cm^3) the sensor's normal crosses from its centre, both ways, until a
+/// gas. As `trkStackThickness`, for \a sensors of O2's IOTOF.
+[[nodiscard]] std::vector<ChipStack> tofSolidThickness(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers);
+
 /// \a envelopes, the silicon's, with each barrel layer's \a stack: the hull
 /// of its sensors taken that much thicker on each face, measured as
 /// `measureEnvelopes` measures (at kEnvelopeResolution); a layer's z extent

@@ -17,7 +17,7 @@
 o2_add_library(GTrkTools
                SOURCES src/Material.cxx
                PUBLIC_LINK_LIBRARIES O2::GTrkBase
-               PRIVATE_LINK_LIBRARIES O2::TRKBase O2::DetectorsBase ROOT::Geom
+               PRIVATE_LINK_LIBRARIES O2::TRKBase O2::IOTOFBase O2::DetectorsBase ROOT::Geom
                TARGETVARNAME targetName)
 
 # o2_add_library installs the headers of include/<library name> only.

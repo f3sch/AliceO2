@@ -15,6 +15,7 @@
 #include "GenericTracking/Base/LayerEnvelopes.h"
 
 #include "DetectorsBase/MatLayerCylSet.h"
+#include "IOTOFBase/GeometryTGeo.h"
 #include "TRKBase/GeometryTGeo.h"
 
 #include <TGeoBBox.h>
@@ -117,6 +118,12 @@ SideWalls trkSideWalls()
   return walls;
 }
 
+namespace
+{
+/// A gas, below this density, is no material: air is 0.0012 g/cm^3.
+constexpr double kGasDensity = 0.01; // g/cm^3
+} // namespace
+
 std::vector<double> beamLineCylinderFaces(double rMax, double zMax, double dz, int threads)
 {
   if (gGeoManager == nullptr || gGeoManager->GetTopVolume() == nullptr) {
@@ -124,7 +131,6 @@ std::vector<double> beamLineCylinderFaces(double rMax, double zMax, double dz, i
   }
   constexpr int kAzimuths = 256;
   constexpr double kResolution = 1e-4; // cm
-  constexpr double kGasDensity = 0.01; // g/cm^3
   const double golden = kPi<double> * (3. - std::sqrt(5.));
   const auto nz = static_cast<int>(std::floor(2. * zMax / dz)) + 1;
   const auto facesAt = [&](double z, TGeoNavigator* navigator) {
@@ -176,14 +182,19 @@ std::vector<double> beamLineCylinderFaces(double rMax, double zMax, double dz, i
   return result;
 }
 
-std::vector<ChipStack> trkStackThickness(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers)
+namespace
+{
+/// Along each barrel sensor's normal from the centre of its silicon, both
+/// ways: the centre must lie in a volume \a isSensor accepts (else \a who
+/// throws), then the length of the volumes beyond the sensor that \a beyond
+/// accepts, per barrel layer the thickest; both read gGeoManager's current
+/// volume.
+template <typename IsSensor, typename Beyond>
+std::vector<ChipStack> alongNormals(const char* who, std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers, const IsSensor& isSensor, const Beyond& beyond)
 {
   if (gGeoManager == nullptr) {
-    throw std::runtime_error("trkStackThickness: no geometry loaded");
+    throw std::runtime_error(std::format("{}: no geometry loaded", who));
   }
-  const std::string sensorPattern = o2::trk::GeometryTGeo::getTRKSensorPattern();
-  const std::string stackPattern = o2::trk::GeometryTGeo::getTRKMetalStackPattern();
-  const auto named = [](const std::string& pattern) { return std::string{gGeoManager->GetCurrentVolume()->GetName()}.find(pattern) != std::string::npos; };
   std::vector<ChipStack> thickness(static_cast<std::size_t>(nBarrelLayers));
   for (const auto& sensor : sensors) {
     if (std::cmp_greater_equal(sensor.layer, nBarrelLayers)) {
@@ -211,26 +222,49 @@ std::vector<ChipStack> trkStackThickness(std::span<const Sensor> sensors, std::s
         }
       }
     }
-    // Out of the sensor along the normal, then through the stack's volumes.
-    const auto stackAlong = [&](double sign) {
+    // Out of the sensor along the normal, then through what lies beyond it.
+    const auto lengthAlong = [&](double sign) {
       const double direction[3] = {sign * normal[0], sign * normal[1], sign * normal[2]};
       gGeoManager->InitTrack(centre.data(), direction);
-      if (!named(sensorPattern)) {
-        throw std::runtime_error(std::format("trkStackThickness: the centre of a sensor of layer {} is in {}, not a sensor", sensor.layer, gGeoManager->GetCurrentVolume()->GetName()));
+      if (!isSensor()) {
+        throw std::runtime_error(std::format("{}: the centre of a sensor of layer {} is in {}, not a sensor", who, sensor.layer, gGeoManager->GetCurrentVolume()->GetName()));
       }
       gGeoManager->FindNextBoundaryAndStep();
-      double stack = 0.;
-      while (named(stackPattern)) {
+      double length = 0.;
+      while (!gGeoManager->IsOutside() && beyond()) {
         gGeoManager->FindNextBoundaryAndStep();
-        stack += gGeoManager->GetStep();
+        length += gGeoManager->GetStep();
       }
-      return stack;
+      return length;
     };
     auto& layer = thickness[sensor.layer];
-    layer.inner = std::max(layer.inner, stackAlong(-1.));
-    layer.outer = std::max(layer.outer, stackAlong(1.));
+    layer.inner = std::max(layer.inner, lengthAlong(-1.));
+    layer.outer = std::max(layer.outer, lengthAlong(1.));
   }
   return thickness;
+}
+
+/// Whether gGeoManager's current volume's name holds \a pattern.
+bool currentNamed(std::string_view pattern)
+{
+  return std::string_view{gGeoManager->GetCurrentVolume()->GetName()}.find(pattern) != std::string_view::npos;
+}
+} // namespace
+
+std::vector<ChipStack> trkStackThickness(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers)
+{
+  const std::string sensorPattern = o2::trk::GeometryTGeo::getTRKSensorPattern();
+  const std::string stackPattern = o2::trk::GeometryTGeo::getTRKMetalStackPattern();
+  return alongNormals("trkStackThickness", sensors, specs, nBarrelLayers, [&] { return currentNamed(sensorPattern); }, [&] { return currentNamed(stackPattern); });
+}
+
+std::vector<ChipStack> tofSolidThickness(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers)
+{
+  const std::string inner = o2::iotof::GeometryTGeo::getITOFSensorPattern();
+  const std::string outer = o2::iotof::GeometryTGeo::getOTOFSensorPattern();
+  return alongNormals(
+    "tofSolidThickness", sensors, specs, nBarrelLayers, [&] { return currentNamed(inner) || currentNamed(outer); },
+    [] { return gGeoManager->GetCurrentVolume()->GetMaterial()->GetDensity() >= kGasDensity; });
 }
 
 std::vector<LayerEnvelope> withStacks(std::span<const LayerEnvelope> envelopes, std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::span<const ChipStack> stack)

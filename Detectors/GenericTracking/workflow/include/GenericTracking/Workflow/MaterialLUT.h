@@ -17,7 +17,7 @@
 /// | ITS | `GLO/Param/MatLUT` (O2's, or `o2-gtrk-build-matlut -d ITS`) |
 /// | MFT | `MFT/Param/MatLUT` (`o2-gtrk-build-matlut -d MFT`) |
 /// | TRKFT3 | `TRK/Param/MatLUT` (`o2-gtrk-build-matlut -d TRKFT3`, one LUT for TRK and FT3) |
-/// | TRKFT3TOF | `TRK/Param/MatLUTTOF` (`o2-gtrk-build-matlut -d TRKFT3 --trk-rmax-cm 95 --trk-zmax-cm 350`, to the TOF) |
+/// | TRKFT3TOF | `TRK/Param/MatLUTTOF` (`o2-gtrk-build-matlut -d TRKFT3TOF --trk-rmax-cm 95 --trk-zmax-cm 350`, to the TOF, its layers bands of their own) |
 ///
 /// `MaterialCondition<Det>` is the condition input `Conditions<Det, true>`
 /// holds (Conditions.h): the devices that track fetch it, the measurement
