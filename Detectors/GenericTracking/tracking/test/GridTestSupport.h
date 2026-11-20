@@ -232,7 +232,7 @@ template <typename Tracker, DetectorLayout Det>
 [[nodiscard]] auto runSlice(Tracker& tracker, std::size_t iteration, const TimeFrame<Det>& frame, const typename TimeFrame<Det>::TimeSlice& slice, std::span<const VertexSeed> vertices)
 {
   const auto plan = tracker.planTimeframe(frame, frameBounds(frame), vertices, frame.grid().geometry().blockCount());
-  const auto slicePlan = planSlice(frame, slice, sliceReach(frameBounds(frame), frame.grid().geometry()).gatePS());
+  const auto slicePlan = planSlice(frame, slice, seedingReach(frameBounds(frame), frame.grid().geometry(), std::span<const IterationParameters<Det>>{plan.parameters}).gatePS);
   return tracker.runSlice(iteration, frame, plan, slicePlan, vertices, plan.vertexWindows[iteration]);
 }
 

@@ -521,7 +521,7 @@ SliceRun runTripletSlices(const SliceFixture& fixture, std::int32_t widthBlocks,
   const std::array<double, Sources::kLayerCount> material{};
   const auto scattering = scatteringTable<Det>(material);
   const auto parameters = iterationParameters<Det>(iterationSettings(), SliceFixture::kBeamConstraint, scattering);
-  const std::int64_t haloPS = sliceReach(frameBounds(*fixture.frame), fixture.geometry).haloPS();
+  const std::int64_t haloPS = seedingReach(frameBounds(*fixture.frame), fixture.geometry, std::span<const IterationParameters<Det>>{&parameters, 1}).haloPS;
 
   Controller tracker{iterationSettings(), SliceFixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
   const auto blockCount = fixture.geometry.blockCount();
@@ -773,7 +773,9 @@ BOOST_AUTO_TEST_CASE(TripletsAreInvariantUnderSliceWidthAndOrigin)
   const bool crossingFound = std::ranges::any_of(whole.triplets, [&](const SliceTriplet& triplet) { return triplet[0] == crossingFirst && triplet[1] == crossingMiddle && triplet[2] == crossingThird; });
   BOOST_TEST(crossingFound);
 
-  const std::int64_t haloPS = sliceReach(frameBounds(*fixture.frame), fixture.geometry).haloPS();
+  const std::array<double, Sources::kLayerCount> material{};
+  const auto parameters = iterationParameters<Det>(iterationSettings(), SliceFixture::kBeamConstraint, scatteringTable<Det>(material));
+  const std::int64_t haloPS = seedingReach(frameBounds(*fixture.frame), fixture.geometry, std::span<const IterationParameters<Det>>{&parameters, 1}).haloPS;
   const Frame::TimeSlice left{*fixture.frame, {.begin = 0, .end = 2}, haloPS};
   const Frame::TimeSlice right{*fixture.frame, {.begin = 2, .end = 4}, haloPS};
   BOOST_TEST(crossingFirst >= left.core[0].begin);

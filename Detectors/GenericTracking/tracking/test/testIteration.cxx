@@ -248,12 +248,22 @@ HaloBounds<detectors::ToyBarrel8> framedBounds(const std::array<std::uint32_t, 8
   return bounds;
 }
 
+/// Every link of \a Det taken: an iteration on all of them (`chainReach`).
+template <DetectorLayout Det>
+[[nodiscard]] std::array<bool, nLinks<Det>> everyLink()
+{
+  std::array<bool, nLinks<Det>> taken{};
+  taken.fill(true);
+  return taken;
+}
+
 } // namespace
 
 /// Rows that are not their frames, the same widths on every layer: each link
-/// reaches that width both ways, `R+ = R-` one width per link of the longest
-/// chain, the gate `2R`, and the halo one link more for the targets of the
-/// tracklets starting at the gate's edge.
+/// and each pair two links apart reaches that width both ways, so along the
+/// eight layers a chain drifts a width every second layer -- `R+ = R-` four
+/// widths --, the gate `2R`, and the halo one link more for the targets of
+/// the tracklets starting at the gate's edge.
 BOOST_AUTO_TEST_CASE(RowsNotTheirFramesReachTheWiderBox)
 {
   constexpr std::uint32_t kWidthPS = test::kToyBoxWidthPS;
@@ -263,8 +273,8 @@ BOOST_AUTO_TEST_CASE(RowsNotTheirFramesReachTheWiderBox)
   bounds.rowsAreFrames.fill(false);
   std::array<FrameTiming, 8> frames{};
   frames.fill(test::kToyFrames);
-  const auto reach = sliceReach(bounds, chainGrid(frames));
-  const std::int64_t chain = static_cast<std::int64_t>(maxChainLayers<detectors::ToyBarrel8> - 1) * kWidthPS;
+  const auto reach = chainReach(bounds, chainGrid(frames), everyLink<detectors::ToyBarrel8>());
+  const std::int64_t chain = 4 * std::int64_t{kWidthPS};
   BOOST_TEST(reach.pairForwardPS == kWidthPS);
   BOOST_TEST(reach.pairBackwardPS == kWidthPS);
   BOOST_TEST(reach.forwardPS == chain);
@@ -285,7 +295,7 @@ BOOST_AUTO_TEST_CASE(LayersSharingFramesDoNotReach)
   const auto longPS = static_cast<std::uint32_t>(psOfBC(81));
   const auto grid = chainGrid({kShort, kShort, kShort, kLong, kLong, kLong, kLong, kLong});
   const std::array<std::uint32_t, 8> widths{shortPS, shortPS, shortPS, longPS, longPS, longPS, longPS, longPS};
-  const auto reach = sliceReach(framedBounds(widths), grid);
+  const auto reach = chainReach(framedBounds(widths), grid, everyLink<detectors::ToyBarrel8>());
   BOOST_TEST(reach.pairForwardPS == shortPS);
   BOOST_TEST(reach.pairBackwardPS == longPS);
   BOOST_TEST(reach.forwardPS == shortPS);
@@ -293,11 +303,12 @@ BOOST_AUTO_TEST_CASE(LayersSharingFramesDoNotReach)
   BOOST_TEST(reach.gatePS() == std::int64_t{shortPS} + longPS);
   BOOST_TEST(reach.haloPS() == std::int64_t{shortPS} + (2 * std::int64_t{longPS}));
 
-  // The same frames one BC later on layer 5: its two links reach.
+  // The same frames one BC later on layer 5: its two links reach, the pairs
+  // over it (4 -> 6) do not, so a chain drifts by layer 5's link once.
   auto shifted = chainGrid({kShort, kShort, kShort, kLong, kLong, {.lengthBC = 81, .firstStartBC = 1}, kLong, kLong});
-  const auto shiftedReach = sliceReach(framedBounds(widths), shifted);
-  BOOST_TEST(shiftedReach.forwardPS == std::int64_t{shortPS} + (2 * std::int64_t{longPS}));
-  BOOST_TEST(shiftedReach.backwardPS == 3 * std::int64_t{longPS});
+  const auto shiftedReach = chainReach(framedBounds(widths), shifted, everyLink<detectors::ToyBarrel8>());
+  BOOST_TEST(shiftedReach.forwardPS == std::int64_t{shortPS} + longPS);
+  BOOST_TEST(shiftedReach.backwardPS == 2 * std::int64_t{longPS});
 }
 
 /// The reach of iterations is each one's along the links it takes: on the
@@ -340,12 +351,9 @@ BOOST_AUTO_TEST_CASE(AnIterationReachesAlongTheLinksItTakes)
   BOOST_TEST(seeding(inner).gatePS == 0);
   BOOST_TEST(seeding(outer).gatePS == 0);
   BOOST_TEST(seeding(both).gatePS == 0);
-  BOOST_TEST(sliceReach(bounds, grid).gatePS() == std::int64_t{shortPS} + longPS);
   // Across: 2 -> 3 the short frame forward and the long one backward.
   BOOST_TEST(seeding(across).gatePS == std::int64_t{shortPS} + longPS);
   BOOST_TEST(seeding(across).haloPS == std::int64_t{shortPS} + (2 * std::int64_t{longPS}));
-  BOOST_TEST(seeding({}).gatePS == sliceReach(bounds, grid).gatePS());
-  BOOST_TEST(seeding({}).haloPS == sliceReach(bounds, grid).haloPS());
 }
 
 /// Of several iterations the gate is the largest of their gates, each its own
@@ -376,9 +384,6 @@ BOOST_AUTO_TEST_CASE(TheGateIsTheLargestIterationsNotItsLargestParts)
   const auto narrow = chainReach(bounds, grid, taken(0x78U));
   BOOST_TEST(narrow.forwardPS == longPS);
   BOOST_TEST(narrow.backwardPS == narrowPS);
-  // Pairwise the link out of the narrow layer reaches the long frame back.
-  const auto narrowLinks = taken(0x78U);
-  BOOST_TEST(sliceReach(bounds, grid, &narrowLinks).backwardPS == narrowPS + longPS);
   const auto edge = chainReach(bounds, grid, taken(0x0FU));
   BOOST_TEST(edge.forwardPS == shortPS);
   BOOST_TEST(edge.backwardPS == longPS);
@@ -404,7 +409,8 @@ BOOST_AUTO_TEST_CASE(TheGateIsTheLargestIterationsNotItsLargestParts)
 
 /// A layer whose rows are not exactly its frames -- widened by a margin the
 /// producer applied, whatever the configuration says now -- reaches on both
-/// of its links.
+/// of its links and on the pairs over it, 3 -> 5 and 5 -> 7; 4 -> 6 does not,
+/// so a chain drifts by it once each way.
 BOOST_AUTO_TEST_CASE(RowsThatAreNotTheirFramesReach)
 {
   constexpr FrameTiming kLong{.lengthBC = 81, .firstStartBC = 0};
@@ -414,13 +420,13 @@ BOOST_AUTO_TEST_CASE(RowsThatAreNotTheirFramesReach)
   std::array<std::uint32_t, 8> widths{};
   widths.fill(widePS);
   auto bounds = framedBounds(widths);
-  BOOST_TEST(sliceReach(bounds, chainGrid(frames)).gatePS() == 0);
+  BOOST_TEST(chainReach(bounds, chainGrid(frames), everyLink<detectors::ToyBarrel8>()).gatePS() == 0);
   bounds.rowsAreFrames[5] = false;
-  const auto reach = sliceReach(bounds, chainGrid(frames));
+  const auto reach = chainReach(bounds, chainGrid(frames), everyLink<detectors::ToyBarrel8>());
   BOOST_TEST(reach.pairForwardPS == widePS);
   BOOST_TEST(reach.pairBackwardPS == widePS);
-  BOOST_TEST(reach.forwardPS == 2 * std::int64_t{widePS});
-  BOOST_TEST(reach.backwardPS == 2 * std::int64_t{widePS});
+  BOOST_TEST(reach.forwardPS == std::int64_t{widePS});
+  BOOST_TEST(reach.backwardPS == std::int64_t{widePS});
 }
 
 BOOST_AUTO_TEST_CASE(TheLongitudinalCutFollowsTheHelixArc)

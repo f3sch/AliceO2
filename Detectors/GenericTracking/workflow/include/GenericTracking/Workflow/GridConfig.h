@@ -141,13 +141,16 @@ inline void checkRecoParam(const RecoSettings& param)
   return std::make_shared<BoundedMemoryResource>(bytes >= static_cast<double>(kLargest) ? kLargest : static_cast<std::size_t>(bytes));
 }
 
-/// The iterations \a param asks for: one per entry of `iterationMinPtGeV`.
+/// The iterations \a param asks for: one per entry of `iterationMinPtGeV`, at least one.
 /// Each other per-iteration vector must have one entry per iteration or none
 /// (`RecoSettings::kClusterSlots` per iteration for `iterationClusterMinPtGeV`); anything else is a
 /// configuration error.
 [[nodiscard]] inline int iterationCount(const RecoSettings& param)
 {
   const auto count = param.iterationMinPtGeV.size();
+  if (count == 0U) {
+    throw std::invalid_argument("GTRKReco<DET>.iterationMinPtGeV has no iteration");
+  }
   if (count == 0U) {
     throw std::invalid_argument("GTRKReco<DET>.iterationMinPtGeV is empty: no iteration to run");
   }

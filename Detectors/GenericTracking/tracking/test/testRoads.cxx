@@ -357,7 +357,7 @@ BOOST_AUTO_TEST_CASE(RoadsMatchABruteForceWalkAndOnlyTheCoresAreCounted)
   const auto scattering = scatteringTable<Det>(material);
   const auto parameters = iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scattering);
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
-  const std::int64_t haloPS = sliceReach(frameBounds(*fixture.frame), fixture.geometry).haloPS();
+  const std::int64_t haloPS = seedingReach(frameBounds(*fixture.frame), fixture.geometry, std::span<const IterationParameters<Det>>{&parameters, 1}).haloPS;
   const auto blockCount = fixture.geometry.blockCount();
 
   // The whole timeframe, then three slices whose cores own parts of it.
@@ -426,7 +426,7 @@ BOOST_AUTO_TEST_CASE(AStartLayerMaskKeepsExactlyTheRoadsStartingOnIt)
   const auto scattering = scatteringTable<Det>(material);
   const auto parameters = iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scattering);
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
-  const std::int64_t haloPS = sliceReach(frameBounds(*fixture.frame), fixture.geometry).haloPS();
+  const std::int64_t haloPS = seedingReach(frameBounds(*fixture.frame), fixture.geometry, std::span<const IterationParameters<Det>>{&parameters, 1}).haloPS;
   const Frame::TimeSlice slice{*fixture.frame, {.begin = 0, .end = fixture.geometry.blockCount()}, haloPS};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
   const auto run = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
@@ -468,7 +468,7 @@ std::vector<RoadClusters> roadsOfSlicing(const Fixture& fixture, std::int32_t wi
   const auto scattering = scatteringTable<Det>(material);
   const auto parameters = iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scattering);
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
-  const std::int64_t haloPS = sliceReach(frameBounds(*fixture.frame), fixture.geometry).haloPS();
+  const std::int64_t haloPS = seedingReach(frameBounds(*fixture.frame), fixture.geometry, std::span<const IterationParameters<Det>>{&parameters, 1}).haloPS;
   const auto blockCount = fixture.geometry.blockCount();
   std::vector<RoadClusters> result;
   for (std::int32_t begin = 0; begin < blockCount;) {

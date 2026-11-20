@@ -54,7 +54,7 @@ namespace o2::gtrk
 /// dip-angle window is, and the larger of its two local variances, which the
 /// overlap partners' search spreads by (OverlapPartners.h); and whether
 /// every row's box is exactly one of the layer's readout frames
-/// (`FrameTiming::isFrame`), which the slices' reach reads (`sliceReach`).
+/// (`FrameTiming::isFrame`), which the slices' reach reads (`chainReach`).
 ///
 /// The bounds over a whole frame (`frameBounds`) are the measurement
 /// producer's: it adds every row as it places it and ships them with the grid,
@@ -151,38 +151,6 @@ struct SliceReach {
   [[nodiscard]] std::int64_t haloPS() const { return gatePS() + std::max(pairForwardPS, pairBackwardPS); }
 };
 
-/// The reach of a frame whose rows have \a bounds, on \a geometry's frames,
-/// along the links \a taken marks, or every link without it.
-template <DetectorLayout Det>
-[[nodiscard]] SliceReach sliceReach(const HaloBounds<Det>& bounds, const GridGeometry<Det>& geometry, const std::array<bool, nLinks<Det>>* taken = nullptr)
-{
-  const auto sameFrames = [&](const LayerLink& link) {
-    const auto& frames = geometry.frames(link.from);
-    return frames == geometry.frames(link.to) && bounds.rowsAreFrames[link.from] && bounds.rowsAreFrames[link.to];
-  };
-  SliceReach result;
-  std::array<std::int64_t, HaloBounds<Det>::kLayerCount> forwardTo{};
-  std::array<std::int64_t, HaloBounds<Det>::kLayerCount> backwardTo{};
-  for (const auto layer : layerOrder<Det>) {
-    result.forwardPS = std::max(result.forwardPS, forwardTo[layer]);
-    result.backwardPS = std::max(result.backwardPS, backwardTo[layer]);
-    for (auto i = outLinks<Det>.begin(layer); i < outLinks<Det>.end(layer); ++i) {
-      if (taken != nullptr && !(*taken)[outLinks<Det>.links[i]]) {
-        continue;
-      }
-      const auto& link = Det::layerLinks[outLinks<Det>.links[i]];
-      const bool zero = sameFrames(link);
-      const std::int64_t forward = zero ? 0 : bounds.widthPS[link.from];
-      const std::int64_t backward = zero ? 0 : bounds.widthPS[link.to];
-      result.pairForwardPS = std::max(result.pairForwardPS, forward);
-      result.pairBackwardPS = std::max(result.pairBackwardPS, backward);
-      forwardTo[link.to] = std::max(forwardTo[link.to], forwardTo[layer] + forward);
-      backwardTo[link.to] = std::max(backwardTo[link.to], backwardTo[layer] + backward);
-    }
-  }
-  return result;
-}
-
 /// The reach of the chains one iteration builds on the links \a taken marks,
 /// with the triplets' time cut: in a chain `m0 m1 ... mk` of measurements on
 /// consecutive links, every pair `m(i) m(i+1)` overlaps (the tracklet) and so
@@ -200,12 +168,11 @@ template <DetectorLayout Det>
 /// there (`forwardAt`); upper bounds of the same terms, so the lesser of
 /// them bounds every chain (by induction along `layerOrder`). `R+` and `R-`
 /// are the largest over the links, the forward and the backward bound alike;
-/// the pair reaches are the links' own, as in `sliceReach`. A chain of two
+/// the pair reaches are the links' own. A chain of two
 /// measurements alone -- a tracklet no triplet takes -- is on no road and in
 /// no level (a road holds a triplet), so a chain's first link counts in `R+`
 /// and `R-` only where a taken link goes on from its target; it always counts
-/// in the pair reaches, which size the halo's edge. Never more than
-/// `sliceReach` along the same links.
+/// in the pair reaches, which size the halo's edge.
 template <DetectorLayout Det>
 [[nodiscard]] SliceReach chainReach(const HaloBounds<Det>& bounds, const GridGeometry<Det>& geometry, const std::array<bool, nLinks<Det>>& taken)
 {
@@ -257,7 +224,7 @@ template <DetectorLayout Det>
       // Only a chain of three or more measurements -- one with a triplet --
       // is on a road or a level: the pair alone counts where a taken link
       // goes on from its target.
-      const bool continues = outLinks<Det>.end(target) > outLinks<Det>.begin(target) && [&] {
+      const bool continues = [&] {
         for (auto n = outLinks<Det>.begin(target); n < outLinks<Det>.end(target); ++n) {
           if (taken[outLinks<Det>.links[n]]) {
             return true;
@@ -289,15 +256,10 @@ struct SeedingReach {
 /// iteration takes, or a path through two iterations' links, widens no gate.
 /// The gate is each iteration's `R+ + R-`, and the largest of those -- not
 /// the largest `R+` plus the largest `R-`, which two iterations can make
-/// without either needing it. The follow does not work in slices. With no
-/// iterations, every link's pairwise (`sliceReach`).
+/// without either needing it. The follow does not work in slices.
 template <DetectorLayout Det>
 [[nodiscard]] SeedingReach seedingReach(const HaloBounds<Det>& bounds, const GridGeometry<Det>& geometry, std::span<const IterationParameters<Det>> iterations)
 {
-  if (iterations.empty()) {
-    const auto every = sliceReach(bounds, geometry);
-    return {.gatePS = every.gatePS(), .haloPS = every.haloPS()};
-  }
   SeedingReach result;
   for (const auto& parameters : iterations) {
     std::array<bool, nLinks<Det>> taken{};

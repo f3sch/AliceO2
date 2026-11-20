@@ -430,14 +430,13 @@ BOOST_AUTO_TEST_CASE(ASlicePlanHoldsTheSlicesBoundsAndGate)
   // The toys' blocks start at 0 and are whole picoseconds. The gate is the
   // iterations' chains' (`chainReach`): the toy's rows are boxes of one width,
   // not frames, so a link reaches that width and so does a triplet's two, and
-  // along the eight layers a chain drifts 4 widths each way -- 7 pairwise.
+  // along the eight layers a chain drifts 4 widths each way.
   const std::vector<IterationParameters<Det>> parameters{tracker->iteration(0U), tracker->iteration(1U)};
   const auto chains = chainReach(frameBounds(frame), fixture.geometry, takenLinks<Det>(iterations().front()));
   BOOST_TEST(seedingReach(frameBounds(frame), fixture.geometry, std::span<const IterationParameters<Det>>{parameters}).gatePS == chains.gatePS());
   const std::int64_t boxPS = test::kToyBoxWidthPS;
   BOOST_TEST(chains.forwardPS == 4 * boxPS);
   BOOST_TEST(chains.backwardPS == 4 * boxPS);
-  BOOST_TEST(sliceReach(frameBounds(frame), fixture.geometry).forwardPS == 7 * boxPS);
   const auto reach = chains.gatePS();
   const auto width = fixture.geometry.blockWidth();
   BOOST_REQUIRE(fixture.geometry.partsPerPS() == 1);
@@ -878,16 +877,10 @@ BOOST_AUTO_TEST_CASE(ANarrowBoxLayerBetweenLayersOfTheSameFrames)
       for (std::size_t link = 0; link < nLinks<Det>; ++link) {
         BOOST_TEST(taken[link] == (Det::layerLinks[link].from >= 3));
       }
-      const auto pairwise = sliceReach(bounds, geometry, &taken);
-      BOOST_TEST(pairwise.forwardPS == longPS + narrowPS);
-      BOOST_TEST(pairwise.backwardPS == longPS + narrowPS);
       const auto chains = chainReach(bounds, geometry, taken);
       BOOST_TEST(chains.forwardPS == longPS);
       BOOST_TEST(chains.backwardPS == (narrow == 6 ? narrowPS : longPS));
       BOOST_TEST(outerTracker->planTimeframe(*fixture.frame, bounds, {}, 1).haloPS == chains.haloPS());
-      BOOST_TEST(chains.haloPS() < pairwise.haloPS());
-      const auto every = makeTracker(iterations(), false)->planTimeframe(*fixture.frame, bounds, {}, 1).haloPS;
-      BOOST_TEST(every < sliceReach(bounds, geometry).haloPS());
 
       const auto everyLayer = iterations();
       for (const auto* settings : std::array<const std::vector<IterationSettings>*, 2>{&outer, &everyLayer}) {

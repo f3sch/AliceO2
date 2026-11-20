@@ -58,40 +58,21 @@ std::vector<Sensor> placeChips<detectors::TRKFT3TOF>()
   for (auto& sensor : sensors) {
     sensor.layer = detectors::trkft3tof::fromTRKFT3(sensor.layer);
   }
-  // The IOTOF chips: the plane of O2's sensor volume through the active
-  // matrix's centre, loc0 along its x (rows), loc1 along its z (columns), the
-  // normal x cross z, its -y: `tofClusters`' frame (TOFPixelFrame).
+  // The IOTOF chips as flat sensors (`flatSensor`'s axes: loc0 along O2's x,
+  // the rows, loc1 along its z, the columns), the origin on the active
+  // matrix's centre: off the sensor volume's along x by the passive edges,
+  // on it along z (GeometryTGeo::detectorToLocal). `tofClusters`' frame
+  // (TOFPixelFrame).
   auto& tof = *o2::iotof::GeometryTGeo::Instance();
   const auto& specs = o2::iotof::ChipSpecificsParam::Instance();
-  const auto first = tof.detectorToLocal(0, 0, 0);
-  const auto last = tof.detectorToLocal(specs.NRows - 1, specs.NCols - 1, 0);
-  const double cx = (first.X() + last.X()) / 2.F;
-  const double cz = (first.Z() + last.Z()) / 2.F;
+  const double cx = 0.5 * (tof.detectorToLocal(0, 0, 0).X() + tof.detectorToLocal(specs.NRows - 1, 0, 0).X());
   const int chips = tof.getITOFNumberOfChips() + tof.getOTOFNumberOfChips();
   for (int chip = 0; chip < chips; ++chip) {
     const auto* placement = tof.extractMatrixSensor(chip);
     if (placement == nullptr) {
       throw std::runtime_error("TRKFT3TOF: IOTOF chip " + std::to_string(chip) + " has no sensor matrix");
     }
-    const o2::math_utils::Transform3D matrix(*placement);
-    using Point = o2::math_utils::Point3D<double>;
-    const auto origin = matrix * Point{cx, 0., cz};
-    const auto axis0 = matrix * Point{cx + 1., 0., cz};
-    const auto axis1 = matrix * Point{cx, 0., cz + 1.};
-    const double u[3] = {axis0.X() - origin.X(), axis0.Y() - origin.Y(), axis0.Z() - origin.Z()};
-    const double v[3] = {axis1.X() - origin.X(), axis1.Y() - origin.Y(), axis1.Z() - origin.Z()};
-    const double n[3] = {(u[1] * v[2]) - (u[2] * v[1]), (u[2] * v[0]) - (u[0] * v[2]), (u[0] * v[1]) - (u[1] * v[0])};
-    Sensor sensor{};
-    for (int i = 0; i < 3; ++i) {
-      sensor.rot[(3 * i) + 0] = u[i];
-      sensor.rot[(3 * i) + 1] = v[i];
-      sensor.rot[(3 * i) + 2] = n[i];
-    }
-    sensor.trans[0] = origin.X();
-    sensor.trans[1] = origin.Y();
-    sensor.trans[2] = origin.Z();
-    sensor.layer = tof.getIOTOFLayer(chip) == 0 ? Layout::kInnerTOFLayer : Layout::kOuterTOFLayer;
-    sensors.push_back(sensor);
+    sensors.push_back(flatSensor(o2::math_utils::Transform3D(*placement), tof.getIOTOFLayer(chip) == 0 ? Layout::kInnerTOFLayer : Layout::kOuterTOFLayer, cx));
   }
   return sensors;
 }
@@ -134,18 +115,15 @@ TOFPixelFrame TOFPixelFrame::build(const o2::iotof::GeometryTGeo& geometry)
   }
   // The pixel centres in the chip frame: x depends on the row alone, z on
   // the column alone (GeometryTGeo::detectorToLocal), about the active
-  // matrix's centre (`placeChips<TRKFT3TOF>`).
-  const auto first = geometry.detectorToLocal(0, 0, 0);
-  const auto last = geometry.detectorToLocal(specs.NRows - 1, specs.NCols - 1, 0);
-  const double cx = (first.X() + last.X()) / 2.;
-  const double cz = (first.Z() + last.Z()) / 2.;
+  // matrix's centre (`placeChips<TRKFT3TOF>`), along z O2's own.
+  const double cx = 0.5 * (geometry.detectorToLocal(0, 0, 0).X() + geometry.detectorToLocal(specs.NRows - 1, 0, 0).X());
   frame.rowX.resize(static_cast<std::size_t>(specs.NRows));
   frame.columnZ.resize(static_cast<std::size_t>(specs.NCols));
   for (int row = 0; row < specs.NRows; ++row) {
     frame.rowX[static_cast<std::size_t>(row)] = static_cast<float>(geometry.detectorToLocal(row, 0, 0).X() - cx);
   }
   for (int column = 0; column < specs.NCols; ++column) {
-    frame.columnZ[static_cast<std::size_t>(column)] = static_cast<float>(geometry.detectorToLocal(0, column, 0).Z() - cz);
+    frame.columnZ[static_cast<std::size_t>(column)] = static_cast<float>(geometry.detectorToLocal(0, column, 0).Z());
   }
   frame.sigmaX = static_cast<float>(specs.PitchRow / std::sqrt(12.));
   frame.sigmaZ = static_cast<float>(specs.PitchCol / std::sqrt(12.));

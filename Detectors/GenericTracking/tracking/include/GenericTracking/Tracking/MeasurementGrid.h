@@ -134,7 +134,7 @@ struct GridParams {
 
   /// Each layer's readout frames, of a positive length: what the slices'
   /// reach reads to tell which links cannot drift in time (SlicePlan.h's
-  /// `sliceReach`).
+  /// `chainReach`).
   FrameTiming frames[kMaxLayers]{};
 };
 

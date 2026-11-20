@@ -190,6 +190,9 @@ class Tracker
       mPartners(mArena),
       mChunkSize(chunkSize)
   {
+    if (iterations.empty()) {
+      throw std::invalid_argument("a tracker without iterations");
+    }
     for (std::size_t iteration = 0; iteration < iterations.size(); ++iteration) {
       const auto& settings = iterations[iteration];
       checkSharedGraph(iterations, iteration);
