@@ -156,11 +156,10 @@ struct RecoSettings {
   /// The lowest pT of a track by its cluster count [GeV], 0 for none -- the
   /// final track's: after the follow where the iteration follows, else the
   /// road's. Iteration
-  /// `i`'s floor for `n` clusters is entry `16 i + n`, so 16 entries per
-  /// iteration, or none for no floor at all. O2's ITS async asks 1/12 of 7
-  /// clusters in every iteration, and 1/5, 1 and 1/6 of 6, 5 and 4 in its
-  /// third (entries 7, 23, 39, 38, 37, 36).
-  static constexpr int kClusterSlots = 16;
+  /// Each iteration has 18 entries indexed by cluster count (0 through 17).
+  /// The previous 16-entry format still applies to layouts with shorter chains.
+  static constexpr std::size_t kClusterSlots = 18U;
+  static constexpr std::size_t kLegacyClusterSlots = 16U;
   std::vector<double> iterationClusterMinPtGeV;
   /// How many of a track's innermost clusters each iteration lets it share
   /// with another; 0, strict, by default.
