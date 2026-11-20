@@ -851,7 +851,8 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     if (pass >= mIterationCount) {
       throw std::invalid_argument("findVertices of an iteration the run does not have");
     }
-    // Slice by slice, each its own frames' vertices; the lists in time order.
+    // Slice by slice, each its own frames' vertices; the list ordered as the
+    // host orders it once the last slice is in.
     result = {};
     const auto& slices = mPlan->slices;
     StageStatus status = StageStatus::kComplete;
@@ -871,6 +872,9 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
       }
       closeFrom(Scope::kSlice);
       appendVertices(result, found);
+    }
+    if (status == StageStatus::kComplete) {
+      orderVertices(result);
     }
     return status;
   }

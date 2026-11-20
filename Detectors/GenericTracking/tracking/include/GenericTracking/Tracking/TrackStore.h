@@ -56,6 +56,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -63,6 +64,7 @@
 #include <memory>
 #include <memory_resource>
 #include <new>
+#include <numeric>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -491,19 +493,48 @@ class TrackStore
     return true;
   }
 
-  /// The committed tracks as flat products, in track order: \a records their
-  /// fields, \a offsets (one more than the tracks) where each one's references
-  /// begin in \a references. Each vector is cleared first.
+  /// The committed tracks as flat products: \a records their fields,
+  /// \a offsets (one more than the tracks) where each one's references begin
+  /// in \a references. Each vector is cleared first. The products' order is
+  /// by time (the box's start), then the more clusters first (references to
+  /// the tracker's own rows that are not outliers), then the smaller inward
+  /// chi2 per degree of freedom; equal ones in the order committed. The
+  /// store keeps the order committed, which the tracker's own tables follow.
   template <class Records, class Offsets, class ReferenceVector>
   void flatten(Records& records, Offsets& offsets, ReferenceVector& references) const
   {
     records.clear();
     offsets.clear();
     references.clear();
+    const auto columns = mTrackColumns.view();
+    std::vector<std::uint32_t> clusters(mTracks, 0U);
+    std::vector<Scalar> chi2PerDof(mTracks);
+    for (std::size_t track = 0; track < mTracks; ++track) {
+      const auto range = mReferences.range(track);
+      for (std::uint32_t k = 0; k < range.count; ++k) {
+        const auto reference = mReferences.read(track, k);
+        const bool outlier = (reference.role & static_cast<std::uint8_t>(ReferenceRole::kOutlier)) != 0U;
+        clusters[track] += reference.source == kOwnRows && !outlier ? 1U : 0U;
+      }
+      // No degree of freedom, or a refit that left no finite chi2: last.
+      const auto ratio = columns.ndf[track] > 0 ? columns.chi2[track] / static_cast<Scalar>(columns.ndf[track]) : std::numeric_limits<Scalar>::infinity();
+      chi2PerDof[track] = std::isfinite(ratio) ? ratio : std::numeric_limits<Scalar>::infinity();
+    }
+    std::vector<std::uint32_t> order(mTracks);
+    std::iota(order.begin(), order.end(), 0U);
+    std::ranges::stable_sort(order, [&](std::uint32_t a, std::uint32_t b) {
+      if (columns.timePS[a] != columns.timePS[b]) {
+        return columns.timePS[a] < columns.timePS[b];
+      }
+      if (clusters[a] != clusters[b]) {
+        return clusters[a] > clusters[b];
+      }
+      return chi2PerDof[a] < chi2PerDof[b];
+    });
     records.reserve(mTracks);
     offsets.reserve(mTracks + 1U);
     offsets.push_back(0U);
-    for (std::size_t track = 0; track < mTracks; ++track) {
+    for (const auto track : order) {
       records.push_back(mTrackColumns.read(track));
       const auto range = mReferences.range(track);
       for (std::uint32_t k = 0; k < range.count; ++k) {

@@ -137,6 +137,43 @@ BOOST_AUTO_TEST_CASE(EachCommittedTrackRefersToItsRows)
   }
 }
 
+/// The products in time order, then the more clusters, then the smaller
+/// chi2 per degree of freedom, each track with its own references; the store
+/// keeps the order committed.
+BOOST_AUTO_TEST_CASE(TheProductsAreOrderedByTimeThenQuality)
+{
+  Store store;
+  Tracks tracks;
+  appendTracks(tracks, {3U, 5U, 5U, 4U});
+  const auto view = tracks.view();
+  const std::uint32_t timePS[] = {200U, 100U, 100U, 100U};
+  const float chi2[] = {1.F, 9.F, 5.F, 0.F};
+  const std::int16_t ndf[] = {1, 5, 5, 0};
+  for (std::size_t track = 0; track < tracks.size(); ++track) {
+    view.timePS[track] = timePS[track];
+    view.chi2[track] = chi2[track];
+    view.ndf[track] = ndf[track];
+  }
+  BOOST_REQUIRE(store.commit(serial, 2U, tracks) == StageStatus::kComplete);
+  std::vector<Store::TrackRecord> records;
+  std::vector<std::uint32_t> offsets;
+  std::vector<Store::ReferenceRecord> references;
+  store.flatten(records, offsets, references);
+  const std::size_t expected[] = {2U, 1U, 3U, 0U};
+  BOOST_REQUIRE(records.size() == 4U);
+  for (std::size_t place = 0; place < records.size(); ++place) {
+    const auto track = expected[place];
+    BOOST_TEST_CONTEXT("place " << place)
+    {
+      BOOST_TEST(records[place].timePS == timePS[track]);
+      BOOST_TEST(records[place].chi2 == chi2[track]);
+      BOOST_TEST(offsets[place + 1U] - offsets[place] == tracks.view().count[track]);
+      BOOST_TEST(references[offsets[place]].row == 100U * track);
+    }
+  }
+  BOOST_TEST(store.holds(tracks));
+}
+
 /// The same tracks committed on four threads: the same ranges and records as
 /// the serial commit.
 BOOST_AUTO_TEST_CASE(AParallelCommitIsTheSerialOne)
