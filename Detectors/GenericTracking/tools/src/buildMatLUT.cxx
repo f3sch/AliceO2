@@ -18,6 +18,7 @@
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Alice/Placement.h"
+#include "GenericTracking/Workflow/GeometryProvider.h"
 #include "GenericTracking/Tools/Material.h"
 
 #include "DetectorsBase/GeometryManager.h"
@@ -272,9 +273,9 @@ template <o2::gtrk::DetectorLayout Det>
 std::vector<LUTLayer> trkBands(int threads, float rMaxCM, float zMaxCM)
 {
   // On the heap: the geometry holds every sensor of the layout.
-  const auto geometry = std::make_unique<const o2::gtrk::Geometry<Det>>(o2::gtrk::alice::placeChecked<Det>());
+  const auto geometry = o2::gtrk::workflow::makeGeometry<Det>();
   constexpr int kBarrel = o2::gtrk::Detector<Det>::nBarrelLayers;
-  const auto specs = o2::gtrk::Geometry<Det>::layerSpecs();
+  const auto& specs = geometry->layerSpecs();
   const std::span<const o2::gtrk::Sensor> sensors{geometry->sensors()};
   // TRKFT3TOF's sensors are TRKFT3's, then the TOF's.
   std::size_t trkSensors = sensors.size();
@@ -439,7 +440,7 @@ int run(int argc, char** argv)
     ("output,o", bpo::value(&output)->default_value("gtrk_matlut.root"), "output LUT file") //
     ("trials,n", bpo::value(&trials)->default_value(10), "lines per cell axis")             //
     ("detector,d", bpo::value(&detector)->required(),                                       //
-     "ITS, MFT, TRKFT3 or TRKFT3TOF: the detector's region, from --geometry")                          //
+     "ITS, MFT, TRKFT3 or TRKFT3TOF: the detector's region, from --geometry")               //
     ("geometry,g", bpo::value(&geometryFile)->required(),                                   //
      "an o2sim geometry file (o2sim_geometry-aligned.root)")                                //
     ("threads,j", bpo::value(&threads)->default_value(-1),                                  //

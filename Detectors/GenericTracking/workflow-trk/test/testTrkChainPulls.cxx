@@ -54,6 +54,7 @@
 
 #include "CommonUtils/ConfigurableParam.h"
 #include "DetectorsBase/GeometryManager.h"
+#include "TRKBase/AlmiraParam.h"
 
 #include <boost/test/unit_test.hpp>
 #include <fmt/format.h>
@@ -134,7 +135,7 @@ struct BarrelChain {
     }
   }
 
-  [[nodiscard]] static bool curved(LayerID layer) { return Geometry<TRKFT3>::layerSpec(layer).curved(); }
+  [[nodiscard]] static bool curved(LayerID layer) { return Detector<TRKFT3>::sensor(layer).curved(); }
 
   /// The curved sensor of \a layer whose arc holds the global azimuth
   /// \a phi, with that azimuth as its local angle; nothing if none does.
@@ -376,7 +377,7 @@ struct BarrelChain {
     }
     measurements.clear();
     for (std::size_t i = 0; i < truth.size(); ++i) {
-      const auto& spec = Geometry<TRKFT3>::layerSpec(tracking->surface(truth[i].surface).layer);
+      const auto& spec = Detector<TRKFT3>::sensor(tracking->surface(truth[i].surface).layer);
       const auto var = static_cast<Scalar>(spec.pitchX * spec.pitchX / 12.);
       measurements.push_back(Measurement{
         .loc0 = truth[i].loc0(),
@@ -737,9 +738,11 @@ BOOST_AUTO_TEST_CASE(TheTrksFramesAreTheDigitisersPerLayer)
   BOOST_TEST((frames[0] == FrameTiming{.lengthBC = 22, .firstStartBC = 0}));
   BOOST_TEST((frames[3] == FrameTiming{.lengthBC = 81, .firstStartBC = 0}));
   BOOST_TEST((frames[4] == FrameTiming{.lengthBC = 81, .firstStartBC = 7}));
-  BOOST_TEST((frames[10] == FrameTiming{.lengthBC = 18, .firstStartBC = 0}));
+  // An unset layer takes O2's default frame.
+  constexpr int kDefault = o2::trk::AlmiraParam::kDefROFLengthInBC;
+  BOOST_TEST((frames[10] == FrameTiming{.lengthBC = kDefault, .firstStartBC = 0}));
   BOOST_TEST((frames[11] == FrameTiming{.lengthBC = 81, .firstStartBC = 3}));
-  BOOST_TEST((frames[22] == FrameTiming{.lengthBC = 18, .firstStartBC = 0}));
+  BOOST_TEST((frames[22] == FrameTiming{.lengthBC = kDefault, .firstStartBC = 0}));
 }
 
 } // namespace o2::gtrk

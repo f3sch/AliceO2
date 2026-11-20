@@ -26,6 +26,7 @@
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Alice/Placement.h"
+#include "GenericTracking/Workflow/GeometryProvider.h"
 #include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Tools/SensorFrame.h"
 
@@ -114,7 +115,8 @@ int checkHits(const Geometry<Det>& geometry, study::Chips chips, const std::stri
 template <DetectorLayout Det>
 int runFor(study::Chips chips, const std::string& file, const std::string& discFile)
 {
-  const Geometry<Det> geometry(alice::placeChecked<Det>());
+  const auto placed = workflow::makeGeometry<Det>();
+  const Geometry<Det>& geometry = *placed;
   return checkHits(geometry, chips, file, discFile);
 }
 

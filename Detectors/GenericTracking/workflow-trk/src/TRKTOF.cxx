@@ -95,6 +95,32 @@ std::vector<Sensor> placeChips<detectors::TRKFT3TOF>()
   return sensors;
 }
 
+template <>
+std::array<SensorSpec, Detector<detectors::TRKFT3TOF>::nLayers> placeSpecs<detectors::TRKFT3TOF>()
+{
+  // TRKFT3's layers as compiled (held to O2's constants in TRK.cxx); the TOF
+  // layers' chip from O2's IOTOF parameters: its active matrix, rows along x
+  // (`placeChips`), and its sensor's thickness.
+  using Layout = detectors::TRKFT3TOF;
+  auto specs = Geometry<Layout>::layoutSpecs();
+  const auto& chip = o2::iotof::ChipSpecificsParam::Instance();
+  const double thickness = o2::iotof::IOTOFBaseParam::Instance().sensorThickness;
+  if (chip.NRows <= 0 || chip.NCols <= 0 || !(chip.PitchRow > 0.F) || !(chip.PitchCol > 0.F) || !(thickness > 0.)) {
+    throw std::runtime_error(std::format("IOTOF chip of {} x {} pixels of {} x {} cm, {} cm thick", chip.NRows, chip.NCols, chip.PitchRow, chip.PitchCol, thickness));
+  }
+  for (const auto layer : {Layout::kInnerTOFLayer, Layout::kOuterTOFLayer}) {
+    specs[static_cast<std::size_t>(layer)] = {
+      .shape = ShapeType::kRectangle,
+      .halfX = 0.5 * chip.ActiveMatrixSizeRows(),
+      .halfY = 0.5 * chip.ActiveMatrixSizeCols(),
+      .halfThickness = 0.5 * thickness,
+      .pitchX = chip.PitchRow,
+      .pitchY = chip.PitchCol,
+    };
+  }
+  return specs;
+}
+
 TofPixelFrame TofPixelFrame::build(const o2::iotof::GeometryTGeo& geometry)
 {
   const auto& specs = o2::iotof::ChipSpecificsParam::Instance();

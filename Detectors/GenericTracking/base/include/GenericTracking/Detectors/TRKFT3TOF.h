@@ -29,7 +29,7 @@
 /// the iTOF's material stays passive 7's.
 ///
 /// A TOF cluster's time box is the bunch crossing that ends at its time,
-/// [t - 1 BC, t] (WorkflowTRK/TRK.h, `tofClusters`): two TOF rows of a track
+/// [t - 1 BC, t] (WorkflowTRK/TRKTOF.h, `tofClusters`): two TOF rows of a track
 /// lie within 1 BC of each other, and the box never narrows a TRK readout
 /// frame by more than the flight time to the TOF.
 
@@ -48,19 +48,11 @@ namespace o2::gtrk::detectors
 namespace trkft3tof
 {
 
-/// An IOTOF chip: O2's `ChipSpecificsParam` active matrix, 240 rows of
-/// 100 um by 120 columns of 250 um, its frame centred on it; the plane at the
-/// sensor's mid-plane (measurement depth 0).
-inline constexpr SensorSpec kTOFChip{
-  .shape = ShapeType::kRectangle,
-  .halfX = 1.2,
-  .halfY = 1.5,
-  .halfThickness = 0.0025,
-  .pitchX = 0.01,
-  .pitchY = 0.025,
-};
-inline constexpr SensorSpec kInnerTOFChip = kTOFChip;
-inline constexpr SensorSpec kOuterTOFChip = kTOFChip;
+/// An IOTOF chip: a rectangle, its frame centred on O2's active matrix, the
+/// plane at the sensor's mid-plane (measurement depth 0). Its size, pitch and
+/// thickness are O2's runtime IOTOF parameters, taken when the geometry is
+/// placed (`alice::placeSpecs`).
+inline constexpr SensorSpec kTOFChip{.shape = ShapeType::kRectangle, .halfX = 0., .halfY = 0., .halfThickness = 0., .pitchX = 0., .pitchY = 0.};
 
 /// TRKFT3's layer \a layer in TRKFT3TOF: 0-6 stay, 7-10 move past the iTOF,
 /// the discs past the oTOF too.
@@ -100,12 +92,12 @@ struct TRKFT3TOF {
     {.sensorCount = 1232, .sensor = trkft3::kChip},
     {.sensorCount = 1584, .sensor = trkft3::kChip},
     {.sensorCount = 2288, .sensor = trkft3::kChip},
-    {.sensorCount = 2352, .sensor = trkft3tof::kInnerTOFChip},
+    {.sensorCount = 2352, .sensor = trkft3tof::kTOFChip},
     {.sensorCount = 3344, .sensor = trkft3::kChip},
     {.sensorCount = 10560, .sensor = trkft3::kChip},
     {.sensorCount = 13376, .sensor = trkft3::kChip},
     {.sensorCount = 17600, .sensor = trkft3::kChip},
-    {.sensorCount = 56544, .sensor = trkft3tof::kOuterTOFChip},
+    {.sensorCount = 56544, .sensor = trkft3tof::kTOFChip},
   }};
   static constexpr std::array<PlacedLayerSpec, 12> discLayers{{
     {.sensorCount = 440, .sensor = trkft3::kChip},

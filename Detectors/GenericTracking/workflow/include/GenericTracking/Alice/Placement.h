@@ -30,12 +30,14 @@
 #ifndef GTRK_ALICE_PLACEMENT_H_
 #define GTRK_ALICE_PLACEMENT_H_
 
+#include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Base/Sensor.h"
 
 #include "MathUtils/Cartesian.h"
 #include "MathUtils/Utils.h"
 
+#include <array>
 #include <cstddef>
 #include <stdexcept>
 #include <string>
@@ -60,6 +62,13 @@ namespace o2::gtrk::alice
 /// MFT.cxx, TRK.cxx).
 template <DetectorLayout Det>
 [[nodiscard]] std::vector<Sensor> placeChips();
+
+/// Each layer's sensor shape of \a Det, in layer order: the layout's own
+/// where O2 states the sensor at compile time (and the detector's unit holds
+/// it to O2's constants), else from O2's runtime parameters. Defined in the
+/// detector's own unit, as `placeChips`.
+template <DetectorLayout Det>
+[[nodiscard]] std::array<SensorSpec, Detector<Det>::nLayers> placeSpecs();
 
 /// The placed geometry of \a Det from the geometry in gGeoManager, checked
 /// against the layout's sensor counts, in total and per layer. Throws

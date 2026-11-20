@@ -40,6 +40,12 @@ std::vector<Sensor> alice::placeChips<detectors::ITS>()
 }
 
 template <>
+std::array<SensorSpec, Detector<detectors::ITS>::nLayers> alice::placeSpecs<detectors::ITS>()
+{
+  return Geometry<detectors::ITS>::layoutSpecs();
+}
+
+template <>
 o2::framework::DataProcessorSpec workflow::getClusterConverterSpec<detectors::ITS>(const o2::framework::ConfigContext& context, bool useMC)
 {
   return workflow::getITSMFTClusterConverterSpec<detectors::ITS>(useMC, workflow::staggeredInput<detectors::ITS>(context), workflow::itsTriggers(context));

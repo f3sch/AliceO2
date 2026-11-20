@@ -124,6 +124,12 @@ std::vector<Sensor> placeChips<detectors::TRKFT3>()
   return sensors;
 }
 
+template <>
+std::array<SensorSpec, Detector<detectors::TRKFT3>::nLayers> placeSpecs<detectors::TRKFT3>()
+{
+  return Geometry<detectors::TRKFT3>::layoutSpecs();
+}
+
 namespace
 {
 

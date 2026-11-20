@@ -94,7 +94,7 @@ double checkTRKPixels(std::span<const Sensor> sensors)
     const int id = static_cast<int>(disc ? chip - kFirstDisc : chip); // O2's chip ID
     const int subDet = disc ? ft3.getSubDetID(id) : geometry.getSubDetID(id);
     const int layer = disc ? ft3.getLayer(id) : geometry.getLayer(id); // within the sub-detector
-    const auto& spec = Geometry<detectors::TRKFT3>::layerSpec(sensors[chip].layer);
+    const auto& spec = Detector<detectors::TRKFT3>::sensor(sensors[chip].layer);
     const int nRows = subDet == 0 ? Segmentation::getNRowsVD(layer) : o2::trk::constants::moduleMLOT::chip::nRows;
     const int nCols = subDet == 0 ? o2::trk::constants::VD::petal::layer::nCols : o2::trk::constants::moduleMLOT::chip::nCols;
     for (const auto [row, col] : std::array<std::array<int, 2>, 5>{{{0, 0}, {nRows - 1, 0}, {0, nCols - 1}, {nRows - 1, nCols - 1}, {nRows / 2, nCols / 2}}}) {
@@ -142,7 +142,7 @@ void printPassives(const Geometry<Det>& geometry)
   // The TRK's chips carry a metal stack beyond the silicon; the others' layers end at it.
   std::vector<LayerEnvelope> chips(envelopes.begin(), envelopes.end());
   if constexpr (std::same_as<Det, detectors::TRKFT3>) {
-    const auto specs = Geometry<Det>::layerSpecs();
+    const auto specs = Geometry<Det>::layoutSpecs();
     chips = tools::withStacks(envelopes, geometry.sensors(), specs, tools::trkStackThickness(geometry.sensors(), specs, Detector<Det>::nBarrelLayers));
   }
   std::cout << std::format(
@@ -551,7 +551,7 @@ template <DetectorLayout Det>
 int runFor(const std::string& file, bool passives)
 {
   const auto sensors = alice::placeChips<Det>();
-  constexpr auto specs = Geometry<Det>::layerSpecs();
+  constexpr auto specs = Geometry<Det>::layoutSpecs();
   const auto measured = measureEnvelopes(sensors, specs, Detector<Det>::nBarrelLayers, kEnvelopeResolution);
   std::vector<int> counts(measured.size(), 0);
   for (const auto& sensor : sensors) {

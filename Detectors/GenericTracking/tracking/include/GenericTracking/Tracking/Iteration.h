@@ -260,7 +260,7 @@ struct LayerResolution {
 template <DetectorLayout Det>
 [[nodiscard]] inline LayerResolution layerResolution(LayerID layer)
 {
-  const auto& sensor = Detector<Det>::sensor(layer);
+  const auto& sensor = PlacedSensorSpecs<Det>::get(layer);
   const auto spread = [](double width) { return static_cast<Scalar>(width * width / 12.); };
   const double thickness = 2. * sensor.halfThickness;
   if (Detector<Det>::isBarrelLayer(layer)) {

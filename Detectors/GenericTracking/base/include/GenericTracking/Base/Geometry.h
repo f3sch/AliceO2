@@ -15,7 +15,8 @@
 /// The sensors are the experiment's, handed in whole at construction (for the
 /// ALICE detectors from O2's GeometryTGeo, Alice/Placement.h). They are
 /// runtime rather than constexpr data because alignment corrections apply to
-/// them.
+/// them. So is each layer's sensor shape: the layout's own by default, O2's
+/// runtime parameters where O2 holds it there (`alice::placeSpecs`).
 ///
 /// The array extent is Det::nSensors, a compile-time constant, so the whole
 /// geometry is one contiguous fixed-size block.
@@ -50,12 +51,18 @@ class Geometry
   /// every layer index exists, then measures each layer's envelope from the
   /// sensors (rounded outwards to kEnvelopeResolution) and publishes the
   /// table as this process's PlacedEnvelopes<Det>, which the extent functions
-  /// of Tracking/SearchWindow.h read. \a depths: each layer's
-  /// `measurementDepth`, or none for 0 on every layer. Throws
-  /// std::invalid_argument on the counts, std::runtime_error on a layer
-  /// without a sensor.
-  explicit Geometry(std::span<const Sensor> sensors, std::span<const double> depths = {})
+  /// of Tracking/SearchWindow.h read, and the sensor shapes as its
+  /// PlacedSensorSpecs<Det>. \a depths: each layer's `measurementDepth`, or
+  /// none for 0 on every layer; \a specs: each layer's sensor shape, or none
+  /// for the layout's (`layoutSpecs`). Throws std::invalid_argument on the
+  /// counts, std::runtime_error on a layer without a sensor.
+  explicit Geometry(std::span<const Sensor> sensors, std::span<const double> depths = {}, std::span<const SensorSpec> specs = {})
   {
+    if (!specs.empty() && specs.size() != static_cast<std::size_t>(Detector<Det>::nLayers)) {
+      throw std::invalid_argument("placed geometry: sensor shapes for another number of layers");
+    }
+    mSpecs = layoutSpecs();
+    std::ranges::copy(specs, mSpecs.begin());
     if (sensors.size() != static_cast<std::size_t>(Det::nSensors)) {
       throw std::invalid_argument("placed geometry: sensor count differs from the layout's");
     }
@@ -67,7 +74,8 @@ class Geometry
       throw std::invalid_argument("placed geometry: layer index outside the layout");
     }
     std::ranges::copy(sensors, mSensors.begin());
-    PlacedEnvelopes<Det>::publish(measureEnvelopes(sensors, layerSpecs(), Detector<Det>::nBarrelLayers, kEnvelopeResolution));
+    PlacedSensorSpecs<Det>::publish(mSpecs);
+    PlacedEnvelopes<Det>::publish(measureEnvelopes(sensors, mSpecs, Detector<Det>::nBarrelLayers, kEnvelopeResolution));
   }
 
   [[nodiscard]] const Sensor& sensor(SensorID id) const { return mSensors[id]; }
@@ -83,24 +91,28 @@ class Geometry
 
   void toGlobal(SensorID id, const double l[3], double g[3]) const { mSensors[id].toGlobal(l, g); }
 
-  /// The sensor shape of each layer, in layer order.
-  [[nodiscard]] static constexpr std::array<SensorSpec, Detector<Det>::nLayers> layerSpecs()
+  /// The layout's own sensor shape of each layer, in layer order.
+  [[nodiscard]] static constexpr std::array<SensorSpec, Detector<Det>::nLayers> layoutSpecs()
   {
     std::array<SensorSpec, Detector<Det>::nLayers> specs{};
     for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
-      specs[static_cast<std::size_t>(layer)] = layerSpec(static_cast<LayerID>(layer));
+      specs[static_cast<std::size_t>(layer)] = Detector<Det>::sensor(static_cast<LayerID>(layer));
     }
     return specs;
   }
 
+  /// The sensor shape of each layer this geometry was placed with, in layer order.
+  [[nodiscard]] const std::array<SensorSpec, Detector<Det>::nLayers>& layerSpecs() const { return mSpecs; }
+
   /// The shape of a layer's sensors.
-  [[nodiscard]] static constexpr const SensorSpec& layerSpec(LayerID layer) { return Detector<Det>::isBarrelLayer(layer) ? Det::barrelLayers[layer].sensor : Det::discLayers[Detector<Det>::discIndex(layer)].sensor; }
+  [[nodiscard]] const SensorSpec& layerSpec(LayerID layer) const { return mSpecs[layer]; }
 
   /// The shape of the sensor a chip carries.
-  [[nodiscard]] const SensorSpec& specOf(SensorID id) const { return layerSpec(mSensors[id].layer); }
+  [[nodiscard]] const SensorSpec& specOf(SensorID id) const { return mSpecs[mSensors[id].layer]; }
 
  private:
   std::array<Sensor, Det::nSensors> mSensors{};
+  std::array<SensorSpec, Detector<Det>::nLayers> mSpecs{};
   std::array<double, Detector<Det>::nLayers> mDepths{}; ///< [cm]
 };
 

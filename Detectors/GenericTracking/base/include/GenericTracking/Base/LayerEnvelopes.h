@@ -19,8 +19,11 @@
 /// and publishes the table here; the extent functions of
 /// Tracking/SearchWindow.h, and with them the grid, the search windows, the
 /// scattering table and the material sampling, read it. Nothing on the device
-/// does. The compiled layout keeps topology only: the layer count, each layer's
-/// kind and sensor count, the links.
+/// does. Each layer's sensor shape is published beside it: a layout's own
+/// where O2 states it at compile time, O2's runtime parameters where O2 holds
+/// it there (Alice/Placement.h, `placeSpecs`). The compiled layout keeps
+/// topology only: the layer count, each layer's kind and sensor count, the
+/// links.
 
 #ifndef GTRK_BASE_LAYERENVELOPES_H_
 #define GTRK_BASE_LAYERENVELOPES_H_
@@ -80,32 +83,33 @@ struct SensorExtent {
 /// One line per layer, for a log; layers numbered barrel first.
 [[nodiscard]] std::string describeEnvelopes(std::span<const LayerEnvelope> envelopes, int nBarrelLayers);
 
-/// The envelopes of the layout \a Det loaded in this process.
+/// One entry per layer of the layout \a Det loaded in this process: its
+/// envelope (`PlacedEnvelopes`) or its sensor shape (`PlacedSensorSpecs`).
 ///
 /// One table per layout per process, as O2's `GeometryTGeo::Instance()` holds
 /// the one loaded detector for everything that asks: `Geometry<Det>` publishes
 /// at construction, a later geometry of the same layout replaces the table,
 /// and reading before any exists throws std::logic_error. Published once at
 /// set-up, before any tracking thread runs, and read-only after.
-template <DetectorLayout Det>
-class PlacedEnvelopes
+template <DetectorLayout Det, typename Entry>
+class PlacedLayers
 {
  public:
-  static void publish(std::span<const LayerEnvelope> envelopes)
+  static void publish(std::span<const Entry> entries)
   {
-    if (envelopes.size() != sTable.size()) {
-      throw std::invalid_argument(std::string{Det::name} + ": " + std::to_string(envelopes.size()) + " envelopes for " + std::to_string(sTable.size()) + " layers");
+    if (entries.size() != sTable.size()) {
+      throw std::invalid_argument(std::string{Det::name} + ": " + std::to_string(entries.size()) + " placed layers for " + std::to_string(sTable.size()));
     }
     for (std::size_t layer = 0; layer < sTable.size(); ++layer) {
-      sTable[layer] = envelopes[layer];
+      sTable[layer] = entries[layer];
     }
     sPublished = true;
   }
 
-  [[nodiscard]] static const LayerEnvelope& get(LayerID layer)
+  [[nodiscard]] static const Entry& get(LayerID layer)
   {
     if (!sPublished) {
-      throw std::logic_error(std::string{Det::name} + ": no geometry loaded, so no layer envelopes; construct Geometry<" + Det::name + "> first");
+      throw std::logic_error(std::string{Det::name} + ": no geometry loaded, so no placed layers; construct Geometry<" + Det::name + "> first");
     }
     if (layer >= sTable.size()) {
       throw std::out_of_range(std::string{Det::name} + ": layer " + std::to_string(layer) + " of " + std::to_string(sTable.size()));
@@ -113,18 +117,24 @@ class PlacedEnvelopes
     return sTable[layer];
   }
 
-  [[nodiscard]] static std::span<const LayerEnvelope> all()
+  [[nodiscard]] static std::span<const Entry> all()
   {
     if (!sPublished) {
-      throw std::logic_error(std::string{Det::name} + ": no geometry loaded, so no layer envelopes; construct Geometry<" + Det::name + "> first");
+      throw std::logic_error(std::string{Det::name} + ": no geometry loaded, so no placed layers; construct Geometry<" + Det::name + "> first");
     }
     return sTable;
   }
 
  private:
-  inline static std::array<LayerEnvelope, Detector<Det>::nLayers> sTable{};
+  inline static std::array<Entry, Detector<Det>::nLayers> sTable{};
   inline static bool sPublished = false;
 };
+
+template <DetectorLayout Det>
+using PlacedEnvelopes = PlacedLayers<Det, LayerEnvelope>;
+
+template <DetectorLayout Det>
+using PlacedSensorSpecs = PlacedLayers<Det, SensorSpec>;
 
 } // namespace o2::gtrk
 

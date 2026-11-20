@@ -23,16 +23,17 @@
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Workflow/BeamLine.h"
+#include "GenericTracking/Workflow/GeometryProvider.h"
 #include "GenericTracking/Workflow/GridConfig.h"
 #include "GenericTracking/Workflow/RecoParam.h"
 #include "GenericTracking/WorkflowTRK/TRKTOF.h"
+
+#include "UniformMaterial.h"
 
 #include "CommonConstants/LHCConstants.h"
 #include "DataFormatsIOTOF/Cluster.h"
 #include "DetectorsBase/GeometryManager.h"
 #include "DetectorsBase/Propagator.h"
-
-#include "UniformMaterial.h"
 
 #include <boost/test/unit_test.hpp>
 
@@ -188,7 +189,7 @@ BOOST_AUTO_TEST_CASE(TheNativeGridAndFloorsCoverLongTofChains)
     return;
   }
   o2::base::GeometryManager::loadGeometry(file);
-  const auto tofGeometry = std::make_unique<const Geometry<Tof>>(alice::placeChecked<Tof>());
+  const auto tofGeometry = workflow::makeGeometry<Tof>();
   const std::vector<FrameTiming> trkFrames(static_cast<std::size_t>(kBaseLayers), FrameTiming{.lengthBC = 81, .firstStartBC = 0});
   const auto tofFrames = alice::trktofFrameTiming(trkFrames);
   const auto beam = workflow::nominalBeamLine();

@@ -52,6 +52,7 @@
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
+#include "GenericTracking/Workflow/GeometryProvider.h"
 #include "GenericTracking/WorkflowITSMFT/Clusters.h"
 #include "GenericTracking/WorkflowTRK/TRK.h"
 #include "GenericTracking/Study/Alice/Hits.h"
@@ -212,8 +213,7 @@ struct Deviation {
 template <DetectorLayout Det, typename GeometryTGeo>
 int runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& prefix)
 {
-  const auto sensors = alice::placeChecked<Det>();
-  const auto geometry = std::make_unique<const Geometry<Det>>(sensors);
+  const auto geometry = workflow::makeGeometry<Det>();
   const auto tracking = std::make_unique<const TrackingGeometry<Det>>(*geometry);
   o2Geometry.fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::L2G));
 
@@ -402,7 +402,7 @@ int runTRK(const Options& options)
   load(trkDictionary, "TRK/Calib/ClusterDictionary");
   load(ft3Dictionary, "FT3/Calib/ClusterDictionary");
   const auto depths = alice::measurementDepthsCM(*trkDictionary, *ft3Dictionary);
-  const auto geometry = std::make_unique<const Geometry<Det>>(alice::placeChecked<Det>(), depths);
+  const auto geometry = workflow::makeGeometry<Det>(depths);
   // The digitiser's frames, from its configuration.
   o2::conf::ConfigurableParam::updateFromFile(options.config, "TRKAlmiraParam");
   const auto frames = alice::trkFrameTiming();

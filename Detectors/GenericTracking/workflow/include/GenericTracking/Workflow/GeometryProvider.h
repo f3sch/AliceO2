@@ -44,7 +44,8 @@ template <DetectorLayout Det>
 [[nodiscard]] std::unique_ptr<const Geometry<Det>> makeGeometry(std::span<const double> depthsCM = {})
 {
   const auto sensors = alice::placeChecked<Det>();
-  auto geometry = std::make_unique<const Geometry<Det>>(sensors, depthsCM);
+  const auto specs = alice::placeSpecs<Det>();
+  auto geometry = std::make_unique<const Geometry<Det>>(sensors, depthsCM, specs);
   LOG(info) << Det::name << " placed from its GeometryTGeo, layer envelopes measured:\n"
             << describeEnvelopes(PlacedEnvelopes<Det>::all(), Detector<Det>::nBarrelLayers);
   return geometry;

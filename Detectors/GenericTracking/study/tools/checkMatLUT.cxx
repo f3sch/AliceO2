@@ -66,6 +66,7 @@
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Tracking/Material.h"
+#include "GenericTracking/Workflow/GeometryProvider.h"
 #include "GenericTracking/Study/Alice/Hits.h"
 
 #include "DetectorsBase/GeometryManager.h"
@@ -540,7 +541,7 @@ int runFor(const Options& options)
     geometryPath = std::filesystem::exists(aligned) ? aligned : options.sim + "/sgn_geometry.root";
   }
   o2::base::GeometryManager::loadGeometry(geometryPath);
-  const auto geometry = std::make_unique<const o2::gtrk::Geometry<Det>>(o2::gtrk::alice::placeChecked<Det>());
+  const auto geometry = o2::gtrk::workflow::makeGeometry<Det>();
   const std::unique_ptr<o2::base::MatLayerCylSet> lut{o2::base::MatLayerCylSet::loadFromFile(options.lut)};
   if (!lut) {
     throw std::runtime_error("cannot load the LUT " + options.lut);
@@ -581,7 +582,7 @@ int run(int argc, char** argv)
   bpo::options_description description("Hold a material LUT to the geometry along simulated particles' paths");
   description.add_options()                                                                                                                            //
     ("help,h", "this message")                                                                                                                         //
-    ("detector,d", bpo::value(&options.detector)->default_value(options.detector), "ITS, MFT, TRKFT3 or TRKFT3TOF")                                               //
+    ("detector,d", bpo::value(&options.detector)->default_value(options.detector), "ITS, MFT, TRKFT3 or TRKFT3TOF")                                    //
     ("sim", bpo::value(&options.sim), "the simulation's directory: sgn_Hits*.root, sgn_Kine.root, sgn_geometry[-aligned].root")                        //
     ("lut", bpo::value(&options.lut), "the material LUT")                                                                                              //
     ("geometry", bpo::value(&options.geometry), "override geometry; default <sim>/sgn_geometry-aligned.root if present, otherwise sgn_geometry.root")  //

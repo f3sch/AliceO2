@@ -45,6 +45,7 @@
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Tracking/SearchWindow.h"
+#include "GenericTracking/Workflow/GeometryProvider.h"
 #include "GenericTracking/WorkflowTRK/TRK.h"
 #include "GenericTracking/Tools/SensorFrame.h"
 
@@ -213,7 +214,7 @@ std::vector<DiscCoverage> discCoverage(const Geometry<Det>& geometry)
       if (sensor.layer != id) {
         continue;
       }
-      const auto& spec = Geometry<Det>::layerSpec(id);
+      const auto& spec = geometry.layerSpec(id);
       // The sensor's bounding box in the raster, from its corners.
       double low[2] = {std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()};
       double high[2] = {-std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()};
@@ -423,7 +424,7 @@ int runFor(const Options& options)
 {
   // A layout's extents are its loaded geometry's, on the ITS as well as on the MFT.
   o2::base::GeometryManager::loadGeometry(options.geometry);
-  const auto geometry = std::make_unique<const Geometry<Det>>(alice::placeChecked<Det>());
+  const auto geometry = workflow::makeGeometry<Det>();
   std::vector<DiscCoverage> coverage;
   if constexpr (Detector<Det>::hasDiscs) {
     coverage = discCoverage<Det>(*geometry);
