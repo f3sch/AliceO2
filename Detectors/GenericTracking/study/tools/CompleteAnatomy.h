@@ -3171,7 +3171,7 @@ class CompleteAnatomy
   enum Fate : std::uint8_t { kComplete,
                              kShortFate,
                              kNotFound };
-  static constexpr std::array<const char*, 6> kOutcomeNames{"used", "window", "hole", "noUpdate", "chi2", "passesOtherTaken"};
+  static constexpr std::array<const char*, 7> kOutcomeNames{"used", "window", "hole", "noUpdate", "chi2", "passesOtherTaken", "shape"};
 
   struct Candidate {
     std::uint32_t row = 0U;
