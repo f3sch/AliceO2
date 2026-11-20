@@ -1030,36 +1030,39 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     // each testing the shapes where the iteration does.
     StageStatus status = withTrackletVertices(hostParameters.vertexSource, hostParameters.impactMax > 0.F, [&](auto beamLineOnly, auto displaced) {
       return withShapeTest(hostParameters.shapeTest, [&](auto shape) {
-        const TrackletStageFor<Det, decltype(beamLineOnly)::value, decltype(displaced)::value, decltype(shape)::value> stage{hostParameters, slicePlan.sources, *mHostFrame, inputs.targetBlocks, mPlan->beamLine, mPlan->vertices, inputs.maxCandidateWidthPS, mPlan->vertexWindows[iteration], nullptr, inputs.gate};
-        const auto bound = stage.bind({
-          .parameters = parameters,
-          .sources = sources,
-          .frame = mFrame.data(),
-          .used = mUsed.data(),
-          .vertexWindows = mVertexWindows.data() + iteration,
-          .vertices = beamLine ? mSeeds.data() : mSeeds.data() + 1,
-          .gateCore = core,
+        constexpr bool prompt = decltype(beamLineOnly)::value && !decltype(displaced)::value;
+        return withDiscWindow<prompt>(hostParameters.discWindow, [&](auto discWindow) {
+          const TrackletStageFor<Det, decltype(beamLineOnly)::value, decltype(displaced)::value, decltype(shape)::value, decltype(discWindow)::value> stage{hostParameters, slicePlan.sources, *mHostFrame, inputs.targetBlocks, mPlan->beamLine, mPlan->vertices, inputs.maxCandidateWidthPS, mPlan->vertexWindows[iteration], nullptr, inputs.gate};
+          const auto bound = stage.bind({
+            .parameters = parameters,
+            .sources = sources,
+            .frame = mFrame.data(),
+            .used = mUsed.data(),
+            .vertexWindows = mVertexWindows.data() + iteration,
+            .vertices = beamLine ? mSeeds.data() : mSeeds.data() + 1,
+            .gateCore = core,
+          });
+          // A thread for the sources with a query only: a dead source's thread holds its warp's lanes idle while the
+          // others walk; it emits nothing, so its count is the 0 the stage sets.
+          auto scratch = mArena.scope(ArenaEnd::kScratch);
+          DeviceSpan<Index> listed;
+          Index listedCount = 0U;
+          const StageStatus selected = algorithms::selectIndices(*mRuntime, mArena, mStream, sourceCount, tracker_detail::HasQuery<decltype(bound)>{bound}, listed, listedCount, ArenaEnd::kScratch);
+          ++mReport.readbacks; // the list's length
+          if (selected != StageStatus::kComplete) {
+            return selected;
+          }
+          // The flat run: the sources' candidates listed, tested one a thread.
+          std::uint32_t queriesPerSource = 1U;
+          for (std::size_t layer = 0; layer < kLayerCount; ++layer) {
+            queriesPerSource = std::max(queriesPerSource, hostParameters.outLinkOffsets[layer + 1U] - hostParameters.outLinkOffsets[layer]);
+          }
+          if (queriesPerSource > (1U << tracker_detail::FlatTracklets<decltype(bound)>::kQueryBits)) {
+            throw std::logic_error("a layer has more out-links than a flat pair's key numbers");
+          }
+          mReport.trackletSources = listedCount;
+          return runFlat(listedCount > 0U ? listed.data() : nullptr, listedCount, tracker_detail::FlatTracklets<decltype(bound)>{.stage = bound, .queriesPerSource = queriesPerSource}, tracklets, mReport.trackletRun);
         });
-        // A thread for the sources with a query only: a dead source's thread holds its warp's lanes idle while the
-        // others walk; it emits nothing, so its count is the 0 the stage sets.
-        auto scratch = mArena.scope(ArenaEnd::kScratch);
-        DeviceSpan<Index> listed;
-        Index listedCount = 0U;
-        const StageStatus selected = algorithms::selectIndices(*mRuntime, mArena, mStream, sourceCount, tracker_detail::HasQuery<decltype(bound)>{bound}, listed, listedCount, ArenaEnd::kScratch);
-        ++mReport.readbacks; // the list's length
-        if (selected != StageStatus::kComplete) {
-          return selected;
-        }
-        // The flat run: the sources' candidates listed, tested one a thread.
-        std::uint32_t queriesPerSource = 1U;
-        for (std::size_t layer = 0; layer < kLayerCount; ++layer) {
-          queriesPerSource = std::max(queriesPerSource, hostParameters.outLinkOffsets[layer + 1U] - hostParameters.outLinkOffsets[layer]);
-        }
-        if (queriesPerSource > (1U << tracker_detail::FlatTracklets<decltype(bound)>::kQueryBits)) {
-          throw std::logic_error("a layer has more out-links than a flat pair's key numbers");
-        }
-        mReport.trackletSources = listedCount;
-        return runFlat(listedCount > 0U ? listed.data() : nullptr, listedCount, tracker_detail::FlatTracklets<decltype(bound)>{.stage = bound, .queriesPerSource = queriesPerSource}, tracklets, mReport.trackletRun);
       });
     });
     if (status != StageStatus::kComplete) {

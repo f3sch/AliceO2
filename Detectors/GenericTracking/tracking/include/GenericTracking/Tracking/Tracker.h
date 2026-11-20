@@ -537,7 +537,7 @@ class Tracker
     if (!(graphSigma(previous) <= 1.) || !(graphSigma(settings) > 1.)) {
       fail("it needs a kink allowance, and the previous one none");
     }
-    const auto graph = [](const IterationSettings& one) { return std::tie(one.windows, one.vertexSource, one.minClusters, one.skipLinks, one.layerMask, one.roadEndLayers, one.roadStartLayers, one.minPtGeVByClusters, one.shapeTest); };
+    const auto graph = [](const IterationSettings& one) { return std::tie(one.windows, one.vertexSource, one.minClusters, one.skipLinks, one.layerMask, one.roadEndLayers, one.roadStartLayers, one.minPtGeVByClusters, one.shapeTest, one.discWindow, one.minPGeV); };
     if (graph(settings) != graph(previous)) {
       fail("its graph settings differ from the previous one's");
     }
@@ -934,8 +934,8 @@ class Tracker
   /// one; the beam-line one for a beam-line iteration, which makes the same
   /// tracklets, and the displaced one for a displaced iteration, which no
   /// other makes).
-  template <bool BeamLine, bool Displaced, bool Shape>
-  [[nodiscard]] TrackletStageFor<Det, BeamLine, Displaced, Shape> trackletStage(const TrackletInputs<Det>& inputs, const Frame& frame, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, const VertexWindows& vertexWindows) const
+  template <bool BeamLine, bool Displaced, bool Shape, bool DiscWindow>
+  [[nodiscard]] TrackletStageFor<Det, BeamLine, Displaced, Shape, DiscWindow> trackletStage(const TrackletInputs<Det>& inputs, const Frame& frame, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, const VertexWindows& vertexWindows) const
   {
     return {*inputs.parameters, *inputs.sources, frame, inputs.targetBlocks, beamLine, vertices, inputs.maxCandidateWidthPS, vertexWindows, mUsed.data(), inputs.gate};
   }
@@ -969,9 +969,12 @@ class Tracker
         const auto& parameters = *mTrackletInputs.parameters;
         result = withTrackletVertices(parameters.vertexSource, parameters.impactMax > 0.F, [&](auto beamLineOnly, auto displaced) {
           return withShapeTest(parameters.shapeTest, [&](auto shape) {
-            const auto stage = trackletStage<decltype(beamLineOnly)::value, decltype(displaced)::value, decltype(shape)::value>(mTrackletInputs, frame, beamLine, vertices, vertexWindows);
-            setup.reset();
-            return mTrackletStage.run(mScratch.tracklets(), mChunkSize, stage);
+            constexpr bool prompt = decltype(beamLineOnly)::value && !decltype(displaced)::value;
+            return withDiscWindow<prompt>(parameters.discWindow, [&](auto discWindow) {
+              const auto stage = trackletStage<decltype(beamLineOnly)::value, decltype(displaced)::value, decltype(shape)::value, decltype(discWindow)::value>(mTrackletInputs, frame, beamLine, vertices, vertexWindows);
+              setup.reset();
+              return mTrackletStage.run(mScratch.tracklets(), mChunkSize, stage);
+            });
           });
         });
         if (result == StageStatus::kComplete) {

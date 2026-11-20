@@ -23,6 +23,7 @@
 #include "GenericTracking/Tracking/DisplacedPair.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/LayerRowMap.h"
+#include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/ShapeCut.h"
@@ -112,6 +113,103 @@ template <DetectorLayout Det>
   return displaced::displacedPairWithin<Scalar>(source.x, source.y, source.z, target.x, target.y, target.z, errors, parameters.pairCut.nSigma, parameters.pairCut.maxCurvature, parameters.impactMax, centre - parameters.impactZMax, centre + parameters.impactZMax);
 }
 
+/// A disc->disc pair's window per source (`IterationSettings::discWindow`):
+/// the target radii and azimuths a track from the beam line through
+/// \a source can reach on target disc \a to, in place of the link's window,
+/// which holds every source of the disc at once.
+///
+/// The source's direction from the beam spot's z range bounds the track:
+/// tan(theta) >= r_i / (z_i - z_v), so its curvature is at most
+/// `cut.maxCurvature` and, with a momentum floor \a minP, at most that
+/// momentum's at the smallest sin(theta). A helix from the beam line lands
+/// at `r_j = r_i sin(rho u) / sin(u)`, `u = asin(k r_i / 2)`, `rho = (z_j -
+/// z_v) / (z_i - z_v)`: at most the straight line's `rho r_i`, at least the
+/// landing at the largest curvature that reaches the target before its
+/// turn (`rho u <= pi / 2`), and it turns by `(rho - 1) u` in azimuth. Both
+/// widen by n sigma of the scattering the pair test takes
+/// (`addLongitudinalPairTerms`: the source's \a scattering and the link's
+/// \a betweenBound, at pT_min along the source's direction), carried to the
+/// momentum the floors admit, and of the two points' resolutions.
+/// False where no target radius is left; \a window as it was where the
+/// source does not lie beyond the beam spot's reach towards the target.
+/// The pair tests keep their pT_min bounds: the floor narrows the window,
+/// which is part of the acceptance.
+///
+/// Out of line on a device: its count and fill kernels each make the
+/// query, and the window's cells must be the same in both.
+template <DetectorLayout Det>
+[[nodiscard]] GPUhdnii() bool discPairWindow(const IterationParameters<Det>& parameters, LayerID to, const PairPoint& source, Scalar scattering, Scalar betweenBound, Scalar varTransverse, CandidateWindow& window)
+{
+  const auto& cut = parameters.pairCut;
+  const auto& span = parameters.layerSpans[to];
+  // Mirrored onto +z: the source, the target disc's z extent and the vertex range.
+  const Scalar side = source.z < 0.F ? -1.F : 1.F;
+  const Scalar zi = side * source.z;
+  const Scalar va = side * (parameters.vertexZCentre - parameters.vertexZReach);
+  const Scalar vb = side * (parameters.vertexZCentre + parameters.vertexZReach);
+  const Scalar vLow = o2::gpu::CAMath::Min(va, vb);
+  const Scalar vHigh = o2::gpu::CAMath::Max(va, vb);
+  const Scalar ta = side * span.positionMin;
+  const Scalar tb = side * span.positionMax;
+  const Scalar tLow = o2::gpu::CAMath::Min(ta, tb);
+  const Scalar tHigh = o2::gpu::CAMath::Max(ta, tb);
+  const Scalar ri = source.r;
+  if (!(zi > vHigh) || !(tLow > zi) || !(ri > 0.F)) {
+    return true;
+  }
+  const Scalar rhoLow = (tLow - vLow) / (zi - vLow);
+  const Scalar rhoHigh = (tHigh - vHigh) / (zi - vHigh);
+  // The largest curvature: pT_min's, and the momentum floor's at the
+  // smallest sin(theta), the chord from the farthest vertex.
+  Scalar curvature = cut.maxCurvature;
+  const Scalar minP = parameters.discWindowMinP;
+  if (minP > 0.F) {
+    const Scalar sinLow = ri / o2::gpu::CAMath::Hypot(ri, zi - vLow);
+    curvature = o2::gpu::CAMath::Min(curvature, cut.momentumCurvature / (minP * sinLow));
+  }
+  // A circle from the beam point reaches r_i at the half-turn u = asin(k r_i
+  // / 2); the curvatures a track can have and still reach the target before
+  // its turn hold u to pi / (2 rho).
+  constexpr Scalar kHalfPi = 0.5F * kPi<Scalar>;
+  const Scalar turnSource = o2::gpu::CAMath::ASin(o2::gpu::CAMath::Min(1.F, 0.5F * curvature * ri));
+  const Scalar uLow = o2::gpu::CAMath::Min(turnSource, kHalfPi / rhoLow);
+  // r_i sin(rho u) / sin(u), and the source's arc r_i u / sin(u), in sinc.
+  const Scalar sincLow = sinc(uLow);
+  const Scalar landing = ri * rhoLow * sinc(rhoLow * uLow) / sincLow;
+  const Scalar straight = rhoHigh * ri;
+  const Scalar turn = (rhoHigh - 1.F) * o2::gpu::CAMath::Min(turnSource, kHalfPi / rhoHigh);
+  // The scattering at the momentum the floors admit: the pair test's is at
+  // p = pT_min g along the source's direction, beta at pT_min.
+  Scalar scale = 1.F;
+  if (minP > 0.F && cut.maxCurvature > 0.F && cut.maxCurvature < std::numeric_limits<Scalar>::infinity() && cut.momentumCurvature > 0.F) {
+    const Scalar ptMin = cut.momentumCurvature / cut.maxCurvature;
+    const Scalar slope = (source.z - parameters.vertexZCentre) / ri;
+    const Scalar g2 = 1.F + (slope * slope);
+    const Scalar ptMin2 = ptMin * ptMin;
+    const Scalar taken = ptMin2 * ptMin2 * g2 / (ptMin2 + cut.mass2);
+    const Scalar p2 = o2::gpu::CAMath::Max(minP * minP, ptMin2 * g2);
+    scale = o2::gpu::CAMath::Min(1.F, taken * (p2 + cut.mass2) / (p2 * p2));
+  }
+  const Scalar arcSource = ri / sincLow;
+  const Scalar arcGap = (rhoHigh - 1.F) * arcSource;
+  const Scalar dz = tHigh - zi;
+  const Scalar leverSource = zi - vLow;
+  const Scalar varD = ((arcGap * arcGap) + (dz * dz)) * scattering + ((arcSource * arcSource) + (leverSource * leverSource)) * betweenBound;
+  const Scalar lever = zi - vHigh;
+  const Scalar varR = (scale * varD / (lever * lever)) + (((rhoHigh * rhoHigh) + 1.F) * source.varR) + (rhoHigh * rhoHigh * varTransverse);
+  const Scalar reach = cut.nSigma * o2::gpu::CAMath::Sqrt(varR);
+  const Scalar low = o2::gpu::CAMath::Max(landing - reach, span.low);
+  const Scalar high = o2::gpu::CAMath::Min(straight + reach, span.high);
+  if (!(low <= high)) {
+    return false;
+  }
+  window.secondCentre = 0.5F * (low + high);
+  window.secondHalfWidth = 0.5F * (high - low);
+  const Scalar varPhi = (varR / (landing * landing)) + (source.varRPhi / (ri * ri));
+  window.phiHalfWidth = o2::gpu::CAMath::Min(kPi<Scalar>, turn + (cut.nSigma * o2::gpu::CAMath::Sqrt(varPhi)));
+  return true;
+}
+
 /// Generate every accepted outgoing tracklet of one source measurement.
 ///
 /// The call operator has the common StageOutput/CpuStage generator shape.
@@ -130,7 +228,11 @@ template <DetectorLayout Det>
 /// With \a Shape, the iteration's `shapeTest`: a candidate's line must cross
 /// both its measurements at a local slope in their slope intervals
 /// (ShapeCut.h), tested first.
-template <DetectorLayout Det, std::uint32_t VertexCapacity = 8U, bool BeamLine = false, bool Displaced = false, bool Shape = false>
+///
+/// With \a DiscWindow, on a prompt beam line only, the iteration's
+/// `discWindow`: a disc->disc query takes the source's own window
+/// (`discPairWindow`), and a candidate outside it is no tracklet.
+template <DetectorLayout Det, std::uint32_t VertexCapacity = 8U, bool BeamLine = false, bool Displaced = false, bool Shape = false, bool DiscWindow = false>
 class TrackletStage
 {
  public:
@@ -138,6 +240,7 @@ class TrackletStage
   static constexpr std::size_t kLayerCount = LayerRowMap<Det>::kLayerCount;
   static_assert(!BeamLine || VertexCapacity == 1U, "the beam line is one vertex");
   static_assert(!Displaced || BeamLine, "a displaced iteration pairs through the beam line");
+  static_assert(!DiscWindow || (BeamLine && !Displaced), "the disc windows per source are a prompt beam-line iteration's");
   // How many compatible vertices get their own interval. A source with more
   // takes the beam-spot window with every one of them tested; both windows
   // hold every vertex `vertexUsable` admits, so the tracklets do not depend on
@@ -164,6 +267,9 @@ class TrackletStage
     }
     if (Shape != parameters.shapeTest) {
       throw std::invalid_argument("the shape-testing tracklet stage serves exactly the iterations with shapeTest");
+    }
+    if (DiscWindow != parameters.discWindow) {
+      throw std::invalid_argument("the tracklet stage with disc windows per source serves exactly the iterations with discWindow");
     }
     if (parameters.vertexSource == VertexSource::kBeamLine) {
       mVertices = &beamLine;
@@ -287,7 +393,7 @@ class TrackletStage
     }
     const MeasurementView columns = mFrame->measurements();
     // Every query: the body never stops the walk, so whether it did says nothing.
-    static_cast<void>(forEachQuery(source, [&](const QueryContext& query) {
+    static_cast<void>(forEachQuery(source, cachedVertices, [&](const QueryContext& query) {
       // One candidate of the query, against the vertices' second-coordinate
       // \a intervals, or nullptr when the query took the whole window.
       const auto visitTarget = [&](const SecondRange* intervals) {
@@ -327,7 +433,7 @@ class TrackletStage
   {
     SourceContext source;
     CompatibleVertex cachedVertices[kVertexCapacity];
-    return prepare(sourceElement, source, cachedVertices) && forEachQuery(source, [](const QueryContext& /*query*/) { return true; });
+    return prepare(sourceElement, source, cachedVertices) && forEachQuery(source, cachedVertices, [](const QueryContext& /*query*/) { return true; });
   }
 
  private:
@@ -335,11 +441,11 @@ class TrackletStage
   /// (`prepareQuery`), in the links' order, until it returns true; whether
   /// it did.
   template <typename Body>
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool forEachQuery(const SourceContext& source, const Body& body) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool forEachQuery(const SourceContext& source, const CompatibleVertex* cachedVertices, const Body& body) const
   {
     for (auto at = mParameters->outLinkOffsets[source.at.layer]; at < mParameters->outLinkOffsets[static_cast<std::size_t>(source.at.layer) + 1U]; ++at) {
       QueryContext query;
-      if (prepareQuery(source, mParameters->outLinkIndices[at], query) && body(query)) {
+      if (prepareQuery(source, cachedVertices, mParameters->outLinkIndices[at], query) && body(query)) {
         return true;
       }
     }
@@ -399,7 +505,7 @@ class TrackletStage
 
   /// The query of \a source on link \a linkIndex in \a query: false when it
   /// makes none -- the source outside the link's reach, or no direct pair.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool prepareQuery(const SourceContext& source, std::size_t linkIndex, QueryContext& query) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool prepareQuery(const SourceContext& source, [[maybe_unused]] const CompatibleVertex* cachedVertices, std::size_t linkIndex, QueryContext& query) const
   {
     query.linkIndex = linkIndex;
     query.targetLayer = mParameters->linkTargets[linkIndex];
@@ -409,6 +515,11 @@ class TrackletStage
     query.holes = mParameters->holeLayers[linkIndex];
     const auto& at = source.point;
     query.window = candidateWindow(mParameters->windows[linkIndex], source.box, source.phi, at.r, at.z, mMaxCandidateWidthPS[query.targetLayer]);
+    if constexpr (DiscWindow) {
+      if (mParameters->windows[linkIndex].kind == PairKind::kDisc && !discPairWindow<Det>(*mParameters, query.targetLayer, at, cachedVertices[0].scattering, mParameters->betweenBound[linkIndex], mVertices[cachedVertices[0].vertexIndex].varTransverse, query.window)) {
+        return false;
+      }
+    }
     // In an iteration without skips, a source queries only the part of its
     // window a pair of it can reach without crossing another layer, and
     // nothing when there is none (LinkHoles.h); every pair is still tested.
@@ -470,6 +581,14 @@ class TrackletStage
   [[nodiscard]] GPUhdi() bool testCandidate(const SourceContext& source, const CompatibleVertex* cachedVertices, const BetweenSource<Det>& between, const QueryContext& query, const SecondRange* intervals, const Columns& columns, Index targetRow, const PairPoint& target) const
   {
     countLinkWork(query.linkIndex, LinkCounter::kCandidates);
+    // A disc->disc query's own window is part of the acceptance: tested here,
+    // on the query the walk stored, so that a device's count and fill walk
+    // the same cells and list the same candidates.
+    if constexpr (DiscWindow) {
+      if (mParameters->windows[query.linkIndex].kind == PairKind::kDisc && !spatiallyCompatible(query.window, columns.phi[targetRow], target.r)) {
+        return false;
+      }
+    }
     if constexpr (Shape) {
       if (!shapeAdmits(columns, source.at.row, source.point.x, source.point.y, source.point.z, target.x, target.y, target.z) || !shapeAdmits(columns, targetRow, source.point.x, source.point.y, source.point.z, target.x, target.y, target.z)) {
         countWork(WorkCounter::kTrackletShape);
@@ -692,9 +811,10 @@ class TrackletStage
 
 /// The tracklet stage a tracker runs for an iteration: the beam-line one
 /// for a beam-line iteration, its displaced one for a displaced iteration,
-/// the general one otherwise; each testing the shapes with \a Shape.
-template <DetectorLayout Det, bool BeamLine, bool Displaced = false, bool Shape = false>
-using TrackletStageFor = std::conditional_t<BeamLine, TrackletStage<Det, 1U, true, Displaced, Shape>, TrackletStage<Det, 8U, false, false, Shape>>;
+/// the general one otherwise; each testing the shapes with \a Shape, the
+/// prompt beam-line one with disc windows per source with \a DiscWindow.
+template <DetectorLayout Det, bool BeamLine, bool Displaced = false, bool Shape = false, bool DiscWindow = false>
+using TrackletStageFor = std::conditional_t<BeamLine, TrackletStage<Det, 1U, true, Displaced, Shape, DiscWindow>, TrackletStage<Det, 8U, false, false, Shape>>;
 
 /// \a body called with two `std::bool_constant`s: whether the iteration is a
 /// beam-line one (\a source), and whether it is displaced (\a displaced, on
@@ -714,6 +834,20 @@ template <typename Body>
 decltype(auto) withShapeTest(bool shapeTest, const Body& body)
 {
   return shapeTest ? body(std::true_type{}) : body(std::false_type{});
+}
+
+/// \a body called with a `std::bool_constant`: whether the iteration takes
+/// the disc windows per source (\a discWindow), the choice of the tracklet
+/// stage's DiscWindow; only where \a Possible, a prompt beam-line stage
+/// (`iterationParameters` refuses it elsewhere), host code.
+template <bool Possible, typename Body>
+decltype(auto) withDiscWindow(bool discWindow, const Body& body)
+{
+  if constexpr (Possible) {
+    return discWindow ? body(std::true_type{}) : body(std::false_type{});
+  } else {
+    return body(std::false_type{});
+  }
 }
 
 } // namespace o2::gtrk

@@ -195,6 +195,15 @@ struct IterationSettings {
   /// follow's updated direction (ShapeCut.h).
   /// False, the default, off.
   bool shapeTest = false;
+  /// Whether a beam-line iteration's disc->disc pairs are searched in a
+  /// window per source instead of the link's (`discPairWindow`), the window
+  /// then part of the pair's acceptance; false, the default, the link's.
+  bool discWindow = false;
+  /// With `discWindow`, the lowest momentum [GeV] of a disc->disc pair's
+  /// track, beside `windows.minPtGeV`: a source's direction from the beam
+  /// line turns it into a curvature bound and the momentum its scattering is
+  /// taken at; 0, the default, none.
+  double minPGeV = 0.;
 
   [[nodiscard]] bool operator==(const IterationSettings&) const = default;
 };
@@ -383,6 +392,11 @@ struct IterationParameters {
   /// overlap partners' stage (OverlapPartners.h). Last, so that no other
   /// member moves.
   bool overlapPartners = false;
+  /// `IterationSettings::discWindow`, read on the host only to choose the
+  /// tracklet stage's instantiation, and `minPGeV` [GeV], which its disc
+  /// windows read. After the others, so that none moves.
+  bool discWindow = false;
+  Scalar discWindowMinP = 0.F;
 };
 
 /// Whether an iteration uses \a vertex for a source with time box \a source:
@@ -497,6 +511,12 @@ template <DetectorLayout Det>
   if (settings.windows.impactMax > 0. && (settings.vertexSource != VertexSource::kBeamLine || !(settings.windows.impactZMax > 0.))) {
     throw std::invalid_argument("a displaced iteration (impactMax > 0) needs the beam line as its vertex and a z bound (impactZMax > 0)");
   }
+  if (settings.discWindow && (settings.vertexSource != VertexSource::kBeamLine || settings.windows.impactMax > 0.)) {
+    throw std::invalid_argument("the disc windows per source (discWindow) need a prompt beam-line iteration");
+  }
+  if (!(settings.minPGeV >= 0.) || !(settings.minPGeV < static_cast<double>(std::numeric_limits<Scalar>::max())) || (settings.minPGeV > 0. && !settings.discWindow)) {
+    throw std::invalid_argument("a minimum momentum (minPGeV) is non-negative and needs the disc windows per source (discWindow)");
+  }
   IterationParameters<Det> parameters;
   parameters.pairCut = pairCut(settings.windows);
   parameters.vertexSource = settings.vertexSource;
@@ -534,6 +554,8 @@ template <DetectorLayout Det>
   parameters.followHoles = static_cast<std::uint32_t>(std::max(settings.followHoles, 0));
   parameters.followEnd = settings.followEnd;
   parameters.overlapPartners = settings.overlapPartners;
+  parameters.discWindow = settings.discWindow;
+  parameters.discWindowMinP = static_cast<Scalar>(settings.minPGeV);
   if (settings.follow || settings.followEnd) {
     std::array<bool, nLinks<Det>> every{};
     every.fill(true);

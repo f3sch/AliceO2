@@ -219,6 +219,15 @@ struct RecoSettings {
   /// measurement's slope interval, which the measurement producer makes from
   /// its detector's calibrated band (ClusterShapeBand.h); 0, off, by default.
   std::vector<int> iterationShapeTest;
+  /// Whether each beam-line iteration searches its disc->disc pairs in a
+  /// window per source -- from the source's direction from the beam line,
+  /// the curvatures and momenta the iteration admits and the scattering at
+  /// them -- instead of the link's, the window then part of the pair's
+  /// acceptance (TrackletStage.h, `discPairWindow`); 0, off, by default.
+  std::vector<int> iterationDiscWindow;
+  /// With iterationDiscWindow, each iteration's lowest momentum [GeV] of a
+  /// disc->disc pair's track, beside its minimum pT; 0, none, by default.
+  std::vector<double> iterationMinPGeV;
   /// Each iteration's follow's end decisions on the last row's own update:
   /// inward, the sqrt|V| [cm^2]
   /// above which a last row at the layout's end is refused; outward, the

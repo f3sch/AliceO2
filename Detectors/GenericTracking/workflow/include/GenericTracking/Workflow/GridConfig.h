@@ -179,6 +179,8 @@ inline void checkRecoParam(const RecoSettings& param)
   check("iterationFollowKeepChi2", param.iterationFollowKeepChi2.size(), 1U);
   check("iterationFollowBeamEnd", param.iterationFollowBeamEnd.size(), 1U);
   check("iterationShapeTest", param.iterationShapeTest.size(), 1U);
+  check("iterationDiscWindow", param.iterationDiscWindow.size(), 1U);
+  check("iterationMinPGeV", param.iterationMinPGeV.size(), 1U);
   check("iterationFollowEndMaxSqrtDet", param.iterationFollowEndMaxSqrtDet.size(), 1U);
   check("iterationFollowKeepDensity", param.iterationFollowKeepDensity.size(), 1U);
   check("iterationFollowTrimMargin", param.iterationFollowTrimMargin.size(), 1U);
@@ -280,6 +282,8 @@ inline void checkRecoParam(const RecoSettings& param)
     .followEarlier = followEarlier,
     .sharedGraph = flag(param.iterationSharedGraph, defaults.sharedGraph),
     .shapeTest = flag(param.iterationShapeTest, defaults.shapeTest),
+    .discWindow = flag(param.iterationDiscWindow, defaults.discWindow),
+    .minPGeV = entryDouble(param.iterationMinPGeV, defaults.minPGeV),
   };
 }
 
