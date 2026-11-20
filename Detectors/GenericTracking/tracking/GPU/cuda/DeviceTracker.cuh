@@ -144,18 +144,19 @@ struct HasQuery {
   GPUdi() bool operator()(std::uint32_t source) const { return stage.hasQuery(source); }
 };
 
-/// The tracks holding at least \a minimum clusters: the length after the
-/// follow.
+/// The tracks whose refit succeeded and that the iteration keeps after the
+/// follow (`keptAfterFollow`).
 template <DetectorLayout Det>
 struct KeptAfterFollow {
   const IterationParameters<Det>* parameters = nullptr;
   const std::uint8_t* count = nullptr;
   const BoundTrackState* state = nullptr;
-  GPUdi() bool operator()(std::uint32_t track) const { return keptAfterFollow(*parameters, count[track], state[track]); }
+  const PropagationStatus* status = nullptr;
+  GPUdi() bool operator()(std::uint32_t track) const { return status[track] == PropagationStatus::kOk && keptAfterFollow(*parameters, count[track], state[track]); }
 };
 
 /// The kept tracks' rows in \a mask as \a after has them: the mask before the
-/// selection plus what the kept tracks hold, as the host's `dropShortTracks`
+/// selection plus what the kept tracks hold, as the host's `dropTracks`
 /// rebuilds it. Two kept tracks sharing a row store the same byte.
 template <std::size_t K>
 struct RestoreRows {
@@ -1384,16 +1385,16 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
       runFollow(mIteration, tracks, trackCount, false, proposals.data(), followRows, followCounts, selected.slots, rows, working, hostParameters.followEnd ? endStarts.data() : nullptr);
     }
 
-    // A length or a pT floor after the follow (the host:
-    // Tracker::dropShortTracks): the
-    // iteration's tracks below them dropped, the kept ones and their proposals compacted, and the mask
+    // The drop after the follow (the host: Tracker::dropTracks): the
+    // iteration's tracks whose refit failed or below a length or a pT floor
+    // after the follow dropped, the kept ones and their proposals compacted, and the mask
     // rebuilt as the one before the selection plus the kept tracks' rows as
-    // the follow left them.
+    // the follow left them. Any refit may fail, so it runs in every iteration.
     Index keptCount = trackCount;
-    if (dropsAfterFollow(hostParameters) && trackCount != 0U) {
+    if (trackCount != 0U) {
       auto scratch = mArena.scope(ArenaEnd::kScratch);
       DeviceSpan<Index> kept;
-      status = algorithms::selectIndices(*mRuntime, mArena, mStream, trackCount, tracker_detail::KeptAfterFollow<Det>{parameters, std::as_const(tracks).view().count, std::as_const(tracks).view().state}, kept, keptCount, ArenaEnd::kScratch);
+      status = algorithms::selectIndices(*mRuntime, mArena, mStream, trackCount, tracker_detail::KeptAfterFollow<Det>{parameters, std::as_const(tracks).view().count, std::as_const(tracks).view().state, std::as_const(tracks).view().status}, kept, keptCount, ArenaEnd::kScratch);
       ++report.readbacks;
       if (status != StageStatus::kComplete) {
         return status;

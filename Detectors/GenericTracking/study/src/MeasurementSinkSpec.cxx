@@ -3329,8 +3329,8 @@ class MeasurementSinkTask : public Task
 
   /// --compare-tracks: the tracking device's products of this timeframe
   /// (TrackerSpec.h) against this tracker's \a tracks and the own vertexer's
-  /// \a found (none without it): every record field by field, failed refits
-  /// included, every vertex and contributor count. One line per timeframe;
+  /// \a found (none without it): every record field by field, every vertex
+  /// and contributor count. One line per timeframe;
   /// the run fails on the first difference.
   static void compareWithDevice(ProcessingContext& pc, const TrackStore<Det>& tracks, const VertexerResult* found)
   {

@@ -166,11 +166,7 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
       }
     }
   }
-  std::size_t failed = 0U;
-  for (const auto& track : tracks) {
-    failed += track.status == PropagationStatus::kOk ? 0U : 1U;
-  }
-  LOGP(info, "{}: the timeframe at orbit {}: {} tracks ({} with a failed refit), {} vertices, {:.3f} s tracking, {:.3f} s vertexing", Det::name, orbit, tracks.size(), failed, vertices.size(), tracked.seconds, found.seconds);
+  LOGP(info, "{}: the timeframe at orbit {}: {} tracks, {} vertices, {:.3f} s tracking, {:.3f} s vertexing", Det::name, orbit, tracks.size(), vertices.size(), tracked.seconds, found.seconds);
 }
 
 /// At the end of the stream: the timeframes dropped, an error line.

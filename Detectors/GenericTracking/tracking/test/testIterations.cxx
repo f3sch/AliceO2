@@ -533,7 +533,7 @@ BOOST_AUTO_TEST_CASE(InnerSeedsFollowOverEveryLayerAndShortTracksGiveTheirRowsBa
     auto tracker = makeTracker(seeded({kWhole + 1, kWhole}));
     std::vector<std::size_t> observed;
     tracker->setIterationObserver([&](const Tracker<Det, UniformMaterial>&, const Tracker<Det, UniformMaterial>::IterationObservation& iteration) {
-      BOOST_TEST(iteration.tracks->size() == iteration.trackOffset + iteration.summary->tracks - iteration.summary->tracksDropped);
+      BOOST_TEST(iteration.tracks->size() == iteration.trackOffset + iteration.summary->tracks - iteration.summary->refitFailures - iteration.summary->tracksDropped);
       BOOST_TEST(iteration.proposals.size() == iteration.tracks->size() - iteration.trackOffset);
       observed.push_back(iteration.tracks->size());
     });

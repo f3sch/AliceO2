@@ -16,7 +16,7 @@
 /// The ITS's: ITS/TRACKS, TRACKCLSID, ITSTrackROF, VERTICES, VERTICESROF,
 /// IRFRAMES, with MC TRACKSMCTR, VERTICESMCTR, VERTICESMCPUR; the MFT's:
 /// MFT/TRACKS, TRACKCLSID, MFTTrackROF, with MC TRACKSMCTR; both META/<DET>TRACKER
-/// once. Records whose refit failed are left out. The parameters are the
+/// once. The parameters are the
 /// states' own (O2Parameters.h), the labels the study's rule (TrackLabel.h),
 /// a track's time and readout frame ITS's rule on its clusters' frames.
 
@@ -159,25 +159,17 @@ class AdaptorTask : public o2::framework::Task
     const auto frameRecords = input.streams()[clock].rofs;
     const double bz = nominalBzKiloGauss();
 
-    // The fitted tracks, in the tracker's order.
-    std::vector<std::uint32_t> fitted;
-    fitted.reserve(records.size());
-    for (std::uint32_t track = 0; track < records.size(); ++track) {
-      if (records[track].status == PropagationStatus::kOk) {
-        fitted.push_back(track);
-      }
-    }
     const auto layerOf = [&](std::uint32_t row) { return mGeometry->surface(input.cluster(clusterIndex[row]).getSensorID()).layer; };
     if constexpr (kITS) {
-      runITS(pc, records, exported, fitted, clusterIndex, frameRecords, frames, pixels, input, timings, clock, bz, orbit, layerOf);
+      runITS(pc, records, exported, clusterIndex, frameRecords, frames, pixels, input, timings, clock, bz, orbit, layerOf);
     } else {
-      runMFT(pc, records, exported, fitted, clusterIndex, frameRecords, frames, pixels, input, timings, clock, bz, orbit, layerOf);
+      runMFT(pc, records, exported, clusterIndex, frameRecords, frames, pixels, input, timings, clock, bz, orbit, layerOf);
     }
   }
 
  private:
   template <typename LayerOf>
-  void runITS(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, const adaptor::ExportRows& exported, std::span<const std::uint32_t> fitted, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const ITSMFTInput& input, std::span<const FrameTiming> timings, std::size_t clock, double bz, std::uint32_t orbit, const LayerOf& layerOf)
+  void runITS(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, const adaptor::ExportRows& exported, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const ITSMFTInput& input, std::span<const FrameTiming> timings, std::size_t clock, double bz, std::uint32_t orbit, const LayerOf& layerOf)
   {
     using o2::framework::Output;
     using AlpideParam = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>;
@@ -209,7 +201,7 @@ class AdaptorTask : public o2::framework::Task
 
     // A cluster in more than one track's innermost place: ITS's shared flag.
     std::vector<std::uint8_t> innermost(clusterIndex.empty() ? 0U : *std::ranges::max_element(clusterIndex) + 1U, 0U); // NOLINT(misc-const-correctness): written in a dependent call the check does not see
-    for (const auto track : fitted) {
+    for (std::uint32_t track = 0; track < records.size(); ++track) {
       auto& uses = innermost[clusterIndex[exported.of(track).front()]];
       uses = static_cast<std::uint8_t>(std::min(uses + 1, 2));
     }
@@ -221,10 +213,10 @@ class AdaptorTask : public o2::framework::Task
       std::int64_t frame = 0;
     };
     std::vector<Converted> converted;
-    converted.reserve(fitted.size());
+    converted.reserve(records.size());
     std::size_t turned = 0U;
     std::array<bool, TrackRefit<Det>::kMaxClusters> carried{};
-    for (const auto track : fitted) {
+    for (std::uint32_t track = 0; track < records.size(); ++track) {
       const auto& record = records[track];
       const auto rows = exported.of(track);
       auto* const geometry = o2::its::GeometryTGeo::Instance();
@@ -340,11 +332,11 @@ class AdaptorTask : public o2::framework::Task
       pc.outputs().make<std::vector<o2::MCCompLabel>>(Output{origin, "VERTICESMCTR", 0}, vertices.size());
       pc.outputs().make<std::vector<float>>(Output{origin, "VERTICESMCPUR", 0}, vertices.size(), 0.F);
     }
-    LOGP(info, "{}: the timeframe at orbit {}: {} tracks ({} failed refits left out, {} in a frame turned by pi), {} vertices, {} readout frames", Det::name, orbit, tracks.size(), records.size() - fitted.size(), turned, vertices.size(), trackROFs.size());
+    LOGP(info, "{}: the timeframe at orbit {}: {} tracks ({} in a frame turned by pi), {} vertices, {} readout frames", Det::name, orbit, tracks.size(), turned, vertices.size(), trackROFs.size());
   }
 
   template <typename LayerOf>
-  void runMFT(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, const adaptor::ExportRows& exported, std::span<const std::uint32_t> fitted, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const ITSMFTInput& input, std::span<const FrameTiming> timings, std::size_t clock, double bz, std::uint32_t orbit, const LayerOf& layerOf)
+  void runMFT(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, const adaptor::ExportRows& exported, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const ITSMFTInput& input, std::span<const FrameTiming> timings, std::size_t clock, double bz, std::uint32_t orbit, const LayerOf& layerOf)
   {
     using o2::framework::Output;
     const auto& origin = detectorOrigin<Det>();
@@ -369,10 +361,10 @@ class AdaptorTask : public o2::framework::Task
       std::uint32_t frame = 0;
     };
     std::vector<Converted> converted;
-    converted.reserve(fitted.size());
+    converted.reserve(records.size());
     std::size_t crossing = 0U;
     std::array<bool, TrackRefit<Det>::kMaxClusters> carried{};
-    for (const auto track : fitted) {
+    for (std::uint32_t track = 0; track < records.size(); ++track) {
       const auto& record = records[track];
       const auto rows = exported.of(track);
       auto& out = converted.emplace_back();
@@ -437,7 +429,7 @@ class AdaptorTask : public o2::framework::Task
         trackLabels.push_back(c.label);
       }
     }
-    LOGP(info, "{}: the timeframe at orbit {}: {} tracks ({} failed refits left out), {} readout frames; {}", Det::name, orbit, tracks.size(), records.size() - fitted.size(), trackROFs.size(),
+    LOGP(info, "{}: the timeframe at orbit {}: {} tracks, {} readout frames; {}", Det::name, orbit, tracks.size(), trackROFs.size(),
          mStaggered ? std::format("clock layer {}", clock) : std::format("{} across readout frames, timed by the earlier", crossing));
   }
 

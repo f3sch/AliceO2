@@ -125,7 +125,9 @@ class Tracker
     std::size_t mismatches = 0U; ///< duplicates that differ: must be none
     std::size_t rounds = 0U;
     std::size_t tracks = 0U;
-    std::size_t refitFailures = 0U; ///< selected tracks whose two-pass refit failed
+    /// Selected tracks whose two-pass refit failed, dropped after the follow
+    /// (which skips them); `tracks` counts them.
+    std::size_t refitFailures = 0U;
     /// The iteration's tracks its follow grew, and the rows it added outward
     /// and inward.
     std::size_t tracksFollowed = 0U;
@@ -725,11 +727,10 @@ class Tracker
       return;
     }
 
-    // With a length or a pT floor after the follow, the mask as the
-    // selection finds it.
-    const bool lengthCut = dropsAfterFollow(mIterations[iteration]);
-    if (lengthCut) {
-      const profile::Zone zone{Phase::kLengthCut};
+    {
+      const profile::Zone zone{Phase::kSelection};
+      // The mask as the selection finds it, for the drop after the follow:
+      // any selected track's refit may fail.
       summary.status = guardOutOfMemory([&] {
         // Overwritten whole: kept from iteration to iteration, copied in parallel.
         resizeBoundedVector(mUsedBeforeSelection, mUsed.size(), mMemoryPool.get());
@@ -739,9 +740,6 @@ class Tracker
       if (summary.status != StageStatus::kComplete) {
         return;
       }
-    }
-    {
-      const profile::Zone zone{Phase::kSelection};
       summary.status = mSelection.select(forEach, sort, mIterations[iteration].sharedInnermost, mUsed);
     }
     summary.records = mSelection.recordCount();
@@ -785,10 +783,10 @@ class Tracker
         }
       }
     }
-    if (lengthCut && summary.status == StageStatus::kComplete) {
+    if ((summary.refitFailures != 0U || dropsAfterFollow(mIterations[iteration])) && summary.status == StageStatus::kComplete) {
       const profile::Zone zone{Phase::kLengthCut};
       summary.status = guardOutOfMemory([&] {
-        summary.tracksDropped = dropShortTracks(mIterations[iteration], trackOffset, followed, started);
+        summary.tracksDropped = dropTracks(mIterations[iteration], trackOffset, followed, started) - summary.refitFailures;
         return StageStatus::kComplete;
       });
     }
@@ -859,15 +857,15 @@ class Tracker
     body();
   }
 
-  /// The tracks from \a trackOffset on that \a parameters do not keep after
-  /// the follow (`keptAfterFollow`: fewer clusters than its length after
-  /// it, or below its pT floor), dropped: the others keep their order, and their proposals with them when
+  /// The tracks from \a trackOffset on whose refit failed, and those that
+  /// \a parameters do not keep after the follow (`keptAfterFollow`: fewer
+  /// clusters than its length after it, or below its pT floor), dropped: the others keep their order, and their proposals with them when
   /// \a followed, and the follow's starting states when \a started kept
   /// them for an observer. The used mask becomes the one before the
   /// selection plus the rows of every kept track, marked as they are now: a dropped track's rows
   /// no kept one holds are free again, an earlier iteration's are untouched.
   /// Returns how many were dropped.
-  std::size_t dropShortTracks(const IterationParameters<Det>& parameters, std::uint32_t trackOffset, bool followed, bool started)
+  std::size_t dropTracks(const IterationParameters<Det>& parameters, std::uint32_t trackOffset, bool followed, bool started)
   {
     auto& tracks = mRefit.tracks();
     const auto view = std::as_const(tracks).view();
@@ -876,7 +874,7 @@ class Tracker
     const auto forEach = forEachIn(chunk);
     // The kept tracks, as offsets from trackOffset, in order (the serial
     // loop's result, in parallel).
-    host_algorithms::compactIndices(forEach, count, chunk, [&](Index track) { return keptAfterFollow(parameters, view.count[trackOffset + track], view.state[trackOffset + track]); }, mKeptTracks);
+    host_algorithms::compactIndices(forEach, count, chunk, [&](Index track) { return view.status[trackOffset + track] == PropagationStatus::kOk && keptAfterFollow(parameters, view.count[trackOffset + track], view.state[trackOffset + track]); }, mKeptTracks);
     const auto kept = static_cast<Index>(mKeptTracks.size());
     // Their rows as they are now; two kept tracks sharing a row write the same value.
     forEachIn(spreadChunk(kept))(kept, [&](Index at) {
@@ -1279,9 +1277,9 @@ class Tracker
   std::vector<BoundTrackState> mFollowEndState;
   SensorCells<Det> mSensorCells;
   BoundedVector<std::uint8_t> mUsed;
-  BoundedVector<std::uint8_t> mUsedBeforeSelection; ///< with a length after the follow (`dropShortTracks`)
-  BoundedVector<Index> mKeptTracks;                 ///< `dropShortTracks`' kept tracks
-  typename TrackRefit<Det>::Tracks mDropScratch;    ///< `dropShortTracks`' moved tracks
+  BoundedVector<std::uint8_t> mUsedBeforeSelection; ///< the mask as the selection found it (`dropTracks`)
+  BoundedVector<Index> mKeptTracks;                 ///< `dropTracks`' kept tracks
+  typename TrackRefit<Det>::Tracks mDropScratch;    ///< `dropTracks`' moved tracks
   BoundedVector<Index> mChangedTracks;              ///< `TrackStore::recommitChanged`'s scratch
   const TrackingGeometry<Det>* mGeometry = nullptr;
   const Material* mMaterial = nullptr;
