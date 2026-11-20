@@ -97,11 +97,11 @@ struct DecayDaughter {
 /// rows, the outermost first, as the fit walks them from its decay vertex
 /// against the momentum (`DecayVertexFitter`'s chains), any number of them.
 struct DecayMother {
-  int vertex = 0;                                    ///< the vertex it decayed at: the root's, or a charged composite's
-  std::span<const TrackingSurface> planes;           ///< the caller's storage, as the others
-  std::span<const Vec2D> positions;                  ///< loc0, loc1 [cm]
-  std::span<const Vec3D> covariance;                 ///< loc0, loc0 loc1, loc1 [cm^2]
-  Propagator propagator;                             ///< the field, with its mass
+  int vertex = 0;                          ///< the vertex it decayed at: the root's, or a charged composite's
+  std::span<const TrackingSurface> planes; ///< the caller's storage, as the others
+  std::span<const Vec2D> positions;        ///< loc0, loc1 [cm]
+  std::span<const Vec3D> covariance;       ///< loc0, loc0 loc1, loc1 [cm^2]
+  Propagator propagator;                   ///< the field, with its mass
 };
 
 /// A decay vertex fit's result.

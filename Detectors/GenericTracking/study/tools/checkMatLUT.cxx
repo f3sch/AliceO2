@@ -144,8 +144,8 @@ struct Step {
   int to = -1;
   Point a;
   Point b;
-  double turn = 0.;            ///< the circle's direction at b against the true one [rad]
-  Vec2D geo{};                 ///< x/X0, near and far half
+  double turn = 0.; ///< the circle's direction at b against the true one [rad]
+  Vec2D geo{};      ///< x/X0, near and far half
   Vec2D lut{};
   bool lastOfLeg = false;
 };
