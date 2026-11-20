@@ -33,6 +33,7 @@
 #include "GPUCommonMath.h"
 #include "MathUtils/detail/trigonometric.h"
 
+#include <cfloat>
 #include <cstdint>
 #include <type_traits>
 
@@ -479,6 +480,11 @@ GPUdi() void factorColumns(Scalar (&y)[kNBoundParams][M], const Scalar (&w)[M], 
     for (int k = 0; k < M; ++k) {
       weighted[k] = w[k] * y[j][k];
       d += y[j][k] * weighted[k];
+    }
+    // A pivot below the smallest normal float is a zero pivot, as flushing
+    // denormals to zero makes it: its reciprocal would overflow.
+    if (d < FLT_MIN) {
+      d = 0.F;
     }
     factors.diagonal[j] = d;
     const Scalar inverse = d > 0.F ? 1.F / d : 0.F;

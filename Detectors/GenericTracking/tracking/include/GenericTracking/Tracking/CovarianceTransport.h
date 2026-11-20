@@ -25,6 +25,7 @@
 
 #include "CommonConstants/MathConstants.h"
 
+#include <cfloat>
 #include <type_traits>
 
 namespace o2::gtrk
@@ -135,7 +136,7 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
   // theta: its row is 1 in columns 3, 6 and 8 and U's theta-q/p entry in 4.
   const Scalar weighted4 = thetaQOverP * w[kQOverP];
   const Scalar dTheta = w[kTheta] + (thetaQOverP * weighted4) + w[6] + w[8];
-  if (!(dTheta > 0.F)) {
+  if (!(dTheta >= FLT_MIN)) { // as the rows' pivots below
     return false;
   }
   factors.diagonal[kTheta] = dTheta;
@@ -157,7 +158,9 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
       weighted[k] = w[k] * y[j][k];
       dj += y[j][k] * weighted[k];
     }
-    if (!(dj > 0.F)) {
+    // Below the smallest normal float a pivot is zero, as flushing denormals
+    // to zero makes it: its reciprocal would overflow.
+    if (!(dj >= FLT_MIN)) {
       return false;
     }
     factors.diagonal[j] = dj;
