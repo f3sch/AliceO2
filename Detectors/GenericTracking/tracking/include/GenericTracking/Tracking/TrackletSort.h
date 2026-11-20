@@ -29,33 +29,49 @@
 #include "GenericTracking/Tracking/WorkCounters.h"
 
 #include "GPUCommonDef.h"
-#include "GPUCommonMath.h"
 
 #include <algorithm>
+#include <bit>
 #include <cstdint>
 #include <vector>
 
 namespace o2::gtrk
 {
 
+/// \a lambda as an unsigned key, the order of lambdas `trackletBefore`
+/// sorts by: the float's bits made monotonic (every bit flipped for a
+/// negative, the sign bit set otherwise). Zero and the denormals of both signs
+/// are first made +0, so that the order is the same whether the arithmetic
+/// flushes denormals to zero or not, and -0 and +0 tie. A lambda is never NaN
+/// (an atan2 of finite chords).
+[[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t trackletLambdaKey(Scalar lambda)
+{
+  auto bits = std::bit_cast<std::uint32_t>(lambda);
+  constexpr std::uint32_t kSign = 0x80000000U;
+  constexpr std::uint32_t kSmallestNormal = 0x00800000U;
+  if ((bits & ~kSign) < kSmallestNormal) {
+    bits = 0U;
+  }
+  return (bits & kSign) != 0U ? ~bits : (bits | kSign);
+}
+
 /// Whether a tracklet with key (\a link, \a lambda, \a target) sorts before one
-/// with the other key.
+/// with the other key, the lambdas compared as `trackletLambdaKey`s.
 ///
 /// Within one source the target fixes the target layer and so the link, and a
 /// query visits each row once, so no two tracklets of a source share a target.
 /// The key is therefore unique within a range: the sorted order does not
-/// depend on the algorithm or the backend, and equal lambdas -- -0 and +0
-/// among them -- are ordered by the target.
+/// depend on the algorithm or the backend, and equal lambdas are ordered by
+/// the target.
 [[nodiscard]] GPUhdi() GPUAlwaysInline() bool trackletBefore(std::uint16_t link, Scalar lambda, std::uint32_t target, std::uint16_t otherLink, Scalar otherLambda, std::uint32_t otherTarget)
 {
   if (link != otherLink) {
     return link < otherLink;
   }
-  if (lambda < otherLambda) {
-    return true;
-  }
-  if (otherLambda < lambda) {
-    return false;
+  const std::uint32_t key = trackletLambdaKey(lambda);
+  const std::uint32_t otherKey = trackletLambdaKey(otherLambda);
+  if (key != otherKey) {
+    return key < otherKey;
   }
   return target < otherTarget;
 }
@@ -86,27 +102,9 @@ GPUhdi() GPUAlwaysInline() void countSortSegment(std::uint32_t length)
   }
 }
 
-/// \a lambda as an unsigned key in `trackletBefore`'s order of lambdas: the
-/// float's bits made monotonic (every bit flipped for a negative, the sign bit
-/// set otherwise). Zero and the denormals of both signs are first made +0: `<`
-/// does not tell -0 from +0, and the trackers compare with denormals as zero --
-/// the host's processes start with MXCSR's DAZ and FTZ set, the devices compile
-/// with -ftz=true (CUDA) and -fgpu-flush-denormals-to-zero (HIP). A lambda is
-/// never NaN (an atan2 of finite chords).
-[[nodiscard]] GPUdi() std::uint32_t trackletLambdaKey(Scalar lambda)
-{
-  std::uint32_t bits = o2::gpu::CAMath::Float2UIntReint(lambda);
-  constexpr std::uint32_t kSign = 0x80000000U;
-  constexpr std::uint32_t kSmallestNormal = 0x00800000U;
-  if ((bits & ~kSign) < kSmallestNormal) {
-    bits = 0U;
-  }
-  return (bits & kSign) != 0U ? ~bits : (bits | kSign);
-}
-
 /// The link and lambda of a tracklet as one key in `trackletBefore`'s order,
 /// the target aside: the device sorts on it after a stable pass by target.
-[[nodiscard]] GPUdi() std::uint64_t trackletLinkLambdaKey(std::uint16_t link, Scalar lambda) { return (std::uint64_t{link} << 32U) | std::uint64_t{trackletLambdaKey(lambda)}; }
+[[nodiscard]] GPUhdi() std::uint64_t trackletLinkLambdaKey(std::uint16_t link, Scalar lambda) { return (std::uint64_t{link} << 32U) | std::uint64_t{trackletLambdaKey(lambda)}; }
 
 /// Sort the tracklets in [\a begin, \a end) of \a tracklets in place, on the
 /// host: `std::ranges::sort` over the

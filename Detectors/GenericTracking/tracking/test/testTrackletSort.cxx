@@ -26,6 +26,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cfloat>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -211,21 +213,20 @@ BOOST_AUTO_TEST_CASE(TheHostSortTakesOneLongSourceOfOneLambda)
   BOOST_TEST(std::ranges::equal(segment(output, 0U), expected, sameTracklet));
 }
 
-BOOST_AUTO_TEST_CASE(TheDeviceKeysOrderLikeTrackletBefore)
+BOOST_AUTO_TEST_CASE(TheKeysOrderLambdasWithDenormalsAsZero)
 {
   // Every pair of lambdas -- both zeros, the denormals, both signs, the
-  // range's ends, ties -- and links: the keys compare as `trackletBefore` does
-  // with the target aside, in a process that compares denormals as zero, as
-  // the trackers' do.
-  const volatile float denormal = -1.e-45F;
-  const volatile float negativeZero = -0.F;
-  BOOST_REQUIRE_MESSAGE(!(denormal < negativeZero), "this process compares denormals as zero (MXCSR DAZ)");
+  // range's ends, ties -- and links: the keys order the lambdas as their
+  // values do once the denormals are zero, whether or not this process
+  // flushes them, and the link-lambda keys as `trackletBefore` with the
+  // target aside.
+  const auto flushed = [](Scalar x) { return std::abs(x) < FLT_MIN ? 0.F : x; };
   const std::array<Scalar, 13> lambdas{-1.5707964F, -1.F, -0.25F, -1.e-30F, -1.e-45F, -0.F, 0.F, 1.e-45F, 1.e-30F, 0.25F, 0.5F, 1.F, 1.5707964F};
   const std::array<std::uint16_t, 3> links{0U, 1U, 11U};
   for (const Scalar a : lambdas) {
     for (const Scalar b : lambdas) {
-      BOOST_TEST((trackletLambdaKey(a) < trackletLambdaKey(b)) == (a < b), a << " " << b);
-      BOOST_TEST((trackletLambdaKey(a) == trackletLambdaKey(b)) == (!(a < b) && !(b < a)), a << " " << b);
+      BOOST_TEST((trackletLambdaKey(a) < trackletLambdaKey(b)) == (flushed(a) < flushed(b)), a << " " << b);
+      BOOST_TEST((trackletLambdaKey(a) == trackletLambdaKey(b)) == (flushed(a) == flushed(b)), a << " " << b);
       for (const std::uint16_t la : links) {
         for (const std::uint16_t lb : links) {
           const bool keyBefore = trackletLinkLambdaKey(la, a) < trackletLinkLambdaKey(lb, b);
