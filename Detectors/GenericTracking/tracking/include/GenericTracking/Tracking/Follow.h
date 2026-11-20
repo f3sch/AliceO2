@@ -1047,8 +1047,9 @@ class FollowStage
         --capacity;
       }
     }
-    proposal.outwardCount = walk(outer, PropagationDirection::kForward, proposal.outward, capacity, box, observe, std::numeric_limits<std::uint32_t>::max(), group);
-    walkInward(inner, rows.index[0], capacity - proposal.outwardCount, box, proposal, observe, group);
+    const std::uint64_t heldLayers = heldInactive(rows, count, proposal);
+    proposal.outwardCount = walk(outer, PropagationDirection::kForward, proposal.outward, capacity, box, heldLayers, observe, std::numeric_limits<std::uint32_t>::max(), group);
+    walkInward(inner, rows.index[0], capacity - proposal.outwardCount, box, heldLayers, proposal, observe, group);
   }
 
   /// The free rows of \a layer passing the nominal gate from \a state, its
@@ -1092,12 +1093,12 @@ class FollowStage
 
   /// The walk inward after the outward one, from \a inner (`inwardStart`)
   /// over \a capacity rows at most, where the stage follows inward and rows
-  /// are left.
+  /// are left; \a heldLayers as `walk`'s.
   template <typename Observer, typename Group>
-  GPUhdi() GPUAlwaysInline() void walkInward(const BoundTrackState& inner, std::uint32_t innermostRow, std::uint32_t capacity, TimeEstPS& box, Proposal& proposal, const Observer& observe, const Group& group) const
+  GPUhdi() GPUAlwaysInline() void walkInward(const BoundTrackState& inner, std::uint32_t innermostRow, std::uint32_t capacity, TimeEstPS& box, std::uint64_t heldLayers, Proposal& proposal, const Observer& observe, const Group& group) const
   {
     if (mInward && capacity != 0U) {
-      proposal.inwardCount = walk(inwardStart(inner, innermostRow), PropagationDirection::kBackward, proposal.inward, capacity, box, observe, std::numeric_limits<std::uint32_t>::max(), group);
+      proposal.inwardCount = walk(inwardStart(inner, innermostRow), PropagationDirection::kBackward, proposal.inward, capacity, box, heldLayers, observe, std::numeric_limits<std::uint32_t>::max(), group);
     }
   }
 
@@ -1113,7 +1114,8 @@ class FollowStage
     const std::uint32_t capacity = mParameters->follow ? static_cast<std::uint32_t>(kMaxClusters) - (count - 1U) : 1U;
     auto box = trackTimeBox(mFrame->measurements(), rows, static_cast<std::uint8_t>(count - 1U));
     std::uint32_t walked[kMaxClusters];
-    const std::uint8_t taken = walk(start, PropagationDirection::kForward, walked, capacity, box, observe, end, group);
+    const std::uint64_t heldLayers = heldInactive(rows, count - 1U, proposal);
+    const std::uint8_t taken = walk(start, PropagationDirection::kForward, walked, capacity, box, heldLayers, observe, end, group);
     if (taken == 0U) {
       return false;
     }
@@ -1130,7 +1132,7 @@ class FollowStage
     }
     proposal.outwardCount = static_cast<std::uint8_t>(taken - first);
     const std::uint32_t held = count - (replaced ? 1U : 0U) + proposal.outwardCount;
-    walkInward(inner, rows.index[0], mParameters->follow && held < kMaxClusters ? static_cast<std::uint32_t>(kMaxClusters) - held : 0U, box, proposal, observe, group);
+    walkInward(inner, rows.index[0], mParameters->follow && held < kMaxClusters ? static_cast<std::uint32_t>(kMaxClusters) - held : 0U, box, heldLayers, proposal, observe, group);
     return true;
   }
 
@@ -1161,7 +1163,7 @@ class FollowStage
   /// searches take as free (with
   /// \a DecidesEnd); how many rows. The lanes of \a group walk it together.
   template <typename Observer, typename Group = SoloGroup>
-  GPUhdi() GPUAlwaysInline() std::uint8_t walk(const BoundTrackState& start, PropagationDirection direction, std::uint32_t* rows, std::uint32_t capacity, TimeEstPS& box, const Observer& observe, std::uint32_t own = std::numeric_limits<std::uint32_t>::max(), const Group& group = {}) const
+  GPUhdi() GPUAlwaysInline() std::uint8_t walk(const BoundTrackState& start, PropagationDirection direction, std::uint32_t* rows, std::uint32_t capacity, TimeEstPS& box, std::uint64_t heldLayers, const Observer& observe, std::uint32_t own = std::numeric_limits<std::uint32_t>::max(), const Group& group = {}) const
   {
     observe.begin(direction);
     Branch branch;
@@ -1260,7 +1262,7 @@ class FollowStage
         while (branch.count < capacity) {
           Child child;
           bool nearTail = false;
-          if (!inactiveLayerTail(branch, box, direction, child, nearTail, observe, group)) {
+          if (!inactiveLayerTail(branch, heldLayers, box, direction, child, nearTail, observe, group)) {
             break;
           }
           observe.taken(child.row, child.chi2);
@@ -1458,6 +1460,25 @@ class FollowStage
     return false;
   }
 
+  /// The inactive layers (\a Det's `inactiveLayers`) \a rows' first \a count
+  /// and \a proposal's interior row lie on: a walk's tail adds no row there.
+  [[nodiscard]] GPUhdi() std::uint64_t heldInactive(const ClusterList<kMaxClusters>& rows, std::uint32_t count, const Proposal& proposal) const
+  {
+    std::uint64_t held = 0U;
+    if constexpr (Detector<Det>::inactiveLayers != 0U) {
+      const auto& measurements = mFrame->measurements();
+      const auto add = [&](std::uint32_t row) { held |= std::uint64_t{1} << mGeometry->surface(measurements.surface[row]).layer; };
+      for (std::uint32_t i = 0; i < count; ++i) {
+        add(rows.index[i]);
+      }
+      if (proposal.interior != ClusterList<kMaxClusters>::kNoCluster) {
+        add(proposal.interior);
+      }
+      held &= Detector<Det>::inactiveLayers;
+    }
+    return held;
+  }
+
   /// The interior row: the first inactive layer between two
   /// consecutive rows of the track, \a rows' i and i + 1 -- a link from the
   /// first's layer onto it, and one from it onto the second's -- which a road
@@ -1465,10 +1486,10 @@ class FollowStage
   /// track's forward pass cut at row i (its first i + 1 rows, at least
   /// three), or else its inward pass from \a outer, its outward state, cut at
   /// row i + 1 (at least three rows), a nominal step onto it, with the
-  /// track's time \a box: of the
-  /// free rows it passes (the four best), the one whose insertion raises the
-  /// track's fit chi2 least, under the layer's gate, goes into \a proposal
-  /// before row i + 1 and narrows \a box. Whether one did.
+  /// track's time \a box: the free row with the best predicted chi2 in the
+  /// gate, as the follow takes a row, goes into \a proposal before row i + 1
+  /// and narrows \a box where the track's fit with it raises the chi2 by no
+  /// more than the gate. Whether one did.
   [[nodiscard]] GPUhdi() bool interior(const BoundTrackState& outer, const ClusterList<kMaxClusters>& rows, std::uint32_t count, TimeEstPS& box, Proposal& proposal) const
   {
     const auto& measurements = mFrame->measurements();
@@ -1520,45 +1541,27 @@ class FollowStage
         if (!targetWindow(state, factors, box, target, direction, window, reach, traversed, SoloGroup{})) {
           return false;
         }
-        constexpr std::uint32_t kKept = 4U;
-        std::uint32_t candidates[kKept];
-        Scalar chi2s[kKept];
-        std::uint32_t n = 0U;
+        // The row the follow would take there: the best predicted chi2 in
+        // the gate, kept where the track's fit with it raises its chi2 by no
+        // more than the gate.
+        std::uint32_t best = ClusterList<kMaxClusters>::kNoCluster;
+        Scalar bestChi2 = 0.F;
         follow::visitInline<false, false, false, Shape>(
           context(), state, factors, 0.F, 0.F, layer, direction, window, traversed, 0U, WorkCounter::kFollowUpdates, SoloGroup{}, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},
           [&](const auto& candidate) {
-            std::uint32_t slot = n < kKept ? n++ : kKept;
-            if (slot == kKept && !(candidate.chi2 < chi2s[kKept - 1U])) {
-              return;
+            if (best == ClusterList<kMaxClusters>::kNoCluster || candidate.chi2 < bestChi2) {
+              best = candidate.row;
+              bestChi2 = candidate.chi2;
             }
-            slot = slot == kKept ? kKept - 1U : slot;
-            while (slot > 0U && candidate.chi2 < chi2s[slot - 1U]) {
-              candidates[slot] = candidates[slot - 1U];
-              chi2s[slot] = chi2s[slot - 1U];
-              --slot;
-            }
-            candidates[slot] = candidate.row;
-            chi2s[slot] = candidate.chi2;
           });
-        if (n == 0U) {
+        if (best == ClusterList<kMaxClusters>::kNoCluster) {
           return false;
         }
         const auto budget = kinkBudget(*mParameters);
         const auto plain = fitMeasurements(mPropagator, *mGeometry, *mMaterial, chain, static_cast<int>(count), budget);
-        if (plain.status != PropagationStatus::kOk) {
-          return false;
-        }
-        std::uint32_t best = ClusterList<kMaxClusters>::kNoCluster;
-        Scalar bestDelta = mParameters->clusterChi2Max;
-        for (std::uint32_t c = 0; c < n; ++c) {
-          const follow::InsertedChain<Det> with{.frame = mFrame, .rows = rows.index, .at = i + 1U, .row = candidates[c]};
-          const auto fit = fitMeasurements(mPropagator, *mGeometry, *mMaterial, with, static_cast<int>(count + 1U), budget);
-          if (fit.status == PropagationStatus::kOk && fit.chi2 - plain.chi2 <= bestDelta) {
-            bestDelta = fit.chi2 - plain.chi2;
-            best = candidates[c];
-          }
-        }
-        if (best == ClusterList<kMaxClusters>::kNoCluster) {
+        const follow::InsertedChain<Det> with{.frame = mFrame, .rows = rows.index, .at = i + 1U, .row = best};
+        const auto fit = fitMeasurements(mPropagator, *mGeometry, *mMaterial, with, static_cast<int>(count + 1U), budget);
+        if (plain.status != PropagationStatus::kOk || fit.status != PropagationStatus::kOk || fit.chi2 - plain.chi2 > mParameters->clusterChi2Max) {
           return false;
         }
         proposal.interior = best;
@@ -1571,11 +1574,12 @@ class FollowStage
   }
 
   /// The inactive layers' tail of \a branch's walk (\a Det's
-  /// `inactiveLayers`): the inactive layers it holds no row on and its state
-  /// crosses ahead, nearest first, searched as a nominal step is
-  /// (`nominal`), the holes not counted. Whether it found a row, into \a child.
+  /// `inactiveLayers`): the inactive layers neither it nor the track
+  /// (\a heldLayers, `heldInactive`) holds a row on and its state crosses
+  /// ahead, nearest first, searched as a nominal step is (`nominal`), the
+  /// holes not counted. Whether it found a row, into \a child.
   template <typename Observer, typename Group>
-  [[nodiscard]] GPUhdi() bool inactiveLayerTail(Branch& branch, const TimeEstPS& box, PropagationDirection direction, Child& child, bool& nearMiss, const Observer& observe, const Group& group) const
+  [[nodiscard]] GPUhdi() bool inactiveLayerTail(Branch& branch, std::uint64_t heldLayers, const TimeEstPS& box, PropagationDirection direction, Child& child, bool& nearMiss, const Observer& observe, const Group& group) const
   {
     follow::Target targets[follow::maxDegree<Det>];
     std::uint32_t nTargets = 0U;
@@ -1584,7 +1588,7 @@ class FollowStage
     surfaceToGlobal(from, branch.state.loc0(), branch.state.loc1(), here);
     for (std::uint64_t left = Detector<Det>::inactiveLayers; left != 0U && nTargets < follow::maxDegree<Det>; left &= left - 1U) {
       const auto layer = static_cast<LayerID>(o2::gpu::CAMath::Ctz64(left));
-      bool held = mGeometry->surface(branch.state.surface).layer == layer;
+      bool held = ((heldLayers >> layer) & 1U) != 0U || mGeometry->surface(branch.state.surface).layer == layer;
       for (std::uint32_t i = 0; i < branch.count; ++i) {
         held = held || mGeometry->surface(mFrame->measurements().surface[branch.rows[i]]).layer == layer;
       }
@@ -2060,34 +2064,47 @@ struct Refit {
   /// `Prefix`'s second chance: the combined rows are the inward ones
   /// innermost first, the track's, the outward ones; a prefix of \a outward
   /// outward and \a inward inward rows is the track's rows with the first
-  /// of each. Whether one was kept, its counts then the proposal's.
+  /// of each. With an interior row (`FollowStage::interior`) the prefixes
+  /// with it come first, then those without it, the whole walk's among them.
+  /// Whether one was kept, its counts (and interior row) then the proposal's.
   GPUhdi() GPUAlwaysInline() bool keepPrefix(std::uint32_t element, std::uint32_t track, FollowProposal<kMaxClusters>& proposal, std::uint8_t count) const
   {
     const auto outwardAdded = static_cast<std::uint32_t>(proposal.outwardCount);
     const auto inwardAdded = static_cast<std::uint32_t>(proposal.inwardCount);
+    const bool interior = proposal.interior != ClusterList<kMaxClusters>::kNoCluster;
     const std::uint32_t kept = count - outwardAdded - inwardAdded;
     const auto& combined = rows[element];
-    for (std::uint32_t length = outwardAdded + inwardAdded; length-- > 1U;) {
-      const auto outward = length < outwardAdded ? length : outwardAdded;
-      const auto inward = length - outward;
-      ClusterList<kMaxClusters> prefix{};
-      std::uint32_t n = 0U;
-      for (std::uint32_t i = inward; i-- > 0U;) {
-        prefix.index[n++] = proposal.inward[i];
+    for (int pass = 0; pass < (interior ? 2 : 1); ++pass) {
+      const bool withInterior = pass == 0;
+      // The interior row's place among the combined rows, skipped without it.
+      const std::uint32_t skip = withInterior ? count : inwardAdded + proposal.interiorAt;
+      for (std::uint32_t length = outwardAdded + inwardAdded + (withInterior ? 0U : 1U); length-- > 1U;) {
+        const auto outward = length < outwardAdded ? length : outwardAdded;
+        const auto inward = length - outward;
+        ClusterList<kMaxClusters> prefix{};
+        std::uint32_t n = 0U;
+        for (std::uint32_t i = inward; i-- > 0U;) {
+          prefix.index[n++] = proposal.inward[i];
+        }
+        for (std::uint32_t i = 0; i < kept; ++i) {
+          if (inwardAdded + i != skip) {
+            prefix.index[n++] = combined.index[inwardAdded + i];
+          }
+        }
+        for (std::uint32_t i = 0; i < outward; ++i) {
+          prefix.index[n++] = proposal.outward[i];
+        }
+        if (!accept(track, prefix, static_cast<std::uint8_t>(n), static_cast<std::uint8_t>(outward), static_cast<std::uint8_t>(inward))) {
+          continue;
+        }
+        countWork(earlier ? WorkCounter::kFollowEarlierRefitRejected : WorkCounter::kFollowRefitRejected, outwardAdded + inwardAdded - length + (interior && !withInterior ? 1U : 0U));
+        proposal.outwardCount = static_cast<std::uint8_t>(outward);
+        proposal.inwardCount = static_cast<std::uint8_t>(inward);
+        if (!withInterior) {
+          proposal.interior = ClusterList<kMaxClusters>::kNoCluster;
+        }
+        return true;
       }
-      for (std::uint32_t i = 0; i < kept; ++i) {
-        prefix.index[n++] = combined.index[inwardAdded + i];
-      }
-      for (std::uint32_t i = 0; i < outward; ++i) {
-        prefix.index[n++] = proposal.outward[i];
-      }
-      if (!accept(track, prefix, static_cast<std::uint8_t>(n), static_cast<std::uint8_t>(outward), static_cast<std::uint8_t>(inward))) {
-        continue;
-      }
-      countWork(earlier ? WorkCounter::kFollowEarlierRefitRejected : WorkCounter::kFollowRefitRejected, outwardAdded + inwardAdded - length);
-      proposal.outwardCount = static_cast<std::uint8_t>(outward);
-      proposal.inwardCount = static_cast<std::uint8_t>(inward);
-      return true;
     }
     return false;
   }
