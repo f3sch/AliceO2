@@ -39,6 +39,7 @@
 #include "GenericTracking/Study/Digest.h"
 #include "GenericTracking/Study/MCTruth.h"
 #include "GenericTracking/Study/MCVertexReaderSpec.h"
+#include "GenericTracking/Study/OptionText.h"
 #include "GenericTracking/Study/ProfileReport.h"
 #include "GenericTracking/Study/StageFunnel.h"
 #include "GenericTracking/Study/StateTruth.h"
@@ -2964,12 +2965,8 @@ class MeasurementSinkTask : public Task
         LOGP(fatal, "--truth-study needs the MC truth and its hits");
       }
       std::vector<TruthStudySpec> specs;
-      for (std::size_t begin = 0; begin <= studies.size();) {
-        const auto end = std::min(studies.find(',', begin), studies.size());
-        if (end > begin) {
-          specs.push_back(parseTruthStudy(std::string_view{studies}.substr(begin, end - begin)));
-        }
-        begin = end + 1U;
+      for (const auto study : splitList(studies, ',')) {
+        specs.push_back(parseTruthStudy(study));
       }
       mTruthStudies.emplace(specs, parseChainSelection(ic.options().get<std::string>("truth-select")));
       mStudyArena = std::make_unique<o2::gtrk::detail::TaskArena>();

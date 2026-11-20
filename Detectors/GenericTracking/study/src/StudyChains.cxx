@@ -11,9 +11,9 @@
 
 #include "GenericTracking/Study/StudyChains.h"
 
+#include "GenericTracking/Study/OptionText.h"
 #include "GenericTracking/Study/TruthStudies.h"
 
-#include <charconv>
 #include <cmath>
 #include <cstdlib>
 #include <limits>
@@ -24,33 +24,15 @@ namespace o2::gtrk::study
 namespace
 {
 
-/// \a text split at \a separator, empty pieces left out.
-std::vector<std::string_view> split(std::string_view text, char separator)
-{
-  std::vector<std::string_view> pieces;
-  while (!text.empty()) {
-    const auto at = text.find(separator);
-    const auto piece = text.substr(0, at);
-    if (!piece.empty()) {
-      pieces.push_back(piece);
-    }
-    if (at == std::string_view::npos) {
-      break;
-    }
-    text.remove_prefix(at + 1U);
-  }
-  return pieces;
-}
-
+/// \a value of \a key as a number; throws std::invalid_argument otherwise.
 template <typename T>
 T number(std::string_view key, std::string_view value)
 {
-  T result{};
-  const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), result);
-  if (error != std::errc{} || end != value.data() + value.size()) {
+  const auto result = parseNumber<T>(value);
+  if (!result) {
     throw std::invalid_argument(std::format("truth selection: {}={} is not a number", key, value));
   }
-  return result;
+  return *result;
 }
 
 } // namespace
@@ -58,7 +40,7 @@ T number(std::string_view key, std::string_view value)
 ChainSelection parseChainSelection(std::string_view text)
 {
   ChainSelection selection;
-  for (const auto item : split(text, ';')) {
+  for (const auto item : splitList(text, ';')) {
     const auto equals = item.find('=');
     const auto key = item.substr(0, equals);
     const auto value = equals == std::string_view::npos ? std::string_view{} : item.substr(equals + 1U);
@@ -71,7 +53,7 @@ ChainSelection parseChainSelection(std::string_view text)
     }
     if (key == "origins") {
       selection.origins = 0U;
-      for (const auto origin : split(value, '+')) {
+      for (const auto origin : splitList(value, '+')) {
         const auto bit = origin == "primary" ? ParticleOrigin::kPhysicalPrimary : origin == "decay"    ? ParticleOrigin::kDecay
                                                                                 : origin == "material" ? ParticleOrigin::kMaterial
                                                                                                        : ParticleOrigin::kCount;
@@ -81,7 +63,7 @@ ChainSelection parseChainSelection(std::string_view text)
         selection.origins |= 1U << static_cast<unsigned>(bit);
       }
     } else if (key == "pdg") {
-      for (const auto code : split(value, '+')) {
+      for (const auto code : splitList(value, '+')) {
         const auto pdg = number<std::int64_t>(key, code);
         if (pdg == 0 || std::abs(pdg) > std::numeric_limits<std::int32_t>::max()) {
           throw std::invalid_argument(std::format("truth selection: pdg {} is no PDG code", code));
