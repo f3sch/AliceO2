@@ -1031,7 +1031,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     StageStatus status = withTrackletVertices(hostParameters.vertexSource, hostParameters.impactMax > 0.F, [&](auto beamLineOnly, auto displaced) {
       return withShapeTest(hostParameters.shapeTest, [&](auto shape) {
         constexpr bool prompt = decltype(beamLineOnly)::value && !decltype(displaced)::value;
-        return withDiscWindow<prompt>(hostParameters.discWindow, [&](auto discWindow) {
+        return withDiscWindow<prompt>(hostParameters.discWindowMinP > 0.F, [&](auto discWindow) {
           const TrackletStageFor<Det, decltype(beamLineOnly)::value, decltype(displaced)::value, decltype(shape)::value, decltype(discWindow)::value> stage{hostParameters, slicePlan.sources, *mHostFrame, inputs.targetBlocks, mPlan->beamLine, mPlan->vertices, inputs.maxCandidateWidthPS, mPlan->vertexWindows[iteration], nullptr, inputs.gate};
           const auto bound = stage.bind({
             .parameters = parameters,

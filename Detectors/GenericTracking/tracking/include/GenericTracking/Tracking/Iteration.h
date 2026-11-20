@@ -195,14 +195,13 @@ struct IterationSettings {
   /// follow's updated direction (ShapeCut.h).
   /// False, the default, off.
   bool shapeTest = false;
-  /// Whether a beam-line iteration's disc->disc pairs are searched in a
-  /// window per source instead of the link's (`discPairWindow`), the window
-  /// then part of the pair's acceptance; false, the default, the link's.
-  bool discWindow = false;
-  /// With `discWindow`, the lowest momentum [GeV] of a disc->disc pair's
-  /// track, beside `windows.minPtGeV`: a source's direction from the beam
-  /// line turns it into a curvature bound and the momentum its scattering is
-  /// taken at; 0, the default, none.
+  /// The lowest momentum [GeV] of a disc->disc pair's track, beside
+  /// `windows.minPtGeV`; above 0, on a prompt beam line only, the iteration
+  /// searches its disc->disc pairs in a window per source instead of the
+  /// link's (`discPairWindow`), the window then part of the pair's acceptance:
+  /// a source's direction from the beam line turns the floor into a curvature
+  /// bound and the momentum the window's scattering is taken at. 0, the
+  /// default, none: the link's window.
   double minPGeV = 0.;
 
   [[nodiscard]] bool operator==(const IterationSettings&) const = default;
@@ -244,6 +243,31 @@ template <DetectorLayout Det>
   const double azimuth = std::min(phiHalfWidth, kPi<double>);
   const double chordMax = std::sqrt((radialMax * radialMax) + (2. * fromHigh * toHigh * (1. - std::cos(azimuth))));
   return {.lengthMin = narrowedLength, .chordMax = conservativeScalarBound(chordMax)};
+}
+
+/// A layer's resolution as its sensor defines it: a row's position spread
+/// over a pixel, pitch^2 / 12, along each of the layer's directions [cm^2] --
+/// the azimuth, the second coordinate (z on a barrel, r on a disc) and the
+/// normal (r on a barrel, z on a disc: the silicon's thickness). A disc's
+/// sensors lie at any angle in its plane, so both its in-plane directions
+/// take the larger pitch.
+struct LayerResolution {
+  Scalar varRPhi = 0.F;
+  Scalar varSecond = 0.F;
+  Scalar varNormal = 0.F;
+};
+
+template <DetectorLayout Det>
+[[nodiscard]] inline LayerResolution layerResolution(LayerID layer)
+{
+  const auto& sensor = Detector<Det>::sensor(layer);
+  const auto spread = [](double width) { return static_cast<Scalar>(width * width / 12.); };
+  const double thickness = 2. * sensor.halfThickness;
+  if (Detector<Det>::isBarrelLayer(layer)) {
+    return {.varRPhi = spread(sensor.pitchX), .varSecond = spread(sensor.pitchY), .varNormal = spread(thickness)};
+  }
+  const double pitch = std::max(sensor.pitchX, sensor.pitchY);
+  return {.varRPhi = spread(pitch), .varSecond = spread(pitch), .varNormal = spread(thickness)};
 }
 
 /// Everything one iteration's kernels read.
@@ -392,11 +416,12 @@ struct IterationParameters {
   /// overlap partners' stage (OverlapPartners.h). Last, so that no other
   /// member moves.
   bool overlapPartners = false;
-  /// `IterationSettings::discWindow`, read on the host only to choose the
-  /// tracklet stage's instantiation, and `minPGeV` [GeV], which its disc
-  /// windows read. After the others, so that none moves.
-  bool discWindow = false;
+  /// `IterationSettings::minPGeV` [GeV]: above 0 the tracklet stage's disc
+  /// windows per source (the host chooses its instantiation by it), which
+  /// read it, and every layer's resolution, which they read too
+  /// (`layerResolution`). After the others, so that none moves.
   Scalar discWindowMinP = 0.F;
+  LayerResolution layerResolutions[kLayerCount]{};
 };
 
 /// Whether an iteration uses \a vertex for a source with time box \a source:
@@ -511,11 +536,11 @@ template <DetectorLayout Det>
   if (settings.windows.impactMax > 0. && (settings.vertexSource != VertexSource::kBeamLine || !(settings.windows.impactZMax > 0.))) {
     throw std::invalid_argument("a displaced iteration (impactMax > 0) needs the beam line as its vertex and a z bound (impactZMax > 0)");
   }
-  if (settings.discWindow && (settings.vertexSource != VertexSource::kBeamLine || settings.windows.impactMax > 0.)) {
-    throw std::invalid_argument("the disc windows per source (discWindow) need a prompt beam-line iteration");
+  if (!(settings.minPGeV >= 0.) || !(settings.minPGeV < static_cast<double>(std::numeric_limits<Scalar>::max()))) {
+    throw std::invalid_argument("a minimum momentum (minPGeV) is a non-negative number");
   }
-  if (!(settings.minPGeV >= 0.) || !(settings.minPGeV < static_cast<double>(std::numeric_limits<Scalar>::max())) || (settings.minPGeV > 0. && !settings.discWindow)) {
-    throw std::invalid_argument("a minimum momentum (minPGeV) is non-negative and needs the disc windows per source (discWindow)");
+  if (settings.minPGeV > 0. && (settings.vertexSource != VertexSource::kBeamLine || settings.windows.impactMax > 0.)) {
+    throw std::invalid_argument("a minimum momentum (minPGeV, the disc windows per source) needs a prompt beam-line iteration");
   }
   IterationParameters<Det> parameters;
   parameters.pairCut = pairCut(settings.windows);
@@ -554,8 +579,10 @@ template <DetectorLayout Det>
   parameters.followHoles = static_cast<std::uint32_t>(std::max(settings.followHoles, 0));
   parameters.followEnd = settings.followEnd;
   parameters.overlapPartners = settings.overlapPartners;
-  parameters.discWindow = settings.discWindow;
   parameters.discWindowMinP = static_cast<Scalar>(settings.minPGeV);
+  for (std::size_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
+    parameters.layerResolutions[layer] = layerResolution<Det>(static_cast<LayerID>(layer));
+  }
   if (settings.follow || settings.followEnd) {
     std::array<bool, nLinks<Det>> every{};
     every.fill(true);

@@ -191,12 +191,13 @@ class CompleteAnatomy
     kGraphPairTurning,
     kGraphPairCurvature,
     kGraphPairLongitudinal,
-    kGraphPairWindow, ///< the target outside the cells the source's query visits
-    kGraphPairHole,   ///< no direct pair: the segment crosses another layer's silicon (LinkHoles.h)
+    kGraphPairWindow,       ///< the target outside the cells the source's query visits
+    kGraphPairSourceWindow, ///< the target outside the source's own disc window (`discPairWindow`)
+    kGraphPairHole,         ///< no direct pair: the segment crosses another layer's silicon (LinkHoles.h)
     kGraphPasses,
     kGraphReasons
   };
-  static constexpr std::array<const char*, kGraphReasons> kGraphNames{"triplet: dip window", "triplet: time", "triplet: curvature", "triplet: fit failed", "triplet: fit chi2", "triplet: own-momentum chi2", "neighbour: both triplets kinked", "neighbour: curvature agreement", "neighbour: time", "neighbour: fit failed", "neighbour: fit chi2", "link: source outside its z range", "link: not taken by the iteration", "start: the chain's innermost row on a layer roads may not start on", "pair: time", "pair: turning point", "pair: curvature", "pair: longitudinal", "pair: outside the query's cells", "pair: crosses another layer", "every predicate passes"};
+  static constexpr std::array<const char*, kGraphReasons> kGraphNames{"triplet: dip window", "triplet: time", "triplet: curvature", "triplet: fit failed", "triplet: fit chi2", "triplet: own-momentum chi2", "neighbour: both triplets kinked", "neighbour: curvature agreement", "neighbour: time", "neighbour: fit failed", "neighbour: fit chi2", "link: source outside its z range", "link: not taken by the iteration", "start: the chain's innermost row on a layer roads may not start on", "pair: time", "pair: turning point", "pair: curvature", "pair: longitudinal", "pair: outside the query's cells", "pair: outside the source's disc window", "pair: crosses another layer", "every predicate passes"};
 
   /// The class restricted to a species and optionally the QA's findable.
   struct ClassCuts {
@@ -7535,6 +7536,9 @@ class CompleteAnatomy
         case study::PairLoss::kWindow:
           pairRefused("outside the cells", link);
           return kGraphPairWindow;
+        case study::PairLoss::kSourceWindow:
+          pairRefused("outside the source's disc window", link);
+          return kGraphPairSourceWindow;
         case study::PairLoss::kHole:
           pairRefused(pair.emptyDirectRange ? "no direct part" : "crosses another layer", link);
           return kGraphPairHole;

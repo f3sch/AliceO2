@@ -113,7 +113,7 @@ template <DetectorLayout Det>
   return displaced::displacedPairWithin<Scalar>(source.x, source.y, source.z, target.x, target.y, target.z, errors, parameters.pairCut.nSigma, parameters.pairCut.maxCurvature, parameters.impactMax, centre - parameters.impactZMax, centre + parameters.impactZMax);
 }
 
-/// A disc->disc pair's window per source (`IterationSettings::discWindow`):
+/// A disc->disc pair's window per source (`IterationSettings::minPGeV`):
 /// the target radii and azimuths a track from the beam line through
 /// \a source can reach on target disc \a to, in place of the link's window,
 /// which holds every source of the disc at once.
@@ -129,7 +129,8 @@ template <DetectorLayout Det>
 /// widen by n sigma of the scattering the pair test takes
 /// (`addLongitudinalPairTerms`: the source's \a scattering and the link's
 /// \a betweenBound, at pT_min along the source's direction), carried to the
-/// momentum the floors admit, and of the two points' resolutions.
+/// momentum the floors admit, and of the two points' resolutions: the
+/// source's own, the target layer's from its sensors (`layerResolution`).
 /// False where no target radius is left; \a window as it was where the
 /// source does not lie beyond the beam spot's reach towards the target.
 /// The pair tests keep their pT_min bounds: the floor narrows the window,
@@ -190,13 +191,24 @@ template <DetectorLayout Det>
     const Scalar p2 = o2::gpu::CAMath::Max(minP * minP, ptMin2 * g2);
     scale = o2::gpu::CAMath::Min(1.F, taken * (p2 + cut.mass2) / (p2 * p2));
   }
+  // The collinearity's variance (`addLongitudinalPairTerms`) at its largest
+  // arcs: the scattering, rescaled, and the two points' z, the source's own
+  // and the target layer's (its sensors' thickness); a change of D moves the
+  // target's r by it over |z_i - z_v|.
+  const auto& targetResolution = parameters.layerResolutions[to];
   const Scalar arcSource = ri / sincLow;
-  const Scalar arcGap = (rhoHigh - 1.F) * arcSource;
+  const Scalar arcTarget = rhoHigh * arcSource;
+  const Scalar arcGap = arcTarget - arcSource;
   const Scalar dz = tHigh - zi;
   const Scalar leverSource = zi - vLow;
-  const Scalar varD = ((arcGap * arcGap) + (dz * dz)) * scattering + ((arcSource * arcSource) + (leverSource * leverSource)) * betweenBound;
+  const Scalar varScattered = scale * (((arcGap * arcGap) + (dz * dz)) * scattering + ((arcSource * arcSource) + (leverSource * leverSource)) * betweenBound);
+  const Scalar varDepth = (arcTarget * arcTarget * source.varZ) + (arcSource * arcSource * targetResolution.varNormal);
   const Scalar lever = zi - vHigh;
-  const Scalar varR = (scale * varD / (lever * lever)) + (((rhoHigh * rhoHigh) + 1.F) * source.varR) + (rhoHigh * rhoHigh * varTransverse);
+  // Moved alike in r and along r-phi: the scattering and the beam's width.
+  const Scalar varMoved = ((varScattered + varDepth) / (lever * lever)) + (rhoHigh * rhoHigh * varTransverse);
+  // Each point's own resolution: the source's measured, carried by rho, the
+  // target layer's from its sensors.
+  const Scalar varR = varMoved + (rhoHigh * rhoHigh * source.varR) + targetResolution.varSecond;
   const Scalar reach = cut.nSigma * o2::gpu::CAMath::Sqrt(varR);
   const Scalar low = o2::gpu::CAMath::Max(landing - reach, span.low);
   const Scalar high = o2::gpu::CAMath::Min(straight + reach, span.high);
@@ -205,7 +217,7 @@ template <DetectorLayout Det>
   }
   window.secondCentre = 0.5F * (low + high);
   window.secondHalfWidth = 0.5F * (high - low);
-  const Scalar varPhi = (varR / (landing * landing)) + (source.varRPhi / (ri * ri));
+  const Scalar varPhi = ((varMoved + targetResolution.varRPhi) / (landing * landing)) + (source.varRPhi / (ri * ri));
   window.phiHalfWidth = o2::gpu::CAMath::Min(kPi<Scalar>, turn + (cut.nSigma * o2::gpu::CAMath::Sqrt(varPhi)));
   return true;
 }
@@ -229,8 +241,8 @@ template <DetectorLayout Det>
 /// both its measurements at a local slope in their slope intervals
 /// (ShapeCut.h), tested first.
 ///
-/// With \a DiscWindow, on a prompt beam line only, the iteration's
-/// `discWindow`: a disc->disc query takes the source's own window
+/// With \a DiscWindow, on a prompt beam line only, an iteration with a
+/// minimum momentum (`minPGeV`): a disc->disc query takes the source's own window
 /// (`discPairWindow`), and a candidate outside it is no tracklet.
 template <DetectorLayout Det, std::uint32_t VertexCapacity = 8U, bool BeamLine = false, bool Displaced = false, bool Shape = false, bool DiscWindow = false>
 class TrackletStage
@@ -268,8 +280,8 @@ class TrackletStage
     if (Shape != parameters.shapeTest) {
       throw std::invalid_argument("the shape-testing tracklet stage serves exactly the iterations with shapeTest");
     }
-    if (DiscWindow != parameters.discWindow) {
-      throw std::invalid_argument("the tracklet stage with disc windows per source serves exactly the iterations with discWindow");
+    if (DiscWindow != (parameters.discWindowMinP > 0.F)) {
+      throw std::invalid_argument("the tracklet stage with disc windows per source serves exactly the iterations with a minimum momentum");
     }
     if (parameters.vertexSource == VertexSource::kBeamLine) {
       mVertices = &beamLine;
@@ -837,7 +849,7 @@ decltype(auto) withShapeTest(bool shapeTest, const Body& body)
 }
 
 /// \a body called with a `std::bool_constant`: whether the iteration takes
-/// the disc windows per source (\a discWindow), the choice of the tracklet
+/// the disc windows per source (\a discWindow, its minimum momentum above 0), the choice of the tracklet
 /// stage's DiscWindow; only where \a Possible, a prompt beam-line stage
 /// (`iterationParameters` refuses it elsewhere), host code.
 template <bool Possible, typename Body>

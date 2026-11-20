@@ -537,7 +537,7 @@ class Tracker
     if (!(graphSigma(previous) <= 1.) || !(graphSigma(settings) > 1.)) {
       fail("it needs a kink allowance, and the previous one none");
     }
-    const auto graph = [](const IterationSettings& one) { return std::tie(one.windows, one.vertexSource, one.minClusters, one.skipLinks, one.layerMask, one.roadEndLayers, one.roadStartLayers, one.minPtGeVByClusters, one.shapeTest, one.discWindow, one.minPGeV); };
+    const auto graph = [](const IterationSettings& one) { return std::tie(one.windows, one.vertexSource, one.minClusters, one.skipLinks, one.layerMask, one.roadEndLayers, one.roadStartLayers, one.minPtGeVByClusters, one.shapeTest, one.minPGeV); };
     if (graph(settings) != graph(previous)) {
       fail("its graph settings differ from the previous one's");
     }
@@ -970,7 +970,7 @@ class Tracker
         result = withTrackletVertices(parameters.vertexSource, parameters.impactMax > 0.F, [&](auto beamLineOnly, auto displaced) {
           return withShapeTest(parameters.shapeTest, [&](auto shape) {
             constexpr bool prompt = decltype(beamLineOnly)::value && !decltype(displaced)::value;
-            return withDiscWindow<prompt>(parameters.discWindow, [&](auto discWindow) {
+            return withDiscWindow<prompt>(parameters.discWindowMinP > 0.F, [&](auto discWindow) {
               const auto stage = trackletStage<decltype(beamLineOnly)::value, decltype(displaced)::value, decltype(shape)::value, decltype(discWindow)::value>(mTrackletInputs, frame, beamLine, vertices, vertexWindows);
               setup.reset();
               return mTrackletStage.run(mScratch.tracklets(), mChunkSize, stage);

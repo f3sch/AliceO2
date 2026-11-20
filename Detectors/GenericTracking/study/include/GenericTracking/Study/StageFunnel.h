@@ -111,14 +111,15 @@ enum class PairLoss : std::uint8_t { kLinkNotTaken,
                                      kCurvature,
                                      kLongitudinal,
                                      kWindow,
+                                     kSourceWindow,
                                      kHole,
                                      kElsewhere,
                                      kCount };
 inline constexpr std::size_t kPairLosses = static_cast<std::size_t>(PairLoss::kCount);
-inline constexpr std::array<const char*, kPairLosses> kPairLossNames{"link not taken", "used", "source interval", "time", "turning point", "curvature below pT_min", "curvature above pT_min", "longitudinal", "outside the query's cells", "crosses another layer", "window or slicing"};
+inline constexpr std::array<const char*, kPairLosses> kPairLossNames{"link not taken", "used", "source interval", "time", "turning point", "curvature below pT_min", "curvature above pT_min", "longitudinal", "outside the query's cells", "outside the source's disc window", "crosses another layer", "window or slicing"};
 
 /// The losses the pair cut itself gives (pairCutLoss), in its order.
-inline constexpr std::array<PairLoss, 8> kPairCutLosses{PairLoss::kSourceInterval, PairLoss::kTime, PairLoss::kTurning, PairLoss::kCurvature, PairLoss::kLongitudinal, PairLoss::kWindow, PairLoss::kHole, PairLoss::kElsewhere};
+inline constexpr std::array<PairLoss, 9> kPairCutLosses{PairLoss::kSourceInterval, PairLoss::kTime, PairLoss::kTurning, PairLoss::kCurvature, PairLoss::kLongitudinal, PairLoss::kWindow, PairLoss::kSourceWindow, PairLoss::kHole, PairLoss::kElsewhere};
 
 /// The pair cut on a pair of rows on \a link from \a vertex: the first test the
 /// tracklet stage applies that it fails -- the source interval, time, the
@@ -126,8 +127,9 @@ inline constexpr std::array<PairLoss, 8> kPairCutLosses{PairLoss::kSourceInterva
 /// passes them all; and the spatial terms as far as they were evaluated. In a
 /// displaced iteration the curvature is the displaced test's transverse part
 /// (its own turning point included) and the longitudinal its z; no terms.
-/// Includes the query's cells and direct-pair rule; the stage's used,
-/// shape and bound tests are not replayed.
+/// Includes the query's cells, the source's own disc window where the
+/// iteration takes it (`discPairWindow`), and the direct-pair rule; the
+/// stage's used, shape and bound tests are not replayed.
 struct PairCutVerdict {
   PairLoss loss = PairLoss::kElsewhere;
   PairTerms terms{};
@@ -156,6 +158,13 @@ template <DetectorLayout Det>
   // Only this target's membership matters: its width gives the same spatial
   // cells and suffices for the temporal extent of a compatible pair.
   auto window = candidateWindow(parameters.windows[link], timeBox(sourceMeasurement), sourceMeasurement.phi, source.r, source.z, timeBox(targetMeasurement).width);
+  // The tracklet stage's disc window per source, an iteration with a minimum
+  // momentum: the query's window, and part of the acceptance.
+  const bool discWindow = parameters.discWindowMinP > 0.F && parameters.impactMax == 0.F && parameters.windows[link].kind == PairKind::kDisc;
+  if (discWindow && !discPairWindow<Det>(parameters, to, source, sourceScattering<Det>(parameters.scattering, parameters.pairCut, vertex, from, source), parameters.betweenBound[link], vertex.varTransverse, window)) {
+    verdict.loss = PairLoss::kSourceWindow;
+    return verdict;
+  }
   const auto unclipped = window;
   const auto holes = parameters.holeLayers[link];
   if (holes != 0U) {
@@ -185,6 +194,10 @@ template <DetectorLayout Det>
     // Outside the query only for its clip to the direct part: the pair
     // crosses another layer's envelope, not the window.
     verdict.loss = holes != 0U && visited(unclipped) ? PairLoss::kHole : PairLoss::kWindow;
+    return verdict;
+  }
+  if (discWindow && !spatiallyCompatible(window, targetMeasurement.phi, target.r)) {
+    verdict.loss = holes != 0U && spatiallyCompatible(unclipped, targetMeasurement.phi, target.r) ? PairLoss::kHole : PairLoss::kSourceWindow;
     return verdict;
   }
   const auto directPair = [&] {

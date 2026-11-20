@@ -234,6 +234,9 @@ struct Detector {
     return Layout::passives[index];
   }
 
+  /// A layer's sensor.
+  [[nodiscard]] static constexpr const SensorSpec& sensor(LayerID layer) { return isBarrelLayer(layer) ? Layout::barrelLayers[layer].sensor : Layout::discLayers[discIndex(layer)].sensor; }
+
   /// A layer's stated sensor count.
   [[nodiscard]] static constexpr int sensorCount(LayerID layer) { return isBarrelLayer(layer) ? Layout::barrelLayers[layer].sensorCount : Layout::discLayers[discIndex(layer)].sensorCount; }
 };
