@@ -121,7 +121,7 @@ struct TRKFT3TOF {
     {.sensorCount = 1864, .sensor = trkft3::kChip},
     {.sensorCount = 1864, .sensor = trkft3::kChip},
   }};
-  static constexpr std::array<LayerLink, 170> layerLinks{{
+  static constexpr std::array<LayerLink, 173> layerLinks{{
     {.from = 0, .to = 1, .sourceMin = -21.42, .sourceMax = 21.42, .skipsLayer = false}, // 0.9664
     {.from = 0, .to = 3, .sourceMin = -21.75, .sourceMax = 21.75, .skipsLayer = false}, // 0.0041
     {.from = 0, .to = 14, .sourceMin = -22.64, .sourceMax = -18.67, .skipsLayer = false}, // 0.0023
@@ -289,6 +289,9 @@ struct TRKFT3TOF {
     {.from = 21, .to = 22, .sourceMin = 12.06, .sourceMax = 35.17, .skipsLayer = false}, // 0.6962
     {.from = 21, .to = 23, .sourceMin = 9.90, .sourceMax = 35.16, .skipsLayer = false}, // 0.1845
     {.from = 21, .to = 24, .sourceMin = 9.51, .sourceMax = 35.05, .skipsLayer = false}, // 0.1193
+    {.from = 22, .to = 12, .sourceMin = 36.91, .sourceMax = 71.13, .skipsLayer = false}, // 0.0563
+    {.from = 23, .to = 12, .sourceMin = 45.30, .sourceMax = 71.14, .skipsLayer = false}, // 0.0630
+    {.from = 24, .to = 12, .sourceMin = 56.58, .sourceMax = 71.14, .skipsLayer = false}, // 1.0000
     {.from = 22, .to = 23, .sourceMin = 15.18, .sourceMax = 68.75, .skipsLayer = false}, // 0.9588
     {.from = 22, .to = 24, .sourceMin = 15.18, .sourceMax = 63.29, .skipsLayer = true}, // 0.0412
     {.from = 23, .to = 24, .sourceMin = 15.18, .sourceMax = 68.29, .skipsLayer = false}, // 1.0000
