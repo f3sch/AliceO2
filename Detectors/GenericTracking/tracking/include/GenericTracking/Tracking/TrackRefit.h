@@ -144,9 +144,8 @@ class TrackRefitElement
     const auto& rows = mClusters[record];
     const std::uint8_t count = mCount[record];
     // The road fit ran the outward pass already and kept its end state. The
-    // inward pass walks the LUT (`ExactMaterial`): its state is the output.
-    const detail::ExactMaterial<Material> exact{.lut = mMaterial};
-    const auto fit = fitInward(mPropagator, *mGeometry, exact, RowChain<Det>{.frame = mFrame, .rows = rows.index}, static_cast<int>(count), mOutward[record], mKinks);
+    // inward pass, on the link material as every fit: its state is the output.
+    const auto fit = fitInward(mPropagator, *mGeometry, *mMaterial, RowChain<Det>{.frame = mFrame, .rows = rows.index}, static_cast<int>(count), mOutward[record], mKinks);
     writeFit(mTracks, track, fit, rows, count, trackTimeBox(mFrame->measurements(), rows, count));
     mTracks.outwardChi2[track] = mOutwardChi2[record];
     mTracks.iteration[track] = mIteration;
