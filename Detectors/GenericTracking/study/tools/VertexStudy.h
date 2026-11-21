@@ -953,12 +953,12 @@ class VertexStudy
   /// The transverse one: the circle's signed distance to the axis over the
   /// variance its own Jacobian gives -- by finite differences, the points'
   /// r-phi errors, and each barrel scatterer inside the third point (the
-  /// layers and the passives the line crosses) as an azimuthal kick that
+  /// layers' bands and the gaps the line crosses) as an azimuthal kick that
   /// moves the points beyond it by kick (r_i - r_s) across the track -- and
   /// the beam's transverse spread.
   /// The r-z one: the dip angle's kink at the middle point over the points'
   /// z errors, each chord with its own derivative, and the kink's scattering
-  /// (`tripletScattering`: the middle point's layer and the passives
+  /// (`tripletScattering`: the middle point's band and the gaps
   /// between) rescaled from the floor's 1/(beta p)^2 to the triplet's.
   struct TripletPulls {
     double dca = 0.;

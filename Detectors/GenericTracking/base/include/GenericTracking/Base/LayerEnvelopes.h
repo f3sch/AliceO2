@@ -136,6 +136,21 @@ using PlacedEnvelopes = PlacedLayers<Det, LayerEnvelope>;
 template <DetectorLayout Det>
 using PlacedSensorSpecs = PlacedLayers<Det, SensorSpec>;
 
+/// A layer's material band along its depth -- the radius on a barrel layer,
+/// the signed z on a disc [cm]: the extent of the volumes that hold the
+/// layer's sensors and none of another layer's (its staves with their
+/// supports, cooling and cables), the sensors' envelope within it. Measured
+/// from the geometry by the material LUT's builder (alice::materialBands),
+/// which makes each barrel layer's band a run of the LUT's shells of its own;
+/// the link material reads it back from the LUT (LinkMaterialFill.h).
+struct LayerBand {
+  double low = 0.;
+  double high = 0.;
+};
+
+/// One line per layer, for a log; layers numbered barrel first.
+[[nodiscard]] std::string describeBands(std::span<const LayerBand> bands, int nBarrelLayers);
+
 } // namespace o2::gtrk
 
 #endif // GTRK_BASE_LAYERENVELOPES_H_

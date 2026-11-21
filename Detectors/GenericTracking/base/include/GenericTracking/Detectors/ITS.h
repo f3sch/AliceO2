@@ -71,8 +71,6 @@ struct ITS {
   // NOLINTEND(modernize-use-std-numbers)
   // clang-format on
   static constexpr std::array<PlacedLayerSpec, 0> discLayers{};
-  /// O2's beryllium pipe, inside the first layer.
-  static constexpr std::array<PassiveSpec, 1> passives{kAliceBerylliumPipe};
   static constexpr int nSensors = countSensors(barrelLayers, discLayers);
 };
 

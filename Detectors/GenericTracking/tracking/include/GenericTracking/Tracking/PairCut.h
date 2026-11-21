@@ -345,8 +345,13 @@ template <DetectorLayout Det>
   const auto& axis = material.layerSecond[from];
   const double s0 = axis.low + (s / axis.perUnit);
   const double s1 = axis.low + ((s + 1) / axis.perUnit);
-  const double d0 = barrel ? radiusMin<Det>(from) : zMin<Det>(from);
-  const double d1 = barrel ? radiusMax<Det>(from) : zMax<Det>(from);
+  // The band's faces (LinkMaterial::layerDepth holds them unsigned).
+  const auto& depth = material.layerDepth[from];
+  const double inner = depth.low;
+  const double outer = depth.low + (1. / depth.perUnit);
+  const bool forward = barrel || PlacedEnvelopes<Det>::get(from).position > 0.;
+  const double d0 = forward ? inner : -outer;
+  const double d1 = forward ? outer : -inner;
   double largest = 0.;
   for (const double second : {s0, s1}) {
     for (const double depth : {d0, d1}) {

@@ -56,7 +56,6 @@
 #include <iostream>
 #include <limits>
 #include <optional>
-#include <random>
 #include <string>
 #include <vector>
 
@@ -115,147 +114,6 @@ double checkTRKPixels(std::span<const Sensor> sensors)
     }
   }
   return worst;
-}
-
-/// One passive scatterer per gap between consecutive barrel layers, and one
-/// between the beam line and the first,
-/// measured from the loaded geometry: its band the gap between the layers'
-/// chips, their sensors' metal stacks included (`tools::withStacks`), its
-/// extent along z the outer layer's, its x/X0 the
-/// gap's material at normal incidence, averaged over azimuth and z, and its
-/// radius that material's x/X0-weighted mean radius. Read along radial
-/// segments at random azimuths and z (a fixed seed): some of the material is
-/// thin radial walls and structures that end along z, which a regular grid
-/// hits by aliasing. The x/X0 across the whole gap at kSamples points, the
-/// radius in steps of kStep at kStepSamples. Printed as the `passives` table
-/// of the layout.
-template <DetectorLayout Det>
-void printPassives(const Geometry<Det>& geometry)
-{
-  constexpr int kSamples = 65536;
-  constexpr double kStep = 0.01; // [cm]
-  constexpr int kStepSamples = 2048;
-  const auto budget = [](double r0, double r1, double phi, double z) { return static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{r0 * std::cos(phi), r0 * std::sin(phi), z}, o2::math_utils::Point3D<double>{r1 * std::cos(phi), r1 * std::sin(phi), z}).meanX2X0); };
-  std::mt19937 rng(20261007);
-  std::uniform_real_distribution<double> uniformPhi(0., kTwoPi<double>);
-  const auto envelopes = PlacedEnvelopes<Det>::all();
-  // The TRK's chips carry a metal stack beyond the silicon; the others' layers end at it.
-  std::vector<LayerEnvelope> chips(envelopes.begin(), envelopes.end());
-  if constexpr (std::same_as<Det, detectors::TRKFT3>) {
-    const auto specs = Geometry<Det>::layoutSpecs();
-    chips = tools::withStacks(envelopes, geometry.sensors(), specs, tools::trkStackThickness(geometry.sensors(), specs, Detector<Det>::nBarrelLayers));
-  }
-  std::cout << std::format(
-                 "\n// Measured by o2-gtrk-import-geometry --passives: one below each barrel layer, the first from the beam line, its\n"
-                 "// x/X0 across the gap at {} random azimuths and z, its radius the x/X0-weighted mean of {} cm steps at {}.\n",
-                 kSamples, kStep, kStepSamples)
-            << std::format("  static constexpr std::array<PassiveSpec, {}> passives{{{{\n", Detector<Det>::nBarrelLayers);
-  for (int layer = 0; layer < Detector<Det>::nBarrelLayers; ++layer) {
-    const auto& outer = envelopes[static_cast<std::size_t>(layer)];
-    const double low = layer == 0 ? 0. : chips[static_cast<std::size_t>(layer - 1)].rMax;
-    const double high = chips[static_cast<std::size_t>(layer)].rMin;
-    const double zMax = std::max(std::abs(outer.zMin), std::abs(outer.zMax));
-    std::uniform_real_distribution<double> uniformZ(-zMax, zMax);
-    double total = 0.;
-    for (int sample = 0; sample < kSamples; ++sample) {
-      total += budget(low, high, uniformPhi(rng), uniformZ(rng));
-    }
-    double sum = 0.;
-    double weighted = 0.;
-    const auto steps = static_cast<int>(std::ceil((high - low) / kStep));
-    for (int sample = 0; sample < kStepSamples; ++sample) {
-      const double phi = uniformPhi(rng);
-      const double z = uniformZ(rng);
-      for (int step = 0; step < steps; ++step) {
-        const double r = low + (step * kStep);
-        const double r1 = std::min(r + kStep, high);
-        const double x = budget(r, r1, phi, z);
-        sum += x;
-        weighted += x * 0.5 * (r + r1);
-      }
-    }
-    const double position = sum > 0. ? weighted / sum : 0.5 * (low + high);
-    std::cout << std::format(
-      "    {{.kind = PassiveSpec::Kind::kBarrel, .position = {:.4f}, .bandLow = {:.4f}, .bandHigh = {:.4f}, .low = {:.2f}, .high = {:.2f}, "
-      ".x2X0 = {:.3e}}},\n",
-      position, low, high, -zMax, zMax, total / kSamples);
-  }
-  std::cout << "  }};\n";
-}
-
-/// The material forward of the barrel, where the barrel's passive cylinders
-/// do not reach (the material the disc passes' seeds cross): between consecutive z
-/// boundaries of the layout on one side -- the barrel layers' ends and the
-/// discs' faces -- and in radial bands between the barrel layers' radii, the
-/// x/X0 along z at random (r, phi) in the band, its mean and its x/X0-weighted
-/// mean z. Printed as a table, from which disc-kind passives are drawn.
-template <DetectorLayout Det>
-void printForwardMaterial(int side)
-{
-  constexpr int kSamples = 1024;
-  constexpr double kStep = 0.05; // [cm]
-  const auto budget = [](double r, double phi, double z0, double z1) { return static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{r * std::cos(phi), r * std::sin(phi), z0}, o2::math_utils::Point3D<double>{r * std::cos(phi), r * std::sin(phi), z1}).meanX2X0); };
-  std::mt19937 rng(20261022);
-  std::uniform_real_distribution<double> uniformPhi(0., kTwoPi<double>);
-  const auto envelopes = PlacedEnvelopes<Det>::all();
-  std::vector<double> boundaries;
-  std::vector<double> radii{0.};
-  for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
-    const auto& envelope = envelopes[static_cast<std::size_t>(layer)];
-    if (layer < Detector<Det>::nBarrelLayers) {
-      boundaries.push_back(std::max(std::abs(envelope.zMin), std::abs(envelope.zMax)));
-      radii.push_back(envelope.rMin);
-      radii.push_back(envelope.rMax);
-    } else if ((side > 0 && envelope.zMin > 0.) || (side < 0 && envelope.zMax < 0.)) {
-      boundaries.push_back(std::abs(envelope.zMin));
-      boundaries.push_back(std::abs(envelope.zMax));
-    }
-  }
-  std::ranges::sort(boundaries);
-  std::ranges::sort(radii);
-  boundaries.erase(std::ranges::unique(boundaries).begin(), boundaries.end());
-  radii.erase(std::ranges::unique(radii).begin(), radii.end());
-  std::cout << std::format(
-    "\nforward material on the {} side, x/X0 along z across each gap between the layout's z boundaries, in radial bands [cm]: "
-    "mean x/X0 [%], its x/X0-weighted mean |z| ({} rays a cell)\n",
-    side > 0 ? "+z" : "-z", kSamples);
-  std::string header = "  |z| gap        ";
-  for (std::size_t band = 0; band + 1U < radii.size(); ++band) {
-    header += std::format(" | r {:5.1f}-{:5.1f}", radii[band], radii[band + 1U]);
-  }
-  std::cout << header << '\n';
-  for (std::size_t gap = 0; gap + 1U < boundaries.size(); ++gap) {
-    const double z0 = boundaries[gap];
-    const double z1 = boundaries[gap + 1U];
-    if (z1 - z0 < 0.2) {
-      continue; // a layer's own thickness
-    }
-    std::string line = std::format("  {:6.1f}-{:6.1f}", z0, z1);
-    for (std::size_t band = 0; band + 1U < radii.size(); ++band) {
-      std::uniform_real_distribution<double> uniformR(radii[band], radii[band + 1U]);
-      double total = 0.;
-      double sum = 0.;
-      double weighted = 0.;
-      const auto steps = static_cast<int>(std::ceil((z1 - z0) / kStep));
-      for (int sample = 0; sample < kSamples; ++sample) {
-        const double r = uniformR(rng);
-        const double phi = uniformPhi(rng);
-        total += budget(r, phi, side * z0, side * z1);
-        if (sample < kSamples / 8) {
-          for (int step = 0; step < steps; ++step) {
-            const double a = z0 + (step * kStep);
-            const double b = std::min(a + kStep, z1);
-            const double x = budget(r, phi, side * a, side * b);
-            sum += x;
-            weighted += x * 0.5 * (a + b);
-          }
-        }
-      }
-      const double mean = 100. * total / kSamples;
-      line += mean > 0.005 ? std::format(" | {:5.2f} @ {:6.1f}", mean, sum > 0. ? weighted / sum : 0.5 * (z0 + z1)) : " |      -       ";
-    }
-    std::cout << line << '\n';
-  }
 }
 
 /// The azimuth a sensor covers at one value of its layer's second
@@ -548,7 +406,7 @@ std::vector<std::vector<Vec2D>> measureCoverage(std::span<const Sensor> sensors,
 }
 
 template <DetectorLayout Det>
-int runFor(const std::string& file, bool passives)
+int runFor(const std::string& file)
 {
   const auto sensors = alice::placeChips<Det>();
   constexpr auto specs = Geometry<Det>::layoutSpecs();
@@ -602,14 +460,6 @@ int runFor(const std::string& file, bool passives)
     // O2's segmentation works in float: a few nm at these radii.
     status = worst < 1e-5 ? 0 : 1;
   }
-  if (passives) {
-    const Geometry<Det> geometry(sensors);
-    printPassives(geometry);
-    if constexpr (Detector<Det>::hasDiscs) {
-      printForwardMaterial<Det>(+1);
-      printForwardMaterial<Det>(-1);
-    }
-  }
   return status;
 }
 
@@ -617,13 +467,11 @@ int run(int argc, char** argv)
 {
   std::string file;
   std::string detector;
-  bool passives = false;
   bpo::options_description description("Measure the ITS, MFT or ALICE 3 TRK layer table from an o2sim geometry");
   description.add_options()                                                                                //
     ("help,h", "this message")                                                                             //
     ("geometry,g", bpo::value(&file)->default_value("o2sim_geometry-aligned.root"), "o2sim geometry file") //
-    ("detector,d", bpo::value(&detector)->default_value("ITS"), "ITS, MFT or TRKFT3")                      //
-    ("passives", bpo::bool_switch(&passives), "measure and print the barrel's passive scatterers, one per gap between its layers");
+    ("detector,d", bpo::value(&detector)->default_value("ITS"), "ITS, MFT or TRKFT3");
   bpo::variables_map vm;
   try {
     bpo::store(bpo::parse_command_line(argc, argv, description), vm);
@@ -639,13 +487,13 @@ int run(int argc, char** argv)
   }
   o2::base::GeometryManager::loadGeometry(file);
   if (detector == "ITS") {
-    return runFor<detectors::ITS>(file, passives);
+    return runFor<detectors::ITS>(file);
   }
   if (detector == "MFT") {
-    return runFor<detectors::MFT>(file, passives);
+    return runFor<detectors::MFT>(file);
   }
   if (detector == "TRKFT3") {
-    return runFor<detectors::TRKFT3>(file, passives);
+    return runFor<detectors::TRKFT3>(file);
   }
   std::cerr << "unknown detector '" << detector << "'\n";
   return 1;

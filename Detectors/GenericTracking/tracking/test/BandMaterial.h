@@ -73,8 +73,8 @@ template <DetectorLayout Det>
   for (int layer = 0; layer < kL; ++layer) {
     const auto id = static_cast<LayerID>(layer);
     table->layerSecond[layer] = {.low = static_cast<float>(secondMin<Det>(id)), .perUnit = static_cast<float>(Table::kSecond / (secondMax<Det>(id) - secondMin<Det>(id)))};
-    const double inner = std::abs(detail::innerFace<Det>(id));
-    const double outer = std::abs(detail::outerFace<Det>(id));
+    const double inner = std::abs(detail::innerFace<Det>(detail::envelopeBands<Det>(), id));
+    const double outer = std::abs(detail::outerFace<Det>(detail::envelopeBands<Det>(), id));
     table->layerDepth[layer] = {.low = static_cast<float>(inner), .perUnit = static_cast<float>(1. / (outer - inner))};
   }
   table->vertexZ = {.low = static_cast<float>(vertexZ.low), .perUnit = static_cast<float>(Table::kVertexZ / (vertexZ.high - vertexZ.low))};
@@ -177,7 +177,7 @@ template <DetectorLayout Det>
         const Vec3D origin{0., 0., centre(table->vertexZ, v)};
         double length = 0.;
         const Vec3D u = detail::unitFrom(origin, detail::nominalPoint<Det>(id, centre(table->layerSecond[layer], s), 0.), length);
-        const auto gap = detail::gapOf(sums(origin, u, 0., detail::faceCrossing<Det>(id, detail::innerFace<Det>(id), origin, u), length), 1);
+        const auto gap = detail::gapOf(sums(origin, u, 0., detail::faceCrossing<Det>(id, detail::innerFace<Det>(detail::envelopeBands<Det>(), id), origin, u), length), 1);
         for (int phi = 0; phi < Table::kGapPhi; ++phi) {
           table->vertexGaps[(((((static_cast<std::size_t>(layer) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)] = gap;
         }
@@ -192,8 +192,8 @@ template <DetectorLayout Det>
       for (int t = 0; t < Table::kSecond; ++t) {
         double length = 0.;
         const Vec3D u = detail::unitFrom(source, detail::nominalPoint<Det>(l.to, centre(table->layerSecond[l.to], t), 0.), length);
-        const double l0 = detail::faceCrossing<Det>(l.from, detail::outerFace<Det>(l.from), source, u);
-        const double l1 = detail::faceCrossing<Det>(l.to, detail::innerFace<Det>(l.to), source, u);
+        const double l0 = detail::faceCrossing<Det>(l.from, detail::outerFace<Det>(detail::envelopeBands<Det>(), l.from), source, u);
+        const double l1 = detail::faceCrossing<Det>(l.to, detail::innerFace<Det>(detail::envelopeBands<Det>(), l.to), source, u);
         const auto gap = detail::gapOf(sums(source, u, l0, l1, length), 1);
         table->gapMax[link] = std::max(table->gapMax[link], gap.x);
         rowMax = std::max(rowMax, gap.x * (1.F - (2.F * gap.m1) + gap.m2));

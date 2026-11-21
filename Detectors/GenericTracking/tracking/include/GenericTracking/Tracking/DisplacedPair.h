@@ -342,7 +342,7 @@ struct PairErrors {
   /// at pT_min (`sourceScattering`): the closest approach's displacement by a
   /// kink inside the source, its lever arm taken from the vertex.
   T sourceScatter = T(0);
-  /// The target's displacement by the passives between the two
+  /// The target's displacement by the material between the two
   /// (`betweenScattering`).
   T betweenScatter = T(0);
   T beamVarTransverse = T(0);

@@ -91,8 +91,6 @@ struct MFT {
   }};
   // NOLINTEND(modernize-use-std-numbers)
   // clang-format on
-  /// O2's beryllium pipe, inside the first layer.
-  static constexpr std::array<PassiveSpec, 1> passives{kAliceBerylliumPipe};
   static constexpr int nSensors = countSensors(barrelLayers, discLayers);
 };
 

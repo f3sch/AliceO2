@@ -56,7 +56,7 @@ struct NeighbourFitInput {
   PairPoint d;
   Scalar varianceSecond = 0.F; ///< at `b`, from `a -> c`
   Scalar varianceThird = 0.F;  ///< at `c`, from `b -> d`
-  Scalar covariance = 0.F;     ///< of the two, from a passive scatterer between `b` and `c`
+  Scalar covariance = 0.F;     ///< of the two, from the gap between `b` and `c`
   Scalar chi2Max = 0.F;        ///< the stage's bound on the fit's chi2
   std::uint32_t iteration = 0U;
 };

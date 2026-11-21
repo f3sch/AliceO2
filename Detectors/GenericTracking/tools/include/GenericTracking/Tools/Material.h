@@ -70,9 +70,9 @@ struct ChipStack {
 /// \a envelopes, the silicon's, with each barrel layer's \a stack: the hull
 /// of its sensors taken that much thicker on each face, measured as
 /// `measureEnvelopes` measures (at kEnvelopeResolution); a layer's z extent
-/// and position stay its silicon's, a disc layer whole. The material bands of
-/// the LUT and of the passive scatterers end there, so that a chip's stack is
-/// its layer's material.
+/// and position stay its silicon's, a disc layer whole. A layer's material
+/// band in the LUT holds at least this, so that a chip's stack is its
+/// layer's material.
 [[nodiscard]] std::vector<LayerEnvelope> withStacks(std::span<const LayerEnvelope> envelopes, std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::span<const ChipStack> stack);
 
 /// The VD petals' side walls: O2's `VD_SideWall`s, flat plates between the

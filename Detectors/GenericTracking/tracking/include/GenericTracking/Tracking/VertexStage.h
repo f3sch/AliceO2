@@ -342,7 +342,7 @@ struct ScatteringErrors {
 
   /// The variance of the dip-angle kink at the middle point \a b of the
   /// triplet \a a, \a b, \a c from its scattering (`tripletScattering`: the
-  /// middle point's layer and the passives between the outer points) at the
+  /// middle point's band and the gaps between the outer points) at the
   /// triplet's own momentum: pT = |B2C Bz| \a radius, the pass floor's
   /// 1 / (beta pT)^2 scaled to the triplet's and the Highland logarithm at
   /// its own beta; none for a straight line; without a field the floor's.

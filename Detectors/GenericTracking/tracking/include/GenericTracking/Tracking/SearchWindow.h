@@ -282,8 +282,8 @@ inline constexpr double kWindowMassGeV = o2::constants::physics::MassPionCharged
 /// z_v|` from a disc seed; from a barrel seed, `s_i/|z_i - z_v| = s_j/|z_j -
 /// z_v|` for a pair the pitch test can pass, bounded at the target.
 ///
-/// \a betweenKink bounds `sqrt(T)`, the target's displacement by the passive
-/// scatterers between the two layers (`betweenKinkBound` in `PairCut.h`). It enters the variance of `D` as
+/// \a betweenKink bounds `sqrt(T)`, the target's displacement by the material
+/// between the two layers (`betweenKinkBound` in `PairCut.h`). It enters the variance of `D` as
 /// `(s_i^2 + (z_i - z_v)^2) T`, which moves the target's second coordinate by
 /// `sqrt(T) hypot(s_i, z_i - z_v)` over the same factor `s_i` or `|z_i - z_v|`.
 template <DetectorLayout Det>

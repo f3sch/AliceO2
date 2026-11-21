@@ -450,6 +450,8 @@ class TrackingInterface
     detail::TaskArena arena{std::max(param.threads, 0)};
     fillLinkMaterial<Det>(mTracking->material(), *mMaterial, vertexZ, arena);
     LOGP(info, "the link material: {} layers, {} links, vertices at z {:.2f} .. {:.2f} cm, {:.1f} MB, filled in {:.2f} s", LinkMaterial<Det>::kLayers, LinkMaterial<Det>::kLinks, vertexZ.low, vertexZ.high, sizeof(LinkMaterial<Det>) / 1e6, std::chrono::duration<double>(std::chrono::steady_clock::now() - filling).count());
+    const auto bands = detail::lutBands<Det>(*mMaterial);
+    LOGP(info, "its layers' bands in the LUT's cells:\n{}", describeBands(bands, Detector<Det>::nBarrelLayers));
   }
 
   /// The device tracker, made once, and the run it is configured with every

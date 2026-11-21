@@ -38,6 +38,7 @@
 #include "MathUtils/Utils.h"
 
 #include <array>
+#include <span>
 #include <cstddef>
 #include <stdexcept>
 #include <string>
@@ -69,6 +70,18 @@ template <DetectorLayout Det>
 /// detector's own unit, as `placeChips`.
 template <DetectorLayout Det>
 [[nodiscard]] std::array<SensorSpec, Detector<Det>::nLayers> placeSpecs();
+
+/// Each barrel layer's material band (LayerBand) from the geometry in
+/// gGeoManager: for each of the layer's sensors the outermost volume above it
+/// that holds none of another layer's sensors, and the radial extent of every
+/// volume within those denser than the medium that volume sits in; with the
+/// sensors' envelope \a envelopes. Where two layers' bands meet over a common
+/// z range, each ends half-way between their envelopes. A disc's band is its
+/// envelope: the LUT, of radial shells, holds no band along z. \a sensors and
+/// \a specs as Geometry takes them, layers
+/// numbered barrel first, the first \a nBarrelLayers barrel layers. Throws
+/// std::runtime_error if a sensor's centre is in no volume.
+[[nodiscard]] std::vector<LayerBand> materialBands(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::span<const LayerEnvelope> envelopes, int nBarrelLayers);
 
 /// The placed geometry of \a Det from the geometry in gGeoManager, checked
 /// against the layout's sensor counts, in total and per layer. Throws

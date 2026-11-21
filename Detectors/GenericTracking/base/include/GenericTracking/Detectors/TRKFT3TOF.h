@@ -24,8 +24,7 @@
 ///
 /// The TRK links are TRKFT3's renumbered: ML 6 -> ML 7 stays a direct link,
 /// beside ML 6 -> iTOF -> ML 7. The links into and out of the TOF layers are
-/// traced by `o2-gtrk-layer-links -d TRKFT3TOF`. The passives are TRKFT3's:
-/// the iTOF's material stays passive 7's.
+/// traced by `o2-gtrk-layer-links -d TRKFT3TOF`.
 ///
 /// A TOF cluster's time box is the bunch crossing that ends at its time,
 /// [t - 1 BC, t] (WorkflowTRK/TRKTOF.h, `tofClusters`): two TOF rows of a track
@@ -270,8 +269,6 @@ struct TRKFT3TOF {
     {.from = 23, .to = 24, .sourceMin = 15.18, .sourceMax = 68.29, .skipsLayer = false}, // 1.0000
   }};
   // clang-format on
-  /// TRKFT3's passive scatterers: the iTOF's material stays passive 7's.
-  static constexpr auto passives = TRKFT3::passives;
   static constexpr int nSensors = countSensors(barrelLayers, discLayers);
   static constexpr int kFirstDiscSensor = TRKFT3::kFirstDiscSensor;
   /// The first TOF sensor's ID: O2's IOTOF chip 0, after every TRKFT3 chip.

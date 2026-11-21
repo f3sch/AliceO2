@@ -39,19 +39,75 @@ namespace o2::gtrk
 namespace detail
 {
 
-/// A layer's envelope faces: a barrel layer's least and largest radius, a
-/// disc's faces toward and away from the vertex (signed z).
+/// A layer's band's faces in \a bands: a barrel layer's least and largest
+/// radius, a disc's faces toward and away from the vertex (signed z).
 template <DetectorLayout Det>
-[[nodiscard]] inline double innerFace(LayerID layer)
+[[nodiscard]] inline double innerFace(std::span<const LayerBand> bands, LayerID layer)
 {
-  const auto& e = PlacedEnvelopes<Det>::get(layer);
-  return Detector<Det>::isBarrelLayer(layer) ? e.rMin : (e.position > 0. ? e.zMin : e.zMax);
+  return Detector<Det>::isBarrelLayer(layer) || PlacedEnvelopes<Det>::get(layer).position > 0. ? bands[layer].low : bands[layer].high;
 }
 template <DetectorLayout Det>
-[[nodiscard]] inline double outerFace(LayerID layer)
+[[nodiscard]] inline double outerFace(std::span<const LayerBand> bands, LayerID layer)
 {
-  const auto& e = PlacedEnvelopes<Det>::get(layer);
-  return Detector<Det>::isBarrelLayer(layer) ? e.rMax : (e.position > 0. ? e.zMax : e.zMin);
+  return Detector<Det>::isBarrelLayer(layer) || PlacedEnvelopes<Det>::get(layer).position > 0. ? bands[layer].high : bands[layer].low;
+}
+
+/// The envelopes' bands: each layer's sensors' extent along its depth.
+template <DetectorLayout Det>
+[[nodiscard]] inline std::array<LayerBand, Detector<Det>::nLayers> envelopeBands()
+{
+  std::array<LayerBand, Detector<Det>::nLayers> bands{};
+  for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+    const auto id = static_cast<LayerID>(layer);
+    const auto& e = PlacedEnvelopes<Det>::get(id);
+    bands[static_cast<std::size_t>(layer)] = Detector<Det>::isBarrelLayer(id) ? LayerBand{.low = e.rMin, .high = e.rMax} : LayerBand{.low = e.zMin, .high = e.zMax};
+  }
+  return bands;
+}
+
+/// Each layer's material band as \a lut holds it: on a barrel layer the run
+/// of the LUT's shells, each starting where the one before ends, that holds
+/// its sensors' middle radius -- the LUT's builder makes a layer's band
+/// (LayerBand) such a run of its own, apart from the next shell by a hole --
+/// and its sensors' envelope where no shell holds them; on a disc its
+/// sensors' envelope (the LUT's shells are radial). Throws
+/// std::runtime_error where a run holds another barrel layer's sensors over a
+/// common z: a LUT not built so (o2-gtrk-build-matlut).
+template <DetectorLayout Det>
+[[nodiscard]] inline std::array<LayerBand, Detector<Det>::nLayers> lutBands(const o2::base::MatLayerCylSet& lut)
+{
+  auto bands = envelopeBands<Det>();
+  const int shells = lut.getNLayers();
+  for (int layer = 0; layer < Detector<Det>::nBarrelLayers; ++layer) {
+    const auto id = static_cast<LayerID>(layer);
+    const auto& e = PlacedEnvelopes<Det>::get(id);
+    int at = -1;
+    for (int i = 0; i < shells; ++i) {
+      if (e.position >= lut.getLayer(i).getRMin() && e.position < lut.getLayer(i).getRMax()) {
+        at = i;
+      }
+    }
+    if (at < 0) {
+      continue;
+    }
+    int first = at;
+    while (first > 0 && lut.getLayer(first - 1).getRMax() == lut.getLayer(first).getRMin()) {
+      --first;
+    }
+    int last = at;
+    while (last + 1 < shells && lut.getLayer(last).getRMax() == lut.getLayer(last + 1).getRMin()) {
+      ++last;
+    }
+    const LayerBand band{.low = std::min<double>(e.rMin, lut.getLayer(first).getRMin()), .high = std::max<double>(e.rMax, lut.getLayer(last).getRMax())};
+    for (int other = 0; other < Detector<Det>::nBarrelLayers; ++other) {
+      const auto& o = PlacedEnvelopes<Det>::get(static_cast<LayerID>(other));
+      if (other != layer && o.position > band.low && o.position < band.high && o.zMin < e.zMax && e.zMin < o.zMax) {
+        throw std::runtime_error(std::string{Det::name} + ": the material LUT's shells around layer " + std::to_string(layer) + " (r " + std::to_string(band.low) + " .. " + std::to_string(band.high) + " cm) hold layer " + std::to_string(other) + " too: not a LUT of o2-gtrk-build-matlut, whose bands are runs of their own");
+      }
+    }
+    bands[static_cast<std::size_t>(layer)] = band;
+  }
+  return bands;
 }
 
 /// Where origin + l u crosses a face of \a layer at \a face (a radius or a
@@ -150,6 +206,7 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
   constexpr int kRays = 4;     // per azimuth bin
   constexpr int kPieces = 32;  // per gap ray
   table.linkOf = Table::noLinks();
+  const auto bands = detail::lutBands<Det>(lut);
   for (int link = 0; link < Table::kLinks; ++link) {
     const auto& l = Det::layerLinks[link];
     table.linkOf[(static_cast<std::size_t>(l.from) * kL) + l.to] = static_cast<std::int16_t>(link);
@@ -162,8 +219,8 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
   for (int layer = 0; layer < kL; ++layer) {
     const auto id = static_cast<LayerID>(layer);
     table.layerSecond[layer] = {.low = static_cast<float>(secondMin<Det>(id)), .perUnit = static_cast<float>(Table::kSecond / (secondMax<Det>(id) - secondMin<Det>(id)))};
-    const double inner = std::abs(detail::innerFace<Det>(id));
-    const double outer = std::abs(detail::outerFace<Det>(id));
+    const double inner = std::abs(detail::innerFace<Det>(bands, id));
+    const double outer = std::abs(detail::outerFace<Det>(bands, id));
     table.layerDepth[layer] = {.low = static_cast<float>(inner), .perUnit = static_cast<float>(1. / (outer - inner))};
   }
   const double zLow = vertexZ.low;
@@ -190,8 +247,8 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
               const Vec3D origin{0., 0., 0.};
               double length = 0.;
               const Vec3D u = detail::unitFrom(origin, detail::nominalPoint<Det>(id, second, angle), length);
-              const double l0 = detail::faceCrossing<Det>(id, detail::innerFace<Det>(id), origin, u);
-              const double l1 = detail::faceCrossing<Det>(id, detail::outerFace<Det>(id), origin, u);
+              const double l0 = detail::faceCrossing<Det>(id, detail::innerFace<Det>(bands, id), origin, u);
+              const double l1 = detail::faceCrossing<Det>(id, detail::outerFace<Det>(bands, id), origin, u);
               // To normal incidence: the ray's path factor through the band.
               const double incidence = barrel ? std::hypot(u[0], u[1]) : std::abs(u[2]);
               for (int k = 0; k < kNodeDepths; ++k) {
@@ -227,7 +284,7 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
                 const Vec3D origin{0., 0., z};
                 double length = 0.;
                 const Vec3D u = detail::unitFrom(origin, detail::nominalPoint<Det>(id, second, phiOfRay(phi, Table::kGapPhi, ray)), length);
-                const auto sums = detail::raySums(lut, origin, u, 0., detail::faceCrossing<Det>(id, detail::innerFace<Det>(id), origin, u), length, kPieces);
+                const auto sums = detail::raySums(lut, origin, u, 0., detail::faceCrossing<Det>(id, detail::innerFace<Det>(bands, id), origin, u), length, kPieces);
                 total.x += sums.x;
                 total.xf += sums.xf;
                 total.xf2 += sums.xf2;
@@ -254,8 +311,8 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
               const Vec3D source = detail::nominalPoint<Det>(l.from, sourceSecond, angle);
               double length = 0.;
               const Vec3D u = detail::unitFrom(source, detail::nominalPoint<Det>(l.to, targetSecond, angle), length);
-              const double l0 = detail::faceCrossing<Det>(l.from, detail::outerFace<Det>(l.from), source, u);
-              const double l1 = detail::faceCrossing<Det>(l.to, detail::innerFace<Det>(l.to), source, u);
+              const double l0 = detail::faceCrossing<Det>(l.from, detail::outerFace<Det>(bands, l.from), source, u);
+              const double l1 = detail::faceCrossing<Det>(l.to, detail::innerFace<Det>(bands, l.to), source, u);
               const auto sums = detail::raySums(lut, source, u, l0, l1, length, kPieces);
               total.x += sums.x;
               total.xf += sums.xf;

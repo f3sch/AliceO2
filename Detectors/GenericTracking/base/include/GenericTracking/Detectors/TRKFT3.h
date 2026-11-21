@@ -28,8 +28,7 @@
 /// for the barrel -- the twelve VD sensors first, petal by petal, then ML and
 /// OT chip by chip -- and kFirstDiscSensor plus O2's FT3 chip ID for the discs. The
 /// tables are generated: `o2-gtrk-import-geometry -d TRKFT3` prints the chip
-/// counts and, with `--passives`, the passive scatterers; `o2-gtrk-layer-links
-/// -d TRKFT3` the links.
+/// counts, `o2-gtrk-layer-links -d TRKFT3` the links.
 
 #ifndef GTRK_DETECTORS_TRKFT3_H_
 #define GTRK_DETECTORS_TRKFT3_H_
@@ -279,25 +278,6 @@ struct TRKFT3 {
     {.from = 20, .to = 21, .sourceMin = 15.18, .sourceMax = 68.75, .skipsLayer = false}, // 0.9588
     {.from = 20, .to = 22, .sourceMin = 15.18, .sourceMax = 63.29, .skipsLayer = true}, // 0.0412
     {.from = 21, .to = 22, .sourceMin = 15.18, .sourceMax = 68.29, .skipsLayer = false}, // 1.0000
-  }};
-  // Measured by o2-gtrk-import-geometry -d TRKFT3 --passives from O2's full ALICE 3 geometry: one per gap between
-  // barrel layers, its x/X0 across the gap at 65536 random azimuths and z, its radius the x/X0-weighted mean of
-  // 0.01 cm steps at 2048. Each owns its gap's material; a layer, its silicon envelope's. The gap from 20 to 30 cm
-  // holds the inner TOF at 21 cm (2.0 % X0). A gap lies between the layers' chips, their sensors' metal stacks
-  // included (tools::withStacks; the OT's first layer has its stack on the inner face): the stacks' material is the
-  // layers', not the gaps'.
-  static constexpr std::array<PassiveSpec, 11> passives{{
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 0.4899, .bandLow = 0.0000, .bandHigh = 0.4999, .low = -25.00, .high = 25.00, .x2X0 = 2.224e-03},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 0.8002, .bandLow = 0.5096, .bandHigh = 1.1999, .low = -25.00, .high = 25.00, .x2X0 = 1.228e-03},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 1.7708, .bandLow = 1.2096, .bandHigh = 2.5000, .low = -25.00, .high = 25.00, .x2X0 = 9.985e-04},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 3.7955, .bandLow = 2.5096, .bandHigh = 6.8657, .low = -63.98, .high = 63.98, .x2X0 = 1.132e-02},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 7.9710, .bandLow = 7.8977, .bandHigh = 8.8055, .low = -63.98, .high = 63.98, .x2X0 = 3.692e-04},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 10.0133, .bandLow = 9.8542, .bandHigh = 11.7623, .low = -63.98, .high = 63.98, .x2X0 = 4.094e-04},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 13.8492, .bandLow = 12.7722, .bandHigh = 18.7300, .low = -63.98, .high = 63.98, .x2X0 = 4.863e-04},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 21.2092, .bandLow = 20.1379, .bandHigh = 29.9999, .low = -63.98, .high = 63.98, .x2X0 = 2.027e-02},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 38.2067, .bandLow = 31.0792, .bandHigh = 44.8000, .low = -128.38, .high = 128.38, .x2X0 = 2.557e-02},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 52.1226, .bandLow = 45.3527, .bandHigh = 59.8000, .low = -128.38, .high = 128.38, .x2X0 = 4.899e-04},
-    {.kind = PassiveSpec::Kind::kBarrel, .position = 69.6851, .bandLow = 60.2898, .bandHigh = 79.8000, .low = -128.38, .high = 128.38, .x2X0 = 6.376e-04},
   }};
   // clang-format on
   static constexpr int nSensors = countSensors(barrelLayers, discLayers);

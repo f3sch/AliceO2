@@ -79,15 +79,18 @@ inline constexpr auto kMftLayers = [] {
 
 /// The ALICE 3 barrel tracker's region.
 ///
-/// Its radial bands are the layout's own: one over each layer's chips -- its
-/// silicon envelope and the metal stack on one face of its sensors
-/// (`tools::withStacks`) -- and one over each gap between layers, as measured
-/// from the loaded geometry. A LUT layer holds its material evenly across its
-/// radial span, so only bands that end where the layers end keep a layer's
-/// material apart from the gap's -- which is how the layout splits it, the
-/// gap's going to its passive scatterer (TRKFT3.h). A band over the silicon
-/// alone would spread a VD layer's stack, most of its x/X0, across the gap to
-/// the next layer, and the fit would take only part of its kink at that layer.
+/// Its radial bands are the layout's own: one run over each layer's material
+/// band (alice::materialBands: its staves with their supports and services,
+/// about its silicon envelope and the metal stack on one face of its sensors,
+/// `tools::withStacks`), a hole of kBandHole apart from the shells about it,
+/// and one over each gap between layers, as measured from the loaded
+/// geometry. A LUT layer holds its material evenly across its radial span, so
+/// only bands that end where the layers' material ends keep it apart from the
+/// gap's, and the link material reads each layer's run back as its band
+/// (LinkMaterialFill.h, `lutBands`): a stave's support outside its band would
+/// be a gap's, which the link material resolves in azimuth far coarser than a
+/// layer's band. A band over the silicon alone would spread a VD layer's
+/// stack, most of its x/X0, across the gap to the next layer.
 /// A band over a layer of flat staves is as deep as their hull (0.5-1.4 cm: a
 /// flat stave's edges lie further out than its middle), so it is cut into
 /// equal parts no thinner than a chip (its silicon and stack,
@@ -121,9 +124,15 @@ inline constexpr auto kMftLayers = [] {
 inline constexpr float kTrkZMax = 225.F;
 inline constexpr float kTrkRMax = 83.F; ///< beyond the OT's carbon support, and FT3's discs (69.2 cm)
 inline constexpr float kTrkGapDr = 1.F; ///< the widest band in a gap
+/// The space between a layer's band and the shells about it: a band is a run
+/// of shells each starting where the one before ends (LinkMaterialFill.h,
+/// `lutBands`), a hole of the envelopes' resolution apart from the rest.
+inline constexpr auto kBandHole = static_cast<float>(o2::gtrk::kEnvelopeResolution);
 
-/// The bands of the barrel's layers, \a envelopes with their stacks; the discs' follow none.
-std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelopes, const o2::gtrk::tools::SideWalls& walls, std::span<const double> faces, std::span<const double> chipThickness, float rMaxCM, float zMaxCM)
+/// The bands of the barrel's layers: each layer's material band \a bands
+/// (alice::materialBands) about its silicon \a envelopes with their stacks;
+/// the discs' follow none.
+std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelopes, std::span<const o2::gtrk::LayerBand> bands, const o2::gtrk::tools::SideWalls& walls, std::span<const double> faces, std::span<const double> chipThickness, float rMaxCM, float zMaxCM)
 {
   std::vector<LUTLayer> layers;
   const auto cell = [&](float inner, float outer, float drPhi) {
@@ -133,10 +142,13 @@ std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
     return crossed ? std::min(drPhi, static_cast<float>(0.5 * walls.thickness)) : drPhi;
   };
   const auto addPart = [&](float inner, float outer, float drPhi) {
-    const auto bands = static_cast<int>(std::ceil((outer - inner) / kTrkGapDr));
-    for (int band = 0; band < bands; ++band) {
-      const float low = band == 0 ? inner : inner + ((outer - inner) * static_cast<float>(band) / static_cast<float>(bands));
-      const float high = band + 1 == bands ? outer : inner + ((outer - inner) * static_cast<float>(band + 1) / static_cast<float>(bands));
+    if (!(outer > inner)) {
+      return;
+    }
+    const auto count = static_cast<int>(std::ceil((outer - inner) / kTrkGapDr));
+    for (int band = 0; band < count; ++band) {
+      const float low = band == 0 ? inner : inner + ((outer - inner) * static_cast<float>(band) / static_cast<float>(count));
+      const float high = band + 1 == count ? outer : inner + ((outer - inner) * static_cast<float>(band + 1) / static_cast<float>(count));
       layers.push_back({.rMin = low, .rMax = high, .zMax = zMaxCM, .dz = 1.F, .drPhi = cell(low, high, drPhi)});
     }
   };
@@ -166,7 +178,13 @@ std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
     } else if (layer == kVDLayers) {
       gapPhi = 0.2F; // from the VD to the ML
     }
-    addGap(previous, rMin, gapPhi);
+    // The layer's band, a run of shells of its own (kBandHole about it): its
+    // silicon in parts, its other material beyond in parts as a gap's.
+    const auto bandLow = std::max(previous, std::min(rMin, static_cast<float>(bands[layer].low)));
+    const auto bandHigh = std::max(rMax, static_cast<float>(bands[layer].high));
+    if (bandLow - kBandHole > previous) {
+      addGap(previous, bandLow - kBandHole, gapPhi);
+    }
     // A flat stave meets the radial direction at up to alpha (cos alpha =
     // rMin / rMax), so over a cell of width w its radius changes by
     // w tan(alpha): cells no wider than half a chip's thickness over
@@ -183,12 +201,14 @@ std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
       drPhi = std::min(drPhi, 0.5F * thickness / tanAlpha);
       parts = std::max(1, static_cast<int>(std::floor((rMax - rMin) / (drPhi * tanAlpha))));
     }
+    addPart(bandLow, rMin, drPhi);
     for (int part = 0; part < parts; ++part) {
       const float low = part == 0 ? rMin : rMin + ((rMax - rMin) * static_cast<float>(part) / static_cast<float>(parts));
       const float high = part + 1 == parts ? rMax : rMin + ((rMax - rMin) * static_cast<float>(part + 1) / static_cast<float>(parts));
       layers.push_back({.rMin = low, .rMax = high, .zMax = zMaxCM, .dz = 1.F, .drPhi = cell(low, high, drPhi)});
     }
-    previous = rMax;
+    addPart(rMax, bandHigh, drPhi);
+    previous = bandHigh + kBandHole;
   }
   addGap(previous, rMaxCM, 0.5F);
   return layers;
@@ -314,117 +334,100 @@ std::vector<LUTLayer> trkBands(int threads, float rMaxCM, float zMaxCM)
     const auto l = static_cast<std::size_t>(layer);
     chipThickness.push_back((2. * specs[l].halfThickness) + stack[l].inner + stack[l].outer);
   }
-  return trkLayers(std::span{chips}.first(static_cast<std::size_t>(kBarrel)), walls, faces, chipThickness, rMaxCM, zMaxCM);
+  const auto bands = o2::gtrk::alice::materialBands(sensors, specs, o2::gtrk::PlacedEnvelopes<Det>::all(), kBarrel);
+  std::cout << "the layers' material bands:\n"
+            << o2::gtrk::describeBands(bands, kBarrel);
+  return trkLayers(std::span{chips}.first(static_cast<std::size_t>(kBarrel)), std::span{bands}.first(static_cast<std::size_t>(kBarrel)), walls, faces, chipThickness, rMaxCM, zMaxCM);
 }
 
-/// The ITS's region, from the loaded geometry: the layers' silicon hulls
-/// (o2::its::GeometryTGeo's chips).
-///
-/// The fit takes a step's material in two halves about its midpoint, the
-/// nearer half's kink at the stave the step leaves, the farther half's at the
-/// stave it reaches (KFTrackFitter.h, `StepMaterial`). A LUT layer holds its
-/// material evenly across its radii, so a band across the middle of a gap
-/// gives part of each stave's material to the other. The bands end at the
-/// middle of each gap between two layers' radii, where a step between them
-/// near normal incidence has its midpoint and where `layerMaterial` splits
-/// the gaps, and at the edges of the passive scatterers' bands (the beam
-/// pipe's, kAliceBerylliumPipe), which `passiveMaterial` reads as their own.
-/// The rest of a gap is cut into equal bands no wider than kItsGapDr, as a
-/// band spreads what it holds over its radii, which an inclined track turns
-/// into a spread along z.
+/// The ITS's region, from the loaded geometry: each layer's material band
+/// (alice::materialBands: its staves with the outer barrel's space frames)
+/// a run of shells of its own, a hole of kBandHole apart from the shells
+/// about it, as for the TRK (`trkLayers`); the gaps in equal bands no wider
+/// than kItsGapDr, as a band spreads what it holds over its radii, which an
+/// inclined track turns into a spread along z. (The cylinders' faces, which
+/// cut the TRK's gaps, are not measured: TGeo's navigation recurses without
+/// end in one of the ITS's polycones.)
 ///
 /// Over a layer's hull the material lies on both sides of the sensors: the
 /// flex cable on a sensor's inner face (and an outer barrel stave's power bus
 /// under it), the cold plate on its outer face. A hull is cut into equal parts
 /// no thicker than kItsHullPart, about the layers of a module on one side of
 /// its sensor, so that a segment ending on a sensor reads mostly the material
-/// on its own side; and its cells in r-phi are narrow enough that a stave,
-/// flat and so at an angle alpha to the radial direction (cos alpha = rMin /
-/// rMax), changes its radius by at most half a part across one. Along z,
-/// every band to where a line from the beam line at z = 0 through the end of
-/// the outermost layer, the longest, reaches at \a rMax, and
-/// to the passives' ends: a step between two sensors stays within the larger
-/// of their layers' |z|, and a prediction onto the outermost layer's nominal
-/// radius from the end of one of its sensors goes on along such a line.
+/// on its own side; and the band's cells in r-phi are narrow enough that a
+/// stave, flat and so at an angle alpha to the radial direction (cos alpha =
+/// rMin / rMax), changes its radius by at most half a part across one. The
+/// band beyond the hull is cut as a gap, in the hull's cells. Along z, every
+/// band to where a line from the beam line at z = 0 through the end of the
+/// outermost layer, the longest, reaches at \a rMax: a step between two
+/// sensors stays within the larger of their layers' |z|, and a prediction
+/// onto the outermost layer's nominal radius from the end of one of its
+/// sensors goes on along such a line.
 inline constexpr float kItsHullPart = 0.025F; ///< a hull's parts at most [cm]
 inline constexpr float kItsGapDr = 0.5F;      ///< a gap's bands at most [cm]
 inline constexpr float kItsGapDrPhi = 0.5F;   ///< a gap's cells in r-phi [cm]
 inline constexpr float kItsDz = 1.F;          ///< every band's cells along z [cm]
 
-std::vector<LUTLayer> itsLayers(std::span<const o2::gtrk::LayerEnvelope> envelopes, std::span<const o2::gtrk::PassiveSpec> passives, float rMax)
+std::vector<LUTLayer> itsLayers(std::span<const o2::gtrk::LayerEnvelope> envelopes, std::span<const o2::gtrk::LayerBand> bands, float rMax)
 {
   std::vector<LUTLayer> layers;
   const auto& outermost = envelopes[envelopes.size() - 1];
-  float zMax = static_cast<float>(std::max(-outermost.zMin, outermost.zMax) * rMax / outermost.rMin);
-  for (const auto& passive : passives) {
-    zMax = std::max(zMax, static_cast<float>(std::max(-passive.low, passive.high)));
-  }
-  std::vector<float> cuts;
-  for (const auto& passive : passives) {
-    cuts.push_back(static_cast<float>(passive.bandLow));
-    cuts.push_back(static_cast<float>(passive.bandHigh));
-  }
-  std::ranges::sort(cuts);
-  // [inner, outer] in equal bands no wider than maxDr; the cells in r-phi of
-  // each by drPhi(its thickness)
-  const auto addEqual = [&](float inner, float outer, float maxDr, const auto& drPhi) {
-    if (outer < inner) {
-      throw std::runtime_error("ITS material LUT: radial range " + std::to_string(inner) + " .. " + std::to_string(outer) + " cm is reversed");
-    }
+  const auto zMax = static_cast<float>(std::max(-outermost.zMin, outermost.zMax) * rMax / outermost.rMin);
+  // [inner, outer] in equal bands no wider than maxDr, their cells in r-phi drPhi
+  const auto addEqual = [&](float inner, float outer, float maxDr, float drPhi) {
     if (!(outer > inner)) {
       return;
     }
-    const auto bands = std::max(1, static_cast<int>(std::ceil((outer - inner) / maxDr)));
-    const float thickness = (outer - inner) / static_cast<float>(bands);
-    for (int band = 0; band < bands; ++band) {
-      const float low = band == 0 ? inner : inner + ((outer - inner) * static_cast<float>(band) / static_cast<float>(bands));
-      const float high = band + 1 == bands ? outer : inner + ((outer - inner) * static_cast<float>(band + 1) / static_cast<float>(bands));
-      layers.push_back({.rMin = low, .rMax = high, .zMax = zMax, .dz = kItsDz, .drPhi = drPhi(thickness)});
+    const auto count = std::max(1, static_cast<int>(std::ceil((outer - inner) / maxDr)));
+    for (int band = 0; band < count; ++band) {
+      const float low = band == 0 ? inner : inner + ((outer - inner) * static_cast<float>(band) / static_cast<float>(count));
+      const float high = band + 1 == count ? outer : inner + ((outer - inner) * static_cast<float>(band + 1) / static_cast<float>(count));
+      layers.push_back({.rMin = low, .rMax = high, .zMax = zMax, .dz = kItsDz, .drPhi = drPhi});
     }
   };
-  const auto gapDrPhi = [](float /*thickness*/) { return kItsGapDrPhi; };
-  const auto addGap = [&](float inner, float outer) {
-    float low = inner;
-    for (const float cut : cuts) {
-      if (cut > low && cut < outer) {
-        addEqual(low, cut, kItsGapDr, gapDrPhi);
-        low = cut;
-      }
-    }
-    addEqual(low, outer, kItsGapDr, gapDrPhi);
-  };
+  const auto addGap = [&](float inner, float outer) { addEqual(inner, outer, kItsGapDr, kItsGapDrPhi); };
   float previous = 0.F;
   for (std::size_t layer = 0; layer < envelopes.size(); ++layer) {
     const auto rMin = static_cast<float>(envelopes[layer].rMin);
     const auto rMaxHull = static_cast<float>(envelopes[layer].rMax);
-    if (layer > 0) {
-      const auto middle = static_cast<float>(0.5 * (envelopes[layer - 1].position + envelopes[layer].position));
-      addGap(previous, middle);
-      previous = middle;
+    // The layer's band, a run of shells of its own (kBandHole about it): the
+    // hull in parts of kItsHullPart, the band's other material beyond in parts
+    // as a gap's, in the hull's cells.
+    const auto bandLow = std::max(previous, std::min(rMin, static_cast<float>(bands[layer].low)));
+    const auto bandHigh = std::max(rMaxHull, static_cast<float>(bands[layer].high));
+    if (bandLow - kBandHole > previous) {
+      addGap(previous, bandLow - kBandHole);
     }
-    addGap(previous, rMin);
     const float tanAlpha = std::sqrt((rMaxHull * rMaxHull) - (rMin * rMin)) / rMin;
-    addEqual(rMin, rMaxHull, kItsHullPart, [tanAlpha](float thickness) { return 0.5F * thickness / tanAlpha; });
-    previous = rMaxHull;
+    const auto parts = std::max(1, static_cast<int>(std::ceil((rMaxHull - rMin) / kItsHullPart)));
+    const float drPhi = 0.5F * ((rMaxHull - rMin) / static_cast<float>(parts)) / tanAlpha;
+    addEqual(bandLow, rMin, kItsGapDr, drPhi);
+    addEqual(rMin, rMaxHull, kItsHullPart, drPhi);
+    addEqual(rMaxHull, bandHigh, kItsGapDr, drPhi);
+    previous = bandHigh + kBandHole;
   }
   addGap(previous, rMax);
   return layers;
 }
 
-/// The ITS's bands from the loaded geometry, its hulls printed (the LUT's
-/// provenance in its log). They end beyond the last layer where
-/// `layerMaterial` stops reading its slab: the last layer's radius mirrored
-/// across it from the middle of the gap below.
+/// The ITS's bands from the loaded geometry, its envelopes and material bands
+/// printed (the LUT's provenance in its log). They end
+/// beyond the last layer: its band's outer face and half the gap below.
 std::vector<LUTLayer> itsBands()
 {
   using ITS = o2::gtrk::detectors::ITS;
-  const o2::gtrk::Geometry<ITS> geometry(o2::gtrk::alice::placeChecked<ITS>());
+  const auto sensors = o2::gtrk::alice::placeChecked<ITS>();
+  const o2::gtrk::Geometry<ITS> geometry(sensors);
   const auto envelopes = o2::gtrk::PlacedEnvelopes<ITS>::all();
-  std::cout << o2::gtrk::describeEnvelopes(envelopes, o2::gtrk::Detector<ITS>::nBarrelLayers);
+  constexpr int kBarrel = o2::gtrk::Detector<ITS>::nBarrelLayers;
+  std::cout << o2::gtrk::describeEnvelopes(envelopes, kBarrel);
+  const auto bands = o2::gtrk::alice::materialBands(sensors, geometry.layerSpecs(), envelopes, kBarrel);
+  std::cout << "the layers' material bands:\n"
+            << o2::gtrk::describeBands(bands, kBarrel);
   const auto& last = envelopes[envelopes.size() - 1];
   const auto& below = envelopes[envelopes.size() - 2];
-  const auto rMax = static_cast<float>(last.position + (0.5 * (last.position - below.position)));
-  return itsLayers(envelopes, ITS::passives, rMax);
+  const auto rMax = static_cast<float>(std::max(bands.back().high, last.position + (0.5 * (last.position - below.position)))) + 1.F;
+  return itsLayers(envelopes, bands, rMax);
 }
 
 int run(int argc, char** argv)

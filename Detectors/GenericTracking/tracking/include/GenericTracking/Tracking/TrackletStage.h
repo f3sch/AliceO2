@@ -90,7 +90,7 @@ struct TrackletBindings {
 
 /// A displaced iteration's pair test:
 /// `displacedPairWithin` with the two points' errors, \a scattering the
-/// source's (`sourceScattering`), \a between the passives' between the two
+/// source's (`sourceScattering`), \a between the material's between the two
 /// (`betweenScattering`), the beam line's width (\a vertex, the beam line),
 /// the pair cut's curvature bound and sigma, and the iteration's impact bound
 /// and z bound about the beam spot's centre. The tracklet stage's, the stage

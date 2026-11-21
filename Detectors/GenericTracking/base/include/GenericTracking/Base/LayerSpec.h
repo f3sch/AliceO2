@@ -154,33 +154,6 @@ struct LayerLink {
   bool skipsLayer;
 };
 
-/// Passive material that scatters but measures nothing -- the beam pipe first
-/// -- placed by its own position among the measurement layers, which may lie
-/// on both sides of it.
-///
-/// A cylinder or a disc. `position` is where its kink is taken, the radius or
-/// the signed z; `bandLow`/`bandHigh` are the stretch of that axis whose
-/// material it owns -- a layer's material slab stops there, so nothing is
-/// counted twice; `low`/`high` its extent along the other axis. `x2X0` is the
-/// nominal normal-incidence budget, for a run without a material LUT; with
-/// one, the LUT's across the band stands in.
-struct PassiveSpec {
-  enum class Kind : std::uint8_t { kBarrel,
-                                   kDisc };
-  Kind kind;
-  double position; ///< barrel: radius; disc: signed z [cm]
-  double bandLow;  ///< [cm], along the same axis as position
-  double bandHigh;
-  double low; ///< extent along the other axis: z for a barrel, r for a disc [cm]
-  double high;
-  double x2X0; ///< nominal normal-incidence x/X0
-};
-
-/// O2's beryllium beam pipe, as the ALICE ITS and MFT see it (O2's
-/// Detectors/Passive/src/Pipe.cxx): outer radius 1.9 cm, 0.8 mm thick, over
-/// |z| < 44.4 cm; 0.08 cm over beryllium's X0 of 35.28 cm.
-inline constexpr PassiveSpec kAliceBerylliumPipe{.kind = PassiveSpec::Kind::kBarrel, .position = 1.86, .bandLow = 1.8, .bandHigh = 1.95, .low = -44.4, .high = 44.4, .x2X0 = 0.08 / 35.28};
-
 /// What a detector type has to provide.
 ///
 /// Derived quantities -- layer counts, hasBarrel, hasDiscs -- are deliberately
@@ -211,14 +184,6 @@ struct Detector {
   static constexpr bool hasCurvedSensors = [] {
     const auto curved = [](const auto& layer) { return layer.sensor.curved(); };
     return std::ranges::any_of(Layout::barrelLayers, curved) || std::ranges::any_of(Layout::discLayers, curved);
-  }();
-  /// Passive scatterers (PassiveSpec), if the layout declares any.
-  static constexpr int nPassives = [] {
-    if constexpr (requires { Layout::passives; }) {
-      return static_cast<int>(std::size(Layout::passives));
-    } else {
-      return 0;
-    }
   }();
 
   /// The inactive layers, a bit per layer (none if the layout declares
@@ -260,13 +225,6 @@ struct Detector {
 
   /// Position of a disc layer within Layout::discLayers.
   [[nodiscard]] static constexpr std::size_t discIndex(LayerID layer) { return static_cast<std::size_t>(layer) - static_cast<std::size_t>(nBarrelLayers); }
-
-  /// Passive scatterer \a index of the layout.
-  [[nodiscard]] static constexpr const PassiveSpec& passive(std::size_t index)
-    requires(nPassives > 0)
-  {
-    return Layout::passives[index];
-  }
 
   /// A layer's sensor.
   [[nodiscard]] static constexpr const SensorSpec& sensor(LayerID layer) { return isBarrelLayer(layer) ? Layout::barrelLayers[layer].sensor : Layout::discLayers[discIndex(layer)].sensor; }
