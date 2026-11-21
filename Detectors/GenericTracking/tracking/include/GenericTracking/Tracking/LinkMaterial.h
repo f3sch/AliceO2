@@ -58,6 +58,7 @@ struct MaterialGap {
   float m1 = 0.F;
   float m2 = 0.F;
   float logX = 0.F; ///< ln x, Highland's logarithm (0 without material)
+  float xRho = 0.F; ///< rho x along the chord [g/cm^2], for the energy loss
 };
 
 /// A layer band's x/X0 at normal incidence, in front of its sensors (toward
@@ -66,6 +67,21 @@ struct MaterialNode {
   float front = 0.F;
   float behind = 0.F;
   float logX = 0.F; ///< ln(front + behind), Highland's logarithm at normal incidence (0 without material)
+  float xRho = 0.F; ///< rho x across the band at normal incidence [g/cm^2]
+};
+
+/// One step's material between two linked layers' crossings, in the step's
+/// direction (`LinkMaterial::step`): the band it leaves (the part on its far
+/// side from where the track came) and the gap as one kick at the mean place
+/// with a spread, the band it reaches (the part in front of its sensor) at
+/// the end.
+struct LinkStep {
+  Scalar before = 0.F; ///< x/X0 along the step: the band left and the gap
+  Scalar after = 0.F;  ///< x/X0 along the step: the band reached, before its sensor
+  Scalar lever = 1.F;  ///< 1 - <f> of `before`, f the fraction of the step
+  Scalar spread = 0.F; ///< <f^2> - <f>^2 of `before`
+  Scalar xRho = 0.F;   ///< the whole step's [g/cm^2]
+  bool found = false;  ///< the layers are a link (either way)
 };
 
 /// One binned coordinate: bin = (value - low) * perUnit, clamped.
@@ -161,6 +177,81 @@ struct LinkMaterial {
   [[nodiscard]] GPUhdi() GPUAlwaysInline() const MaterialGap& gap(std::uint32_t row, LayerID target, Scalar second) const { return gaps[row + static_cast<std::uint32_t>(layerSecond[target].bin(second, kSecond))]; }
 
   [[nodiscard]] GPUhdi() GPUAlwaysInline() float rowMax(std::uint32_t row) const { return gapRowMax[row / kSecond]; }
+
+  /// The step from \a start on layer \a fromLayer to \a end on \a toLayer:
+  /// along a link outward, against one inward; `found` false where the layers
+  /// are no link. A node takes the step's incidence on its layer, radial on a
+  /// barrel layer, along z on a disc; a barrel-to-barrel gap the chord's
+  /// obliquity in the transverse plane over the table's radial chord.
+  [[nodiscard]] GPUhdi() LinkStep step(LayerID fromLayer, LayerID toLayer, const Scalar start[3], const Scalar end[3]) const
+  {
+    using Math = o2::gpu::GPUCommonMath;
+    LinkStep out;
+    if (fromLayer >= static_cast<LayerID>(kLayers) || toLayer >= static_cast<LayerID>(kLayers)) {
+      return out;
+    }
+    int l = link(fromLayer, toLayer);
+    const bool inward = l < 0;
+    if (inward) {
+      l = link(toLayer, fromLayer);
+      if (l < 0) {
+        return out;
+      }
+    }
+    out.found = true;
+    const Scalar dx = end[0] - start[0];
+    const Scalar dy = end[1] - start[1];
+    const Scalar dz = end[2] - start[2];
+    const Scalar length = Math::Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+    if (!(length > 0.F)) {
+      return out;
+    }
+    const Scalar* source = inward ? end : start;
+    const Scalar* target = inward ? start : end;
+    const LayerID sourceLayer = linkFrom[l];
+    const LayerID targetLayer = linkTo[l];
+    const Scalar rSource = Math::Sqrt((source[0] * source[0]) + (source[1] * source[1]));
+    const Scalar rTarget = Math::Sqrt((target[0] * target[0]) + (target[1] * target[1]));
+    const auto& g = gaps[gapRow(static_cast<std::size_t>(l), source[0], source[1], second(sourceLayer, rSource, source[2])) + static_cast<std::uint32_t>(layerSecond[targetLayer].bin(second(targetLayer, rTarget, target[2]), kSecond))];
+    Scalar oblique = 1.F;
+    if (Detector<Det>::isBarrelLayer(sourceLayer) && Detector<Det>::isBarrelLayer(targetLayer)) {
+      oblique = Math::Sqrt((dx * dx) + (dy * dy)) / Math::Abs(rTarget - rSource);
+    }
+    // The cosine of the step's incidence on a layer at the point p.
+    const auto cosine = [&](LayerID layer, const Scalar* p) {
+      if (Detector<Det>::isBarrelLayer(layer)) {
+        const Scalar r = Math::Sqrt((p[0] * p[0]) + (p[1] * p[1]));
+        return r > 0.F ? Math::Abs((dx * p[0]) + (dy * p[1])) / (r * length) : 1.F;
+      }
+      return Math::Abs(dz) / length;
+    };
+    const auto& left = node(fromLayer, start[0], start[1], second(fromLayer, Math::Sqrt((start[0] * start[0]) + (start[1] * start[1])), start[2]));
+    const auto& reached = node(toLayer, end[0], end[1], second(toLayer, Math::Sqrt((end[0] * end[0]) + (end[1] * end[1])), end[2]));
+    const Scalar cosLeft = cosine(fromLayer, start);
+    const Scalar cosReached = cosine(toLayer, end);
+    const Scalar pathLeft = cosLeft > 0.F ? 1.F / cosLeft : 1.F;
+    const Scalar pathReached = cosReached > 0.F ? 1.F / cosReached : 1.F;
+    // Outward a band's part behind its sensor is left and the one in front reached; inward the reverse.
+    const Scalar leftX = (inward ? left.front : left.behind) * pathLeft;
+    const Scalar reachedX = (inward ? reached.behind : reached.front) * pathReached;
+    const Scalar gapX = g.x * oblique;
+    // The gap's moments in the step's direction.
+    const Scalar m1 = inward ? 1.F - g.m1 : g.m1;
+    const Scalar m2 = inward ? 1.F - (2.F * g.m1) + g.m2 : g.m2;
+    out.before = leftX + gapX;
+    out.after = reachedX;
+    if (out.before > 0.F) {
+      const Scalar mean = gapX * m1 / out.before;
+      const Scalar square = gapX * m2 / out.before;
+      out.lever = 1.F - mean;
+      const Scalar spread = square - (mean * mean);
+      out.spread = spread > 0.F ? spread : 0.F;
+    }
+    const Scalar leftShare = (left.front + left.behind) > 0.F ? (inward ? left.front : left.behind) / (left.front + left.behind) : 0.F;
+    const Scalar reachedShare = (reached.front + reached.behind) > 0.F ? (inward ? reached.behind : reached.front) / (reached.front + reached.behind) : 0.F;
+    out.xRho = (left.xRho * leftShare * pathLeft) + (g.xRho * oblique) + (reached.xRho * reachedShare * pathReached);
+    return out;
+  }
 
   /// Layer \a layer's vertex gap for a vertex at \a z and a point of the
   /// layer at azimuth \a phi with second coordinate \a second.

@@ -33,7 +33,7 @@
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/Definitions.h"
-#include "GenericTracking/Tracking/SurfaceMaterial.h"
+#include "GenericTracking/Tracking/LinkMaterial.h"
 
 #include "GPUCommonMath.h"
 
@@ -295,16 +295,17 @@ class TrackingGeometry
 
   [[nodiscard]] const std::array<TrackingSurface, Det::nSensors>& surfaces() const { return mSurfaces; }
 
-  /// The material on the layers' bands (SurfaceMaterial.h), filled from the
-  /// LUT once per run (`fillSurfaceMaterial`).
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() const SurfaceMaterialMap<Det>& material() const { return mMaterial; }
-  [[nodiscard]] SurfaceMaterialMap<Det>& material() { return mMaterial; }
+  /// The material of the layers' bands and the links' gaps (LinkMaterial.h),
+  /// filled from the LUT once per run and beam line (`fillLinkMaterial`):
+  /// the seeding's cuts and the follow's and the fits' steps read it.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() const LinkMaterial<Det>& material() const { return mMaterial; }
+  [[nodiscard]] LinkMaterial<Det>& material() { return mMaterial; }
 
  private:
   void build(const Geometry<Det>& geo);
 
   std::array<TrackingSurface, Det::nSensors> mSurfaces{};
-  SurfaceMaterialMap<Det> mMaterial{};
+  LinkMaterial<Det> mMaterial{};
 };
 
 template <DetectorLayout Det>

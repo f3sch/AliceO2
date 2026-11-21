@@ -22,7 +22,7 @@
 #include "GenericTracking/Tracking/LinkMaterial.h"
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/SearchWindow.h"
-#include "GenericTracking/Tracking/SurfaceMaterialFill.h"
+#include "GenericTracking/Tracking/SensorCells.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
 #include "DetectorsBase/MatLayerCylSet.h"
@@ -37,6 +37,110 @@
 
 namespace o2::gtrk
 {
+
+/// Where the ray from the nominal vertex along \a u crosses one of layer
+/// \a id's sensor planes, from a grid of the sensors over the layer's
+/// azimuth and second coordinate: the farthest crossing with \a last, else
+/// the nearest; the ray's parameter t (the point is t u), or <= 0 if it
+/// crosses no sensor there.
+template <DetectorLayout Det>
+class SensorPlaneGrid
+{
+ public:
+  /// The grid's cells: a stave's width in azimuth, a sensor's length along the layer.
+  static constexpr int kPhi = 256;
+  static constexpr int kSecond = 128;
+
+  SensorPlaneGrid(std::span<const TrackingSurface> surfaces, LayerID id) : mBarrel(Detector<Det>::isBarrelLayer(id)), mSecondMin(secondMin<Det>(id)), mPerCm(kSecond / (secondMax<Det>(id) - mSecondMin))
+  {
+    mCells.resize(static_cast<std::size_t>(kPhi) * kSecond);
+    for (const auto& surface : surfaces) {
+      if (surface.layer != id) {
+        continue;
+      }
+      const auto footprint = SensorCells<Det>::footprint(surface, mBarrel);
+      const double phiLo = footprint.phiCentre + footprint.phiLow;
+      const double phiHi = footprint.phiCentre + footprint.phiHigh;
+      const double sLo = footprint.secondLow;
+      const double sHi = footprint.secondHigh;
+      const int s0 = std::max(0, static_cast<int>(std::floor((sLo - mSecondMin) * mPerCm)));
+      const int s1 = std::min(kSecond - 1, static_cast<int>(std::floor((sHi - mSecondMin) * mPerCm)));
+      const int p0 = static_cast<int>(std::floor(phiLo * kPhi / kTwoPi<double>));
+      const int p1 = static_cast<int>(std::floor(phiHi * kPhi / kTwoPi<double>));
+      for (int ip = p0; ip <= p1; ++ip) {
+        const int wrapped = ((ip % kPhi) + kPhi) % kPhi;
+        for (int is = s0; is <= s1; ++is) {
+          mCells[(static_cast<std::size_t>(wrapped) * kSecond) + is].push_back(&surface);
+        }
+      }
+    }
+  }
+
+  /// The ray's first and last sensor crossings, t <= 0 for none: the ray
+  /// along \a u from the nominal vertex, which crosses the layer's nominal
+  /// surface in the grid's azimuth bin \a phiBin at \a second.
+  void crossings(const double u[3], int phiBin, double second, double& first, double& last) const
+  {
+    first = -1.;
+    last = -1.;
+    const int ip = std::clamp(phiBin, 0, kPhi - 1);
+    const int is = std::clamp(static_cast<int>((second - mSecondMin) * mPerCm), 0, kSecond - 1);
+    const auto take = [&](double t) {
+      first = first <= 0. || t < first ? t : first;
+      last = last <= 0. || t > last ? t : last;
+    };
+    for (const TrackingSurface* surface : mCells[(static_cast<std::size_t>(ip) * kSecond) + is]) {
+      if (surface->radius > 0.F) {
+        // |w - (w.n) n| = radius for w = t u - origin, n the axis.
+        const double o[3] = {surface->origin[0], surface->origin[1], surface->origin[2]};
+        const double un = dotOf(u, surface->normal);
+        const double on = dotOf(o, surface->normal);
+        double up[3];
+        double op[3];
+        for (int k = 0; k < 3; ++k) {
+          up[k] = u[k] - (un * surface->normal[k]);
+          op[k] = o[k] - (on * surface->normal[k]);
+        }
+        const double qa = dotOf(up, up);
+        const double qb = -2. * dotOf(up, op);
+        const double reach = double(surface->radius) + surface->depth;
+        const double qc = dotOf(op, op) - (reach * reach);
+        const double disc = (qb * qb) - (4. * qa * qc);
+        if (qa <= 0. || disc < 0.) {
+          continue;
+        }
+        const double t = (-qb + std::sqrt(disc)) / (2. * qa);
+        if (!(t > 0.)) {
+          continue;
+        }
+        const double point[3] = {t * u[0], t * u[1], t * u[2]};
+        double local[3];
+        surfaceToLocal(*surface, point, local);
+        if (!surface->bounds.isInside(static_cast<Scalar>(surface->radius * std::atan2(local[1], local[0])), static_cast<Scalar>(local[2]))) {
+          continue;
+        }
+        take(t);
+        continue;
+      }
+      constexpr double kVertex[3] = {0., 0., 0.};
+      double t = 0.;
+      double loc[2];
+      if (std::abs(cosIncidence(*surface, u)) < 1e-9 || !lineCrossing(*surface, kVertex, u, t, loc) || !(t > 0.)) {
+        continue;
+      }
+      if (!surface->bounds.isInside(static_cast<Scalar>(loc[0]), static_cast<Scalar>(loc[1]))) {
+        continue;
+      }
+      take(t);
+    }
+  }
+
+ private:
+  bool mBarrel;
+  double mSecondMin = 0.;
+  double mPerCm = 0.;
+  std::vector<std::vector<const TrackingSurface*>> mCells;
+};
 
 namespace detail
 {
@@ -91,6 +195,7 @@ struct RaySums {
   double x = 0.;
   double xf = 0.;
   double xf2 = 0.;
+  double xRho = 0.;
 };
 
 [[nodiscard]] inline RaySums raySums(const o2::base::MatLayerCylSet& lut, const Vec3D& origin, const Vec3D& u, double l0, double l1, double length, int pieces)
@@ -102,8 +207,10 @@ struct RaySums {
   for (int i = 0; i < pieces; ++i) {
     const double a = l0 + ((l1 - l0) * i / pieces);
     const double b = l0 + ((l1 - l0) * (i + 1) / pieces);
-    const auto x = static_cast<double>(lut.getMatBudget(static_cast<float>(origin[0] + (a * u[0])), static_cast<float>(origin[1] + (a * u[1])), static_cast<float>(origin[2] + (a * u[2])), static_cast<float>(origin[0] + (b * u[0])), static_cast<float>(origin[1] + (b * u[1])), static_cast<float>(origin[2] + (b * u[2]))).meanX2X0);
+    const auto budget = lut.getMatBudget(static_cast<float>(origin[0] + (a * u[0])), static_cast<float>(origin[1] + (a * u[1])), static_cast<float>(origin[2] + (a * u[2])), static_cast<float>(origin[0] + (b * u[0])), static_cast<float>(origin[1] + (b * u[1])), static_cast<float>(origin[2] + (b * u[2])));
+    const auto x = static_cast<double>(budget.meanX2X0);
     const double f = 0.5 * (a + b) / length;
+    sums.xRho += static_cast<double>(budget.meanRho) * static_cast<double>(budget.length);
     sums.x += x;
     sums.xf += x * f;
     sums.xf2 += x * f * f;
@@ -126,7 +233,7 @@ struct RaySums {
     return {};
   }
   const double x = total.x / rays;
-  return {.x = static_cast<float>(x), .m1 = static_cast<float>(total.xf / total.x), .m2 = static_cast<float>(total.xf2 / total.x), .logX = static_cast<float>(std::log(x))};
+  return {.x = static_cast<float>(x), .m1 = static_cast<float>(total.xf / total.x), .m2 = static_cast<float>(total.xf2 / total.x), .logX = static_cast<float>(std::log(x)), .xRho = static_cast<float>(total.xRho / rays)};
 }
 
 } // namespace detail
@@ -186,6 +293,7 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
             const double second = centre(table.layerSecond[job], s);
             double front = 0.;
             double behind = 0.;
+            double xRho = 0.;
             for (int ray = 0; ray < kRays; ++ray) {
               const double angle = phiOfRay(phi, Table::kNodePhi, ray);
               const Vec3D origin{0., 0., 0.};
@@ -200,11 +308,14 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
               const double split = std::clamp(firstCrossing > 0. ? firstCrossing : length, l0, l1);
               // To normal incidence: the ray's path factor through the band.
               const double incidence = barrel ? std::hypot(u[0], u[1]) : std::abs(u[2]);
-              front += detail::raySums(lut, origin, u, l0, split, 1., kNodePieces).x * incidence;
-              behind += detail::raySums(lut, origin, u, split, l1, 1., kNodePieces).x * incidence;
+              const auto inFront = detail::raySums(lut, origin, u, l0, split, 1., kNodePieces);
+              const auto inBehind = detail::raySums(lut, origin, u, split, l1, 1., kNodePieces);
+              front += inFront.x * incidence;
+              behind += inBehind.x * incidence;
+              xRho += (inFront.xRho + inBehind.xRho) * incidence;
             }
             const double whole = (front + behind) / kRays;
-            table.nodes[(((job * Table::kNodePhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)] = {.front = static_cast<float>(front / kRays), .behind = static_cast<float>(behind / kRays), .logX = whole > 0. ? static_cast<float>(std::log(whole)) : 0.F};
+            table.nodes[(((job * Table::kNodePhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)] = {.front = static_cast<float>(front / kRays), .behind = static_cast<float>(behind / kRays), .logX = whole > 0. ? static_cast<float>(std::log(whole)) : 0.F, .xRho = static_cast<float>(xRho / kRays)};
           }
         }
         for (int phi = 0; phi < Table::kGapPhi; ++phi) {
@@ -221,6 +332,7 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
                 total.x += sums.x;
                 total.xf += sums.xf;
                 total.xf2 += sums.xf2;
+                total.xRho += sums.xRho;
               }
               table.vertexGaps[(((((job * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)] = detail::gapOf(total, kRays);
             }
@@ -248,6 +360,7 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
               total.x += sums.x;
               total.xf += sums.xf;
               total.xf2 += sums.xf2;
+              total.xRho += sums.xRho;
             }
             const auto gap = detail::gapOf(total, kRays);
             table.gaps[(((((link * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)) * Table::kSecond) + static_cast<std::size_t>(t)] = gap;

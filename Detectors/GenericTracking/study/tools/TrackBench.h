@@ -1736,7 +1736,7 @@ struct IterationStudies {
   }
 };
 
-/// The material tables (SurfaceMaterial.h) against the LUT on the last run's
+/// The material tables (LinkMaterial.h, a step's band left and gap, and band reached) against the LUT on the last run's
 /// tracks: each step between two consecutive rows of a track on different
 /// layers, straight between their measurements as a fit's chord, per ordered
 /// layer pair: the LUT walk's mean x/X0, the tables' nearer half, farther half,
@@ -1777,11 +1777,11 @@ void printMaterialCheck(const TrackStore<Det>& tracks, const TimeFrame<Det>& fra
         } else {
           const auto walked = detail::stepMaterial(lut, previous, point);
           const double walkedTotal = walked.nearerX2X0 + walked.fartherX2X0;
-          const double tableTotal = table.nearerX2X0 + table.fartherX2X0;
+          const double tableTotal = table.before + table.after;
           sum.lutNear += walked.nearerX2X0;
           sum.lutFar += walked.fartherX2X0;
-          sum.mapNear += table.nearerX2X0;
-          sum.mapFar += table.fartherX2X0;
+          sum.mapNear += table.before;
+          sum.mapFar += table.after;
           sum.lutRho += walked.xRho;
           sum.mapRho += table.xRho;
           sum.absDiff += std::abs(tableTotal - walkedTotal);

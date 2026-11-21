@@ -97,12 +97,20 @@ namespace detail
 /// Each half's Highland logarithm is taken at the scatterer it is a part of
 /// (`highlandTheta0`): its own material for a step alone, as a candidate's
 /// step in the follow; the fitted span's for a fit's step (`SpanMaterial`).
+///
+/// From the link material (LinkMaterial.h, `LinkStep`) the nearer part is the
+/// band left and the gap, a kick at the gap's mean place -- \a lever, the
+/// fraction of the step after it -- with the spread of its places about it,
+/// \a spread; the farther part the band reached. A LUT's halves are a kick at
+/// the start and one at the end: \a lever 1, no spread.
 struct StepMaterial {
-  Scalar nearerX2X0 = 0.F;     ///< x/X0 from the start to the midpoint
-  Scalar fartherX2X0 = 0.F;    ///< x/X0 from the midpoint to the end
+  Scalar nearerX2X0 = 0.F;     ///< x/X0 from the start to the midpoint (the link material's band left and gap)
+  Scalar fartherX2X0 = 0.F;    ///< x/X0 from the midpoint to the end (the link material's band reached)
   Scalar nearerLogX2X0 = 0.F;  ///< x/X0 the nearer half's logarithm is taken at
   Scalar fartherLogX2X0 = 0.F; ///< x/X0 the farther half's logarithm is taken at
   Scalar xRho = 0.F;           ///< [g/cm^2] over the whole step
+  Scalar lever = 1.F;          ///< 1 - <f> of the nearer part, f the fraction of the step
+  Scalar spread = 0.F;         ///< <f^2> - <f>^2 of the nearer part
 };
 
 /// A step's material from \a material's LUT, each half's logarithm at its own.
@@ -198,10 +206,9 @@ struct ExactMaterial {
 };
 
 /// A fit's material where its chain may hold two measurements on one layer
-/// (overlap partners, OverlapPartners.h): the surface map's between layers,
-/// whose halves hold each layer's whole material about either of two
-/// overlapping sensors (SurfaceMaterialFill.h), and none on a step between
-/// two sensors of one layer, which those halves hold already.
+/// (overlap partners, OverlapPartners.h): the link material's between
+/// layers, whose bands hold each layer's whole material, and none on a step
+/// between two sensors of one layer, which the bands hold already.
 template <typename Material>
 struct LayerMaterial {
   const Material* lut = nullptr;
@@ -226,7 +233,7 @@ template <typename Material>
 struct IsExactMaterial<SpanMaterial<ExactMaterial<Material>>> : std::true_type {
 };
 
-/// A step's material from the surface map (SurfaceMaterial.h) between the
+/// A step's material from the link material (LinkMaterial.h) between the
 /// planes \a from and \a to, or from \a material's LUT where their layers are
 /// not a linked pair: \a material's given step for a follow candidate
 /// (`GivenMaterial`), each half's logarithm at the fit's span for a fit
@@ -259,11 +266,11 @@ GPUdi() StepMaterial stepMaterial(const TrackingGeometry<Det>& geometry, const T
         return none;
       }
     }
-    const auto surface = geometry.material().step(from.layer, to.layer, start, end);
-    if (!surface.found) {
+    const auto link = geometry.material().step(from.layer, to.layer, start, end);
+    if (!link.found) {
       return stepMaterial(material, start, end);
     }
-    StepMaterial step{.nearerX2X0 = surface.nearerX2X0, .fartherX2X0 = surface.fartherX2X0, .nearerLogX2X0 = surface.nearerX2X0, .fartherLogX2X0 = surface.fartherX2X0, .xRho = surface.xRho};
+    StepMaterial step{.nearerX2X0 = link.before, .fartherX2X0 = link.after, .nearerLogX2X0 = link.before, .fartherLogX2X0 = link.after, .xRho = link.xRho, .lever = link.lever, .spread = link.spread};
     if constexpr (IsSpanMaterial<Material>::value) {
       step.nearerLogX2X0 = material.spanX2X0;
       step.fartherLogX2X0 = material.spanX2X0;
@@ -316,7 +323,7 @@ template <bool Scaled, typename Prop>
 GPUdi() PropagationStatus stepNoise(const Prop& prop, const StepMaterial& step, Scalar momentum, const ScatteringNoise& before, PropagationDirection direction, BoundParameters& state, Scalar& lossQOverP, StepNoise& noise, Scalar noiseScale)
 {
   const auto after = scatteringNoise(scaledTheta0<Scaled>(highlandTheta0(step.fartherX2X0, step.fartherLogX2X0, momentum, prop.massGeV), noiseScale), state.theta());
-  noise = StepNoise{.phiBefore = before.phi, .thetaBefore = before.theta, .phiAfter = after.phi, .thetaAfter = after.theta};
+  noise = StepNoise{.phiBefore = before.phi, .thetaBefore = before.theta, .phiAfter = after.phi, .thetaAfter = after.theta, .lever = step.lever, .spread = step.spread};
   if (!applyEnergyLoss(prop, step.xRho, direction, lossQOverP, state, noise.qOverPAfter)) {
     return PropagationStatus::kStopped;
   }
@@ -537,7 +544,7 @@ GPUdi() void applyJacobian(const SolenoidJacobian& jac, Scalar (&x)[kNBoundParam
 /// allowed, and P_inf -> F P_inf F^T, which no noise reaches.
 GPUdi() void transportDiffuse(const SolenoidJacobian& jac, const StepNoise& noise, DiffuseFactors& c)
 {
-  constexpr int kColumns = kNBoundParams + 5;
+  constexpr int kColumns = kNBoundParams + 7;
   Scalar y[kNBoundParams][kColumns]{};
   Scalar w[kColumns]{};
   factorColumnsOf(c.star, y, w);
@@ -551,14 +558,16 @@ GPUdi() void transportDiffuse(const SolenoidJacobian& jac, const StepNoise& nois
       y[i][k] = column[i];
     }
   }
-  // The nearer half's noise transported, F e_phi and F e_theta; the farther
-  // half's and the straggling as they are.
-  y[kLoc0][5] = jac.loc0[kPhi];
-  y[kLoc1][5] = jac.loc1[kPhi];
+  // The nearer part's noise transported, F e_phi and F e_theta with the
+  // positions' response at its lever (`StepNoise::lever`), its spread as
+  // position noise alone; the farther half's and the straggling as they are.
+  const Scalar spread = o2::gpu::GPUCommonMath::Sqrt(noise.spread);
+  y[kLoc0][5] = jac.loc0[kPhi] * noise.lever;
+  y[kLoc1][5] = jac.loc1[kPhi] * noise.lever;
   y[kPhi][5] = jac.phi[kPhi];
   w[5] = noise.phiBefore;
-  y[kLoc0][6] = jac.loc0[kTheta];
-  y[kLoc1][6] = jac.loc1[kTheta];
+  y[kLoc0][6] = jac.loc0[kTheta] * noise.lever;
+  y[kLoc1][6] = jac.loc1[kTheta] * noise.lever;
   y[kPhi][6] = jac.phi[kTheta];
   y[kTheta][6] = 1.F;
   w[6] = noise.thetaBefore;
@@ -568,6 +577,12 @@ GPUdi() void transportDiffuse(const SolenoidJacobian& jac, const StepNoise& nois
   w[8] = noise.thetaAfter;
   y[kQOverP][9] = 1.F;
   w[9] = noise.qOverPAfter;
+  y[kLoc0][10] = jac.loc0[kPhi] * spread;
+  y[kLoc1][10] = jac.loc1[kPhi] * spread;
+  w[10] = noise.phiBefore;
+  y[kLoc0][11] = jac.loc0[kTheta] * spread;
+  y[kLoc1][11] = jac.loc1[kTheta] * spread;
+  w[11] = noise.thetaBefore;
   factorColumns(y, w, c.star);
   for (int k = 0; k < c.rank; ++k) {
     Scalar column[kNBoundParams];
@@ -866,8 +881,8 @@ GPUdi() SpanMaterial<Material> spanMaterial(const TrackingGeometry<Det>& geometr
       sameLayer = previousLayer == plane.layer;
     }
     if (i > 0 && !sameLayer) {
-      const auto step = IsExactMaterial<Material>::value ? SurfaceStep{} : geometry.material().step(previousLayer, plane.layer, previous, point);
-      span.spanX2X0 += step.found ? step.nearerX2X0 + step.fartherX2X0 : material.getMatBudget(previous[0], previous[1], previous[2], point[0], point[1], point[2]).meanX2X0;
+      const auto step = IsExactMaterial<Material>::value ? LinkStep{} : geometry.material().step(previousLayer, plane.layer, previous, point);
+      span.spanX2X0 += step.found ? step.before + step.after : material.getMatBudget(previous[0], previous[1], previous[2], point[0], point[1], point[2]).meanX2X0;
     }
     previousLayer = plane.layer;
     previous[0] = point[0];

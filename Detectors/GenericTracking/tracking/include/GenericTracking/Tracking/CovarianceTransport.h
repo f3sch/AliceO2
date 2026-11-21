@@ -58,6 +58,12 @@ struct StepNoise {
   Scalar phiAfter = 0.F;    ///< the same, the farther half
   Scalar thetaAfter = 0.F;
   Scalar qOverPAfter = 0.F; ///< the straggling's q/p variance
+  /// The nearer part as a kick at the fraction 1 - lever of the step: its
+  /// noise reaches the positions by lever times the step's Jacobian
+  /// (StepMaterial); and the spread of its material's places about that
+  /// fraction, as noise on the positions alone. 1 and 0: a kick at the start.
+  Scalar lever = 1.F;
+  Scalar spread = 0.F;
 };
 
 /// The predicted covariance F (P + Q_before) F^T + Q_after of a step, on
@@ -71,8 +77,11 @@ struct StepNoise {
 ///
 ///   - 0-4, the transported factors: F u_k, u_k U's k-th column, with D_k;
 ///   - 5, 6, the nearer half's noise on phi and theta, transported: F e_phi
-///     and F e_theta, F's phi and theta columns;
+///     and F e_theta, F's phi and theta columns, their positions times the
+///     kick's lever (`StepNoise::lever`);
 ///   - 7, 8, the farther half's: e_phi and e_theta;
+///   - 9, 10, the nearer part's spread: F e_phi and F e_theta's positions
+///     times its square root, nothing on the angles;
 ///   - the straggling, e_q/p.
 ///
 /// Modified weighted Gram-Schmidt turns them into the five of P' = U' D' U'^T,
@@ -98,7 +107,7 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
   const Scalar* rows[3] = {jac.loc0, jac.loc1, jac.phi};
   // The three dense rows (loc0, loc1, phi) of the columns; column 7 is e_phi,
   // nonzero in phi's row only until the phi row fills the others.
-  constexpr int kColumns = 9;
+  constexpr int kColumns = 11;
   Scalar y[3][kColumns]{};
   Scalar w[kColumns]{};
   for (int r = 0; r < 3; ++r) {
@@ -109,8 +118,15 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
       }
       y[r][k] = value;
     }
-    y[r][5] = rows[r][kPhi];
-    y[r][6] = rows[r][kTheta];
+    // The positions' rows (loc0, loc1) take the lever; phi's does not.
+    const Scalar lever = r < 2 ? noise.lever : 1.F;
+    y[r][5] = rows[r][kPhi] * lever;
+    y[r][6] = rows[r][kTheta] * lever;
+    if (r < 2) {
+      const Scalar spread = o2::gpu::GPUCommonMath::Sqrt(noise.spread);
+      y[r][9] = rows[r][kPhi] * spread;
+      y[r][10] = rows[r][kTheta] * spread;
+    }
   }
   y[kPhi][7] = 1.F;
   for (int k = 0; k < kNBoundParams; ++k) {
@@ -120,6 +136,8 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
   w[6] = noise.thetaBefore;
   w[7] = noise.phiAfter;
   w[8] = noise.thetaAfter;
+  w[9] = noise.phiBefore;
+  w[10] = noise.thetaBefore;
 
   // q/p: its row is e_q/p in column 4 and the straggling's. Its rows above
   // project by D_4 / D_4', and column 4 keeps the merged weight.

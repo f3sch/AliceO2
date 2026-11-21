@@ -606,24 +606,23 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   {
     mStream.synchronize();
     closeFrom(Scope::kRun);
-    if (iterations.empty() || iterations.front().material == nullptr) {
-      throw std::logic_error("configureRun without the iterations' material");
-    }
-    if (!mParameters.allocate(mArena, iterations.size()) || !mGeometry.allocate(mArena) || !mLinkMaterial.allocate(mArena) || !mMaterial.upload(mArena, material, mStream)) {
+    if (!mParameters.allocate(mArena, iterations.size()) || !mGeometry.allocate(mArena) || !mMaterial.upload(mArena, material, mStream)) {
       closeFrom(Scope::kRun);
       return StageStatus::kOutOfMemory;
     }
-    // The iterations' material table, one for all of them: the device's copy.
-    uploadObject(*iterations.front().material, mLinkMaterial, mStream);
+    uploadObject(geometry, mGeometry, mStream);
+    // The iterations' material is the tracking geometry's (`material()`): on
+    // the device, the same place in the device's copy.
+    const auto offset = reinterpret_cast<const char*>(&geometry.material()) - reinterpret_cast<const char*>(&geometry);
+    const auto* deviceMaterial = reinterpret_cast<const LinkMaterial<Det>*>(reinterpret_cast<const char*>(mGeometry.data()) + offset);
     std::vector<IterationParameters<Det>> deviceParameters(iterations.begin(), iterations.end());
     for (auto& parameters : deviceParameters) {
-      if (parameters.material != iterations.front().material) {
-        throw std::logic_error("configureRun: the iterations' material differs");
+      if (parameters.material != &geometry.material()) {
+        throw std::logic_error("configureRun: an iteration's material is not the tracking geometry's");
       }
-      parameters.material = mLinkMaterial.data();
+      parameters.material = deviceMaterial;
     }
     upload(deviceParameters.data(), mParameters, deviceParameters.size(), mStream);
-    uploadObject(geometry, mGeometry, mStream);
     // The sensors by place, once, where an iteration follows or takes
     // overlap partners.
     mSensorCells = {};
@@ -1720,7 +1719,6 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     mParameters = {};
     mHostParameters.clear();
     mGeometry = {};
-    mLinkMaterial = {};
     mMaterial.release();
     mCellLayers = {};
     mCellOffsets = {};
@@ -1766,7 +1764,6 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   DeviceSpan<IterationParameters<Det>> mParameters;
   std::vector<IterationParameters<Det>> mHostParameters; ///< the same, for the values the host reads
   DeviceObject<TrackingGeometry<Det>> mGeometry;
-  DeviceObject<LinkMaterial<Det>> mLinkMaterial; ///< the iterations' seeding material, which mParameters point to
   DeviceMaterial<Material> mMaterial;
   DeviceSpan<SensorCellLayer> mCellLayers; ///< the sensors by place, for the outward follow
   DeviceSpan<std::uint32_t> mCellOffsets;
