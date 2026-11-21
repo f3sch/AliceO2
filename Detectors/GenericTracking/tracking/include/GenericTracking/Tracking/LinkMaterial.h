@@ -125,8 +125,18 @@ struct LinkMaterial {
   static constexpr int kSourceSecond = 32;
   static constexpr int kVertexZ = 8;
 
-  /// The link from layer `from` to layer `to`, -1 for none; each link's layers.
-  std::array<std::int16_t, static_cast<std::size_t>(kLayers) * kLayers> linkOf{};
+  [[nodiscard]] static constexpr std::array<std::int16_t, static_cast<std::size_t>(kLayers) * kLayers> noLinks()
+  {
+    std::array<std::int16_t, static_cast<std::size_t>(kLayers) * kLayers> none{};
+    for (auto& link : none) {
+      link = -1;
+    }
+    return none;
+  }
+
+  /// The link from layer `from` to layer `to`, -1 for none (an unfilled
+  /// table has none); each link's layers.
+  std::array<std::int16_t, static_cast<std::size_t>(kLayers) * kLayers> linkOf = noLinks();
   std::array<LayerID, kLinks> linkFrom{};
   std::array<LayerID, kLinks> linkTo{};
   /// Each layer's second coordinate over its envelope, the source interval of

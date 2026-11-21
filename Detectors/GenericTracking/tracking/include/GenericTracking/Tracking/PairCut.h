@@ -327,6 +327,43 @@ template <DetectorLayout Det>
   return least;
 }
 
+/// The largest path factor through layer \a from's band (path over the band's
+/// depth along the line from the vertex) of the sources in its second
+/// coordinate bin \a s from vertices in vertex bin \a v within \a reach: over
+/// the corners of the bin, the vertices' interval and the band's depth, where
+/// the factor, monotonic in each, is largest. Zero if no vertex of the reach
+/// is in the bin.
+template <DetectorLayout Det>
+[[nodiscard]] inline double largestIncidence(const LinkMaterial<Det>& material, LayerID from, int s, int v, const Interval& reach)
+{
+  const double v0 = std::max(reach.low, static_cast<double>(material.vertexZ.low) + (v / material.vertexZ.perUnit));
+  const double v1 = std::min(reach.high, static_cast<double>(material.vertexZ.low) + ((v + 1) / material.vertexZ.perUnit));
+  if (v0 > v1) {
+    return 0.;
+  }
+  const bool barrel = Detector<Det>::isBarrelLayer(from);
+  const auto& axis = material.layerSecond[from];
+  const double s0 = axis.low + (s / axis.perUnit);
+  const double s1 = axis.low + ((s + 1) / axis.perUnit);
+  const double d0 = barrel ? radiusMin<Det>(from) : zMin<Det>(from);
+  const double d1 = barrel ? radiusMax<Det>(from) : zMax<Det>(from);
+  double largest = 0.;
+  for (const double second : {s0, s1}) {
+    for (const double depth : {d0, d1}) {
+      for (const double zv : {v0, v1}) {
+        const double r = barrel ? depth : second;
+        const double dz = (barrel ? second : depth) - zv;
+        const double length = std::hypot(r, dz);
+        const double across = barrel ? r : std::abs(dz);
+        if (across > 0.) {
+          largest = std::max(largest, length / across);
+        }
+      }
+    }
+  }
+  return largest;
+}
+
 /// The largest x/X0 a source's span can have on layer \a from
 /// (`sourceScattering`'s \a spanX) for vertices in the reach: what bounds a
 /// pair's logarithm before it is read.
@@ -335,26 +372,17 @@ template <DetectorLayout Det>
 {
   using Table = LinkMaterial<Det>;
   const Interval reach = vertexReach(params, vertex);
-  const bool barrel = Detector<Det>::isBarrelLayer(from);
-  const double position = PlacedEnvelopes<Det>::get(from).position;
-  const auto& axis = material.layerSecond[from];
   double largest = 0.;
   for (int s = 0; s < Table::kSecond; ++s) {
     double node = 0.;
     for (int phi = 0; phi < Table::kNodePhi; ++phi) {
       node = std::max(node, static_cast<double>(material.nodes[(((static_cast<std::size_t>(from) * Table::kNodePhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)].x));
     }
-    const double second = axis.low + ((s + 0.5) / axis.perUnit);
-    const double r = barrel ? position : second;
-    const double z = barrel ? second : position;
     for (int v = 0; v < Table::kVertexZ; ++v) {
-      const double zv = material.vertexZ.low + ((v + 0.5) / material.vertexZ.perUnit);
-      if (zv < reach.low - (0.5 / material.vertexZ.perUnit) || zv > reach.high + (0.5 / material.vertexZ.perUnit)) {
+      const double incidence = largestIncidence<Det>(material, from, s, v, reach);
+      if (!(incidence > 0.)) {
         continue;
       }
-      const double dz = z - zv;
-      const double length = std::hypot(r, dz);
-      const double incidence = barrel ? length / r : (std::abs(dz) > 0. ? length / std::abs(dz) : 0.);
       for (int phi = 0; phi < Table::kGapPhi; ++phi) {
         const auto& gap = material.vertexGaps[(((((static_cast<std::size_t>(from) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)];
         largest = std::max(largest, static_cast<double>(gap.x) + (node * incidence));
@@ -384,9 +412,6 @@ template <DetectorLayout Det>
   }
   const auto logBeta2 = static_cast<Scalar>(logBeta2Min(params));
   const Interval reach = vertexReach(params, vertex);
-  const bool barrel = Detector<Det>::isBarrelLayer(from);
-  const double position = PlacedEnvelopes<Det>::get(from).position;
-  const auto& axis = material.layerSecond[from];
   double largest = 0.;
   for (int s = 0; s < Table::kSecond; ++s) {
     double node = 0.;
@@ -394,17 +419,11 @@ template <DetectorLayout Det>
       const auto& n = material.nodes[(((static_cast<std::size_t>(from) * Table::kNodePhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)];
       node += static_cast<double>(n.x) / Table::kNodePhi;
     }
-    const double second = axis.low + ((s + 0.5) / axis.perUnit);
-    const double r = barrel ? position : second;
-    const double z = barrel ? second : position;
     for (int v = 0; v < Table::kVertexZ; ++v) {
-      const double zv = material.vertexZ.low + ((v + 0.5) / material.vertexZ.perUnit);
-      if (zv < reach.low - (0.5 / material.vertexZ.perUnit) || zv > reach.high + (0.5 / material.vertexZ.perUnit)) {
+      const double incidence = largestIncidence<Det>(material, from, s, v, reach);
+      if (!(incidence > 0.)) {
         continue;
       }
-      const double dz = z - zv;
-      const double length = std::hypot(r, dz);
-      const double incidence = barrel ? length / r : (std::abs(dz) > 0. ? length / std::abs(dz) : 0.);
       double gapX = 0.;
       double gapM2 = 0.;
       for (int phi = 0; phi < Table::kGapPhi; ++phi) {

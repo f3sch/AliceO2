@@ -149,7 +149,7 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
   constexpr int kL = Table::kLayers;
   constexpr int kRays = 4;     // per azimuth bin
   constexpr int kPieces = 32;  // per gap ray
-  table.linkOf.fill(-1);
+  table.linkOf = Table::noLinks();
   for (int link = 0; link < Table::kLinks; ++link) {
     const auto& l = Det::layerLinks[link];
     table.linkOf[(static_cast<std::size_t>(l.from) * kL) + l.to] = static_cast<std::int16_t>(link);
