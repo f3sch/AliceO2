@@ -133,7 +133,8 @@ struct PlacedLayerSpec {
 };
 
 /// One directed link of a detector's layer graph: a track from the luminous
-/// region crosses `from` and then `to`, with no active layer in between.
+/// region crosses `from` and then `to`, with no active layer in between, or
+/// only layers it crossed without a measurement (a gap in their silicon).
 ///
 /// The links are part of the detector's specification, like the ring radii
 /// they follow from. `o2-gtrk-layer-links` traces them from the layout once
@@ -142,16 +143,14 @@ struct PlacedLayerSpec {
 /// The source interval is the range of the seed's second coordinate -- z on a
 /// barrel layer, r on a disc -- from which the trace reaches `to`, padded by
 /// the margin the tool was given. A seed outside it does not query the link.
-/// `skipsLayer` is traced too: true when every traced trajectory on the link
-/// crosses another layer's envelope between its ends, so no pair on it can be
-/// direct. On the other links each pair's own segment decides
-/// (Tracking/LinkHoles.h).
+/// Which layers a link passes over is the placed geometry's
+/// (Tracking/LinkHoles.h, `linkHoleLayers`); which of them a pair may cross
+/// without a measurement is an iteration's (its layer mask and skips).
 struct LayerLink {
   LayerID from;
   LayerID to;
   double sourceMin; ///< [cm]
   double sourceMax; ///< [cm]
-  bool skipsLayer;
 };
 
 /// What a detector type has to provide.

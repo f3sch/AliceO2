@@ -1500,7 +1500,7 @@ class FollowStage
     for (std::uint32_t i = 0U; i + 1U < count; ++i) {
       const LayerID before = mGeometry->surface(measurements.surface[rows.index[i]]).layer;
       const LayerID after = mGeometry->surface(measurements.surface[rows.index[i + 1U]]).layer;
-      for (std::uint64_t left = Detector<Det>::inactiveLayers; left != 0U; left &= left - 1U) {
+      for (std::uint64_t left = Detector<Det>::inactiveLayers & mParameters->followLayers; left != 0U; left &= left - 1U) {
         const auto layer = static_cast<LayerID>(o2::gpu::CAMath::Ctz64(left));
         if (layer == before || layer == after || !linked(before, layer) || !linked(layer, after)) {
           continue;
@@ -1573,7 +1573,7 @@ class FollowStage
   }
 
   /// The inactive layers' tail of \a branch's walk (\a Det's
-  /// `inactiveLayers`): the inactive layers neither it nor the track
+  /// `inactiveLayers`, those of the follow's layers): the inactive layers neither it nor the track
   /// (\a heldLayers, `heldInactive`) holds a row on and its state crosses
   /// ahead, nearest first, searched as a nominal step is (`nominal`), the
   /// holes not counted. Whether it found a row, into \a child.
@@ -1585,7 +1585,7 @@ class FollowStage
     const auto& from = mGeometry->planeOf(branch.state);
     Scalar here[3]{};
     surfaceToGlobal(from, branch.state.loc0(), branch.state.loc1(), here);
-    for (std::uint64_t left = Detector<Det>::inactiveLayers; left != 0U && nTargets < follow::maxDegree<Det>; left &= left - 1U) {
+    for (std::uint64_t left = Detector<Det>::inactiveLayers & mParameters->followLayers; left != 0U && nTargets < follow::maxDegree<Det>; left &= left - 1U) {
       const auto layer = static_cast<LayerID>(o2::gpu::CAMath::Ctz64(left));
       bool held = ((heldLayers >> layer) & 1U) != 0U || mGeometry->surface(branch.state.surface).layer == layer;
       for (std::uint32_t i = 0; i < branch.count; ++i) {

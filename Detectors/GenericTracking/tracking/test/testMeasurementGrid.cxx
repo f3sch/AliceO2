@@ -309,9 +309,10 @@ std::array<int, nLinks<Det>> longestPathsThrough()
 }
 } // namespace
 
-BOOST_AUTO_TEST_CASE(TheLinkPredicateFollowsSkipsMaskAndPathLength)
+BOOST_AUTO_TEST_CASE(TheLinkPredicateFollowsMaskAndPathLength)
 {
-  // One predicate for the stages' link lists and the grid's sizing.
+  // One predicate for the stages' link lists and the grid's sizing; skips
+  // refuse pairs, not links.
   const auto all = takenLinks<Mixed>(IterationSettings{.windows = {}, .minClusters = 2});
   const auto noSkips = takenLinks<Mixed>(IterationSettings{.windows = {}, .minClusters = 2, .skipLinks = false});
   const auto inner = takenLinks<Mixed>(IterationSettings{.windows = {}, .minClusters = 2, .layerMask = 0b111U});
@@ -321,7 +322,7 @@ BOOST_AUTO_TEST_CASE(TheLinkPredicateFollowsSkipsMaskAndPathLength)
     BOOST_TEST_CONTEXT("link " << link)
     {
       BOOST_TEST(all[link]);
-      BOOST_TEST(noSkips[link] == !pair.skipsLayer);
+      BOOST_TEST(noSkips[link]);
       BOOST_TEST(inner[link] == (pair.from < 3U && pair.to < 3U));
       BOOST_TEST(!none[link]);
     }

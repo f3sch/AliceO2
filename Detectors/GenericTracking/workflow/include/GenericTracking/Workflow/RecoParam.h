@@ -142,12 +142,14 @@ struct RecoSettings {
   std::vector<double> iterationImpactMaxCm;
   std::vector<double> iterationImpactZMaxCm;
   /// Whether each iteration makes tracklets that leave a hole, whose segment
-  /// crosses another layer's envelope (the default); 0 for none, so the
-  /// tracks past a shorter layer's end are kept and those through a gap
-  /// are not.
+  /// crosses the envelope of another layer of its mask (the default); 0 for
+  /// none, so the tracks past a shorter layer's end are kept and those
+  /// through a gap are not.
   std::vector<int> iterationSkipLinks;
-  /// The layers each iteration's links join, a bit per layer; 0 for every
-  /// layer (the default). The vertexing pass's 7 takes layers 0-2 alone.
+  /// The layers each iteration's seeds take rows on, a bit per layer; 0 for
+  /// every layer (the default): its links join two of them, and of the layers
+  /// a link passes over those among them are holes (`iterationSkipLinks`).
+  /// The vertexing pass's 7 takes layers 0-2 alone.
   std::vector<long> iterationLayerMask;
   /// The layers each iteration's roads may end on, a bit per layer; 0 for any
   /// (the default). O2's ITS async asks layer 3 or 6 of its third,
@@ -176,6 +178,10 @@ struct RecoSettings {
   /// The holes each iteration's follow lets a track cross in each direction,
   /// a sensor crossed without a row; 0 by default.
   std::vector<int> iterationFollowHoles;
+  /// The layers each iteration's follow steps onto, a bit per layer; 0 for
+  /// every layer (the default): its walk takes the links onto them, its
+  /// interior search and tail the inactive layers among them.
+  std::vector<long> iterationFollowLayerMask;
   /// The lowest pT [GeV] at which the follow follows a track, from its state
   /// as the follow starts; a track below it is left as its road, for the
   /// iteration's other rules. Non-negative (`checkRecoParam`); 0.01 by default.

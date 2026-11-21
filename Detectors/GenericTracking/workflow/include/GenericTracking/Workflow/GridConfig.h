@@ -173,6 +173,7 @@ inline void checkRecoParam(const RecoSettings& param)
   check("iterationSharedInnermost", param.iterationSharedInnermost.size(), 1U);
   check("iterationFollow", param.iterationFollow.size(), 1U);
   check("iterationFollowHoles", param.iterationFollowHoles.size(), 1U);
+  check("iterationFollowLayerMask", param.iterationFollowLayerMask.size(), 1U);
   check("iterationFollowEnd", param.iterationFollowEnd.size(), 1U);
   check("iterationOverlapPartners", param.iterationOverlapPartners.size(), 1U);
   check("iterationInnerTrim", param.iterationInnerTrim.size(), 1U);
@@ -270,6 +271,7 @@ inline void checkRecoParam(const RecoSettings& param)
     .sharedInnermost = static_cast<std::uint32_t>(std::max(entry(param.iterationSharedInnermost, static_cast<int>(defaults.sharedInnermost)), 0)),
     .follow = follow,
     .followHoles = followHoles,
+    .followLayerMask = entryMask(param.iterationFollowLayerMask, defaults.followLayerMask),
     .followMinPtGeV = param.followMinPtGeV,
     .followEnd = followEnd,
     .overlapPartners = flag(param.iterationOverlapPartners, defaults.overlapPartners),

@@ -20,9 +20,9 @@
 /// the (r, z) plane stands for the helix: the transverse arc outgrows r by
 /// about r^3 / (24 R^2), below a millimetre over ITS 0 -> 5 at 0.1 GeV.
 ///
-/// An iteration that takes no skips makes no tracklet that crosses a layer,
-/// and the findable counts a step of a particle's chain only when it crosses
-/// none: one test for both.
+/// An iteration that takes no skips makes no tracklet that crosses an active
+/// layer or an inactive one it seeds on, and the findable counts a step of a
+/// particle's chain only when it crosses no active layer: one test for both.
 
 #ifndef GTRK_TRACKING_LINKHOLES_H_
 #define GTRK_TRACKING_LINKHOLES_H_
@@ -193,8 +193,11 @@ struct Shadow {
 
 /// The layers a pair on link \a from -> \a to can cross, a bit per layer: a
 /// barrel layer whose radius lies inside the radii the two layers' measurements
-/// span, a disc whose z lies inside their z. A superset: `segmentCrosses`
-/// decides per pair. 0 for a link with none, as l -> l + 1 on a barrel.
+/// span, a disc whose z lies inside their z, inactive layers too. A superset:
+/// `segmentCrosses` decides per pair. 0 for a link with none, as l -> l + 1 on
+/// a barrel. Which of them leave a hole is the caller's: an iteration's the
+/// active ones and the inactive ones of its mask (`holeLayersOf`), the
+/// truth's the active ones.
 template <DetectorLayout Det>
 [[nodiscard]] inline std::uint64_t linkHoleLayers(LayerID from, LayerID to)
 {
@@ -202,8 +205,7 @@ template <DetectorLayout Det>
   std::uint64_t holes = 0U;
   for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
     const auto id = static_cast<LayerID>(layer);
-    // An inactive layer leaves no hole (LayerSpec.h).
-    if (id == from || id == to || Detector<Det>::isInactiveLayer(id)) {
+    if (id == from || id == to) {
       continue;
     }
     const bool barrel = Detector<Det>::isBarrelLayer(id);

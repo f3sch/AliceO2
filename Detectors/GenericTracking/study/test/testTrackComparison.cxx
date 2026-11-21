@@ -33,12 +33,12 @@ namespace o2::gtrk::study
 namespace
 {
 
-/// Numbering differs from path order; an alternate direct link need not skip.
+/// Numbering differs from path order.
 struct ReorderedDirect : detectors::ToyBarrel3 {
   static constexpr std::array<LayerLink, 3> layerLinks{{
-    {.from = 0, .to = 2, .sourceMin = -1., .sourceMax = 1., .skipsLayer = false},
-    {.from = 2, .to = 1, .sourceMin = -1., .sourceMax = 1., .skipsLayer = false},
-    {.from = 0, .to = 1, .sourceMin = -1., .sourceMax = 1., .skipsLayer = true},
+    {.from = 0, .to = 2, .sourceMin = -1., .sourceMax = 1.},
+    {.from = 2, .to = 1, .sourceMin = -1., .sourceMax = 1.},
+    {.from = 0, .to = 1, .sourceMin = -1., .sourceMax = 1.},
   }};
 };
 
@@ -46,9 +46,9 @@ struct ReorderedDirect : detectors::ToyBarrel3 {
 /// whether a step on it leaves a hole is the pair's.
 struct PastTheEnd : detectors::ToyBarrel3 {
   static constexpr std::array<LayerLink, 3> layerLinks{{
-    {.from = 0, .to = 1, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false},
-    {.from = 0, .to = 2, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false},
-    {.from = 1, .to = 2, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false},
+    {.from = 0, .to = 1, .sourceMin = -1.5, .sourceMax = 1.5},
+    {.from = 0, .to = 2, .sourceMin = -1.5, .sourceMax = 1.5},
+    {.from = 1, .to = 2, .sourceMin = -1.5, .sourceMax = 1.5},
   }};
 };
 
@@ -82,29 +82,29 @@ TruthRow at(LayerID layer, std::uint64_t particle, float r, float z)
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(FindabilityFollowsTheLinksThatSkipNoLayer)
+BOOST_AUTO_TEST_CASE(FindabilityFollowsTheLinksInPathOrder)
 {
   const auto settings = comparisonSettings<ReorderedDirect>(2);
   // Particle 1 on 0 and 2, joined by 0 -> 2 despite the numbering gap;
-  // particle 2 on 0 and 1, joined only by the skipping 0 -> 1; particle 3 on
-  // all three, 0 -> 2 -> 1.
+  // particle 2 on 0 and 1, joined by 0 -> 1, which crosses no layer; particle
+  // 3 on all three, 0 -> 2 -> 1.
   const std::vector<TruthRow> rows{row(0, {1, 3}), row(2, {1, 3}), row(0, {2}), row(1, {2, 3})};
   const auto layers = particleLayers(rows, settings);
   BOOST_TEST(layers.at(1).chain == 2U);
-  BOOST_TEST(layers.at(2).chain == 1U);
+  BOOST_TEST(layers.at(2).chain == 2U);
   BOOST_TEST(layers.at(3).chain == 3U);
   BOOST_TEST(layers.at(3).layers == 0b111U);
   BOOST_TEST(isFindable(1.F, layers.at(1), settings));
-  BOOST_TEST(!isFindable(1.F, layers.at(2), settings));
+  BOOST_TEST(isFindable(1.F, layers.at(2), settings));
   BOOST_TEST(!isFindable(0.05F, layers.at(1), settings));
   // The score and decay-family denominator use exactly the same predicate.
   const std::vector<TruthRow> decayRows{row(0, {1}), row(2, {1}), row(0, {2}), row(1, {2})};
   const ParticleTable particles{{1, {.pt = 1.F, .origin = ParticleOrigin::kDecay, .motherPdg = 310}}, {2, {.pt = 1.F, .origin = ParticleOrigin::kDecay, .motherPdg = 310}}};
   const auto score = scoreTracks(decayRows, particles, {{0, 1}, {2, 3}}, settings);
-  BOOST_TEST(score.originFindable[static_cast<std::size_t>(ParticleOrigin::kDecay)].findable == 1U);
-  BOOST_TEST(score.originFindable[static_cast<std::size_t>(ParticleOrigin::kDecay)].found == 1U);
+  BOOST_TEST(score.originFindable[static_cast<std::size_t>(ParticleOrigin::kDecay)].findable == 2U);
+  BOOST_TEST(score.originFindable[static_cast<std::size_t>(ParticleOrigin::kDecay)].found == 2U);
   BOOST_TEST(score.decays[static_cast<std::size_t>(DecayFamily::kK0S)][0].onMinLayers == 2U);
-  BOOST_TEST(score.decays[static_cast<std::size_t>(DecayFamily::kK0S)][0].findable == 1U);
+  BOOST_TEST(score.decays[static_cast<std::size_t>(DecayFamily::kK0S)][0].findable == 2U);
 }
 
 BOOST_AUTO_TEST_CASE(AChainStepCrossingAnotherLayerIsAHole)

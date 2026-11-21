@@ -57,9 +57,9 @@ struct Reordered {
   static constexpr auto barrelLayers = ToyBarrel3::barrelLayers;
   static constexpr auto discLayers = ToyBarrel3::discLayers;
   static constexpr std::array<LayerLink, 3> layerLinks{{
-    {.from = 2, .to = 1, .sourceMin = -1., .sourceMax = 1., .skipsLayer = false},
-    {.from = 0, .to = 2, .sourceMin = -1., .sourceMax = 1., .skipsLayer = false},
-    {.from = 0, .to = 1, .sourceMin = -0.5, .sourceMax = 0.5, .skipsLayer = true},
+    {.from = 2, .to = 1, .sourceMin = -1., .sourceMax = 1.},
+    {.from = 0, .to = 2, .sourceMin = -1., .sourceMax = 1.},
+    {.from = 0, .to = 1, .sourceMin = -0.5, .sourceMax = 0.5},
   }};
   static constexpr int nSensors = ToyBarrel3::nSensors;
 };
@@ -78,9 +78,9 @@ struct PastTheEnd {
   static constexpr auto barrelLayers = placedLayers(barrelSpecs);
   static constexpr auto discLayers = placedLayers(discSpecs);
   static constexpr std::array<LayerLink, 3> layerLinks{{
-    {.from = 0, .to = 1, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false},
-    {.from = 0, .to = 2, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false},
-    {.from = 1, .to = 2, .sourceMin = -1.5, .sourceMax = 1.5, .skipsLayer = false},
+    {.from = 0, .to = 1, .sourceMin = -1.5, .sourceMax = 1.5},
+    {.from = 0, .to = 2, .sourceMin = -1.5, .sourceMax = 1.5},
+    {.from = 1, .to = 2, .sourceMin = -1.5, .sourceMax = 1.5},
   }};
   static constexpr int nSensors = countSensors(barrelLayers, discLayers);
 };

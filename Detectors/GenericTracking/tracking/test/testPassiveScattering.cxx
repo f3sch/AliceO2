@@ -75,11 +75,11 @@ struct ToyPipe {
   static constexpr auto discLayers = placedLayers(discSpecs);
 
   static constexpr std::array<LayerLink, 5> layerLinks{{
-    {.from = 0, .to = 1, .sourceMin = -10., .sourceMax = 10., .skipsLayer = false},
-    {.from = 1, .to = 2, .sourceMin = -10., .sourceMax = 10., .skipsLayer = false},
-    {.from = 2, .to = 3, .sourceMin = -10., .sourceMax = 10., .skipsLayer = false},
-    {.from = 3, .to = 4, .sourceMin = -10., .sourceMax = 10., .skipsLayer = false},
-    {.from = 4, .to = 5, .sourceMin = -10., .sourceMax = 10., .skipsLayer = false},
+    {.from = 0, .to = 1, .sourceMin = -10., .sourceMax = 10.},
+    {.from = 1, .to = 2, .sourceMin = -10., .sourceMax = 10.},
+    {.from = 2, .to = 3, .sourceMin = -10., .sourceMax = 10.},
+    {.from = 3, .to = 4, .sourceMin = -10., .sourceMax = 10.},
+    {.from = 4, .to = 5, .sourceMin = -10., .sourceMax = 10.},
   }};
 
   static constexpr int nSensors = countSensors(barrelLayers, discLayers);

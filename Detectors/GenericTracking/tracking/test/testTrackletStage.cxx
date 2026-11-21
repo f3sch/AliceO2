@@ -69,9 +69,9 @@ struct StageToy {
   static constexpr auto barrelLayers = placedLayers(barrelSpecs);
   static constexpr auto discLayers = placedLayers(discSpecs);
   static constexpr std::array<LayerLink, 3> layerLinks{{
-    {.from = 0, .to = 2, .sourceMin = -10., .sourceMax = 10., .skipsLayer = false},
-    {.from = 1, .to = 2, .sourceMin = -10., .sourceMax = 10., .skipsLayer = false},
-    {.from = 0, .to = 1, .sourceMin = -2., .sourceMax = 2., .skipsLayer = false},
+    {.from = 0, .to = 2, .sourceMin = -10., .sourceMax = 10.},
+    {.from = 1, .to = 2, .sourceMin = -10., .sourceMax = 10.},
+    {.from = 0, .to = 1, .sourceMin = -2., .sourceMax = 2.},
   }};
   static constexpr int nSensors = countSensors(barrelLayers, discLayers);
 };

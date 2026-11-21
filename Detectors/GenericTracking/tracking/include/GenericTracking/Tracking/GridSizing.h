@@ -105,7 +105,7 @@ template <DetectorLayout Det>
     std::array<bool, kLayers> holeFreeInto{};
     for (std::size_t link = 0; link < nLinks<Det>; ++link) {
       const auto& pair = Det::layerLinks[link];
-      edgeOnly[link] = !settings.skipLinks && linkHoleLayers<Det>(pair.from, pair.to) != 0U;
+      edgeOnly[link] = !settings.skipLinks && (linkHoleLayers<Det>(pair.from, pair.to) & holeLayersOf<Det>(settings.layerMask)) != 0U;
       if (sizing(link) && !edgeOnly[link]) {
         holeFreeInto[pair.to] = true;
       }

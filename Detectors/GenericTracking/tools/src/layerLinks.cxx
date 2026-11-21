@@ -19,12 +19,8 @@
 /// range, eta over the given acceptance and curvature from zero to the floor
 /// pT's, each followed over its outgoing half-turn only. Consecutive crossings
 /// form links; a link's source interval is the hull of the source coordinate
-/// over its crossings, padded by the margin. A link skips a layer when every
-/// trajectory on it crosses another layer's envelope -- a barrel layer's
-/// cylinder over its length, a disc's plane over its radii -- between its two
-/// crossings: through a gap in that layer's silicon. One trajectory that
-/// crosses nothing between makes it direct; whether a pair on it leaves a
-/// hole is then the pair's own (Tracking/LinkHoles.h).
+/// over its crossings, padded by the margin. Whether a pair on a link leaves a
+/// hole is the pair's own and the iteration's (Tracking/LinkHoles.h).
 ///
 /// The printed table is pasted into the detector's header. Nothing checks the
 /// two against each other afterwards; regenerating the table is part of
@@ -132,7 +128,6 @@ struct Crossing {
 /// What is known about one link from either source.
 struct LinkStats {
   std::size_t count = 0;
-  std::size_t direct = 0; ///< of them, crossing no other layer's envelope between its two layers
   double low = std::numeric_limits<double>::infinity();
   double high = -std::numeric_limits<double>::infinity();
 
@@ -164,13 +159,6 @@ void forEachTransition(std::vector<Crossing>& crossings, std::vector<bool>& seen
     }
     previous = &crossing;
   }
-}
-
-/// Whether a trajectory crossing \a envelopes passes over a layer other than
-/// \a from's and \a to's between them.
-bool overAnotherLayer(std::span<const Crossing> envelopes, const Crossing& from, const Crossing& to)
-{
-  return std::ranges::any_of(envelopes, [&](const Crossing& envelope) { return envelope.layer != from.layer && envelope.layer != to.layer && envelope.path > from.path && envelope.path < to.path; });
 }
 
 /// Which points of a placed disc layer's plane are on active silicon, as a
@@ -254,7 +242,6 @@ LinkMap trace(const Options& options, std::span<const DiscCoverage> placedDiscs)
 
   LinkMap links;
   std::vector<Crossing> crossings;
-  std::vector<Crossing> envelopes;
   std::vector<Crossing> all;
   std::vector<std::pair<const DiscCoverage*, double>> reached; // a placed disc and the transverse path to it
   std::vector<bool> seen(static_cast<std::size_t>(Detector<Det>::nLayers));
@@ -277,30 +264,7 @@ LinkMap trace(const Options& options, std::span<const DiscCoverage> placedDiscs)
             crossings.push_back({.path = s, .layer = surface.layer, .second = z});
           }
         }
-        // Every layer's envelope the trajectory crosses: a barrel layer's
-        // surface is its envelope; a disc's is its plane over its radii,
-        // between its rings and wherever its silicon is.
-        envelopes.clear();
-        for (const auto& crossing : crossings) {
-          if (Detector<Det>::isBarrelLayer(crossing.layer)) {
-            envelopes.push_back(crossing);
-          }
-        }
-        if (!exactlyEqual(cotTheta, 0.)) {
-          for (int layer = Detector<Det>::nBarrelLayers; layer < Detector<Det>::nLayers; ++layer) {
-            const auto id = static_cast<LayerID>(layer);
-            const double s = (discZ<Det>(id) - z0) / cotTheta;
-            const double r = k > 0. ? 2. / k * std::sin(0.5 * k * s) : s;
-            if (s > 0. && s <= halfTurn && r >= secondMin<Det>(id) && r <= secondMax<Det>(id)) {
-              envelopes.push_back({.path = s, .layer = id, .second = r});
-            }
-          }
-        }
-        const auto count = [&links, &envelopes](auto link, const Crossing& from, const Crossing& to) {
-          auto& stats = links[link];
-          stats.add(from.second);
-          stats.direct += overAnotherLayer(envelopes, from, to) ? 0U : 1U;
-        };
+        const auto count = [&links](auto link, const Crossing& from, const Crossing& /*to*/) { links[link].add(from.second); };
 
         // Where a placed disc's plane is reached does not depend on azimuth
         // or charge; whether it is on silicon there does.
@@ -397,8 +361,7 @@ void printTable(const LinkMap& links, const Options& options)
   for (const auto& [link, stats] : kept) {
     const double low = std::floor((stats.low - options.margin) * 100.) / 100.;
     const double high = std::ceil((stats.high + options.margin) * 100.) / 100.;
-    const bool skips = stats.direct == 0U;
-    std::cout << "    {.from = " << link.first << ", .to = " << link.second << std::fixed << std::setprecision(2) << ", .sourceMin = " << low << ", .sourceMax = " << high << ", .skipsLayer = " << (skips ? "true" : "false") << "}, // " << std::setprecision(4) << weight.at(link) << '\n';
+    std::cout << "    {.from = " << link.first << ", .to = " << link.second << std::fixed << std::setprecision(2) << ", .sourceMin = " << low << ", .sourceMax = " << high << "}, // " << std::setprecision(4) << weight.at(link) << '\n';
   }
   std::cout << "  }};\n";
 }

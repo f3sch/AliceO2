@@ -85,31 +85,31 @@ struct ToyBarrel4Disc8 {
   // pT >= 0.1 GeV at Bz = 20 kG, beam spot z in [-5, 5] cm, |eta| <= 6, source intervals padded by 0.5 cm.
   // The comment on each link is the fraction of its source layer's crossings that take it.
   static constexpr std::array<LayerLink, 25> layerLinks{{
-    {.from = 0, .to = 1, .sourceMin = -8.05, .sourceMax = 8.05, .skipsLayer = false},   // 0.6690
-    {.from = 0, .to = 2, .sourceMin = -8.24, .sourceMax = 8.24, .skipsLayer = false},   // 0.0021
-    {.from = 0, .to = 3, .sourceMin = -8.27, .sourceMax = -7.23, .skipsLayer = true},   // 0.0001
-    {.from = 0, .to = 7, .sourceMin = -10.60, .sourceMax = -2.02, .skipsLayer = false}, // 0.1644
-    {.from = 0, .to = 8, .sourceMin = 2.02, .sourceMax = 10.60, .skipsLayer = false},   // 0.1645
-    {.from = 1, .to = 2, .sourceMin = -10.60, .sourceMax = 10.60, .skipsLayer = false}, // 0.8932
-    {.from = 1, .to = 7, .sourceMin = -10.60, .sourceMax = -5.88, .skipsLayer = false}, // 0.0534
-    {.from = 1, .to = 8, .sourceMin = 5.88, .sourceMax = 10.60, .skipsLayer = false},   // 0.0534
-    {.from = 2, .to = 3, .sourceMin = -14.65, .sourceMax = 14.53, .skipsLayer = false}, // 0.8738
-    {.from = 2, .to = 7, .sourceMin = -14.65, .sourceMax = -8.53, .skipsLayer = false}, // 0.0601
-    {.from = 2, .to = 8, .sourceMin = 8.33, .sourceMax = 14.65, .skipsLayer = false},   // 0.0661
-    {.from = 4, .to = 3, .sourceMin = 16.96, .sourceMax = 19.09, .skipsLayer = false},  // 1.0000
-    {.from = 5, .to = 3, .sourceMin = 15.54, .sourceMax = 19.09, .skipsLayer = false},  // 0.0559
-    {.from = 5, .to = 4, .sourceMin = 2.00, .sourceMax = 17.38, .skipsLayer = false},   // 0.9441
-    {.from = 6, .to = 3, .sourceMin = 15.14, .sourceMax = 19.09, .skipsLayer = false},  // 0.0624
-    {.from = 6, .to = 5, .sourceMin = 2.00, .sourceMax = 17.19, .skipsLayer = false},   // 0.9376
-    {.from = 7, .to = 3, .sourceMin = 14.58, .sourceMax = 19.09, .skipsLayer = false},  // 0.0704
-    {.from = 7, .to = 6, .sourceMin = 2.00, .sourceMax = 16.94, .skipsLayer = false},   // 0.9296
-    {.from = 8, .to = 3, .sourceMin = 14.52, .sourceMax = 19.09, .skipsLayer = false},  // 0.0699
-    {.from = 8, .to = 9, .sourceMin = 2.00, .sourceMax = 16.91, .skipsLayer = false},   // 0.9301
-    {.from = 9, .to = 3, .sourceMin = 15.09, .sourceMax = 19.09, .skipsLayer = false},  // 0.0621
-    {.from = 9, .to = 10, .sourceMin = 2.00, .sourceMax = 17.17, .skipsLayer = false},  // 0.9379
-    {.from = 10, .to = 3, .sourceMin = 15.51, .sourceMax = 19.09, .skipsLayer = false}, // 0.0557
-    {.from = 10, .to = 11, .sourceMin = 2.00, .sourceMax = 17.37, .skipsLayer = false}, // 0.9443
-    {.from = 11, .to = 3, .sourceMin = 16.72, .sourceMax = 19.09, .skipsLayer = false}, // 1.0000
+    {.from = 0, .to = 1, .sourceMin = -8.05, .sourceMax = 8.05},   // 0.6690
+    {.from = 0, .to = 2, .sourceMin = -8.24, .sourceMax = 8.24},   // 0.0021
+    {.from = 0, .to = 3, .sourceMin = -8.27, .sourceMax = -7.23},  // 0.0001
+    {.from = 0, .to = 7, .sourceMin = -10.60, .sourceMax = -2.02}, // 0.1644
+    {.from = 0, .to = 8, .sourceMin = 2.02, .sourceMax = 10.60},   // 0.1645
+    {.from = 1, .to = 2, .sourceMin = -10.60, .sourceMax = 10.60}, // 0.8932
+    {.from = 1, .to = 7, .sourceMin = -10.60, .sourceMax = -5.88}, // 0.0534
+    {.from = 1, .to = 8, .sourceMin = 5.88, .sourceMax = 10.60},   // 0.0534
+    {.from = 2, .to = 3, .sourceMin = -14.65, .sourceMax = 14.53}, // 0.8738
+    {.from = 2, .to = 7, .sourceMin = -14.65, .sourceMax = -8.53}, // 0.0601
+    {.from = 2, .to = 8, .sourceMin = 8.33, .sourceMax = 14.65},   // 0.0661
+    {.from = 4, .to = 3, .sourceMin = 16.96, .sourceMax = 19.09},  // 1.0000
+    {.from = 5, .to = 3, .sourceMin = 15.54, .sourceMax = 19.09},  // 0.0559
+    {.from = 5, .to = 4, .sourceMin = 2.00, .sourceMax = 17.38},   // 0.9441
+    {.from = 6, .to = 3, .sourceMin = 15.14, .sourceMax = 19.09},  // 0.0624
+    {.from = 6, .to = 5, .sourceMin = 2.00, .sourceMax = 17.19},   // 0.9376
+    {.from = 7, .to = 3, .sourceMin = 14.58, .sourceMax = 19.09},  // 0.0704
+    {.from = 7, .to = 6, .sourceMin = 2.00, .sourceMax = 16.94},   // 0.9296
+    {.from = 8, .to = 3, .sourceMin = 14.52, .sourceMax = 19.09},  // 0.0699
+    {.from = 8, .to = 9, .sourceMin = 2.00, .sourceMax = 16.91},   // 0.9301
+    {.from = 9, .to = 3, .sourceMin = 15.09, .sourceMax = 19.09},  // 0.0621
+    {.from = 9, .to = 10, .sourceMin = 2.00, .sourceMax = 17.17},  // 0.9379
+    {.from = 10, .to = 3, .sourceMin = 15.51, .sourceMax = 19.09}, // 0.0557
+    {.from = 10, .to = 11, .sourceMin = 2.00, .sourceMax = 17.37}, // 0.9443
+    {.from = 11, .to = 3, .sourceMin = 16.72, .sourceMax = 19.09}, // 1.0000
   }};
 
   static constexpr auto barrelLayers = placedLayers(barrelSpecs);

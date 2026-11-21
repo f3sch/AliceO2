@@ -60,13 +60,13 @@ struct ToyBarrel8 {
   // pT >= 0.1 GeV at Bz = 20 kG, beam spot z in [-1, 1] cm, |eta| <= 6, source intervals padded by 0.5 cm.
   // The comment on each link is the fraction of its source layer's crossings that take it.
   static constexpr std::array<LayerLink, 7> layerLinks{{
-    {.from = 0, .to = 1, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false}, // 1.0000
-    {.from = 1, .to = 2, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false}, // 1.0000
-    {.from = 2, .to = 3, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false}, // 1.0000
-    {.from = 3, .to = 4, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false}, // 1.0000
-    {.from = 4, .to = 5, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false}, // 1.0000
-    {.from = 5, .to = 6, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false}, // 1.0000
-    {.from = 6, .to = 7, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false}, // 1.0000
+    {.from = 0, .to = 1, .sourceMin = -1.50, .sourceMax = 1.50}, // 1.0000
+    {.from = 1, .to = 2, .sourceMin = -1.50, .sourceMax = 1.50}, // 1.0000
+    {.from = 2, .to = 3, .sourceMin = -1.50, .sourceMax = 1.50}, // 1.0000
+    {.from = 3, .to = 4, .sourceMin = -1.50, .sourceMax = 1.50}, // 1.0000
+    {.from = 4, .to = 5, .sourceMin = -1.50, .sourceMax = 1.50}, // 1.0000
+    {.from = 5, .to = 6, .sourceMin = -1.50, .sourceMax = 1.50}, // 1.0000
+    {.from = 6, .to = 7, .sourceMin = -1.50, .sourceMax = 1.50}, // 1.0000
   }};
 
   static constexpr auto barrelLayers = placedLayers(barrelSpecs);

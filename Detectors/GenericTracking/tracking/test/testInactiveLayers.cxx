@@ -66,14 +66,14 @@ struct ToyInactive8 {
   static constexpr std::array<DiscLayerSpec, 0> discSpecs{};
   static constexpr std::uint64_t inactiveLayers = (std::uint64_t{1} << 3U) | (std::uint64_t{1} << 7U);
   static constexpr std::array<LayerLink, 8> layerLinks{{
-    {.from = 0, .to = 1, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false},
-    {.from = 1, .to = 2, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false},
-    {.from = 2, .to = 3, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false},
-    {.from = 2, .to = 4, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = true},
-    {.from = 3, .to = 4, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false},
-    {.from = 4, .to = 5, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false},
-    {.from = 5, .to = 6, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false},
-    {.from = 6, .to = 7, .sourceMin = -1.50, .sourceMax = 1.50, .skipsLayer = false},
+    {.from = 0, .to = 1, .sourceMin = -1.50, .sourceMax = 1.50},
+    {.from = 1, .to = 2, .sourceMin = -1.50, .sourceMax = 1.50},
+    {.from = 2, .to = 3, .sourceMin = -1.50, .sourceMax = 1.50},
+    {.from = 2, .to = 4, .sourceMin = -1.50, .sourceMax = 1.50},
+    {.from = 3, .to = 4, .sourceMin = -1.50, .sourceMax = 1.50},
+    {.from = 4, .to = 5, .sourceMin = -1.50, .sourceMax = 1.50},
+    {.from = 5, .to = 6, .sourceMin = -1.50, .sourceMax = 1.50},
+    {.from = 6, .to = 7, .sourceMin = -1.50, .sourceMax = 1.50},
   }};
   static constexpr auto barrelLayers = placedLayers(barrelSpecs);
   static constexpr auto discLayers = placedLayers(discSpecs);
@@ -306,14 +306,14 @@ BOOST_AUTO_TEST_CASE(InactiveLayersUseTheIterationsClusterGate)
   BOOST_TEST(rejected.outward[0] == fixture.row(6));
 }
 
-/// A pair crossing an inactive layer has no hole there: 2 -> 4 skips
-/// layer 3 and crosses nothing; in ToyBarrel8's numbering a 2 -> 4 pair
-/// would cross layer 3.
-BOOST_AUTO_TEST_CASE(AnInactiveLayerIsNeverAHole)
+/// An inactive layer is a layer a link passes over as any other: 2 -> 4
+/// passes layer 3, as ToyBarrel8's 2 -> 4 does; whether it is a hole is the
+/// iteration's mask's (Iteration.h, `holeLayers`), the truth's never.
+BOOST_AUTO_TEST_CASE(AnInactiveLayerIsPassedAsAnyOther)
 {
-  BOOST_TEST(linkHoleLayers<Det>(2, 4) == 0U);
+  BOOST_TEST(linkHoleLayers<Det>(2, 4) == (std::uint64_t{1} << 3U));
   BOOST_TEST(linkHoleLayers<detectors::ToyBarrel8>(2, 4) == (std::uint64_t{1} << 3U));
-  BOOST_TEST(linkHoleLayers<Det>(1, 4) == (std::uint64_t{1} << 2U));
+  BOOST_TEST(linkHoleLayers<Det>(1, 4) == ((std::uint64_t{1} << 2U) | (std::uint64_t{1} << 3U)));
 }
 
 /// A step over the inactive layer crosses its material: the follow's step on

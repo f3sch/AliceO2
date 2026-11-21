@@ -151,7 +151,10 @@ void verifyVertexInterval(double minPtGeV, Scalar vertexZ, LayerID from, LayerID
 
 } // namespace
 
-BOOST_AUTO_TEST_CASE(WithoutSkipLinksAnIterationTakesOnlyTheLinksThatSkipNoLayer)
+/// Without skips an iteration takes every link of its mask, the pairs that
+/// cross another layer refused: every active layer a link passes over is a
+/// hole, whatever the mask.
+BOOST_AUTO_TEST_CASE(WithoutSkipLinksTheHolesAreTheActiveLayers)
 {
   IterationSettings settings;
   settings.minClusters = 2; // every link
@@ -159,23 +162,24 @@ BOOST_AUTO_TEST_CASE(WithoutSkipLinksAnIterationTakesOnlyTheLinksThatSkipNoLayer
   const auto all = iterationParameters<ToyBarrel4Disc8>(settings, VertexConstraint{}, *material);
   settings.skipLinks = false;
   const auto direct = iterationParameters<ToyBarrel4Disc8>(settings, VertexConstraint{}, *material);
-  std::size_t skipping = 0U;
+  settings.layerMask = 0b1011U; // without layer 2
+  const auto withoutTwo = iterationParameters<ToyBarrel4Disc8>(settings, VertexConstraint{}, *material);
+  std::size_t holed = 0U;
   for (std::size_t link = 0; link < nLinks<ToyBarrel4Disc8>; ++link) {
+    const auto& pair = ToyBarrel4Disc8::layerLinks[link];
     BOOST_TEST_CONTEXT("link " << link)
     {
       BOOST_TEST(study::linkTaken(all, link));
-      BOOST_TEST(study::linkTaken(direct, link) == !ToyBarrel4Disc8::layerLinks[link].skipsLayer);
-      std::size_t in = 0U;
-      const auto target = static_cast<std::size_t>(ToyBarrel4Disc8::layerLinks[link].to);
-      for (auto at = direct.inLinkOffsets[target]; at < direct.inLinkOffsets[target + 1U]; ++at) {
-        in += direct.inLinkIndices[at] == link ? 1U : 0U;
+      BOOST_TEST(study::linkTaken(direct, link));
+      BOOST_TEST(all.holeLayers[link] == 0U);
+      BOOST_TEST(direct.holeLayers[link] == linkHoleLayers<ToyBarrel4Disc8>(pair.from, pair.to));
+      if (study::linkTaken(withoutTwo, link)) {
+        BOOST_TEST(withoutTwo.holeLayers[link] == direct.holeLayers[link]);
       }
-      BOOST_TEST(in == (ToyBarrel4Disc8::layerLinks[link].skipsLayer ? 0U : 1U));
     }
-    skipping += ToyBarrel4Disc8::layerLinks[link].skipsLayer ? 1U : 0U;
+    holed += direct.holeLayers[link] != 0U ? 1U : 0U;
   }
-  BOOST_TEST(skipping > 0U);
-  BOOST_TEST(direct.outLinkOffsets[IterationParameters<ToyBarrel4Disc8>::kLayerCount] == nLinks<ToyBarrel4Disc8> - skipping);
+  BOOST_TEST(holed > 0U);
 }
 
 BOOST_AUTO_TEST_CASE(PerVertexIntervalsContainEveryAcceptedPair)

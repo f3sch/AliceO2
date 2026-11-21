@@ -222,10 +222,9 @@ template <DetectorLayout Det>
   for (const auto from : layerOrder<Det>) {
     for (auto at = outLinks<Det>.begin(from); at < outLinks<Det>.end(from); ++at) {
       const auto link = outLinks<Det>.links[at];
-      if (!Det::layerLinks[link].skipsLayer) {
-        const auto to = Det::layerLinks[link].to;
-        settings.chainLinks.push_back({.from = from, .to = to, .holes = linkHoleLayers<Det>(from, to)});
-      }
+      const auto to = Det::layerLinks[link].to;
+      // An inactive layer is never a hole of the truth's chains (LayerSpec.h).
+      settings.chainLinks.push_back({.from = from, .to = to, .holes = linkHoleLayers<Det>(from, to) & ~Detector<Det>::inactiveLayers});
     }
   }
   settings.barrelLayers = barrelLayerBits<Det>();

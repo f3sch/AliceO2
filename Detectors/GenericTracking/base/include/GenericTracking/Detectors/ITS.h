@@ -52,21 +52,20 @@ struct ITS {
 
   // Traced by o2-gtrk-layer-links for ITS: pT >= 0.1 GeV at Bz = 5 kG,
   // beam spot z in [-18, 18] cm, |eta| <= 6, source intervals padded by 0.5 cm.
-  // skipsLayer is traced from intervening layer extents, not alternative graph paths.
   // The comment on each link is the fraction of its source layer's crossings that take it.
   static constexpr std::array<LayerLink, 12> layerLinks{{
-    {.from = 0, .to = 1, .sourceMin = -14.06, .sourceMax = 14.06, .skipsLayer = false}, // 0.9833
-    {.from = 0, .to = 3, .sourceMin = -14.06, .sourceMax = 14.06, .skipsLayer = false}, // 0.0126
-    {.from = 0, .to = 5, .sourceMin = -13.89, .sourceMax = 13.89, .skipsLayer = false}, // 0.0042
-    {.from = 1, .to = 2, .sourceMin = -14.06, .sourceMax = 14.06, .skipsLayer = false}, // 0.9858
-    {.from = 1, .to = 3, .sourceMin = -14.06, .sourceMax = 14.06, .skipsLayer = false}, // 0.0133
-    {.from = 1, .to = 5, .sourceMin = -12.69, .sourceMax = 12.69, .skipsLayer = false}, // 0.0009
-    {.from = 2, .to = 3, .sourceMin = -14.06, .sourceMax = 14.06, .skipsLayer = false}, // 0.9957
-    {.from = 2, .to = 5, .sourceMin = -14.05, .sourceMax = 14.05, .skipsLayer = false}, // 0.0043
-    {.from = 3, .to = 4, .sourceMin = -37.84, .sourceMax = 37.84, .skipsLayer = false}, // 0.8916
-    {.from = 3, .to = 5, .sourceMin = -42.71, .sourceMax = 42.71, .skipsLayer = false}, // 0.1084
-    {.from = 4, .to = 5, .sourceMin = -42.71, .sourceMax = 42.71, .skipsLayer = false}, // 1.0000
-    {.from = 5, .to = 6, .sourceMin = -67.33, .sourceMax = 67.33, .skipsLayer = false}, // 1.0000
+    {.from = 0, .to = 1, .sourceMin = -14.06, .sourceMax = 14.06}, // 0.9833
+    {.from = 0, .to = 3, .sourceMin = -14.06, .sourceMax = 14.06}, // 0.0126
+    {.from = 0, .to = 5, .sourceMin = -13.89, .sourceMax = 13.89}, // 0.0042
+    {.from = 1, .to = 2, .sourceMin = -14.06, .sourceMax = 14.06}, // 0.9858
+    {.from = 1, .to = 3, .sourceMin = -14.06, .sourceMax = 14.06}, // 0.0133
+    {.from = 1, .to = 5, .sourceMin = -12.69, .sourceMax = 12.69}, // 0.0009
+    {.from = 2, .to = 3, .sourceMin = -14.06, .sourceMax = 14.06}, // 0.9957
+    {.from = 2, .to = 5, .sourceMin = -14.05, .sourceMax = 14.05}, // 0.0043
+    {.from = 3, .to = 4, .sourceMin = -37.84, .sourceMax = 37.84}, // 0.8916
+    {.from = 3, .to = 5, .sourceMin = -42.71, .sourceMax = 42.71}, // 0.1084
+    {.from = 4, .to = 5, .sourceMin = -42.71, .sourceMax = 42.71}, // 1.0000
+    {.from = 5, .to = 6, .sourceMin = -67.33, .sourceMax = 67.33}, // 1.0000
   }};
   // NOLINTEND(modernize-use-std-numbers)
   // clang-format on

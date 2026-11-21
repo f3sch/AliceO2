@@ -81,13 +81,16 @@ struct IterationSettings {
   /// default, `kinkSigma` everywhere.
   double graphKinkSigma = 0.;
   /// Whether this iteration makes tracklets that leave a hole: whose
-  /// segment crosses another layer's envelope (LinkHoles.h). Off, it takes
-  /// no link that skips a layer (`LayerLink::skipsLayer`) and on the others no pair
-  /// that crosses one, so a track beyond a shorter layer's end is still made.
+  /// segment crosses another layer's envelope (LinkHoles.h), an active
+  /// layer's or an inactive one of its mask (`holeLayersOf`). Off, no pair
+  /// crosses one, so a track beyond a shorter layer's end is still made and
+  /// one through a gap is not. An inactive layer outside the mask is no hole:
+  /// the iteration does not seed on it.
   bool skipLinks = true;
-  /// The layers this iteration's links join, a bit per layer; 0 for the
-  /// layout's default (every layer unless the layout sets a default mask). A link is taken only when both its layers are in the mask: the
-  /// vertexing pass takes the three innermost.
+  /// The layers this iteration's seeds take rows on, a bit per layer; 0 for
+  /// every layer. A link is taken only when both its layers are in the mask:
+  /// the vertexing pass takes the three innermost. Of the inactive layers a
+  /// link passes over, those in the mask are holes (`skipLinks`).
   std::uint64_t layerMask = 0U;
   /// The layers a road may end on, a bit per layer; 0 for any. With a mask a
   /// road starts at every triplet ending on one of them, so a road's prefix
@@ -119,6 +122,12 @@ struct IterationSettings {
   /// The holes a followed track may cross in each direction; past them the
   /// direction ends.
   int followHoles = 0;
+  /// The layers the follow steps onto, a bit per layer; 0 for every layer:
+  /// its walk takes the links onto them from wherever the track is, its
+  /// interior search and its tail the inactive layers among them. A layer
+  /// with no link onto them is where the follow's walk ends, as at the
+  /// layout's end (the end decisions read it so).
+  std::uint64_t followLayerMask = 0U;
   /// The lowest pT [GeV] at which the follow follows a track, from its state
   /// as the follow starts (`RecoSettings::followMinPtGeV`).
   double followMinPtGeV = 0.01;
@@ -394,9 +403,12 @@ struct IterationParameters {
   Scalar beamY = 0.F;
   Scalar beamVarTransverse = 0.F;
   Scalar beamChi2Max = 0.F;
-  /// `IterationSettings::followHoles`, and the layout's every link out of
-  /// each layer and into it, which the follow walks outward and inward.
+  /// `IterationSettings::followHoles`, the layers the follow steps onto
+  /// (`followLayerMask`, every layer for 0), and the links out of each layer
+  /// onto one of them and into each layer from one, which the follow walks
+  /// outward and inward.
   std::uint32_t followHoles = 0U;
+  std::uint64_t followLayers = 0U;
   std::uint32_t allOutLinkOffsets[kLayerCount + 1U]{};
   std::uint16_t allOutLinkIndices[kLinkCount]{};
   std::uint32_t allInLinkOffsets[kLayerCount + 1U]{};
@@ -476,8 +488,24 @@ template <DetectorLayout Det>
   return result;
 }
 
-/// The links an iteration with \a settings takes: those its skip rule and
-/// its mask allow, and of them only the ones on a path of `minClusters`
+/// A layer mask as an iteration's keys give it: every layer of \a Det for 0.
+template <DetectorLayout Det>
+[[nodiscard]] constexpr std::uint64_t layersOf(std::uint64_t mask)
+{
+  return mask != 0U ? mask : (Detector<Det>::nLayers >= 64 ? ~std::uint64_t{0} : (std::uint64_t{1} << Detector<Det>::nLayers) - 1U);
+}
+
+/// The layers an iteration with layer mask \a mask counts as holes where a
+/// pair crosses them: every active layer -- the track crossed its silicon --
+/// and the inactive layers of its mask, which it seeds on.
+template <DetectorLayout Det>
+[[nodiscard]] constexpr std::uint64_t holeLayersOf(std::uint64_t mask)
+{
+  return (layersOf<Det>(0U) & ~Detector<Det>::inactiveLayers) | (layersOf<Det>(mask) & Detector<Det>::inactiveLayers);
+}
+
+/// The links an iteration with \a settings takes: those joining two layers
+/// of its mask, and of them only the ones on a path of `minClusters`
 /// layers or more through the allowed links. No road through any other link
 /// reaches `minClusters`, so no tracklet, triplet or neighbour is made on it.
 /// The one predicate for the stages' link lists and for the grid's
@@ -485,12 +513,12 @@ template <DetectorLayout Det>
 template <DetectorLayout Det>
 [[nodiscard]] inline std::array<bool, nLinks<Det>> takenLinks(const IterationSettings& settings)
 {
-  const auto mask = settings.layerMask;
-  const auto inMask = [&](LayerID layer) { return mask == 0U || ((mask >> layer) & 1U) != 0U; };
+  const auto mask = layersOf<Det>(settings.layerMask);
+  const auto inMask = [&](LayerID layer) { return ((mask >> layer) & 1U) != 0U; };
   std::array<bool, nLinks<Det>> allowed{};
   for (std::size_t link = 0; link < nLinks<Det>; ++link) {
     const auto& pair = Det::layerLinks[link];
-    allowed[link] = (settings.skipLinks || !pair.skipsLayer) && inMask(pair.from) && inMask(pair.to);
+    allowed[link] = inMask(pair.from) && inMask(pair.to);
   }
   // The most layers a path of allowed links visits ending at each layer, and
   // leaving it, the layer itself counted in both.
@@ -566,8 +594,8 @@ template <DetectorLayout Det>
   const auto taken = takenLinks<Det>(settings);
   keep(taken, outLinks<Det>, parameters.outLinkOffsets, parameters.outLinkIndices);
   keep(taken, inLinks<Det>, parameters.inLinkOffsets, parameters.inLinkIndices);
-  // The follow walks every link of the layout, with the window of its own
-  // prediction.
+  // The follow walks the links between the layers of its own mask, with the
+  // window of its own prediction.
   parameters.follow = settings.follow;
   parameters.followEarlier = settings.follow && settings.followEarlier;
   parameters.followPrefix = settings.follow && settings.followPrefix;
@@ -587,10 +615,18 @@ template <DetectorLayout Det>
     parameters.layerResolutions[layer] = layerResolution<Det>(static_cast<LayerID>(layer));
   }
   if (settings.follow || settings.followEnd) {
-    std::array<bool, nLinks<Det>> every{};
-    every.fill(true);
-    keep(every, outLinks<Det>, parameters.allOutLinkOffsets, parameters.allOutLinkIndices);
-    keep(every, inLinks<Det>, parameters.allInLinkOffsets, parameters.allInLinkIndices);
+    // Onto the follow's layers, from wherever the track is: outward a link
+    // whose target is one of them, inward one whose source is.
+    parameters.followLayers = layersOf<Det>(settings.followLayerMask);
+    std::array<bool, nLinks<Det>> onward{};
+    std::array<bool, nLinks<Det>> backward{};
+    for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+      const auto& pair = Det::layerLinks[link];
+      onward[link] = ((parameters.followLayers >> pair.to) & 1U) != 0U;
+      backward[link] = ((parameters.followLayers >> pair.from) & 1U) != 0U;
+    }
+    keep(onward, outLinks<Det>, parameters.allOutLinkOffsets, parameters.allOutLinkIndices);
+    keep(backward, inLinks<Det>, parameters.allInLinkOffsets, parameters.allInLinkIndices);
     parameters.followPositionVariance = static_cast<Scalar>(settings.windows.positionSigma * settings.windows.positionSigma);
   }
   parameters.minClustersAfterFollow = static_cast<std::uint32_t>(std::max(settings.minClustersAfterFollow, 0));
@@ -619,7 +655,7 @@ template <DetectorLayout Det>
       parameters.betweenBound[link] = conservativeScalarBound(between * between);
       parameters.tripletBounds[link] = tripletLinkBounds<Det>(pair.from, pair.to, static_cast<double>(parameters.windows[link].phiHalfWidth));
     }
-    parameters.holeLayers[link] = settings.skipLinks ? 0U : linkHoleLayers<Det>(pair.from, pair.to);
+    parameters.holeLayers[link] = settings.skipLinks ? 0U : linkHoleLayers<Det>(pair.from, pair.to) & holeLayersOf<Det>(settings.layerMask);
     parameters.sourceMin[link] = displaced ? -std::numeric_limits<Scalar>::infinity() : static_cast<Scalar>(pair.sourceMin);
     parameters.sourceMax[link] = displaced ? std::numeric_limits<Scalar>::infinity() : static_cast<Scalar>(pair.sourceMax);
   }
