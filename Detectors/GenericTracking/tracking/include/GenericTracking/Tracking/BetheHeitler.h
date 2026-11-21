@@ -71,6 +71,7 @@ inline constexpr Scalar kBetheHeitlerNoLossX2X0 = 1e-4F;
 inline constexpr int kBetheHeitlerTablePoints = 107;
 inline constexpr Scalar kBetheHeitlerTableLogTMin = -9.210340372e+00F;
 inline constexpr Scalar kBetheHeitlerTableLogTStep = 7.170662698e-02F;
+// NOLINTBEGIN(modernize-use-std-numbers): fitted values, not constants
 GPUconstexpr() Scalar kBetheHeitlerTable[kBetheHeitlerTablePoints][kBetheHeitlerComponents][3] = {
   {{5.32538939e-05F, -7.15072870e-01F, -3.97040636e+00F}, {1.73920113e-04F, 1.05236266e+00F, -3.99063396e+00F}, {2.16607613e-04F, 2.58649140e+00F, -6.14121968e+00F}, {2.99029206e-04F, 4.28592738e+00F, -8.95449227e+00F}, {8.97828308e-04F, 1.28009720e+01F, -1.23300906e+01F}, {9.98359361e-01F, 2.03569048e+01F, -4.22646721e+01F}}, // t 0.0001
   {{1.27701169e-04F, 1.19214453e-02F, -3.12126265e+00F}, {1.66588195e-04F, 1.54351881e+00F, -4.80267664e+00F}, {2.31034177e-04F, 2.94965904e+00F, -6.80296352e+00F}, {3.39596510e-04F, 4.67543199e+00F, -9.47562094e+00F}, {9.75209760e-04F, 1.29307555e+01F, -1.30848343e+01F}, {9.98159870e-01F, 2.03569048e+01F, -4.22638008e+01F}},  // t 0.00010743
@@ -180,6 +181,7 @@ GPUconstexpr() Scalar kBetheHeitlerTable[kBetheHeitlerTablePoints][kBetheHeitler
   {{1.42105910e-01F, -5.91642561e-01F, -3.42651202e+00F}, {1.93850832e-01F, 9.53567151e-01F, -4.17561877e+00F}, {1.74778821e-01F, 2.14796141e+00F, -5.73820207e+00F}, {1.81355272e-01F, 3.49111464e+00F, -7.69098454e+00F}, {2.18465695e-01F, 5.57269239e+00F, -1.05995930e+01F}, {8.94434704e-02F, 2.03569048e+01F, -4.16234372e+01F}}, // t 0.18616
   {{1.40817391e-01F, -6.85708121e-01F, -3.52204859e+00F}, {2.07530084e-01F, 8.79637711e-01F, -4.09953846e+00F}, {1.80435156e-01F, 2.08149112e+00F, -5.64122334e+00F}, {1.83167525e-01F, 3.41104383e+00F, -7.56222080e+00F}, {2.12784395e-01F, 5.46047462e+00F, -1.04292647e+01F}, {7.52654483e-02F, 2.03569048e+01F, -4.16234303e+01F}}, // t 0.2
 };
+// NOLINTEND(modernize-use-std-numbers)
 
 GPUhdi() GPUAlwaysInline() Scalar logistic(Scalar x) { return 1.F / (1.F + expOf(-x)); }
 
