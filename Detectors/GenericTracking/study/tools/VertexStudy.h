@@ -1063,7 +1063,7 @@ class VertexStudy
     };
     if (curved) {
       const auto& vertexGap = table.vertexGap(layers[0], a.x, a.y, static_cast<Scalar>(c.z0), LinkMaterial<Det>::second(layers[0], a.r, a.z));
-      kick(static_cast<double>(vertexGap.m1) * radii[0], factor(vertexGap.x));
+      kick(static_cast<double>(vertexGap.m1) * radii[0], factor(vertexGap.x * g));
       for (std::size_t i = 0; i < 2U; ++i) {
         kick(radii[i], factor(nodeX(i)));
         const int link = table.link(layers[i], layers[i + 1U]);

@@ -352,6 +352,9 @@ template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typen
   Scalar end[3]{};
   surfaceToGlobal(to, output.loc0(), output.loc1(), end);
   const auto step = detail::stepMaterial(geometry, from, to, material, start, end);
+  if (!step.found) {
+    return false;
+  }
   if (traversed != nullptr) {
     *traversed = step;
   }
@@ -1145,7 +1148,7 @@ class FollowStage
   {
     if constexpr (BeamLine) {
       BoundTrackState constrained = inner;
-      const auto prediction = predictBeamLine(mPropagator, *mParameters, *mMaterial, mGeometry->planeOf(inner), pairPointAt(mFrame->measurements(), innermost), inner);
+      const auto prediction = predictBeamLine(mPropagator, *mParameters, mGeometry->planeOf(inner), pairPointAt(mFrame->measurements(), innermost), inner);
       const auto update = updateWithBeamLine(*mParameters, prediction, constrained);
       if (update.ok && !(update.chi2 <= mParameters->beamChi2Max) && mParameters->kinkScale2 > 1.F) {
         constrained = inner;
@@ -1338,7 +1341,7 @@ class FollowStage
       return false;
     }
     covarianceFromFactors(carried, predicted.cov);
-    if (!updateWithBeamLine(mPropagator, *mParameters, *mMaterial, plane, pairPointAt(mFrame->measurements(), row), predicted).ok) {
+    if (!updateWithBeamLine(mPropagator, *mParameters, plane, pairPointAt(mFrame->measurements(), row), predicted).ok) {
       return false;
     }
     const auto v00 = static_cast<ExactScalar>(predicted.variance(kLoc0)) + static_cast<ExactScalar>(measurement.varLoc0);
@@ -1357,8 +1360,7 @@ class FollowStage
   /// \a target: the track's time \a box, narrowed to the prediction
   /// (`follow::predictedWindow`), its \a reach and the material it crossed, \a traversed,
   /// beside. False where the prediction fails. Every lane of \a group makes
-  /// the same window; they look its material up together
-  /// (`detail::GroupMaterial`).
+  /// the same window.
   template <typename Group>
   [[nodiscard]] GPUhdi() GPUAlwaysInline() bool targetWindow(const BoundParameters& state, const CovarianceFactors& factors, const TimeEstPS& box, const follow::Target& target, PropagationDirection direction, CandidateWindow& window, Scalar (&reach)[2], detail::StepMaterial& traversed, const Group& group) const
   {
@@ -1374,12 +1376,7 @@ class FollowStage
       .secondCentre = secondCentre,
       .secondHalfWidth = follow::kOpenBound,
     };
-    if constexpr (Group::kLanes == 1U) {
-      return follow::predictedWindow(mPropagator, *mParameters, *mGeometry, *mMaterial, state, factors, target.layer, direction, target.prediction, window, reach, &traversed);
-    } else {
-      const detail::GroupMaterial<Material, Group> material{.lut = mMaterial, .group = &group};
-      return follow::predictedWindow(mPropagator, *mParameters, *mGeometry, material, state, factors, target.layer, direction, target.prediction, window, reach, &traversed);
-    }
+    return follow::predictedWindow(mPropagator, *mParameters, *mGeometry, *mMaterial, state, factors, target.layer, direction, target.prediction, window, reach, &traversed);
   }
 
   /// The layers a step from \a state may reach in \a direction, into

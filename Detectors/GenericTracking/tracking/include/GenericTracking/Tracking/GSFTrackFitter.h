@@ -190,38 +190,31 @@ GPUdi() PropagationStatus stepEach(GSFMixture<N, Factors>& mixture, const Step& 
   return kept > 0 ? PropagationStatus::kOk : failure;
 }
 
-/// The straight segment's midpoint between measurements \a a and \a b.
+/// Plane \a i's radiation [x/X0]: the link material's from the middle of
+/// the step from the measurement before to the middle of the step to the one
+/// after (LinkMaterial::step: the band reached and the second half of the
+/// gap before, the band left and the first half of the gap after); nothing
+/// beyond the chain's ends.
 template <DetectorLayout Det, typename Chain>
-GPUdi() void segmentMidpoint(const TrackingGeometry<Det>& geometry, const Chain& measurements, int a, int b, Scalar (&mid)[3])
-{
-  Scalar pa[3];
-  Scalar pb[3];
-  surfaceToGlobal(geometry.planeOf(measurements[a]), measurements[a].loc0, measurements[a].loc1, pa);
-  surfaceToGlobal(geometry.planeOf(measurements[b]), measurements[b].loc0, measurements[b].loc1, pb);
-  for (int i = 0; i < 3; ++i) {
-    mid[i] = 0.5F * (pa[i] + pb[i]);
-  }
-}
-
-/// Plane \a i's radiation [x/X0]: \a lut's material from the midpoint of
-/// the segment to the measurement before to the midpoint of the segment to
-/// the one after, along the two straight half-segments; nothing beyond the
-/// chain's ends.
-template <DetectorLayout Det, typename Material, typename Chain>
-GPUdi() Scalar planeRadiation(const TrackingGeometry<Det>& geometry, const Material& lut, const Chain& measurements, int n, int i)
+GPUdi() Scalar planeRadiation(const TrackingGeometry<Det>& geometry, const Chain& measurements, int n, int i)
 {
   Scalar point[3];
-  surfaceToGlobal(geometry.planeOf(measurements[i]), measurements[i].loc0, measurements[i].loc1, point);
+  const auto& plane = geometry.planeOf(measurements[i]);
+  surfaceToGlobal(plane, measurements[i].loc0, measurements[i].loc1, point);
   Scalar x2X0 = 0.F;
   if (i > 0) {
-    Scalar mid[3];
-    segmentMidpoint(geometry, measurements, i - 1, i, mid);
-    x2X0 += lut.getMatBudget(mid[0], mid[1], mid[2], point[0], point[1], point[2]).meanX2X0;
+    Scalar before[3];
+    const auto& from = geometry.planeOf(measurements[i - 1]);
+    surfaceToGlobal(from, measurements[i - 1].loc0, measurements[i - 1].loc1, before);
+    const auto step = geometry.material().step(from.layer, plane.layer, before, point);
+    x2X0 += step.after + (step.before - step.left - step.gapFirstHalf);
   }
   if (i + 1 < n) {
-    Scalar mid[3];
-    segmentMidpoint(geometry, measurements, i, i + 1, mid);
-    x2X0 += lut.getMatBudget(point[0], point[1], point[2], mid[0], mid[1], mid[2]).meanX2X0;
+    Scalar after[3];
+    const auto& to = geometry.planeOf(measurements[i + 1]);
+    surfaceToGlobal(to, measurements[i + 1].loc0, measurements[i + 1].loc1, after);
+    const auto step = geometry.material().step(plane.layer, to.layer, point, after);
+    x2X0 += step.left + step.gapFirstHalf;
   }
   return x2X0;
 }
@@ -453,8 +446,8 @@ inline constexpr int kStartBranches = power(Loss::kComponents, kPassStart - 1);
 /// moments. Ends reduced to at most K components on the last plane it took,
 /// before that plane's radiation; \a minusTwoLogLikelihood gets the start's
 /// -2 ln likelihood.
-template <typename Loss, CrossingRule Rule, typename Prop, DetectorLayout Det, typename Material, typename Lut, typename Chain, int K>
-GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Lut& lut, const Chain& measurements, int n, PropagationDirection direction, BoundTrackState seed, GSFMixture<K>& mixture, int& taken, std::int16_t& failedMeasurement, Scalar& minusTwoLogLikelihood)
+template <typename Loss, CrossingRule Rule, typename Prop, DetectorLayout Det, typename Material, typename Chain, int K>
+GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, PropagationDirection direction, BoundTrackState seed, GSFMixture<K>& mixture, int& taken, std::int16_t& failedMeasurement, Scalar& minusTwoLogLikelihood)
 {
   constexpr int kBranches = kStartBranches<Loss>;
   using Branches = GSFMixture<kBranches, DiffuseFactors>;
@@ -480,7 +473,7 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
   for (taken = 1; taken < n && undetermined(); ++taken) {
     const int previous = first + ((taken - 1) * increment);
     const int index = previous + increment;
-    const Scalar x2X0 = planeRadiation(geometry, lut, measurements, n, previous);
+    const Scalar x2X0 = planeRadiation(geometry, measurements, n, previous);
     const int parts = lossParts<Loss>(x2X0);
     BetheHeitlerComponent loss[Loss::kComponents];
     const int m = Loss::mixture(x2X0 / static_cast<Scalar>(parts), loss);
@@ -693,20 +686,20 @@ GPUhdi() void finishMixture(GSFMixture<K>& mixture, BoundTrackState& collapsed, 
 /// summaries (`finishMixture`, `GSFFitResult`) into \a mixture, \a end,
 /// \a chi2, \a momentumMode and \a minusTwoLogLikelihood. On a failure,
 /// \a failedMeasurement is the measurement the failed step went to.
-template <int K, typename Loss, CrossingRule Rule, typename Prop, DetectorLayout Det, typename Material, typename Lut, typename Chain>
-GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Lut& lut, const Chain& measurements, int n, PropagationDirection direction, const BoundTrackState& seed, GSFMixture<K>& mixture, BoundTrackState& end, Scalar& chi2, Scalar& momentumMode, Scalar& minusTwoLogLikelihood, std::int16_t& failedMeasurement)
+template <int K, typename Loss, CrossingRule Rule, typename Prop, DetectorLayout Det, typename Material, typename Chain>
+GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, PropagationDirection direction, const BoundTrackState& seed, GSFMixture<K>& mixture, BoundTrackState& end, Scalar& chi2, Scalar& momentumMode, Scalar& minusTwoLogLikelihood, std::int16_t& failedMeasurement)
 {
   const int first = direction == PropagationDirection::kForward ? 0 : n - 1;
   const int increment = direction == PropagationDirection::kForward ? 1 : -1;
   int taken = 0;
   minusTwoLogLikelihood = 0.F;
-  const auto started = startMixture<Loss, Rule>(prop, geometry, material, lut, measurements, n, direction, seed, mixture, taken, failedMeasurement, minusTwoLogLikelihood);
+  const auto started = startMixture<Loss, Rule>(prop, geometry, material, measurements, n, direction, seed, mixture, taken, failedMeasurement, minusTwoLogLikelihood);
   if (started != PropagationStatus::kOk) {
     return started;
   }
   for (int step = taken; step <= n; ++step) {
     const int previous = first + ((step - 1) * increment);
-    if (!takeRadiation<Loss>(planeRadiation(geometry, lut, measurements, n, previous), direction, mixture)) {
+    if (!takeRadiation<Loss>(planeRadiation(geometry, measurements, n, previous), direction, mixture)) {
       failedMeasurement = static_cast<std::int16_t>(previous);
       return PropagationStatus::kNotFinite;
     }
@@ -760,13 +753,13 @@ GPUdi() GSFFitResult<K> fitGaussianSum(const Prop& prop, const TrackingGeometry<
   fit.ndf = static_cast<std::int16_t>((2 * n) - kNBoundParams);
   const auto seed = makeChainSeed(prop, geometry, measurements, n);
   const auto span = detail::spanMaterial(geometry, material, measurements, n);
-  auto status = detail::gsf::runPass<K, Loss, Rule>(prop, geometry, span, material, measurements, n, PropagationDirection::kForward, seed, result.outwardMixture, fit.outwardState, fit.outwardChi2, result.outwardMomentumMode, result.outwardMinusTwoLogLikelihood, fit.failedMeasurement);
+  auto status = detail::gsf::runPass<K, Loss, Rule>(prop, geometry, span, measurements, n, PropagationDirection::kForward, seed, result.outwardMixture, fit.outwardState, fit.outwardChi2, result.outwardMomentumMode, result.outwardMinusTwoLogLikelihood, fit.failedMeasurement);
   if (status != PropagationStatus::kOk) {
     fit.status = status;
     fit.failedPass = FitPass::kOutward;
     return result;
   }
-  status = detail::gsf::runPass<K, Loss, Rule>(prop, geometry, span, material, measurements, n, PropagationDirection::kBackward, fit.outwardState, result.mixture, fit.state, fit.chi2, result.momentumMode, result.minusTwoLogLikelihood, fit.failedMeasurement);
+  status = detail::gsf::runPass<K, Loss, Rule>(prop, geometry, span, measurements, n, PropagationDirection::kBackward, fit.outwardState, result.mixture, fit.state, fit.chi2, result.momentumMode, result.minusTwoLogLikelihood, fit.failedMeasurement);
   if (status != PropagationStatus::kOk) {
     fit.status = status;
     fit.failedPass = FitPass::kInward;

@@ -240,7 +240,7 @@ void GSFStudy<Det>::fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propaga
   const RowChain<Det> whole{.frame = &frame, .rows = chain.data()};
   std::vector<double> x2X0(chain.size());
   for (int k = 0; k < n; ++k) {
-    x2X0[static_cast<std::size_t>(k)] = o2::gtrk::detail::gsf::planeRadiation(geometry, material, whole, n, k);
+    x2X0[static_cast<std::size_t>(k)] = o2::gtrk::detail::gsf::planeRadiation(geometry, whole, n, k);
   }
   GSFRecord base{.timeframe = identity.timeframe, .source = identity.source, .track = identity.track, .particle = identity.particle, .leg = identity.leg};
   base.pdg = truth.pdg;
@@ -332,8 +332,8 @@ void GSFStudy<Det>::fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propaga
   double segmentX2X0 = nan;
   if (kfOk) {
     const auto plane = o2::gtrk::detail::hypothesis::perigeePlaneOf(prop, kf, innermostSurface, truth.vx, truth.vy);
-    segmentX2X0 = o2::gtrk::detail::hypothesis::segmentRadiation(prop, material, kf, innermostSurface, plane);
-    kfOk = o2::gtrk::detail::hypothesis::carryStateInward(prop, material, innermostSurface, plane, kf) == PropagationStatus::kOk;
+    segmentX2X0 = o2::gtrk::detail::hypothesis::segmentRadiation(prop, geometry.material(), kf, innermostSurface, plane);
+    kfOk = o2::gtrk::detail::hypothesis::carryStateInward(prop, geometry.material(), innermostSurface, plane, kf) == PropagationStatus::kOk;
   }
   const bool gsfOk = refit.status == PropagationStatus::kOk;
   const double pTrue = static_cast<double>(truth.pt) * std::cosh(static_cast<double>(truth.eta));

@@ -79,15 +79,15 @@ namespace detail::hypothesis
 
 /// \a state, its covariance \a factors, carried from \a from to \a to against
 /// the momentum, inward, as a Kalman step carries a state between two
-/// measurements (`predictStep`, `transportStep`) with \a lut's material on the
-/// straight segment between: the half nearer \a from scatters before the
-/// transport, the other half after, the ionisation over the segment undone.
-/// Each half's kick sits at its end of the segment: a scatterer's lever arm
-/// to the plane is its half's, as a fit's step takes it. The perigee plane is
-/// no sensor: its bounds are empty, and the
-/// propagation's out-of-bounds status is the crossing (`predictBeamLine`).
+/// measurements (`predictStep`, `transportStep`) with \a material's on the
+/// straight segment between (its `segment`, LinkMaterial::segment: the band in front of
+/// \a from's measurement and the share of its vertex gap down to the plane's
+/// crossing), the ionisation over the segment undone. The perigee plane is no
+/// sensor: its bounds are empty, and the propagation's out-of-bounds status
+/// is the crossing (`predictBeamLine`); kNoMaterial if the table holds no
+/// such segment.
 template <typename Material>
-GPUdi() PropagationStatus carryInward(const Propagator& prop, const Material& lut, const TrackingSurface& from, const TrackingSurface& to, BoundTrackState& state, CovarianceFactors& factors)
+GPUdi() PropagationStatus carryInward(const Propagator& prop, const Material& material, const TrackingSurface& from, const TrackingSurface& to, BoundTrackState& state, CovarianceFactors& factors)
 {
   Scalar start[3]{};
   surfaceToGlobal(from, state.loc0(), state.loc1(), start);
@@ -100,7 +100,10 @@ GPUdi() PropagationStatus carryInward(const Propagator& prop, const Material& lu
   state.surface = to.id;
   Scalar end[3]{};
   surfaceToGlobal(to, state.loc0(), state.loc1(), end);
-  const auto step = o2::gtrk::detail::stepMaterial(lut, start, end);
+  const auto step = o2::gtrk::detail::stepMaterialOf(material.segment(from.layer, start, kInvalidLayerID, end));
+  if (!step.found) {
+    return PropagationStatus::kNoMaterial;
+  }
   const Scalar momentum = 1.F / o2::gpu::GPUCommonMath::Abs(state.qOverP());
   const auto before = scatteringNoise(highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, momentum, prop.massGeV), leaving);
   return o2::gtrk::detail::transportStep<false>(prop, step, momentum, before, PropagationDirection::kBackward, jacobian, state, factors, 1.F);
@@ -115,9 +118,10 @@ GPUdi() TrackingSurface perigeePlaneOf(const Propagator& prop, const BoundTrackS
 
 /// The radiation [x/X0] of the straight segment from \a state on \a surface
 /// to where it crosses \a plane: the material inward of the innermost
-/// measurement, which no plane of the chain holds (`planeRadiation`).
+/// measurement, which no plane of the chain holds (`planeRadiation`), as
+/// `carryInward` takes it; -1 where it cannot be.
 template <typename Material>
-GPUdi() Scalar segmentRadiation(const Propagator& prop, const Material& lut, const BoundTrackState& state, const TrackingSurface& surface, const TrackingSurface& plane)
+GPUdi() Scalar segmentRadiation(const Propagator& prop, const Material& material, const BoundTrackState& state, const TrackingSurface& surface, const TrackingSurface& plane)
 {
   BoundTrackState probe = state;
   SolenoidJacobian unused;
@@ -129,7 +133,8 @@ GPUdi() Scalar segmentRadiation(const Propagator& prop, const Material& lut, con
   Scalar end[3]{};
   surfaceToGlobal(surface, state.loc0(), state.loc1(), start);
   surfaceToGlobal(plane, probe.loc0(), probe.loc1(), end);
-  return lut.getMatBudget(start[0], start[1], start[2], end[0], end[1], end[2]).meanX2X0;
+  const auto segment = material.segment(surface.layer, start, kInvalidLayerID, end);
+  return segment.found ? segment.before + segment.after : -1.F;
 }
 
 /// \a mixture's components carried inward from \a surface onto \a plane
@@ -206,8 +211,8 @@ GPUdi() HypothesisFit<K> refitWithHypothesis(const Propagator& base, const Track
     }
     fit.innermostMixture = gsf.mixture;
     GSFMixture<K> mixture = gsf.mixture;
-    const Scalar x2X0 = detail::hypothesis::segmentRadiation(prop, material, gsf.fit.state, innermostSurface, fit.perigeePlane);
-    fit.status = detail::hypothesis::carryMixtureInward(prop, material, innermostSurface, fit.perigeePlane, x2X0, mixture);
+    const Scalar x2X0 = detail::hypothesis::segmentRadiation(prop, geometry.material(), gsf.fit.state, innermostSurface, fit.perigeePlane);
+    fit.status = detail::hypothesis::carryMixtureInward(prop, geometry.material(), innermostSurface, fit.perigeePlane, x2X0, mixture);
     if (fit.status != PropagationStatus::kOk) {
       return fit;
     }
@@ -220,7 +225,7 @@ GPUdi() HypothesisFit<K> refitWithHypothesis(const Propagator& base, const Track
     return fit;
   }
   BoundTrackState state = kalman.state;
-  fit.status = detail::hypothesis::carryStateInward(prop, material, innermostSurface, fit.perigeePlane, state);
+  fit.status = detail::hypothesis::carryStateInward(prop, geometry.material(), innermostSurface, fit.perigeePlane, state);
   if (fit.status != PropagationStatus::kOk) {
     return fit;
   }

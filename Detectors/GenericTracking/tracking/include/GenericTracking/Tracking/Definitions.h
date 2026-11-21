@@ -95,7 +95,11 @@ enum class PropagationStatus : std::uint8_t {
   kTooManyTurns,
   /// The mass hypothesis's energy loss stopped the particle in the step's
   /// material, or left it below 10 MeV (`energyLoss`).
-  kStopped
+  kStopped,
+  /// The link material holds no step between the two planes' layers
+  /// (LinkMaterial::step): no link, nor a run of links over the barrel
+  /// layers the step crossed.
+  kNoMaterial
 };
 
 /// Which way along the trajectory the target is expected to lie.
@@ -210,6 +214,7 @@ enum class DecayFitStatus : std::uint8_t {
   kStopped,      ///< a daughter's trajectory stops in the material (the loss has no solution)
   kTooLarge,     ///< more vertices, daughters or rows of a tracked particle than the fit holds
   kInvalidInput, ///< a topology, resonance or tracked particle that refers outside the decay
+  kNoMaterial,   ///< the link material holds no segment of a daughter's (LinkMaterial::segment)
   kCount
 };
 

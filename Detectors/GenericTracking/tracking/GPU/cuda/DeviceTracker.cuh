@@ -1548,7 +1548,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     if (!merged.allocate(mArena, mergedSize, ArenaEnd::kScratch) || !layerRowOf.allocate(mArena, mergedSize, ArenaEnd::kScratch) || !kept.allocate(mArena, count, ArenaEnd::kScratch)) {
       return StageStatus::kOutOfMemory;
     }
-    const RefitWithPartners<Det, detail::LayerMaterial<Material>> refit{.parameters = parameters, .frame = mFrame.data(), .geometry = mGeometry.data(), .material = {.lut = mMaterial.data()}, .propagator = mPropagator, .tracks = tracks.view(), .offset = 0U, .proposals = proposed, .winnerOffsets = std::as_const(winnerOffsets).data(), .winners = winners.data(), .merged = merged.data(), .layerRowOf = layerRowOf.data(), .kept = kept.data()};
+    const RefitWithPartners<Det, detail::LayerMaterial<Material>> refit{.parameters = parameters, .frame = mFrame.data(), .geometry = mGeometry.data(), .material = {.inner = mMaterial.data()}, .propagator = mPropagator, .tracks = tracks.view(), .offset = 0U, .proposals = proposed, .winnerOffsets = std::as_const(winnerOffsets).data(), .winners = winners.data(), .merged = merged.data(), .layerRowOf = layerRowOf.data(), .kept = kept.data()};
     algorithms::forEach(*mRuntime, mStream, count, refit);
     // The kept tracks' partners, in path order, and the used mask.
     DeviceSpan<Index> partnerOffsets;

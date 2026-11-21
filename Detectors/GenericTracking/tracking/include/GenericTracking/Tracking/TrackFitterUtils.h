@@ -111,6 +111,7 @@ struct StepMaterial {
   Scalar xRho = 0.F;           ///< [g/cm^2] over the whole step
   Scalar lever = 1.F;          ///< 1 - <f> of the nearer part, f the fraction of the step
   Scalar spread = 0.F;         ///< <f^2> - <f>^2 of the nearer part
+  bool found = true;           ///< false: the link material holds no such step (LinkMaterial::step)
 };
 
 /// A step's material from \a material's LUT, each half's logarithm at its own.
@@ -123,24 +124,24 @@ GPUdi() StepMaterial stepMaterial(const Material& material, const Scalar start[3
   return {.nearerX2X0 = nearer.meanX2X0, .fartherX2X0 = farther.meanX2X0, .nearerLogX2X0 = nearer.meanX2X0, .fartherLogX2X0 = farther.meanX2X0, .xRho = (nearer.meanRho * nearer.length) + (farther.meanRho * farther.length)};
 }
 
-/// A fit's material: \a lut's, with every step's Highland logarithm at
-/// \a spanX2X0, the material of the fitted span (`spanX2X0`). The scattering
-/// a fit takes over its span is the span's deflection, which Highland's
-/// formula gives for the span as a whole; each step takes its share
-/// (`highlandTheta0`). Both passes of a fit take the same span.
+/// A fit's material: \a inner's steps, with every step's Highland logarithm
+/// at \a spanX2X0, the material of the fitted span (`spanX2X0`). The
+/// scattering a fit takes over its span is the span's deflection, which
+/// Highland's formula gives for the span as a whole; each step takes its
+/// share (`highlandTheta0`). Both passes of a fit take the same span.
 template <typename Material>
 struct SpanMaterial {
-  const Material* lut = nullptr;
+  const Material* inner = nullptr;
   Scalar spanX2X0 = 0.F;
 };
 
-template <typename Material>
-GPUdi() StepMaterial stepMaterial(const SpanMaterial<Material>& material, const Scalar start[3], const Scalar end[3])
+/// The step of a link-material step \a link (LinkMaterial::step,
+/// `segment`): its `before` the nearer part, `after` the farther,
+/// Highland's logarithm at the step's whole x/X0 for both.
+GPUhdi() StepMaterial stepMaterialOf(const LinkStep& link)
 {
-  auto step = stepMaterial(*material.lut, start, end);
-  step.nearerLogX2X0 = material.spanX2X0;
-  step.fartherLogX2X0 = material.spanX2X0;
-  return step;
+  const Scalar span = link.before + link.after;
+  return {.nearerX2X0 = link.before, .fartherX2X0 = link.after, .nearerLogX2X0 = span, .fartherLogX2X0 = span, .xRho = link.xRho, .lever = link.lever, .spread = link.spread, .found = link.found};
 }
 
 /// A step's material known before the step, not looked up: a follow step's
@@ -156,64 +157,13 @@ GPUdi() StepMaterial stepMaterial(const GivenMaterial& material, const Scalar* /
   return material.step;
 }
 
-/// \a lut's material for a step that every lane of \a group takes alike,
-/// its two halves walked side by side: the group's first half of lanes walks
-/// the nearer half, the second the farther, and each lane takes the other
-/// half from its partner (`broadcast`). Each half is the lookup
-/// `stepMaterial` makes on the LUT, so the step's material is the same; the
-/// lanes walk the longer half's cells instead of both halves' in turn. A
-/// group of one lane walks both.
-template <typename Material, typename Group>
-struct GroupMaterial {
-  const Material* lut = nullptr;
-  const Group* group = nullptr;
-};
-
-template <typename Material, typename Group>
-GPUdi() StepMaterial stepMaterial(const GroupMaterial<Material, Group>& material, const Scalar start[3], const Scalar end[3])
-{
-  if constexpr (Group::kLanes == 1U) {
-    return stepMaterial(*material.lut, start, end);
-  } else {
-    const Scalar mid[3] = {0.5F * (start[0] + end[0]), 0.5F * (start[1] + end[1]), 0.5F * (start[2] + end[2])};
-    constexpr std::uint32_t kHalf = Group::kLanes / 2U;
-    const std::uint32_t lane = material.group->lane();
-    const bool farther = lane >= kHalf;
-    // One call, its arguments chosen per lane, so both halves walk together.
-    const Scalar* from = farther ? mid : start;
-    const Scalar* to = farther ? end : mid;
-    const auto walked = material.lut->getMatBudget(from[0], from[1], from[2], to[0], to[1], to[2]);
-    struct Half {
-      float x2X0;
-      float rho;
-      float length;
-    };
-    const Half own{.x2X0 = walked.meanX2X0, .rho = walked.meanRho, .length = walked.length};
-    const Half other = material.group->broadcast(own, lane ^ kHalf);
-    const Half& nearer = farther ? other : own;
-    const Half& away = farther ? own : other;
-    return {.nearerX2X0 = nearer.x2X0, .fartherX2X0 = away.x2X0, .nearerLogX2X0 = nearer.x2X0, .fartherLogX2X0 = away.x2X0, .xRho = (nearer.rho * nearer.length) + (away.rho * away.length)};
-  }
-}
-
-/// The LUT itself, never the surface map: the material of the final refit,
-/// whose parameters and covariance are the tracking's output.
-template <typename Material>
-struct ExactMaterial {
-  const Material* lut = nullptr;
-  [[nodiscard]] GPUdi() auto getMatBudget(float x0, float y0, float z0, float x1, float y1, float z1) const { return lut->getMatBudget(x0, y0, z0, x1, y1, z1); }
-  [[nodiscard]] GPUdi() auto getMatMoment(float x0, float y0, float z0, float x1, float y1, float z1) const { return lut->getMatMoment(x0, y0, z0, x1, y1, z1); }
-};
-
 /// A fit's material where its chain may hold two measurements on one layer
 /// (overlap partners, OverlapPartners.h): the link material's between
 /// layers, whose bands hold each layer's whole material, and none on a step
 /// between two sensors of one layer, which the bands hold already.
 template <typename Material>
 struct LayerMaterial {
-  const Material* lut = nullptr;
-  [[nodiscard]] GPUdi() auto getMatBudget(float x0, float y0, float z0, float x1, float y1, float z1) const { return lut->getMatBudget(x0, y0, z0, x1, y1, z1); }
-  [[nodiscard]] GPUdi() auto getMatMoment(float x0, float y0, float z0, float x1, float y1, float z1) const { return lut->getMatMoment(x0, y0, z0, x1, y1, z1); }
+  const Material* inner = nullptr;
 };
 
 template <typename Material>
@@ -223,21 +173,11 @@ template <typename Material>
 struct IsLayerMaterial<LayerMaterial<Material>> : std::true_type {
 };
 
-template <typename Material>
-struct IsExactMaterial : std::false_type {
-};
-template <typename Material>
-struct IsExactMaterial<ExactMaterial<Material>> : std::true_type {
-};
-template <typename Material>
-struct IsExactMaterial<SpanMaterial<ExactMaterial<Material>>> : std::true_type {
-};
-
 /// A step's material from the link material (LinkMaterial.h) between the
-/// planes \a from and \a to, or from \a material's LUT where their layers are
-/// not a linked pair: \a material's given step for a follow candidate
-/// (`GivenMaterial`), each half's logarithm at the fit's span for a fit
-/// (`SpanMaterial`), each at its own otherwise.
+/// planes \a from and \a to, `found` false where it holds none:
+/// \a material's given step for a follow candidate (`GivenMaterial`), each
+/// half's logarithm at the fit's span for a fit (`SpanMaterial`), at the
+/// step's own otherwise.
 template <typename Material>
 struct IsSpanMaterial : std::false_type {
 };
@@ -253,8 +193,6 @@ GPUdi() StepMaterial stepMaterial(const TrackingGeometry<Det>& geometry, const T
 {
   if constexpr (std::is_same_v<Material, GivenMaterial>) {
     return material.step;
-  } else if constexpr (IsExactMaterial<Material>::value) {
-    return stepMaterial(material, start, end);
   } else {
     if constexpr (IsLayerMaterial<Material>::value) {
       if (from.layer == to.layer) {
@@ -268,11 +206,11 @@ GPUdi() StepMaterial stepMaterial(const TrackingGeometry<Det>& geometry, const T
     }
     const auto link = geometry.material().step(from.layer, to.layer, start, end);
     if (!link.found) {
-      return stepMaterial(material, start, end);
+      StepMaterial none;
+      none.found = false;
+      return none;
     }
-    // Highland's logarithm at the step's whole span, both parts.
-    const Scalar span = link.before + link.after;
-    StepMaterial step{.nearerX2X0 = link.before, .fartherX2X0 = link.after, .nearerLogX2X0 = span, .fartherLogX2X0 = span, .xRho = link.xRho, .lever = link.lever, .spread = link.spread};
+    auto step = stepMaterialOf(link);
     if constexpr (IsSpanMaterial<Material>::value) {
       step.nearerLogX2X0 = material.spanX2X0;
       step.fartherLogX2X0 = material.spanX2X0;
@@ -401,6 +339,9 @@ GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<D
   surfaceToGlobal(to, state.loc0(), state.loc1(), end);
 
   const auto step = stepMaterial(geometry, from, to, material, start, end);
+  if (!step.found) {
+    return PropagationStatus::kNoMaterial;
+  }
   const Scalar momentum = 1.F / o2::gpu::GPUCommonMath::Abs(referenceQOverP);
   // The nearer half before the transport (StepMaterial), at the direction on
   // the surface the step leaves; the farther half after it.
@@ -862,14 +803,14 @@ GPUdi() void advanceReference(PassReference& reference, int n, PropagationDirect
   }
 }
 
-/// The material of a fit's span: \a material's LUT along the straight
-/// segments between consecutive measurements of \a measurements, the first
-/// \a n, which are what the fit's steps read; the fit's material
-/// (`SpanMaterial`) for both passes.
+/// The material of a fit's span: the link material's steps between
+/// consecutive measurements of \a measurements, the first \a n, which are
+/// what the fit's steps read; the fit's material (`SpanMaterial`) for both
+/// passes.
 template <DetectorLayout Det, typename Material, typename Chain>
 GPUdi() SpanMaterial<Material> spanMaterial(const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n)
 {
-  SpanMaterial<Material> span{.lut = &material};
+  SpanMaterial<Material> span{.inner = &material};
   Scalar previous[3]{};
   LayerID previousLayer = kInvalidLayerID;
   for (int i = 0; i < n; ++i) {
@@ -883,8 +824,9 @@ GPUdi() SpanMaterial<Material> spanMaterial(const TrackingGeometry<Det>& geometr
       sameLayer = previousLayer == plane.layer;
     }
     if (i > 0 && !sameLayer) {
-      const auto step = IsExactMaterial<Material>::value ? LinkStep{} : geometry.material().step(previousLayer, plane.layer, previous, point);
-      span.spanX2X0 += step.found ? step.before + step.after : material.getMatBudget(previous[0], previous[1], previous[2], point[0], point[1], point[2]).meanX2X0;
+      // A step the link material holds none of fails the fit (kNoMaterial).
+      const auto step = geometry.material().step(previousLayer, plane.layer, previous, point);
+      span.spanX2X0 += step.before + step.after;
     }
     previousLayer = plane.layer;
     previous[0] = point[0];

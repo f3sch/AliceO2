@@ -23,6 +23,6 @@
 namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
 {
 
-std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3DecayFitter(DeviceRuntime& runtime, DeviceBlock block) { return std::make_unique<DeviceDecayFitterImpl<detectors::TRKFT3, o2::base::MatLayerCylSet>>(runtime, block); }
+std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, LinkMaterial<detectors::TRKFT3>>> makeTRKFT3DecayFitter(DeviceRuntime& runtime, DeviceBlock block) { return std::make_unique<DeviceDecayFitterImpl<detectors::TRKFT3, LinkMaterial<detectors::TRKFT3>>>(runtime, block); }
 
 } // namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE

@@ -1291,8 +1291,10 @@ class DecayVertexFitter
       }
       at[0] = state;
       double totalX2X0 = 0.;
-      o2::base::MatMoment last{};
+      StepMoment last{};
       double lastLength = 0.;
+      // the layer of the point a segment leaves, none at V
+      LayerID previousLayer = kInvalidLayerID;
       for (int j = 0; j < planes; ++j) {
         const bool isRow = j < rows;
         if (!isRow) {
@@ -1324,7 +1326,10 @@ class DecayVertexFitter
         if (isRow) {
           M scale = 1.;
           if (scatters) {
-            segment[j] = o2::gtrk::detail::stepMaterial(mMaterial, a, b);
+            segment[j] = o2::gtrk::detail::stepMaterialOf(mMaterial.segment(previousLayer, a, plane.layer, b));
+            if (!segment[j].found) {
+              return DecayFitStatus::kNoMaterial;
+            }
             totalX2X0 += static_cast<double>(segment[j].nearerX2X0 + segment[j].fartherX2X0);
             const auto loss = energyLoss(static_cast<Scalar>(to[5].v), static_cast<Scalar>(chain.mass), segment[j].xRho);
             if (!loss.ok) {
@@ -1334,6 +1339,7 @@ class DecayVertexFitter
             straggling[j] = loss.varQOverP;
           }
           chain.loss[j] = scale;
+          previousLayer = plane.layer;
           for (int c = 0; c < 6; ++c) {
             state[c] = to[c].v;
           }
@@ -1341,7 +1347,12 @@ class DecayVertexFitter
           at[j + 1] = state;
         } else if (scatters) {
           // the last segment, from the innermost row (or V) to the end point, t from it
-          last = mMaterial.getMatMoment(static_cast<Scalar>(end[0]), static_cast<Scalar>(end[1]), static_cast<Scalar>(end[2]), a[0], a[1], a[2]);
+          const Scalar from[3] = {static_cast<Scalar>(end[0]), static_cast<Scalar>(end[1]), static_cast<Scalar>(end[2])};
+          const auto lastSegment = mMaterial.segment(kInvalidLayerID, from, previousLayer, a);
+          if (!lastSegment.found) {
+            return DecayFitStatus::kNoMaterial;
+          }
+          last = momentOf(lastSegment);
           lastLength = hypotOf(state[0] - end[0], state[1] - end[1], state[2] - end[2]);
           totalX2X0 += static_cast<double>(last.x2X0);
         }

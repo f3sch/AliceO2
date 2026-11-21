@@ -19,11 +19,10 @@
 /// first row on each sensor (variant 1), the overlap partners added. A row on
 /// a sensor that already has one of the chain's rows is left out of both:
 /// two clusters of one crossing, not a second measurement. Both fits start
-/// on the same innermost row and walk the LUT (`ExactMaterial`), as the final
-/// refit does: the surface map's halves hold a layer's whole material about
-/// either sensor of an overlap, so a step between the two would count the
-/// material between them twice. Chains on fewer layers than a pass starts
-/// with are refused. Each is held to the MC at that row
+/// on the same innermost row and take the link material as the final refit
+/// does, none on the step between a layer's two sensors (`LayerMaterial`):
+/// the bands hold a layer's whole material about either sensor of an
+/// overlap. Chains on fewer layers than a pass starts with are refused. Each is held to the MC at that row
 /// (`stateTruth`) and, carried to the perigee about the production point,
 /// to the MC at production (`perigeeTruth`). A record per fit; `status` as
 /// SpeciesFitStudy's.
@@ -244,7 +243,7 @@ void OverlapFitStudy<Det>::fitChain(const TruthEvent<Det>& event, ChainSource so
   const auto& truth = event.particles->at(chain.particle);
   const auto& frame = *event.frame;
   const auto& geometry = *event.geometry;
-  const o2::gtrk::detail::ExactMaterial<o2::base::MatLayerCylSet> material{.lut = event.material};
+  const o2::gtrk::detail::LayerMaterial<o2::base::MatLayerCylSet> material{.inner = event.material};
   const OverlapFitRecord base{
     .timeframe = event.timeframe,
     .source = static_cast<std::uint8_t>(source),

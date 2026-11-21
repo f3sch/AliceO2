@@ -710,7 +710,7 @@ class DecayFitStudy
   }
 
  private:
-  using Device = DeviceDecayFitter<Det, o2::base::MatLayerCylSet>;
+  using Device = DeviceDecayFitter<Det, LinkMaterial<Det>>;
   /// `decaydevice`: the batches of one source's timeframe fitted on the host
   /// and on the device, compared with the direct fits, written.
   void fitBatches(const TruthEvent<Det>& event, std::array<DecayFitBatch, 2>& batches, std::array<std::vector<DecayDeviceRecord>, 2>& records, std::array<std::vector<decay_fit_study_detail::FitSummary>, 2>& direct);
@@ -721,7 +721,7 @@ class DecayFitStudy
   TrackingDevice mDeviceSettings; ///< where `decaydevice` fits beside the host batch
   std::unique_ptr<DeviceContext> mContext;
   std::unique_ptr<Device> mDevice;
-  const o2::base::MatLayerCylSet* mConfigured = nullptr; ///< the material the device has
+  const LinkMaterial<Det>* mConfigured = nullptr; ///< the material the device has
   std::size_t mTimeframes = 0U;
   std::size_t mEvents = 0U;
   std::size_t mBatchFits = 0U;
@@ -1199,13 +1199,13 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         const auto fitUnder = [&](const DecayConstraints& set) {
           const std::span<const DecayDaughter> span{jobDaughters};
-          return withDecayFitVariant(job.variant, [&](auto variant) { return fitDecayVertex<Det, decltype(variant)::value>(span, material, set, jobTopology, tracked); });
+          return withDecayFitVariant(job.variant, [&](auto variant) { return fitDecayVertex<Det, decltype(variant)::value>(span, event.geometry->material(), set, jobTopology, tracked); });
         };
         const auto started = std::chrono::steady_clock::now();
         const auto inPrecisions = [&]() {
           const std::span<const DecayDaughter> span{jobDaughters};
           const DecayPrecisionRecord identity{.timeframe = record.timeframe, .particle = record.particle, .pdg = record.pdg, .variant = record.variant, .constraints = record.constraints, .branch = record.branch, .resonance = record.resonance, .daughters = static_cast<std::uint8_t>(jobDaughters.size())};
-          return withDecayFitVariant(job.variant, [&](auto variant) { return measurePrecision<Det, decltype(variant)::value>(span, material, constraints, jobTopology, tracked, masses, across, identity, one.precision); });
+          return withDecayFitVariant(job.variant, [&](auto variant) { return measurePrecision<Det, decltype(variant)::value>(span, event.geometry->material(), constraints, jobTopology, tracked, masses, across, identity, one.precision); });
         };
         const auto outcome = mPrecision ? inPrecisions() : fitUnder(constraints);
         record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
@@ -1387,7 +1387,7 @@ template <DetectorLayout Det>
 void DecayFitStudy<Det>::fitBatches(const TruthEvent<Det>& event, std::array<DecayFitBatch, 2>& batches, std::array<std::vector<DecayDeviceRecord>, 2>& records, std::array<std::vector<decay_fit_study_detail::FitSummary>, 2>& direct)
 {
   using namespace decay_fit_study_detail;
-  const auto& material = *event.material;
+  const auto& material = event.geometry->material();
   ++mTimeframes;
   mEvents += event.collisions != nullptr ? event.collisions->size() : 0U;
   if (mDevice && mConfigured != &material) {

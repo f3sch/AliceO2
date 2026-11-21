@@ -145,7 +145,7 @@ template <DetectorLayout Det, typename Material>
     return false;
   }
   BoundTrackState state = inward.state;
-  const auto prediction = predictBeamLine(propagator, parameters, material, geometry.planeOf(state), pairPointAt(frame.measurements(), rows[0]), state);
+  const auto prediction = predictBeamLine(propagator, parameters, geometry.planeOf(state), pairPointAt(frame.measurements(), rows[0]), state);
   auto update = updateWithBeamLine(parameters, prediction, state);
   if (update.ok && !(update.chi2 <= parameters.beamChi2Max) && parameters.kinkScale2 > 1.F) {
     // The kink allowance: the scattering inside scaled by it.

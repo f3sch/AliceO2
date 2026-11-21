@@ -76,6 +76,7 @@ template <DetectorLayout Det>
     const double inner = std::abs(detail::innerFace<Det>(detail::envelopeBands<Det>(), id));
     const double outer = std::abs(detail::outerFace<Det>(detail::envelopeBands<Det>(), id));
     table->layerDepth[layer] = {.low = static_cast<float>(inner), .perUnit = static_cast<float>(1. / (outer - inner))};
+    table->layerSide[layer] = Detector<Det>::isBarrelLayer(id) ? std::int8_t{0} : (PlacedEnvelopes<Det>::get(id).position > 0. ? std::int8_t{1} : std::int8_t{-1});
   }
   table->vertexZ = {.low = static_cast<float>(vertexZ.low), .perUnit = static_cast<float>(Table::kVertexZ / (vertexZ.high - vertexZ.low))};
   const auto centre = [](const MaterialAxis& axis, int bin) { return axis.low + ((bin + 0.5) / axis.perUnit); };
@@ -108,6 +109,13 @@ template <DetectorLayout Det>
         total.x += density * (q - p);
         total.xf += density * ((q * q) - (p * p)) / (2. * length);
         total.xf2 += density * ((q * q * q) - (p * p * p)) / (3. * length * length);
+        for (int k = 0; k < kGapProfile; ++k) {
+          const double low = std::max(p, length * k / kGapProfile);
+          const double high = std::min(q, length * (k + 1) / kGapProfile);
+          if (high > low) {
+            total.byFraction[static_cast<std::size_t>(k)] += density * (high - low);
+          }
+        }
       }
     };
     for (int layer = 0; layer < kL; ++layer) {
@@ -165,7 +173,6 @@ template <DetectorLayout Det>
     const auto id = static_cast<LayerID>(layer);
     MaterialNode node;
     node.x = static_cast<float>(x2X0[static_cast<std::size_t>(layer)]);
-    node.logX = node.x > 0.F ? std::log(node.x) : 0.F;
     for (int k = 0; k <= kNodeDepths; ++k) {
       node.depth[k] = static_cast<std::uint8_t>(std::lround(255. * k / kNodeDepths));
     }
@@ -177,9 +184,14 @@ template <DetectorLayout Det>
         const Vec3D origin{0., 0., centre(table->vertexZ, v)};
         double length = 0.;
         const Vec3D u = detail::unitFrom(origin, detail::nominalPoint<Det>(id, centre(table->layerSecond[layer], s), 0.), length);
-        const auto gap = detail::gapOf(sums(origin, u, 0., detail::faceCrossing<Det>(id, detail::innerFace<Det>(detail::envelopeBands<Det>(), id), origin, u), length), 1);
+        const double cosine = Detector<Det>::isBarrelLayer(id) ? std::hypot(u[0], u[1]) : std::abs(u[2]);
+        const auto total = sums(origin, u, 0., detail::faceCrossing<Det>(id, detail::innerFace<Det>(detail::envelopeBands<Det>(), id), origin, u), length).scaled(cosine);
+        const auto gap = detail::gapOf(total, 1);
+        const auto profile = detail::profileOf(total);
         for (int phi = 0; phi < Table::kGapPhi; ++phi) {
-          table->vertexGaps[(((((static_cast<std::size_t>(layer) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)] = gap;
+          const auto index = (((((static_cast<std::size_t>(layer) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s);
+          table->vertexGaps[index] = gap;
+          table->vertexProfiles[index] = profile;
         }
       }
     }

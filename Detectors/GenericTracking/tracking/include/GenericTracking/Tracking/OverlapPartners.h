@@ -621,7 +621,7 @@ class OverlapPartners
       std::vector<std::uint32_t> merged((std::size_t{n} * kChainLayers) + winners.size());
       std::vector<std::uint8_t> layerRowOf(merged.size());
       std::vector<std::uint8_t> kept(n, 0U);
-      const RefitWithPartners<Det, detail::LayerMaterial<Material>> refit{.parameters = &parameters, .frame = &frame, .geometry = &geometry, .material = {.lut = &lut}, .propagator = propagator, .tracks = tracks.view(), .offset = trackOffset, .proposals = proposals, .winnerOffsets = winnerOffsets.data(), .winners = winners.data(), .merged = merged.data(), .layerRowOf = layerRowOf.data(), .kept = kept.data()};
+      const RefitWithPartners<Det, detail::LayerMaterial<Material>> refit{.parameters = &parameters, .frame = &frame, .geometry = &geometry, .material = {.inner = &lut}, .propagator = propagator, .tracks = tracks.view(), .offset = trackOffset, .proposals = proposals, .winnerOffsets = winnerOffsets.data(), .winners = winners.data(), .merged = merged.data(), .layerRowOf = layerRowOf.data(), .kept = kept.data()};
       forEach(n, refit);
       // The partners in path order per track, and the used mask.
       resizeBoundedVector(mOffsets, std::size_t{n} + 1U, mMemoryPool.get());

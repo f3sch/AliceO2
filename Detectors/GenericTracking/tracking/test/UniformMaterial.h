@@ -20,6 +20,7 @@
 #define GTRK_TEST_UNIFORMMATERIAL_H_
 
 #include "GenericTracking/Tracking/Definitions.h"
+#include "GenericTracking/Tracking/LinkMaterial.h"
 
 #include "DetectorsBase/MatCell.h"
 #include "GPUCommonMath.h"
@@ -55,6 +56,23 @@ struct UniformMaterial {
     const float dz = z1 - z0;
     const float x = x2X0PerCm * o2::gpu::GPUCommonMath::Sqrt(dx * dx + dy * dy + dz * dz);
     return {.x2X0 = x, .x2X0T2 = x / 3.F};
+  }
+
+  /// As LinkMaterial::segment: the segment's material spread evenly along it.
+  [[nodiscard]] GPUhdi() LinkStep segment(LayerID /*aLayer*/, const Scalar a[3], LayerID /*bLayer*/, const Scalar b[3]) const
+  {
+    const Scalar dx = b[0] - a[0];
+    const Scalar dy = b[1] - a[1];
+    const Scalar dz = b[2] - a[2];
+    const Scalar len = o2::gpu::GPUCommonMath::Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+    LinkStep step;
+    step.before = x2X0PerCm * len;
+    step.lever = 0.5F;
+    step.spread = 1.F / 12.F;
+    step.xRho = rho * len;
+    step.gapFirstHalf = 0.5F * step.before;
+    step.found = true;
+    return step;
   }
 };
 

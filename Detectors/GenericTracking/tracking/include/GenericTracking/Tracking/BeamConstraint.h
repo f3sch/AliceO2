@@ -123,12 +123,15 @@ GPUhdi() GPUAlwaysInline() TrackingSurface beamLinePlane(Scalar x, Scalar y, Sca
 /// formula for the segment's whole x/X0 at the track's \a momentum and \a mass,
 /// the variance shared by its parts in proportion to their x/X0, each kink at
 /// its transverse distance from the beam point, t R at the fraction t of the
-/// way (\a material's `getMatMoment`): theta0^2 R^2 (int t^2 dx) / X, over
-/// sin^2(theta) for the displacement across the track.
-template <typename Material>
-GPUdi() Scalar beamScattering(const Material& material, Scalar beamX, Scalar beamY, Scalar z0, const PairPoint& innermost, Scalar momentum, Scalar mass, Scalar sinTheta)
+/// way (\a material's segment to the innermost layer \a layer,
+/// LinkMaterial::segment, and `momentOf`): theta0^2 R^2 (int t^2 dx) / X,
+/// over sin^2(theta) for the displacement across the track.
+template <DetectorLayout Det>
+GPUdi() Scalar beamScattering(const LinkMaterial<Det>& material, LayerID layer, Scalar beamX, Scalar beamY, Scalar z0, const PairPoint& innermost, Scalar momentum, Scalar mass, Scalar sinTheta)
 {
-  const auto moment = material.getMatMoment(beamX, beamY, z0, innermost.x + beamX, innermost.y + beamY, innermost.z);
+  const Scalar beam[3] = {beamX, beamY, z0};
+  const Scalar point[3] = {innermost.x + beamX, innermost.y + beamY, innermost.z};
+  const auto moment = momentOf(material.segment(kInvalidLayerID, beam, layer, point));
   if (!(moment.x2X0 > 0.F) || !(sinTheta * sinTheta > 0.F)) {
     return 0.F;
   }
@@ -149,8 +152,8 @@ struct BeamLinePrediction {
 /// The prediction for \a state on \a surface, whose measurement is
 /// \a innermost (as the pair cut reads it): not ok if the propagation to the
 /// beam line's plane fails.
-template <DetectorLayout Det, typename Material>
-GPUdi() BeamLinePrediction predictBeamLine(const Propagator& prop, const IterationParameters<Det>& parameters, const Material& material, const TrackingSurface& surface, const PairPoint& innermost, const BoundTrackState& state)
+template <DetectorLayout Det>
+GPUdi() BeamLinePrediction predictBeamLine(const Propagator& prop, const IterationParameters<Det>& parameters, const TrackingSurface& surface, const PairPoint& innermost, const BoundTrackState& state)
 {
   using Math = o2::gpu::GPUCommonMath;
   BeamLinePrediction prediction;
@@ -169,7 +172,7 @@ GPUdi() BeamLinePrediction predictBeamLine(const Propagator& prop, const Iterati
   for (int i = 0; i < kNBoundParams; ++i) {
     prediction.derivatives[i] = jacobian.loc0[i];
   }
-  prediction.scattering = beamScattering(material, parameters.beamX, parameters.beamY, predicted.loc1(), innermost, 1.F / Math::Abs(state.qOverP()), prop.massGeV, sinTheta);
+  prediction.scattering = beamScattering(*parameters.material, surface.layer, parameters.beamX, parameters.beamY, predicted.loc1(), innermost, 1.F / Math::Abs(state.qOverP()), prop.massGeV, sinTheta);
   return prediction;
 }
 
@@ -220,10 +223,10 @@ GPUdi() BeamLineUpdate updateWithBeamLine(const IterationParameters<Det>& parame
 
 /// \a state, on \a surface, updated with the iteration's beam line: the
 /// prediction (`predictBeamLine`) and the update with it.
-template <DetectorLayout Det, typename Material>
-GPUdi() BeamLineUpdate updateWithBeamLine(const Propagator& prop, const IterationParameters<Det>& parameters, const Material& material, const TrackingSurface& surface, const PairPoint& innermost, BoundTrackState& state)
+template <DetectorLayout Det>
+GPUdi() BeamLineUpdate updateWithBeamLine(const Propagator& prop, const IterationParameters<Det>& parameters, const TrackingSurface& surface, const PairPoint& innermost, BoundTrackState& state)
 {
-  return updateWithBeamLine(parameters, predictBeamLine(prop, parameters, material, surface, innermost, state), state);
+  return updateWithBeamLine(parameters, predictBeamLine(prop, parameters, surface, innermost, state), state);
 }
 
 } // namespace o2::gtrk

@@ -206,13 +206,15 @@ template <DetectorLayout Det>
   const Scalar length = o2::gpu::GPUCommonMath::Sqrt((source.r * source.r) + (dz * dz));
   const Scalar absDz = o2::gpu::GPUCommonMath::Abs(dz);
   const Scalar incidence = Detector<Det>::isBarrelLayer(sourceLayer) ? length / source.r : (absDz > 0.F ? length / absDz : 0.F);
+  // The gap and the node at normal incidence, both at the line's.
   const Scalar nodeX = node.x * incidence;
-  spanX = gap.x + nodeX;
+  const Scalar gapX = gap.x * incidence;
+  spanX = gapX + nodeX;
   if (!(spanX > 0.F)) {
     return 0.F;
   }
   const Scalar logSpan = logOf(spanX);
-  return source.r * source.r * cut.invBetaMomentum2 * ((materialKick(gap.x, logSpan, cut.logBeta2) * gap.m2) + materialKick(nodeX, logSpan, cut.logBeta2));
+  return source.r * source.r * cut.invBetaMomentum2 * ((materialKick(gapX, logSpan, cut.logBeta2) * gap.m2) + materialKick(nodeX, logSpan, cut.logBeta2));
 }
 
 /// The same without the span, the azimuth from the point.
@@ -390,7 +392,7 @@ template <DetectorLayout Det>
       }
       for (int phi = 0; phi < Table::kGapPhi; ++phi) {
         const auto& gap = material.vertexGaps[(((((static_cast<std::size_t>(from) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)];
-        largest = std::max(largest, static_cast<double>(gap.x) + (node * incidence));
+        largest = std::max(largest, (static_cast<double>(gap.x) + node) * incidence);
       }
     }
   }
@@ -433,8 +435,8 @@ template <DetectorLayout Det>
       double gapM2 = 0.;
       for (int phi = 0; phi < Table::kGapPhi; ++phi) {
         const auto& gap = material.vertexGaps[(((((static_cast<std::size_t>(from) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)];
-        gapX += static_cast<double>(gap.x) / Table::kGapPhi;
-        gapM2 += static_cast<double>(gap.x) * gap.m2 / Table::kGapPhi;
+        gapX += static_cast<double>(gap.x) * incidence / Table::kGapPhi;
+        gapM2 += static_cast<double>(gap.x) * incidence * gap.m2 / Table::kGapPhi;
       }
       const double nodeX = node * incidence;
       const double spanX = gapX + nodeX;

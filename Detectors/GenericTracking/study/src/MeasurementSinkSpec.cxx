@@ -4297,7 +4297,7 @@ class MeasurementSinkTask : public Task
       // the track's own momentum.
       const auto& beam = mInterface.beamLine();
       const auto point = pairPointAt(frame.measurements(), row);
-      const Scalar variance = beamScattering(mInterface.material(), static_cast<Scalar>(beam.x), static_cast<Scalar>(beam.y), static_cast<Scalar>(header.GetZ()), point, momentum, propagator.massGeV, static_cast<Scalar>(sinTheta));
+      const Scalar variance = beamScattering(mInterface.linkMaterial(), surface.layer, static_cast<Scalar>(beam.x), static_cast<Scalar>(beam.y), static_cast<Scalar>(header.GetZ()), point, momentum, propagator.massGeV, static_cast<Scalar>(sinTheta));
       entry.dcaScattering = {std::sqrt(variance), static_cast<float>(static_cast<double>(std::sqrt(variance)) / sinTheta)};
       PairCut ownMomentum;
       const Scalar betaPT = betaMomentum(momentum, propagator.massGeV) * static_cast<Scalar>(sinTheta);

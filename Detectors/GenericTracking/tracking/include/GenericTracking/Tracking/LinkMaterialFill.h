@@ -146,6 +146,31 @@ struct RaySums {
   double xf = 0.;
   double xf2 = 0.;
   double xRho = 0.;
+  std::array<double, kGapProfile> byFraction{}; ///< x by fraction of \a length, in kGapProfile equal parts
+  /// These times \a factor.
+  [[nodiscard]] RaySums scaled(double factor) const
+  {
+    RaySums out = *this;
+    out.x *= factor;
+    out.xf *= factor;
+    out.xf2 *= factor;
+    out.xRho *= factor;
+    for (auto& x : out.byFraction) {
+      x *= factor;
+    }
+    return out;
+  }
+  /// These and \a other's.
+  void add(const RaySums& other)
+  {
+    x += other.x;
+    xf += other.xf;
+    xf2 += other.xf2;
+    xRho += other.xRho;
+    for (int k = 0; k < kGapProfile; ++k) {
+      byFraction[static_cast<std::size_t>(k)] += other.byFraction[static_cast<std::size_t>(k)];
+    }
+  }
 };
 
 [[nodiscard]] inline RaySums raySums(const o2::base::MatLayerCylSet& lut, const Vec3D& origin, const Vec3D& u, double l0, double l1, double length, int pieces)
@@ -164,6 +189,8 @@ struct RaySums {
     sums.x += x;
     sums.xf += x * f;
     sums.xf2 += x * f * f;
+    const auto part = std::clamp(static_cast<int>(f * kGapProfile), 0, kGapProfile - 1);
+    sums.byFraction[static_cast<std::size_t>(part)] += x;
   }
   return sums;
 }
@@ -183,7 +210,23 @@ struct RaySums {
     return {};
   }
   const double x = total.x / rays;
-  return {.x = static_cast<float>(x), .m1 = static_cast<float>(total.xf / total.x), .m2 = static_cast<float>(total.xf2 / total.x), .logX = static_cast<float>(std::log(x)), .xRho = static_cast<float>(total.xRho / rays)};
+  double firstHalf = 0.;
+  for (int k = 0; k < kGapProfile / 2; ++k) {
+    firstHalf += total.byFraction[static_cast<std::size_t>(k)];
+  }
+  return {.x = static_cast<float>(x), .m1 = static_cast<float>(total.xf / total.x), .m2 = static_cast<float>(total.xf2 / total.x), .half = static_cast<float>(firstHalf / total.x), .xRho = static_cast<float>(total.xRho / rays)};
+}
+
+/// The profile of the rays' sums \a total along their fraction.
+[[nodiscard]] inline GapProfile profileOf(const RaySums& total)
+{
+  GapProfile profile;
+  double cumulative = 0.;
+  for (int k = 0; k < kGapProfile; ++k) {
+    cumulative += total.byFraction[static_cast<std::size_t>(k)];
+    profile.share[k + 1] = static_cast<std::uint8_t>(total.x > 0. ? std::lround(255. * cumulative / total.x) : 0);
+  }
+  return profile;
 }
 
 } // namespace detail
@@ -222,6 +265,7 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
     const double inner = std::abs(detail::innerFace<Det>(bands, id));
     const double outer = std::abs(detail::outerFace<Det>(bands, id));
     table.layerDepth[layer] = {.low = static_cast<float>(inner), .perUnit = static_cast<float>(1. / (outer - inner))};
+    table.layerSide[layer] = Detector<Det>::isBarrelLayer(id) ? std::int8_t{0} : (PlacedEnvelopes<Det>::get(id).position > 0. ? std::int8_t{1} : std::int8_t{-1});
   }
   const double zLow = vertexZ.low;
   const double zHigh = vertexZ.high > vertexZ.low ? vertexZ.high : vertexZ.low + 1.;
@@ -263,7 +307,6 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
               total += x;
             }
             node.x = static_cast<float>(total / kRays);
-            node.logX = total > 0. ? static_cast<float>(std::log(total / kRays)) : 0.F;
             node.xRho = static_cast<float>(xRho / kRays);
             double cumulative = 0.;
             node.depth[0] = 0U;
@@ -284,13 +327,13 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
                 const Vec3D origin{0., 0., z};
                 double length = 0.;
                 const Vec3D u = detail::unitFrom(origin, detail::nominalPoint<Det>(id, second, phiOfRay(phi, Table::kGapPhi, ray)), length);
-                const auto sums = detail::raySums(lut, origin, u, 0., detail::faceCrossing<Det>(id, detail::innerFace<Det>(bands, id), origin, u), length, kPieces);
-                total.x += sums.x;
-                total.xf += sums.xf;
-                total.xf2 += sums.xf2;
-                total.xRho += sums.xRho;
+                // at normal incidence: the ray's x times its depth over its length
+                const double cosine = Detector<Det>::isBarrelLayer(id) ? std::hypot(u[0], u[1]) : std::abs(u[2]);
+                total.add(detail::raySums(lut, origin, u, 0., detail::faceCrossing<Det>(id, detail::innerFace<Det>(bands, id), origin, u), length, kPieces).scaled(cosine));
               }
-              table.vertexGaps[(((((job * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)] = detail::gapOf(total, kRays);
+              const auto index = (((((job * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s);
+              table.vertexGaps[index] = detail::gapOf(total, kRays);
+              table.vertexProfiles[index] = detail::profileOf(total);
             }
           }
         }
@@ -313,11 +356,7 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerC
               const Vec3D u = detail::unitFrom(source, detail::nominalPoint<Det>(l.to, targetSecond, angle), length);
               const double l0 = detail::faceCrossing<Det>(l.from, detail::outerFace<Det>(bands, l.from), source, u);
               const double l1 = detail::faceCrossing<Det>(l.to, detail::innerFace<Det>(bands, l.to), source, u);
-              const auto sums = detail::raySums(lut, source, u, l0, l1, length, kPieces);
-              total.x += sums.x;
-              total.xf += sums.xf;
-              total.xf2 += sums.xf2;
-              total.xRho += sums.xRho;
+              total.add(detail::raySums(lut, source, u, l0, l1, length, kPieces));
             }
             const auto gap = detail::gapOf(total, kRays);
             gapX = std::max(gapX, gap.x);

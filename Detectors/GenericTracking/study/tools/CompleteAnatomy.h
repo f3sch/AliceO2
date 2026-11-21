@@ -1108,7 +1108,7 @@ class CompleteAnatomy
         continue;
       }
       const auto& plane = geometry.planeOf(inward.state);
-      const auto prediction = predictBeamLine(propagator, parameters, material, plane, pairPointAt(frame.measurements(), road.front()), inward.state);
+      const auto prediction = predictBeamLine(propagator, parameters, plane, pairPointAt(frame.measurements(), road.front()), inward.state);
       const auto updated = [&](BoundTrackState state, Scalar scale) { return updateWithBeamLine(parameters, prediction, state, scale); };
       const auto nominal = updated(inward.state, 1.F);
       if (nominal.ok) {
@@ -4150,7 +4150,7 @@ class CompleteAnatomy
           }
           BoundTrackState state = fit.state;
           const auto& plane = geometry.planeOf(state);
-          const auto update = updateWithBeamLine(propagator, parameters, material, plane, pairPointAt(frame.measurements(), innermost), state);
+          const auto update = updateWithBeamLine(propagator, parameters, plane, pairPointAt(frame.measurements(), innermost), state);
           return update.ok ? static_cast<double>(update.chi2) : -1.;
         };
         std::optional<decltype(fitOf({}))> fitAll;
@@ -4327,7 +4327,7 @@ class CompleteAnatomy
             if (at != walk.steps.end() && std::next(at) != walk.steps.end()) {
               BoundTrackState after = std::next(at)->state;
               covarianceFromFactors(std::next(at)->factors, after.cov);
-              const auto update = updateWithBeamLine(propagator, parameters, material, geometry.planeOf(after), pairPointAt(frame.measurements(), last), after);
+              const auto update = updateWithBeamLine(propagator, parameters, geometry.planeOf(after), pairPointAt(frame.measurements(), last), after);
               if (update.ok) {
                 endBeam = static_cast<double>(update.chi2);
                 endBeamPasses = update.chi2 <= parameters.beamChi2Max ? 1 : 0;
@@ -6344,7 +6344,7 @@ class CompleteAnatomy
       factorDet = (w00 * w11) - (w01 * w01);
     }
     covarianceFromFactors(carried, predicted.cov);
-    if (beamLine != nullptr && !updateWithBeamLine(propagator, *beamLine, material, geometry.planeOf(measurement), pairPointAt(frame.measurements(), row), predicted).ok) {
+    if (beamLine != nullptr && !updateWithBeamLine(propagator, *beamLine, geometry.planeOf(measurement), pairPointAt(frame.measurements(), row), predicted).ok) {
       return {};
     }
     const auto [chi2, det] = innovation(predicted, measurement);
@@ -7756,7 +7756,7 @@ class CompleteAnatomy
           continue;
         }
         BoundTrackState input = roadFit.state;
-        static_cast<void>(updateWithBeamLine(propagator, parameters, material, geometry.planeOf(input), pairPointAt(frame.measurements(), road.front()), input));
+        static_cast<void>(updateWithBeamLine(propagator, parameters, geometry.planeOf(input), pairPointAt(frame.measurements(), road.front()), input));
         CovarianceFactors inputFactors = factorCovariance(input.cov);
         const bool quiet = worst[index] < 2.F;
         // Produced within 50 um of the axis, 2.5 of the beam's widths.
@@ -7924,7 +7924,7 @@ class CompleteAnatomy
             if (ok[1]) {
               covarianceFromFactors(factors, predicted[1].cov);
               predicted[2] = predicted[1];
-              ok[2] = updateWithBeamLine(propagator, parameters, material, plane, pairPointAt(frame.measurements(), row), predicted[2]).ok;
+              ok[2] = updateWithBeamLine(propagator, parameters, plane, pairPointAt(frame.measurements(), row), predicted[2]).ok;
             }
           }
           if (segment != nullptr) {
@@ -8309,7 +8309,7 @@ class CompleteAnatomy
       if (references) {
         covarianceFromFactors(noBeamFactors, noBeam.cov);
         joint = noBeam;
-        references = updateWithBeamLine(propagator, parameters, material, plane, pairPointAt(frame.measurements(), row), joint).ok;
+        references = updateWithBeamLine(propagator, parameters, plane, pairPointAt(frame.measurements(), row), joint).ok;
       }
     }
     const auto chi2Of = [&](BoundTrackState state) {
