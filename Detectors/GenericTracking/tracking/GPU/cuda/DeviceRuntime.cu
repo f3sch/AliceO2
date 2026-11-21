@@ -19,7 +19,6 @@
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Tracking/GPU/DeviceTracker.h"
 
-#include "GPUCommonHelpers.h"
 
 #include <algorithm>
 #include <bit>
@@ -116,7 +115,7 @@ class Runtime final : public DeviceRuntime
   explicit Runtime(int device)
   {
     cudaDeviceProp properties{};
-    GPUChkErrS(cudaGetDeviceProperties(&properties, device));
+    check(cudaGetDeviceProperties(&properties, device), "cudaGetDeviceProperties");
     mProperties.name = properties.name;
 #ifdef GTRK_BACKEND_HIP
     mProperties.architecture = properties.gcnArchName;
@@ -128,11 +127,11 @@ class Runtime final : public DeviceRuntime
     mProperties.multiprocessors = properties.multiProcessorCount;
     // The free memory is the current device's: ask \a device's, then leave the current one as it was.
     int current = 0;
-    GPUChkErrS(cudaGetDevice(&current));
-    GPUChkErrS(cudaSetDevice(device));
+    check(cudaGetDevice(&current), "cudaGetDevice");
+    check(cudaSetDevice(device), "cudaSetDevice");
     std::size_t total = 0;
-    GPUChkErrS(cudaMemGetInfo(&mProperties.freeMemoryBytes, &total));
-    GPUChkErrS(cudaSetDevice(current));
+    check(cudaMemGetInfo(&mProperties.freeMemoryBytes, &total), "cudaMemGetInfo");
+    check(cudaSetDevice(current), "cudaSetDevice");
   }
 
   ~Runtime() final = default;
@@ -184,24 +183,24 @@ class Runtime final : public DeviceRuntime
     }
   }
 
-  void fill(void* to, std::uint8_t value, std::size_t bytes, DeviceStream& stream) final { GPUChkErrS(cudaMemsetAsync(to, static_cast<int>(value), bytes, nativeStreamOf(stream))); }
+  void fill(void* to, std::uint8_t value, std::size_t bytes, DeviceStream& stream) final { check(cudaMemsetAsync(to, static_cast<int>(value), bytes, nativeStreamOf(stream)), "cudaMemsetAsync"); }
 
  protected:
   [[nodiscard]] void* createStreamHandle() final
   {
     cudaStream_t stream = nullptr;
-    GPUChkErrS(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+    check(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking), "cudaStreamCreateWithFlags");
     return stream;
   }
 
  private:
   [[nodiscard]] static cudaStream_t nativeStreamOf(DeviceStream& stream) { return static_cast<cudaStream_t>(nativeStream(stream)); }
 
-  static void copy(void* to, const void* from, std::size_t bytes, cudaMemcpyKind kind, DeviceStream& stream) { GPUChkErrS(cudaMemcpyAsync(to, from, bytes, kind, nativeStreamOf(stream))); }
+  static void copy(void* to, const void* from, std::size_t bytes, cudaMemcpyKind kind, DeviceStream& stream) { check(cudaMemcpyAsync(to, from, bytes, kind, nativeStreamOf(stream)), "cudaMemcpyAsync"); }
 
-  void destroyStreamHandle(void* handle) noexcept final { GPUChkErrSI(cudaStreamDestroy(static_cast<cudaStream_t>(handle))); }
+  void destroyStreamHandle(void* handle) noexcept final { static_cast<void>(cudaStreamDestroy(static_cast<cudaStream_t>(handle))); }
 
-  void synchronizeStreamHandle(void* handle) final { GPUChkErrS(cudaStreamSynchronize(static_cast<cudaStream_t>(handle))); }
+  void synchronizeStreamHandle(void* handle) final { check(cudaStreamSynchronize(static_cast<cudaStream_t>(handle)), "cudaStreamSynchronize"); }
 
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::ITS>> makeITSTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeITSTracker(*this, block); }
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::MFT>> makeMFTTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeMFTTracker(*this, block); }

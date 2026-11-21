@@ -151,12 +151,12 @@ template <typename Call>
 [[nodiscard]] StageStatus withTemporary(DeviceArena& arena, const Call& call)
 {
   std::size_t temporaryBytes = 0U;
-  GPUChkErrS(call(nullptr, temporaryBytes));
+  check(call(nullptr, temporaryBytes), "call");
   DeviceSpan<std::byte> temporary;
   if (!temporary.allocate(arena, temporaryBytes, ArenaEnd::kScratch)) {
     return StageStatus::kOutOfMemory;
   }
-  GPUChkErrS(call(temporary.data(), temporaryBytes));
+  check(call(temporary.data(), temporaryBytes), "call");
   return StageStatus::kComplete;
 }
 } // namespace detail

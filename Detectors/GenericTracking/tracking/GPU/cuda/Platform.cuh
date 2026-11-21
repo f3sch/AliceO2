@@ -35,10 +35,11 @@
 
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 
-#include "GPUCommonHelpers.h"
 #include "GPUDefParametersWrapper.h"
 
 #include <cstddef>
+#include <stdexcept>
+#include <string>
 #include <cstdint>
 
 namespace o2::gtrk::gpu
@@ -134,13 +135,30 @@ inline NativeStream nativeStream(DeviceRuntime& runtime, DeviceStream& stream) {
 /// What the 64-bit atomics take on both vendors.
 using Counter = unsigned long long;
 
+/// A failed runtime call is a runtime error: \a call's status, \a where it was made.
+#ifdef __HIPCC__
+inline void check(hipError_t status, const char* where)
+{
+  if (status != hipSuccess) {
+    throw std::runtime_error(std::string{where} + ": " + hipGetErrorString(status));
+  }
+}
+#else
+inline void check(cudaError_t status, const char* where)
+{
+  if (status != cudaSuccess) {
+    throw std::runtime_error(std::string{where} + ": " + cudaGetErrorString(status));
+  }
+}
+#endif
+
 /// A failed launch is a runtime error, not a rung of the overflow ladder.
 inline void checkLaunch()
 {
 #ifdef __HIPCC__
-  GPUChkErrS(hipGetLastError());
+  check(hipGetLastError(), "kernel launch");
 #else
-  GPUChkErrS(cudaGetLastError());
+  check(cudaGetLastError(), "kernel launch");
 #endif
 }
 
