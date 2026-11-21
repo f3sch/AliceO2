@@ -206,8 +206,14 @@ template <DetectorLayout Det>
     }
     return verdict;
   };
-  const Scalar scatter = sourceScattering<Det>(*parameters.material, parameters.pairCut, vertex, from, source);
-  const Scalar between = parameters.betweenBound[link] > 0.F ? betweenScattering<Det>(*parameters.material, parameters.pairCut, betweenSource<Det>(source, from), link, to, vertex, source, target) : 0.F;
+  Scalar spanX = 0.F;
+  Scalar scatter = sourceScattering<Det>(*parameters.material, parameters.pairCut, vertex, from, source, atan2Of(source.y, source.x), spanX);
+  Scalar between = 0.F;
+  if (parameters.betweenBound[link] > 0.F) {
+    const auto pair = betweenScattering<Det>(*parameters.material, parameters.pairCut, betweenSource<Det>(source, from), link, to, vertex, source, target, spanX);
+    between = pair.between;
+    scatter *= pair.sourceScale;
+  }
   if (parameters.impactMax > 0.F) {
     // A displaced iteration's test (TrackletStage.h, `displacedPairOf`): its
     // transverse part as the curvature, its z as the longitudinal test.

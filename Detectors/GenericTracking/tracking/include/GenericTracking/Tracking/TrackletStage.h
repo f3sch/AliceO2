@@ -327,6 +327,8 @@ class TrackletStage
   struct CompatibleVertex {
     std::uint32_t vertexIndex;
     Scalar scattering;
+    Scalar spanX;    ///< x/X0 of the span from the vertex through the source (`sourceScattering`)
+    Scalar highland; ///< its Highland factor `1 + 0.038 ln(spanX / beta^2)`, 0 without material
   };
 
   struct VertexRange {
@@ -499,10 +501,10 @@ class TrackletStage
         source.uncachedRange.end = source.vertexRange.end;
         break;
       }
-      cachedVertices[source.cachedCount] = {
-        .vertexIndex = i,
-        .scattering = sourceScattering<Det>(*mParameters->material, mParameters->pairCut, vertex, source.at.layer, source.point, source.phi),
-      };
+      Scalar spanX = 0.F;
+      const Scalar scattering = sourceScattering<Det>(*mParameters->material, mParameters->pairCut, vertex, source.at.layer, source.point, source.phi, spanX);
+      const Scalar highland = spanX > 0.F ? 1.F + (0.038F * (logOf(spanX) - mParameters->pairCut.logBeta2)) : 0.F;
+      cachedVertices[source.cachedCount] = {.vertexIndex = i, .scattering = scattering, .spanX = spanX, .highland = highland};
       ++source.cachedCount;
     }
     if (source.cachedCount == 0U) {
@@ -689,13 +691,17 @@ class TrackletStage
   [[nodiscard]] GPUhdi() bool accepted(LayerID sourceLayer, const TimeEstPS& sourceBox, const PairPoint& source, const PairPoint& target, const CompatibleVertex* cachedVertices, std::uint32_t cachedCount, VertexRange uncachedRange, const SecondRange* intervals, Scalar targetSecond, Scalar betweenBound, std::size_t link, LayerID targetLayer, const BetweenSource<Det>& between, [[maybe_unused]] bool inWindow) const
   {
     // The pair's own kink, per vertex: its momentum follows the source's line from it.
-    const auto betweenOf = [&](const VertexSeed& vertex) { return betweenScattering<Det>(*mParameters->material, mParameters->pairCut, between, link, targetLayer, vertex, source, target); };
+    const auto betweenOf = [&](const VertexSeed& vertex, Scalar spanX, Scalar highland) { return betweenScattering<Det>(*mParameters->material, mParameters->pairCut, between, link, targetLayer, vertex, source, target, spanX, highland); };
     // What the pair tests compute of the two positions alone, once.
     const auto chord = pairChord(source, target);
-    const auto compatible = [&](const VertexSeed& vertex, Scalar scattering) {
+    const auto compatible = [&](const VertexSeed& vertex, Scalar scattering, Scalar spanX, Scalar highland) {
       const auto& cut = mParameters->pairCut;
       if constexpr (Displaced) {
-        return displacedCompatible(vertex, source, scattering, target, betweenBound > 0.F ? betweenOf(vertex) : 0.F);
+        if (!(betweenBound > 0.F)) {
+          return displacedCompatible(vertex, source, scattering, target, 0.F);
+        }
+        const auto pair = betweenOf(vertex, spanX, highland);
+        return displacedCompatible(vertex, source, scattering * pair.sourceScale, target, pair.between);
       }
       // Counting only: the cascade's stages split by the window.
       const auto countStages = [&](Scalar betweenScatter) {
@@ -712,7 +718,8 @@ class TrackletStage
         countStages(0.F);
         return pairCompatible(cut, vertex, source, scattering, target, chord);
       }
-      if (!transverseCompatible(cut, transversePairTerms(cut, vertex, source, scattering, target, chord, betweenBound))) {
+      // At the bound: the gap at its largest, the source's term at the largest span's logarithm.
+      if (!transverseCompatible(cut, transversePairTerms(cut, vertex, source, scattering * mParameters->betweenSourceScale[link], target, chord, betweenBound))) {
         countWork(WorkCounter::kPairBetweenBound);
         if constexpr (kWorkCounters) {
           if (inWindow) {
@@ -721,9 +728,9 @@ class TrackletStage
         }
         return false;
       }
-      const Scalar own = betweenOf(vertex);
-      countStages(own);
-      return pairCompatible(cut, vertex, source, scattering, target, chord, own);
+      const auto own = betweenOf(vertex, spanX, highland);
+      countStages(own.between);
+      return pairCompatible(cut, vertex, source, scattering * own.sourceScale, target, chord, own.between);
     };
     for (std::uint32_t i = 0; i < cachedCount; ++i) {
       if constexpr (!BeamLine) {
@@ -733,7 +740,7 @@ class TrackletStage
       }
       const auto& cached = cachedVertices[i];
       const auto& vertex = mVertices[cached.vertexIndex];
-      if (compatible(vertex, cached.scattering)) {
+      if (compatible(vertex, cached.scattering, cached.spanX, cached.highland)) {
         return true;
       }
     }
@@ -743,8 +750,9 @@ class TrackletStage
         if (!vertexUsable(*mParameters, sourceBox, vertex)) {
           continue;
         }
-        const Scalar scattering = sourceScattering<Det>(*mParameters->material, mParameters->pairCut, vertex, sourceLayer, source);
-        if (compatible(vertex, scattering)) {
+        Scalar spanX = 0.F;
+        const Scalar scattering = sourceScattering<Det>(*mParameters->material, mParameters->pairCut, vertex, sourceLayer, source, atan2Of(source.y, source.x), spanX);
+        if (compatible(vertex, scattering, spanX, spanX > 0.F ? 1.F + (0.038F * (logOf(spanX) - mParameters->pairCut.logBeta2)) : 0.F)) {
           return true;
         }
       }

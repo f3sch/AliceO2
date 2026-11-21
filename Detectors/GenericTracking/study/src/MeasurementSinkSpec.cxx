@@ -410,7 +410,7 @@ std::vector<TrueCrossingReport> trueAnatomy(const Frame& frame, const LinkMateri
         const double beta = pA / std::hypot(pA, previous->mass);
         // The previous layer's own band (LinkMaterial.h), at normal incidence.
         const auto& node = scattering.node(id, static_cast<Scalar>(previous->position[0]), static_cast<Scalar>(previous->position[1]), LinkMaterial<Det>::second(id, static_cast<Scalar>(rPrevious), static_cast<Scalar>(previous->position[2])));
-        const double theta0 = std::sqrt(detail::highlandFactor(static_cast<double>(node.front + node.behind), beta * beta) * pathFactor) / (beta * pA);
+        const double theta0 = std::sqrt(detail::highlandFactor(static_cast<double>(node.x), beta * beta) * pathFactor) / (beta * pA);
         report.kink = theta0 > 0. ? angle / theta0 : 0.;
         report.scatterer = previous->layer;
         if (lut != nullptr) {

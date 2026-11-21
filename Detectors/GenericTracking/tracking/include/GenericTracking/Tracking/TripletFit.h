@@ -480,10 +480,18 @@ GPUhdi() GPUAlwaysInline() void addCovariance(TripletKinkCovariance& covariance,
 /// point once it is known.
 struct TripletMaterial {
   Scalar node = 0.F;    ///< the middle layer's band, x/X0 at normal incidence
-  Scalar nodeLog = 0.F; ///< its logarithm (`MaterialNode::logX`)
+  Scalar spanLog = 0.F; ///< ln of the triplet's span's x/X0, the node's and both gaps': Highland's logarithm for all three
   bool barrel = true;   ///< the middle layer's kind
   MaterialGap first;  ///< `a -> b`
   MaterialGap second; ///< `b -> c`
+  /// The same with its span's logarithm (`spanLog`) from its parts.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() TripletMaterial withSpan() const
+  {
+    TripletMaterial out = *this;
+    const Scalar x = node + first.x + second.x;
+    out.spanLog = x > 0.F ? logOf(x) : 0.F;
+    return out;
+  }
 };
 
 /// The material of the triplet `a b c` on the links \a firstLink and
@@ -497,13 +505,12 @@ template <DetectorLayout Det>
   const LayerID third = material.linkTo[secondLink];
   const Scalar middleSecond = Table::second(middle, b.r, b.z);
   const auto& node = material.node(middle, b.x, b.y, middleSecond);
-  return {
-    .node = node.front + node.behind,
-    .nodeLog = node.logX,
+  return TripletMaterial{
+    .node = node.x,
     .barrel = Detector<Det>::isBarrelLayer(middle),
     .first = material.gap(material.gapRow(firstLink, a.x, a.y, Table::second(first, a.r, a.z)), middle, middleSecond),
     .second = material.gap(material.gapRow(secondLink, b.x, b.y, middleSecond), third, Table::second(third, c.r, c.z)),
-  };
+  }.withSpan();
 }
 
 /// The material of a triplet's first tracklet `a b` on \a firstLink: the
@@ -519,13 +526,12 @@ template <DetectorLayout Det>
   middleSecond = Table::second(middle, b.r, b.z);
   middlePhi = static_cast<std::uint32_t>(Table::phiBin(b.x, b.y, Table::kGapPhi));
   const auto& node = material.node(middle, b.x, b.y, middleSecond);
-  return {
-    .node = node.front + node.behind,
-    .nodeLog = node.logX,
+  return TripletMaterial{
+    .node = node.x,
     .barrel = Detector<Det>::isBarrelLayer(middle),
     .first = material.gap(material.gapRow(firstLink, a.x, a.y, Table::second(first, a.r, a.z)), middle, middleSecond),
     .second = {},
-  };
+  }.withSpan();
 }
 
 /// The second gap of a triplet whose first tracklet `firstTripletMaterial`
@@ -548,12 +554,12 @@ template <DetectorLayout Det>
   }
   const Scalar cosineTheta = sqrtClampedOf(1.F - sineTheta * sineTheta);
   const Scalar path = material.barrel ? 1.F / sineTheta : (cosineTheta > 0.F ? 1.F / cosineTheta : 0.F);
-  return materialKick(material.node * path, material.nodeLog, cut.logBeta2) * sineTheta * sineTheta * cut.invBetaMomentum2;
+  return materialKick(material.node * path, material.spanLog, cut.logBeta2) * sineTheta * sineTheta * cut.invBetaMomentum2;
 }
 
 /// A gap's space-angle variance at pT_min, its x along its chord, weighted by
-/// \a lever, at polar angle theta.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar gapScattering(const MaterialGap& gap, Scalar lever, const PairCut& cut, Scalar sineTheta) { return materialKick(gap.x, gap.logX, cut.logBeta2) * lever * sineTheta * sineTheta * cut.invBetaMomentum2; }
+/// \a lever, at polar angle theta, Highland's logarithm at \a spanLog.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar gapScattering(const MaterialGap& gap, Scalar lever, Scalar spanLog, const PairCut& cut, Scalar sineTheta) { return materialKick(gap.x, spanLog, cut.logBeta2) * lever * sineTheta * sineTheta * cut.invBetaMomentum2; }
 
 /// The variance of the kink at a triplet's middle point: the middle layer's
 /// node and the two gaps. A kink a fraction `t` of the way from `a` to `b`
@@ -563,7 +569,7 @@ template <DetectorLayout Det>
 /// the kink allowance of a kinked triplet.
 [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar tripletScattering(const TripletMaterial& material, const PairCut& cut, Scalar sineTheta, Scalar middleScale = 1.F)
 {
-  return (middleScattering(material, cut, sineTheta) * middleScale) + gapScattering(material.first, material.first.m2, cut, sineTheta) + gapScattering(material.second, 1.F - (2.F * material.second.m1) + material.second.m2, cut, sineTheta);
+  return (middleScattering(material, cut, sineTheta) * middleScale) + gapScattering(material.first, material.first.m2, material.spanLog, cut, sineTheta) + gapScattering(material.second, 1.F - (2.F * material.second.m1) + material.second.m2, material.spanLog, cut, sineTheta);
 }
 
 /// A triplet's kink terms from its \a chords (`tripletChords`); false where
@@ -752,7 +758,7 @@ struct AdjacentScattering {
 [[nodiscard]] GPUhdi() GPUAlwaysInline() AdjacentScattering adjacentScattering(const TripletMaterial& abc, const TripletMaterial& bcd, const PairCut& cut, Scalar sineFirst, Scalar sineSecond, Scalar secondScale = 1.F, Scalar thirdScale = 1.F)
 {
   const auto& shared = abc.second;
-  const Scalar sharedKick = materialKick(shared.x, shared.logX, cut.logBeta2) * cut.invBetaMomentum2;
+  const Scalar sharedKick = materialKick(shared.x, abc.spanLog, cut.logBeta2) * cut.invBetaMomentum2;
   return {
     .second = tripletScattering(abc, cut, sineFirst, secondScale),
     .third = tripletScattering(bcd, cut, sineSecond, thirdScale),

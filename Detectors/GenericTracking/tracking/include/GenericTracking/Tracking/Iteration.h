@@ -298,6 +298,11 @@ struct IterationParameters {
   /// only for the pairs it keeps: the test only widens with the term, so the
   /// same pairs pass.
   Scalar betweenBound[kLinkCount]{};
+  /// The largest factor a source's term takes at a pair's span on the link
+  /// (`PairScattering::sourceScale`): its least span and its gaps' largest
+  /// x/X0 (`leastSourceSpan`, `LinkMaterial::gapMax`); with `betweenBound`
+  /// the test at the bound.
+  Scalar betweenSourceScale[kLinkCount]{};
   /// Device-facing copy of the detector's link topology. Runtime indexing of
   /// the detector's constexpr host tables is not valid in device code.
   std::uint32_t outLinkOffsets[kLayerCount + 1U]{};
@@ -465,7 +470,7 @@ template <DetectorLayout Det>
   for (std::size_t link = 0; link < VertexWindowParameters<Det>::kLinkCount; ++link) {
     const auto& pair = Det::layerLinks[link];
     const double kink = sourceKinkBound<Det>(*parameters.material, settings, pair.from, envelope);
-    const double between = betweenKinkBound<Det>(*parameters.material, settings, pair.from, pair.to, AzimuthBound::kMean);
+    const double between = betweenKinkBound<Det>(*parameters.material, settings, pair.from, pair.to, envelope, AzimuthBound::kMean);
     result.windows[link] = vertexPairWindow<Det>(pair.from, pair.to, settings, vertexZ, maxSigmaZ, kink, between);
   }
   return result;
@@ -604,10 +609,13 @@ template <DetectorLayout Det>
     if (alike != nullptr) {
       parameters.windows[link] = alike->windows[link];
       parameters.betweenBound[link] = alike->betweenBound[link];
+      parameters.betweenSourceScale[link] = alike->betweenSourceScale[link];
       parameters.tripletBounds[link] = alike->tripletBounds[link];
     } else {
       parameters.windows[link] = layerPairWindow<Det>(pair.from, pair.to, settings.windows, beamSpot, material);
-      const double between = betweenKinkBound<Det>(material, settings.windows, pair.from, pair.to, AzimuthBound::kLargest);
+      const double between = betweenKinkBound<Det>(material, settings.windows, pair.from, pair.to, beamSpot, AzimuthBound::kLargest);
+      const double least = leastSourceSpan<Det>(material, pair.from);
+      parameters.betweenSourceScale[link] = conservativeScalarBound(static_cast<double>(spanRatio(static_cast<Scalar>(least), static_cast<Scalar>(least + static_cast<double>(material.gapMax[link])), static_cast<Scalar>(logBeta2Min(settings.windows)))));
       parameters.betweenBound[link] = conservativeScalarBound(between * between);
       parameters.tripletBounds[link] = tripletLinkBounds<Det>(pair.from, pair.to, static_cast<double>(parameters.windows[link].phiHalfWidth));
     }

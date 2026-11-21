@@ -116,6 +116,7 @@ struct TripletFirstTerms {
   Scalar atanSlope = 0.F;    ///< atan(slope)
   Scalar scattering = 0.F;   ///< `b`'s node with the kink allowance, then the gap between `a` and `b` by its fraction
   std::uint32_t middlePhi = 0U; ///< `b`'s gap azimuth bin
+  Scalar firstSpanX = 0.F;      ///< x/X0 of `b`'s node and the first gap
   Scalar middleSecond = 0.F;    ///< `b`'s second coordinate
   Scalar inFirst = 0.F;      ///< 1 / L_ab
   Scalar zFirst = 0.F;       ///< varZ_a / L_ab^2
@@ -151,11 +152,13 @@ template <DetectorLayout Det>
   const Scalar middleSecond = Table::second(middleLayer, middle.r, middle.z);
   const auto& node = material.node(middleLayer, middle.x, middle.y, middleSecond);
   TripletMaterial partial;
-  partial.node = node.front + node.behind;
-  partial.nodeLog = node.logX;
+  partial.node = node.x;
+
   partial.barrel = Detector<Det>::isBarrelLayer(middleLayer);
   partial.first = material.gap(material.gapRow(firstLink, first.x, first.y, Table::second(firstLayer, first.r, first.z)), middleLayer, middleSecond);
-  terms.scattering = (middleScattering(partial, parameters.pairCut, terms.cosine) * parameters.graphKinkScale2) + gapScattering(partial.first, partial.first.m2, parameters.pairCut, terms.cosine);
+  partial = partial.withSpan();
+  terms.scattering = (middleScattering(partial, parameters.pairCut, terms.cosine) * parameters.graphKinkScale2) + gapScattering(partial.first, partial.first.m2, partial.spanLog, parameters.pairCut, terms.cosine);
+  terms.firstSpanX = partial.node + partial.first.x;
   terms.middlePhi = static_cast<std::uint32_t>(LinkMaterial<Det>::phiBin(middle.x, middle.y, LinkMaterial<Det>::kGapPhi));
   terms.middleSecond = middleSecond;
   terms.inFirst = 1.F / length;
@@ -203,7 +206,8 @@ template <DetectorLayout Det>
   const Scalar excess = detail::chordDipExcess(0.5F * parameters.pairCut.maxCurvature * longest, first.slope, first.atanSlope);
   const auto& material = *parameters.material;
   const Scalar largest = material.rowMax(material.gapRowAt(secondLink, first.middlePhi, first.middleSecond));
-  const Scalar scattering = first.scattering + (materialKick(largest, parameters.pairCut.logBeta2) * first.cosine * first.cosine * parameters.pairCut.invBetaMomentum2);
+  const Scalar spanX = first.firstSpanX + largest;
+  const Scalar scattering = first.scattering + (materialKick(largest, spanX > 0.F ? logOf(spanX) : 0.F, parameters.pairCut.logBeta2) * first.cosine * first.cosine * parameters.pairCut.invBetaMomentum2);
   const Scalar inSecond = 1.F / bounds.lengthMin;
   const Scalar inMiddle = first.inFirst + inSecond;
   const Scalar alongTarget = target.varR + target.varRPhi;

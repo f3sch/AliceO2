@@ -270,7 +270,9 @@ GPUdi() StepMaterial stepMaterial(const TrackingGeometry<Det>& geometry, const T
     if (!link.found) {
       return stepMaterial(material, start, end);
     }
-    StepMaterial step{.nearerX2X0 = link.before, .fartherX2X0 = link.after, .nearerLogX2X0 = link.before, .fartherLogX2X0 = link.after, .xRho = link.xRho, .lever = link.lever, .spread = link.spread};
+    // Highland's logarithm at the step's whole span, both parts.
+    const Scalar span = link.before + link.after;
+    StepMaterial step{.nearerX2X0 = link.before, .fartherX2X0 = link.after, .nearerLogX2X0 = span, .fartherLogX2X0 = span, .xRho = link.xRho, .lever = link.lever, .spread = link.spread};
     if constexpr (IsSpanMaterial<Material>::value) {
       step.nearerLogX2X0 = material.spanX2X0;
       step.fartherLogX2X0 = material.spanX2X0;

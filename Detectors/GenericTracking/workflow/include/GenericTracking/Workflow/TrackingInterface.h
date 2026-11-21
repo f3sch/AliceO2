@@ -448,7 +448,7 @@ class TrackingInterface
     }
     const auto filling = std::chrono::steady_clock::now();
     detail::TaskArena arena{std::max(param.threads, 0)};
-    fillLinkMaterial<Det>(mTracking->material(), *mMaterial, mTracking->surfaces(), vertexZ, arena);
+    fillLinkMaterial<Det>(mTracking->material(), *mMaterial, vertexZ, arena);
     LOGP(info, "the link material: {} layers, {} links, vertices at z {:.2f} .. {:.2f} cm, {:.1f} MB, filled in {:.2f} s", LinkMaterial<Det>::kLayers, LinkMaterial<Det>::kLinks, vertexZ.low, vertexZ.high, sizeof(LinkMaterial<Det>) / 1e6, std::chrono::duration<double>(std::chrono::steady_clock::now() - filling).count());
   }
 

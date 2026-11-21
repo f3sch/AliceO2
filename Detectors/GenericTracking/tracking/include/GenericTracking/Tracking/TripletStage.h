@@ -213,6 +213,7 @@ class TripletStage
     kinked = false;
     TripletMaterial material = context.material;
     material.second = secondGap(*mParameters->material, mTracklets.link[candidateIndex], context.middlePhi, context.middleSecond, third.point);
+    material = material.withSpan();
     return tripletCompatible(*mParameters, material, context.first, context.middle, third, fit, terms, kinked);
   }
 

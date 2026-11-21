@@ -189,10 +189,13 @@ template <typename Columns>
 /// each part's Highland logarithm at its own x along the line, at the cut's
 /// beta (`PairCut::logBeta2`). The node's path: the line crosses a barrel
 /// layer radially, a disc along z.
-/// \a sourcePhi: the source's azimuth, its measurement's.
+/// \a sourcePhi: the source's azimuth, its measurement's. Highland's
+/// logarithm is the span's from the vertex through the source, its x/X0 in
+/// \a spanX: a pair adds its gap to it (`betweenScattering`).
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar sourceScattering(const LinkMaterial<Det>& material, const PairCut& cut, const VertexSeed& vertex, LayerID sourceLayer, const PairPoint& source, Scalar sourcePhi)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar sourceScattering(const LinkMaterial<Det>& material, const PairCut& cut, const VertexSeed& vertex, LayerID sourceLayer, const PairPoint& source, Scalar sourcePhi, Scalar& spanX)
 {
+  spanX = 0.F;
   if (!(source.r > 0.F)) {
     return 0.F;
   }
@@ -203,15 +206,34 @@ template <DetectorLayout Det>
   const Scalar length = o2::gpu::GPUCommonMath::Sqrt((source.r * source.r) + (dz * dz));
   const Scalar absDz = o2::gpu::GPUCommonMath::Abs(dz);
   const Scalar incidence = Detector<Det>::isBarrelLayer(sourceLayer) ? length / source.r : (absDz > 0.F ? length / absDz : 0.F);
-  const Scalar nodeX = (node.front + node.behind) * incidence;
-  return source.r * source.r * cut.invBetaMomentum2 * ((materialKick(gap.x, gap.logX, cut.logBeta2) * gap.m2) + materialKick(nodeX, node.logX, cut.logBeta2));
+  const Scalar nodeX = node.x * incidence;
+  spanX = gap.x + nodeX;
+  if (!(spanX > 0.F)) {
+    return 0.F;
+  }
+  const Scalar logSpan = logOf(spanX);
+  return source.r * source.r * cut.invBetaMomentum2 * ((materialKick(gap.x, logSpan, cut.logBeta2) * gap.m2) + materialKick(nodeX, logSpan, cut.logBeta2));
 }
 
-/// The same, the azimuth from the point.
+/// The same without the span, the azimuth from the point.
 template <DetectorLayout Det>
 [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar sourceScattering(const LinkMaterial<Det>& material, const PairCut& cut, const VertexSeed& vertex, LayerID sourceLayer, const PairPoint& source)
 {
-  return sourceScattering(material, cut, vertex, sourceLayer, source, atan2Of(source.y, source.x));
+  Scalar spanX = 0.F;
+  return sourceScattering(material, cut, vertex, sourceLayer, source, atan2Of(source.y, source.x), spanX);
+}
+
+/// Highland's factor `(1 + 0.038 ln(x / beta^2))^2` of a span \a x over the
+/// same of the span \a from it grew from: what a scattering taken at \a from's
+/// logarithm becomes at \a x's; 1 where \a x adds nothing.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar spanRatio(Scalar from, Scalar x, Scalar logBeta2)
+{
+  if (!(from > 0.F) || !(x > from)) {
+    return 1.F;
+  }
+  const Scalar low = 1.F + (0.038F * (logOf(from) - logBeta2));
+  const Scalar high = 1.F + (0.038F * (logOf(x) - logBeta2));
+  return low > 0.F ? (high * high) / (low * low) : 1.F;
 }
 
 /// What `betweenScattering` takes of a source once for all its links and
@@ -234,17 +256,27 @@ template <DetectorLayout Det>
   return betweenSource<Det>(source, sourceLayer, atan2Of(source.y, source.x));
 }
 
+/// A pair's between term and the factor its source's term takes at the
+/// pair's span (`betweenScattering`).
+struct PairScattering {
+  Scalar between = 0.F;
+  Scalar sourceScale = 1.F;
+};
+
 /// `T = sum_p theta_p^2 (s_j - s_p)^2` over the link's gap between the source
 /// and the target (LinkMaterial.h), for the iteration's minimum pT: a kink
 /// there moves the target alone. With the gap's share of x at fraction f of
 /// the chord L from the source, `T = K(x) (1 - 2 <f> + <f^2>) L^2 / (beta p)^2`,
 /// `p = pT g` from the source's line from the vertex. The source's own layer
 /// is `sourceScattering`'s, the target's own does not move the target.
+/// Highland's logarithm is the pair's span's, the source's \a sourceSpanX
+/// (`sourceScattering`) and the gap: `sourceScale` carries the source's term
+/// there.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar betweenScattering(const LinkMaterial<Det>& material, const PairCut& cut, const BetweenSource<Det>& from, std::size_t link, LayerID targetLayer, const VertexSeed& vertex, const PairPoint& source, const PairPoint& target)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() PairScattering betweenScattering(const LinkMaterial<Det>& material, const PairCut& cut, const BetweenSource<Det>& from, std::size_t link, LayerID targetLayer, const VertexSeed& vertex, const PairPoint& source, const PairPoint& target, Scalar sourceSpanX, Scalar sourceHighland)
 {
   if (!(source.r > 0.F)) {
-    return 0.F;
+    return {};
   }
   const Scalar slope = (source.z - vertex.z) / source.r;
   const Scalar g2 = 1.F + (slope * slope);
@@ -253,7 +285,83 @@ template <DetectorLayout Det>
   const Scalar dy = target.y - source.y;
   const Scalar dz = target.z - source.z;
   const Scalar lever = 1.F - (2.F * gap.m1) + gap.m2;
-  return materialKick(gap.x, gap.logX, cut.logBeta2) * lever * ((dx * dx) + (dy * dy) + (dz * dz)) * cut.invBetaMomentum2 / g2;
+  const Scalar spanX = sourceSpanX + gap.x;
+  if (!(spanX > 0.F)) {
+    return {};
+  }
+  const Scalar logSpan = logOf(spanX);
+  const Scalar highland = 1.F + (0.038F * (logSpan - cut.logBeta2));
+  const Scalar ratio = sourceHighland > 0.F && sourceSpanX > 0.F ? highland / sourceHighland : 1.F;
+  return {
+    .between = materialKick(gap.x, logSpan, cut.logBeta2) * lever * ((dx * dx) + (dy * dy) + (dz * dz)) * cut.invBetaMomentum2 / g2,
+    .sourceScale = ratio * ratio,
+  };
+}
+
+/// The same, the source's Highland factor from its span.
+template <DetectorLayout Det>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() PairScattering betweenScattering(const LinkMaterial<Det>& material, const PairCut& cut, const BetweenSource<Det>& from, std::size_t link, LayerID targetLayer, const VertexSeed& vertex, const PairPoint& source, const PairPoint& target, Scalar sourceSpanX)
+{
+  return betweenScattering(material, cut, from, link, targetLayer, vertex, source, target, sourceSpanX, sourceSpanX > 0.F ? 1.F + (0.038F * (logOf(sourceSpanX) - cut.logBeta2)) : 0.F);
+}
+
+/// The least x/X0 a source's span can have on layer \a from (mean over
+/// azimuth, as `largestSourceSpan` takes the largest): where a gap's share of
+/// a pair's logarithm is largest.
+template <DetectorLayout Det>
+[[nodiscard]] inline double leastSourceSpan(const LinkMaterial<Det>& material, LayerID from)
+{
+  using Table = LinkMaterial<Det>;
+  double least = std::numeric_limits<double>::infinity();
+  for (int s = 0; s < Table::kSecond; ++s) {
+    double node = std::numeric_limits<double>::infinity();
+    for (int phi = 0; phi < Table::kNodePhi; ++phi) {
+      node = std::min(node, static_cast<double>(material.nodes[(((static_cast<std::size_t>(from) * Table::kNodePhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)].x));
+    }
+    for (int v = 0; v < Table::kVertexZ; ++v) {
+      for (int phi = 0; phi < Table::kGapPhi; ++phi) {
+        least = std::min(least, node + static_cast<double>(material.vertexGaps[(((((static_cast<std::size_t>(from) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)].x));
+      }
+    }
+  }
+  return least;
+}
+
+/// The largest x/X0 a source's span can have on layer \a from
+/// (`sourceScattering`'s \a spanX) for vertices in the reach: what bounds a
+/// pair's logarithm before it is read.
+template <DetectorLayout Det>
+[[nodiscard]] inline double largestSourceSpan(const LinkMaterial<Det>& material, const SearchWindowParams& params, LayerID from, const VertexConstraint& vertex)
+{
+  using Table = LinkMaterial<Det>;
+  const Interval reach = vertexReach(params, vertex);
+  const bool barrel = Detector<Det>::isBarrelLayer(from);
+  const double position = PlacedEnvelopes<Det>::get(from).position;
+  const auto& axis = material.layerSecond[from];
+  double largest = 0.;
+  for (int s = 0; s < Table::kSecond; ++s) {
+    double node = 0.;
+    for (int phi = 0; phi < Table::kNodePhi; ++phi) {
+      node = std::max(node, static_cast<double>(material.nodes[(((static_cast<std::size_t>(from) * Table::kNodePhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)].x));
+    }
+    const double second = axis.low + ((s + 0.5) / axis.perUnit);
+    const double r = barrel ? position : second;
+    const double z = barrel ? second : position;
+    for (int v = 0; v < Table::kVertexZ; ++v) {
+      const double zv = material.vertexZ.low + ((v + 0.5) / material.vertexZ.perUnit);
+      if (zv < reach.low - (0.5 / material.vertexZ.perUnit) || zv > reach.high + (0.5 / material.vertexZ.perUnit)) {
+        continue;
+      }
+      const double dz = z - zv;
+      const double length = std::hypot(r, dz);
+      const double incidence = barrel ? length / r : (std::abs(dz) > 0. ? length / std::abs(dz) : 0.);
+      for (int phi = 0; phi < Table::kGapPhi; ++phi) {
+        const auto& gap = material.vertexGaps[(((((static_cast<std::size_t>(from) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)];
+        largest = std::max(largest, static_cast<double>(gap.x) + (node * incidence));
+      }
+    }
+  }
+  return largest;
 }
 
 /// One standard deviation of a source's transverse direction on \a from
@@ -284,7 +392,7 @@ template <DetectorLayout Det>
     double node = 0.;
     for (int phi = 0; phi < Table::kNodePhi; ++phi) {
       const auto& n = material.nodes[(((static_cast<std::size_t>(from) * Table::kNodePhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)];
-      node += static_cast<double>(n.front + n.behind) / Table::kNodePhi;
+      node += static_cast<double>(n.x) / Table::kNodePhi;
     }
     const double second = axis.low + ((s + 0.5) / axis.perUnit);
     const double r = barrel ? position : second;
@@ -297,12 +405,20 @@ template <DetectorLayout Det>
       const double dz = z - zv;
       const double length = std::hypot(r, dz);
       const double incidence = barrel ? length / r : (std::abs(dz) > 0. ? length / std::abs(dz) : 0.);
-      double bracket = static_cast<double>(materialKick(static_cast<Scalar>(node * incidence), static_cast<Scalar>(node > 0. ? std::log(node) : 0.), logBeta2));
+      double gapX = 0.;
+      double gapM2 = 0.;
       for (int phi = 0; phi < Table::kGapPhi; ++phi) {
         const auto& gap = material.vertexGaps[(((((static_cast<std::size_t>(from) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)];
-        bracket += static_cast<double>(materialKick(gap.x, gap.logX, logBeta2)) * gap.m2 / Table::kGapPhi;
+        gapX += static_cast<double>(gap.x) / Table::kGapPhi;
+        gapM2 += static_cast<double>(gap.x) * gap.m2 / Table::kGapPhi;
       }
-      largest = std::max(largest, bracket);
+      const double nodeX = node * incidence;
+      const double spanX = gapX + nodeX;
+      if (spanX > 0.) {
+        const auto logSpan = static_cast<Scalar>(std::log(spanX));
+        // K is linear in x at one logarithm: the gap's x <f^2> and the node's x.
+        largest = std::max(largest, static_cast<double>(materialKick(static_cast<Scalar>(gapM2 + nodeX), logSpan, logBeta2)));
+      }
     }
   }
   const double beam = vertex.sigmaTransverse / rMin;
@@ -318,11 +434,14 @@ enum class AzimuthBound : std::uint8_t { kLargest,
 
 /// A bound on `sqrt(T)` [cm] (`betweenScattering`) for the pairs on the link
 /// \a from -> \a to: the largest `K(x) (1 - 2 <f> + <f^2>) L^2` over the
-/// link's source and target bins, each with the longest chord between them
-/// (their corners on the layers' nominal surfaces), at pT_min (`g >= 1`), its
-/// azimuth bins taken by \a azimuth. Zero if its gaps hold nothing.
+/// link's source and target bins a pair can join, each with the longest chord
+/// between them (their corners on the layers' nominal surfaces), at pT_min
+/// (`g >= 1`), its azimuth bins taken by \a azimuth. A prompt iteration's
+/// pairs leave from the link's source interval toward the line from the
+/// vertex reach through the source, a bin either side; a displaced one's from
+/// anywhere to anywhere. Zero if its gaps hold nothing.
 template <DetectorLayout Det>
-[[nodiscard]] inline double betweenKinkBound(const LinkMaterial<Det>& material, const SearchWindowParams& params, LayerID from, LayerID to, AzimuthBound azimuth)
+[[nodiscard]] inline double betweenKinkBound(const LinkMaterial<Det>& material, const SearchWindowParams& params, LayerID from, LayerID to, const VertexConstraint& vertex, AzimuthBound azimuth)
 {
   using Table = LinkMaterial<Det>;
   const int link = material.link(from, to);
@@ -330,6 +449,8 @@ template <DetectorLayout Det>
     return 0.;
   }
   const auto logBeta2 = static_cast<Scalar>(logBeta2Min(params));
+  // The pair's logarithm at its span, the source's at its largest (bounded) or mean.
+  const double sourceSpan = largestSourceSpan(material, params, from, vertex);
   const bool barrelFrom = Detector<Det>::isBarrelLayer(from);
   const bool barrelTo = Detector<Det>::isBarrelLayer(to);
   const double positionFrom = PlacedEnvelopes<Det>::get(from).position;
@@ -338,11 +459,41 @@ template <DetectorLayout Det>
   const auto& targetAxis = material.layerSecond[to];
   // A layer point at second coordinate c, as (r, z).
   const auto rz = [](bool barrel, double position, double c) { return barrel ? std::pair{position, c} : std::pair{c, position}; };
+  const bool displaced = params.impactMax > 0.;
+  const auto& pair = Det::layerLinks[link];
+  const Interval reach = vertexReach(params, vertex);
+  // The target coordinate the line from a vertex at zv through a source point reaches.
+  const auto projected = [&](double cs, double zv) {
+    const auto [ra, za] = rz(barrelFrom, positionFrom, cs);
+    if (barrelTo) {
+      return ra > 0. ? zv + ((za - zv) * positionTo / ra) : std::numeric_limits<double>::quiet_NaN();
+    }
+    return std::abs(za - zv) > 0. ? ra * (positionTo - zv) / (za - zv) : std::numeric_limits<double>::quiet_NaN();
+  };
   double largest = 0.;
-  for (int s = 0; s < Table::kSecond; ++s) {
+  for (int s = 0; s < Table::kSourceSecond; ++s) {
     const double s0 = sourceAxis.low + (s / sourceAxis.perUnit);
     const double s1 = sourceAxis.low + ((s + 1) / sourceAxis.perUnit);
-    for (int t = 0; t < Table::kSecond; ++t) {
+    if (!displaced && (s1 < pair.sourceMin || s0 > pair.sourceMax)) {
+      continue;
+    }
+    double low = std::numeric_limits<double>::infinity();
+    double high = -std::numeric_limits<double>::infinity();
+    for (const double cs : {s0, s1}) {
+      for (const double zv : {reach.low, reach.high}) {
+        const double c = projected(cs, zv);
+        if (std::isfinite(c)) {
+          low = std::min(low, c);
+          high = std::max(high, c);
+        }
+      }
+    }
+    if (!displaced && !(low <= high)) {
+      continue;
+    }
+    const int tLow = displaced ? 0 : std::max(0, targetAxis.bin(static_cast<Scalar>(low), Table::kSecond) - 1);
+    const int tHigh = displaced ? Table::kSecond - 1 : std::min(Table::kSecond - 1, targetAxis.bin(static_cast<Scalar>(high), Table::kSecond) + 1);
+    for (int t = tLow; t <= tHigh; ++t) {
       const double t0 = targetAxis.low + (t / targetAxis.perUnit);
       const double t1 = targetAxis.low + ((t + 1) / targetAxis.perUnit);
       double chord2 = 0.;
@@ -355,8 +506,9 @@ template <DetectorLayout Det>
       }
       double cell = 0.;
       for (int phi = 0; phi < Table::kGapPhi; ++phi) {
-        const auto& gap = material.gaps[(((((static_cast<std::size_t>(link) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)) * Table::kSecond) + static_cast<std::size_t>(t)];
-        const double term = static_cast<double>(materialKick(gap.x, gap.logX, logBeta2)) * (1. - (2. * gap.m1) + gap.m2) * chord2;
+        const auto& gap = material.gaps[(((((static_cast<std::size_t>(link) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kSourceSecond) + static_cast<std::size_t>(s)) * Table::kSecond) + static_cast<std::size_t>(t)];
+        const auto logSpan = static_cast<Scalar>(std::log(sourceSpan + static_cast<double>(gap.x) > 0. ? sourceSpan + static_cast<double>(gap.x) : 1.));
+        const double term = static_cast<double>(materialKick(gap.x, logSpan, logBeta2)) * (1. - (2. * gap.m1) + gap.m2) * chord2;
         cell = azimuth == AzimuthBound::kLargest ? std::max(cell, term) : cell + (term / Table::kGapPhi);
       }
       largest = std::max(largest, cell);
@@ -371,7 +523,7 @@ template <DetectorLayout Det>
 template <DetectorLayout Det>
 [[nodiscard]] inline LayerPairWindow layerPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, const LinkMaterial<Det>& material)
 {
-  return layerPairWindow<Det>(from, to, secondMax<Det>(from), params, vertex, sourceKinkBound<Det>(material, params, from, vertex), betweenKinkBound<Det>(material, params, from, to, AzimuthBound::kMean));
+  return layerPairWindow<Det>(from, to, secondMax<Det>(from), params, vertex, sourceKinkBound<Det>(material, params, from, vertex), betweenKinkBound<Det>(material, params, from, to, vertex, AzimuthBound::kMean));
 }
 
 /// The two tests' ingredients for one source, vertex and candidate.

@@ -1059,7 +1059,7 @@ class VertexStudy
     const auto nodeX = [&](std::size_t i) {
       const auto& p = *at[i];
       const auto& node = table.node(layers[i], p.x, p.y, LinkMaterial<Det>::second(layers[i], p.r, p.z));
-      return static_cast<double>(node.front + node.behind) * g;
+      return static_cast<double>(node.x) * g;
     };
     if (curved) {
       const auto& vertexGap = table.vertexGap(layers[0], a.x, a.y, static_cast<Scalar>(c.z0), LinkMaterial<Det>::second(layers[0], a.r, a.z));

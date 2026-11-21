@@ -61,13 +61,27 @@ struct MaterialGap {
   float xRho = 0.F; ///< rho x along the chord [g/cm^2], for the energy loss
 };
 
-/// A layer band's x/X0 at normal incidence, in front of its sensors (toward
-/// the vertex) and behind them.
+/// The depths a node's profile resolves its band in.
+inline constexpr int kNodeDepths = 32;
+
+/// A layer band's x/X0 at normal incidence and how it is spread across the
+/// band's depth: the share in front of each of `kNodeDepths + 1` equal depths
+/// from the band's inner face to its outer one, in 1/255. A measurement's
+/// depth in its band splits the band in what lies in front of it and behind
+/// it, whichever of a layer's staggered or tilted staves it is on.
 struct MaterialNode {
-  float front = 0.F;
-  float behind = 0.F;
-  float logX = 0.F; ///< ln(front + behind), Highland's logarithm at normal incidence (0 without material)
+  float x = 0.F;    ///< across the band
+  float logX = 0.F; ///< ln x, Highland's logarithm at normal incidence (0 without material)
   float xRho = 0.F; ///< rho x across the band at normal incidence [g/cm^2]
+  std::uint8_t depth[kNodeDepths + 1]{};
+  /// The share of the band in front of the fraction \a t of its depth.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar frontShare(Scalar t) const
+  {
+    const Scalar at = (t < 0.F ? 0.F : (t > 1.F ? 1.F : t)) * static_cast<Scalar>(kNodeDepths);
+    const int k = at >= static_cast<Scalar>(kNodeDepths) ? kNodeDepths - 1 : static_cast<int>(at);
+    const Scalar low = static_cast<Scalar>(depth[k]);
+    return (low + ((static_cast<Scalar>(depth[k + 1]) - low) * (at - static_cast<Scalar>(k)))) * (1.F / 255.F);
+  }
 };
 
 /// One step's material between two linked layers' crossings, in the step's
@@ -104,9 +118,11 @@ struct LinkMaterial {
   static constexpr int kNodePhi = 1024;
   /// Azimuth bins of the gaps: supports and services are not uniform in it.
   static constexpr int kGapPhi = 32;
-  /// Bins of a layer's second coordinate, a link's source interval and the
-  /// vertex's z.
+  /// Bins of a layer's second coordinate, of a link's source layer's (finer:
+  /// a link's material changes fast with where it leaves, past a stave's
+  /// end), and the vertex's z.
   static constexpr int kSecond = 16;
+  static constexpr int kSourceSecond = 32;
   static constexpr int kVertexZ = 8;
 
   /// The link from layer `from` to layer `to`, -1 for none; each link's layers.
@@ -118,12 +134,17 @@ struct LinkMaterial {
   std::array<MaterialAxis, kLayers> layerSecond{};
   std::array<MaterialAxis, kLinks> linkSource{};
   MaterialAxis vertexZ{};
+  /// Each layer's band in depth: the fraction of the way from its inner face
+  /// to its outer one, in radius on a barrel layer, in |z| on a disc.
+  std::array<MaterialAxis, kLayers> layerDepth{};
   std::array<MaterialNode, static_cast<std::size_t>(kLayers) * kNodePhi * kSecond> nodes{};
-  std::array<MaterialGap, static_cast<std::size_t>(kLinks) * kGapPhi * kSecond * kSecond> gaps{};
+  std::array<MaterialGap, static_cast<std::size_t>(kLinks) * kGapPhi * kSourceSecond * kSecond> gaps{};
   /// Per row of a link's gaps (one source azimuth and coordinate), the
   /// largest `x (1 - 2 m1 + m2)` over the targets: what a triplet's dip-angle
   /// window takes for its second link before the third point is known.
-  std::array<float, static_cast<std::size_t>(kLinks) * kGapPhi * kSecond> gapRowMax{};
+  std::array<float, static_cast<std::size_t>(kLinks) * kGapPhi * kSourceSecond> gapRowMax{};
+  /// Per link, its gaps' largest x/X0: what bounds a pair's span before its gap is read.
+  std::array<float, kLinks> gapMax{};
   std::array<MaterialGap, static_cast<std::size_t>(kLayers) * kGapPhi * kVertexZ * kSecond> vertexGaps{};
 
   /// The azimuth bin of \a phi [rad, either -pi..pi or 0..2pi].
@@ -158,15 +179,22 @@ struct LinkMaterial {
   [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t gapRow(std::size_t link, Scalar x, Scalar y, Scalar second) const
   {
     const auto phi = static_cast<std::uint32_t>(phiBin(x, y, kGapPhi));
-    const auto s = static_cast<std::uint32_t>(linkSource[link].bin(second, kSecond));
-    return ((((static_cast<std::uint32_t>(link) * kGapPhi) + phi) * kSecond) + s) * kSecond;
+    const auto s = static_cast<std::uint32_t>(linkSource[link].bin(second, kSourceSecond));
+    return ((((static_cast<std::uint32_t>(link) * kGapPhi) + phi) * kSourceSecond) + s) * kSecond;
   }
 
   /// The same for a source in gap azimuth bin \a phiBin (`phiBin` with `kGapPhi`).
   [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t gapRowAt(std::size_t link, std::uint32_t phiBin, Scalar second) const
   {
-    const auto s = static_cast<std::uint32_t>(linkSource[link].bin(second, kSecond));
-    return ((((static_cast<std::uint32_t>(link) * kGapPhi) + phiBin) * kSecond) + s) * kSecond;
+    const auto s = static_cast<std::uint32_t>(linkSource[link].bin(second, kSourceSecond));
+    return ((((static_cast<std::uint32_t>(link) * kGapPhi) + phiBin) * kSourceSecond) + s) * kSecond;
+  }
+
+  /// The fraction of layer \a layer's band's depth a point at \a r, \a z lies at.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar depthOf(LayerID layer, Scalar r, Scalar z) const
+  {
+    const auto& axis = layerDepth[layer];
+    return ((Detector<Det>::isBarrelLayer(layer) ? r : o2::gpu::GPUCommonMath::Abs(z)) - axis.low) * axis.perUnit;
   }
 
   /// A point's second coordinate on layer \a layer: z on a barrel layer, r on a disc.
@@ -225,15 +253,22 @@ struct LinkMaterial {
       }
       return Math::Abs(dz) / length;
     };
-    const auto& left = node(fromLayer, start[0], start[1], second(fromLayer, Math::Sqrt((start[0] * start[0]) + (start[1] * start[1])), start[2]));
-    const auto& reached = node(toLayer, end[0], end[1], second(toLayer, Math::Sqrt((end[0] * end[0]) + (end[1] * end[1])), end[2]));
+    const Scalar rStart = Math::Sqrt((start[0] * start[0]) + (start[1] * start[1]));
+    const Scalar rEnd = Math::Sqrt((end[0] * end[0]) + (end[1] * end[1]));
+    const auto& left = node(fromLayer, start[0], start[1], second(fromLayer, rStart, start[2]));
+    const auto& reached = node(toLayer, end[0], end[1], second(toLayer, rEnd, end[2]));
+    // The share of each band in front of the point the step leaves or reaches.
+    const Scalar leftFront = left.frontShare(depthOf(fromLayer, rStart, start[2]));
+    const Scalar reachedFront = reached.frontShare(depthOf(toLayer, rEnd, end[2]));
     const Scalar cosLeft = cosine(fromLayer, start);
     const Scalar cosReached = cosine(toLayer, end);
     const Scalar pathLeft = cosLeft > 0.F ? 1.F / cosLeft : 1.F;
     const Scalar pathReached = cosReached > 0.F ? 1.F / cosReached : 1.F;
-    // Outward a band's part behind its sensor is left and the one in front reached; inward the reverse.
-    const Scalar leftX = (inward ? left.front : left.behind) * pathLeft;
-    const Scalar reachedX = (inward ? reached.behind : reached.front) * pathReached;
+    // Outward a band's part behind the point is left and the part in front reached; inward the reverse.
+    const Scalar leftShare = inward ? leftFront : 1.F - leftFront;
+    const Scalar reachedShare = inward ? 1.F - reachedFront : reachedFront;
+    const Scalar leftX = left.x * leftShare * pathLeft;
+    const Scalar reachedX = reached.x * reachedShare * pathReached;
     const Scalar gapX = g.x * oblique;
     // The gap's moments in the step's direction.
     const Scalar m1 = inward ? 1.F - g.m1 : g.m1;
@@ -247,8 +282,6 @@ struct LinkMaterial {
       const Scalar spread = square - (mean * mean);
       out.spread = spread > 0.F ? spread : 0.F;
     }
-    const Scalar leftShare = (left.front + left.behind) > 0.F ? (inward ? left.front : left.behind) / (left.front + left.behind) : 0.F;
-    const Scalar reachedShare = (reached.front + reached.behind) > 0.F ? (inward ? reached.behind : reached.front) / (reached.front + reached.behind) : 0.F;
     out.xRho = (left.xRho * leftShare * pathLeft) + (g.xRho * oblique) + (reached.xRho * reachedShare * pathReached);
     return out;
   }
