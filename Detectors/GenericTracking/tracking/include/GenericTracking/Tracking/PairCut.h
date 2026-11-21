@@ -32,6 +32,7 @@
 
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
+#include "GenericTracking/Tracking/LinkMaterial.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/SearchWindow.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
@@ -51,21 +52,6 @@
 namespace o2::gtrk
 {
 
-/// A layer as multiple scattering sees it: where it is, how far it extends,
-/// and how much it scatters.
-///
-/// Its material is the layer's average `x = x/X0` at normal incidence, and
-/// with it `ln x`, so that the Highland factor at a beta, `highlandK`, takes
-/// no logarithm per scatterer: a crossing's `theta0^2` is that factor times
-/// the path factor over `(beta p)^2`.
-struct ScatteringLayer {
-  Scalar position = 0.F; ///< barrel radius, or disc z [cm]
-  Scalar low = 0.F;      ///< extent along the other axis: stave z, or disc r [cm]
-  Scalar high = 0.F;
-  Scalar x2X0 = 0.F;    ///< x/X0 at normal incidence
-  Scalar logX2X0 = 0.F; ///< ln(x/X0); 0 without material
-};
-
 /// `(0.0136 GeV)^2 x (1 + 0.038 ln(x / beta^2))^2`: Highland's theta0^2
 /// (beta p)^2 at normal incidence (`highlandTheta0`), for \a x2X0 = x/X0 and
 /// \a logRatio = ln(x / beta^2), in T; 0 without material or where the
@@ -78,45 +64,6 @@ template <typename T>
   return x2X0 > T(0) && highland > T(0) ? T(0.0136) * T(0.0136) * x2X0 * highland * highland : T(0);
 }
 
-/// `highlandK` for \a scatterer's x = x/X0 at \a logBeta2 = ln(beta^2).
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar highlandK(const ScatteringLayer& scatterer, Scalar logBeta2) { return highlandK(scatterer.x2X0, scatterer.logX2X0 - logBeta2); }
-
-/// A passive scatterer as multiple scattering sees it (`PassiveSpec`): a
-/// layer's fields, and its kind, which device code cannot read off the
-/// layout's constexpr array with a run-time index.
-struct PassiveScatterer {
-  ScatteringLayer at;
-  bool barrel = true;
-};
-
-/// Every layer and passive scatterer of `Det`, built once at initialisation
-/// from their material budgets; the stages read only this.
-template <DetectorLayout Det>
-struct ScatteringTable {
-  static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
-  static constexpr std::size_t kPassiveCount = static_cast<std::size_t>(Detector<Det>::nPassives);
-  ScatteringLayer layers[kLayerCount]{};
-  /// One slot even without passives: a C array cannot be empty.
-  PassiveScatterer passives[kPassiveCount > 0 ? kPassiveCount : 1]{};
-  static_assert(kPassiveCount <= 64U, "a set of passives is a bit each of a 64-bit mask");
-  /// Every passive, a bit each: the set `betweenScattering` takes by default.
-  static constexpr std::uint64_t kAllPassives = kPassiveCount == 64U ? ~std::uint64_t{0U} : (std::uint64_t{1U} << kPassiveCount) - 1U;
-  /// Per layer, the passives no segment of a layout link into it, or out of
-  /// it, can cross, a bit each (`passiveCanLieAcross`):
-  /// the ones `visitPassivesBetween` need not try for a triplet's or a pair of
-  /// triplets' segments. None, so every passive tried, unless
-  /// `scatteringTable` found them.
-  std::uint64_t notInto[kLayerCount]{};
-  std::uint64_t notOutOf[kLayerCount]{};
-  /// The passives a segment of a link into \a layer can cross.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint64_t into(LayerID layer) const { return kAllPassives & ~notInto[layer]; }
-  /// The passives a segment of a link out of \a layer can cross.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint64_t outOf(LayerID layer) const
-  {
-    return kAllPassives & ~notOutOf[layer]; // NOLINT(clang-analyzer-security.ArrayBound): layer < kLayerCount, the geometry's
-  }
-};
-
 namespace detail
 {
 
@@ -124,71 +71,6 @@ namespace detail
 [[nodiscard]] inline double highlandFactor(double x, double beta2) { return x > 0. && beta2 > 0. ? highlandK(x, std::log(x / beta2)) : 0.; }
 
 } // namespace detail
-
-/// Whether a straight segment between a point of layer \a a and one of layer
-/// \a b can cross \a passive: a cylinder strictly between the layers' least
-/// and largest radius, a disc strictly between their least and largest z --
-/// what `visitPassivesBetween` asks of the points' own radius or z.
-template <DetectorLayout Det>
-[[nodiscard]] inline bool passiveCanLieAcross(const PassiveScatterer& passive, LayerID a, LayerID b)
-{
-  return positionBetweenLayers<Det>(passive.barrel, static_cast<double>(passive.at.position), a, b);
-}
-
-/// The table for per-layer average normal-incidence `x/X0` values and, for the
-/// layout's passive scatterers, \a passiveX2X0 (`passiveMaterial`) or, if
-/// empty, their nominal values (`nominalPassiveMaterial`).
-template <DetectorLayout Det>
-[[nodiscard]] inline ScatteringTable<Det> scatteringTable(std::span<const double> x2X0, std::span<const double> passiveX2X0 = {})
-{
-  ScatteringTable<Det> table;
-  for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
-    const auto id = static_cast<LayerID>(layer);
-    table.layers[layer] = {
-      .position = static_cast<Scalar>(Detector<Det>::isBarrelLayer(id) ? layerDistance<Det>(id) : discZ<Det>(id)),
-      .low = static_cast<Scalar>(secondMin<Det>(id)),
-      .high = static_cast<Scalar>(secondMax<Det>(id)),
-      .x2X0 = static_cast<Scalar>(x2X0[layer]),
-      .logX2X0 = x2X0[layer] > 0. ? static_cast<Scalar>(std::log(x2X0[layer])) : 0.F,
-    };
-  }
-  if constexpr (Detector<Det>::nPassives > 0) {
-    if (!passiveX2X0.empty() && passiveX2X0.size() != ScatteringTable<Det>::kPassiveCount) {
-      throw std::invalid_argument("scatteringTable: one x/X0 per passive scatterer");
-    }
-    for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
-      const auto& spec = Detector<Det>::passive(i);
-      const double x = passiveX2X0.empty() ? spec.x2X0 : passiveX2X0[i];
-      table.passives[i] = {
-        .at =
-          {
-            .position = static_cast<Scalar>(spec.position),
-            .low = static_cast<Scalar>(spec.low),
-            .high = static_cast<Scalar>(spec.high),
-            .x2X0 = static_cast<Scalar>(x),
-            .logX2X0 = x > 0. ? static_cast<Scalar>(std::log(x)) : 0.F,
-          },
-        .barrel = spec.kind == PassiveSpec::Kind::kBarrel,
-      };
-    }
-    // The passives no segment of a layout link into, or out of, a layer can cross.
-    for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
-      std::array<bool, ScatteringTable<Det>::kLayerCount> into{};
-      std::array<bool, ScatteringTable<Det>::kLayerCount> outOf{};
-      for (const auto& link : Det::layerLinks) {
-        if (passiveCanLieAcross<Det>(table.passives[i], link.from, link.to)) {
-          into[link.to] = true;
-          outOf[link.from] = true;
-        }
-      }
-      for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
-        table.notInto[layer] |= into[layer] ? 0U : std::uint64_t{1U} << i;
-        table.notOutOf[layer] |= outOf[layer] ? 0U : std::uint64_t{1U} << i;
-      }
-    }
-  }
-  return table;
-}
 
 /// The cut parameters of one iteration, the same for every layer pair and
 /// every vertex.
@@ -294,150 +176,84 @@ template <typename Columns>
   };
 }
 
-namespace detail
-{
-
-/// Whether the line from \a vertex through \a source, of slope \a slope in
-/// r and \a dz from the vertex to the source, crosses \a scatterer before
-/// the source -- the source's own layer, \a own, always -- and if so its
-/// term of `sourceScattering`'s sum in \a term: Highland's factor at
-/// \a logBeta2 (`highlandK`) times the lever factor, `r^2` for a barrel,
-/// `dz^2` times \a discFactor for a disc.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool crossedBeforeSource(const ScatteringLayer& scatterer, bool barrel, bool own, const VertexSeed& vertex, const PairPoint& source, Scalar dz, Scalar slope, Scalar absDz, Scalar discFactor, Scalar logBeta2, Scalar& term)
-{
-  if (barrel) {
-    if (!own) {
-      const Scalar zAt = vertex.z + (slope * scatterer.position);
-      if (!(scatterer.position < source.r) || zAt < scatterer.low || zAt > scatterer.high) {
-        return false;
-      }
-    }
-    const Scalar lever = scatterer.position * scatterer.position;
-    term = highlandK(scatterer, logBeta2) * lever;
-    return true;
-  }
-  const Scalar dzLayer = scatterer.position - vertex.z;
-  if (!own) {
-    if (!(dzLayer * dz > 0.F) || !(o2::gpu::GPUCommonMath::Abs(dzLayer) < absDz)) {
-      return false;
-    }
-    const Scalar rAt = source.r * dzLayer / dz;
-    if (rAt < scatterer.low || rAt > scatterer.high) {
-      return false;
-    }
-  }
-  const Scalar lever = dzLayer * dzLayer * discFactor;
-  term = highlandK(scatterer, logBeta2) * lever;
-  return true;
-}
-
-} // namespace detail
-
-/// `S = sum_k theta_k^2 s_k^2` over the layers the source's line from the
-/// vertex crosses up to and including the source's own, for the iteration's
-/// minimum pT.
+/// `S = sum_k theta_k^2 s_k^2` over the material the source's line from the
+/// vertex crosses up to and including the source's own layer, for the
+/// iteration's minimum pT (LinkMaterial.h): the source layer's vertex gap,
+/// a share x of it at the fraction f of the way, and the layer's node at the
+/// source.
 ///
 /// A kink at distance `s_k` from the vertex moves the collinearity by
 /// `theta_k s_k (s_j - s_i)` and the curvature cross product by
-/// `theta_k s_k d`, so this one sum serves both tests. The source's direction
-/// from the vertex sets the path through each layer, the lever arm and the
-/// momentum `p = pT g`; the Highland logarithm stays at normal incidence, at
-/// the cut's beta (`PairCut::logBeta2`).
+/// `theta_k s_k d`, so this one sum serves both tests. With `p = pT g` and
+/// `s = f L`, `L = r g`: `S = r^2 / (beta pT)^2 [K(x_gap) <f^2> + K(x_node)]`,
+/// each part's Highland logarithm at its own x along the line, at the cut's
+/// beta (`PairCut::logBeta2`). The node's path: the line crosses a barrel
+/// layer radially, a disc along z.
+/// \a sourcePhi: the source's azimuth, its measurement's.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar sourceScattering(const ScatteringTable<Det>& table, const PairCut& cut, const VertexSeed& vertex, LayerID sourceLayer, const PairPoint& source)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar sourceScattering(const LinkMaterial<Det>& material, const PairCut& cut, const VertexSeed& vertex, LayerID sourceLayer, const PairPoint& source, Scalar sourcePhi)
 {
   if (!(source.r > 0.F)) {
     return 0.F;
   }
   const Scalar dz = source.z - vertex.z;
-  const Scalar slope = dz / source.r;
-  const Scalar g = o2::gpu::GPUCommonMath::Sqrt(1.F + (slope * slope));
+  const Scalar second = LinkMaterial<Det>::second(sourceLayer, source.r, source.z);
+  const auto& gap = material.vertexGapAt(sourceLayer, sourcePhi, vertex.z, second);
+  const auto& node = material.nodeAt(sourceLayer, sourcePhi, second);
+  const Scalar length = o2::gpu::GPUCommonMath::Sqrt((source.r * source.r) + (dz * dz));
   const Scalar absDz = o2::gpu::GPUCommonMath::Abs(dz);
-  const Scalar invAbsDz = absDz > 0.F ? 1.F / absDz : 0.F;
-  const Scalar discFactor = source.r * source.r * source.r * invAbsDz * invAbsDz * invAbsDz;
-
-  // The layers in order, then the passive scatterers inside the source, as
-  // layers that are not the source's own: the sum's order is the output's.
-  Scalar sum = 0.F;
-  Scalar term = 0.F;
-  for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
-    const auto id = static_cast<LayerID>(layer);
-    if (detail::crossedBeforeSource(table.layers[layer], Detector<Det>::isBarrelLayer(id), id == sourceLayer, vertex, source, dz, slope, absDz, discFactor, cut.logBeta2, term)) {
-      sum += term;
-    }
-  }
-  if constexpr (ScatteringTable<Det>::kPassiveCount > 0) {
-    for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
-      const auto& passive = table.passives[i];
-      if (detail::crossedBeforeSource(passive.at, passive.barrel, false, vertex, source, dz, slope, absDz, discFactor, cut.logBeta2, term)) {
-        sum += term;
-      }
-    }
-  }
-  return sum * g * cut.invBetaMomentum2;
+  const Scalar incidence = Detector<Det>::isBarrelLayer(sourceLayer) ? length / source.r : (absDz > 0.F ? length / absDz : 0.F);
+  const Scalar nodeX = (node.front + node.behind) * incidence;
+  return source.r * source.r * cut.invBetaMomentum2 * ((materialKick(gap.x, gap.logX, cut.logBeta2) * gap.m2) + materialKick(nodeX, node.logX, cut.logBeta2));
 }
 
-/// `T = sum_p theta_p^2 (s_j - s_p)^2` over the passive scatterers the line
-/// from the vertex through the source crosses between the source and the
-/// target, for the iteration's minimum pT:
-/// a kink there moves the target alone, by `theta_p (s_j - s_p)`.
-///
-/// As in `sourceScattering`, the source's direction from the vertex sets the
-/// path through the scatterer, its distance `s_p` and the momentum `p = pT
-/// g`; `s_j` is the target's own distance from the vertex. A layout's layers
-/// never enter: their material is the target's, which does not matter, or
-/// the source's, which `sourceScattering` has.
-///
-/// \a passives: the ones to try, a bit each, in index order; every passive
-/// by default. A link's `passivesBetween` holds every passive any of its pairs
-/// can cross, so the terms and their order, and
-/// the sum, are the same as with all of them.
+/// The same, the azimuth from the point.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() Scalar betweenScattering(const ScatteringTable<Det>& table, const PairCut& cut, const VertexSeed& vertex, const PairPoint& source, const PairPoint& target, std::uint64_t passives = ScatteringTable<Det>::kAllPassives)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar sourceScattering(const LinkMaterial<Det>& material, const PairCut& cut, const VertexSeed& vertex, LayerID sourceLayer, const PairPoint& source)
 {
-  if constexpr (ScatteringTable<Det>::kPassiveCount == 0) {
+  return sourceScattering(material, cut, vertex, sourceLayer, source, atan2Of(source.y, source.x));
+}
+
+/// What `betweenScattering` takes of a source once for all its links and
+/// candidates: its gap azimuth bin and its second coordinate.
+template <DetectorLayout Det>
+struct BetweenSource {
+  std::uint32_t phiBin = 0U;
+  Scalar second = 0.F;
+};
+
+template <DetectorLayout Det>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() BetweenSource<Det> betweenSource(const PairPoint& source, LayerID sourceLayer, Scalar sourcePhi)
+{
+  return {.phiBin = static_cast<std::uint32_t>(LinkMaterial<Det>::phiBinOf(sourcePhi, LinkMaterial<Det>::kGapPhi)), .second = LinkMaterial<Det>::second(sourceLayer, source.r, source.z)};
+}
+
+template <DetectorLayout Det>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() BetweenSource<Det> betweenSource(const PairPoint& source, LayerID sourceLayer)
+{
+  return betweenSource<Det>(source, sourceLayer, atan2Of(source.y, source.x));
+}
+
+/// `T = sum_p theta_p^2 (s_j - s_p)^2` over the link's gap between the source
+/// and the target (LinkMaterial.h), for the iteration's minimum pT: a kink
+/// there moves the target alone. With the gap's share of x at fraction f of
+/// the chord L from the source, `T = K(x) (1 - 2 <f> + <f^2>) L^2 / (beta p)^2`,
+/// `p = pT g` from the source's line from the vertex. The source's own layer
+/// is `sourceScattering`'s, the target's own does not move the target.
+template <DetectorLayout Det>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar betweenScattering(const LinkMaterial<Det>& material, const PairCut& cut, const BetweenSource<Det>& from, std::size_t link, LayerID targetLayer, const VertexSeed& vertex, const PairPoint& source, const PairPoint& target)
+{
+  if (!(source.r > 0.F)) {
     return 0.F;
-  } else {
-    if (!(source.r > 0.F)) {
-      return 0.F;
-    }
-    const Scalar dz = source.z - vertex.z;
-    const Scalar slope = dz / source.r;
-    const Scalar g = o2::gpu::GPUCommonMath::Sqrt(1.F + (slope * slope));
-    const Scalar absDz = o2::gpu::GPUCommonMath::Abs(dz);
-    const Scalar dzTarget = target.z - vertex.z;
-    const Scalar sTarget = o2::gpu::GPUCommonMath::Sqrt((target.r * target.r) + (dzTarget * dzTarget));
-    Scalar sum = 0.F;
-    for (std::uint64_t left = passives & ScatteringTable<Det>::kAllPassives; left != 0U; left &= left - 1U) {
-      const auto& passive = table.passives[o2::gpu::CAMath::Ctz64(left)];
-      const auto& scatterer = passive.at;
-      Scalar pathFactor = 0.F;
-      Scalar sPassive = 0.F;
-      if (passive.barrel) {
-        const Scalar zAt = vertex.z + (slope * scatterer.position);
-        if (scatterer.position <= source.r || scatterer.position >= target.r || zAt < scatterer.low || zAt > scatterer.high) {
-          continue;
-        }
-        pathFactor = g;
-        sPassive = scatterer.position * g;
-      } else {
-        const Scalar dzPassive = scatterer.position - vertex.z;
-        if (!(dzPassive * dz > 0.F) || !(o2::gpu::GPUCommonMath::Abs(dzPassive) > absDz) || !(o2::gpu::GPUCommonMath::Abs(dzPassive) < o2::gpu::GPUCommonMath::Abs(dzTarget)) || !(absDz > 0.F)) {
-          continue;
-        }
-        const Scalar rAt = source.r * dzPassive / dz;
-        if (rAt < scatterer.low || rAt > scatterer.high) {
-          continue;
-        }
-        pathFactor = source.r * g / absDz;
-        sPassive = o2::gpu::GPUCommonMath::Abs(dzPassive) * pathFactor;
-      }
-      // theta_p^2 pT^2 = k (path factor) / g^2, with p = pT g.
-      const Scalar lever = sTarget - sPassive;
-      sum += highlandK(scatterer, cut.logBeta2) * pathFactor / (g * g) * lever * lever;
-    }
-    return sum * cut.invBetaMomentum2;
   }
+  const Scalar slope = (source.z - vertex.z) / source.r;
+  const Scalar g2 = 1.F + (slope * slope);
+  const auto& gap = material.gap(material.gapRowAt(link, from.phiBin, from.second), targetLayer, LinkMaterial<Det>::second(targetLayer, target.r, target.z));
+  const Scalar dx = target.x - source.x;
+  const Scalar dy = target.y - source.y;
+  const Scalar dz = target.z - source.z;
+  const Scalar lever = 1.F - (2.F * gap.m1) + gap.m2;
+  return materialKick(gap.x, gap.logX, cut.logBeta2) * lever * ((dx * dx) + (dy * dy) + (dz * dz)) * cut.invBetaMomentum2 / g2;
 }
 
 /// One standard deviation of a source's transverse direction on \a from
@@ -445,248 +261,117 @@ template <DetectorLayout Det>
 /// with `S` the `sourceScattering` sum at pT_min, and the beam width over the
 /// radius. The transverse test takes both times the pair's chord.
 ///
-/// Each term of the sum is bounded where the source can give it its largest
-/// value. A barrel layer inside the source contributes `k (r_l/r_i)^2 g` and
-/// takes the steepest path factor `g`. A disc crossed on the way contributes
-/// `k dz_l^2 sqrt(r_i^2 + dz^2) / |dz|^3`, which falls with the source's
-/// distance `|dz| > |dz_l|` from the vertex and is largest just beyond the
-/// disc; the source's own disc takes its nearest and farthest offsets.
+/// `S / r^2 = [K(x_gap) <f^2> + K(x_node)] / (beta pT)^2` holds the layer's
+/// radius out: the largest bracket over the layer's coordinates and the
+/// vertices within the reach, its gap and node each the mean over azimuth --
+/// a window holds the material the tracks see, as the per-layer averages did,
+/// not every stave edge's.
 template <DetectorLayout Det>
-[[nodiscard]] inline double sourceKinkBound(const ScatteringTable<Det>& table, const SearchWindowParams& params, LayerID from, const VertexConstraint& vertex)
+[[nodiscard]] inline double sourceKinkBound(const LinkMaterial<Det>& material, const SearchWindowParams& params, LayerID from, const VertexConstraint& vertex)
 {
+  using Table = LinkMaterial<Det>;
   const double rMin = radiusMin<Det>(from);
-  const double rMax = radiusMax<Det>(from);
   if (!(rMin > 0.) || !(params.minPtGeV > 0.)) {
     return std::numeric_limits<double>::infinity();
   }
-  const Interval vertexZ = vertexReach(params, vertex);
-  const Interval sourceZ = zRange<Det>(from);
-  // The distance from the vertex range to a position: the nearest, zero inside it.
-  const auto nearest = [&](double z) { return nearestApart(vertexZ, {.low = z, .high = z}); };
-  const double sourceFar = farthestApart(vertexZ, sourceZ);
-  const double g = std::sqrt(1. + (sourceFar * sourceFar / (rMin * rMin)));
   const auto logBeta2 = static_cast<Scalar>(logBeta2Min(params));
-
-  double sum = 0.;
-  // A scatterer that is not the source's own layer, at its largest: false
-  // where that is unbounded.
-  const auto addOther = [&](double k, double position, bool barrel) {
-    if (barrel) {
-      if (position < rMax) {
-        const double ratio = std::min(position / rMin, 1.);
-        sum += k * ratio * ratio * g;
+  const Interval reach = vertexReach(params, vertex);
+  const bool barrel = Detector<Det>::isBarrelLayer(from);
+  const double position = PlacedEnvelopes<Det>::get(from).position;
+  const auto& axis = material.layerSecond[from];
+  double largest = 0.;
+  for (int s = 0; s < Table::kSecond; ++s) {
+    double node = 0.;
+    for (int phi = 0; phi < Table::kNodePhi; ++phi) {
+      const auto& n = material.nodes[(((static_cast<std::size_t>(from) * Table::kNodePhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)];
+      node += static_cast<double>(n.front + n.behind) / Table::kNodePhi;
+    }
+    const double second = axis.low + ((s + 0.5) / axis.perUnit);
+    const double r = barrel ? position : second;
+    const double z = barrel ? second : position;
+    for (int v = 0; v < Table::kVertexZ; ++v) {
+      const double zv = material.vertexZ.low + ((v + 0.5) / material.vertexZ.perUnit);
+      if (zv < reach.low - (0.5 / material.vertexZ.perUnit) || zv > reach.high + (0.5 / material.vertexZ.perUnit)) {
+        continue;
       }
-      return true;
-    }
-    // Crossed only between the vertex and the source.
-    const bool crossed = (position > vertexZ.low && position < sourceZ.high) || (position < vertexZ.high && position > sourceZ.low);
-    if (!crossed) {
-      return true;
-    }
-    const double near = nearest(position);
-    if (!(near > 0.)) {
-      return false;
-    }
-    sum += k * std::sqrt((rMax * rMax) + (near * near)) / near;
-    return true;
-  };
-  for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
-    const auto id = static_cast<LayerID>(layer);
-    const auto k = static_cast<double>(highlandK(table.layers[layer], logBeta2));
-    const auto position = static_cast<double>(table.layers[layer].position);
-    const bool barrel = Detector<Det>::isBarrelLayer(id);
-    if (id != from) {
-      if (!addOther(k, position, barrel)) {
-        return std::numeric_limits<double>::infinity();
+      const double dz = z - zv;
+      const double length = std::hypot(r, dz);
+      const double incidence = barrel ? length / r : (std::abs(dz) > 0. ? length / std::abs(dz) : 0.);
+      double bracket = static_cast<double>(materialKick(static_cast<Scalar>(node * incidence), static_cast<Scalar>(node > 0. ? std::log(node) : 0.), logBeta2));
+      for (int phi = 0; phi < Table::kGapPhi; ++phi) {
+        const auto& gap = material.vertexGaps[(((((static_cast<std::size_t>(from) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)];
+        bracket += static_cast<double>(materialKick(gap.x, gap.logX, logBeta2)) * gap.m2 / Table::kGapPhi;
       }
-      continue;
-    }
-    if (barrel) {
-      const double ratio = position / rMin;
-      sum += k * ratio * ratio * g;
-      continue;
-    }
-    const double sourceNear = nearestApart(vertexZ, sourceZ);
-    if (!(sourceNear > 0.)) {
-      return std::numeric_limits<double>::infinity();
-    }
-    const double offset = farthestApart(vertexZ, {.low = position, .high = position});
-    sum += k * offset * offset * std::sqrt((rMax * rMax) + (sourceNear * sourceNear)) / (sourceNear * sourceNear * sourceNear);
-  }
-  // Passive scatterers that can lie inside a source on this layer, bounded as
-  // a layer that is not the source's own.
-  if constexpr (ScatteringTable<Det>::kPassiveCount > 0) {
-    for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
-      const auto& passive = table.passives[i];
-      if (!addOther(static_cast<double>(highlandK(passive.at, logBeta2)), static_cast<double>(passive.at.position), passive.barrel)) {
-        return std::numeric_limits<double>::infinity();
-      }
+      largest = std::max(largest, bracket);
     }
   }
   const double beam = vertex.sigmaTransverse / rMin;
-  return std::sqrt((sum / (params.minPtGeV * params.minPtGeV) * betaMomentumFactor(params)) + (beam * beam));
+  return std::sqrt((largest / (params.minPtGeV * params.minPtGeV) * betaMomentumFactor(params)) + (beam * beam));
 }
 
-/// Whether \a passive can lie between a pair on the link \a from -> \a to:
-/// a cylinder between the source layer's least and the target's largest
-/// radius, a disc between the layers' z on the target's side.
-template <DetectorLayout Det>
-[[nodiscard]] inline bool passiveCanLieBetween(const PassiveScatterer& passive, LayerID from, LayerID to)
-{
-  const auto position = static_cast<double>(passive.at.position);
-  if (passive.barrel) {
-    return position > radiusMin<Det>(from) && position < radiusMax<Det>(to);
-  }
-  // Beyond some of the source layer's z and short of some of the target's, on one side.
-  const double fromNear = std::min(std::abs(zMin<Det>(from)), std::abs(zMax<Det>(from)));
-  const double toFar = std::max(std::abs(zMin<Det>(to)), std::abs(zMax<Det>(to)));
-  return std::abs(position) > fromNear && std::abs(position) < toFar && !(position * zMax<Det>(to) < 0.);
-}
+/// How a link's bound takes its gaps' azimuth bins: the largest, a bound
+/// every pair keeps (`IterationParameters::betweenBound`, the test before the
+/// pair's own term), or the mean, what a window holds (as the per-layer
+/// averages did).
+enum class AzimuthBound : std::uint8_t { kLargest,
+                                         kMean };
 
-/// The passives a pair on the link \a from -> \a to can cross, a bit each:
-/// those `passiveCanLieBetween` the layers, the test `betweenKinkBound` bounds
-/// over. `betweenScattering` on them adds the terms it adds on all.
+/// A bound on `sqrt(T)` [cm] (`betweenScattering`) for the pairs on the link
+/// \a from -> \a to: the largest `K(x) (1 - 2 <f> + <f^2>) L^2` over the
+/// link's source and target bins, each with the longest chord between them
+/// (their corners on the layers' nominal surfaces), at pT_min (`g >= 1`), its
+/// azimuth bins taken by \a azimuth. Zero if its gaps hold nothing.
 template <DetectorLayout Det>
-[[nodiscard]] inline std::uint64_t passivesBetween(const ScatteringTable<Det>& table, LayerID from, LayerID to)
+[[nodiscard]] inline double betweenKinkBound(const LinkMaterial<Det>& material, const SearchWindowParams& params, LayerID from, LayerID to, AzimuthBound azimuth)
 {
-  std::uint64_t bits = 0U;
-  for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
-    if (passiveCanLieBetween<Det>(table.passives[i], from, to)) {
-      bits |= std::uint64_t{1U} << i;
-    }
-  }
-  return bits;
-}
-
-/// A bound on `sqrt(T)` [cm] (`betweenScattering`) for every pair on the link
-/// \a from -> \a to: the passive scatterers that can lie between the two
-/// layers, each at its largest -- `theta_p^2 pT^2 <= k_p` for both kinds, the
-/// path factor over `g^2` never exceeding one -- over the longest lever from
-/// the scatterer to the target. Zero if none can, which is how an iteration
-/// knows to skip the term (`IterationParameters::passiveBetween`).
-template <DetectorLayout Det>
-[[nodiscard]] inline double betweenKinkBound(const ScatteringTable<Det>& table, const SearchWindowParams& params, LayerID from, LayerID to, const VertexConstraint& vertex)
-{
-  if constexpr (ScatteringTable<Det>::kPassiveCount == 0) {
+  using Table = LinkMaterial<Det>;
+  const int link = material.link(from, to);
+  if (link < 0 || !(params.minPtGeV > 0.)) {
     return 0.;
-  } else {
-    if (!(params.minPtGeV > 0.)) {
-      return 0.;
-    }
-    const Interval vertexZ = vertexReach(params, vertex);
-    const auto nearest = [&](double z) { return nearestApart(vertexZ, {.low = z, .high = z}); };
-    const double targetFar = std::hypot(radiusMax<Det>(to), farthestApart(vertexZ, zRange<Det>(to)));
-    double sum = 0.;
-    for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
-      const auto& passive = table.passives[i];
-      if (!passiveCanLieBetween<Det>(passive, from, to)) {
-        continue;
-      }
-      const auto position = static_cast<double>(passive.at.position);
-      const double sPassive = passive.barrel ? position : nearest(position);
-      const double lever = std::max(targetFar - sPassive, 0.);
-      sum += static_cast<double>(highlandK(passive.at, static_cast<Scalar>(logBeta2Min(params)))) * lever * lever;
-    }
-    return std::sqrt(sum * betaMomentumFactor(params)) / params.minPtGeV;
   }
-}
-
-/// What `betweenScattering` computes of one source and vertex alone: the
-/// passives the source's side admits, each one's weight `k pathFactor / g^2`
-/// and `sPassive`, and the bound a target has to pass (a barrel's radius, a
-/// disc's |z - z_v|). A pair then adds only its own side, the same terms in
-/// the same order with the same arithmetic.
-template <DetectorLayout Det>
-struct BetweenSource {
-  static constexpr std::size_t kCount = ScatteringTable<Det>::kPassiveCount > 0 ? ScatteringTable<Det>::kPassiveCount : 1;
-  std::uint64_t admitted = 0U;
-  std::uint64_t barrels = 0U;
-  Scalar weight[kCount]{};
-  Scalar sPassive[kCount]{};
-  Scalar bound[kCount]{};
-};
-
-/// The source's part of `betweenScattering` through \a vertex, its Highland
-/// factors at \a logBeta2 (the cut's, `PairCut::logBeta2`).
-template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() BetweenSource<Det> betweenSource(const ScatteringTable<Det>& table, const VertexSeed& vertex, const PairPoint& source, Scalar logBeta2)
-{
-  BetweenSource<Det> result;
-  if constexpr (ScatteringTable<Det>::kPassiveCount > 0) {
-    if (!(source.r > 0.F)) {
-      return result;
-    }
-    const Scalar dz = source.z - vertex.z;
-    const Scalar slope = dz / source.r;
-    const Scalar g = o2::gpu::GPUCommonMath::Sqrt(1.F + (slope * slope));
-    const Scalar absDz = o2::gpu::GPUCommonMath::Abs(dz);
-    for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
-      const auto& passive = table.passives[i];
-      const auto& scatterer = passive.at;
-      Scalar pathFactor = 0.F;
-      Scalar sPassive = 0.F;
-      if (passive.barrel) {
-        const Scalar zAt = vertex.z + (slope * scatterer.position);
-        if (scatterer.position <= source.r || zAt < scatterer.low || zAt > scatterer.high) {
-          continue;
+  const auto logBeta2 = static_cast<Scalar>(logBeta2Min(params));
+  const bool barrelFrom = Detector<Det>::isBarrelLayer(from);
+  const bool barrelTo = Detector<Det>::isBarrelLayer(to);
+  const double positionFrom = PlacedEnvelopes<Det>::get(from).position;
+  const double positionTo = PlacedEnvelopes<Det>::get(to).position;
+  const auto& sourceAxis = material.linkSource[link];
+  const auto& targetAxis = material.layerSecond[to];
+  // A layer point at second coordinate c, as (r, z).
+  const auto rz = [](bool barrel, double position, double c) { return barrel ? std::pair{position, c} : std::pair{c, position}; };
+  double largest = 0.;
+  for (int s = 0; s < Table::kSecond; ++s) {
+    const double s0 = sourceAxis.low + (s / sourceAxis.perUnit);
+    const double s1 = sourceAxis.low + ((s + 1) / sourceAxis.perUnit);
+    for (int t = 0; t < Table::kSecond; ++t) {
+      const double t0 = targetAxis.low + (t / targetAxis.perUnit);
+      const double t1 = targetAxis.low + ((t + 1) / targetAxis.perUnit);
+      double chord2 = 0.;
+      for (const double cs : {s0, s1}) {
+        for (const double ct : {t0, t1}) {
+          const auto [ra, za] = rz(barrelFrom, positionFrom, cs);
+          const auto [rb, zb] = rz(barrelTo, positionTo, ct);
+          chord2 = std::max(chord2, ((rb - ra) * (rb - ra)) + ((zb - za) * (zb - za)));
         }
-        pathFactor = g;
-        sPassive = scatterer.position * g;
-        result.bound[i] = scatterer.position;
-        result.barrels |= std::uint64_t{1U} << i;
-      } else {
-        const Scalar dzPassive = scatterer.position - vertex.z;
-        if (!(dzPassive * dz > 0.F) || !(o2::gpu::GPUCommonMath::Abs(dzPassive) > absDz) || !(absDz > 0.F)) {
-          continue;
-        }
-        const Scalar rAt = source.r * dzPassive / dz;
-        if (rAt < scatterer.low || rAt > scatterer.high) {
-          continue;
-        }
-        pathFactor = source.r * g / absDz;
-        sPassive = o2::gpu::GPUCommonMath::Abs(dzPassive) * pathFactor;
-        result.bound[i] = o2::gpu::GPUCommonMath::Abs(dzPassive);
       }
-      result.admitted |= std::uint64_t{1U} << i;
-      result.weight[i] = highlandK(scatterer, logBeta2) * pathFactor / (g * g);
-      result.sPassive[i] = sPassive;
+      double cell = 0.;
+      for (int phi = 0; phi < Table::kGapPhi; ++phi) {
+        const auto& gap = material.gaps[(((((static_cast<std::size_t>(link) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)) * Table::kSecond) + static_cast<std::size_t>(t)];
+        const double term = static_cast<double>(materialKick(gap.x, gap.logX, logBeta2)) * (1. - (2. * gap.m1) + gap.m2) * chord2;
+        cell = azimuth == AzimuthBound::kLargest ? std::max(cell, term) : cell + (term / Table::kGapPhi);
+      }
+      largest = std::max(largest, cell);
     }
   }
-  return result;
-}
-
-/// `betweenScattering` of the pair from \a from, its source's part, to
-/// \a target, over \a passives (`IterationParameters::betweenPassives`).
-template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar betweenScattering(const BetweenSource<Det>& from, const PairCut& cut, const VertexSeed& vertex, const PairPoint& target, std::uint64_t passives)
-{
-  if constexpr (ScatteringTable<Det>::kPassiveCount == 0) {
-    return 0.F;
-  } else {
-    const Scalar dzTarget = target.z - vertex.z;
-    const Scalar absDzTarget = o2::gpu::GPUCommonMath::Abs(dzTarget);
-    const Scalar sTarget = o2::gpu::GPUCommonMath::Sqrt((target.r * target.r) + (dzTarget * dzTarget));
-    Scalar sum = 0.F;
-    for (std::uint64_t left = passives & from.admitted; left != 0U; left &= left - 1U) {
-      const std::uint32_t i = o2::gpu::CAMath::Ctz64(left);
-      // A barrel's radius below the target's, a disc's |z - z_v| below the target's.
-      if (((from.barrels >> i) & 1U) != 0U ? from.bound[i] >= target.r : !(from.bound[i] < absDzTarget)) {
-        continue;
-      }
-      const Scalar lever = sTarget - from.sPassive[i];
-      sum += from.weight[i] * lever * lever;
-    }
-    return sum * cut.invBetaMomentum2;
-  }
+  return std::sqrt(largest * betaMomentumFactor(params)) / params.minPtGeV;
 }
 
 /// The window a pair query uses: its phi and second-coordinate half-widths
-/// hold what the pair tests accept with \a table's scattering, not only the
-/// uniform material the grid's cells are sized with.
+/// hold what the pair tests accept with \a material's scattering, not only
+/// the uniform material the grid's cells are sized with.
 template <DetectorLayout Det>
-[[nodiscard]] inline LayerPairWindow layerPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, const ScatteringTable<Det>& table)
+[[nodiscard]] inline LayerPairWindow layerPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, const LinkMaterial<Det>& material)
 {
-  return layerPairWindow<Det>(from, to, secondMax<Det>(from), params, vertex, sourceKinkBound<Det>(table, params, from, vertex), betweenKinkBound<Det>(table, params, from, to, vertex));
+  return layerPairWindow<Det>(from, to, secondMax<Det>(from), params, vertex, sourceKinkBound<Det>(material, params, from, vertex), betweenKinkBound<Det>(material, params, from, to, AzimuthBound::kMean));
 }
 
 /// The two tests' ingredients for one source, vertex and candidate.
@@ -771,8 +456,8 @@ struct PairChord {
   return {.dx = dx, .dy = dy, .chord2 = chord2, .chord = o2::gpu::GPUCommonMath::Sqrt(chord2), .cross = (source.x * target.y) - (target.x * source.y)};
 }
 
-/// \a betweenScatter is `betweenScattering` for the pair, where a passive
-/// scatterer can lie between its layers, and zero otherwise.
+/// \a betweenScatter is `betweenScattering` for the pair, zero where its
+/// link's gap holds no material.
 ///
 /// Always inlined, as `pairCompatible`: the tracklet stage's grid walk runs
 /// the transverse test on every candidate, and GCC keeps the two out of

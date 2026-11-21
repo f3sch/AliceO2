@@ -280,7 +280,9 @@ struct IterationParameters {
 
   PairCut pairCut;
   VertexSource vertexSource = VertexSource::kBeamLine;
-  ScatteringTable<Det> scattering;
+  /// The seeding's material (LinkMaterial.h), one table for every iteration
+  /// of a run: the host's on the host, the device's copy on a device.
+  const LinkMaterial<Det>* material = nullptr;
   /// One per entry of `Det::layerLinks`, in its order. They choose the grid
   /// cells a source's query visits and are derived about the beam spot; the
   /// exact pair cut is then evaluated against each vertex seed.
@@ -290,11 +292,8 @@ struct IterationParameters {
   Scalar sourceMin[kLinkCount]{};
   Scalar sourceMax[kLinkCount]{};
   TripletLinkBounds tripletBounds[kLinkCount]{};
-  /// Whether a passive scatterer can lie between the link's layers: the pair
-  /// test then takes `betweenScattering`.
-  bool passiveBetween[kLinkCount]{};
   /// The largest `betweenScattering` a pair on the link can take: the link's
-  /// `betweenKinkBound` squared, rounded up; 0 without a passive between. The
+  /// `betweenKinkBound` squared, rounded up; 0 where its gaps hold nothing. The
   /// tracklet stage tests a pair at it first and computes the pair's own term
   /// only for the pairs it keeps: the test only widens with the term, so the
   /// same pairs pass.
@@ -311,9 +310,6 @@ struct IterationParameters {
   /// iteration that takes no skips a tracklet crossing one is not made;
   /// 0 in one that takes them.
   std::uint64_t holeLayers[kLinkCount]{};
-  /// The passives a pair on the link can cross, a bit each (`passivesBetween`):
-  /// the ones `betweenScattering` tries.
-  std::uint64_t betweenPassives[kLinkCount]{};
   /// The barrel layers, a bit per layer, and every layer's span, for that test.
   std::uint64_t barrelLayers = 0U;
   LayerSpan layerSpans[kLayerCount]{};
@@ -449,7 +445,7 @@ struct VertexWindowParameters {
 };
 
 /// The bounds for one timeframe's vertex list, over the reach `vertexUsable`
-/// admits and with the pair cut's scattering table. \a settings are the ones
+/// admits and with the run's material (`IterationParameters::material`). \a settings are the ones
 /// \a parameters were derived from.
 template <DetectorLayout Det>
 [[nodiscard]] inline VertexWindowParameters<Det> vertexWindowParameters(const IterationParameters<Det>& parameters, const SearchWindowParams& settings, std::span<const VertexSeed> vertices)
@@ -468,8 +464,8 @@ template <DetectorLayout Det>
   VertexWindowParameters<Det> result;
   for (std::size_t link = 0; link < VertexWindowParameters<Det>::kLinkCount; ++link) {
     const auto& pair = Det::layerLinks[link];
-    const double kink = sourceKinkBound<Det>(parameters.scattering, settings, pair.from, envelope);
-    const double between = betweenKinkBound<Det>(parameters.scattering, settings, pair.from, pair.to, envelope);
+    const double kink = sourceKinkBound<Det>(*parameters.material, settings, pair.from, envelope);
+    const double between = betweenKinkBound<Det>(*parameters.material, settings, pair.from, pair.to, AzimuthBound::kMean);
     result.windows[link] = vertexPairWindow<Det>(pair.from, pair.to, settings, vertexZ, maxSigmaZ, kink, between);
   }
   return result;
@@ -524,15 +520,16 @@ template <DetectorLayout Det>
   return taken;
 }
 
-/// Derive one iteration's parameters. \a scattering is built once per run
-/// from the per-layer material and is the same for every iteration; the
-/// iteration's cuts take its Highland factors at their beta
+/// Derive one iteration's parameters. \a material is built once per run and
+/// beam line (LinkMaterialFill.h) and is the same for every iteration, which
+/// holds a pointer to it; the iteration's cuts take its Highland factors at
+/// their beta
 /// (`PairCut::logBeta2`). \a alike,
 /// where given, is an earlier iteration's parameters from the same beam spot
 /// and table with equal `settings.windows`: the links' windows and bounds
 /// depend on those alone and are taken from it instead of derived again.
 template <DetectorLayout Det>
-[[nodiscard]] inline IterationParameters<Det> iterationParameters(const IterationSettings& settings, const VertexConstraint& beamSpot, const ScatteringTable<Det>& scattering, const IterationParameters<Det>* alike = nullptr)
+[[nodiscard]] inline IterationParameters<Det> iterationParameters(const IterationSettings& settings, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material, const IterationParameters<Det>* alike = nullptr)
 {
   if (settings.windows.impactMax > 0. && (settings.vertexSource != VertexSource::kBeamLine || !(settings.windows.impactZMax > 0.))) {
     throw std::invalid_argument("a displaced iteration (impactMax > 0) needs the beam line as its vertex and a z bound (impactZMax > 0)");
@@ -546,7 +543,7 @@ template <DetectorLayout Det>
   IterationParameters<Det> parameters;
   parameters.pairCut = pairCut(settings.windows);
   parameters.vertexSource = settings.vertexSource;
-  parameters.scattering = scattering;
+  parameters.material = &material;
   // The link lists the stages walk, without the links this iteration does
   // not take: no tracklet is made on them, and no triplet crosses them.
   const auto keep = [&](const std::array<bool, nLinks<Det>>& taken, const LinksByLayer<Det>& all, std::uint32_t* offsets, std::uint16_t* indices) {
@@ -606,17 +603,14 @@ template <DetectorLayout Det>
     parameters.linkTargets[link] = pair.to;
     if (alike != nullptr) {
       parameters.windows[link] = alike->windows[link];
-      parameters.passiveBetween[link] = alike->passiveBetween[link];
       parameters.betweenBound[link] = alike->betweenBound[link];
       parameters.tripletBounds[link] = alike->tripletBounds[link];
     } else {
-      parameters.windows[link] = layerPairWindow<Det>(pair.from, pair.to, settings.windows, beamSpot, parameters.scattering);
-      const double between = betweenKinkBound<Det>(parameters.scattering, settings.windows, pair.from, pair.to, beamSpot);
-      parameters.passiveBetween[link] = between > 0.;
+      parameters.windows[link] = layerPairWindow<Det>(pair.from, pair.to, settings.windows, beamSpot, material);
+      const double between = betweenKinkBound<Det>(material, settings.windows, pair.from, pair.to, AzimuthBound::kLargest);
       parameters.betweenBound[link] = conservativeScalarBound(between * between);
       parameters.tripletBounds[link] = tripletLinkBounds<Det>(pair.from, pair.to, static_cast<double>(parameters.windows[link].phiHalfWidth));
     }
-    parameters.betweenPassives[link] = passivesBetween<Det>(parameters.scattering, pair.from, pair.to);
     parameters.holeLayers[link] = settings.skipLinks ? 0U : linkHoleLayers<Det>(pair.from, pair.to);
     parameters.sourceMin[link] = displaced ? -std::numeric_limits<Scalar>::infinity() : static_cast<Scalar>(pair.sourceMin);
     parameters.sourceMax[link] = displaced ? std::numeric_limits<Scalar>::infinity() : static_cast<Scalar>(pair.sourceMax);

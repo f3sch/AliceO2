@@ -23,6 +23,7 @@
 
 #include "GenericTracking/Base/DenseSolve.h"
 #include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Tracking/LinkMaterial.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/Triplet.h"
@@ -474,82 +475,95 @@ GPUhdi() GPUAlwaysInline() void addCovariance(TripletKinkCovariance& covariance,
 
 } // namespace detail
 
-/// The space-angle scattering variance at the middle layer, at pT_min and for
-/// a track at polar angle theta: `k` times the path factor over `p^2`.
+/// A triplet's material (LinkMaterial.h): the middle layer's node at normal
+/// incidence and the gaps of its two links, the second's toward the third
+/// point once it is known.
+struct TripletMaterial {
+  Scalar node = 0.F;    ///< the middle layer's band, x/X0 at normal incidence
+  Scalar nodeLog = 0.F; ///< its logarithm (`MaterialNode::logX`)
+  bool barrel = true;   ///< the middle layer's kind
+  MaterialGap first;  ///< `a -> b`
+  MaterialGap second; ///< `b -> c`
+};
+
+/// The material of the triplet `a b c` on the links \a firstLink and
+/// \a secondLink.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar middleScattering(const ScatteringTable<Det>& table, const PairCut& cut, LayerID middleLayer, Scalar sineTheta)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletMaterial tripletMaterial(const LinkMaterial<Det>& material, std::size_t firstLink, std::size_t secondLink, const PairPoint& a, const PairPoint& b, const PairPoint& c)
+{
+  using Table = LinkMaterial<Det>;
+  const LayerID first = material.linkFrom[firstLink];
+  const LayerID middle = material.linkTo[firstLink];
+  const LayerID third = material.linkTo[secondLink];
+  const Scalar middleSecond = Table::second(middle, b.r, b.z);
+  const auto& node = material.node(middle, b.x, b.y, middleSecond);
+  return {
+    .node = node.front + node.behind,
+    .nodeLog = node.logX,
+    .barrel = Detector<Det>::isBarrelLayer(middle),
+    .first = material.gap(material.gapRow(firstLink, a.x, a.y, Table::second(first, a.r, a.z)), middle, middleSecond),
+    .second = material.gap(material.gapRow(secondLink, b.x, b.y, middleSecond), third, Table::second(third, c.r, c.z)),
+  };
+}
+
+/// The material of a triplet's first tracklet `a b` on \a firstLink: the
+/// middle node and the first gap (`TripletMaterial`), with where `b` reads
+/// its second links' gaps, \a middlePhi and \a middleSecond
+/// (`secondGap`): once for every third point.
+template <DetectorLayout Det>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletMaterial firstTripletMaterial(const LinkMaterial<Det>& material, std::size_t firstLink, const PairPoint& a, const PairPoint& b, std::uint32_t& middlePhi, Scalar& middleSecond)
+{
+  using Table = LinkMaterial<Det>;
+  const LayerID first = material.linkFrom[firstLink];
+  const LayerID middle = material.linkTo[firstLink];
+  middleSecond = Table::second(middle, b.r, b.z);
+  middlePhi = static_cast<std::uint32_t>(Table::phiBin(b.x, b.y, Table::kGapPhi));
+  const auto& node = material.node(middle, b.x, b.y, middleSecond);
+  return {
+    .node = node.front + node.behind,
+    .nodeLog = node.logX,
+    .barrel = Detector<Det>::isBarrelLayer(middle),
+    .first = material.gap(material.gapRow(firstLink, a.x, a.y, Table::second(first, a.r, a.z)), middle, middleSecond),
+    .second = {},
+  };
+}
+
+/// The second gap of a triplet whose first tracklet `firstTripletMaterial`
+/// gave \a middlePhi and \a middleSecond, on \a secondLink to \a c.
+template <DetectorLayout Det>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() const MaterialGap& secondGap(const LinkMaterial<Det>& material, std::size_t secondLink, std::uint32_t middlePhi, Scalar middleSecond, const PairPoint& c)
+{
+  const LayerID third = material.linkTo[secondLink];
+  return material.gap(material.gapRowAt(secondLink, middlePhi, middleSecond), third, LinkMaterial<Det>::second(third, c.r, c.z));
+}
+
+/// The space-angle scattering variance of the middle layer's node, at pT_min
+/// and for a track at polar angle theta: Highland at the node's path, a
+/// barrel layer's `1/sin(theta)`, a disc's `1/|cos(theta)|`, over
+/// `(beta p)^2 = (beta pT)^2 / sin^2(theta)`.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar middleScattering(const TripletMaterial& material, const PairCut& cut, Scalar sineTheta)
 {
   if (!(sineTheta > 0.F)) {
     return 0.F;
   }
-  const Scalar material = highlandK(table.layers[static_cast<std::size_t>(middleLayer)], cut.logBeta2);
-  if (Detector<Det>::isBarrelLayer(middleLayer)) {
-    return material * sineTheta * cut.invBetaMomentum2;
-  }
   const Scalar cosineTheta = sqrtClampedOf(1.F - sineTheta * sineTheta);
-  return cosineTheta > 0.F ? material * sineTheta * sineTheta * cut.invBetaMomentum2 / cosineTheta : 0.F;
+  const Scalar path = material.barrel ? 1.F / sineTheta : (cosineTheta > 0.F ? 1.F / cosineTheta : 0.F);
+  return materialKick(material.node * path, material.nodeLog, cut.logBeta2) * sineTheta * sineTheta * cut.invBetaMomentum2;
 }
 
-/// A passive scatterer's space-angle variance at pT_min, for a track at polar
-/// angle theta: as `middleScattering` takes a layer's.
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar passiveScattering(const PassiveScatterer& passive, const PairCut& cut, Scalar sineTheta)
-{
-  if (!(sineTheta > 0.F)) {
-    return 0.F;
-  }
-  if (passive.barrel) {
-    return highlandK(passive.at, cut.logBeta2) * sineTheta * cut.invBetaMomentum2;
-  }
-  const Scalar cosineTheta = sqrtClampedOf(1.F - sineTheta * sineTheta);
-  return cosineTheta > 0.F ? highlandK(passive.at, cut.logBeta2) * sineTheta * sineTheta * cut.invBetaMomentum2 / cosineTheta : 0.F;
-}
-
-/// Calls \a visit(variance, t) for each passive scatterer the straight segment
-/// from \a from to \a to crosses, with its `passiveScattering` and the
-/// fraction `t` of the way it is crossed at: in radius for a cylinder, in z
-/// for a disc.
-///
-/// \a passives: the ones to try, a bit each, in index order; every passive by
-/// default. The table's `into` and `outOf` of the segment's layers hold every
-/// passive it can cross: the same visits.
-template <DetectorLayout Det, typename Visit>
-GPUhdi() GPUAlwaysInline() void visitPassivesBetween(const ScatteringTable<Det>& table, const PairCut& cut, const PairPoint& from, const PairPoint& to, Scalar sineTheta, Visit visit, std::uint64_t passives = ScatteringTable<Det>::kAllPassives)
-{
-  if constexpr (ScatteringTable<Det>::kPassiveCount > 0) {
-    for (std::uint64_t left = passives & ScatteringTable<Det>::kAllPassives; left != 0U; left &= left - 1U) {
-      const auto& passive = table.passives[o2::gpu::CAMath::Ctz64(left)];
-      const Scalar begin = passive.barrel ? from.r : from.z;
-      const Scalar end = passive.barrel ? to.r : to.z;
-      const Scalar span = end - begin;
-      if (!(o2::gpu::GPUCommonMath::Abs(span) > 0.F)) {
-        continue;
-      }
-      const Scalar t = (passive.at.position - begin) / span;
-      if (t <= 0.F || t >= 1.F) {
-        continue;
-      }
-      const Scalar along = passive.barrel ? from.z + (t * (to.z - from.z)) : from.r + (t * (to.r - from.r));
-      if (along < passive.at.low || along > passive.at.high) {
-        continue;
-      }
-      visit(passiveScattering(passive, cut, sineTheta), t);
-    }
-  }
-}
+/// A gap's space-angle variance at pT_min, its x along its chord, weighted by
+/// \a lever, at polar angle theta.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar gapScattering(const MaterialGap& gap, Scalar lever, const PairCut& cut, Scalar sineTheta) { return materialKick(gap.x, gap.logX, cut.logBeta2) * lever * sineTheta * sineTheta * cut.invBetaMomentum2; }
 
 /// The variance of the kink at a triplet's middle point: the middle layer's
-/// scattering and, as ALICE 3's pipe between its layers needs, every passive
-/// scatterer between the points. A kink `theta_p` a fraction `t` of the way
-/// from `a` to `b` turns the angle between the chords at `b` by `theta_p t`;
-/// one from `b` to `c` by `theta_p (1 - t)`. \a middleScale multiplies the
-/// middle layer's variance alone: the kink allowance of a kinked triplet.
-template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar tripletScattering(const ScatteringTable<Det>& table, const PairCut& cut, LayerID middleLayer, const PairPoint& first, const PairPoint& middle, const PairPoint& third, Scalar sineTheta, Scalar middleScale = 1.F)
+/// node and the two gaps. A kink a fraction `t` of the way from `a` to `b`
+/// turns the angle between the chords at `b` by `theta t`; one from `b` to
+/// `c` by `theta (1 - t)`: the first gap's `<t^2>`, the second's
+/// `1 - 2 <t> + <t^2>`. \a middleScale multiplies the node's variance alone:
+/// the kink allowance of a kinked triplet.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar tripletScattering(const TripletMaterial& material, const PairCut& cut, Scalar sineTheta, Scalar middleScale = 1.F)
 {
-  Scalar variance = middleScattering(table, cut, middleLayer, sineTheta) * middleScale;
-  visitPassivesBetween(table, cut, first, middle, sineTheta, [&](Scalar passive, Scalar t) { variance += passive * t * t; }, table.into(middleLayer));
-  visitPassivesBetween(table, cut, middle, third, sineTheta, [&](Scalar passive, Scalar t) { variance += passive * (1.F - t) * (1.F - t); }, table.outOf(middleLayer));
-  return variance;
+  return (middleScattering(material, cut, sineTheta) * middleScale) + gapScattering(material.first, material.first.m2, cut, sineTheta) + gapScattering(material.second, 1.F - (2.F * material.second.m1) + material.second.m2, cut, sineTheta);
 }
 
 /// A triplet's kink terms from its \a chords (`tripletChords`); false where
@@ -622,20 +636,17 @@ template <DetectorLayout Det>
 }
 
 /// The triplet fit from its kink \a terms (`makeKinkTerms`), with the
-/// scattering at the middle layer at pT_min from the pair cut's table, times
-/// \a middleScale.
-template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitTriplet(const KinkTerms& terms, const PairPoint& first, const PairPoint& middle, const PairPoint& third, LayerID middleLayer, const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result, Scalar middleScale = 1.F)
+/// triplet's \a material at pT_min, the middle node's times \a middleScale.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitTriplet(const KinkTerms& terms, const PairPoint& first, const PairPoint& middle, const PairPoint& third, const TripletMaterial& material, const PairCut& cut, TripletFitResult& result, Scalar middleScale = 1.F)
 {
   TripletFitFactor factor;
-  return makeTripletFitFactor(terms, first, middle, third, tripletScattering(table, cut, middleLayer, first, middle, third, terms.sineTheta, middleScale), factor) && fitTriplet(factor, result);
+  return makeTripletFitFactor(terms, first, middle, third, tripletScattering(material, cut, terms.sineTheta, middleScale), factor) && fitTriplet(factor, result);
 }
 
 /// The same with the kink terms made here; \a terms receives them.
-template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitTriplet(const PairPoint& first, const PairPoint& middle, const PairPoint& third, LayerID middleLayer, const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result, KinkTerms& terms, Scalar middleScale = 1.F)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitTriplet(const PairPoint& first, const PairPoint& middle, const PairPoint& third, const TripletMaterial& material, const PairCut& cut, TripletFitResult& result, KinkTerms& terms, Scalar middleScale = 1.F)
 {
-  return makeKinkTerms(first, middle, third, terms) && fitTriplet(terms, first, middle, third, middleLayer, table, cut, result, middleScale);
+  return makeKinkTerms(first, middle, third, terms) && fitTriplet(terms, first, middle, third, material, cut, result, middleScale);
 }
 
 namespace detail
@@ -724,47 +735,36 @@ constexpr int kAdjacentKinks = 4;
 }
 
 /// The kink variances at `b` and `c` of adjacent triplets `a b c` and `b c d`
-/// and their covariance: each middle layer's scattering, at the polar angle
-/// of its own triplet, and the passive scatterers between the points. One
-/// between `b` and `c`, a fraction `t` of the way, turns the kink at `b` by
-/// `theta_p (1 - t)` and the one at `c` by `theta_p t`: both, together.
+/// and their covariance: each middle node at the polar angle of its own
+/// triplet, and the gaps. The shared gap `b -> c`, its material a fraction
+/// `t` of the way, turns the kink at `b` by `theta (1 - t)` and the one at
+/// `c` by `theta t`: both, together, `<t> - <t^2>` of it.
 struct AdjacentScattering {
   Scalar second = 0.F;
   Scalar third = 0.F;
   Scalar covariance = 0.F;
 };
 
-/// \a secondScale and \a thirdScale multiply the layers' own scattering at `b`
-/// and `c`: the kink allowance of a kinked triplet (1 otherwise).
-template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() AdjacentScattering adjacentScattering(const ScatteringTable<Det>& table, const PairCut& cut, LayerID secondLayer, LayerID thirdLayer, const PairPoint& a, const PairPoint& b, const PairPoint& c, const PairPoint& d, Scalar sineFirst, Scalar sineSecond, Scalar secondScale = 1.F, Scalar thirdScale = 1.F)
+/// \a secondScale and \a thirdScale multiply the nodes' own scattering at `b`
+/// and `c`: the kink allowance of a kinked triplet (1 otherwise). \a abc and
+/// \a bcd are the triplets' materials (`tripletMaterial`); their shared gap is
+/// the same.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() AdjacentScattering adjacentScattering(const TripletMaterial& abc, const TripletMaterial& bcd, const PairCut& cut, Scalar sineFirst, Scalar sineSecond, Scalar secondScale = 1.F, Scalar thirdScale = 1.F)
 {
-  AdjacentScattering result{
-    .second = middleScattering(table, cut, secondLayer, sineFirst) * secondScale,
-    .third = middleScattering(table, cut, thirdLayer, sineSecond) * thirdScale,
+  const auto& shared = abc.second;
+  const Scalar sharedKick = materialKick(shared.x, shared.logX, cut.logBeta2) * cut.invBetaMomentum2;
+  return {
+    .second = tripletScattering(abc, cut, sineFirst, secondScale),
+    .third = tripletScattering(bcd, cut, sineSecond, thirdScale),
+    .covariance = sharedKick * (shared.m1 - shared.m2) * sineFirst * sineSecond,
   };
-  visitPassivesBetween(table, cut, a, b, sineFirst, [&](Scalar passive, Scalar t) { result.second += passive * t * t; }, table.into(secondLayer));
-  visitPassivesBetween(
-    table, cut, b, c, sineFirst,
-    [&](Scalar passive, Scalar t) {
-      const Scalar atSecond = passive * (1.F - t) * (1.F - t);
-      result.second += atSecond;
-      // The same kink seen at the second triplet's polar angle.
-      const Scalar scale = sineFirst > 0.F ? sineSecond / sineFirst : 1.F;
-      result.third += passive * scale * t * t;
-      result.covariance += passive * o2::gpu::GPUCommonMath::Sqrt(scale) * t * (1.F - t);
-    },
-    table.outOf(secondLayer) & table.into(thirdLayer));
-  visitPassivesBetween(table, cut, c, d, sineSecond, [&](Scalar passive, Scalar t) { result.third += passive * (1.F - t) * (1.F - t); }, table.outOf(thirdLayer));
-  return result;
 }
 
-/// The same, with the scattering at `b` and `c` at pT_min from the pair
-/// cut's table, each at the polar angle of its own triplet.
-template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitAdjacentTriplets(const KinkTerms& first, const KinkTerms& second, const PairPoint& a, const PairPoint& b, const PairPoint& c, const PairPoint& d, LayerID secondLayer, LayerID thirdLayer, const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result, Scalar secondScale = 1.F, Scalar thirdScale = 1.F)
+/// The same, with the scattering at `b` and `c` at pT_min from the triplets'
+/// materials, each at the polar angle of its own triplet.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitAdjacentTriplets(const KinkTerms& first, const KinkTerms& second, const PairPoint& a, const PairPoint& b, const PairPoint& c, const PairPoint& d, const TripletMaterial& abc, const TripletMaterial& bcd, const PairCut& cut, TripletFitResult& result, Scalar secondScale = 1.F, Scalar thirdScale = 1.F)
 {
-  const auto scattering = adjacentScattering(table, cut, secondLayer, thirdLayer, a, b, c, d, first.sineTheta, second.sineTheta, secondScale, thirdScale);
+  const auto scattering = adjacentScattering(abc, bcd, cut, first.sineTheta, second.sineTheta, secondScale, thirdScale);
   return fitAdjacentTriplets(first, second, a, b, c, d, scattering.second, scattering.third, result, scattering.covariance);
 }
 

@@ -79,7 +79,8 @@ template <DetectorLayout Det>
 } // namespace detail
 
 /// Every cut after the curvature agreement; \a fit receives the adjacent fit
-/// when all pass. `b` and `c` lie on \a secondLayer and \a thirdLayer. \a
+/// when all pass. `a b`, `b c` and `c d` lie on the links \a firstLink,
+/// \a secondLink and \a thirdLink, whose gaps and nodes the fit takes. \a
 /// secondScale and \a thirdScale multiply the scattering at `b` and `c`: the
 /// iteration's kink allowance where the triplet with that middle point is
 /// kinked, 1 otherwise. Both triplets' kink terms are made from the points,
@@ -89,7 +90,7 @@ template <DetectorLayout Det>
 /// keeps for the others of the same triplet. The terms are the triplet fit's
 /// own: the same function of the same points.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourCompatible(const IterationParameters<Det>& parameters, LayerID secondLayer, LayerID thirdLayer, const TimedPoint& a, const TimedPoint& b, const TimedPoint& c, const TimedPoint& d, KinkTerms& bcd, bool& made, bool& valid, TripletFitResult& fit, Scalar secondScale, Scalar thirdScale)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourCompatible(const IterationParameters<Det>& parameters, std::size_t firstLink, std::size_t secondLink, std::size_t thirdLink, const TimedPoint& a, const TimedPoint& b, const TimedPoint& c, const TimedPoint& d, KinkTerms& bcd, bool& made, bool& valid, TripletFitResult& fit, Scalar secondScale, Scalar thirdScale)
 {
   if (!neighbourTimeCompatible(a, d)) {
     countWork(WorkCounter::kNeighbourTime);
@@ -105,7 +106,10 @@ template <DetectorLayout Det>
       made = true;
     }
     KinkTerms abc;
-    fitted = valid && makeKinkTerms(a.point, b.point, c.point, abc) && fitAdjacentTriplets(abc, bcd, a.point, b.point, c.point, d.point, secondLayer, thirdLayer, parameters.scattering, parameters.pairCut, result, secondScale, thirdScale);
+    if (valid && makeKinkTerms(a.point, b.point, c.point, abc)) {
+      const auto& material = *parameters.material;
+      fitted = fitAdjacentTriplets(abc, bcd, a.point, b.point, c.point, d.point, tripletMaterial(material, firstLink, secondLink, a.point, b.point, c.point), tripletMaterial(material, secondLink, thirdLink, b.point, c.point, d.point), parameters.pairCut, result, secondScale, thirdScale);
+    }
   }
   return detail::neighbourChi2Compatible(parameters, fitted, result, fit);
 }

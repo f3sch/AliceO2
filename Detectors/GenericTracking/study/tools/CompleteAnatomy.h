@@ -4864,7 +4864,7 @@ class CompleteAnatomy
         const auto c = timedPointAt(columns, road[i + 2U]);
         TripletFitResult fit;
         KinkTerms terms;
-        if (tripletAudit(parameters, mTruth->rows[road[i + 1U]].layer, a, b, c, 1.F, fit, terms) != kGraphPasses) {
+        if (tripletAudit(parameters, roadMaterial(parameters, mTruth->rows[road[i]].layer, mTruth->rows[road[i + 1U]].layer, mTruth->rows[road[i + 2U]].layer, a, b, c), a, b, c, 1.F, fit, terms) != kGraphPasses) {
           need |= i + 3U == road.size() ? kOuterTriplet : kInnerTriplet;
         }
       }
@@ -7426,21 +7426,34 @@ class CompleteAnatomy
     return road;
   }
 
-  /// The triplet cut's predicates after the time (TripletCut.h), the middle
-  /// layer's scattering times \a scale; kGraphPasses with \a fit and \a terms.
-  [[nodiscard]] static Graph tripletAudit(const IterationParameters<Det>& parameters, LayerID middle, const TimedPoint& a, const TimedPoint& b, const TimedPoint& c, Scalar scale, TripletFitResult& fit, KinkTerms& terms)
+  /// The material of a road's triplet on layers \a first, \a middle and
+  /// \a third (`tripletMaterial`); none where they are not two links.
+  [[nodiscard]] static TripletMaterial roadMaterial(const IterationParameters<Det>& parameters, LayerID first, LayerID middle, LayerID third, const TimedPoint& a, const TimedPoint& b, const TimedPoint& c)
   {
-    if (!tripletCurvatureCompatible(parameters, middle, a.point, b.point, c.point, scale)) {
+    const auto& material = *parameters.material;
+    const int ab = material.link(first, middle);
+    const int bc = material.link(middle, third);
+    if (ab < 0 || bc < 0) {
+      return {};
+    }
+    return tripletMaterial(material, static_cast<std::size_t>(ab), static_cast<std::size_t>(bc), a.point, b.point, c.point);
+  }
+
+  /// The triplet cut's predicates after the time (TripletCut.h), the middle
+  /// node's scattering times \a scale; kGraphPasses with \a fit and \a terms.
+  [[nodiscard]] static Graph tripletAudit(const IterationParameters<Det>& parameters, const TripletMaterial& material, const TimedPoint& a, const TimedPoint& b, const TimedPoint& c, Scalar scale, TripletFitResult& fit, KinkTerms& terms)
+  {
+    if (!tripletCurvatureCompatible(parameters, material, a.point, b.point, c.point, scale)) {
       return kGraphCurvature;
     }
-    if (!fitTriplet(a.point, b.point, c.point, middle, parameters.scattering, parameters.pairCut, fit, terms, scale)) {
+    if (!fitTriplet(a.point, b.point, c.point, material, parameters.pairCut, fit, terms, scale)) {
       return kGraphFitFailed;
     }
     const Scalar nSigma = parameters.pairCut.nSigma;
     if (!(fit.chi2 <= nSigma * nSigma)) {
       return kGraphChi2;
     }
-    if (!o2::gtrk::detail::tripletOwnMomentumCompatible(parameters, middle, a.point, b.point, c.point, scale, fit, terms)) {
+    if (!o2::gtrk::detail::tripletOwnMomentumCompatible(parameters, material, a.point, b.point, c.point, scale, fit, terms)) {
       return kGraphOwnMomentum;
     }
     return kGraphPasses;
@@ -7588,7 +7601,7 @@ class CompleteAnatomy
       // out of `middle`, so there is none.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Warray-bounds"
-      const auto half = static_cast<double>(tripletLambdaHalfWidth(parameters, second, middle, a.point, b.point, mBounds[layerOf(road[i + 2U])]));
+      const auto half = static_cast<double>(tripletLambdaHalfWidth(parameters, firstLink, second, a.point, b.point, mBounds[layerOf(road[i + 2U])]));
 #pragma GCC diagnostic pop
       if (std::abs(dip(b, c) - dip(a, b)) > half) {
         return kGraphLambda;
@@ -7598,16 +7611,17 @@ class CompleteAnatomy
       }
       TripletFitResult fit;
       KinkTerms kink;
-      auto reason = tripletAudit(parameters, middle, a, b, c, 1.F, fit, kink);
+      const auto material = tripletMaterial(*parameters.material, firstLink, second, a.point, b.point, c.point);
+      auto reason = tripletAudit(parameters, material, a, b, c, 1.F, fit, kink);
       bool withAllowance = false;
       if (reason != kGraphPasses && allowance) {
-        reason = tripletAudit(parameters, middle, a, b, c, parameters.graphKinkScale2, fit, kink);
+        reason = tripletAudit(parameters, material, a, b, c, parameters.graphKinkScale2, fit, kink);
         withAllowance = reason == kGraphPasses;
       }
       TripletFitResult stageFit;
       KinkTerms stageTerms;
       bool stageKinked = false;
-      const bool stage = tripletCompatible(parameters, middle, a, b, c, stageFit, stageTerms, stageKinked);
+      const bool stage = tripletCompatible(parameters, material, a, b, c, stageFit, stageTerms, stageKinked);
       mAuditDecisions += record ? 1U : 0U;
       mAuditDisagreements += record && (stage != (reason == kGraphPasses) || (stage && stageKinked != withAllowance)) ? 1U : 0U;
       if (reason == kGraphCurvature) {
@@ -7626,7 +7640,7 @@ class CompleteAnatomy
           const double curvature = 2. * std::abs(cross) / (l01 * l12 * l02);
           const double dz = static_cast<double>(c.point.z) - static_cast<double>(a.point.z);
           const double cosine2 = (l02 * l02) / ((l02 * l02) + (dz * dz));
-          const double scattering = static_cast<double>(tripletScattering(parameters.scattering, parameters.pairCut, middle, a.point, b.point, c.point, static_cast<Scalar>(std::sqrt(cosine2)), 1.F)) / cosine2;
+          const double scattering = static_cast<double>(tripletScattering(material, parameters.pairCut, static_cast<Scalar>(std::sqrt(cosine2)), 1.F)) / cosine2;
           const auto ux = static_cast<Scalar>(static_cast<double>(c.point.x - a.point.x) / l02);
           const auto uy = static_cast<Scalar>(static_cast<double>(c.point.y - a.point.y) / l02);
           const double inFirst = 1. / l01;
@@ -7667,7 +7681,7 @@ class CompleteAnatomy
       TripletFitResult adjacent;
       if (!neighbourTimeCompatible(a, d)) {
         reason = kGraphNeighbourTime;
-      } else if (!fitAdjacentTriplets(terms[i], terms[i + 1U], a.point, b.point, c.point, d.point, layerOf(road[i + 1U]), layerOf(road[i + 2U]), parameters.scattering, parameters.pairCut, adjacent, secondScale, thirdScale)) {
+      } else if (!fitAdjacentTriplets(terms[i], terms[i + 1U], a.point, b.point, c.point, d.point, roadMaterial(parameters, layerOf(road[i]), layerOf(road[i + 1U]), layerOf(road[i + 2U]), a, b, c), roadMaterial(parameters, layerOf(road[i + 1U]), layerOf(road[i + 2U]), layerOf(road[i + 3U]), b, c, d), parameters.pairCut, adjacent, secondScale, thirdScale)) {
         reason = kGraphNeighbourFitFailed;
       } else if (!(adjacent.chi2 <= parameters.neighbourChi2Max)) {
         reason = kGraphNeighbourChi2;
@@ -7677,7 +7691,11 @@ class CompleteAnatomy
       KinkTerms stageTerms;
       bool stageMade = false;
       bool stageValid = false;
-      const bool stage = neighbourCompatible(parameters, layerOf(road[i + 1U]), layerOf(road[i + 2U]), a, b, c, d, stageTerms, stageMade, stageValid, stageFit, secondScale, thirdScale);
+      const auto& material = *parameters.material;
+      const int ab = material.link(layerOf(road[i]), layerOf(road[i + 1U]));
+      const int bc = material.link(layerOf(road[i + 1U]), layerOf(road[i + 2U]));
+      const int cd = material.link(layerOf(road[i + 2U]), layerOf(road[i + 3U]));
+      const bool stage = ab >= 0 && bc >= 0 && cd >= 0 && neighbourCompatible(parameters, static_cast<std::size_t>(ab), static_cast<std::size_t>(bc), static_cast<std::size_t>(cd), a, b, c, d, stageTerms, stageMade, stageValid, stageFit, secondScale, thirdScale);
       mAuditDecisions += record ? 1U : 0U;
       mAuditDisagreements += record && stage != (reason == kGraphPasses) ? 1U : 0U;
       if (reason != kGraphPasses) {

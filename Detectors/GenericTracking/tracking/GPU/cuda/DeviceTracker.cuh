@@ -606,11 +606,23 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   {
     mStream.synchronize();
     closeFrom(Scope::kRun);
-    if (!mParameters.allocate(mArena, iterations.size()) || !mGeometry.allocate(mArena) || !mMaterial.upload(mArena, material, mStream)) {
+    if (iterations.empty() || iterations.front().material == nullptr) {
+      throw std::logic_error("configureRun without the iterations' material");
+    }
+    if (!mParameters.allocate(mArena, iterations.size()) || !mGeometry.allocate(mArena) || !mLinkMaterial.allocate(mArena) || !mMaterial.upload(mArena, material, mStream)) {
       closeFrom(Scope::kRun);
       return StageStatus::kOutOfMemory;
     }
-    upload(iterations.data(), mParameters, iterations.size(), mStream);
+    // The iterations' material table, one for all of them: the device's copy.
+    uploadObject(*iterations.front().material, mLinkMaterial, mStream);
+    std::vector<IterationParameters<Det>> deviceParameters(iterations.begin(), iterations.end());
+    for (auto& parameters : deviceParameters) {
+      if (parameters.material != iterations.front().material) {
+        throw std::logic_error("configureRun: the iterations' material differs");
+      }
+      parameters.material = mLinkMaterial.data();
+    }
+    upload(deviceParameters.data(), mParameters, deviceParameters.size(), mStream);
     uploadObject(geometry, mGeometry, mStream);
     // The sensors by place, once, where an iteration follows or takes
     // overlap partners.
@@ -1708,6 +1720,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     mParameters = {};
     mHostParameters.clear();
     mGeometry = {};
+    mLinkMaterial = {};
     mMaterial.release();
     mCellLayers = {};
     mCellOffsets = {};
@@ -1753,6 +1766,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   DeviceSpan<IterationParameters<Det>> mParameters;
   std::vector<IterationParameters<Det>> mHostParameters; ///< the same, for the values the host reads
   DeviceObject<TrackingGeometry<Det>> mGeometry;
+  DeviceObject<LinkMaterial<Det>> mLinkMaterial; ///< the iterations' seeding material, which mParameters point to
   DeviceMaterial<Material> mMaterial;
   DeviceSpan<SensorCellLayer> mCellLayers; ///< the sensors by place, for the outward follow
   DeviceSpan<std::uint32_t> mCellOffsets;

@@ -280,7 +280,6 @@ void collectFitInputs(const typename Controller<Det>::SliceObservation& slice, c
   for (std::size_t triplet = 0; triplet < result.triplets->size(); ++triplet) {
     const auto first = triplets.first[triplet];
     const auto second = triplets.second[triplet];
-    const LayerID middleLayer = parameters.linkTargets[tracklets.link[first]];
     const auto a = point(tracklets.source[first]);
     const auto b = point(tracklets.target[first]);
     const auto c = point(tracklets.target[second]);
@@ -288,7 +287,7 @@ void collectFitInputs(const typename Controller<Det>::SliceObservation& slice, c
       .first = a,
       .middle = b,
       .third = c,
-      .variance = tripletScattering(parameters.scattering, parameters.pairCut, middleLayer, a, b, c, detail::referenceSinTheta(a, c), kinkScale(triplet)),
+      .variance = tripletScattering(tripletMaterial(*parameters.material, tracklets.link[first], tracklets.link[second], a, b, c), parameters.pairCut, detail::referenceSinTheta(a, c), kinkScale(triplet)),
       .chi2Max = tripletChi2Max,
       .curvature = triplets.curvature[triplet],
       .varCurvature = triplets.varCurvature[triplet],
@@ -305,7 +304,8 @@ void collectFitInputs(const typename Controller<Det>::SliceObservation& slice, c
     for (auto neighbour = neighbourOffsets[element]; neighbour < neighbourOffsets[element + 1U]; ++neighbour) {
       const auto from = neighbours.from[neighbour];
       const auto a = point(tracklets.source[triplets.first[from]]);
-      const auto scattering = adjacentScattering(parameters.scattering, parameters.pairCut, parameters.linkSources[link], parameters.linkTargets[link], a, b, c, d, detail::referenceSinTheta(a, c), detail::referenceSinTheta(b, d), kinkScale(from), kinkScale(element));
+      const auto& material = *parameters.material;
+      const auto scattering = adjacentScattering(tripletMaterial(material, tracklets.link[triplets.first[from]], link, a, b, c), tripletMaterial(material, link, tracklets.link[last], b, c, d), parameters.pairCut, detail::referenceSinTheta(a, c), detail::referenceSinTheta(b, d), kinkScale(from), kinkScale(element));
       inputs.neighbours.push_back({
         .a = a,
         .b = b,
@@ -1927,7 +1927,6 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   const auto& pool = interface.pool();
   auto* vertexing = interface.vertexing();
   const auto& tracking = interface.tracking();
-  const auto& scattering = interface.scattering();
   const auto propagator = interface.propagator();
   double rebinSeconds = 0.;
   const auto layers = rowLayers<Det>(input, interface.geometry());

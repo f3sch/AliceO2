@@ -241,7 +241,7 @@ class VertexStudy
     }
     // The vertexer itself on this slice's triplets.
     const auto start = std::chrono::steady_clock::now();
-    const ScatteringErrors<Det> errors{.table = &mPass->scattering, .cut = mPass->pairCut, .varTransverse = mBeamVarTransverse};
+    const ScatteringErrors<Det> errors{.table = mPass->material, .cut = mPass->pairCut, .varTransverse = mBeamVarTransverse};
     // Its work arrays on a pool of their own, for their peak.
     mStagePool->resetPeakMemory();
     const auto found = mStage.find(slice.frame->measurements(), tracklets, triplets, result.triplets->size(), mArena.get(), true, errors, mStagePool.get(), ownedFrames(slice.frame->grid().geometry(), slice.slice->coreBlocks));
@@ -632,7 +632,7 @@ class VertexStudy
     if (!mPass) {
       throw std::logic_error("vertex study: the scattering errors before a pass was observed");
     }
-    return {.table = &mPass->scattering, .cut = mPass->pairCut, .varTransverse = mBeamVarTransverse};
+    return {.table = mPass->material, .cut = mPass->pairCut, .varTransverse = mBeamVarTransverse};
   }
 
   /// Layer 1's kick on the intercept [um] at the circle's \a radius.
@@ -999,7 +999,7 @@ class VertexStudy
     const auto a = pairPointAt(columns, c.triple[0]);
     const auto b = pairPointAt(columns, c.triple[1]);
     const auto d = pairPointAt(columns, c.triple[2]);
-    const auto& table = mPass->scattering;
+    const auto& table = *mPass->material;
     const auto& cut = mPass->pairCut;
     TripletPulls out;
     const bool curved = std::isfinite(c.radius) && c.radius > 0.;
@@ -1032,9 +1032,10 @@ class VertexStudy
     const double nx = -chordY / chord;
     const double ny = chordX / chord;
     double varScattering = 0.;
-    // Highland's factor of a scatterer at the candidate's beta, p = pT g.
+    // Highland's factor of material x along the line at the candidate's
+    // beta, p = pT g, as `k g` (`kick`'s normal-incidence form).
     const double momentum2 = out.ptGeV * out.ptGeV * g * g;
-    const auto factor = [&](const ScatteringLayer& scatterer) { return static_cast<double>(highlandK(scatterer, static_cast<Scalar>(std::log(momentum2 / (momentum2 + mass2))))); };
+    const auto factor = [&](double x) { return static_cast<double>(materialKick(static_cast<Scalar>(x), static_cast<Scalar>(std::log(momentum2 / (momentum2 + mass2))))) / g; };
     const auto kick = [&](double rs, double k) {
       if (!(rs < radii[2]) || !(k > 0.)) {
         return;
@@ -1051,23 +1052,26 @@ class VertexStudy
       const double theta2 = k * g * (1. + (mass2 / (out.ptGeV * out.ptGeV * g * g))) / (out.ptGeV * out.ptGeV * g * g);
       varScattering += derivative * derivative * theta2 * g * g;
     };
+    // The material as kicks (LinkMaterial.h): each gap at its mean place,
+    // each node at its layer's point.
+    const std::array<LayerID, 3> layers{mRows[c.triple[0]].layer, mRows[c.triple[1]].layer, mRows[c.triple[2]].layer};
+    const std::array<const PairPoint*, 3> at{&a, &b, &d};
+    const auto nodeX = [&](std::size_t i) {
+      const auto& p = *at[i];
+      const auto& node = table.node(layers[i], p.x, p.y, LinkMaterial<Det>::second(layers[i], p.r, p.z));
+      return static_cast<double>(node.front + node.behind) * g;
+    };
     if (curved) {
-      const double z0 = c.z0;
-      const auto crosses = [&](const ScatteringLayer& layer) {
-        const double zAt = z0 + (slope * static_cast<double>(layer.position));
-        return zAt >= static_cast<double>(layer.low) && zAt <= static_cast<double>(layer.high);
-      };
-      for (std::size_t layer = 0; layer < ScatteringTable<Det>::kLayerCount; ++layer) {
-        if (Detector<Det>::isBarrelLayer(static_cast<LayerID>(layer)) && crosses(table.layers[layer])) {
-          kick(static_cast<double>(table.layers[layer].position), factor(table.layers[layer]));
-        }
-      }
-      if constexpr (ScatteringTable<Det>::kPassiveCount > 0) {
-        for (std::size_t i = 0; i < ScatteringTable<Det>::kPassiveCount; ++i) {
-          const auto& passive = table.passives[i];
-          if (passive.barrel && crosses(passive.at)) {
-            kick(static_cast<double>(passive.at.position), factor(passive.at));
-          }
+      const auto& vertexGap = table.vertexGap(layers[0], a.x, a.y, static_cast<Scalar>(c.z0), LinkMaterial<Det>::second(layers[0], a.r, a.z));
+      kick(static_cast<double>(vertexGap.m1) * radii[0], factor(vertexGap.x));
+      for (std::size_t i = 0; i < 2U; ++i) {
+        kick(radii[i], factor(nodeX(i)));
+        const int link = table.link(layers[i], layers[i + 1U]);
+        if (link >= 0) {
+          const auto& p = *at[i];
+          const auto& q = *at[i + 1U];
+          const auto& gap = table.gap(table.gapRow(static_cast<std::size_t>(link), p.x, p.y, LinkMaterial<Det>::second(layers[i], p.r, p.z)), layers[i + 1U], LinkMaterial<Det>::second(layers[i + 1U], q.r, q.z));
+          kick(radii[i] + (static_cast<double>(gap.m1) * (radii[i + 1U] - radii[i])), factor(gap.x));
         }
       }
     }
@@ -1080,7 +1084,9 @@ class VertexStudy
     const double a1 = 1. / (1. + (t1 * t1));
     const double a2 = 1. / (1. + (t2 * t2));
     const double varKink = (a1 * a1 * static_cast<double>(a.varZ) / (d1 * d1)) + ((a1 / d1) + (a2 / d2)) * ((a1 / d1) + (a2 / d2)) * static_cast<double>(b.varZ) + (a2 * a2 * static_cast<double>(d.varZ) / (d2 * d2));
-    const double varKinkScattering = static_cast<double>(tripletScattering<Det>(table, cut, mRows[c.triple[1]].layer, a, b, d)) * scale;
+    const int ab = table.link(layers[0], layers[1]);
+    const int bd = table.link(layers[1], layers[2]);
+    const double varKinkScattering = ab >= 0 && bd >= 0 ? static_cast<double>(study::tripletScattering<Det>(table, cut, static_cast<std::size_t>(ab), static_cast<std::size_t>(bd), a, b, d)) * scale : 0.;
     out.rz = (std::atan(t2) - std::atan(t1)) / std::sqrt(varKink + varKinkScattering);
     return out;
   }

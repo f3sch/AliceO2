@@ -94,6 +94,9 @@ class TripletStage
     Scalar lambda = 0.F;
     std::uint32_t prefix = 0U;
     LayerID middleLayer = kInvalidLayerID;
+    TripletMaterial material; ///< the first tracklet's (`firstTripletMaterial`), its second gap per third point
+    std::uint32_t middlePhi = 0U;
+    Scalar middleSecond = 0.F;
   };
 
   template <typename Emitter>
@@ -140,6 +143,7 @@ class TripletStage
     context.first = timedPointAt(columns, sourceRow);
     context.middle = timedPointAt(columns, middleRow);
     context.lambda = mTracklets.lambda[context.firstIndex];
+    context.material = firstTripletMaterial(*mParameters->material, firstLink, context.first.point, context.middle.point, context.middlePhi, context.middleSecond);
     return true;
   }
 
@@ -153,7 +157,7 @@ class TripletStage
   GPUhdi() void forEachWindowCandidate(const FirstContext& context, Body& body) const
   {
     // The dip-angle window's first-tracklet part, once for every out-link.
-    const auto firstTerms = tripletFirstTerms(*mParameters, context.middleLayer, context.first.point, context.middle.point);
+    const auto firstTerms = tripletFirstTerms(*mParameters, mTracklets.link[context.firstIndex], context.first.point, context.middle.point);
     for (auto out = mParameters->outLinkOffsets[context.middleLayer]; out < mParameters->outLinkOffsets[static_cast<std::size_t>(context.middleLayer) + 1U]; ++out) {
       const std::size_t secondLink = mParameters->outLinkIndices[out];
       const Index linkBegin = lowerBoundLink(context.begin, context.end, secondLink);
@@ -207,7 +211,9 @@ class TripletStage
     }
     KinkTerms terms;
     kinked = false;
-    return tripletCompatible(*mParameters, context.middleLayer, context.first, context.middle, third, fit, terms, kinked);
+    TripletMaterial material = context.material;
+    material.second = secondGap(*mParameters->material, mTracklets.link[candidateIndex], context.middlePhi, context.middleSecond, third.point);
+    return tripletCompatible(*mParameters, material, context.first, context.middle, third, fit, terms, kinked);
   }
 
   /// The triplet of an accepted candidate.

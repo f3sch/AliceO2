@@ -101,8 +101,6 @@ class NeighbourStage
       return;
     }
     const std::size_t secondLink = mTracklets.link[shared];
-    const LayerID secondLayer = mParameters->linkSources[secondLink];
-    const LayerID thirdLayer = mParameters->linkTargets[secondLink];
     const Scalar curvature = mTriplets.curvature[element];
     const Scalar varCurvature = mTriplets.varCurvature[element];
     // A kinked triplet's middle point takes the kink allowance in the adjacent
@@ -149,7 +147,7 @@ class NeighbourStage
         const Index first = mTriplets.first[from];
         const auto a = timedPointAt(columns, mTracklets.source[first]);
         TripletFitResult fit;
-        if (!neighbourCompatible(*mParameters, secondLayer, thirdLayer, a, b, c, d, terms, termsMade, termsValid, fit, fromKinked ? mParameters->graphKinkScale2 : 1.F, thirdScale)) {
+        if (!neighbourCompatible(*mParameters, mTracklets.link[first], secondLink, mTracklets.link[last], a, b, c, d, terms, termsMade, termsValid, fit, fromKinked ? mParameters->graphKinkScale2 : 1.F, thirdScale)) {
           continue;
         }
         emitter.emit(Neighbour{.from = from});

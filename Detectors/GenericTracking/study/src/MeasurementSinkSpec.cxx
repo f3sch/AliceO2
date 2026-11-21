@@ -20,7 +20,7 @@
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Tracking/Iteration.h"
-#include "GenericTracking/Tracking/LayerMaterial.h"
+#include "GenericTracking/Tracking/LinkMaterial.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
@@ -358,7 +358,7 @@ struct TrueCrossingReport {
 
 /// \a crossings' reports, one per layer (a second crossing of the same layer,
 /// in a stave overlap, is skipped).
-std::vector<TrueCrossingReport> trueAnatomy(const Frame& frame, const ScatteringTable<Det>& scattering, double bzKiloGauss, std::span<const TrueCrossing> crossings, const o2::base::MatLayerCylSet* lut = nullptr)
+std::vector<TrueCrossingReport> trueAnatomy(const Frame& frame, const LinkMaterial<Det>& scattering, double bzKiloGauss, std::span<const TrueCrossing> crossings, const o2::base::MatLayerCylSet* lut = nullptr)
 {
   std::vector<TrueCrossingReport> result;
   const TrueCrossing* previous = nullptr;
@@ -408,8 +408,9 @@ std::vector<TrueCrossingReport> trueAnatomy(const Frame& frame, const Scattering
         }
         const double pathFactor = normal > 0. ? pA / normal : 1.;
         const double beta = pA / std::hypot(pA, previous->mass);
-        // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound): a hit's layer is one of Det's
-        const double theta0 = std::sqrt(detail::highlandFactor(static_cast<double>(scattering.layers[previous->layer].x2X0), beta * beta) * pathFactor) / (beta * pA);
+        // The previous layer's own band (LinkMaterial.h), at normal incidence.
+        const auto& node = scattering.node(id, static_cast<Scalar>(previous->position[0]), static_cast<Scalar>(previous->position[1]), LinkMaterial<Det>::second(id, static_cast<Scalar>(rPrevious), static_cast<Scalar>(previous->position[2])));
+        const double theta0 = std::sqrt(detail::highlandFactor(static_cast<double>(node.front + node.behind), beta * beta) * pathFactor) / (beta * pA);
         report.kink = theta0 > 0. ? angle / theta0 : 0.;
         report.scatterer = previous->layer;
         if (lut != nullptr) {
@@ -605,7 +606,7 @@ inline constexpr std::size_t kSpeciesCount = 6U;
 /// layer, in an iteration without holes) cannot be found and are counted
 /// apart.
 /// The cut is the stage funnel's (pairCutLoss, StageFunnel.h).
-void reportLostPairs(const Frame& frame, const IterationParameters<Det>& parameters, const VertexSeed& beamLine, std::span<const TruePair> truePairs, const std::vector<bool>& pairKept, std::span<const TruthRow> rows, const TrueCrossings& crossings = {}, const ScatteringTable<Det>* scattering = nullptr, double bzKiloGauss = 0., double minPtGeV = 0., const o2::base::MatLayerCylSet* material = nullptr)
+void reportLostPairs(const Frame& frame, const IterationParameters<Det>& parameters, const VertexSeed& beamLine, std::span<const TruePair> truePairs, const std::vector<bool>& pairKept, std::span<const TruthRow> rows, const TrueCrossings& crossings = {}, const LinkMaterial<Det>* scattering = nullptr, double bzKiloGauss = 0., double minPtGeV = 0., const o2::base::MatLayerCylSet* material = nullptr)
 {
   if (!truePairs.empty()) {
     // The pairs the two spatial cuts lost, for the MC hits' verdict below.
@@ -871,7 +872,7 @@ class StageTruth
 {
  public:
   /// At the iteration's first slice, with the used mask it read.
-  StageTruth(const Frame& frame, const Controller& tracker, std::size_t iteration, const RecoSettings& param, const Propagator& propagator, std::span<const TruePair> allPairs, std::span<const TruthRow> rows, const ParticleTable& particles, const ScatteringTable<Det>& scattering, const o2::base::MatLayerCylSet* material, const TrueCrossings& crossings)
+  StageTruth(const Frame& frame, const Controller& tracker, std::size_t iteration, const RecoSettings& param, const Propagator& propagator, std::span<const TruePair> allPairs, std::span<const TruthRow> rows, const ParticleTable& particles, const LinkMaterial<Det>& scattering, const o2::base::MatLayerCylSet* material, const TrueCrossings& crossings)
     : mFrame{&frame},
       mParam{&param},
       mIteration{iteration},
@@ -1286,7 +1287,7 @@ class StageTruth
   double mBzKiloGauss;
   std::span<const TruthRow> mRows;
   const ParticleTable* mParticles;
-  const ScatteringTable<Det>* mScattering;
+  const LinkMaterial<Det>* mScattering;
   const o2::base::MatLayerCylSet* mMaterial;
   const TrueCrossings* mCrossings;
   std::vector<std::uint8_t> mUsed; ///< the mask the iteration read
@@ -1310,7 +1311,7 @@ struct TrueRoadFitFailure {
   TrackFitResult fit;
 };
 
-void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFailure> failures, const ParticleTable& particles, const TrackingGeometry<Det>& tracking, const Propagator& propagator, const TrueCrossings& crossings, const ScatteringTable<Det>& scattering, const o2::base::MatLayerCylSet& material)
+void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFailure> failures, const ParticleTable& particles, const TrackingGeometry<Det>& tracking, const Propagator& propagator, const TrueCrossings& crossings, const LinkMaterial<Det>& scattering, const o2::base::MatLayerCylSet& material)
 {
   if (failures.empty()) {
     return;
@@ -1456,7 +1457,7 @@ void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFa
 /// tail -- and the fraction beyond the nSigma quantile. An increment counts
 /// once its pass has fixed the helix (three earlier clusters, two dof); both
 /// passes, so the inner layers are seen too.
-void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Controller& tracker, std::span<const TruePair> truePairs, const ParticleTable& particles, const TrackingGeometry<Det>& tracking, const o2::base::MatLayerCylSet& material, const Propagator& propagator, const TrueCrossings& crossings, const ScatteringTable<Det>& scattering)
+void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Controller& tracker, std::span<const TruePair> truePairs, const ParticleTable& particles, const TrackingGeometry<Det>& tracking, const o2::base::MatLayerCylSet& material, const Propagator& propagator, const TrueCrossings& crossings, const LinkMaterial<Det>& scattering)
 {
   constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   constexpr double kMedianChi2Two = 1.3862943611198906; // 2 ln 2
@@ -1927,7 +1928,7 @@ void addLostPairs(const Funnel::IterationStages& survived, std::array<std::uint6
 /// measureTracks's, by id, with `pt` and `longest`; \a goodTracks: each
 /// particle's good tracks.
 template <typename Particles>
-void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKiloGauss, const TrackingGeometry<Det>& tracking, const TrackStore<Det>& tracks, std::span<const TruthRow> truthRows, const Funnel* funnel, const Particles& particles, const std::unordered_map<std::uint64_t, std::vector<std::size_t>>& goodTracks, std::size_t iterations, const char* set, const TrueCrossings& crossings = {}, const ScatteringTable<Det>* scattering = nullptr, const o2::base::MatLayerCylSet* material = nullptr)
+void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKiloGauss, const TrackingGeometry<Det>& tracking, const TrackStore<Det>& tracks, std::span<const TruthRow> truthRows, const Funnel* funnel, const Particles& particles, const std::unordered_map<std::uint64_t, std::vector<std::size_t>>& goodTracks, std::size_t iterations, const char* set, const TrueCrossings& crossings = {}, const LinkMaterial<Det>* scattering = nullptr, const o2::base::MatLayerCylSet* material = nullptr)
 {
   const auto view = tracks.tracks().view();
   constexpr auto nLayers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
@@ -2336,7 +2337,7 @@ void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const Reco
   const auto* label = interface.trackerLabel().c_str();
   const auto& tracking = interface.tracking();
   const auto& material = interface.material();
-  const auto* scattering = &interface.scattering();
+  const auto* scattering = &interface.linkMaterial();
   // Findable by the comparison's rule (isFindable): the funnel's, the QA's.
   const auto first = workflow::iterationSettings(param, 0);
   const auto minLayers = static_cast<std::uint32_t>(findableRule.minLayers);
@@ -3201,10 +3202,10 @@ class MeasurementSinkTask : public Task
     // against the truth, from its first slice, and with MC the stage funnel.
     mObservers.summaries.clear();
     if (mTruthReports) {
-      mObservers.openStage = [&](const Controller& tracker, std::size_t iteration, std::optional<StageTruth>& stage) { stage.emplace(frame, tracker, iteration, param, propagator, truePairs, comparisonRows, comparisonParticles, mInterface.scattering(), &mInterface.material(), crossingsOf); };
+      mObservers.openStage = [&](const Controller& tracker, std::size_t iteration, std::optional<StageTruth>& stage) { stage.emplace(frame, tracker, iteration, param, propagator, truePairs, comparisonRows, comparisonParticles, mInterface.linkMaterial(), &mInterface.material(), crossingsOf); };
     }
     if (!comparisonRows.empty() && mTruthReports) {
-      reportTrueRoadChi2(frame, param, mInterface.tracker(), truePairs, comparisonParticles, mInterface.tracking(), mInterface.material(), propagator, crossingsOf, mInterface.scattering());
+      reportTrueRoadChi2(frame, param, mInterface.tracker(), truePairs, comparisonParticles, mInterface.tracking(), mInterface.material(), propagator, crossingsOf, mInterface.linkMaterial());
     }
     // O2's tracks of this timeframe as rows, once, for the comparison and
     // the QA, with MC.
@@ -4304,7 +4305,7 @@ class MeasurementSinkTask : public Task
       ownMomentum.logBeta2 = std::log(momentum * momentum / ((momentum * momentum) + (propagator.massGeV * propagator.massGeV)));
       const VertexSeed vertex{.z = static_cast<Scalar>(header.GetZ())};
       const auto layer = mInterface.tracking().surface(state.surface).layer;
-      const Scalar fromSource = sourceScattering<Det>(mInterface.scattering(), ownMomentum, vertex, layer, point);
+      const Scalar fromSource = sourceScattering<Det>(mInterface.linkMaterial(), ownMomentum, vertex, layer, point);
       entry.dcaScatteringSource = {std::sqrt(fromSource), static_cast<float>(static_cast<double>(std::sqrt(fromSource)) / sinTheta)};
     }
     BoundTrackState mc = state;

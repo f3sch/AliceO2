@@ -225,8 +225,8 @@ struct Detector {
   /// none): a crossing without a hit on one costs no hole, in the pair test
   /// (LinkHoles.h) as in the follow (Follow.h). Their rows enter a track
   /// through the seeding, between two of a road's rows (the follow's interior
-  /// row) or after its outward walk (the walk's tail); their material slabs
-  /// are LayerMaterial.h's `layerSlab`. ALICE 3's iTOF and oTOF.
+  /// row) or after its outward walk (the walk's tail); their material is a
+  /// node like any layer's (Tracking/LinkMaterial.h). ALICE 3's iTOF and oTOF.
   static constexpr std::uint64_t inactiveLayers = [] {
     if constexpr (requires { Layout::inactiveLayers; }) {
       return static_cast<std::uint64_t>(Layout::inactiveLayers);

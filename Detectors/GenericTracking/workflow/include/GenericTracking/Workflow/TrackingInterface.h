@@ -42,7 +42,7 @@
 #include "GenericTracking/Tracking/GPU/DeviceContext.h"
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Tracking/GPU/DeviceTracker.h"
-#include "GenericTracking/Tracking/LayerMaterial.h"
+#include "GenericTracking/Tracking/LinkMaterialFill.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/SurfaceMaterialFill.h"
@@ -226,23 +226,24 @@ class TrackingInterface
       return;
     }
     mVertexing.reset();
-    // One pool for the vertexer and the tracker: memoryLimitGB bounds what
-    // both hold at once (the vertexer's pass stays while the tracking runs).
-    mPool = trackerMemoryPool(param);
-    if (param.vertexer) {
-      mVertexing = std::make_unique<Vertexing>(vertexingPassSettings(param), vertexerSettings(param), beamSpot, mScattering, mPool, chunkSize, std::max(param.threads, 0));
-      LOGP(info, "the vertexer: a pass at {} GeV on layers 0-2, window {} um, claim {} um, at least {} contributors ({} in a frame without a vertex)", param.vertexerMinPtGeV, param.vertexerWindowUM, param.vertexerClaimUM, param.vertexerMinContributors, param.vertexerAloneMinContributors);
-    }
-    mTrackerSource = iterationSettings(param, 0).vertexSource;
-    mTrackerLabel = sourceLabel(settings);
-    mTracker = std::make_unique<Controller>(settings, beamSpot, mScattering, mPool, chunkSize, std::max(param.threads, 0));
-    if (param.memoryLimitGB > 0.) {
-      LOGP(info, "the tracker's memory, its vertexer's included, limited to {:.3f} GB (GTRKReco<DET>.memoryLimitGB)", param.memoryLimitGB);
-    }
     // The road fit and the refit: the sensors, the material LUT, the field.
     if (!mTracking) {
       mTracking = std::make_unique<TrackingGeometry<Det>>(*mGeometry);
       mSurfaceMaterialLut = nullptr;
+    }
+    configureLinkMaterial(settings, param, beamSpot);
+    // One pool for the vertexer and the tracker: memoryLimitGB bounds what
+    // both hold at once (the vertexer's pass stays while the tracking runs).
+    mPool = trackerMemoryPool(param);
+    if (param.vertexer) {
+      mVertexing = std::make_unique<Vertexing>(vertexingPassSettings(param), vertexerSettings(param), beamSpot, *mLinkMaterial, mPool, chunkSize, std::max(param.threads, 0));
+      LOGP(info, "the vertexer: a pass at {} GeV on layers 0-2, window {} um, claim {} um, at least {} contributors ({} in a frame without a vertex)", param.vertexerMinPtGeV, param.vertexerWindowUM, param.vertexerClaimUM, param.vertexerMinContributors, param.vertexerAloneMinContributors);
+    }
+    mTrackerSource = iterationSettings(param, 0).vertexSource;
+    mTrackerLabel = sourceLabel(settings);
+    mTracker = std::make_unique<Controller>(settings, beamSpot, *mLinkMaterial, mPool, chunkSize, std::max(param.threads, 0));
+    if (param.memoryLimitGB > 0.) {
+      LOGP(info, "the tracker's memory, its vertexer's included, limited to {:.3f} GB (GTRKReco<DET>.memoryLimitGB)", param.memoryLimitGB);
     }
     // The fits' and the follow's material tables, from this run's LUT.
     if (mSurfaceMaterialLut != mMaterial) {
@@ -411,7 +412,7 @@ class TrackingInterface
   [[nodiscard]] const Geometry<Det>& geometry() const { return *mGeometry; }
   [[nodiscard]] const TrackingGeometry<Det>& tracking() const { return *mTracking; }
   [[nodiscard]] const Material& material() const { return *mMaterial; }
-  [[nodiscard]] const ScatteringTable<Det>& scattering() const { return mScattering; }
+  [[nodiscard]] const LinkMaterial<Det>& linkMaterial() const { return *mLinkMaterial; }
   [[nodiscard]] const BeamLine& beamLine() const { return mBeamLine; }
   [[nodiscard]] const GridGeometry<Det>& grid() const
   {
@@ -428,28 +429,39 @@ class TrackingInterface
   [[nodiscard]] Propagator propagator() const { return {.bzKiloGauss = static_cast<Scalar>(mBzKiloGauss)}; }
 
  private:
-  /// The layers' and the passive scatterers' budgets from \a material and
-  /// the scattering table: once per run.
+  /// The material LUT, once per run.
   void configureMaterial(const Material* material)
   {
     mMaterial = material;
     if (mMaterial == nullptr) {
       LOGP(fatal, "no material LUT from the CCDB ({})", materialLutPath<Det>());
-      return;
     }
-    const auto budget = layerMaterial<Det>(*mMaterial);
-    const auto passiveBudget = passiveMaterial<Det>(*mMaterial);
-    mScattering = scatteringTable<Det>(budget, passiveBudget);
-    std::string layers;
-    for (std::size_t layer = 0; layer < budget.size(); ++layer) {
-      layers += fmt::format(" {}: {:.3f} %", layer, 100. * budget[layer]);
+  }
+
+  /// The seeding's material (LinkMaterial.h) from the LUT and the placed
+  /// layers, over the vertices' z every iteration and the vertexer reach
+  /// about \a beamSpot: on every beam line.
+  void configureLinkMaterial(const std::vector<IterationSettings>& settings, const RecoSettings& param, const VertexConstraint& beamSpot)
+  {
+    Interval vertexZ{.low = beamSpot.z, .high = beamSpot.z};
+    const auto widen = [&](const IterationSettings& iteration) {
+      const auto reach = vertexReach(iteration.windows, beamSpot);
+      vertexZ.low = std::min(vertexZ.low, reach.low);
+      vertexZ.high = std::max(vertexZ.high, reach.high);
+    };
+    for (const auto& iteration : settings) {
+      widen(iteration);
     }
-    LOGP(info, "layer budgets, x/X0 across each layer's band (LUT):{}", layers);
-    std::size_t passiveIndex = 0U;
-    for (const double x2X0 : passiveBudget) {
-      const auto& passive = mScattering.passives[passiveIndex];
-      LOGP(info, "passive scatterer {}: {} at {:.3f} cm, x/X0 {:.3e} (LUT)", passiveIndex++, passive.barrel ? "cylinder" : "disc", passive.at.position, x2X0);
+    if (param.vertexer) {
+      widen(vertexingPassSettings(param));
     }
+    if (!mLinkMaterial) {
+      mLinkMaterial = std::make_unique<LinkMaterial<Det>>();
+    }
+    const auto filling = std::chrono::steady_clock::now();
+    detail::TaskArena arena{std::max(param.threads, 0)};
+    fillLinkMaterial<Det>(*mLinkMaterial, *mMaterial, mTracking->surfaces(), vertexZ, arena);
+    LOGP(info, "the seeding's material: {} layers, {} links, vertices at z {:.2f} .. {:.2f} cm, {:.1f} MB, filled in {:.2f} s", LinkMaterial<Det>::kLayers, LinkMaterial<Det>::kLinks, vertexZ.low, vertexZ.high, sizeof(LinkMaterial<Det>) / 1e6, std::chrono::duration<double>(std::chrono::steady_clock::now() - filling).count());
   }
 
   /// The device tracker, made once, and the run it is configured with every
@@ -549,7 +561,7 @@ class TrackingInterface
   double mBzKiloGauss = 0.;
   std::unique_ptr<const Geometry<Det>> mGeometry;
   const Material* mMaterial = nullptr; ///< the condition's (MaterialLUT.h)
-  ScatteringTable<Det> mScattering;
+  std::unique_ptr<LinkMaterial<Det>> mLinkMaterial;
   std::unique_ptr<TrackingGeometry<Det>> mTracking;
   /// The LUT the tracking geometry's material tables were filled from.
   const Material* mSurfaceMaterialLut = nullptr;

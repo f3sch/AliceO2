@@ -179,7 +179,7 @@ class Tracker
 
   /// One tracker for every iteration of \a iterations, their parameters built
   /// once here.
-  Tracker(std::span<const IterationSettings> iterations, const VertexConstraint& beamSpot, const ScatteringTable<Det>& scattering, std::shared_ptr<BoundedMemoryResource> memoryPool, Index chunkSize, int maxConcurrency = 0)
+  Tracker(std::span<const IterationSettings> iterations, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material, std::shared_ptr<BoundedMemoryResource> memoryPool, Index chunkSize, int maxConcurrency = 0)
     : mBeamLine(vertexSeed(beamSpot)),
       mMemoryPool(std::move(memoryPool)),
       mArena(maxConcurrency),
@@ -210,7 +210,7 @@ class Tracker
         }
       }
       mWindowSettings.push_back(settings.windows);
-      mIterations.push_back(iterationParameters<Det>(settings, beamSpot, scattering, alike));
+      mIterations.push_back(iterationParameters<Det>(settings, beamSpot, material, alike));
     }
     mScratch.setMemoryPool(mMemoryPool);
     mTrackletStage.setMemoryPool(mMemoryPool);
@@ -236,8 +236,8 @@ class Tracker
   }
 
   /// A tracker of one iteration.
-  Tracker(const IterationSettings& settings, const VertexConstraint& beamSpot, const ScatteringTable<Det>& scattering, std::shared_ptr<BoundedMemoryResource> memoryPool, Index chunkSize, int maxConcurrency = 0)
-    : Tracker(std::span<const IterationSettings>{&settings, 1U}, beamSpot, scattering, std::move(memoryPool), chunkSize, maxConcurrency)
+  Tracker(const IterationSettings& settings, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material, std::shared_ptr<BoundedMemoryResource> memoryPool, Index chunkSize, int maxConcurrency = 0)
+    : Tracker(std::span<const IterationSettings>{&settings, 1U}, beamSpot, material, std::move(memoryPool), chunkSize, maxConcurrency)
   {
   }
 

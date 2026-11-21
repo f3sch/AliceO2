@@ -100,7 +100,7 @@ struct CandidateMap {
   Index* upper = nullptr;
   GPUdi() void operator()(Index triplet) const
   {
-    const ScatteringErrors<Det> errors{.table = &pass->scattering, .cut = pass->pairCut, .varTransverse = varTransverse};
+    const ScatteringErrors<Det> errors{.table = pass->material, .cut = pass->pairCut, .varTransverse = varTransverse};
     VertexCandidateFit fit;
     TimeEstPS box;
     const auto status = measureCandidate(measurements, tracklets, triplets, triplet, settings, errors, fit, weights[triplet], reachWeights[triplet], box, nullptr);

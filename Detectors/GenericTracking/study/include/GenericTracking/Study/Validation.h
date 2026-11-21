@@ -47,11 +47,11 @@ namespace o2::gtrk::study
 // ---- the triplet and neighbour fits from the points alone ----
 
 /// The triplet's kink variance with theta from the first to the third
-/// measurement.
+/// measurement; the triplet's links \a firstLink and \a secondLink.
 template <DetectorLayout Det>
-[[nodiscard]] inline Scalar tripletScattering(const ScatteringTable<Det>& table, const PairCut& cut, LayerID middleLayer, const PairPoint& first, const PairPoint& middle, const PairPoint& third)
+[[nodiscard]] inline Scalar tripletScattering(const LinkMaterial<Det>& material, const PairCut& cut, std::size_t firstLink, std::size_t secondLink, const PairPoint& first, const PairPoint& middle, const PairPoint& third)
 {
-  return tripletScattering(table, cut, middleLayer, first, middle, third, detail::referenceSinTheta(first, third));
+  return tripletScattering(tripletMaterial(material, firstLink, secondLink, first, middle, third), cut, detail::referenceSinTheta(first, third));
 }
 
 /// The fit factor from the points and a given angular variance, the kink

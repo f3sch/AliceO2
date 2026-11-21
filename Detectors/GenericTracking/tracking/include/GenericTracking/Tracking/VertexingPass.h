@@ -55,8 +55,8 @@ class VertexingPass
 
   /// \a pass the pass's iteration (GridConfig.h, `vertexingPassSettings`),
   /// \a vertexer the vertexer's settings; the rest as for a Tracker.
-  VertexingPass(const IterationSettings& pass, const VertexerSettings& vertexer, const VertexConstraint& beamSpot, const ScatteringTable<Det>& scattering, std::shared_ptr<BoundedMemoryResource> memoryPool, typename Pass::Index chunkSize, int maxConcurrency = 0)
-    : mPass(pass, beamSpot, scattering, memoryPool, chunkSize, maxConcurrency),
+  VertexingPass(const IterationSettings& pass, const VertexerSettings& vertexer, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material, std::shared_ptr<BoundedMemoryResource> memoryPool, typename Pass::Index chunkSize, int maxConcurrency = 0)
+    : mPass(pass, beamSpot, material, memoryPool, chunkSize, maxConcurrency),
       mVertexer(vertexer, beamSpot),
       mMemoryPool(std::move(memoryPool))
   {
@@ -90,7 +90,7 @@ class VertexingPass
     // Each candidate's z0 error from the pass's material at its own momentum
     // and the beam's transverse spread.
     const ScatteringErrors<Det> errors{
-      .table = &mPass.iteration(0U).scattering,
+      .table = mPass.iteration(0U).material,
       .cut = mPass.iteration(0U).pairCut,
       .varTransverse = mPass.beamLine().varTransverse,
     };

@@ -161,7 +161,7 @@ template <DetectorLayout Det>
   // The tracklet stage's disc window per source, an iteration with a minimum
   // momentum: the query's window, and part of the acceptance.
   const bool discWindow = parameters.discWindowMinP > 0.F && parameters.impactMax == 0.F && parameters.windows[link].kind == PairKind::kDisc;
-  if (discWindow && !discPairWindow<Det>(parameters, to, source, sourceScattering<Det>(parameters.scattering, parameters.pairCut, vertex, from, source), parameters.betweenBound[link], vertex.varTransverse, window)) {
+  if (discWindow && !discPairWindow<Det>(parameters, to, source, sourceScattering<Det>(*parameters.material, parameters.pairCut, vertex, from, source), parameters.betweenBound[link], vertex.varTransverse, window)) {
     verdict.loss = PairLoss::kSourceWindow;
     return verdict;
   }
@@ -206,8 +206,8 @@ template <DetectorLayout Det>
     }
     return verdict;
   };
-  const Scalar scatter = sourceScattering<Det>(parameters.scattering, parameters.pairCut, vertex, from, source);
-  const Scalar between = parameters.passiveBetween[link] ? betweenScattering<Det>(parameters.scattering, parameters.pairCut, vertex, source, target, parameters.betweenPassives[link]) : 0.F;
+  const Scalar scatter = sourceScattering<Det>(*parameters.material, parameters.pairCut, vertex, from, source);
+  const Scalar between = parameters.betweenBound[link] > 0.F ? betweenScattering<Det>(*parameters.material, parameters.pairCut, betweenSource<Det>(source, from), link, to, vertex, source, target) : 0.F;
   if (parameters.impactMax > 0.F) {
     // A displaced iteration's test (TrackletStage.h, `displacedPairOf`): its
     // transverse part as the curvature, its z as the longitudinal test.

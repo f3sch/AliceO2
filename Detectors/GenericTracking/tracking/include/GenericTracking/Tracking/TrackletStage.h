@@ -398,11 +398,8 @@ class TrackletStage
     if (!prepare(sourceElement, source, cachedVertices)) {
       return;
     }
-    // Apart from the context, as the vertex cache (its passives are indexed at run time).
-    BetweenSource<Det> between;
-    if constexpr (BeamLine) {
-      between = betweenSource<Det>(mParameters->scattering, mVertices[cachedVertices[0].vertexIndex], source.point, mParameters->pairCut.logBeta2);
-    }
+    // Apart from the context, as the vertex cache: where the source reads its links' gaps.
+    const BetweenSource<Det> between = betweenSource<Det>(source.point, source.at.layer, source.phi);
     const MeasurementView columns = mFrame->measurements();
     // Every query: the body never stops the walk, so whether it did says nothing.
     static_cast<void>(forEachQuery(source, cachedVertices, [&](const QueryContext& query) {
@@ -504,7 +501,7 @@ class TrackletStage
       }
       cachedVertices[source.cachedCount] = {
         .vertexIndex = i,
-        .scattering = sourceScattering<Det>(mParameters->scattering, mParameters->pairCut, vertex, source.at.layer, source.point),
+        .scattering = sourceScattering<Det>(*mParameters->material, mParameters->pairCut, vertex, source.at.layer, source.point, source.phi),
       };
       ++source.cachedCount;
     }
@@ -615,7 +612,7 @@ class TrackletStage
         countWork(WorkCounter::kTrackletInWindow);
       }
     }
-    if (!accepted(source.at.layer, source.box, source.point, target, cachedVertices, source.cachedCount, source.uncachedRange, intervals, secondCoordinate<Det>(query.targetLayer, target.r, target.z), mParameters->betweenBound[query.linkIndex], mParameters->betweenPassives[query.linkIndex], between, inWindow)) {
+    if (!accepted(source.at.layer, source.box, source.point, target, cachedVertices, source.cachedCount, source.uncachedRange, intervals, secondCoordinate<Det>(query.targetLayer, target.r, target.z), mParameters->betweenBound[query.linkIndex], query.linkIndex, query.targetLayer, between, inWindow)) {
       return false;
     }
     if (query.holes != 0U && segmentLeavesHole(query.holes, mParameters->barrelLayers, mParameters->layerSpans, source.point.r, source.point.z, target.r, target.z)) {
@@ -683,24 +680,16 @@ class TrackletStage
     return runCount;
   }
 
-  /// \a betweenBound: the link's bound on the kink of a passive scatterer
-  /// between its layers (`IterationParameters::betweenBound`), 0 if none can
-  /// lie there. With one, the pair's transverse test runs at the bound first,
-  /// and the pair's own kink (`betweenScattering`, a loop over the passives)
-  /// is computed only if it passes: the test only widens with the kink, so
-  /// the same pairs pass.
-  /// \a betweenPassives: the passives a pair on the link can cross.
-  [[nodiscard]] GPUhdi() bool accepted(LayerID sourceLayer, const TimeEstPS& sourceBox, const PairPoint& source, const PairPoint& target, const CompatibleVertex* cachedVertices, std::uint32_t cachedCount, VertexRange uncachedRange, const SecondRange* intervals, Scalar targetSecond, Scalar betweenBound, std::uint64_t betweenPassives, const BetweenSource<Det>& between, [[maybe_unused]] bool inWindow) const
+  /// \a betweenBound: the link's bound on the kink of its gap's material
+  /// (`IterationParameters::betweenBound`), 0 if it holds none. With one, the
+  /// pair's transverse test runs at the bound first, and the pair's own kink
+  /// (`betweenScattering`, from the link's gap at the pair's ends) is read
+  /// only if it passes: the test only widens with the kink. \a link and
+  /// \a targetLayer: the pair's link and its target's layer.
+  [[nodiscard]] GPUhdi() bool accepted(LayerID sourceLayer, const TimeEstPS& sourceBox, const PairPoint& source, const PairPoint& target, const CompatibleVertex* cachedVertices, std::uint32_t cachedCount, VertexRange uncachedRange, const SecondRange* intervals, Scalar targetSecond, Scalar betweenBound, std::size_t link, LayerID targetLayer, const BetweenSource<Det>& between, [[maybe_unused]] bool inWindow) const
   {
-    // The pair's own kink: on the beam line from the source's part, computed
-    // once per source; else from the pair, per vertex.
-    const auto betweenOf = [&](const VertexSeed& vertex) {
-      if constexpr (BeamLine) {
-        return betweenScattering<Det>(between, mParameters->pairCut, vertex, target, betweenPassives);
-      } else {
-        return betweenScattering<Det>(mParameters->scattering, mParameters->pairCut, vertex, source, target, betweenPassives);
-      }
-    };
+    // The pair's own kink, per vertex: its momentum follows the source's line from it.
+    const auto betweenOf = [&](const VertexSeed& vertex) { return betweenScattering<Det>(*mParameters->material, mParameters->pairCut, between, link, targetLayer, vertex, source, target); };
     // What the pair tests compute of the two positions alone, once.
     const auto chord = pairChord(source, target);
     const auto compatible = [&](const VertexSeed& vertex, Scalar scattering) {
@@ -754,7 +743,7 @@ class TrackletStage
         if (!vertexUsable(*mParameters, sourceBox, vertex)) {
           continue;
         }
-        const Scalar scattering = sourceScattering<Det>(mParameters->scattering, mParameters->pairCut, vertex, sourceLayer, source);
+        const Scalar scattering = sourceScattering<Det>(*mParameters->material, mParameters->pairCut, vertex, sourceLayer, source);
         if (compatible(vertex, scattering)) {
           return true;
         }

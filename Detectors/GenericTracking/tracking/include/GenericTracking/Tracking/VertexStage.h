@@ -304,7 +304,7 @@ struct VertexCandidateVariances {
 /// material and the beam's transverse spread.
 template <DetectorLayout Det>
 struct ScatteringErrors {
-  const ScatteringTable<Det>* table = nullptr;
+  const LinkMaterial<Det>* table = nullptr;
   PairCut cut;
   Scalar varTransverse = 0.F;
   /// A candidate's z0 variance [cm^2] at the momentum its own curvature
@@ -360,7 +360,7 @@ struct ScatteringErrors {
       own.invBetaMomentum2 = (1.F + (cut.mass2 / (pt * pt))) / (pt * pt);
       own.logBeta2 = logOf(momentum2 / (momentum2 + cut.mass2));
     }
-    return tripletScattering<Det>(*table, own, LayerID{1}, a, b, c, detail::referenceSinTheta(a, c));
+    return tripletScattering(tripletMaterial(*table, static_cast<std::size_t>(table->link(LayerID{0}, LayerID{1})), static_cast<std::size_t>(table->link(LayerID{1}, LayerID{2})), a, b, c), own, detail::referenceSinTheta(a, c));
   }
 
   /// The steps of `operator()`'s trapezoid integral over 1/pT: its error goes
