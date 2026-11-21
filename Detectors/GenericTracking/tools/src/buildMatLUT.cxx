@@ -167,17 +167,21 @@ std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
       gapPhi = 0.2F; // from the VD to the ML
     }
     addGap(previous, rMin, gapPhi);
-    // equal parts no thinner than a chip; a flat stave meets the radial
-    // direction at up to alpha (cos alpha = rMin / rMax), so over a cell of
-    // width w its radius changes by w tan(alpha): cells no wider than half a
-    // chip's thickness over tan(alpha) keep it within a part and a half, as
-    // the side walls' cells are half a wall
+    // A flat stave meets the radial direction at up to alpha (cos alpha =
+    // rMin / rMax), so over a cell of width w its radius changes by
+    // w tan(alpha): cells no wider than half a chip's thickness over
+    // tan(alpha), as the side walls' cells are half a wall. The band in equal
+    // parts as deep as that change: a part holds a stave's material at the
+    // depth it has in the cell, so the sensor's place splits the band as the
+    // stave does -- a deeper part spreads the material behind a sensor
+    // (a stave's services, the TOF's module) in front of it.
     const auto thickness = static_cast<float>(chipThickness[layer]);
-    const int parts = std::max(1, static_cast<int>(std::floor((rMax - rMin) / thickness)));
     float drPhi = vd ? 0.05F : 0.3F;
-    if (parts > 1) {
-      const float tanAlpha = std::sqrt((rMax * rMax) - (rMin * rMin)) / rMin;
+    const float tanAlpha = std::sqrt((rMax * rMax) - (rMin * rMin)) / rMin;
+    int parts = 1;
+    if (tanAlpha > 0.F && std::floor((rMax - rMin) / thickness) > 1.F) {
       drPhi = std::min(drPhi, 0.5F * thickness / tanAlpha);
+      parts = std::max(1, static_cast<int>(std::floor((rMax - rMin) / (drPhi * tanAlpha))));
     }
     for (int part = 0; part < parts; ++part) {
       const float low = part == 0 ? rMin : rMin + ((rMax - rMin) * static_cast<float>(part) / static_cast<float>(parts));
