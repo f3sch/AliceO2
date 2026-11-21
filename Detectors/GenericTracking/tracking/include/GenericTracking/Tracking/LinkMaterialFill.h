@@ -31,6 +31,8 @@
 #include <cstddef>
 #include <memory>
 #include <span>
+#include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -74,13 +76,21 @@ template <DetectorLayout Det>
 /// and its sensors' envelope where no shell holds them; on a disc its
 /// sensors' envelope (the LUT's shells are radial). Throws
 /// std::runtime_error where a run holds another barrel layer's sensors over a
-/// common z: a LUT not built so (o2-gtrk-build-matlut). A material without
-/// shells (a test's medium) gives the envelopes.
+/// common z: a LUT not built so (o2-gtrk-build-matlut); and where the LUT
+/// does not reach a layer's sensors, in r or in z: a LUT of another layout or
+/// geometry. A material without shells (a test's medium) gives the envelopes.
 template <DetectorLayout Det, typename Lut>
 [[nodiscard]] inline std::array<LayerBand, Detector<Det>::nLayers> lutBands([[maybe_unused]] const Lut& lut)
 {
   auto bands = envelopeBands<Det>();
   if constexpr (std::is_same_v<Lut, o2::base::MatLayerCylSet>) {
+    for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+      const auto& e = PlacedEnvelopes<Det>::get(static_cast<LayerID>(layer));
+      // At the LUT's precision: its edges are floats.
+      if (static_cast<float>(e.rMax) > lut.getRMax() || static_cast<float>(std::max(std::abs(e.zMin), std::abs(e.zMax))) > lut.getZMax()) {
+        throw std::runtime_error(std::string{Det::name} + ": the material LUT (r < " + std::to_string(lut.getRMax()) + " cm, |z| < " + std::to_string(lut.getZMax()) + " cm) does not reach layer " + std::to_string(layer) + "'s sensors (r " + std::to_string(e.rMin) + " .. " + std::to_string(e.rMax) + " cm, z " + std::to_string(e.zMin) + " .. " + std::to_string(e.zMax) + " cm): build it for this layout and geometry (o2-gtrk-build-matlut)");
+      }
+    }
     const int shells = lut.getNLayers();
     for (int layer = 0; layer < Detector<Det>::nBarrelLayers; ++layer) {
       const auto id = static_cast<LayerID>(layer);
@@ -92,7 +102,7 @@ template <DetectorLayout Det, typename Lut>
         }
       }
       if (at < 0) {
-        continue;
+        throw std::runtime_error(std::string{Det::name} + ": no shell of the material LUT holds layer " + std::to_string(layer) + "'s sensors (r " + std::to_string(e.position) + " cm)");
       }
       int first = at;
       while (first > 0 && lut.getLayer(first - 1).getRMax() == lut.getLayer(first).getRMin()) {
