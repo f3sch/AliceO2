@@ -11,8 +11,9 @@
 
 /// \file testTrkTof.cxx
 /// \brief TRKFT3TOF, ALICE 3's tracker with its TOF layers, against TRKFT3:
-///        layer mapping, native settings and grid, frame times, measurement
-///        depths and IOTOF cluster conversion (WorkflowTRK/TRKTOF.h).
+///        layer mapping, the shape band's layers, native settings and grid,
+///        frame times, measurement depths and IOTOF cluster conversion
+///        (WorkflowTRK/TRKTOF.h).
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK TRKTOF
@@ -23,6 +24,7 @@
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Workflow/BeamLine.h"
+#include "GenericTracking/Workflow/ClusterShapeBand.h"
 #include "GenericTracking/Workflow/GeometryProvider.h"
 #include "GenericTracking/Workflow/GridConfig.h"
 #include "GenericTracking/Workflow/RecoParam.h"
@@ -40,6 +42,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
@@ -54,6 +57,31 @@ using TOFLayout = detectors::TRKFT3TOF;
 constexpr int kBaseLayers = Detector<Base>::nLayers;
 
 } // namespace
+
+/// TRK's shape band is TRKFT3's layers: TRKFT3TOF reads each TRK layer's,
+/// and its TOF layers none (every slope).
+BOOST_AUTO_TEST_CASE(TRKFT3TOFReadsTRKsShapeBandInTRKFT3sLayers)
+{
+  using Layers = workflow::ShapeBandLayers<TOFLayout>;
+  for (int layer = 0; layer < kBaseLayers; ++layer) {
+    const auto id = static_cast<LayerID>(layer);
+    BOOST_TEST(Layers::layer(detectors::trkft3tof::fromTRKFT3(id)) == id);
+  }
+  BOOST_TEST(Layers::layer(TOFLayout::kInnerTOFLayer) == kInvalidLayerID);
+  BOOST_TEST(Layers::layer(TOFLayout::kOuterTOFLayer) == kInvalidLayerID);
+  // A band calibrating TRKFT3's ML 7 alone: two rows at most, one column at slopes [0, 1).
+  constexpr std::size_t kML7 = 7;
+  workflow::ClusterShapeBand band;
+  band.maxRows.assign(Layers::barrelLayers, 0);
+  band.maxRows[kML7] = 2;
+  band.slopeLow.assign(Layers::barrelLayers * workflow::ClusterShapeBand::kSpans, 0.F);
+  band.slopeHigh.assign(Layers::barrelLayers * workflow::ClusterShapeBand::kSpans, 0.F);
+  band.slopeHigh[(kML7 * workflow::ClusterShapeBand::kSpans) + 1] = 1.F;
+  BOOST_REQUIRE(band.fits(Layers::barrelLayers));
+  const auto onLayer = [&](LayerID layer) { return band.interval(Layers::layer(layer), 1, 1); };
+  BOOST_TEST((onLayer(detectors::trkft3tof::fromTRKFT3(static_cast<LayerID>(kML7))) == workflow::ClusterShapeBand::Interval{0.F, 1.F}));
+  BOOST_TEST((onLayer(TOFLayout::kInnerTOFLayer) == workflow::ClusterShapeBand::kEvery));
+}
 
 /// Every TRKFT3 link is TRKFT3TOF's, renumbered, with its source range; ML 6
 /// -> ML 7 stays direct, beside ML 6 -> iTOF -> ML 7.

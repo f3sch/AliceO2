@@ -23,11 +23,21 @@
 /// slope; one of more rows than its layer's most, or of a span no slope
 /// gives, none. The slope is the barrel's (the normal radial, the columns
 /// along z), so a band calibrates barrel layers only.
+///
+/// A band is its detector's sensors', so its layers are numbered as the
+/// detector's own layout numbers them, whatever layout tracks the detector
+/// (`ShapeBandLayers`): TRK's band serves TRKFT3 and TRKFT3TOF alike.
 
 #ifndef GTRK_WORKFLOW_CLUSTERSHAPEBAND_H_
 #define GTRK_WORKFLOW_CLUSTERSHAPEBAND_H_
 
+#include "GenericTracking/Base/Definitions.h"
+#include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/ShapeCut.h"
+#ifdef ENABLE_UPGRADES
+#include "GenericTracking/Detectors/TRKFT3.h"
+#include "GenericTracking/Detectors/TRKFT3TOF.h"
+#endif
 
 #include <Rtypes.h>
 
@@ -86,6 +96,24 @@ struct ClusterShapeBand {
 
   ClassDefNV(ClusterShapeBand, 1);
 };
+
+/// How \a Det's layers read its detector's band: layer `layer(l)` of a band
+/// of `barrelLayers` layers at most; a layout's own numbering by default.
+template <DetectorLayout Det>
+struct ShapeBandLayers {
+  static constexpr std::size_t barrelLayers = Detector<Det>::nBarrelLayers;
+  [[nodiscard]] static constexpr LayerID layer(LayerID layer) { return layer; }
+};
+
+#ifdef ENABLE_UPGRADES
+/// TRKFT3TOF reads TRK's band in TRKFT3's numbering; its TOF layers are none
+/// of the band's (kInvalidLayerID, past every band layer: every slope).
+template <>
+struct ShapeBandLayers<detectors::TRKFT3TOF> {
+  static constexpr std::size_t barrelLayers = Detector<detectors::TRKFT3>::nBarrelLayers;
+  [[nodiscard]] static constexpr LayerID layer(LayerID layer) { return detectors::trkft3tof::toTRKFT3(layer); }
+};
+#endif
 
 } // namespace o2::gtrk::workflow
 

@@ -104,8 +104,8 @@ class MeasurementProducerTask : public o2::framework::Task
   {
     if (matcher == o2::framework::ConcreteDataMatcher(Conditions<Det>::origin(), "SHAPEBAND", 0)) {
       mShapeBand = static_cast<const ClusterShapeBand*>(obj);
-      if (!mShapeBand->fits(static_cast<std::size_t>(Detector<Det>::nBarrelLayers))) {
-        throw std::runtime_error(std::format("{}'s cluster-shape band from the CCDB is not one of its {} barrel layers", Det::name, Detector<Det>::nBarrelLayers));
+      if (!mShapeBand->fits(ShapeBandLayers<Det>::barrelLayers)) {
+        throw std::runtime_error(std::format("{}'s cluster-shape band from the CCDB is not one of its detector's {} barrel layers", Det::name, ShapeBandLayers<Det>::barrelLayers));
       }
       LOGP(info, "{}'s {} from the CCDB", Det::name, mShapeBand->describe());
       return;
@@ -228,7 +228,7 @@ class MeasurementProducerTask : public o2::framework::Task
       positions[i] = {point.x, point.y, point.z, point.r, point.phi, variances.z, variances.r, variances.rPhi};
       bounds.add(static_cast<std::size_t>(point.layer), grid.frames(point.layer), boxes[i], positions[i][5], positions[i][6], positions[i][7], varLoc0, varLoc1);
       if (band != nullptr) {
-        slopes[i] = band->interval(static_cast<std::size_t>(point.layer), cluster.rowSpan, cluster.colSpan);
+        slopes[i] = band->interval(static_cast<std::size_t>(ShapeBandLayers<Det>::layer(point.layer)), cluster.rowSpan, cluster.colSpan);
       }
       builder.count(buckets[i]);
     }

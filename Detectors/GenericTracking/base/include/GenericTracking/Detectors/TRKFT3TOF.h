@@ -56,6 +56,16 @@ inline constexpr SensorSpec kTOFChip{.shape = ShapeType::kRectangle, .halfX = 0.
 /// the discs past the oTOF too.
 [[nodiscard]] constexpr LayerID fromTRKFT3(LayerID layer) { return layer <= 6 ? layer : static_cast<LayerID>(layer <= 10 ? layer + 1 : layer + 2); }
 
+/// TRKFT3TOF's layer \a layer in TRKFT3 (`fromTRKFT3` inverted): the iTOF
+/// (7) and the oTOF (12) are none of TRKFT3's, kInvalidLayerID.
+[[nodiscard]] constexpr LayerID toTRKFT3(LayerID layer)
+{
+  if (layer == 7 || layer == 12) {
+    return kInvalidLayerID;
+  }
+  return layer <= 6 ? layer : static_cast<LayerID>(layer <= 11 ? layer - 1 : layer - 2);
+}
+
 /// TRKFT3's overlap layers (LayerLinks.h `overlapLayers`) renumbered; none on
 /// the TOF.
 inline constexpr std::uint64_t kOverlapLayers = [] {
