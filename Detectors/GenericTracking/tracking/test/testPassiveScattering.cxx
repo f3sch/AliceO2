@@ -11,8 +11,9 @@
 
 /// \file testPassiveScattering.cxx
 /// \brief A passive scatterer among the layers -- the beam pipe with layers
-///        on both sides of it, as ALICE 3's -- in the pair cut and its
-///        windows.
+///        on both sides of it, as ALICE 3's -- in the seeding's cuts and
+///        windows, as the link material holds it: in the gap of the link
+///        across it and in the vertex gaps beyond it.
 ///
 /// The layout is a test fixture: three barrel layers inside a pipe and three
 /// outside it. Tracks are followed as helices from the beam line and kinked
@@ -26,15 +27,16 @@
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Tracking/Iteration.h"
-#include "GenericTracking/Tracking/LayerMaterial.h"
+#include "GenericTracking/Tracking/LinkMaterial.h"
 #include "GenericTracking/Tracking/NeighbourCut.h"
 #include "GenericTracking/Tracking/PairCut.h"
 #include "GenericTracking/Tracking/SearchWindow.h"
 #include "GenericTracking/Tracking/TripletCut.h"
 
+#include "AnalyticLayout.h"
+#include "BandMaterial.h"
 #include "BetweenBoundCheck.h"
-#include "ToyBarrel3.h"
-#include "UniformMaterial.h"
+#include "Oracles.h"
 
 #include <boost/test/unit_test.hpp>
 
@@ -42,6 +44,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <random>
 #include <span>
 #include <stdexcept>
@@ -79,19 +82,15 @@ struct ToyPipe {
     {.from = 4, .to = 5, .sourceMin = -10., .sourceMax = 10., .skipsLayer = false},
   }};
 
-  /// The pipe between layers 2 and 3, 4 cm short of layer 3.
-  static constexpr std::array<PassiveSpec, 1> passives{{{.kind = PassiveSpec::Kind::kBarrel, .position = 3., .bandLow = 2.95, .bandHigh = 3.05, .low = -20., .high = 20., .x2X0 = 0.01}}};
-
   static constexpr int nSensors = countSensors(barrelLayers, discLayers);
 };
 
 [[maybe_unused]] const bool kToyPipePublished = publishToy<ToyPipe>();
 
 using Det = ToyPipe;
-static_assert(Detector<Det>::nPassives == 1);
-static_assert(Detector<detectors::ToyBarrel3>::nPassives == 0);
 
 constexpr double kLayerX2X0 = 1.e-3;
+/// The pipe between layers 2 and 3, 4 cm short of layer 3.
 constexpr double kPipeRadius = 3.;
 constexpr double kBzKiloGauss = 20.;
 constexpr double kMinPtGeV = 0.3;
@@ -109,10 +108,31 @@ SearchWindowParams windowParams()
 
 const VertexConstraint kBeamSpot{.z = 0., .sigmaZ = 1., .sigmaTransverse = 0.002};
 
-ScatteringTable<Det> table(double pipeX2X0)
+std::unique_ptr<LinkMaterial<Det>> table(double pipeX2X0)
 {
-  const std::array<double, 1> pipe{pipeX2X0};
-  return scatteringTable<Det>(uniformLayerMaterial<Det>(kLayerX2X0), pipe);
+  const std::array<ThinCylinder, 1> pipe{{{.r = kPipeRadius, .x2X0 = pipeX2X0}}};
+  return bandMaterial<Det>(kLayerX2X0, pipe);
+}
+
+/// The pair's source term and its kink between, as the tracklet stage takes
+/// them: the source's at the pair's span (`PairScattering::sourceScale`);
+/// \a withBetween false leaves the kink between out.
+struct PairTerms {
+  Scalar source = 0.F;
+  Scalar between = 0.F;
+};
+
+PairTerms pairTerms(const IterationParameters<Det>& parameters, std::size_t link, const VertexSeed& vertex, const PairPoint& source, const PairPoint& target, bool withBetween)
+{
+  const auto& pair = Det::layerLinks[link];
+  Scalar spanX = 0.F;
+  PairTerms terms{.source = sourceScattering<Det>(*parameters.material, parameters.pairCut, vertex, pair.from, source, atan2Of(source.y, source.x), spanX)};
+  if (withBetween && parameters.betweenBound[link] > 0.F) {
+    const auto between = betweenScattering<Det>(*parameters.material, parameters.pairCut, betweenSource<Det>(source, pair.from), link, pair.to, vertex, source, target, spanX);
+    terms.source *= between.sourceScale;
+    terms.between = between.between;
+  }
+  return terms;
 }
 
 /// One track's crossings of the six layers, kinked on the way.
@@ -226,7 +246,7 @@ struct LinkCount {
 /// as the tracklet stage runs it -- \a withBetween false leaves the kink
 /// between source and target out, \a cutTable is the table the cut is built
 /// with.
-std::array<LinkCount, 5> countPairs(const ScatteringTable<Det>& cutTable, bool withBetween, double pipeX2X0, int tracks)
+std::array<LinkCount, 5> countPairs(const LinkMaterial<Det>& cutTable, bool withBetween, double pipeX2X0, int tracks)
 {
   IterationSettings settings;
   settings.windows = windowParams();
@@ -250,11 +270,10 @@ std::array<LinkCount, 5> countPairs(const ScatteringTable<Det>& cutTable, bool w
     for (std::size_t link = 0; link < Det::layerLinks.size(); ++link) {
       const auto& source = crossings.points[Det::layerLinks[link].from];
       const auto& target = crossings.points[Det::layerLinks[link].to];
-      const Scalar scatter = sourceScattering<Det>(parameters.scattering, parameters.pairCut, beamLine, Det::layerLinks[link].from, source);
-      const Scalar between = withBetween && parameters.passiveBetween[link] ? betweenScattering<Det>(parameters.scattering, parameters.pairCut, beamLine, source, target) : 0.F;
+      const auto terms = pairTerms(parameters, link, beamLine, source, target, withBetween);
       auto& count = counts[link];
       ++count.pairs;
-      if (!pairCompatible(parameters.pairCut, beamLine, source, scatter, target, between)) {
+      if (!pairCompatible(parameters.pairCut, beamLine, source, terms.source, target, terms.between)) {
         continue;
       }
       ++count.accepted;
@@ -276,7 +295,7 @@ struct ChainCounts {
   std::array<LinkCount, 3> neighbours{};
 };
 
-ChainCounts countChains(const ScatteringTable<Det>& cutTable, double pipeX2X0, int tracks)
+ChainCounts countChains(const LinkMaterial<Det>& cutTable, double pipeX2X0, int tracks)
 {
   IterationSettings settings;
   settings.windows = windowParams();
@@ -303,9 +322,8 @@ ChainCounts countChains(const ScatteringTable<Det>& cutTable, double pipeX2X0, i
     for (std::size_t link = 0; link < Det::layerLinks.size(); ++link) {
       const auto& source = crossings.points[Det::layerLinks[link].from];
       const auto& target = crossings.points[Det::layerLinks[link].to];
-      const Scalar scatter = sourceScattering<Det>(parameters.scattering, parameters.pairCut, beamLine, Det::layerLinks[link].from, source);
-      const Scalar between = parameters.passiveBetween[link] ? betweenScattering<Det>(parameters.scattering, parameters.pairCut, beamLine, source, target) : 0.F;
-      pairPasses[link] = pairCompatible(parameters.pairCut, beamLine, source, scatter, target, between);
+      const auto terms = pairTerms(parameters, link, beamLine, source, target, true);
+      pairPasses[link] = pairCompatible(parameters.pairCut, beamLine, source, terms.source, target, terms.between);
     }
     std::array<bool, 4> tripletPasses{};
     std::array<TripletFitResult, 4> fits{};
@@ -320,13 +338,13 @@ ChainCounts countChains(const ScatteringTable<Det>& cutTable, double pipeX2X0, i
       auto& count = counts.triplets[first];
       ++count.pairs;
       const auto dip = [](const PairPoint& from, const PairPoint& to) { return std::atan2(static_cast<double>(to.z - from.z), std::hypot(static_cast<double>(to.x - from.x), static_cast<double>(to.y - from.y))); };
-      const auto middleLayer = static_cast<LayerID>(first + 1U);
-      const auto halfWidth = static_cast<double>(tripletLambdaHalfWidth(parameters, first + 1U, middleLayer, a.point, b.point, bounds));
+      const auto layers = std::array{static_cast<LayerID>(first), static_cast<LayerID>(first + 1U), static_cast<LayerID>(first + 2U)};
+      const auto halfWidth = static_cast<double>(tripletLambdaHalfWidth(parameters, first, first + 1U, a.point, b.point, bounds));
       if (std::abs(dip(b.point, c.point) - dip(a.point, b.point)) > halfWidth) {
         continue;
       }
       bool kinked = false;
-      if (!tripletCompatible(parameters, middleLayer, a, b, c, fits[first], terms[first], kinked)) {
+      if (!tripletCompatible(parameters, layers, a, b, c, fits[first], terms[first], kinked)) {
         continue;
       }
       tripletPasses[first] = true;
@@ -350,7 +368,7 @@ ChainCounts countChains(const ScatteringTable<Det>& cutTable, double pipeX2X0, i
       KinkTerms bcd;
       bool made = false;
       bool valid = false;
-      if (neighbourCompatible(parameters, static_cast<LayerID>(first + 1U), static_cast<LayerID>(first + 2U), timed(first), timed(first + 1U), timed(first + 2U), timed(first + 3U), bcd, made, valid, fit, 1.F, 1.F)) {
+      if (neighbourCompatible(parameters, first, first + 1U, first + 2U, timed(first), timed(first + 1U), timed(first + 2U), timed(first + 3U), bcd, made, valid, fit, 1.F, 1.F)) {
         ++count.accepted;
       }
     }
@@ -361,19 +379,6 @@ ChainCounts countChains(const ScatteringTable<Det>& cutTable, double pipeX2X0, i
 
 } // namespace
 
-/// The layout's pipe reaches the table with its nominal or the given x/X0;
-/// a layout without one has none, and its table's slot is empty.
-BOOST_AUTO_TEST_CASE(ThePipeIsInTheTable)
-{
-  const auto nominal = scatteringTable<Det>(uniformLayerMaterial<Det>(kLayerX2X0));
-  BOOST_TEST(nominal.passives[0].barrel);
-  BOOST_TEST(nominal.passives[0].at.position == 3.F);
-  BOOST_TEST(nominal.passives[0].at.x2X0 == 0.01F);
-  BOOST_TEST(table(0.02).passives[0].at.x2X0 == 0.02F);
-  BOOST_TEST(nominalPassiveMaterial<Det>()[0] == 0.01);
-  BOOST_CHECK_THROW(static_cast<void>(scatteringTable<Det>(uniformLayerMaterial<Det>(kLayerX2X0), Vec2D{0.01, 0.01})), std::invalid_argument);
-}
-
 /// Only the link across the pipe has it between its layers; a source beyond
 /// the pipe has it inside, a source inside the pipe does not.
 BOOST_AUTO_TEST_CASE(ThePipeIsBetweenOrInsideByRadius)
@@ -381,24 +386,27 @@ BOOST_AUTO_TEST_CASE(ThePipeIsBetweenOrInsideByRadius)
   IterationSettings settings;
   settings.windows = windowParams();
   const auto withPipe = table(0.01);
-  const auto parameters = iterationParameters<Det>(settings, kBeamSpot, withPipe);
-  for (std::size_t link = 0; link < Det::layerLinks.size(); ++link) {
-    BOOST_TEST_CONTEXT("link " << link) { BOOST_TEST(parameters.passiveBetween[link] == (link == kCrossingLink)); }
-  }
-  BOOST_TEST(betweenKinkBound<Det>(withPipe, settings.windows, 2, 3, kBeamSpot) > 0.);
-  BOOST_TEST(betweenKinkBound<Det>(withPipe, settings.windows, 3, 4, kBeamSpot) == 0.);
-
   const auto withoutPipe = table(0.);
+  const auto parameters = iterationParameters<Det>(settings, kBeamSpot, *withPipe);
+  for (std::size_t link = 0; link < Det::layerLinks.size(); ++link) {
+    BOOST_TEST_CONTEXT("link " << link) { BOOST_TEST((parameters.betweenBound[link] > 0.F) == (link == kCrossingLink)); }
+  }
+
   const auto cut = pairCut(settings.windows);
   const auto beamLine = vertexSeed(kBeamSpot);
   const PairPoint inside{.x = 2.5F, .z = 0.5F, .r = 2.5F};
   const PairPoint beyond{.x = 7.F, .z = 1.4F, .r = 7.F};
   const PairPoint far{.x = 10.F, .z = 2.F, .r = 10.F};
-  BOOST_TEST(sourceScattering<Det>(withPipe, cut, beamLine, 2, inside) == sourceScattering<Det>(withoutPipe, cut, beamLine, 2, inside));
-  BOOST_TEST(sourceScattering<Det>(withPipe, cut, beamLine, 3, beyond) > sourceScattering<Det>(withoutPipe, cut, beamLine, 3, beyond));
-  BOOST_TEST(betweenScattering<Det>(withPipe, cut, beamLine, inside, beyond) > 0.F);
-  BOOST_TEST(betweenScattering<Det>(withoutPipe, cut, beamLine, inside, beyond) == 0.F);
-  BOOST_TEST(betweenScattering<Det>(withPipe, cut, beamLine, beyond, far) == 0.F);
+  BOOST_TEST(sourceScattering<Det>(*withPipe, cut, beamLine, 2, inside) == sourceScattering<Det>(*withoutPipe, cut, beamLine, 2, inside));
+  BOOST_TEST(sourceScattering<Det>(*withPipe, cut, beamLine, 3, beyond) > sourceScattering<Det>(*withoutPipe, cut, beamLine, 3, beyond));
+  const auto between = [&](const LinkMaterial<Det>& material, std::size_t link, LayerID from, const PairPoint& source, const PairPoint& target) {
+    Scalar spanX = 0.F;
+    static_cast<void>(sourceScattering<Det>(material, cut, beamLine, from, source, atan2Of(source.y, source.x), spanX));
+    return betweenScattering<Det>(material, cut, betweenSource<Det>(source, from), link, static_cast<LayerID>(from + 1), beamLine, source, target, spanX).between;
+  };
+  BOOST_TEST(between(*withPipe, kCrossingLink, 2, inside, beyond) > 0.F);
+  BOOST_TEST(between(*withoutPipe, kCrossingLink, 2, inside, beyond) == 0.F);
+  BOOST_TEST(between(*withPipe, kBeyondLink, 3, beyond, far) == 0.F);
 }
 
 /// Tracks scattered as the cut models them pass it at its n-sigma share on
@@ -410,21 +418,19 @@ BOOST_AUTO_TEST_CASE(ThePipeIsBetweenOrInsideByRadius)
 /// refuse too (ALICE 3's barrel: testTrkChainPulls).
 BOOST_AUTO_TEST_CASE(NoPairsKinkExceedsItsLinksBound)
 {
-  const auto ratios = test::betweenOverBound<Det>(table(0.01), windowParams(), kBeamSpot);
+  const auto ratios = test::betweenOverBound<Det>(*table(0.01), windowParams(), kBeamSpot);
   BOOST_TEST(ratios.size() == 1U);
   for (const auto& ratio : ratios) {
     BOOST_TEST(ratio.worst <= 1.);
-    BOOST_TEST(ratio.maskMismatches == 0);
-    BOOST_TEST(ratio.sourcePartMismatches == 0);
+    BOOST_TEST(ratio.worstSourceScale <= 1.);
   }
-  BOOST_TEST(test::segmentMaskMismatches<Det>(table(0.01)) == 0);
 }
 
 BOOST_AUTO_TEST_CASE(TruePairsPassAcrossAndBeyondThePipe)
 {
   constexpr int kTracks = 20000;
   constexpr double kPipeX2X0 = 0.01;
-  const auto full = countPairs(table(kPipeX2X0), true, kPipeX2X0, kTracks);
+  const auto full = countPairs(*table(kPipeX2X0), true, kPipeX2X0, kTracks);
   for (std::size_t link = 0; link < full.size(); ++link) {
     const auto& count = full[link];
     BOOST_TEST_MESSAGE("link " << link << ": " << count.accepted << "/" << count.pairs << " accepted, " << count.inPhiWindow << " and " << count.inSecondWindow << " of them in the phi and second windows");
@@ -438,13 +444,13 @@ BOOST_AUTO_TEST_CASE(TruePairsPassAcrossAndBeyondThePipe)
     }
   }
 
-  const auto noBetween = countPairs(table(kPipeX2X0), false, kPipeX2X0, kTracks);
+  const auto noBetween = countPairs(*table(kPipeX2X0), false, kPipeX2X0, kTracks);
   BOOST_TEST_MESSAGE("without the kink between: link 2 " << noBetween[kCrossingLink].accepted << "/" << noBetween[kCrossingLink].pairs);
   BOOST_TEST(fraction(noBetween[kCrossingLink].accepted, noBetween[kCrossingLink].pairs) < 0.98);
 
-  const auto noPipe = countPairs(table(0.), true, kPipeX2X0, kTracks);
+  const auto noPipe = countPairs(*table(0.), true, kPipeX2X0, kTracks);
   BOOST_TEST_MESSAGE("without the pipe in the table: link 3 " << noPipe[kBeyondLink].accepted << "/" << noPipe[kBeyondLink].pairs);
-  BOOST_TEST(fraction(noPipe[kBeyondLink].accepted, noPipe[kBeyondLink].pairs) < 0.98);
+  BOOST_TEST(fraction(noPipe[kBeyondLink].accepted, noPipe[kBeyondLink].pairs) < 0.99);
 }
 
 /// Triplets and neighbours with the pipe between their points, of every kind
@@ -455,8 +461,8 @@ BOOST_AUTO_TEST_CASE(TripletsAndNeighboursAcrossThePipe)
 {
   constexpr int kTracks = 20000;
   constexpr double kPipeX2X0 = 0.01;
-  const auto full = countChains(table(kPipeX2X0), kPipeX2X0, kTracks);
-  const auto without = countChains(table(0.), kPipeX2X0, kTracks);
+  const auto full = countChains(*table(kPipeX2X0), kPipeX2X0, kTracks);
+  const auto without = countChains(*table(0.), kPipeX2X0, kTracks);
   for (std::size_t first = 0; first < full.triplets.size(); ++first) {
     BOOST_TEST_MESSAGE("triplet " << first << "-" << first + 2U << ": " << full.triplets[first].accepted << "/" << full.triplets[first].pairs << ", without the pipe " << without.triplets[first].accepted << "/" << without.triplets[first].pairs);
     BOOST_TEST_CONTEXT("triplet from layer " << first) { BOOST_TEST(fraction(full.triplets[first].accepted, full.triplets[first].pairs) > 0.99); }

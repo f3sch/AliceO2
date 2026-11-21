@@ -22,6 +22,7 @@
 #include "GenericTracking/Tracking/TripletPermutation.h"
 #include "GenericTracking/Tracking/TripletStage.h"
 
+#include "BandMaterial.h"
 #include "GridTestSupport.h"
 #include "Oracles.h"
 #include "SerialReferences.h"
@@ -465,13 +466,15 @@ std::size_t checkAgainstBruteForce(const IterationParameters<Layout>& parameters
       for (auto candidateIndex = tracklets.offsets()[middleElement]; candidateIndex < tracklets.offsets()[middleElement + 1U]; ++candidateIndex) {
         const std::size_t secondLink = trackletView.link[candidateIndex];
         const LayerID targetLayer = parameters.linkTargets[secondLink];
-        const Scalar halfWidth = tripletLambdaHalfWidth(parameters, secondLink, middleLayer, first.point, middle.point, targetBounds[targetLayer]);
+        const Scalar halfWidth = tripletLambdaHalfWidth(parameters, firstLink, secondLink, first.point, middle.point, targetBounds[targetLayer]);
         if (trackletView.lambda[candidateIndex] < trackletView.lambda[firstIndex] - halfWidth || trackletView.lambda[candidateIndex] > trackletView.lambda[firstIndex] + halfWidth) {
           continue;
         }
         const auto third = timedPointAt(frame.measurements(), trackletView.target[candidateIndex]);
         TripletFitResult fit;
-        if (tripletCompatible(parameters, middleLayer, first, middle, third, fit)) {
+        KinkTerms terms;
+        bool kinked = false;
+        if (tripletCompatible(parameters, tripletMaterial(*parameters.material, firstLink, secondLink, first.point, middle.point, third.point), first, middle, third, fit, terms, kinked)) {
           brute.emplace_back(firstIndex, candidateIndex);
         } else {
           ++postLambdaRejected;
@@ -518,8 +521,7 @@ struct SliceRun {
 
 SliceRun runTripletSlices(const SliceFixture& fixture, std::int32_t widthBlocks, std::int32_t firstBoundary)
 {
-  const std::array<double, Sources::kLayerCount> material{};
-  const auto scattering = scatteringTable<Det>(material);
+  const auto& scattering = noMaterial<Det>();
   const auto parameters = iterationParameters<Det>(iterationSettings(), SliceFixture::kBeamConstraint, scattering);
   const std::int64_t haloPS = seedingReach(frameBounds(*fixture.frame), fixture.geometry, std::span<const IterationParameters<Det>>{&parameters, 1}).haloPS;
 
@@ -592,8 +594,7 @@ BOOST_AUTO_TEST_CASE(TripletsMatchBruteForceAndAllTrueHelicesAreFound)
 {
   const Fixture fixture;
   const Frame::TimeSlice slice{*fixture.frame, fixture.geometry.allBlocks(), 0};
-  const std::array<double, Sources::kLayerCount> material{};
-  const auto scattering = scatteringTable<Det>(material);
+  const auto& scattering = noMaterial<Det>();
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
   const auto trackletResult = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
@@ -640,8 +641,7 @@ BOOST_AUTO_TEST_CASE(MultipleContinuationsDiscPathAndPostLambdaRejection)
 {
   const MixedFixture fixture;
   const MixedFrame::TimeSlice slice{*fixture.frame, fixture.geometry.allBlocks(), 0};
-  const std::array<double, MixedSources::kLayerCount> material{};
-  const auto scattering = scatteringTable<Mixed>(material);
+  const auto& scattering = noMaterial<Mixed>();
   MixedController tracker{mixedIterationSettings(), MixedFixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
   const auto trackletResult = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
@@ -773,8 +773,7 @@ BOOST_AUTO_TEST_CASE(TripletsAreInvariantUnderSliceWidthAndOrigin)
   const bool crossingFound = std::ranges::any_of(whole.triplets, [&](const SliceTriplet& triplet) { return triplet[0] == crossingFirst && triplet[1] == crossingMiddle && triplet[2] == crossingThird; });
   BOOST_TEST(crossingFound);
 
-  const std::array<double, Sources::kLayerCount> material{};
-  const auto parameters = iterationParameters<Det>(iterationSettings(), SliceFixture::kBeamConstraint, scatteringTable<Det>(material));
+  const auto parameters = iterationParameters<Det>(iterationSettings(), SliceFixture::kBeamConstraint, noMaterial<Det>());
   const std::int64_t haloPS = seedingReach(frameBounds(*fixture.frame), fixture.geometry, std::span<const IterationParameters<Det>>{&parameters, 1}).haloPS;
   const Frame::TimeSlice left{*fixture.frame, {.begin = 0, .end = 2}, haloPS};
   const Frame::TimeSlice right{*fixture.frame, {.begin = 2, .end = 4}, haloPS};

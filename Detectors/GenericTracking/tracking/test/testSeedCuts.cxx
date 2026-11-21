@@ -15,7 +15,6 @@
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK SeedCuts
 #include "GenericTracking/Tracking/Iteration.h"
-#include "GenericTracking/Tracking/LayerMaterial.h"
 #include "GenericTracking/Tracking/NeighbourCut.h"
 #include "GenericTracking/Tracking/TripletCut.h"
 
@@ -67,6 +66,7 @@ Rates rates(const Case& c, double ptGeV, double minPtGeV, double zShift = 0., do
 {
   const auto parameters = Helix::parametersAt(minPtGeV);
   const double curvature = 1. / curvatureRadius(ptGeV, 20.);
+  const auto firstLink = linkOf<ToyBarrel4Disc8>(c.layers[0], c.layers[1]);
   const auto secondLink = linkOf<ToyBarrel4Disc8>(c.layers[1], c.layers[2]);
   const TripletTargetBounds target{
     .varZ = static_cast<Scalar>(c.errors.varZ),
@@ -81,7 +81,7 @@ Rates rates(const Case& c, double ptGeV, double minPtGeV, double zShift = 0., do
     const State origin{.phi = 0.3, .slope = c.slope};
     const State a = Helix::toLayer(origin, curvature, c.layers[0]);
     const State b = Helix::toLayer(a, curvature, c.layers[1]);
-    State third = Helix::toLayer(Helix::scatter(b, c.layers[1], ptGeV, parameters, generator), curvature, c.layers[2]);
+    State third = Helix::toLayer(Helix::scatter(b, c.layers[1], ptGeV, generator), curvature, c.layers[2]);
     third.z += zShift;
 
     const auto first = Helix::measure(a, c.errors, 0., generator);
@@ -89,12 +89,12 @@ Rates rates(const Case& c, double ptGeV, double minPtGeV, double zShift = 0., do
     const auto last = Helix::measure(third, c.errors, timeShift, generator);
     const auto lambdaFirst = std::atan2(middle.point.z - first.point.z, pairChord(first.point, middle.point).chord);
     const auto lambdaSecond = std::atan2(last.point.z - middle.point.z, pairChord(middle.point, last.point).chord);
-    const Scalar halfWidth = tripletLambdaHalfWidth(parameters, secondLink, c.layers[1], first.point, middle.point, target);
+    const Scalar halfWidth = tripletLambdaHalfWidth(parameters, firstLink, secondLink, first.point, middle.point, target);
     const bool lambdaPasses = std::abs(lambdaSecond - lambdaFirst) <= halfWidth;
     const bool timePasses = tripletTimeCompatible(first, last);
-    const bool curvaturePasses = tripletCurvatureCompatible(parameters, c.layers[1], first.point, middle.point, last.point);
+    const bool curvaturePasses = tripletCurvatureCompatible(parameters, tripletMaterialOf(*parameters.material, c.layers, first.point, middle.point, last.point), first.point, middle.point, last.point);
     TripletFitResult fit;
-    const bool allPass = lambdaPasses && tripletCompatible(parameters, c.layers[1], first, middle, last, fit);
+    const bool allPass = lambdaPasses && tripletCompatible(parameters, c.layers, first, middle, last, fit);
     result.lambda += lambdaPasses ? 1 : 0;
     result.time += timePasses ? 1 : 0;
     result.curvature += curvaturePasses ? 1 : 0;
@@ -154,7 +154,7 @@ KinkedRates kinkedRates(const Case& c, double ptGeV, double minPtGeV, double kin
     // The hard kink: theta0 of the middle layer at the track's momentum, as
     // Helix::scatter draws it, times kinkTheta0, on both angles.
     const double cosine = 1. / std::sqrt(1. + (b.slope * b.slope));
-    const auto k = static_cast<double>(highlandK(parameters.scattering.layers[c.layers[1]], 0.F));
+    const auto k = Helix::highland(ptGeV, b.slope);
     const double theta0 = std::sqrt(k / cosine) * cosine / ptGeV;
     State kinkedState = b;
     const double sign = (draw % 2 == 0) ? 1. : -1.;
@@ -167,7 +167,7 @@ KinkedRates kinkedRates(const Case& c, double ptGeV, double minPtGeV, double kin
     TripletFitResult fit;
     KinkTerms terms;
     bool kinked = false;
-    if (tripletCompatible(parameters, c.layers[1], first, middle, last, fit, terms, kinked)) {
+    if (tripletCompatible(parameters, c.layers, first, middle, last, fit, terms, kinked)) {
       result.nominal += kinked ? 0 : 1;
       result.kinked += kinked ? 1 : 0;
     }
@@ -259,21 +259,22 @@ Rates rates(const Case& c, double ptGeV, double minPtGeV, const Departure& depar
     const State origin{.phi = 0.3, .slope = c.slope};
     const State a = Helix::toLayer(origin, curvature, c.layers[0]);
     const State b = Helix::toLayer(a, curvature, c.layers[1]);
-    const State third = Helix::toLayer(Helix::scatter(b, c.layers[1], ptGeV, parameters, generator), curvature, c.layers[2]);
+    const State third = Helix::toLayer(Helix::scatter(b, c.layers[1], ptGeV, generator), curvature, c.layers[2]);
     const double lastCurvature = departure.softPtGeV > 0. ? 1. / curvatureRadius(departure.softPtGeV, 20.) : curvature;
-    State fourth = Helix::toLayer(Helix::scatter(third, c.layers[2], ptGeV, parameters, generator), lastCurvature, c.layers[3]);
+    State fourth = Helix::toLayer(Helix::scatter(third, c.layers[2], ptGeV, generator), lastCurvature, c.layers[3]);
     fourth.z += departure.zShift;
 
     const std::array<TimedPoint, 4> m{Helix::measure(a, c.errors, 0., generator), Helix::measure(b, c.errors, 0., generator), Helix::measure(third, c.errors, 0., generator), Helix::measure(fourth, c.errors, departure.timeShift, generator)};
     TripletFitResult first;
     TripletFitResult second;
-    const bool fitted = fitTriplet(m[0].point, m[1].point, m[2].point, c.layers[1], parameters.scattering, parameters.pairCut, first) && fitTriplet(m[1].point, m[2].point, m[3].point, c.layers[2], parameters.scattering, parameters.pairCut, second);
+    const auto& material = *parameters.material;
+    const bool fitted = fitTriplet(m[0].point, m[1].point, m[2].point, {c.layers[0], c.layers[1], c.layers[2]}, material, parameters.pairCut, first) && fitTriplet(m[1].point, m[2].point, m[3].point, {c.layers[1], c.layers[2], c.layers[3]}, material, parameters.pairCut, second);
     const bool curvaturePasses = fitted && neighbourCurvatureCompatible(parameters, first.curvature, first.varCurvature, second.curvature, second.varCurvature);
     const bool timePasses = neighbourTimeCompatible(m[0], m[3]);
     TripletFitResult adjacent;
-    const bool adjacentFitted = fitAdjacentTriplets(m[0].point, m[1].point, m[2].point, m[3].point, c.layers[1], c.layers[2], parameters.scattering, parameters.pairCut, adjacent);
+    const bool adjacentFitted = fitAdjacentTriplets(m[0].point, m[1].point, m[2].point, m[3].point, c.layers, material, parameters.pairCut, adjacent);
     TripletFitResult fit;
-    const bool allPass = curvaturePasses && neighbourCompatible(parameters, c.layers[1], c.layers[2], m[0], m[1], m[2], m[3], fit);
+    const bool allPass = curvaturePasses && neighbourCompatible(parameters, c.layers, m[0], m[1], m[2], m[3], fit);
     result.curvature += curvaturePasses ? 1 : 0;
     result.time += timePasses ? 1 : 0;
     result.fit += adjacentFitted && adjacent.chi2 <= parameters.neighbourChi2Max ? 1 : 0;

@@ -20,6 +20,7 @@
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Material.h"
 
+#include "BandMaterial.h"
 #include "GridTestSupport.h"
 #include "Oracles.h"
 #include "ScatteringKick.h"
@@ -96,8 +97,13 @@ Measurement measurementFromState(const BoundTrackState& state, std::uint32_t ind
 
 struct SyntheticChain {
   Geometry<Toy> geometry = toyGeometry<Toy>();
-  // On the heap: its material tables are too large for the stack.
-  std::unique_ptr<TrackingGeometry<Toy>> tracking = std::make_unique<TrackingGeometry<Toy>>(geometry);
+  // On the heap: its material tables are too large for the stack. Its fits
+  // read the chain's material (`withoutLinks`).
+  std::unique_ptr<TrackingGeometry<Toy>> tracking = [this] {
+    auto made = std::make_unique<TrackingGeometry<Toy>>(geometry);
+    withoutLinks(made->material());
+    return made;
+  }();
   Propagator propagator;
   std::array<BoundTrackState, 3> truth;
   std::array<Measurement, 3> measurements;
@@ -245,8 +251,10 @@ BOOST_AUTO_TEST_CASE(LayerZeroAtShallowIncidenceFitsBothWays)
 {
   using Mixed = detectors::ToyBarrel4Disc8;
   const auto detector = toyGeometry<Mixed>();
-  // On the heap: its material tables are too large for the stack.
-  const auto trackingOwner = std::make_unique<const TrackingGeometry<Mixed>>(detector);
+  // On the heap: its material tables are too large for the stack. Its fits
+  // read the test's material (`withoutLinks`).
+  const auto trackingOwner = std::make_unique<TrackingGeometry<Mixed>>(detector);
+  withoutLinks(trackingOwner->material());
   const TrackingGeometry<Mixed>& tracking = *trackingOwner;
   const Propagator propagator;
   const UniformMaterial material;
@@ -359,8 +367,13 @@ template <std::size_t N>
 struct BarrelChain {
   using Mixed = detectors::ToyBarrel4Disc8;
   Geometry<Mixed> geometry = toyGeometry<Mixed>();
-  // On the heap: its material tables are too large for the stack.
-  std::unique_ptr<TrackingGeometry<Mixed>> tracking = std::make_unique<TrackingGeometry<Mixed>>(geometry);
+  // On the heap: its material tables are too large for the stack. Its fits
+  // read the chain's material (`withoutLinks`).
+  std::unique_ptr<TrackingGeometry<Mixed>> tracking = [this] {
+    auto made = std::make_unique<TrackingGeometry<Mixed>>(geometry);
+    withoutLinks(made->material());
+    return made;
+  }();
   Propagator propagator;
   std::array<BoundTrackState, N> truth;
   std::array<Measurement, N> measurements;

@@ -19,8 +19,8 @@
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/TripletCut.h"
 
+#include "BandMaterial.h"
 #include "GridTestSupport.h"
-#include "UniformMaterial.h"
 
 #include <cmath>
 #include <cstddef>
@@ -53,13 +53,21 @@ struct GeneratedHelixFixture {
   static constexpr Errors kLongZErrors{.varZ = 1.e-2, .varR = 1.e-6, .varRPhi = 4.e-6};
   static constexpr Errors kDiscErrors{.varZ = 1.e-6, .varR = 2.25e-6, .varRPhi = 2.25e-6};
 
+  /// The layers' material, `kMaterialX2X0` in every band, made once: the
+  /// iterations' parameters point at it.
+  [[nodiscard]] static const LinkMaterial<Det>& material()
+  {
+    static const auto table = bandMaterial<Det>(kMaterialX2X0);
+    return *table;
+  }
+
   /// \a kinkSigma is the iteration's kink allowance, 1 for none.
   [[nodiscard]] static IterationParameters<Det> parametersAt(double minPtGeV, double kinkSigma = 1.)
   {
     IterationSettings settings;
     settings.windows.minPtGeV = minPtGeV;
     settings.kinkSigma = kinkSigma;
-    return iterationParameters<Det>(settings, VertexConstraint{}, scatteringTable<Det>(uniformLayerMaterial<Det>(kMaterialX2X0)));
+    return iterationParameters<Det>(settings, VertexConstraint{}, material());
   }
 
   [[nodiscard]] static State propagate(const State& start, double curvature, double arc)
@@ -91,15 +99,26 @@ struct GeneratedHelixFixture {
     return propagate(start, curvature, 0.5 * (low + high));
   }
 
-  /// Scatter at the layer at the true momentum: Highland with
-  /// p = pT sqrt(1 + slope^2) and the layer's path.
-  [[nodiscard]] static State scatter(const State& at, LayerID layer, double ptGeV, const IterationParameters<Det>& parameters, std::mt19937_64& generator)
+  /// Highland's `theta0^2 (beta p)^2` at normal incidence of a layer's
+  /// band at the true momentum, p = pT sqrt(1 + \a slope^2): its logarithm
+  /// at the band's x/X0 and beta, as the cuts take a node's
+  /// (`middleScattering`), beta of the windows' mass.
+  [[nodiscard]] static double highland(double ptGeV, double slope)
+  {
+    const double p2 = ptGeV * ptGeV * (1. + (slope * slope));
+    const double beta2 = p2 / (p2 + (kWindowMassGeV * kWindowMassGeV));
+    return highlandK(kMaterialX2X0, std::log(kMaterialX2X0 / beta2));
+  }
+
+  /// Scatter at the layer at the true momentum: Highland (`highland`) with
+  /// the layer's path.
+  [[nodiscard]] static State scatter(const State& at, LayerID layer, double ptGeV, std::mt19937_64& generator)
   {
     std::normal_distribution<double> normal;
     const double cosine = 1. / std::sqrt(1. + (at.slope * at.slope));
     const double sine = std::abs(at.slope) * cosine;
     const double path = Detector<Det>::isBarrelLayer(layer) ? 1. / cosine : 1. / sine;
-    const auto k = static_cast<double>(highlandK(parameters.scattering.layers[layer], 0.F));
+    const auto k = highland(ptGeV, at.slope);
     const double theta0 = std::sqrt(k * path) * cosine / ptGeV;
     State kinked = at;
     kinked.slope = std::tan(std::atan(at.slope) + (normal(generator) * theta0));

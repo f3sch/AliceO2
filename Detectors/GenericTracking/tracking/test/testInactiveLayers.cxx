@@ -11,9 +11,9 @@
 
 /// \file testInactiveLayers.cxx
 /// \brief Inactive layers (LayerSpec.h), as ALICE 3's TOF in TRKFT3TOF: never
-///        a hole, outside the other layers' material slabs, found by the
-///        follow between two rows of a road that straddles one (the interior
-///        row) and after the outward walk (the tail).
+///        a hole, found by the follow between two rows of a road that
+///        straddles one (the interior row) and after the outward walk (the
+///        tail).
 ///
 /// ToyInactive8 is ToyBarrel8's eight layers with layers 3 and 7 inactive:
 /// layer 3 sits between 2 and 4, which also link directly (2 -> 4); layer 7
@@ -27,7 +27,6 @@
 #include "GenericTracking/Tracking/Follow.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
-#include "GenericTracking/Tracking/LayerMaterial.h"
 #include "GenericTracking/Tracking/LinkHoles.h"
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/SensorCells.h"
@@ -35,6 +34,7 @@
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
 #include "AnalyticLayout.h"
+#include "BandMaterial.h"
 #include "GridTestSupport.h"
 #include "SerialReferences.h"
 #include "ToyBarrel8.h"
@@ -258,7 +258,7 @@ IterationParameters<Det> followParameters()
 {
   IterationSettings settings{.windows = windowParameters(), .vertexSource = VertexSource::kBeamLine};
   settings.follow = true;
-  return iterationParameters<Det>(settings, VertexConstraint{}, scatteringTable<Det>(uniformLayerMaterial<Det>(0.)));
+  return iterationParameters<Det>(settings, VertexConstraint{}, noMaterial<Det>());
 }
 
 Proposal followTrack(const Fixture& fixture, const Tracks& tracks, const std::vector<std::uint8_t>& used, const IterationParameters<Det>& parameters)
@@ -312,29 +312,35 @@ BOOST_AUTO_TEST_CASE(AnInactiveLayerIsNeverAHole)
   BOOST_TEST(linkHoleLayers<Det>(1, 4) == (std::uint64_t{1} << 2U));
 }
 
-/// A layer's material slab reaches past an inactive neighbour, as in the
-/// layout without it: layer 2 (6 cm) to halfway to layer 4 (10 cm), layer 4
-/// from there; layer 6 mirrors its inner half-gap past the inactive layer 7.
-BOOST_AUTO_TEST_CASE(AnInactiveLayerIsOutsideTheOtherLayersSlabs)
+/// A step over the inactive layer crosses its material: the follow's step on
+/// the direct link 2 -> 4 holds what the steps 2 -> 3 and 3 -> 4 through it
+/// hold, outward and inward, as ALICE 3's ML6 -> ML7 and ML6 -> iTOF -> ML7.
+BOOST_AUTO_TEST_CASE(AStepOverTheInactiveLayerCrossesItsMaterial)
 {
-  const auto two = layerSlab<Det>(2);
-  const auto four = layerSlab<Det>(4);
-  const auto six = layerSlab<Det>(6);
-  BOOST_TEST(two.low == 5., boost::test_tools::tolerance(1.e-9));
-  BOOST_TEST(two.high == 8., boost::test_tools::tolerance(1.e-9));
-  BOOST_TEST(four.low == 8., boost::test_tools::tolerance(1.e-9));
-  BOOST_TEST(four.high == 11., boost::test_tools::tolerance(1.e-9));
-  BOOST_TEST(six.low == 13., boost::test_tools::tolerance(1.e-9));
-  BOOST_TEST(six.high == 15., boost::test_tools::tolerance(1.e-9));
-  // ToyBarrel8's layer 2 stops halfway to its layer 3.
-  BOOST_TEST(layerSlab<detectors::ToyBarrel8>(2).high == 7., boost::test_tools::tolerance(1.e-9));
-  // The inactive layers take what their active neighbours leave: nothing
-  // between 2 and 4, which meet halfway; beyond 6, up to layer 7's silicon.
-  const auto three = layerSlab<Det>(3);
-  const auto seven = layerSlab<Det>(7);
-  BOOST_TEST(three.low == three.high, boost::test_tools::tolerance(1.e-9));
-  BOOST_TEST(seven.low == 15., boost::test_tools::tolerance(1.e-9));
-  BOOST_TEST(seven.high == radiusMax<Det>(7), boost::test_tools::tolerance(1.e-9));
+  static_cast<void>(trackingGeometry()); // the layout's envelopes
+  std::array<double, kLayers> x2X0{};
+  x2X0.fill(0.005);
+  x2X0[3] = 0.02;
+  const auto material = bandMaterial<Det>(x2X0);
+  // A straight line from the beam line through the layers' nominal surfaces.
+  constexpr double kPhi = 0.3;
+  constexpr double kSlope = 0.1;
+  const auto at = [](LayerID layer) {
+    const double r = PlacedEnvelopes<Det>::get(layer).position;
+    return std::array{static_cast<Scalar>(r * std::cos(kPhi)), static_cast<Scalar>(r * std::sin(kPhi)), static_cast<Scalar>(0.2 + (kSlope * r))};
+  };
+  const auto total = [&](LayerID from, LayerID to) {
+    const auto step = material->step(from, to, at(from).data(), at(to).data());
+    BOOST_TEST(step.found);
+    return static_cast<double>(step.before + step.after);
+  };
+  const double direct = total(2, 4);
+  const double through = total(2, 3) + total(3, 4);
+  BOOST_TEST(direct == through, boost::test_tools::tolerance(1.e-2));
+  BOOST_TEST(total(4, 2) == direct, boost::test_tools::tolerance(1.e-2));
+  BOOST_TEST(total(4, 3) + total(3, 2) == through, boost::test_tools::tolerance(1.e-2));
+  // The inactive layer's band is most of it.
+  BOOST_TEST(direct > x2X0[3]);
 }
 
 /// A road on 0, 1, 2, 4, 5 straddles the inactive layer 3 through the direct

@@ -28,7 +28,7 @@
 #include "GenericTracking/Workflow/RecoParam.h"
 #include "GenericTracking/WorkflowTRK/TRKTOF.h"
 
-#include "UniformMaterial.h"
+#include "BandMaterial.h"
 
 #include "CommonConstants/LHCConstants.h"
 #include "DataFormatsIOTOF/Cluster.h"
@@ -132,7 +132,7 @@ BOOST_AUTO_TEST_CASE(TheNativeGridAndFloorsCoverLongTOFChains)
   const auto grid = std::make_unique<const GridGeometry<TOFLayout>>(workflow::makeGridGeometry<TOFLayout>(settings, beam, tofFrames, 32));
   BOOST_TEST(!grid->overflows());
   BOOST_TEST(grid->axes(TOFLayout::kInnerTOFLayer).nPhi > 0);
-  const auto scattering = scatteringTable<TOFLayout>(uniformLayerMaterial<TOFLayout>(0.));
+  const auto& scattering = noMaterial<TOFLayout>();
   BOOST_TEST(iterationParameters<TOFLayout>(first, VertexConstraint{}, scattering).minPtByClusters[17] == 0.25F);
   BOOST_TEST(iterationParameters<TOFLayout>(second, VertexConstraint{}, scattering).minPtByClusters[16] == 0.5F);
 }

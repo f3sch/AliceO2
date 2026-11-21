@@ -22,6 +22,7 @@
 #include "GenericTracking/Tracking/Tracker.h"
 #include "GenericTracking/Study/Digest.h"
 
+#include "BandMaterial.h"
 #include "ToyBarrel8Fixture.h"
 #include "UniformMaterial.h"
 
@@ -109,9 +110,8 @@ std::unique_ptr<Tracker<Det, UniformMaterial>> makeTracker(std::vector<Iteration
     iteration.follow = follow;
     iteration.sharedInnermost = shared;
   }
-  const std::array<double, kLayers> material{};
   static const UniformMaterial none{};
-  auto tracker = std::make_unique<Tracker<Det, UniformMaterial>>(settings, Fixture::kBeamConstraint, scatteringTable<Det>(material), std::make_shared<BoundedMemoryResource>(), 2U, threads);
+  auto tracker = std::make_unique<Tracker<Det, UniformMaterial>>(settings, Fixture::kBeamConstraint, noMaterial<Det>(), std::make_shared<BoundedMemoryResource>(), 2U, threads);
   tracker->setTrackModel(trackingGeometry(), none, Propagator{});
   return tracker;
 }
@@ -193,11 +193,10 @@ BOOST_AUTO_TEST_CASE(EachIterationFindsItsTracksOnce)
 BOOST_AUTO_TEST_CASE(AnyMemoryLimitEndsARunWithAStatus)
 {
   const Fixture fixture{hits(), kDurationNS};
-  const std::array<double, kLayers> material{};
   const UniformMaterial none{};
   constexpr std::int32_t kWidth = 3;
   const auto runOn = [&](const std::shared_ptr<BoundedMemoryResource>& pool, int threads, std::vector<StageStatus>& statuses) {
-    Tracker<Det, UniformMaterial> tracker{iterations(), Fixture::kBeamConstraint, scatteringTable<Det>(material), pool, 2U, threads};
+    Tracker<Det, UniformMaterial> tracker{iterations(), Fixture::kBeamConstraint, noMaterial<Det>(), pool, 2U, threads};
     tracker.setTrackModel(trackingGeometry(), none, Propagator{});
     for (int run = 0; run < 2; ++run) {
       Tracker<Det, UniformMaterial>::TimeframeResult result;
@@ -261,8 +260,7 @@ BOOST_AUTO_TEST_CASE(TheSliceObserverSeesEverySliceWithItsUsedMask)
   constexpr std::int32_t kWidth = 3;
   const auto unobserved = track(fixture, kWidth, 1);
 
-  const std::array<double, kLayers> material{};
-  Tracker<Det, UniformMaterial> tracker{iterations(), Fixture::kBeamConstraint, scatteringTable<Det>(material), std::make_shared<BoundedMemoryResource>(), 2U, 1};
+  Tracker<Det, UniformMaterial> tracker{iterations(), Fixture::kBeamConstraint, noMaterial<Det>(), std::make_shared<BoundedMemoryResource>(), 2U, 1};
   const UniformMaterial none{};
   tracker.setTrackModel(trackingGeometry(), none, Propagator{});
   std::vector<std::size_t> slicesPerIteration(2U, 0U);
@@ -305,8 +303,7 @@ BOOST_AUTO_TEST_CASE(TheSliceObserverSeesEverySliceWithItsUsedMask)
 BOOST_AUTO_TEST_CASE(TheIterationObserverSeesEveryIterationsSelection)
 {
   const Fixture fixture{hits(), kDurationNS};
-  const std::array<double, kLayers> material{};
-  Tracker<Det, UniformMaterial> tracker{iterations(), Fixture::kBeamConstraint, scatteringTable<Det>(material), std::make_shared<BoundedMemoryResource>(), 2U, 1};
+  Tracker<Det, UniformMaterial> tracker{iterations(), Fixture::kBeamConstraint, noMaterial<Det>(), std::make_shared<BoundedMemoryResource>(), 2U, 1};
   const UniformMaterial none{};
   tracker.setTrackModel(trackingGeometry(), none, Propagator{});
   std::vector<std::uint32_t> firstCluster;

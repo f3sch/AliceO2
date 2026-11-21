@@ -21,6 +21,7 @@
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/TrackFitterUtils.h"
 
+#include "BandMaterial.h"
 #include "ScatteringKick.h"
 #include "ToyBarrel8.h"
 #include "UniformMaterial.h"
@@ -28,6 +29,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <memory>
 #include <numbers>
 #include <random>
 #include <utility>
@@ -58,7 +60,10 @@ struct ElectronChain {
   static constexpr std::size_t kLayers = 8;
   using Barrel = detectors::ToyBarrel8;
   Geometry<Barrel> geometry = toyGeometry<Barrel>();
-  TrackingGeometry<Barrel> tracking{geometry};
+  /// On the heap: with its link material it is megabytes. Its fits read the
+  /// chain's material (`withoutLinks`).
+  std::unique_ptr<TrackingGeometry<Barrel>> trackingStore = std::make_unique<TrackingGeometry<Barrel>>(geometry);
+  const TrackingGeometry<Barrel>& tracking = *trackingStore;
   Propagator propagator;
   std::array<BoundTrackState, kLayers> truth;
   std::array<Measurement, kLayers> measurements;
@@ -72,7 +77,11 @@ struct ElectronChain {
   std::array<double, kLayers> after{};
   Scalar sigma = 5e-4F;
 
-  ElectronChain() { propagator.massGeV = 0.000511F; }
+  ElectronChain()
+  {
+    propagator.massGeV = 0.000511F;
+    withoutLinks(trackingStore->material());
+  }
 
   /// The share of the momentum radiated between rows \a first and \a last.
   [[nodiscard]] double radiatedBetween(std::size_t first, std::size_t last) const

@@ -22,6 +22,7 @@
 #include "GenericTracking/Tracking/Tracker.h"
 #include "GenericTracking/Tracking/VertexingPass.h"
 
+#include "BandMaterial.h"
 #include "ToyBarrel8Fixture.h"
 #include "UniformMaterial.h"
 
@@ -80,11 +81,7 @@ IterationSettings passSettings()
   return settings;
 }
 
-ScatteringTable<Det> noScattering()
-{
-  const std::array<double, kLayers> material{};
-  return scatteringTable<Det>(material);
-}
+const LinkMaterial<Det>& noScattering() { return noMaterial<Det>(); }
 
 /// The pass's slices: three blocks, as the tracking's in these tests.
 constexpr std::int32_t kSliceBlocks = 3;

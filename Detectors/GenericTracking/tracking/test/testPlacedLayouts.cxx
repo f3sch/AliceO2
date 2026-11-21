@@ -22,6 +22,7 @@
 #include "GenericTracking/Tracking/Tracker.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
+#include "BandMaterial.h"
 #include "GridTestSupport.h"
 #include "ToyBarrel3.h"
 #include "ToyBarrel4Disc8.h"
@@ -131,7 +132,8 @@ void runEmpty()
   const TimeFrame<Det> frame{measurementView(columns), grid, std::span<const std::uint32_t>{offsets}};
 
   const IterationSettings settings{.windows = windows, .vertexSource = VertexSource::kBeamLine};
-  Tracker<Det, UniformMaterial> tracker{settings, beamSpot, scatteringTable<Det>(uniformLayerMaterial<Det>(0.01)), std::make_shared<BoundedMemoryResource>(), 1U};
+  const auto material = bandMaterial<Det>(0.01);
+  Tracker<Det, UniformMaterial> tracker{settings, beamSpot, *material, std::make_shared<BoundedMemoryResource>(), 1U};
   tracker.setTrackModel(*tracking, UniformMaterial{}, Propagator{.bzKiloGauss = 5.F});
   const auto result = tracker.run(frame, tracker.planTimeframe(frame, frameBounds(frame), {}, 1));
   BOOST_TEST((result.status == StageStatus::kComplete));

@@ -18,6 +18,7 @@
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/RoadCount.h"
 
+#include "BandMaterial.h"
 #include "FixedPointReferences.h"
 #include "SerialReferences.h"
 #include "ToyBarrel8Fixture.h"
@@ -240,8 +241,7 @@ BOOST_AUTO_TEST_CASE(RoadsOnTheDeepBarrelMatchTheirHandCount)
 {
   using namespace toybarrel8::levels;
   const Fixture fixture{levelHits()};
-  const std::array<double, kLayers> material{};
-  const auto scattering = scatteringTable<Det>(material);
+  const auto& scattering = noMaterial<Det>();
   const auto parameters = iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scattering);
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
   const Frame::TimeSlice slice{*fixture.frame, fixture.geometry.allBlocks(), 0};
@@ -353,8 +353,7 @@ BOOST_AUTO_TEST_CASE(RoadsOnTheDeepBarrelMatchTheirHandCount)
 BOOST_AUTO_TEST_CASE(RoadsMatchABruteForceWalkAndOnlyTheCoresAreCounted)
 {
   const Fixture fixture{sliceHits(), kSliceDurationNS};
-  const std::array<double, kLayers> material{};
-  const auto scattering = scatteringTable<Det>(material);
+  const auto& scattering = noMaterial<Det>();
   const auto parameters = iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scattering);
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
   const std::int64_t haloPS = seedingReach(frameBounds(*fixture.frame), fixture.geometry, std::span<const IterationParameters<Det>>{&parameters, 1}).haloPS;
@@ -422,8 +421,7 @@ std::vector<Hit> staggeredHits()
 BOOST_AUTO_TEST_CASE(AStartLayerMaskKeepsExactlyTheRoadsStartingOnIt)
 {
   const Fixture fixture{staggeredHits(), kSliceDurationNS};
-  const std::array<double, kLayers> material{};
-  const auto scattering = scatteringTable<Det>(material);
+  const auto& scattering = noMaterial<Det>();
   const auto parameters = iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scattering);
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
   const std::int64_t haloPS = seedingReach(frameBounds(*fixture.frame), fixture.geometry, std::span<const IterationParameters<Det>>{&parameters, 1}).haloPS;
@@ -464,8 +462,7 @@ using RoadClusters = std::vector<std::uint32_t>;
 /// \a firstWidth wide, as clusters, sorted.
 std::vector<RoadClusters> roadsOfSlicing(const Fixture& fixture, std::int32_t widthBlocks, std::int32_t firstWidth)
 {
-  const std::array<double, kLayers> material{};
-  const auto scattering = scatteringTable<Det>(material);
+  const auto& scattering = noMaterial<Det>();
   const auto parameters = iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scattering);
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
   const std::int64_t haloPS = seedingReach(frameBounds(*fixture.frame), fixture.geometry, std::span<const IterationParameters<Det>>{&parameters, 1}).haloPS;
@@ -537,8 +534,7 @@ BOOST_AUTO_TEST_CASE(OrderedCountsSaturateAndKeepOverflowAcrossReplay)
 
 BOOST_AUTO_TEST_CASE(OrderedNumberingChecksEmptyIndividualAndTotalOverflow)
 {
-  const std::array<double, kLayers> material{};
-  const auto parameters = iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scatteringTable<Det>(material));
+  const auto parameters = iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, noMaterial<Det>());
   const auto serial = [](std::uint32_t elements, const auto& body) {
     for (std::uint32_t element = 0U; element < elements; ++element) {
       body(element);

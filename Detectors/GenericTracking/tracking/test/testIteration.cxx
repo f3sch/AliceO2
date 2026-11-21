@@ -21,10 +21,10 @@
 #include "GenericTracking/Tracking/SlicePlan.h"
 #include "GenericTracking/Study/Validation.h"
 
+#include "BandMaterial.h"
 #include "GridTestSupport.h"
 #include "ToyBarrel4Disc8.h"
 #include "ToyBarrel8.h"
-#include "UniformMaterial.h"
 
 #include "CommonConstants/LHCConstants.h"
 
@@ -64,7 +64,8 @@ IterationParameters<ToyBarrel4Disc8> parametersAt(double minPtGeV)
   settings.minClusters = 2;
   settings.windows.minPtGeV = minPtGeV;
   settings.vertexSource = VertexSource::kVertexList;
-  return iterationParameters<ToyBarrel4Disc8>(settings, VertexConstraint{}, scatteringTable<ToyBarrel4Disc8>(uniformLayerMaterial<ToyBarrel4Disc8>(0.01)));
+  static const auto material = bandMaterial<ToyBarrel4Disc8>(0.01);
+  return iterationParameters<ToyBarrel4Disc8>(settings, VertexConstraint{}, *material);
 }
 
 PairPoint helixPoint(double curvature, double arc, double cotTheta, double vertexZ)
@@ -92,7 +93,8 @@ void verifyVertexInterval(double minPtGeV, Scalar vertexZ, LayerID from, LayerID
 {
   SearchWindowParams params;
   params.minPtGeV = minPtGeV;
-  const auto table = scatteringTable<ToyBarrel4Disc8>(uniformLayerMaterial<ToyBarrel4Disc8>(params.materialX2X0));
+  const auto material = bandMaterial<ToyBarrel4Disc8>(params.materialX2X0);
+  const auto& table = *material;
   const auto cut = pairCut(params);
   const VertexSeed vertex{.z = vertexZ, .varZ = 1.e-4F, .varTransverse = 4.e-6F};
   const auto pair = layerPairWindow<ToyBarrel4Disc8>(from, to, params, VertexConstraint{}, table);
@@ -153,9 +155,10 @@ BOOST_AUTO_TEST_CASE(WithoutSkipLinksAnIterationTakesOnlyTheLinksThatSkipNoLayer
 {
   IterationSettings settings;
   settings.minClusters = 2; // every link
-  const auto all = iterationParameters<ToyBarrel4Disc8>(settings, VertexConstraint{}, scatteringTable<ToyBarrel4Disc8>(uniformLayerMaterial<ToyBarrel4Disc8>(0.01)));
+  const auto material = bandMaterial<ToyBarrel4Disc8>(0.01);
+  const auto all = iterationParameters<ToyBarrel4Disc8>(settings, VertexConstraint{}, *material);
   settings.skipLinks = false;
-  const auto direct = iterationParameters<ToyBarrel4Disc8>(settings, VertexConstraint{}, scatteringTable<ToyBarrel4Disc8>(uniformLayerMaterial<ToyBarrel4Disc8>(0.01)));
+  const auto direct = iterationParameters<ToyBarrel4Disc8>(settings, VertexConstraint{}, *material);
   std::size_t skipping = 0U;
   for (std::size_t link = 0; link < nLinks<ToyBarrel4Disc8>; ++link) {
     BOOST_TEST_CONTEXT("link " << link)
@@ -514,7 +517,8 @@ BOOST_AUTO_TEST_CASE(AnUnresolvedDiscChordDoesNotPassTheLongitudinalCut)
 /// range, where the scattering sum's path factor is largest.
 BOOST_AUTO_TEST_CASE(ThePhiWindowHoldsTheTransverseTest)
 {
-  const auto table = scatteringTable<ToyBarrel4Disc8>(uniformLayerMaterial<ToyBarrel4Disc8>(0.02));
+  const auto material = bandMaterial<ToyBarrel4Disc8>(0.02);
+  const auto& table = *material;
   const VertexConstraint beamSpot{};
   struct Case {
     LayerID from;

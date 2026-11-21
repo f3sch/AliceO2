@@ -18,6 +18,7 @@
 #include "GenericTracking/Tracking/MeasurementGridBuilder.h"
 #include "GenericTracking/Tracking/Tracker.h"
 
+#include "BandMaterial.h"
 #include "GridTestSupport.h"
 #include "SerialReferences.h"
 #include "StageOutputComparison.h"
@@ -119,8 +120,7 @@ BOOST_AUTO_TEST_CASE(OneSliceMatchesSerialWithHaloSourcesInsideTheGate)
   BOOST_REQUIRE(haloSource < slice.core[0].begin || haloSource >= slice.core[0].end);
   BOOST_REQUIRE(slice.halo[1].begin <= haloTarget && haloTarget < slice.halo[1].end);
 
-  const std::array<double, Sources::kLayerCount> material{};
-  const auto scattering = scatteringTable<Det>(material);
+  const auto& scattering = noMaterial<Det>();
   const auto memory = std::make_shared<BoundedMemoryResource>();
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, memory, 1U};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
@@ -169,8 +169,7 @@ BOOST_AUTO_TEST_CASE(EndTimeframeGivesTheMemoryBack)
 {
   const Fixture fixture;
   const Frame::TimeSlice slice{*fixture.frame, {.begin = 1, .end = 2}, 1'000};
-  const std::array<double, Sources::kLayerCount> material{};
-  const auto scattering = scatteringTable<Det>(material);
+  const auto& scattering = noMaterial<Det>();
   for (const int threads : {1, 4}) {
     BOOST_TEST_CONTEXT("threads " << threads)
     {

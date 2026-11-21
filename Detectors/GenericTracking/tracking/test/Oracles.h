@@ -30,6 +30,8 @@
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/CovarianceTransport.h"
 #include "GenericTracking/Tracking/Definitions.h"
+#include "GenericTracking/Tracking/Iteration.h"
+#include "GenericTracking/Tracking/LinkMaterial.h"
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/MeasurementUpdate.h"
@@ -43,8 +45,11 @@
 
 #include "MathUtils/detail/trigonometric.h"
 
+#include <array>
 #include <cmath>
 #include <cstddef>
+#include <stdexcept>
+#include <string>
 
 namespace o2::gtrk
 {
@@ -419,12 +424,31 @@ GPUdi() BoundTrackState makeThreePointSeed(const Prop& prop, const Measurement& 
 
 // ---- the triplet and neighbour fits from the points alone ----
 
-/// The triplet fit from the points, the kink terms discarded.
+/// The layout link from \a from to \a to in \a material; a test that asks for
+/// one the layout has not is wrong (std::invalid_argument).
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool fitTriplet(const PairPoint& first, const PairPoint& middle, const PairPoint& third, LayerID middleLayer, const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result)
+[[nodiscard]] inline std::size_t linkOf(const LinkMaterial<Det>& material, LayerID from, LayerID to)
+{
+  const int link = material.link(from, to);
+  if (link < 0) {
+    throw std::invalid_argument("no layout link " + std::to_string(from) + " -> " + std::to_string(to));
+  }
+  return static_cast<std::size_t>(link);
+}
+
+/// The material of the triplet `a b c` on layers \a layers.
+template <DetectorLayout Det>
+[[nodiscard]] inline TripletMaterial tripletMaterialOf(const LinkMaterial<Det>& material, std::array<LayerID, 3> layers, const PairPoint& a, const PairPoint& b, const PairPoint& c)
+{
+  return tripletMaterial(material, linkOf(material, layers[0], layers[1]), linkOf(material, layers[1], layers[2]), a, b, c);
+}
+
+/// The triplet fit from the points on \a layers, the kink terms discarded.
+template <DetectorLayout Det>
+[[nodiscard]] inline bool fitTriplet(const PairPoint& first, const PairPoint& middle, const PairPoint& third, std::array<LayerID, 3> layers, const LinkMaterial<Det>& material, const PairCut& cut, TripletFitResult& result)
 {
   KinkTerms terms;
-  return fitTriplet(first, middle, third, middleLayer, table, cut, result, terms);
+  return fitTriplet(first, middle, third, tripletMaterialOf(material, layers, first, middle, third), cut, result, terms);
 }
 
 /// The adjacent fit from the four points and given variances at `b` and `c`,
@@ -439,40 +463,50 @@ template <DetectorLayout Det>
   return fitAdjacentTriplets(first, second, a, b, c, d, varianceSecond, varianceThird, result);
 }
 
-/// The adjacent fit from the four points, with the scattering at `b` and `c`
-/// at pT_min from the pair cut's table, each at the polar angle of its own
+/// The adjacent fit from the four points on \a layers, with the scattering at
+/// `b` and `c` at pT_min from \a material, each at the polar angle of its own
 /// triplet; the kink terms computed here.
 template <DetectorLayout Det>
-[[nodiscard]] inline bool fitAdjacentTriplets(const PairPoint& a, const PairPoint& b, const PairPoint& c, const PairPoint& d, LayerID secondLayer, LayerID thirdLayer, const ScatteringTable<Det>& table, const PairCut& cut, TripletFitResult& result)
+[[nodiscard]] inline bool fitAdjacentTriplets(const PairPoint& a, const PairPoint& b, const PairPoint& c, const PairPoint& d, std::array<LayerID, 4> layers, const LinkMaterial<Det>& material, const PairCut& cut, TripletFitResult& result)
 {
   KinkTerms first;
   KinkTerms second;
   if (!makeKinkTerms(a, b, c, first) || !makeKinkTerms(b, c, d, second)) {
     return false;
   }
-  return fitAdjacentTriplets(first, second, a, b, c, d, secondLayer, thirdLayer, table, cut, result);
+  const auto abc = tripletMaterialOf(material, {layers[0], layers[1], layers[2]}, a, b, c);
+  const auto bcd = tripletMaterialOf(material, {layers[1], layers[2], layers[3]}, b, c, d);
+  return fitAdjacentTriplets(first, second, a, b, c, d, abc, bcd, cut, result);
 }
 
-/// The triplet cuts after the dip angle, the kink terms and the kink flag
-/// discarded.
+/// The triplet cuts after the dip angle on \a layers, the kink terms and the
+/// kink flag discarded.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool tripletCompatible(const IterationParameters<Det>& parameters, LayerID middleLayer, const TimedPoint& first, const TimedPoint& middle, const TimedPoint& third, TripletFitResult& fit)
+[[nodiscard]] inline bool tripletCompatible(const IterationParameters<Det>& parameters, std::array<LayerID, 3> layers, const TimedPoint& first, const TimedPoint& middle, const TimedPoint& third, TripletFitResult& fit)
 {
   KinkTerms terms;
   bool kinked = false;
-  return tripletCompatible(parameters, middleLayer, first, middle, third, fit, terms, kinked);
+  return tripletCompatible(parameters, tripletMaterialOf(*parameters.material, layers, first.point, middle.point, third.point), first, middle, third, fit, terms, kinked);
 }
 
-/// The neighbour cuts after the curvature agreement, the stage's own
-/// (NeighbourCut.h), the two triplets' kink terms made there from the points,
-/// no kink allowance.
+/// The same, the kink terms and the kink flag returned.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourCompatible(const IterationParameters<Det>& parameters, LayerID secondLayer, LayerID thirdLayer, const TimedPoint& a, const TimedPoint& b, const TimedPoint& c, const TimedPoint& d, TripletFitResult& fit)
+[[nodiscard]] inline bool tripletCompatible(const IterationParameters<Det>& parameters, std::array<LayerID, 3> layers, const TimedPoint& first, const TimedPoint& middle, const TimedPoint& third, TripletFitResult& fit, KinkTerms& terms, bool& kinked)
+{
+  return tripletCompatible(parameters, tripletMaterialOf(*parameters.material, layers, first.point, middle.point, third.point), first, middle, third, fit, terms, kinked);
+}
+
+/// The neighbour cuts after the curvature agreement on \a layers, the
+/// stage's own (NeighbourCut.h), the two triplets' kink terms made there from
+/// the points, no kink allowance.
+template <DetectorLayout Det>
+[[nodiscard]] inline bool neighbourCompatible(const IterationParameters<Det>& parameters, std::array<LayerID, 4> layers, const TimedPoint& a, const TimedPoint& b, const TimedPoint& c, const TimedPoint& d, TripletFitResult& fit)
 {
   KinkTerms bcd;
   bool made = false;
   bool valid = false;
-  return neighbourCompatible(parameters, secondLayer, thirdLayer, a, b, c, d, bcd, made, valid, fit, 1.F, 1.F);
+  const auto& material = *parameters.material;
+  return neighbourCompatible(parameters, linkOf(material, layers[0], layers[1]), linkOf(material, layers[1], layers[2]), linkOf(material, layers[2], layers[3]), a, b, c, d, bcd, made, valid, fit, 1.F, 1.F);
 }
 
 } // namespace o2::gtrk

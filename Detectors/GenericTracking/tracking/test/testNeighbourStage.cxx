@@ -25,6 +25,7 @@
 #include "GenericTracking/Tracking/TripletPaths.h"
 #include "GenericTracking/Tracking/TripletPermutation.h"
 
+#include "BandMaterial.h"
 #include "FixedPointReferences.h"
 #include "Oracles.h"
 #include "SerialReferences.h"
@@ -256,8 +257,7 @@ BOOST_AUTO_TEST_CASE(NeighboursMatchBruteForceAndEveryTrueChainIsLinked)
 {
   const Fixture fixture{neighbourHits()};
   const Frame::TimeSlice slice{*fixture.frame, fixture.geometry.allBlocks(), 0};
-  const std::array<double, kLayers> material{};
-  const auto scattering = scatteringTable<Det>(material);
+  const auto& scattering = noMaterial<Det>();
   const auto parameters = iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scattering);
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
   BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
@@ -302,8 +302,7 @@ BOOST_AUTO_TEST_CASE(NeighboursMatchBruteForceAndEveryTrueChainIsLinked)
       const auto b = timedPointAt(fixture.frame->measurements(), trackletView.source[shared]);
       const auto c = timedPointAt(fixture.frame->measurements(), trackletView.target[shared]);
       const auto d = timedPointAt(fixture.frame->measurements(), trackletView.target[last]);
-      const LayerID secondLayer = parameters.linkSources[trackletView.link[shared]];
-      const LayerID thirdLayer = parameters.linkTargets[trackletView.link[shared]];
+      const std::array layers{parameters.linkSources[trackletView.link[first]], parameters.linkSources[trackletView.link[shared]], parameters.linkTargets[trackletView.link[shared]], parameters.linkTargets[trackletView.link[last]]};
       if (!neighbourCurvatureCompatible(parameters, tripletView.curvature[from], tripletView.varCurvature[from], tripletView.curvature[to], tripletView.varCurvature[to])) {
         ++curvatureRejected;
         continue;
@@ -313,11 +312,11 @@ BOOST_AUTO_TEST_CASE(NeighboursMatchBruteForceAndEveryTrueChainIsLinked)
         continue;
       }
       TripletFitResult fit;
-      if (!fitAdjacentTriplets(a.point, b.point, c.point, d.point, secondLayer, thirdLayer, parameters.scattering, parameters.pairCut, fit) || !(fit.chi2 <= parameters.neighbourChi2Max)) {
+      if (!fitAdjacentTriplets(a.point, b.point, c.point, d.point, layers, *parameters.material, parameters.pairCut, fit) || !(fit.chi2 <= parameters.neighbourChi2Max)) {
         ++fitRejected;
         continue;
       }
-      BOOST_TEST(neighbourCompatible(parameters, secondLayer, thirdLayer, a, b, c, d, fit));
+      BOOST_TEST(neighbourCompatible(parameters, layers, a, b, c, d, fit));
       expected.push_back(from);
     }
     std::vector<std::uint32_t> emitted(neighbourView.from + serial.offsets()[to], neighbourView.from + serial.offsets()[to + 1U]);
@@ -385,8 +384,7 @@ BOOST_AUTO_TEST_CASE(LevelsOnTheDeepBarrelMatchTheirHandCount)
 {
   using namespace toybarrel8::levels;
   const Fixture fixture{levelHits()};
-  const std::array<double, kLayers> material{};
-  const auto scattering = scatteringTable<Det>(material);
+  const auto& scattering = noMaterial<Det>();
   const auto parameters = iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scattering);
   Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, std::make_shared<BoundedMemoryResource>(), 2U, 2};
   TripletEndIndex ending;

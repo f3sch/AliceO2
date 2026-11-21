@@ -42,10 +42,10 @@
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
-#include "GenericTracking/Tracking/LayerMaterial.h"
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/WorkflowTRK/TRK.h"
 
+#include "BandMaterial.h"
 #include "BetweenBoundCheck.h"
 #include "GridTestSupport.h"
 #include "PullStatistics.h"
@@ -57,7 +57,6 @@
 #include "TRKBase/AlmiraParam.h"
 
 #include <boost/test/unit_test.hpp>
-#include <fmt/format.h>
 
 #include <algorithm>
 #include <array>
@@ -460,7 +459,9 @@ const Scans* scans()
     }
     o2::base::GeometryManager::loadGeometry(geometryFile());
     const auto geometry = std::make_unique<const Geometry<TRKFT3>>(alice::placeChecked<TRKFT3>());
-    const auto tracking = std::make_unique<const TrackingGeometry<TRKFT3>>(*geometry);
+    // The fits read the chains' material, not the link material (`withoutLinks`).
+    const auto tracking = std::make_unique<TrackingGeometry<TRKFT3>>(*geometry);
+    withoutLinks(tracking->material());
     BarrelChain chain(*geometry, *tracking);
     auto out = std::make_unique<Scans>();
     std::uint32_t seed = 20261007;
@@ -557,9 +558,10 @@ BOOST_AUTO_TEST_CASE(DiscPullsWithScatteringAreUnit)
 }
 
 /// No pair's kink between its layers exceeds its link's bound on any link with
-/// one of the measured passives between its layers, at pT 0.1 GeV over a
-/// 5 cm beam spot: the tracklet stage's test at the bound refuses only pairs
-/// the pair's own kink would refuse too.
+/// material between its layers -- the links that pass over a layer, each
+/// layer's band holding 1e-3 X0 -- at pT 0.1 GeV over a 5 cm beam spot: the
+/// tracklet stage's test at the bound refuses only pairs the pair's own test
+/// would refuse too.
 BOOST_AUTO_TEST_CASE(NoPairsKinkExceedsItsLinksBound)
 {
   if (geometryFile() == nullptr) {
@@ -571,131 +573,16 @@ BOOST_AUTO_TEST_CASE(NoPairsKinkExceedsItsLinksBound)
   SearchWindowParams windows;
   windows.minPtGeV = 0.1;
   windows.bzKiloGauss = 20.;
-  const auto scattering = scatteringTable<TRKFT3>(uniformLayerMaterial<TRKFT3>(1.e-3));
-  const auto ratios = test::betweenOverBound<TRKFT3>(scattering, windows, VertexConstraint{.z = 0., .sigmaZ = 5., .sigmaTransverse = 0.005});
+  const auto material = bandMaterial<TRKFT3>(1.e-3);
+  const auto ratios = test::betweenOverBound<TRKFT3>(*material, windows, VertexConstraint{.z = 0., .sigmaZ = 5., .sigmaTransverse = 0.005});
   BOOST_TEST(!ratios.empty());
-  BOOST_TEST(test::segmentMaskMismatches<TRKFT3>(scattering) == 0);
   for (const auto& ratio : ratios) {
     BOOST_TEST_CONTEXT("link " << static_cast<int>(ratio.from) << " -> " << static_cast<int>(ratio.to))
     {
       BOOST_TEST(ratio.worst <= 1.);
-      BOOST_TEST(ratio.maskMismatches == 0);
-      BOOST_TEST(ratio.sourcePartMismatches == 0);
+      BOOST_TEST(ratio.worstSourceScale <= 1.);
     }
   }
-}
-
-/// The material LUT the tracking reads against the geometry it was made from,
-/// band by band as the layout splits the material: each passive's band
-/// (`passiveMaterial`) and each layer's slab (`layerMaterial`, with the
-/// passives its silicon envelope), sampled at the same azimuths and z on both.
-/// The passives' measured x/X0 (TRKFT3.h) is reported beside them. Runs with
-/// `GTRK_ALICE3_MATLUT` naming the LUT and `GTRK_ALICE3_GEOMETRY` the geometry.
-BOOST_AUTO_TEST_CASE(LutHoldsTheGeometrysMaterial)
-{
-  const char* lutFile = std::getenv("GTRK_ALICE3_MATLUT");
-  if (geometryFile() == nullptr || lutFile == nullptr) {
-    BOOST_TEST_MESSAGE("GTRK_ALICE3_GEOMETRY or GTRK_ALICE3_MATLUT not set: the LUT is not held to the geometry");
-    return;
-  }
-  o2::base::GeometryManager::loadGeometry(geometryFile());
-  const auto geometry = std::make_unique<const Geometry<TRKFT3>>(alice::placeChecked<TRKFT3>());
-  const std::unique_ptr<o2::base::MatLayerCylSet> lut{o2::base::MatLayerCylSet::loadFromFile(lutFile)};
-  BOOST_REQUIRE(lut);
-  // The same averages from the geometry, at random azimuths and z, with the
-  // mean's standard error. Some gaps hold thin radial walls -- the petals'
-  // side walls, the OT's quarter-barrel panels -- inside which a radial
-  // segment runs its whole length, and structures that end along z: a regular
-  // grid hits them by aliasing, and the mean is known to its statistical error.
-  struct Estimate {
-    double mean;
-    double error;
-  };
-  std::mt19937 rng(20261007);
-  std::uniform_real_distribution<double> uniformPhi(0., kTwoPi<double>);
-  const auto fromGeometry = [&](double low, double high, double zMin, double zMax) {
-    constexpr int kSamples = 65536;
-    std::uniform_real_distribution<double> uniformZ(zMin, zMax);
-    double sum = 0.;
-    double sum2 = 0.;
-    {
-      for (int sample = 0; sample < kSamples; ++sample) {
-        const double phi = uniformPhi(rng);
-        const double z = uniformZ(rng);
-        const auto x = static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{low * std::cos(phi), low * std::sin(phi), z}, o2::math_utils::Point3D<double>{high * std::cos(phi), high * std::sin(phi), z}).meanX2X0);
-        sum += x;
-        sum2 += x * x;
-      }
-    }
-    const double n = kSamples;
-    const double mean = sum / n;
-    return Estimate{.mean = mean, .error = std::sqrt(std::max(0., (sum2 / n) - (mean * mean)) / n)};
-  };
-  // The LUT averages each cell over its own 10 x 10 samples; agreement within
-  // 5 % or 3 standard errors of the geometry's mean, whichever is wider.
-  const auto close = [](double fromLut, const Estimate& geo) { return std::abs(fromLut - geo.mean) <= std::max(0.05 * geo.mean, 3. * geo.error) + 1e-7; };
-  const auto passives = passiveMaterial<TRKFT3>(*lut);
-  std::string out = "passive: radius; x/X0 measured (TRKFT3.h), geometry +- its error, LUT\n";
-  for (std::size_t i = 0; i < passives.size(); ++i) {
-    const auto& spec = TRKFT3::passives[i];
-    const auto geo = fromGeometry(spec.bandLow, spec.bandHigh, spec.low, spec.high);
-    out += fmt::format("  {:2d}: {:8.4f} cm  {:.3e}  {:.3e} +- {:.1e}  {:.3e}\n", i, spec.position, spec.x2X0, geo.mean, geo.error, passives[i]);
-    BOOST_TEST_CONTEXT("passive " << i << " geometry " << geo.mean << " +- " << geo.error << " LUT " << passives[i]) { BOOST_TEST(close(passives[i], geo)); }
-  }
-  // A disc's slab from the geometry as layerMaterial reads it: segments from
-  // z = low to high along the ray from the nominal vertex through each radius
-  // of the disc, scaled to normal incidence.
-  const auto fromDisc = [&](double low, double high, double position, double rMin, double rMax) {
-    constexpr int kSamples = 65536;
-    std::uniform_real_distribution<double> uniformR(rMin, rMax);
-    double sum = 0.;
-    double sum2 = 0.;
-    for (int sample = 0; sample < kSamples; ++sample) {
-      const double phi = uniformPhi(rng);
-      const double r = uniformR(rng);
-      const double rLow = r * low / position;
-      const double rHigh = r * high / position;
-      const double length = std::hypot(rHigh - rLow, high - low);
-      const auto x = static_cast<double>(o2::base::GeometryManager::meanMaterialBudget(o2::math_utils::Point3D<double>{rLow * std::cos(phi), rLow * std::sin(phi), low}, o2::math_utils::Point3D<double>{rHigh * std::cos(phi), rHigh * std::sin(phi), high}).meanX2X0) * std::abs(high - low) / length;
-      sum += x;
-      sum2 += x * x;
-    }
-    const double n = kSamples;
-    const double mean = sum / n;
-    return Estimate{.mean = mean, .error = std::sqrt(std::max(0., (sum2 / n) - (mean * mean)) / n)};
-  };
-  const auto layers = layerMaterial<TRKFT3>(*lut);
-  out +=
-    "layer: x/X0 of its slab (a barrel layer's silicon envelope, the outermost's mirrored about it; a disc's half-gaps to the discs\n"
-    "beside it on its side, the innermost's mirrored), geometry +- its error, LUT\n";
-  constexpr auto kBarrel = static_cast<std::size_t>(Detector<TRKFT3>::nBarrelLayers);
-  for (std::size_t i = 0; i < layers.size(); ++i) {
-    const auto& e = PlacedEnvelopes<TRKFT3>::all()[i];
-    Estimate geo{};
-    if (i < kBarrel) {
-      const double low = TRKFT3::passives[i].bandHigh;
-      const double high = i + 1 < kBarrel ? TRKFT3::passives[i + 1].bandLow : e.position + (e.position - low);
-      geo = fromGeometry(low, high, e.zMin, e.zMax);
-    } else {
-      // The neighbours of the same side, as layerMaterial takes them.
-      const auto sameSide = [&](std::size_t other) { return other >= kBarrel && other < layers.size() && PlacedEnvelopes<TRKFT3>::all()[other].position * e.position > 0.; };
-      const bool hasBelow = sameSide(i - 1);
-      const bool hasAbove = sameSide(i + 1);
-      const double below = hasBelow ? PlacedEnvelopes<TRKFT3>::all()[i - 1].position : 0.;
-      const double above = hasAbove ? PlacedEnvelopes<TRKFT3>::all()[i + 1].position : 0.;
-      double low = hasBelow ? 0.5 * (below + e.position) : 0.;
-      double high = hasAbove ? 0.5 * (above + e.position) : 0.;
-      low = hasBelow ? low : e.position - (high - e.position);
-      high = hasAbove ? high : e.position + (e.position - low);
-      // The outermost discs' mirrored slabs end at the LUT's |z|, as the
-      // LUT's reading does; beyond lies material behind the last disc.
-      const auto zMax = static_cast<double>(lut->getZMax());
-      geo = fromDisc(std::clamp(low, -zMax, zMax), std::clamp(high, -zMax, zMax), e.position, e.rMin, e.rMax);
-    }
-    out += fmt::format("  {:2d}: {:.3e} +- {:.1e}  {:.3e}\n", i, geo.mean, geo.error, layers[i]);
-    BOOST_TEST_CONTEXT("layer " << i << " geometry " << geo.mean << " +- " << geo.error << " LUT " << layers[i]) { BOOST_TEST(close(layers[i], geo)); }
-  }
-  BOOST_TEST_MESSAGE(out);
 }
 
 /// Without material, barrel and forward: with nothing to scatter on, 2.9

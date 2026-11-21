@@ -38,6 +38,7 @@
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Material.h"
 
+#include "BandMaterial.h"
 #include "GridTestSupport.h"
 #include "PullStatistics.h"
 #include "ScatteringKick.h"
@@ -309,7 +310,9 @@ const Scans* mftScans()
     }
     o2::base::GeometryManager::loadGeometry(geometryFile());
     const auto geometry = std::make_unique<const Geometry<MFT>>(alice::placeChecked<MFT>());
-    const auto tracking = std::make_unique<const TrackingGeometry<MFT>>(*geometry);
+    // The fits read the chains' material, not the link material (`withoutLinks`).
+    const auto tracking = std::make_unique<TrackingGeometry<MFT>>(*geometry);
+    withoutLinks(tracking->material());
     DiscChain<MFT> chain(*tracking, mftFaces());
     auto result = std::make_unique<const Scans>(Scans{.clean = scan(chain, kMftEtas, false, kTrials), .scattered = scan(chain, kMftEtas, true, kTrials)});
     BOOST_TEST_MESSAGE(report("MFT, no material", result->clean));

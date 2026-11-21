@@ -23,6 +23,7 @@
 #include "GenericTracking/Tracking/Tracker.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
+#include "BandMaterial.h"
 #include "GridTestSupport.h"
 #include "ToyBarrel8.h"
 #include "UniformMaterial.h"
@@ -78,12 +79,17 @@ struct Hit {
   Scalar loc1 = 0.F;
 };
 
-/// The detector's sensors, built once.
+/// The detector's sensors, built once, with the link material without any
+/// (`noMaterial`): the iterations' and the device tracker's.
 inline const TrackingGeometry<Det>& trackingGeometry()
 {
   static const auto detector = toyGeometry<Det>();
-  static const TrackingGeometry<Det> tracking{detector};
-  return tracking;
+  static const auto tracking = [] {
+    auto geometry = std::make_unique<TrackingGeometry<Det>>(detector);
+    geometry->material() = noMaterial<Det>();
+    return geometry;
+  }();
+  return *tracking;
 }
 
 /// The hits of a helix from the origin on the sensors it crosses, one per

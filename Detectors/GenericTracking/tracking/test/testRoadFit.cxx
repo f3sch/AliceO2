@@ -24,6 +24,7 @@
 #include "GenericTracking/Tracking/TrackRefit.h"
 #include "GenericTracking/Study/Validation.h"
 
+#include "BandMaterial.h"
 #include "FixedPointReferences.h"
 #include "SerialReferences.h"
 #include "StageOutputComparison.h"
@@ -106,7 +107,7 @@ const UniformMaterial kNoMaterial{};
 
 IterationParameters<Det> parameters()
 {
-  return iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scatteringTable<Det>(std::array<double, kLayers>{}));
+  return iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, noMaterial<Det>());
 }
 
 } // namespace
@@ -381,11 +382,18 @@ BOOST_AUTO_TEST_CASE(TheLastStepTakesTheAllowanceNotAFreeDirection)
   // whole-chain circle's 1.29 GeV, which the kink itself bends below the
   // chain's 1.5: 0.014 rad is inside the allowance there.
   constexpr UniformMaterial material{.x2X0PerCm = 0.01F, .rho = 0.F};
+  // The fits read the material from it, not from the link material (`withoutLinks`).
+  const auto geometry = [] {
+    auto made = std::make_unique<TrackingGeometry<Det>>(trackingGeometry());
+    withoutLinks(made->material());
+    return made;
+  }();
+  const auto& tracking = *geometry;
   auto iteration = parameters();
-  const auto road = [&](const std::array<Measurement, kLayers>& chain) { return takesLastStepAllowance(iteration) ? fitRoad<true>(iteration, kPropagator, trackingGeometry(), material, chain.data(), static_cast<int>(kLayers)) : fitRoad<false>(iteration, kPropagator, trackingGeometry(), material, chain.data(), static_cast<int>(kLayers)); };
+  const auto road = [&](const std::array<Measurement, kLayers>& chain) { return takesLastStepAllowance(iteration) ? fitRoad<true>(iteration, kPropagator, tracking, material, chain.data(), static_cast<int>(kLayers)) : fitRoad<false>(iteration, kPropagator, tracking, material, chain.data(), static_cast<int>(kLayers)); };
   const auto inside = kinkedChain(kLayers - 2U, 0.014);
   const auto beyond = kinkedChain(kLayers - 2U, 0.08);
-  const auto refitBudget = fitOutward(kPropagator, trackingGeometry(), material, inside.data(), static_cast<int>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
+  const auto refitBudget = fitOutward(kPropagator, tracking, material, inside.data(), static_cast<int>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
   BOOST_TEST((refitBudget.status == RoadFitStatus::kRejected));
   BOOST_TEST((road(inside).status == RoadFitStatus::kRejected));
   iteration.kinkScale2 = 25.F;
@@ -396,7 +404,7 @@ BOOST_AUTO_TEST_CASE(TheLastStepTakesTheAllowanceNotAFreeDirection)
   BOOST_TEST((road(beyond).status == RoadFitStatus::kRejected));
   // The refit's passes keep the rule: a kink at the innermost cluster going
   // inward would leave the track's direction there unchecked.
-  const auto refit = fitMeasurements(kPropagator, trackingGeometry(), material, inside.data(), static_cast<int>(kLayers), kinkBudget(iteration));
+  const auto refit = fitMeasurements(kPropagator, tracking, material, inside.data(), static_cast<int>(kLayers), kinkBudget(iteration));
   BOOST_REQUIRE((refit.status == PropagationStatus::kOk));
   BOOST_TEST(refit.outwardKinks == 0U);
 }
@@ -410,7 +418,7 @@ struct RoadsRun {
   RoadCount count;
 
   explicit RoadsRun(const Fixture& fixture)
-    : tracker(iterationSettings(), Fixture::kBeamConstraint, scatteringTable<Det>(std::array<double, kLayers>{}), std::make_shared<BoundedMemoryResource>(), 2U, 2),
+    : tracker(iterationSettings(), Fixture::kBeamConstraint, noMaterial<Det>(), std::make_shared<BoundedMemoryResource>(), 2U, 2),
       slice(*fixture.frame, fixture.geometry.allBlocks(), 0)
   {
     BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
@@ -490,7 +498,7 @@ BOOST_AUTO_TEST_CASE(TheStageDropsRoadsBelowTheFloorOfTheirClusterCount)
     settings.follow = false;
     settings.minPtGeVByClusters[kLayers] = floorAll;
     settings.minPtGeVByClusters[kLayers - 1U] = floorOneShort;
-    const auto iteration = iterationParameters<Det>(settings, Fixture::kBeamConstraint, scatteringTable<Det>(std::array<double, kLayers>{}));
+    const auto iteration = iterationParameters<Det>(settings, Fixture::kBeamConstraint, noMaterial<Det>());
     const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
     RecordOutput records;
     records.setMemoryPool(std::make_shared<BoundedMemoryResource>());
@@ -531,7 +539,7 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
     for (std::size_t clusters = refusedBelow; clusters <= kLayers; ++clusters) {
       settings.minPtGeVByClusters[clusters] = 100.;
     }
-    const auto iteration = iterationParameters<Det>(settings, Fixture::kBeamConstraint, scatteringTable<Det>(std::array<double, kLayers>{}));
+    const auto iteration = iterationParameters<Det>(settings, Fixture::kBeamConstraint, noMaterial<Det>());
     const RoadFitStage<Det, UniformMaterial, false, false, false, Trim> stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
     RecordOutput records;
     records.setMemoryPool(std::make_shared<BoundedMemoryResource>());

@@ -24,6 +24,7 @@
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackletStage.h"
 
+#include "BandMaterial.h"
 #include "GridTestSupport.h"
 #include "SerialReferences.h"
 #include "StageOutputComparison.h"
@@ -193,7 +194,7 @@ std::vector<std::uint32_t> bruteForceTargets(const Fixture& fixture, const Itera
       if (!vertexUsed(parameters, source, vertex)) {
         continue;
       }
-      const Scalar scattering = sourceScattering<StageToy>(parameters.scattering, parameters.pairCut, vertex, sourceAt.layer, sourcePoint);
+      const Scalar scattering = sourceScattering<StageToy>(*parameters.material, parameters.pairCut, vertex, sourceAt.layer, sourcePoint);
       if (pairCompatible(parameters.pairCut, vertex, sourcePoint, scattering, pairPoint(target))) {
         result.push_back(targetRow);
         break;
@@ -207,8 +208,7 @@ void verify(VertexSource vertexSource, std::span<const VertexSeed> suppliedVerti
 {
   Fixture fixture;
   const IterationSettings settings{.windows = windowParameters(), .vertexSource = vertexSource, .minClusters = kChainClusters, .skipLinks = skipLinks};
-  const Vec3D material{};
-  const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, scatteringTable<StageToy>(material));
+  const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, noMaterial<StageToy>());
   const std::span<const VertexSeed> vertexList = suppliedVertices.empty() ? std::span<const VertexSeed>{fixture.vertices} : suppliedVertices;
   const std::span<const VertexSeed> selected = vertexSource == VertexSource::kBeamLine ? std::span<const VertexSeed>{&fixture.beamLine, 1U} : vertexList;
   const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, vertexList);
@@ -302,11 +302,11 @@ void verify(VertexSource vertexSource, std::span<const VertexSeed> suppliedVerti
         if (!vertexUsed(parameters, fixture.frame->measurement(wrappedSource), selected[i])) {
           continue;
         }
-        const Scalar scattering = sourceScattering<StageToy>(parameters.scattering, parameters.pairCut, selected[i], LayerID{0}, sourcePoint);
+        const Scalar scattering = sourceScattering<StageToy>(*parameters.material, parameters.pairCut, selected[i], LayerID{0}, sourcePoint);
         BOOST_TEST(!pairCompatible(parameters.pairCut, selected[i], sourcePoint, scattering, targetPoint));
       }
       BOOST_REQUIRE(vertexUsed(parameters, fixture.frame->measurement(wrappedSource), selected[kFirstPassingVertex]));
-      const Scalar passingScattering = sourceScattering<StageToy>(parameters.scattering, parameters.pairCut, selected[kFirstPassingVertex], LayerID{0}, sourcePoint);
+      const Scalar passingScattering = sourceScattering<StageToy>(*parameters.material, parameters.pairCut, selected[kFirstPassingVertex], LayerID{0}, sourcePoint);
       BOOST_TEST(pairCompatible(parameters.pairCut, selected[kFirstPassingVertex], sourcePoint, passingScattering, targetPoint));
       bool found = false;
       for (std::size_t i = 0; i < output.size(); ++i) {
@@ -330,8 +330,7 @@ BOOST_AUTO_TEST_CASE(WithoutSkipsAPairCrossingALayerIsNotATracklet)
 {
   verify(VertexSource::kBeamLine, {}, true, false);
   verify(VertexSource::kVertexList, {}, true, false);
-  const Vec3D material{};
-  const auto table = scatteringTable<StageToy>(material);
+  const auto& table = noMaterial<StageToy>();
   const auto withSkips = iterationParameters<StageToy>({.windows = windowParameters(), .minClusters = kChainClusters}, Fixture::kBeamConstraint, table);
   const auto without = iterationParameters<StageToy>({.windows = windowParameters(), .minClusters = kChainClusters, .skipLinks = false}, Fixture::kBeamConstraint, table);
   BOOST_TEST(withSkips.holeLayers[0] == 0U);
@@ -378,8 +377,7 @@ BOOST_AUTO_TEST_CASE(TheSourceGateSkipsHaloSourcesOutsideItsWindow)
 {
   Fixture fixture;
   const IterationSettings settings{.windows = windowParameters(), .vertexSource = VertexSource::kBeamLine, .minClusters = kChainClusters};
-  const Vec3D material{};
-  const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, scatteringTable<StageToy>(material));
+  const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, noMaterial<StageToy>());
   const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, {});
   std::array<MeasurementRange, Sources::kLayerCount> everything{};
   std::array<MeasurementRange, Sources::kLayerCount> nothing{};
@@ -404,8 +402,7 @@ BOOST_AUTO_TEST_CASE(TheUsedMaskRemovesExclusiveRows)
 {
   Fixture fixture;
   const IterationSettings settings{.windows = windowParameters(), .vertexSource = VertexSource::kBeamLine, .minClusters = kChainClusters};
-  const Vec3D material{};
-  const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, scatteringTable<StageToy>(material));
+  const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, noMaterial<StageToy>());
   const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, {});
   const auto run = [&](const std::vector<std::uint8_t>& used) {
     const TrackletStage<StageToy> stage{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, used.data()};
@@ -452,8 +449,7 @@ BOOST_AUTO_TEST_CASE(ForcedVertexCapacityOneKeepsTheSameTracklets)
 {
   Fixture fixture;
   const IterationSettings settings{.windows = windowParameters(), .vertexSource = VertexSource::kVertexList, .minClusters = kChainClusters};
-  const Vec3D material{};
-  const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, scatteringTable<StageToy>(material));
+  const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, noMaterial<StageToy>());
   // Beyond the beam spot's 1.5 cm reach and compatible in time: not used, so
   // no window has to hold it and the capacity cannot change the result.
   std::array<VertexSeed, 5> vertices{};
@@ -475,9 +471,8 @@ BOOST_AUTO_TEST_CASE(ForcedVertexCapacityOneKeepsTheSameTracklets)
 BOOST_AUTO_TEST_CASE(TheBeamLineStageKeepsTheSameTracklets)
 {
   Fixture fixture;
-  const Vec3D material{};
   const IterationSettings settings{.windows = windowParameters(), .vertexSource = VertexSource::kBeamLine, .minClusters = kChainClusters};
-  const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, scatteringTable<StageToy>(material));
+  const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, noMaterial<StageToy>());
   const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, {});
   const auto run = [&](const auto& stage) { return runStage(fixture, stage); };
   const TrackletStage<StageToy> general{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
@@ -487,7 +482,7 @@ BOOST_AUTO_TEST_CASE(TheBeamLineStageKeepsTheSameTracklets)
   BOOST_TEST(sameStageOutput(*run(beamLine), *expected));
 
   const IterationSettings listSettings{.windows = windowParameters(), .vertexSource = VertexSource::kVertexList, .minClusters = kChainClusters};
-  const auto listParameters = iterationParameters<StageToy>(listSettings, Fixture::kBeamConstraint, scatteringTable<StageToy>(material));
+  const auto listParameters = iterationParameters<StageToy>(listSettings, Fixture::kBeamConstraint, noMaterial<StageToy>());
   const auto listWindows = vertexWindowParameters<StageToy>(listParameters, listSettings.windows, fixture.vertices);
   BOOST_CHECK_THROW((TrackletStageFor<StageToy, true>{listParameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, fixture.vertices, fixture.maxCandidateWidthPS, listWindows, fixture.used.data()}), std::invalid_argument);
 }
@@ -500,8 +495,7 @@ BOOST_AUTO_TEST_CASE(TheBeamLineStageKeepsTheSameTracklets)
 BOOST_AUTO_TEST_CASE(TheDisplacedStageMakesThePairsItsTestAdmits)
 {
   Fixture fixture;
-  const Vec3D material{};
-  const auto table = scatteringTable<StageToy>(material);
+  const auto& table = noMaterial<StageToy>();
   auto windows = windowParameters();
   windows.impactMax = 1.;
   windows.impactZMax = 10.;
@@ -527,7 +521,7 @@ BOOST_AUTO_TEST_CASE(TheDisplacedStageMakesThePairsItsTestAdmits)
     for (auto at = outLinks<StageToy>.begin(sourceAt.layer); at < outLinks<StageToy>.end(sourceAt.layer); ++at) {
       const std::size_t link = outLinks<StageToy>.links[at];
       const auto targets = fixture.frame->grid().layerRows(StageToy::layerLinks[link].to);
-      const Scalar scattering = sourceScattering<StageToy>(parameters.scattering, parameters.pairCut, fixture.beamLine, sourceAt.layer, sourcePoint);
+      const Scalar scattering = sourceScattering<StageToy>(*parameters.material, parameters.pairCut, fixture.beamLine, sourceAt.layer, sourcePoint);
       for (auto targetRow = targets.begin; targetRow < targets.end; ++targetRow) {
         const auto target = fixture.frame->measurement(targetRow);
         if (!timeBox(source).isCompatible(timeBox(target)) || segmentLeavesHole(parameters.holeLayers[link], parameters.barrelLayers, parameters.layerSpans, source.r, source.z, target.r, target.z)) {
@@ -570,8 +564,7 @@ BOOST_AUTO_TEST_CASE(ABoundStageReadsItsBindingsOnly)
   Fixture fixture;
   for (const auto vertexSource : {VertexSource::kBeamLine, VertexSource::kVertexList}) {
     const IterationSettings settings{.windows = windowParameters(), .vertexSource = vertexSource, .minClusters = kChainClusters};
-    const Vec3D material{};
-    const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, scatteringTable<StageToy>(material));
+    const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, noMaterial<StageToy>());
     const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, fixture.vertices);
     const std::array<MeasurementRange, Sources::kLayerCount> nothing{};
     const SourceGate gate{.core = nothing.data(), .earliestPS = 0, .latestPS = 120'000};
@@ -628,8 +621,7 @@ BOOST_AUTO_TEST_CASE(CpuStageMatchesTheSerialReference)
   BOOST_REQUIRE(fixture.sources.size() > 64U);
   for (const auto vertexSource : {VertexSource::kBeamLine, VertexSource::kVertexList}) {
     const IterationSettings settings{.windows = windowParameters(), .vertexSource = vertexSource, .minClusters = kChainClusters};
-    const Vec3D material{};
-    const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, scatteringTable<StageToy>(material));
+    const auto parameters = iterationParameters<StageToy>(settings, Fixture::kBeamConstraint, noMaterial<StageToy>());
     const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, fixture.vertices);
     const TrackletStage<StageToy> stage{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, fixture.vertices, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
 

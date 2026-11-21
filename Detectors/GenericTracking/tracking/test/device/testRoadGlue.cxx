@@ -19,6 +19,7 @@
 #define BOOST_TEST_MODULE Test GTRK road glue
 #include "GenericTracking/Tracking/RoadCount.h"
 
+#include "BandMaterial.h"
 #include "DeviceTestFixture.h"
 #include "DeviceTestKernels.h"
 #include "FixedPointReferences.h"
@@ -54,8 +55,7 @@ const auto kSerial = [](std::uint32_t elements, const auto& body) {
 
 IterationParameters<Det> parameters()
 {
-  const std::array<double, kLayers> material{};
-  return iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scatteringTable<Det>(material));
+  return iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, noMaterial<Det>());
 }
 
 /// The first half of every layer's rows is the slice's core.

@@ -26,6 +26,7 @@
 #include "GenericTracking/Tracking/SensorCells.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
 
+#include "BandMaterial.h"
 #include "SerialReferences.h"
 #include "ToyBarrel4Disc8.h"
 #include "ToyBarrel8Fixture.h"
@@ -53,7 +54,7 @@ template <DetectorLayout Det>
 IterationParameters<Det> parameters()
 {
   auto settings = toybarrel8::iterationSettings();
-  return iterationParameters<Det>(settings, VertexConstraint{}, scatteringTable<Det>(uniformLayerMaterial<Det>(0.)));
+  return iterationParameters<Det>(settings, VertexConstraint{}, noMaterial<Det>());
 }
 
 Scalar phiDifference(Scalar a, Scalar b) { return o2::gpu::CAMath::Abs(o2::math_utils::detail::toPMPi<Scalar>(a - b)); }
@@ -116,7 +117,7 @@ IterationParameters<toybarrel8::Det> followParameters(int holes = 0, bool beamLi
   settings.followEnd = followEnd;
   settings.followHoles = holes;
   settings.beamConstraint = beamLine;
-  return iterationParameters<toybarrel8::Det>(settings, VertexConstraint{}, scatteringTable<toybarrel8::Det>(uniformLayerMaterial<toybarrel8::Det>(0.)));
+  return iterationParameters<toybarrel8::Det>(settings, VertexConstraint{}, noMaterial<toybarrel8::Det>());
 }
 
 /// Track \a track of \a tracks followed (`FollowStage`, the end decided

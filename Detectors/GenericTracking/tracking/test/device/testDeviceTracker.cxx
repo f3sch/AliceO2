@@ -178,7 +178,6 @@ std::string describe(const Options& options) { return std::string{options.source
 
 std::unique_ptr<Host> makeHost(const Options& options)
 {
-  const std::array<double, kLayers> material{};
   static const UniformMaterial none{};
   auto settings = iterations(options.source);
   for (auto& iteration : settings) {
@@ -190,7 +189,7 @@ std::unique_ptr<Host> makeHost(const Options& options)
   if (options.kinkSigma > 1.) {
     settings.back().layerMask = (std::uint64_t{1} << kFirstTwinLayer) - 1U;
   }
-  auto tracker = std::make_unique<Host>(settings, Fixture::kBeamConstraint, scatteringTable<Det>(material), std::make_shared<BoundedMemoryResource>(), 2U, 2);
+  auto tracker = std::make_unique<Host>(settings, Fixture::kBeamConstraint, trackingGeometry().material(), std::make_shared<BoundedMemoryResource>(), 2U, 2);
   tracker->setTrackModel(trackingGeometry(), none, Propagator{});
   return tracker;
 }
@@ -514,9 +513,8 @@ BOOST_AUTO_TEST_CASE(AnEdgelessTripletGraphNeedsNoOverflowReadback)
   auto settings = iterationSettings();
   settings.minClusters = 3;
   settings.follow = false;
-  const std::array<double, kLayers> material{};
   const auto pool = std::make_shared<BoundedMemoryResource>();
-  Host host{settings, Fixture::kBeamConstraint, scatteringTable<Det>(material), pool, 2U, 2};
+  Host host{settings, Fixture::kBeamConstraint, trackingGeometry().material(), pool, 2U, 2};
   const UniformMaterial none{};
   host.setTrackModel(trackingGeometry(), none, Propagator{});
   const auto plan = host.planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, 1000);
@@ -767,8 +765,7 @@ BOOST_AUTO_TEST_CASE(TheVertexerRerunsAFrameWithoutAVertexAsTheHost)
     hits.insert(hits.end(), one.begin(), one.end());
   }
   const Fixture fixture{hits, kCollisionDurationNS};
-  const std::array<double, kLayers> material{};
-  const auto scattering = scatteringTable<Det>(material);
+  const auto& scattering = trackingGeometry().material();
   const auto pool = std::make_shared<BoundedMemoryResource>();
   const VertexerSettings settings{.aloneMinContributors = 2U};
 
@@ -813,8 +810,7 @@ BOOST_AUTO_TEST_CASE(TheVertexingPassGivesTheHostsListAndTracks)
   auto* device = runtime();
   const auto tracker = kernels().makeToyBarrel8Tracker(*device, block(kArenaBytes));
   const Fixture fixture{collisionHits(), kCollisionDurationNS};
-  const std::array<double, kLayers> material{};
-  const auto scattering = scatteringTable<Det>(material);
+  const auto& scattering = trackingGeometry().material();
   const auto pool = std::make_shared<BoundedMemoryResource>();
 
   // The host: the pass's list, and the tracking from it.
@@ -889,7 +885,7 @@ BOOST_AUTO_TEST_CASE(AFailedEndLeavesTheMaskAndTheTracks)
   const auto pool = std::make_shared<BoundedMemoryResource>();
 
   // The second iteration alone on the host: its mask from a free one.
-  auto alone = std::make_unique<Host>(std::vector<IterationSettings>{iterations(VertexSource::kBeamLine)[1]}, Fixture::kBeamConstraint, scatteringTable<Det>(std::array<double, kLayers>{}), std::make_shared<BoundedMemoryResource>(), 2U, 2);
+  auto alone = std::make_unique<Host>(std::vector<IterationSettings>{iterations(VertexSource::kBeamLine)[1]}, Fixture::kBeamConstraint, trackingGeometry().material(), std::make_shared<BoundedMemoryResource>(), 2U, 2);
   static const UniformMaterial none{};
   alone->setTrackModel(trackingGeometry(), none, Propagator{});
   std::vector<std::size_t> aloneTracklets;

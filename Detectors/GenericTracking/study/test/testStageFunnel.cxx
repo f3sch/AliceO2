@@ -17,6 +17,7 @@
 #define BOOST_TEST_MODULE Test GTRK stage funnel
 #include "GenericTracking/Study/StageFunnel.h"
 
+#include "BandMaterial.h"
 #include "ToyBarrel8Fixture.h"
 #include "UniformMaterial.h"
 
@@ -38,7 +39,7 @@ using Funnel = StageFunnel<toybarrel8::Det, Controller>;
 std::unique_ptr<Funnel> runFunnel(const toybarrel8::Fixture& fixture, std::span<const TruthRow> rows, const ParticleTable& truth, const std::vector<IterationSettings>& settings)
 {
   using namespace toybarrel8;
-  Controller tracker{settings, Fixture::kBeamConstraint, scatteringTable<Det>(std::array<double, kLayers>{}), std::make_shared<BoundedMemoryResource>(), 2U, 1};
+  Controller tracker{settings, Fixture::kBeamConstraint, noMaterial<Det>(), std::make_shared<BoundedMemoryResource>(), 2U, 1};
   const UniformMaterial none{};
   tracker.setTrackModel(trackingGeometry(), none, Propagator{});
   std::vector<double> floors;

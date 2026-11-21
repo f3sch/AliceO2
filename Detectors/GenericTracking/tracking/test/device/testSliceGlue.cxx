@@ -24,6 +24,7 @@
 #include "GenericTracking/Tracking/TripletPaths.h"
 #include "GenericTracking/Tracking/TripletPermutation.h"
 
+#include "BandMaterial.h"
 #include "DeviceTestFixture.h"
 #include "DeviceTestKernels.h"
 #include "FixedPointReferences.h"
@@ -73,8 +74,7 @@ Sources sourceMap(std::uint32_t total)
 
 IterationParameters<Det> parameters()
 {
-  const std::array<double, kLayers> material{};
-  return iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, scatteringTable<Det>(material));
+  return iterationParameters<Det>(iterationSettings(), Fixture::kBeamConstraint, noMaterial<Det>());
 }
 
 } // namespace

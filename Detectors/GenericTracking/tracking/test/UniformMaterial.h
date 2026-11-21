@@ -19,14 +19,10 @@
 #ifndef GTRK_TEST_UNIFORMMATERIAL_H_
 #define GTRK_TEST_UNIFORMMATERIAL_H_
 
-#include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
 
 #include "DetectorsBase/MatCell.h"
 #include "GPUCommonMath.h"
-
-#include <array>
-#include <cstddef>
 
 namespace o2::gtrk
 {
@@ -61,16 +57,6 @@ struct UniformMaterial {
     return {.x2X0 = x, .x2X0T2 = x / 3.F};
   }
 };
-
-/// The same `x/X0` for every layer, as `layerMaterial` gives a `LayerBudget`
-/// from a LUT.
-template <DetectorLayout Det>
-[[nodiscard]] inline std::array<double, static_cast<std::size_t>(Detector<Det>::nLayers)> uniformLayerMaterial(double x2X0)
-{
-  std::array<double, static_cast<std::size_t>(Detector<Det>::nLayers)> budget;
-  budget.fill(x2X0);
-  return budget;
-}
 
 } // namespace o2::gtrk
 
