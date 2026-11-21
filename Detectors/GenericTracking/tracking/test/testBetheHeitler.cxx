@@ -39,7 +39,7 @@ namespace
 {
 
 /// The step thicknesses the mixture is checked at: below a layer's to
-/// beyond the thickest services, both ranges' edges included.
+/// beyond the thickest services, the table's edges included.
 std::vector<double> thicknesses()
 {
   std::vector<double> t;
@@ -48,7 +48,7 @@ std::vector<double> thicknesses()
     t.push_back(x);
     x *= 1.25;
   }
-  for (const double edge : {1e-4, 0.002, 0.0999, 0.1, 0.1001, 0.2}) {
+  for (const double edge : {1e-4, 0.2}) {
     t.push_back(edge);
   }
   std::ranges::sort(t);
@@ -168,7 +168,7 @@ BOOST_AUTO_TEST_CASE(TheMixtureIsAProbability)
     const Mixture mixture(t);
     BOOST_TEST_CONTEXT("t " << t)
     {
-      BOOST_TEST(mixture.size == (t < 0.002 ? 1 : kBetheHeitlerComponents));
+      BOOST_TEST(mixture.size == (t < 1e-4 ? 1 : kBetheHeitlerComponents));
       double sum = 0.;
       for (int i = 0; i < mixture.size; ++i) {
         const auto& c = mixture.components[i];
@@ -188,85 +188,42 @@ BOOST_AUTO_TEST_CASE(TheMixtureIsAProbability)
   }
 }
 
-/// The single Gaussian of thin steps has Bethe and Heitler's mean and
-/// variance; the six components' moments and tails follow the model within
-/// what the parameterisation's fit leaves (it is fitted to Geant4's losses,
-/// not to the formula), printed per thickness. A changed coefficient moves
-/// them far outside.
+/// The mixture has Bethe and Heitler's mean and second moment at every
+/// thickness, to float precision; its CDF follows the model's within what
+/// the table's fit and its interpolation leave, printed per thickness.
 BOOST_AUTO_TEST_CASE(TheMixtureFollowsBetheHeitler)
 {
-  const double tails[] = {0.5, 0.8, 0.9, 0.95};
-  BOOST_TEST_MESSAGE("t        n  E[z] rel   E[z^2] rel  P(z<z0) mixture / Bethe-Heitler, z0 = 0.5 0.8 0.9 0.95; P(1/z > 2, 1.25) linearised / Bethe-Heitler");
-  double worstMean = 0.;
-  double worstSecond = 0.;
+  const double tails[] = {0.5, 0.8, 0.9, 0.95, 0.99};
+  BOOST_TEST_MESSAGE("t        n  E[1-z] rel  E[z^2] diff  P(z<z0) mixture / Bethe-Heitler, z0 = 0.5 0.8 0.9 0.95 0.99; P(1/z > 2, 1.25) linearised / Bethe-Heitler");
+  constexpr double kFloatEpsilon = std::numeric_limits<Scalar>::epsilon();
   double worstTail = 0.;
   for (const double t : thicknesses()) {
     const Mixture mixture(t);
     const double c = betheHeitlerShape(t);
-    const double mean = (mixture.moment(1) / std::exp(-t)) - 1.;
-    const double second = (mixture.moment(2) / std::pow(3., -c)) - 1.;
-    std::string line = fmt::format("{:<8.4g} {}  {:+.2e}  {:+.2e}  ", t, mixture.size, mean, second);
-    if (t < 1e-4) {
-      BOOST_TEST(mixture.moment(1) == 1.);
-    } else if (mixture.size == 1) {
-      BOOST_TEST(std::abs(mean) < 1e-6);
-      BOOST_TEST(std::abs(second) < 1e-6);
-    } else {
-      worstMean = std::max(worstMean, std::abs(mean));
-      worstSecond = std::max(worstSecond, std::abs(second));
-      for (const double z0 : tails) {
-        const double ratio = mixture.cdf(z0) / betheHeitlerCdf(t, z0);
-        line += fmt::format(" {:.2f}", ratio);
-        worstTail = std::max(worstTail, std::abs(std::log(ratio)));
-      }
-      for (const double y0 : {2., 1.25}) {
-        line += fmt::format("  {:.2f}", mixture.linearisedInverseTail(y0) / betheHeitlerCdf(t, 1. / y0));
+    const double meanLoss = (1. - mixture.moment(1)) / -std::expm1(-t);
+    const double second = mixture.moment(2) - std::pow(3., -c);
+    std::string line = fmt::format("{:<8.4g} {}  {:+.2e}  {:+.2e}  ", t, mixture.size, meanLoss - 1., second);
+    BOOST_TEST_CONTEXT("t " << t)
+    {
+      if (t < 1e-4) {
+        BOOST_TEST(mixture.moment(1) == 1.);
+      } else {
+        BOOST_TEST(std::abs(mixture.moment(1) - std::exp(-t)) < 4. * kFloatEpsilon);
+        BOOST_TEST(std::abs(second) < 8. * kFloatEpsilon);
+        for (const double z0 : tails) {
+          const double ratio = mixture.cdf(z0) / betheHeitlerCdf(t, z0);
+          line += fmt::format(" {:.3f}", ratio);
+          worstTail = std::max(worstTail, std::abs(std::log(ratio)));
+        }
+        for (const double y0 : {2., 1.25}) {
+          line += fmt::format("  {:.2f}", mixture.linearisedInverseTail(y0) / betheHeitlerCdf(t, 1. / y0));
+        }
       }
     }
     BOOST_TEST_MESSAGE(line);
   }
-  BOOST_TEST_MESSAGE(fmt::format("six components: worst |E[z] rel| {:.2e}, |E[z^2] rel| {:.2e}, tail ratio within a factor {:.2f}", worstMean, worstSecond, std::exp(worstTail)));
-  BOOST_TEST(worstMean < 6e-3);
-  BOOST_TEST(worstSecond < 1.5e-2);
-  BOOST_TEST(worstTail < std::log(2.));
-}
-
-/// The float evaluation against the same coefficients in double: the
-/// polynomials' large coefficients cancel, so this bounds what float loses.
-BOOST_AUTO_TEST_CASE(TheFloatMixtureIsTheDoubleOne)
-{
-  const auto polynomial = [](int range, int k, int q, double t) {
-    double sum = 0.;
-    for (int power = 0; power < 6; ++power) {
-      sum = (sum * t) + static_cast<double>(detail::kBetheHeitlerCoefficients[range][k][q][power]);
-    }
-    return sum;
-  };
-  const auto logistic = [](double x) { return 1. / (1. + std::exp(-x)); };
-  double worst = 0.;
-  for (const double t : thicknesses()) {
-    const Mixture mixture(t);
-    if (mixture.size != kBetheHeitlerComponents) {
-      continue;
-    }
-    const double tf = static_cast<Scalar>(t);
-    const int range = tf < 0.1 ? 0 : 1;
-    double weights[kBetheHeitlerComponents];
-    double sum = 0.;
-    for (int k = 0; k < kBetheHeitlerComponents; ++k) {
-      weights[k] = logistic(polynomial(range, k, 0, tf));
-      sum += weights[k];
-    }
-    for (int k = 0; k < kBetheHeitlerComponents; ++k) {
-      const auto& c = mixture.components[k];
-      worst = std::max({worst,
-                        std::abs((c.weight / (weights[k] / sum)) - 1.),
-                        std::abs((c.mean / logistic(polynomial(range, k, 1, tf))) - 1.),
-                        std::abs((c.variance / std::exp(polynomial(range, k, 2, tf))) - 1.)});
-    }
-  }
-  BOOST_TEST_MESSAGE(fmt::format("float mixture: worst relative difference to double {:.2e}", worst));
-  BOOST_TEST(worst < 1e-4);
+  BOOST_TEST_MESSAGE(fmt::format("six components: tail ratio within a factor {:.3f}", std::exp(worstTail)));
+  BOOST_TEST(worstTail < std::log(1.25));
 }
 
 /// A loss component applied to a state against the dense formula: q/p
