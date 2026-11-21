@@ -47,6 +47,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 
 namespace o2::gtrk
 {
@@ -114,7 +115,7 @@ struct MaterialNode {
   {
     const Scalar at = (t < 0.F ? 0.F : (t > 1.F ? 1.F : t)) * static_cast<Scalar>(kNodeDepths);
     const int k = at >= static_cast<Scalar>(kNodeDepths) ? kNodeDepths - 1 : static_cast<int>(at);
-    const Scalar low = static_cast<Scalar>(depth[k]);
+    const auto low = static_cast<Scalar>(depth[k]);
     return (low + ((static_cast<Scalar>(depth[k + 1]) - low) * (at - static_cast<Scalar>(k)))) * (1.F / 255.F);
   }
 };
@@ -229,18 +230,18 @@ struct LinkMaterial {
   }
 
   /// The first cell of link \a link's row for a source at (\a x, \a y) with
-  /// second coordinate \a second.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t gapRow(std::size_t link, Scalar x, Scalar y, Scalar second) const
+  /// second coordinate \a coordinate.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t gapRow(std::size_t link, Scalar x, Scalar y, Scalar coordinate) const
   {
     const auto phi = static_cast<std::uint32_t>(phiBin(x, y, kGapPhi));
-    const auto s = static_cast<std::uint32_t>(linkSource[link].bin(second, kSourceSecond));
+    const auto s = static_cast<std::uint32_t>(linkSource[link].bin(coordinate, kSourceSecond));
     return ((((static_cast<std::uint32_t>(link) * kGapPhi) + phi) * kSourceSecond) + s) * kSecond;
   }
 
   /// The same for a source in gap azimuth bin \a phiBin (`phiBin` with `kGapPhi`).
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t gapRowAt(std::size_t link, std::uint32_t phiBin, Scalar second) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t gapRowAt(std::size_t link, std::uint32_t phiBin, Scalar coordinate) const
   {
-    const auto s = static_cast<std::uint32_t>(linkSource[link].bin(second, kSourceSecond));
+    const auto s = static_cast<std::uint32_t>(linkSource[link].bin(coordinate, kSourceSecond));
     return ((((static_cast<std::uint32_t>(link) * kGapPhi) + phiBin) * kSourceSecond) + s) * kSecond;
   }
 
@@ -337,7 +338,7 @@ struct LinkMaterial {
       }
       out.xRho += part.xRho;
     };
-    for (int layer = static_cast<int>(fromLayer) + sign; layer != static_cast<int>(toLayer); layer += sign) {
+    for (int layer = static_cast<int>(fromLayer) + sign; std::cmp_not_equal(layer, toLayer); layer += sign) {
       const auto crossed = static_cast<LayerID>(layer);
       if (!Detector<Det>::isBarrelLayer(crossed)) {
         return out;
@@ -632,10 +633,10 @@ struct LinkMaterial {
       out.left = nodeX;
       out.before = nodeX + gapX;
       if (out.before > 0.F) {
-        const Scalar m = gapX * meanU / out.before;
-        const Scalar q = gapX * squareU / out.before;
-        out.lever = 1.F - m;
-        const Scalar spread = q - (m * m);
+        const Scalar gapMean = gapX * meanU / out.before;
+        const Scalar gapSquare = gapX * squareU / out.before;
+        out.lever = 1.F - gapMean;
+        const Scalar spread = gapSquare - (gapMean * gapMean);
         out.spread = spread > 0.F ? spread : 0.F;
       }
     }

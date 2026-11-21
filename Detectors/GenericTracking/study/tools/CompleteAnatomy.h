@@ -1483,7 +1483,7 @@ class CompleteAnatomy
         one(radiations[model - 1U], model);
       }
     };
-    withFollowStage(iteration, parameters, frame, geometry, material, propagator, iteration.followUsed.data(), iteration.trackOffset, [&](const auto& stage) {
+    withFollowStage(iteration, parameters, frame, geometry, propagator, iteration.followUsed.data(), iteration.trackOffset, [&](const auto& stage) {
       o2::gtrk::detail::parallelFor(*mArena, 0U, rows.size(), 8, [&](std::size_t a, std::size_t b) {
         for (std::size_t i = a; i < b; ++i) {
           auto& row = mFollowLossRows[rows[i]];
@@ -1691,7 +1691,7 @@ class CompleteAnatomy
       bool fitted = false;
     };
     std::vector<Walked> walked(accepted.size());
-    withFollowStage(iteration, parameters, frame, geometry, material, propagator, mask.data(), iteration.trackOffset, [&](const auto& stage) {
+    withFollowStage(iteration, parameters, frame, geometry, propagator, mask.data(), iteration.trackOffset, [&](const auto& stage) {
       o2::gtrk::detail::parallelFor(*mArena, 0U, accepted.size(), 64, [&](std::size_t a, std::size_t b) {
         for (std::size_t i = a; i < b; ++i) {
           const auto record = accepted[i];
@@ -2055,7 +2055,7 @@ class CompleteAnatomy
     const auto records = iteration.selection->records();
     std::vector<std::string> keys(dropped.size());
     // The stage as the iteration instantiated it (see replayExtension).
-    withFollowStage(iteration, parameters, frame, geometry, material, propagator, iteration.followUsed.data(), iteration.trackOffset, [&](const auto& stage) {
+    withFollowStage(iteration, parameters, frame, geometry, propagator, iteration.followUsed.data(), iteration.trackOffset, [&](const auto& stage) {
       o2::gtrk::detail::parallelFor(*mArena, 0U, dropped.size(), 64, [&](std::size_t a, std::size_t b) {
         for (std::size_t i = a; i < b; ++i) {
           const auto index = dropped[i];
@@ -3317,8 +3317,8 @@ class CompleteAnatomy
     void end(FollowEnd why) const { replay->end = why; }
   };
   /// The iteration's follow stage, with the same dispatch for both replays.
-  template <typename Observation, typename Material, typename Body>
-  void withFollowStage(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const std::uint8_t* used, std::uint32_t first, const Body& body)
+  template <typename Observation, typename Body>
+  void withFollowStage(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, const std::uint8_t* used, std::uint32_t first, const Body& body)
   {
     withBools(
       [&]<bool BeamLine, bool Greedy, bool EndDensity, bool BeamEnd, bool Shape>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>, std::bool_constant<Shape>) {
@@ -6898,7 +6898,7 @@ class CompleteAnatomy
     // choice among passing rows and the end decisions on the last row's
     // density change which rows a walk takes. FollowEnd stays off: its end
     // states are the follow's own.
-    withFollowStage(iteration, parameters, frame, geometry, material, propagator, used.data(), first, [&](const auto& stage) {
+    withFollowStage(iteration, parameters, frame, geometry, propagator, used.data(), first, [&](const auto& stage) {
       // Each track's walks on its own thread: the stage is read-only, the
       // replay is the track's.
       o2::gtrk::detail::parallelFor(*mArena, first, last, 256, [&](std::size_t a, std::size_t b) {

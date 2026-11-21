@@ -38,9 +38,9 @@
 #include "GPUDefParametersWrapper.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
-#include <cstdint>
 
 namespace o2::gtrk::gpu
 {

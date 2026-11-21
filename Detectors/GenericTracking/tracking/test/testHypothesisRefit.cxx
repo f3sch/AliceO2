@@ -67,8 +67,8 @@ BOOST_AUTO_TEST_CASE(AHadronIsTheKalmanFitAtItsMass)
     }
     Propagator prop = chain.propagator;
     prop.massGeV = pid.getMass();
-    const auto kalman = fitMeasurements(prop, chain.tracking, material, chain.measurements.data(), kLayers);
-    const auto refit = refitWithHypothesis(chain.propagator, chain.tracking, material, chain.measurements.data(), kLayers, pid, 0.F, 0.F);
+    const auto kalman = fitMeasurements(prop, *chain.tracking, material, chain.measurements.data(), kLayers);
+    const auto refit = refitWithHypothesis(chain.propagator, *chain.tracking, material, chain.measurements.data(), kLayers, pid, 0.F, 0.F);
     BOOST_TEST_CONTEXT(pid.getName())
     {
       BOOST_REQUIRE(refit.status == PropagationStatus::kOk);
@@ -78,7 +78,7 @@ BOOST_AUTO_TEST_CASE(AHadronIsTheKalmanFitAtItsMass)
       BOOST_TEST(refit.perigeeMixture.size == 0);
     }
   }
-  const auto refused = refitWithHypothesis(chain.propagator, chain.tracking, material, chain.measurements.data(), kLayers, o2::track::PID{o2::track::PID::Alpha}, 0.F, 0.F);
+  const auto refused = refitWithHypothesis(chain.propagator, *chain.tracking, material, chain.measurements.data(), kLayers, o2::track::PID{o2::track::PID::Alpha}, 0.F, 0.F);
   BOOST_TEST((refused.status == PropagationStatus::kNotFinite));
   BOOST_TEST((refused.failedPass == FitPass::kNone));
 }
@@ -106,7 +106,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
       const Scalar qOverP = (track % 2 == 0 ? 2.F : -2.F);
       while (!chain.generate(qOverP, material, false, rng, true)) {
       }
-      const auto refit = refitWithHypothesis(chain.propagator, chain.tracking, material, chain.measurements.data(), kLayers, o2::track::PID{o2::track::PID::Pion}, x, y);
+      const auto refit = refitWithHypothesis(chain.propagator, *chain.tracking, material, chain.measurements.data(), kLayers, o2::track::PID{o2::track::PID::Pion}, x, y);
       BOOST_REQUIRE(refit.status == PropagationStatus::kOk);
       // The truth on the refit's perigee plane: through the vertex, as the
       // track; its direction and q/p there the vertex's.
@@ -149,17 +149,17 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
     while (!chain.generate(qOverP, material, true, rng, true)) {
     }
     const auto* measurements = chain.measurements.data();
-    const auto electron = refitWithHypothesis(chain.propagator, chain.tracking, material, measurements, kLayers, o2::track::PID{o2::track::PID::Electron}, 0.F, 0.F);
+    const auto electron = refitWithHypothesis(chain.propagator, *chain.tracking, material, measurements, kLayers, o2::track::PID{o2::track::PID::Electron}, 0.F, 0.F);
     // The electron-mass Kalman fit carried alike: the hadron path at the electron's mass.
-    const auto kalmanFit = fitMeasurements(chain.propagator, chain.tracking, material, measurements, kLayers);
+    const auto kalmanFit = fitMeasurements(chain.propagator, *chain.tracking, material, measurements, kLayers);
     if (electron.status != PropagationStatus::kOk || kalmanFit.status != PropagationStatus::kOk) {
       continue;
     }
     BoundTrackState carried = kalmanFit.state;
     auto factors = factorCovariance(carried.cov);
-    const auto& innermostSurface = chain.tracking.planeOf(measurements[0]);
+    const auto& innermostSurface = chain.tracking->planeOf(measurements[0]);
     const auto plane = detail::hypothesis::perigeePlaneOf(chain.propagator, carried, innermostSurface, 0.F, 0.F);
-    if (detail::hypothesis::carryInward(chain.propagator, chain.tracking.material(), innermostSurface, plane, carried, factors) != PropagationStatus::kOk) {
+    if (detail::hypothesis::carryInward(chain.propagator, chain.tracking->material(), innermostSurface, plane, carried, factors) != PropagationStatus::kOk) {
       continue;
     }
     const double u = chain.vertex.qOverP();

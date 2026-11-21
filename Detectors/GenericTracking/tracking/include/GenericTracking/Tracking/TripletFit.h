@@ -482,8 +482,8 @@ struct TripletMaterial {
   Scalar node = 0.F;    ///< the middle layer's band, x/X0 at normal incidence
   Scalar spanLog = 0.F; ///< ln of the triplet's span's x/X0, the node's and both gaps': Highland's logarithm for all three
   bool barrel = true;   ///< the middle layer's kind
-  MaterialGap first;  ///< `a -> b`
-  MaterialGap second; ///< `b -> c`
+  MaterialGap first;    ///< `a -> b`
+  MaterialGap second;   ///< `b -> c`
   /// The same with its span's logarithm (`spanLog`) from its parts.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() TripletMaterial withSpan() const
   {
@@ -494,53 +494,55 @@ struct TripletMaterial {
   }
 };
 
-/// The material of the triplet `a b c` on the links \a firstLink and
-/// \a secondLink.
+/// The material of the triplet `a b c` on the links \a abLink and
+/// \a bcLink.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletMaterial tripletMaterial(const LinkMaterial<Det>& material, std::size_t firstLink, std::size_t secondLink, const PairPoint& a, const PairPoint& b, const PairPoint& c)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletMaterial tripletMaterial(const LinkMaterial<Det>& material, std::size_t abLink, std::size_t bcLink, const PairPoint& a, const PairPoint& b, const PairPoint& c)
 {
   using Table = LinkMaterial<Det>;
-  const LayerID first = material.linkFrom[firstLink];
-  const LayerID middle = material.linkTo[firstLink];
-  const LayerID third = material.linkTo[secondLink];
+  const LayerID first = material.linkFrom[abLink];
+  const LayerID middle = material.linkTo[abLink];
+  const LayerID third = material.linkTo[bcLink];
   const Scalar middleSecond = Table::second(middle, b.r, b.z);
   const auto& node = material.node(middle, b.x, b.y, middleSecond);
-  return TripletMaterial{
+  const TripletMaterial out{
     .node = node.x,
     .barrel = Detector<Det>::isBarrelLayer(middle),
-    .first = material.gap(material.gapRow(firstLink, a.x, a.y, Table::second(first, a.r, a.z)), middle, middleSecond),
-    .second = material.gap(material.gapRow(secondLink, b.x, b.y, middleSecond), third, Table::second(third, c.r, c.z)),
-  }.withSpan();
+    .first = material.gap(material.gapRow(abLink, a.x, a.y, Table::second(first, a.r, a.z)), middle, middleSecond),
+    .second = material.gap(material.gapRow(bcLink, b.x, b.y, middleSecond), third, Table::second(third, c.r, c.z)),
+  };
+  return out.withSpan();
 }
 
-/// The material of a triplet's first tracklet `a b` on \a firstLink: the
+/// The material of a triplet's first tracklet `a b` on \a abLink: the
 /// middle node and the first gap (`TripletMaterial`), with where `b` reads
 /// its second links' gaps, \a middlePhi and \a middleSecond
 /// (`secondGap`): once for every third point.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletMaterial firstTripletMaterial(const LinkMaterial<Det>& material, std::size_t firstLink, const PairPoint& a, const PairPoint& b, std::uint32_t& middlePhi, Scalar& middleSecond)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletMaterial firstTripletMaterial(const LinkMaterial<Det>& material, std::size_t abLink, const PairPoint& a, const PairPoint& b, std::uint32_t& middlePhi, Scalar& middleSecond)
 {
   using Table = LinkMaterial<Det>;
-  const LayerID first = material.linkFrom[firstLink];
-  const LayerID middle = material.linkTo[firstLink];
+  const LayerID first = material.linkFrom[abLink];
+  const LayerID middle = material.linkTo[abLink];
   middleSecond = Table::second(middle, b.r, b.z);
   middlePhi = static_cast<std::uint32_t>(Table::phiBin(b.x, b.y, Table::kGapPhi));
   const auto& node = material.node(middle, b.x, b.y, middleSecond);
-  return TripletMaterial{
+  const TripletMaterial out{
     .node = node.x,
     .barrel = Detector<Det>::isBarrelLayer(middle),
-    .first = material.gap(material.gapRow(firstLink, a.x, a.y, Table::second(first, a.r, a.z)), middle, middleSecond),
+    .first = material.gap(material.gapRow(abLink, a.x, a.y, Table::second(first, a.r, a.z)), middle, middleSecond),
     .second = {},
-  }.withSpan();
+  };
+  return out.withSpan();
 }
 
 /// The second gap of a triplet whose first tracklet `firstTripletMaterial`
-/// gave \a middlePhi and \a middleSecond, on \a secondLink to \a c.
+/// gave \a middlePhi and \a middleSecond, on \a bcLink to \a c.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() const MaterialGap& secondGap(const LinkMaterial<Det>& material, std::size_t secondLink, std::uint32_t middlePhi, Scalar middleSecond, const PairPoint& c)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() const MaterialGap& secondGap(const LinkMaterial<Det>& material, std::size_t bcLink, std::uint32_t middlePhi, Scalar middleSecond, const PairPoint& c)
 {
-  const LayerID third = material.linkTo[secondLink];
-  return material.gap(material.gapRowAt(secondLink, middlePhi, middleSecond), third, LinkMaterial<Det>::second(third, c.r, c.z));
+  const LayerID third = material.linkTo[bcLink];
+  return material.gap(material.gapRowAt(bcLink, middlePhi, middleSecond), third, LinkMaterial<Det>::second(third, c.r, c.z));
 }
 
 /// The space-angle scattering variance of the middle layer's node, at pT_min

@@ -148,7 +148,7 @@ std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, c
       continue;
     }
     const float fineNS = cluster.getTimeWrtBc();
-    if (!(fineNS >= 0.F && static_cast<double>(fineNS) < kBunchNS)) {
+    if (std::isnan(fineNS) || fineNS < 0.F || static_cast<double>(fineNS) >= kBunchNS) {
       ++skipped.time;
       continue;
     }

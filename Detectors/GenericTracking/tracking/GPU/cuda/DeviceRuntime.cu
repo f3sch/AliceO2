@@ -19,7 +19,6 @@
 #include "GenericTracking/Tracking/GPU/DeviceRuntime.h"
 #include "GenericTracking/Tracking/GPU/DeviceTracker.h"
 
-
 #include <algorithm>
 #include <bit>
 #include <cstddef>

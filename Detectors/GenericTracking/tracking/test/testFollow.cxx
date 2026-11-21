@@ -126,7 +126,7 @@ IterationParameters<toybarrel8::Det> followParameters(int holes = 0, bool beamLi
 /// \a EndDensity, the ends decided on the last row's density; with
 /// \a BeamEnd, the inward end against the beam line.
 template <bool BeamLine = false, bool DecidesEnd = false, bool Greedy = false, bool EndDensity = false, bool BeamEnd = false>
-ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tracks, const std::vector<std::uint8_t>& used, const IterationParameters<toybarrel8::Det>& parameters, const UniformMaterial& material = UniformMaterial{}, bool inward = true, int threads = 0, std::uint32_t chunkSize = 1U)
+ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tracks, const std::vector<std::uint8_t>& used, const IterationParameters<toybarrel8::Det>& parameters, bool inward = true, int threads = 0, std::uint32_t chunkSize = 1U)
 {
   const auto widths = widthBounds(fixture);
   std::vector<ToyProposal> proposals(tracks.size());
@@ -163,7 +163,7 @@ ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tra
 bool sameProposal(const ToyProposal& a, const ToyProposal& b) { return a.outwardCount == b.outwardCount && a.inwardCount == b.inwardCount && a.replacedEnd == b.replacedEnd && std::ranges::equal(a.outward, b.outward) && std::ranges::equal(a.inward, b.inward); }
 
 /// The follow's passes over \a tracks (`Follow::run`), serially.
-StageStatus followAll(const toybarrel8::Fixture& fixture, const IterationParameters<toybarrel8::Det>& parameters, ToyTracks& tracks, std::vector<std::uint8_t>& used, Follow<toybarrel8::Det>& follow, const UniformMaterial& material = UniformMaterial{}) { return follow.run(SerialForEach{}, parameters, *fixture.frame, toybarrel8::trackingGeometry(), Propagator{}, tracks, 0U, true, false, used, widthBounds(fixture), toyCells().view()); }
+StageStatus followAll(const toybarrel8::Fixture& fixture, const IterationParameters<toybarrel8::Det>& parameters, ToyTracks& tracks, std::vector<std::uint8_t>& used, Follow<toybarrel8::Det>& follow) { return follow.run(SerialForEach{}, parameters, *fixture.frame, toybarrel8::trackingGeometry(), Propagator{}, tracks, 0U, true, false, used, widthBounds(fixture), toyCells().view()); }
 
 template <DetectorLayout Det>
 SensorID crossedSensor(const TrackingGeometry<Det>& geometry, const Propagator& propagator, const BoundTrackState& state, LayerID target, PropagationDirection direction)
@@ -460,7 +460,7 @@ BOOST_AUTO_TEST_CASE(AFollowTakesTheRowsBeyondTheTrackBothWays)
 
   for (const int threads : {1, 2, 4}) {
     for (const std::uint32_t chunk : {1U, 2U, 7U}) {
-      BOOST_TEST(sameProposal(followTrack(fixture, middleTracks, used, parameters, UniformMaterial{}, true, threads, chunk), both));
+      BOOST_TEST(sameProposal(followTrack(fixture, middleTracks, used, parameters, true, threads, chunk), both));
     }
   }
   const auto whole = fittedTrack(fixture, 0U, kLayers - 1U, pool);
@@ -477,7 +477,7 @@ BOOST_AUTO_TEST_CASE(InwardStaysOffWithSharedInnermostRows)
   const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
   const auto pool = std::make_shared<BoundedMemoryResource>();
   const auto tracks = fittedTrack(fixture, 2U, 5U, pool);
-  const auto proposal = followTrack(fixture, tracks, used, followParameters(), UniformMaterial{}, false);
+  const auto proposal = followTrack(fixture, tracks, used, followParameters(), false);
   BOOST_TEST(proposal.outwardCount == 2U);
   BOOST_TEST(proposal.inwardCount == 0U);
 }

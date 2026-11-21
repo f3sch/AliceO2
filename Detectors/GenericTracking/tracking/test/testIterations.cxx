@@ -852,14 +852,15 @@ BOOST_AUTO_TEST_CASE(ANarrowBoxLayerBetweenLayersOfTheSameFrames)
       BOOST_TEST(!bounds.rowsAreFrames[narrow]);
       BOOST_TEST(bounds.widthPS[narrow] == narrowPS);
       const auto& geometry = fixture.geometry;
-      std::size_t acrossFrame = 0, acrossBlock = 0;
+      std::size_t acrossFrame = 0;
+      std::size_t acrossBlock = 0;
       for (const auto& hit : hits) {
         if (hit.point.layer == narrow) {
           const auto box = boxOf(hit);
           // The BC a picosecond lies in, rounded down (bcOfPS rounds up: it inverts psOfBC).
           const auto bcAt = [](std::int64_t ps) { return (ps * kPSPerBCDenominator) / kPSPerBCNumerator; };
-          acrossFrame += bcAt(box.start) / kOuterFrameBC != bcAt(box.start + box.width - 1) / kOuterFrameBC;
-          acrossBlock += geometry.blockOfPS(box.start) != geometry.blockOfPS(box.start + box.width - 1);
+          acrossFrame += static_cast<std::size_t>(bcAt(box.start) / kOuterFrameBC != bcAt(box.start + box.width - 1) / kOuterFrameBC);
+          acrossBlock += static_cast<std::size_t>(geometry.blockOfPS(box.start) != geometry.blockOfPS(box.start + box.width - 1));
         }
       }
       BOOST_TEST(acrossFrame >= 4U);

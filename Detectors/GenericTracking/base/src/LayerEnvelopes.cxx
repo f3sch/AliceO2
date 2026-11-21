@@ -214,7 +214,7 @@ std::string describeBands(std::span<const LayerBand> bands, int nBarrelLayers)
 {
   std::string out;
   for (std::size_t layer = 0; layer < bands.size(); ++layer) {
-    out += std::format("  layer {:2}: material band {} [{:.4f}, {:.4f}]\n", layer, static_cast<int>(layer) < nBarrelLayers ? "r" : "z", bands[layer].low, bands[layer].high);
+    out += std::format("  layer {:2}: material band {} [{:.4f}, {:.4f}]\n", layer, std::cmp_less(layer, nBarrelLayers) ? "r" : "z", bands[layer].low, bands[layer].high);
   }
   return out;
 }

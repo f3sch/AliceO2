@@ -60,7 +60,7 @@ constexpr int kBaseLayers = Detector<Base>::nLayers;
 BOOST_AUTO_TEST_CASE(EveryTRKFT3LinkIsTRKFT3TOFs)
 {
   for (const auto& link : Base::layerLinks) {
-    const auto found = std::ranges::find_if(TOFLayout::layerLinks, [&](const LayerLink& other) { return other.from == detectors::trkft3tof::fromTRKFT3(link.from) && other.to == detectors::trkft3tof::fromTRKFT3(link.to); });
+    const auto* const found = std::ranges::find_if(TOFLayout::layerLinks, [&](const LayerLink& other) { return other.from == detectors::trkft3tof::fromTRKFT3(link.from) && other.to == detectors::trkft3tof::fromTRKFT3(link.to); });
     BOOST_TEST_CONTEXT("link " << static_cast<int>(link.from) << " -> " << static_cast<int>(link.to))
     {
       BOOST_REQUIRE(found != TOFLayout::layerLinks.end());
@@ -158,6 +158,7 @@ BOOST_AUTO_TEST_CASE(ATOFClusterIsItsPixelsAndTheCrossingEndingAtItsTime)
   constexpr std::uint32_t kFirstOrbit = 5;
   constexpr int kOrbits = 2;
   const std::uint64_t firstBC = std::uint64_t{kFirstOrbit} * o2::constants::lhc::LHCMaxBunches;
+  const std::uint64_t endBC = firstBC + (std::uint64_t{kOrbits} * o2::constants::lhc::LHCMaxBunches);
   using o2::iotof::Cluster;
   std::vector<Cluster> clusters{
     // one pixel, at row 2, column 3, 100 BC into the timeframe, 7.5 ns into its crossing
@@ -172,7 +173,7 @@ BOOST_AUTO_TEST_CASE(ATOFClusterIsItsPixelsAndTheCrossingEndingAtItsTime)
     Cluster(0, 0, 4, 4, 0xFFFF, 0, 2, 0.F, firstBC + 50, 2.F),                                               // a full 4 x 4 pattern
     Cluster(0, 0, 4, 4, Cluster::InvalidPatternID, o2::iotof::Topologies::kHuge, 2, 0.F, firstBC + 60, 2.F), // too large for a pattern
     Cluster(0, 0, 1, 1, 0b1, 0, 2, 0.F, firstBC - 3, 1.F),                                                   // before the timeframe
-    Cluster(0, 0, 1, 1, 0b1, 0, 2, 0.F, firstBC + (kOrbits * o2::constants::lhc::LHCMaxBunches) + 3, 1.F),   // after it
+    Cluster(0, 0, 1, 1, 0b1, 0, 2, 0.F, endBC + 3, 1.F),                                                     // after it
   };
   std::vector<std::uint32_t> kept;
   alice::TOFSkipped skipped;

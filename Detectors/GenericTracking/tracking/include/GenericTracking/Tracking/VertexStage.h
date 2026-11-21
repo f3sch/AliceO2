@@ -68,7 +68,6 @@
 #include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Tracking/Parallel.h"
 
-#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <memory_resource>

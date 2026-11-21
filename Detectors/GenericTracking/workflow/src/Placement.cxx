@@ -27,6 +27,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <utility>
 
 namespace o2::gtrk::alice
 {
@@ -129,7 +130,7 @@ ShapeExtent extentOf(const TGeoShape& shape, const TGeoHMatrix& matrix)
   const double* rotation = matrix.GetRotationMatrix();
   const double* translation = matrix.GetTranslation();
   const bool alongBeam = std::abs(std::abs(rotation[8]) - 1.) < 1e-9 && std::hypot(translation[0], translation[1]) < kEnvelopeResolution;
-  const auto& box = static_cast<const TGeoBBox&>(shape);
+  const auto& box = dynamic_cast<const TGeoBBox&>(shape);
   const double* origin = box.GetOrigin();
   std::vector<std::array<double, 2>> corners;
   for (const double sx : {-1., 1.}) {
@@ -148,11 +149,11 @@ ShapeExtent extentOf(const TGeoShape& shape, const TGeoHMatrix& matrix)
   out.rMin = leastRadius(corners);
   // A shape about the beam axis: its own radii (a box about the axis holds it).
   if (alongBeam && shape.IsA()->InheritsFrom(TGeoTube::Class())) {
-    const auto& tube = static_cast<const TGeoTube&>(shape);
+    const auto& tube = dynamic_cast<const TGeoTube&>(shape);
     out.rMin = tube.GetRmin();
     out.rMax = tube.GetRmax();
   } else if (alongBeam && shape.IsA()->InheritsFrom(TGeoPcon::Class())) {
-    const auto& pcon = static_cast<const TGeoPcon&>(shape);
+    const auto& pcon = dynamic_cast<const TGeoPcon&>(shape);
     double least = std::numeric_limits<double>::infinity();
     for (int i = 0; i < pcon.GetNz(); ++i) {
       least = std::min(least, pcon.GetRmin(i));
@@ -223,7 +224,7 @@ std::vector<LayerBand> materialBands(std::span<const Sensor> sensors, std::span<
       if (slash == 0U || slash == std::string::npos) {
         return 0.;
       }
-      at = at.substr(0, slash);
+      at.resize(slash);
       gGeoManager->cd(at.c_str());
       const auto* volume = gGeoManager->GetCurrentVolume();
       if (!volume->IsAssembly() && volume->GetMaterial() != nullptr) {
@@ -233,7 +234,7 @@ std::vector<LayerBand> materialBands(std::span<const Sensor> sensors, std::span<
   };
   std::vector<LayerBand> bands(layerCount);
   for (std::size_t layer = 0; layer < layerCount; ++layer) {
-    const bool barrel = static_cast<int>(layer) < nBarrelLayers;
+    const bool barrel = std::cmp_less(layer, nBarrelLayers);
     const auto& e = envelopes[layer];
     double low = barrel ? e.rMin : e.zMin;
     double high = barrel ? e.rMax : e.zMax;

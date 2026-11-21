@@ -1040,7 +1040,7 @@ class FollowStage
         return;
       }
     }
-    std::uint32_t capacity = static_cast<std::uint32_t>(kMaxClusters) - count;
+    std::uint32_t capacity = static_cast<std::uint32_t>(kMaxClusters) - count; // NOLINT(misc-const-correctness): lowered only for layouts with inactive layers
     auto box = trackTimeBox(mFrame->measurements(), rows, static_cast<std::uint8_t>(count));
     // A row on an inactive layer the track's road straddles (`interior`).
     if constexpr (Detector<Det>::inactiveLayers != 0U) {
@@ -1070,7 +1070,7 @@ class FollowStage
       CandidateWindow window;
       Scalar reach[2]{};
       detail::StepMaterial traversed;
-      if (!targetWindow(state, factors, box, target, direction, window, reach, traversed, SoloGroup{})) {
+      if (!targetWindow(state, factors, box, target, direction, window, reach, traversed)) {
         return {};
       }
       follow::Passing passing;
@@ -1177,9 +1177,9 @@ class FollowStage
     [[maybe_unused]] follow::BeamEndHistoryOf<BeamEnd> history; // NOLINT(misc-const-correctness): written in a dependent call the check does not see
     // The inactive layers' tail resumes from the state and time box before
     // the last row when the unconfirmed drop removes it.
-    [[maybe_unused]] BoundParameters beforeLast = branch.state;
-    [[maybe_unused]] CovarianceFactors beforeLastFactors = branch.factors;
-    [[maybe_unused]] TimeEstPS beforeLastBox = box;
+    [[maybe_unused]] BoundParameters beforeLast = branch.state;            // NOLINT(misc-const-correctness): written only for layouts with inactive layers
+    [[maybe_unused]] CovarianceFactors beforeLastFactors = branch.factors; // NOLINT(misc-const-correctness): as beforeLast
+    [[maybe_unused]] TimeEstPS beforeLastBox = box;                        // NOLINT(misc-const-correctness): as beforeLast
     while (branch.count < capacity) {
       const LayerID current = mGeometry->surface(branch.state.surface).layer;
       observe.step(current, branch.state, branch.factors, branch.count);
@@ -1357,10 +1357,8 @@ class FollowStage
   /// The window of a step from \a state (its covariance \a factors) to
   /// \a target: the track's time \a box, narrowed to the prediction
   /// (`follow::predictedWindow`), its \a reach and the material it crossed, \a traversed,
-  /// beside. False where the prediction fails. Every lane of \a group makes
-  /// the same window.
-  template <typename Group>
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool targetWindow(const BoundParameters& state, const CovarianceFactors& factors, const TimeEstPS& box, const follow::Target& target, PropagationDirection direction, CandidateWindow& window, Scalar (&reach)[2], detail::StepMaterial& traversed, const Group& group) const
+  /// beside. False where the prediction fails.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool targetWindow(const BoundParameters& state, const CovarianceFactors& factors, const TimeEstPS& box, const follow::Target& target, PropagationDirection direction, CandidateWindow& window, Scalar (&reach)[2], detail::StepMaterial& traversed) const
   {
     Scalar phiCentre = 0.F;
     Scalar secondCentre = 0.F;
@@ -1429,17 +1427,16 @@ class FollowStage
   /// \a search(target, window, traversed) with the material the window
   /// crossed, whether it found a row there; a target
   /// without one crossed in a sensor is a hole, counted on the branch, past
-  /// the iteration's holes the pass ends. Whether a search found a row. The
-  /// lanes of \a group make each window together (`targetWindow`).
-  template <typename Observer, typename Group, typename Search>
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool overTargets(Branch& branch, const TimeEstPS& box, PropagationDirection direction, const follow::Target* targets, std::uint32_t nTargets, const Observer& observe, const Group& group, const Search& search) const
+  /// the iteration's holes the pass ends. Whether a search found a row.
+  template <typename Observer, typename Search>
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool overTargets(Branch& branch, const TimeEstPS& box, PropagationDirection direction, const follow::Target* targets, std::uint32_t nTargets, const Observer& observe, const Search& search) const
   {
     for (std::uint32_t t = 0; t < nTargets; ++t) {
       const auto& target = targets[t]; // NOLINT(clang-analyzer-security.ArrayBound): nTargets <= maxDegree<Det> (`targetsOf`)
       CandidateWindow window;
       Scalar reach[2]{};
       detail::StepMaterial traversed;
-      if (!targetWindow(branch.state, branch.factors, box, target, direction, window, reach, traversed, group)) {
+      if (!targetWindow(branch.state, branch.factors, box, target, direction, window, reach, traversed)) {
         continue;
       }
       observe.target(target.layer, window);
@@ -1460,8 +1457,10 @@ class FollowStage
   /// and \a proposal's interior row lie on: a walk's tail adds no row there.
   [[nodiscard]] GPUhdi() std::uint64_t heldInactive(const ClusterList<kMaxClusters>& rows, std::uint32_t count, const Proposal& proposal) const
   {
-    std::uint64_t held = 0U;
-    if constexpr (Detector<Det>::inactiveLayers != 0U) {
+    if constexpr (Detector<Det>::inactiveLayers == 0U) {
+      return 0U;
+    } else {
+      std::uint64_t held = 0U;
       const auto& measurements = mFrame->measurements();
       const auto add = [&](std::uint32_t row) { held |= std::uint64_t{1} << mGeometry->surface(measurements.surface[row]).layer; };
       for (std::uint32_t i = 0; i < count; ++i) {
@@ -1470,9 +1469,8 @@ class FollowStage
       if (proposal.interior != ClusterList<kMaxClusters>::kNoCluster) {
         add(proposal.interior);
       }
-      held &= Detector<Det>::inactiveLayers;
+      return held & Detector<Det>::inactiveLayers;
     }
-    return held;
   }
 
   /// The interior row: the first inactive layer between two
@@ -1534,7 +1532,7 @@ class FollowStage
         CandidateWindow window;
         Scalar reach[2]{};
         detail::StepMaterial traversed;
-        if (!targetWindow(state, factors, box, target, direction, window, reach, traversed, SoloGroup{})) {
+        if (!targetWindow(state, factors, box, target, direction, window, reach, traversed)) {
           return false;
         }
         countWork(WorkCounter::kFollowInteriorSearches);
@@ -1631,7 +1629,7 @@ class FollowStage
   template <typename Observer, typename Group>
   [[nodiscard]] GPUhdi() bool nominal(Branch& branch, const TimeEstPS& box, PropagationDirection direction, const follow::Target* targets, std::uint32_t nTargets, Child& child, bool& nearMiss, const Observer& observe, const Group& group) const
   {
-    return overTargets(branch, box, direction, targets, nTargets, observe, group, [&](const follow::Target& target, const CandidateWindow& window, const detail::StepMaterial& traversed) {
+    return overTargets(branch, box, direction, targets, nTargets, observe, [&](const follow::Target& target, const CandidateWindow& window, const detail::StepMaterial& traversed) {
       std::uint32_t passing = 0U;
       std::uint32_t firstLane = 0U; // \a child holds the first passing row on this lane
       Confirmed confirmed;
@@ -1697,7 +1695,7 @@ class FollowStage
   template <typename Group>
   [[nodiscard]] GPUhdi() bool witnessOf(Branch& branch, const TimeEstPS& box, PropagationDirection direction, const follow::Target* targets, std::uint32_t nTargets, follow::Witness& witness, WorkCounter counter, const Group& group) const
   {
-    return overTargets(branch, box, direction, targets, nTargets, follow::NoObserver{}, group, [&](const follow::Target& target, const CandidateWindow& window, const detail::StepMaterial& traversed) {
+    return overTargets(branch, box, direction, targets, nTargets, follow::NoObserver{}, [&](const follow::Target& target, const CandidateWindow& window, const detail::StepMaterial& traversed) {
       follow::Witness own;
       follow::visit<DecidesEnd, false, Shape>(
         context(), branch.state, branch.factors, 0.F, 0.F, target.layer, direction, window, traversed, 0U, counter, group, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},

@@ -302,10 +302,13 @@ std::vector<LUTLayer> trkBands(int threads, float rMaxCM, float zMaxCM)
   const auto& specs = geometry->layerSpecs();
   const std::span<const o2::gtrk::Sensor> sensors{geometry->sensors()};
   // TRKFT3TOF's sensors are TRKFT3's, then the TOF's.
-  std::size_t trkSensors = sensors.size();
-  if constexpr (std::same_as<Det, o2::gtrk::detectors::TRKFT3TOF>) {
-    trkSensors = static_cast<std::size_t>(Det::kFirstTOFSensor);
-  }
+  const std::size_t trkSensors = [&] {
+    if constexpr (std::same_as<Det, o2::gtrk::detectors::TRKFT3TOF>) {
+      return static_cast<std::size_t>(Det::kFirstTOFSensor);
+    } else {
+      return sensors.size();
+    }
+  }();
   auto stack = o2::gtrk::tools::trkStackThickness(sensors.first(trkSensors), specs, kBarrel);
   if constexpr (std::same_as<Det, o2::gtrk::detectors::TRKFT3TOF>) {
     const auto tof = o2::gtrk::tools::tofSolidThickness(sensors.subspan(trkSensors), specs, kBarrel);

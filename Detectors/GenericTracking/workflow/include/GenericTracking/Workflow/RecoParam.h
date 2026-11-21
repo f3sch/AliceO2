@@ -327,13 +327,15 @@ struct RecoParamOf {
 };
 
 #ifdef ENABLE_UPGRADES
+/// TRKFT3TOF's settings, `GTRKRecoTRKTOF`: TRK's detector with its own keys.
+// NOLINTNEXTLINE(cppcoreguidelines-special-member-functions): as RecoParam's
 struct RecoParamTRKTOF : public o2::conf::ConfigurableParamPromoter<RecoParamTRKTOF, RecoSettings> {
   O2ParamDef(RecoParamTRKTOF, "GTRKRecoTRKTOF");
 };
 
 template <>
 struct RecoParamOf<detectors::TRKFT3TOF> {
-  using type = RecoParamTRKTOF;
+  using type = RecoParamTRKTOF; // NOLINT(readability-identifier-naming): a type trait's member
 };
 #endif
 

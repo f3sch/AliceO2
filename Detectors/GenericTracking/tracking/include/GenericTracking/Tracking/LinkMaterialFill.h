@@ -32,6 +32,7 @@
 #include <memory>
 #include <span>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace o2::gtrk
@@ -281,10 +282,10 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const Lut& lut, Interval 
   const auto phiOfRay = [](int bin, int bins, int ray) { return kTwoPi<double> * (bin + ((ray + 0.5) / kRays)) / bins; };
 
   // Jobs: a layer's nodes and vertex gaps, a link's gaps.
-  const std::size_t jobs = static_cast<std::size_t>(kL + Table::kLinks);
+  const auto jobs = static_cast<std::size_t>(kL) + static_cast<std::size_t>(Table::kLinks);
   detail::parallelFor(arena, 0U, jobs, 1U, [&](std::size_t first, std::size_t last) {
     for (std::size_t job = first; job < last; ++job) {
-      if (job < static_cast<std::size_t>(kL)) {
+      if (std::cmp_less(job, kL)) {
         const auto id = static_cast<LayerID>(job);
         const bool barrel = Detector<Det>::isBarrelLayer(id);
         for (int phi = 0; phi < Table::kNodePhi; ++phi) {

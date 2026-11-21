@@ -200,10 +200,10 @@ Coverage coverage(double pGeV, const test::ChainBands& material, bool radiate, i
     while (!chain.generate(qOverP, material, radiate, rng)) {
     }
     const auto begin = std::chrono::steady_clock::now();
-    const auto gsf = fitGaussianSum<Loss, K>(chain.propagator, chain.tracking, material, chain.measurements.data(), static_cast<int>(ElectronChain::kLayers));
+    const auto gsf = fitGaussianSum<Loss, K>(chain.propagator, *chain.tracking, material, chain.measurements.data(), static_cast<int>(ElectronChain::kLayers));
     out.seconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - begin).count();
     const auto kalmanBegin = std::chrono::steady_clock::now();
-    const auto kalman = fitMeasurements(chain.propagator, chain.tracking, material, chain.measurements.data(), static_cast<int>(ElectronChain::kLayers));
+    const auto kalman = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), static_cast<int>(ElectronChain::kLayers));
     out.kalmanSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - kalmanBegin).count();
     if (kalman.status != PropagationStatus::kOk) {
       ++out.kalmanFailed; // a track the fit's propagation cannot follow (a curler's turning point)
@@ -507,7 +507,7 @@ BOOST_AUTO_TEST_CASE(TheReductionConverges)
     while (!chain.generate(qOverP, thick, true, rng)) {
     }
     const auto* measurements = chain.measurements.data();
-    const auto reference = fitGaussianSum<BetheHeitlerLoss, 24>(chain.propagator, chain.tracking, thick, measurements, kLayers);
+    const auto reference = fitGaussianSum<BetheHeitlerLoss, 24>(chain.propagator, *chain.tracking, thick, measurements, kLayers);
     if (reference.fit.status != PropagationStatus::kOk) {
       continue;
     }
@@ -522,10 +522,10 @@ BOOST_AUTO_TEST_CASE(TheReductionConverges)
       }
       difference[slot][kNBoundParams].push_back(std::abs(static_cast<double>(gsf.momentumMode / reference.momentumMode) - 1.));
     };
-    compare(0, fitGaussianSum<BetheHeitlerLoss, 1>(chain.propagator, chain.tracking, thick, measurements, kLayers));
-    compare(1, fitGaussianSum<BetheHeitlerLoss, 4>(chain.propagator, chain.tracking, thick, measurements, kLayers));
-    compare(2, fitGaussianSum(chain.propagator, chain.tracking, thick, measurements, kLayers));
-    compare(3, fitGaussianSum<BetheHeitlerLoss, 12>(chain.propagator, chain.tracking, thick, measurements, kLayers));
+    compare(0, fitGaussianSum<BetheHeitlerLoss, 1>(chain.propagator, *chain.tracking, thick, measurements, kLayers));
+    compare(1, fitGaussianSum<BetheHeitlerLoss, 4>(chain.propagator, *chain.tracking, thick, measurements, kLayers));
+    compare(2, fitGaussianSum(chain.propagator, *chain.tracking, thick, measurements, kLayers));
+    compare(3, fitGaussianSum<BetheHeitlerLoss, 12>(chain.propagator, *chain.tracking, thick, measurements, kLayers));
   }
   BOOST_TEST_MESSAGE("against K 24, |difference| / sigma (median, 95 %) of loc0 loc1 phi theta q/p; the mode, relative");
   const int ks[] = {1, 4, BetheHeitlerLoss::kComponents, 12};

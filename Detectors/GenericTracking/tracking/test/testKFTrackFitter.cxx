@@ -424,19 +424,19 @@ struct BarrelChain {
       mBandX2X0 = bandX2X0;
       mBandXRho = bandXRho;
     }
-    Scalar spanX2X0 = 0.F;
+    Scalar span = 0.F;
     if (bandX2X0 > 0.F && rng != nullptr) {
-      trace(qOverP, bandX2X0, nullptr, 0.F, 0.F, &spanX2X0);
+      trace(qOverP, bandX2X0, nullptr, 0.F, 0.F, &span);
       if (!built) {
         return;
       }
     }
-    trace(qOverP, bandX2X0, rng, bandXRho, spanX2X0, nullptr);
+    trace(qOverP, bandX2X0, rng, bandXRho, span, nullptr);
   }
 
   /// The chain as `generate` describes it, with the span's material
-  /// \a spanX2X0 given; with \a span, the unscattered chain's span summed into it.
-  void trace(Scalar qOverP, Scalar bandX2X0, std::mt19937* rng, Scalar bandXRho, Scalar spanX2X0, Scalar* span)
+  /// \a given; with \a summed, the unscattered chain's span summed into it.
+  void trace(Scalar qOverP, Scalar bandX2X0, std::mt19937* rng, Scalar bandXRho, Scalar given, Scalar* summed)
   {
     built = false;
     truth[0] = BoundTrackState{};
@@ -468,13 +468,13 @@ struct BarrelChain {
         const Scalar leaving = bandX2X0 * (1.F - frontA) * pathA;
         const Scalar reaching = bandX2X0 * frontB * pathB;
         loss = bandXRho * (((1.F - frontA) * pathA) + (frontB * pathB));
-        if (span != nullptr) {
-          *span += leaving + reaching;
+        if (summed != nullptr) {
+          *summed += leaving + reaching;
         }
         if (rng != nullptr) {
           const Scalar momentum = 1.F / std::abs(outgoing.qOverP());
-          test::scatteringKick(outgoing, highlandTheta0(leaving, spanX2X0, momentum, propagator.massGeV), gauss, *rng); // behind the sensor just left
-          arrival = highlandTheta0(reaching, spanX2X0, momentum, propagator.massGeV);
+          test::scatteringKick(outgoing, highlandTheta0(leaving, given, momentum, propagator.massGeV), gauss, *rng); // behind the sensor just left
+          arrival = highlandTheta0(reaching, given, momentum, propagator.massGeV);
         }
       }
       const auto id = crossedSensor(outgoing, from, static_cast<LayerID>(layer));

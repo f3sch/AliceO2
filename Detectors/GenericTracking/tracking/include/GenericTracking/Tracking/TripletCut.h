@@ -108,21 +108,21 @@ namespace detail
 /// measurements' error terms.
 template <DetectorLayout Det>
 struct TripletFirstTerms {
-  bool valid = false;        ///< the tracklet has a length
-  Scalar chord = 0.F;        ///< its transverse chord
-  Scalar sine = 0.F;         ///< |sin(lambda)|
-  Scalar cosine = 0.F;       ///< cos(lambda)
-  Scalar slope = 0.F;        ///< tan(lambda), 0 where cos(lambda) is 0
-  Scalar atanSlope = 0.F;    ///< atan(slope)
-  Scalar scattering = 0.F;   ///< `b`'s node with the kink allowance, then the gap between `a` and `b` by its fraction
+  bool valid = false;           ///< the tracklet has a length
+  Scalar chord = 0.F;           ///< its transverse chord
+  Scalar sine = 0.F;            ///< |sin(lambda)|
+  Scalar cosine = 0.F;          ///< cos(lambda)
+  Scalar slope = 0.F;           ///< tan(lambda), 0 where cos(lambda) is 0
+  Scalar atanSlope = 0.F;       ///< atan(slope)
+  Scalar scattering = 0.F;      ///< `b`'s node with the kink allowance, then the gap between `a` and `b` by its fraction
   std::uint32_t middlePhi = 0U; ///< `b`'s gap azimuth bin
   Scalar firstSpanX = 0.F;      ///< x/X0 of `b`'s node and the first gap
   Scalar middleSecond = 0.F;    ///< `b`'s second coordinate
-  Scalar inFirst = 0.F;      ///< 1 / L_ab
-  Scalar zFirst = 0.F;       ///< varZ_a / L_ab^2
-  Scalar chordFirst = 0.F;   ///< (varR_a + varRPhi_a) / L_ab^2
-  Scalar varZMiddle = 0.F;   ///< varZ_b
-  Scalar alongMiddle = 0.F;  ///< varR_b + varRPhi_b
+  Scalar inFirst = 0.F;         ///< 1 / L_ab
+  Scalar zFirst = 0.F;          ///< varZ_a / L_ab^2
+  Scalar chordFirst = 0.F;      ///< (varR_a + varRPhi_a) / L_ab^2
+  Scalar varZMiddle = 0.F;      ///< varZ_b
+  Scalar alongMiddle = 0.F;     ///< varR_b + varRPhi_b
 };
 
 /// \a firstLink: the first tracklet's link.

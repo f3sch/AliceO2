@@ -38,8 +38,8 @@
 #include "MathUtils/Utils.h"
 
 #include <array>
-#include <span>
 #include <cstddef>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>

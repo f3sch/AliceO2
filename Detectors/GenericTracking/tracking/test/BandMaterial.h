@@ -155,7 +155,7 @@ template <DetectorLayout Det>
     for (const auto& cylinder : cylinders) {
       const auto [enter, leave] = within(cylinder.r);
       for (const double l : {enter, leave}) {
-        if (!(l > l0 && l < l1)) {
+        if (l <= l0 || l >= l1) {
           continue;
         }
         // The path factor: one over the cosine of the ray to the cylinder's normal.

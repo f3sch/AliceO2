@@ -68,8 +68,7 @@ struct ElectronChain {
   Geometry<Barrel> geometry = toyGeometry<Barrel>();
   /// On the heap: with its link material it is megabytes. Its link material
   /// is the chain's bands' (`generate`).
-  std::unique_ptr<TrackingGeometry<Barrel>> trackingStore = std::make_unique<TrackingGeometry<Barrel>>(geometry);
-  const TrackingGeometry<Barrel>& tracking = *trackingStore;
+  std::unique_ptr<TrackingGeometry<Barrel>> tracking = std::make_unique<TrackingGeometry<Barrel>>(geometry);
   Propagator propagator;
   std::array<BoundTrackState, kLayers> truth;
   std::array<Measurement, kLayers> measurements;
@@ -87,7 +86,7 @@ struct ElectronChain {
   ElectronChain()
   {
     propagator.massGeV = 0.000511F;
-    trackingStore->material() = noMaterial<Barrel>();
+    tracking->material() = noMaterial<Barrel>();
   }
 
   /// The share of the momentum radiated between rows \a first and \a last.
@@ -102,10 +101,10 @@ struct ElectronChain {
 
   [[nodiscard]] bool cross(BoundTrackState& state, LayerID layer) const
   {
-    const auto& from = tracking.surface(state.surface);
+    const auto& from = tracking->surface(state.surface);
     for (SensorID id = firstSensorOfLayer<Barrel>(layer); id < firstSensorOfLayer<Barrel>(static_cast<LayerID>(layer + 1)); ++id) {
       BoundTrackState probe = state;
-      if (propagate(propagator, probe, from, tracking.surface(id), PropagationDirection::kForward).status == PropagationStatus::kOk) {
+      if (propagate(propagator, probe, from, tracking->surface(id), PropagationDirection::kForward).status == PropagationStatus::kOk) {
         state = probe;
         return true;
       }
@@ -131,7 +130,7 @@ struct ElectronChain {
       std::array<double, kLayers> rho{};
       x.fill(bands.x2X0);
       rho.fill(bands.xRho);
-      trackingStore->material() = *bandMaterial<Barrel>(x, {}, {.low = -20., .high = 20.}, rho);
+      tracking->material() = *bandMaterial<Barrel>(x, {}, {.low = -20., .high = 20.}, rho);
       held = bands;
     }
     BoundTrackState start{};
@@ -171,14 +170,14 @@ struct ElectronChain {
       bool crossed = false;
       for (SensorID id = firstSensorOfLayer<Barrel>(0); id < firstSensorOfLayer<Barrel>(1) && !crossed; ++id) {
         start = vertex;
-        crossed = propagate(propagator, start, vertexPlane, tracking.surface(id), PropagationDirection::kForward).status == PropagationStatus::kOk;
+        crossed = propagate(propagator, start, vertexPlane, tracking->surface(id), PropagationDirection::kForward).status == PropagationStatus::kOk;
       }
       if (!crossed) {
         return false;
       }
       const Scalar a[3] = {vertexX, vertexY, 0.F};
       Scalar b[3]{};
-      surfaceToGlobal(tracking.surface(start.surface), start.loc0(), start.loc1(), b);
+      surfaceToGlobal(tracking->surface(start.surface), start.loc0(), start.loc1(), b);
       const Scalar d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
       const auto [x, xRho] = part(0, b, d, true);
       if (!lose(start, xRho)) {
@@ -198,14 +197,14 @@ struct ElectronChain {
     std::array<Scalar, kLayers> reachingRho{};
     BoundTrackState state = start;
     Scalar previous[3];
-    surfaceToGlobal(tracking.surface(state.surface), state.loc0(), state.loc1(), previous);
+    surfaceToGlobal(tracking->surface(state.surface), state.loc0(), state.loc1(), previous);
     Scalar span = 0.F;
     for (std::size_t layer = 1; layer < kLayers; ++layer) {
       if (!cross(state, static_cast<LayerID>(layer))) {
         return false;
       }
       Scalar point[3];
-      surfaceToGlobal(tracking.surface(state.surface), state.loc0(), state.loc1(), point);
+      surfaceToGlobal(tracking->surface(state.surface), state.loc0(), state.loc1(), point);
       const Scalar d[3] = {point[0] - previous[0], point[1] - previous[1], point[2] - previous[2]};
       std::tie(leaving[layer - 1], leavingRho[layer - 1]) = part(static_cast<LayerID>(layer - 1), previous, d, false);
       std::tie(reaching[layer], reachingRho[layer]) = part(static_cast<LayerID>(layer), point, d, true);
