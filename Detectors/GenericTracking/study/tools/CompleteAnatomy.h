@@ -3323,7 +3323,7 @@ class CompleteAnatomy
     withBools(
       [&]<bool BeamLine, bool Greedy, bool EndDensity, bool BeamEnd, bool Shape>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>, std::bool_constant<Shape>) {
         if constexpr (BeamLine || !BeamEnd) {
-          const FollowStage<Det, Material, BeamLine, false, Greedy, EndDensity, BeamEnd, Shape> stage{&parameters, &frame, &geometry, &material, propagator, iteration.tracks->view(), used, mMaxWidthPS.data(), mCells.view(), nullptr, parameters.sharedInnermost == 0U, first};
+          const FollowStage<Det, BeamLine, false, Greedy, EndDensity, BeamEnd, Shape> stage{&parameters, &frame, &geometry, propagator, iteration.tracks->view(), used, mMaxWidthPS.data(), mCells.view(), nullptr, parameters.sharedInnermost == 0U, first};
           body(stage);
         }
       },
@@ -4883,7 +4883,7 @@ class CompleteAnatomy
       // The beam gate, nominal and with its tail.
       const auto& fitted = plain.status == RoadFitStatus::kAccepted ? plain : allowed;
       Scalar beamChi2 = 0.F;
-      if (parameters.beamConstraint && fitted.status == RoadFitStatus::kAccepted && !clearsBeamLine(propagator, *nominal, frame, geometry, material, road.data(), static_cast<std::uint32_t>(road.size()), fitted.state, beamChi2)) {
+      if (parameters.beamConstraint && fitted.status == RoadFitStatus::kAccepted && !clearsBeamLine(propagator, *nominal, frame, geometry, road.data(), static_cast<std::uint32_t>(road.size()), fitted.state, beamChi2)) {
         need |= kBeamTail;
       }
       ++needs[population][need];

@@ -101,8 +101,7 @@ namespace detail
 /// From the link material (LinkMaterial.h, `LinkStep`) the nearer part is the
 /// band left and the gap, a kick at the gap's mean place -- \a lever, the
 /// fraction of the step after it -- with the spread of its places about it,
-/// \a spread; the farther part the band reached. A LUT's halves are a kick at
-/// the start and one at the end: \a lever 1, no spread.
+/// \a spread; the farther part the band reached.
 struct StepMaterial {
   Scalar nearerX2X0 = 0.F;     ///< x/X0 from the start to the midpoint (the link material's band left and gap)
   Scalar fartherX2X0 = 0.F;    ///< x/X0 from the midpoint to the end (the link material's band reached)
@@ -114,24 +113,20 @@ struct StepMaterial {
   bool found = true;           ///< false: the link material holds no such step (LinkMaterial::step)
 };
 
-/// A step's material from \a material's LUT, each half's logarithm at its own.
-template <typename Material>
-GPUdi() StepMaterial stepMaterial(const Material& material, const Scalar start[3], const Scalar end[3])
-{
-  const Scalar mid[3] = {0.5F * (start[0] + end[0]), 0.5F * (start[1] + end[1]), 0.5F * (start[2] + end[2])};
-  const auto nearer = material.getMatBudget(start[0], start[1], start[2], mid[0], mid[1], mid[2]);
-  const auto farther = material.getMatBudget(mid[0], mid[1], mid[2], end[0], end[1], end[2]);
-  return {.nearerX2X0 = nearer.meanX2X0, .fartherX2X0 = farther.meanX2X0, .nearerLogX2X0 = nearer.meanX2X0, .fartherLogX2X0 = farther.meanX2X0, .xRho = (nearer.meanRho * nearer.length) + (farther.meanRho * farther.length)};
-}
+/// What a step's material is: a policy the fits and the follow take by
+/// type, every step's material the link material's (LinkMaterial.h, the
+/// geometry's). The plain one: each step's own, Highland's logarithm at its
+/// own x/X0.
+struct LinkSteps {
+};
 
-/// A fit's material: \a inner's steps, with every step's Highland logarithm
-/// at \a spanX2X0, the material of the fitted span (`spanX2X0`). The
-/// scattering a fit takes over its span is the span's deflection, which
+/// A fit's material: \a Material's steps, with every step's Highland
+/// logarithm at \a spanX2X0, the material of the fitted span (`spanX2X0`).
+/// The scattering a fit takes over its span is the span's deflection, which
 /// Highland's formula gives for the span as a whole; each step takes its
 /// share (`highlandTheta0`). Both passes of a fit take the same span.
 template <typename Material>
 struct SpanMaterial {
-  const Material* inner = nullptr;
   Scalar spanX2X0 = 0.F;
 };
 
@@ -161,16 +156,14 @@ GPUdi() StepMaterial stepMaterial(const GivenMaterial& material, const Scalar* /
 /// (overlap partners, OverlapPartners.h): the link material's between
 /// layers, whose bands hold each layer's whole material, and none on a step
 /// between two sensors of one layer, which the bands hold already.
-template <typename Material>
 struct LayerMaterial {
-  const Material* inner = nullptr;
 };
 
 template <typename Material>
 struct IsLayerMaterial : std::false_type {
 };
-template <typename Material>
-struct IsLayerMaterial<LayerMaterial<Material>> : std::true_type {
+template <>
+struct IsLayerMaterial<LayerMaterial> : std::true_type {
 };
 
 /// A step's material from the link material (LinkMaterial.h) between the
@@ -184,8 +177,8 @@ struct IsSpanMaterial : std::false_type {
 template <typename Material>
 struct IsSpanMaterial<SpanMaterial<Material>> : std::true_type {
 };
-template <typename Material>
-struct IsLayerMaterial<SpanMaterial<LayerMaterial<Material>>> : std::true_type {
+template <>
+struct IsLayerMaterial<SpanMaterial<LayerMaterial>> : std::true_type {
 };
 
 template <DetectorLayout Det, typename Material>
@@ -808,9 +801,9 @@ GPUdi() void advanceReference(PassReference& reference, int n, PropagationDirect
 /// what the fit's steps read; the fit's material (`SpanMaterial`) for both
 /// passes.
 template <DetectorLayout Det, typename Material, typename Chain>
-GPUdi() SpanMaterial<Material> spanMaterial(const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n)
+GPUdi() SpanMaterial<Material> spanMaterial(const TrackingGeometry<Det>& geometry, const Material& /*material*/, const Chain& measurements, int n)
 {
-  SpanMaterial<Material> span{.inner = &material};
+  SpanMaterial<Material> span{};
   Scalar previous[3]{};
   LayerID previousLayer = kInvalidLayerID;
   for (int i = 0; i < n; ++i) {

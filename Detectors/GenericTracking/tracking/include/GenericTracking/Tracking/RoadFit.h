@@ -137,10 +137,10 @@ template <DetectorLayout Det>
 /// with a kink allowance, again with the scattering inside scaled by it if
 /// the nominal update is above the gate. False if either fails or the update
 /// is above the iteration's gate; \a chi2 is the update's.
-template <DetectorLayout Det, typename Material>
-[[nodiscard]] GPUdi() bool clearsBeamLine(const Propagator& propagator, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const std::uint32_t* rows, std::uint32_t count, const BoundTrackState& outwardState, Scalar& chi2)
+template <DetectorLayout Det>
+[[nodiscard]] GPUdi() bool clearsBeamLine(const Propagator& propagator, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const std::uint32_t* rows, std::uint32_t count, const BoundTrackState& outwardState, Scalar& chi2)
 {
-  const auto inward = fitInward<CrossingRule::kFirstAhead, Scalar>(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = rows}, static_cast<int>(count), outwardState, kinkBudget(parameters));
+  const auto inward = fitInward<CrossingRule::kFirstAhead, Scalar>(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows}, static_cast<int>(count), outwardState, kinkBudget(parameters));
   if (inward.status != PropagationStatus::kOk) {
     return false;
   }
@@ -218,7 +218,7 @@ class RoadRows
 /// `innerTrim` of them and the iteration's `minClusters`, and the first the
 /// fit takes is the road's record (a decay daughter's chain walked on below
 /// it into a triplet of another's cluster).
-template <DetectorLayout Det, typename Material, bool BeamLine, bool NominalOnly, bool LastStepAllowance, bool InnerTrim>
+template <DetectorLayout Det, bool BeamLine, bool NominalOnly, bool LastStepAllowance, bool InnerTrim>
 class RoadRowsFit
 {
  public:
@@ -226,11 +226,10 @@ class RoadRowsFit
   using Record = memlayout::Wrapper<SelectionRecordOf<kMaxClusters>::template RecordT, memlayout::value>;
 
   /// Every argument is only stored: the inputs may be a device's copies.
-  RoadRowsFit(const IterationParameters<Det>* parameters, const TimeFrame<Det>* frame, const TrackingGeometry<Det>* geometry, const Material* material, const Propagator& propagator)
+  RoadRowsFit(const IterationParameters<Det>* parameters, const TimeFrame<Det>* frame, const TrackingGeometry<Det>* geometry, const Propagator& propagator)
     : mParameters(parameters),
       mFrame(frame),
       mGeometry(geometry),
-      mMaterial(material),
       mPropagator(propagator)
   {
   }
@@ -282,7 +281,7 @@ class RoadRowsFit
       }
       common += box;
     }
-    const auto fit = fitRoad<LastStepAllowance>(*mParameters, mPropagator, *mGeometry, *mMaterial, RowChain<Det>{.frame = mFrame, .rows = rows}, static_cast<int>(count));
+    const auto fit = fitRoad<LastStepAllowance>(*mParameters, mPropagator, *mGeometry, detail::LinkSteps{}, RowChain<Det>{.frame = mFrame, .rows = rows}, static_cast<int>(count));
     countWork(WorkCounter::kRoadFits);
     if (fit.status != RoadFitStatus::kAccepted) {
       return false;
@@ -293,7 +292,7 @@ class RoadRowsFit
     }
     if constexpr (BeamLine) {
       Scalar beamChi2 = 0.F;
-      if (!clearsBeamLine(mPropagator, *mParameters, *mFrame, *mGeometry, *mMaterial, rows, count, fit.state, beamChi2)) {
+      if (!clearsBeamLine(mPropagator, *mParameters, *mFrame, *mGeometry, rows, count, fit.state, beamChi2)) {
         countWork(WorkCounter::kRoadBeam);
         return false;
       }
@@ -323,24 +322,23 @@ class RoadRowsFit
   const IterationParameters<Det>* mParameters = nullptr;
   const TimeFrame<Det>* mFrame = nullptr;
   const TrackingGeometry<Det>* mGeometry = nullptr;
-  const Material* mMaterial = nullptr;
   Propagator mPropagator;
 };
 
 /// One element per road, by its index: its rows captured (`RoadRows`) and
 /// fitted (`RoadRowsFit`, whose template arguments these are).
-template <DetectorLayout Det, typename Material, bool BeamLine, bool NominalOnly, bool LastStepAllowance, bool InnerTrim>
+template <DetectorLayout Det, bool BeamLine, bool NominalOnly, bool LastStepAllowance, bool InnerTrim>
 class RoadFitStage
 {
  public:
   using Index = StageOutput<TripletT>::Index;
-  using Fit = RoadRowsFit<Det, Material, BeamLine, NominalOnly, LastStepAllowance, InnerTrim>;
+  using Fit = RoadRowsFit<Det, BeamLine, NominalOnly, LastStepAllowance, InnerTrim>;
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using Record = typename Fit::Record;
 
-  RoadFitStage(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, const RoadWalk& walk)
+  RoadFitStage(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, const RoadWalk& walk)
     : mRows(tracklets.view(), triplets.view(), walk),
-      mFit(&parameters, &frame, &geometry, &material, propagator)
+      mFit(&parameters, &frame, &geometry, propagator)
   {
   }
 

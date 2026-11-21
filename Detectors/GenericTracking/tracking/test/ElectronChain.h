@@ -24,7 +24,6 @@
 #include "BandMaterial.h"
 #include "ScatteringKick.h"
 #include "ToyBarrel8.h"
-#include "UniformMaterial.h"
 
 #include <algorithm>
 #include <array>
@@ -32,36 +31,43 @@
 #include <memory>
 #include <numbers>
 #include <random>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 namespace o2::gtrk::test
 {
 
-/// An electron through ToyBarrel8's eight layers (2-16 cm) on uniform
-/// material, as the filter models it: on each step the scattering in two
-/// kicks of half the chord's Highland theta0 (behind the sensor left, in
-/// front of the sensor reached, the logarithm at the span's material), the
-/// ionisation over the chord on reaching the next sensor (its mean and the
-/// straggling the filter takes, Gaussian in q/p), and at each
-/// plane the radiation of the half-gap before it, then of the half-gap after
-/// it, each fraction z drawn from Bethe and Heitler's model itself (-ln z
-/// Gamma-distributed with shape t / ln 2), not from the mixture. truth[i] is
-/// the state on plane i after the half-gap before it: what the outward pass
-/// ends with on the last plane and the inward one on the first. The chords
-/// are those of the track without material. From a vertex (`generate`'s
-/// \a fromVertex), the track starts at (`vertexX`, `vertexY`, 0), on the
-/// perigee plane about it (d0 = z0 = 0), and reaches the first layer through the
-/// segment's material as through a step's, the segment's radiation taken on
-/// arriving there, before its measurement (the material inside the chain's
-/// first plane, which the refit's extrapolation to the vertex undoes);
-/// `vertex` holds that start.
+/// An electron chain's material: each layer's band holds \a x2X0 and
+/// \a xRho [g/cm^2] at normal incidence (`bandMaterial`), nothing between.
+struct ChainBands {
+  Scalar x2X0 = 0.F;
+  Scalar xRho = 0.F;
+};
+
+/// An electron through ToyBarrel8's eight layers (2-16 cm) on its bands
+/// (`ChainBands`, the chain's link material), as the filter models it
+/// (LinkMaterial::step): at each sensor the band's part behind the
+/// measurement on leaving it and the part in front on arriving, the band
+/// split at the measurement's depth, at the step chord's incidence; each part
+/// a kick of its Highland theta0 (the logarithm at the span's material) and
+/// its radiation, each fraction z drawn from Bethe and Heitler's model itself
+/// (-ln z Gamma-distributed with shape t / ln 2), not from the mixture; the
+/// ionisation of both parts on arriving (its mean and the straggling the
+/// filter takes, Gaussian in q/p). truth[i] is the state on plane i after the
+/// part in front of it: what the outward pass ends with on the last plane and
+/// the inward one on the first. The chords are those of the track without
+/// material. From a vertex (`generate`'s \a fromVertex), the track starts at
+/// (`vertexX`, `vertexY`, 0), on the perigee plane about it (d0 = z0 = 0),
+/// and reaches the first layer through nothing but its band's part in front,
+/// taken on arriving there, before its measurement (what the refit's carry
+/// to the vertex undoes); `vertex` holds that start.
 struct ElectronChain {
   static constexpr std::size_t kLayers = 8;
   using Barrel = detectors::ToyBarrel8;
   Geometry<Barrel> geometry = toyGeometry<Barrel>();
-  /// On the heap: with its link material it is megabytes. Its fits read the
-  /// chain's material (`withoutLinks`).
+  /// On the heap: with its link material it is megabytes. Its link material
+  /// is the chain's bands' (`generate`).
   std::unique_ptr<TrackingGeometry<Barrel>> trackingStore = std::make_unique<TrackingGeometry<Barrel>>(geometry);
   const TrackingGeometry<Barrel>& tracking = *trackingStore;
   Propagator propagator;
@@ -76,11 +82,12 @@ struct ElectronChain {
   std::array<double, kLayers> before{};
   std::array<double, kLayers> after{};
   Scalar sigma = 5e-4F;
+  ChainBands held{}; ///< the bands the link material holds
 
   ElectronChain()
   {
     propagator.massGeV = 0.000511F;
-    withoutLinks(trackingStore->material());
+    trackingStore->material() = noMaterial<Barrel>();
   }
 
   /// The share of the momentum radiated between rows \a first and \a last.
@@ -115,9 +122,18 @@ struct ElectronChain {
     return static_cast<Scalar>(std::exp(-gamma(rng)));
   }
 
-  /// A track of \a qOverP; false if it does not reach every layer.
-  bool generate(Scalar qOverP, const UniformMaterial& material, bool radiate, std::mt19937& rng, bool fromVertex = false)
+  /// A track of \a qOverP through \a bands; false if it does not reach
+  /// every layer.
+  bool generate(Scalar qOverP, const ChainBands& bands, bool radiate, std::mt19937& rng, bool fromVertex = false)
   {
+    if (bands.x2X0 != held.x2X0 || bands.xRho != held.xRho) {
+      std::array<double, kLayers> x{};
+      std::array<double, kLayers> rho{};
+      x.fill(bands.x2X0);
+      rho.fill(bands.xRho);
+      trackingStore->material() = *bandMaterial<Barrel>(x, {}, {.low = -20., .high = 20.}, rho);
+      held = bands;
+    }
     BoundTrackState start{};
     start.par[kPhi] = 0.05F;
     start.par[kTheta] = 1.55F;
@@ -126,88 +142,88 @@ struct ElectronChain {
     std::normal_distribution<double> gauss;
     before.fill(1.);
     after.fill(1.);
+    // Each band's part in front of (\a front) or behind a point on it, the
+    // chord \a d's path there: x/X0 and rho x.
+    const auto part = [&](LayerID layer, const Scalar* point, const Scalar* d, bool front) {
+      const auto [share, path] = bandShare<Barrel>(layer, point, d);
+      const Scalar k = (front ? share : 1.F - share) * path;
+      return std::pair{bands.x2X0 * k, bands.xRho * k};
+    };
+    // The ionisation of \a xRho with the straggling the filter takes.
+    const auto lose = [&](BoundTrackState& state, Scalar xRho) {
+      Scalar variance = 0.F;
+      Scalar lossQOverP = state.qOverP();
+      if (!detail::applyEnergyLoss(propagator, xRho, PropagationDirection::kForward, lossQOverP, state, variance)) {
+        return false;
+      }
+      state.par[kQOverP] += static_cast<Scalar>(gauss(rng)) * std::sqrt(variance);
+      return true;
+    };
     if (fromVertex) {
       // The perigee plane about the origin, normal to the direction there; the
-      // track through the origin; the first layer reached through the segment.
+      // track through the origin; the first layer reached, its band in front.
       vertex = BoundTrackState{};
       vertex.par[kPhi] = start.par[kPhi];
       vertex.par[kTheta] = start.par[kTheta];
       vertex.par[kQOverP] = qOverP;
       vertexPlane = beamLinePlane(vertexX, vertexY, vertex.phi());
       vertex.surface = vertexPlane.id;
-      BoundTrackState probe = vertex;
       bool crossed = false;
       for (SensorID id = firstSensorOfLayer<Barrel>(0); id < firstSensorOfLayer<Barrel>(1) && !crossed; ++id) {
-        probe = vertex;
-        crossed = propagate(propagator, probe, vertexPlane, tracking.surface(id), PropagationDirection::kForward).status == PropagationStatus::kOk;
+        start = vertex;
+        crossed = propagate(propagator, start, vertexPlane, tracking.surface(id), PropagationDirection::kForward).status == PropagationStatus::kOk;
       }
       if (!crossed) {
         return false;
       }
       const Scalar a[3] = {vertexX, vertexY, 0.F};
       Scalar b[3]{};
-      surfaceToGlobal(tracking.surface(probe.surface), probe.loc0(), probe.loc1(), b);
-      const Scalar segment = std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-      const Scalar half = 0.5F * material.x2X0PerCm * segment;
-      const Scalar theta0 = highlandTheta0(half, half, 1.F / std::abs(qOverP), propagator.massGeV);
-      BoundTrackState leaving = vertex;
-      scatteringKickKickedTheta(leaving, theta0, gauss, rng);
-      crossed = false;
-      for (SensorID id = firstSensorOfLayer<Barrel>(0); id < firstSensorOfLayer<Barrel>(1) && !crossed; ++id) {
-        start = leaving;
-        crossed = propagate(propagator, start, vertexPlane, tracking.surface(id), PropagationDirection::kForward).status == PropagationStatus::kOk;
-      }
-      if (!crossed) {
+      surfaceToGlobal(tracking.surface(start.surface), start.loc0(), start.loc1(), b);
+      const Scalar d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+      const auto [x, xRho] = part(0, b, d, true);
+      if (!lose(start, xRho)) {
         return false;
       }
-      Scalar variance = 0.F;
-      Scalar lossQOverP = start.qOverP();
-      if (!detail::applyEnergyLoss(propagator, material.rho * segment, PropagationDirection::kForward, lossQOverP, start, variance)) {
-        return false;
-      }
-      start.par[kQOverP] += static_cast<Scalar>(gauss(rng)) * std::sqrt(variance);
-      scatteringKickKickedTheta(start, theta0, gauss, rng);
+      scatteringKickKickedTheta(start, highlandTheta0(x, x, 1.F / std::abs(qOverP), propagator.massGeV), gauss, rng);
       if (radiate) {
-        before[0] = fraction(2. * static_cast<double>(half), rng);
+        before[0] = fraction(static_cast<double>(x), rng);
         start.par[kQOverP] /= static_cast<Scalar>(before[0]);
       }
     }
-    // The chords without material.
-    std::array<Scalar, kLayers> chord{};
+    // Each step's band parts, on the chords without material: what the fit's
+    // span holds.
+    std::array<Scalar, kLayers> leaving{};
+    std::array<Scalar, kLayers> leavingRho{};
+    std::array<Scalar, kLayers> reaching{};
+    std::array<Scalar, kLayers> reachingRho{};
     BoundTrackState state = start;
     Scalar previous[3];
     surfaceToGlobal(tracking.surface(state.surface), state.loc0(), state.loc1(), previous);
+    Scalar span = 0.F;
     for (std::size_t layer = 1; layer < kLayers; ++layer) {
       if (!cross(state, static_cast<LayerID>(layer))) {
         return false;
       }
       Scalar point[3];
       surfaceToGlobal(tracking.surface(state.surface), state.loc0(), state.loc1(), point);
-      chord[layer] = std::hypot(point[0] - previous[0], point[1] - previous[1], point[2] - previous[2]);
+      const Scalar d[3] = {point[0] - previous[0], point[1] - previous[1], point[2] - previous[2]};
+      std::tie(leaving[layer - 1], leavingRho[layer - 1]) = part(static_cast<LayerID>(layer - 1), previous, d, false);
+      std::tie(reaching[layer], reachingRho[layer]) = part(static_cast<LayerID>(layer), point, d, true);
+      span += leaving[layer - 1] + reaching[layer];
       std::copy(point, point + 3, previous);
     }
-    Scalar span = 0.F;
-    for (const Scalar c : chord) {
-      span += material.x2X0PerCm * c;
-    }
-    const auto halfGap = [&](std::size_t layer) { return 0.5 * static_cast<double>(material.x2X0PerCm * chord[layer]); };
     state = start;
     for (std::size_t layer = 0; layer < kLayers; ++layer) {
       if (layer > 0) {
-        const Scalar theta0 = highlandTheta0(0.5F * material.x2X0PerCm * chord[layer], span, 1.F / std::abs(state.qOverP()), propagator.massGeV);
-        scatteringKick(state, theta0, gauss, rng);
         if (!cross(state, static_cast<LayerID>(layer))) {
           return false;
         }
-        Scalar variance = 0.F;
-        Scalar lossQOverP = state.qOverP();
-        if (!detail::applyEnergyLoss(propagator, material.rho * chord[layer], PropagationDirection::kForward, lossQOverP, state, variance)) {
+        if (!lose(state, leavingRho[layer - 1] + reachingRho[layer])) {
           return false;
         }
-        state.par[kQOverP] += static_cast<Scalar>(gauss(rng)) * std::sqrt(variance); // the straggling the filter takes
-        scatteringKick(state, theta0, gauss, rng);
+        scatteringKick(state, highlandTheta0(reaching[layer], span, 1.F / std::abs(state.qOverP()), propagator.massGeV), gauss, rng);
         if (radiate) {
-          before[layer] = fraction(halfGap(layer), rng);
+          before[layer] = fraction(static_cast<double>(reaching[layer]), rng);
           state.par[kQOverP] /= static_cast<Scalar>(before[layer]);
         }
       }
@@ -220,9 +236,12 @@ struct ElectronChain {
       m.varLoc0 = sigma * sigma;
       m.varLoc1 = sigma * sigma;
       m.clusterIndex = static_cast<std::uint32_t>(layer);
-      if (radiate && layer + 1 < kLayers) {
-        after[layer] = fraction(halfGap(layer + 1), rng);
-        state.par[kQOverP] /= static_cast<Scalar>(after[layer]);
+      if (layer + 1 < kLayers) {
+        scatteringKick(state, highlandTheta0(leaving[layer], span, 1.F / std::abs(state.qOverP()), propagator.massGeV), gauss, rng);
+        if (radiate) {
+          after[layer] = fraction(static_cast<double>(leaving[layer]), rng);
+          state.par[kQOverP] /= static_cast<Scalar>(after[layer]);
+        }
       }
       if (!isFiniteOf(state.qOverP()) || std::abs(state.qOverP()) > 50.F) {
         return false;

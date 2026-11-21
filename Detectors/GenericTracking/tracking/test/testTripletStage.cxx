@@ -58,7 +58,7 @@ using Sources = LayerRowMap<Det>;
 using Tracklets = StageOutput<TrackletT>;
 using Triplets = StageOutput<TripletT>;
 using Permutation = TripletPermutation<Det>;
-using Controller = Tracker<Det, UniformMaterial>;
+using Controller = Tracker<Det>;
 
 /// The largest variances per layer over \a slice's halo rows.
 template <DetectorLayout Layout>
@@ -142,7 +142,7 @@ using Mixed = detectors::ToyBarrel4Disc8;
 using MixedFrame = TimeFrame<Mixed>;
 using MixedSources = LayerRowMap<Mixed>;
 using MixedScratch = TimeFrameScratch<Mixed>;
-using MixedController = Tracker<Mixed, UniformMaterial>;
+using MixedController = Tracker<Mixed>;
 constexpr std::size_t kMixedMeasurements = 10U;
 
 struct MixedInputPoint {

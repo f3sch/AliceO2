@@ -25,8 +25,6 @@
 #include "DeviceTestKernels.h"
 #include "UniformMaterial.h"
 
-#include "DetectorsBase/MatLayerCylSet.h"
-
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -207,7 +205,7 @@ StageStatus runPropagation(DeviceRuntime& runtime, DeviceStream& stream, DeviceA
   return StageStatus::kComplete;
 }
 
-std::unique_ptr<DeviceTracker<detectors::ToyBarrel8, UniformMaterial>> makeToyBarrel8Tracker(DeviceRuntime& runtime, DeviceBlock arena) { return std::make_unique<DeviceTrackerImpl<detectors::ToyBarrel8, UniformMaterial>>(runtime, arena); }
+std::unique_ptr<DeviceTracker<detectors::ToyBarrel8>> makeToyBarrel8Tracker(DeviceRuntime& runtime, DeviceBlock arena) { return std::make_unique<DeviceTrackerImpl<detectors::ToyBarrel8>>(runtime, arena); }
 
 using Toy = detectors::ToyBarrel8;
 constexpr std::size_t kToyLayers = static_cast<std::size_t>(Detector<Toy>::nLayers);
@@ -485,39 +483,6 @@ bool runGatherChunks(DeviceRuntime& /*runtime*/, DeviceStream& stream, DeviceAre
   return true;
 }
 
-GPUg() void readToyFlatObject(const ToyFlatObject* object, std::int32_t* values)
-{
-  for (std::int32_t index = (blockIdx.x * blockDim.x) + threadIdx.x; index < object->count(); index += blockDim.x * gridDim.x) {
-    values[index] = object->value(index);
-  }
-}
-
-bool runFlatObject(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const ToyFlatObject& host, std::vector<std::int32_t>& readBack, std::vector<std::int32_t>& moved)
-{
-  DeviceFlatObject<ToyFlatObject> object;
-  const auto count = static_cast<std::size_t>(host.count());
-  // \a pad bytes before the object: the second upload lands elsewhere, its image re-targeted.
-  const auto read = [&](std::size_t pad, std::vector<std::int32_t>& values) {
-    auto scope = arena.scope();
-    DeviceSpan<std::byte> before;
-    if ((pad > 0U && !before.allocate(arena, pad)) || !object.upload(arena, host, stream)) {
-      return false;
-    }
-    DeviceSpan<std::int32_t> out;
-    if (!out.allocate(arena, count)) {
-      return false;
-    }
-    readToyFlatObject<<<4U, 64U, 0U, nativeStream(runtime, stream)>>>(object.data(), out.data());
-    checkLaunch();
-    values.resize(count);
-    download(out, values.data(), count, stream);
-    stream.synchronize();
-    object.release();
-    return true;
-  };
-  return read(0U, readBack) && read(1024U, moved);
-}
-
 struct CountAtLevel {
   TrackletConstView tracklets;
   TripletConstView triplets;
@@ -650,40 +615,6 @@ StageStatus runSelectionGlue(DeviceRuntime& runtime, DeviceStream& stream, Devic
   return StageStatus::kComplete;
 }
 
-GPUg() void matBudgetKernel(const o2::base::MatLayerCylSet* lut, const float* segments, std::uint32_t count, float* result)
-{
-  for (std::uint32_t i = (blockIdx.x * blockDim.x) + threadIdx.x; i < count; i += blockDim.x * gridDim.x) {
-    const float* s = segments + (6U * i);
-    const auto budget = lut->getMatBudget(s[0], s[1], s[2], s[3], s[4], s[5]);
-    const auto moment = lut->getMatMoment(s[0], s[1], s[2], s[3], s[4], s[5]);
-    result[(5U * i) + 0U] = budget.meanRho;
-    result[(5U * i) + 1U] = budget.meanX2X0;
-    result[(5U * i) + 2U] = budget.length;
-    result[(5U * i) + 3U] = moment.x2X0;
-    result[(5U * i) + 4U] = moment.x2X0T2;
-  }
-}
-
-StageStatus runMatBudgets(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const o2::base::MatLayerCylSet& lut, std::span<const std::array<float, 6>> segments, std::vector<std::array<float, 5>>& result)
-{
-  auto scope = arena.scope();
-  DeviceFlatObject<o2::base::MatLayerCylSet> device;
-  DeviceSpan<float> deviceSegments;
-  DeviceSpan<float> deviceResult;
-  const auto count = static_cast<std::uint32_t>(segments.size());
-  if (!device.upload(arena, lut, stream) || !deviceSegments.allocate(arena, 6U * std::size_t{count}) || !deviceResult.allocate(arena, 5U * std::size_t{count})) {
-    return StageStatus::kOutOfMemory;
-  }
-  upload(segments.data()->data(), deviceSegments, 6U * std::size_t{count}, stream);
-  const auto shape = launchFor(count);
-  matBudgetKernel<<<shape.blocks, shape.threads, 0U, nativeStream(runtime, stream)>>>(device.data(), deviceSegments.data(), count, deviceResult.data());
-  checkLaunch();
-  result.resize(count);
-  download(deviceResult, result.data()->data(), 5U * std::size_t{count}, stream);
-  stream.synchronize();
-  return StageStatus::kComplete;
-}
-
 /// `lane_group_script::run` for one item, its group's lanes in step.
 struct LaneGroupBody {
   std::uint64_t* folded = nullptr;
@@ -761,8 +692,6 @@ const DeviceTestEntry* testKernelsHIP()
     .sweepChain = &gpu::hip::runSweepChain,
     .copyColumns = &gpu::hip::runCopyColumns,
     .gatherChunks = &gpu::hip::runGatherChunks,
-    .flatObject = &gpu::hip::runFlatObject,
-    .matBudgets = &gpu::hip::runMatBudgets,
     .selectionGlue = &gpu::hip::runSelectionGlue,
     .propagation = &gpu::hip::runPropagation,
     .laneGroups = &gpu::hip::runLaneGroups,
@@ -789,8 +718,6 @@ const DeviceTestEntry* testKernelsCUDA()
     .sweepChain = &gpu::cuda::runSweepChain,
     .copyColumns = &gpu::cuda::runCopyColumns,
     .gatherChunks = &gpu::cuda::runGatherChunks,
-    .flatObject = &gpu::cuda::runFlatObject,
-    .matBudgets = &gpu::cuda::runMatBudgets,
     .selectionGlue = &gpu::cuda::runSelectionGlue,
     .propagation = &gpu::cuda::runPropagation,
     .laneGroups = &gpu::cuda::runLaneGroups,

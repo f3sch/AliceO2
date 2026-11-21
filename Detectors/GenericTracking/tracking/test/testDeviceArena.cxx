@@ -45,8 +45,6 @@ class NoRuntime final : public DeviceRuntime
   void copyOnDevice(void* /*to*/, const void* /*from*/, std::size_t /*bytes*/, DeviceStream& /*stream*/) final { fail(); }
   void copyEachOnDevice(std::span<const DeviceCopy> /*copies*/, DeviceStream& /*stream*/) final { fail(); }
   void fill(void* /*to*/, std::uint8_t /*value*/, std::size_t /*bytes*/, DeviceStream& /*stream*/) final { fail(); }
-  void registerHost(void* /*host*/, std::size_t /*bytes*/) final { fail(); }
-  void unregisterHost(void* /*host*/) noexcept final {}
 
  protected:
   [[nodiscard]] void* createStreamHandle() final { fail(); }
@@ -55,11 +53,11 @@ class NoRuntime final : public DeviceRuntime
   [[noreturn]] static void fail() { throw std::logic_error("the arena called its runtime"); }
   void destroyStreamHandle(void* /*handle*/) noexcept final {}
   void synchronizeStreamHandle(void* /*handle*/) final { fail(); }
-  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::ITS, o2::base::MatLayerCylSet>> makeITSTracker(DeviceBlock /*block*/) final { fail(); }
-  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::MFT, o2::base::MatLayerCylSet>> makeMFTTracker(DeviceBlock /*block*/) final { fail(); }
-  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3Tracker(DeviceBlock /*block*/) final { fail(); }
-  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3TOF, o2::base::MatLayerCylSet>> makeTRKFT3TOFTracker(DeviceBlock /*block*/) final { fail(); }
-  [[nodiscard]] std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3DecayFitter(DeviceBlock /*block*/) final { fail(); }
+  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::ITS>> makeITSTracker(DeviceBlock /*block*/) final { fail(); }
+  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::MFT>> makeMFTTracker(DeviceBlock /*block*/) final { fail(); }
+  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3>> makeTRKFT3Tracker(DeviceBlock /*block*/) final { fail(); }
+  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3TOF>> makeTRKFT3TOFTracker(DeviceBlock /*block*/) final { fail(); }
+  [[nodiscard]] std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, LinkMaterial<detectors::TRKFT3>>> makeTRKFT3DecayFitter(DeviceBlock /*block*/) final { fail(); }
 
   DeviceProperties mProperties;
 };

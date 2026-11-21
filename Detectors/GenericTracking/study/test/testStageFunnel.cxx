@@ -40,8 +40,7 @@ std::unique_ptr<Funnel> runFunnel(const toybarrel8::Fixture& fixture, std::span<
 {
   using namespace toybarrel8;
   Controller tracker{settings, Fixture::kBeamConstraint, noMaterial<Det>(), std::make_shared<BoundedMemoryResource>(), 2U, 1};
-  const UniformMaterial none{};
-  tracker.setTrackModel(trackingGeometry(), none, Propagator{});
+  tracker.setTrackModel(trackingGeometry(), Propagator{});
   std::vector<double> floors;
   floors.reserve(settings.size());
   for (const auto& setting : settings) {

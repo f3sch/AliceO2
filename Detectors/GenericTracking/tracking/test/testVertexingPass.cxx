@@ -45,7 +45,7 @@ namespace
 {
 
 using namespace toybarrel8;
-using Pass = VertexingPass<Det, UniformMaterial>;
+using Pass = VertexingPass<Det>;
 
 /// Two collisions of eight tracks each, 500 ns apart, every track 0.5 to 2.6
 /// GeV from the origin.
@@ -111,9 +111,8 @@ std::vector<Found> trackFrom(const Fixture& fixture, std::span<const VertexSeed>
   auto second = first;
   second.windows.minPtGeV = 0.3;
   const std::vector<IterationSettings> settings{first, second};
-  Tracker<Det, UniformMaterial> tracker{settings, Fixture::kBeamConstraint, noScattering(), std::make_shared<BoundedMemoryResource>(), 2U, 1};
-  static const UniformMaterial none{};
-  tracker.setTrackModel(trackingGeometry(), none, Propagator{});
+  Tracker<Det> tracker{settings, Fixture::kBeamConstraint, noScattering(), std::make_shared<BoundedMemoryResource>(), 2U, 1};
+  tracker.setTrackModel(trackingGeometry(), Propagator{});
   const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, frameBounds(*fixture.frame), vertices, 3));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   std::vector<Found> tracks;

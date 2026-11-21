@@ -133,7 +133,7 @@ template <DetectorLayout Det, typename Material>
   if (!clearsPtFloor(parameters, count, fit)) {
     return FitRefusal::kPtFloor;
   }
-  if (Scalar beamChi2 = 0.F; parameters.beamConstraint && !clearsBeamLine(propagator, parameters, frame, tracking, material, rows.data(), count, fit.state, beamChi2)) {
+  if (Scalar beamChi2 = 0.F; parameters.beamConstraint && !clearsBeamLine(propagator, parameters, frame, tracking, rows.data(), count, fit.state, beamChi2)) {
     return FitRefusal::kBeamLine;
   }
   return FitRefusal::kTaken;

@@ -17,14 +17,6 @@ endif()
 
 set(fixtures "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_SOURCE_DIR}/../../../study/include")
 
-# The test kernels' host code: what O2 compiles only outside GPU translation
-# units (a FlatObject's cloning and relocation). An object library of its own,
-# since the HIP libraries compile every source they hold as HIP.
-add_library(gtrk_device_test_host OBJECT DeviceTestHost.cxx)
-target_include_directories(gtrk_device_test_host PRIVATE ${fixtures})
-target_link_libraries(gtrk_device_test_host PRIVATE O2::GTrkTracking)
-set_target_properties(gtrk_device_test_host PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
-
 function(gtrk_device_test name source backend)
   string(TOLOWER ${backend} lower)
   o2_add_test(${name}-${lower} SOURCES ${source} COMPONENT_NAME generic-tracking NAME generic-tracking-${name}-${lower}
@@ -44,7 +36,6 @@ foreach(backend IN ITEMS CUDA HIP)
 
   gtrk_device_library(GTrkDeviceTest${backend} ${backend} DeviceTestKernels.cu)
   set(target ${GTrkDeviceTest${backend}_TARGET})
-  target_sources(${target} PRIVATE $<TARGET_OBJECTS:gtrk_device_test_host>)
   target_include_directories(${target} PRIVATE ${fixtures})
   target_link_libraries(${target} PRIVATE O2::GTrkTracking)
   gtrk_device_target(${target} ${backend} SHARED "_ZN2o24gtrk*testKernels${backend}E*")
@@ -57,6 +48,4 @@ foreach(backend IN ITEMS CUDA HIP)
   gtrk_device_test(device-storage testDeviceStorage.cxx ${backend})
   gtrk_device_test(road-glue testRoadGlue.cxx ${backend})
   gtrk_device_test(selection-glue testSelectionGlue.cxx ${backend})
-  # O2's material LUT on the device, if GTRK_TEST_MATLUT names one.
-  gtrk_device_test(device-material testDeviceMaterial.cxx ${backend})
 endforeach()

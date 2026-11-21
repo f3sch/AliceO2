@@ -53,11 +53,12 @@ struct ThinCylinder {
 /// \a cylinders, and nothing else: what `fillLinkMaterial` makes of a LUT with that material, every
 /// crossing of a band along a bin's central ray integrated exactly, the
 /// layout being symmetric in azimuth. A skip link's gap holds the bands it
-/// passes over, a vertex gap the bands inside the layer. The layout's
-/// geometry must be loaded (PlacedEnvelopes). On the heap: a layout's table
-/// is megabytes.
+/// passes over, a vertex gap the bands inside the layer. With \a xRho, each
+/// band's rho x [g/cm^2] at normal incidence, for the energy loss (none
+/// without). The layout's geometry must be loaded (PlacedEnvelopes). On the
+/// heap: a layout's table is megabytes.
 template <DetectorLayout Det>
-[[nodiscard]] std::unique_ptr<LinkMaterial<Det>> bandMaterial(const std::array<double, static_cast<std::size_t>(Detector<Det>::nLayers)>& x2X0, std::span<const ThinCylinder> cylinders = {}, Interval vertexZ = {.low = -20., .high = 20.})
+[[nodiscard]] std::unique_ptr<LinkMaterial<Det>> bandMaterial(const std::array<double, static_cast<std::size_t>(Detector<Det>::nLayers)>& x2X0, std::span<const ThinCylinder> cylinders = {}, Interval vertexZ = {.low = -20., .high = 20.}, std::span<const double> xRho = {})
 {
   using Table = LinkMaterial<Det>;
   constexpr int kL = Table::kLayers;
@@ -164,6 +165,7 @@ template <DetectorLayout Det>
         total.x += x;
         total.xf += x * f;
         total.xf2 += x * f * f;
+        total.byFraction[static_cast<std::size_t>(std::clamp(static_cast<int>(f * kGapProfile), 0, kGapProfile - 1))] += x;
       }
     }
     return total;
@@ -173,6 +175,7 @@ template <DetectorLayout Det>
     const auto id = static_cast<LayerID>(layer);
     MaterialNode node;
     node.x = static_cast<float>(x2X0[static_cast<std::size_t>(layer)]);
+    node.xRho = xRho.empty() ? 0.F : static_cast<float>(xRho[static_cast<std::size_t>(layer)]);
     for (int k = 0; k <= kNodeDepths; ++k) {
       node.depth[k] = static_cast<std::uint8_t>(std::lround(255. * k / kNodeDepths));
     }
@@ -230,6 +233,33 @@ template <DetectorLayout Det>
   return bandMaterial<Det>(layers, cylinders, vertexZ);
 }
 
+/// The share of layer \a layer's band in front of \a point (its depth in the
+/// band, the band even across it: `bandMaterial`'s) and the path factor of a
+/// step along \a d there, as LinkMaterial::step takes them.
+template <DetectorLayout Det>
+[[nodiscard]] std::pair<Scalar, Scalar> bandShare(LayerID layer, const Scalar point[3], const Scalar d[3])
+{
+  const auto& e = PlacedEnvelopes<Det>::get(layer);
+  const double length = std::hypot(d[0], d[1], d[2]);
+  if (Detector<Det>::isBarrelLayer(layer)) {
+    const double r = std::hypot(point[0], point[1]);
+    const double cosine = std::abs((d[0] * point[0]) + (d[1] * point[1])) / (r * length);
+    return {static_cast<Scalar>(std::clamp((r - e.rMin) / (e.rMax - e.rMin), 0., 1.)), static_cast<Scalar>(1. / cosine)};
+  }
+  const double depth = (std::abs(point[2]) - std::min(std::abs(e.zMin), std::abs(e.zMax))) / (e.zMax - e.zMin);
+  return {static_cast<Scalar>(std::clamp(depth, 0., 1.)), static_cast<Scalar>(length / std::abs(d[2]))};
+}
+
+/// \a table filled from \a medium -- a test's UniformMaterial, anything with
+/// a LUT's `getMatBudget` -- as the tracking fills it from its LUT
+/// (`fillLinkMaterial`), the vertices over \a vertexZ.
+template <DetectorLayout Det, typename Medium>
+void fillFromMedium(LinkMaterial<Det>& table, const Medium& medium, Interval vertexZ = {.low = -20., .high = 20.})
+{
+  detail::TaskArena arena{0};
+  fillLinkMaterial<Det>(table, medium, vertexZ, arena);
+}
+
 /// The link material without any, made once per layout: the iterations'
 /// parameters point at it.
 template <DetectorLayout Det>
@@ -237,17 +267,6 @@ template <DetectorLayout Det>
 {
   static const auto table = bandMaterial<Det>(0.);
   return *table;
-}
-
-/// \a table without material and holding no links for the fits: every step
-/// of a fit or the follow on a geometry with it reads the fit's own material
-/// (`stepMaterial`), as a test's UniformMaterial whose chains scatter as the
-/// LUT's halves model; the seeding reads no material from it.
-template <DetectorLayout Det>
-void withoutLinks(LinkMaterial<Det>& table)
-{
-  table = noMaterial<Det>();
-  table.linkOf.fill(-1);
 }
 
 } // namespace o2::gtrk

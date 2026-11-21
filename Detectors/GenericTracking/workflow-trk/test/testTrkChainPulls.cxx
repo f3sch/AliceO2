@@ -119,13 +119,22 @@ struct Candidate {
 
 struct BarrelChain {
   const Geometry<TRKFT3>* geometry;
-  const TrackingGeometry<TRKFT3>* tracking;
+  TrackingGeometry<TRKFT3>* tracking;
+  UniformMaterial filled{}; ///< the medium the link material holds (`hold`)
+  /// The link material as \a medium's, filled when it changes.
+  void hold(const UniformMaterial& medium)
+  {
+    if (medium.x2X0PerCm != filled.x2X0PerCm || medium.rho != filled.rho) {
+      fillFromMedium<TRKFT3>(tracking->material(), medium);
+      filled = medium;
+    }
+  }
   Propagator propagator;
   std::array<std::vector<Candidate>, Detector<TRKFT3>::nLayers> sensorsOfLayer;
   std::vector<BoundTrackState> truth;
   std::vector<Measurement> measurements;
 
-  BarrelChain(const Geometry<TRKFT3>& geo, const TrackingGeometry<TRKFT3>& trk) : geometry(&geo), tracking(&trk), truth(1)
+  BarrelChain(const Geometry<TRKFT3>& geo, TrackingGeometry<TRKFT3>& trk) : geometry(&geo), tracking(&trk), truth(1)
   {
     propagator.bzKiloGauss = kBzKiloGauss;
     for (SensorID id = 0; id < static_cast<SensorID>(TRKFT3::nSensors); ++id) {
@@ -401,6 +410,7 @@ PullPoint pullsAt(BarrelChain& chain, double ptGeV, double eta, bool withMateria
   const bool forward = eta > 1.5;
   const auto layers = BarrelChain::sequence(forward);
   const UniformMaterial material{.x2X0PerCm = withMaterial ? static_cast<Scalar>(kX2X0PerCm) : 0.F};
+  chain.hold(material);
   const double theta = thetaOfEta(eta);
   const double p = ptGeV / std::sin(theta);
   std::mt19937 rng(seed);
@@ -459,9 +469,9 @@ const Scans* scans()
     }
     o2::base::GeometryManager::loadGeometry(geometryFile());
     const auto geometry = std::make_unique<const Geometry<TRKFT3>>(alice::placeChecked<TRKFT3>());
-    // The fits read the chains' material, not the link material (`withoutLinks`).
+    // The link material is the chains' medium's (`BarrelChain::hold`).
     const auto tracking = std::make_unique<TrackingGeometry<TRKFT3>>(*geometry);
-    withoutLinks(tracking->material());
+    tracking->material() = noMaterial<TRKFT3>();
     BarrelChain chain(*geometry, *tracking);
     auto out = std::make_unique<Scans>();
     std::uint32_t seed = 20261007;

@@ -40,11 +40,11 @@ namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
 {
 
 /// In DeviceTracker<Layout>.cu, one translation unit per layout.
-std::unique_ptr<DeviceTracker<detectors::ITS, o2::base::MatLayerCylSet>> makeITSTracker(DeviceRuntime& runtime, DeviceBlock block);
-std::unique_ptr<DeviceTracker<detectors::MFT, o2::base::MatLayerCylSet>> makeMFTTracker(DeviceRuntime& runtime, DeviceBlock block);
-std::unique_ptr<DeviceTracker<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3Tracker(DeviceRuntime& runtime, DeviceBlock block);
-std::unique_ptr<DeviceTracker<detectors::TRKFT3TOF, o2::base::MatLayerCylSet>> makeTRKFT3TOFTracker(DeviceRuntime& runtime, DeviceBlock block);
-std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3DecayFitter(DeviceRuntime& runtime, DeviceBlock block);
+std::unique_ptr<DeviceTracker<detectors::ITS>> makeITSTracker(DeviceRuntime& runtime, DeviceBlock block);
+std::unique_ptr<DeviceTracker<detectors::MFT>> makeMFTTracker(DeviceRuntime& runtime, DeviceBlock block);
+std::unique_ptr<DeviceTracker<detectors::TRKFT3>> makeTRKFT3Tracker(DeviceRuntime& runtime, DeviceBlock block);
+std::unique_ptr<DeviceTracker<detectors::TRKFT3TOF>> makeTRKFT3TOFTracker(DeviceRuntime& runtime, DeviceBlock block);
+std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, LinkMaterial<detectors::TRKFT3>>> makeTRKFT3DecayFitter(DeviceRuntime& runtime, DeviceBlock block);
 
 namespace
 {
@@ -186,9 +186,6 @@ class Runtime final : public DeviceRuntime
 
   void fill(void* to, std::uint8_t value, std::size_t bytes, DeviceStream& stream) final { GPUChkErrS(cudaMemsetAsync(to, static_cast<int>(value), bytes, nativeStreamOf(stream))); }
 
-  void registerHost(void* host, std::size_t bytes) final { GPUChkErrS(cudaHostRegister(host, bytes, cudaHostRegisterDefault)); }
-  void unregisterHost(void* host) noexcept final { GPUChkErrSI(cudaHostUnregister(host)); }
-
  protected:
   [[nodiscard]] void* createStreamHandle() final
   {
@@ -206,11 +203,11 @@ class Runtime final : public DeviceRuntime
 
   void synchronizeStreamHandle(void* handle) final { GPUChkErrS(cudaStreamSynchronize(static_cast<cudaStream_t>(handle))); }
 
-  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::ITS, o2::base::MatLayerCylSet>> makeITSTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeITSTracker(*this, block); }
-  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::MFT, o2::base::MatLayerCylSet>> makeMFTTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeMFTTracker(*this, block); }
-  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3Tracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeTRKFT3Tracker(*this, block); }
-  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3TOF, o2::base::MatLayerCylSet>> makeTRKFT3TOFTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeTRKFT3TOFTracker(*this, block); }
-  [[nodiscard]] std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3DecayFitter(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeTRKFT3DecayFitter(*this, block); }
+  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::ITS>> makeITSTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeITSTracker(*this, block); }
+  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::MFT>> makeMFTTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeMFTTracker(*this, block); }
+  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3>> makeTRKFT3Tracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeTRKFT3Tracker(*this, block); }
+  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3TOF>> makeTRKFT3TOFTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeTRKFT3TOFTracker(*this, block); }
+  [[nodiscard]] std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, LinkMaterial<detectors::TRKFT3>>> makeTRKFT3DecayFitter(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeTRKFT3DecayFitter(*this, block); }
 
   DeviceProperties mProperties;
 };

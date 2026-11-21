@@ -18,14 +18,12 @@
 
 #include "GenericTracking/Detectors/TRKFT3.h"
 
-#include "DetectorsBase/MatLayerCylSet.h"
-
 #include <cstddef>
 #include <memory>
 
 namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
 {
 
-std::unique_ptr<DeviceTracker<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3Tracker(DeviceRuntime& runtime, DeviceBlock block) { return std::make_unique<DeviceTrackerImpl<detectors::TRKFT3, o2::base::MatLayerCylSet>>(runtime, block); }
+std::unique_ptr<DeviceTracker<detectors::TRKFT3>> makeTRKFT3Tracker(DeviceRuntime& runtime, DeviceBlock block) { return std::make_unique<DeviceTrackerImpl<detectors::TRKFT3>>(runtime, block); }
 
 } // namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE

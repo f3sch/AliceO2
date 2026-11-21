@@ -44,7 +44,7 @@ using Det = detectors::ToyBarrel8;
 using Frame = TimeFrame<Det>;
 using TrackletOutput = StageOutput<TrackletT>;
 using Triplets = StageOutput<TripletT>;
-using Controller = Tracker<Det, UniformMaterial>;
+using Controller = Tracker<Det>;
 constexpr std::size_t kLayers = 8U;
 /// The helices of the fixtures by index: direction, dip slope and pT.
 constexpr std::size_t kHelixTracks = 5U;

@@ -89,7 +89,7 @@ static_assert(static_cast<std::size_t>(StagingSite::kRecords) + 1U == CapacityEs
 /// targets' variance bounds, come from the halo. The scratch and
 /// backend retain their allocations across calls; a failed run returns its
 /// StageStatus and no usable output.
-template <DetectorLayout Det, typename Material>
+template <DetectorLayout Det>
 class Tracker
 {
  public:
@@ -241,12 +241,11 @@ class Tracker
   {
   }
 
-  /// What the road fit and the refit need: the sensors, the material and the
-  /// field. Required by `run(frame, ...)`, not by `runSlice`.
-  void setTrackModel(const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator)
+  /// What the road fit and the refit need: the sensors with their link
+  /// material and the field. Required by `run(frame, ...)`, not by `runSlice`.
+  void setTrackModel(const TrackingGeometry<Det>& geometry, const Propagator& propagator)
   {
     mGeometry = &geometry;
-    mMaterial = &material;
     mPropagator = propagator;
     // The sensors by place, once, where an iteration follows or takes
     // overlap partners.
@@ -757,7 +756,7 @@ class Tracker
     if (summary.status == StageStatus::kComplete) {
       {
         const profile::Zone zone{Phase::kRefit};
-        summary.status = mRefit.run(fits, mSelection, mIterations[iteration], frame, *mGeometry, *mMaterial, mPropagator, static_cast<std::uint8_t>(iteration));
+        summary.status = mRefit.run(fits, mSelection, mIterations[iteration], frame, *mGeometry, mPropagator, static_cast<std::uint8_t>(iteration));
       }
       const auto status = mRefit.tracks().view().status;
       for (auto track = static_cast<std::size_t>(trackOffset); track < mRefit.size(); ++track) {
@@ -796,7 +795,7 @@ class Tracker
     const bool partnered = summary.status == StageStatus::kComplete && mIterations[iteration].overlapPartners;
     if (partnered) {
       const profile::Zone zone{Phase::kOverlapPartners};
-      summary.status = mPartners.run(fitForEach(), fitChunk(static_cast<Index>(mRefit.size() - trackOffset)), mIterations[iteration], frame, *mGeometry, *mMaterial, mPropagator, mSensorCells.view(), std::span<const SensorFootprint>{mSensorCells.footprints()}, mRefit.tracks(), trackOffset, std::span<std::uint8_t>{mUsed}, std::span<const std::uint32_t>{plan.layerMaxWidthPS}, std::span<const Scalar>{plan.layerMaxLocVariance});
+      summary.status = mPartners.run(fitForEach(), fitChunk(static_cast<Index>(mRefit.size() - trackOffset)), mIterations[iteration], frame, *mGeometry, mPropagator, mSensorCells.view(), std::span<const SensorFootprint>{mSensorCells.footprints()}, mRefit.tracks(), trackOffset, std::span<std::uint8_t>{mUsed}, std::span<const std::uint32_t>{plan.layerMaxWidthPS}, std::span<const Scalar>{plan.layerMaxLocVariance});
       summary.overlapPartners = mPartners.counts().attached;
       summary.tracksWithPartners = mPartners.counts().tracks;
     }
@@ -834,7 +833,7 @@ class Tracker
   /// proposals tallied into \a tracks, \a outward and \a inward.
   [[nodiscard]] StageStatus runFollow(Follow<Det>& follow, const IterationParameters<Det>& parameters, const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset, bool earlier, std::size_t& tracks, std::size_t& outward, std::size_t& inward)
   {
-    const auto status = follow.run(fitForEach(), parameters, frame, *mGeometry, *mMaterial, mPropagator, mRefit.tracks(), trackOffset, parameters.sharedInnermost == 0U, earlier, mUsed, plan.layerMaxWidthPS, mSensorCells.view());
+    const auto status = follow.run(fitForEach(), parameters, frame, *mGeometry, mPropagator, mRefit.tracks(), trackOffset, parameters.sharedInnermost == 0U, earlier, mUsed, plan.layerMaxWidthPS, mSensorCells.view());
     if (status != StageStatus::kComplete) {
       return status;
     }
@@ -1052,7 +1051,7 @@ class Tracker
     std::optional<profile::Zone> setup{std::in_place, Phase::kRoadFitSetup};
     records.prepare(roads);
     const auto run = [&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim>() {
-      const RoadFitStage<Det, Material, BeamLine, NominalOnly, LastStepAllowance, InnerTrim> stage{fitted, frame, *mGeometry, *mMaterial, mPropagator, mScratch.tracklets(), mScratch.triplets(), mRoads.walk(mScratch.triplets(), mScratch.neighbours())};
+      const RoadFitStage<Det, BeamLine, NominalOnly, LastStepAllowance, InnerTrim> stage{fitted, frame, *mGeometry, mPropagator, mScratch.tracklets(), mScratch.triplets(), mRoads.walk(mScratch.triplets(), mScratch.neighbours())};
       setup.reset();
       return mRecordStage.run(records, fitChunk(static_cast<Index>(roads)), stage);
     };
@@ -1285,7 +1284,6 @@ class Tracker
   typename TrackRefit<Det>::Tracks mDropScratch;    ///< `dropTracks`' moved tracks
   BoundedVector<Index> mChangedTracks;              ///< `TrackStore::recommitChanged`'s scratch
   const TrackingGeometry<Det>* mGeometry = nullptr;
-  const Material* mMaterial = nullptr;
   Propagator mPropagator;
   profile::Trace* mTrace = nullptr;
   bool mProfiling = false;

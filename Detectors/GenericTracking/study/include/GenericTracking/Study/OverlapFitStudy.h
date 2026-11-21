@@ -243,7 +243,7 @@ void OverlapFitStudy<Det>::fitChain(const TruthEvent<Det>& event, ChainSource so
   const auto& truth = event.particles->at(chain.particle);
   const auto& frame = *event.frame;
   const auto& geometry = *event.geometry;
-  const o2::gtrk::detail::LayerMaterial<o2::base::MatLayerCylSet> material{.inner = event.material};
+  const o2::gtrk::detail::LayerMaterial material{};
   const OverlapFitRecord base{
     .timeframe = event.timeframe,
     .source = static_cast<std::uint8_t>(source),

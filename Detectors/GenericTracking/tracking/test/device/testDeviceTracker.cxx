@@ -61,7 +61,7 @@ namespace
 using namespace device_test;
 
 using namespace toybarrel8;
-using Host = Tracker<Det, UniformMaterial>;
+using Host = Tracker<Det>;
 
 /// Twelve tracks on the sensors over 1.1 us, the even ones stiff (2 to 3
 /// GeV), the odd ones soft (0.4 to 0.7 GeV): the first iteration takes the
@@ -178,7 +178,6 @@ std::string describe(const Options& options) { return std::string{options.source
 
 std::unique_ptr<Host> makeHost(const Options& options)
 {
-  static const UniformMaterial none{};
   auto settings = iterations(options.source);
   for (auto& iteration : settings) {
     iteration.sharedInnermost = options.sharedInnermost;
@@ -190,7 +189,7 @@ std::unique_ptr<Host> makeHost(const Options& options)
     settings.back().layerMask = (std::uint64_t{1} << kFirstTwinLayer) - 1U;
   }
   auto tracker = std::make_unique<Host>(settings, Fixture::kBeamConstraint, trackingGeometry().material(), std::make_shared<BoundedMemoryResource>(), 2U, 2);
-  tracker->setTrackModel(trackingGeometry(), none, Propagator{});
+  tracker->setTrackModel(trackingGeometry(), Propagator{});
   return tracker;
 }
 
@@ -204,7 +203,7 @@ std::vector<IterationParameters<Det>> parametersOf(const Host& host)
   return parameters;
 }
 
-void configure(DeviceTracker<Det, UniformMaterial>& device, const Host& host) { BOOST_REQUIRE((device.configureRun(parametersOf(host), trackingGeometry(), UniformMaterial{}, Propagator{}) == StageStatus::kComplete)); }
+void configure(DeviceTracker<Det>& device, const Host& host) { BOOST_REQUIRE((device.configureRun(parametersOf(host), trackingGeometry(), Propagator{}) == StageStatus::kComplete)); }
 
 [[maybe_unused]] bool sameProposal(const FollowProposal<maxChainLayers<Det>>& lhs, const FollowProposal<maxChainLayers<Det>>& rhs) { return lhs.outwardCount == rhs.outwardCount && lhs.inwardCount == rhs.inwardCount && std::ranges::equal(lhs.outward, rhs.outward) && std::ranges::equal(lhs.inward, rhs.inward) && lhs.replacedEnd == rhs.replacedEnd; }
 
@@ -310,7 +309,7 @@ bool sameProposals(const Proposals& host, const std::vector<FollowProposal<maxCh
 /// The host tracker's whole timeframe and the device's, in lockstep over one
 /// plan: every slice compared pass by pass, every iteration's selection,
 /// proposals, tracks and used mask, then the timeframe's tracks.
-Totals compare(DeviceTracker<Det, UniformMaterial>& device, const Options& options)
+Totals compare(DeviceTracker<Det>& device, const Options& options)
 {
   const Fixture fixture{hits(options.kinkSigma > 1.), kDurationNS};
   const auto vertexList = trackVertices();
@@ -515,8 +514,7 @@ BOOST_AUTO_TEST_CASE(AnEdgelessTripletGraphNeedsNoOverflowReadback)
   settings.follow = false;
   const auto pool = std::make_shared<BoundedMemoryResource>();
   Host host{settings, Fixture::kBeamConstraint, trackingGeometry().material(), pool, 2U, 2};
-  const UniformMaterial none{};
-  host.setTrackModel(trackingGeometry(), none, Propagator{});
+  host.setTrackModel(trackingGeometry(), Propagator{});
   const auto plan = host.planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, 1000);
   auto* device = runtime();
   const auto tracker = kernels().makeToyBarrel8Tracker(*device, block(kArenaBytes));
@@ -560,7 +558,7 @@ BOOST_AUTO_TEST_CASE(ARunAloneGivesTheHostsTracks)
       BOOST_REQUIRE(expected.status == StageStatus::kComplete);
       typename TrackRefit<Det>::Tracks tracks;
       tracks.setMemoryResource(pool.get());
-      typename DeviceTracker<Det, UniformMaterial>::TimeframeReport report;
+      typename DeviceTracker<Det>::TimeframeReport report;
       BOOST_REQUIRE((tracker->trackTimeframe(*fixture.frame, plan, plan.parameters.size(), false, tracks, report) == StageStatus::kComplete));
       tracker->endTimeframe();
       BOOST_TEST(tracks.size() == kTracks);
@@ -585,11 +583,11 @@ struct Configured {
     plan = host->planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, 13);
   }
 
-  [[nodiscard]] StageStatus configure() { return tracker->configureRun(parameters, trackingGeometry(), UniformMaterial{}, Propagator{}); }
+  [[nodiscard]] StageStatus configure() { return tracker->configureRun(parameters, trackingGeometry(), Propagator{}); }
 
   SliceScope slices;
   DeviceRuntime* runtime;
-  std::unique_ptr<DeviceTracker<Det, UniformMaterial>> tracker;
+  std::unique_ptr<DeviceTracker<Det>> tracker;
   Fixture fixture;
   std::unique_ptr<Host> host;
   std::vector<IterationParameters<Det>> parameters;
@@ -769,7 +767,7 @@ BOOST_AUTO_TEST_CASE(TheVertexerRerunsAFrameWithoutAVertexAsTheHost)
   const auto pool = std::make_shared<BoundedMemoryResource>();
   const VertexerSettings settings{.aloneMinContributors = 2U};
 
-  VertexingPass<Det, UniformMaterial> pass{passSettings(), settings, Fixture::kBeamConstraint, scattering, pool, 2U, 2};
+  VertexingPass<Det> pass{passSettings(), settings, Fixture::kBeamConstraint, scattering, pool, 2U, 2};
   const auto expected = pass.find(*fixture.frame, frameBounds(*fixture.frame), 13);
   BOOST_REQUIRE(expected.status == StageStatus::kComplete);
   BOOST_REQUIRE(expected.found.vertices.size() == kCollisionsNS.size() + 1U);
@@ -783,7 +781,7 @@ BOOST_AUTO_TEST_CASE(TheVertexerRerunsAFrameWithoutAVertexAsTheHost)
     windows.push_back(iterations(VertexSource::kVertexList)[iteration].windows);
   }
   windows.push_back(passSettings().windows);
-  BOOST_REQUIRE((tracker->configureRun(parameters, trackingGeometry(), UniformMaterial{}, Propagator{}) == StageStatus::kComplete));
+  BOOST_REQUIRE((tracker->configureRun(parameters, trackingGeometry(), Propagator{}) == StageStatus::kComplete));
   const auto empty = planTimeframe<Det>(*fixture.frame, frameBounds(*fixture.frame), parameters, windows, host->beamLine(), {}, 13);
   BOOST_REQUIRE((tracker->beginTimeframe(*fixture.frame, empty) == StageStatus::kComplete));
   VertexerResult found;
@@ -814,7 +812,7 @@ BOOST_AUTO_TEST_CASE(TheVertexingPassGivesTheHostsListAndTracks)
   const auto pool = std::make_shared<BoundedMemoryResource>();
 
   // The host: the pass's list, and the tracking from it.
-  VertexingPass<Det, UniformMaterial> pass{passSettings(), VertexerSettings{}, Fixture::kBeamConstraint, scattering, pool, 2U, 2};
+  VertexingPass<Det> pass{passSettings(), VertexerSettings{}, Fixture::kBeamConstraint, scattering, pool, 2U, 2};
   const auto expected = pass.find(*fixture.frame, frameBounds(*fixture.frame), 13);
   BOOST_REQUIRE(expected.status == StageStatus::kComplete);
   BOOST_REQUIRE(expected.found.vertices.size() == kCollisionsNS.size());
@@ -833,7 +831,7 @@ BOOST_AUTO_TEST_CASE(TheVertexingPassGivesTheHostsListAndTracks)
     windows.push_back(iterations(VertexSource::kVertexList)[iteration].windows);
   }
   windows.push_back(passSettings().windows);
-  BOOST_REQUIRE((tracker->configureRun(parameters, trackingGeometry(), UniformMaterial{}, Propagator{}) == StageStatus::kComplete));
+  BOOST_REQUIRE((tracker->configureRun(parameters, trackingGeometry(), Propagator{}) == StageStatus::kComplete));
   const auto empty = planTimeframe<Det>(*fixture.frame, frameBounds(*fixture.frame), parameters, windows, host->beamLine(), {}, 13);
   BOOST_REQUIRE((tracker->beginTimeframe(*fixture.frame, empty) == StageStatus::kComplete));
   VertexerResult found;
@@ -886,8 +884,7 @@ BOOST_AUTO_TEST_CASE(AFailedEndLeavesTheMaskAndTheTracks)
 
   // The second iteration alone on the host: its mask from a free one.
   auto alone = std::make_unique<Host>(std::vector<IterationSettings>{iterations(VertexSource::kBeamLine)[1]}, Fixture::kBeamConstraint, trackingGeometry().material(), std::make_shared<BoundedMemoryResource>(), 2U, 2);
-  static const UniformMaterial none{};
-  alone->setTrackModel(trackingGeometry(), none, Propagator{});
+  alone->setTrackModel(trackingGeometry(), Propagator{});
   std::vector<std::size_t> aloneTracklets;
   alone->setSliceObserver([&](const Host&, const Host::SliceObservation& slice) { aloneTracklets.push_back(slice.result->tracklets->size()); });
   const auto aloneResult = alone->run(*fixture.frame, alone->planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, 13));
@@ -896,7 +893,7 @@ BOOST_AUTO_TEST_CASE(AFailedEndLeavesTheMaskAndTheTracks)
 
   // What the first iteration's slices need, and what its end needs besides.
   std::vector<std::size_t> tracklets;
-  const auto runSlices = [&](DeviceTracker<Det, UniformMaterial>& tracker, std::size_t iteration) {
+  const auto runSlices = [&](DeviceTracker<Det>& tracker, std::size_t iteration) {
     tracklets.clear();
     tracker.beginIteration(iteration);
     for (std::size_t slice = 0; slice < plan.slices.size(); ++slice) {
@@ -912,7 +909,7 @@ BOOST_AUTO_TEST_CASE(AFailedEndLeavesTheMaskAndTheTracks)
   {
     const auto probe = kernels().makeToyBarrel8Tracker(*device, block(kArenaBytes));
     probe->setStagingCapacity(1U);
-    BOOST_REQUIRE((probe->configureRun(parameters, trackingGeometry(), UniformMaterial{}, Propagator{}) == StageStatus::kComplete));
+    BOOST_REQUIRE((probe->configureRun(parameters, trackingGeometry(), Propagator{}) == StageStatus::kComplete));
     BOOST_REQUIRE((probe->beginTimeframe(*fixture.frame, plan) == StageStatus::kComplete));
     BOOST_REQUIRE(runSlices(*probe, 0U));
     slicePeak = probe->arenaPeakBytes();
@@ -933,7 +930,7 @@ BOOST_AUTO_TEST_CASE(AFailedEndLeavesTheMaskAndTheTracks)
     const SliceScope slices;
     const auto tracker = kernels().makeToyBarrel8Tracker(*device, block(bytes));
     tracker->setStagingCapacity(1U);
-    BOOST_REQUIRE((tracker->configureRun(parameters, trackingGeometry(), UniformMaterial{}, Propagator{}) == StageStatus::kComplete));
+    BOOST_REQUIRE((tracker->configureRun(parameters, trackingGeometry(), Propagator{}) == StageStatus::kComplete));
     BOOST_REQUIRE((tracker->beginTimeframe(*fixture.frame, plan) == StageStatus::kComplete));
     const auto scratchBefore = tracker->arenaUsedBytes(ArenaEnd::kScratch);
     const auto baseBefore = tracker->arenaUsedBytes(ArenaEnd::kBase);

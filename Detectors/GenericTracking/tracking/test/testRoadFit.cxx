@@ -52,7 +52,7 @@ namespace
 {
 
 using namespace toybarrel8;
-using Stage = RoadFitStage<Det, UniformMaterial, false, false, false, false>;
+using Stage = RoadFitStage<Det, false, false, false, false>;
 using RecordOutput = StageOutput<SelectionRecordOf<maxChainLayers<Det>>::template RecordT>;
 constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
 /// A road cut that passes everything, per degree of freedom.
@@ -130,7 +130,7 @@ BOOST_AUTO_TEST_CASE(TheBeamLineConstrainsAPrimarysOuterRoad)
     const auto innermost = pairPointAt(fixture.frame->measurements(), rows[0]);
     const auto& plane = tracking.planeOf(fit.state);
     auto constrained = fit.state;
-    const auto update = updateWithBeamLine(kPropagator, iteration, kNoMaterial, plane, innermost, constrained);
+    const auto update = updateWithBeamLine(kPropagator, iteration, plane, innermost, constrained);
     BOOST_REQUIRE(update.ok);
     BOOST_TEST(update.chi2 < 0.01F);
     BOOST_TEST(constrained.variance(kQOverP) < 0.5F * fit.state.variance(kQOverP));
@@ -141,7 +141,7 @@ BOOST_AUTO_TEST_CASE(TheBeamLineConstrainsAPrimarysOuterRoad)
       moved.beamX = -distance * std::sin(phi0);
       moved.beamY = distance * std::cos(phi0);
       auto state = fit.state;
-      const auto result = updateWithBeamLine(kPropagator, moved, kNoMaterial, plane, innermost, state);
+      const auto result = updateWithBeamLine(kPropagator, moved, plane, innermost, state);
       BOOST_REQUIRE(result.ok);
       return result.chi2;
     };
@@ -381,13 +381,13 @@ BOOST_AUTO_TEST_CASE(TheLastStepTakesTheAllowanceNotAFreeDirection)
   // The scattering is taken at the pass's reference momentum, the
   // whole-chain circle's 1.29 GeV, which the kink itself bends below the
   // chain's 1.5: 0.014 rad is inside the allowance there.
-  constexpr UniformMaterial material{.x2X0PerCm = 0.01F, .rho = 0.F};
-  // The fits read the material from it, not from the link material (`withoutLinks`).
-  const auto geometry = [] {
+  // 2 % X0 in each layer's band, nothing between.
+  const auto geometry = [&] {
     auto made = std::make_unique<TrackingGeometry<Det>>(trackingGeometry());
-    withoutLinks(made->material());
+    made->material() = *bandMaterial<Det>(0.02);
     return made;
   }();
+  const detail::LinkSteps material;
   const auto& tracking = *geometry;
   auto iteration = parameters();
   const auto road = [&](const std::array<Measurement, kLayers>& chain) { return takesLastStepAllowance(iteration) ? fitRoad<true>(iteration, kPropagator, tracking, material, chain.data(), static_cast<int>(kLayers)) : fitRoad<false>(iteration, kPropagator, tracking, material, chain.data(), static_cast<int>(kLayers)); };
@@ -441,7 +441,7 @@ BOOST_AUTO_TEST_CASE(TheStageEmitsOneRecordPerRoad)
   const auto& count = roads.count;
   BOOST_REQUIRE(count.roadCount() == kTracks);
 
-  const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
+  const Stage stage{iteration, *fixture.frame, trackingGeometry(), kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
   RecordOutput records;
   records.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   records.prepare(count.roadCount());
@@ -499,7 +499,7 @@ BOOST_AUTO_TEST_CASE(TheStageDropsRoadsBelowTheFloorOfTheirClusterCount)
     settings.minPtGeVByClusters[kLayers] = floorAll;
     settings.minPtGeVByClusters[kLayers - 1U] = floorOneShort;
     const auto iteration = iterationParameters<Det>(settings, Fixture::kBeamConstraint, noMaterial<Det>());
-    const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
+    const Stage stage{iteration, *fixture.frame, trackingGeometry(), kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
     RecordOutput records;
     records.setMemoryPool(std::make_shared<BoundedMemoryResource>());
     records.prepare(count.roadCount());
@@ -540,7 +540,7 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
       settings.minPtGeVByClusters[clusters] = 100.;
     }
     const auto iteration = iterationParameters<Det>(settings, Fixture::kBeamConstraint, noMaterial<Det>());
-    const RoadFitStage<Det, UniformMaterial, false, false, false, Trim> stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
+    const RoadFitStage<Det, false, false, false, Trim> stage{iteration, *fixture.frame, trackingGeometry(), kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
     RecordOutput records;
     records.setMemoryPool(std::make_shared<BoundedMemoryResource>());
     records.prepare(count.roadCount());
@@ -582,7 +582,7 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
   const auto& run = roads.result;
   const auto& count = roads.count;
   const SerialForEach serial{};
-  const Stage stage{iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
+  const Stage stage{iteration, *fixture.frame, trackingGeometry(), kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
   RecordOutput records;
   records.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   records.prepare(count.roadCount());
@@ -596,7 +596,7 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
 
   TrackRefit<Det> refit;
   refit.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-  BOOST_REQUIRE(refit.run(serial, selection, iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, 0U) == StageStatus::kComplete);
+  BOOST_REQUIRE(refit.run(serial, selection, iteration, *fixture.frame, trackingGeometry(), kPropagator, 0U) == StageStatus::kComplete);
   BOOST_REQUIRE(refit.size() == kTracks);
   const auto tracks = refit.tracks().view();
   for (std::uint32_t track = 0; track < kTracks; ++track) {
@@ -638,7 +638,7 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
     cpu.setMemoryPool(std::make_shared<BoundedMemoryResource>());
     TrackRefit<Det> parallel;
     parallel.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-    BOOST_REQUIRE(parallel.run([&](std::uint32_t elements, const auto& body) { cpu.forEachElement(elements, 1U, body); }, selection, iteration, *fixture.frame, trackingGeometry(), kNoMaterial, kPropagator, 0U) == StageStatus::kComplete);
+    BOOST_REQUIRE(parallel.run([&](std::uint32_t elements, const auto& body) { cpu.forEachElement(elements, 1U, body); }, selection, iteration, *fixture.frame, trackingGeometry(), kPropagator, 0U) == StageStatus::kComplete);
     // Bit for bit.
     const auto other = parallel.tracks().view();
     for (std::uint32_t track = 0; track < kTracks; ++track) {

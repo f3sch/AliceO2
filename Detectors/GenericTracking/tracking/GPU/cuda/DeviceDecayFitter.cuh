@@ -18,7 +18,6 @@
 #define GTRK_TRACKING_GPU_DEVICEDECAYFITTER_CUH_
 
 #include "DeviceAlgorithms.cuh"
-#include "DeviceMaterial.cuh"
 #include "Platform.cuh"
 
 #include "GenericTracking/Tracking/DecayFitBatch.h"
@@ -33,6 +32,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <type_traits>
 #include <vector>
 
 namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
@@ -89,10 +89,13 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
   {
     mStream.synchronize();
     mArena.reset();
-    mMaterial.release();
-    const bool uploaded = mMaterial.upload(mArena, material, mStream);
+    mMaterial = {};
+    if (!mMaterial.allocate(mArena)) {
+      return false;
+    }
+    uploadObject(material, mMaterial, mStream);
     mStream.synchronize(); // the host material may go once this returns
-    return uploaded;
+    return true;
   }
 
   [[nodiscard]] bool fit(DecayFitVariant variant, const DecayFitBatch& batch, std::span<DecayVertexFitResult> results, Timing& timing) final
@@ -203,7 +206,8 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
   DeviceRuntime* mRuntime = nullptr;
   DeviceArena mArena;
   DeviceStream mStream;
-  DeviceMaterial<Material> mMaterial;
+  static_assert(std::is_trivially_copyable_v<Material>, "the material uploads as bytes");
+  DeviceObject<Material> mMaterial;
 };
 
 } // namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE

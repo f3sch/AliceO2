@@ -97,14 +97,23 @@ DiscSetup mftFaces() { return {.layers = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}, .bzKilo
 
 template <DetectorLayout Det>
 struct DiscChain {
-  const TrackingGeometry<Det>* tracking;
+  TrackingGeometry<Det>* tracking;
+  UniformMaterial filled{}; ///< the medium the link material holds (`hold`)
+  /// The link material as \a medium's, filled when it changes.
+  void hold(const UniformMaterial& medium)
+  {
+    if (medium.x2X0PerCm != filled.x2X0PerCm || medium.rho != filled.rho) {
+      fillFromMedium<Det>(tracking->material(), medium);
+      filled = medium;
+    }
+  }
   DiscSetup setup;
   Propagator propagator;
   std::vector<std::vector<SensorID>> sensorsOfStep; ///< per entry of setup.layers
   std::vector<BoundTrackState> truth;
   std::vector<Measurement> measurements;
 
-  DiscChain(const TrackingGeometry<Det>& geometry, DiscSetup s) : tracking(&geometry), setup(std::move(s)), sensorsOfStep(setup.layers.size()), truth(1)
+  DiscChain(TrackingGeometry<Det>& geometry, DiscSetup s) : tracking(&geometry), setup(std::move(s)), sensorsOfStep(setup.layers.size()), truth(1)
   {
     propagator.bzKiloGauss = setup.bzKiloGauss;
     for (SensorID id = 0; id < static_cast<SensorID>(Det::nSensors); ++id) {
@@ -250,6 +259,7 @@ template <DetectorLayout Det>
 PullPoint pullsAt(DiscChain<Det>& chain, double ptGeV, double eta, bool withMaterial, int trials, std::uint32_t seed)
 {
   const UniformMaterial material{.x2X0PerCm = withMaterial ? static_cast<Scalar>(chain.setup.x2X0PerCm) : 0.F};
+  chain.hold(material);
   const double theta = thetaOfEta(eta);
   const double p = ptGeV / std::sin(theta);
   std::mt19937 rng(seed);
@@ -310,9 +320,9 @@ const Scans* mftScans()
     }
     o2::base::GeometryManager::loadGeometry(geometryFile());
     const auto geometry = std::make_unique<const Geometry<MFT>>(alice::placeChecked<MFT>());
-    // The fits read the chains' material, not the link material (`withoutLinks`).
+    // The link material is the chains' medium's (`DiscChain::hold`).
     const auto tracking = std::make_unique<TrackingGeometry<MFT>>(*geometry);
-    withoutLinks(tracking->material());
+    tracking->material() = noMaterial<MFT>();
     DiscChain<MFT> chain(*tracking, mftFaces());
     auto result = std::make_unique<const Scans>(Scans{.clean = scan(chain, kMftEtas, false, kTrials), .scattered = scan(chain, kMftEtas, true, kTrials)});
     BOOST_TEST_MESSAGE(report("MFT, no material", result->clean));

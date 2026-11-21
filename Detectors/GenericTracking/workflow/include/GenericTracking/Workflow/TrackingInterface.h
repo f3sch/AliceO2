@@ -112,11 +112,11 @@ class TrackingInterface
 {
  public:
   using Material = o2::base::MatLayerCylSet;
-  using Controller = Tracker<Det, Material>;
-  using Vertexing = VertexingPass<Det, Material>;
+  using Controller = Tracker<Det>;
+  using Vertexing = VertexingPass<Det>;
   using Frame = TimeFrame<Det>;
   using TimeframeResult = typename Controller::TimeframeResult;
-  using Device = DeviceTracker<Det, Material>;
+  using Device = DeviceTracker<Det>;
 
   /// \a withVertices: the native seeds (DataSpecs.h's `kVertices`) are an input.
   explicit TrackingInterface(bool withVertices) : mWithVertices(withVertices) {}
@@ -243,7 +243,7 @@ class TrackingInterface
     if (param.memoryLimitGB > 0.) {
       LOGP(info, "the tracker's memory, its vertexer's included, limited to {:.3f} GB (GTRKReco<DET>.memoryLimitGB)", param.memoryLimitGB);
     }
-    mTracker->setTrackModel(*mTracking, *mMaterial, propagator());
+    mTracker->setTrackModel(*mTracking, propagator());
     if (mContext) {
       configureDevice(settings);
     }
@@ -488,7 +488,7 @@ class TrackingInterface
     }
     mDeviceTimeframe = true; // endTimeframe detaches
     mDevice->attach(mBlock);
-    const auto status = mDevice->configureRun(mDeviceIterations, *mTracking, *mMaterial, propagator());
+    const auto status = mDevice->configureRun(mDeviceIterations, *mTracking, propagator());
     return status == StageStatus::kComplete || !dropOrFail(status, "the run's data on the device");
   }
 

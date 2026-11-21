@@ -34,11 +34,11 @@
 namespace o2::gtrk
 {
 
-template <DetectorLayout Det, typename Material>
+template <DetectorLayout Det>
 class VertexingPass
 {
  public:
-  using Pass = Tracker<Det, Material>;
+  using Pass = Tracker<Det>;
   using Frame = typename Pass::Frame;
 
   /// What `find` gives: the vertexer's result, or the status the pass

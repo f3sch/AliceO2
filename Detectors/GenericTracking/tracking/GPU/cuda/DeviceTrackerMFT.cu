@@ -17,14 +17,12 @@
 
 #include "GenericTracking/Detectors/MFT.h"
 
-#include "DetectorsBase/MatLayerCylSet.h"
-
 #include <cstddef>
 #include <memory>
 
 namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
 {
 
-std::unique_ptr<DeviceTracker<detectors::MFT, o2::base::MatLayerCylSet>> makeMFTTracker(DeviceRuntime& runtime, DeviceBlock block) { return std::make_unique<DeviceTrackerImpl<detectors::MFT, o2::base::MatLayerCylSet>>(runtime, block); }
+std::unique_ptr<DeviceTracker<detectors::MFT>> makeMFTTracker(DeviceRuntime& runtime, DeviceBlock block) { return std::make_unique<DeviceTrackerImpl<detectors::MFT>>(runtime, block); }
 
 } // namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE

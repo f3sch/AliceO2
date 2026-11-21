@@ -31,6 +31,7 @@
 #include <cstddef>
 #include <memory>
 #include <span>
+#include <type_traits>
 #include <vector>
 
 namespace o2::gtrk
@@ -72,40 +73,43 @@ template <DetectorLayout Det>
 /// and its sensors' envelope where no shell holds them; on a disc its
 /// sensors' envelope (the LUT's shells are radial). Throws
 /// std::runtime_error where a run holds another barrel layer's sensors over a
-/// common z: a LUT not built so (o2-gtrk-build-matlut).
-template <DetectorLayout Det>
-[[nodiscard]] inline std::array<LayerBand, Detector<Det>::nLayers> lutBands(const o2::base::MatLayerCylSet& lut)
+/// common z: a LUT not built so (o2-gtrk-build-matlut). A material without
+/// shells (a test's medium) gives the envelopes.
+template <DetectorLayout Det, typename Lut>
+[[nodiscard]] inline std::array<LayerBand, Detector<Det>::nLayers> lutBands([[maybe_unused]] const Lut& lut)
 {
   auto bands = envelopeBands<Det>();
-  const int shells = lut.getNLayers();
-  for (int layer = 0; layer < Detector<Det>::nBarrelLayers; ++layer) {
-    const auto id = static_cast<LayerID>(layer);
-    const auto& e = PlacedEnvelopes<Det>::get(id);
-    int at = -1;
-    for (int i = 0; i < shells; ++i) {
-      if (e.position >= lut.getLayer(i).getRMin() && e.position < lut.getLayer(i).getRMax()) {
-        at = i;
+  if constexpr (std::is_same_v<Lut, o2::base::MatLayerCylSet>) {
+    const int shells = lut.getNLayers();
+    for (int layer = 0; layer < Detector<Det>::nBarrelLayers; ++layer) {
+      const auto id = static_cast<LayerID>(layer);
+      const auto& e = PlacedEnvelopes<Det>::get(id);
+      int at = -1;
+      for (int i = 0; i < shells; ++i) {
+        if (e.position >= lut.getLayer(i).getRMin() && e.position < lut.getLayer(i).getRMax()) {
+          at = i;
+        }
       }
-    }
-    if (at < 0) {
-      continue;
-    }
-    int first = at;
-    while (first > 0 && lut.getLayer(first - 1).getRMax() == lut.getLayer(first).getRMin()) {
-      --first;
-    }
-    int last = at;
-    while (last + 1 < shells && lut.getLayer(last).getRMax() == lut.getLayer(last + 1).getRMin()) {
-      ++last;
-    }
-    const LayerBand band{.low = std::min<double>(e.rMin, lut.getLayer(first).getRMin()), .high = std::max<double>(e.rMax, lut.getLayer(last).getRMax())};
-    for (int other = 0; other < Detector<Det>::nBarrelLayers; ++other) {
-      const auto& o = PlacedEnvelopes<Det>::get(static_cast<LayerID>(other));
-      if (other != layer && o.position > band.low && o.position < band.high && o.zMin < e.zMax && e.zMin < o.zMax) {
-        throw std::runtime_error(std::string{Det::name} + ": the material LUT's shells around layer " + std::to_string(layer) + " (r " + std::to_string(band.low) + " .. " + std::to_string(band.high) + " cm) hold layer " + std::to_string(other) + " too: not a LUT of o2-gtrk-build-matlut, whose bands are runs of their own");
+      if (at < 0) {
+        continue;
       }
+      int first = at;
+      while (first > 0 && lut.getLayer(first - 1).getRMax() == lut.getLayer(first).getRMin()) {
+        --first;
+      }
+      int last = at;
+      while (last + 1 < shells && lut.getLayer(last).getRMax() == lut.getLayer(last + 1).getRMin()) {
+        ++last;
+      }
+      const LayerBand band{.low = std::min<double>(e.rMin, lut.getLayer(first).getRMin()), .high = std::max<double>(e.rMax, lut.getLayer(last).getRMax())};
+      for (int other = 0; other < Detector<Det>::nBarrelLayers; ++other) {
+        const auto& o = PlacedEnvelopes<Det>::get(static_cast<LayerID>(other));
+        if (other != layer && o.position > band.low && o.position < band.high && o.zMin < e.zMax && e.zMin < o.zMax) {
+          throw std::runtime_error(std::string{Det::name} + ": the material LUT's shells around layer " + std::to_string(layer) + " (r " + std::to_string(band.low) + " .. " + std::to_string(band.high) + " cm) hold layer " + std::to_string(other) + " too: not a LUT of o2-gtrk-build-matlut, whose bands are runs of their own");
+        }
+      }
+      bands[static_cast<std::size_t>(layer)] = band;
     }
-    bands[static_cast<std::size_t>(layer)] = band;
   }
   return bands;
 }
@@ -173,7 +177,8 @@ struct RaySums {
   }
 };
 
-[[nodiscard]] inline RaySums raySums(const o2::base::MatLayerCylSet& lut, const Vec3D& origin, const Vec3D& u, double l0, double l1, double length, int pieces)
+template <typename Lut>
+[[nodiscard]] inline RaySums raySums(const Lut& lut, const Vec3D& origin, const Vec3D& u, double l0, double l1, double length, int pieces)
 {
   RaySums sums;
   if (!std::isfinite(l0) || !std::isfinite(l1) || !(l1 > l0)) {
@@ -241,13 +246,14 @@ struct RaySums {
 /// one azimuth, from where they leave the source's band to where they enter
 /// the target's; a source and target whose bands overlap on the ray leave an
 /// empty gap. A vertex gap's run from the vertex to the layer's band.
-template <DetectorLayout Det>
-inline void fillLinkMaterial(LinkMaterial<Det>& table, const o2::base::MatLayerCylSet& lut, Interval vertexZ, detail::TaskArena& arena)
+/// \a lut is O2's material LUT, or anything with its `getMatBudget`.
+template <DetectorLayout Det, typename Lut>
+inline void fillLinkMaterial(LinkMaterial<Det>& table, const Lut& lut, Interval vertexZ, detail::TaskArena& arena)
 {
   using Table = LinkMaterial<Det>;
   constexpr int kL = Table::kLayers;
-  constexpr int kRays = 4;     // per azimuth bin
-  constexpr int kPieces = 32;  // per gap ray
+  constexpr int kRays = 4;    // per azimuth bin
+  constexpr int kPieces = 32; // per gap ray
   table.linkOf = Table::noLinks();
   const auto bands = detail::lutBands<Det>(lut);
   for (int link = 0; link < Table::kLinks; ++link) {

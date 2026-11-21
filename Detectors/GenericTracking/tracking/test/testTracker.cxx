@@ -46,7 +46,7 @@ using Frame = TimeFrame<Det>;
 using Scratch = TimeFrameScratch<Det>;
 using Sources = LayerRowMap<Det>;
 using Output = StageOutput<TrackletT>;
-using Controller = Tracker<Det, UniformMaterial>;
+using Controller = Tracker<Det>;
 constexpr std::size_t kMeasurements = 4U;
 
 struct InputPoint {

@@ -16,8 +16,6 @@
 
 #include "GenericTracking/Detectors/TRKFT3.h"
 
-#include "DetectorsBase/MatLayerCylSet.h"
-
 #include <memory>
 
 namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE

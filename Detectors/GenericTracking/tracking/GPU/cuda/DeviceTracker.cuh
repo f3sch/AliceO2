@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 
 /// \file DeviceTracker.cuh
-/// \brief DeviceTracker<Det, Material> on one backend: a timeframe's slices,
+/// \brief DeviceTracker<Det> on one backend: a timeframe's slices,
 ///        iterations and tracks.
 ///
 /// What lives where in the arena:
@@ -42,7 +42,6 @@
 #define GTRK_TRACKING_GPU_DEVICETRACKER_CUH_
 
 #include "DeviceAlgorithms.cuh"
-#include "DeviceMaterial.cuh"
 #include "FlatStage.cuh"
 #include "GpuStage.cuh"
 #include "PathGlue.cuh"
@@ -69,8 +68,6 @@
 #include "GenericTracking/Tracking/TrackRefit.h"
 #include "GenericTracking/Tracking/TrackletStage.h"
 #include "GenericTracking/Tracking/TripletStage.h"
-
-#include "FlatObject.h"
 
 #include <algorithm>
 #include <array>
@@ -545,11 +542,11 @@ struct RoadOrderKey {
 
 } // namespace tracker_detail
 
-template <DetectorLayout Det, typename Material>
-class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
+template <DetectorLayout Det>
+class DeviceTrackerImpl final : public DeviceTracker<Det>
 {
  public:
-  using Report = typename DeviceTracker<Det, Material>::SliceReport;
+  using Report = typename DeviceTracker<Det>::SliceReport;
   using Frame = TimeFrame<Det>;
   using Index = std::uint32_t;
   static constexpr std::size_t kLayerCount = LayerRowMap<Det>::kLayerCount;
@@ -557,8 +554,8 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using Records = DeviceStageOutput<SelectionRecordOf<kMaxClusters>::template RecordT>;
   using CapturedRoads = DeviceColumns<tracker_detail::CapturedRoadOf<kMaxClusters>::template RecordT>;
-  using IterationReport = typename DeviceTracker<Det, Material>::IterationReport;
-  using Tracks = typename DeviceTracker<Det, Material>::Tracks;
+  using IterationReport = typename DeviceTracker<Det>::IterationReport;
+  using Tracks = typename DeviceTracker<Det>::Tracks;
   using TrackRecord = TrackOf<kMaxClusters>;
   using Proposal = FollowProposal<kMaxClusters>;
   static_assert(std::is_trivially_copyable_v<TrackingGeometry<Det>>, "the geometry uploads as bytes");
@@ -602,11 +599,11 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   DeviceTrackerImpl(DeviceTrackerImpl&&) = delete;
   DeviceTrackerImpl& operator=(DeviceTrackerImpl&&) = delete;
 
-  [[nodiscard]] StageStatus configureRun(std::span<const IterationParameters<Det>> iterations, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator) final
+  [[nodiscard]] StageStatus configureRun(std::span<const IterationParameters<Det>> iterations, const TrackingGeometry<Det>& geometry, const Propagator& propagator) final
   {
     mStream.synchronize();
     closeFrom(Scope::kRun);
-    if (!mParameters.allocate(mArena, iterations.size()) || !mGeometry.allocate(mArena) || !mMaterial.upload(mArena, material, mStream)) {
+    if (!mParameters.allocate(mArena, iterations.size()) || !mGeometry.allocate(mArena)) {
       closeFrom(Scope::kRun);
       return StageStatus::kOutOfMemory;
     }
@@ -1334,8 +1331,8 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     // and one with innerTrim fits a refused road again without its innermost
     // clusters, as the host.
     const auto run = [&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim>() {
-      using Fit = RoadRowsFit<Det, Material, BeamLine, NominalOnly, LastStepAllowance, InnerTrim>;
-      const tracker_detail::CapturedRoadFit<Fit, kMaxClusters> fit{.fit = Fit{parameters, mFrame.data(), mGeometry.data(), mMaterial.data(), mPropagator}, .roads = std::as_const(roads).view()};
+      using Fit = RoadRowsFit<Det, BeamLine, NominalOnly, LastStepAllowance, InnerTrim>;
+      const tracker_detail::CapturedRoadFit<Fit, kMaxClusters> fit{.fit = Fit{parameters, mFrame.data(), mGeometry.data(), mPropagator}, .roads = std::as_const(roads).view()};
       return mRecordStage.run(records, fit, order, static_cast<Index>(roads.size()));
     };
     const StageStatus status = withBools([&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim>(std::bool_constant<BeamLine>, std::bool_constant<LastStepAllowance>, std::bool_constant<InnerTrim>) { return run.template operator()<BeamLine, LastStepAllowance, InnerTrim>(); }, hostParameters.beamConstraint, takesLastStepAllowance(hostParameters), hostParameters.innerTrim != 0U);
@@ -1385,7 +1382,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     if (!tracks.allocate(mArena, trackCount) || !proposals.allocate(mArena, followCount) || !followRows.allocate(mArena, followCount) || !followCounts.allocate(mArena, followCount) || !endStarts.allocate(mArena, hostParameters.followEnd ? trackCount : 0U)) {
       return StageStatus::kOutOfMemory;
     }
-    const TrackRefitElement<Det, Material> refit{mFrame.data(), mGeometry.data(), mMaterial.data(), mPropagator, records.clusters, records.count, records.outwardState, records.chi2, std::as_const(selected.selected).data(), tracks.view(), 0U, static_cast<std::uint8_t>(mIteration), kinkBudget(hostParameters)};
+    const TrackRefitElement<Det> refit{mFrame.data(), mGeometry.data(), mPropagator, records.clusters, records.count, records.outwardState, records.chi2, std::as_const(selected.selected).data(), tracks.view(), 0U, static_cast<std::uint8_t>(mIteration), kinkBudget(hostParameters)};
     algorithms::forEach(*mRuntime, mStream, trackCount, refit);
 
     // The follow, the host's sequence
@@ -1499,7 +1496,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
       return StageStatus::kOutOfMemory;
     }
     mPartnerStage.prepareStaging(std::max<std::size_t>(mPartnerStage.stagingCapacity(), count));
-    const ProposePartners<Det, Material> propose{.parameters = parameters, .frame = mFrame.data(), .geometry = mGeometry.data(), .material = mMaterial.data(), .propagator = mPropagator, .cells = mSensorCells, .tracks = std::as_const(tracks).view(), .offset = 0U, .used = std::as_const(working).data(), .maxWidthPS = std::as_const(mLayerMaxWidthPS).data(), .measurementVariance = std::as_const(mLayerMaxLocVariance).data(), .footprints = std::as_const(mCellFootprints).data()};
+    const ProposePartners<Det> propose{.parameters = parameters, .frame = mFrame.data(), .geometry = mGeometry.data(), .propagator = mPropagator, .cells = mSensorCells, .tracks = std::as_const(tracks).view(), .offset = 0U, .used = std::as_const(working).data(), .maxWidthPS = std::as_const(mLayerMaxWidthPS).data(), .measurementVariance = std::as_const(mLayerMaxLocVariance).data(), .footprints = std::as_const(mCellFootprints).data()};
     StageStatus status = runStage(mPartnerStage, proposals, propose);
     if (status != StageStatus::kComplete) {
       return status;
@@ -1548,7 +1545,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     if (!merged.allocate(mArena, mergedSize, ArenaEnd::kScratch) || !layerRowOf.allocate(mArena, mergedSize, ArenaEnd::kScratch) || !kept.allocate(mArena, count, ArenaEnd::kScratch)) {
       return StageStatus::kOutOfMemory;
     }
-    const RefitWithPartners<Det, detail::LayerMaterial<Material>> refit{.parameters = parameters, .frame = mFrame.data(), .geometry = mGeometry.data(), .material = {.inner = mMaterial.data()}, .propagator = mPropagator, .tracks = tracks.view(), .offset = 0U, .proposals = proposed, .winnerOffsets = std::as_const(winnerOffsets).data(), .winners = winners.data(), .merged = merged.data(), .layerRowOf = layerRowOf.data(), .kept = kept.data()};
+    const RefitWithPartners<Det> refit{.parameters = parameters, .frame = mFrame.data(), .geometry = mGeometry.data(), .propagator = mPropagator, .tracks = tracks.view(), .offset = 0U, .proposals = proposed, .winnerOffsets = std::as_const(winnerOffsets).data(), .winners = winners.data(), .merged = merged.data(), .layerRowOf = layerRowOf.data(), .kept = kept.data()};
     algorithms::forEach(*mRuntime, mStream, count, refit);
     // The kept tracks' partners, in path order, and the used mask.
     DeviceSpan<Index> partnerOffsets;
@@ -1615,12 +1612,11 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   void runFollow(std::size_t iteration, DeviceColumns<TrackRecord::template RecordT>& tracks, Index count, bool earlier, Proposal* settled, DeviceSpan<ClusterList<kMaxClusters>>& followRows, DeviceSpan<std::uint8_t>& followCounts, DeviceSpan<Index>& slots, Index rows, DeviceSpan<std::uint8_t>& working, BoundTrackState* endStarts)
   {
     const IterationParameters<Det>& host = mHostParameters[iteration];
-    follow::runSequence(tracker_detail::FollowLaunch{.runtime = *mRuntime, .stream = mStream}, follow::Inputs<Det, Material>{
+    follow::runSequence(tracker_detail::FollowLaunch{.runtime = *mRuntime, .stream = mStream}, follow::Inputs<Det>{
                                                                                                  .parameters = mParameters.data() + iteration,
                                                                                                  .choices = &host,
                                                                                                  .frame = mFrame.data(),
                                                                                                  .geometry = mGeometry.data(),
-                                                                                                 .material = mMaterial.data(),
                                                                                                  .propagator = mPropagator,
                                                                                                  .tracks = tracks.view(),
                                                                                                  .constTracks = std::as_const(tracks).view(),
@@ -1719,7 +1715,6 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
     mParameters = {};
     mHostParameters.clear();
     mGeometry = {};
-    mMaterial.release();
     mCellLayers = {};
     mCellOffsets = {};
     mCellSensors = {};
@@ -1764,7 +1759,6 @@ class DeviceTrackerImpl final : public DeviceTracker<Det, Material>
   DeviceSpan<IterationParameters<Det>> mParameters;
   std::vector<IterationParameters<Det>> mHostParameters; ///< the same, for the values the host reads
   DeviceObject<TrackingGeometry<Det>> mGeometry;
-  DeviceMaterial<Material> mMaterial;
   DeviceSpan<SensorCellLayer> mCellLayers; ///< the sensors by place, for the outward follow
   DeviceSpan<std::uint32_t> mCellOffsets;
   DeviceSpan<std::uint32_t> mCellSensors;

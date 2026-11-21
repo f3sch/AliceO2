@@ -33,8 +33,6 @@
 #include "ToyBarrel8.h"
 #include "UniformMaterial.h"
 
-#include "FlatObject.h"
-
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -103,46 +101,6 @@ struct SyntheticRunInfo {
   std::uint32_t listed = 0U;      ///< the elements a listed run generated
 };
 
-/// A small O2 FlatObject for the tests of DeviceFlatObject: \a count values
-/// in its flat buffer, reached through a pointer the relocation must fix. ITS
-/// host methods exist outside GPU translation units only, as FlatObject's do.
-class ToyFlatObject : public o2::gpu::FlatObject
-{
- public:
-#ifndef GPUCA_GPUCODE
-  void construct(std::span<const std::int32_t> values)
-  {
-    startConstruction();
-    mCount = static_cast<std::int32_t>(values.size());
-    finishConstruction(static_cast<std::int32_t>(values.size_bytes()));
-    mValues = reinterpret_cast<std::int32_t*>(mFlatBufferPtr); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): the flat buffer holds them
-    std::ranges::copy(values, mValues);
-  }
-  void cloneFromObject(const ToyFlatObject& object, char* newFlatBufferPtr)
-  {
-    o2::gpu::FlatObject::cloneFromObject(object, newFlatBufferPtr);
-    mCount = object.mCount;
-    mValues = reinterpret_cast<std::int32_t*>(mFlatBufferPtr); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
-  }
-  void setFutureBufferAddress(char* futureFlatBufferPtr)
-  {
-    mValues = reinterpret_cast<std::int32_t*>(futureFlatBufferPtr); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
-    o2::gpu::FlatObject::setFutureBufferAddress(futureFlatBufferPtr);
-  }
-  void setActualBufferAddress(char* actualFlatBufferPtr)
-  {
-    mValues = reinterpret_cast<std::int32_t*>(actualFlatBufferPtr); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
-    o2::gpu::FlatObject::setActualBufferAddress(actualFlatBufferPtr);
-  }
-#endif
-  [[nodiscard]] GPUhdi() std::int32_t count() const { return mCount; }
-  [[nodiscard]] GPUhdi() std::int32_t value(std::int32_t index) const { return mValues[index]; }
-
- private:
-  std::int32_t* mValues = nullptr;
-  std::int32_t mCount = 0;
-};
-
 using ToyBarrel8Det = detectors::ToyBarrel8;
 inline constexpr std::size_t kToyBarrel8Layers = static_cast<std::size_t>(Detector<ToyBarrel8Det>::nLayers);
 
@@ -169,14 +127,6 @@ struct SelectionGlueResult {
   std::uint32_t readbacks = 0U;
   std::size_t scratchAfter = 0U; ///< the arena's scratch end once the selection returned
 };
-
-} // namespace o2::gtrk
-namespace o2::base
-{
-class MatLayerCylSet;
-}
-namespace o2::gtrk
-{
 
 struct PathBoundsResult {
   std::vector<std::uint8_t> measurementPrefix;
@@ -254,7 +204,7 @@ struct DeviceTestEntry {
   /// chunks of at most \a maxChunkPairs pairs (0: the arena decides).
   StageStatus (*runFlatSynthetic)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t divisor, std::uint32_t elements, bool listedRun, std::size_t maxChunkPairs, StageOutput<TrackletT>& result, FlatRunInfo& info) = nullptr;
   /// The device tracker for the ToyBarrel8 fixtures.
-  std::unique_ptr<DeviceTracker<detectors::ToyBarrel8, UniformMaterial>> (*makeToyBarrel8Tracker)(DeviceRuntime&, DeviceBlock arena) = nullptr;
+  std::unique_ptr<DeviceTracker<detectors::ToyBarrel8>> (*makeToyBarrel8Tracker)(DeviceRuntime&, DeviceBlock arena) = nullptr;
   /// The slice's glue passes on host inputs copied to the device, their
   /// results copied back.
   StageStatus (*permutation)(DeviceRuntime&, DeviceStream&, DeviceArena&, const IterationParameters<ToyBarrel8Det>&, const LayerRowMap<ToyBarrel8Det>&, const StageOutput<TrackletT>& tracklets, std::span<const std::uint8_t> prefix, std::span<const std::uint8_t> suffix, std::vector<std::uint32_t>& result) = nullptr;
@@ -278,15 +228,6 @@ struct DeviceTestEntry {
   /// end in one scope, gathered on the base end and read back; false if the
   /// arena refused a chunk or the gather.
   bool (*gatherChunks)(DeviceRuntime&, DeviceStream&, DeviceArena&, const StageOutput<TrackletT>& source, std::span<const std::size_t> chunkRows, std::vector<Tracklet>& gathered) = nullptr;
-  /// \a object ported to the device and its values read there; false if the
-  /// arena refused it.
-  /// \a object uploaded, read back; uploaded again elsewhere from the kept image, read back into \a moved.
-  bool (*flatObject)(DeviceRuntime&, DeviceStream&, DeviceArena&, const ToyFlatObject& object, std::vector<std::int32_t>& readBack, std::vector<std::int32_t>& moved) = nullptr;
-  /// O2's material LUT ported with DeviceFlatObject, and getMatBudget and
-  /// getMatMoment of each segment (x0, y0, z0, x1, y1, z1) evaluated on the
-  /// device: its mean density, mean X/X0 and length; X/X0 and its second
-  /// moment.
-  StageStatus (*matBudgets)(DeviceRuntime&, DeviceStream&, DeviceArena&, const o2::base::MatLayerCylSet& lut, std::span<const std::array<float, 6>> segments, std::vector<std::array<float, 5>>& result) = nullptr;
   /// The selection glue over \a records into a copy of \a mask, in an arena
   /// scope closed on return.
   StageStatus (*selectionGlue)(DeviceRuntime&, DeviceStream&, DeviceArena&, const ToyBarrel8Records& records, std::span<const std::uint8_t> mask, std::uint32_t sharedInnermost, SelectionGlueResult& result) = nullptr;

@@ -18,7 +18,6 @@
 
 #include "ElectronChain.h"
 #include "StageOutputComparison.h"
-#include "UniformMaterial.h"
 
 #include "MathUtils/detail/trigonometric.h"
 
@@ -59,7 +58,7 @@ double standardDeviation(const std::vector<double>& values)
 /// the bit; a species of charge two is refused.
 BOOST_AUTO_TEST_CASE(AHadronIsTheKalmanFitAtItsMass)
 {
-  const UniformMaterial material{.x2X0PerCm = 2.5e-3F, .rho = 0.055F};
+  const test::ChainBands material{.x2X0 = 5e-3F, .xRho = 0.11F};
   ElectronChain chain;
   std::mt19937 rng(1051);
   for (const auto id : {o2::track::PID::Muon, o2::track::PID::Pion, o2::track::PID::Kaon, o2::track::PID::Proton}) {
@@ -84,7 +83,7 @@ BOOST_AUTO_TEST_CASE(AHadronIsTheKalmanFitAtItsMass)
   BOOST_TEST((refused.failedPass == FitPass::kNone));
 }
 
-/// From a vertex through uniform material: pions (no radiation), the Kalman
+/// From a vertex through the bands: pions (no radiation), the Kalman
 /// fit carried to the perigee plane about the vertex, unit pulls of d0, z0,
 /// phi, theta and q/p there, the vertex at the origin and displaced; electrons (Bethe and
 /// Heitler's losses sampled), the mixture's q/p marginal covers the true q/p
@@ -92,7 +91,7 @@ BOOST_AUTO_TEST_CASE(AHadronIsTheKalmanFitAtItsMass)
 /// fit carried alike.
 BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
 {
-  const UniformMaterial material{.x2X0PerCm = 1e-2F, .rho = 0.22F}; // 2 % X0 between layers, from the vertex too
+  const test::ChainBands material{.x2X0 = 2e-2F, .xRho = 0.44F}; // 2 % X0 per layer, the first's front part from the vertex
   constexpr int kTracks = 1000;
   ElectronChain chain;
   std::mt19937 rng(1052);
@@ -160,7 +159,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
     auto factors = factorCovariance(carried.cov);
     const auto& innermostSurface = chain.tracking.planeOf(measurements[0]);
     const auto plane = detail::hypothesis::perigeePlaneOf(chain.propagator, carried, innermostSurface, 0.F, 0.F);
-    if (detail::hypothesis::carryInward(chain.propagator, material, innermostSurface, plane, carried, factors) != PropagationStatus::kOk) {
+    if (detail::hypothesis::carryInward(chain.propagator, chain.tracking.material(), innermostSurface, plane, carried, factors) != PropagationStatus::kOk) {
       continue;
     }
     const double u = chain.vertex.qOverP();

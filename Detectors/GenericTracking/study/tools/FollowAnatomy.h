@@ -252,7 +252,7 @@ class FollowAnatomy
     // The mask as the follow read it: the tracker's copy, taken with the
     // starting states.
     std::vector<std::uint8_t> used(iteration.followUsed.begin(), iteration.followUsed.end());
-    const FollowStage<Det, Material, BeamLine, false, Greedy, EndDensity, BeamEnd, Shape> stage{&parameters, &frame, &geometry, &material, propagator, view, used.data(), mWidths.data(), mCells.view(), nullptr, parameters.sharedInnermost == 0U, iteration.trackOffset};
+    const FollowStage<Det, BeamLine, false, Greedy, EndDensity, BeamEnd, Shape> stage{&parameters, &frame, &geometry, propagator, view, used.data(), mWidths.data(), mCells.view(), nullptr, parameters.sharedInnermost == 0U, iteration.trackOffset};
     for (std::uint32_t i = 0; i < trackCount; ++i) {
       const auto track = iteration.trackOffset + i;
       if (view.status[track] != PropagationStatus::kOk) {

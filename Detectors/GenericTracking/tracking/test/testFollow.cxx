@@ -133,11 +133,10 @@ ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tra
   // The end decided again starts from the fit without it, a pass of its own.
   std::vector<BoundTrackState> starts(tracks.size());
   if constexpr (DecidesEnd) {
-    const follow::EndFit<toybarrel8::Det, UniformMaterial> fit{
+    const follow::EndFit<toybarrel8::Det> fit{
       .parameters = &parameters,
       .frame = fixture.frame.get(),
       .geometry = &toybarrel8::trackingGeometry(),
-      .material = &material,
       .propagator = Propagator{},
       .tracks = tracks.view(),
       .starts = starts.data(),
@@ -147,7 +146,7 @@ ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tra
       fit(track);
     }
   }
-  const FollowStage<toybarrel8::Det, UniformMaterial, BeamLine, DecidesEnd, Greedy, EndDensity, BeamEnd> stage{&parameters, fixture.frame.get(), &toybarrel8::trackingGeometry(), &material, Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), inward, 0U, DecidesEnd ? starts.data() : nullptr};
+  const FollowStage<toybarrel8::Det, BeamLine, DecidesEnd, Greedy, EndDensity, BeamEnd> stage{&parameters, fixture.frame.get(), &toybarrel8::trackingGeometry(), Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), inward, 0U, DecidesEnd ? starts.data() : nullptr};
   if (threads == 0) {
     for (std::uint32_t track = 0; track < tracks.size(); ++track) {
       stage(track);
@@ -164,7 +163,7 @@ ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tra
 bool sameProposal(const ToyProposal& a, const ToyProposal& b) { return a.outwardCount == b.outwardCount && a.inwardCount == b.inwardCount && a.replacedEnd == b.replacedEnd && std::ranges::equal(a.outward, b.outward) && std::ranges::equal(a.inward, b.inward); }
 
 /// The follow's passes over \a tracks (`Follow::run`), serially.
-StageStatus followAll(const toybarrel8::Fixture& fixture, const IterationParameters<toybarrel8::Det>& parameters, ToyTracks& tracks, std::vector<std::uint8_t>& used, Follow<toybarrel8::Det>& follow, const UniformMaterial& material = UniformMaterial{}) { return follow.run(SerialForEach{}, parameters, *fixture.frame, toybarrel8::trackingGeometry(), material, Propagator{}, tracks, 0U, true, false, used, widthBounds(fixture), toyCells().view()); }
+StageStatus followAll(const toybarrel8::Fixture& fixture, const IterationParameters<toybarrel8::Det>& parameters, ToyTracks& tracks, std::vector<std::uint8_t>& used, Follow<toybarrel8::Det>& follow, const UniformMaterial& material = UniformMaterial{}) { return follow.run(SerialForEach{}, parameters, *fixture.frame, toybarrel8::trackingGeometry(), Propagator{}, tracks, 0U, true, false, used, widthBounds(fixture), toyCells().view()); }
 
 template <DetectorLayout Det>
 SensorID crossedSensor(const TrackingGeometry<Det>& geometry, const Propagator& propagator, const BoundTrackState& state, LayerID target, PropagationDirection direction)
@@ -351,11 +350,16 @@ BOOST_AUTO_TEST_CASE(UpdateRefusesAnIndefiniteCovariance)
 {
   using Mixed = detectors::ToyBarrel4Disc8;
   const auto detector = toyGeometry<Mixed>();
-  // On the heap: its material tables are too large for the stack.
-  const auto geometryOwner = std::make_unique<const TrackingGeometry<Mixed>>(detector);
+  // On the heap: its material tables are too large for the stack. Its link
+  // material a medium's, for the steps that take material.
+  const auto geometryOwner = [&] {
+    auto made = std::make_unique<TrackingGeometry<Mixed>>(detector);
+    fillFromMedium<Mixed>(made->material(), UniformMaterial{.x2X0PerCm = 1.e-3F, .rho = 0.1F});
+    return made;
+  }();
   const TrackingGeometry<Mixed>& geometry = *geometryOwner;
   const Propagator propagator;
-  const UniformMaterial material;
+  const detail::LinkSteps material;
 
   BoundTrackState state;
   state.surface = firstSensorOfLayer<Mixed>(0);
@@ -390,7 +394,7 @@ BOOST_AUTO_TEST_CASE(UpdateRefusesAnIndefiniteCovariance)
 
   // The source may also be the destination buffer. Material must still
   // start at the original source point, before publishing the crossing.
-  const UniformMaterial filled{.x2X0PerCm = 1.e-3F, .rho = 0.1F};
+  const detail::LinkSteps filled;
   Propagator massive = propagator;
   massive.massGeV = 0.13957F;
   BoundParameters separate;
@@ -680,7 +684,7 @@ BOOST_AUTO_TEST_CASE(ARowRefusedAboveTheGateKeepsTheRowBeforeInwardOnly)
       }
       const auto widths = widthBounds(fixture);
       std::vector<ToyProposal> proposals(1U);
-      const FollowStage<Det, UniformMaterial> stage{&parameters, fixture.frame.get(), &trackingGeometry(), &material, Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), true, 0U, nullptr};
+      const FollowStage<Det> stage{&parameters, fixture.frame.get(), &trackingGeometry(), Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), true, 0U, nullptr};
       std::vector<std::tuple<LayerID, std::uint32_t, StepOutcome>> seen;
       const Seen observer{{}, &seen};
       const auto view = tracks.view();

@@ -26,13 +26,8 @@
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
-#include "GenericTracking/Tracking/LinkMaterial.h"
 #include "GenericTracking/Tracking/GPU/DeviceStream.h"
-
-namespace o2::base
-{
-class MatLayerCylSet;
-}
+#include "GenericTracking/Tracking/LinkMaterial.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -47,7 +42,7 @@ namespace o2::gtrk
 
 /// Declared only: the runtime names the trackers it makes, their users
 /// include DeviceTracker.h.
-template <DetectorLayout Det, typename Material>
+template <DetectorLayout Det>
 class DeviceTracker;
 template <DetectorLayout Det, typename Material>
 class DeviceDecayFitter;
@@ -92,11 +87,6 @@ class DeviceRuntime
   /// source, by one kernel (a few for many copies) instead of a copy each.
   virtual void copyEachOnDevice(std::span<const DeviceCopy> copies, DeviceStream& stream) = 0;
   virtual void fill(void* to, std::uint8_t value, std::size_t bytes, DeviceStream& stream) = 0;
-  /// Page-lock the \a bytes of host memory at \a host for this device's
-  /// copies, which then run without staging: whole pages no other
-  /// registration shares (`PageAllocator`), until unregisterHost.
-  virtual void registerHost(void* host, std::size_t bytes) = 0;
-  virtual void unregisterHost(void* host) noexcept = 0;
 
   /// Backend launchers use this to recover cudaStream_t/hipStream_t without
   /// exposing either type in a public header.
@@ -105,7 +95,7 @@ class DeviceRuntime
   /// The device tracker for \a D, its arena on \a block; std::runtime_error
   /// for a layout the backends are not built for.
   template <DetectorLayout D>
-  [[nodiscard]] std::unique_ptr<DeviceTracker<D, o2::base::MatLayerCylSet>> makeTracker(DeviceBlock block)
+  [[nodiscard]] std::unique_ptr<DeviceTracker<D>> makeTracker(DeviceBlock block)
   {
     if constexpr (std::is_same_v<D, detectors::ITS>) {
       return makeITSTracker(block);
@@ -142,10 +132,10 @@ class DeviceRuntime
   virtual void destroyStreamHandle(void* handle) noexcept = 0;
   virtual void synchronizeStreamHandle(void* handle) = 0;
 
-  [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::ITS, o2::base::MatLayerCylSet>> makeITSTracker(DeviceBlock block) = 0;
-  [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::MFT, o2::base::MatLayerCylSet>> makeMFTTracker(DeviceBlock block) = 0;
-  [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::TRKFT3, o2::base::MatLayerCylSet>> makeTRKFT3Tracker(DeviceBlock block) = 0;
-  [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::TRKFT3TOF, o2::base::MatLayerCylSet>> makeTRKFT3TOFTracker(DeviceBlock block) = 0;
+  [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::ITS>> makeITSTracker(DeviceBlock block) = 0;
+  [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::MFT>> makeMFTTracker(DeviceBlock block) = 0;
+  [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::TRKFT3>> makeTRKFT3Tracker(DeviceBlock block) = 0;
+  [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::TRKFT3TOF>> makeTRKFT3TOFTracker(DeviceBlock block) = 0;
   [[nodiscard]] virtual std::unique_ptr<DeviceDecayFitter<detectors::TRKFT3, LinkMaterial<detectors::TRKFT3>>> makeTRKFT3DecayFitter(DeviceBlock block) = 0;
 };
 

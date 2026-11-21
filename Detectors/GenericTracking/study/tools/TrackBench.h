@@ -101,7 +101,7 @@ namespace o2::gtrk::study
 
 namespace bpo = boost::program_options;
 template <DetectorLayout Det>
-using Controller = Tracker<Det, o2::base::MatLayerCylSet>;
+using Controller = Tracker<Det>;
 
 // Read once per run: its order follows the command line, not the padding.
 struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
@@ -1775,7 +1775,11 @@ void printMaterialCheck(const TrackStore<Det>& tracks, const TimeFrame<Det>& fra
         if (!table.found) {
           ++sum.untabled;
         } else {
-          const auto walked = detail::stepMaterial(lut, previous, point);
+          // the LUT's halves about the step's midpoint
+          const Scalar mid[3] = {0.5F * (previous[0] + point[0]), 0.5F * (previous[1] + point[1]), 0.5F * (previous[2] + point[2])};
+          const auto nearer = lut.getMatBudget(previous[0], previous[1], previous[2], mid[0], mid[1], mid[2]);
+          const auto farther = lut.getMatBudget(mid[0], mid[1], mid[2], point[0], point[1], point[2]);
+          const detail::StepMaterial walked{.nearerX2X0 = nearer.meanX2X0, .fartherX2X0 = farther.meanX2X0, .xRho = (nearer.meanRho * nearer.length) + (farther.meanRho * farther.length)};
           const double walkedTotal = walked.nearerX2X0 + walked.fartherX2X0;
           const double tableTotal = table.before + table.after;
           sum.lutNear += walked.nearerX2X0;

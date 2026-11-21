@@ -109,12 +109,12 @@ struct DeviceIterationDownload {
   std::vector<std::uint8_t> used;      ///< the mask after the iteration
 };
 
-/// The tracker on a device, for a detector and its material (the tests' UniformMaterial,
-/// o2::base::MatLayerCylSet). Its calls follow a lifecycle of nested scopes:
+/// The tracker on a device, for a detector. Its calls follow a lifecycle of
+/// nested scopes:
 ///
 ///   attach            the device memory to work in, the tracker's only one
 ///                     until detach: nothing of an earlier block stays
-///   configureRun      the run: parameters, geometry, material, propagator
+///   configureRun      the run: parameters, geometry (with its link material), propagator
 ///   beginTimeframe    a timeframe: measurements, offsets, the plan, used mask
 ///   beginIteration    an iteration: its slices' roads fitted in batches that
 ///                     fill the device, the records kept as they come
@@ -137,7 +137,7 @@ struct DeviceIterationDownload {
 /// A call out of order throws std::logic_error. A failure inside a call
 /// closes what that call opened; a failed slice fails its iteration, whose
 /// later slices are refused and whose endIteration returns the failure.
-template <DetectorLayout Det, typename Material>
+template <DetectorLayout Det>
 class DeviceTracker
 {
  public:
@@ -187,12 +187,10 @@ class DeviceTracker
   virtual void detach() noexcept = 0;
 
   /// Rebuild the run: every open scope closed, the arena reset, then every
-  /// iteration's parameters, the geometry and the material uploaded and the
-  /// propagator kept. kOutOfMemory, and no run configured, if the arena
-  /// refuses. A FlatObject material's host image is kept from one call to
-  /// the next and made again only for another object: the same object is
-  /// taken to be the same material.
-  [[nodiscard]] virtual StageStatus configureRun(std::span<const IterationParameters<Det>> iterations, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator) = 0;
+  /// iteration's parameters and the geometry with its link material uploaded
+  /// and the propagator kept. kOutOfMemory, and no run configured, if the
+  /// arena refuses.
+  [[nodiscard]] virtual StageStatus configureRun(std::span<const IterationParameters<Det>> iterations, const TrackingGeometry<Det>& geometry, const Propagator& propagator) = 0;
 
   /// Upload \a frame -- its measurement columns and grid offsets -- the
   /// device part of \a plan and a used mask with every row free, replacing

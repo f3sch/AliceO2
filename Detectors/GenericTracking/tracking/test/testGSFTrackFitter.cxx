@@ -78,8 +78,19 @@ template <std::size_t N>
 struct Chain {
   using Mixed = detectors::ToyBarrel4Disc8;
   Geometry<Mixed> geometry = toyGeometry<Mixed>();
+  /// The medium between the layers, its link material filled once.
+  static constexpr UniformMaterial kMedium{.x2X0PerCm = 2e-3F, .rho = 0.3F};
   // On the heap: its material tables are too large for the stack.
-  std::unique_ptr<TrackingGeometry<Mixed>> tracking = std::make_unique<TrackingGeometry<Mixed>>(geometry);
+  std::unique_ptr<TrackingGeometry<Mixed>> tracking = [this] {
+    static const auto table = [] {
+      auto made = std::make_unique<LinkMaterial<Mixed>>();
+      fillFromMedium<Mixed>(*made, kMedium);
+      return made;
+    }();
+    auto made = std::make_unique<TrackingGeometry<Mixed>>(geometry);
+    made->material() = *table;
+    return made;
+  }();
   Propagator propagator;
   std::array<Measurement, N> measurements;
   bool built = false;
@@ -179,7 +190,7 @@ struct Coverage {
 };
 
 template <typename Loss = BetheHeitlerLoss, int K = Loss::kComponents>
-Coverage coverage(double pGeV, const UniformMaterial& material, bool radiate, int tracks, std::uint32_t seed)
+Coverage coverage(double pGeV, const test::ChainBands& material, bool radiate, int tracks, std::uint32_t seed)
 {
   ElectronChain chain;
   std::mt19937 rng(seed);
@@ -238,7 +249,7 @@ std::string describe(const std::string& label, const Coverage& c)
 BOOST_AUTO_TEST_CASE(WithoutLossItIsTheKalmanFit)
 {
   std::mt19937 rng(105);
-  const UniformMaterial material{.x2X0PerCm = 2e-3F, .rho = 0.3F};
+  const detail::LinkSteps material;
   int fits = 0;
   for (int trial = 0; trial < 50; ++trial) {
     const Chain<4> chain(trial % 2 == 0 ? 3.F : -5.F, rng);
@@ -276,7 +287,7 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
   constexpr int kPaths = 16;
   constexpr auto kRule = CrossingRule::kFirstAhead;
   std::mt19937 rng(1050);
-  const UniformMaterial material{.x2X0PerCm = 2e-3F, .rho = 0.3F};
+  const detail::LinkSteps material;
   double worstState = 0.;
   double worstWeight = 0.;
   for (int trial = 0; trial < 20; ++trial) {
@@ -380,8 +391,8 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
 /// the convergence in K and the cost per fit.
 BOOST_AUTO_TEST_CASE(TheMixtureCoversSampledLosses)
 {
-  const UniformMaterial thin{.x2X0PerCm = 2.5e-3F, .rho = 0.055F}; // silicon's ratio, 0.5 % X0 per gap
-  const UniformMaterial thick{.x2X0PerCm = 1e-2F, .rho = 0.22F};   // 2 % X0 per gap
+  const test::ChainBands thin{.x2X0 = 5e-3F, .xRho = 0.11F};  // silicon's ratio, 0.5 % X0 per layer
+  const test::ChainBands thick{.x2X0 = 2e-2F, .xRho = 0.44F}; // 2 % X0 per layer
   constexpr int kTracks = 1000;
   struct Row {
     std::string label;
@@ -401,7 +412,7 @@ BOOST_AUTO_TEST_CASE(TheMixtureCoversSampledLosses)
   // Who owns which loss: the ionisation alone (the no-loss model on tracks without radiation, the Kalman fit's
   // own q/p coverage), the radiation alone (no ionisation), and a radiation the tracks do not have.
   rows.push_back({"thick, p 0.5 GeV, ionisation only", coverage<NoLoss>(0.5, thick, false, kTracks, 107), false});
-  const UniformMaterial thickNoIonisation{.x2X0PerCm = thick.x2X0PerCm, .rho = 0.F};
+  const test::ChainBands thickNoIonisation{.x2X0 = thick.x2X0, .xRho = 0.F};
   rows.push_back({"thick, p 0.5 GeV, radiation only", coverage<>(0.5, thickNoIonisation, true, kTracks, 108), true});
   rows.push_back({"thick, p 0.5 GeV, tracks without radiation", coverage<>(0.5, thick, false, kTracks, 107), false});
   BOOST_TEST_MESSAGE("                                    fits fail/KF inward PIT       outward PIT      Kalman p/p_true          mode p/p_true            mean p/p_true   ms/fit");
@@ -442,7 +453,7 @@ BOOST_AUTO_TEST_CASE(TheMixtureCoversSampledLosses)
 /// of it there.
 BOOST_AUTO_TEST_CASE(LargeLossesInsideAStart)
 {
-  const UniformMaterial thick{.x2X0PerCm = 1e-2F, .rho = 0.22F};
+  const test::ChainBands thick{.x2X0 = 2e-2F, .xRho = 0.44F};
   const auto all = coverage<>(0.5, thick, true, 4000, 109);
   const auto subset = [&](const std::vector<double>& loss, const std::vector<double>& values) {
     std::vector<double> out;
@@ -485,7 +496,7 @@ BOOST_AUTO_TEST_CASE(LargeLossesInsideAStart)
 /// gives up about the other parameters shows here. Asserted on the default.
 BOOST_AUTO_TEST_CASE(TheReductionConverges)
 {
-  const UniformMaterial thick{.x2X0PerCm = 1e-2F, .rho = 0.22F};
+  const test::ChainBands thick{.x2X0 = 2e-2F, .xRho = 0.44F};
   ElectronChain chain;
   std::mt19937 rng(110);
   constexpr int kTracks = 300;

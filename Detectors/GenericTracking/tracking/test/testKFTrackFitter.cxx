@@ -26,7 +26,6 @@
 #include "ScatteringKick.h"
 #include "ToyBarrel3.h"
 #include "ToyBarrel4Disc8.h"
-#include "UniformMaterial.h"
 
 #include "ReconstructionDataFormats/PID.h"
 #include "ReconstructionDataFormats/Track.h"
@@ -97,11 +96,11 @@ Measurement measurementFromState(const BoundTrackState& state, std::uint32_t ind
 
 struct SyntheticChain {
   Geometry<Toy> geometry = toyGeometry<Toy>();
-  // On the heap: its material tables are too large for the stack. Its fits
-  // read the chain's material (`withoutLinks`).
+  // On the heap: its material tables are too large for the stack. No
+  // material.
   std::unique_ptr<TrackingGeometry<Toy>> tracking = [this] {
     auto made = std::make_unique<TrackingGeometry<Toy>>(geometry);
-    withoutLinks(made->material());
+    made->material() = noMaterial<Toy>();
     return made;
   }();
   Propagator propagator;
@@ -227,7 +226,7 @@ BOOST_AUTO_TEST_CASE(ThreePointSeedRemainsFiniteAsCurvatureDiverges)
 BOOST_AUTO_TEST_CASE(IndependentPassesFitTheSameNoiselessChain)
 {
   const SyntheticChain chain;
-  const UniformMaterial material;
+  const detail::LinkSteps material;
   const auto fit = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
 
   BOOST_TEST(static_cast<int>(fit.status) == static_cast<int>(PropagationStatus::kOk));
@@ -251,13 +250,13 @@ BOOST_AUTO_TEST_CASE(LayerZeroAtShallowIncidenceFitsBothWays)
 {
   using Mixed = detectors::ToyBarrel4Disc8;
   const auto detector = toyGeometry<Mixed>();
-  // On the heap: its material tables are too large for the stack. Its fits
-  // read the test's material (`withoutLinks`).
+  // On the heap: its material tables are too large for the stack. No
+  // material.
   const auto trackingOwner = std::make_unique<TrackingGeometry<Mixed>>(detector);
-  withoutLinks(trackingOwner->material());
+  trackingOwner->material() = noMaterial<Mixed>();
   const TrackingGeometry<Mixed>& tracking = *trackingOwner;
   const Propagator propagator;
-  const UniformMaterial material;
+  const detail::LinkSteps material;
 
   SensorID start = firstSensorOfLayer<Mixed>(0);
   for (SensorID sensor = start; sensor < firstSensorOfLayer<Mixed>(1); ++sensor) {
@@ -315,7 +314,7 @@ BOOST_AUTO_TEST_CASE(SmearedChainsGiveUnbiasedParametersAndUnitPulls)
   // come out near 0.707 while every other test in this file still passed.
   // That number is asserted against explicitly.
   const SyntheticChain chain;
-  const UniformMaterial material;
+  const detail::LinkSteps material;
 
   constexpr int kTrials = 3000;
   const Scalar sigmaLoc = 1.5811388e-3F; // sqrt(2.5e-6) cm
@@ -367,17 +366,19 @@ template <std::size_t N>
 struct BarrelChain {
   using Mixed = detectors::ToyBarrel4Disc8;
   Geometry<Mixed> geometry = toyGeometry<Mixed>();
-  // On the heap: its material tables are too large for the stack. Its fits
-  // read the chain's material (`withoutLinks`).
+  // On the heap: its material tables are too large for the stack. No
+  // material until `generate` gives some.
   std::unique_ptr<TrackingGeometry<Mixed>> tracking = [this] {
     auto made = std::make_unique<TrackingGeometry<Mixed>>(geometry);
-    withoutLinks(made->material());
+    made->material() = noMaterial<Mixed>();
     return made;
   }();
   Propagator propagator;
   std::array<BoundTrackState, N> truth;
   std::array<Measurement, N> measurements;
   bool built = false;
+  Scalar mBandX2X0 = 0.F; ///< the link material's (`generate`)
+  Scalar mBandXRho = 0.F;
 
   /// The sensor of \a layer that this track actually crosses. A barrel layer
   /// overlaps in azimuth by about a fifth, so "the sensor at this phi" is not
@@ -399,39 +400,43 @@ struct BarrelChain {
 
   explicit BarrelChain(Scalar qOverP = 0.5F) { generate(qOverP); }
 
-  /// (Re)build the chain. With \a x2X0PerCm the track scatters as the fit
-  /// models it (`StepMaterial`): each step's material in two thin scatterers,
-  /// the half behind the sensor just left kicked on leaving it, the half in
-  /// front of the sensor reached kicked on arrival, both with the Highland
-  /// theta0 of half the step's chord, its logarithm at the span's material
-  /// (`SpanMaterial`), the chain's chords of the track without scattering.
-  /// truth[k] is the state at the mid-plane
-  /// of sensor k: after the kick in front of it, before the one behind it,
-  /// which is what both passes estimate there. With \a rho [g/cm^3] the
-  /// track loses the fit's mean energy over each step's chord on reaching the
-  /// next sensor, without straggling.
-  void generate(Scalar qOverP, Scalar x2X0PerCm = 0.F, std::mt19937* rng = nullptr, Scalar rho = 0.F)
+  /// (Re)build the chain. With \a bandX2X0 each layer's band holds that x/X0
+  /// at normal incidence, and \a bandXRho [g/cm^2] for the energy loss, as
+  /// the chain's link material (`bandMaterial`), and the track scatters as
+  /// the fit models it (LinkMaterial::step): at each sensor its band's part
+  /// behind the measurement on leaving it and the part in front on arriving,
+  /// the band split at the measurement's depth in it, at the step chord's
+  /// incidence on the layer, each kick's Highland logarithm at the span's
+  /// material (`SpanMaterial`), the chords those of the track without
+  /// scattering. truth[k] is the state at the mid-plane of sensor k: after the
+  /// kick in front of it, before the one behind it, which is what both passes
+  /// estimate there. The energy of each step's bands is lost on arriving,
+  /// without straggling.
+  void generate(Scalar qOverP, Scalar bandX2X0 = 0.F, std::mt19937* rng = nullptr, Scalar bandXRho = 0.F)
   {
+    if (bandX2X0 != mBandX2X0 || bandXRho != mBandXRho) {
+      constexpr auto kAll = static_cast<std::size_t>(Detector<Mixed>::nLayers);
+      std::array<double, kAll> x{};
+      std::array<double, kAll> rho{};
+      x.fill(bandX2X0);
+      rho.fill(bandXRho);
+      tracking->material() = *bandMaterial<Mixed>(x, {}, {.low = -20., .high = 20.}, rho);
+      mBandX2X0 = bandX2X0;
+      mBandXRho = bandXRho;
+    }
     Scalar spanX2X0 = 0.F;
-    if (x2X0PerCm > 0.F && rng != nullptr) {
-      trace(qOverP, 0.F, nullptr, rho, 0.F);
+    if (bandX2X0 > 0.F && rng != nullptr) {
+      trace(qOverP, bandX2X0, nullptr, 0.F, 0.F, &spanX2X0);
       if (!built) {
         return;
       }
-      for (std::size_t k = 1; k < truth.size(); ++k) {
-        Scalar a[3]{};
-        Scalar b[3]{};
-        surfaceToGlobal(tracking->surface(truth[k - 1].surface), truth[k - 1].loc0(), truth[k - 1].loc1(), a);
-        surfaceToGlobal(tracking->surface(truth[k].surface), truth[k].loc0(), truth[k].loc1(), b);
-        spanX2X0 += x2X0PerCm * std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-      }
     }
-    trace(qOverP, x2X0PerCm, rng, rho, spanX2X0);
+    trace(qOverP, bandX2X0, rng, bandXRho, spanX2X0, nullptr);
   }
 
   /// The chain as `generate` describes it, with the span's material
-  /// \a spanX2X0 given.
-  void trace(Scalar qOverP, Scalar x2X0PerCm, std::mt19937* rng, Scalar rho, Scalar spanX2X0)
+  /// \a spanX2X0 given; with \a span, the unscattered chain's span summed into it.
+  void trace(Scalar qOverP, Scalar bandX2X0, std::mt19937* rng, Scalar bandXRho, Scalar spanX2X0, Scalar* span)
   {
     built = false;
     truth[0] = BoundTrackState{};
@@ -444,8 +449,9 @@ struct BarrelChain {
     for (std::size_t layer = 1; layer < truth.size(); ++layer) {
       const auto& from = tracking->surface(truth[layer - 1].surface);
       BoundTrackState outgoing = truth[layer - 1];
-      Scalar theta0Half = 0.F;
-      if (x2X0PerCm > 0.F && rng != nullptr) {
+      Scalar arrival = 0.F;
+      Scalar loss = 0.F;
+      if (bandX2X0 > 0.F) {
         const auto unkicked = crossedSensor(outgoing, from, static_cast<LayerID>(layer));
         if (unkicked == kInvalidSensorID) {
           return;
@@ -456,9 +462,20 @@ struct BarrelChain {
         Scalar b[3]{};
         surfaceToGlobal(from, outgoing.loc0(), outgoing.loc1(), a);
         surfaceToGlobal(tracking->surface(unkicked), probe.loc0(), probe.loc1(), b);
-        const Scalar chord = std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-        theta0Half = highlandTheta0(0.5F * x2X0PerCm * chord, spanX2X0, 1.F / std::abs(outgoing.qOverP()), propagator.massGeV);
-        test::scatteringKick(outgoing, theta0Half, gauss, *rng); // behind the sensor just left
+        const Scalar d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+        const auto [frontA, pathA] = bandShare<Mixed>(static_cast<LayerID>(layer - 1), a, d);
+        const auto [frontB, pathB] = bandShare<Mixed>(static_cast<LayerID>(layer), b, d);
+        const Scalar leaving = bandX2X0 * (1.F - frontA) * pathA;
+        const Scalar reaching = bandX2X0 * frontB * pathB;
+        loss = bandXRho * (((1.F - frontA) * pathA) + (frontB * pathB));
+        if (span != nullptr) {
+          *span += leaving + reaching;
+        }
+        if (rng != nullptr) {
+          const Scalar momentum = 1.F / std::abs(outgoing.qOverP());
+          test::scatteringKick(outgoing, highlandTheta0(leaving, spanX2X0, momentum, propagator.massGeV), gauss, *rng); // behind the sensor just left
+          arrival = highlandTheta0(reaching, spanX2X0, momentum, propagator.massGeV);
+        }
       }
       const auto id = crossedSensor(outgoing, from, static_cast<LayerID>(layer));
       if (id == kInvalidSensorID) {
@@ -469,19 +486,15 @@ struct BarrelChain {
       if (result.status != PropagationStatus::kOk) {
         return;
       }
-      if (rho > 0.F) {
-        Scalar a[3]{};
-        Scalar b[3]{};
-        surfaceToGlobal(from, truth[layer - 1].loc0(), truth[layer - 1].loc1(), a);
-        surfaceToGlobal(tracking->surface(id), truth[layer].loc0(), truth[layer].loc1(), b);
+      if (loss > 0.F) {
         Scalar variance = 0.F;
         Scalar lossQOverP = truth[layer].qOverP();
-        if (!detail::applyEnergyLoss(propagator, rho * std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), PropagationDirection::kForward, lossQOverP, truth[layer], variance)) {
+        if (!detail::applyEnergyLoss(propagator, loss, PropagationDirection::kForward, lossQOverP, truth[layer], variance)) {
           return;
         }
       }
-      if (theta0Half > 0.F) {
-        test::scatteringKick(truth[layer], theta0Half, gauss, *rng); // in front of the sensor reached: the direction at its mid-plane
+      if (arrival > 0.F) {
+        test::scatteringKick(truth[layer], arrival, gauss, *rng); // in front of the sensor reached: the direction at its mid-plane
       }
     }
     for (std::size_t i = 0; i < measurements.size(); ++i) {
@@ -497,7 +510,7 @@ BOOST_AUTO_TEST_CASE(TheChiSquaredIsSpatialAlone)
 {
   const BarrelChain<4> chain;
   BOOST_REQUIRE(chain.built);
-  const UniformMaterial material;
+  const detail::LinkSteps material;
 
   const auto clean = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
   BOOST_REQUIRE(clean.status == PropagationStatus::kOk);
@@ -585,11 +598,11 @@ BOOST_AUTO_TEST_CASE(ChainSeedOfAStraightTrackHasNoCurvature)
 BOOST_AUTO_TEST_CASE(LowMomentumChainsFitWithUnitPulls)
 {
   constexpr Scalar kQOverP = 2.5F;
-  constexpr Scalar kX2X0PerCm = 1.5e-3F;
+  constexpr Scalar kBandX2X0 = 6e-3F; // per layer, about the 4 cm gaps' 1.5e-3 per cm
   constexpr std::size_t kLayers = 4;
   BarrelChain<kLayers> chain(kQOverP);
   BOOST_REQUIRE(chain.built);
-  const UniformMaterial material{.x2X0PerCm = kX2X0PerCm};
+  const detail::LinkSteps material;
 
   constexpr int kTrials = 1000;
   const Scalar sigmaLoc = 1.5811388e-3F; // sqrt(2.5e-6) cm
@@ -605,7 +618,7 @@ BOOST_AUTO_TEST_CASE(LowMomentumChainsFitWithUnitPulls)
     // A kink can send the track through the 0.5 mm gap between two modules;
     // draw again rather than fit a chain with a missing layer.
     for (int attempt = 0; attempt < 10; ++attempt) {
-      chain.generate(kQOverP, kX2X0PerCm, &rng);
+      chain.generate(kQOverP, kBandX2X0, &rng);
       if (chain.built) {
         break;
       }
@@ -655,12 +668,12 @@ BOOST_AUTO_TEST_CASE(LowMomentumChainsFitWithUnitPulls)
 BOOST_AUTO_TEST_CASE(LowMomentumChainsLosingEnergyFitWithUnitPulls)
 {
   constexpr Scalar kQOverP = 2.5F;
-  constexpr Scalar kX2X0PerCm = 1.5e-3F;
-  constexpr Scalar kRho = 0.3F; // about 2.5 % of the momentum over the chain
+  constexpr Scalar kBandX2X0 = 6e-3F;
+  constexpr Scalar kBandXRho = 1.2F; // [g/cm^2], about 2 % of the momentum over the chain
   constexpr std::size_t kLayers = 4;
   BarrelChain<kLayers> chain(kQOverP);
   BOOST_REQUIRE(chain.built);
-  const UniformMaterial material{.x2X0PerCm = kX2X0PerCm, .rho = kRho};
+  const detail::LinkSteps material;
 
   constexpr int kTrials = 1000;
   const Scalar sigmaLoc = 1.5811388e-3F;
@@ -672,7 +685,7 @@ BOOST_AUTO_TEST_CASE(LowMomentumChainsLosingEnergyFitWithUnitPulls)
   double lostShare = 0.;
   for (int trial = 0; trial < kTrials; ++trial) {
     for (int attempt = 0; attempt < 10; ++attempt) {
-      chain.generate(kQOverP, kX2X0PerCm, &rng, kRho);
+      chain.generate(kQOverP, kBandX2X0, &rng, kBandXRho);
       if (chain.built) {
         break;
       }

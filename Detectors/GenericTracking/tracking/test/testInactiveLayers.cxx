@@ -97,8 +97,12 @@ using Proposal = FollowProposal<kMaxClusters>;
 const TrackingGeometry<Det>& trackingGeometry()
 {
   static const auto detector = toyGeometry<Det>();
-  static const TrackingGeometry<Det> tracking{detector};
-  return tracking;
+  static const auto tracking = [] {
+    auto made = std::make_unique<TrackingGeometry<Det>>(detector);
+    made->material() = noMaterial<Det>();
+    return made;
+  }();
+  return *tracking;
 }
 
 const SensorCells<Det>& cells()
@@ -266,7 +270,7 @@ Proposal followTrack(const Fixture& fixture, const Tracks& tracks, const std::ve
   const auto widths = frameBounds(*fixture.frame).widthPS;
   std::vector<Proposal> proposals(tracks.size());
   const UniformMaterial material;
-  const FollowStage<Det, UniformMaterial, false, false, false, false, false> stage{&parameters, fixture.frame.get(), &trackingGeometry(), &material, Propagator{}, tracks.view(), used.data(), widths.data(), cells().view(), proposals.data(), true, 0U, nullptr};
+  const FollowStage<Det, false, false, false, false, false> stage{&parameters, fixture.frame.get(), &trackingGeometry(), Propagator{}, tracks.view(), used.data(), widths.data(), cells().view(), proposals.data(), true, 0U, nullptr};
   stage(0U);
   return proposals.front();
 }
@@ -450,7 +454,7 @@ BOOST_AUTO_TEST_CASE(TheTrackHoldsItsInteriorRowInPathOrderAndOwnsIt)
   const auto parameters = followParameters();
   Follow<Det> follow;
   follow.setMemoryPool(pool);
-  const auto status = follow.run(SerialForEach{}, parameters, *fixture.frame, trackingGeometry(), UniformMaterial{}, Propagator{}, tracks, 0U, true, false, used, frameBounds(*fixture.frame).widthPS, cells().view());
+  const auto status = follow.run(SerialForEach{}, parameters, *fixture.frame, trackingGeometry(), Propagator{}, tracks, 0U, true, false, used, frameBounds(*fixture.frame).widthPS, cells().view());
   BOOST_REQUIRE(status == StageStatus::kComplete);
   const auto view = tracks.view();
   BOOST_REQUIRE_EQUAL(static_cast<std::size_t>(view.count[0]), kLayers);
