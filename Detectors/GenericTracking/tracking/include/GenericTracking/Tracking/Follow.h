@@ -1249,7 +1249,7 @@ class FollowStage
     }
     if constexpr (Detector<Det>::inactiveLayers != 0U) {
       // The inactive layers' tail: outward, where the walk ended before them
-      // -- a hole, no row, or no link on -- one nominal step after another
+      // without a hole -- no row in a gap, or no link on -- one nominal step after another
       // from its last state onto the inactive layers it has no row on,
       // nearest crossing first (`inactiveLayerTail`), until a step takes none.
       // Where the unconfirmed drop removed the last row, from the state
@@ -1259,7 +1259,10 @@ class FollowStage
         branch.factors = beforeLastFactors;
         box = beforeLastBox;
       }
-      if (direction == PropagationDirection::kForward && end != FollowEnd::kCapacity) {
+      // A hole ends the tail too: past an active sensor the track crossed
+      // without a row the particle has most often ended, and an inactive
+      // layer's row there is another's.
+      if (direction == PropagationDirection::kForward && end != FollowEnd::kCapacity && end != FollowEnd::kHoles) {
         while (branch.count < capacity) {
           Child child;
           bool nearTail = false;
