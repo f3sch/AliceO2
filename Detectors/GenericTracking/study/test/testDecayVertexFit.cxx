@@ -143,15 +143,17 @@ template <DecayFitVariant Variant = DecayFitVariant::kFull>
 void reportPrecision(const char* name, std::span<const DecayDaughter> daughters, const DecayConstraints& constraints = {}, const DecayTopology& topology = {})
 {
   const UniformMaterial material;
+  std::array<Vec3D, decay_fit_detail::kMaxConstrainedVertices> starts{};
+  const std::span<const Vec3D> start{starts.data(), decayFitStart<TRKFT3>(daughters, constraints, topology, {}, starts) ? static_cast<std::size_t>(topology.vertices()) : 0U};
   DecayVertexFitter<TRKFT3, Variant, UniformMaterial> reference(daughters, material, constraints, topology, {});
   std::vector<std::byte> workspace(reference.workspace());
   DecayVertexFitResult fit;
-  reference.fit(workspace, fit);
+  reference.fit(start, workspace, fit);
   const auto plain = fitDecayVertex<TRKFT3, Variant>(daughters, material, constraints, topology);
   BOOST_TEST(static_cast<int>(fit.status) == static_cast<int>(plain.status));
   BOOST_TEST(fit.chi2 == plain.chi2);
   BOOST_TEST((fit.vertex == plain.vertex));
-  if (fit.status != DecayFitStatus::kOk) {
+  if (fit.status != VertexFitStatus::kOk) {
     BOOST_TEST_MESSAGE(name << ": the double fit itself ends with status " << static_cast<int>(fit.status));
     return;
   }
@@ -163,10 +165,10 @@ void reportPrecision(const char* name, std::span<const DecayDaughter> daughters,
     DecayVertexFitter<TRKFT3, Variant, UniformMaterial, Model, Solve> fitter(daughters, material, constraints, topology, {});
     std::vector<std::byte> fitterWorkspace(fitter.workspace());
     DecayVertexFitResult result;
-    fitter.fit(fitterWorkspace, result);
+    fitter.fit(start, fitterWorkspace, result);
     double at = std::numeric_limits<double>::quiet_NaN();
     double atViolation = std::numeric_limits<double>::quiet_NaN();
-    if (result.status == DecayFitStatus::kOk && !reference.frozenMerit(fitter.solution(), at, atViolation)) {
+    if (result.status == VertexFitStatus::kOk && !reference.frozenMerit(fitter.solution(), at, atViolation)) {
       at = std::numeric_limits<double>::quiet_NaN();
     }
     BOOST_TEST_MESSAGE(name << ", " << label << ": status " << static_cast<int>(result.status) << ", Delta / R " << (at - chi2) / static_cast<double>(fit.stopBound) << " (R " << fit.stopBound << "), |c| " << violation << " -> " << atViolation << ", vertex shift [um] "
@@ -244,7 +246,7 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
       for (int trial = 0; trial < kTrials; ++trial) {
         auto states = smeared(exactStates, random, gauss);
         const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{}, constraints);
-        if (fit.status != DecayFitStatus::kOk) {
+        if (fit.status != VertexFitStatus::kOk) {
           continue;
         }
         ++fitted;
@@ -302,7 +304,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
   const std::array<Vec3D, 2> truth{kVertex, second};
 
   const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, UniformMaterial{}, {}, topology);
-  BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
+  BOOST_REQUIRE(exact.status == VertexFitStatus::kOk);
   for (int w = 0; w < 2; ++w) {
     for (int c = 0; c < 3; ++c) {
       BOOST_TEST(std::abs(exact.vertices[w][c] - truth[w][c]) < 1e-4); // float states: well below a micron
@@ -320,7 +322,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
     for (int trial = 0; trial < kTrials; ++trial) {
       auto states = smeared(exactStates, random, gauss);
       const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{}, {}, topology);
-      if (fit.status != DecayFitStatus::kOk) {
+      if (fit.status != VertexFitStatus::kOk) {
         continue;
       }
       ++fitted;
@@ -407,7 +409,7 @@ BOOST_AUTO_TEST_CASE(ACascadeFitsAsOneTree)
         }
         const DecayMother mother{.planes = planes, .positions = positions, .covariance = covariance, .propagator = xiProp};
         const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{}, set, topology, std::span<const DecayMother>{&mother, 1});
-        if (fit.status != DecayFitStatus::kOk) {
+        if (fit.status != VertexFitStatus::kOk) {
           continue;
         }
         ++tfitted;
@@ -480,7 +482,7 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
   const std::array<Vec3D, 3> truth{kVertex, second, third};
 
   const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, UniformMaterial{}, {}, topology);
-  BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
+  BOOST_REQUIRE(exact.status == VertexFitStatus::kOk);
   for (int w = 0; w < 3; ++w) {
     for (int c = 0; c < 3; ++c) {
       BOOST_TEST(std::abs(exact.vertices[w][c] - truth[w][c]) < 1e-4); // float states
@@ -496,7 +498,7 @@ BOOST_AUTO_TEST_CASE(AChargedCompositeLinksOnItsHelix)
   for (int trial = 0; trial < kTrials; ++trial) {
     auto states = smeared(exactStates, random, gauss);
     const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{}, {}, topology);
-    if (fit.status != DecayFitStatus::kOk) {
+    if (fit.status != VertexFitStatus::kOk) {
       continue;
     }
     ++fitted;
@@ -592,7 +594,7 @@ BOOST_AUTO_TEST_CASE(ElectronMixturesSumOverTheirComponents)
       }
       const std::span<const DecayDaughter> span{states};
       const auto fit = withDecayFitVariant(variant, [&](auto one) { return fitDecayVertex<TRKFT3, decltype(one)::value>(span, UniformMaterial{}, massOfPair); });
-      if (fit.status != DecayFitStatus::kOk) {
+      if (fit.status != VertexFitStatus::kOk) {
         continue;
       }
       ++fitted;
@@ -664,13 +666,13 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
   // exact: one branch gives the neutrino back
   {
     const auto free = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{visible}, UniformMaterial{});
-    BOOST_REQUIRE(free.status == DecayFitStatus::kOk);
+    BOOST_REQUIRE(free.status == VertexFitStatus::kOk);
     const auto starts = missingMomentumStarts(free, visibleMasses, made, massMother, 0.);
     BOOST_REQUIRE(!starts.empty());
     double best = std::numeric_limits<double>::infinity();
     for (const auto& start : starts) {
       const auto fit = fitFrom(visible, start);
-      if (fit.status == DecayFitStatus::kOk) {
+      if (fit.status == VertexFitStatus::kOk) {
         const auto& q = fit.momenta[2];
         const double p = 1. / q[2];
         const Vec3D v{p * std::cos(q[0]) * std::sin(q[1]), p * std::sin(q[0]) * std::sin(q[1]), p * std::cos(q[1])};
@@ -692,14 +694,14 @@ BOOST_AUTO_TEST_CASE(AnUnseenNeutrinoIsFittedFromItsMotherMassAndPoint)
   for (int trial = 0; trial < kTrials; ++trial) {
     auto states = smeared(visible, random, gauss);
     const auto free = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{});
-    if (free.status != DecayFitStatus::kOk) {
+    if (free.status != VertexFitStatus::kOk) {
       continue;
     }
     DecayVertexFitResult nearest;
     double best = std::numeric_limits<double>::infinity();
     for (const auto& start : missingMomentumStarts(free, visibleMasses, made, massMother, 0.)) {
       const auto fit = fitFrom(states, start);
-      if (fit.status != DecayFitStatus::kOk) {
+      if (fit.status != VertexFitStatus::kOk) {
         continue;
       }
       const auto& q = fit.momenta[2];
@@ -781,7 +783,7 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
   {
     const DecayConstraints set{.resonances = {Resonance{.daughters = {0, 1}, .massGeV = kKStar, .widthGeV = kWidth}}};
     const auto exact = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, UniformMaterial{}, set);
-    BOOST_REQUIRE(exact.status == DecayFitStatus::kOk);
+    BOOST_REQUIRE(exact.status == VertexFitStatus::kOk);
     for (int i = 0; i < 3; ++i) {
       BOOST_TEST(std::abs(exact.vertex[i] - kVertex[i]) < 1e-4); // float states
     }
@@ -790,7 +792,7 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
     for (int trial = 0; trial < kTrials; ++trial) {
       auto states = smeared(exactStates, random, gauss);
       const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{}, set);
-      if (fit.status != DecayFitStatus::kOk) {
+      if (fit.status != VertexFitStatus::kOk) {
         continue;
       }
       ++fitted;
@@ -843,7 +845,7 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
   const std::vector<DecayDaughter> exactStates{he, pi};
   {
     const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{exactStates}, UniformMaterial{});
-    BOOST_REQUIRE(fit.status == DecayFitStatus::kOk);
+    BOOST_REQUIRE(fit.status == VertexFitStatus::kOk);
     double e = 0.;
     Vec3D sum{};
     for (int i = 0; i < 2; ++i) {
@@ -869,7 +871,7 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
   for (int trial = 0; trial < kTrials; ++trial) {
     auto states = smeared(exactStates, random, gauss);
     const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{states}, UniformMaterial{}, set);
-    if (fit.status != DecayFitStatus::kOk) {
+    if (fit.status != VertexFitStatus::kOk) {
       continue;
     }
     ++fitted;
@@ -903,7 +905,7 @@ BOOST_AUTO_TEST_CASE(ExactStatesGiveTheTruthBack)
   }
   {
     const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{daughters}, UniformMaterial{});
-    BOOST_REQUIRE(fit.status == DecayFitStatus::kOk);
+    BOOST_REQUIRE(fit.status == VertexFitStatus::kOk);
     for (int k = 0; k < 3; ++k) {
       BOOST_TEST(std::abs(fit.vertex[k] - kVertex[k]) < 2e-5); // the states are floats
     }
@@ -934,7 +936,7 @@ BOOST_AUTO_TEST_CASE(SmearedStatesGiveUnitPulls)
   for (int trial = 0; trial < kTrials; ++trial) {
     auto daughters = smeared(exact, random, gauss);
     const auto fit = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{daughters}, UniformMaterial{});
-    if (fit.status != DecayFitStatus::kOk) {
+    if (fit.status != VertexFitStatus::kOk) {
       continue;
     }
     ++fitted;
@@ -1063,19 +1065,19 @@ BOOST_AUTO_TEST_CASE(InputsOutsideTheCapacitiesAreRefused)
   // that is not there, one with more rows than a track holds.
   const std::vector<DecayDaughter> two(2);
   const DecayTopology loop{.vertexOf = {0, 1}, .parent = {-1, 1}};
-  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, loop).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, loop).status) == static_cast<int>(VertexFitStatus::kInvalidInput));
   DecayConstraints resonance;
   resonance.resonances.push_back({.daughters = {0, 2}, .massGeV = 1., .widthGeV = 0.1});
-  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, resonance).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, resonance).status) == static_cast<int>(VertexFitStatus::kInvalidInput));
   const DecayMother elsewhere{.vertex = 1};
-  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, {}, std::span<const DecayMother>{&elsewhere, 1}).status) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, {}, std::span<const DecayMother>{&elsewhere, 1}).status) == static_cast<int>(VertexFitStatus::kInvalidInput));
   const std::vector<TrackingSurface> planes(maxChainLayers<TRKFT3> + 1U);
   const std::vector<Vec2D> positions(planes.size());
   const std::vector<Vec3D> covariance(planes.size());
   const DecayMother longer{.planes = planes, .positions = positions, .covariance = covariance};
-  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, {}, std::span<const DecayMother>{&longer, 1}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, {}, std::span<const DecayMother>{&longer, 1}).status) == static_cast<int>(VertexFitStatus::kTooLarge));
   const std::vector<DecayDaughter> six(6);
-  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{six}, UniformMaterial{}).status) == static_cast<int>(DecayFitStatus::kTooLarge));
+  BOOST_TEST(static_cast<int>(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{six}, UniformMaterial{}).status) == static_cast<int>(VertexFitStatus::kTooLarge));
 }
 
 BOOST_AUTO_TEST_CASE(InputsBuiltBeyondTheirCapacityOrInconsistentAreRefused)
@@ -1089,16 +1091,16 @@ BOOST_AUTO_TEST_CASE(InputsBuiltBeyondTheirCapacityOrInconsistentAreRefused)
   BOOST_TEST(four.overflowed());
   BOOST_TEST(four[2] == 3.);
   const DecayTopology crowded{.vertexOf = {0, 0, 0, 0, 0, 0}};
-  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, crowded)) == static_cast<int>(DecayFitStatus::kTooLarge));
+  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, {}, crowded)) == static_cast<int>(VertexFitStatus::kTooLarge));
   // A mixture that claims more components than it holds.
   auto mixed = two;
   mixed[0].mixture.size = std::remove_cvref_t<decltype(mixed[0].mixture)>::kCapacity + 1;
-  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{mixed}, UniformMaterial{})) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{mixed}, UniformMaterial{})) == static_cast<int>(VertexFitStatus::kInvalidInput));
   // A composite's mass where the tree has no composite: no equation, no
   // degree of freedom either.
   DecayConstraints orphan;
   orphan.compositeMasses.push_back(1.);
-  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, orphan)) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  BOOST_TEST(statusOf(fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{two}, UniformMaterial{}, orphan)) == static_cast<int>(VertexFitStatus::kInvalidInput));
   // A tracked mother with fewer positions than planes, through a batch: the
   // batch keeps each array's length, so the fit's check sees the mismatch.
   const std::vector<TrackingSurface> planes(2);
@@ -1106,10 +1108,10 @@ BOOST_AUTO_TEST_CASE(InputsBuiltBeyondTheirCapacityOrInconsistentAreRefused)
   const std::vector<Vec3D> covariance(2);
   const DecayMother ragged{.planes = planes, .positions = positions, .covariance = covariance};
   DecayFitBatch batch;
-  batch.add(std::span<const DecayDaughter>{two}, {}, {}, std::span<const DecayMother>{&ragged, 1});
+  batch.add(std::span<const DecayDaughter>{two}, {}, {}, std::span<const DecayMother>{&ragged, 1}, {});
   std::vector<DecayVertexFitResult> results(1);
   fitDecayBatch<TRKFT3, DecayFitVariant::kFull>(batch.view(), UniformMaterial{}, std::span<DecayVertexFitResult>{results});
-  BOOST_TEST(statusOf(results[0]) == static_cast<int>(DecayFitStatus::kInvalidInput));
+  BOOST_TEST(statusOf(results[0]) == static_cast<int>(VertexFitStatus::kInvalidInput));
 }
 
 BOOST_AUTO_TEST_CASE(AnAzimuthAnyTurnsAwayIsReduced)
@@ -1254,7 +1256,7 @@ BOOST_AUTO_TEST_CASE(ReducedPrecisionOnHardCases)
     const auto visible = smeared({daughterOf(pions[0], prop, kDecay), daughterOf(pions[1], prop, kDecay)}, 13U);
     const Vec2D masses{kPion, kPion};
     const auto free = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{visible}, UniformMaterial{});
-    BOOST_REQUIRE(free.status == DecayFitStatus::kOk);
+    BOOST_REQUIRE(free.status == VertexFitStatus::kOk);
     // a mother heavier than the pair: room for the unseen one
     const auto starts = missingMomentumStarts(free, masses, kPoint, kMass + 0.1, 0.);
     BOOST_REQUIRE(!starts.empty());

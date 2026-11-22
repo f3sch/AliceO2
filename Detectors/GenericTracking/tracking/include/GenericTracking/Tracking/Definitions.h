@@ -203,18 +203,18 @@ enum class DecayFitVariant : std::uint8_t {
   kCount
 };
 
-/// Why a decay vertex fit stopped.
-enum class DecayFitStatus : std::uint8_t {
+/// Why a vertex fit (a decay's, a primary vertex's) stopped.
+enum class VertexFitStatus : std::uint8_t {
   kOk,
-  kNoStart,     ///< the first two daughters' helices give no start
-  kCarryFailed, ///< a daughter could not be carried to its plane
+  kNoStart,     ///< no start given (a decay's: the first two daughters' helices give none)
+  kCarryFailed, ///< a track could not be carried to its plane
   kNoCrossing,  ///< the prediction's helix does not reach a plane
   kSingular,    ///< the normal matrix or a measurement's covariance is not positive definite
   kNotConverged,
-  kStopped,      ///< a daughter's trajectory stops in the material (the loss has no solution)
-  kTooLarge,     ///< more vertices, daughters or rows of a tracked particle than the fit holds
-  kInvalidInput, ///< a topology, resonance or tracked particle that refers outside the decay
-  kNoMaterial,   ///< the link material holds no segment of a daughter's (LinkMaterial::segment)
+  kStopped,      ///< a track's trajectory stops in the material (the loss has no solution)
+  kTooLarge,     ///< more vertices, tracks or rows of a tracked particle than the fit holds
+  kInvalidInput, ///< a topology, resonance or tracked particle that refers outside the decay, or inputs a fit cannot take
+  kNoMaterial,   ///< the link material holds no segment of a track's (LinkMaterial::segment)
   kCount
 };
 

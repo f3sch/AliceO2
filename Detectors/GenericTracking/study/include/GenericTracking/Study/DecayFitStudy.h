@@ -92,7 +92,7 @@ struct DecayFitRecord {
   std::uint8_t variant = 0U;     ///< DecayFitVariant
   std::uint8_t constraints = 0U; ///< 1 the mass, 2 the production point, 16 a tree's composites' masses, 32 the tracked mother's own rows, 64 an unseen neutral's momentum fitted
   std::uint8_t daughters = 0U;
-  std::uint8_t status = 0U; ///< DecayFitStatus, or kRefitFailed
+  std::uint8_t status = 0U; ///< VertexFitStatus, or kRefitFailed
   std::uint8_t iterations = 0U;
   std::uint8_t outer = 0U;
   std::uint8_t stopReason = 0U;
@@ -307,7 +307,7 @@ struct DecayPrecisionRecord {
   std::uint8_t resonance = 0U;
   std::uint8_t daughters = 0U;
   std::uint8_t configuration = 0U; ///< 0 the double fit itself, 1 the model in float, 2 the solve in float, 3 both
-  std::uint8_t statusDouble = 0U;  ///< DecayFitStatus of the double fit
+  std::uint8_t statusDouble = 0U;  ///< VertexFitStatus of the double fit
   std::uint8_t status = 0U;        ///< and of this one
   std::uint8_t stopReasonDouble = 0U;
   std::uint8_t iterations = 0U;
@@ -369,7 +369,7 @@ struct DecayDeviceRecord {
   std::int8_t branch = -1;
   std::uint8_t resonance = 0U;
   std::uint8_t daughters = 0U;
-  std::uint8_t statusDirect = 0U; ///< DecayFitStatus
+  std::uint8_t statusDirect = 0U; ///< VertexFitStatus
   std::uint8_t statusHost = 0U;
   std::uint8_t statusDevice = kNone;
   std::uint8_t hostSame = 0U; ///< 1: the batch's host fit equals the direct one to the bit (statuses, vertices, momenta, chi2, covariance)
@@ -538,12 +538,14 @@ DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, 
     return kinematicsOf(std::span<const Vec3D>{fit.momenta.data(), fit.momenta.size()}, masses, std::span<const double>{fit.charges.data(), fit.charges.size()}, full, n, 3 * static_cast<int>(fit.vertices.size())).mass;
   };
   const auto sigmaT = [&](const DecayVertexFitResult& fit) { return sqrtClampedOf(quadraticForm(across, across, 3, [&](int a, int b) { return fit.covarianceAt(a, b); })); };
+  std::array<Vec3D, decay_fit_detail::kMaxConstrainedVertices> starts{};
+  const std::span<const Vec3D> start{starts.data(), decayFitStart<Det>(daughters, constraints, topology, mothers, starts) ? static_cast<std::size_t>(topology.vertices()) : 0U};
   using Reference = DecayVertexFitter<Det, Variant, Material, double, double>;
   Reference reference(daughters, material, constraints, topology, mothers);
   std::vector<std::byte> workspace(reference.workspace());
   auto started = std::chrono::steady_clock::now();
   DecayVertexFitResult fit;
-  reference.fit(workspace, fit);
+  reference.fit(start, workspace, fit);
   auto record = base;
   record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
   record.statusDouble = record.status = static_cast<std::uint8_t>(fit.status);
@@ -551,7 +553,7 @@ DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, 
   record.iterations = fit.iterations;
   record.stopMetricDouble = fit.stopMetric;
   record.stopBoundDouble = fit.stopBound;
-  const bool ok = fit.status == DecayFitStatus::kOk;
+  const bool ok = fit.status == VertexFitStatus::kOk;
   const std::vector<double> solution(reference.solution().begin(), reference.solution().end());
   double chi2 = 0.;
   double violation = 0.;
@@ -569,7 +571,7 @@ DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, 
     std::vector<std::byte> fitterWorkspace(fitter.workspace());
     const auto begin = std::chrono::steady_clock::now();
     DecayVertexFitResult result;
-    fitter.fit(fitterWorkspace, result);
+    fitter.fit(start, fitterWorkspace, result);
     auto one = record;
     one.configuration = configuration;
     one.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - begin).count());
@@ -577,7 +579,7 @@ DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, 
     one.iterations = result.iterations;
     one.delta = one.violation = std::numeric_limits<double>::quiet_NaN();
     one.dVertex = one.dMass = one.sTRel = one.chi2Rel = std::numeric_limits<float>::quiet_NaN();
-    if (merit && result.status == DecayFitStatus::kOk) {
+    if (merit && result.status == VertexFitStatus::kOk) {
       const auto at = fitter.solution();
       double atChi2 = 0.;
       double atViolation = 0.;
@@ -613,7 +615,7 @@ struct FitSummary {
 [[nodiscard]] inline FitSummary summarise(const DecayVertexFitResult& fit, std::span<const DecayDaughter> daughters)
 {
   FitSummary summary{.status = static_cast<std::uint8_t>(fit.status), .vertices = fit.vertices, .momenta = fit.momenta, .chi2 = fit.chi2};
-  if (fit.status != DecayFitStatus::kOk) {
+  if (fit.status != VertexFitStatus::kOk) {
     return summary;
   }
   const int n = (3 * static_cast<int>(fit.vertices.size())) + (3 * static_cast<int>(fit.momenta.size()));
@@ -868,8 +870,8 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         const auto& chain = *chainOf.at(leaf->id);
         const auto species = *truthSpecies(leaf->pdg);
         const RowChain<Det> rows{.frame = &frame, .rows = chain.rows.data()};
-        const auto refit = refitWithHypothesis(event.propagator, geometry, material, rows, static_cast<int>(chain.rows.size()), species.pid, 0.F, 0.F);
-        if (refit.failedPass != FitPass::kNone || (refit.status != PropagationStatus::kOk && refit.innermost.surface == kInvalidSensorID)) {
+        const auto refit = refitRowsWithHypothesis(event.propagator, geometry, material, rows, static_cast<int>(chain.rows.size()), species.pid);
+        if (refit.status != PropagationStatus::kOk) {
           one.refitFailed = true;
           one.refitPass = static_cast<std::uint8_t>(refit.failedPass);
           one.refitStatus = static_cast<std::uint8_t>(refit.status);
@@ -1141,7 +1143,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         const bool wantProduction = (job.constraints & 2U) != 0U;
         const bool wantComposites = (job.constraints & 16U) != 0U;
         if ((wantMass && !(motherMass > 0.)) || (wantProduction && !madeAtCollision)) {
-          record.status = static_cast<std::uint8_t>(DecayFitStatus::kNoStart); // nothing to constrain to
+          record.status = static_cast<std::uint8_t>(VertexFitStatus::kNoStart); // nothing to constrain to
           one.records.push_back(record);
           continue;
         }
@@ -1179,7 +1181,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         const bool wantMissing = (job.constraints & 64U) != 0U;
         if (wantMissing) {
           std::optional<Vec3D> start;
-          if (free.status == DecayFitStatus::kOk) {
+          if (free.status == VertexFitStatus::kOk) {
             const auto starts = missingMomentumStarts(free, masses, point, motherMass, unseenMass);
             if (static_cast<std::size_t>(job.branch) < starts.size()) {
               start = starts[static_cast<std::size_t>(job.branch)];
@@ -1187,7 +1189,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           }
           const double unseenP = start ? std::hypot((*start)[0], (*start)[1], (*start)[2]) : 0.;
           if (!(unseenP > 0.)) {
-            record.status = static_cast<std::uint8_t>(DecayFitStatus::kNoStart);
+            record.status = static_cast<std::uint8_t>(VertexFitStatus::kNoStart);
             one.records.push_back(record);
             continue;
           }
@@ -1216,7 +1218,9 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
         if (mMode == Mode::kDevice) {
           const auto v = static_cast<std::size_t>(job.variant);
-          one.batches[v].add(jobDaughters, constraints, jobTopology, tracked);
+          std::array<Vec3D, decay_fit_detail::kMaxConstrainedVertices> start{};
+          const bool startFound = decayFitStart<Det>(jobDaughters, constraints, jobTopology, tracked, start);
+          one.batches[v].add(jobDaughters, constraints, jobTopology, tracked, {start.data(), startFound ? static_cast<std::size_t>(jobTopology.vertices()) : 0U});
           one.device[v].push_back({.timeframe = record.timeframe, .particle = record.particle, .pdg = record.pdg, .variant = record.variant, .constraints = record.constraints, .branch = record.branch, .resonance = record.resonance, .daughters = static_cast<std::uint8_t>(jobDaughters.size()), .statusDirect = static_cast<std::uint8_t>(outcome.status)});
           one.direct[v].push_back(summarise(outcome, jobDaughters));
           continue;
@@ -1235,7 +1239,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.combinationsTried = fit.combinationsTried;
         record.stopMetric = fit.stopMetric;
         record.stopBound = fit.stopBound;
-        if (fit.status != DecayFitStatus::kOk) {
+        if (fit.status != VertexFitStatus::kOk) {
           one.records.push_back(record);
           continue;
         }

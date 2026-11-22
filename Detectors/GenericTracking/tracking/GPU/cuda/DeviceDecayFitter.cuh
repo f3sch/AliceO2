@@ -196,7 +196,7 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
     timing.fitSeconds = profile::secondsSince(start) - timing.downloadSeconds;
     for (const auto index : refusedDecays) {
       results[index].reset();
-      results[index].status = DecayFitStatus::kTooLarge;
+      results[index].status = VertexFitStatus::kTooLarge;
     }
     timing.refused = refusedDecays.size();
     timing.peakBytes = mArena.peak();

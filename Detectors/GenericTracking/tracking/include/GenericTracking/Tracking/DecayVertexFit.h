@@ -29,8 +29,9 @@
 /// Gauss-Newton on all parameters at once (one dense normal matrix, 3 + 3N
 /// wide): every iteration carries the daughters anew to the plane about the
 /// latest vertex, so the material and the transport follow the vertex. A
-/// step that raises the chi2 is halved. The start is the closest approach of
-/// the first two daughters' helices in the transverse plane.
+/// step that raises the chi2 is halved. The vertices' start is the caller's;
+/// `decayFitStart` gives the closest approach of the first two daughters'
+/// helices in the transverse plane.
 ///
 /// The fit is in double: the states come in as floats.
 
@@ -48,6 +49,7 @@
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/TrackFitterUtils.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
+#include "GenericTracking/Tracking/VertexFit.h"
 
 #include "DetectorsBase/MatCell.h"
 
@@ -106,7 +108,7 @@ struct DecayMother {
 
 /// A decay vertex fit's result.
 struct DecayVertexFitResult {
-  DecayFitStatus status = DecayFitStatus::kNoStart;
+  VertexFitStatus status = VertexFitStatus::kNoStart;
   std::uint8_t iterations = 0U;
   std::uint8_t outer = 0U;              ///< the model's evaluations (carries, material along the trajectory)
   std::uint8_t stopReason = 0U;         ///< 1 the model anew moved nothing, 2 its moves stopped shrinking within `kModelTolerance`, 0 not converged
@@ -143,7 +145,7 @@ struct DecayVertexFitResult {
   /// Back to a fresh result, in place (no temporary of this size).
   GPUhdi() void reset()
   {
-    status = DecayFitStatus::kNoStart;
+    status = VertexFitStatus::kNoStart;
     iterations = outer = stopReason = 0U;
     stopMetric = stopBound = modelShift = 0.F;
     pointSigma = 0.;
@@ -178,181 +180,6 @@ struct SolveSpace {
   S* multipliers = nullptr;  ///< m
   LagrangeSpace<S> lagrange; ///< the Lagrange system's
 };
-
-/// The Gauss-Newton minimum under a fixed model -- the carried measurements,
-/// the material along a trajectory --: smooth; the model evaluated in M, the
-/// solves in S, the parameters, chi2, merit and the stopping test in double.
-///
-/// Converged when the Gauss-Newton step's predicted gain, step^T N step +
-/// mu |c|_1 - lambda.c (the merit's halved first-order decrease), is no larger
-/// than what the inputs resolve: they are floats, each measured value m known
-/// to epsilon_float |m|, which moves the solution by R = sum (epsilon_float
-/// |m|)^2 w in the same metric (\a evaluate's `rounding`); plus the model
-/// arithmetic's rounding of the chi2, epsilon_M (chi2 + ndf). The merit is the
-/// chi2 plus 2 mu |c|_1, mu the largest |lambda| of the Gauss-Newton steps seen
-/// (the exact penalty: the constrained step is a descent direction of it for
-/// mu >= |lambda|_inf).
-///
-/// The step taken is Levenberg-Marquardt's: (N + tau D) d = g, D = diag N,
-/// under hard constraints the Lagrange system with N + tau D. Where N is
-/// nearly singular (two nearly parallel daughters: their vertex along their
-/// line) the Gauss-Newton step overshoots, as the curvature there is the
-/// residuals' second-order terms it leaves out; the damping tau stands in for
-/// them. tau starts at 0 (Gauss-Newton) and follows Nielsen's update from the
-/// full step's gain ratio rho = (merit - merit(full)) / predicted: accepted,
-/// tau x max(1/3, 1 - (2 rho - 1)^3) and nu = 2; rejected, tau x nu (at least
-/// the curvature the model missed along the step, (merit(full) - model(full))
-/// / d^T D d, which also gives tau's first value), nu doubled. A damped step
-/// that is no descent of the merit by its predicted gain (the constraints'
-/// restoring part costs more chi2 than the penalty gains) is replaced by the
-/// Gauss-Newton step, tau back to 0. Each step is then halved until it lowers
-/// the merit; a step that no halving makes lower it above the resolution is a
-/// failure, not a minimum.
-///
-/// \a evaluate(p, chi2, rounding, normal*, gradient*); \a constraintsAt(p)
-/// fills \a values and \a rows (m x n). \a steps: the steps taken; \a
-/// first: the first step's predicted gain, what the model moved the
-/// solution by. Its buffers are \a space's.
-template <typename M, typename S, typename Evaluate, typename ConstraintsAt>
-[[nodiscard]] GPUd() DecayFitStatus minimiseFrozen(int n, int ndf, bool constrained, const Evaluate& evaluate, const ConstraintsAt& constraintsAt, std::span<const S> values, const S* rows, const SolveSpace<S>& space, std::span<double> parameters, double& chi2, double& mu, double& metric, double& bound, int& iterations, int& steps, double& first)
-{
-  using namespace decay_fit_detail;
-  S* normal = space.normal;
-  S* gradient = space.gradient;
-  Cholesky<S> llt{.l = space.factor};
-  S* step = space.step;
-  S* multipliers = space.multipliers;
-  const std::span<double> trial{space.trial, static_cast<std::size_t>(n)};
-  const auto violationOf = [&]() {
-    double sum = 0.;
-    for (const S c : values) {
-      sum += o2::gpu::CAMath::Abs(static_cast<double>(c));
-    }
-    return sum;
-  };
-  double damping = 0.;
-  double growth = 2.;
-  steps = 0;
-  for (int iteration = 0; iteration < kMaxSteps; ++iteration) {
-    ++iterations;
-    double rounding = 0.;
-    if (!evaluate(parameters, chi2, rounding, normal, gradient)) {
-      return DecayFitStatus::kNoCrossing;
-    }
-    decay_fit_detail::copyN(gradient, n, step);
-    double violation = 0.;
-    double lambdaC = 0.;
-    if (constrained) {
-      if (!constraintsAt(parameters)) {
-        return DecayFitStatus::kNoCrossing;
-      }
-      if (!constrainedStep(space.lagrange, normal, n, gradient, rows, values, step, nullptr, multipliers)) {
-        return DecayFitStatus::kSingular;
-      }
-      for (std::size_t j = 0; j < values.size(); ++j) {
-        mu = o2::gpu::CAMath::Max(mu, o2::gpu::CAMath::Abs(static_cast<double>(multipliers[j])));
-        lambdaC += static_cast<double>(multipliers[j]) * static_cast<double>(values[j]);
-      }
-      violation = violationOf();
-    } else {
-      if (!llt.factor(normal, n)) {
-        return DecayFitStatus::kSingular;
-      }
-      llt.solve(step);
-    }
-    metric = (mu * violation) - lambdaC;
-    for (int a = 0; a < n; ++a) {
-      for (int b = 0; b < n; ++b) {
-        metric += static_cast<double>(step[a]) * static_cast<double>(normal[covIndex(a, b)]) * static_cast<double>(step[b]);
-      }
-    }
-    if (iteration == 0) {
-      first = metric;
-    }
-    const double resolvable = (static_cast<double>(std::numeric_limits<M>::epsilon()) * (chi2 + o2::gpu::CAMath::Max(ndf, 0))) + rounding;
-    bound = resolvable;
-    if (metric <= resolvable) {
-      return DecayFitStatus::kOk;
-    }
-    const double merit = chi2 + (2. * mu * violation);
-    // The step d, damped while tau > 0; its quadratic forms and predicted gain.
-    S* d = step;
-    if (damping > 0.) {
-      d = space.dampedStep;
-      for (int a = 0; a < n; ++a) {
-        for (int b = 0; b <= a; ++b) {
-          space.damped[covIndex(a, b)] = normal[covIndex(a, b)] + (a == b ? static_cast<S>(damping) * normal[covIndex(a, a)] : S(0.));
-        }
-      }
-      if (constrained) {
-        if (!constrainedStep(space.lagrange, space.damped, n, gradient, rows, values, d, nullptr)) {
-          return DecayFitStatus::kSingular;
-        }
-      } else {
-        if (!llt.factor(space.damped, n)) {
-          return DecayFitStatus::kSingular;
-        }
-        decay_fit_detail::copyN(gradient, n, d);
-        llt.solve(d);
-      }
-    }
-    double gd = 0.;
-    double dNd = 0.;
-    double dDd = 0.;
-    const auto formsOf = [&](const S* v) {
-      gd = dNd = dDd = 0.;
-      for (int a = 0; a < n; ++a) {
-        gd += static_cast<double>(gradient[a]) * static_cast<double>(v[a]);
-        dDd += static_cast<double>(normal[covIndex(a, a)]) * static_cast<double>(v[a]) * static_cast<double>(v[a]);
-        for (int b = 0; b < n; ++b) {
-          dNd += static_cast<double>(v[a]) * static_cast<double>(normal[covIndex(a, b)]) * static_cast<double>(v[b]);
-        }
-      }
-      return (2. * gd) - dNd + (constrained ? 2. * mu * violation : 0.);
-    };
-    double predicted = formsOf(d);
-    if (damping > 0. && !(predicted > 0.)) {
-      d = step;
-      damping = 0.;
-      predicted = formsOf(d);
-    }
-    bool reached = false;
-    bool taken = false;
-    double scale = 1.;
-    for (int halving = 0; halving < kMaxSteps && !taken; ++halving, scale *= 0.5) {
-      for (int j = 0; j < n; ++j) {
-        trial[j] = parameters[j] + (scale * static_cast<double>(d[j]));
-      }
-      double trialChi2 = 0.;
-      double trialRounding = 0.;
-      const bool evaluated = evaluate(trial, trialChi2, trialRounding, nullptr, nullptr) && (!constrained || constraintsAt(trial));
-      const double trialMerit = evaluated ? trialChi2 + (constrained ? 2. * mu * violationOf() : 0.) : 0.;
-      if (halving == 0) {
-        // Nielsen's update from the full step.
-        if (evaluated && trialMerit < merit) {
-          const double t = (2. * (merit - trialMerit) / predicted) - 1.;
-          damping *= o2::gpu::CAMath::Max(1. / 3., 1. - (t * t * t));
-          growth = 2.;
-        } else {
-          const double missed = !(dDd > 0.) ? 0. : (evaluated ? (trialMerit - (merit - predicted)) / dDd : dNd / dDd);
-          damping = o2::gpu::CAMath::Max(damping * growth, missed);
-          growth *= 2.;
-        }
-      }
-      if (!evaluated) {
-        continue;
-      }
-      reached = true;
-      taken = trialMerit < merit;
-    }
-    if (!taken) {
-      return reached ? DecayFitStatus::kNotConverged : DecayFitStatus::kNoCrossing;
-    }
-    decay_fit_detail::copyN(trial.data(), parameters.size(), parameters.data());
-    ++steps;
-  }
-  return DecayFitStatus::kNotConverged;
-}
 
 /// The global position of \a state on \a surface [cm].
 [[nodiscard]] GPUhdi() Vec3D positionOf(const BoundTrackState& state, const TrackingSurface& surface)
@@ -615,12 +442,12 @@ namespace decay_fit_detail
 /// than a track of Det holds) and refer only inside the decay
 /// (`kInvalidInput`); checked before anything walks them.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() DecayFitStatus validateInputs(std::span<const DecayDaughter> daughters, const DecayConstraints& constraints, const DecayTopology& topology, std::span<const DecayMother> mothers)
+[[nodiscard]] GPUhdi() VertexFitStatus validateInputs(std::span<const DecayDaughter> daughters, const DecayConstraints& constraints, const DecayTopology& topology, std::span<const DecayMother> mothers)
 {
   const int count = static_cast<int>(daughters.size());
   const int k = topology.vertices();
   if (count > kMaxConstrainedDaughters || k > kMaxConstrainedVertices) {
-    return DecayFitStatus::kTooLarge;
+    return VertexFitStatus::kTooLarge;
   }
   // an input built beyond its fixed capacity kept only what fits
   bool overflowed = topology.vertexOf.overflowed() || topology.parent.overflowed() || topology.massGeV.overflowed() || constraints.compositeMasses.overflowed() || constraints.resonances.overflowed();
@@ -628,59 +455,70 @@ template <DetectorLayout Det>
     overflowed = overflowed || resonance.daughters.overflowed();
   }
   if (overflowed) {
-    return DecayFitStatus::kTooLarge;
+    return VertexFitStatus::kTooLarge;
   }
   for (const auto& daughter : daughters) {
     if (daughter.mixture.size < 0 || daughter.mixture.size > std::remove_cvref_t<decltype(daughter.mixture)>::kCapacity) {
-      return DecayFitStatus::kInvalidInput;
+      return VertexFitStatus::kInvalidInput;
     }
   }
   const int vertexOfCount = static_cast<int>(topology.vertexOf.size());
   if (vertexOfCount != 0 && vertexOfCount != count) {
-    return DecayFitStatus::kInvalidInput;
+    return VertexFitStatus::kInvalidInput;
   }
   for (const int v : topology.vertexOf) {
     if (v < 0 || v >= k) {
-      return DecayFitStatus::kInvalidInput;
+      return VertexFitStatus::kInvalidInput;
     }
   }
   const int parentCount = static_cast<int>(topology.parent.size());
   for (int v = 0; v < parentCount; ++v) {
     if (v == 0 ? topology.parent[v] != -1 : (topology.parent[v] < 0 || topology.parent[v] >= v)) {
-      return DecayFitStatus::kInvalidInput;
+      return VertexFitStatus::kInvalidInput;
     }
   }
   // composite masses are per vertex below the root: k - 1 of them at most
   const int vertexMasses = static_cast<int>(topology.massGeV.size());
   const int compositeMasses = static_cast<int>(constraints.compositeMasses.size());
   if (vertexMasses > k || compositeMasses > k - 1) {
-    return DecayFitStatus::kInvalidInput;
+    return VertexFitStatus::kInvalidInput;
   }
   for (const auto& resonance : constraints.resonances) {
     for (const int i : resonance.daughters) {
       if (i < 0 || i >= count) {
-        return DecayFitStatus::kInvalidInput;
+        return VertexFitStatus::kInvalidInput;
       }
     }
   }
   for (std::size_t a = 0; a < mothers.size(); ++a) {
     const auto& mother = mothers[a];
     if (mother.vertex < 0 || mother.vertex >= k || mother.positions.size() != mother.planes.size() || mother.covariance.size() != mother.planes.size()) {
-      return DecayFitStatus::kInvalidInput;
+      return VertexFitStatus::kInvalidInput;
     }
     for (std::size_t b = 0; b < a; ++b) {
       if (mothers[b].vertex == mother.vertex) {
-        return DecayFitStatus::kInvalidInput;
+        return VertexFitStatus::kInvalidInput;
       }
     }
     if (mother.planes.size() > maxChainLayers<Det>) {
-      return DecayFitStatus::kTooLarge;
+      return VertexFitStatus::kTooLarge;
     }
   }
-  return DecayFitStatus::kOk;
+  return VertexFitStatus::kOk;
 }
 
 } // namespace decay_fit_detail
+
+/// The start of a decay's fit (`DecayVertexFitter::fit`): each vertex's
+/// (`treeStart`) into \a starts, one per vertex of \a topology; false for
+/// inputs the fit refuses (`validateInputs`), fewer than two daughters, or a
+/// vertex without a start -- the fit then says which (kNoStart for the
+/// last two, given no start).
+template <DetectorLayout Det>
+[[nodiscard]] GPUhdi() bool decayFitStart(std::span<const DecayDaughter> daughters, const DecayConstraints& constraints, const DecayTopology& topology, std::span<const DecayMother> mothers, std::span<Vec3D> starts)
+{
+  return decay_fit_detail::validateInputs<Det>(daughters, constraints, topology, mothers) == VertexFitStatus::kOk && daughters.size() >= 2U && decay_fit_detail::treeStart(daughters, topology, starts);
+}
 
 /// The vertex of \a daughters (at least two) under \a Variant, with
 /// \a material's material between each daughter's innermost measurement and
@@ -740,11 +578,7 @@ class DecayVertexFitter
     M* loss = nullptr;                 ///< the model: q/p's factor after each row (in the workspace)
     TrackingSurface endPlane;          ///< the model: the plane about its end point
   };
-  struct Measurement {
-    TrackingSurface plane;
-    std::array<double, 5> value{};
-    std::array<S, kBoundCovSize> weight{}; ///< the inverse covariance, packed
-  };
+  using Measurement = vertex_fit_detail::TrackMeasurement<S>;
   // An electron's carried mixture, its components kept apart for the
   // Gaussian sum (`kGaussianSum`): ln of its normalised weight, its
   // measurement, ln det of its covariance.
@@ -829,9 +663,12 @@ class DecayVertexFitter
     return workspaceSize(counts());
   }
 
-  /// The fit into \a result, in \a workspace (at least `workspace()` bytes,
-  /// aligned to kAlignment; else refused as `kTooLarge`).
-  GPUd() void fit(std::span<std::byte> workspace, DecayVertexFitResult& result)
+  /// The fit into \a result from \a start, one vertex per vertex of the
+  /// tree (`decayFitStart`, or the caller's own; fewer: kNoStart), in
+  /// \a workspace (at least `workspace()` bytes, aligned to kAlignment; else
+  /// refused as `kTooLarge`). The momenta start from each daughter's carry to
+  /// the plane about its vertex's start.
+  GPUd() void fit(std::span<const Vec3D> start, std::span<std::byte> workspace, DecayVertexFitResult& result)
   {
     using namespace decay_fit_detail;
     mResult = &result;
@@ -842,16 +679,15 @@ class DecayVertexFitter
     }
     result.charges = mCharges;
     if (workspace.size() < workspaceSize(counts()) || reinterpret_cast<std::uintptr_t>(workspace.data()) % kAlignment != 0U) { // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): the address's alignment
-      result.status = DecayFitStatus::kTooLarge;
+      result.status = VertexFitStatus::kTooLarge;
       return;
     }
     bind(workspace.data());
     if (mCount < 2) {
       return;
     }
-    std::array<Vec3D, kMaxVertices> start{};
-    if (!treeStart(mDaughters, mTopology, start)) {
-      return;
+    if (static_cast<int>(start.size()) < mVertexCount) {
+      return; // no start (kNoStart)
     }
     mResult->carried.resize(static_cast<std::size_t>(mCount));
     mResult->carriedCovariance.resize(static_cast<std::size_t>(mCount));
@@ -871,7 +707,7 @@ class DecayVertexFitter
     for (int w = 0; w < mVertexCount; ++w) {
       decay_fit_detail::copyN(start[w].data(), 3, mSpace.parameters + (3 * w));
     }
-    if (const auto status = carry(parameters()); status != DecayFitStatus::kOk) {
+    if (const auto status = carry(parameters()); status != VertexFitStatus::kOk) {
       mResult->status = status;
       return;
     }
@@ -882,7 +718,7 @@ class DecayVertexFitter
     }
     // The chain's model, along the start (it needs the momenta).
     if (mChainCount > 0) {
-      if (const auto status = refreshChains(parameters()); status != DecayFitStatus::kOk) {
+      if (const auto status = refreshChains(parameters()); status != VertexFitStatus::kOk) {
         mResult->status = status;
         return;
       }
@@ -950,7 +786,6 @@ class DecayVertexFitter
   }
 
  private:
-  static constexpr int kDerivatives = 6;                                     // vx, vy, vz, phi, theta, q/p
   static constexpr double kEpsilon = std::numeric_limits<Scalar>::epsilon(); // the measurements' precision
 
   /// The inputs checked, the counts and the chains set up; false (and
@@ -959,11 +794,11 @@ class DecayVertexFitter
   {
     using namespace decay_fit_detail;
     if (mPrepared) {
-      return mStatus == DecayFitStatus::kOk;
+      return mStatus == VertexFitStatus::kOk;
     }
     mPrepared = true;
     mStatus = validateInputs<Det>(mDaughters, mConstraints, mTopology, mMothers);
-    if (mStatus != DecayFitStatus::kOk) {
+    if (mStatus != VertexFitStatus::kOk) {
       return false;
     }
     mCount = static_cast<int>(mDaughters.size());
@@ -1254,7 +1089,7 @@ class DecayVertexFitter
   }
 
   // The chains' model along \a p's trajectories.
-  [[nodiscard]] GPUd() DecayFitStatus refreshChains(std::span<const double> p)
+  [[nodiscard]] GPUd() VertexFitStatus refreshChains(std::span<const double> p)
   {
     using namespace decay_fit_detail;
     S* covariance = mSpace.chainCovariance;
@@ -1309,7 +1144,7 @@ class DecayVertexFitter
         FreeState<6, M> to{};
         std::array<Dual<6, M>, 2> loc{};
         if (!crossToPlane(from, plane, mPhysicalField, to, loc)) {
-          return DecayFitStatus::kNoCrossing;
+          return VertexFitStatus::kNoCrossing;
         }
         for (int r = 0; r < 6; ++r) {
           for (int c = 0; c < 6; ++c) {
@@ -1328,12 +1163,12 @@ class DecayVertexFitter
           if (scatters) {
             segment[j] = o2::gtrk::detail::stepMaterialOf(mMaterial.segment(previousLayer, a, plane.layer, b));
             if (!segment[j].found) {
-              return DecayFitStatus::kNoMaterial;
+              return VertexFitStatus::kNoMaterial;
             }
             totalX2X0 += static_cast<double>(segment[j].nearerX2X0 + segment[j].fartherX2X0);
             const auto loss = energyLoss(static_cast<Scalar>(to[5].v), static_cast<Scalar>(chain.mass), segment[j].xRho);
             if (!loss.ok) {
-              return DecayFitStatus::kStopped;
+              return VertexFitStatus::kStopped;
             }
             scale = loss.momentumScale;
             straggling[j] = loss.varQOverP;
@@ -1350,7 +1185,7 @@ class DecayVertexFitter
           const Scalar from[3] = {static_cast<Scalar>(end[0]), static_cast<Scalar>(end[1]), static_cast<Scalar>(end[2])};
           const auto lastSegment = mMaterial.segment(kInvalidLayerID, from, previousLayer, a);
           if (!lastSegment.found) {
-            return DecayFitStatus::kNoMaterial;
+            return VertexFitStatus::kNoMaterial;
           }
           last = momentOf(lastSegment);
           lastLength = hypotOf(state[0] - end[0], state[1] - end[1], state[2] - end[2]);
@@ -1445,11 +1280,11 @@ class DecayVertexFitter
     // the covariance factored in place (not needed after)
     dense::semidefiniteFactor(dense::PackedView<S>{covariance}, mChainCount, mSpace.factorOrder, dense::MatrixView<S>{mSpace.chainFactor, mChainCount});
     mScattered.factor = mSpace.chainFactor;
-    return DecayFitStatus::kOk;
+    return VertexFitStatus::kOk;
   }
 
   // Each daughter carried to the perigee plane about its vertex in \a at.
-  [[nodiscard]] GPUd() DecayFitStatus carry(std::span<const double> at)
+  [[nodiscard]] GPUd() VertexFitStatus carry(std::span<const double> at)
   {
     using namespace decay_fit_detail;
     for (int i = 0; i < mCount; ++i) {
@@ -1462,14 +1297,13 @@ class DecayVertexFitter
       const auto plane = detail::hypothesis::perigeePlaneOf(daughter.propagator, daughter.innermost, daughter.surface, static_cast<Scalar>(at[first]), static_cast<Scalar>(at[first + 1]));
       BoundTrackState state = daughter.innermost;
       mResult->carryX2X0[i] = detail::hypothesis::segmentRadiation(daughter.propagator, mMaterial, daughter.innermost, daughter.surface, plane);
-      std::array<S, kBoundCovSize> factorStorage{};
       if (daughter.mixture.size > 0) {
         // The electron: its mixture branched by the segment's radiation, every
         // component carried, the collapse on the plane.
         auto mixture = daughter.mixture;
         const auto status = detail::hypothesis::carryMixtureInward(daughter.propagator, mMaterial, daughter.surface, plane, static_cast<Scalar>(mResult->carryX2X0[i]), mixture);
         if (status != PropagationStatus::kOk || mixture.size == 0) {
-          return DecayFitStatus::kCarryFailed;
+          return VertexFitStatus::kCarryFailed;
         }
         detail::gsf::collapseMixture(mixture, state);
         // its components kept apart for the Gaussian sum
@@ -1477,34 +1311,19 @@ class DecayVertexFitter
           auto& kept = mComponents[i];
           kept.clear();
           for (int j = 0; j < mixture.size; ++j) {
-            const auto& one = mixture.components[j].state;
-            Cholesky<S> llt{.l = factorStorage.data()};
-            if (!llt.factor(covarianceOf<S>(one).data(), 5)) {
+            Component component{.logWeight = static_cast<double>(mixture.components[j].logWeight)}; // normalised by the collapse
+            if (!vertex_fit_detail::measurementOf(mixture.components[j].state, plane, component.measurement, &component.logDetCovariance)) {
               continue; // a component without a covariance is no measurement
             }
-            Component component{.logWeight = static_cast<double>(mixture.components[j].logWeight)}; // normalised by the collapse
-            component.measurement.plane = plane;
-            for (int r = 0; r < 5; ++r) {
-              component.measurement.value[r] = one.par[r];
-            }
-            component.logDetCovariance = static_cast<double>(llt.logDeterminant());
-            llt.inverse(component.measurement.weight.data());
             kept.push_back(component);
           }
         }
       } else if (detail::hypothesis::carryStateInward(daughter.propagator, mMaterial, daughter.surface, plane, state) != PropagationStatus::kOk) {
-        return DecayFitStatus::kCarryFailed;
+        return VertexFitStatus::kCarryFailed;
       }
-      Cholesky<S> llt{.l = factorStorage.data()};
-      if (!llt.factor(covarianceOf<S>(state).data(), 5)) {
-        return DecayFitStatus::kSingular;
+      if (!vertex_fit_detail::measurementOf(state, plane, mSpace.measurements[i])) {
+        return VertexFitStatus::kSingular;
       }
-      auto& m = mSpace.measurements[i];
-      m.plane = plane;
-      for (int r = 0; r < 5; ++r) {
-        m.value[r] = state.par[r];
-      }
-      llt.inverse(m.weight.data());
       mResult->carried[i] = {state.phi(), state.theta(), state.qOverP()};
       for (int r = 0; r < 3; ++r) {
         for (int c = 0; c <= r; ++c) {
@@ -1512,7 +1331,7 @@ class DecayVertexFitter
         }
       }
     }
-    return DecayFitStatus::kOk;
+    return VertexFitStatus::kOk;
   }
 
   // The chi2 at \a p and, with \a normal (n x n) and \a gradient (n), the
@@ -1533,56 +1352,26 @@ class DecayVertexFitter
         continue; // no measurement
       }
       const double fieldScale = daughter.neutral ? 0. : static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
-      using D = Dual<kDerivatives, M>;
       const int q = (3 * mVertexCount) + (3 * i);
       const int w = 3 * mTopology.vertexOfDaughter(i);
-      const std::array<int, kDerivatives> index{w, w + 1, w + 2, q, q + 1, q + 2};
-      FreeState<kDerivatives, M> from{};
-      for (int c = 0; c < kDerivatives; ++c) {
-        from[c] = dual::variable<kDerivatives, M>(p[index[c]], c);
+      const std::array<int, vertex_fit_detail::kTrackParameters> index{w, w + 1, w + 2, q, q + 1, q + 2};
+      std::array<double, vertex_fit_detail::kTrackParameters> at{};
+      for (int c = 0; c < vertex_fit_detail::kTrackParameters; ++c) {
+        at[c] = p[index[c]];
       }
-      FreeState<kDerivatives, M> to{};
-      std::array<D, 2> local{};
-      if (!crossToPlane(from, mSpace.measurements[i].plane, fieldScale, to, local)) {
+      vertex_fit_detail::TrackTerm<S> term;
+      if (!vertex_fit_detail::trackTerm<M>(mSpace.measurements[i], fieldScale, at, chi2, rounding, normal != nullptr ? &term : nullptr)) {
         return false;
-      }
-      const std::array<D, 5> predicted{local[0], local[1], to[3], to[4], to[5]};
-      std::array<M, 5> residual{};
-      for (int r = 0; r < 5; ++r) {
-        residual[r] = static_cast<M>(mSpace.measurements[i].value[r]) - predicted[r].v;
-      }
-      residual[2] = toPMPiOf(residual[2]);
-      const auto& weight = mSpace.measurements[i].weight;
-      for (int r = 0; r < 5; ++r) {
-        rounding += ((kEpsilon * mSpace.measurements[i].value[r]) * (kEpsilon * mSpace.measurements[i].value[r])) * static_cast<double>(weight[covIndex(r, r)]);
-      }
-      // W r in double: the chi2 is a sum in double
-      std::array<double, 5> weighted{};
-      for (int r = 0; r < 5; ++r) {
-        for (int c = 0; c < 5; ++c) {
-          weighted[r] += static_cast<double>(weight[covIndex(r, c)]) * static_cast<double>(residual[c]);
-        }
-        chi2 += static_cast<double>(residual[r]) * weighted[r];
       }
       if (normal == nullptr) {
         continue;
       }
-      // H^T W H (its lower triangle: the indices rise with a) and H^T W r
-      // over this daughter's six parameters.
-      for (int a = 0; a < kDerivatives; ++a) {
-        S g = 0.;
-        for (int r = 0; r < 5; ++r) {
-          g += static_cast<S>(predicted[r].d[a]) * static_cast<S>(weighted[r]);
-        }
-        gradient[index[a]] += g;
+      // Its term over its six parameters into N and g (the lower triangle:
+      // the indices rise with a).
+      for (int a = 0; a < vertex_fit_detail::kTrackParameters; ++a) {
+        gradient[index[a]] += term.gradient[a];
         for (int b = 0; b <= a; ++b) {
-          S h = 0.;
-          for (int r = 0; r < 5; ++r) {
-            for (int c = 0; c < 5; ++c) {
-              h += static_cast<S>(predicted[r].d[a]) * weight[covIndex(r, c)] * static_cast<S>(predicted[c].d[b]);
-            }
-          }
-          normal[covIndex(index[a], index[b])] += h;
+          normal[covIndex(index[a], index[b])] += term.normal[covIndex(a, b)];
         }
       }
     }
@@ -1660,63 +1449,137 @@ class DecayVertexFitter
     return true;
   }
 
+  // The normal equations' linear algebra for `minimiseFrozen`: one dense
+  // matrix over all parameters, the constraints by their Lagrange system.
+  struct DenseSystem {
+    DecayVertexFitter* fitter = nullptr;
+    [[nodiscard]] GPUd() bool constrained() const { return fitter->mConstrained; }
+    [[nodiscard]] GPUd() bool evaluate(std::span<const double> p, double& chi2, double& rounding, bool normal) const
+    {
+      const auto& space = fitter->mSpace.solve;
+      return fitter->evaluate(p, chi2, rounding, normal ? space.normal : nullptr, normal ? space.gradient : nullptr);
+    }
+    [[nodiscard]] GPUd() double violation() const
+    {
+      double sum = 0.;
+      for (const S c : fitter->values()) {
+        sum += o2::gpu::CAMath::Abs(static_cast<double>(c));
+      }
+      return sum;
+    }
+    [[nodiscard]] GPUd() VertexFitStatus newton(std::span<const double> p, S* step, double& mu, double& violationSum, double& lambdaC) const
+    {
+      using namespace decay_fit_detail;
+      const auto& space = fitter->mSpace.solve;
+      const int n = fitter->mParameterCount;
+      copyN(space.gradient, n, step);
+      if (constrained()) {
+        if (!fitter->constraintsAt(p)) {
+          return VertexFitStatus::kNoCrossing;
+        }
+        const auto values = fitter->values();
+        if (!constrainedStep(space.lagrange, space.normal, n, space.gradient, fitter->mSpace.rows, values, step, nullptr, space.multipliers)) {
+          return VertexFitStatus::kSingular;
+        }
+        for (std::size_t j = 0; j < values.size(); ++j) {
+          mu = o2::gpu::CAMath::Max(mu, o2::gpu::CAMath::Abs(static_cast<double>(space.multipliers[j])));
+          lambdaC += static_cast<double>(space.multipliers[j]) * static_cast<double>(values[j]);
+        }
+        violationSum = violation();
+        return VertexFitStatus::kOk;
+      }
+      Cholesky<S> llt{.l = space.factor};
+      if (!llt.factor(space.normal, n)) {
+        return VertexFitStatus::kSingular;
+      }
+      llt.solve(step);
+      return VertexFitStatus::kOk;
+    }
+    [[nodiscard]] GPUd() bool damped(double tau, S* d) const
+    {
+      using namespace decay_fit_detail;
+      const auto& space = fitter->mSpace.solve;
+      const int n = fitter->mParameterCount;
+      for (int a = 0; a < n; ++a) {
+        for (int b = 0; b <= a; ++b) {
+          space.damped[covIndex(a, b)] = space.normal[covIndex(a, b)] + (a == b ? static_cast<S>(tau) * space.normal[covIndex(a, a)] : S(0.));
+        }
+      }
+      if (constrained()) {
+        return constrainedStep(space.lagrange, space.damped, n, space.gradient, fitter->mSpace.rows, fitter->values(), d, nullptr);
+      }
+      Cholesky<S> llt{.l = space.factor};
+      if (!llt.factor(space.damped, n)) {
+        return false;
+      }
+      copyN(space.gradient, n, d);
+      llt.solve(d);
+      return true;
+    }
+    [[nodiscard]] GPUd() double quadratic(const S* v, double start) const
+    {
+      const S* normal = fitter->mSpace.solve.normal;
+      const int n = fitter->mParameterCount;
+      double sum = start;
+      for (int a = 0; a < n; ++a) {
+        for (int b = 0; b < n; ++b) {
+          sum += static_cast<double>(v[a]) * static_cast<double>(normal[covIndex(a, b)]) * static_cast<double>(v[b]);
+        }
+      }
+      return sum;
+    }
+    GPUd() void forms(const S* v, double& gd, double& dNd, double& dDd) const
+    {
+      const auto& space = fitter->mSpace.solve;
+      const int n = fitter->mParameterCount;
+      gd = dNd = dDd = 0.;
+      for (int a = 0; a < n; ++a) {
+        gd += static_cast<double>(space.gradient[a]) * static_cast<double>(v[a]);
+        dDd += static_cast<double>(space.normal[covIndex(a, a)]) * static_cast<double>(v[a]) * static_cast<double>(v[a]);
+        for (int b = 0; b < n; ++b) {
+          dNd += static_cast<double>(v[a]) * static_cast<double>(space.normal[covIndex(a, b)]) * static_cast<double>(v[b]);
+        }
+      }
+    }
+    [[nodiscard]] GPUd() bool trial(std::span<const double> p, double& chi2, double& violationSum) const
+    {
+      double rounding = 0.;
+      if (!fitter->evaluate(p, chi2, rounding, nullptr, nullptr) || (constrained() && !fitter->constraintsAt(p))) {
+        return false;
+      }
+      violationSum = constrained() ? violation() : 0.;
+      return true;
+    }
+  };
+
   /// `minimiseFrozen` under the current model, from \a parameters.
-  [[nodiscard]] GPUd() DecayFitStatus minimise(std::span<double> parameters, double& chi2, double& mu, double& metric, double& bound, int& iterations, int& steps, double& first)
+  [[nodiscard]] GPUd() VertexFitStatus minimise(std::span<double> parameters, double& chi2, double& mu, double& metric, double& bound, int& iterations, int& steps, double& first)
   {
-    const auto evaluateAt = [this](std::span<const double> p, double& value, double& rounding, S* normal, S* gradient) { return evaluate(p, value, rounding, normal, gradient); };
-    const auto constraintsOf = [this](std::span<const double> p) { return constraintsAt(p); };
-    return decay_fit_detail::minimiseFrozen<M>(mParameterCount, mNdf, mConstrained, evaluateAt, constraintsOf, values(), mSpace.rows, mSpace.solve, parameters, chi2, mu, metric, bound, iterations, steps, first);
+    DenseSystem system{.fitter = this};
+    const auto& space = mSpace.solve;
+    return vertex_fit_detail::minimiseFrozen<M>(system, mParameterCount, mNdf, parameters, space.trial, space.step, space.dampedStep, chi2, mu, metric, bound, iterations, steps, first);
   }
 
-  // The carried measurements are the model: minimised under them, carried
-  // anew to the planes about the solution, until a carry no longer moves the
-  // solution by what the inputs resolve (the minimiser takes no step).
+  // The carried measurements are the model (`modelLoop`): carried anew to
+  // the planes about the solution, the chains' model with them.
   /// False if the fit ends here (`mResult` is final).
   [[nodiscard]] GPUd() bool modelLoop()
   {
-    using namespace decay_fit_detail;
-    double lastShift = std::numeric_limits<double>::infinity();
-    mResult->status = DecayFitStatus::kNotConverged;
-    for (int outer = 0; outer < kMaxSteps; ++outer) {
-      if (outer != 0) {
-        if (const auto status = carry(parameters()); status != DecayFitStatus::kOk) {
-          mResult->status = status;
-          return false;
-        }
-        if (mChainCount > 0) {
-          if (const auto status = refreshChains(parameters()); status != DecayFitStatus::kOk) {
-            mResult->status = status;
-            return false;
-          }
-        }
+    const auto refresh = [this]() {
+      if (const auto status = carry(parameters()); status != VertexFitStatus::kOk) {
+        return status;
       }
-      mResult->outer = static_cast<std::uint8_t>(outer + 1);
-      const auto inner = minimise(parameters(), mChi2, mMu, mMetric, mBound, mIterations, mSteps, mShift);
-      if (inner != DecayFitStatus::kOk) {
-        mResult->status = inner;
-        break;
-      }
-      mResult->modelShift = static_cast<float>(mShift);
-      if (mSteps == 0) {
-        // The model anew along the solution moves it less than the inputs
-        // resolve: converged.
-        mResult->status = DecayFitStatus::kOk;
-        mResult->stopReason = 1U;
-        break;
-      }
-      if (outer > 1 && mShift >= lastShift) {
-        // The model's moves no longer shrink: the material table's
-        // discretisation (piecewise constant along the trajectory) leaves no
-        // exact fixed point. Each solution here is a converged minimum under a
-        // model along a trajectory close to it; taken if the model moves it by
-        // less than its error (`kModelTolerance`).
-        mResult->status = mShift <= kModelTolerance ? DecayFitStatus::kOk : DecayFitStatus::kNotConverged;
-        mResult->stopReason = mShift <= kModelTolerance ? 2U : 0U;
-        break;
-      }
-      if (outer != 0) {
-        lastShift = mShift;
-      }
+      return mChainCount > 0 ? refreshChains(parameters()) : VertexFitStatus::kOk;
+    };
+    const auto minimiseOnce = [this]() { return minimise(parameters(), mChi2, mMu, mMetric, mBound, mIterations, mSteps, mShift); };
+    vertex_fit_detail::ModelLoopOutcome outcome;
+    const bool ended = !vertex_fit_detail::modelLoop(refresh, minimiseOnce, mSteps, mShift, outcome);
+    mResult->status = outcome.status;
+    mResult->outer = outcome.outer;
+    mResult->stopReason = outcome.stopReason;
+    mResult->modelShift = outcome.modelShift;
+    if (ended) {
+      return false;
     }
     mResult->iterations = static_cast<std::uint8_t>(o2::gpu::CAMath::Min(mIterations, 255));
     mResult->stopMetric = static_cast<float>(mMetric);
@@ -1732,18 +1595,18 @@ class DecayVertexFitter
     using namespace decay_fit_detail;
     double rounding = 0.;
     if (!evaluate(parameters(), mChi2, rounding, mSpace.solve.normal, mSpace.solve.gradient)) {
-      mResult->status = DecayFitStatus::kNoCrossing;
+      mResult->status = VertexFitStatus::kNoCrossing;
       return false;
     }
     if (mConstrained) {
       if (!constraintsAt(parameters()) || !constrainedStep(mSpace.solve.lagrange, mSpace.solve.normal, mParameterCount, mSpace.solve.gradient, mSpace.rows, values(), nullptr, mSpace.covariance)) {
-        mResult->status = DecayFitStatus::kSingular;
+        mResult->status = VertexFitStatus::kSingular;
         return false;
       }
     } else {
       Cholesky<S> llt{.l = mSpace.solve.factor};
       if (!llt.factor(mSpace.solve.normal, mParameterCount)) {
-        mResult->status = DecayFitStatus::kSingular;
+        mResult->status = VertexFitStatus::kSingular;
         return false;
       }
       llt.inverse(mSpace.covariance);
@@ -1796,7 +1659,7 @@ class DecayVertexFitter
         int combinationIterations = 0;
         int combinationSteps = 0;
         double combinationShift = 0.;
-        if (minimise(fitParameters, fitChi2, combinationMu, combinationMetric, combinationBound, combinationIterations, combinationSteps, combinationShift) != DecayFitStatus::kOk) {
+        if (minimise(fitParameters, fitChi2, combinationMu, combinationMetric, combinationBound, combinationIterations, combinationSteps, combinationShift) != VertexFitStatus::kOk) {
           continue;
         }
         double unusedRounding = 0.;
@@ -1837,7 +1700,7 @@ class DecayVertexFitter
       decay_fit_detail::copyN(mSpace.saved, mCount, mSpace.measurements);
       mResult->combinationsTried = static_cast<std::uint16_t>(o2::gpu::CAMath::Min<std::size_t>(tried, 65535U));
       if (collapse.count == 0) {
-        mResult->status = DecayFitStatus::kNotConverged;
+        mResult->status = VertexFitStatus::kNotConverged;
       } else {
         decay_fit_detail::copyN(collapse.mean.data(), collapse.mean.size(), mSpace.parameters);
         mChi2 = collapse.meanChi2();
@@ -1853,8 +1716,8 @@ class DecayVertexFitter
   const DecayConstraints& mConstraints; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   const DecayTopology& mTopology;       // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   std::span<const DecayMother> mMothers;
-  DecayVertexFitResult* mResult = nullptr;      ///< the caller's, during `fit`
-  DecayFitStatus mStatus = DecayFitStatus::kOk; ///< `prepare`'s verdict
+  DecayVertexFitResult* mResult = nullptr;        ///< the caller's, during `fit`
+  VertexFitStatus mStatus = VertexFitStatus::kOk; ///< `prepare`'s verdict
   bool mPrepared = false;
   int mCount = 0;          ///< the daughters
   int mVertexCount = 0;    ///< the tree's vertices
@@ -1884,14 +1747,17 @@ class DecayVertexFitter
   Space mSpace; ///< the workspace (`bind`)
 };
 
-/// A `DecayVertexFitter`'s fit of one decay, in a workspace of its own.
+/// A `DecayVertexFitter`'s fit of one decay from `decayFitStart`'s start, in
+/// a workspace of its own.
 template <DetectorLayout Det, DecayFitVariant Variant, typename ModelScalar = double, typename SolveScalar = double, typename Material>
 [[nodiscard]] DecayVertexFitResult fitDecayVertex(std::span<const DecayDaughter> daughters, const Material& material, const DecayConstraints& constraints = {}, const DecayTopology& topology = {}, std::span<const DecayMother> mothers = {})
 {
+  std::array<Vec3D, decay_fit_detail::kMaxConstrainedVertices> start{};
+  const bool started = decayFitStart<Det>(daughters, constraints, topology, mothers, start);
   DecayVertexFitter<Det, Variant, Material, ModelScalar, SolveScalar> fitter(daughters, material, constraints, topology, mothers);
   std::vector<std::byte> workspace(fitter.workspace());
   DecayVertexFitResult result;
-  fitter.fit(workspace, result);
+  fitter.fit(std::span<const Vec3D>{start.data(), started ? static_cast<std::size_t>(topology.vertices()) : 0U}, workspace, result);
   return result;
 }
 

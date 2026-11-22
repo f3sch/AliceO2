@@ -26,6 +26,7 @@
 
 #include "GPUCommonDef.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -38,8 +39,11 @@ namespace o2::gtrk
 {
 
 /// One decay of a batch: its share of the batch's daughters and tracked
-/// mothers, its constraints and its tree.
+/// mothers, its constraints, its tree and its vertices' start (`starts` of
+/// them; none: kNoStart).
 struct DecayFitInput {
+  std::array<Vec3D, decay_fit_detail::kMaxConstrainedVertices> start{};
+  std::uint32_t starts = 0U;
   std::uint32_t firstDaughter = 0U;
   std::uint32_t daughters = 0U;
   std::uint32_t firstMother = 0U;
@@ -95,15 +99,17 @@ GPUhdi() void batchMothers(const DecayFitBatchView& batch, const DecayFitInput& 
 class DecayFitBatch
 {
  public:
-  /// Takes one decay's inputs (copied) and returns its index in the batch.
-  /// More tracked mothers than the fit has vertices is refused here, as the
-  /// fit could not hold them (std::invalid_argument).
-  std::uint32_t add(std::span<const DecayDaughter> daughters, const DecayConstraints& constraints, const DecayTopology& topology, std::span<const DecayMother> mothers)
+  /// Takes one decay's inputs (copied), its vertices' \a start among them,
+  /// and returns its index in the batch. More tracked mothers or starts than
+  /// the fit has vertices is refused here, as the fit could not hold them
+  /// (std::invalid_argument).
+  std::uint32_t add(std::span<const DecayDaughter> daughters, const DecayConstraints& constraints, const DecayTopology& topology, std::span<const DecayMother> mothers, std::span<const Vec3D> start)
   {
-    if (mothers.size() > static_cast<std::size_t>(decay_fit_detail::kMaxConstrainedVertices)) {
-      throw std::invalid_argument("decay fit batch: more tracked mothers than vertices");
+    if (mothers.size() > static_cast<std::size_t>(decay_fit_detail::kMaxConstrainedVertices) || start.size() > static_cast<std::size_t>(decay_fit_detail::kMaxConstrainedVertices)) {
+      throw std::invalid_argument("decay fit batch: more tracked mothers or starts than vertices");
     }
-    const DecayFitInput input{.firstDaughter = static_cast<std::uint32_t>(mDaughters.size()), .daughters = static_cast<std::uint32_t>(daughters.size()), .firstMother = static_cast<std::uint32_t>(mMothers.size()), .mothers = static_cast<std::uint32_t>(mothers.size()), .constraints = constraints, .topology = topology};
+    DecayFitInput input{.starts = static_cast<std::uint32_t>(start.size()), .firstDaughter = static_cast<std::uint32_t>(mDaughters.size()), .daughters = static_cast<std::uint32_t>(daughters.size()), .firstMother = static_cast<std::uint32_t>(mMothers.size()), .mothers = static_cast<std::uint32_t>(mothers.size()), .constraints = constraints, .topology = topology};
+    std::copy(start.begin(), start.end(), input.start.begin());
     mDaughters.insert(mDaughters.end(), daughters.begin(), daughters.end());
     for (const auto& mother : mothers) {
       mMothers.push_back({.vertex = mother.vertex, .propagator = mother.propagator, .firstRow = static_cast<std::uint32_t>(mPlanes.size()), .rows = static_cast<std::uint32_t>(mother.planes.size()), .firstPosition = static_cast<std::uint32_t>(mPositions.size()), .positions = static_cast<std::uint32_t>(mother.positions.size()), .firstCovariance = static_cast<std::uint32_t>(mCovariance.size()), .covariances = static_cast<std::uint32_t>(mother.covariance.size())});
@@ -122,7 +128,7 @@ class DecayFitBatch
     for (const auto& input : other.mDecays) {
       std::array<DecayMother, decay_fit_detail::kMaxConstrainedVertices> mothers{};
       decay_fit_detail::batchMothers(view, input, mothers);
-      add({other.mDaughters.data() + input.firstDaughter, input.daughters}, input.constraints, input.topology, {mothers.data(), input.mothers});
+      add({other.mDaughters.data() + input.firstDaughter, input.daughters}, input.constraints, input.topology, {mothers.data(), input.mothers}, {input.start.data(), input.starts});
     }
   }
 
@@ -191,7 +197,8 @@ GPUd() void fitBatchDecay(const DecayFitBatchView& batch, std::uint32_t index, c
 {
   std::array<DecayMother, decay_fit_detail::kMaxConstrainedVertices> mothers{};
   auto fitter = decay_fit_detail::batchFitter<Det, Variant>(batch, index, material, mothers);
-  fitter.fit(workspace, result);
+  const auto& input = batch.decays[index];
+  fitter.fit({input.start.data(), input.starts}, workspace, result);
 }
 
 /// Every decay of \a batch fitted on the host into \a results (one per
@@ -208,7 +215,8 @@ void fitDecayBatch(const DecayFitBatchView& batch, const Material& material, std
     if (storage.size() < words) {
       storage.resize(words);
     }
-    fitter.fit(std::as_writable_bytes(std::span{storage}).first(bytes), results[i]);
+    const auto& input = batch.decays[i];
+    fitter.fit({input.start.data(), input.starts}, std::as_writable_bytes(std::span{storage}).first(bytes), results[i]);
   }
 }
 
