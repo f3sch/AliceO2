@@ -128,57 +128,130 @@ struct PrimaryVertexRecord {
   }
 };
 
+/// A collision's mocked primary vertex (`mockPrimaryVertices`).
+struct MockPrimaryVertex {
+  std::uint64_t collision = 0U;
+  std::uint16_t madeAway = 0U;    ///< its physical primaries' chains made away from the vertex, left out
+  std::uint16_t refused = 0U;     ///< chains of another species or charge
+  std::uint16_t refitFailed = 0U; ///< chains whose rows' refit or carry to the beam line failed
+  std::uint16_t tracks = 0U;      ///< fitted
+  Vec3D start{};
+  PrimaryVertexFitResult fit; ///< kNoStart without a fitted track
+  float microseconds = 0.F;   ///< the fit's, the refits apart
+  float maxTrackChi2 = 0.F;   ///< the largest track's chi2 at the solution
+  std::uint64_t worstParticle = 0U;
+};
+
+namespace primary_vertex_detail
+{
+/// Made at the vertex: within this of it [cm] (the file's comment).
+inline constexpr double kAtVertexCM = 1e-4;
+} // namespace primary_vertex_detail
+
+/// Each collision's mocked primary vertex from \a chains of \a event (the
+/// file's comment), the collisions in their first chain's order.
+template <DetectorLayout Det>
+[[nodiscard]] std::vector<MockPrimaryVertex> mockPrimaryVertices(const TruthEvent<Det>& event, std::span<const Chain> chains)
+{
+  const auto longest = longestChains(chains);
+  std::unordered_map<std::uint64_t, std::size_t> index;
+  std::vector<MockPrimaryVertex> vertices;
+  std::vector<std::vector<const Chain*>> members;
+  for (const auto& chain : chains) {
+    if (longest.at(chain.particle) != &chain) {
+      continue;
+    }
+    const auto& truth = event.particles->at(chain.particle);
+    if (truth.origin != ParticleOrigin::kPhysicalPrimary) {
+      continue;
+    }
+    const auto collision = collisionOf(chain.particle);
+    const auto [at, inserted] = index.try_emplace(collision, vertices.size());
+    if (inserted) {
+      vertices.push_back({.collision = collision});
+      members.emplace_back();
+    }
+    const auto offset = productionOffset(*event.collisions, chain.particle, Vec3D{truth.vx, truth.vy, truth.vz});
+    if (!offset || *offset > primary_vertex_detail::kAtVertexCM) {
+      ++vertices[at->second].madeAway;
+      continue;
+    }
+    members[at->second].push_back(&chain);
+  }
+  const auto& frame = *event.frame;
+  const auto& geometry = *event.geometry;
+  const auto& beam = event.beamLine;
+  BeamPrior prior{.position = {beam.x, beam.y, beam.z}};
+  prior.covariance[covIndex(0, 0)] = beam.sigmaX * beam.sigmaX;
+  prior.covariance[covIndex(1, 1)] = beam.sigmaY * beam.sigmaY;
+  prior.covariance[covIndex(2, 2)] = beam.sigmaZ * beam.sigmaZ;
+  o2::gtrk::detail::parallelFor(*event.arena, 0U, vertices.size(), 8, [&](std::size_t begin, std::size_t end) {
+    for (std::size_t v = begin; v < end; ++v) {
+      auto& out = vertices[v];
+      // A chain may hold two rows on one layer (overlapping sensors): no
+      // material on the step between them, which the layer's band holds already.
+      constexpr o2::gtrk::detail::LayerMaterial material{};
+      std::vector<VertexTrack> tracks;
+      std::vector<const Chain*> fitted;
+      double weightSum = 0.;
+      double weightedZ = 0.;
+      for (const auto* chain : members[v]) {
+        const auto& truth = event.particles->at(chain->particle);
+        const auto species = truthSpecies(truth.pdg);
+        if (!species || std::lround(std::abs(particleCharge(truth.pdg))) != 1) {
+          ++out.refused;
+          continue;
+        }
+        const RowChain<Det> rows{.frame = &frame, .rows = chain->rows.data()};
+        auto refit = refitRowsWithHypothesis(event.propagator, geometry, material, rows, static_cast<int>(chain->rows.size()), species->pid);
+        const auto& surface = geometry.planeOf(rows[0]);
+        if (refit.status != PropagationStatus::kOk || carryToPerigee(event.propagator, geometry, surface, refit, static_cast<Scalar>(beam.x), static_cast<Scalar>(beam.y)) != PropagationStatus::kOk) {
+          ++out.refitFailed;
+          continue;
+        }
+        auto propagator = event.propagator;
+        propagator.massGeV = species->mass;
+        tracks.push_back({.innermost = refit.innermost, .surface = surface, .propagator = propagator});
+        fitted.push_back(chain);
+        const auto variance = static_cast<double>(refit.perigee.covAt(kLoc1, kLoc1));
+        if (variance > 0.) {
+          weightSum += 1. / variance;
+          weightedZ += static_cast<double>(refit.perigee.loc1()) / variance;
+        }
+      }
+      out.tracks = static_cast<std::uint16_t>(std::min<std::size_t>(tracks.size(), 65535U));
+      if (tracks.empty() || !(weightSum > 0.)) {
+        continue; // kNoStart
+      }
+      out.start = {beam.x, beam.y, weightedZ / weightSum};
+      std::vector<double> trackChi2(tracks.size());
+      const auto started = std::chrono::steady_clock::now();
+      out.fit = fitPrimaryVertex(std::span<const VertexTrack>{tracks}, geometry.material(), prior, out.start, {}, std::span<double>{trackChi2});
+      out.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
+      if (out.fit.status == VertexFitStatus::kOk) {
+        const auto worst = static_cast<std::size_t>(std::ranges::max_element(trackChi2) - trackChi2.begin());
+        out.maxTrackChi2 = static_cast<float>(trackChi2[worst]);
+        out.worstParticle = fitted[worst]->particle;
+      }
+    }
+  });
+  return vertices;
+}
+
 template <DetectorLayout Det>
 class PrimaryVertexStudy
 {
  public:
   explicit PrimaryVertexStudy(RecordWriter& writer) : mWriter(&writer) { writer.begin<PrimaryVertexRecord>(); }
 
-  /// \a chains of \a event, from \a source: their physical primaries'
-  /// made at their collision's vertex, by collision.
+  /// \a chains of \a event, from \a source.
   void process(const TruthEvent<Det>& event, std::span<const Chain> chains, ChainSource source)
   {
-    const auto longest = longestChains(chains);
-    std::unordered_map<std::uint64_t, std::size_t> index;
-    struct Work {
-      std::uint64_t collision = 0U;
-      std::vector<const Chain*> chains;
-      std::uint16_t madeAway = 0U;
-      PrimaryVertexRecord record;
-    };
-    std::vector<Work> work;
-    for (const auto& [particle, chain] : longest) {
-      const auto& truth = event.particles->at(particle);
-      if (truth.origin != ParticleOrigin::kPhysicalPrimary) {
-        continue;
-      }
-      const auto collision = collisionOf(particle);
-      const auto [at, inserted] = index.try_emplace(collision, work.size());
-      if (inserted) {
-        work.push_back({.collision = collision});
-      }
-      const auto offset = productionOffset(*event.collisions, particle, Vec3D{truth.vx, truth.vy, truth.vz});
-      if (!offset || *offset > kAtVertexCM) {
-        ++work[at->second].madeAway;
-        continue;
-      }
-      work[at->second].chains.push_back(chain);
+    for (const auto& vertex : mockPrimaryVertices(event, chains)) {
+      mWriter->write(recordOf(event, vertex, source));
+      mFitted += vertex.fit.status == VertexFitStatus::kOk ? 1U : 0U;
+      ++mCollisions;
     }
-    // A fixed order of every collision's tracks, whatever the map's.
-    for (auto& one : work) {
-      std::ranges::sort(one.chains, {}, [](const Chain* chain) { return chain->particle; });
-    }
-    o2::gtrk::detail::parallelFor(*event.arena, 0U, work.size(), 8, [&](std::size_t begin, std::size_t end) {
-      for (std::size_t i = begin; i < end; ++i) {
-        work[i].record = fitCollision(event, work[i].collision, work[i].chains, source);
-        work[i].record.madeAway = work[i].madeAway;
-      }
-    });
-    for (const auto& one : work) {
-      mWriter->write(one.record);
-      mFitted += one.record.status == static_cast<std::uint8_t>(VertexFitStatus::kOk) ? 1U : 0U;
-    }
-    mCollisions += work.size();
   }
 
   [[nodiscard]] std::vector<std::string> summary() const
@@ -187,68 +260,22 @@ class PrimaryVertexStudy
   }
 
  private:
-  /// Made at the vertex: within this of it [cm] (the file's comment).
-  static constexpr double kAtVertexCM = 1e-4;
-
-  [[nodiscard]] PrimaryVertexRecord fitCollision(const TruthEvent<Det>& event, std::uint64_t collision, std::span<const Chain* const> chains, ChainSource source) const
+  [[nodiscard]] static PrimaryVertexRecord recordOf(const TruthEvent<Det>& event, const MockPrimaryVertex& vertex, ChainSource source)
   {
-    const auto& frame = *event.frame;
-    const auto& geometry = *event.geometry;
-    const auto& beam = event.beamLine;
-    // A chain may hold two rows on one layer (overlapping sensors): no
-    // material on the step between them, which the layer's band holds already.
-    constexpr o2::gtrk::detail::LayerMaterial material{};
-    PrimaryVertexRecord record{.timeframe = event.timeframe, .source = static_cast<std::uint8_t>(source), .collision = collision};
-    const auto mc = event.collisions->find(collision);
+    const auto& fit = vertex.fit;
+    PrimaryVertexRecord record{.timeframe = event.timeframe, .source = static_cast<std::uint8_t>(source), .collision = vertex.collision, .tracks = vertex.tracks, .refused = vertex.refused, .refitFailed = vertex.refitFailed, .madeAway = vertex.madeAway};
+    const auto mc = event.collisions->find(vertex.collision);
     if (mc != event.collisions->end()) {
       record.mcX = static_cast<float>(mc->second[0]);
       record.mcY = static_cast<float>(mc->second[1]);
       record.mcZ = static_cast<float>(mc->second[2]);
     }
-    std::vector<VertexTrack> tracks;
-    std::vector<const Chain*> fitted;
-    double weightSum = 0.;
-    double weightedZ = 0.;
-    for (const auto* chain : chains) {
-      const auto& truth = event.particles->at(chain->particle);
-      const auto species = truthSpecies(truth.pdg);
-      if (!species || std::lround(std::abs(particleCharge(truth.pdg))) != 1) {
-        ++record.refused;
-        continue;
-      }
-      const RowChain<Det> rows{.frame = &frame, .rows = chain->rows.data()};
-      auto refit = refitRowsWithHypothesis(event.propagator, geometry, material, rows, static_cast<int>(chain->rows.size()), species->pid);
-      const auto& surface = geometry.planeOf(rows[0]);
-      if (refit.status != PropagationStatus::kOk || carryToPerigee(event.propagator, geometry, surface, refit, static_cast<Scalar>(beam.x), static_cast<Scalar>(beam.y)) != PropagationStatus::kOk) {
-        ++record.refitFailed;
-        continue;
-      }
-      auto propagator = event.propagator;
-      propagator.massGeV = species->mass;
-      tracks.push_back({.innermost = refit.innermost, .surface = surface, .propagator = propagator});
-      fitted.push_back(chain);
-      const auto variance = static_cast<double>(refit.perigee.covAt(kLoc1, kLoc1));
-      if (variance > 0.) {
-        weightSum += 1. / variance;
-        weightedZ += static_cast<double>(refit.perigee.loc1()) / variance;
-      }
-    }
-    record.tracks = static_cast<std::uint16_t>(std::min<std::size_t>(tracks.size(), 65535U));
-    if (tracks.empty() || !(weightSum > 0.)) {
-      record.status = static_cast<std::uint8_t>(VertexFitStatus::kNoStart);
+    record.status = static_cast<std::uint8_t>(fit.status);
+    if (vertex.tracks == 0U || fit.status == VertexFitStatus::kNoStart) {
       return record;
     }
-    const Vec3D start{beam.x, beam.y, weightedZ / weightSum};
-    record.startDZ = static_cast<float>(1e4 * (start[2] - static_cast<double>(record.mcZ)));
-    BeamPrior prior{.position = {beam.x, beam.y, beam.z}};
-    prior.covariance[covIndex(0, 0)] = beam.sigmaX * beam.sigmaX;
-    prior.covariance[covIndex(1, 1)] = beam.sigmaY * beam.sigmaY;
-    prior.covariance[covIndex(2, 2)] = beam.sigmaZ * beam.sigmaZ;
-    std::vector<double> trackChi2(tracks.size());
-    const auto begin = std::chrono::steady_clock::now();
-    const auto fit = fitPrimaryVertex(std::span<const VertexTrack>{tracks}, geometry.material(), prior, start, {}, std::span<double>{trackChi2});
-    record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - begin).count());
-    record.status = static_cast<std::uint8_t>(fit.status);
+    record.startDZ = static_cast<float>(1e4 * (vertex.start[2] - static_cast<double>(record.mcZ)));
+    record.microseconds = vertex.microseconds;
     record.iterations = fit.iterations;
     record.outer = fit.outer;
     record.stopReason = fit.stopReason;
@@ -269,9 +296,8 @@ class PrimaryVertexStudy
     record.rhoXY = rho(0, 1);
     record.rhoXZ = rho(0, 2);
     record.rhoYZ = rho(1, 2);
-    const auto worst = static_cast<std::size_t>(std::ranges::max_element(trackChi2) - trackChi2.begin());
-    const auto& worstTruth = event.particles->at(fitted[worst]->particle);
-    record.maxTrackChi2 = static_cast<float>(trackChi2[worst]);
+    const auto& worstTruth = event.particles->at(vertex.worstParticle);
+    record.maxTrackChi2 = vertex.maxTrackChi2;
     record.worstPdg = worstTruth.pdg;
     record.worstPt = worstTruth.pt;
     return record;

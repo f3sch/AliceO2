@@ -45,6 +45,7 @@
 #include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayFitBatch.h"
 #include "GenericTracking/Tracking/DecayFitConstraints.h"
+#include "GenericTracking/Tracking/DecayObservables.h"
 #include "GenericTracking/Tracking/DecayVertexFit.h"
 #include "GenericTracking/Tracking/GPU/DeviceContext.h"
 #include "GenericTracking/Tracking/GPU/DeviceDecayFitter.h"
@@ -412,29 +413,7 @@ namespace decay_fit_study_detail
 using decay_fit_detail::momentumOf;
 using decay_fit_detail::numeratorOf;
 
-/// The invariant mass of \a momenta with \a masses (and \a charges) and its sigma from
-/// \a covariance (\a stride wide, the momenta's phi, theta, q/p at
-/// \a offset + 3 i), and the summed |p| and its sigma.
-struct Kinematics {
-  double mass = 0.;
-  double sMass = 0.;
-  double p = 0.;
-  double sP = 0.;
-};
-
-/// u^T C v over \a n entries of u and v, C's entry (a, b) \a at(a, b): a
-/// projection's variance, or two projections' covariance.
-template <typename U, typename V, typename At>
-[[nodiscard]] double quadraticForm(const U& u, const V& v, int n, const At& at)
-{
-  double sum = 0.;
-  for (int a = 0; a < n; ++a) {
-    for (int b = 0; b < n; ++b) {
-      sum += u[a] * at(a, b) * v[b];
-    }
-  }
-  return sum;
-}
+using decay_fit_detail::quadraticForm;
 
 /// \a fit's covariance as a full row-major matrix (3K + 3N square), as the
 /// study's sums over it run.
@@ -450,60 +429,20 @@ template <typename U, typename V, typename At>
   return full;
 }
 
-[[nodiscard]] inline Kinematics kinematicsOf(std::span<const Vec3D> momenta, std::span<const double> masses, std::span<const double> charges, std::span<const double> covariance, int stride, int offset)
+/// \a momenta's kinematics (`decayKinematics`), their covariance from
+/// \a covariance (\a stride wide, the momenta's phi, theta, q/p at
+/// \a offset + 3 i).
+[[nodiscard]] inline DecayKinematics kinematicsOf(std::span<const Vec3D> momenta, std::span<const double> masses, std::span<const double> charges, std::span<const double> covariance, int stride, int offset)
 {
-  using D = dual::Dual<3 * decay_fit_detail::kMaxConstrainedDaughters>;
-  const int count = static_cast<int>(momenta.size());
-  decay_fit_detail::MomentumSum<D> sum;
-  for (int i = 0; i < count; ++i) {
-    const auto momentum = decay_fit_detail::momentumOfInputs<D::kInputs>(momenta[i][0], momenta[i][1], momenta[i][2], 3 * i, charges[i]);
-    sum.add(momentum.vector, decay_fit_detail::energyOf(momentum, masses[i]));
-  }
-  const D p = sqrtOf(sum.squared());
-  const D m2 = sum.massSquared();
-  const auto sigma = [&](const D& value) { return sqrtClampedOf(quadraticForm(value.d, value.d, 3 * count, [&](int a, int b) { return covariance[((offset + a) * stride) + offset + b]; })); };
-  const double mass = sqrtClampedOf(m2.v);
-  return {.mass = mass, .sMass = mass > 0. ? sigma(m2) / (2. * mass) : 0., .p = p.v, .sP = sigma(p)};
+  return decayKinematics(momenta, masses, charges, [&](int a, int b) { return covariance[((offset + a) * stride) + offset + b]; });
 }
 
-/// The mother's decay length from \a point along its direction, ct with
-/// \a mass, and its direction, each with its sigma from \a covariance (the
-/// fit's, V and the momenta).
-struct MotherQuantities {
-  double length = 0.;
-  double sLength = 0.;
-  double ct = 0.;
-  double sCt = 0.;
-  double phi = 0.;
-  double sPhi = 0.;
-  double theta = 0.;
-  double sTheta = 0.;
-};
-
-[[nodiscard]] inline MotherQuantities motherQuantities(const Vec3D& vertex, std::span<const Vec3D> momenta, std::span<const double> charges, const Vec3D& point, double mass, std::span<const double> covariance, int vertices)
+/// The mother's flight from the exact \a point (`decayFlight`), the fit's
+/// covariance \a covariance as a full matrix.
+[[nodiscard]] inline DecayFlight motherQuantities(const Vec3D& vertex, std::span<const Vec3D> momenta, std::span<const double> charges, const Vec3D& point, double mass, std::span<const double> covariance, int vertices)
 {
-  using namespace decay_fit_detail;
-  using D = Dual<kConstraintInputs>;
-  const int count = static_cast<int>(momenta.size());
-  const int n = (3 * vertices) + (3 * count);
-  std::array<D, 3> v{};
-  for (int k = 0; k < 3; ++k) {
-    v[k].v = vertex[k];
-    v[k].d[k] = 1.;
-  }
-  MomentumSum<D> sum;
-  for (int i = 0; i < count; ++i) {
-    sum.add(momentumOfInputs<kConstraintInputs>(momenta[i][0], momenta[i][1], momenta[i][2], (3 * vertices) + (3 * i), charges[i]).vector);
-  }
-  const auto& total = sum.vector;
-  const auto direction = directionOfMomentum(total);
-  const D& p = direction.p;
-  const D length = (((v[0] + (-point[0])) * total[0]) + ((v[1] + (-point[1])) * total[1]) + ((v[2] + (-point[2])) * total[2])) / p;
-  const D ct = (mass * length) / p;
-  const D& phi = direction.phi;
-  const D& theta = direction.theta;
-  const auto sigma = [&](const D& value) { return sqrtClampedOf(quadraticForm(value.d, value.d, n, [&](int a, int b) { return covariance[a * n + b]; })); };
-  return {.length = length.v, .sLength = sigma(length), .ct = ct.v, .sCt = sigma(ct), .phi = phi.v, .sPhi = sigma(phi), .theta = theta.v, .sTheta = sigma(theta)};
+  const int n = (3 * vertices) + (3 * static_cast<int>(momenta.size()));
+  return decayFlight(vertex, momenta, charges, point, {}, mass, vertices, [&](int a, int b) { return covariance[a * n + b]; });
 }
 
 /// \a chain's rows, one per layer: on a layer holding more (overlapping

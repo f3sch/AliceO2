@@ -215,6 +215,7 @@ enum class VertexFitStatus : std::uint8_t {
   kTooLarge,     ///< more vertices, tracks or rows of a tracked particle than the fit holds
   kInvalidInput, ///< a topology, resonance or tracked particle that refers outside the decay, or inputs a fit cannot take
   kNoMaterial,   ///< the link material holds no segment of a track's (LinkMaterial::segment)
+  kRefitFailed,  ///< a track's refit under its species failed (DaughterTable.h)
   kCount
 };
 

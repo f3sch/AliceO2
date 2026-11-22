@@ -110,7 +110,7 @@ static int run(int argc, char** argv)
     ("hits", bpo::value(&options.hits)->default_value(""),
      "the MC hits (sgn_HitsTRK.root): the particles' path order, and every anatomy and truth study against the MC") //
     ("truth-study", bpo::value(&options.truthStudies)->composing(),
-     "a truth study, <module>:<source>:<path>: module gsf, species, clusters, overlaps, overlapFit, decaycensus, decayfit, decayprecision, decaydevice or primaryvertex, source truth (the particles' own rows) or tracks (the good tracks' rows), a .csv or "
+     "a truth study, <module>:<source>:<path>: module gsf, species, clusters, overlaps, overlapFit, decaycensus, decayfit, decayprecision, decaydevice, primaryvertex or decaycandidates, source truth (the particles' own rows) or tracks (the good tracks' rows), a .csv or "
      ".root path; repeatable; with --hits") //
     ("decay-backend", bpo::value(&options.decayBackend)->default_value("cpu"),
      "the decaydevice truth study's GPU backend: cpu (the packed batch on the host only), cuda or hip, on --gpu-device with --gpu-arena-mb") //
