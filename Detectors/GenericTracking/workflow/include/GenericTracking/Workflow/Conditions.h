@@ -27,8 +27,8 @@
 /// - `init(ic)` in the device's init, `checkUpdates(pc)` at the top of its
 ///   run, `finaliseCCDB(matcher, obj)` forwarded from the device's;
 /// - held by the GPU reconstruction (`ConditionsHolder::kGPUReco`), only the
-///   detector's own: the GRPECS, the field and the ITS's LUT are that
-///   device's (a second GRPGeomHelper request is fatal);
+///   detector's own, the material LUT among them: the GRPECS and the field
+///   are that device's (a second GRPGeomHelper request is fatal);
 /// - `frameTiming()`; `measurementDepthsCM()`, empty for 0 on every layer;
 ///   `origin()`, the detector's data origin; `kMeanVertex`, whether the
 ///   detector's beam line is the run's MeanVertex (`GLO/Calib/MeanVertex`);
@@ -70,8 +70,8 @@ namespace o2::gtrk::workflow
 
 /// Who holds a `Conditions`: a device of its own, which requests the run's
 /// GRPECS and field itself (GRPGeomHelper), or the GPU reconstruction, whose
-/// device requests them -- and GLO/Param/MatLUT, the ITS's material LUT --
-/// for everything it runs, and fetches and finalises them.
+/// device requests them for everything it runs, and fetches and finalises
+/// them.
 enum class ConditionsHolder : std::uint8_t { kOwnDevice,
                                              kGPUReco };
 
@@ -80,10 +80,9 @@ enum class ConditionsHolder : std::uint8_t { kOwnDevice,
 template <DetectorLayout Det, bool WithMaterial = false, ConditionsHolder Holder = ConditionsHolder::kOwnDevice>
 class Conditions;
 
-/// The material LUT's condition a `Conditions` holds: the LUT's, GRPGeomHelper's
-/// for the ITS inside the GPU reconstruction, or none.
-template <DetectorLayout Det, bool WithMaterial, ConditionsHolder Holder = ConditionsHolder::kOwnDevice>
-using MaterialConditionOf = std::conditional_t<!WithMaterial, NoMaterialCondition, std::conditional_t<Holder == ConditionsHolder::kGPUReco && std::same_as<Det, detectors::ITS>, GRPGeomMaterialCondition, MaterialCondition<Det>>>;
+/// The material LUT's condition a `Conditions` holds: the LUT's, or none.
+template <DetectorLayout Det, bool WithMaterial>
+using MaterialConditionOf = std::conditional_t<WithMaterial, MaterialCondition<Det>, NoMaterialCondition>;
 
 } // namespace o2::gtrk::workflow
 

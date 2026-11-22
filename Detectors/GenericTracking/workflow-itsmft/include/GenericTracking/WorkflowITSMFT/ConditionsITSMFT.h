@@ -73,7 +73,7 @@ class Conditions<Det, WithMaterial, Holder>
     const auto detector = origin().template as<std::string>();
     inputs.emplace_back(inputBinding<Det>("geomTGeo"), origin(), "GEOMTGEO", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(detector + "/Config/Geometry"));
     inputs.emplace_back(inputBinding<Det>("alpideParam"), origin(), "ALPIDEPARAM", 0, o2::framework::Lifetime::Condition, o2::framework::ccdbParamSpec(detector + "/Config/AlpideParam"));
-    MaterialConditionOf<Det, WithMaterial, Holder>::declare(inputs);
+    MaterialConditionOf<Det, WithMaterial>::declare(inputs);
   }
 
   static constexpr bool kMeanVertex = true;
@@ -94,13 +94,12 @@ class Conditions<Det, WithMaterial, Holder>
     }
     pc.inputs().get<GeometryTGeoType*>(inputBinding<Det>("geomTGeo").c_str());
     pc.inputs().get<AlpideParam*>(inputBinding<Det>("alpideParam").c_str()); // the CCDB fetcher updates the singleton
-    MaterialConditionOf<Det, WithMaterial, Holder>::checkUpdates(pc);
+    MaterialConditionOf<Det, WithMaterial>::checkUpdates(pc);
   }
 
   /// Whether \a matcher was one of these conditions, then taken.
   bool finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj)
   {
-    // The material first: the ITS's LUT is GLO/MATLUT, GRPGeomHelper's description.
     if (mMaterial.finaliseCCDB(matcher, obj)) {
       return true;
     }
@@ -153,7 +152,7 @@ class Conditions<Det, WithMaterial, Holder>
   using AlpideParam = o2::itsmft::DPLAlpideParam<kITS ? o2::detectors::DetID::ITS : o2::detectors::DetID::MFT>;
 
   std::shared_ptr<o2::base::GRPGeomRequest> mRequest; ///< the run-wide conditions' request, in a device of its own
-  [[no_unique_address]] MaterialConditionOf<Det, WithMaterial, Holder> mMaterial;
+  [[no_unique_address]] MaterialConditionOf<Det, WithMaterial> mMaterial;
 };
 
 } // namespace o2::gtrk::workflow

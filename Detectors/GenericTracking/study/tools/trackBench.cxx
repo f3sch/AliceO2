@@ -61,7 +61,7 @@ static int run(int argc, char** argv)
     ("detector,d", bpo::value(&options.detector)->required(), "its, mft, trk or trktof: the ITS, the MFT, ALICE 3's barrel on O2's clusters, or with its TOF layers") //
     ("ccdb-url", bpo::value(&options.ccdbUrl)->default_value(o2::base::NameConf::getCCDBServer()),
      "the conditions' CCDB, e.g. file://<sample>/ccdb for its snapshots: the aligned geometry (GLO/Config/GeometryAligned), the field (GLO/Config/GRPMagField, not "
-     "for trk) and the material LUT (GLO/Param/MatLUT, MFT/Param/MatLUT, TRK/Param/MatLUT, for trktof TRK/Param/MatLUTTOF), the sink's conditions") //
+     "for trk) and the material LUT (ITS/Param/MatLUT, MFT/Param/MatLUT, TRK/Param/MatLUT, for trktof TRK/Param/MatLUTTOF), the sink's conditions") //
     ("input,i", bpo::value(&options.input)->default_value("tracking-input.bin"),
      "the sink's --dump-tracking-input file")                                                                                                          //
     ("truth", bpo::value(&options.truth)->default_value(""), "its MC truth; <input>.truth if empty and that exists")                                   //
