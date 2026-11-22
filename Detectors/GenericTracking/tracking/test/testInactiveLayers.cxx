@@ -385,10 +385,11 @@ BOOST_AUTO_TEST_CASE(WithoutTheirRowsTheInactiveLayersCostNothing)
   BOOST_TEST(proposal.outward[0] == fixture.row(6));
 }
 
-/// The tail: where the outward walk ends before an inactive layer -- here a
-/// hole on layer 6, whose row another track holds, with none allowed -- a
-/// step from the walk's last state onto the inactive layers it has no row on
-/// takes layer 7's row.
+/// The tail: where the outward walk ends before an inactive layer without
+/// a hole too many -- here layer 6, whose row another track holds, the one
+/// hole allowed -- a step from the walk's last state onto the inactive layers
+/// it has no row on takes layer 7's row. With no hole allowed the hole ends
+/// the walk and the tail too: past it the particle has most often ended.
 BOOST_AUTO_TEST_CASE(TheTailReachesTheInactiveLayerPastTheWalksEnd)
 {
   const auto hits = helixHits(0.42, 0.025, 1.8);
@@ -398,16 +399,21 @@ BOOST_AUTO_TEST_CASE(TheTailReachesTheInactiveLayerPastTheWalksEnd)
   const auto tracks = fittedTrack(fixture, {0, 1, 2, 3, 4, 5}, pool);
   std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
   used[fixture.row(6)] = kExclusive;
-  const auto proposal = followTrack(fixture, tracks, used, followParameters());
+  auto parameters = followParameters();
+  parameters.followHoles = 1U;
+  const auto proposal = followTrack(fixture, tracks, used, parameters);
   BOOST_REQUIRE_EQUAL(static_cast<int>(proposal.outwardCount), 1);
   BOOST_TEST(proposal.outward[0] == fixture.row(7));
+  // A hole too many: no tail.
+  BOOST_TEST(followTrack(fixture, tracks, used, followParameters()).outwardCount == 0U);
   // Taken too, the tail finds nothing.
   used[fixture.row(7)] = kExclusive;
-  BOOST_TEST(followTrack(fixture, tracks, used, followParameters()).outwardCount == 0U);
+  BOOST_TEST(followTrack(fixture, tracks, used, parameters).outwardCount == 0U);
 }
 
-/// Layer 6's hole drops the row on layer 5. The tail can take layer 7
-/// whose time overlaps the retained rows but is disjoint from layer 5's.
+/// Layer 6's hole (the one allowed) drops the row on layer 5. The tail can
+/// take layer 7 whose time overlaps the retained rows but is disjoint from
+/// layer 5's.
 BOOST_AUTO_TEST_CASE(TheTailUsesTheTimeBoxBeforeTheUnconfirmedRow)
 {
   auto hits = helixHits(0.42, 0.025, 1.8);
@@ -419,7 +425,9 @@ BOOST_AUTO_TEST_CASE(TheTailUsesTheTimeBoxBeforeTheUnconfirmedRow)
   const auto tracks = fittedTrack(fixture, {0, 1, 2, 3}, pool);
   std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
   used[fixture.row(6)] = kExclusive;
-  const auto proposal = followTrack(fixture, tracks, used, followParameters());
+  auto parameters = followParameters();
+  parameters.followHoles = 1U;
+  const auto proposal = followTrack(fixture, tracks, used, parameters);
   BOOST_REQUIRE_EQUAL(static_cast<int>(proposal.outwardCount), 2);
   BOOST_TEST(proposal.outward[0] == fixture.row(4));
   BOOST_TEST(proposal.outward[1] == fixture.row(7));
