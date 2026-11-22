@@ -233,7 +233,9 @@ void GSFStudy<Det>::fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propaga
   const auto nan = std::numeric_limits<double>::quiet_NaN();
   const auto& truth = event.particles->at(identity.particle);
   const auto& geometry = *event.geometry;
-  const auto& material = *event.material;
+  // A truth chain may hold two rows on one layer (overlapping sensors): no
+  // material on the step between them, which the layer's band holds already.
+  constexpr o2::gtrk::detail::LayerMaterial material{};
   const auto& frame = *event.frame;
   const auto& chain = leg.rows;
   const int n = static_cast<int>(chain.size());

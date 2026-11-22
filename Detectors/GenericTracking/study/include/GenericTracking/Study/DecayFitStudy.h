@@ -850,7 +850,9 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
 
   const auto& frame = *event.frame;
   const auto& geometry = *event.geometry;
-  const auto& material = *event.material;
+  // A truth chain may hold two rows on one layer (overlapping sensors): no
+  // material on the step between them, which the layer's band holds already.
+  constexpr o2::gtrk::detail::LayerMaterial material{};
   o2::gtrk::detail::parallelFor(*event.arena, 0U, work.size(), 4, [&](std::size_t begin, std::size_t end) {
     for (std::size_t index = begin; index < end; ++index) {
       auto& one = work[index];
@@ -961,7 +963,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         const double pProduction = std::hypot(leaf->momentum[0], leaf->momentum[1], leaf->momentum[2]);
         const double pFirst = std::hypot(segment->momentum[0], segment->momentum[1], segment->momentum[2]);
         base.lossTrue[i] = static_cast<float>(1. - (pFirst / pProduction));
-        const auto budget = material.getMatBudget(static_cast<float>(leaf->vertex[0]), static_cast<float>(leaf->vertex[1]), static_cast<float>(leaf->vertex[2]), static_cast<float>(segment->start[0]), static_cast<float>(segment->start[1]), static_cast<float>(segment->start[2]));
+        const auto budget = event.material->getMatBudget(static_cast<float>(leaf->vertex[0]), static_cast<float>(leaf->vertex[1]), static_cast<float>(leaf->vertex[2]), static_cast<float>(segment->start[0]), static_cast<float>(segment->start[1]), static_cast<float>(segment->start[2]));
         const auto loss = energyLoss(static_cast<Scalar>(1. / pProduction), static_cast<Scalar>(masses[i]), -budget.meanRho * budget.length);
         if (loss.ok) {
           base.lossModel[i] = static_cast<float>(1. - (1. / static_cast<double>(loss.momentumScale)));
