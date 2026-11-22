@@ -203,6 +203,12 @@ enum class DecayFitVariant : std::uint8_t {
   kCount
 };
 
+/// A committed track's flags from the steps after the tracking, a bit each:
+/// what a later step reads to take or skip it.
+enum class TrackFlag : std::uint8_t {
+  kPrimaryVertexContributor = 1U << 0U ///< the track entered its primary vertex's fit: a decay finder skips it
+};
+
 /// Why a vertex fit (a decay's, a primary vertex's) stopped.
 enum class VertexFitStatus : std::uint8_t {
   kOk,

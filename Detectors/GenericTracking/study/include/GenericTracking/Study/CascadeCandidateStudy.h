@@ -17,8 +17,8 @@
 /// The Lambdas: every MC Lambda and anti-Lambda decaying into its proton
 /// and pion, both with a good track (each its longest) of the right
 /// reconstructed charge. The bachelors: every other track associated to the
-/// Lambda's collision (its good particle's, a fake's majority particle's)
-/// of the cascade's charge, under the pion and the kaon: Xi- -> Lambda pi-,
+/// Lambda's collision (`mockAssociation`), no contributor of its primary
+/// vertex, of the cascade's charge, under the pion and the kaon: Xi- -> Lambda pi-,
 /// Omega- -> Lambda K- and their conjugates, each without and with the
 /// Lambda's mass held. Each candidate is one tree fit of its three tracks
 /// (the Lambda's vertex and the cascade's), started at the tree's closest
@@ -198,31 +198,17 @@ void CascadeCandidateStudy<Det>::process(const TruthEvent<Det>& event, std::span
     }
   }
 
-  // The mocked primary vertices.
-  ChainSelection primaries;
-  primaries.origins = 1U << static_cast<unsigned>(ParticleOrigin::kPhysicalPrimary);
-  ChainCounts unusedCounts;
-  const auto primaryChains = trackChains(event, store, primaries, unusedCounts);
-  std::vector<ReferencePoint> points;
-  std::unordered_map<std::uint64_t, std::int32_t> pointOf;
-  for (const auto& vertex : mockPrimaryVertices(event, std::span<const Chain>{primaryChains})) {
-    if (vertex.fit.status == VertexFitStatus::kOk) {
-      pointOf.emplace(vertex.collision, static_cast<std::int32_t>(points.size()));
-      points.push_back({.position = vertex.fit.vertex, .covariance = vertex.fit.covariance});
-    }
-  }
-
-  // Every committed track's particle and collision.
+  // The tracks associated to the mocked primary vertices; a vertex's
+  // contributors are no bachelors.
+  const auto association = mockAssociation(event);
+  const auto& points = association.points;
+  const auto& pointOf = association.pointOf;
+  const auto& particleOf = association.particle;
+  const auto& fake = association.fake;
   const auto n = static_cast<std::uint32_t>(store.size());
-  std::vector<std::uint64_t> particleOf(n, kNoTrackParticle);
-  std::vector<std::uint8_t> fake(n, 0U);
   std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> byCollision;
   for (std::uint32_t t = 0; t < n; ++t) {
-    const auto rows = store.rows(t);
-    const auto good = goodParticle(event.rows, rows);
-    particleOf[t] = good != kNoTrackParticle ? good : majorityParticle(event.rows, rows).particle;
-    fake[t] = good == kNoTrackParticle ? 1U : 0U;
-    if (particleOf[t] != kNoTrackParticle) {
+    if (particleOf[t] != kNoTrackParticle && (association.flags[t] & static_cast<std::uint8_t>(TrackFlag::kPrimaryVertexContributor)) == 0U) {
       byCollision[collisionOf(particleOf[t])].push_back(t);
     }
   }

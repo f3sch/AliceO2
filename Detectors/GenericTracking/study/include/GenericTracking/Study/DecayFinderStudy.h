@@ -13,12 +13,12 @@
 /// \brief A V0 finder on the tracker's tracks with the primary vertex and the
 ///        association mocked from the MC, held to the MC decays.
 ///
-/// The tracks: every committed track. Its association: the collision of its
-/// good particle (the one on all its rows), a fake's of its majority
-/// particle; a track of noise only is not combined. Each collision's point:
-/// its mocked primary vertex (`mockPrimaryVertices`: a fit of the primaries
-/// made at the MC vertex), a track of that fit tested against the vertex
-/// without it.
+/// The tracks: every committed track associated to its collision's mocked
+/// primary vertex (`mockAssociation`: the collision of its good particle, a
+/// fake's of its majority particle; the vertex a fit of the primaries made
+/// at the MC vertex). A track flagged as its vertex's contributor
+/// (`TrackFlag::kPrimaryVertexContributor`) is not combined, nor one of noise
+/// only.
 ///
 /// No PID: every associated track is refitted as a pion and as a proton
 /// (DaughterTable.h). Each entry's displacement is its impact parameters'
@@ -94,6 +94,7 @@ enum class FinderClass : std::uint8_t {
 enum class FinderStage : std::uint8_t {
   kFound = 0,   ///< its own candidate was fitted
   kNotFound,    ///< a daughter has no good track
+  kContributor, ///< a daughter's track entered its primary vertex's fit: never combined
   kRefitFailed, ///< a daughter's refit under its true species failed
   kNoPoint,     ///< its collision has no mocked primary vertex
   kCarryFailed, ///< a daughter's carry to the point failed
@@ -293,8 +294,8 @@ class DecayFinderStudy
 
   [[nodiscard]] std::vector<std::string> summary() const
   {
-    return {std::format("decay finder study: {} tracks combined ({} without a particle), {} candidates, {} fitted (records into {}), {} MC V0s ({} found) into {}; the daughter table {} entries in {:.3f} s, the S^2 in {:.3f} s, the vertices in {:.3f} s, the fits {:.1f} thread-s",
-                        mTracks, mUnassociated, mPairs, mFitted, mWriter->path(), mDecays, mFound, mDecayWriter->path(), mEntries, mFlushSeconds, mDisplacementSeconds, mVertexSeconds, mFitMicroseconds * 1e-6)};
+    return {std::format("decay finder study: {} tracks combined ({} primary vertices' contributors and {} without a particle not), {} candidates, {} fitted (records into {}), {} MC V0s ({} found) into {}; the daughter table {} entries in {:.3f} s, the S^2 in {:.3f} s, the vertices in {:.3f} s, the fits {:.1f} thread-s",
+                        mTracks, mContributors, mUnassociated, mPairs, mFitted, mWriter->path(), mDecays, mFound, mDecayWriter->path(), mEntries, mFlushSeconds, mDisplacementSeconds, mVertexSeconds, mFitMicroseconds * 1e-6)};
   }
 
  private:
@@ -302,6 +303,7 @@ class DecayFinderStudy
   std::unique_ptr<RecordWriter> mDecayWriter;
   std::size_t mTracks = 0U;
   std::size_t mUnassociated = 0U;
+  std::size_t mContributors = 0U;
   std::size_t mPairs = 0U;
   std::size_t mFitted = 0U;
   std::size_t mDecays = 0U;
@@ -348,43 +350,26 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     });
   };
 
-  // The mocked primary vertices, and the vertex without each of their tracks.
+  // The tracks associated to the mocked primary vertices; a vertex's
+  // contributors are not combined.
   const auto vertexStart = std::chrono::steady_clock::now();
-  ChainSelection primaries;
-  primaries.origins = 1U << static_cast<unsigned>(ParticleOrigin::kPhysicalPrimary);
-  ChainCounts unusedCounts;
-  const auto primaryChains = trackChains(event, store, primaries, unusedCounts);
-  std::vector<ReferencePoint> points;
-  std::unordered_map<std::uint64_t, std::int32_t> pointOf;
-  std::unordered_map<std::uint32_t, ReferencePoint> withoutTrack;
-  for (auto& vertex : mockPrimaryVertices(event, std::span<const Chain>{primaryChains})) {
-    if (vertex.fit.status != VertexFitStatus::kOk) {
-      continue;
-    }
-    pointOf.emplace(vertex.collision, static_cast<std::int32_t>(points.size()));
-    points.push_back({.position = vertex.fit.vertex, .covariance = vertex.fit.covariance});
-    for (std::size_t i = 0; i < vertex.trackIds.size(); ++i) {
-      withoutTrack.emplace(vertex.trackIds[i], vertex.without[i]);
-    }
-  }
+  const auto association = mockAssociation(event);
   mVertexSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - vertexStart).count();
-
-  // Every committed track's particle (its good one, a fake's majority one)
-  // and its collision.
+  const auto& points = association.points;
+  const auto& pointOf = association.pointOf;
+  const auto& particleOf = association.particle;
+  const auto& fake = association.fake;
+  const auto contributor = [&](std::uint32_t t) { return (association.flags[t] & static_cast<std::uint8_t>(TrackFlag::kPrimaryVertexContributor)) != 0U; };
   const auto n = static_cast<std::uint32_t>(store.size());
-  std::vector<std::uint64_t> particleOf(n, kNoTrackParticle);
-  std::vector<std::uint8_t> fake(n, 0U);
-  forEach(n, [&](std::uint32_t t) {
-    const auto rows = store.rows(t);
-    const auto good = goodParticle(event.rows, rows);
-    particleOf[t] = good != kNoTrackParticle ? good : majorityParticle(event.rows, rows).particle;
-    fake[t] = good == kNoTrackParticle ? 1U : 0U;
-  });
   std::unordered_map<std::uint64_t, std::array<std::vector<std::uint32_t>, 2>> byCollision; // positive, negative
   std::vector<std::uint64_t> collisions;
   for (std::uint32_t t = 0; t < n; ++t) {
     if (particleOf[t] == kNoTrackParticle) {
       ++mUnassociated;
+      continue;
+    }
+    if (contributor(t)) {
+      ++mContributors;
       continue;
     }
     const auto collision = collisionOf(particleOf[t]);
@@ -417,8 +402,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   mFlushSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - flushStart).count();
   mEntries += table.size();
 
-  // Each entry's displacement against its collision's point (a primary
-  // vertex's own track against the vertex without it).
+  // Each entry's displacement against its collision's point.
   const auto entries = table.view();
   const auto displacementStart = std::chrono::steady_clock::now();
   std::vector<float> s2(table.size(), std::numeric_limits<float>::quiet_NaN());
@@ -428,13 +412,12 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     if (entries.status[e] != PropagationStatus::kOk) {
       return;
     }
-    const auto own = withoutTrack.find(t);
     const auto shared = pointOf.find(collisionOf(particleOf[t]));
-    if (own == withoutTrack.end() && shared == pointOf.end()) {
+    if (shared == pointOf.end()) {
       noPoint[e] = 1U;
       return;
     }
-    const auto& point = own != withoutTrack.end() ? own->second : points[static_cast<std::size_t>(shared->second)];
+    const auto& point = points[static_cast<std::size_t>(shared->second)];
     const auto& surface = geometry.planeOf(measurementAt(frame, store.rows(t).front()));
     s2[e] = static_cast<float>(displacement(event.propagator, geometry, surface, entries.state[e], table.species()[entries.species[e]], point));
   });
@@ -638,6 +621,9 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     const auto stageOf = [&]() {
       if (positive == trackOfLeg.end() || negative == trackOfLeg.end()) {
         return FinderStage::kNotFound;
+      }
+      if (contributor(positive->second) || contributor(negative->second)) {
+        return FinderStage::kContributor;
       }
       const auto& hypothesis = hypotheses[static_cast<std::size_t>(decay.hypothesis)];
       const auto ePositive = table.entryOf(positive->second, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[0])));

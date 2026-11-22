@@ -142,12 +142,9 @@ struct MockPrimaryVertex {
   float microseconds = 0.F;   ///< the fit's, the refits apart
   float maxTrackChi2 = 0.F;   ///< the largest track's chi2 at the solution
   std::uint64_t worstParticle = 0U;
-  /// Per fitted chain from the tracker (in their order): its committed
-  /// track, and the vertex without it at the solution's linearisation
-  /// (`PrimaryVertexFitter::withoutTrack`), what a test of that track
-  /// against its own vertex takes.
-  std::vector<std::uint32_t> trackIds;
-  std::vector<ReferencePoint> without;
+  /// Its fitted chains' committed tracks (the chains from the tracker): its
+  /// contributors.
+  std::vector<std::uint32_t> contributors;
 };
 
 namespace primary_vertex_detail
@@ -247,17 +244,62 @@ template <DetectorLayout Det>
           out.worstParticle = fitted[i]->particle;
         }
         if (fitted[i]->track) {
-          ReferencePoint point;
-          if (fitter.withoutTrack(static_cast<int>(i), point.position, point.covariance)) {
-            out.trackIds.push_back(fitted[i]->track->track);
-            out.without.push_back(point);
-          }
+          out.contributors.push_back(fitted[i]->track->track);
         }
       }
       out.maxTrackChi2 = static_cast<float>(worstChi2);
     }
   });
   return vertices;
+}
+
+/// A timeframe's committed tracks associated to the mocked primary vertices
+/// (`mockAssociation`), as a vertexer's association would give them: each
+/// track's collision is its good particle's (a fake's majority particle's),
+/// its flags say whether it entered its vertex's fit.
+struct MockAssociation {
+  std::vector<std::uint64_t> particle;                     ///< per track: its good particle, a fake's majority one, kNoTrackParticle on noise only
+  std::vector<std::uint8_t> fake;                          ///< per track: 1 without a good particle
+  std::vector<std::uint8_t> flags;                         ///< per track: TrackFlag bits
+  std::vector<ReferencePoint> points;                      ///< the collisions' fitted vertices
+  std::unordered_map<std::uint64_t, std::int32_t> pointOf; ///< a collision's point, none without a fitted vertex
+};
+
+/// \a event's tracks associated to their collisions' mocked primary vertices
+/// (`mockPrimaryVertices` of their physical primaries' good tracks): every
+/// track the fit of its vertex took flagged `kPrimaryVertexContributor`.
+template <DetectorLayout Det>
+[[nodiscard]] MockAssociation mockAssociation(const TruthEvent<Det>& event)
+{
+  const auto& store = *event.tracks;
+  MockAssociation out;
+  const auto n = store.size();
+  out.particle.assign(n, kNoTrackParticle);
+  out.fake.assign(n, 0U);
+  out.flags.assign(n, 0U);
+  o2::gtrk::detail::parallelFor(*event.arena, 0U, n, 256, [&](std::size_t begin, std::size_t end) {
+    for (std::size_t t = begin; t < end; ++t) {
+      const auto rows = store.rows(t);
+      const auto good = goodParticle(event.rows, rows);
+      out.particle[t] = good != kNoTrackParticle ? good : majorityParticle(event.rows, rows).particle;
+      out.fake[t] = good == kNoTrackParticle ? 1U : 0U;
+    }
+  });
+  ChainSelection primaries;
+  primaries.origins = 1U << static_cast<unsigned>(ParticleOrigin::kPhysicalPrimary);
+  ChainCounts unusedCounts;
+  const auto chains = trackChains(event, store, primaries, unusedCounts);
+  for (const auto& vertex : mockPrimaryVertices(event, std::span<const Chain>{chains})) {
+    if (vertex.fit.status != VertexFitStatus::kOk) {
+      continue;
+    }
+    out.pointOf.emplace(vertex.collision, static_cast<std::int32_t>(out.points.size()));
+    out.points.push_back({.position = vertex.fit.vertex, .covariance = vertex.fit.covariance});
+    for (const auto t : vertex.contributors) {
+      out.flags[t] |= static_cast<std::uint8_t>(TrackFlag::kPrimaryVertexContributor);
+    }
+  }
+  return out;
 }
 
 template <DetectorLayout Det>
