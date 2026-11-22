@@ -970,6 +970,7 @@ BOOST_AUTO_TEST_CASE(APrimaryVertexIsTheDecayFitsVertex)
   for (const unsigned seed : {1U, 2U, 3U}) {
     for (const std::size_t count : {std::size_t{2}, std::size_t{3}}) {
       std::vector<DecayDaughter> exact;
+      exact.reserve(count);
       for (std::size_t i = 0; i < count; ++i) {
         exact.push_back(daughterOf(kDaughters[i], prop));
       }
@@ -977,6 +978,7 @@ BOOST_AUTO_TEST_CASE(APrimaryVertexIsTheDecayFitsVertex)
       const auto decay = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{daughters}, UniformMaterial{});
       BOOST_REQUIRE(decay.status == VertexFitStatus::kOk);
       std::vector<VertexTrack> tracks;
+      tracks.reserve(daughters.size());
       for (const auto& daughter : daughters) {
         tracks.push_back({.innermost = daughter.innermost, .surface = daughter.surface, .propagator = daughter.propagator});
       }

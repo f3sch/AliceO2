@@ -147,7 +147,7 @@ class DecayCandidateStudy
     const auto chainOf = longestChains(chains);
     struct Pair {
       const TreeParticle* mother = nullptr;
-      std::array<const Chain*, 2> chains{}; ///< positive, negative
+      std::array<std::uint32_t, 2> tracks{}; ///< the positive's, the negative's
       std::array<std::int32_t, 2> pdgs{};
     };
     std::vector<Pair> pairs;
@@ -159,15 +159,20 @@ class DecayCandidateStudy
       }
       const auto first = chainOf.find(products[0]->id);
       const auto second = chainOf.find(products[1]->id);
-      if (first == chainOf.end() || second == chainOf.end() || !first->second->track || !second->second->track) {
+      if (first == chainOf.end() || second == chainOf.end()) {
         continue;
       }
-      const auto chargeOf = [&](const Chain* chain) { return tracks.state[chain->track->track].qOverP() > 0.F ? 1 : -1; };
-      if (chargeOf(first->second) == chargeOf(second->second)) {
+      const auto& firstContext = first->second->track;
+      const auto& secondContext = second->second->track;
+      if (!firstContext || !secondContext) {
         continue;
       }
-      const bool firstPositive = chargeOf(first->second) > 0;
-      pairs.push_back({.mother = &member, .chains = {firstPositive ? first->second : second->second, firstPositive ? second->second : first->second}, .pdgs = {firstPositive ? products[0]->pdg : products[1]->pdg, firstPositive ? products[1]->pdg : products[0]->pdg}});
+      const auto chargeOf = [&](std::uint32_t t) { return tracks.state[t].qOverP() > 0.F ? 1 : -1; };
+      if (chargeOf(firstContext->track) == chargeOf(secondContext->track)) {
+        continue;
+      }
+      const bool firstPositive = chargeOf(firstContext->track) > 0;
+      pairs.push_back({.mother = &member, .tracks = {firstPositive ? firstContext->track : secondContext->track, firstPositive ? secondContext->track : firstContext->track}, .pdgs = {firstPositive ? products[0]->pdg : products[1]->pdg, firstPositive ? products[1]->pdg : products[0]->pdg}});
     }
 
     // Every pair's tracks under every species, refitted once.
@@ -176,9 +181,9 @@ class DecayCandidateStudy
       throw std::runtime_error("decay candidate study: no daughter table");
     }
     for (const auto& pair : pairs) {
-      for (const auto* chain : pair.chains) {
+      for (const auto t : pair.tracks) {
         for (std::size_t s = 0; s < species.size(); ++s) {
-          table.request(chain->track->track, static_cast<std::uint8_t>(s));
+          table.request(t, static_cast<std::uint8_t>(s));
         }
       }
     }
@@ -205,7 +210,7 @@ class DecayCandidateStudy
         DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h)};
         bool pidMatch = true;
         for (std::size_t slot = 0; slot < 2U; ++slot) {
-          const auto entry = table.entryOf(pair.chains[slot]->track->track, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
+          const auto entry = table.entryOf(pair.tracks[slot], static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
           candidate.entries.push_back(static_cast<std::uint32_t>(entry));
           const auto truthSpeciesOf = truthSpecies(pair.pdgs[slot]);
           pidMatch = pidMatch && truthSpeciesOf && truthSpeciesOf->pid == hypothesis.species[slot];

@@ -109,7 +109,7 @@ class DecayFitBatch
       throw std::invalid_argument("decay fit batch: more tracked mothers or starts than vertices");
     }
     DecayFitInput input{.starts = static_cast<std::uint32_t>(start.size()), .firstDaughter = static_cast<std::uint32_t>(mDaughters.size()), .daughters = static_cast<std::uint32_t>(daughters.size()), .firstMother = static_cast<std::uint32_t>(mMothers.size()), .mothers = static_cast<std::uint32_t>(mothers.size()), .constraints = constraints, .topology = topology};
-    std::copy(start.begin(), start.end(), input.start.begin());
+    std::ranges::copy(start, input.start.begin());
     mDaughters.insert(mDaughters.end(), daughters.begin(), daughters.end());
     for (const auto& mother : mothers) {
       mMothers.push_back({.vertex = mother.vertex, .propagator = mother.propagator, .firstRow = static_cast<std::uint32_t>(mPlanes.size()), .rows = static_cast<std::uint32_t>(mother.planes.size()), .firstPosition = static_cast<std::uint32_t>(mPositions.size()), .positions = static_cast<std::uint32_t>(mother.positions.size()), .firstCovariance = static_cast<std::uint32_t>(mCovariance.size()), .covariances = static_cast<std::uint32_t>(mother.covariance.size())});

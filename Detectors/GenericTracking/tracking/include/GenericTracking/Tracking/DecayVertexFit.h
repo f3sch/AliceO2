@@ -711,7 +711,7 @@ class DecayVertexFitter
     if (mCount < 2) {
       return;
     }
-    if (static_cast<int>(start.size()) < mVertexCount) {
+    if (std::cmp_less(start.size(), mVertexCount)) {
       return; // no start (kNoStart)
     }
     mResult->carried.resize(static_cast<std::size_t>(mCount));

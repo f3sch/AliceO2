@@ -260,7 +260,7 @@ class PrimaryVertexFitter
 
   [[nodiscard]] GPUhdi() static std::size_t layout(int tracks, std::byte* base, Space& space)
   {
-    const auto n = static_cast<std::size_t>(3 + (3 * tracks));
+    const auto n = std::size_t{3} + (std::size_t{3} * static_cast<std::size_t>(tracks));
     const auto count = static_cast<std::size_t>(tracks);
     std::size_t at = 0U;
     space.parameters = place<double>(base, at, n);
@@ -503,7 +503,7 @@ class PrimaryVertexFitter
       }
     }
     for (int i = 0; i < mCount; ++i) {
-      const S* q = v + 3 + (3 * i);
+      const S* q = v + 3 + (std::ptrdiff_t{3} * i);
       for (int r = 0; r < 3; ++r) {
         for (int c = 0; c < 3; ++c) {
           sum += 2. * static_cast<double>(q[r]) * static_cast<double>(coupling(i, r, c)) * static_cast<double>(v[c]);
@@ -522,7 +522,7 @@ class PrimaryVertexFitter
       dDd += static_cast<double>(mVertexBlock[covIndex(k, k)]) * static_cast<double>(v[k]) * static_cast<double>(v[k]);
     }
     for (int i = 0; i < mCount; ++i) {
-      const S* q = v + 3 + (3 * i);
+      const S* q = v + 3 + (std::ptrdiff_t{3} * i);
       for (int r = 0; r < 3; ++r) {
         gd += static_cast<double>(mSpace.terms[i].gradient[3 + r]) * static_cast<double>(q[r]);
         dDd += static_cast<double>(momentumBlock(i, r, r)) * static_cast<double>(q[r]) * static_cast<double>(q[r]);
@@ -538,7 +538,7 @@ class PrimaryVertexFitter
   }
 
   std::span<const VertexTrack> mTracks;
-  const Material& mMaterial;
+  const Material& mMaterial; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   BeamPrior mPrior;
   int mCount = 0;
   int mParameterCount = 0;

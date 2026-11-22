@@ -234,11 +234,16 @@ void CascadeCandidateStudy<Det>::process(const TruthEvent<Det>& event, std::span
     bool usable = true;
     for (const auto* product : products) {
       const auto chain = chainOf.find(product->id);
-      if (chain == chainOf.end() || !chain->second->track) {
+      if (chain == chainOf.end()) {
         usable = false;
         break;
       }
-      const auto t = chain->second->track->track;
+      const auto& context = chain->second->track;
+      if (!context) {
+        usable = false;
+        break;
+      }
+      const auto t = context->track;
       const int slot = committed.state[t].qOverP() > 0.F ? 0 : 1;
       const auto truth = truthSpecies(product->pdg);
       if (!truth || truth->pid != hypotheses[static_cast<std::size_t>(sign)].species[static_cast<std::size_t>(slot)] || (particleCharge(product->pdg) > 0.) != (slot == 0)) {

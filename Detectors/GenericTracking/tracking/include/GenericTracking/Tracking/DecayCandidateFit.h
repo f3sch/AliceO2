@@ -50,6 +50,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace o2::gtrk
@@ -173,7 +174,7 @@ template <DetectorLayout Det>
     return tree.status;
   }
   const auto vertices = static_cast<std::size_t>(tree.topology.vertices());
-  if ((candidate.point >= 0 && static_cast<std::size_t>(candidate.point) >= points) || candidate.entries.size() != tree.species.size() || candidate.start.size() > vertices) {
+  if ((candidate.point >= 0 && std::cmp_greater_equal(candidate.point, points)) || candidate.entries.size() != tree.species.size() || candidate.start.size() > vertices) {
     return VertexFitStatus::kInvalidInput;
   }
   const auto view = table.view();

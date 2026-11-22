@@ -158,7 +158,7 @@ class DaughterTable
   /// entry exists or is asked for.
   void request(std::uint32_t track, std::uint8_t s)
   {
-    std::atomic_ref<std::int32_t> slot{mEntryOf[key(track, s)]};
+    const std::atomic_ref<std::int32_t> slot{mEntryOf[key(track, s)]};
     std::int32_t none = kNone;
     slot.compare_exchange_strong(none, kRequested, std::memory_order_relaxed);
   }

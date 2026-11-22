@@ -807,7 +807,12 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
     }
     for (const auto& one : work) {
       for (const auto* leaf : one.leaves) {
-        table->request(chainOf.at(leaf->id)->track->track, static_cast<std::uint8_t>(table->speciesIndex(truthSpecies(leaf->pdg)->pid)));
+        const auto& context = chainOf.at(leaf->id)->track;
+        const auto species = truthSpecies(leaf->pdg);
+        if (!context || !species) {
+          throw std::logic_error("decay fit study: a track chain without its track, or a leaf without its species");
+        }
+        table->request(context->track, static_cast<std::uint8_t>(table->speciesIndex(species->pid)));
       }
     }
     const auto forEach = [&](std::uint32_t n, const auto& body) {

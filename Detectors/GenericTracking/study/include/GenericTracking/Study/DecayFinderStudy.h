@@ -434,10 +434,11 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   std::vector<Decay> decays;
   std::unordered_map<std::uint64_t, std::size_t> decayOfLeg;
   for (const auto& member : trees.particles) {
-    const auto h = static_cast<int>(std::ranges::find(kMothers, member.pdg) - kMothers.begin());
-    if (h >= static_cast<int>(kMothers.size())) {
+    const auto found = std::ranges::find(kMothers, member.pdg);
+    if (found == kMothers.end()) {
       continue;
     }
+    const auto h = static_cast<int>(found - kMothers.begin());
     const auto products = decayProducts(trees, member);
     if (products.size() != 2U) {
       continue;
@@ -488,7 +489,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     const auto& state = entries.state[static_cast<std::size_t>(e)];
     std::array<Scalar, 3> at{};
     surfaceToGlobal(geometry.planeOf(state), state.loc0(), state.loc1(), at.data());
-    return static_cast<float>(std::hypot(at[0], at[1]));
+    return std::hypot(at[0], at[1]);
   };
   std::vector<std::vector<DecayFinderCandidateRecord>> perCollision(std::min(collisions.size(), kCollisionsPerBlock));
   for (std::size_t first = 0; first < collisions.size(); first += kCollisionsPerBlock) {
