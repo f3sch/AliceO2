@@ -21,6 +21,7 @@
 #include "GenericTracking/Tracking/DecayFitBatch.h"
 #include "GenericTracking/Tracking/DecayFitConstraints.h"
 #include "GenericTracking/Tracking/DecayVertexFit.h"
+#include "GenericTracking/Tracking/PrimaryVertexFit.h"
 
 #include "UniformMaterial.h"
 
@@ -956,6 +957,118 @@ BOOST_AUTO_TEST_CASE(SmearedStatesGiveUnitPulls)
   }
   BOOST_TEST_MESSAGE("chi2 mean " << chi2 / fitted << " at ndf 3");
   BOOST_TEST(std::abs((chi2 / fitted) - 3.) < 0.2);
+}
+
+/// The primary vertex fit's block solve is the decay fit's dense one: on the
+/// same two and three tracks, one vertex, no constraint, and a prior so wide
+/// that it weighs nothing, from the same start, the same vertex, momenta and
+/// chi2 to rounding.
+BOOST_AUTO_TEST_CASE(APrimaryVertexIsTheDecayFitsVertex)
+{
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  for (const unsigned seed : {1U, 2U, 3U}) {
+    for (const std::size_t count : {std::size_t{2}, std::size_t{3}}) {
+      std::vector<DecayDaughter> exact;
+      for (std::size_t i = 0; i < count; ++i) {
+        exact.push_back(daughterOf(kDaughters[i], prop));
+      }
+      const auto daughters = smeared(exact, seed);
+      const auto decay = fitDecayVertex<TRKFT3, DecayFitVariant::kFull>(std::span<const DecayDaughter>{daughters}, UniformMaterial{});
+      BOOST_REQUIRE(decay.status == VertexFitStatus::kOk);
+      std::vector<VertexTrack> tracks;
+      for (const auto& daughter : daughters) {
+        tracks.push_back({.innermost = daughter.innermost, .surface = daughter.surface, .propagator = daughter.propagator});
+      }
+      BeamPrior wide{.position = {0., 0., 0.}};
+      for (int k = 0; k < 3; ++k) {
+        wide.covariance[covIndex(k, k)] = 1e12;
+      }
+      std::vector<Vec3D> momenta(count);
+      std::array<Vec3D, decay_fit_detail::kMaxConstrainedVertices> start{};
+      BOOST_REQUIRE(decayFitStart<TRKFT3>(std::span<const DecayDaughter>{daughters}, {}, {}, {}, start));
+      const auto primary = fitPrimaryVertex(std::span<const VertexTrack>{tracks}, UniformMaterial{}, wide, start[0], std::span<Vec3D>{momenta});
+      BOOST_TEST_MESSAGE("primary against decay fit: iterations " << int(primary.iterations) << " / " << int(decay.iterations) << ", outer " << int(primary.outer) << " / " << int(decay.outer) << ", dz " << primary.vertex[2] - decay.vertex[2] << ", dchi2 " << (primary.chi2 - primary.priorChi2) - decay.chi2);
+      BOOST_REQUIRE(primary.status == VertexFitStatus::kOk);
+      BOOST_TEST(primary.ndf == decay.ndf + 3);
+      for (int k = 0; k < 3; ++k) {
+        BOOST_TEST(std::abs(primary.vertex[k] - decay.vertex[k]) < 1e-9);
+        BOOST_TEST(std::abs(primary.covariance[covIndex(k, k)] - decay.covarianceAt(k, k)) < 1e-6 * decay.covarianceAt(k, k));
+      }
+      for (std::size_t i = 0; i < count; ++i) {
+        for (int c = 0; c < 3; ++c) {
+          BOOST_TEST(std::abs(momenta[i][c] - decay.momenta[i][c]) < 1e-9 * std::max(1., std::abs(decay.momenta[i][c])));
+        }
+      }
+      BOOST_TEST(std::abs((primary.chi2 - primary.priorChi2) - decay.chi2) < 1e-6 * std::max(1., decay.chi2));
+    }
+  }
+}
+
+/// A primary vertex of three tracks under a beam prior about the true
+/// vertex: unit pulls, the chi2's mean its ndf; the vertex without a track
+/// is the fit without it, to the linearisation.
+BOOST_AUTO_TEST_CASE(APrimaryVertexHasUnitPullsAndDropsATrack)
+{
+  Propagator prop;
+  prop.bzKiloGauss = 20.F;
+  std::vector<VertexTrack> exact;
+  for (const auto& truth : kDaughters) {
+    const auto daughter = daughterOf(truth, prop);
+    exact.push_back({.innermost = daughter.innermost, .surface = daughter.surface, .propagator = daughter.propagator});
+  }
+  constexpr std::array<double, 3> kWidths{0.002, 0.002, 0.05}; // [cm]
+  std::mt19937 random{4321U};
+  std::normal_distribution<double> gauss;
+  constexpr int kTrials = 2000;
+  std::array<PullMoments, 3> pulls{};
+  double chi2 = 0.;
+  int fitted = 0;
+  double worstDrop = 0.;
+  for (int trial = 0; trial < kTrials; ++trial) {
+    auto tracks = exact;
+    for (auto& track : tracks) {
+      for (int k = 0; k < 5; ++k) {
+        track.innermost.par[k] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(track.innermost.covAt(k, k))));
+      }
+    }
+    BeamPrior prior;
+    for (int k = 0; k < 3; ++k) {
+      prior.position[k] = kVertex[k] + (kWidths[k] * gauss(random));
+      prior.covariance[covIndex(k, k)] = kWidths[k] * kWidths[k];
+    }
+    PrimaryVertexFitter<UniformMaterial> fitter(std::span<const VertexTrack>{tracks}, UniformMaterial{}, prior);
+    std::vector<std::max_align_t> storage((fitter.workspace() + sizeof(std::max_align_t) - 1U) / sizeof(std::max_align_t));
+    PrimaryVertexFitResult fit;
+    fitter.fit(prior.position, std::as_writable_bytes(std::span{storage}).first(fitter.workspace()), fit);
+    if (fit.status != VertexFitStatus::kOk) {
+      continue;
+    }
+    ++fitted;
+    for (int k = 0; k < 3; ++k) {
+      pulls[k].add((fit.vertex[k] - kVertex[k]) / std::sqrt(fit.covariance[covIndex(k, k)]));
+    }
+    chi2 += fit.chi2;
+    if (trial < 50) {
+      Vec3D dropped{};
+      std::array<double, 6> droppedCovariance{};
+      BOOST_REQUIRE(fitter.withoutTrack(2, dropped, droppedCovariance));
+      const auto refit = fitPrimaryVertex(std::span<const VertexTrack>{tracks.data(), 2}, UniformMaterial{}, prior, prior.position);
+      BOOST_REQUIRE(refit.status == VertexFitStatus::kOk);
+      for (int k = 0; k < 3; ++k) {
+        worstDrop = std::max(worstDrop, std::abs(dropped[k] - refit.vertex[k]) / std::sqrt(refit.covariance[covIndex(k, k)]));
+      }
+    }
+  }
+  BOOST_TEST(fitted == kTrials);
+  for (int k = 0; k < 3; ++k) {
+    BOOST_TEST_MESSAGE("primary vertex " << k << ": pull mean " << pulls[k].mean(fitted) << ", width " << pulls[k].width(fitted));
+    BOOST_TEST(std::abs(pulls[k].mean(fitted)) < 0.1);
+    BOOST_TEST(std::abs(pulls[k].width(fitted) - 1.) < 0.05);
+  }
+  BOOST_TEST_MESSAGE("primary chi2 mean " << chi2 / fitted << " at ndf 6; the dropped track's vertex within " << worstDrop << " sigma of the refit");
+  BOOST_TEST(std::abs((chi2 / fitted) - 6.) < 0.3);
+  BOOST_TEST(worstDrop < 0.05);
 }
 
 BOOST_AUTO_TEST_CASE(TheMixtureCollapseIsTheTwoPassOne)
