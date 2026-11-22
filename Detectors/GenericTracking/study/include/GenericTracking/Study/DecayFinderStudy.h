@@ -27,18 +27,19 @@
 /// impact parameters, V their covariance, C the point's, J their derivative
 /// by the point (-u across, cot(theta) t - z along). Every opposite-charge
 /// pair of a collision under every V0 hypothesis (K0S -> pi+ pi-, Lambda ->
-/// p pi-, anti-Lambda -> anti-p pi+) is counted; it is a candidate when both
-/// its entries' S^2 reach the generation floor (`kGenerationProbability`
-/// of chi2 with two degrees of freedom: the analysis scans tighter cuts
-/// above it), or when it is an MC V0's own pair and hypothesis, which is
-/// always fitted for the decay's record. Each candidate starts at its
-/// helices' closest approach and is fitted (DecayCandidateFit.h).
+/// p pi-, anti-Lambda -> anti-p pi+) is a candidate: nothing is cut, every
+/// one is fitted and written, its legs' S^2, the fit and its observables
+/// beside it for the analysis to select on. Each candidate starts at its
+/// helices' closest approach and is fitted (DecayCandidateFit.h); a
+/// candidate whose leg's refit failed is written with that status, unfitted.
+/// The collisions go in blocks, each block's records written before the
+/// next is fitted, so the memory is a block's.
 ///
 /// Records: one per candidate (`DecayFinderCandidateRecord`): its MC class,
 /// whether its species are its tracks' true ones (`pidMatch`: perfect PID
 /// keeps those alone) and how many of its tracks are primaries (a perfect
-/// rejection of primaries keeps none), its legs' S^2, the fit and its
-/// observables. One per MC V0 decaying into its two charged daughters
+/// rejection of primaries keeps none), its legs' S^2, the start's and the
+/// legs' innermost radii, the fit and its observables. One per MC V0 decaying into its two charged daughters
 /// (`DecayFinderDecayRecord`, a second file beside the first, `-decays`):
 /// the first stage that lost it, its legs' S^2 under their true species,
 /// its own candidate's fit.
@@ -61,7 +62,6 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -91,15 +91,14 @@ enum class FinderClass : std::uint8_t {
 
 /// Where an MC V0 was lost (`DecayFinderDecayRecord::stage`), the first of:
 enum class FinderStage : std::uint8_t {
-  kFound = 0,    ///< its own candidate passed the generation floor and was fitted
-  kNotFound,     ///< a daughter has no good track
-  kRefitFailed,  ///< a daughter's refit under its true species failed
-  kNoPoint,      ///< its collision has no mocked primary vertex
-  kCarryFailed,  ///< a daughter's carry to the point failed
-  kWrongCharge,  ///< both tracks of one reconstructed charge
-  kDisplacement, ///< below the generation floor (fitted anyway: its fit is recorded)
-  kNoStart,      ///< the helices give no start
-  kFitFailed     ///< the fit failed
+  kFound = 0,   ///< its own candidate was fitted
+  kNotFound,    ///< a daughter has no good track
+  kRefitFailed, ///< a daughter's refit under its true species failed
+  kNoPoint,     ///< its collision has no mocked primary vertex
+  kCarryFailed, ///< a daughter's carry to the point failed
+  kWrongCharge, ///< both tracks of one reconstructed charge
+  kNoStart,     ///< the helices give no start
+  kFitFailed    ///< the fit failed
 };
 
 /// One candidate (`DecayFinderStudy`).
@@ -111,13 +110,15 @@ struct DecayFinderCandidateRecord {
   std::uint8_t truthClass = 0U; ///< FinderClass
   std::uint8_t pidMatch = 0U;   ///< every slot's species its track's true one
   std::uint8_t primaries = 0U;  ///< its tracks whose particle is a physical primary
-  std::uint8_t generated = 0U;  ///< passed the generation floor (else fitted for its MC V0 only)
   std::uint64_t mother = 0U;    ///< the common MC mother, 0 without one
   std::int32_t motherPdg = 0;
   float s2Positive = 0.F; ///< the legs' displacement S^2
   float s2Negative = 0.F;
   float ptPositive = 0.F; ///< the legs' entries' pT [GeV]
   float ptNegative = 0.F;
+  float firstPositive = 0.F; ///< the legs' innermost measurements' transverse radii [cm]
+  float firstNegative = 0.F;
+  float startRadius = 0.F;  ///< the start's transverse radius [cm], 0 without one
   std::uint8_t status = 0U; ///< VertexFitStatus
   std::uint8_t iterations = 0U;
   float chi2 = 0.F;
@@ -139,13 +140,15 @@ struct DecayFinderCandidateRecord {
     visit("truthClass", truthClass);
     visit("pidMatch", pidMatch);
     visit("primaries", primaries);
-    visit("generated", generated);
     visit("mother", mother);
     visit("motherPdg", motherPdg);
     visit("s2Positive", s2Positive);
     visit("s2Negative", s2Negative);
     visit("ptPositive", ptPositive);
     visit("ptNegative", ptNegative);
+    visit("firstPositive", firstPositive);
+    visit("firstNegative", firstNegative);
+    visit("startRadius", startRadius);
     visit("status", status);
     visit("iterations", iterations);
     visit("chi2", chi2);
@@ -213,12 +216,9 @@ struct DecayFinderDecayRecord {
 namespace decay_finder_detail
 {
 
-/// The generation floor: a pair is a candidate when both its entries' S^2
-/// exceed chi2's quantile of this probability at two degrees of freedom
-/// (-2 ln p). A floor for what is recorded, not the selection: the
-/// analysis scans tighter cuts above it, and every MC V0 is fitted whatever
-/// its S^2.
-inline constexpr double kGenerationProbability = 0.05;
+/// The collisions fitted and written as one block (the file's comment):
+/// what bounds the records held at once.
+inline constexpr std::size_t kCollisionsPerBlock = 256U;
 
 /// \a path with \a tag before its extension.
 [[nodiscard]] inline std::string taggedPath(const std::string& path, std::string_view tag)
@@ -286,8 +286,8 @@ class DecayFinderStudy
 
   [[nodiscard]] std::vector<std::string> summary() const
   {
-    return {std::format("decay finder study: {} tracks combined ({} without a particle), {} pairs x hypotheses, {} candidates generated, {} fitted (records into {}), {} MC V0s ({} found) into {}; the daughter table {} entries in {:.3f} s, the S^2 in {:.3f} s, the vertices in {:.3f} s, the fits {:.1f} thread-s",
-                        mTracks, mUnassociated, mPairs, mGenerated, mFitted, mWriter->path(), mDecays, mFound, mDecayWriter->path(), mEntries, mFlushSeconds, mDisplacementSeconds, mVertexSeconds, mFitMicroseconds * 1e-6)};
+    return {std::format("decay finder study: {} tracks combined ({} without a particle), {} candidates, {} fitted (records into {}), {} MC V0s ({} found) into {}; the daughter table {} entries in {:.3f} s, the S^2 in {:.3f} s, the vertices in {:.3f} s, the fits {:.1f} thread-s",
+                        mTracks, mUnassociated, mPairs, mFitted, mWriter->path(), mDecays, mFound, mDecayWriter->path(), mEntries, mFlushSeconds, mDisplacementSeconds, mVertexSeconds, mFitMicroseconds * 1e-6)};
   }
 
  private:
@@ -296,7 +296,6 @@ class DecayFinderStudy
   std::size_t mTracks = 0U;
   std::size_t mUnassociated = 0U;
   std::size_t mPairs = 0U;
-  std::size_t mGenerated = 0U;
   std::size_t mFitted = 0U;
   std::size_t mDecays = 0U;
   std::size_t mFound = 0U;
@@ -320,7 +319,6 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   const auto& frame = *event.frame;
   const auto& trees = *event.trees;
   const auto committed = store.tracks().view();
-  const double floor = -2. * std::log(kGenerationProbability);
 
   const std::array<PID, 2> species{PID{PID::Pion}, PID{PID::Proton}};
   constexpr std::array<std::int32_t, 3> kMothers{310, 3122, -3122};
@@ -491,124 +489,132 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     const auto found = event.particles->find(particleOf[t]);
     return fake[t] == 0U && found != event.particles->end() && found->second.origin == ParticleOrigin::kPhysicalPrimary;
   };
-  std::vector<std::vector<DecayFinderCandidateRecord>> perCollision(collisions.size());
-  std::atomic<std::size_t> pairCount{0U};
   const auto one = [](std::uint32_t count, const auto& body) {
     for (std::uint32_t i = 0; i < count; ++i) {
       body(i);
     }
   };
-  o2::gtrk::detail::parallelFor(*event.arena, 0U, collisions.size(), 1, [&](std::size_t begin, std::size_t end) {
-    for (std::size_t c = begin; c < end; ++c) {
-      const auto collision = collisions[c];
-      const auto& lists = byCollision.at(collision);
-      const auto point = pointOf.find(collision);
-      auto& out = perCollision[c];
-      pairCount += lists[0].size() * lists[1].size() * hypotheses.size();
-      for (const auto positive : lists[0]) {
-        for (const auto negative : lists[1]) {
-          const auto mother = motherOf(positive);
-          const bool sameMother = mother != kNoTreeParticle && mother == motherOf(negative);
-          const auto ownDecay = sameMother ? decayOfLeg.find(particleOf[positive]) : decayOfLeg.end();
-          const bool ownPair = ownDecay != decayOfLeg.end() && trackOfLeg.at(particleOf[positive]) == positive && trackOfLeg.contains(particleOf[negative]) && trackOfLeg.at(particleOf[negative]) == negative;
-          for (std::size_t h = 0; h < hypotheses.size(); ++h) {
-            const auto& hypothesis = hypotheses[h];
-            const auto ePositive = table.entryOf(positive, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[0])));
-            const auto eNegative = table.entryOf(negative, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[1])));
-            const float s2Positive = s2[static_cast<std::size_t>(ePositive)];
-            const float s2Negative = s2[static_cast<std::size_t>(eNegative)];
-            const bool own = ownPair && decays[ownDecay->second].hypothesis == static_cast<int>(h);
-            const bool generated = s2Positive >= floor && s2Negative >= floor;
-            if (!generated && !own) {
-              continue;
-            }
-            DecayFinderCandidateRecord record{.timeframe = event.timeframe, .collision = collision, .hypothesis = static_cast<std::uint8_t>(h), .generated = static_cast<std::uint8_t>(generated ? 1U : 0U), .s2Positive = s2Positive, .s2Negative = s2Negative};
-            record.primaries = static_cast<std::uint8_t>((isPrimary(positive) ? 1 : 0) + (isPrimary(negative) ? 1 : 0));
-            const auto truthPositive = truthSpecies(event.particles->at(particleOf[positive]).pdg);
-            const auto truthNegative = truthSpecies(event.particles->at(particleOf[negative]).pdg);
-            record.pidMatch = static_cast<std::uint8_t>(truthPositive && truthNegative && truthPositive->pid == hypothesis.species[0] && truthNegative->pid == hypothesis.species[1] ? 1U : 0U);
-            if (fake[positive] != 0U || fake[negative] != 0U) {
-              record.truthClass = static_cast<std::uint8_t>(FinderClass::kFake);
-            } else if (sameMother) {
-              const auto* m = trees.find(mother);
-              record.mother = mother;
-              record.motherPdg = m != nullptr ? m->pdg : 0;
-              if (ownDecay != decayOfLeg.end()) {
-                const bool chargesRight = particleCharge(event.particles->at(particleOf[positive]).pdg) > 0. && particleCharge(event.particles->at(particleOf[negative]).pdg) < 0.;
-                record.truthClass = static_cast<std::uint8_t>(!chargesRight ? FinderClass::kWrongCharge : (decays[ownDecay->second].hypothesis == static_cast<int>(h) ? FinderClass::kTrue : FinderClass::kOtherHypothesis));
+  const auto radiusOf = [&](std::int32_t e) {
+    const auto& state = entries.state[static_cast<std::size_t>(e)];
+    std::array<Scalar, 3> at{};
+    surfaceToGlobal(geometry.planeOf(state), state.loc0(), state.loc1(), at.data());
+    return static_cast<float>(std::hypot(at[0], at[1]));
+  };
+  std::vector<std::vector<DecayFinderCandidateRecord>> perCollision(std::min(collisions.size(), kCollisionsPerBlock));
+  for (std::size_t first = 0; first < collisions.size(); first += kCollisionsPerBlock) {
+    const std::size_t last = std::min(collisions.size(), first + kCollisionsPerBlock);
+    o2::gtrk::detail::parallelFor(*event.arena, first, last, 1, [&](std::size_t begin, std::size_t end) {
+      for (std::size_t c = begin; c < end; ++c) {
+        const auto collision = collisions[c];
+        const auto& lists = byCollision.at(collision);
+        const auto point = pointOf.find(collision);
+        auto& out = perCollision[c - first];
+        out.clear();
+        for (const auto positive : lists[0]) {
+          for (const auto negative : lists[1]) {
+            const auto mother = motherOf(positive);
+            const bool sameMother = mother != kNoTreeParticle && mother == motherOf(negative);
+            const auto ownDecay = sameMother ? decayOfLeg.find(particleOf[positive]) : decayOfLeg.end();
+            const bool ownPair = ownDecay != decayOfLeg.end() && trackOfLeg.at(particleOf[positive]) == positive && trackOfLeg.contains(particleOf[negative]) && trackOfLeg.at(particleOf[negative]) == negative;
+            for (std::size_t h = 0; h < hypotheses.size(); ++h) {
+              const auto& hypothesis = hypotheses[h];
+              const auto ePositive = table.entryOf(positive, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[0])));
+              const auto eNegative = table.entryOf(negative, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[1])));
+              const float s2Positive = s2[static_cast<std::size_t>(ePositive)];
+              const float s2Negative = s2[static_cast<std::size_t>(eNegative)];
+              const bool own = ownPair && decays[ownDecay->second].hypothesis == static_cast<int>(h);
+              DecayFinderCandidateRecord record{.timeframe = event.timeframe, .collision = collision, .hypothesis = static_cast<std::uint8_t>(h), .s2Positive = s2Positive, .s2Negative = s2Negative};
+              record.primaries = static_cast<std::uint8_t>((isPrimary(positive) ? 1 : 0) + (isPrimary(negative) ? 1 : 0));
+              const auto truthPositive = truthSpecies(event.particles->at(particleOf[positive]).pdg);
+              const auto truthNegative = truthSpecies(event.particles->at(particleOf[negative]).pdg);
+              record.pidMatch = static_cast<std::uint8_t>(truthPositive && truthNegative && truthPositive->pid == hypothesis.species[0] && truthNegative->pid == hypothesis.species[1] ? 1U : 0U);
+              if (fake[positive] != 0U || fake[negative] != 0U) {
+                record.truthClass = static_cast<std::uint8_t>(FinderClass::kFake);
+              } else if (sameMother) {
+                const auto* m = trees.find(mother);
+                record.mother = mother;
+                record.motherPdg = m != nullptr ? m->pdg : 0;
+                if (ownDecay != decayOfLeg.end()) {
+                  const bool chargesRight = particleCharge(event.particles->at(particleOf[positive]).pdg) > 0. && particleCharge(event.particles->at(particleOf[negative]).pdg) < 0.;
+                  record.truthClass = static_cast<std::uint8_t>(!chargesRight ? FinderClass::kWrongCharge : (decays[ownDecay->second].hypothesis == static_cast<int>(h) ? FinderClass::kTrue : FinderClass::kOtherHypothesis));
+                } else {
+                  record.truthClass = static_cast<std::uint8_t>(FinderClass::kOtherDecay);
+                }
               } else {
-                record.truthClass = static_cast<std::uint8_t>(FinderClass::kOtherDecay);
+                const bool positiveLeg = decayOfLeg.contains(particleOf[positive]);
+                const bool negativeLeg = decayOfLeg.contains(particleOf[negative]);
+                record.truthClass = static_cast<std::uint8_t>(positiveLeg != negativeLeg ? FinderClass::kOneLeg : FinderClass::kCombinatorial);
               }
-            } else {
-              const bool positiveLeg = decayOfLeg.contains(particleOf[positive]);
-              const bool negativeLeg = decayOfLeg.contains(particleOf[negative]);
-              record.truthClass = static_cast<std::uint8_t>(positiveLeg != negativeLeg ? FinderClass::kOneLeg : FinderClass::kCombinatorial);
-            }
-            const auto ptOf = [&](std::int32_t e) { const auto& state = entries.state[static_cast<std::size_t>(e)]; return static_cast<float>(std::abs(std::sin(state.theta()) / state.qOverP())); };
-            record.ptPositive = ptOf(ePositive);
-            record.ptNegative = ptOf(eNegative);
-            DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = point == pointOf.end() ? -1 : point->second};
-            candidate.entries.push_back(static_cast<std::uint32_t>(ePositive));
-            candidate.entries.push_back(static_cast<std::uint32_t>(eNegative));
-            DecayCandidateResult result;
-            const auto started = std::chrono::steady_clock::now();
-            if (entries.status[static_cast<std::size_t>(ePositive)] == PropagationStatus::kOk && entries.status[static_cast<std::size_t>(eNegative)] == PropagationStatus::kOk) {
-              const auto daughters = candidateDaughters(candidate, table, store, geometry, frame, event.propagator);
-              std::array<Vec3D, decay_fit_detail::kMaxConstrainedVertices> start{};
-              if (decayFitStart<Det>(std::span<const DecayDaughter>{daughters.data(), daughters.size()}, {}, {}, {}, start)) {
-                candidate.start.push_back(start[0]);
+              const auto ptOf = [&](std::int32_t e) { const auto& state = entries.state[static_cast<std::size_t>(e)]; return static_cast<float>(std::abs(std::sin(state.theta()) / state.qOverP())); };
+              const auto refitted = [&](std::int32_t e) { return entries.status[static_cast<std::size_t>(e)] == PropagationStatus::kOk; };
+              const auto nan = std::numeric_limits<float>::quiet_NaN();
+              record.ptPositive = refitted(ePositive) ? ptOf(ePositive) : nan;
+              record.ptNegative = refitted(eNegative) ? ptOf(eNegative) : nan;
+              record.firstPositive = refitted(ePositive) ? radiusOf(ePositive) : nan;
+              record.firstNegative = refitted(eNegative) ? radiusOf(eNegative) : nan;
+              DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = point == pointOf.end() ? -1 : point->second};
+              candidate.entries.push_back(static_cast<std::uint32_t>(ePositive));
+              candidate.entries.push_back(static_cast<std::uint32_t>(eNegative));
+              DecayCandidateResult result;
+              const auto started = std::chrono::steady_clock::now();
+              if (entries.status[static_cast<std::size_t>(ePositive)] == PropagationStatus::kOk && entries.status[static_cast<std::size_t>(eNegative)] == PropagationStatus::kOk) {
+                const auto daughters = candidateDaughters(candidate, table, store, geometry, frame, event.propagator);
+                std::array<Vec3D, decay_fit_detail::kMaxConstrainedVertices> start{};
+                if (decayFitStart<Det>(std::span<const DecayDaughter>{daughters.data(), daughters.size()}, {}, {}, {}, start)) {
+                  candidate.start.push_back(start[0]);
+                  record.startRadius = static_cast<float>(std::hypot(start[0][0], start[0][1]));
+                }
               }
-            }
-            fitDecayCandidates<Det>(one, std::span<const DecayCandidate>{&candidate, 1}, std::span<const DecayHypothesis>{hypotheses}, table, store, frame, geometry, event.propagator, geometry.material(), std::span<const ReferencePoint>{points}, std::span<DecayCandidateResult>{&result, 1});
-            record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
-            record.status = static_cast<std::uint8_t>(result.fit.status);
-            record.iterations = result.fit.iterations;
-            if (result.fit.status == VertexFitStatus::kOk) {
-              record.chi2 = static_cast<float>(result.fit.chi2);
-              record.ndf = static_cast<std::int16_t>(result.fit.ndf);
-              record.radius = static_cast<float>(std::hypot(result.fit.vertex[0], result.fit.vertex[1]));
-              record.mass = static_cast<float>(result.kinematics.mass);
-              record.sMass = static_cast<float>(result.kinematics.sMass);
-              if (result.hasPoint) {
-                record.length = static_cast<float>(result.flight.length);
-                record.sLength = static_cast<float>(result.flight.sLength);
-                record.cosPointing = static_cast<float>(result.flight.cosPointing);
-              }
-            }
-            if (own) {
-              // The decay's own candidate: its record's fit (one writer per decay).
-              auto& decay = decays[ownDecay->second];
-              auto& d = decay.record;
-              decay.fitted = true;
-              d.status = record.status;
-              d.s2Positive = s2Positive;
-              d.s2Negative = s2Negative;
+              fitDecayCandidates<Det>(one, std::span<const DecayCandidate>{&candidate, 1}, std::span<const DecayHypothesis>{hypotheses}, table, store, frame, geometry, event.propagator, geometry.material(), std::span<const ReferencePoint>{points}, std::span<DecayCandidateResult>{&result, 1});
+              record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
+              record.status = static_cast<std::uint8_t>(result.fit.status);
+              record.iterations = result.fit.iterations;
               if (result.fit.status == VertexFitStatus::kOk) {
-                const auto& decayPoint = decayProducts(trees, *decay.mother).front()->vertex;
-                d.chi2 = record.chi2;
-                d.ndf = record.ndf;
-                d.mass = record.mass;
-                d.sMass = record.sMass;
-                d.length = record.length;
-                d.sLength = record.sLength;
-                d.cosPointing = record.cosPointing;
-                d.dXY = static_cast<float>(std::hypot(result.fit.vertex[0] - decayPoint[0], result.fit.vertex[1] - decayPoint[1]));
-                d.dZ = static_cast<float>(result.fit.vertex[2] - decayPoint[2]);
+                record.chi2 = static_cast<float>(result.fit.chi2);
+                record.ndf = static_cast<std::int16_t>(result.fit.ndf);
+                record.radius = static_cast<float>(std::hypot(result.fit.vertex[0], result.fit.vertex[1]));
+                record.mass = static_cast<float>(result.kinematics.mass);
+                record.sMass = static_cast<float>(result.kinematics.sMass);
+                if (result.hasPoint) {
+                  record.length = static_cast<float>(result.flight.length);
+                  record.sLength = static_cast<float>(result.flight.sLength);
+                  record.cosPointing = static_cast<float>(result.flight.cosPointing);
+                }
               }
+              if (own) {
+                // The decay's own candidate: its record's fit (one writer per decay).
+                auto& decay = decays[ownDecay->second];
+                auto& d = decay.record;
+                decay.fitted = true;
+                d.status = record.status;
+                d.s2Positive = s2Positive;
+                d.s2Negative = s2Negative;
+                if (result.fit.status == VertexFitStatus::kOk) {
+                  const auto& decayPoint = decayProducts(trees, *decay.mother).front()->vertex;
+                  d.chi2 = record.chi2;
+                  d.ndf = record.ndf;
+                  d.mass = record.mass;
+                  d.sMass = record.sMass;
+                  d.length = record.length;
+                  d.sLength = record.sLength;
+                  d.cosPointing = record.cosPointing;
+                  d.dXY = static_cast<float>(std::hypot(result.fit.vertex[0] - decayPoint[0], result.fit.vertex[1] - decayPoint[1]));
+                  d.dZ = static_cast<float>(result.fit.vertex[2] - decayPoint[2]);
+                }
+              }
+              out.push_back(record);
             }
-            out.push_back(record);
           }
         }
       }
-    }
-  });
-  mPairs += pairCount;
-  for (const auto& records : perCollision) {
-    for (const auto& record : records) {
-      mWriter->write(record);
-      mGenerated += record.generated;
-      mFitted += record.status == static_cast<std::uint8_t>(VertexFitStatus::kOk) ? 1U : 0U;
-      mFitMicroseconds += record.microseconds;
+    });
+    for (std::size_t c = first; c < last; ++c) {
+      for (const auto& record : perCollision[c - first]) {
+        mWriter->write(record);
+        mFitted += record.status == static_cast<std::uint8_t>(VertexFitStatus::kOk) ? 1U : 0U;
+        mFitMicroseconds += record.microseconds;
+      }
+      mPairs += perCollision[c - first].size();
     }
   }
 
@@ -637,9 +643,6 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       }
       if (!decay.fitted) {
         return FinderStage::kWrongCharge; // both its tracks of one reconstructed charge: never paired
-      }
-      if (!(d.s2Positive >= floor && d.s2Negative >= floor)) {
-        return FinderStage::kDisplacement;
       }
       if (d.status == static_cast<std::uint8_t>(VertexFitStatus::kNoStart)) {
         return FinderStage::kNoStart;
