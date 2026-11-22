@@ -31,6 +31,7 @@
 #ifndef GTRK_STUDY_PRIMARYVERTEXSTUDY_H_
 #define GTRK_STUDY_PRIMARYVERTEXSTUDY_H_
 
+#include "GenericTracking/Tracking/DecayCandidateFit.h"
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/PrimaryVertexFit.h"
 #include "GenericTracking/Tracking/RoadFit.h"
@@ -44,6 +45,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <limits>
@@ -140,6 +142,12 @@ struct MockPrimaryVertex {
   float microseconds = 0.F;   ///< the fit's, the refits apart
   float maxTrackChi2 = 0.F;   ///< the largest track's chi2 at the solution
   std::uint64_t worstParticle = 0U;
+  /// Per fitted chain from the tracker (in their order): its committed
+  /// track, and the vertex without it at the solution's linearisation
+  /// (`PrimaryVertexFitter::withoutTrack`), what a test of that track
+  /// against its own vertex takes.
+  std::vector<std::uint32_t> trackIds;
+  std::vector<ReferencePoint> without;
 };
 
 namespace primary_vertex_detail
@@ -224,15 +232,29 @@ template <DetectorLayout Det>
         continue; // kNoStart
       }
       out.start = {beam.x, beam.y, weightedZ / weightSum};
-      std::vector<double> trackChi2(tracks.size());
       const auto started = std::chrono::steady_clock::now();
-      out.fit = fitPrimaryVertex(std::span<const VertexTrack>{tracks}, geometry.material(), prior, out.start, {}, std::span<double>{trackChi2});
+      PrimaryVertexFitter fitter(std::span<const VertexTrack>{tracks}, geometry.material(), prior);
+      std::vector<std::max_align_t> storage((fitter.workspace() + sizeof(std::max_align_t) - 1U) / sizeof(std::max_align_t));
+      fitter.fit(out.start, std::as_writable_bytes(std::span{storage}).first(fitter.workspace()), out.fit);
       out.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
-      if (out.fit.status == VertexFitStatus::kOk) {
-        const auto worst = static_cast<std::size_t>(std::ranges::max_element(trackChi2) - trackChi2.begin());
-        out.maxTrackChi2 = static_cast<float>(trackChi2[worst]);
-        out.worstParticle = fitted[worst]->particle;
+      if (out.fit.status != VertexFitStatus::kOk) {
+        continue;
       }
+      double worstChi2 = -1.;
+      for (std::size_t i = 0; i < fitted.size(); ++i) {
+        if (fitter.trackChi2(static_cast<int>(i)) > worstChi2) {
+          worstChi2 = fitter.trackChi2(static_cast<int>(i));
+          out.worstParticle = fitted[i]->particle;
+        }
+        if (fitted[i]->track) {
+          ReferencePoint point;
+          if (fitter.withoutTrack(static_cast<int>(i), point.position, point.covariance)) {
+            out.trackIds.push_back(fitted[i]->track->track);
+            out.without.push_back(point);
+          }
+        }
+      }
+      out.maxTrackChi2 = static_cast<float>(worstChi2);
     }
   });
   return vertices;
