@@ -3223,7 +3223,7 @@ class MeasurementSinkTask : public Task
           tracked(tracks);
         }
         const auto& funnel = mObservers.funnel;
-        streamQA(frame, comparisonRows, comparisonParticles, funnel.has_value() ? &*funnel : nullptr, tracks, mO2Tracks ? &theirs : nullptr);
+        streamQA(pc.services().get<o2::framework::TimingInfo>().firstTForbit, frame, comparisonRows, comparisonParticles, funnel.has_value() ? &*funnel : nullptr, tracks, mO2Tracks ? &theirs : nullptr);
       };
     };
     // --truth-study of the tracks source: the tracker's tracks into the studies.
@@ -3504,11 +3504,13 @@ class MeasurementSinkTask : public Task
     streamVertices(*mQAOutput, vertices);
   }
 
-  /// The tracker's tracks of this timeframe into the QA's trees;
-  /// \a theirs O2's (`o2TrackRows`), none
-  /// without --o2-tracks.
-  void streamQA(const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& particles, const Funnel* funnel, const TrackStore<Det>& tracks, const TrackRows* theirs)
+  /// The tracker's tracks of the timeframe at \a orbit into the QA's trees,
+  /// with \a measured, the particles its rows carry, and the timeframe's
+  /// other particles (`timeframeParticles`); \a theirs O2's (`o2TrackRows`),
+  /// none without --o2-tracks.
+  void streamQA(std::uint32_t orbit, const Frame& frame, std::span<const TruthRow> rows, const ParticleTable& measured, const Funnel* funnel, const TrackStore<Det>& tracks, const TrackRows* theirs)
   {
+    const auto [particles, inTimeframe] = timeframeParticles(orbit, measured);
     const auto view = tracks.tracks().view();
     const TrackRows ours = trackRows(tracks);
     std::vector<TrackKinematics> kinematics(tracks.size());
@@ -3672,10 +3674,10 @@ class MeasurementSinkTask : public Task
         }
       }
     }
-    stream(*mQAOutput, trackingQA(rows, particles, ours, kinematics, funnel != nullptr ? funnel->seededBy() : SeededBy{}, extras, theirs, workflow::iterationCount(recoParam<Det>()), findableRule()));
+    stream(*mQAOutput, trackingQA(rows, particles, ours, kinematics, funnel != nullptr ? funnel->seededBy() : SeededBy{}, extras, inTimeframe, theirs, workflow::iterationCount(recoParam<Det>()), findableRule()));
     if (theirs != nullptr) {
       const auto nativeKinematics = mO2Tracks->kinematics(static_cast<long long>(mTimeframe));
-      const auto nativeQA = trackingQA(rows, particles, *theirs, nativeKinematics, {}, extras, nullptr, 1, findableRule());
+      const auto nativeQA = trackingQA(rows, particles, *theirs, nativeKinematics, {}, extras, inTimeframe, nullptr, 1, findableRule());
       streamTracks(*mQAOutput, nativeQA.tracks, "tracksO2");
     }
     streamResolution(*mQAOutput, resolution);
@@ -3776,48 +3778,91 @@ class MeasurementSinkTask : public Task
         }
         if (!particles.contains(id)) {
           const auto* mc = mKinematics->getTrack(label);
-          const o2::MCTrack* mother = nullptr;
-          if (mc == nullptr) {
-            particles[id] = ParticleTruth{};
-          } else {
-            const auto& event = mKinematics->getTracks(label.getSourceID(), label.getEventID());
-            mother = o2::mcutils::MCTrackNavigator::getMother(*mc, event);
+          if (mc != nullptr) {
             if (const auto collision = collisionOf(id); !collisions.contains(collision)) {
               const auto& header = mKinematics->getMCEventHeader(label.getSourceID(), label.getEventID());
               collisions[collision] = {header.GetX(), header.GetY(), header.GetZ()};
             }
-            particles[id] = ParticleTruth{
-              .pt = static_cast<float>(mc->GetPt()),
-              .primary = mc->isPrimary(),
-              .eta = static_cast<float>(mc->GetEta()),
-              .phi = static_cast<float>(mc->GetPhi()),
-              .origin = particleOrigin(*mc, event),
-              .pdg = mc->GetPdgCode(),
-              .motherPdg = mother == nullptr ? 0 : mother->GetPdgCode(),
-              .process = static_cast<std::uint8_t>(mc->getProcess()),
-              .vx = static_cast<float>(mc->Vx()),
-              .vy = static_cast<float>(mc->Vy()),
-              .vz = static_cast<float>(mc->Vz()),
-            };
           }
-          auto& entry = mParticleLabels[id];
-          entry = {
-            .event = label.getEventID(),
-            .track = label.getTrackID(),
-            .source = label.getSourceID(),
-            .charge = mc == nullptr ? 0. : particleCharge(mc->GetPdgCode()),
-            .pdg = mc == nullptr ? 0 : mc->GetPdgCode(),
-          };
-          if (mc != nullptr) {
-            const auto helixOf = [](const o2::MCTrack& track, double charge) { return TruthHelix{.position = {track.Vx(), track.Vy(), track.Vz()}, .momentum = {track.Px(), track.Py(), track.Pz()}, .charge = charge}; };
-            entry.helix = helixOf(*mc, entry.charge);
-            if (mother != nullptr) {
-              entry.mother = helixOf(*mother, particleCharge(mother->GetPdgCode()));
-            }
-          }
+          addParticle(id, label.getSourceID(), label.getEventID(), label.getTrackID(), mc, particles);
         }
       }
     }
+  }
+
+  /// The particle \a id, track \a track of \a source's MC \a event, into
+  /// \a particles and mParticleLabels; \a mc its kinematics, none where the
+  /// kinematics lack it.
+  void addParticle(std::uint64_t id, int source, int event, int track, const o2::MCTrack* mc, ParticleTable& particles)
+  {
+    const o2::MCTrack* mother = nullptr;
+    if (mc == nullptr) {
+      particles[id] = ParticleTruth{};
+    } else {
+      const auto& tracks = mKinematics->getTracks(source, event);
+      mother = o2::mcutils::MCTrackNavigator::getMother(*mc, tracks);
+      particles[id] = ParticleTruth{
+        .pt = static_cast<float>(mc->GetPt()),
+        .primary = mc->isPrimary(),
+        .eta = static_cast<float>(mc->GetEta()),
+        .phi = static_cast<float>(mc->GetPhi()),
+        .origin = particleOrigin(*mc, tracks),
+        .pdg = mc->GetPdgCode(),
+        .motherPdg = mother == nullptr ? 0 : mother->GetPdgCode(),
+        .process = static_cast<std::uint8_t>(mc->getProcess()),
+        .vx = static_cast<float>(mc->Vx()),
+        .vy = static_cast<float>(mc->Vy()),
+        .vz = static_cast<float>(mc->Vz()),
+      };
+    }
+    auto& entry = mParticleLabels[id];
+    entry = {
+      .event = event,
+      .track = track,
+      .source = source,
+      .charge = mc == nullptr ? 0. : particleCharge(mc->GetPdgCode()),
+      .pdg = mc == nullptr ? 0 : mc->GetPdgCode(),
+    };
+    if (mc != nullptr) {
+      const auto helixOf = [](const o2::MCTrack& one, double charge) { return TruthHelix{.position = {one.Vx(), one.Vy(), one.Vz()}, .momentum = {one.Px(), one.Py(), one.Pz()}, .charge = charge}; };
+      entry.helix = helixOf(*mc, entry.charge);
+      if (mother != nullptr) {
+        entry.mother = helixOf(*mother, particleCharge(mother->GetPdgCode()));
+      }
+    }
+  }
+
+  /// The QA's particles of the timeframe at \a orbit: \a measured, and every
+  /// charged physical primary and decay daughter of the MC collisions within
+  /// the timeframe's time window that \a measured lacks; and those
+  /// collisions (`collisionOf`).
+  [[nodiscard]] std::pair<ParticleTable, std::unordered_set<std::uint64_t>> timeframeParticles(std::uint32_t orbit, const ParticleTable& measured)
+  {
+    constexpr double kNSPerPS = 1.e-3;
+    const double startNS = static_cast<double>(orbit) * o2::constants::lhc::LHCOrbitNS;
+    const double endNS = startNS + (kNSPerPS * static_cast<double>(workflow::timeframeDurationPS(mConditions->orbitsPerTimeframe())));
+    ParticleTable particles = measured;
+    std::unordered_set<std::uint64_t> collisions;
+    const auto& records = mContext->getEventRecords();
+    const auto& parts = mContext->getEventParts();
+    for (std::size_t collision = 0; collision < records.size() && collision < parts.size(); ++collision) {
+      if (const double time = records[collision].getTimeNS(); time < startNS || time >= endNS) {
+        continue;
+      }
+      for (const auto& part : parts[collision]) {
+        collisions.insert(collisionOf(o2::MCCompLabel(0, part.entryID, part.sourceID).getTrackEventSourceID()));
+        const auto& tracks = mKinematics->getTracks(part.sourceID, part.entryID);
+        for (std::size_t track = 0; track < tracks.size(); ++track) {
+          const auto& mc = tracks[track];
+          const auto id = o2::MCCompLabel(static_cast<int>(track), part.entryID, part.sourceID).getTrackEventSourceID();
+          if (particles.contains(id) || particleCharge(mc.GetPdgCode()) == 0. || particleOrigin(mc, tracks) == ParticleOrigin::kMaterial) {
+            continue;
+          }
+          addParticle(id, part.sourceID, part.entryID, static_cast<int>(track), &mc, particles);
+        }
+      }
+    }
+    return {std::move(particles), std::move(collisions)};
   }
 
   /// The decay trees of \a particles (DecayTrees.h), from the MC kinematics:
