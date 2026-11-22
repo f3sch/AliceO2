@@ -13,10 +13,14 @@
 /// \brief One tracker run's MC truth QA as trees, binned only by the plotting
 ///        macro.
 ///
-/// Per timeframe, one record per findable particle -- by TrackComparison.h's
-/// `isFindable`, its `findable`, or at the same pT floor by its MC hits'
-/// outward leg on `minOutwardLayers` layers or more (`outwardLayers`) -- and
-/// one per track:
+/// Per timeframe, one record per particle, with no selection on its
+/// kinematics: every charged physical primary and decay daughter of the
+/// timeframe's MC collisions (`inTimeframe`), measured or not, and of the
+/// others' every one with a measurement here; and every material secondary
+/// with a chain of `minLayers` layers or an outward leg of
+/// `minOutwardLayers` (`outwardLayers`), at any pT. The tracking's findable
+/// is TrackComparison.h's `isFindable`, `findable`; `chain` and `pt` set it
+/// again at another floor or length. And one record per track:
 ///
 ///   particles: the truth's pT, eta and phi, its origin, `foundBy`, a bit
 ///              per iteration with a good track of it (`goodParticle`, the
@@ -29,7 +33,9 @@
 ///              fit status, generated pT/eta, origin and relative inverse-pT
 ///              residual for matched tracks, without requiring hit files
 ///
-/// Every efficiency follows from the two; for iteration i, `bit` = 1 << i:
+/// Every efficiency follows from the two: the tracking's over the findable,
+/// the physics one over a class of the timeframe's particles in a window of
+/// pT and eta, whatever their measurements. For iteration i, `bit` = 1 << i:
 ///
 ///   exclusive:   found by i                       (foundBy & bit) of all
 ///   cumulative:  found by some iteration <= i     (foundBy & (2 bit - 1)) of all
@@ -55,6 +61,7 @@
 #include <limits>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace o2::utils
@@ -163,7 +170,7 @@ struct ParticleExtras {
   std::uint64_t expectedLayerMask = 0U; ///< full-length reference: detector layers, or ALICE3 outward MC traversal
 };
 
-/// A findable particle of the `particles` tree.
+/// A particle of the `particles` tree.
 struct QAParticle {
   float pt = 0.F; ///< [GeV]
   float eta = 0.F;
@@ -175,8 +182,10 @@ struct QAParticle {
   std::int32_t motherPdg = 0; ///< 0 without a mother
   float vz = 0.F;             ///< the production point's z [cm]
   std::uint64_t layers = 0U;  ///< the layers it has measurements on, a bit each
+  std::uint8_t chain = 0U;    ///< its longest chain's layers (`ParticleLayers::chain`)
   bool foundByO2 = false;     ///< a good track of it among the other tracker's
-  bool findable = true;       ///< by `isFindable`; otherwise by its outward leg alone
+  bool findable = false;      ///< by `isFindable`
+  bool inTimeframe = false;   ///< its MC collision lies in the timeframe's time window
   ParticleExtras extras;      ///< its decay geometry and funnel verdict, the tree's branches in between
 };
 
@@ -340,11 +349,17 @@ struct TrackingQA {
 /// Each particle's `seededBy`, by particle id (StageFunnel::seededBy).
 using SeededBy = std::unordered_map<std::uint64_t, std::uint64_t>;
 
-/// One timeframe: its rows' truth, its particles and its tracks, as rows
-/// and as kinematics, track by track, the seeded, each particle's extras,
-/// and the other tracker's tracks, if any. Throws std::invalid_argument for a
-/// track's iteration outside \a iterations, or more than kQAMaxIterations.
-[[nodiscard]] TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks, std::span<const TrackKinematics> kinematics, const SeededBy& seeded, const ParticleExtrasTable& extras, const TrackRows* theirs, int iterations, const ComparisonSettings& settings);
+/// The MC collisions of a timeframe's time window, as `collisionOf`
+/// (MCTruth.h) names them: source and event.
+using TimeframeCollisions = std::unordered_set<std::uint64_t>;
+
+/// One timeframe: its rows' truth, its particles (those the rows carry and
+/// the rest of \a inTimeframe's, with no measurement) and its tracks, as
+/// rows and as kinematics, track by track, the seeded, each particle's
+/// extras, and the other tracker's tracks, if any. Throws
+/// std::invalid_argument for a track's iteration outside \a iterations, or
+/// more than kQAMaxIterations.
+[[nodiscard]] TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks, std::span<const TrackKinematics> kinematics, const SeededBy& seeded, const ParticleExtrasTable& extras, const TimeframeCollisions& inTimeframe, const TrackRows* theirs, int iterations, const ComparisonSettings& settings);
 
 /// \a qa's records into \a output's `particles` and `tracks` trees.
 void stream(o2::utils::TreeStreamRedirector& output, const TrackingQA& qa);

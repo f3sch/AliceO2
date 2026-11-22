@@ -21,6 +21,7 @@
 #include "GenericTracking/Study/TrackingQA.h"
 
 #include "CommonConstants/MathConstants.h"
+#include "SimulationDataFormat/MCCompLabel.h"
 
 #include <boost/test/unit_test.hpp>
 
@@ -105,14 +106,20 @@ const QAParticle* particleOf(const TrackingQA& qa, float pt)
 BOOST_AUTO_TEST_CASE(TheFindableAndTheIterationsThatFoundAndSeededThem)
 {
   const Toy toy;
-  const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, nullptr, 2, toy.settings);
-  BOOST_TEST(qa.particles.size() == 3U); // 1, 2 and 4
+  const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, {}, nullptr, 2, toy.settings);
+  BOOST_TEST(qa.particles.size() == 5U);
   const auto* first = particleOf(qa, 1.F);
   const auto* decay = particleOf(qa, 0.5F);
   const auto* material = particleOf(qa, 0.3F);
-  BOOST_REQUIRE(first != nullptr);
-  BOOST_REQUIRE(decay != nullptr);
-  BOOST_REQUIRE(material != nullptr);
+  const auto* holed = particleOf(qa, 2.F);
+  const auto* soft = particleOf(qa, 0.05F);
+  BOOST_REQUIRE((first != nullptr && decay != nullptr && material != nullptr && holed != nullptr && soft != nullptr));
+  BOOST_TEST((first->findable && decay->findable && material->findable));
+  // Written, not findable: no chain of two, and below the floor.
+  BOOST_TEST(!holed->findable);
+  BOOST_TEST(holed->chain == 1U);
+  BOOST_TEST(!soft->findable);
+  BOOST_TEST(soft->chain == 3U);
   BOOST_TEST(first->foundBy == 0b11U);
   BOOST_TEST(first->origin == static_cast<std::uint8_t>(ParticleOrigin::kPhysicalPrimary));
   BOOST_TEST(decay->foundBy == 0b10U);
@@ -130,7 +137,7 @@ BOOST_AUTO_TEST_CASE(CompleteGoodTracks)
   // Particle 1 on two of its three layers, particle 2 on all three, a fake.
   const TrackRows tracks{{0, 1}, {3, 4, 5}, {8, 5}};
   const std::vector<TrackKinematics> kinematics{{.iteration = 0}, {.iteration = 0}, {.iteration = 0}};
-  const auto qa = trackingQA(toy.rows, toy.truth, tracks, kinematics, toy.seeded, {}, nullptr, 2, toy.settings);
+  const auto qa = trackingQA(toy.rows, toy.truth, tracks, kinematics, toy.seeded, {}, {}, nullptr, 2, toy.settings);
   BOOST_TEST(!qa.tracks[0].complete);
   BOOST_TEST(qa.tracks[1].complete);
   BOOST_TEST(!qa.tracks[2].complete);
@@ -139,7 +146,7 @@ BOOST_AUTO_TEST_CASE(CompleteGoodTracks)
 BOOST_AUTO_TEST_CASE(FakesAndClonesInIterationOrder)
 {
   const Toy toy;
-  const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, nullptr, 2, toy.settings);
+  const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, {}, nullptr, 2, toy.settings);
   BOOST_REQUIRE(qa.tracks.size() == 4U);
   // In the order given; particle 1's track of iteration 1 is the clone,
   // although it comes first.
@@ -158,7 +165,7 @@ BOOST_AUTO_TEST_CASE(FakesAndClonesInIterationOrder)
 BOOST_AUTO_TEST_CASE(EveryPhiInZeroToTwoPi)
 {
   const Toy toy;
-  const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, nullptr, 2, toy.settings);
+  const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, {}, nullptr, 2, toy.settings);
   BOOST_TEST(particleOf(qa, 0.5F)->phi == wrapPhi(-1.));
   BOOST_TEST(qa.tracks[1].phi == wrapPhi(-1.));
   BOOST_TEST(wrapPhi(-1.) == static_cast<float>(kTwoPi<double> - 1.));
@@ -171,10 +178,10 @@ BOOST_AUTO_TEST_CASE(EveryPhiInZeroToTwoPi)
 BOOST_AUTO_TEST_CASE(TheTotalsAreTheTextScore)
 {
   const Toy toy;
-  const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, nullptr, 2, toy.settings);
+  const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, {}, nullptr, 2, toy.settings);
   const auto score = scoreTracks(toy.rows, toy.truth, toy.tracks, toy.settings);
   for (std::size_t origin = 0; origin < score.originFindable.size(); ++origin) {
-    const auto of = [&](const QAParticle& p) { return p.origin == origin; };
+    const auto of = [&](const QAParticle& p) { return p.findable && p.origin == origin; };
     const auto findable = std::ranges::count_if(qa.particles, of);
     const auto found = std::ranges::count_if(qa.particles, [&](const QAParticle& p) { return of(p) && p.foundBy != 0U; });
     BOOST_TEST(static_cast<std::uint64_t>(findable) == score.originFindable[origin].findable);
@@ -201,7 +208,7 @@ BOOST_AUTO_TEST_CASE(TheExtrasLayersAndTheOtherTrackersParticles)
   const Toy toy;
   const ParticleExtrasTable extras{{2, {.vr = 1.5F, .d0 = 0.25F, .z0 = -0.5F, .openingAngle = 0.1F, .motherMiss = 0.01F, .lostAt = 6U, .raisedFit = 5U}}, {4, {.vr = 3.F, .lostAt = 4U, .pairLoss = 6U, .fitLoss = 1U, .fitRoadLayers = 0b110U, .fitLosses = 0b1010U}}};
   const TrackRows theirs{{3, 4, 5}, {8, 9, 0}}; // particle 2, and a fake
-  const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, extras, &theirs, 2, toy.settings);
+  const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, extras, {}, &theirs, 2, toy.settings);
   const auto* first = particleOf(qa, 1.F);
   const auto* decay = particleOf(qa, 0.5F);
   const auto* material = particleOf(qa, 0.3F);
@@ -231,21 +238,36 @@ BOOST_AUTO_TEST_CASE(TheOutwardLegEndsWhereTheCurlerTurnsBack)
   BOOST_TEST(outwardLayers(outwardLeg(crossings, {10., 0., 0.})) == 1U);
 }
 
-BOOST_AUTO_TEST_CASE(TheOutwardLegMakesAParticleFindableAboveTheFloor)
+BOOST_AUTO_TEST_CASE(TheMaterialOnARulesLengthAndEveryPrimaryAndDecayDaughter)
 {
-  const Toy toy;
-  // Particle 3 (no chain) and particle 5 (below the floor) on the outward rule's layers.
-  const ParticleExtrasTable extras{{3, {.outwardLayers = 7U}}, {5, {.outwardLayers = 7U}}, {4, {.outwardLayers = 2U}}};
-  const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, extras, nullptr, 2, toy.settings);
-  BOOST_TEST(qa.particles.size() == 4U); // 1, 2, 4 and 3
-  const auto* outward = particleOf(qa, 2.F);
+  Toy toy;
+  // Material on layer 0 alone: particle 6 on an outward leg of the rule's
+  // length, below the floor, particle 7 on neither. Particle 8 a primary and
+  // particle 9 a decay daughter of another collision, with no measurement.
+  constexpr std::uint64_t kOtherCollision = std::uint64_t{1} << o2::MCCompLabel::nbitsTrackID;
+  toy.rows.push_back(row(0, {6}));
+  toy.rows.push_back(row(0, {7}));
+  toy.truth[6] = {.pt = 0.02F, .origin = ParticleOrigin::kMaterial};
+  toy.truth[7] = {.pt = 0.7F, .origin = ParticleOrigin::kMaterial};
+  toy.truth[kOtherCollision | 8U] = {.pt = 3.F, .primary = true, .origin = ParticleOrigin::kPhysicalPrimary};
+  toy.truth[kOtherCollision | 9U] = {.pt = 4.F, .origin = ParticleOrigin::kDecay};
+  const ParticleExtrasTable extras{{6, {.outwardLayers = 7U}}, {7, {.outwardLayers = 6U}}, {4, {.outwardLayers = 2U}}};
+  const TimeframeCollisions inTimeframe{kOtherCollision >> o2::MCCompLabel::nbitsTrackID};
+  const auto qa = trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, extras, inTimeframe, nullptr, 2, toy.settings);
+  BOOST_TEST(qa.particles.size() == 8U); // all but 7
+  const auto* outward = particleOf(qa, 0.02F);
   const auto* material = particleOf(qa, 0.3F);
-  BOOST_REQUIRE((outward != nullptr && material != nullptr));
+  const auto* primary = particleOf(qa, 3.F);
+  const auto* decay = particleOf(qa, 4.F);
+  BOOST_REQUIRE((outward != nullptr && material != nullptr && primary != nullptr && decay != nullptr));
+  BOOST_TEST(particleOf(qa, 0.7F) == nullptr);
   BOOST_TEST(!outward->findable);
   BOOST_TEST(outward->extras.outwardLayers == 7U);
   BOOST_TEST(material->findable);
   BOOST_TEST(material->extras.outwardLayers == 2U);
-  BOOST_TEST(particleOf(qa, 0.05F) == nullptr);
+  BOOST_TEST((primary->layers == 0U && primary->chain == 0U && !primary->findable));
+  BOOST_TEST((primary->inTimeframe && decay->inTimeframe));
+  BOOST_TEST((!outward->inTimeframe && !material->inTimeframe));
 }
 
 BOOST_AUTO_TEST_CASE(AParticleFromTheBeamLineMissesItByNothing)
@@ -379,8 +401,8 @@ BOOST_AUTO_TEST_CASE(AnIterationOutsideTheConfiguredIsRefused)
 {
   Toy toy;
   toy.kinematics[0].iteration = 2;
-  BOOST_CHECK_THROW((void)trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, nullptr, 2, toy.settings), std::invalid_argument);
-  BOOST_CHECK_THROW((void)trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, nullptr, kQAMaxIterations + 1, toy.settings), std::invalid_argument);
+  BOOST_CHECK_THROW((void)trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, {}, nullptr, 2, toy.settings), std::invalid_argument);
+  BOOST_CHECK_THROW((void)trackingQA(toy.rows, toy.truth, toy.tracks, toy.kinematics, toy.seeded, {}, {}, nullptr, kQAMaxIterations + 1, toy.settings), std::invalid_argument);
 }
 
 } // namespace o2::gtrk::study

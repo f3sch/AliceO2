@@ -13,6 +13,7 @@
 
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/MathUtils.h"
+#include "GenericTracking/Study/MCTruth.h"
 
 #include "CommonUtils/TreeStreamRedirector.h"
 
@@ -187,7 +188,7 @@ double helixMiss(const TruthHelix& helix, double bzKiloGauss, double x, double y
   return std::abs(std::hypot(x - circle->x, y - circle->y) - circle->radius);
 }
 
-TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks, std::span<const TrackKinematics> kinematics, const SeededBy& seeded, const ParticleExtrasTable& extras, const TrackRows* theirs, int iterations, const ComparisonSettings& settings)
+TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks, std::span<const TrackKinematics> kinematics, const SeededBy& seeded, const ParticleExtrasTable& extras, const TimeframeCollisions& inTimeframe, const TrackRows* theirs, int iterations, const ComparisonSettings& settings)
 {
   if (iterations < 1 || iterations > kQAMaxIterations) {
     throw std::invalid_argument(std::format("QA: {} iterations, 1 to {} supported", iterations, kQAMaxIterations));
@@ -258,19 +259,16 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
     }
   }
 
-  // The findable, by either rule.
-  for (const auto& [id, layers] : chains) {
-    const auto found = truth.find(id);
-    if (found == truth.end()) {
-      continue;
-    }
+  // Every primary and decay daughter; a material secondary on a chain or an
+  // outward leg of the rules' lengths.
+  for (const auto& [id, particle] : truth) {
+    const auto chain = chains.find(id);
+    const ParticleLayers layers = chain == chains.end() ? ParticleLayers{} : chain->second;
     const auto more = extras.find(id);
     const ParticleExtras extra = more == extras.end() ? ParticleExtras{} : more->second;
-    const bool findable = isFindable(found->second.pt, layers, settings);
-    if (!findable && (static_cast<double>(found->second.pt) < settings.minPtGeV || std::cmp_less(extra.outwardLayers, settings.minOutwardLayers))) {
+    if (particle.origin == ParticleOrigin::kMaterial && std::cmp_less(layers.chain, settings.minLayers) && std::cmp_less(extra.outwardLayers, settings.minOutwardLayers)) {
       continue;
     }
-    const auto& particle = found->second;
     const auto entry = foundBy.find(id);
     const auto seeds = seeded.find(id);
     qa.particles.push_back({
@@ -284,8 +282,10 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
       .motherPdg = particle.motherPdg,
       .vz = particle.vz,
       .layers = layers.layers,
+      .chain = static_cast<std::uint8_t>(layers.chain),
       .foundByO2 = foundByTheirs.contains(id),
-      .findable = findable,
+      .findable = isFindable(particle.pt, layers, settings),
+      .inTimeframe = inTimeframe.contains(collisionOf(id)),
       .extras = extra,
     });
   }
@@ -296,7 +296,7 @@ void stream(o2::utils::TreeStreamRedirector& output, const TrackingQA& qa)
 {
   for (const auto& p : qa.particles) {
     const auto& e = p.extras;
-    output << "particles" << "pt=" << p.pt << "eta=" << p.eta << "phi=" << p.phi << "origin=" << p.origin << "foundBy=" << p.foundBy << "seededBy=" << p.seededBy << "pdg=" << p.pdg << "motherPdg=" << p.motherPdg << "vr=" << e.vr << "vz=" << p.vz << "d0=" << e.d0 << "z0=" << e.z0 << "openingAngle=" << e.openingAngle << "motherMiss=" << e.motherMiss << "layers=" << p.layers << "lostAt=" << e.lostAt << "pairLoss=" << e.pairLoss << "roadLoss=" << e.roadLoss << "fitLoss=" << e.fitLoss << "fitRoadLayers=" << e.fitRoadLayers << "roadLosses=" << e.roadLosses << "fitLosses=" << e.fitLosses << "raisedFit=" << e.raisedFit << "foundByO2=" << p.foundByO2 << "findable=" << p.findable << "outwardLayers=" << e.outwardLayers << "legRows=" << e.legRows << "legLinked=" << e.legLinked << "legTaken=" << e.legTaken << "legAbsent=" << e.legAbsent << "legNotTaken=" << e.legNotTaken << "\n";
+    output << "particles" << "pt=" << p.pt << "eta=" << p.eta << "phi=" << p.phi << "origin=" << p.origin << "foundBy=" << p.foundBy << "seededBy=" << p.seededBy << "pdg=" << p.pdg << "motherPdg=" << p.motherPdg << "vr=" << e.vr << "vz=" << p.vz << "d0=" << e.d0 << "z0=" << e.z0 << "openingAngle=" << e.openingAngle << "motherMiss=" << e.motherMiss << "layers=" << p.layers << "chain=" << p.chain << "lostAt=" << e.lostAt << "pairLoss=" << e.pairLoss << "roadLoss=" << e.roadLoss << "fitLoss=" << e.fitLoss << "fitRoadLayers=" << e.fitRoadLayers << "roadLosses=" << e.roadLosses << "fitLosses=" << e.fitLosses << "raisedFit=" << e.raisedFit << "foundByO2=" << p.foundByO2 << "findable=" << p.findable << "inTimeframe=" << p.inTimeframe << "outwardLayers=" << e.outwardLayers << "legRows=" << e.legRows << "legLinked=" << e.legLinked << "legTaken=" << e.legTaken << "legAbsent=" << e.legAbsent << "legNotTaken=" << e.legNotTaken << "\n";
   }
   streamTracks(output, qa.tracks);
 }
