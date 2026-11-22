@@ -39,7 +39,8 @@
 /// whether its species are its tracks' true ones (`pidMatch`: perfect PID
 /// keeps those alone) and how many of its tracks are primaries (a perfect
 /// rejection of primaries keeps none), its legs' S^2, the start's and the
-/// legs' innermost radii, the fit and its observables. One per MC V0 decaying into its two charged daughters
+/// legs' innermost radii, the helices' gaps at the start, the fit and its
+/// observables. One per MC V0 decaying into its two charged daughters
 /// (`DecayFinderDecayRecord`, a second file beside the first, `-decays`):
 /// the first stage that lost it, its legs' S^2 under their true species,
 /// its own candidate's fit.
@@ -118,7 +119,12 @@ struct DecayFinderCandidateRecord {
   float ptNegative = 0.F;
   float firstPositive = 0.F; ///< the legs' innermost measurements' transverse radii [cm]
   float firstNegative = 0.F;
-  float startRadius = 0.F;  ///< the start's transverse radius [cm], 0 without one
+  float startRadius = 0.F; ///< the start's transverse radius [cm], 0 without one
+  /// The legs' helices at the start (`approachOf`): the gap between their
+  /// transverse circles (0 where they cross) and between their z [cm]; NaN
+  /// without a start.
+  float gapXY = std::numeric_limits<float>::quiet_NaN();
+  float gapZ = std::numeric_limits<float>::quiet_NaN();
   std::uint8_t status = 0U; ///< VertexFitStatus
   std::uint8_t iterations = 0U;
   float chi2 = 0.F;
@@ -149,6 +155,8 @@ struct DecayFinderCandidateRecord {
     visit("firstPositive", firstPositive);
     visit("firstNegative", firstNegative);
     visit("startRadius", startRadius);
+    visit("gapXY", gapXY);
+    visit("gapZ", gapZ);
     visit("status", status);
     visit("iterations", iterations);
     visit("chi2", chi2);
@@ -562,6 +570,11 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
                 if (decayFitStart<Det>(std::span<const DecayDaughter>{daughters.data(), daughters.size()}, {}, {}, {}, start)) {
                   candidate.start.push_back(start[0]);
                   record.startRadius = static_cast<float>(std::hypot(start[0][0], start[0][1]));
+                }
+                const auto entryOf = [](const DecayDaughter& daughter) { return decay_fit_detail::StartEntry{.state = &daughter.innermost, .surface = &daughter.surface, .propagator = &daughter.propagator}; };
+                if (const auto approach = decay_fit_detail::approachOf(entryOf(daughters[0]), entryOf(daughters[1])); approach.found) {
+                  record.gapXY = static_cast<float>(approach.gapXY);
+                  record.gapZ = static_cast<float>(approach.gapZ);
                 }
               }
               fitDecayCandidates<Det>(one, std::span<const DecayCandidate>{&candidate, 1}, std::span<const DecayHypothesis>{hypotheses}, table, store, frame, geometry, event.propagator, geometry.material(), std::span<const ReferencePoint>{points}, std::span<DecayCandidateResult>{&result, 1});

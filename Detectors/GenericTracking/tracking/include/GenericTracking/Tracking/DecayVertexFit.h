@@ -198,11 +198,23 @@ struct StartEntry {
   bool neutral = false;
 };
 
-/// The start: where the transverse circles of the first two entries come
-/// closest -- their crossing with the smaller z gap, or the point between
-/// them on the line of their centres --, at the mean of their z there.
-[[nodiscard]] GPUhdi() bool closestApproach(const StartEntry& a, const StartEntry& b, Vec3D& start)
+/// Two helices' closest approach as the start takes it (`approachOf`): the
+/// point, and how far apart the helices are there -- transversely, the gap
+/// between their circles (0 where they cross), along z, the gap between
+/// their z at the point.
+struct HelixApproach {
+  bool found = false;
+  Vec3D start{};
+  double gapXY = 0.; ///< [cm]
+  double gapZ = 0.;  ///< [cm]
+};
+
+/// Where the transverse circles of \a a and \a b come closest -- their
+/// crossing with the smaller z gap, or the point between them on the line of
+/// their centres --, at the mean of their z there.
+[[nodiscard]] GPUhdi() HelixApproach approachOf(const StartEntry& a, const StartEntry& b)
 {
+  HelixApproach out;
   struct Circle {
     double cx, cy, radius, rho, px, py, pz, cotTheta;
   };
@@ -216,13 +228,13 @@ struct StartEntry {
   const auto one = circleOf(a);
   const auto two = circleOf(b);
   if (!isFiniteOf(one.radius) || !isFiniteOf(two.radius)) {
-    return false;
+    return out;
   }
   const double ux = two.cx - one.cx;
   const double uy = two.cy - one.cy;
   const double d = hypotOf(ux, uy);
   if (!(d > 0.)) {
-    return false;
+    return out;
   }
   const double ex = ux / d;
   const double ey = uy / d;
@@ -230,8 +242,10 @@ struct StartEntry {
   if (d > one.radius + two.radius) {
     const double along = one.radius + (0.5 * (d - one.radius - two.radius));
     points.push_back({one.cx + (along * ex), one.cy + (along * ey)});
+    out.gapXY = d - one.radius - two.radius;
   } else if (d < o2::gpu::CAMath::Abs(one.radius - two.radius)) {
     const double sign = one.radius > two.radius ? 1. : -1.;
+    out.gapXY = o2::gpu::CAMath::Abs(one.radius - two.radius) - d;
     const double along = 0.5 * ((sign * one.radius) + d + (sign * two.radius));
     points.push_back({one.cx + (along * ex), one.cy + (along * ey)});
   } else {
@@ -248,18 +262,29 @@ struct StartEntry {
     const double turn = toPMPiOf(to - from);
     return circle.pz + ((turn / circle.rho) * circle.cotTheta);
   };
-  bool found = false;
   double bestGap = std::numeric_limits<double>::infinity();
   for (const auto& point : points) {
     const double z1 = zAt(one, point);
     const double z2 = zAt(two, point);
     if (o2::gpu::CAMath::Abs(z1 - z2) < bestGap) {
       bestGap = o2::gpu::CAMath::Abs(z1 - z2);
-      start = {point[0], point[1], 0.5 * (z1 + z2)};
-      found = true;
+      out.start = {point[0], point[1], 0.5 * (z1 + z2)};
+      out.gapZ = bestGap;
+      out.found = true;
     }
   }
-  return found;
+  return out;
+}
+
+/// The start: \a a's and \a b's closest approach (`approachOf`) into
+/// \a start; false if there is none.
+[[nodiscard]] GPUhdi() bool closestApproach(const StartEntry& a, const StartEntry& b, Vec3D& start)
+{
+  const auto approach = approachOf(a, b);
+  if (approach.found) {
+    start = approach.start;
+  }
+  return approach.found;
 }
 
 /// The closest points of two lines (a point and a unit direction each):
