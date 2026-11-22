@@ -10,13 +10,17 @@
 // or submit itself to any jurisdiction.
 
 /// \file PrimaryVertexStudy.h
-/// \brief Each collision's primary vertex fitted from its physical
-///        primaries' chains (PrimaryVertexFit.h) and held to the MC.
+/// \brief Each collision's primary vertex fitted from the chains of the
+///        particles made at it (PrimaryVertexFit.h) and held to the MC.
 ///
 /// The association is the truth's: a collision's tracks are the chains of
-/// its physical primaries, one per particle (its longest), each refitted
-/// with its particle's true species (`refitRowsWithHypothesis`); nothing
-/// else -- no secondary, no fake, no other collision's track -- enters. The
+/// its physical primaries made at its vertex, one per particle (its
+/// longest), each refitted with its particle's true species
+/// (`refitRowsWithHypothesis`); nothing else -- no secondary, no fake, no
+/// other collision's track, no physical primary made away from the vertex
+/// (a charm or beauty decay's daughter) -- enters. Made at the vertex: a
+/// production point within 1 um of it, far above the float production
+/// points' rounding (~1e-3 um), far below a heavy-flavour flight. The
 /// prior is the run's beam line (its MeanVertex's position and widths). The
 /// start: the beam line's transverse point, z the tracks' z at their perigee
 /// about it, weighted by its variance. Everything else is the fit's own: its
@@ -61,12 +65,8 @@ struct PrimaryVertexRecord {
   std::uint16_t tracks = 0U;      ///< fitted
   std::uint16_t refused = 0U;     ///< chains of another species or charge
   std::uint16_t refitFailed = 0U; ///< chains whose rows' refit or carry to the beam line failed
-  /// Fitted tracks whose particle was made more than 1 um from the MC vertex
-  /// (a physical primary from a charm or beauty decay; the float production
-  /// points' rounding is ~1e-3 um), and the largest offset among them [um].
-  std::uint16_t displaced = 0U;
-  float maxOffset = 0.F;
-  std::uint8_t status = 0U; ///< VertexFitStatus
+  std::uint16_t madeAway = 0U;    ///< physical primaries' chains left out, made away from the vertex
+  std::uint8_t status = 0U;       ///< VertexFitStatus
   std::uint8_t iterations = 0U;
   std::uint8_t outer = 0U;
   std::uint8_t stopReason = 0U;
@@ -90,7 +90,6 @@ struct PrimaryVertexRecord {
   float maxTrackChi2 = 0.F;  ///< the largest track's chi2 at the solution
   std::int32_t worstPdg = 0; ///< and its particle's species
   float worstPt = 0.F;       ///< [GeV]
-  float worstOffset = 0.F;   ///< its production point's distance from the MC vertex [um]
 
   template <typename Visit>
   void columns(const Visit& visit) const
@@ -101,8 +100,7 @@ struct PrimaryVertexRecord {
     visit("tracks", tracks);
     visit("refused", refused);
     visit("refitFailed", refitFailed);
-    visit("displaced", displaced);
-    visit("maxOffset", maxOffset);
+    visit("madeAway", madeAway);
     visit("status", status);
     visit("iterations", iterations);
     visit("outer", outer);
@@ -127,7 +125,6 @@ struct PrimaryVertexRecord {
     visit("maxTrackChi2", maxTrackChi2);
     visit("worstPdg", worstPdg);
     visit("worstPt", worstPt);
-    visit("worstOffset", worstOffset);
   }
 };
 
@@ -137,8 +134,8 @@ class PrimaryVertexStudy
  public:
   explicit PrimaryVertexStudy(RecordWriter& writer) : mWriter(&writer) { writer.begin<PrimaryVertexRecord>(); }
 
-  /// \a chains of \a event, from \a source: their physical primaries' by
-  /// collision.
+  /// \a chains of \a event, from \a source: their physical primaries'
+  /// made at their collision's vertex, by collision.
   void process(const TruthEvent<Det>& event, std::span<const Chain> chains, ChainSource source)
   {
     const auto longest = longestChains(chains);
@@ -146,6 +143,7 @@ class PrimaryVertexStudy
     struct Work {
       std::uint64_t collision = 0U;
       std::vector<const Chain*> chains;
+      std::uint16_t madeAway = 0U;
       PrimaryVertexRecord record;
     };
     std::vector<Work> work;
@@ -159,6 +157,11 @@ class PrimaryVertexStudy
       if (inserted) {
         work.push_back({.collision = collision});
       }
+      const auto offset = productionOffset(*event.collisions, particle, Vec3D{truth.vx, truth.vy, truth.vz});
+      if (!offset || *offset > kAtVertexCM) {
+        ++work[at->second].madeAway;
+        continue;
+      }
       work[at->second].chains.push_back(chain);
     }
     // A fixed order of every collision's tracks, whatever the map's.
@@ -168,6 +171,7 @@ class PrimaryVertexStudy
     o2::gtrk::detail::parallelFor(*event.arena, 0U, work.size(), 8, [&](std::size_t begin, std::size_t end) {
       for (std::size_t i = begin; i < end; ++i) {
         work[i].record = fitCollision(event, work[i].collision, work[i].chains, source);
+        work[i].record.madeAway = work[i].madeAway;
       }
     });
     for (const auto& one : work) {
@@ -183,6 +187,9 @@ class PrimaryVertexStudy
   }
 
  private:
+  /// Made at the vertex: within this of it [cm] (the file's comment).
+  static constexpr double kAtVertexCM = 1e-4;
+
   [[nodiscard]] PrimaryVertexRecord fitCollision(const TruthEvent<Det>& event, std::uint64_t collision, std::span<const Chain* const> chains, ChainSource source) const
   {
     const auto& frame = *event.frame;
@@ -200,7 +207,6 @@ class PrimaryVertexStudy
     }
     std::vector<VertexTrack> tracks;
     std::vector<const Chain*> fitted;
-    std::vector<float> offsets;
     double weightSum = 0.;
     double weightedZ = 0.;
     for (const auto* chain : chains) {
@@ -221,12 +227,6 @@ class PrimaryVertexStudy
       propagator.massGeV = species->mass;
       tracks.push_back({.innermost = refit.innermost, .surface = surface, .propagator = propagator});
       fitted.push_back(chain);
-      const auto offset = productionOffset(*event.collisions, chain->particle, Vec3D{truth.vx, truth.vy, truth.vz});
-      offsets.push_back(offset ? static_cast<float>(1e4 * *offset) : std::numeric_limits<float>::quiet_NaN());
-      if (offsets.back() > 1.F) {
-        ++record.displaced;
-        record.maxOffset = std::max(record.maxOffset, offsets.back());
-      }
       const auto variance = static_cast<double>(refit.perigee.covAt(kLoc1, kLoc1));
       if (variance > 0.) {
         weightSum += 1. / variance;
@@ -274,7 +274,6 @@ class PrimaryVertexStudy
     record.maxTrackChi2 = static_cast<float>(trackChi2[worst]);
     record.worstPdg = worstTruth.pdg;
     record.worstPt = worstTruth.pt;
-    record.worstOffset = offsets[worst];
     return record;
   }
 
