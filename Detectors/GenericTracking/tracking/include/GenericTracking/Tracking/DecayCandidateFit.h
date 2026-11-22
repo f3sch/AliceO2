@@ -14,8 +14,9 @@
 ///        fitted by index into the daughter table.
 ///
 /// A *hypothesis* is one decay written once per run: its daughters' species
-/// and charge signs (its slots), the fit variant, the mother's mass and
-/// whether the fit holds it. K0S -> pi+ pi-, Lambda -> p pi-, anti-Lambda ->
+/// and charge signs (its track slots), its composites (other hypotheses, of
+/// tracks only: a cascade's Lambda), the fit variant, the mother's mass and
+/// whether the fit holds it and the composites' masses. K0S -> pi+ pi-, Lambda -> p pi-, anti-Lambda ->
 /// anti-p pi+ are three hypotheses. A *candidate* is one species assignment
 /// of one combination of tracks: a hypothesis, one daughter-table entry per
 /// slot (the
@@ -56,10 +57,13 @@ namespace o2::gtrk
 
 /// One decay hypothesis (see the file's comment).
 struct DecayHypothesis {
-  FixedVector<o2::track::PID, decay_fit_detail::kMaxConstrainedDaughters> species; ///< per slot
-  FixedVector<std::int8_t, decay_fit_detail::kMaxConstrainedDaughters> charges;    ///< per slot, +1 or -1
-  double massGeV = 0.;                                                             ///< the mother's
-  bool massConstraint = false;                                                     ///< the fit holds it
+  FixedVector<o2::track::PID, decay_fit_detail::kMaxConstrainedDaughters> species; ///< per own track slot
+  FixedVector<std::int8_t, decay_fit_detail::kMaxConstrainedDaughters> charges;    ///< per own track slot, +1 or -1
+  /// Its composites' hypotheses, each of tracks only (a cascade's Lambda).
+  FixedVector<std::uint16_t, decay_fit_detail::kMaxConstrainedVertices - 1> composites;
+  double massGeV = 0.;         ///< the mother's
+  bool massConstraint = false; ///< the fit holds it
+  bool holdComposites = false; ///< the fit holds the composites' masses
   DecayFitVariant variant = DecayFitVariant::kFull;
 };
 
@@ -69,50 +73,119 @@ struct ReferencePoint {
   std::array<double, 6> covariance{};
 };
 
+/// A hypothesis as the fit's tree (`expandHypothesis`): its leaves -- each
+/// composite's tracks in turn, then its own --, their species and charges,
+/// the topology (vertex 0 the hypothesis's, vertex 1 + c composite c's) and
+/// each composite's leaves and mass.
+struct ExpandedHypothesis {
+  VertexFitStatus status = VertexFitStatus::kOk; ///< kInvalidInput or kTooLarge for a hypothesis the fit cannot take
+  FixedVector<o2::track::PID, decay_fit_detail::kMaxConstrainedDaughters> species;
+  FixedVector<std::int8_t, decay_fit_detail::kMaxConstrainedDaughters> charges;
+  DecayTopology topology;
+  std::array<FixedVector<int, decay_fit_detail::kMaxConstrainedDaughters>, decay_fit_detail::kMaxConstrainedVertices - 1> compositeLeaves{};
+  FixedVector<double, decay_fit_detail::kMaxConstrainedVertices - 1> compositeMasses;
+};
+
+/// \a hypotheses' \a index expanded (`ExpandedHypothesis`).
+[[nodiscard]] inline ExpandedHypothesis expandHypothesis(std::span<const DecayHypothesis> hypotheses, std::size_t index)
+{
+  ExpandedHypothesis out;
+  if (index >= hypotheses.size()) {
+    out.status = VertexFitStatus::kInvalidInput;
+    return out;
+  }
+  const auto& hypothesis = hypotheses[index];
+  std::size_t leaves = hypothesis.species.size();
+  for (const auto c : hypothesis.composites) {
+    if (c >= hypotheses.size() || !hypotheses[c].composites.empty()) {
+      out.status = VertexFitStatus::kInvalidInput;
+      return out;
+    }
+    leaves += hypotheses[c].species.size();
+  }
+  if (leaves > static_cast<std::size_t>(decay_fit_detail::kMaxConstrainedDaughters) || hypothesis.charges.size() != hypothesis.species.size()) {
+    out.status = leaves > static_cast<std::size_t>(decay_fit_detail::kMaxConstrainedDaughters) ? VertexFitStatus::kTooLarge : VertexFitStatus::kInvalidInput;
+    return out;
+  }
+  out.topology.massGeV.push_back(hypothesis.massGeV);
+  if (!hypothesis.composites.empty()) {
+    out.topology.parent.push_back(-1);
+  }
+  for (std::size_t c = 0; c < hypothesis.composites.size(); ++c) {
+    const auto& composite = hypotheses[hypothesis.composites[c]];
+    if (composite.charges.size() != composite.species.size()) {
+      out.status = VertexFitStatus::kInvalidInput;
+      return out;
+    }
+    out.topology.parent.push_back(0);
+    out.topology.massGeV.push_back(composite.massGeV);
+    out.compositeMasses.push_back(composite.massGeV);
+    for (std::size_t s = 0; s < composite.species.size(); ++s) {
+      out.compositeLeaves[c].push_back(static_cast<int>(out.species.size()));
+      out.species.push_back(composite.species[s]);
+      out.charges.push_back(composite.charges[s]);
+      out.topology.vertexOf.push_back(static_cast<int>(c) + 1);
+    }
+  }
+  for (std::size_t s = 0; s < hypothesis.species.size(); ++s) {
+    out.species.push_back(hypothesis.species[s]);
+    out.charges.push_back(hypothesis.charges[s]);
+    if (!hypothesis.composites.empty()) {
+      out.topology.vertexOf.push_back(0);
+    }
+  }
+  return out;
+}
+
 /// One candidate (see the file's comment).
 struct DecayCandidate {
   std::uint16_t hypothesis = 0U;
-  std::int32_t point = -1;                                                        ///< its reference point, -1 for none
-  FixedVector<std::uint32_t, decay_fit_detail::kMaxConstrainedDaughters> entries; ///< per slot, into the daughter table
-  FixedVector<Vec3D, decay_fit_detail::kMaxConstrainedVertices> start;
+  std::int32_t point = -1; ///< its reference point, -1 for none
+  /// Per leaf of its expanded hypothesis (`expandHypothesis`), into the
+  /// daughter table.
+  FixedVector<std::uint32_t, decay_fit_detail::kMaxConstrainedDaughters> entries;
+  FixedVector<Vec3D, decay_fit_detail::kMaxConstrainedVertices> start; ///< one per vertex of its tree
 };
 
 /// A candidate's fit and observables.
 struct DecayCandidateResult {
   DecayVertexFitResult fit;
-  DecayKinematics kinematics; ///< all slots'
+  DecayKinematics kinematics; ///< all leaves'
   DecayFlight flight;         ///< from the reference point; zero without one
   bool hasPoint = false;
+  /// Per composite: its leaves' kinematics and its flight from its parent's vertex.
+  FixedVector<DecayKinematics, decay_fit_detail::kMaxConstrainedVertices - 1> composites;
+  FixedVector<DecayFlight, decay_fit_detail::kMaxConstrainedVertices - 1> compositeFlights;
 };
 
 namespace decay_fit_detail
 {
 
-/// Whether \a candidate fits \a hypotheses and \a table: its hypothesis
-/// exists, one entry per slot of the slot's species and charge sign, no track
-/// twice, at most one start per vertex (kInvalidInput otherwise), every
-/// entry's refit succeeded (kRefitFailed otherwise), a start (kNoStart
+/// Whether \a candidate fits its expanded hypothesis \a tree and \a table:
+/// one entry per leaf of the leaf's species and charge sign, no track twice,
+/// no more starts than vertices (kInvalidInput otherwise), every entry's
+/// refit succeeded (kRefitFailed otherwise), a start per vertex (kNoStart
 /// otherwise).
 template <DetectorLayout Det>
-[[nodiscard]] VertexFitStatus checkCandidate(const DecayCandidate& candidate, std::span<const DecayHypothesis> hypotheses, const DaughterTable<Det>& table, std::size_t points)
+[[nodiscard]] VertexFitStatus checkCandidate(const DecayCandidate& candidate, const ExpandedHypothesis& tree, const DaughterTable<Det>& table, std::size_t points)
 {
-  if (candidate.hypothesis >= hypotheses.size() || (candidate.point >= 0 && static_cast<std::size_t>(candidate.point) >= points)) {
-    return VertexFitStatus::kInvalidInput;
+  if (tree.status != VertexFitStatus::kOk) {
+    return tree.status;
   }
-  const auto& hypothesis = hypotheses[candidate.hypothesis];
-  if (candidate.entries.size() != hypothesis.species.size() || hypothesis.charges.size() != hypothesis.species.size() || candidate.start.size() > 1U) {
+  const auto vertices = static_cast<std::size_t>(tree.topology.vertices());
+  if ((candidate.point >= 0 && static_cast<std::size_t>(candidate.point) >= points) || candidate.entries.size() != tree.species.size() || candidate.start.size() > vertices) {
     return VertexFitStatus::kInvalidInput;
   }
   const auto view = table.view();
   for (std::size_t i = 0; i < candidate.entries.size(); ++i) {
     const auto e = candidate.entries[i];
-    if (e >= table.size() || table.species()[view.species[e]] != hypothesis.species[i]) {
+    if (e >= table.size() || table.species()[view.species[e]] != tree.species[i]) {
       return VertexFitStatus::kInvalidInput;
     }
     if (view.status[e] != PropagationStatus::kOk) {
       return VertexFitStatus::kRefitFailed;
     }
-    if ((view.state[e].qOverP() > 0.F ? 1 : -1) != hypothesis.charges[i]) {
+    if ((view.state[e].qOverP() > 0.F ? 1 : -1) != tree.charges[i]) {
       return VertexFitStatus::kInvalidInput;
     }
     for (std::size_t j = 0; j < i; ++j) {
@@ -121,13 +194,13 @@ template <DetectorLayout Det>
       }
     }
   }
-  return candidate.start.empty() ? VertexFitStatus::kNoStart : VertexFitStatus::kOk;
+  return candidate.start.size() < vertices ? VertexFitStatus::kNoStart : VertexFitStatus::kOk;
 }
 
 } // namespace decay_fit_detail
 
-/// The daughters of \a candidate (checked: `checkCandidate`) as the fit
-/// takes them, from \a table's entries of \a tracks in \a frame.
+/// The daughters of \a candidate (its leaves, checked: `checkCandidate`) as
+/// the fit takes them, from \a table's entries of \a tracks in \a frame.
 template <DetectorLayout Det>
 [[nodiscard]] FixedVector<DecayDaughter, decay_fit_detail::kMaxConstrainedDaughters> candidateDaughters(const DecayCandidate& candidate, const DaughterTable<Det>& table, const TrackStore<Det>& tracks, const TrackingGeometry<Det>& geometry, const TimeFrame<Det>& frame, const Propagator& base)
 {
@@ -149,7 +222,7 @@ template <DetectorLayout Det>
 /// \a candidates fitted into \a results (one each, in their order) on
 /// \a forEach(n, body), with \a hypotheses, \a table's entries of \a tracks in
 /// \a frame, \a points their reference points, \a material between each
-/// daughter's innermost measurement and the vertex.
+/// daughter's innermost measurement and its vertex.
 template <DetectorLayout Det, typename ForEach, typename Material>
 void fitDecayCandidates(const ForEach& forEach, std::span<const DecayCandidate> candidates, std::span<const DecayHypothesis> hypotheses, const DaughterTable<Det>& table, const TrackStore<Det>& tracks, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, const Material& material, std::span<const ReferencePoint> points, std::span<DecayCandidateResult> results)
 {
@@ -157,7 +230,8 @@ void fitDecayCandidates(const ForEach& forEach, std::span<const DecayCandidate> 
     const auto& candidate = candidates[c];
     auto& out = results[c];
     out = {};
-    if (const auto status = decay_fit_detail::checkCandidate(candidate, hypotheses, table, points.size()); status != VertexFitStatus::kOk) {
+    const auto tree = expandHypothesis(hypotheses, candidate.hypothesis);
+    if (const auto status = decay_fit_detail::checkCandidate(candidate, tree, table, points.size()); status != VertexFitStatus::kOk) {
       out.fit.status = status;
       return;
     }
@@ -165,13 +239,17 @@ void fitDecayCandidates(const ForEach& forEach, std::span<const DecayCandidate> 
     const auto daughters = candidateDaughters(candidate, table, tracks, geometry, frame, propagator);
     const std::span<const DecayDaughter> span{daughters.data(), daughters.size()};
     DecayConstraints constraints;
-    const DecayTopology topology; // one vertex; the fitter holds it by reference
     if (hypothesis.massConstraint) {
       constraints.mass = true;
       constraints.massGeV = hypothesis.massGeV;
     }
+    if (hypothesis.holdComposites) {
+      for (const double m : tree.compositeMasses) {
+        constraints.compositeMasses.push_back(m);
+      }
+    }
     withDecayFitVariant(hypothesis.variant, [&](auto variant) {
-      DecayVertexFitter<Det, decltype(variant)::value, Material> fitter(span, material, constraints, topology, {});
+      DecayVertexFitter<Det, decltype(variant)::value, Material> fitter(span, material, constraints, tree.topology, {});
       std::vector<std::byte> workspace(fitter.workspace());
       fitter.fit({candidate.start.data(), candidate.start.size()}, workspace, out.fit);
     });
@@ -182,14 +260,22 @@ void fitDecayCandidates(const ForEach& forEach, std::span<const DecayCandidate> 
     for (std::size_t i = 0; i < daughters.size(); ++i) {
       masses[i] = daughters[i].mass;
     }
+    const std::span<const double> massSpan{masses.data(), daughters.size()};
     const std::span<const Vec3D> momenta{out.fit.momenta.data(), out.fit.momenta.size()};
     const std::span<const double> charges{out.fit.charges.data(), out.fit.charges.size()};
     const int vertices = static_cast<int>(out.fit.vertices.size());
-    out.kinematics = decayKinematics(momenta, std::span<const double>{masses.data(), daughters.size()}, charges, [&](int a, int b) { return out.fit.covarianceAt((3 * vertices) + a, (3 * vertices) + b); });
+    const auto at = [&](int a, int b) { return out.fit.covarianceAt(a, b); };
+    out.kinematics = decayKinematics(momenta, massSpan, charges, [&](int a, int b) { return out.fit.covarianceAt((3 * vertices) + a, (3 * vertices) + b); });
     if (candidate.point >= 0) {
       const auto& point = points[static_cast<std::size_t>(candidate.point)];
-      out.flight = decayFlight(out.fit.vertex, momenta, charges, point.position, point.covariance, hypothesis.massGeV, vertices, [&](int a, int b) { return out.fit.covarianceAt(a, b); });
+      out.flight = decayFlight(out.fit.vertex, momenta, charges, point.position, point.covariance, hypothesis.massGeV, vertices, at);
       out.hasPoint = true;
+    }
+    const std::span<const Vec3D> fitted{out.fit.vertices.data(), out.fit.vertices.size()};
+    for (std::size_t k = 0; k < tree.compositeMasses.size(); ++k) {
+      const std::span<const int> leaves{tree.compositeLeaves[k].data(), tree.compositeLeaves[k].size()};
+      out.composites.push_back(subsetKinematics(momenta, massSpan, charges, leaves, vertices, at));
+      out.compositeFlights.push_back(compositeFlight(fitted, static_cast<int>(k) + 1, tree.topology.parent[k + 1], momenta, charges, leaves, tree.compositeMasses[k], at));
     }
   });
 }

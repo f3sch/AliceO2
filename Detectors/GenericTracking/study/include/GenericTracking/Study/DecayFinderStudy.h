@@ -245,7 +245,7 @@ template <DetectorLayout Det>
   std::array<Scalar, 3> across{};
   surfaceToGlobal(fit.perigeePlane, 0.F, 0.F, origin.data());
   surfaceToGlobal(fit.perigeePlane, 1.F, 0.F, across.data());
-  const double phi = static_cast<double>(perigee.phi());
+  const auto phi = static_cast<double>(perigee.phi());
   const double cotTheta = 1. / std::tan(static_cast<double>(perigee.theta()));
   const std::array<std::array<double, 3>, 2> j{{{-(across[0] - origin[0]), -(across[1] - origin[1]), -(across[2] - origin[2])}, {cotTheta * std::cos(phi), cotTheta * std::sin(phi), -1.}}};
   std::array<double, 3> m{static_cast<double>(perigee.covAt(kLoc0, kLoc0)), static_cast<double>(perigee.covAt(kLoc0, kLoc1)), static_cast<double>(perigee.covAt(kLoc1, kLoc1))};
@@ -280,8 +280,7 @@ class DecayFinderStudy
     mDecayWriter->begin<DecayFinderDecayRecord>();
   }
 
-  /// \a event's tracks (the source's chains give the primaries for the
-  /// mocked vertices).
+  /// \a event's tracks, every one, whatever the source's chains.
   void process(const TruthEvent<Det>& event, std::span<const Chain> chains, ChainSource source);
 
   [[nodiscard]] std::vector<std::string> summary() const
@@ -307,7 +306,7 @@ class DecayFinderStudy
 };
 
 template <DetectorLayout Det>
-void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<const Chain> chains, ChainSource source)
+void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<const Chain> /*chains*/, ChainSource source)
 {
   using namespace decay_finder_detail;
   using o2::track::PID;
