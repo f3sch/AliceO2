@@ -42,6 +42,7 @@
 #define GTRK_STUDY_DECAYFITSTUDY_H_
 
 #include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayFitBatch.h"
 #include "GenericTracking/Tracking/DecayFitConstraints.h"
 #include "GenericTracking/Tracking/DecayVertexFit.h"
@@ -69,6 +70,7 @@
 #include <format>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -855,6 +857,31 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
   // A truth chain may hold two rows on one layer (overlapping sensors): no
   // material on the step between them, which the layer's band holds already.
   constexpr o2::gtrk::detail::LayerMaterial material{};
+  // The tracker's tracks: each daughter's (track, species) refit from the
+  // timeframe's daughter table, once whatever the decays that take it.
+  std::optional<DaughterTable<Det>> table;
+  if (source == ChainSource::kTracks) {
+    const std::array<o2::track::PID, 5> species{o2::track::PID{o2::track::PID::Electron}, o2::track::PID{o2::track::PID::Muon}, o2::track::PID{o2::track::PID::Pion}, o2::track::PID{o2::track::PID::Kaon}, o2::track::PID{o2::track::PID::Proton}};
+    table.emplace(std::span<const o2::track::PID>{species});
+    if (event.tracks == nullptr || table->begin(event.tracks->size()) != StageStatus::kComplete) {
+      throw std::runtime_error("decay fit study: no daughter table for the tracks");
+    }
+    for (const auto& one : work) {
+      for (const auto* leaf : one.leaves) {
+        table->request(chainOf.at(leaf->id)->track->track, static_cast<std::uint8_t>(table->speciesIndex(truthSpecies(leaf->pdg)->pid)));
+      }
+    }
+    const auto forEach = [&](std::uint32_t n, const auto& body) {
+      o2::gtrk::detail::parallelFor(*event.arena, 0U, n, 64, [&](std::size_t begin, std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i) {
+          body(static_cast<std::uint32_t>(i));
+        }
+      });
+    };
+    if (table->flush(forEach, 4096U, event.propagator, geometry, frame, *event.tracks) != StageStatus::kComplete) {
+      throw std::runtime_error("decay fit study: the daughter table's flush failed");
+    }
+  }
   o2::gtrk::detail::parallelFor(*event.arena, 0U, work.size(), 4, [&](std::size_t begin, std::size_t end) {
     for (std::size_t index = begin; index < end; ++index) {
       auto& one = work[index];
@@ -870,7 +897,18 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         const auto& chain = *chainOf.at(leaf->id);
         const auto species = *truthSpecies(leaf->pdg);
         const RowChain<Det> rows{.frame = &frame, .rows = chain.rows.data()};
-        const auto refit = refitRowsWithHypothesis(event.propagator, geometry, material, rows, static_cast<int>(chain.rows.size()), species.pid);
+        HypothesisFit<> refit;
+        if (table) {
+          const auto entry = table->entry(static_cast<std::size_t>(table->entryOf(chain.track->track, static_cast<std::uint8_t>(table->speciesIndex(species.pid)))));
+          refit.innermost = entry.state;
+          refit.status = entry.status;
+          refit.failedPass = entry.failedPass;
+          if (entry.mixture >= 0) {
+            refit.innermostMixture = table->mixture(static_cast<std::size_t>(entry.mixture));
+          }
+        } else {
+          refit = refitRowsWithHypothesis(event.propagator, geometry, material, rows, static_cast<int>(chain.rows.size()), species.pid);
+        }
         if (refit.status != PropagationStatus::kOk) {
           one.refitFailed = true;
           one.refitPass = static_cast<std::uint8_t>(refit.failedPass);

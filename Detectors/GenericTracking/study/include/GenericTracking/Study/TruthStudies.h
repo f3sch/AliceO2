@@ -131,8 +131,10 @@ class TruthStudies
     if (!takes(ChainSource::kTracks)) {
       return;
     }
-    const auto chains = trackChains(event, tracks, mSelection, mCounts[1]);
-    dispatch(event, chains, ChainSource::kTracks);
+    auto withTracks = event;
+    withTracks.tracks = &tracks;
+    const auto chains = trackChains(withTracks, tracks, mSelection, mCounts[1]);
+    dispatch(withTracks, chains, ChainSource::kTracks);
     for (auto& study : mStudies) {
       if (auto* overlaps = std::get_if<OverlapStudy<Det>>(&study->module); overlaps != nullptr && study->source == ChainSource::kTracks) {
         overlaps->processTracks(event, tracks);

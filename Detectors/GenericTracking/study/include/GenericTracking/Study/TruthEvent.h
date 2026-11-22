@@ -19,6 +19,7 @@
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
+#include "GenericTracking/Tracking/TrackStore.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Workflow/BeamLine.h"
 #include "GenericTracking/Study/Alice/Hits.h"
@@ -51,6 +52,7 @@ struct TruthEvent {
   const DecayTrees* trees = nullptr;          ///< the decay trees the particles belong to
   const HitIndex* hits = nullptr;             ///< none without the MC hits
   const ParticleChains* chains = nullptr;
+  const TrackStore<Det>* tracks = nullptr;      ///< the committed tracks, for the studies of the tracker's output; none before the tracking
   o2::gtrk::detail::TaskArena* arena = nullptr; ///< the studies' threads
 };
 
