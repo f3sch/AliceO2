@@ -32,6 +32,7 @@
 #include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayCandidateFit.h"
 #include "GenericTracking/Study/DecayCandidates.h"
+#include "GenericTracking/Study/DecayStudyTools.h"
 #include "GenericTracking/Study/MCTruth.h"
 #include "GenericTracking/Study/PrimaryVertexStudy.h"
 #include "GenericTracking/Study/RecordWriter.h"
@@ -120,28 +121,10 @@ class DecayCandidateStudy
     }
     using o2::track::PID;
     const std::array<PID, 2> species{PID{PID::Pion}, PID{PID::Proton}};
-    constexpr std::array<std::int32_t, 3> kMothers{310, 3122, -3122};
-    std::array<DecayHypothesis, 3> hypotheses{};
-    const auto define = [&](DecayHypothesis& h, PID positive, PID negative, double mass) {
-      h.species.push_back(positive);
-      h.charges.push_back(1);
-      h.species.push_back(negative);
-      h.charges.push_back(-1);
-      h.massGeV = mass;
-    };
-    define(hypotheses[0], PID{PID::Pion}, PID{PID::Pion}, 0.497611);
-    define(hypotheses[1], PID{PID::Proton}, PID{PID::Pion}, 1.115683);
-    define(hypotheses[2], PID{PID::Pion}, PID{PID::Proton}, 1.115683);
+    const auto hypotheses = v0Hypotheses();
 
     // The collisions' mocked primary vertices.
-    std::vector<ReferencePoint> points;
-    std::unordered_map<std::uint64_t, std::int32_t> pointOf;
-    for (const auto& vertex : mockPrimaryVertices(event, chains)) {
-      if (vertex.fit.status == VertexFitStatus::kOk) {
-        pointOf.emplace(vertex.collision, static_cast<std::int32_t>(points.size()));
-        points.push_back({.position = vertex.fit.vertex, .covariance = vertex.fit.covariance});
-      }
-    }
+    const auto reference = referencePointsOf(mockPrimaryVertices(event, chains));
 
     // The pairs, positive track first.
     const auto chainOf = longestChains(chains);
@@ -177,29 +160,19 @@ class DecayCandidateStudy
 
     // Every pair's tracks under every species, refitted once.
     DaughterTable<Det> table(std::span<const PID>{species});
-    if (table.begin(event.tracks->size()) != StageStatus::kComplete) {
-      throw std::runtime_error("decay candidate study: no daughter table");
-    }
-    for (const auto& pair : pairs) {
-      for (const auto t : pair.tracks) {
-        for (std::size_t s = 0; s < species.size(); ++s) {
-          table.request(t, static_cast<std::uint8_t>(s));
+    const auto flushed = std::chrono::steady_clock::now();
+    fillDaughterTable(table, event, "decay candidate study", [&](DaughterTable<Det>& asked) {
+      for (const auto& pair : pairs) {
+        for (const auto t : pair.tracks) {
+          for (std::size_t s = 0; s < species.size(); ++s) {
+            asked.request(t, static_cast<std::uint8_t>(s));
+          }
         }
       }
-    }
-    const auto forEach = [&](std::uint32_t n, const auto& body) {
-      o2::gtrk::detail::parallelFor(*event.arena, 0U, n, 16, [&](std::size_t begin, std::size_t end) {
-        for (std::size_t i = begin; i < end; ++i) {
-          body(static_cast<std::uint32_t>(i));
-        }
-      });
-    };
-    const auto flushed = std::chrono::steady_clock::now();
-    if (table.flush(forEach, 4096U, event.propagator, *event.geometry, *event.frame, *event.tracks) != StageStatus::kComplete) {
-      throw std::runtime_error("decay candidate study: the daughter table's flush failed");
-    }
+    });
     mFlushSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - flushed).count();
     mEntries += table.size();
+    const auto daughters = daughterSource(table, event);
 
     // The candidates: a pair under each hypothesis, started at its helices' closest approach.
     std::vector<DecayCandidate> candidates;
@@ -207,7 +180,7 @@ class DecayCandidateStudy
     for (const auto& pair : pairs) {
       for (std::size_t h = 0; h < hypotheses.size(); ++h) {
         const auto& hypothesis = hypotheses[h];
-        DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h)};
+        DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = reference.of(collisionOf(pair.mother->id))};
         bool pidMatch = true;
         for (std::size_t slot = 0; slot < 2U; ++slot) {
           const auto entry = table.entryOf(pair.tracks[slot], static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
@@ -215,15 +188,9 @@ class DecayCandidateStudy
           const auto truthSpeciesOf = truthSpecies(pair.pdgs[slot]);
           pidMatch = pidMatch && truthSpeciesOf && truthSpeciesOf->pid == hypothesis.species[slot];
         }
-        const auto point = pointOf.find(collisionOf(pair.mother->id));
-        candidate.point = point == pointOf.end() ? -1 : point->second;
-        const auto daughters = candidateDaughters(candidate, table, *event.tracks, *event.geometry, *event.frame, event.propagator);
-        std::array<Vec3D, decay_fit_detail::kMaxConstrainedVertices> start{};
-        if (table.view().status[candidate.entries[0]] == PropagationStatus::kOk && table.view().status[candidate.entries[1]] == PropagationStatus::kOk && decayFitStart<Det>(std::span<const DecayDaughter>{daughters.data(), daughters.size()}, {}, {}, {}, start)) {
-          candidate.start.push_back(start[0]);
-        }
+        static_cast<void>(startDecayCandidate(candidate, std::span<const DecayHypothesis>{hypotheses}, daughters, reference.points.size()));
         candidates.push_back(candidate);
-        records.push_back({.timeframe = event.timeframe, .particle = pair.mother->id, .pdg = pair.mother->pdg, .hypothesis = static_cast<std::uint8_t>(h), .pidMatch = static_cast<std::uint8_t>(pidMatch ? 1U : 0U), .trueHypothesis = static_cast<std::uint8_t>(pair.mother->pdg == kMothers[h] ? 1U : 0U)});
+        records.push_back({.timeframe = event.timeframe, .particle = pair.mother->id, .pdg = pair.mother->pdg, .hypothesis = static_cast<std::uint8_t>(h), .pidMatch = static_cast<std::uint8_t>(pidMatch ? 1U : 0U), .trueHypothesis = static_cast<std::uint8_t>(pair.mother->pdg == kV0Mothers[h] ? 1U : 0U)});
       }
     }
 
@@ -231,38 +198,23 @@ class DecayCandidateStudy
     std::vector<DecayCandidateResult> results(candidates.size());
     std::vector<float> microseconds(candidates.size());
     o2::gtrk::detail::parallelFor(*event.arena, 0U, candidates.size(), 16, [&](std::size_t begin, std::size_t end) {
+      WorkspaceBuffer workspace;
       for (std::size_t c = begin; c < end; ++c) {
         const auto started = std::chrono::steady_clock::now();
-        const auto one = [&](std::uint32_t n, const auto& body) {
-          for (std::uint32_t i = 0; i < n; ++i) {
-            body(i);
-          }
-        };
-        fitDecayCandidates<Det>(one, std::span<const DecayCandidate>{&candidates[c], 1}, std::span<const DecayHypothesis>{hypotheses}, table, *event.tracks, *event.frame, *event.geometry, event.propagator, event.geometry->material(), std::span<const ReferencePoint>{points}, std::span<DecayCandidateResult>{&results[c], 1});
+        fitDecayCandidate(candidates[c], std::span<const DecayHypothesis>{hypotheses}, daughters, event.geometry->material(), std::span<const MeasuredPoint>{reference.points}, workspace, results[c]);
         microseconds[c] = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
       }
     });
     for (std::size_t c = 0; c < candidates.size(); ++c) {
       auto& record = records[c];
       const auto& result = results[c];
-      const auto& decay = decayProducts(*event.trees, *event.trees->find(record.particle)).front()->vertex;
-      record.status = static_cast<std::uint8_t>(result.fit.status);
-      record.iterations = result.fit.iterations;
       record.microseconds = microseconds[c];
+      writeCandidateFit(record, result);
       if (result.fit.status == VertexFitStatus::kOk) {
-        record.chi2 = static_cast<float>(result.fit.chi2);
-        record.ndf = static_cast<std::int16_t>(result.fit.ndf);
+        const auto& decay = decayPointOf(*event.trees, *event.trees->find(record.particle));
         record.dX = static_cast<float>(result.fit.vertex[0] - decay[0]);
         record.dY = static_cast<float>(result.fit.vertex[1] - decay[1]);
         record.dZ = static_cast<float>(result.fit.vertex[2] - decay[2]);
-        record.mass = static_cast<float>(result.kinematics.mass);
-        record.sMass = static_cast<float>(result.kinematics.sMass);
-        record.hasPoint = result.hasPoint ? 1U : 0U;
-        if (result.hasPoint) {
-          record.length = static_cast<float>(result.flight.length);
-          record.sLength = static_cast<float>(result.flight.sLength);
-          record.cosPointing = static_cast<float>(result.flight.cosPointing);
-        }
         ++mFitted;
       }
       mWriter->write(record);

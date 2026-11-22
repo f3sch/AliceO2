@@ -135,17 +135,6 @@ template <typename At>
   return {.length = length.v, .sLength = sqrtClampedOf(variance(length) + pointLength), .ct = ct.v, .sCt = sqrtClampedOf(variance(ct) + pointCt), .phi = phi.v, .sPhi = sqrtClampedOf(variance(phi)), .theta = theta.v, .sTheta = sqrtClampedOf(variance(theta)), .cosPointing = cosPointing};
 }
 
-/// Vertex \a w of the fit's parameters (vertices first) as dual numbers.
-[[nodiscard]] GPUhdi() std::array<Dual<kConstraintInputs>, 3> vertexOfInputs(const Vec3D& vertex, int w)
-{
-  std::array<Dual<kConstraintInputs>, 3> v{};
-  for (int k = 0; k < 3; ++k) {
-    v[k].v = vertex[k];
-    v[k].d[(3 * w) + k] = 1.;
-  }
-  return v;
-}
-
 } // namespace decay_fit_detail
 
 /// The flight of the mother decaying at \a vertex into \a momenta (with
@@ -167,7 +156,7 @@ template <typename At>
   for (int k = 0; k < 3; ++k) {
     from[k].v = point[k];
   }
-  return flightBetween(vertexOfInputs(vertex, 0), from, sum.vector, mass, (3 * vertices) + (3 * count), at, pointCovariance);
+  return flightBetween(vertexOfInputs<kConstraintInputs>(vertex, 0), from, sum.vector, mass, (3 * vertices) + (3 * count), at, pointCovariance);
 }
 
 /// The flight of a composite of a tree fit -- decaying at vertex \a w into
@@ -185,7 +174,7 @@ template <typename At>
   for (const int i : leaves) {
     sum.add(momentumOfInputs<kConstraintInputs>(momenta[i][0], momenta[i][1], momenta[i][2], (3 * k) + (3 * i), charges[i]).vector);
   }
-  return flightBetween(vertexOfInputs(vertices[w], w), vertexOfInputs(vertices[from], from), sum.vector, mass, (3 * k) + (3 * static_cast<int>(momenta.size())), at, {});
+  return flightBetween(vertexOfInputs<kConstraintInputs>(vertices[w], w), vertexOfInputs<kConstraintInputs>(vertices[from], from), sum.vector, mass, (3 * k) + (3 * static_cast<int>(momenta.size())), at, {});
 }
 
 /// The kinematics of \a leaves of a fit's \a momenta (`decayKinematics`),

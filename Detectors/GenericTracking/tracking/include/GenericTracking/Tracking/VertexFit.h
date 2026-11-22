@@ -28,26 +28,111 @@
 /// their Lagrange system, DecayVertexFit.h), the primary vertex fit's is
 /// block-arrow -- each track's momentum couples only to the vertex --, solved
 /// by eliminating each track's block (PrimaryVertexFit.h). Both run the same
-/// steps, damping and stop.
+/// steps, damping and stop, report the same diagnostics
+/// (`VertexFitDiagnostics`) and carve their workspaces alike (`place`).
 
 #ifndef GTRK_TRACKING_VERTEXFIT_H_
 #define GTRK_TRACKING_VERTEXFIT_H_
 
+#include "GenericTracking/Base/Definitions.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/DecayFitMath.h"
 #include "GenericTracking/Tracking/Definitions.h"
+#include "GenericTracking/Tracking/HypothesisRefit.h"
+#include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
 #include "GPUCommonDef.h"
 #include "GPUCommonMath.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <new>
 #include <span>
+#include <vector>
+
+namespace o2::gtrk
+{
+
+/// A point known to its covariance: the beam line as the primary vertex
+/// fit's prior, a primary vertex as a decay's reference point.
+struct MeasuredPoint {
+  Vec3D position{};                   ///< [cm]
+  std::array<double, 6> covariance{}; ///< x, y, z; packed (`covIndex`) [cm^2]
+};
+
+/// How a vertex fit ended: the first part of its result (`modelLoop`).
+struct VertexFitDiagnostics {
+  VertexFitStatus status = VertexFitStatus::kNoStart;
+  std::uint8_t iterations = 0U;
+  std::uint8_t outer = 0U;      ///< the model's evaluations (carries, material along the trajectory)
+  std::uint8_t stopReason = 0U; ///< 1 the model anew moved nothing, 2 its moves stopped shrinking within `kModelTolerance`, 0 not converged
+  float stopMetric = 0.F;       ///< the last step's predicted chi2 gain
+  float stopBound = 0.F;        ///< and what it was held to: the inputs' resolution R (`minimiseFrozen`)
+  float modelShift = 0.F;       ///< what the last model evaluation moved the solution by (its first step's predicted gain)
+};
+
+/// A fit's workspace on the host: aligned to
+/// `vertex_fit_detail::kWorkspaceAlignment`, grown
+/// to the largest asked for and reused.
+class WorkspaceBuffer
+{
+ public:
+  /// \a bytes of it.
+  [[nodiscard]] std::span<std::byte> take(std::size_t bytes)
+  {
+    const std::size_t words = (bytes + sizeof(std::max_align_t) - 1U) / sizeof(std::max_align_t);
+    if (mWords.size() < words) {
+      mWords.resize(words);
+    }
+    return std::as_writable_bytes(std::span{mWords}).first(bytes);
+  }
+
+ private:
+  std::vector<std::max_align_t> mWords;
+};
+
+} // namespace o2::gtrk
 
 namespace o2::gtrk::vertex_fit_detail
 {
+
+/// The alignment a fit's workspace starts at: every array's in it.
+inline constexpr std::size_t kWorkspaceAlignment = alignof(std::max_align_t);
+
+/// An array of \a count Ts at \a at (aligned for T) of a workspace's
+/// \a base, \a at moved past it; none without \a base (the size alone).
+template <typename T>
+[[nodiscard]] GPUhdi() T* place(std::byte* base, std::size_t& at, std::size_t count)
+{
+  at = (at + alignof(T) - 1U) / alignof(T) * alignof(T);
+  T* first = base != nullptr ? reinterpret_cast<T*>(base + at) : nullptr; // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): the workspace's bytes, constructed as Ts below
+  if (first != nullptr) {
+    for (std::size_t i = 0; i < count; ++i) {
+      new (first + i) T{};
+    }
+  }
+  at += count * sizeof(T);
+  return first;
+}
+
+/// Whether \a workspace holds \a bytes, aligned to kWorkspaceAlignment.
+[[nodiscard]] GPUhdi() bool holdsWorkspace(std::span<std::byte> workspace, std::size_t bytes)
+{
+  return workspace.size() >= bytes && reinterpret_cast<std::uintptr_t>(workspace.data()) % kWorkspaceAlignment == 0U; // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): the address's alignment
+}
+
+/// The measurements' precision: their states are floats.
+inline constexpr double kMeasurementPrecision = std::numeric_limits<Scalar>::epsilon();
+
+/// An input \a value's rounding squared, (epsilon_float value)^2: times
+/// its weight, its share of the inputs' resolution R (`minimiseFrozen`).
+[[nodiscard]] GPUhdi() double roundingOf(double value) { return (kMeasurementPrecision * value) * (kMeasurementPrecision * value); }
+
+/// The helix's curvature per q/pT in \a propagator's field, Bz B2C.
+[[nodiscard]] GPUhdi() double fieldScaleOf(const Propagator& propagator) { return static_cast<double>(propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C); }
 
 /// A track's parameters in a vertex fit: its vertex's x, y, z, then its phi,
 /// theta, q/p there.
@@ -85,6 +170,18 @@ template <typename S>
   return true;
 }
 
+/// \a state carried from \a surface to \a plane with \a propagator's mass
+/// and \a material's material between (`carryStateInward`), its measurement
+/// there into \a m; kCarryFailed or kSingular where either fails.
+template <typename Material, typename S>
+[[nodiscard]] GPUd() VertexFitStatus carriedMeasurement(const Propagator& propagator, const Material& material, const TrackingSurface& surface, const TrackingSurface& plane, BoundTrackState& state, TrackMeasurement<S>& m)
+{
+  if (detail::hypothesis::carryStateInward(propagator, material, surface, plane, state) != PropagationStatus::kOk) {
+    return VertexFitStatus::kCarryFailed;
+  }
+  return measurementOf(state, plane, m) ? VertexFitStatus::kOk : VertexFitStatus::kSingular;
+}
+
 /// A track's term in the normal equations over its six parameters
 /// (`kTrackParameters`): the lower triangle of H^T W H, packed, and H^T W r.
 template <typename S>
@@ -101,7 +198,6 @@ template <typename M, typename S>
 [[nodiscard]] GPUd() bool trackTerm(const TrackMeasurement<S>& m, double fieldScale, const std::array<double, kTrackParameters>& at, double& chi2, double& rounding, TrackTerm<S>* term)
 {
   using namespace decay_fit_detail;
-  constexpr double kEpsilon = std::numeric_limits<Scalar>::epsilon(); // the measurements' precision
   using D = Dual<kTrackParameters, M>;
   FreeState<kTrackParameters, M> from{};
   for (int c = 0; c < kTrackParameters; ++c) {
@@ -120,7 +216,7 @@ template <typename M, typename S>
   residual[2] = toPMPiOf(residual[2]);
   const auto& weight = m.weight;
   for (int r = 0; r < 5; ++r) {
-    rounding += ((kEpsilon * m.value[r]) * (kEpsilon * m.value[r])) * static_cast<double>(weight[covIndex(r, r)]);
+    rounding += roundingOf(m.value[r]) * static_cast<double>(weight[covIndex(r, r)]);
   }
   // W r in double: the chi2 is a sum in double
   std::array<double, 5> weighted{};
@@ -151,6 +247,17 @@ template <typename M, typename S>
   }
   return true;
 }
+
+/// The minimiser's state across a fit's model evaluations
+/// (`minimiseFrozen`, `modelLoop`).
+struct MinimiserState {
+  double mu = 0.;     ///< the largest |lambda| of the Gauss-Newton steps seen: the merit's penalty
+  double metric = 0.; ///< the last step's predicted gain
+  double bound = 0.;  ///< and what it was held to
+  int iterations = 0; ///< all minimisations'
+  int steps = 0;      ///< the last minimisation's steps taken
+  double shift = 0.;  ///< the last minimisation's first predicted gain: what the model moved the solution by
+};
 
 /// The Gauss-Newton minimum under a fixed model -- the carried measurements,
 /// the material along a trajectory --: smooth; the model evaluated in M, the
@@ -194,19 +301,22 @@ template <typename M, typename S>
 /// - `double quadratic(const S* v, double start)`: start + v^T N v;
 /// - `void forms(const S* v, double& gd, double& dNd, double& dDd)`;
 /// - `bool trial(p, chi2, violation)`: the chi2 and |c|_1 at a trial point.
-/// \a steps: the steps taken; \a first: the first step's predicted gain,
-/// what the model moved the solution by. \a trial, \a step and \a dampedStep
-/// are n each.
+/// \a state: mu, the iterations, and this minimisation's steps, its last
+/// step's gain and bound and its first step's gain (`MinimiserState`).
+/// \a trial, \a step and \a dampedStep are n each.
 template <typename M, typename S, typename System>
-[[nodiscard]] GPUd() VertexFitStatus minimiseFrozen(System& system, int n, int ndf, std::span<double> parameters, double* trial, S* step, S* dampedStep, double& chi2, double& mu, double& metric, double& bound, int& iterations, int& steps, double& first)
+[[nodiscard]] GPUd() VertexFitStatus minimiseFrozen(System& system, int n, int ndf, std::span<double> parameters, double* trial, S* step, S* dampedStep, double& chi2, MinimiserState& state)
 {
+  double& mu = state.mu;
+  double& metric = state.metric;
+  int& steps = state.steps;
   const bool constrained = system.constrained();
   const std::span<double> trialPoint{trial, static_cast<std::size_t>(n)};
   double damping = 0.;
   double growth = 2.;
   steps = 0;
   for (int iteration = 0; iteration < decay_fit_detail::kMaxSteps; ++iteration) {
-    ++iterations;
+    ++state.iterations;
     double rounding = 0.;
     if (!system.evaluate(parameters, chi2, rounding, true)) {
       return VertexFitStatus::kNoCrossing;
@@ -218,10 +328,10 @@ template <typename M, typename S, typename System>
     }
     metric = system.quadratic(step, (mu * violation) - lambdaC);
     if (iteration == 0) {
-      first = metric;
+      state.shift = metric;
     }
     const double resolvable = (static_cast<double>(std::numeric_limits<M>::epsilon()) * (chi2 + o2::gpu::CAMath::Max(ndf, 0))) + rounding;
-    bound = resolvable;
+    state.bound = resolvable;
     if (metric <= resolvable) {
       return VertexFitStatus::kOk;
     }
@@ -285,22 +395,15 @@ template <typename M, typename S, typename System>
   return VertexFitStatus::kNotConverged;
 }
 
-/// Where a fit's model loop ended (`modelLoop`).
-struct ModelLoopOutcome {
-  VertexFitStatus status = VertexFitStatus::kNotConverged;
-  std::uint8_t outer = 0U;      ///< the model's evaluations (carries, material along the trajectory)
-  std::uint8_t stopReason = 0U; ///< 1 the model anew moved nothing, 2 its moves stopped shrinking within `kModelTolerance`, 0 not converged
-  float modelShift = 0.F;       ///< what the last model evaluation moved the solution by (its first step's predicted gain)
-};
-
 /// The carried measurements are the model: minimised under them
-/// (\a minimise(), which sets \a steps and \a shift, its first step's
-/// predicted gain), the model renewed along the solution (\a refresh()),
-/// until a renewal no longer moves the solution by what the inputs resolve
-/// (the minimiser takes no step). False if a renewal failed (its status in
-/// \a out): the fit ends there; true otherwise, \a out's status the loop's.
+/// (\a minimise(), which updates \a state), the model renewed along the
+/// solution (\a refresh()), until a renewal no longer moves the solution by
+/// what the inputs resolve (the minimiser takes no step). How it ended into
+/// \a out. False if a renewal failed (its status in \a out): the fit ends
+/// there; true otherwise, \a out's status the loop's, with the minimiser's
+/// iterations and last bound.
 template <typename Refresh, typename Minimise>
-[[nodiscard]] GPUd() bool modelLoop(const Refresh& refresh, const Minimise& minimise, const int& steps, const double& shift, ModelLoopOutcome& out)
+[[nodiscard]] GPUd() bool modelLoop(const Refresh& refresh, const Minimise& minimise, const MinimiserState& state, VertexFitDiagnostics& out)
 {
   double lastShift = std::numeric_limits<double>::infinity();
   out.status = VertexFitStatus::kNotConverged;
@@ -317,28 +420,31 @@ template <typename Refresh, typename Minimise>
       out.status = inner;
       break;
     }
-    out.modelShift = static_cast<float>(shift);
-    if (steps == 0) {
+    out.modelShift = static_cast<float>(state.shift);
+    if (state.steps == 0) {
       // The model anew along the solution moves it less than the inputs
       // resolve: converged.
       out.status = VertexFitStatus::kOk;
       out.stopReason = 1U;
       break;
     }
-    if (outer > 1 && shift >= lastShift) {
+    if (outer > 1 && state.shift >= lastShift) {
       // The model's moves no longer shrink: the material table's
       // discretisation (piecewise constant along the trajectory) leaves no
       // exact fixed point. Each solution here is a converged minimum under a
       // model along a trajectory close to it; taken if the model moves it by
       // less than its error (`kModelTolerance`).
-      out.status = shift <= decay_fit_detail::kModelTolerance ? VertexFitStatus::kOk : VertexFitStatus::kNotConverged;
-      out.stopReason = shift <= decay_fit_detail::kModelTolerance ? 2U : 0U;
+      out.status = state.shift <= decay_fit_detail::kModelTolerance ? VertexFitStatus::kOk : VertexFitStatus::kNotConverged;
+      out.stopReason = state.shift <= decay_fit_detail::kModelTolerance ? 2U : 0U;
       break;
     }
     if (outer != 0) {
-      lastShift = shift;
+      lastShift = state.shift;
     }
   }
+  out.iterations = static_cast<std::uint8_t>(o2::gpu::CAMath::Min(state.iterations, 255));
+  out.stopMetric = static_cast<float>(state.metric);
+  out.stopBound = static_cast<float>(state.bound);
   return true;
 }
 

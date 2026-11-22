@@ -92,6 +92,13 @@ inline constexpr std::uint8_t kProcessPair = 5U;    ///< kPPair
   return products;
 }
 
+/// Where \a particle decayed: its first decay product's production point
+/// (it has decay products).
+[[nodiscard]] inline const Vec3D& decayPointOf(const DecayTrees& trees, const TreeParticle& particle)
+{
+  return decayProducts(trees, particle).front()->vertex;
+}
+
 /// A decay down to its leaves.
 struct DecayShape {
   std::vector<const TreeParticle*> leaves;     ///< the final charged particles, depth first

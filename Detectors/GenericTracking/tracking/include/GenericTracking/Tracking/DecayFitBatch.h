@@ -206,17 +206,12 @@ GPUd() void fitBatchDecay(const DecayFitBatchView& batch, std::uint32_t index, c
 template <DetectorLayout Det, DecayFitVariant Variant, typename Material>
 void fitDecayBatch(const DecayFitBatchView& batch, const Material& material, std::span<DecayVertexFitResult> results)
 {
-  std::vector<std::max_align_t> storage;
+  WorkspaceBuffer workspace;
   for (std::uint32_t i = 0; i < batch.count; ++i) {
     std::array<DecayMother, decay_fit_detail::kMaxConstrainedVertices> mothers{};
     auto fitter = decay_fit_detail::batchFitter<Det, Variant>(batch, i, material, mothers);
-    const std::size_t bytes = fitter.workspace();
-    const std::size_t words = (bytes + sizeof(std::max_align_t) - 1U) / sizeof(std::max_align_t);
-    if (storage.size() < words) {
-      storage.resize(words);
-    }
     const auto& input = batch.decays[i];
-    fitter.fit({input.start.data(), input.starts}, std::as_writable_bytes(std::span{storage}).first(bytes), results[i]);
+    fitter.fit({input.start.data(), input.starts}, workspace.take(fitter.workspace()), results[i]);
   }
 }
 

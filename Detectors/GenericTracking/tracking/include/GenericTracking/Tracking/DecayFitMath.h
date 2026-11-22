@@ -82,6 +82,19 @@ template <int N, typename M = double>
   return momentumOf(dual::variable<N, M>(phi, first), dual::variable<N, M>(theta, first + 1), dual::variable<N, M>(qOverP, first + 2), numeratorOf(charge));
 }
 
+/// The vertex \a vertex as dual numbers over N inputs: the parameters'
+/// vertex \a w, its coordinates the inputs 3 w, 3 w + 1, 3 w + 2.
+template <int N, typename M = double>
+[[nodiscard]] GPUhdi() std::array<Dual<N, M>, 3> vertexOfInputs(const Vec3D& vertex, int w)
+{
+  std::array<Dual<N, M>, 3> v{};
+  for (int k = 0; k < 3; ++k) {
+    v[k].v = static_cast<M>(vertex[k]);
+    v[k].d[(3 * w) + k] = M(1.);
+  }
+  return v;
+}
+
 /// A particle's energy, sqrt(|p|^2 + m^2) with its \a mass [GeV].
 template <typename T>
 [[nodiscard]] GPUhdi() T energyOf(const Momentum<T>& momentum, double mass)

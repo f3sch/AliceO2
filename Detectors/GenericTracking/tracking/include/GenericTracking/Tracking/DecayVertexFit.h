@@ -60,13 +60,11 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
-#include <new>
 #include <numbers>
 #include <numeric>
 #include <optional>
 #include <span>
 #include <utility>
-#include <vector>
 
 namespace o2::gtrk
 {
@@ -106,15 +104,8 @@ struct DecayMother {
   Propagator propagator;                   ///< the field, with its mass
 };
 
-/// A decay vertex fit's result.
-struct DecayVertexFitResult {
-  VertexFitStatus status = VertexFitStatus::kNoStart;
-  std::uint8_t iterations = 0U;
-  std::uint8_t outer = 0U;              ///< the model's evaluations (carries, material along the trajectory)
-  std::uint8_t stopReason = 0U;         ///< 1 the model anew moved nothing, 2 its moves stopped shrinking within `kModelTolerance`, 0 not converged
-  float stopMetric = 0.F;               ///< the last step's predicted chi2 gain
-  float stopBound = 0.F;                ///< and what it was held to: the inputs' resolution R (`minimiseFrozen`)
-  float modelShift = 0.F;               ///< what the last model evaluation moved the solution by (its first step's predicted gain)
+/// A decay vertex fit's result: how it ended, then the decay.
+struct DecayVertexFitResult : VertexFitDiagnostics {
   double pointSigma = 0.;               ///< the production point's equations' sigma across the flight [cm], with the scattering onto it
   std::uint16_t combinations = 0U;      ///< `kGaussianSum`: the component combinations fitted and taken
   std::uint16_t combinationsTried = 0U; ///< and all combinations tried
@@ -145,9 +136,7 @@ struct DecayVertexFitResult {
   /// Back to a fresh result, in place (no temporary of this size).
   GPUhdi() void reset()
   {
-    status = VertexFitStatus::kNoStart;
-    iterations = outer = stopReason = 0U;
-    stopMetric = stopBound = modelShift = 0.F;
+    static_cast<VertexFitDiagnostics&>(*this) = {};
     pointSigma = 0.;
     combinations = combinationsTried = 0U;
     vertex = {};
@@ -276,17 +265,6 @@ struct HelixApproach {
   return out;
 }
 
-/// The start: \a a's and \a b's closest approach (`approachOf`) into
-/// \a start; false if there is none.
-[[nodiscard]] GPUhdi() bool closestApproach(const StartEntry& a, const StartEntry& b, Vec3D& start)
-{
-  const auto approach = approachOf(a, b);
-  if (approach.found) {
-    start = approach.start;
-  }
-  return approach.found;
-}
-
 /// The closest points of two lines (a point and a unit direction each):
 /// their middle; none if they are parallel.
 [[nodiscard]] GPUhdi() bool closestOfLines(const Vec3D& a, const Vec3D& u, const Vec3D& b, const Vec3D& w, Vec3D& start)
@@ -314,7 +292,7 @@ struct HelixApproach {
 /// Each vertex's start, the deepest first, from its entries -- its daughters,
 /// and its composites, each from its own start along its daughters' summed
 /// momentum with their summed charge --: two charged entries' helices'
-/// closest approach (`closestApproach`); otherwise the closest points of two
+/// closest approach (`approachOf`); otherwise the closest points of two
 /// lines, an entry's from its point along its direction. Into \a starts
 /// (one per vertex); false if a vertex has none.
 [[nodiscard]] GPUhdi() bool treeStart(std::span<const DecayDaughter> daughters, const DecayTopology& topology, std::span<Vec3D> starts)
@@ -373,9 +351,11 @@ struct HelixApproach {
       }
     }
     if (charged.size() >= 2) {
-      if (!closestApproach(entries[charged[0]], entries[charged[1]], starts[w])) {
+      const auto approach = approachOf(entries[charged[0]], entries[charged[1]]);
+      if (!approach.found) {
         return false;
       }
+      starts[w] = approach.start;
       continue;
     }
     if (!closestOfLines(positionOf(*entries[0].state, *entries[0].surface), directionOf(*entries[0].state), positionOf(*entries[1].state, *entries[1].surface), directionOf(*entries[1].state), starts[w])) {
@@ -690,8 +670,8 @@ class DecayVertexFitter
 
   /// The fit into \a result from \a start, one vertex per vertex of the
   /// tree (`decayFitStart`, or the caller's own; fewer: kNoStart), in
-  /// \a workspace (at least `workspace()` bytes, aligned to kAlignment; else
-  /// refused as `kTooLarge`). The momenta start from each daughter's carry to
+  /// \a workspace (at least `workspace()` bytes, aligned to
+  /// `kWorkspaceAlignment`; else refused as `kTooLarge`). The momenta start from each daughter's carry to
   /// the plane about its vertex's start.
   GPUd() void fit(std::span<const Vec3D> start, std::span<std::byte> workspace, DecayVertexFitResult& result)
   {
@@ -703,7 +683,7 @@ class DecayVertexFitter
       return;
     }
     result.charges = mCharges;
-    if (workspace.size() < workspaceSize(counts()) || reinterpret_cast<std::uintptr_t>(workspace.data()) % kAlignment != 0U) { // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): the address's alignment
+    if (!vertex_fit_detail::holdsWorkspace(workspace, workspaceSize(counts()))) {
       result.status = VertexFitStatus::kTooLarge;
       return;
     }
@@ -722,7 +702,7 @@ class DecayVertexFitter
     // pseudo-track's propagator has none).
     for (const auto& daughter : mDaughters) {
       if (!daughter.neutral) {
-        mPhysicalField = static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
+        mPhysicalField = vertex_fit_detail::fieldScaleOf(daughter.propagator);
         break;
       }
     }
@@ -811,8 +791,6 @@ class DecayVertexFitter
   }
 
  private:
-  static constexpr double kEpsilon = std::numeric_limits<Scalar>::epsilon(); // the measurements' precision
-
   /// The inputs checked, the counts and the chains set up; false (and
   /// `mResult`'s status) for inputs the fit refuses. Once.
   [[nodiscard]] GPUd() bool prepare()
@@ -855,28 +833,9 @@ class DecayVertexFitter
     return rows + mConstraints.heldMasses();
   }
 
-  /// The alignment the workspace starts at: every array's in it.
-  static constexpr std::size_t kAlignment = alignof(std::max_align_t);
-
   [[nodiscard]] GPUd() Counts counts() const
   {
     return {.parameters = mParameterCount, .values = mValueCount, .chainEquations = mChainCount, .daughters = mCount, .electrons = mElectrons, .chainRows = mChainRows, .longestChain = mLongestChain};
-  }
-
-  /// An array of \a count Ts at \a at (aligned for T) of \a base, \a at
-  /// moved past it; none without \a base.
-  template <typename T>
-  [[nodiscard]] GPUhdi() static T* place(std::byte* base, std::size_t& at, std::size_t count)
-  {
-    at = (at + alignof(T) - 1U) / alignof(T) * alignof(T);
-    T* first = base != nullptr ? reinterpret_cast<T*>(base + at) : nullptr; // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): the workspace's bytes, constructed as Ts below
-    if (first != nullptr) {
-      for (std::size_t i = 0; i < count; ++i) {
-        new (first + i) T{};
-      }
-    }
-    at += count * sizeof(T);
-    return first;
   }
 
   /// The workspace's layout for \a k: its arrays one after the other in
@@ -890,6 +849,7 @@ class DecayVertexFitter
     const std::size_t larger = o2::gpu::CAMath::Max(n, m);
     const auto packed = [](std::size_t size) { return (size * (size + 1U)) / 2U; };
     const auto rows = static_cast<std::size_t>(k.longestChain);
+    using vertex_fit_detail::place;
     std::size_t at = 0;
     space.parameters = place<double>(base, at, n);
     space.solve.trial = place<double>(base, at, n);
@@ -1022,9 +982,10 @@ class DecayVertexFitter
     using namespace decay_fit_detail;
     using DC = Dual<kConstraintInputs, M>;
     FreeState<kConstraintInputs, M> state{};
+    const auto first = 3U * static_cast<std::size_t>(chain.vertex);
+    const auto vertex = vertexOfInputs<kConstraintInputs, M>({p[first], p[first + 1], p[first + 2]}, chain.vertex);
     for (int c = 0; c < 3; ++c) {
-      state[c].v = static_cast<M>(p[(3 * chain.vertex) + c]);
-      state[c].d[(3 * chain.vertex) + c] = M(1.);
+      state[c] = vertex[c];
     }
     MomentumSum<DC> sum;
     for (int i = 0; i < mCount; ++i) {
@@ -1044,14 +1005,13 @@ class DecayVertexFitter
   [[nodiscard]] GPUd() std::array<decay_fit_detail::Dual<decay_fit_detail::kConstraintInputs, M>, 3> endPoint(std::span<const double> p, const Chain& chain) const
   {
     using namespace decay_fit_detail;
+    if (chain.end != -1) {
+      const auto first = 3U * static_cast<std::size_t>(chain.end);
+      return vertexOfInputs<kConstraintInputs, M>({p[first], p[first + 1], p[first + 2]}, chain.end);
+    }
     std::array<Dual<kConstraintInputs, M>, 3> point{};
     for (int c = 0; c < 3; ++c) {
-      if (chain.end == -1) {
-        point[c].v = static_cast<M>(mConstraints.point[c]);
-      } else {
-        point[c].v = static_cast<M>(p[(3 * chain.end) + c]);
-        point[c].d[(3 * chain.end) + c] = M(1.);
-      }
+      point[c].v = static_cast<M>(mConstraints.point[c]);
     }
     return point;
   }
@@ -1066,22 +1026,10 @@ class DecayVertexFitter
 
   // The chains' equations at \a p, predicted less measured, their rows of
   // derivatives by (the vertices, the momenta), under the current model:
-  // after the \a written equations already in `mSpace.values` and `mSpace.rows`.
-  [[nodiscard]] GPUd() bool chainEquations(std::span<const double> p, int& written)
+  // after \a out's equations.
+  [[nodiscard]] GPUd() bool chainEquations(std::span<const double> p, decay_fit_detail::EquationWriter<S>& out)
   {
     using namespace decay_fit_detail;
-    bool room = true;
-    const auto push = [&](const Dual<kConstraintInputs, M>& value) {
-      if (written >= mValueCount) {
-        room = false;
-        return;
-      }
-      mSpace.values[written] = static_cast<S>(value.v);
-      for (int c = 0; c < mCore; ++c) {
-        mSpace.rows[(written * mParameterCount) + c] = static_cast<S>(value.d[c]);
-      }
-      ++written;
-    };
     for (const auto& chain : mChains) {
       auto state = chainStart(p, chain);
       const int rows = chain.rowCount;
@@ -1091,8 +1039,8 @@ class DecayVertexFitter
         if (!crossToPlane(state, chain.rows->planes[j], mPhysicalField, to, local)) {
           return false;
         }
-        push(local[0] + (-chain.rows->positions[j][0]));
-        push(local[1] + (-chain.rows->positions[j][1]));
+        out.push(local[0] + (-chain.rows->positions[j][0]));
+        out.push(local[1] + (-chain.rows->positions[j][1]));
         state = to;
         state[5] = chain.loss[j] * state[5];
       }
@@ -1106,11 +1054,11 @@ class DecayVertexFitter
         const auto point = endPoint(p, chain);
         Dual<kConstraintInputs, M> target[3];
         surfaceToLocal(chain.endPlane, point.data(), target);
-        push(local[0] - target[0]);
-        push(local[1] - target[1]);
+        out.push(local[0] - target[0]);
+        out.push(local[1] - target[1]);
       }
     }
-    return room;
+    return out.room;
   }
 
   // The chains' model along \a p's trajectories.
@@ -1343,11 +1291,11 @@ class DecayVertexFitter
             kept.push_back(component);
           }
         }
-      } else if (detail::hypothesis::carryStateInward(daughter.propagator, mMaterial, daughter.surface, plane, state) != PropagationStatus::kOk) {
-        return VertexFitStatus::kCarryFailed;
-      }
-      if (!vertex_fit_detail::measurementOf(state, plane, mSpace.measurements[i])) {
-        return VertexFitStatus::kSingular;
+        if (!vertex_fit_detail::measurementOf(state, plane, mSpace.measurements[i])) {
+          return VertexFitStatus::kSingular;
+        }
+      } else if (const auto status = vertex_fit_detail::carriedMeasurement(daughter.propagator, mMaterial, daughter.surface, plane, state, mSpace.measurements[i]); status != VertexFitStatus::kOk) {
+        return status;
       }
       mResult->carried[i] = {state.phi(), state.theta(), state.qOverP()};
       for (int r = 0; r < 3; ++r) {
@@ -1376,7 +1324,7 @@ class DecayVertexFitter
       if (daughter.unmeasured) {
         continue; // no measurement
       }
-      const double fieldScale = daughter.neutral ? 0. : static_cast<double>(daughter.propagator.bzKiloGauss) * static_cast<double>(constants::math::B2C);
+      const double fieldScale = daughter.neutral ? 0. : vertex_fit_detail::fieldScaleOf(daughter.propagator);
       const int q = (3 * mVertexCount) + (3 * i);
       const int w = 3 * mTopology.vertexOfDaughter(i);
       const std::array<int, vertex_fit_detail::kTrackParameters> index{w, w + 1, w + 2, q, q + 1, q + 2};
@@ -1403,7 +1351,7 @@ class DecayVertexFitter
     // The chains' rows: the inputs' precision (`minimiseFrozen`).
     for (const auto& mother : mMothers) {
       for (std::size_t j = 0; j < mother.planes.size(); ++j) {
-        rounding += ((kEpsilon * mother.positions[j][0]) * (kEpsilon * mother.positions[j][0]) / mother.covariance[j][0]) + ((kEpsilon * mother.positions[j][1]) * (kEpsilon * mother.positions[j][1]) / mother.covariance[j][2]);
+        rounding += (vertex_fit_detail::roundingOf(mother.positions[j][0]) / mother.covariance[j][0]) + (vertex_fit_detail::roundingOf(mother.positions[j][1]) / mother.covariance[j][2]);
       }
     }
     mScattered.addPrior(p, chi2, normal, gradient);
@@ -1454,15 +1402,15 @@ class DecayVertexFitter
       const int q = (3 * mVertexCount) + (3 * i);
       momenta[i] = {p[q], p[q + 1], p[q + 2]};
     }
-    int written = 0;
-    if (!evaluateConstraints<M>(mConstraints, mTopology, std::span<const Vec3D>{vertices.data(), static_cast<std::size_t>(mVertexCount)}, std::span<const Vec3D>{momenta.data(), static_cast<std::size_t>(mCount)}, std::span<const double>{mMasses}, std::span<const double>{mCharges}, mSpace.values, mSpace.rows, mParameterCount, mValueCount, written)) {
+    EquationWriter<S> out{.values = mSpace.values, .rows = mSpace.rows, .stride = mParameterCount, .width = mCore, .capacity = mValueCount};
+    if (!evaluateConstraints<M>(mConstraints, mTopology, std::span<const Vec3D>{vertices.data(), static_cast<std::size_t>(mVertexCount)}, std::span<const Vec3D>{momenta.data(), static_cast<std::size_t>(mCount)}, std::span<const double>{mMasses}, std::span<const double>{mCharges}, out)) {
       return false;
     }
-    mScattered.row = written;
-    if (mChainCount > 0 && !chainEquations(p, written)) {
+    mScattered.row = out.written;
+    if (mChainCount > 0 && !chainEquations(p, out)) {
       return false;
     }
-    if (written != mValueCount) {
+    if (out.written != mValueCount) {
       return false;
     }
     for (int a = 0; a < mValueCount; ++a) {
@@ -1578,11 +1526,11 @@ class DecayVertexFitter
   };
 
   /// `minimiseFrozen` under the current model, from \a parameters.
-  [[nodiscard]] GPUd() VertexFitStatus minimise(std::span<double> parameters, double& chi2, double& mu, double& metric, double& bound, int& iterations, int& steps, double& first)
+  [[nodiscard]] GPUd() VertexFitStatus minimise(std::span<double> parameters, double& chi2, vertex_fit_detail::MinimiserState& state)
   {
     DenseSystem system{.fitter = this};
     const auto& space = mSpace.solve;
-    return vertex_fit_detail::minimiseFrozen<M>(system, mParameterCount, mNdf, parameters, space.trial, space.step, space.dampedStep, chi2, mu, metric, bound, iterations, steps, first);
+    return vertex_fit_detail::minimiseFrozen<M>(system, mParameterCount, mNdf, parameters, space.trial, space.step, space.dampedStep, chi2, state);
   }
 
   // The carried measurements are the model (`modelLoop`): carried anew to
@@ -1596,20 +1544,8 @@ class DecayVertexFitter
       }
       return mChainCount > 0 ? refreshChains(parameters()) : VertexFitStatus::kOk;
     };
-    const auto minimiseOnce = [this]() { return minimise(parameters(), mChi2, mMu, mMetric, mBound, mIterations, mSteps, mShift); };
-    vertex_fit_detail::ModelLoopOutcome outcome;
-    const bool ended = !vertex_fit_detail::modelLoop(refresh, minimiseOnce, mSteps, mShift, outcome);
-    mResult->status = outcome.status;
-    mResult->outer = outcome.outer;
-    mResult->stopReason = outcome.stopReason;
-    mResult->modelShift = outcome.modelShift;
-    if (ended) {
-      return false;
-    }
-    mResult->iterations = static_cast<std::uint8_t>(o2::gpu::CAMath::Min(mIterations, 255));
-    mResult->stopMetric = static_cast<float>(mMetric);
-    mResult->stopBound = static_cast<float>(mBound);
-    return true;
+    const auto minimiseOnce = [this]() { return minimise(parameters(), mChi2, mMinimiser); };
+    return vertex_fit_detail::modelLoop(refresh, minimiseOnce, mMinimiser, *mResult);
   }
 
   // The covariance at the solution, with the measurements of the last carry,
@@ -1678,13 +1614,8 @@ class DecayVertexFitter
         }
         decay_fit_detail::copyN(mSpace.from, n, mSpace.fitParameters);
         double fitChi2 = 0.;
-        double combinationMu = mMu;
-        double combinationMetric = 0.;
-        double combinationBound = 0.;
-        int combinationIterations = 0;
-        int combinationSteps = 0;
-        double combinationShift = 0.;
-        if (minimise(fitParameters, fitChi2, combinationMu, combinationMetric, combinationBound, combinationIterations, combinationSteps, combinationShift) != VertexFitStatus::kOk) {
+        vertex_fit_detail::MinimiserState combinationState{.mu = mMinimiser.mu};
+        if (minimise(fitParameters, fitChi2, combinationState) != VertexFitStatus::kOk) {
           continue;
         }
         double unusedRounding = 0.;
@@ -1762,13 +1693,7 @@ class DecayVertexFitter
   bool mConstrained = false;
   double mChi2 = 0.;
   int mNdf = 0;
-  // the minimiser's state, across the model's evaluations
-  double mMu = 0.;
-  double mMetric = 0.;
-  double mBound = 0.;
-  int mIterations = 0;
-  int mSteps = 0;
-  double mShift = 0.;
+  vertex_fit_detail::MinimiserState mMinimiser; ///< across the model's evaluations
   Space mSpace; ///< the workspace (`bind`)
 };
 
@@ -1780,9 +1705,9 @@ template <DetectorLayout Det, DecayFitVariant Variant, typename ModelScalar = do
   std::array<Vec3D, decay_fit_detail::kMaxConstrainedVertices> start{};
   const bool started = decayFitStart<Det>(daughters, constraints, topology, mothers, start);
   DecayVertexFitter<Det, Variant, Material, ModelScalar, SolveScalar> fitter(daughters, material, constraints, topology, mothers);
-  std::vector<std::byte> workspace(fitter.workspace());
+  WorkspaceBuffer workspace;
   DecayVertexFitResult result;
-  fitter.fit(std::span<const Vec3D>{start.data(), started ? static_cast<std::size_t>(topology.vertices()) : 0U}, workspace, result);
+  fitter.fit(std::span<const Vec3D>{start.data(), started ? static_cast<std::size_t>(topology.vertices()) : 0U}, workspace.take(fitter.workspace()), result);
   return result;
 }
 

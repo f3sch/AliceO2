@@ -191,9 +191,6 @@ class DaughterTable
         throw;
       }
       const auto view = mEntries.view();
-      // A chain of a track's rows may hold two on one layer (its overlap
-      // partners): no material on the step between them, which the layer's
-      // band holds already.
       constexpr detail::LayerMaterial material{};
       forEach(n, [&](std::uint32_t i) {
         const std::uint32_t k = asked[i];

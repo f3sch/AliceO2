@@ -227,8 +227,6 @@ void SpeciesFitStudy<Det>::fitChain(const TruthEvent<Det>& event, const Chain& c
   const auto& truth = event.particles->at(chain.particle);
   const auto& frame = *event.frame;
   const auto& geometry = *event.geometry;
-  // A truth chain may hold two rows on one layer (overlapping sensors): no
-  // material on the step between them, which the layer's band holds already.
   constexpr o2::gtrk::detail::LayerMaterial material{};
   const auto count = static_cast<int>(chain.rows.size());
   const auto row = chain.track ? chain.track->comparisonRow : chain.rows.front();

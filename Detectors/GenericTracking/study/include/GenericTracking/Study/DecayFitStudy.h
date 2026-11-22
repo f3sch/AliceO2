@@ -43,6 +43,7 @@
 
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Tracking/DaughterTable.h"
+#include "GenericTracking/Tracking/DecayCandidateFit.h"
 #include "GenericTracking/Tracking/DecayFitBatch.h"
 #include "GenericTracking/Tracking/DecayFitConstraints.h"
 #include "GenericTracking/Tracking/DecayObservables.h"
@@ -54,6 +55,7 @@
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Study/DecayCandidates.h"
+#include "GenericTracking/Study/DecayStudyTools.h"
 #include "GenericTracking/Study/DecayTrees.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/StateTruth.h"
@@ -415,36 +417,6 @@ using decay_fit_detail::numeratorOf;
 
 using decay_fit_detail::quadraticForm;
 
-/// \a fit's covariance as a full row-major matrix (3K + 3N square), as the
-/// study's sums over it run.
-[[nodiscard]] inline std::vector<double> fullCovariance(const DecayVertexFitResult& fit)
-{
-  const int n = (3 * static_cast<int>(fit.vertices.size())) + (3 * static_cast<int>(fit.momenta.size()));
-  std::vector<double> full(static_cast<std::size_t>(n * n));
-  for (int a = 0; a < n; ++a) {
-    for (int b = 0; b < n; ++b) {
-      full[(a * n) + b] = fit.covarianceAt(a, b);
-    }
-  }
-  return full;
-}
-
-/// \a momenta's kinematics (`decayKinematics`), their covariance from
-/// \a covariance (\a stride wide, the momenta's phi, theta, q/p at
-/// \a offset + 3 i).
-[[nodiscard]] inline DecayKinematics kinematicsOf(std::span<const Vec3D> momenta, std::span<const double> masses, std::span<const double> charges, std::span<const double> covariance, int stride, int offset)
-{
-  return decayKinematics(momenta, masses, charges, [&](int a, int b) { return covariance[((offset + a) * stride) + offset + b]; });
-}
-
-/// The mother's flight from the exact \a point (`decayFlight`), the fit's
-/// covariance \a covariance as a full matrix.
-[[nodiscard]] inline DecayFlight motherQuantities(const Vec3D& vertex, std::span<const Vec3D> momenta, std::span<const double> charges, const Vec3D& point, double mass, std::span<const double> covariance, int vertices)
-{
-  const int n = (3 * vertices) + (3 * static_cast<int>(momenta.size()));
-  return decayFlight(vertex, momenta, charges, point, {}, mass, vertices, [&](int a, int b) { return covariance[a * n + b]; });
-}
-
 /// \a chain's rows, one per layer: on a layer holding more (overlapping
 /// sensors, split clusters), the row of the smallest global radius, the
 /// smaller row ID on a tie; the kept rows in the chain's order.
@@ -473,20 +445,16 @@ template <DetectorLayout Det, DecayFitVariant Variant, typename Material>
 DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, const Material& material, const DecayConstraints& constraints, const DecayTopology& topology, std::span<const DecayMother> mothers, std::span<const double> masses, const Vec3D& across,
                                       const DecayPrecisionRecord& base, std::vector<DecayPrecisionRecord>& out)
 {
-  const auto massOf = [&](const DecayVertexFitResult& fit) {
-    const int n = (3 * static_cast<int>(fit.vertices.size())) + (3 * static_cast<int>(fit.momenta.size()));
-    const auto full = fullCovariance(fit);
-    return kinematicsOf(std::span<const Vec3D>{fit.momenta.data(), fit.momenta.size()}, masses, std::span<const double>{fit.charges.data(), fit.charges.size()}, full, n, 3 * static_cast<int>(fit.vertices.size())).mass;
-  };
+  const auto massOf = [&](const DecayVertexFitResult& fit) { return fitKinematics(fit, masses).mass; };
   const auto sigmaT = [&](const DecayVertexFitResult& fit) { return sqrtClampedOf(quadraticForm(across, across, 3, [&](int a, int b) { return fit.covarianceAt(a, b); })); };
   std::array<Vec3D, decay_fit_detail::kMaxConstrainedVertices> starts{};
   const std::span<const Vec3D> start{starts.data(), decayFitStart<Det>(daughters, constraints, topology, mothers, starts) ? static_cast<std::size_t>(topology.vertices()) : 0U};
   using Reference = DecayVertexFitter<Det, Variant, Material, double, double>;
   Reference reference(daughters, material, constraints, topology, mothers);
-  std::vector<std::byte> workspace(reference.workspace());
+  WorkspaceBuffer workspace; // the reference's, read again by its frozenMerit
   auto started = std::chrono::steady_clock::now();
   DecayVertexFitResult fit;
-  reference.fit(start, workspace, fit);
+  reference.fit(start, workspace.take(reference.workspace()), fit);
   auto record = base;
   record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
   record.statusDouble = record.status = static_cast<std::uint8_t>(fit.status);
@@ -509,10 +477,10 @@ DecayVertexFitResult measurePrecision(std::span<const DecayDaughter> daughters, 
   const double sT = ok ? sigmaT(fit) : 0.;
   const auto reduced = [&]<typename Model, typename Solve>(std::uint8_t configuration) {
     DecayVertexFitter<Det, Variant, Material, Model, Solve> fitter(daughters, material, constraints, topology, mothers);
-    std::vector<std::byte> fitterWorkspace(fitter.workspace());
+    WorkspaceBuffer fitterWorkspace;
     const auto begin = std::chrono::steady_clock::now();
     DecayVertexFitResult result;
-    fitter.fit(start, fitterWorkspace, result);
+    fitter.fit(start, fitterWorkspace.take(fitter.workspace()), result);
     auto one = record;
     one.configuration = configuration;
     one.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - begin).count());
@@ -568,7 +536,7 @@ struct FitSummary {
   for (std::size_t i = 0; i < fit.momenta.size(); ++i) {
     masses.push_back(daughters[i].mass);
   }
-  summary.mass = kinematicsOf(fit.momenta, masses, fit.charges, fullCovariance(fit), n, 3 * static_cast<int>(fit.vertices.size())).mass;
+  summary.mass = fitKinematics(fit, masses).mass;
   return summary;
 }
 
@@ -793,38 +761,27 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
 
   const auto& frame = *event.frame;
   const auto& geometry = *event.geometry;
-  // A truth chain may hold two rows on one layer (overlapping sensors): no
-  // material on the step between them, which the layer's band holds already.
   constexpr o2::gtrk::detail::LayerMaterial material{};
   // The tracker's tracks: each daughter's (track, species) refit from the
   // timeframe's daughter table, once whatever the decays that take it.
   std::optional<DaughterTable<Det>> table;
+  std::optional<DaughterSource<Det>> tableSource;
   if (source == ChainSource::kTracks) {
     const std::array<o2::track::PID, 5> species{o2::track::PID{o2::track::PID::Electron}, o2::track::PID{o2::track::PID::Muon}, o2::track::PID{o2::track::PID::Pion}, o2::track::PID{o2::track::PID::Kaon}, o2::track::PID{o2::track::PID::Proton}};
     table.emplace(std::span<const o2::track::PID>{species});
-    if (event.tracks == nullptr || table->begin(event.tracks->size()) != StageStatus::kComplete) {
-      throw std::runtime_error("decay fit study: no daughter table for the tracks");
-    }
-    for (const auto& one : work) {
-      for (const auto* leaf : one.leaves) {
-        const auto& context = chainOf.at(leaf->id)->track;
-        const auto species = truthSpecies(leaf->pdg);
-        if (!context || !species) {
-          throw std::logic_error("decay fit study: a track chain without its track, or a leaf without its species");
+    fillDaughterTable(*table, event, "decay fit study", [&](DaughterTable<Det>& asked) {
+      for (const auto& one : work) {
+        for (const auto* leaf : one.leaves) {
+          const auto& context = chainOf.at(leaf->id)->track;
+          const auto species = truthSpecies(leaf->pdg);
+          if (!context || !species) {
+            throw std::logic_error("decay fit study: a track chain without its track, or a leaf without its species");
+          }
+          asked.request(context->track, static_cast<std::uint8_t>(asked.speciesIndex(species->pid)));
         }
-        table->request(context->track, static_cast<std::uint8_t>(table->speciesIndex(species->pid)));
       }
-    }
-    const auto forEach = [&](std::uint32_t n, const auto& body) {
-      o2::gtrk::detail::parallelFor(*event.arena, 0U, n, 64, [&](std::size_t begin, std::size_t end) {
-        for (std::size_t i = begin; i < end; ++i) {
-          body(static_cast<std::uint32_t>(i));
-        }
-      });
-    };
-    if (table->flush(forEach, 4096U, event.propagator, geometry, frame, *event.tracks) != StageStatus::kComplete) {
-      throw std::runtime_error("decay fit study: the daughter table's flush failed");
-    }
+    });
+    tableSource = daughterSource(*table, event);
   }
   o2::gtrk::detail::parallelFor(*event.arena, 0U, work.size(), 4, [&](std::size_t begin, std::size_t end) {
     for (std::size_t index = begin; index < end; ++index) {
@@ -841,15 +798,13 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         const auto& chain = *chainOf.at(leaf->id);
         const auto species = *truthSpecies(leaf->pdg);
         const RowChain<Det> rows{.frame = &frame, .rows = chain.rows.data()};
+        // The tracks' entry in the table, or the truth chain refitted.
         HypothesisFit<> refit;
+        std::uint32_t entry = 0U;
         if (table) {
-          const auto entry = table->entry(static_cast<std::size_t>(table->entryOf(chain.track->track, static_cast<std::uint8_t>(table->speciesIndex(species.pid)))));
-          refit.innermost = entry.state;
-          refit.status = entry.status;
-          refit.failedPass = entry.failedPass;
-          if (entry.mixture >= 0) {
-            refit.innermostMixture = table->mixture(static_cast<std::size_t>(entry.mixture));
-          }
+          entry = static_cast<std::uint32_t>(table->entryOf(chain.track->track, static_cast<std::uint8_t>(table->speciesIndex(species.pid))));
+          refit.status = table->view().status[entry];
+          refit.failedPass = table->view().failedPass[entry];
         } else {
           refit = refitRowsWithHypothesis(event.propagator, geometry, material, rows, static_cast<int>(chain.rows.size()), species.pid);
         }
@@ -859,11 +814,15 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           one.refitStatus = static_cast<std::uint8_t>(refit.status);
           break;
         }
-        auto propagator = event.propagator;
-        propagator.massGeV = species.mass;
-        daughters[i] = {.innermost = refit.innermost, .surface = geometry.planeOf(rows[0]), .propagator = propagator, .mass = species.mass, .chargeMagnitude = std::abs(particleCharge(leaf->pdg))};
-        if (species.pid == o2::track::PID::Electron) {
-          daughters[i].mixture = refit.innermostMixture;
+        if (table) {
+          daughters[i] = daughterOf(*tableSource, entry);
+        } else {
+          auto propagator = event.propagator;
+          propagator.massGeV = species.mass;
+          daughters[i] = {.innermost = refit.innermost, .surface = geometry.planeOf(rows[0]), .propagator = propagator, .mass = species.mass, .chargeMagnitude = std::abs(particleCharge(leaf->pdg))};
+          if (species.pid == o2::track::PID::Electron) {
+            daughters[i].mixture = refit.innermostMixture;
+          }
         }
         masses[i] = species.mass;
       }
@@ -1082,18 +1041,18 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       for (const double m : compositeMasses) {
         one.topology.massGeV.push_back(m);
       }
-      std::vector<std::size_t> childLeaves; // the first composite's leaves
+      std::vector<int> childLeaves; // the first composite's leaves
       Vec3D childDecay{};
       Vec3D childAxis{}; // its true flight direction
       Vec3D childAcross{};
       if (tree) {
         base.childPdg = one.composites.front()->pdg;
-        childDecay = decayProducts(trees, *one.composites.front()).front()->vertex;
+        childDecay = decayPointOf(trees, *one.composites.front());
         Vec3D childP{};
         double childE = 0.;
         for (std::size_t i = 0; i < count; ++i) {
           if (one.topology.under(static_cast<int>(i), 1)) {
-            childLeaves.push_back(i);
+            childLeaves.push_back(static_cast<int>(i));
             const auto& m = one.leaves[i]->momentum;
             const double p = std::hypot(m[0], m[1], m[2]);
             childE += energyOf(decay_fit_detail::Momentum<double>{m, p}, masses[i]);
@@ -1226,9 +1185,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           continue;
         }
         const int vertexCount = static_cast<int>(fit.vertices.size());
-        const std::size_t fitCount = fit.momenta.size();
-        const int n = (3 * vertexCount) + (3 * static_cast<int>(fitCount));
-        const auto c = fullCovariance(fit);
+        const auto at = [&](int a, int b) { return fit.covarianceAt(a, b); };
         const auto& fitMasses = masses;
         record.chi2 = static_cast<float>(fit.chi2);
         record.ndf = static_cast<std::int16_t>(fit.ndf);
@@ -1237,23 +1194,23 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.dX = static_cast<float>(d[0]);
         record.dY = static_cast<float>(d[1]);
         record.dZ = static_cast<float>(d[2]);
-        record.sX = static_cast<float>(std::sqrt(c[0]));
-        record.sY = static_cast<float>(std::sqrt(c[n + 1]));
-        record.sZ = static_cast<float>(std::sqrt(c[2 * n + 2]));
+        record.sX = static_cast<float>(std::sqrt(at(0, 0)));
+        record.sY = static_cast<float>(std::sqrt(at(1, 1)));
+        record.sZ = static_cast<float>(std::sqrt(at(2, 2)));
         const auto project = [&](const Vec3D& axis, float& residual, float& sigma) {
           residual = static_cast<float>(dotOf(d, axis));
-          sigma = static_cast<float>(sqrtClampedOf(quadraticForm(axis, axis, 3, [&](int a, int b) { return c[a * n + b]; })));
+          sigma = static_cast<float>(sqrtClampedOf(quadraticForm(axis, axis, 3, at)));
         };
         project(along, record.dL, record.sL);
         project(across, record.dT, record.sT);
         project(third, record.dN, record.sN);
-        const auto fitted = kinematicsOf(fit.momenta, fitMasses, fit.charges, c, n, 3 * vertexCount);
+        const auto fitted = fitKinematics(fit, fitMasses);
         record.mass = static_cast<float>(fitted.mass);
         record.sMass = static_cast<float>(fitted.sMass);
         record.p = static_cast<float>(fitted.p);
         record.sP = static_cast<float>(fitted.sP);
         if (hasCollision) {
-          const auto motherFit = motherQuantities(fit.vertex, fit.momenta, fit.charges, point, motherMass, c, vertexCount);
+          const auto motherFit = fitFlight(fit, MeasuredPoint{.position = point}, motherMass);
           record.decayLength = static_cast<float>(motherFit.length);
           record.sDecayLength = static_cast<float>(motherFit.sLength);
           record.ct = static_cast<float>(motherFit.ct);
@@ -1268,7 +1225,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           const auto& child = fit.vertices[1];
           const Vec3D e{child[0] - childDecay[0], child[1] - childDecay[1], child[2] - childDecay[2]};
           // the covariance of projections of the vertices from \a first and \a second (0: the parent's, 3: the child's)
-          const auto vertexCovariance = [&](const Vec3D& axis, int first, int second) { return quadraticForm(axis, axis, 3, [&](int a, int b) { return c[((first + a) * n) + second + b]; }); };
+          const auto vertexCovariance = [&](const Vec3D& axis, int first, int second) { return quadraticForm(axis, axis, 3, [&](int a, int b) { return at(first + a, second + b); }); };
           const auto childVariance = [&](const Vec3D& axis) { return vertexCovariance(axis, 3, 3); };
           record.dChildL = static_cast<float>(dotOf(e, childAxis));
           record.sChildL = static_cast<float>(sqrtClampedOf(childVariance(childAxis)));
@@ -1279,45 +1236,14 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           record.childLength = static_cast<float>(((child[0] - fit.vertex[0]) * childAxis[0]) + ((child[1] - fit.vertex[1]) * childAxis[1]) + ((child[2] - fit.vertex[2]) * childAxis[2]));
           const double lengthVariance = childVariance(childAxis) + vertexCovariance(childAxis, 0, 0) - (2. * vertexCovariance(childAxis, 0, 3));
           record.sChildLength = static_cast<float>(sqrtClampedOf(lengthVariance));
-          {
-            // the child's leaves' momenta and their covariance block
-            std::vector<Vec3D> childMomenta;
-            std::vector<double> childMasses;
-            for (const auto i : childLeaves) {
-              childMomenta.push_back(fit.momenta[i]);
-              childMasses.push_back(masses[i]);
-            }
-            const int m = 3 * static_cast<int>(childLeaves.size());
-            std::vector<double> block(static_cast<std::size_t>(m * m));
-            for (int a = 0; a < m; ++a) {
-              for (int b = 0; b < m; ++b) {
-                const int ia = (3 * vertexCount) + (3 * static_cast<int>(childLeaves[a / 3])) + (a % 3);
-                const int ib = (3 * vertexCount) + (3 * static_cast<int>(childLeaves[b / 3])) + (b % 3);
-                block[(a * m) + b] = c[(ia * n) + ib];
-              }
-            }
-            std::vector<double> childCharges;
-            childCharges.reserve(childLeaves.size());
-            for (const auto i : childLeaves) {
-              childCharges.push_back(fit.charges[i]);
-            }
-            const auto childKinematics = kinematicsOf(childMomenta, childMasses, childCharges, block, m, 0);
-            record.childMass = static_cast<float>(childKinematics.mass);
-            record.sChildMass = static_cast<float>(childKinematics.sMass);
-          }
+          const auto childKinematics = subsetKinematics(std::span<const Vec3D>{fit.momenta.data(), fit.momenta.size()}, masses, std::span<const double>{fit.charges.data(), fit.charges.size()}, childLeaves, vertexCount, at);
+          record.childMass = static_cast<float>(childKinematics.mass);
+          record.sChildMass = static_cast<float>(childKinematics.sMass);
         }
         // The carried momenta, of the seen daughters (an unseen one has no
         // carried state): independent of one another, each its own 3 x 3.
-        std::vector<double> carried(static_cast<std::size_t>(9 * count * count), 0.);
-        const int stride = 3 * static_cast<int>(count);
-        for (std::size_t i = 0; i < count; ++i) {
-          for (int a = 0; a < 3; ++a) {
-            for (int b = 0; b < 3; ++b) {
-              carried[(3 * i + a) * stride + (3 * i + b)] = fit.carriedCovariance[i][covIndex(a, b)];
-            }
-          }
-        }
-        const auto measured = kinematicsOf(std::span(fit.carried).first(count), std::span(masses).first(count), std::span(fit.charges).first(count), carried, stride, 0);
+        const auto carried = [&](int a, int b) { return a / 3 == b / 3 ? fit.carriedCovariance[a / 3][covIndex(a % 3, b % 3)] : 0.; };
+        const auto measured = decayKinematics(std::span(fit.carried).first(count), std::span(masses).first(count), std::span(fit.charges).first(count), carried);
         record.massCarried = static_cast<float>(measured.mass);
         record.sMassCarried = static_cast<float>(measured.sMass);
         for (std::size_t i = 0; i < std::min(count, DecayFitRecord::kDaughterColumns); ++i) {
@@ -1325,9 +1251,9 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           record.dPhi[i] = static_cast<float>(toPMPiOf(fit.momenta[i][0] - qTrue[i][0]));
           record.dTheta[i] = static_cast<float>(fit.momenta[i][1] - qTrue[i][1]);
           record.dQOverP[i] = static_cast<float>(fit.momenta[i][2] - qTrue[i][2]);
-          record.sPhi[i] = static_cast<float>(std::sqrt(c[q * n + q]));
-          record.sTheta[i] = static_cast<float>(std::sqrt(c[(q + 1) * n + (q + 1)]));
-          record.sQOverP[i] = static_cast<float>(std::sqrt(c[(q + 2) * n + (q + 2)]));
+          record.sPhi[i] = static_cast<float>(std::sqrt(at(q, q)));
+          record.sTheta[i] = static_cast<float>(std::sqrt(at(q + 1, q + 1)));
+          record.sQOverP[i] = static_cast<float>(std::sqrt(at(q + 2, q + 2)));
           record.dPRel[i] = static_cast<float>((std::abs(qTrue[i][2]) / std::abs(fit.momenta[i][2])) - 1.);
         }
         one.records.push_back(record);

@@ -147,9 +147,9 @@ void reportPrecision(const char* name, std::span<const DecayDaughter> daughters,
   std::array<Vec3D, decay_fit_detail::kMaxConstrainedVertices> starts{};
   const std::span<const Vec3D> start{starts.data(), decayFitStart<TRKFT3>(daughters, constraints, topology, {}, starts) ? static_cast<std::size_t>(topology.vertices()) : 0U};
   DecayVertexFitter<TRKFT3, Variant, UniformMaterial> reference(daughters, material, constraints, topology, {});
-  std::vector<std::byte> workspace(reference.workspace());
+  WorkspaceBuffer workspace;
   DecayVertexFitResult fit;
-  reference.fit(start, workspace, fit);
+  reference.fit(start, workspace.take(reference.workspace()), fit);
   const auto plain = fitDecayVertex<TRKFT3, Variant>(daughters, material, constraints, topology);
   BOOST_TEST(static_cast<int>(fit.status) == static_cast<int>(plain.status));
   BOOST_TEST(fit.chi2 == plain.chi2);
@@ -164,9 +164,9 @@ void reportPrecision(const char* name, std::span<const DecayDaughter> daughters,
   BOOST_REQUIRE(reference.frozenMerit(solution, chi2, violation));
   const auto one = [&]<typename Model, typename Solve>(const char* label) {
     DecayVertexFitter<TRKFT3, Variant, UniformMaterial, Model, Solve> fitter(daughters, material, constraints, topology, {});
-    std::vector<std::byte> fitterWorkspace(fitter.workspace());
+    WorkspaceBuffer fitterWorkspace;
     DecayVertexFitResult result;
-    fitter.fit(start, fitterWorkspace, result);
+    fitter.fit(start, fitterWorkspace.take(fitter.workspace()), result);
     double at = std::numeric_limits<double>::quiet_NaN();
     double atViolation = std::numeric_limits<double>::quiet_NaN();
     if (result.status == VertexFitStatus::kOk && !reference.frozenMerit(fitter.solution(), at, atViolation)) {
@@ -259,9 +259,9 @@ BOOST_AUTO_TEST_CASE(ConstrainedFitsHoldTheirConstraints)
         chi2 += fit.chi2;
         std::array<double, decay_fit_detail::kMaxHardRows> values{};
         std::array<double, static_cast<std::size_t>(decay_fit_detail::kMaxHardRows) * decay_fit_detail::kConstraintInputs> unused{};
-        int written = 0;
-        BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, Vec2D{1., -1.}, values.data(), unused.data(), decay_fit_detail::kConstraintInputs, decay_fit_detail::kMaxHardRows, written));
-        for (int j = 0; j < written; ++j) {
+        decay_fit_detail::EquationWriter<double> out{.values = values.data(), .rows = unused.data(), .stride = decay_fit_detail::kConstraintInputs, .width = 3 + (3 * static_cast<int>(fit.momenta.size())), .capacity = decay_fit_detail::kMaxHardRows};
+        BOOST_REQUIRE(decay_fit_detail::evaluateConstraints(constraints, DecayTopology{}, std::vector{fit.vertex}, fit.momenta, masses, Vec2D{1., -1.}, out));
+        for (int j = 0; j < out.written; ++j) {
           worst = std::max(worst, std::abs(values[j]));
         }
       }
@@ -982,7 +982,7 @@ BOOST_AUTO_TEST_CASE(APrimaryVertexIsTheDecayFitsVertex)
       for (const auto& daughter : daughters) {
         tracks.push_back({.innermost = daughter.innermost, .surface = daughter.surface, .propagator = daughter.propagator});
       }
-      BeamPrior wide{.position = {0., 0., 0.}};
+      MeasuredPoint wide{.position = {0., 0., 0.}};
       for (int k = 0; k < 3; ++k) {
         wide.covariance[covIndex(k, k)] = 1e12;
       }
@@ -1034,15 +1034,16 @@ BOOST_AUTO_TEST_CASE(APrimaryVertexHasUnitPullsAndDropsATrack)
         track.innermost.par[k] += static_cast<Scalar>(gauss(random) * std::sqrt(static_cast<double>(track.innermost.covAt(k, k))));
       }
     }
-    BeamPrior prior;
+    MeasuredPoint prior;
     for (int k = 0; k < 3; ++k) {
       prior.position[k] = kVertex[k] + (kWidths[k] * gauss(random));
       prior.covariance[covIndex(k, k)] = kWidths[k] * kWidths[k];
     }
-    PrimaryVertexFitter<UniformMaterial> fitter(std::span<const VertexTrack>{tracks}, UniformMaterial{}, prior);
-    std::vector<std::max_align_t> storage((fitter.workspace() + sizeof(std::max_align_t) - 1U) / sizeof(std::max_align_t));
+    const UniformMaterial material{}; // the fitter holds it by reference
+    PrimaryVertexFitter<UniformMaterial> fitter(std::span<const VertexTrack>{tracks}, material, prior);
+    WorkspaceBuffer storage;
     PrimaryVertexFitResult fit;
-    fitter.fit(prior.position, std::as_writable_bytes(std::span{storage}).first(fitter.workspace()), fit);
+    fitter.fit(prior.position, storage.take(fitter.workspace()), fit);
     if (fit.status != VertexFitStatus::kOk) {
       continue;
     }

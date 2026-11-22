@@ -147,30 +147,52 @@ inline constexpr int kConstraintInputs = (3 * kMaxConstrainedVertices) + (3 * kM
 /// composite below the root its link (two) and its mass.
 inline constexpr int kMaxHardRows = 1 + (3 * (kMaxConstrainedVertices - 1));
 
+/// Equations written as values and rows of derivatives: equation j's value
+/// into \a values[j], its derivatives by the first \a width parameters
+/// (the vertices', the momenta's: 3K + 3N) into row j at \a rows + j
+/// \a stride; at most \a capacity of them, beyond which `room` turns false.
+template <typename S>
+struct EquationWriter {
+  S* values = nullptr;
+  S* rows = nullptr;
+  int stride = 0;
+  int width = 0;
+  int capacity = 0;
+  int written = 0;
+  bool room = true;
+  template <int N, typename M>
+  GPUhdi() void push(const Dual<N, M>& value)
+  {
+    if (written >= capacity) {
+      room = false;
+      return;
+    }
+    values[written] = static_cast<S>(value.v);
+    for (int c = 0; c < width; ++c) {
+      rows[(written * stride) + c] = static_cast<S>(value.d[c]);
+    }
+    ++written;
+  }
+};
+
 /// \a constraints' values at \a vertices (\a topology's) and \a momenta (phi,
 /// theta, q/p each at its daughter's vertex; a neutral daughter's q/p its
 /// 1/p) with the daughters' \a masses and \a charges, and their rows of
-/// derivatives by (the vertices, the momenta), 3K + 3N wide: \a written
-/// values into \a values, row j at \a rows + j \a stride, at most
-/// \a capacity of them; false if the tree is too large or they are more.
+/// derivatives by (the vertices, the momenta), after \a out's equations;
+/// false if the tree is too large or \a out has no room for them.
 /// Evaluated in the arithmetic M, stored in S.
 template <typename M = double, typename S>
-[[nodiscard]] GPUhdi() bool evaluateConstraints(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const Vec3D> vertices, std::span<const Vec3D> momenta, std::span<const double> masses, std::span<const double> charges, S* values, S* rows, int stride, int capacity, int& written)
+[[nodiscard]] GPUhdi() bool evaluateConstraints(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const Vec3D> vertices, std::span<const Vec3D> momenta, std::span<const double> masses, std::span<const double> charges, EquationWriter<S>& out)
 {
   using D = Dual<kConstraintInputs, M>;
   const int count = static_cast<int>(momenta.size());
   const int k = topology.vertices();
-  const int width = (3 * k) + (3 * count);
-  written = 0;
   if (count > kMaxConstrainedDaughters || k > kMaxConstrainedVertices) {
     return false;
   }
   std::array<std::array<D, 3>, kMaxConstrainedVertices> v{};
   for (int w = 0; w < k; ++w) {
-    for (int c = 0; c < 3; ++c) {
-      v[w][c].v = static_cast<M>(vertices[w][c]);
-      v[w][c].d[(3 * w) + c] = M(1.);
-    }
+    v[w] = vertexOfInputs<kConstraintInputs, M>(vertices[w], w);
   }
   // Every daughter's momentum vector and energy.
   std::array<std::array<D, 3>, kMaxConstrainedDaughters> vectors{};
@@ -190,21 +212,9 @@ template <typename M = double, typename S>
     }
     return sum;
   };
-  bool room = true;
-  const auto push = [&](const D& value) {
-    if (written >= capacity) {
-      room = false;
-      return;
-    }
-    values[written] = static_cast<S>(value.v);
-    for (int c = 0; c < width; ++c) {
-      rows[(written * stride) + c] = static_cast<S>(value.d[c]);
-    }
-    ++written;
-  };
   const auto massOf = [&](const MomentumSum<D>& sum, double m) { return sum.massSquared() + (-(m * m)); };
   if (constraints.mass) {
-    push(massOf(composite(0), constraints.massGeV));
+    out.push(massOf(composite(0), constraints.massGeV));
   }
   // The links: each composite below the root flies from its parent's vertex
   // to its own along its momentum P: the offset's components across P, on
@@ -234,15 +244,15 @@ template <typename M = double, typename S>
     for (auto& c : u2) {
       c = c / p;
     }
-    push(dotOf(offset, u1));
-    push(dotOf(offset, u2));
+    out.push(dotOf(offset, u1));
+    out.push(dotOf(offset, u2));
   }
   for (int w = 1; w < k && w - 1 < static_cast<int>(constraints.compositeMasses.size()); ++w) {
     if (constraints.compositeMasses[w - 1] > 0.) {
-      push(massOf(composite(w), constraints.compositeMasses[w - 1]));
+      out.push(massOf(composite(w), constraints.compositeMasses[w - 1]));
     }
   }
-  return room;
+  return out.room;
 }
 
 /// Equations predicted - measured - L eta = 0 whose measurements carry a

@@ -32,7 +32,7 @@
 #include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayCandidateFit.h"
 #include "GenericTracking/Study/DecayCandidates.h"
-#include "GenericTracking/Study/DecayFinderStudy.h"
+#include "GenericTracking/Study/DecayStudyTools.h"
 #include "GenericTracking/Study/MCTruth.h"
 #include "GenericTracking/Study/PrimaryVertexStudy.h"
 #include "GenericTracking/Study/RecordWriter.h"
@@ -165,7 +165,6 @@ void CascadeCandidateStudy<Det>::process(const TruthEvent<Det>& event, std::span
   }
   const auto& store = *event.tracks;
   const auto& geometry = *event.geometry;
-  const auto& frame = *event.frame;
   const auto& trees = *event.trees;
   const auto committed = store.tracks().view();
 
@@ -173,15 +172,8 @@ void CascadeCandidateStudy<Det>::process(const TruthEvent<Det>& event, std::span
   // without and with the Lambda's mass held.
   const std::array<PID, 3> species{PID{PID::Pion}, PID{PID::Kaon}, PID{PID::Proton}};
   std::vector<DecayHypothesis> hypotheses(10);
-  const auto twoProng = [](DecayHypothesis& h, PID positive, PID negative, double mass) {
-    h.species.push_back(positive);
-    h.charges.push_back(1);
-    h.species.push_back(negative);
-    h.charges.push_back(-1);
-    h.massGeV = mass;
-  };
-  twoProng(hypotheses[0], PID{PID::Proton}, PID{PID::Pion}, particleMass(3122));
-  twoProng(hypotheses[1], PID{PID::Pion}, PID{PID::Proton}, particleMass(-3122));
+  hypotheses[0] = twoProngHypothesis(PID{PID::Proton}, PID{PID::Pion}, particleMass(3122));
+  hypotheses[1] = twoProngHypothesis(PID{PID::Pion}, PID{PID::Proton}, particleMass(-3122));
   // index 2 + 4 held + 2 omega + sign: sign 0 the Lambda's (negative bachelor), 1 the anti-Lambda's
   const auto cascadeIndex = [](int sign, int omega, int held) { return std::size_t{2} + (std::size_t{4} * static_cast<std::size_t>(held)) + (std::size_t{2} * static_cast<std::size_t>(omega)) + static_cast<std::size_t>(sign); };
   const auto cascadePdg = [](int sign, int omega) { return (omega != 0 ? 3334 : 3312) * (sign == 0 ? 1 : -1); };
@@ -201,14 +193,13 @@ void CascadeCandidateStudy<Det>::process(const TruthEvent<Det>& event, std::span
   // The tracks associated to the mocked primary vertices; a vertex's
   // contributors are no bachelors.
   const auto association = mockAssociation(event);
-  const auto& points = association.points;
-  const auto& pointOf = association.pointOf;
+  const auto& points = association.vertices.points;
   const auto& particleOf = association.particle;
   const auto& fake = association.fake;
   const auto n = static_cast<std::uint32_t>(store.size());
   std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> byCollision;
   for (std::uint32_t t = 0; t < n; ++t) {
-    if (particleOf[t] != kNoTrackParticle && (association.flags[t] & static_cast<std::uint8_t>(TrackFlag::kPrimaryVertexContributor)) == 0U) {
+    if (particleOf[t] != kNoTrackParticle && !association.contributor(t)) {
       byCollision[collisionOf(particleOf[t])].push_back(t);
     }
   }
@@ -259,42 +250,28 @@ void CascadeCandidateStudy<Det>::process(const TruthEvent<Det>& event, std::span
 
   // The table: the Lambdas' tracks under their species, every bachelor as a pion and a kaon.
   DaughterTable<Det> table(std::span<const PID>{species});
-  if (table.begin(n) != StageStatus::kComplete) {
-    throw std::runtime_error("cascade candidate study: no daughter table");
-  }
-  for (const auto& lambda : lambdas) {
-    const auto& h = hypotheses[static_cast<std::size_t>(lambda.sign)];
-    table.request(lambda.tracks[0], static_cast<std::uint8_t>(table.speciesIndex(h.species[0])));
-    table.request(lambda.tracks[1], static_cast<std::uint8_t>(table.speciesIndex(h.species[1])));
-    for (const auto t : byCollision[collisionOf(lambda.particle->id)]) {
-      table.request(t, static_cast<std::uint8_t>(table.speciesIndex(PID{PID::Pion})));
-      table.request(t, static_cast<std::uint8_t>(table.speciesIndex(PID{PID::Kaon})));
-    }
-  }
-  const auto forEach = [&](std::uint32_t count, const auto& body) {
-    o2::gtrk::detail::parallelFor(*event.arena, 0U, count, 16, [&](std::size_t begin, std::size_t end) {
-      for (std::size_t i = begin; i < end; ++i) {
-        body(static_cast<std::uint32_t>(i));
+  fillDaughterTable(table, event, "cascade candidate study", [&](DaughterTable<Det>& asked) {
+    for (const auto& lambda : lambdas) {
+      const auto& h = hypotheses[static_cast<std::size_t>(lambda.sign)];
+      asked.request(lambda.tracks[0], static_cast<std::uint8_t>(asked.speciesIndex(h.species[0])));
+      asked.request(lambda.tracks[1], static_cast<std::uint8_t>(asked.speciesIndex(h.species[1])));
+      for (const auto t : byCollision[collisionOf(lambda.particle->id)]) {
+        asked.request(t, static_cast<std::uint8_t>(asked.speciesIndex(PID{PID::Pion})));
+        asked.request(t, static_cast<std::uint8_t>(asked.speciesIndex(PID{PID::Kaon})));
       }
-    });
-  };
-  if (table.flush(forEach, 4096U, event.propagator, geometry, frame, store) != StageStatus::kComplete) {
-    throw std::runtime_error("cascade candidate study: the daughter table's flush failed");
-  }
+    }
+  });
   const auto entries = table.view();
+  const auto daughters = daughterSource(table, event);
 
   // The candidates, Lambda by Lambda.
   std::vector<std::vector<CascadeCandidateRecord>> perLambda(lambdas.size());
-  const auto one = [](std::uint32_t count, const auto& body) {
-    for (std::uint32_t i = 0; i < count; ++i) {
-      body(i);
-    }
-  };
   o2::gtrk::detail::parallelFor(*event.arena, 0U, lambdas.size(), 1, [&](std::size_t begin, std::size_t end) {
+    WorkspaceBuffer workspace;
     for (std::size_t l = begin; l < end; ++l) {
       const auto& lambda = lambdas[l];
       const auto collision = collisionOf(lambda.particle->id);
-      const auto point = pointOf.find(collision);
+      const auto point = association.vertices.of(collision);
       const auto* mother = trees.find(lambda.particle->mother);
       const bool fromCascade = mother != nullptr && (std::abs(mother->pdg) == 3312 || std::abs(mother->pdg) == 3334);
       const auto& lambdaHypothesis = hypotheses[static_cast<std::size_t>(lambda.sign)];
@@ -310,9 +287,8 @@ void CascadeCandidateStudy<Det>::process(const TruthEvent<Det>& event, std::span
           const auto eBachelor = table.entryOf(bachelor, static_cast<std::uint8_t>(table.speciesIndex(bachelorPid)));
           const auto bachelorTruth = truthSpecies(event.particles->at(particleOf[bachelor]).pdg);
           float s2 = std::numeric_limits<float>::quiet_NaN();
-          if (point != pointOf.end() && entries.status[static_cast<std::size_t>(eBachelor)] == PropagationStatus::kOk) {
-            const auto& surface = geometry.planeOf(measurementAt(frame, store.rows(bachelor).front()));
-            s2 = static_cast<float>(decay_finder_detail::displacement(event.propagator, geometry, surface, entries.state[static_cast<std::size_t>(eBachelor)], bachelorPid, points[static_cast<std::size_t>(point->second)]));
+          if (point >= 0 && entries.status[static_cast<std::size_t>(eBachelor)] == PropagationStatus::kOk) {
+            s2 = static_cast<float>(displacement(daughters, static_cast<std::uint32_t>(eBachelor), points[static_cast<std::size_t>(point)]));
           }
           for (int held = 0; held < 2; ++held) {
             const auto h = cascadeIndex(lambda.sign, omega, held);
@@ -325,38 +301,18 @@ void CascadeCandidateStudy<Det>::process(const TruthEvent<Det>& event, std::span
             } else {
               record.truthClass = static_cast<std::uint8_t>(mother->pdg == cascadePdg(lambda.sign, omega) ? CascadeClass::kTrue : CascadeClass::kOtherHypothesis);
             }
-            DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = point == pointOf.end() ? -1 : point->second};
+            DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = point};
             candidate.entries.push_back(static_cast<std::uint32_t>(eProton));
             candidate.entries.push_back(static_cast<std::uint32_t>(eNegative));
             candidate.entries.push_back(static_cast<std::uint32_t>(eBachelor));
             const auto started = std::chrono::steady_clock::now();
-            const auto tree = expandHypothesis(std::span<const DecayHypothesis>{hypotheses}, h);
-            if (decay_fit_detail::checkCandidate(candidate, tree, table, points.size()) == VertexFitStatus::kNoStart) {
-              const auto daughters = candidateDaughters(candidate, table, store, geometry, frame, event.propagator);
-              DecayConstraints constraints;
-              if (hypotheses[h].holdComposites) {
-                for (const double m : tree.compositeMasses) {
-                  constraints.compositeMasses.push_back(m);
-                }
-              }
-              std::array<Vec3D, decay_fit_detail::kMaxConstrainedVertices> start{};
-              if (decayFitStart<Det>(std::span<const DecayDaughter>{daughters.data(), daughters.size()}, constraints, tree.topology, {}, start)) {
-                for (int w = 0; w < tree.topology.vertices(); ++w) {
-                  candidate.start.push_back(start[static_cast<std::size_t>(w)]);
-                }
-              }
-            }
+            static_cast<void>(startDecayCandidate(candidate, std::span<const DecayHypothesis>{hypotheses}, daughters, points.size()));
             DecayCandidateResult result;
-            fitDecayCandidates<Det>(one, std::span<const DecayCandidate>{&candidate, 1}, std::span<const DecayHypothesis>{hypotheses}, table, store, frame, geometry, event.propagator, geometry.material(), std::span<const ReferencePoint>{points}, std::span<DecayCandidateResult>{&result, 1});
+            fitDecayCandidate(candidate, std::span<const DecayHypothesis>{hypotheses}, daughters, geometry.material(), std::span<const MeasuredPoint>{points}, workspace, result);
             record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
-            record.status = static_cast<std::uint8_t>(result.fit.status);
-            record.iterations = result.fit.iterations;
+            writeCandidateFit(record, result);
             if (result.fit.status == VertexFitStatus::kOk) {
               const auto& fit = result.fit;
-              record.chi2 = static_cast<float>(fit.chi2);
-              record.ndf = static_cast<std::int16_t>(fit.ndf);
-              record.mass = static_cast<float>(result.kinematics.mass);
-              record.sMass = static_cast<float>(result.kinematics.sMass);
               record.lambdaMass = static_cast<float>(result.composites[0].mass);
               record.sLambdaMass = static_cast<float>(result.composites[0].sMass);
               record.radius = static_cast<float>(std::hypot(fit.vertices[0][0], fit.vertices[0][1]));
@@ -364,13 +320,8 @@ void CascadeCandidateStudy<Det>::process(const TruthEvent<Det>& event, std::span
               record.lambdaLength = static_cast<float>(result.compositeFlights[0].length);
               record.sLambdaLength = static_cast<float>(result.compositeFlights[0].sLength);
               record.lambdaCosPointing = static_cast<float>(result.compositeFlights[0].cosPointing);
-              if (result.hasPoint) {
-                record.length = static_cast<float>(result.flight.length);
-                record.sLength = static_cast<float>(result.flight.sLength);
-                record.cosPointing = static_cast<float>(result.flight.cosPointing);
-              }
               if (record.truthClass == static_cast<std::uint8_t>(CascadeClass::kTrue)) {
-                const auto& decayPoint = decayProducts(trees, *mother).front()->vertex;
+                const auto& decayPoint = decayPointOf(trees, *mother);
                 record.dXY = static_cast<float>(std::hypot(fit.vertex[0] - decayPoint[0], fit.vertex[1] - decayPoint[1]));
                 record.dZ = static_cast<float>(fit.vertex[2] - decayPoint[2]);
               }

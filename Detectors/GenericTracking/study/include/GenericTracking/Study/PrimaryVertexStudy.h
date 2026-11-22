@@ -31,7 +31,6 @@
 #ifndef GTRK_STUDY_PRIMARYVERTEXSTUDY_H_
 #define GTRK_STUDY_PRIMARYVERTEXSTUDY_H_
 
-#include "GenericTracking/Tracking/DecayCandidateFit.h"
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/PrimaryVertexFit.h"
 #include "GenericTracking/Tracking/RoadFit.h"
@@ -186,15 +185,13 @@ template <DetectorLayout Det>
   const auto& frame = *event.frame;
   const auto& geometry = *event.geometry;
   const auto& beam = event.beamLine;
-  BeamPrior prior{.position = {beam.x, beam.y, beam.z}};
+  MeasuredPoint prior{.position = {beam.x, beam.y, beam.z}};
   prior.covariance[covIndex(0, 0)] = beam.sigmaX * beam.sigmaX;
   prior.covariance[covIndex(1, 1)] = beam.sigmaY * beam.sigmaY;
   prior.covariance[covIndex(2, 2)] = beam.sigmaZ * beam.sigmaZ;
   o2::gtrk::detail::parallelFor(*event.arena, 0U, vertices.size(), 8, [&](std::size_t begin, std::size_t end) {
     for (std::size_t v = begin; v < end; ++v) {
       auto& out = vertices[v];
-      // A chain may hold two rows on one layer (overlapping sensors): no
-      // material on the step between them, which the layer's band holds already.
       constexpr o2::gtrk::detail::LayerMaterial material{};
       std::vector<VertexTrack> tracks;
       std::vector<const Chain*> fitted;
@@ -230,17 +227,16 @@ template <DetectorLayout Det>
       }
       out.start = {beam.x, beam.y, weightedZ / weightSum};
       const auto started = std::chrono::steady_clock::now();
-      PrimaryVertexFitter fitter(std::span<const VertexTrack>{tracks}, geometry.material(), prior);
-      std::vector<std::max_align_t> storage((fitter.workspace() + sizeof(std::max_align_t) - 1U) / sizeof(std::max_align_t));
-      fitter.fit(out.start, std::as_writable_bytes(std::span{storage}).first(fitter.workspace()), out.fit);
+      std::vector<double> trackChi2(tracks.size());
+      out.fit = fitPrimaryVertex(std::span<const VertexTrack>{tracks}, geometry.material(), prior, out.start, {}, std::span<double>{trackChi2});
       out.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
       if (out.fit.status != VertexFitStatus::kOk) {
         continue;
       }
       double worstChi2 = -1.;
       for (std::size_t i = 0; i < fitted.size(); ++i) {
-        if (fitter.trackChi2(static_cast<int>(i)) > worstChi2) {
-          worstChi2 = fitter.trackChi2(static_cast<int>(i));
+        if (trackChi2[i] > worstChi2) {
+          worstChi2 = trackChi2[i];
           out.worstParticle = fitted[i]->particle;
         }
         if (fitted[i]->track) {
@@ -253,16 +249,43 @@ template <DetectorLayout Det>
   return vertices;
 }
 
+/// The collisions' fitted mocked primary vertices as reference points
+/// (`referencePointsOf`).
+struct ReferencePoints {
+  std::vector<MeasuredPoint> points;
+  std::unordered_map<std::uint64_t, std::int32_t> pointOf; ///< a collision's point, none without a fitted vertex
+  /// \a collision's point, -1 for none.
+  [[nodiscard]] std::int32_t of(std::uint64_t collision) const
+  {
+    const auto found = pointOf.find(collision);
+    return found == pointOf.end() ? -1 : found->second;
+  }
+};
+
+/// \a vertices' fitted ones as reference points.
+[[nodiscard]] inline ReferencePoints referencePointsOf(std::span<const MockPrimaryVertex> vertices)
+{
+  ReferencePoints out;
+  for (const auto& vertex : vertices) {
+    if (vertex.fit.status == VertexFitStatus::kOk) {
+      out.pointOf.emplace(vertex.collision, static_cast<std::int32_t>(out.points.size()));
+      out.points.push_back({.position = vertex.fit.vertex, .covariance = vertex.fit.covariance});
+    }
+  }
+  return out;
+}
+
 /// A timeframe's committed tracks associated to the mocked primary vertices
 /// (`mockAssociation`), as a vertexer's association would give them: each
 /// track's collision is its good particle's (a fake's majority particle's),
 /// its flags say whether it entered its vertex's fit.
 struct MockAssociation {
-  std::vector<std::uint64_t> particle;                     ///< per track: its good particle, a fake's majority one, kNoTrackParticle on noise only
-  std::vector<std::uint8_t> fake;                          ///< per track: 1 without a good particle
-  std::vector<std::uint8_t> flags;                         ///< per track: TrackFlag bits
-  std::vector<ReferencePoint> points;                      ///< the collisions' fitted vertices
-  std::unordered_map<std::uint64_t, std::int32_t> pointOf; ///< a collision's point, none without a fitted vertex
+  std::vector<std::uint64_t> particle; ///< per track: its good particle, a fake's majority one, kNoTrackParticle on noise only
+  std::vector<std::uint8_t> fake;      ///< per track: 1 without a good particle
+  std::vector<std::uint8_t> flags;     ///< per track: TrackFlag bits
+  ReferencePoints vertices;            ///< the collisions' fitted vertices
+  /// Whether track \a t entered its vertex's fit.
+  [[nodiscard]] bool contributor(std::uint32_t t) const { return (flags[t] & static_cast<std::uint8_t>(TrackFlag::kPrimaryVertexContributor)) != 0U; }
 };
 
 /// \a event's tracks associated to their collisions' mocked primary vertices
@@ -289,12 +312,12 @@ template <DetectorLayout Det>
   primaries.origins = 1U << static_cast<unsigned>(ParticleOrigin::kPhysicalPrimary);
   ChainCounts unusedCounts;
   const auto chains = trackChains(event, store, primaries, unusedCounts);
-  for (const auto& vertex : mockPrimaryVertices(event, std::span<const Chain>{chains})) {
+  const auto vertices = mockPrimaryVertices(event, std::span<const Chain>{chains});
+  out.vertices = referencePointsOf(vertices);
+  for (const auto& vertex : vertices) {
     if (vertex.fit.status != VertexFitStatus::kOk) {
       continue;
     }
-    out.pointOf.emplace(vertex.collision, static_cast<std::int32_t>(out.points.size()));
-    out.points.push_back({.position = vertex.fit.vertex, .covariance = vertex.fit.covariance});
     for (const auto t : vertex.contributors) {
       out.flags[t] |= static_cast<std::uint8_t>(TrackFlag::kPrimaryVertexContributor);
     }
