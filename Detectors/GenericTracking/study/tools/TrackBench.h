@@ -1989,6 +1989,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       .geometry = &tracking,
       .material = material,
       .propagator = propagator,
+      .beamLine = input.beamLine,
       .rows = truth->rows,
       .particles = &truth->particles,
       .collisions = &truth->collisions,

@@ -20,6 +20,7 @@
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
+#include "GenericTracking/Workflow/BeamLine.h"
 #include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Study/DecayTrees.h"
 #include "GenericTracking/Study/ParticleChains.h"
@@ -43,6 +44,7 @@ struct TruthEvent {
   const TrackingGeometry<Det>* geometry = nullptr;
   const o2::base::MatLayerCylSet* material = nullptr;
   Propagator propagator;          ///< the tracking's, with its field
+  workflow::BeamLine beamLine;    ///< the run's (its MeanVertex), the rows placed about it
   std::span<const TruthRow> rows; ///< one per row of the frame
   const ParticleTable* particles = nullptr;
   const CollisionTable* collisions = nullptr; ///< the particles' collisions' vertices
