@@ -32,6 +32,7 @@
 #include <cstdint>
 #include <format>
 #include <limits>
+#include <span>
 #include <stdexcept>
 #include <string_view>
 
@@ -141,6 +142,24 @@ template <DetectorLayout Det>
     return std::numeric_limits<double>::quiet_NaN();
   }
   return ((r[0] * r[0] * m[2]) - (2. * r[0] * r[1] * m[1]) + (r[1] * r[1] * m[0])) / det;
+}
+
+/// The leaves of \a candidate, fitted into \a result (converged), whose
+/// first measurement lies behind their vertex in the fit (`planeAhead`: the
+/// fit carried them forward to it); a decay's own lie before it.
+template <DetectorLayout Det>
+[[nodiscard]] int leavesAhead(const DecayCandidate& candidate, std::span<const DecayHypothesis> hypotheses, const DaughterSource<Det>& source, const DecayCandidateResult& result)
+{
+  const auto tree = expandHypothesis(hypotheses, candidate.hypothesis);
+  const auto daughters = candidateDaughters(candidate, source);
+  int ahead = 0;
+  for (std::size_t i = 0; i < daughters.size(); ++i) {
+    const auto& vertex = result.fit.vertices[static_cast<std::size_t>(tree.topology.vertexOfDaughter(static_cast<int>(i)))];
+    const auto& daughter = daughters[i];
+    const auto plane = detail::hypothesis::perigeePlaneOf(daughter.propagator, daughter.innermost, daughter.surface, static_cast<Scalar>(vertex[0]), static_cast<Scalar>(vertex[1]));
+    ahead += detail::hypothesis::planeAhead(daughter.innermost, daughter.surface, plane) ? 1 : 0;
+  }
+  return ahead;
 }
 
 /// \a result's fit into \a record's columns of the same names: its status
