@@ -18,8 +18,10 @@
 /// the vertex with its daughters' summed momentum and charge, bound to the
 /// plane through the vertex normal to its transverse direction, its
 /// covariance the fit's propagated (J C J^T over the vertex and the
-/// momenta). From there inward, against the momentum, onto every barrel
-/// layer inside the vertex, the follow's own step: the nominal crossing
+/// momenta). From there inward, against the momentum, onto every layer --
+/// barrel and disc -- the straight line back along the mother's direction to
+/// the beam axis crosses within the layer's span, the nearest to the vertex
+/// first, the follow's own step: the nominal crossing
 /// (`predictLayerCrossing`), the window of the carried covariance with the
 /// material on the way (`follow::predictedWindow`), the rows in the time
 /// box, each updated on its own sensor (`follow::updateCandidate`); the
@@ -45,6 +47,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <utility>
 #include <vector>
 
 namespace o2::gtrk::study
@@ -164,14 +167,10 @@ class MotherSearch
     BoundParameters state = start.state;
     auto factors = factorCovariance(start.state.cov);
     TrackingSurface from = start.plane;
-    const Scalar vertexR = Math::Sqrt((start.plane.origin[0] * start.plane.origin[0]) + (start.plane.origin[1] * start.plane.origin[1]));
     const auto& frame = *mFrame;
     const auto& geometry = *mGeometry;
-    for (int layer = static_cast<int>(kLayerCount) - 1; layer >= 0; --layer) {
+    for (const auto layer : layersBehind(start)) {
       const auto id = static_cast<LayerID>(layer);
-      if (((mParameters.barrelLayers >> layer) & 1U) == 0U || !(mParameters.layerSpans[layer].positionMin < vertexR)) {
-        continue;
-      }
       const auto nominal = predictLayerCrossing(propagator, mParameters, from, state, id, PropagationDirection::kBackward);
       if (nominal.status != PropagationStatus::kOk) {
         continue;
@@ -231,6 +230,48 @@ class MotherSearch
   }
 
  private:
+  /// The layers between \a start's vertex and the beam axis, on the straight
+  /// line back along the mother's direction, crossed within their span (a
+  /// barrel layer whose sensors begin inside the vertex's radius, a disc
+  /// between the vertex's z and the line's at the axis), the nearest to the
+  /// vertex first.
+  [[nodiscard]] std::vector<int> layersBehind(const MotherState& start) const
+  {
+    using Math = o2::gpu::CAMath;
+    const Scalar vertexR = Math::Sqrt((start.plane.origin[0] * start.plane.origin[0]) + (start.plane.origin[1] * start.plane.origin[1]));
+    const Scalar vertexZ = start.state.loc1();
+    const Scalar cotTheta = Math::Cos(start.state.theta()) / Math::Sin(start.state.theta());
+    const Scalar axisZ = vertexZ - (vertexR * cotTheta);
+    std::vector<std::pair<Scalar, int>> crossed;
+    for (int layer = 0; layer < static_cast<int>(kLayerCount); ++layer) {
+      const auto& span = mParameters.layerSpans[layer];
+      Scalar fraction = 0.F; // from the vertex towards the axis
+      if (((mParameters.barrelLayers >> layer) & 1U) != 0U) {
+        if (!(span.positionMin < vertexR)) {
+          continue;
+        }
+        fraction = Math::Max(vertexR - span.position, Scalar{0}) / vertexR;
+      } else {
+        const Scalar dz = vertexZ - axisZ;
+        if (!(Math::Abs(dz) > 0.F) || !((span.position - axisZ) / dz > 0.F && (span.position - axisZ) / dz < 1.F)) {
+          continue;
+        }
+        fraction = (vertexZ - span.position) / dz;
+      }
+      const Scalar second = ((mParameters.barrelLayers >> layer) & 1U) != 0U ? vertexZ - (fraction * vertexR * cotTheta) : vertexR * (1.F - fraction);
+      if (second < span.low || second > span.high) {
+        continue;
+      }
+      crossed.emplace_back(fraction, layer);
+    }
+    std::ranges::sort(crossed);
+    std::vector<int> layers;
+    for (const auto& [fraction, layer] : crossed) {
+      layers.push_back(layer);
+    }
+    return layers;
+  }
+
   const TimeFrame<Det>* mFrame = nullptr;
   const TrackingGeometry<Det>* mGeometry = nullptr;
   IterationParameters<Det> mParameters{};

@@ -654,6 +654,15 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
               record.sLambdaLength = static_cast<float>(result.compositeFlights[0].sLength);
               record.lambdaCosPointing = static_cast<float>(result.compositeFlights[0].cosPointing);
             }
+            // The mother made at the point: what that adds to the chi2.
+            const auto pointChi2 = [&](std::span<const DecayMother> mothers, double chi2) {
+              DecayCandidateResult made;
+              fitDecayCandidate(candidate, allHypotheses, daughters, geometry.material(), std::span<const MeasuredPoint>{points}, workspace, made, mothers, &points[static_cast<std::size_t>(point)].position);
+              return made.fit.status == VertexFitStatus::kOk ? static_cast<float>(made.fit.chi2 - chi2) : CascadeFinderCandidateRecord::kNaN;
+            };
+            if (fitted && held != 0 && point >= 0) {
+              record.pointChi2 = pointChi2({}, result.fit.chi2);
+            }
             if (fitted && held != 0) {
               // The mother's own rows, and the fit with them.
               const auto tree = expandHypothesis(allHypotheses, h);
@@ -701,6 +710,9 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
                     record.trackedMass = static_cast<float>(tracked.kinematics.mass);
                     record.trackedSMass = static_cast<float>(tracked.kinematics.sMass);
                     record.trackedRadius = static_cast<float>(std::hypot(tracked.fit.vertices[0][0], tracked.fit.vertices[0][1]));
+                    if (point >= 0) {
+                      record.trackedPointChi2 = pointChi2(std::span<const DecayMother>{mothers}, tracked.fit.chi2);
+                    }
                     if (tracked.hasPoint) {
                       record.trackedLength = static_cast<float>(tracked.flight.length);
                       record.trackedSLength = static_cast<float>(tracked.flight.sLength);

@@ -166,6 +166,11 @@ struct CascadeFinderCandidateRecord {
   float trackedCosPointing = kNaN;
   float trackedDXY = kNaN;
   float trackedDZ = kNaN;
+  /// Lambda's mass held, with a point: the chi2 the mother's production
+  /// there adds (2 dof; `fitDecayCandidate`'s production), without and with
+  /// its own rows -- how well it points back.
+  float pointChi2 = kNaN;
+  float trackedPointChi2 = kNaN;
   float microseconds = 0.F;
 
   template <typename Visit>
@@ -221,6 +226,8 @@ struct CascadeFinderCandidateRecord {
     visit("trackedCosPointing", trackedCosPointing);
     visit("trackedDXY", trackedDXY);
     visit("trackedDZ", trackedDZ);
+    visit("pointChi2", pointChi2);
+    visit("trackedPointChi2", trackedPointChi2);
     visit("microseconds", microseconds);
   }
 };

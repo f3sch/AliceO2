@@ -293,9 +293,11 @@ template <DetectorLayout Det>
 /// \a hypotheses, \a source's entries, \a points its reference points,
 /// \a material between each daughter's innermost measurement and its vertex;
 /// the fit's workspace from \a workspace; \a mothers its charged particles'
-/// own rows, if they left any (`DecayMother`: a tracked Xi).
+/// own rows, if they left any (`DecayMother`: a tracked Xi); with
+/// \a production, the mother made there (`DecayConstraints::production`: a
+/// measurement of its helix, with its scattering on the way).
 template <DetectorLayout Det, typename Material>
-void fitDecayCandidate(const DecayCandidate& candidate, std::span<const DecayHypothesis> hypotheses, const DaughterSource<Det>& source, const Material& material, std::span<const MeasuredPoint> points, WorkspaceBuffer& workspace, DecayCandidateResult& out, std::span<const DecayMother> mothers = {})
+void fitDecayCandidate(const DecayCandidate& candidate, std::span<const DecayHypothesis> hypotheses, const DaughterSource<Det>& source, const Material& material, std::span<const MeasuredPoint> points, WorkspaceBuffer& workspace, DecayCandidateResult& out, std::span<const DecayMother> mothers = {}, const Vec3D* production = nullptr)
 {
   out = {};
   const auto tree = expandHypothesis(hypotheses, candidate.hypothesis);
@@ -306,7 +308,11 @@ void fitDecayCandidate(const DecayCandidate& candidate, std::span<const DecayHyp
   const auto& hypothesis = hypotheses[candidate.hypothesis];
   const auto daughters = candidateDaughters(candidate, source);
   const std::span<const DecayDaughter> span{daughters.data(), daughters.size()};
-  const auto constraints = candidateConstraints(hypothesis, tree);
+  auto constraints = candidateConstraints(hypothesis, tree);
+  if (production != nullptr) {
+    constraints.production = true;
+    constraints.point = *production;
+  }
   withDecayFitVariant(hypothesis.variant, [&](auto variant) {
     DecayVertexFitter<Det, decltype(variant)::value, Material> fitter(span, material, constraints, tree.topology, mothers);
     fitter.fit({candidate.start.data(), candidate.start.size()}, workspace.take(fitter.workspace()), out.fit);
