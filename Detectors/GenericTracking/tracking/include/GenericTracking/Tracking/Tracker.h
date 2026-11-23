@@ -23,6 +23,7 @@
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Follow.h"
+#include "GenericTracking/Tracking/InactiveRows.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/NeighbourStage.h"
 #include "GenericTracking/Tracking/OverlapPartners.h"
@@ -145,6 +146,9 @@ class Tracker
     /// The iteration's tracks joined to an earlier iteration's (TrackJoin.h),
     /// which takes their rows; `tracks` counts them.
     std::size_t tracksJoined = 0U;
+    /// Tracks that took an inactive layer's row on their whole fit
+    /// (InactiveRows.h).
+    std::size_t inactiveRows = 0U;
     /// With overlapPartners, the partners attached and the tracks they went
     /// to (OverlapPartners.h).
     std::size_t overlapPartners = 0U;
@@ -236,6 +240,7 @@ class Tracker
     mFollow.setMemoryPool(mMemoryPool);
     mFollowEarlier.setMemoryPool(mMemoryPool);
     mJoin.setMemoryPool(mMemoryPool);
+    mInactiveRows.setMemoryPool(mMemoryPool);
     deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection, mKeptTracks, mChangedTracks);
     mDropScratch.setMemoryResource(mMemoryPool.get());
   }
@@ -661,6 +666,7 @@ class Tracker
     mFollow.clearStorage();
     mFollowEarlier.clearStorage();
     mJoin.clearStorage();
+    mInactiveRows.clearStorage();
     mPartners.clearStorage();
     deepVectorClear(mMemoryPool.get(), mKeptTracks, mChangedTracks);
     mDropScratch.setMemoryResource(mMemoryPool.get());
@@ -805,6 +811,16 @@ class Tracker
       const profile::Zone zone{Phase::kJoin};
       summary.status = joinTracks(frame, plan, trackOffset, followed, started, summary.tracksJoined);
     }
+    if constexpr (Detector<Det>::inactiveLayers != 0U) {
+      if (summary.status == StageStatus::kComplete) {
+        const profile::Zone zone{Phase::kInactiveRows};
+        summary.status = inactiveRows(iteration, frame, plan, trackOffset, summary.tracksJoined != 0U ? mJoin.changed() : std::span<const std::uint32_t>{}, summary.inactiveRows);
+      }
+    }
+    if (summary.status == StageStatus::kComplete && (summary.tracksJoined != 0U || (!mInactiveRows.changed().empty() && mInactiveRows.changed().front() < trackOffset))) {
+      // The earlier tracks the join or the inactive rows changed, committed again.
+      summary.status = mStore.recommitChanged(spreadForEach(), spreadChunk(static_cast<Index>(mStore.size())), std::as_const(mRefit).tracks(), mChangedTracks);
+    }
     const bool partnered = summary.status == StageStatus::kComplete && mIterations[iteration].overlapPartners;
     if (partnered) {
       const profile::Zone zone{Phase::kOverlapPartners};
@@ -931,10 +947,32 @@ class Tracker
       keepTracks(trackOffset, followed, started);
       return StageStatus::kComplete;
     });
+    return status;
+  }
+
+  /// The inactive layers' rows (InactiveRows.h) for the iteration's tracks
+  /// from \a trackOffset on and the earlier ones the join changed
+  /// (\a joined); how many
+  /// took one into \a taken.
+  [[nodiscard]] StageStatus inactiveRows(std::size_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset, std::span<const std::uint32_t> joined, std::size_t& taken)
+  {
+    auto& tracks = mRefit.tracks();
+    auto status = guardOutOfMemory([&] {
+      const auto own = static_cast<std::uint32_t>(tracks.size()) - trackOffset;
+      resizeBoundedVector(mInactiveCandidates, joined.size() + own, mMemoryPool.get());
+      std::ranges::copy(joined, mInactiveCandidates.begin());
+      for (std::uint32_t at = 0; at < own; ++at) {
+        mInactiveCandidates[joined.size() + at] = trackOffset + at;
+      }
+      return StageStatus::kComplete;
+    });
     if (status != StageStatus::kComplete) {
       return status;
     }
-    return mStore.recommitChanged(spreadForEach(), spreadChunk(static_cast<Index>(mStore.size())), std::as_const(mRefit).tracks(), mChangedTracks);
+    const auto forEach = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(static_cast<Index>(count)))(static_cast<Index>(count), body); };
+    status = mInactiveRows.run(forEach, mIterations[iteration], frame, *mGeometry, mPropagator, tracks, std::span<const std::uint32_t>{mInactiveCandidates}, std::span<std::uint8_t>{mUsed}, plan.layerMaxWidthPS);
+    taken = mInactiveRows.changed().size();
+    return status;
   }
 
   /// The tracks from \a trackOffset on, of them only those `mKeptTracks`
@@ -1323,9 +1361,11 @@ class Tracker
   TrackRefit<Det> mRefit;
   TrackStore<Det> mStore;
   OverlapPartners<Det> mPartners;
-  TrackJoin<Det> mJoin;       ///< the iteration's tracks joined to the earlier ones
-  Follow<Det> mFollow;        ///< the iteration's own tracks'
-  Follow<Det> mFollowEarlier; ///< the earlier iterations' tracks', with followEarlier
+  TrackJoin<Det> mJoin;                             ///< the iteration's tracks joined to the earlier ones
+  InactiveRows<Det> mInactiveRows;                  ///< inactive layers' rows on the whole track's fit
+  BoundedVector<std::uint32_t> mInactiveCandidates; ///< its tracks: the iteration's and the joined earlier ones
+  Follow<Det> mFollow;                              ///< the iteration's own tracks'
+  Follow<Det> mFollowEarlier;                       ///< the earlier iterations' tracks', with followEarlier
   /// What the follow started from, for an iteration observer only.
   std::vector<BoundTrackState> mFollowStartInner;
   std::vector<BoundTrackState> mFollowStart;
