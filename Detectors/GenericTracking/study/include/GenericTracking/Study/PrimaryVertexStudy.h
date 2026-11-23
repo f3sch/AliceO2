@@ -15,8 +15,10 @@
 ///
 /// The association is the truth's: a collision's tracks are the chains of
 /// its physical primaries made at its vertex, one per particle (its
-/// longest), each refitted with its particle's true species
-/// (`refitRowsWithHypothesis`); nothing else -- no secondary, no fake, no
+/// longest that runs with the particle: a track of its charge, a truth
+/// chain's first leg -- a looper's way back, reconstructed outgoing, has the
+/// opposite charge and comes from no vertex), each refitted with its
+/// particle's true species (`refitRowsWithHypothesis`); nothing else -- no secondary, no fake, no
 /// other collision's track, no physical primary made away from the vertex
 /// (a charm or beauty decay's daughter) -- enters. Made at the vertex: a
 /// production point within 1 um of it, far above the float production
@@ -91,6 +93,15 @@ struct PrimaryVertexRecord {
   float maxTrackChi2 = 0.F;  ///< the largest track's chi2 at the solution
   std::int32_t worstPdg = 0; ///< and its particle's species
   float worstPt = 0.F;       ///< [GeV]
+  /// A failed fit: the tracks whose removal alone lets it converge, and of
+  /// those the one leaving the smallest chi2 (`MockPrimaryVertex::culprit`).
+  std::uint16_t rescues = 0U;
+  std::int32_t culpritPdg = 0;
+  float culpritPt = 0.F; ///< [GeV]
+  float culpritEta = 0.F;
+  std::uint16_t culpritRows = 0U;
+  std::uint8_t culpritChains = 0U; ///< its particle's chains (tracks) in the frame
+  float culpritQOverPPull = 0.F;   ///< its refit's innermost q/p less the MC production's, in sigma
 
   template <typename Visit>
   void columns(const Visit& visit) const
@@ -126,6 +137,13 @@ struct PrimaryVertexRecord {
     visit("maxTrackChi2", maxTrackChi2);
     visit("worstPdg", worstPdg);
     visit("worstPt", worstPt);
+    visit("rescues", rescues);
+    visit("culpritPdg", culpritPdg);
+    visit("culpritPt", culpritPt);
+    visit("culpritEta", culpritEta);
+    visit("culpritRows", culpritRows);
+    visit("culpritChains", culpritChains);
+    visit("culpritQOverPPull", culpritQOverPPull);
   }
 };
 
@@ -141,6 +159,14 @@ struct MockPrimaryVertex {
   float microseconds = 0.F;   ///< the fit's, the refits apart
   float maxTrackChi2 = 0.F;   ///< the largest track's chi2 at the solution
   std::uint64_t worstParticle = 0U;
+  /// A failed fit refitted without each track in turn: how many removals let
+  /// it converge, and the particle and rows of the one leaving the smallest
+  /// chi2 (without a rescue: none).
+  std::uint16_t rescues = 0U;
+  std::uint64_t culprit = 0U;
+  std::uint16_t culpritRows = 0U;
+  std::uint8_t culpritChains = 0U;
+  float culpritQOverPPull = 0.F;
   /// Its fitted chains' committed tracks (the chains from the tracker): its
   /// contributors.
   std::vector<std::uint32_t> contributors;
@@ -157,12 +183,25 @@ inline constexpr double kAtVertexCM = 1e-4;
 template <DetectorLayout Det>
 [[nodiscard]] std::vector<MockPrimaryVertex> mockPrimaryVertices(const TruthEvent<Det>& event, std::span<const Chain> chains)
 {
-  const auto longest = longestChains(chains);
+  std::unordered_map<std::uint64_t, const Chain*> longest;
+  std::unordered_map<std::uint64_t, std::size_t> chainsOf;
+  for (const auto& chain : chains) {
+    ++chainsOf[chain.particle];
+    const double charge = particleCharge(event.particles->at(chain.particle).pdg);
+    const bool outgoing = chain.track ? (chain.track->state.qOverP() > 0.F) == (charge > 0.) : chain.leg == 0U;
+    if (!outgoing) {
+      continue;
+    }
+    auto& best = longest[chain.particle];
+    if (best == nullptr || chain.rows.size() > best->rows.size()) {
+      best = &chain;
+    }
+  }
   std::unordered_map<std::uint64_t, std::size_t> index;
   std::vector<MockPrimaryVertex> vertices;
   std::vector<std::vector<const Chain*>> members;
   for (const auto& chain : chains) {
-    if (longest.at(chain.particle) != &chain) {
+    if (const auto found = longest.find(chain.particle); found == longest.end() || found->second != &chain) {
       continue;
     }
     const auto& truth = event.particles->at(chain.particle);
@@ -231,6 +270,30 @@ template <DetectorLayout Det>
       out.fit = fitPrimaryVertex(std::span<const VertexTrack>{tracks}, geometry.material(), prior, out.start, {}, std::span<double>{trackChi2});
       out.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
       if (out.fit.status != VertexFitStatus::kOk) {
+        double best = std::numeric_limits<double>::infinity();
+        std::vector<VertexTrack> others;
+        for (std::size_t i = 0; i < tracks.size() && tracks.size() > 1U; ++i) {
+          others.clear();
+          for (std::size_t j = 0; j < tracks.size(); ++j) {
+            if (j != i) {
+              others.push_back(tracks[j]);
+            }
+          }
+          const auto without = fitPrimaryVertex(std::span<const VertexTrack>{others}, geometry.material(), prior, out.start);
+          if (without.status == VertexFitStatus::kOk) {
+            ++out.rescues;
+            if (without.chi2 < best) {
+              best = without.chi2;
+              out.culprit = fitted[i]->particle;
+              out.culpritRows = static_cast<std::uint16_t>(fitted[i]->rows.size());
+              out.culpritChains = static_cast<std::uint8_t>(std::min<std::size_t>(chainsOf.contains(out.culprit) ? chainsOf.at(out.culprit) : 0U, 255U));
+              const auto& truth = event.particles->at(out.culprit);
+              const double trueQOverP = particleCharge(truth.pdg) / (static_cast<double>(truth.pt) * std::cosh(static_cast<double>(truth.eta)));
+              const auto& state = tracks[i].innermost;
+              out.culpritQOverPPull = static_cast<float>((static_cast<double>(state.qOverP()) - trueQOverP) / std::sqrt(static_cast<double>(state.covAt(kQOverP, kQOverP))));
+            }
+          }
+        }
         continue;
       }
       double worstChi2 = -1.;
@@ -367,6 +430,16 @@ class PrimaryVertexStudy
     record.outer = fit.outer;
     record.stopReason = fit.stopReason;
     if (fit.status != VertexFitStatus::kOk) {
+      record.rescues = vertex.rescues;
+      if (vertex.rescues > 0U) {
+        const auto& culprit = event.particles->at(vertex.culprit);
+        record.culpritPdg = culprit.pdg;
+        record.culpritPt = culprit.pt;
+        record.culpritEta = culprit.eta;
+        record.culpritRows = vertex.culpritRows;
+        record.culpritChains = vertex.culpritChains;
+        record.culpritQOverPPull = vertex.culpritQOverPPull;
+      }
       return record;
     }
     record.chi2 = static_cast<float>(fit.chi2);

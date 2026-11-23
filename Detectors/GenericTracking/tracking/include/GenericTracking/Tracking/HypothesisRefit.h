@@ -77,6 +77,19 @@ struct HypothesisFit {
 namespace detail::hypothesis
 {
 
+/// Whether \a to lies ahead of \a state on \a from, along its direction:
+/// a vertex fit's start or iterate beyond the daughter's innermost
+/// measurement, where it never was (the fit's solution can lie there).
+GPUdi() bool planeAhead(const BoundTrackState& state, const TrackingSurface& from, const TrackingSurface& to)
+{
+  Scalar at[3]{};
+  surfaceToGlobal(from, state.loc0(), state.loc1(), at);
+  const Scalar sinTheta = sinOf(state.theta());
+  const Scalar direction[3] = {sinTheta * cosOf(state.phi()), sinTheta * sinOf(state.phi()), cosOf(state.theta())};
+  const Scalar offset[3] = {to.origin[0] - at[0], to.origin[1] - at[1], to.origin[2] - at[2]};
+  return dotOf(to.normal, offset) * dotOf(to.normal, direction) > 0.F;
+}
+
 /// \a state, its covariance \a factors, carried from \a from to \a to against
 /// the momentum, inward, as a Kalman step carries a state between two
 /// measurements (`predictStep`, `transportStep`) with \a material's on the
@@ -85,10 +98,20 @@ namespace detail::hypothesis
 /// crossing), the ionisation over the segment undone. The perigee plane is no
 /// sensor: its bounds are empty, and the propagation's out-of-bounds status
 /// is the crossing (`predictBeamLine`); kNoMaterial if the table holds no
-/// such segment.
+/// such segment. A plane ahead (`planeAhead`): the state carried forward
+/// along its helix, no material on the way (none was crossed).
 template <typename Material>
 GPUdi() PropagationStatus carryInward(const Propagator& prop, const Material& material, const TrackingSurface& from, const TrackingSurface& to, BoundTrackState& state, CovarianceFactors& factors)
 {
+  if (planeAhead(state, from, to)) {
+    SolenoidJacobian jacobian;
+    const auto status = jacobianAnalytic(prop, state, from, to, PropagationDirection::kForward, jacobian, &state);
+    if (status != PropagationStatus::kOk && status != PropagationStatus::kOutOfBounds) {
+      return status;
+    }
+    state.surface = to.id;
+    return transportFactors(jacobian, StepNoise{}, factors) ? PropagationStatus::kOk : PropagationStatus::kNotFinite;
+  }
   Scalar start[3]{};
   surfaceToGlobal(from, state.loc0(), state.loc1(), start);
   const Scalar leaving = state.theta();
@@ -123,6 +146,9 @@ GPUdi() TrackingSurface perigeePlaneOf(const Propagator& prop, const BoundTrackS
 template <typename Material>
 GPUdi() Scalar segmentRadiation(const Propagator& prop, const Material& material, const BoundTrackState& state, const TrackingSurface& surface, const TrackingSurface& plane)
 {
+  if (planeAhead(state, surface, plane)) {
+    return 0.F; // carried forward, through nothing
+  }
   BoundTrackState probe = state;
   SolenoidJacobian unused;
   const auto status = jacobianAnalytic(prop, state, surface, plane, PropagationDirection::kBackward, unused, &probe);

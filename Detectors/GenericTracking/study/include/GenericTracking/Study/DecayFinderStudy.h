@@ -72,6 +72,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace o2::gtrk::study
@@ -96,7 +97,7 @@ enum class FinderStage : std::uint8_t {
   kRefitFailed, ///< a daughter's refit under its true species failed
   kNoPoint,     ///< its collision has no mocked primary vertex
   kCarryFailed, ///< a daughter's carry to the point failed
-  kWrongCharge, ///< both tracks of one reconstructed charge
+  kWrongCharge, ///< a daughter's good tracks all of the wrong reconstructed charge (a looper's way back, reconstructed outgoing); taken with kNotFound
   kNoStart,     ///< the helices give no start
   kFitFailed    ///< the fit failed
 };
@@ -389,10 +390,17 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     decayOfLeg.emplace(legs[1]->id, decays.size());
     decays.push_back({.mother = &member, .legs = legs, .hypothesis = h, .record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .decayR = static_cast<float>(std::hypot(decayPoint[0], decayPoint[1])), .pt = static_cast<float>(std::hypot(p[0], p[1])), .ptPositive = static_cast<float>(std::hypot(legs[0]->momentum[0], legs[0]->momentum[1])), .ptNegative = static_cast<float>(std::hypot(legs[1]->momentum[0], legs[1]->momentum[1]))}});
   }
-  // Each MC daughter's longest good track.
+  // Each MC daughter's longest good track of its own charge (one of the
+  // other charge runs against the particle: a looper's way back); the
+  // daughters with good tracks of the other charge alone.
   std::unordered_map<std::uint64_t, std::uint32_t> trackOfLeg;
+  std::unordered_set<std::uint64_t> reversedLeg;
   for (std::uint32_t t = 0; t < n; ++t) {
     if (fake[t] != 0U || !decayOfLeg.contains(particleOf[t])) {
+      continue;
+    }
+    if ((committed.state[t].qOverP() > 0.F) != (particleCharge(event.particles->at(particleOf[t]).pdg) > 0.)) {
+      reversedLeg.insert(particleOf[t]);
       continue;
     }
     const auto [at, inserted] = trackOfLeg.try_emplace(particleOf[t], t);
@@ -432,7 +440,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
             const auto mother = motherOf(positive);
             const bool sameMother = mother != kNoTreeParticle && mother == motherOf(negative);
             const auto ownDecay = sameMother ? decayOfLeg.find(particleOf[positive]) : decayOfLeg.end();
-            const bool ownPair = ownDecay != decayOfLeg.end() && trackOfLeg.at(particleOf[positive]) == positive && trackOfLeg.contains(particleOf[negative]) && trackOfLeg.at(particleOf[negative]) == negative;
+            const bool ownPair = ownDecay != decayOfLeg.end() && trackOfLeg.contains(particleOf[positive]) && trackOfLeg.at(particleOf[positive]) == positive && trackOfLeg.contains(particleOf[negative]) && trackOfLeg.at(particleOf[negative]) == negative;
             for (std::size_t h = 0; h < hypotheses.size(); ++h) {
               const auto& hypothesis = hypotheses[h];
               const auto ePositive = table.entryOf(positive, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[0])));
@@ -528,7 +536,8 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     const auto negative = trackOfLeg.find(decay.legs[1]->id);
     const auto stageOf = [&]() {
       if (positive == trackOfLeg.end() || negative == trackOfLeg.end()) {
-        return FinderStage::kNotFound;
+        const bool reversed = (positive == trackOfLeg.end() && reversedLeg.contains(decay.legs[0]->id)) || (negative == trackOfLeg.end() && reversedLeg.contains(decay.legs[1]->id));
+        return reversed ? FinderStage::kWrongCharge : FinderStage::kNotFound;
       }
       if (association.contributor(positive->second) || association.contributor(negative->second)) {
         return FinderStage::kContributor;
@@ -548,7 +557,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
         return FinderStage::kCarryFailed;
       }
       if (!decay.fitted) {
-        return FinderStage::kWrongCharge; // both its tracks of one reconstructed charge: never paired
+        throw std::logic_error("decay finder study: an MC V0's own pair of its own charges was never fitted");
       }
       if (d.status == static_cast<std::uint8_t>(VertexFitStatus::kNoStart)) {
         return FinderStage::kNoStart;
