@@ -171,6 +171,7 @@ struct CascadeFinderCandidateRecord {
   /// its own rows -- how well it points back.
   float pointChi2 = kNaN;
   float trackedPointChi2 = kNaN;
+  float trackedMCPointChi2 = kNaN; ///< kTrue, kReflection: the same at the MC collision's vertex
   float microseconds = 0.F;
 
   template <typename Visit>
@@ -228,6 +229,7 @@ struct CascadeFinderCandidateRecord {
     visit("trackedDZ", trackedDZ);
     visit("pointChi2", pointChi2);
     visit("trackedPointChi2", trackedPointChi2);
+    visit("trackedMCPointChi2", trackedMCPointChi2);
     visit("microseconds", microseconds);
   }
 };
