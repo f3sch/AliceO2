@@ -581,8 +581,10 @@ GPUhdi() GPUAlwaysInline() void windowCentre(const IterationParameters<Det>& par
 ///  - each hole test, with whether the track crosses a sensor;
 ///  - the row a step takes and its chi2;
 ///  - the last row dropped as nothing confirms it (the unconfirmed drop), refused at the
-///    layout's end (EndDensity) or against the beam line (BeamEnd), and the
-///    end.
+///    layout's end (EndDensity) or against the beam line (BeamEnd);
+///  - the outward walk's tail beginning (`inactiveLayerTail`), its steps
+///    then as the walk's;
+///  - the end.
 struct NoObserver {
   GPUhdi() GPUAlwaysInline() void begin(PropagationDirection /*direction*/) const {}
   GPUhdi() GPUAlwaysInline() void step(LayerID /*layer*/, const BoundParameters& /*state*/, const CovarianceFactors& /*factors*/, std::uint32_t /*rows*/) const {}
@@ -599,6 +601,7 @@ struct NoObserver {
   GPUhdi() GPUAlwaysInline() void refusedEnd(std::uint32_t /*row*/) const {}
   /// The inward last row refused against the beam line (BeamEnd).
   GPUhdi() GPUAlwaysInline() void refusedBeamEnd(std::uint32_t /*row*/) const {}
+  GPUhdi() GPUAlwaysInline() void tail() const {}
   GPUhdi() GPUAlwaysInline() void end(FollowEnd /*why*/) const {}
 };
 
@@ -1272,7 +1275,9 @@ class FollowStage
       // without a row the particle has most often ended, and an inactive
       // layer's row there is another's.
       if (direction == PropagationDirection::kForward && end != FollowEnd::kCapacity && end != FollowEnd::kHoles) {
+        observe.tail();
         while (branch.count < capacity) {
+          observe.step(mGeometry->surface(branch.state.surface).layer, branch.state, branch.factors, branch.count);
           Child child;
           bool nearTail = false;
           if (!inactiveLayerTail(branch, heldLayers, box, direction, child, nearTail, observe, group)) {

@@ -177,6 +177,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string breakdownPopulation;       ///< --breakdown-population: the class's particles, primary, decay or v0
   std::string inwardHistory;             ///< --inward-history: the CSV of the inward refit's states
   std::string endDecisions;              ///< --end-decisions: the CSV of every follow walk's end
+  std::string anatomyInactive;           ///< --anatomy-inactive: the CSV of the inactive layers' census
   std::string endEdits;                  ///< --end-edits: with it, the CSV of each track's truth-free end edits
   int anatomyPdg = 0;                    ///< --anatomy-pdg
   bool anatomyFindable = false;          ///< --anatomy-findable
@@ -2182,6 +2183,12 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     }
     if (!options.endDecisions.empty()) {
       completeAnatomy->openEndDecisions(options.endDecisions);
+    }
+    if (!options.anatomyInactive.empty()) {
+      if (options.hits.empty()) {
+        throw std::runtime_error("--anatomy-inactive needs --hits");
+      }
+      completeAnatomy->openInactiveCensus(options.anatomyInactive);
     }
     if (!options.endEdits.empty()) {
       completeAnatomy->openEndEdits(options.endEdits);

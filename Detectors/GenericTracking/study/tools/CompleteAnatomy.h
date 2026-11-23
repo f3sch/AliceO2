@@ -300,6 +300,18 @@ class CompleteAnatomy
                    "qOverP,charge,stepRoot\n";
   }
 
+  /// The CSV of the inactive layers' census, written after each iteration
+  /// (`inactiveCensus`).
+  void openInactiveCensus(const std::string& csv)
+  {
+    mInactiveCsv = std::make_unique<std::ofstream>(csv);
+    if (!*mInactiveCsv) {
+      throw std::runtime_error("cannot write " + csv);
+    }
+    *mInactiveCsv << "iteration,track,particle,origin,pdg,pt,layer,roadLayers,walkLayers,kept,refit,agrees,end,lastLayer,tailSteps,"
+                     "holeLayer,holeCrossed,holeHit,holeRow,holeOwn,holeOwnChi2,targeted,targetedInTail,own,ownChi2,taken,hitLayers,rowLayers\n";
+  }
+
   /// The CSV of every follow walk's end, written after each iteration
   /// (`endDecisions`).
   void openEndDecisions(const std::string& csv)
@@ -807,6 +819,9 @@ class CompleteAnatomy
     if (mHits) {
       holeCalls(iteration, replayed, parameters, geometry, propagator);
       ownSteps(iteration, replayed, parameters);
+      if (mInactiveCsv) {
+        inactiveCensus(iteration, replayed, geometry);
+      }
     }
     rest[3] = seconds(clock, now());
     clock = now();
@@ -3282,6 +3297,9 @@ class CompleteAnatomy
     std::uint32_t dropped = kNoRow;
     std::uint32_t refused = kNoRow;
     bool agrees = false;
+    /// The first of the steps the outward walk's tail made
+    /// (`FollowStage::inactiveLayerTail`); the step count without a tail.
+    std::size_t tailFrom = std::numeric_limits<std::size_t>::max();
   };
   /// A track's replayed follow: its inward walk, and the outward walk
   /// replayed too: one, its kept rows the iteration's, including a
@@ -3409,6 +3427,7 @@ class CompleteAnatomy
     void unconfirmed(std::uint32_t row) const { replay->dropped = row; }
     void refusedEnd(std::uint32_t row) const { replay->refused = row; }
     void refusedBeamEnd(std::uint32_t row) const { replay->refused = row; }
+    void tail() const { replay->tailFrom = replay->steps.size(); }
     void end(FollowEnd why) const { replay->end = why; }
   };
   /// The iteration's follow stage, with the same dispatch for both replays.
@@ -4741,6 +4760,106 @@ class CompleteAnatomy
     mTransitionLines.push_back(text);
   }
 
+  /// The inactive layers' census (`openInactiveCensus`): on the outward walk
+  /// of each of the iteration's correct roads (every road row the road's
+  /// particle's), one line per inactive layer the particle has a row on --
+  /// the particle's truth; the layers of the road and of the walk's raw
+  /// proposal, the rows the bidding kept of it and the refit's outcome; how
+  /// the walk ended, the layer of its last step and the steps its tail made
+  /// (-1: no tail); the call that ended it at a hole (its layer, crossed or
+  /// not, the particle's MC hit and row there, that row's outcome in the step
+  /// and its chi2); whether a step searched the inactive layer, a tail step
+  /// among them; the particle's row there: its outcome where searched
+  /// (`StepOutcome`'s, "taken", or "unseen") and chi2; the row the walk took
+  /// there (0 none, 1 the particle's, 2 another's); the layers of the
+  /// particle's MC hits and rows (hexadecimal bits).
+  template <typename Observation>
+  void inactiveCensus(const Observation& iteration, const std::vector<Replay>& replayed, const TrackingGeometry<Det>& geometry)
+  {
+    constexpr std::array<const char*, 7> kOutcome{"used", "window", "hole", "noUpdate", "chi2", "passes", "shape"};
+    const auto layerOf = [&](std::uint32_t row) { return mTruth->rows[row].layer; };
+    for (std::uint32_t element = 0; element < replayed.size(); ++element) {
+      const auto& replay = replayed[element];
+      if (replay.roadCount == 0U || replay.outward.empty()) {
+        continue;
+      }
+      const auto particle = study::goodParticle(mTruth->rows, std::span<const std::uint32_t>{replay.road.index, replay.roadCount});
+      const auto* chain = particle == study::kNoTrackParticle ? nullptr : mChains->find(particle);
+      if (chain == nullptr) {
+        continue;
+      }
+      std::uint64_t rowLayers = 0U;
+      for (const auto row : chain->rows) {
+        rowLayers |= std::uint64_t{1} << layerOf(row);
+      }
+      if ((rowLayers & Detector<Det>::inactiveLayers) == 0U) {
+        continue;
+      }
+      std::uint64_t hitLayers = 0U;
+      for (const auto* segment : mHits->segments(particle)) {
+        hitLayers |= std::uint64_t{1} << geometry.surface(static_cast<SensorID>(segment->chip)).layer;
+      }
+      const auto found = mTruth->particles.find(particle);
+      const auto& walk = replay.outward.front();
+      std::uint64_t roadLayers = 0U;
+      for (std::uint8_t i = 0; i < replay.roadCount; ++i) {
+        roadLayers |= std::uint64_t{1} << layerOf(replay.road.index[i]);
+      }
+      std::uint64_t walkLayers = 0U;
+      for (const auto row : walk.raw) {
+        walkLayers |= std::uint64_t{1} << layerOf(row);
+      }
+      const auto tailFrom = std::min(walk.tailFrom, walk.steps.size());
+      const long tailSteps = walk.tailFrom == std::numeric_limits<std::size_t>::max() ? -1L : static_cast<long>(walk.steps.size() - tailFrom);
+      // The call that ended the walk at a hole: the last hole of its last walk step.
+      int holeLayer = -1;
+      int holeCrossed = -1;
+      const char* holeOwn = "none";
+      double holeOwnChi2 = -1.;
+      if (walk.end == FollowEnd::kHoles && tailFrom != 0U && !walk.steps[tailFrom - 1U].holes.empty()) {
+        const auto& step = walk.steps[tailFrom - 1U];
+        const auto [layer, crossed] = step.holes.back();
+        holeLayer = static_cast<int>(layer);
+        holeCrossed = crossed ? 1 : 0;
+        if (const auto own = ownRowOn(particle, layer); own != kNoTrack) {
+          const auto seen = std::ranges::find(step.candidates, own, &Candidate::row);
+          holeOwn = seen == step.candidates.end() ? "unseen" : kOutcome[static_cast<std::size_t>(seen->outcome)];
+          holeOwnChi2 = seen == step.candidates.end() ? -1. : static_cast<double>(seen->chi2);
+        }
+      }
+      for (std::uint64_t left = rowLayers & Detector<Det>::inactiveLayers; left != 0U; left &= left - 1U) {
+        const auto layer = static_cast<LayerID>(std::countr_zero(left));
+        const auto own = ownRowOn(particle, layer);
+        bool targeted = false;
+        bool targetedInTail = false;
+        const char* outcome = "unseen";
+        double chi2 = -1.;
+        int taken = 0;
+        for (std::size_t s = 0; s < walk.steps.size(); ++s) {
+          const auto& step = walk.steps[s];
+          if (std::ranges::find(step.targets, layer, &TargetSeen::layer) == step.targets.end()) {
+            continue;
+          }
+          targeted = true;
+          targetedInTail = targetedInTail || s >= tailFrom;
+          if (const auto seen = std::ranges::find(step.candidates, own, &Candidate::row); seen != step.candidates.end()) {
+            outcome = kOutcome[static_cast<std::size_t>(seen->outcome)];
+            chi2 = static_cast<double>(seen->chi2);
+          }
+          if (step.choice != kNoRow && layerOf(step.choice) == layer) {
+            taken = step.choice == own ? 1 : 2;
+            outcome = step.choice == own ? "taken" : outcome;
+          }
+        }
+        *mInactiveCsv << std::format("{},{},{},{},{},{:.4f},{},{:x},{:x},{},{},{},{},{},{},{},{},{},{},{},{:.3f},{},{},{},{:.3f},{},{:x},{:x}\n", iteration.iteration, element, particle,
+                                     found != mTruth->particles.end() ? static_cast<int>(found->second.origin) : -1, found != mTruth->particles.end() ? found->second.pdg : 0, truePt(found),
+                                     static_cast<int>(layer), roadLayers, walkLayers, walk.kept, static_cast<int>(walk.refit), walk.agrees ? 1 : 0, kFollowEndNames[static_cast<std::size_t>(walk.end)],
+                                     walk.steps.empty() ? -1 : static_cast<int>(walk.steps.back().layer), tailSteps, holeLayer, holeCrossed, holeLayer >= 0 ? static_cast<int>((hitLayers >> holeLayer) & 1U) : -1,
+                                     holeLayer >= 0 ? static_cast<int>((rowLayers >> holeLayer) & 1U) : -1, holeOwn, holeOwnChi2, targeted ? 1 : 0, targetedInTail ? 1 : 0, outcome, chi2, taken, hitLayers, rowLayers);
+      }
+    }
+  }
+
   /// The follow's hole calls against the MC hits: on
   /// the agreeing walks of the iteration's correct roads (every road row the
   /// road's particle's), each target without a row, by direction and
@@ -5495,9 +5614,9 @@ class CompleteAnatomy
       return out;
     };
     for (std::size_t seed = 0; seed < kRuleSeedNames.size(); ++seed) {
-      std::array<Outcome, kCrossingRules.size()> outcomes { refit.template operator()<kCrossingRules[0]>(),
-                                                            refit.template operator()<kCrossingRules[1]>(),
-                                                            refit.template operator()<kCrossingRules[2]>() };
+      std::array<Outcome, kCrossingRules.size()> outcomes{refit.template operator()<kCrossingRules[0]>(),
+                                                          refit.template operator()<kCrossingRules[1]>(),
+                                                          refit.template operator()<kCrossingRules[2]>()};
       for (std::size_t rule = 0; rule < kCrossingRules.size(); ++rule) {
         auto& tally = mRuleTallies[kind][rule][seed];
         const auto& one = outcomes[rule];
@@ -8669,8 +8788,9 @@ class CompleteAnatomy
   /// `ruleStudy`'s, per kind, rule and seed.
   std::array<std::array<std::array<RuleTally, kRuleSeedNames.size()>, kCrossingRules.size()>, kInwardKinds> mRuleTallies{};
   std::unique_ptr<std::ofstream> mInwardCsv;
-  std::unique_ptr<std::ofstream> mEndCsv;  ///< `endDecisions`' CSV
-  std::unique_ptr<std::ofstream> mEditCsv; ///< and its end edits'
+  std::unique_ptr<std::ofstream> mEndCsv;      ///< `endDecisions`' CSV
+  std::unique_ptr<std::ofstream> mInactiveCsv; ///< `inactiveCensus`' CSV
+  std::unique_ptr<std::ofstream> mEditCsv;     ///< and its end edits'
   std::array<std::array<std::size_t, 2>, kInwardKinds> mChargeAgree{};
   /// Per kind and step, the step's crossing [disc, the solve's the particle's, the other the particle's, none].
   std::array<std::array<std::array<std::size_t, 4>, kInwardStepSlots>, kInwardKinds> mStepRoots{};

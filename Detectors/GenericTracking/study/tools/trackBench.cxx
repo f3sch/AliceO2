@@ -134,6 +134,9 @@ static int run(int argc, char** argv)
     ("end-decisions", bpo::value(&options.endDecisions)->default_value(""),
      "with --complete-anatomy: a CSV of every follow walk's end -- how it ended, the unconfirmed drop's verdict, its last and dropped rows against the truth, "
      "whether the last row stayed on the track") //
+    ("anatomy-inactive", bpo::value(&options.anatomyInactive)->default_value(""),
+     "with --complete-anatomy and --hits: a CSV of the inactive layers' census -- per correct road's outward walk and inactive layer the particle has a row "
+     "on, how the walk ended (the hole call against the MC hit and row), whether a step or the tail searched the layer and the particle's row's outcome there") //
     ("end-edits", bpo::value(&options.endEdits)->default_value(""),
      "with --end-decisions: a CSV of each track as it is and its truth-free end edits -- the last row refused, the unconfirmed drop's row put back -- "
      "refitted and floored") //
