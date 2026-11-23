@@ -47,6 +47,11 @@
 /// `DecayParam` (GTRKDecay) selects, each with every bachelor of its
 /// collision, the tracks refitted as kaons too; records per candidate
 /// (`-cascades`) and per MC cascade (`-cascadeDecays`).
+///
+/// Charm (CharmFinder.h): D0, D+, Ds+ and Lambda_c+ and their conjugates
+/// from every combination of a collision's tracks of the hypothesis's
+/// charges; records per candidate (`-charm`) and per MC decay
+/// (`-charmDecays`).
 
 #ifndef GTRK_STUDY_DECAYFINDERSTUDY_H_
 #define GTRK_STUDY_DECAYFINDERSTUDY_H_
@@ -54,6 +59,7 @@
 #include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayCandidateFit.h"
 #include "GenericTracking/Study/CascadeFinder.h"
+#include "GenericTracking/Study/CharmFinder.h"
 #include "GenericTracking/Study/DecayCandidates.h"
 #include "GenericTracking/Study/DecayParam.h"
 #include "GenericTracking/Study/DecayStudyTools.h"
@@ -308,12 +314,16 @@ class DecayFinderStudy
     : mWriter(&writer),
       mDecayWriter(std::make_unique<RecordWriter>(decay_finder_detail::taggedPath(writer.path(), "-decays"))),
       mCascadeWriter(std::make_unique<RecordWriter>(decay_finder_detail::taggedPath(writer.path(), "-cascades"))),
-      mCascadeDecayWriter(std::make_unique<RecordWriter>(decay_finder_detail::taggedPath(writer.path(), "-cascadeDecays")))
+      mCascadeDecayWriter(std::make_unique<RecordWriter>(decay_finder_detail::taggedPath(writer.path(), "-cascadeDecays"))),
+      mCharmWriter(std::make_unique<RecordWriter>(decay_finder_detail::taggedPath(writer.path(), "-charm"))),
+      mCharmDecayWriter(std::make_unique<RecordWriter>(decay_finder_detail::taggedPath(writer.path(), "-charmDecays")))
   {
     writer.begin<DecayFinderCandidateRecord>();
     mDecayWriter->begin<DecayFinderDecayRecord>();
     mCascadeWriter->begin<CascadeFinderCandidateRecord>();
     mCascadeDecayWriter->begin<CascadeFinderDecayRecord>();
+    mCharmWriter->begin<CharmFinderCandidateRecord>();
+    mCharmDecayWriter->begin<CharmFinderDecayRecord>();
   }
 
   /// \a event's tracks, every one, whatever the source's chains.
@@ -323,7 +333,8 @@ class DecayFinderStudy
   {
     return {std::format("decay finder study: {} tracks combined ({} primary vertices' contributors and {} without a particle not), {} candidates, {} fitted (records into {}), {} MC V0s ({} found) into {}; the daughter table {} entries in {:.3f} s, the S^2 in {:.3f} s, the vertices in {:.3f} s, the fits {:.1f} thread-s",
                         mTracks, mContributors, mUnassociated, mPairs, mFitted, mWriter->path(), mDecays, mFound, mDecayWriter->path(), mEntries, mFlushSeconds, mDisplacementSeconds, mVertexSeconds, mFitMicroseconds * 1e-6),
-            std::format("cascades: {} Lambdas taken, {} candidates, {} fitted (records into {}, their fits {:.1f} thread-s), {} MC cascades ({} found) into {}", mLambdasTaken, mCascadeCandidates, mCascadesFitted, mCascadeWriter->path(), mCascadeMicroseconds * 1e-6, mCascades, mCascadesFound, mCascadeDecayWriter->path())};
+            std::format("cascades: {} Lambdas taken, {} candidates, {} fitted (records into {}, their fits {:.1f} thread-s), {} MC cascades ({} found) into {}", mLambdasTaken, mCascadeCandidates, mCascadesFitted, mCascadeWriter->path(), mCascadeMicroseconds * 1e-6, mCascades, mCascadesFound, mCascadeDecayWriter->path()),
+            std::format("charm: {} candidates, {} fitted (records into {}, their fits {:.1f} thread-s), {} MC decays ({} found) into {}", mCharmCandidates, mCharmFitted, mCharmWriter->path(), mCharmMicroseconds * 1e-6, mCharmDecays, mCharmFound, mCharmDecayWriter->path())};
   }
 
  private:
@@ -331,6 +342,13 @@ class DecayFinderStudy
   std::unique_ptr<RecordWriter> mDecayWriter;
   std::unique_ptr<RecordWriter> mCascadeWriter;
   std::unique_ptr<RecordWriter> mCascadeDecayWriter;
+  std::unique_ptr<RecordWriter> mCharmWriter;
+  std::unique_ptr<RecordWriter> mCharmDecayWriter;
+  std::size_t mCharmCandidates = 0U;
+  std::size_t mCharmFitted = 0U;
+  std::size_t mCharmDecays = 0U;
+  std::size_t mCharmFound = 0U;
+  double mCharmMicroseconds = 0.;
   std::size_t mLambdasTaken = 0U;
   std::size_t mCascadeCandidates = 0U;
   std::size_t mCascadesFitted = 0U;
@@ -365,7 +383,13 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   const auto committed = store.tracks().view();
 
   const std::array<PID, 3> species{PID{PID::Pion}, PID{PID::Proton}, PID{PID::Kaon}};
-  const auto hypotheses = finderHypotheses();
+  const auto hypotheses = [] {
+    auto all = finderHypotheses();
+    const auto charm = charmHypotheses();
+    all.insert(all.end(), charm.begin(), charm.end());
+    return all;
+  }();
+  const std::size_t charmFirst = hypotheses.size() - kCharmMothers.size();
   const std::span<const DecayHypothesis> allHypotheses{hypotheses};
   const auto& param = DecayParam::Instance();
   const double lambdaMassGeV = hypotheses[1].massGeV;
@@ -515,13 +539,68 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   for (std::size_t i = 0; i < cascades.size(); ++i) {
     cascadeOfBachelor.emplace(cascades[i].bachelor->id, i);
   }
+  // The MC charm decays into a hypothesis's final state (through any
+  // resonances, nothing unseen), their leaves in the hypothesis's slots.
+  struct Charm {
+    const TreeParticle* mother = nullptr;
+    std::size_t hypothesis = 0U; ///< into `kCharmMothers`
+    FixedVector<const TreeParticle*, 3> legs;
+    CharmFinderDecayRecord record;
+    bool fitted = false;
+  };
+  std::vector<Charm> charms;
+  std::unordered_map<std::uint64_t, std::size_t> charmOfMother;
+  std::unordered_map<std::uint64_t, std::size_t> charmOfLeaf;
+  const auto slotsMatch = [&](const DecayHypothesis& h, std::span<const TreeParticle* const> legs) {
+    for (std::size_t slot = 0; slot < legs.size(); ++slot) {
+      const auto truth = truthSpecies(legs[slot]->pdg);
+      if (!truth || truth->pid != h.species[slot] || (particleCharge(legs[slot]->pdg) > 0.) != (h.charges[slot] > 0)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  for (const auto& member : trees.particles) {
+    const auto found = std::ranges::find(kCharmMothers, member.pdg);
+    if (found == kCharmMothers.end()) {
+      continue;
+    }
+    const auto k = static_cast<std::size_t>(found - kCharmMothers.begin());
+    const auto& hypothesis = hypotheses[charmFirst + k];
+    const auto shape = decayShape(trees, member, particleCharge);
+    if (!shape.closed() || shape.leaves.size() != hypothesis.species.size()) {
+      continue;
+    }
+    std::array<const TreeParticle*, 3> legs{};
+    std::ranges::copy(shape.leaves, legs.begin());
+    std::span<const TreeParticle*> slots{legs.data(), shape.leaves.size()};
+    std::ranges::sort(slots);
+    bool matched = false;
+    do {
+      matched = slotsMatch(hypothesis, slots);
+    } while (!matched && std::ranges::next_permutation(slots).found);
+    if (!matched) {
+      continue;
+    }
+    Charm charm{.mother = &member, .hypothesis = k};
+    float ptMin = std::numeric_limits<float>::infinity();
+    for (const auto* leg : slots) {
+      charm.legs.push_back(leg);
+      ptMin = std::min(ptMin, static_cast<float>(std::hypot(leg->momentum[0], leg->momentum[1])));
+      charmOfLeaf.emplace(leg->id, charms.size());
+    }
+    const auto& decayPoint = decayPointOf(trees, member);
+    charm.record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .hypothesis = static_cast<std::uint8_t>(k), .flight = static_cast<float>(std::hypot(decayPoint[0] - member.vertex[0], decayPoint[1] - member.vertex[1], decayPoint[2] - member.vertex[2])), .pt = static_cast<float>(std::hypot(member.momentum[0], member.momentum[1])), .ptMin = ptMin, .depth = shape.depth};
+    charmOfMother.emplace(member.id, charms.size());
+    charms.push_back(charm);
+  }
   // Each MC daughter's longest good track of its own charge (one of the
   // other charge runs against the particle: a looper's way back); the
   // daughters with good tracks of the other charge alone.
   std::unordered_map<std::uint64_t, std::uint32_t> trackOfLeg;
   std::unordered_set<std::uint64_t> reversedLeg;
   for (std::uint32_t t = 0; t < n; ++t) {
-    if (fake[t] != 0U || (!decayOfLeg.contains(particleOf[t]) && !cascadeOfBachelor.contains(particleOf[t]))) {
+    if (fake[t] != 0U || (!decayOfLeg.contains(particleOf[t]) && !cascadeOfBachelor.contains(particleOf[t]) && !charmOfLeaf.contains(particleOf[t]))) {
       continue;
     }
     if ((committed.state[t].qOverP() > 0.F) != (particleCharge(event.particles->at(particleOf[t]).pdg) > 0.)) {
@@ -551,6 +630,20 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   };
   std::vector<std::vector<DecayFinderCandidateRecord>> perCollision(std::min(collisions.size(), kCollisionsPerBlock));
   std::vector<std::vector<CascadeFinderCandidateRecord>> perCollisionCascades(perCollision.size());
+  std::vector<std::vector<CharmFinderCandidateRecord>> perCollisionCharm(perCollision.size());
+  // Each track's charm ancestor (`kCharmHadrons`), 0 for none or a fake.
+  std::vector<std::uint64_t> charmAncestor(n, 0U);
+  for (std::uint32_t t = 0; t < n; ++t) {
+    if (fake[t] != 0U || particleOf[t] == kNoTrackParticle) {
+      continue;
+    }
+    for (const auto* at = trees.find(particleOf[t]); at != nullptr; at = at->mother == kNoTreeParticle ? nullptr : trees.find(at->mother)) {
+      if (std::ranges::find(kCharmHadrons, std::abs(at->pdg)) != kCharmHadrons.end()) {
+        charmAncestor[t] = at->id;
+        break;
+      }
+    }
+  }
   // A Lambda candidate a cascade takes (`DecayParam`), from the V0 pass.
   struct TakenLambda {
     std::uint32_t positive = 0U;
@@ -773,6 +866,136 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       }
     }
   };
+  // A collision's charm candidates (CharmFinder.h): every combination of its
+  // tracks of a hypothesis's charges, each slot assignment the hypothesis
+  // tells apart, one fit each.
+  const auto findCharm = [&](std::uint64_t collision, std::int32_t point, WorkspaceBuffer& workspace, std::vector<CharmFinderCandidateRecord>& out) {
+    out.clear();
+    const auto& lists = byCollision.at(collision);
+    const auto fitOne = [&](std::size_t k, std::span<const std::uint32_t> tracks) {
+      const auto h = charmFirst + k;
+      const auto& hypothesis = hypotheses[h];
+      CharmFinderCandidateRecord record{.timeframe = event.timeframe, .collision = collision, .hypothesis = static_cast<std::uint8_t>(k)};
+      DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = point};
+      bool refitted = true;
+      bool pid = true;
+      std::array<float*, 3> s2Slots{&record.s2First, &record.s2Second, &record.s2Third};
+      float ptMin = std::numeric_limits<float>::infinity();
+      for (std::size_t slot = 0; slot < tracks.size(); ++slot) {
+        const auto e = table.entryOf(tracks[slot], static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
+        candidate.entries.push_back(static_cast<std::uint32_t>(e));
+        refitted = refitted && entries.status[static_cast<std::size_t>(e)] == PropagationStatus::kOk;
+        *s2Slots[slot] = s2[static_cast<std::size_t>(e)];
+        if (refitted) {
+          const auto& state = entries.state[static_cast<std::size_t>(e)];
+          ptMin = std::min(ptMin, static_cast<float>(std::abs(std::sin(state.theta()) / state.qOverP())));
+        }
+        const auto truth = truthSpecies(event.particles->at(particleOf[tracks[slot]]).pdg);
+        pid = pid && truth && truth->pid == hypothesis.species[slot];
+      }
+      record.ptMin = refitted ? ptMin : CharmFinderCandidateRecord::kNaN;
+      record.pidMatch = pid ? 1U : 0U;
+      // The MC class: the tracks' common charm ancestor, its decay's set.
+      const bool anyFake = std::ranges::any_of(tracks, [&](std::uint32_t t) { return fake[t] != 0U; });
+      const auto ancestor = charmAncestor[tracks[0]];
+      const bool common = ancestor != 0U && std::ranges::all_of(tracks, [&](std::uint32_t t) { return charmAncestor[t] == ancestor; });
+      const Charm* own = nullptr;
+      if (anyFake) {
+        record.truthClass = static_cast<std::uint8_t>(CharmClass::kFake);
+      } else if (common) {
+        record.mother = ancestor;
+        const auto* m = trees.find(ancestor);
+        record.motherPdg = m != nullptr ? m->pdg : 0;
+        const auto decay = charmOfMother.find(ancestor);
+        bool whole = decay != charmOfMother.end() && charms[decay->second].legs.size() == tracks.size();
+        for (std::size_t slot = 0; slot < tracks.size() && whole; ++slot) {
+          whole = std::ranges::any_of(charms[decay->second].legs, [&](const TreeParticle* leg) { return leg->id == particleOf[tracks[slot]]; });
+        }
+        if (whole) {
+          const auto& charm = charms[decay->second];
+          std::array<const TreeParticle*, 3> mine{};
+          for (std::size_t slot = 0; slot < tracks.size(); ++slot) {
+            mine[slot] = trees.find(particleOf[tracks[slot]]);
+          }
+          const bool right = charm.hypothesis == k && slotsMatch(hypothesis, std::span<const TreeParticle* const>{mine.data(), tracks.size()});
+          record.truthClass = static_cast<std::uint8_t>(right ? CharmClass::kTrue : CharmClass::kReflection);
+          if (right && std::ranges::all_of(tracks, [&](std::uint32_t t) { const auto rep = trackOfLeg.find(particleOf[t]); return rep != trackOfLeg.end() && rep->second == t; })) {
+            own = &charm;
+          }
+        } else {
+          record.truthClass = static_cast<std::uint8_t>(CharmClass::kPartial);
+        }
+      } else {
+        const bool some = std::ranges::any_of(tracks, [&](std::uint32_t t) { return charmAncestor[t] != 0U; });
+        record.truthClass = static_cast<std::uint8_t>(some ? CharmClass::kSomeFromCharm : CharmClass::kCombinatorial);
+      }
+      DecayCandidateResult result;
+      const auto started = std::chrono::steady_clock::now();
+      if (refitted) {
+        static_cast<void>(startDecayCandidate(candidate, allHypotheses, daughters, points.size()));
+      }
+      fitDecayCandidate(candidate, allHypotheses, daughters, geometry.material(), std::span<const MeasuredPoint>{points}, workspace, result);
+      record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
+      writeCandidateFit(record, result);
+      const bool fitted = result.fit.status == VertexFitStatus::kOk;
+      if (fitted) {
+        record.radius = static_cast<float>(std::hypot(result.fit.vertex[0], result.fit.vertex[1]));
+        record.ahead = static_cast<std::uint8_t>(leavesAhead(candidate, allHypotheses, daughters, result));
+        if (point >= 0) {
+          DecayCandidateResult made;
+          fitDecayCandidate(candidate, allHypotheses, daughters, geometry.material(), std::span<const MeasuredPoint>{points}, workspace, made, {}, &points[static_cast<std::size_t>(point)]);
+          if (made.fit.status == VertexFitStatus::kOk) {
+            record.pointChi2 = static_cast<float>(made.fit.chi2 - result.fit.chi2);
+          }
+        }
+        if (record.truthClass == static_cast<std::uint8_t>(CharmClass::kTrue) || record.truthClass == static_cast<std::uint8_t>(CharmClass::kReflection)) {
+          const auto& decayPoint = decayPointOf(trees, *trees.find(record.mother));
+          record.dXY = static_cast<float>(std::hypot(result.fit.vertex[0] - decayPoint[0], result.fit.vertex[1] - decayPoint[1]));
+          record.dZ = static_cast<float>(result.fit.vertex[2] - decayPoint[2]);
+        }
+      }
+      if (record.truthClass == static_cast<std::uint8_t>(CharmClass::kTrue) && fitted) {
+        charms[charmOfMother.at(record.mother)].record.recovered = 1U;
+      }
+      if (own != nullptr) {
+        // its own candidate (one writer per decay)
+        auto& charm = charms[charmOfMother.at(record.mother)];
+        charm.fitted = true;
+        auto& d = charm.record;
+        writeCandidateFit(d, result);
+        d.pointChi2 = record.pointChi2;
+        d.dXY = record.dXY;
+        d.dZ = record.dZ;
+      }
+      out.push_back(record);
+    };
+    // D0 and its conjugate: every opposite-charge pair.
+    for (const auto positive : lists[0]) {
+      for (const auto negative : lists[1]) {
+        const std::array<std::uint32_t, 2> pair{positive, negative};
+        fitOne(0, pair);
+        fitOne(1, pair);
+      }
+    }
+    // The three-prongs: two of the first charge (the sign's), one of the other.
+    for (int sign = 0; sign < 2; ++sign) {
+      const auto& same = lists[sign];
+      const auto& other = lists[1 - sign];
+      for (std::size_t i = 0; i < same.size(); ++i) {
+        for (std::size_t j = i + 1; j < same.size(); ++j) {
+          for (const auto third : other) {
+            const std::array<std::uint32_t, 3> ij{same[i], same[j], third};
+            const std::array<std::uint32_t, 3> ji{same[j], same[i], third};
+            fitOne(2 + static_cast<std::size_t>(sign), ij); // D+: the two pions once
+            fitOne(4 + static_cast<std::size_t>(sign), ij);
+            fitOne(4 + static_cast<std::size_t>(sign), ji);
+            fitOne(6 + static_cast<std::size_t>(sign), ij);
+            fitOne(6 + static_cast<std::size_t>(sign), ji);
+          }
+        }
+      }
+    }
+  };
   for (std::size_t first = 0; first < collisions.size(); first += kCollisionsPerBlock) {
     const std::size_t last = std::min(collisions.size(), first + kCollisionsPerBlock);
     o2::gtrk::detail::parallelFor(*event.arena, first, last, 1, [&](std::size_t begin, std::size_t end) {
@@ -878,6 +1101,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
         }
         perCollisionTaken[c - first] = taken.size();
         findCascades(collision, point, taken, workspace, perCollisionCascades[c - first]);
+        findCharm(collision, point, workspace, perCollisionCharm[c - first]);
       }
     });
     for (std::size_t c = first; c < last; ++c) {
@@ -894,6 +1118,12 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       }
       mCascadeCandidates += perCollisionCascades[c - first].size();
       mLambdasTaken += perCollisionTaken[c - first];
+      for (const auto& record : perCollisionCharm[c - first]) {
+        mCharmWriter->write(record);
+        mCharmFitted += record.status == static_cast<std::uint8_t>(VertexFitStatus::kOk) ? 1U : 0U;
+        mCharmMicroseconds += record.microseconds;
+      }
+      mCharmCandidates += perCollisionCharm[c - first].size();
     }
   }
 
@@ -1031,6 +1261,47 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     mCascadeDecayWriter->write(d);
   }
   mCascades += cascades.size();
+
+  // Each MC charm decay's stage.
+  for (auto& charm : charms) {
+    auto& d = charm.record;
+    const auto& hypothesis = hypotheses[charmFirst + charm.hypothesis];
+    std::array<std::uint32_t, 3> tracks{};
+    for (std::size_t slot = 0; slot < charm.legs.size(); ++slot) {
+      const auto found = trackOfLeg.find(charm.legs[slot]->id);
+      if (found == trackOfLeg.end()) {
+        d.missing |= static_cast<std::uint8_t>(1U << slot);
+      } else {
+        tracks[slot] = found->second;
+      }
+    }
+    const std::span<const std::uint32_t> own{tracks.data(), charm.legs.size()};
+    const auto stageOf = [&]() {
+      if (d.missing != 0U) {
+        return CharmStage::kNotFound;
+      }
+      if (std::ranges::any_of(own, [&](std::uint32_t t) { return association.contributor(t); })) {
+        return CharmStage::kContributor;
+      }
+      for (std::size_t slot = 0; slot < own.size(); ++slot) {
+        const auto e = table.entryOf(own[slot], static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
+        if (e < 0 || entries.status[static_cast<std::size_t>(e)] != PropagationStatus::kOk) {
+          return CharmStage::kRefitFailed;
+        }
+      }
+      if (!charm.fitted) {
+        throw std::logic_error("decay finder study: an MC charm decay's own candidate was never fitted");
+      }
+      if (d.status == static_cast<std::uint8_t>(VertexFitStatus::kNoStart)) {
+        return CharmStage::kNoStart;
+      }
+      return d.status == static_cast<std::uint8_t>(VertexFitStatus::kOk) ? CharmStage::kFound : CharmStage::kFitFailed;
+    };
+    d.stage = static_cast<std::uint8_t>(stageOf());
+    mCharmFound += d.stage == static_cast<std::uint8_t>(CharmStage::kFound) ? 1U : 0U;
+    mCharmDecayWriter->write(d);
+  }
+  mCharmDecays += charms.size();
 }
 
 } // namespace o2::gtrk::study
