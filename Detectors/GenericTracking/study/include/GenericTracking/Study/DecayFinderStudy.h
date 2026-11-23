@@ -591,6 +591,9 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     }
     const auto& decayPoint = decayPointOf(trees, member);
     charm.record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .hypothesis = static_cast<std::uint8_t>(k), .flight = static_cast<float>(std::hypot(decayPoint[0] - member.vertex[0], decayPoint[1] - member.vertex[1], decayPoint[2] - member.vertex[2])), .pt = static_cast<float>(std::hypot(member.momentum[0], member.momentum[1])), .ptMin = ptMin, .depth = shape.depth};
+    if (const auto mc = event.collisions->find(collisionOf(member.id)); mc != event.collisions->end()) {
+      charm.record.productionOffset = static_cast<float>(std::hypot(member.vertex[0] - mc->second[0], member.vertex[1] - mc->second[1], member.vertex[2] - mc->second[2]));
+    }
     charmOfMother.emplace(member.id, charms.size());
     charms.push_back(charm);
   }
@@ -987,6 +990,14 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
         d.pointChi2 = record.pointChi2;
         d.dXY = record.dXY;
         d.dZ = record.dZ;
+        if (const auto mc = event.collisions->find(collision); fitted && mc != event.collisions->end()) {
+          const MeasuredPoint exact{.position = mc->second};
+          DecayCandidateResult made;
+          fitDecayCandidate(candidate, allHypotheses, daughters, geometry.material(), std::span<const MeasuredPoint>{points}, workspace, made, {}, &exact);
+          if (made.fit.status == VertexFitStatus::kOk) {
+            d.mcPointChi2 = static_cast<float>(made.fit.chi2 - result.fit.chi2);
+          }
+        }
       }
       out.push_back(record);
     };
@@ -1311,6 +1322,27 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
         }
       }
       d.preMass = static_cast<float>(preMassOf(charm.hypothesis, own));
+      // its tracks' refits at their first rows against the MC
+      if (event.hits != nullptr) {
+        float qMax = 0.F;
+        float angleMax = 0.F;
+        bool any = false;
+        for (std::size_t slot = 0; slot < own.size(); ++slot) {
+          const auto e = table.entryOf(own[slot], static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
+          const double charge = particleCharge(charm.legs[slot]->pdg);
+          const auto truth = stateTruth(geometry, *event.hits, *event.frame, entries.state[static_cast<std::size_t>(e)], charm.legs[slot]->id, store.rows(own[slot]).front(), charge);
+          if (!truth) {
+            continue;
+          }
+          any = true;
+          qMax = std::max(qMax, static_cast<float>(std::abs(truth->residual[kQOverP] / truth->sigma[kQOverP])));
+          angleMax = std::max({angleMax, static_cast<float>(std::abs(truth->residual[kPhi] / truth->sigma[kPhi])), static_cast<float>(std::abs(truth->residual[kTheta] / truth->sigma[kTheta]))});
+        }
+        if (any) {
+          d.qOverPPullMax = qMax;
+          d.anglePullMax = angleMax;
+        }
+      }
       if (!insideWindow(charm.hypothesis, d.preMass)) {
         return CharmStage::kOutsideWindow;
       }

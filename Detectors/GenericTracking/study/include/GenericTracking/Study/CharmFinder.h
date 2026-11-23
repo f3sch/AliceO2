@@ -194,6 +194,10 @@ struct CharmFinderDecayRecord {
   float pointChi2 = kNaN;
   float dXY = kNaN;
   float dZ = kNaN;
+  float productionOffset = 0.F; ///< its production point's distance from its collision's vertex [cm] (a non-prompt D)
+  float mcPointChi2 = kNaN;     ///< its own candidate's production chi2 at the MC collision vertex (exact)
+  float qOverPPullMax = kNaN;   ///< its own tracks' refits at their first rows against the MC: the largest |q/p pull|
+  float anglePullMax = kNaN;    ///< and the largest |phi| or |theta pull|
 
   template <typename Visit>
   void columns(const Visit& visit) const
@@ -221,6 +225,10 @@ struct CharmFinderDecayRecord {
     visit("pointChi2", pointChi2);
     visit("dXY", dXY);
     visit("dZ", dZ);
+    visit("productionOffset", productionOffset);
+    visit("mcPointChi2", mcPointChi2);
+    visit("qOverPPullMax", qOverPPullMax);
+    visit("anglePullMax", anglePullMax);
   }
 };
 

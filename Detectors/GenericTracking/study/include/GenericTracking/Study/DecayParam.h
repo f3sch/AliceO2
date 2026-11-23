@@ -39,7 +39,7 @@ struct DecayParam : public o2::conf::ConfigurableParamHelper<DecayParam> {
   double lambdaNSigma = 3.;
   double lambdaMinS2 = 0.;
   double motherNSigma = 3.;
-  double charmPreMassWindow = 0.15;
+  double charmPreMassWindow = 0.3;
 
   O2ParamDef(DecayParam, "GTRKDecay");
 };
