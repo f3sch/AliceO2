@@ -292,9 +292,10 @@ template <DetectorLayout Det>
 /// \a candidate fitted into \a out with its observables, with
 /// \a hypotheses, \a source's entries, \a points its reference points,
 /// \a material between each daughter's innermost measurement and its vertex;
-/// the fit's workspace from \a workspace.
+/// the fit's workspace from \a workspace; \a mothers its charged particles'
+/// own rows, if they left any (`DecayMother`: a tracked Xi).
 template <DetectorLayout Det, typename Material>
-void fitDecayCandidate(const DecayCandidate& candidate, std::span<const DecayHypothesis> hypotheses, const DaughterSource<Det>& source, const Material& material, std::span<const MeasuredPoint> points, WorkspaceBuffer& workspace, DecayCandidateResult& out)
+void fitDecayCandidate(const DecayCandidate& candidate, std::span<const DecayHypothesis> hypotheses, const DaughterSource<Det>& source, const Material& material, std::span<const MeasuredPoint> points, WorkspaceBuffer& workspace, DecayCandidateResult& out, std::span<const DecayMother> mothers = {})
 {
   out = {};
   const auto tree = expandHypothesis(hypotheses, candidate.hypothesis);
@@ -307,7 +308,7 @@ void fitDecayCandidate(const DecayCandidate& candidate, std::span<const DecayHyp
   const std::span<const DecayDaughter> span{daughters.data(), daughters.size()};
   const auto constraints = candidateConstraints(hypothesis, tree);
   withDecayFitVariant(hypothesis.variant, [&](auto variant) {
-    DecayVertexFitter<Det, decltype(variant)::value, Material> fitter(span, material, constraints, tree.topology, {});
+    DecayVertexFitter<Det, decltype(variant)::value, Material> fitter(span, material, constraints, tree.topology, mothers);
     fitter.fit({candidate.start.data(), candidate.start.size()}, workspace.take(fitter.workspace()), out.fit);
   });
   if (out.fit.status != VertexFitStatus::kOk) {

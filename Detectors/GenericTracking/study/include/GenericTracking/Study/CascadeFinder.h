@@ -148,6 +148,24 @@ struct CascadeFinderCandidateRecord {
   float lambdaCosPointing = kNaN;
   float dXY = kNaN; ///< kTrue and kReflection: the cascade's vertex less its MC decay point [cm]
   float dZ = kNaN;
+  /// Lambda's mass held: the mother's own rows found (MotherSearch.h) and,
+  /// with any, the fit with them (`tracked*`).
+  std::uint8_t motherLayers = 0U; ///< the layers searched
+  std::uint8_t motherRows = 0U;
+  std::uint8_t motherFree = 0U;   ///< of those, rows no committed track holds
+  std::uint8_t motherTrue = 0U;   ///< of those, rows of the MC cascade (kTrue, kReflection)
+  float motherChi2 = kNaN;        ///< the rows' update chi2 summed
+  std::uint8_t trackedStatus = 0U;
+  float trackedChi2 = kNaN;
+  std::int16_t trackedNdf = 0;
+  float trackedMass = kNaN;
+  float trackedSMass = kNaN;
+  float trackedRadius = kNaN;
+  float trackedLength = kNaN;
+  float trackedSLength = kNaN;
+  float trackedCosPointing = kNaN;
+  float trackedDXY = kNaN;
+  float trackedDZ = kNaN;
   float microseconds = 0.F;
 
   template <typename Visit>
@@ -187,6 +205,22 @@ struct CascadeFinderCandidateRecord {
     visit("lambdaCosPointing", lambdaCosPointing);
     visit("dXY", dXY);
     visit("dZ", dZ);
+    visit("motherLayers", motherLayers);
+    visit("motherRows", motherRows);
+    visit("motherFree", motherFree);
+    visit("motherTrue", motherTrue);
+    visit("motherChi2", motherChi2);
+    visit("trackedStatus", trackedStatus);
+    visit("trackedChi2", trackedChi2);
+    visit("trackedNdf", trackedNdf);
+    visit("trackedMass", trackedMass);
+    visit("trackedSMass", trackedSMass);
+    visit("trackedRadius", trackedRadius);
+    visit("trackedLength", trackedLength);
+    visit("trackedSLength", trackedSLength);
+    visit("trackedCosPointing", trackedCosPointing);
+    visit("trackedDXY", trackedDXY);
+    visit("trackedDZ", trackedDZ);
     visit("microseconds", microseconds);
   }
 };
@@ -227,6 +261,14 @@ struct CascadeFinderDecayRecord {
   float cosPointing = kNaN;
   float dXY = kNaN; ///< the fitted cascade vertex less the MC decay point [cm]
   float dZ = kNaN;
+  std::uint8_t mcRows = 0U;     ///< the cascade's own rows in the MC (its chain's)
+  std::uint8_t motherRows = 0U; ///< its own candidate's (held): rows found, and of those its own
+  std::uint8_t motherTrue = 0U;
+  std::uint8_t trackedStatus = 0U;
+  float trackedMass = kNaN;
+  float trackedSMass = kNaN;
+  float trackedDXY = kNaN;
+  float trackedDZ = kNaN;
 
   template <typename Visit>
   void columns(const Visit& visit) const
@@ -262,6 +304,14 @@ struct CascadeFinderDecayRecord {
     visit("cosPointing", cosPointing);
     visit("dXY", dXY);
     visit("dZ", dZ);
+    visit("mcRows", mcRows);
+    visit("motherRows", motherRows);
+    visit("motherTrue", motherTrue);
+    visit("trackedStatus", trackedStatus);
+    visit("trackedMass", trackedMass);
+    visit("trackedSMass", trackedSMass);
+    visit("trackedDXY", trackedDXY);
+    visit("trackedDZ", trackedDZ);
   }
 };
 

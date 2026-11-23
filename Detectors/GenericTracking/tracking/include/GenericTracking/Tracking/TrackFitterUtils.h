@@ -197,7 +197,9 @@ GPUdi() StepMaterial stepMaterial(const TrackingGeometry<Det>& geometry, const T
         return none;
       }
     }
-    const auto link = geometry.material().step(from.layer, to.layer, start, end);
+    // From a point off the layers (a decay vertex's plane, no layer): the
+    // segment's share of the material table's gaps.
+    const auto link = from.layer == kInvalidLayerID ? geometry.material().segment(kInvalidLayerID, start, to.layer, end) : geometry.material().step(from.layer, to.layer, start, end);
     if (!link.found) {
       StepMaterial none;
       none.found = false;

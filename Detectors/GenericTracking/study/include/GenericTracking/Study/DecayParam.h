@@ -27,12 +27,15 @@ namespace o2::gtrk::study
 /// collision's point are both at least `lambdaMinS2` (a leg without one, in a
 /// collision without a point, passes only 0), and whose vertex lies before
 /// both legs' first measurements (always: a decay is no later than its
-/// daughters' first hits).
+/// daughters' first hits). The rows of a cascade's own mother found from
+/// its fit (MotherSearch.h): each within the gate chiSquareQuantile(2,
+/// `motherNSigma`).
 // O2ParamDef deletes the copy constructor and supplies the rest of the boilerplate.
 // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
 struct DecayParam : public o2::conf::ConfigurableParamHelper<DecayParam> {
   double lambdaNSigma = 3.;
   double lambdaMinS2 = 0.;
+  double motherNSigma = 3.;
 
   O2ParamDef(DecayParam, "GTRKDecay");
 };

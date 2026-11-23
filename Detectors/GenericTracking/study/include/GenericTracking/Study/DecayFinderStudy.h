@@ -58,6 +58,7 @@
 #include "GenericTracking/Study/DecayParam.h"
 #include "GenericTracking/Study/DecayStudyTools.h"
 #include "GenericTracking/Study/MCTruth.h"
+#include "GenericTracking/Study/MotherSearch.h"
 #include "GenericTracking/Study/PrimaryVertexStudy.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/StateTruth.h"
@@ -574,6 +575,15 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     return low(record.s2Positive) || low(record.s2Negative) ? LambdaRejection::kS2 : LambdaRejection::kTaken;
   };
   std::vector<std::size_t> perCollisionTaken(perCollision.size());
+  // The cascades' own rows (MotherSearch.h): the rows any committed track holds, flagged.
+  const MotherSearch<Det> motherSearch(*event.frame, geometry, param.motherNSigma);
+  std::vector<std::uint8_t> owned(event.frame->size(), 0U);
+  for (std::uint32_t t = 0; t < n; ++t) {
+    for (const auto row : store.rows(t)) {
+      owned[row] = 1U;
+    }
+  }
+  const double fieldScale = vertex_fit_detail::fieldScaleOf(event.propagator);
   // A collision's cascade candidates: every taken Lambda with every bachelor
   // of its charge, under Xi and Omega, the Lambda's mass free and held.
   const auto findCascades = [&](std::uint64_t collision, std::int32_t point, std::span<const TakenLambda> taken, WorkspaceBuffer& workspace, std::vector<CascadeFinderCandidateRecord>& out) {
@@ -644,6 +654,67 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
               record.sLambdaLength = static_cast<float>(result.compositeFlights[0].sLength);
               record.lambdaCosPointing = static_cast<float>(result.compositeFlights[0].cosPointing);
             }
+            if (fitted && held != 0) {
+              // The mother's own rows, and the fit with them.
+              const auto tree = expandHypothesis(allHypotheses, h);
+              const auto start = motherStateAt(result.fit, tree.topology, 0, fieldScale);
+              const std::array<std::uint32_t, 3> tracks{lambda.positive, lambda.negative, bachelor};
+              TimeEstPS box{.start = committed.timePS[tracks[0]], .width = committed.widthPS[tracks[0]]};
+              bool together = true;
+              for (std::size_t k = 1; k < tracks.size() && together; ++k) {
+                const TimeEstPS other{.start = committed.timePS[tracks[k]], .width = committed.widthPS[tracks[k]]};
+                together = box.isCompatible(other);
+                if (together) {
+                  box += other;
+                }
+              }
+              if (start.found && together) {
+                auto propagator = event.propagator;
+                propagator.massGeV = static_cast<Scalar>(hypotheses[h].massGeV);
+                const auto own = [&](std::uint32_t row) { return std::ranges::any_of(tracks, [&](std::uint32_t t) { return std::ranges::find(store.rows(t), row) != store.rows(t).end(); }); };
+                const auto found = motherSearch.search(start, propagator, box, own);
+                record.motherLayers = found.layers;
+                record.motherRows = static_cast<std::uint8_t>(found.rows.size());
+                if (!found.rows.empty()) {
+                  float chi2 = 0.F;
+                  std::vector<TrackingSurface> planes;
+                  std::vector<Vec2D> positions;
+                  std::vector<Vec3D> covariance;
+                  for (std::size_t k = 0; k < found.rows.size(); ++k) {
+                    const auto row = found.rows[k];
+                    chi2 += found.chi2[k];
+                    record.motherFree += owned[row] == 0U ? 1U : 0U;
+                    record.motherTrue += record.cascade != 0U && event.rows[row].carries(record.cascade) ? 1U : 0U;
+                    const auto m = event.frame->measurement(row);
+                    planes.push_back(geometry.planeOf(m));
+                    positions.push_back({m.loc0, m.loc1});
+                    covariance.push_back({m.varLoc0, m.covLoc01, m.varLoc1});
+                  }
+                  record.motherChi2 = chi2;
+                  const std::array<DecayMother, 1> mothers{DecayMother{.vertex = 0, .planes = planes, .positions = positions, .covariance = covariance, .propagator = propagator}};
+                  DecayCandidateResult tracked;
+                  fitDecayCandidate(candidate, allHypotheses, daughters, geometry.material(), std::span<const MeasuredPoint>{points}, workspace, tracked, std::span<const DecayMother>{mothers});
+                  record.trackedStatus = static_cast<std::uint8_t>(tracked.fit.status);
+                  if (tracked.fit.status == VertexFitStatus::kOk) {
+                    record.trackedChi2 = static_cast<float>(tracked.fit.chi2);
+                    record.trackedNdf = static_cast<std::int16_t>(tracked.fit.ndf);
+                    record.trackedMass = static_cast<float>(tracked.kinematics.mass);
+                    record.trackedSMass = static_cast<float>(tracked.kinematics.sMass);
+                    record.trackedRadius = static_cast<float>(std::hypot(tracked.fit.vertices[0][0], tracked.fit.vertices[0][1]));
+                    if (tracked.hasPoint) {
+                      record.trackedLength = static_cast<float>(tracked.flight.length);
+                      record.trackedSLength = static_cast<float>(tracked.flight.sLength);
+                      record.trackedCosPointing = static_cast<float>(tracked.flight.cosPointing);
+                    }
+                    if (record.cascade != 0U) {
+                      const auto& decayPoint = decayPointOf(trees, *cascades[lambdaCascade->second].mother);
+                      record.trackedDXY = static_cast<float>(std::hypot(tracked.fit.vertex[0] - decayPoint[0], tracked.fit.vertex[1] - decayPoint[1]));
+                      record.trackedDZ = static_cast<float>(tracked.fit.vertex[2] - decayPoint[2]);
+                    }
+                  }
+                }
+              }
+            }
             if (record.cascade != 0U) {
               auto& cascade = cascades[lambdaCascade->second];
               const auto& decayPoint = decayPointOf(trees, *cascade.mother);
@@ -664,6 +735,13 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
                   writeCandidateFit(d, result);
                   d.dXY = record.dXY;
                   d.dZ = record.dZ;
+                  d.motherRows = record.motherRows;
+                  d.motherTrue = record.motherTrue;
+                  d.trackedStatus = record.trackedStatus;
+                  d.trackedMass = record.trackedMass;
+                  d.trackedSMass = record.trackedSMass;
+                  d.trackedDXY = record.trackedDXY;
+                  d.trackedDZ = record.trackedDZ;
                 } else {
                   d.statusFree = record.status;
                   d.massFree = record.mass;
@@ -896,6 +974,9 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       }
     }
     d.hasPoint = static_cast<std::uint8_t>(association.vertices.of(collisionOf(cascade.mother->id)) >= 0 ? 1U : 0U);
+    if (const auto* own = event.chains != nullptr ? event.chains->find(cascade.mother->id) : nullptr; own != nullptr) {
+      d.mcRows = static_cast<std::uint8_t>(std::min<std::size_t>(own->rows.size(), 255U));
+    }
     d.lambdaRejection = static_cast<std::uint8_t>(lambda.rejection);
     const auto stageOf = [&]() {
       if (d.missing != 0U) {
