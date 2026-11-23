@@ -157,6 +157,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string fitResults;
   std::string clonesOut;      ///< --clones-out
   std::string rowsOut;        ///< --rows-out
+  std::string tofRows;        ///< --tof-rows
   std::string fakesOut;       ///< --fakes-out
   std::string followSteps;    ///< --follow-steps
   std::string cloneJoins;     ///< --clone-joins
@@ -1004,6 +1005,59 @@ void writeClones(const std::string& path, const TrackStore<Det>& tracks, const s
   }
 }
 
+/// The rows of \a tracks on the layout's inactive layers (ALICE 3's TOF),
+/// written to \a path for a time check between them: one line per track
+/// holding one -- its index, iteration, whether it is good, its particle (the
+/// good one, else the majority; 0 none) with its PDG code and true p [GeV],
+/// the outward state's q/p [1/GeV] and theta, the field [kG] -- and per
+/// inactive layer (layer order) its row (-1 none), global x, y, z [cm], time
+/// [ps] (the end of its box, the cluster's own time) and whether it carries
+/// the particle.
+template <DetectorLayout Det>
+void writeTofRows(const std::string& path, const TrackStore<Det>& tracks, const study::TrackingTruth& truth, const TimeFrame<Det>& frame, const Propagator& propagator)
+{
+  std::ofstream out(path);
+  if (!out) {
+    throw std::runtime_error("cannot write " + path);
+  }
+  constexpr auto kInactive = Detector<Det>::inactiveLayers;
+  out << "track,iteration,good,particle,pdg,p,qOverP,theta,bz";
+  for (std::uint64_t left = kInactive; left != 0U; left &= left - 1U) {
+    const auto layer = std::countr_zero(left);
+    out << std::format(",row{0},x{0},y{0},z{0},t{0},own{0}", layer);
+  }
+  out << '\n';
+  const auto view = tracks.tracks().view();
+  const auto rows = trackRows(tracks);
+  for (std::size_t track = 0; track < rows.size(); ++track) {
+    std::uint64_t held = 0U;
+    for (const auto row : rows[track]) {
+      held |= std::uint64_t{1} << truth.rows[row].layer;
+    }
+    if ((held & kInactive) == 0U) {
+      continue;
+    }
+    const auto good = study::goodParticle(truth.rows, rows[track]);
+    const auto particle = good != study::kNoTrackParticle ? good : study::majorityParticle(truth.rows, rows[track]).particle;
+    const auto found = truth.particles.find(particle);
+    const double p = found != truth.particles.end() ? static_cast<double>(found->second.pt) * std::cosh(static_cast<double>(found->second.eta)) : -1.;
+    const auto& state = view.outwardState[track];
+    out << std::format("{},{},{},{},{},{:.5f},{:.6g},{:.6g},{:.4f}", track, static_cast<int>(view.iteration[track]), good != study::kNoTrackParticle ? 1 : 0, particle == study::kNoTrackParticle ? 0U : particle,
+                       found != truth.particles.end() ? found->second.pdg : 0, p, static_cast<double>(state.qOverP()), static_cast<double>(state.theta()), static_cast<double>(propagator.bzKiloGauss));
+    for (std::uint64_t left = kInactive; left != 0U; left &= left - 1U) {
+      const auto layer = static_cast<LayerID>(std::countr_zero(left));
+      const auto at = std::ranges::find_if(rows[track], [&](std::uint32_t row) { return truth.rows[row].layer == layer; });
+      if (at == rows[track].end()) {
+        out << ",-1,0,0,0,0,0";
+        continue;
+      }
+      const auto m = frame.measurement(*at);
+      out << std::format(",{},{:.4f},{:.4f},{:.4f},{},{}", *at, static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z), timeBoxAt(frame.measurements(), *at).upper(), truth.rows[*at].carries(particle) ? 1 : 0);
+    }
+    out << '\n';
+  }
+}
+
 /// Every row of the frame against \a truth, for occupancy studies:
 /// one line per row -- its layer, global x, y and z [cm], its
 /// particles' count, then its first particle's origin (0 primary, 1 decay,
@@ -1829,6 +1883,9 @@ void writeTruthStudies(const Options& options, const TrackStore<Det>& tracks, co
   }
   if (!options.rowsOut.empty()) {
     writeRowsOut<Det>(options.rowsOut, tracks, truth, frame);
+  }
+  if (!options.tofRows.empty()) {
+    writeTofRows<Det>(options.tofRows, tracks, truth, frame, propagator);
   }
   if (!options.cloneJoins.empty()) {
     writeCloneJoins<Det>(options.cloneJoins, tracks, truth, comparison, frame, tracking, material, propagator, parametersOf);

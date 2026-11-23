@@ -213,6 +213,9 @@ static int run(int argc, char** argv)
      "write the last run's tracks against the truth here: where each one's wrong rows are, road, follow or the earlier iterations' follow") //
     ("clones-out", bpo::value(&options.clonesOut)->default_value(""),
      "write the last run's findable physical primaries, their good tracks and the cloned ones' rows here") //
+    ("tof-rows", bpo::value(&options.tofRows)->default_value(""),
+     "write the last run's tracks holding a row on an inactive layer (ALICE 3's TOF) here: the track's particle and state, each such row's position, "
+     "time and truth -- for a time check between them") //
     ("rows-out", bpo::value(&options.rowsOut)->default_value(""),
      "write every row of the last run's frame here with its first particle's origin, kinematics and production point") //
     ("clone-joins", bpo::value(&options.cloneJoins)->default_value(""),
