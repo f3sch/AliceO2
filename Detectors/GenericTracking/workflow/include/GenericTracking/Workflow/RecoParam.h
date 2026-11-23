@@ -180,7 +180,7 @@ struct RecoSettings {
   std::vector<int> iterationFollowHoles;
   /// The layers each iteration's follow steps onto, a bit per layer; 0 for
   /// every layer (the default): its walk takes the links onto them, its
-  /// interior search and tail the inactive layers among them.
+  /// tail the inactive layers among them.
   std::vector<long> iterationFollowLayerMask;
   /// The lowest pT [GeV] at which the follow follows a track, from its state
   /// as the follow starts; a track below it is left as its road, for the

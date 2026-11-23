@@ -124,7 +124,7 @@ struct IterationSettings {
   int followHoles = 0;
   /// The layers the follow steps onto, a bit per layer; 0 for every layer:
   /// its walk takes the links onto them from wherever the track is, its
-  /// interior search and its tail the inactive layers among them. A layer
+  /// tail the inactive layers among them. A layer
   /// with no link onto them is where the follow's walk ends, as at the
   /// layout's end (the end decisions read it so).
   std::uint64_t followLayerMask = 0U;

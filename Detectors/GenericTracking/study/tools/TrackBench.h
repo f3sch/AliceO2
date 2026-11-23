@@ -358,8 +358,8 @@ inline void printWork(const WorkCounts& work, std::size_t iteration)
     "  work, iteration {}, follow: {} layers without a row tested, {} of them holes; {} lookaheads; {} last rows unconfirmed, {} kept "
     "on their density, {} refused at the layout's end, {} against the beam line; {} road ends fitted again, {} replaced\n",
     iteration, at(kFollowHoleTests), at(kFollowHoles), at(kFollowLookaheads), at(kFollowUnconfirmed), at(kFollowDensityKept), at(kFollowEndRefused), at(kFollowBeamEndRefused), at(kFollowEndFits), at(kFollowEndReplaced));
-  if (at(kFollowInteriorSearches) != 0U || at(kFollowInactiveTail) != 0U) {
-    std::cout << std::format("  work, iteration {}, inactive layers: {} searched between two rows, {} without a free row in the gate, {} refused on the track's fit; {} rows taken by a walk's tail\n", iteration, at(kFollowInteriorSearches), at(kFollowInteriorEmpty), at(kFollowInteriorRefused), at(kFollowInactiveTail));
+  if (at(kFollowInactiveTail) != 0U) {
+    std::cout << std::format("  work, iteration {}, inactive layers: {} rows taken by a walk's tail\n", iteration, at(kFollowInactiveTail));
   }
   if (at(kTrackletShape) != 0U || at(kTripletShape) != 0U) {
     std::cout << std::format("  work, iteration {}, shapes: {} tracklet candidates and {} thirds refused\n", iteration, at(kTrackletShape), at(kTripletShape));
