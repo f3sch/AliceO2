@@ -53,6 +53,7 @@
 #include "GenericTracking/Study/MCTruth.h"
 #include "GenericTracking/Study/PrimaryVertexStudy.h"
 #include "GenericTracking/Study/RecordWriter.h"
+#include "GenericTracking/Study/StateTruth.h"
 #include "GenericTracking/Study/StudyChains.h"
 #include "GenericTracking/Study/TruthEvent.h"
 #include "GenericTracking/Study/TruthFit.h"
@@ -194,6 +195,30 @@ struct DecayFinderDecayRecord {
   float cosPointing = 0.F;
   float dXY = 0.F; ///< the fitted vertex's transverse distance from the MC decay point [cm]
   float dZ = 0.F;
+  float opening = 0.F; ///< the daughters' MC opening angle at production [rad]
+  /// Its own legs' tracks (both found): their rows; with their refits under
+  /// the true species, those refits' innermost states against the MC
+  /// crossing there (`stateTruth`), pulls of loc0, loc1, phi, theta, q/p;
+  /// NaN without the crossing.
+  std::uint8_t rowsPositive = 0U;  ///< its own leg's track: rows
+  std::uint8_t wrongPositive = 0U; ///< its rows not of the daughter (`RowParticles::carries`)
+  std::uint8_t layerPositive = 0U; ///< its innermost row's layer
+  std::uint8_t rowsNegative = 0U;  ///< its own leg's track: rows
+  std::uint8_t wrongNegative = 0U; ///< its rows not of the daughter (`RowParticles::carries`)
+  std::uint8_t layerNegative = 0U; ///< its innermost row's layer
+  static constexpr float nan = std::numeric_limits<float>::quiet_NaN();
+  float pullLoc0Positive = nan;
+  float pullLoc1Positive = nan;
+  float pullPhiPositive = nan;
+  float pullThetaPositive = nan;
+  float pullQOverPPositive = nan; ///< charge-signed: positive where |q/p| is too large (the momentum too small)
+  float dpRelPositive = nan;      ///< fitted momentum over the MC's, less 1
+  float pullLoc0Negative = nan;
+  float pullLoc1Negative = nan;
+  float pullPhiNegative = nan;
+  float pullThetaNegative = nan;
+  float pullQOverPNegative = nan; ///< charge-signed: positive where |q/p| is too large (the momentum too small)
+  float dpRelNegative = nan;      ///< fitted momentum over the MC's, less 1
 
   template <typename Visit>
   void columns(const Visit& visit) const
@@ -218,6 +243,25 @@ struct DecayFinderDecayRecord {
     visit("cosPointing", cosPointing);
     visit("dXY", dXY);
     visit("dZ", dZ);
+    visit("opening", opening);
+    visit("rowsPositive", rowsPositive);
+    visit("wrongPositive", wrongPositive);
+    visit("layerPositive", layerPositive);
+    visit("pullLoc0Positive", pullLoc0Positive);
+    visit("pullLoc1Positive", pullLoc1Positive);
+    visit("pullPhiPositive", pullPhiPositive);
+    visit("pullThetaPositive", pullThetaPositive);
+    visit("pullQOverPPositive", pullQOverPPositive);
+    visit("dpRelPositive", dpRelPositive);
+    visit("rowsNegative", rowsNegative);
+    visit("wrongNegative", wrongNegative);
+    visit("layerNegative", layerNegative);
+    visit("pullLoc0Negative", pullLoc0Negative);
+    visit("pullLoc1Negative", pullLoc1Negative);
+    visit("pullPhiNegative", pullPhiNegative);
+    visit("pullThetaNegative", pullThetaNegative);
+    visit("pullQOverPNegative", pullQOverPNegative);
+    visit("dpRelNegative", dpRelNegative);
   }
 };
 
@@ -227,6 +271,15 @@ namespace decay_finder_detail
 /// The collisions fitted and written as one block (the file's comment):
 /// what bounds the records held at once.
 inline constexpr std::size_t kCollisionsPerBlock = 256U;
+
+/// Where a leg's columns of a `DecayFinderDecayRecord` go.
+struct LegTruth {
+  std::uint8_t* rows = nullptr;
+  std::uint8_t* wrong = nullptr;
+  std::uint8_t* layer = nullptr;
+  std::array<float*, 5> pulls{};
+  float* dpRel = nullptr;
+};
 
 /// \a path with \a tag before its extension.
 [[nodiscard]] inline std::string taggedPath(const std::string& path, std::string_view tag)
@@ -565,6 +618,42 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       return d.status == static_cast<std::uint8_t>(VertexFitStatus::kOk) ? FinderStage::kFound : FinderStage::kFitFailed;
     };
     d.stage = static_cast<std::uint8_t>(stageOf());
+    {
+      const auto& a = decay.legs[0]->momentum;
+      const auto& b = decay.legs[1]->momentum;
+      d.opening = static_cast<float>(std::acos(std::clamp(dotOf(a, b) / std::sqrt(dotOf(a, a) * dotOf(b, b)), -1., 1.)));
+    }
+    if (positive != trackOfLeg.end() && negative != trackOfLeg.end()) {
+      const auto& hypothesis = hypotheses[static_cast<std::size_t>(decay.hypothesis)];
+      for (std::size_t slot = 0; slot < 2U; ++slot) {
+        const auto t = (slot == 0 ? positive : negative)->second;
+        const auto particle = decay.legs[slot]->id;
+        const auto rows = store.rows(t);
+        int wrong = 0;
+        for (const auto row : rows) {
+          wrong += event.rows[row].carries(particle) ? 0 : 1;
+        }
+        const LegTruth leg = {.rows = &(slot == 0 ? d.rowsPositive : d.rowsNegative), .wrong = &(slot == 0 ? d.wrongPositive : d.wrongNegative), .layer = &(slot == 0 ? d.layerPositive : d.layerNegative), .pulls = {slot == 0 ? &d.pullLoc0Positive : &d.pullLoc0Negative, slot == 0 ? &d.pullLoc1Positive : &d.pullLoc1Negative, slot == 0 ? &d.pullPhiPositive : &d.pullPhiNegative, slot == 0 ? &d.pullThetaPositive : &d.pullThetaNegative, slot == 0 ? &d.pullQOverPPositive : &d.pullQOverPNegative}, .dpRel = slot == 0 ? &d.dpRelPositive : &d.dpRelNegative};
+        *leg.rows = static_cast<std::uint8_t>(std::min<std::size_t>(rows.size(), 255U));
+        *leg.wrong = static_cast<std::uint8_t>(std::min(wrong, 255));
+        *leg.layer = static_cast<std::uint8_t>(event.rows[rows.front()].layer);
+        const auto e = table.entryOf(t, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
+        if (e < 0 || entries.status[static_cast<std::size_t>(e)] != PropagationStatus::kOk || event.hits == nullptr) {
+          continue;
+        }
+        const double charge = particleCharge(decay.legs[slot]->pdg);
+        const auto& state = entries.state[static_cast<std::size_t>(e)];
+        const auto truth = stateTruth(geometry, *event.hits, *event.frame, state, particle, rows.front(), charge);
+        if (!truth) {
+          continue;
+        }
+        for (int k = 0; k < 5; ++k) {
+          const double sign = k == 4 ? (charge > 0. ? 1. : -1.) : 1.;
+          *leg.pulls[static_cast<std::size_t>(k)] = static_cast<float>(sign * truth->residual[static_cast<std::size_t>(k)] / truth->sigma[static_cast<std::size_t>(k)]);
+        }
+        *leg.dpRel = static_cast<float>((1. / std::abs(static_cast<double>(state.qOverP()))) / truth->momentum - 1.);
+      }
+    }
     mFound += d.stage == static_cast<std::uint8_t>(FinderStage::kFound) ? 1U : 0U;
     mDecayWriter->write(d);
   }
