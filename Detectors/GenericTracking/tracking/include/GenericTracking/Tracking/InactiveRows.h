@@ -17,9 +17,12 @@
 /// The follow takes an inactive layer's row from the prediction of the
 /// rows before it alone; where a scatter at the layer before bends the
 /// track, the particle's row lies outside that prediction, and the walk goes
-/// on past the layer (an inactive layer is no hole). After the iteration,
-/// each of its tracks -- and each earlier one a join changed -- that holds
-/// rows on both sides of an inactive layer and none on it looks for one: in
+/// on past the layer (an inactive layer is no hole); a join puts two pieces
+/// together across it. After the iteration, each of its tracks -- and each
+/// earlier one a join changed -- that holds rows on both sides of an
+/// inactive layer (a barrel layer: two consecutive rows' radii about its
+/// own; a disc: a link from the one row's layer onto it and from it onto the
+/// other's) and none on it looks for one: in
 /// the windows of the iteration's gate from both sides, the forward pass of
 /// its rows before the layer and the backward pass of those after it (each
 /// side with three rows or more), the free rows passing the gate from
@@ -181,7 +184,18 @@ class InactiveRows
       const LayerID after = layerOf(rows.index[i + 1U]);
       for (std::uint64_t left = Detector<Det>::inactiveLayers & parameters.followLayers & ~held; left != 0U; left &= left - 1U) {
         const auto layer = static_cast<LayerID>(std::countr_zero(left));
-        if (!linked(before, layer) || !linked(layer, after)) {
+        // Crossed between the two: a barrel layer's radius between theirs,
+        // else a link from the one onto it and from it onto the other.
+        if constexpr (Detector<Det>::hasBarrel) {
+          if (Detector<Det>::isBarrelLayer(layer)) {
+            const Scalar radius = parameters.layerSpans[layer].position;
+            if (!(frame.measurement(rows.index[i]).r < radius && radius < frame.measurement(rows.index[i + 1U]).r)) {
+              continue;
+            }
+          } else if (!linked(before, layer) || !linked(layer, after)) {
+            continue;
+          }
+        } else if (!linked(before, layer) || !linked(layer, after)) {
           continue;
         }
         const RowChain<Det> chain{.frame = &frame, .rows = rows.index};
