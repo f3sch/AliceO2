@@ -36,6 +36,7 @@
 #include "GenericTracking/Tracking/SlicePlan.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TimeFrameScratch.h"
+#include "GenericTracking/Tracking/TrackJoin.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
 #include "GenericTracking/Tracking/TrackStore.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
@@ -141,6 +142,9 @@ class Tracker
     /// Tracks below the iteration's length after the follow, dropped;
     /// `tracks` counts them.
     std::size_t tracksDropped = 0U;
+    /// The iteration's tracks joined to an earlier iteration's (TrackJoin.h),
+    /// which takes their rows; `tracks` counts them.
+    std::size_t tracksJoined = 0U;
     /// With overlapPartners, the partners attached and the tracks they went
     /// to (OverlapPartners.h).
     std::size_t overlapPartners = 0U;
@@ -231,6 +235,7 @@ class Tracker
     mPartners.setMemoryPool(mMemoryPool);
     mFollow.setMemoryPool(mMemoryPool);
     mFollowEarlier.setMemoryPool(mMemoryPool);
+    mJoin.setMemoryPool(mMemoryPool);
     deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection, mKeptTracks, mChangedTracks);
     mDropScratch.setMemoryResource(mMemoryPool.get());
   }
@@ -655,6 +660,7 @@ class Tracker
     mSelection.clearRecordStorage();
     mFollow.clearStorage();
     mFollowEarlier.clearStorage();
+    mJoin.clearStorage();
     mPartners.clearStorage();
     deepVectorClear(mMemoryPool.get(), mKeptTracks, mChangedTracks);
     mDropScratch.setMemoryResource(mMemoryPool.get());
@@ -792,6 +798,13 @@ class Tracker
         return StageStatus::kComplete;
       });
     }
+    // The join of the iteration's tracks to the earlier iterations' ones;
+    // none where an iteration attaches overlap partners, which a joined
+    // earlier track's references would lose.
+    if (summary.status == StageStatus::kComplete && trackOffset != 0U && std::ranges::none_of(mIterations, [](const auto& parameters) { return parameters.overlapPartners; })) {
+      const profile::Zone zone{Phase::kJoin};
+      summary.status = joinTracks(frame, plan, trackOffset, followed, started, summary.tracksJoined);
+    }
     const bool partnered = summary.status == StageStatus::kComplete && mIterations[iteration].overlapPartners;
     if (partnered) {
       const profile::Zone zone{Phase::kOverlapPartners};
@@ -886,6 +899,53 @@ class Tracker
         std::atomic_ref<std::uint8_t>{mUsedBeforeSelection[row]}.store(mUsed[row], std::memory_order_relaxed);
       }
     });
+    const std::size_t dropped = count - kept;
+    keepTracks(trackOffset, followed, started);
+    copyInParallel(std::span<const std::uint8_t>{mUsedBeforeSelection}, std::span<std::uint8_t>{mUsed});
+    return dropped;
+  }
+
+  /// The join of the tracks from \a trackOffset on to the earlier ones
+  /// (TrackJoin.h): the joined ones removed (`keepTracks`), the earlier ones
+  /// that took them committed again; how many into \a joined.
+  [[nodiscard]] StageStatus joinTracks(const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset, bool followed, bool started, std::size_t& joined)
+  {
+    auto& tracks = mRefit.tracks();
+    const auto forEach = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(static_cast<Index>(count)))(static_cast<Index>(count), body); };
+    auto status = mJoin.run(forEach, [&](std::size_t iteration) -> const IterationParameters<Det>& { return mIterations[iteration]; }, frame, *mGeometry, mPropagator, tracks, trackOffset, plan.layerMaxWidthPS);
+    joined = mJoin.joined().size();
+    if (status != StageStatus::kComplete || joined == 0U) {
+      return status;
+    }
+    status = guardOutOfMemory([&] {
+      const auto count = static_cast<Index>(tracks.size() - trackOffset);
+      resizeBoundedVector(mKeptTracks, count - joined, mMemoryPool.get());
+      const auto gone = mJoin.joined();
+      for (Index at = 0, next = 0, kept = 0; at < count; ++at) {
+        if (next < gone.size() && gone[next] == at) {
+          ++next;
+          continue;
+        }
+        mKeptTracks[kept++] = at;
+      }
+      keepTracks(trackOffset, followed, started);
+      return StageStatus::kComplete;
+    });
+    if (status != StageStatus::kComplete) {
+      return status;
+    }
+    return mStore.recommitChanged(spreadForEach(), spreadChunk(static_cast<Index>(mStore.size())), std::as_const(mRefit).tracks(), mChangedTracks);
+  }
+
+  /// The tracks from \a trackOffset on, of them only those `mKeptTracks`
+  /// lists (offsets from \a trackOffset, ascending): the others removed, the
+  /// kept ones in their order, their proposals with them when \a followed,
+  /// and the follow's starting states when \a started kept them for an
+  /// observer.
+  void keepTracks(std::uint32_t trackOffset, bool followed, bool started)
+  {
+    auto& tracks = mRefit.tracks();
+    const auto kept = static_cast<Index>(mKeptTracks.size());
     // Up to the first dropped track every kept one stays where it is; from it
     // on each moves down, through a scratch: in place, a parallel move would
     // overwrite tracks still to be read.
@@ -907,7 +967,6 @@ class Tracker
         }
       }
     }
-    const std::size_t dropped = count - kept;
     tracks.resize(trackOffset + kept);
     if (followed) {
       mFollow.truncateProposals(kept);
@@ -917,8 +976,6 @@ class Tracker
       mFollowStart.resize(kept);
       mFollowStartCount.resize(kept);
     }
-    copyInParallel(std::span<const std::uint8_t>{mUsedBeforeSelection}, std::span<std::uint8_t>{mUsed});
-    return dropped;
   }
 
   /// \a from copied into \a to (as long), on the host threads.
@@ -1266,6 +1323,7 @@ class Tracker
   TrackRefit<Det> mRefit;
   TrackStore<Det> mStore;
   OverlapPartners<Det> mPartners;
+  TrackJoin<Det> mJoin;       ///< the iteration's tracks joined to the earlier ones
   Follow<Det> mFollow;        ///< the iteration's own tracks'
   Follow<Det> mFollowEarlier; ///< the earlier iterations' tracks', with followEarlier
   /// What the follow started from, for an iteration observer only.
