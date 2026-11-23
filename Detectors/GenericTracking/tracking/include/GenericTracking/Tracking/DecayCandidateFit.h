@@ -295,9 +295,10 @@ template <DetectorLayout Det>
 /// the fit's workspace from \a workspace; \a mothers its charged particles'
 /// own rows, if they left any (`DecayMother`: a tracked Xi); with
 /// \a production, the mother made there (`DecayConstraints::production`: a
-/// measurement of its helix, with its scattering on the way).
+/// measurement of its helix, with its scattering on the way and the point's
+/// own covariance).
 template <DetectorLayout Det, typename Material>
-void fitDecayCandidate(const DecayCandidate& candidate, std::span<const DecayHypothesis> hypotheses, const DaughterSource<Det>& source, const Material& material, std::span<const MeasuredPoint> points, WorkspaceBuffer& workspace, DecayCandidateResult& out, std::span<const DecayMother> mothers = {}, const Vec3D* production = nullptr)
+void fitDecayCandidate(const DecayCandidate& candidate, std::span<const DecayHypothesis> hypotheses, const DaughterSource<Det>& source, const Material& material, std::span<const MeasuredPoint> points, WorkspaceBuffer& workspace, DecayCandidateResult& out, std::span<const DecayMother> mothers = {}, const MeasuredPoint* production = nullptr)
 {
   out = {};
   const auto tree = expandHypothesis(hypotheses, candidate.hypothesis);
@@ -311,7 +312,8 @@ void fitDecayCandidate(const DecayCandidate& candidate, std::span<const DecayHyp
   auto constraints = candidateConstraints(hypothesis, tree);
   if (production != nullptr) {
     constraints.production = true;
-    constraints.point = *production;
+    constraints.point = production->position;
+    constraints.pointCovariance = production->covariance;
   }
   withDecayFitVariant(hypothesis.variant, [&](auto variant) {
     DecayVertexFitter<Det, decltype(variant)::value, Material> fitter(span, material, constraints, tree.topology, mothers);
