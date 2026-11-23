@@ -51,6 +51,7 @@
 #include "CompleteAnatomy.h"
 #include "FitInputs.h"
 #include "FollowAnatomy.h"
+#include "JoinStudy.h"
 #include "SeedingStrategy.h"
 #include "TrackBreakdown.h"
 #include "VertexStudy.h"
@@ -158,6 +159,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string clonesOut;      ///< --clones-out
   std::string rowsOut;        ///< --rows-out
   std::string tofRows;        ///< --tof-rows
+  std::string joinStudy;      ///< --join-study
   std::string fakesOut;       ///< --fakes-out
   std::string followSteps;    ///< --follow-steps
   std::string cloneJoins;     ///< --clone-joins
@@ -1767,18 +1769,22 @@ template <DetectorLayout Det>
 struct IterationStudies {
   std::vector<std::array<std::uint8_t, 2>> followed;
   std::optional<FollowAnatomy<Det, o2::base::MatLayerCylSet>> follow;
+  std::optional<study::JoinStudy<Det>> join;
   bool fakes = false;
 
   IterationStudies(const Options& options, const study::TrackingTruth* truth) : fakes(!options.fakesOut.empty())
   {
-    if ((fakes || !options.followSteps.empty() || options.followStops) && truth == nullptr) {
-      throw std::runtime_error("--fakes-out, --follow-steps and --follow-stops need the MC truth");
+    if ((fakes || !options.followSteps.empty() || options.followStops || !options.joinStudy.empty()) && truth == nullptr) {
+      throw std::runtime_error("--fakes-out, --follow-steps, --follow-stops and --join-study need the MC truth");
     }
     if (!options.followSteps.empty() || options.followStops) {
       follow.emplace(options.followSteps, *truth);
     }
+    if (!options.joinStudy.empty()) {
+      join.emplace(options.joinStudy, *truth);
+    }
   }
-  [[nodiscard]] bool active() const { return fakes || follow.has_value(); }
+  [[nodiscard]] bool active() const { return fakes || follow.has_value() || join.has_value(); }
 
   template <typename Observation>
   void observe(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const o2::base::MatLayerCylSet& material, const Propagator& propagator)
@@ -2297,6 +2303,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         static_cast<void>(seedingReal->endPass(settings[iteration.iteration], {.seconds = seconds}, std::cout, &seedingRealJson));
       }
       studies.observe(iteration, observed.iteration(iteration.iteration), frame, tracking, *material, propagator);
+      if (studies.join) {
+        studies.join->observe(iteration, observed, frame, tracking, propagator);
+      }
       if (completeAnatomy) {
         completeAnatomy->observe(iteration, observed.iteration(iteration.iteration), frame, tracking, *material, propagator);
       }
@@ -2704,6 +2713,11 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     }
     if (truth && last) {
       writeTruthStudies<Det>(options, *result.store, *truth, comparison, frame, tracking, *material, propagator, studies.followed, [&](std::size_t iteration) -> const IterationParameters<Det>& { return tracker.iteration(iteration); }, [&](std::uint64_t id, std::size_t iteration) { return funnel ? funnel->stages(id, iteration) : std::nullopt; }, [&](std::size_t iteration, std::span<const std::uint32_t> rows) { return funnel ? funnel->recordChi2(iteration, rows) : std::nullopt; });
+      if (studies.join) {
+        for (const auto& line : studies.join->summary()) {
+          std::cout << line << '\n';
+        }
+      }
     }
     for (std::size_t iteration = 0; iteration < result.iterations.size(); ++iteration) {
       for (const auto& line : study::describeIteration(result.iterations[iteration], iteration)) {
