@@ -309,7 +309,8 @@ class CompleteAnatomy
       throw std::runtime_error("cannot write " + csv);
     }
     *mInactiveCsv << "iteration,track,particle,origin,pdg,pt,layer,roadLayers,walkLayers,kept,refit,agrees,end,lastLayer,tailSteps,"
-                     "holeLayer,holeCrossed,holeHit,holeRow,holeOwn,holeOwnChi2,targeted,targetedInTail,own,ownChi2,taken,hitLayers,rowLayers\n";
+                     "holeLayer,holeCrossed,holeHit,holeRow,holeOwn,holeOwnChi2,targeted,targetedInTail,own,ownChi2,taken,hitLayers,rowLayers,"
+                     "ownPhi,ownSecond,ownTime,ownDPhiCm,ownDSecondCm,windowPhiCm,windowSecondCm,stepQPt,stepR,ownRows\n";
   }
 
   /// The CSV of every follow walk's end, written after each iteration
@@ -820,7 +821,7 @@ class CompleteAnatomy
       holeCalls(iteration, replayed, parameters, geometry, propagator);
       ownSteps(iteration, replayed, parameters);
       if (mInactiveCsv) {
-        inactiveCensus(iteration, replayed, geometry);
+        inactiveCensus(iteration, replayed, frame, geometry);
       }
     }
     rest[3] = seconds(clock, now());
@@ -4772,9 +4773,15 @@ class CompleteAnatomy
   /// among them; the particle's row there: its outcome where searched
   /// (`StepOutcome`'s, "taken", or "unseen") and chi2; the row the walk took
   /// there (0 none, 1 the particle's, 2 another's); the layers of the
-  /// particle's MC hits and rows (hexadecimal bits).
+  /// particle's MC hits and rows (hexadecimal bits); against the window of
+  /// the last step that searched the layer, the particle's row's distance
+  /// from its centre in its half widths, azimuth and second coordinate (-1:
+  /// not searched), and its time box against the window's time test (start
+  /// within [earliestPS, latestPS], end after afterPS): "in", "early",
+  /// "late", "ended" or "none"; the same signed in cm with the window's half
+  /// widths, the step's q/pT and radius; the particle's rows on the layer.
   template <typename Observation>
-  void inactiveCensus(const Observation& iteration, const std::vector<Replay>& replayed, const TrackingGeometry<Det>& geometry)
+  void inactiveCensus(const Observation& iteration, const std::vector<Replay>& replayed, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry)
   {
     constexpr std::array<const char*, 7> kOutcome{"used", "window", "hole", "noUpdate", "chi2", "passes", "shape"};
     const auto layerOf = [&](std::uint32_t row) { return mTruth->rows[row].layer; };
@@ -4829,18 +4836,69 @@ class CompleteAnatomy
       }
       for (std::uint64_t left = rowLayers & Detector<Det>::inactiveLayers; left != 0U; left &= left - 1U) {
         const auto layer = static_cast<LayerID>(std::countr_zero(left));
-        const auto own = ownRowOn(particle, layer);
+        // The particle's rows on the layer (two where it crosses it twice): the one a
+        // step took, else the nearest the last searching step's window, else the first.
+        std::vector<std::uint32_t> ownRows;
+        for (const auto row : chain->rows) {
+          if (layerOf(row) == layer) {
+            ownRows.push_back(row);
+          }
+        }
+        std::uint32_t own = ownRows.front();
+        const TargetSeen* last = nullptr;
+        bool ownTaken = false;
+        for (const auto& step : walk.steps) {
+          if (const auto target = std::ranges::find(step.targets, layer, &TargetSeen::layer); target != step.targets.end()) {
+            last = &*target;
+          }
+          if (std::ranges::find(ownRows, step.choice) != ownRows.end()) {
+            own = step.choice;
+            ownTaken = true;
+          }
+        }
+        if (!ownTaken && last != nullptr) {
+          const auto distance = [&](std::uint32_t row) {
+            const auto at = frame.measurement(row);
+            const auto phi = std::atan2(static_cast<double>(at.y), static_cast<double>(at.x));
+            const auto second = Detector<Det>::isBarrelLayer(layer) ? static_cast<double>(at.z) : std::hypot(static_cast<double>(at.x), static_cast<double>(at.y));
+            return std::hypot(std::remainder(phi - static_cast<double>(last->window.phiCentre), 2. * kPi<double>) / std::max(static_cast<double>(last->window.phiHalfWidth), 1.e-9),
+                              (second - static_cast<double>(last->window.secondCentre)) / std::max(static_cast<double>(last->window.secondHalfWidth), 1.e-9));
+          };
+          own = *std::ranges::min_element(ownRows, {}, distance);
+        }
         bool targeted = false;
         bool targetedInTail = false;
         const char* outcome = "unseen";
         double chi2 = -1.;
         int taken = 0;
+        double ownPhi = -1.;
+        double ownSecond = -1.;
+        const char* ownTime = "none";
+        // The same signed, in cm (the azimuth's at the row's radius), the window's half widths, the step's q/pT and radius.
+        std::array<double, 6> ownCm{0., 0., 0., 0., 0., 0.};
         for (std::size_t s = 0; s < walk.steps.size(); ++s) {
           const auto& step = walk.steps[s];
-          if (std::ranges::find(step.targets, layer, &TargetSeen::layer) == step.targets.end()) {
+          const auto target = std::ranges::find(step.targets, layer, &TargetSeen::layer);
+          if (target == step.targets.end()) {
             continue;
           }
           targeted = true;
+          {
+            const auto& window = target->window;
+            const auto at = frame.measurement(own);
+            const auto phi = std::atan2(static_cast<double>(at.y), static_cast<double>(at.x));
+            const auto second = Detector<Det>::isBarrelLayer(layer) ? static_cast<double>(at.z) : std::hypot(static_cast<double>(at.x), static_cast<double>(at.y));
+            ownPhi = std::abs(std::remainder(phi - static_cast<double>(window.phiCentre), 2. * kPi<double>)) / std::max(static_cast<double>(window.phiHalfWidth), 1.e-9);
+            ownSecond = std::abs(second - static_cast<double>(window.secondCentre)) / std::max(static_cast<double>(window.secondHalfWidth), 1.e-9);
+            const auto box = timeBoxAt(frame.measurements(), own);
+            ownTime = static_cast<std::int64_t>(box.lower()) < window.earliestPS ? "early" : (static_cast<std::int64_t>(box.lower()) > window.latestPS ? "late" : (box.upper() <= window.afterPS ? "ended" : "in"));
+            const auto radius = std::hypot(static_cast<double>(at.x), static_cast<double>(at.y));
+            Scalar global[3]{};
+            surfaceToGlobal(geometry.planeOf(step.state), step.state.loc0(), step.state.loc1(), global);
+            ownCm = {radius * std::remainder(phi - static_cast<double>(window.phiCentre), 2. * kPi<double>), second - static_cast<double>(window.secondCentre), radius * static_cast<double>(window.phiHalfWidth),
+                     static_cast<double>(window.secondHalfWidth), static_cast<double>(step.state.qOverP()) / std::max(std::cos(static_cast<double>(step.state.theta()) - (kPi<double> / 2.)), 1.e-6),
+                     std::hypot(static_cast<double>(global[0]), static_cast<double>(global[1]))};
+          }
           targetedInTail = targetedInTail || s >= tailFrom;
           if (const auto seen = std::ranges::find(step.candidates, own, &Candidate::row); seen != step.candidates.end()) {
             outcome = kOutcome[static_cast<std::size_t>(seen->outcome)];
@@ -4851,11 +4909,12 @@ class CompleteAnatomy
             outcome = step.choice == own ? "taken" : outcome;
           }
         }
-        *mInactiveCsv << std::format("{},{},{},{},{},{:.4f},{},{:x},{:x},{},{},{},{},{},{},{},{},{},{},{},{:.3f},{},{},{},{:.3f},{},{:x},{:x}\n", iteration.iteration, element, particle,
+        *mInactiveCsv << std::format("{},{},{},{},{},{:.4f},{},{:x},{:x},{},{},{},{},{},{},{},{},{},{},{},{:.3f},{},{},{},{:.3f},{},{:x},{:x},{:.3f},{:.3f},{},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.2f},{}\n", iteration.iteration, element, particle,
                                      found != mTruth->particles.end() ? static_cast<int>(found->second.origin) : -1, found != mTruth->particles.end() ? found->second.pdg : 0, truePt(found),
                                      static_cast<int>(layer), roadLayers, walkLayers, walk.kept, static_cast<int>(walk.refit), walk.agrees ? 1 : 0, kFollowEndNames[static_cast<std::size_t>(walk.end)],
                                      walk.steps.empty() ? -1 : static_cast<int>(walk.steps.back().layer), tailSteps, holeLayer, holeCrossed, holeLayer >= 0 ? static_cast<int>((hitLayers >> holeLayer) & 1U) : -1,
-                                     holeLayer >= 0 ? static_cast<int>((rowLayers >> holeLayer) & 1U) : -1, holeOwn, holeOwnChi2, targeted ? 1 : 0, targetedInTail ? 1 : 0, outcome, chi2, taken, hitLayers, rowLayers);
+                                     holeLayer >= 0 ? static_cast<int>((rowLayers >> holeLayer) & 1U) : -1, holeOwn, holeOwnChi2, targeted ? 1 : 0, targetedInTail ? 1 : 0, outcome, chi2, taken, hitLayers, rowLayers,
+                                     ownPhi, ownSecond, ownTime, ownCm[0], ownCm[1], ownCm[2], ownCm[3], ownCm[4], ownCm[5], ownRows.size());
       }
     }
   }
