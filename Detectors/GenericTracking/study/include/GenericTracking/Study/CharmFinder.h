@@ -20,7 +20,10 @@
 /// conjugate, every two tracks of one charge with one of the other under
 /// D+, Ds+ and Lambda_c+ (or their conjugates), each slot assignment the
 /// hypothesis distinguishes (the two pions of a D+ once). One vertex each,
-/// fitted on its own; nothing is cut. Flights are a few hundred um: the
+/// fitted on its own. A three-prong is fitted only within the pre-fit mass
+/// window (`DecayParam::charmPreMassWindow`: the mass of its tracks'
+/// momenta at their first measurements); the two-prongs are all fitted;
+/// nothing else is cut. Flights are a few hundred um: the
 /// pointing at the collision's point (`pointChi2`, the production there
 /// with the point's covariance) is the candidates' handle, written beside
 /// the fit.
@@ -92,6 +95,7 @@ enum class CharmStage : std::uint8_t {
   kNotFound,        ///< a leaf has no good track of its own charge (`missing`)
   kContributor,     ///< a leaf's track entered its primary vertex's fit
   kRefitFailed,     ///< a leaf's refit under its true species failed
+  kOutsideWindow,   ///< a three-prong outside the pre-fit mass window
   kNoStart,         ///< the helices give no start
   kFitFailed        ///< the fit failed
 };
@@ -111,6 +115,7 @@ struct CharmFinderCandidateRecord {
   float s2Second = kNaN;
   float s2Third = kNaN; ///< NaN for a two-prong
   float ptMin = kNaN;   ///< the slots' smallest pT [GeV]
+  float preMass = kNaN; ///< from the tracks' momenta at their first measurements [GeV]
   std::uint8_t status = 0U;
   std::uint8_t iterations = 0U;
   std::uint8_t ahead = 0U; ///< its tracks whose first measurement lies behind the fitted vertex
@@ -141,6 +146,7 @@ struct CharmFinderCandidateRecord {
     visit("s2Second", s2Second);
     visit("s2Third", s2Third);
     visit("ptMin", ptMin);
+    visit("preMass", preMass);
     visit("status", status);
     visit("iterations", iterations);
     visit("ahead", ahead);
@@ -176,6 +182,7 @@ struct CharmFinderDecayRecord {
   std::uint8_t stage = 0U;     ///< CharmStage
   std::uint8_t missing = 0U;   ///< kNotFound: the slots without a good track of their own charge, bit per slot
   std::uint8_t recovered = 0U; ///< some kTrue candidate was fitted, its own or a clone's
+  float preMass = kNaN;        ///< its own tracks' pre-fit mass (all tracked and refitted), whatever the window [GeV]
   std::uint8_t status = 0U;    ///< its own candidate's
   float chi2 = kNaN;
   std::int16_t ndf = 0;
@@ -202,6 +209,7 @@ struct CharmFinderDecayRecord {
     visit("stage", stage);
     visit("missing", missing);
     visit("recovered", recovered);
+    visit("preMass", preMass);
     visit("status", status);
     visit("chi2", chi2);
     visit("ndf", ndf);

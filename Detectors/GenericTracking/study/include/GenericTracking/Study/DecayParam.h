@@ -29,13 +29,17 @@ namespace o2::gtrk::study
 /// both legs' first measurements (always: a decay is no later than its
 /// daughters' first hits). The rows of a cascade's own mother found from
 /// its fit (MotherSearch.h): each within the gate chiSquareQuantile(2,
-/// `motherNSigma`).
+/// `motherNSigma`). A charm three-prong (D+, Ds+, Lambda_c+: CharmFinder.h)
+/// is fitted only where its tracks' mass from their first measurements'
+/// momenta under its species lies within `charmPreMassWindow` [GeV] of the
+/// hypothesis's mass.
 // O2ParamDef deletes the copy constructor and supplies the rest of the boilerplate.
 // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
 struct DecayParam : public o2::conf::ConfigurableParamHelper<DecayParam> {
   double lambdaNSigma = 3.;
   double lambdaMinS2 = 0.;
   double motherNSigma = 3.;
+  double charmPreMassWindow = 0.15;
 
   O2ParamDef(DecayParam, "GTRKDecay");
 };

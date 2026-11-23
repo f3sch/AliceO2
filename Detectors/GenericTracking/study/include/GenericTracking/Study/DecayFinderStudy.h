@@ -869,13 +869,34 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   // A collision's charm candidates (CharmFinder.h): every combination of its
   // tracks of a hypothesis's charges, each slot assignment the hypothesis
   // tells apart, one fit each.
+  // The mass of \a tracks under charm hypothesis \a k from their momenta at
+  // their first measurements (the table's refits); NaN where a refit failed.
+  const auto preMassOf = [&](std::size_t k, std::span<const std::uint32_t> tracks) {
+    const auto& hypothesis = hypotheses[charmFirst + k];
+    decay_fit_detail::MomentumSum<double> sum;
+    for (std::size_t slot = 0; slot < tracks.size(); ++slot) {
+      const auto e = table.entryOf(tracks[slot], static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
+      if (e < 0 || entries.status[static_cast<std::size_t>(e)] != PropagationStatus::kOk) {
+        return std::numeric_limits<double>::quiet_NaN();
+      }
+      const auto& state = entries.state[static_cast<std::size_t>(e)];
+      const auto momentum = decay_fit_detail::momentumOf<double>(state.phi(), state.theta(), state.qOverP(), 1.);
+      sum.add(momentum.vector, decay_fit_detail::energyOf(momentum, hypothesis.species[slot].getMass()));
+    }
+    return std::sqrt(std::max(sum.massSquared(), 0.));
+  };
+  const auto insideWindow = [&](std::size_t k, double preMass) { return k < 2U || std::abs(preMass - hypotheses[charmFirst + k].massGeV) < param.charmPreMassWindow; };
   const auto findCharm = [&](std::uint64_t collision, std::int32_t point, WorkspaceBuffer& workspace, std::vector<CharmFinderCandidateRecord>& out) {
     out.clear();
     const auto& lists = byCollision.at(collision);
     const auto fitOne = [&](std::size_t k, std::span<const std::uint32_t> tracks) {
       const auto h = charmFirst + k;
       const auto& hypothesis = hypotheses[h];
-      CharmFinderCandidateRecord record{.timeframe = event.timeframe, .collision = collision, .hypothesis = static_cast<std::uint8_t>(k)};
+      const double preMass = preMassOf(k, tracks);
+      if (!insideWindow(k, preMass)) {
+        return; // a three-prong outside the pre-fit mass window: no candidate
+      }
+      CharmFinderCandidateRecord record{.timeframe = event.timeframe, .collision = collision, .hypothesis = static_cast<std::uint8_t>(k), .preMass = static_cast<float>(preMass)};
       DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = point};
       bool refitted = true;
       bool pid = true;
@@ -1288,6 +1309,10 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
         if (e < 0 || entries.status[static_cast<std::size_t>(e)] != PropagationStatus::kOk) {
           return CharmStage::kRefitFailed;
         }
+      }
+      d.preMass = static_cast<float>(preMassOf(charm.hypothesis, own));
+      if (!insideWindow(charm.hypothesis, d.preMass)) {
+        return CharmStage::kOutsideWindow;
       }
       if (!charm.fitted) {
         throw std::logic_error("decay finder study: an MC charm decay's own candidate was never fitted");
