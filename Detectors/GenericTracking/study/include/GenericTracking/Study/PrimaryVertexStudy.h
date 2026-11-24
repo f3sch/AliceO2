@@ -36,6 +36,7 @@
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/PrimaryVertexFit.h"
 #include "GenericTracking/Tracking/RoadFit.h"
+#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/MCTruth.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/StudyChains.h"
@@ -238,20 +239,20 @@ template <DetectorLayout Det>
       double weightedZ = 0.;
       for (const auto* chain : members[v]) {
         const auto& truth = event.particles->at(chain->particle);
-        const auto species = truthSpecies(truth.pdg);
+        const auto species = speciesOf(truth.pdg);
         if (!species || std::lround(std::abs(particleCharge(truth.pdg))) != 1) {
           ++out.refused;
           continue;
         }
         const RowChain<Det> rows{.frame = &frame, .rows = chain->rows.data()};
-        auto refit = refitRowsWithHypothesis(event.propagator, geometry, material, rows, static_cast<int>(chain->rows.size()), species->pid);
+        auto refit = refitRowsWithHypothesis(event.propagator, geometry, material, rows, static_cast<int>(chain->rows.size()), *species);
         const auto& surface = geometry.planeOf(rows[0]);
         if (refit.status != PropagationStatus::kOk || carryToPerigee(event.propagator, geometry, surface, refit, static_cast<Scalar>(beam.x), static_cast<Scalar>(beam.y)) != PropagationStatus::kOk) {
           ++out.refitFailed;
           continue;
         }
         auto propagator = event.propagator;
-        propagator.massGeV = species->mass;
+        propagator.setSpecies(*species);
         tracks.push_back({.innermost = refit.innermost, .surface = surface, .propagator = propagator});
         fitted.push_back(chain);
         const auto variance = static_cast<double>(refit.perigee.covAt(kLoc1, kLoc1));

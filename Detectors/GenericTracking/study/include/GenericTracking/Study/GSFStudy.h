@@ -33,6 +33,7 @@
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/RoadFit.h"
+#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/StateTruth.h"
 #include "GenericTracking/Study/StudyChains.h"
@@ -324,7 +325,7 @@ void GSFStudy<Det>::fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propaga
   // the perigee plane about the MC production point, and the Kalman fit
   // carried alike.
   const RowChain<Det> rows{.frame = &frame, .rows = chain.data()};
-  const auto refit = refitWithHypothesis(prop, geometry, material, rows, n, o2::track::PID{o2::track::PID::Electron}, truth.vx, truth.vy);
+  const auto refit = refitWithHypothesis(prop, geometry, material, rows, n, Species::kElectron, truth.vx, truth.vy);
   const auto kalman = fitMeasurements(prop, geometry, material, rows, n);
   const auto& innermostSurface = geometry.planeOf(rows[0]);
   bool kfOk = kalman.status == PropagationStatus::kOk;

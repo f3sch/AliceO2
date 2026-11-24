@@ -22,10 +22,9 @@
 #include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayCandidateFit.h"
 #include "GenericTracking/Tracking/HypothesisRefit.h"
+#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/StateTruth.h"
 #include "GenericTracking/Study/TruthEvent.h"
-
-#include "ReconstructionDataFormats/PID.h"
 
 #include <array>
 #include <cmath>
@@ -42,7 +41,7 @@ namespace o2::gtrk::study
 
 /// The hypothesis of a decay into \a positive and \a negative, the mother's
 /// mass \a massGeV.
-[[nodiscard]] inline DecayHypothesis twoProngHypothesis(o2::track::PID positive, o2::track::PID negative, double massGeV)
+[[nodiscard]] inline DecayHypothesis twoProngHypothesis(Species positive, Species negative, double massGeV)
 {
   DecayHypothesis h;
   h.species.push_back(positive);
@@ -60,8 +59,7 @@ inline constexpr std::array<std::int32_t, 3> kV0Mothers{310, 3122, -3122};
 /// anti-Lambda -> anti-p pi+.
 [[nodiscard]] inline std::array<DecayHypothesis, 3> v0Hypotheses()
 {
-  using o2::track::PID;
-  return {twoProngHypothesis(PID{PID::Pion}, PID{PID::Pion}, particleMass(kV0Mothers[0])), twoProngHypothesis(PID{PID::Proton}, PID{PID::Pion}, particleMass(kV0Mothers[1])), twoProngHypothesis(PID{PID::Pion}, PID{PID::Proton}, particleMass(kV0Mothers[2]))};
+  return {twoProngHypothesis(Species::kPion, Species::kPion, particleMass(kV0Mothers[0])), twoProngHypothesis(Species::kProton, Species::kPion, particleMass(kV0Mothers[1])), twoProngHypothesis(Species::kPion, Species::kProton, particleMass(kV0Mothers[2]))};
 }
 
 /// The daughter table's forEach on \a event's threads: body(i) for every i
@@ -110,7 +108,7 @@ template <DetectorLayout Det>
 [[nodiscard]] double displacement(const DaughterSource<Det>& source, std::uint32_t e, const MeasuredPoint& point)
 {
   const auto entries = source.table->view();
-  HypothesisFit<> fit{.pid = source.table->species()[entries.species[e]]};
+  HypothesisFit<> fit{.species = source.table->species()[entries.species[e]]};
   fit.innermost = entries.state[e];
   if (carryToPerigee(source.propagator, *source.geometry, source.innermostPlane(entries.track[e]), fit, static_cast<Scalar>(point.position[0]), static_cast<Scalar>(point.position[1])) != PropagationStatus::kOk) {
     return std::numeric_limits<double>::quiet_NaN();

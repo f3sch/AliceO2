@@ -27,9 +27,8 @@
 #define GTRK_STUDY_CASCADEFINDER_H_
 
 #include "GenericTracking/Tracking/DecayCandidateFit.h"
+#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/DecayStudyTools.h"
-
-#include "ReconstructionDataFormats/PID.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -56,7 +55,6 @@ namespace o2::gtrk::study
 /// and their conjugates.
 [[nodiscard]] inline std::vector<DecayHypothesis> finderHypotheses()
 {
-  using o2::track::PID;
   const auto v0 = v0Hypotheses();
   std::vector<DecayHypothesis> hypotheses(v0.begin(), v0.end());
   hypotheses.resize(cascadeIndex(1, 1, 1) + 1U);
@@ -65,7 +63,7 @@ namespace o2::gtrk::study
       for (int sign = 0; sign < 2; ++sign) {
         auto& h = hypotheses[cascadeIndex(sign, omega, held)];
         h.composites.push_back(static_cast<std::uint16_t>(1 + sign)); // the Lambda's or the anti-Lambda's V0 hypothesis
-        h.species.push_back(omega != 0 ? PID{PID::Kaon} : PID{PID::Pion});
+        h.species.push_back(omega != 0 ? Species::kKaon : Species::kPion);
         h.charges.push_back(static_cast<std::int8_t>(sign == 0 ? -1 : 1));
         h.massGeV = particleMass(cascadePdg(sign, omega));
         h.holdComposites = held != 0;

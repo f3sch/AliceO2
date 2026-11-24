@@ -49,11 +49,10 @@
 #include "GenericTracking/Tracking/GSFTrackFitter.h"
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/RoadFit.h"
+#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/TrackFitterUtils.h"
 #include "GenericTracking/Tracking/TrackStore.h"
-
-#include "ReconstructionDataFormats/PID.h"
 
 #include <algorithm>
 #include <atomic>
@@ -103,7 +102,7 @@ class DaughterTable
 
   /// A table of \a species, the run's list (at most 255, each once);
   /// std::invalid_argument otherwise.
-  explicit DaughterTable(std::span<const o2::track::PID> species) : mSpecies(species.begin(), species.end())
+  explicit DaughterTable(std::span<const Species> species) : mSpecies(species.begin(), species.end())
   {
     if (mSpecies.empty() || mSpecies.size() > std::numeric_limits<std::uint8_t>::max()) {
       throw std::invalid_argument("daughter table: one to 255 species");
@@ -145,11 +144,11 @@ class DaughterTable
     });
   }
 
-  [[nodiscard]] std::span<const o2::track::PID> species() const { return mSpecies; }
-  /// \a pid's index in the species, -1 if the table has none of it.
-  [[nodiscard]] int speciesIndex(o2::track::PID pid) const
+  [[nodiscard]] std::span<const Species> species() const { return mSpecies; }
+  /// \a species' index in the table's species, -1 if the table has none of it.
+  [[nodiscard]] int speciesIndex(Species species) const
   {
-    const auto found = std::ranges::find(mSpecies, pid);
+    const auto found = std::ranges::find(mSpecies, species);
     return found == mSpecies.end() ? -1 : static_cast<int>(found - mSpecies.begin());
   }
   [[nodiscard]] std::size_t tracks() const { return mTracks; }
@@ -177,7 +176,7 @@ class DaughterTable
       const auto n = static_cast<std::uint32_t>(asked.size());
       // The electrons' mixtures, one each, in the entries' order.
       BoundedVector<std::uint32_t> mixtureOffsets(std::size_t{n} + 1U, 0U, std::pmr::polymorphic_allocator<std::uint32_t>{mResource});
-      const auto isElectron = [&](std::uint32_t i) { return mSpecies[asked[i] % mSpecies.size()] == o2::track::PID::Electron ? 1U : 0U; };
+      const auto isElectron = [&](std::uint32_t i) { return mSpecies[asked[i] % mSpecies.size()] == Species::kElectron ? 1U : 0U; };
       if (!host_algorithms::exclusiveScan(forEach, n, chunk, isElectron, std::span<std::uint32_t>{mixtureOffsets}, mResource)) {
         return StageStatus::kIndexOverflow;
       }
@@ -238,7 +237,7 @@ class DaughterTable
 
   [[nodiscard]] std::size_t key(std::uint32_t track, std::uint8_t s) const { return (static_cast<std::size_t>(track) * mSpecies.size()) + s; }
 
-  std::vector<o2::track::PID> mSpecies;
+  std::vector<Species> mSpecies;
   std::pmr::memory_resource* mResource = std::pmr::get_default_resource();
   std::size_t mTracks = 0U;
   BoundedVector<std::int32_t> mEntryOf;

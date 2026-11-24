@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 
 /// \file testHypothesisRefit.cxx
-/// \brief A refit under a species' hypothesis: the PID's fitter and mass, the state carried to the vertex.
+/// \brief A refit under a species' hypothesis: the species' fitter, mass and |q|, the state carried to the vertex.
 
 #define BOOST_TEST_DYN_LINK
 #define BOOST_TEST_MODULE Test GTRK Hypothesis Refit
@@ -62,16 +62,14 @@ BOOST_AUTO_TEST_CASE(AHadronIsTheKalmanFitAtItsMass)
   const test::ChainBands material{.x2X0 = 5e-3F, .xRho = 0.11F};
   ElectronChain chain;
   std::mt19937 rng(1051);
-  using o2::track::PID;
-  for (const auto id : {PID::Muon, PID::Pion, PID::Kaon, PID::Proton, PID::Deuteron, PID::Triton, PID::Helium3, PID::Alpha}) {
-    const PID pid{id};
+  for (const auto species : {Species::kMuon, Species::kPion, Species::kKaon, Species::kProton, Species::kDeuteron, Species::kTriton, Species::kHelium3, Species::kHelium4, Species::kSigmaMinus, Species::kHyperHelium4}) {
     while (!chain.generate(2.F, material, true, rng, true)) {
     }
     Propagator prop = chain.propagator;
-    prop.setSpecies(pid);
+    prop.setSpecies(species);
     const auto kalman = fitMeasurements(prop, *chain.tracking, material, chain.measurements.data(), kLayers);
-    const auto refit = refitWithHypothesis(chain.propagator, *chain.tracking, material, chain.measurements.data(), kLayers, pid, 0.F, 0.F);
-    BOOST_TEST_CONTEXT(pid.getName())
+    const auto refit = refitWithHypothesis(chain.propagator, *chain.tracking, material, chain.measurements.data(), kLayers, species, 0.F, 0.F);
+    BOOST_TEST_CONTEXT(nameOf(species))
     {
       BOOST_REQUIRE(refit.status == PropagationStatus::kOk);
       BOOST_TEST(sameBitsEach(refit.innermost.par, kalman.state.par));
@@ -99,10 +97,9 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
   // Pions (0.5 GeV) and 3He (2 GeV), from the origin and from a vertex
   // displaced in the transverse plane.
   constexpr std::array<const char*, kNBoundParams> kNames{"d0", "z0", "phi", "theta", "q/p"};
-  for (const auto& [id, x, y] : {std::tuple{o2::track::PID::Pion, 0.F, 0.F}, std::tuple{o2::track::PID::Pion, 0.3F, -0.2F}, std::tuple{o2::track::PID::Helium3, 0.F, 0.F}, std::tuple{o2::track::PID::Helium3, 0.3F, -0.2F}}) {
-    const o2::track::PID pid{id};
-    chain.propagator.setSpecies(pid);
-    const Scalar momentum = pid == o2::track::PID::Pion ? 0.5F : 2.F;
+  for (const auto& [id, x, y] : {std::tuple{Species::kPion, 0.F, 0.F}, std::tuple{Species::kPion, 0.3F, -0.2F}, std::tuple{Species::kHelium3, 0.F, 0.F}, std::tuple{Species::kHelium3, 0.3F, -0.2F}}) {
+    chain.propagator.setSpecies(id);
+    const Scalar momentum = id == Species::kPion ? 0.5F : 2.F;
     chain.vertexX = x;
     chain.vertexY = y;
     std::array<std::vector<double>, kNBoundParams> pulls;
@@ -110,7 +107,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
       const Scalar qOverP = (track % 2 == 0 ? 1.F : -1.F) * chain.propagator.absCharge / momentum;
       while (!chain.generate(qOverP, material, false, rng, true)) {
       }
-      const auto refit = refitWithHypothesis(chain.propagator, *chain.tracking, material, chain.measurements.data(), kLayers, pid, x, y);
+      const auto refit = refitWithHypothesis(chain.propagator, *chain.tracking, material, chain.measurements.data(), kLayers, id, x, y);
       BOOST_REQUIRE(refit.status == PropagationStatus::kOk);
       // The truth on the refit's perigee plane: through the vertex, as the
       // track; its direction and q/p there the vertex's.
@@ -123,7 +120,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
         pulls[static_cast<std::size_t>(i)].push_back(d / std::sqrt(static_cast<double>(refit.perigee.variance(i))));
       }
     }
-    std::string line = fmt::format("{} from the vertex at ({}, {}) cm, at the vertex, pull mean and standard deviation:", pid.getName(), x, y);
+    std::string line = fmt::format("{} from the vertex at ({}, {}) cm, at the vertex, pull mean and standard deviation:", nameOf(id), x, y);
     for (int i = 0; i < kNBoundParams; ++i) {
       const auto& p = pulls[static_cast<std::size_t>(i)];
       double mean = 0.;
@@ -132,7 +129,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
       }
       const double width = standardDeviation(p);
       line += fmt::format("  {} {:+.3f} {:.3f}", kNames[static_cast<std::size_t>(i)], mean, width);
-      BOOST_TEST_CONTEXT(pid.getName() << ", vertex (" << x << ", " << y << "), " << kNames[static_cast<std::size_t>(i)] << " mean " << mean << " width " << width)
+      BOOST_TEST_CONTEXT(nameOf(id) << ", vertex (" << x << ", " << y << "), " << kNames[static_cast<std::size_t>(i)] << " mean " << mean << " width " << width)
       {
         BOOST_TEST(std::abs(mean) < 0.1);
         BOOST_TEST(std::abs(width - 1.) < 0.1);
@@ -143,7 +140,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
   chain.vertexX = 0.F;
   chain.vertexY = 0.F;
   // Electrons.
-  chain.propagator.setSpecies(o2::track::PID{o2::track::PID::Electron});
+  chain.propagator.setSpecies(Species::kElectron);
   std::vector<double> pit;
   std::vector<double> mode;
   std::vector<double> kalman;
@@ -153,7 +150,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
     while (!chain.generate(qOverP, material, true, rng, true)) {
     }
     const auto* measurements = chain.measurements.data();
-    const auto electron = refitWithHypothesis(chain.propagator, *chain.tracking, material, measurements, kLayers, o2::track::PID{o2::track::PID::Electron}, 0.F, 0.F);
+    const auto electron = refitWithHypothesis(chain.propagator, *chain.tracking, material, measurements, kLayers, Species::kElectron, 0.F, 0.F);
     // The electron-mass Kalman fit carried alike: the hadron path at the electron's mass.
     const auto kalmanFit = fitMeasurements(chain.propagator, *chain.tracking, material, measurements, kLayers);
     if (electron.status != PropagationStatus::kOk || kalmanFit.status != PropagationStatus::kOk) {

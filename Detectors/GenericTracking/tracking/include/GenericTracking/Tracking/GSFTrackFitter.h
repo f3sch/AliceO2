@@ -64,6 +64,20 @@ struct BetheHeitlerLoss {
   GPUdi() static int mixture(Scalar x2X0, BetheHeitlerComponent (&components)[kComponents]) { return betheHeitlerMixture(x2X0, components); }
 };
 
+/// No radiation: one component that keeps the momentum, for any thickness.
+/// The filter with it is the Kalman fit of a species other than the
+/// electron, with the measurements' likelihood under its predictions
+/// (`GSFFitResult`).
+struct NoRadiationLoss {
+  static constexpr int kComponents = 1;
+  static constexpr Scalar kMaxX2X0 = FLT_MAX;
+  GPUdi() static int mixture(Scalar /*x2X0*/, BetheHeitlerComponent (&components)[kComponents])
+  {
+    components[0] = {.weight = 1.F, .mean = 1.F, .variance = 0.F};
+    return 1;
+  }
+};
+
 /// One Gaussian of a mixture: its weight (its logarithm), its state and its
 /// covariance as \a Factors; `state.cov` is written only at a pass's end.
 template <typename Factors>

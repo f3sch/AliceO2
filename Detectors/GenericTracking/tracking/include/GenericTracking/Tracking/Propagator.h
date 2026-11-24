@@ -26,6 +26,7 @@
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/MathUtils.h"
+#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
 
@@ -33,7 +34,6 @@
 #include "CommonConstants/PhysicsConstants.h"
 #include "GPUCommonMath.h"
 #include "MathUtils/detail/trigonometric.h"
-#include "ReconstructionDataFormats/PID.h"
 
 #include <cstdint>
 
@@ -64,11 +64,11 @@ struct Propagator {
   /// The momentum [GeV] at \a qOverP under the hypothesis's |q|.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar momentum(Scalar qOverP) const { return absCharge / o2::gpu::GPUCommonMath::Abs(qOverP); }
 
-  /// Mass and |q| of \a pid; GPUd like the PID getters it calls.
-  GPUdi() void setSpecies(o2::track::PID pid)
+  /// Mass and |q| of \a species.
+  GPUhdi() void setSpecies(Species species)
   {
-    massGeV = pid.getMass();
-    absCharge = o2::gpu::GPUCommonMath::Abs(static_cast<Scalar>(pid.getCharge()));
+    massGeV = massOf(species);
+    absCharge = absChargeOf(species);
   }
 
   /// Transverse curvature in 1/cm.

@@ -13,7 +13,7 @@
 /// \brief A chain's rows (StudyChains.h) fitted with its particle's true
 ///        species (TruthFit.h) and held to the MC.
 ///
-/// For every chain of a species `truthSpecies` knows (charge 2 included),
+/// For every chain of a species of the tracking's list (`speciesOf`),
 /// every `TruthFitVariant`: a record each. Each fit's state on the chain's
 /// comparison row -- a track's row on its fitted state's surface, a truth
 /// chain's innermost row -- is held to the particle's MC crossing there
@@ -31,6 +31,7 @@
 
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/RoadFit.h"
+#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/MCTruth.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/StateTruth.h"
@@ -177,7 +178,7 @@ class SpeciesFitStudy
 
  private:
   /// One chain's records, in the variants' order.
-  void fitChain(const TruthEvent<Det>& event, const Chain& chain, const Species& species, double charge, const ChainIdentity& identity, std::vector<SpeciesFitRecord>& records, bool& noSeed) const;
+  void fitChain(const TruthEvent<Det>& event, const Chain& chain, Species species, double charge, const ChainIdentity& identity, std::vector<SpeciesFitRecord>& records, bool& noSeed) const;
 
   RecordWriter* mWriter = nullptr;
   std::size_t mChains = 0U;
@@ -191,7 +192,7 @@ void SpeciesFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const
 {
   struct Work {
     const Chain* chain = nullptr;
-    Species species;
+    Species species = Species::kPion;
     double charge = 0.;
     std::vector<SpeciesFitRecord> records;
     bool noSeed = false;
@@ -199,7 +200,7 @@ void SpeciesFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const
   std::vector<Work> work;
   for (const auto& chain : chains) {
     const auto& truth = event.particles->at(chain.particle);
-    const auto species = truthSpecies(truth.pdg);
+    const auto species = speciesOf(truth.pdg);
     const double charge = particleCharge(truth.pdg);
     if (!species) {
       ++mUnsupported;
@@ -224,7 +225,7 @@ void SpeciesFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const
 }
 
 template <DetectorLayout Det>
-void SpeciesFitStudy<Det>::fitChain(const TruthEvent<Det>& event, const Chain& chain, const Species& species, double charge, const ChainIdentity& identity, std::vector<SpeciesFitRecord>& records, bool& noSeed) const
+void SpeciesFitStudy<Det>::fitChain(const TruthEvent<Det>& event, const Chain& chain, Species species, double charge, const ChainIdentity& identity, std::vector<SpeciesFitRecord>& records, bool& noSeed) const
 {
   const auto& truth = event.particles->at(chain.particle);
   const auto& frame = *event.frame;
@@ -325,9 +326,9 @@ void SpeciesFitStudy<Det>::fitChain(const TruthEvent<Det>& event, const Chain& c
     held(record, fits[v].status, fits[v].state);
     records.push_back(record);
   }
-  // The true PID's refit, at the rows and at the perigee about the production
+  // The true species' refit, at the rows and at the perigee about the production
   // point: a failed carry to the perigee leaves the fit at the rows standing.
-  const auto refit = refitWithHypothesis(event.propagator, geometry, material, rows, count, species.pid, truth.vx, truth.vy);
+  const auto refit = refitWithHypothesis(event.propagator, geometry, material, rows, count, species, truth.vx, truth.vy);
   const bool fitted = refit.status == PropagationStatus::kOk || refit.failedPass == FitPass::kNone;
   SpeciesFitRecord record = base;
   record.variant = static_cast<std::uint8_t>(TruthFitVariant::kHypothesis);

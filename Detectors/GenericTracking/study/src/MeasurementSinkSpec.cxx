@@ -581,7 +581,7 @@ std::string histogramText(const std::array<std::uint64_t, kCountBins>& histogram
 inline constexpr std::size_t kSpeciesCount = 6U;
 
 /// A PDG code's species index (below kSpeciesCount).
-[[nodiscard]] std::size_t speciesOf(int pdg)
+[[nodiscard]] std::size_t reportSpeciesOf(int pdg)
 {
   switch (std::abs(pdg)) {
     case 11:
@@ -822,7 +822,7 @@ void reportLostPairs(const Frame& frame, const IterationParameters<Det>& paramet
             verdict = kVerdictDisplaced;
           } else {
             ++noneByLink[which][truth.link];
-            ++noneBySpecies[which][speciesOf(pdg)];
+            ++noneBySpecies[which][reportSpeciesOf(pdg)];
           }
         }
         ++byPull[which][spatial.pullBin][verdict];
@@ -4414,7 +4414,7 @@ class MeasurementSinkTask : public Task
       oursCommon.add(pt, std::array<double, 5>{residual[0], residual[1], residual[2], -residual[3], (fittedPt / pt) - 1.}, std::array<double, 5>{});
       const Vec2D qOverP{residual[4], (fittedPt / pt) - 1.};
       const Vec2D qOverPSigma{sigma[4], 0.};
-      oursBySpecies[speciesOf(mParticleLabels[particle].pdg)].add(pt, qOverP, qOverPSigma);
+      oursBySpecies[reportSpeciesOf(mParticleLabels[particle].pdg)].add(pt, qOverP, qOverPSigma);
       oursByKink[view.kinks[track] == 0U ? 0U : 1U].add(pt, qOverP, qOverPSigma);
     }
     std::vector<std::string> lines = ours.report();
@@ -4471,7 +4471,7 @@ class MeasurementSinkTask : public Task
         }
         o2.add(pt, residual, sigma);
         o2Common.add(pt, std::array<double, 5>{residual[0], residual[1], std::asin(std::clamp(static_cast<double>(state.getParam(2)), -1., 1.)) - std::asin(truth[2]), std::atan(static_cast<double>(state.getParam(3))) - std::atan(truth[3]), (std::abs(truth[4]) / std::abs(static_cast<double>(state.getParam(4)))) - 1.}, std::array<double, 5>{});
-        o2BySpecies[speciesOf(mParticleLabels[particle].pdg)].add(pt, Vec2D{residual[4], (std::abs(truth[4]) / std::abs(static_cast<double>(state.getParam(4)))) - 1.}, Vec2D{sigma[4], 0.});
+        o2BySpecies[reportSpeciesOf(mParticleLabels[particle].pdg)].add(pt, Vec2D{residual[4], (std::abs(truth[4]) / std::abs(static_cast<double>(state.getParam(4)))) - 1.}, Vec2D{sigma[4], 0.});
       }
       append(o2);
       append(o2Common);

@@ -10,13 +10,13 @@
 // or submit itself to any jurisdiction.
 
 /// \file HypothesisRefit.h
-/// \brief A found track's rows refitted under a species hypothesis, its PID's, and carried to the production vertex.
+/// \brief A found track's rows refitted under a species hypothesis and carried to the production vertex.
 ///
 /// The tracking fits every track as a pion. A consumer that knows a track's
-/// species -- from its PID after the matching to the outer detectors -- refits
+/// species -- from the PID after the matching to the outer detectors -- refits
 /// its rows under that hypothesis: an electron with the Gaussian-sum filter
 /// (its bremsstrahlung), any other species with the Kalman fit at its mass.
-/// The PID chooses; the consumer never picks a fitter. The result is the state
+/// The species chooses; the consumer never picks a fitter. The result is the state
 /// on the innermost measurement and the state on the perigee plane about a
 /// transverse point (the beam spot or a vertex): the plane through that point
 /// along the beam, normal to the track's direction at its closest approach to
@@ -35,8 +35,7 @@
 #include "GenericTracking/Tracking/GSFTrackFitter.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/MeasurementUpdate.h"
-
-#include "ReconstructionDataFormats/PID.h"
+#include "GenericTracking/Tracking/Species.h"
 
 #include <cstdint>
 
@@ -50,7 +49,7 @@ namespace o2::gtrk
 /// the estimate the mixture's posterior is skewed about.
 template <int K = BetheHeitlerLoss::kComponents>
 struct HypothesisFit {
-  o2::track::PID pid;
+  Species species = Species::kPion;
   BoundTrackState innermost{}; ///< on the innermost measurement, the inward pass's end
   BoundTrackState perigee{};   ///< on `perigeePlane`
   TrackingSurface perigeePlane{};
@@ -194,18 +193,18 @@ GPUdi() PropagationStatus carryStateInward(const Propagator& prop, const Materia
 } // namespace detail::hypothesis
 
 /// \a n measurements of \a measurements, ordered from the innermost, refitted
-/// under \a pid's hypothesis, up to the state on the innermost measurement.
+/// under \a species' hypothesis, up to the state on the innermost measurement.
 /// The propagator's mass and |q| become the species' (`setSpecies`), for the
 /// scattering and the ionisation alike; the states' q/p is q/p with that q.
 /// An electron: the Gaussian-sum fit (`fitGaussianSum`), its inward mixture
 /// kept. Another species: the Kalman fit (`fitMeasurements`) at its mass and
 /// |q|. The perigee fields stay empty (`carryToPerigee`).
 template <int K = BetheHeitlerLoss::kComponents, CrossingRule Rule = CrossingRule::kFirstAhead, DetectorLayout Det, typename Material, typename Chain>
-GPUdi() HypothesisFit<K> refitRowsWithHypothesis(const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, o2::track::PID pid)
+GPUdi() HypothesisFit<K> refitRowsWithHypothesis(const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, Species species)
 {
-  HypothesisFit<K> fit{.pid = pid};
+  HypothesisFit<K> fit{.species = species};
   Propagator prop = base;
-  prop.setSpecies(pid);
+  prop.setSpecies(species);
   // What both fits give alike (TrackFitResult); false if the fit failed.
   const auto take = [&](const TrackFitResult& result, Scalar momentum) {
     fit.status = result.status;
@@ -220,7 +219,7 @@ GPUdi() HypothesisFit<K> refitRowsWithHypothesis(const Propagator& base, const T
     fit.ndf = result.ndf;
     return true;
   };
-  if (pid == o2::track::PID::Electron) {
+  if (species == Species::kElectron) {
     const auto gsf = fitGaussianSum<BetheHeitlerLoss, K, Rule>(prop, geometry, material, measurements, n);
     if (take(gsf.fit, gsf.momentumMode)) {
       fit.innermostMixture = gsf.mixture;
@@ -242,9 +241,9 @@ template <int K, DetectorLayout Det>
 GPUdi() PropagationStatus carryToPerigee(const Propagator& base, const TrackingGeometry<Det>& geometry, const TrackingSurface& innermostSurface, HypothesisFit<K>& fit, Scalar x, Scalar y)
 {
   Propagator prop = base;
-  prop.setSpecies(fit.pid);
+  prop.setSpecies(fit.species);
   fit.perigeePlane = detail::hypothesis::perigeePlaneOf(prop, fit.innermost, innermostSurface, x, y);
-  if (fit.pid == o2::track::PID::Electron) {
+  if (fit.species == Species::kElectron) {
     GSFMixture<K> mixture = fit.innermostMixture;
     const Scalar x2X0 = detail::hypothesis::segmentRadiation(prop, geometry.material(), fit.innermost, innermostSurface, fit.perigeePlane);
     fit.status = detail::hypothesis::carryMixtureInward(prop, geometry.material(), innermostSurface, fit.perigeePlane, x2X0, mixture);
@@ -267,9 +266,9 @@ GPUdi() PropagationStatus carryToPerigee(const Propagator& base, const TrackingG
 /// about (\a x, \a y) (`carryToPerigee`); a failed carry leaves failedPass
 /// kNone with the failed status.
 template <int K = BetheHeitlerLoss::kComponents, CrossingRule Rule = CrossingRule::kFirstAhead, DetectorLayout Det, typename Material, typename Chain>
-GPUdi() HypothesisFit<K> refitWithHypothesis(const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, o2::track::PID pid, Scalar x, Scalar y)
+GPUdi() HypothesisFit<K> refitWithHypothesis(const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, Species species, Scalar x, Scalar y)
 {
-  auto fit = refitRowsWithHypothesis<K, Rule>(base, geometry, material, measurements, n, pid);
+  auto fit = refitRowsWithHypothesis<K, Rule>(base, geometry, material, measurements, n, species);
   if (fit.status == PropagationStatus::kOk) {
     carryToPerigee(base, geometry, geometry.planeOf(measurements[0]), fit, x, y);
   }

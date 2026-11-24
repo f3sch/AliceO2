@@ -32,6 +32,7 @@
 
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/RoadFit.h"
+#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/MCTruth.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/StateTruth.h"
@@ -162,7 +163,7 @@ class OverlapFitStudy
  private:
   struct Work {
     const Chain* chain = nullptr;
-    Species species;
+    Species species = Species::kPion;
     double charge = 0.;
     std::vector<std::uint32_t> perLayer;  ///< variant 0's rows
     std::vector<std::uint32_t> perSensor; ///< variant 1's rows
@@ -187,7 +188,7 @@ void OverlapFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const
   std::vector<Work> work;
   for (const auto& chain : chains) {
     const auto& truth = event.particles->at(chain.particle);
-    const auto species = truthSpecies(truth.pdg);
+    const auto species = speciesOf(truth.pdg);
     const double charge = particleCharge(truth.pdg);
     if (!species || std::lround(std::abs(charge)) != 1) {
       ++mUnsupported;
@@ -263,7 +264,7 @@ void OverlapFitStudy<Det>::fitChain(const TruthEvent<Det>& event, ChainSource so
     record.variant = variant;
     record.rows = static_cast<std::uint8_t>(count);
     const RowChain<Det> measurements{.frame = &frame, .rows = rows.data()};
-    const auto refit = refitWithHypothesis(event.propagator, geometry, material, measurements, count, work.species.pid, truth.vx, truth.vy);
+    const auto refit = refitWithHypothesis(event.propagator, geometry, material, measurements, count, work.species, truth.vx, truth.vy);
     const bool fitted = refit.status == PropagationStatus::kOk || refit.failedPass == FitPass::kNone;
     record.chi2 = refit.chi2;
     record.ndf = refit.ndf;

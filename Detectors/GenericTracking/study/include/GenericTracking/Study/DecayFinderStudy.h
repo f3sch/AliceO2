@@ -58,6 +58,7 @@
 
 #include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayCandidateFit.h"
+#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/CascadeFinder.h"
 #include "GenericTracking/Study/CharmFinder.h"
 #include "GenericTracking/Study/DecayCandidates.h"
@@ -71,8 +72,6 @@
 #include "GenericTracking/Study/StudyChains.h"
 #include "GenericTracking/Study/TruthEvent.h"
 #include "GenericTracking/Study/TruthFit.h"
-
-#include "ReconstructionDataFormats/PID.h"
 
 #include <algorithm>
 #include <array>
@@ -399,7 +398,6 @@ template <DetectorLayout Det>
 void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<const Chain> /*chains*/, ChainSource source)
 {
   using namespace decay_finder_detail;
-  using o2::track::PID;
   if (source != ChainSource::kTracks || event.tracks == nullptr || event.trees == nullptr) {
     throw std::runtime_error("decay finder study: it takes the tracker's tracks and the decay trees");
   }
@@ -408,7 +406,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   const auto& trees = *event.trees;
   const auto committed = store.tracks().view();
 
-  const std::array<PID, 3> species{PID{PID::Pion}, PID{PID::Proton}, PID{PID::Kaon}};
+  const std::array<Species, 3> species{Species::kPion, Species::kProton, Species::kKaon};
   const auto hypotheses = [] {
     auto all = finderHypotheses();
     const auto charm = charmHypotheses();
@@ -450,7 +448,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   }
 
   // The table: every combined track as a pion, a proton and a kaon.
-  DaughterTable<Det> table(std::span<const PID>{species});
+  DaughterTable<Det> table(std::span<const Species>{species});
   const auto flushStart = std::chrono::steady_clock::now();
   fillDaughterTable(table, event, "decay finder study", [&](DaughterTable<Det>& asked) {
     for (const auto& [collision, lists] : byCollision) {
@@ -510,8 +508,8 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     const std::array<const TreeParticle*, 2> legs{firstPositive ? products[0] : products[1], firstPositive ? products[1] : products[0]};
     bool matches = particleCharge(legs[0]->pdg) > 0. && particleCharge(legs[1]->pdg) < 0.;
     for (std::size_t slot = 0; slot < 2U && matches; ++slot) {
-      const auto truth = truthSpecies(legs[slot]->pdg);
-      matches = truth && truth->pid == hypotheses[static_cast<std::size_t>(h)].species[slot];
+      const auto truth = speciesOf(legs[slot]->pdg);
+      matches = truth && *truth == hypotheses[static_cast<std::size_t>(h)].species[slot];
     }
     if (!matches) {
       continue;
@@ -581,8 +579,8 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   std::unordered_map<std::uint64_t, std::size_t> charmOfLeaf;
   const auto slotsMatch = [&](const DecayHypothesis& h, std::span<const TreeParticle* const> legs) {
     for (std::size_t slot = 0; slot < legs.size(); ++slot) {
-      const auto truth = truthSpecies(legs[slot]->pdg);
-      if (!truth || truth->pid != h.species[slot] || (particleCharge(legs[slot]->pdg) > 0.) != (h.charges[slot] > 0)) {
+      const auto truth = speciesOf(legs[slot]->pdg);
+      if (!truth || *truth != h.species[slot] || (particleCharge(legs[slot]->pdg) > 0.) != (h.charges[slot] > 0)) {
         return false;
       }
     }
@@ -724,16 +722,16 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
         }
         const bool clone = fake[bachelor] == 0U && ((fake[lambda.positive] == 0U && particleOf[bachelor] == particleOf[lambda.positive]) || (fake[lambda.negative] == 0U && particleOf[bachelor] == particleOf[lambda.negative]));
         const bool trueBachelor = lambdaCascade != cascadeOfLambda.end() && fake[bachelor] == 0U && particleOf[bachelor] == cascades[lambdaCascade->second].bachelor->id;
-        const auto bachelorTruth = truthSpecies(event.particles->at(particleOf[bachelor]).pdg);
+        const auto bachelorTruth = speciesOf(event.particles->at(particleOf[bachelor]).pdg);
         for (int omega = 0; omega < 2; ++omega) {
-          const PID bachelorPid = omega != 0 ? PID{PID::Kaon} : PID{PID::Pion};
-          const auto eBachelor = table.entryOf(bachelor, static_cast<std::uint8_t>(table.speciesIndex(bachelorPid)));
+          const Species bachelorSpecies = omega != 0 ? Species::kKaon : Species::kPion;
+          const auto eBachelor = table.entryOf(bachelor, static_cast<std::uint8_t>(table.speciesIndex(bachelorSpecies)));
           const bool bachelorRefitted = entries.status[static_cast<std::size_t>(eBachelor)] == PropagationStatus::kOk;
           float s2Bachelor = s2[static_cast<std::size_t>(eBachelor)];
           for (int held = 0; held < 2; ++held) {
             const auto h = cascadeIndex(lambda.sign, omega, held);
             CascadeFinderCandidateRecord record{.timeframe = event.timeframe, .collision = collision, .sign = static_cast<std::uint8_t>(lambda.sign), .omega = static_cast<std::uint8_t>(omega), .held = static_cast<std::uint8_t>(held), .lambdaClass = v0.truthClass, .s2Positive = v0.s2Positive, .s2Negative = v0.s2Negative, .s2Bachelor = s2Bachelor, .lambdaV0Mass = v0.mass, .lambdaV0SMass = v0.sMass};
-            record.pidMatch = static_cast<std::uint8_t>(v0.pidMatch != 0U && bachelorTruth && bachelorTruth->pid == bachelorPid ? 1U : 0U);
+            record.pidMatch = static_cast<std::uint8_t>(v0.pidMatch != 0U && bachelorTruth && *bachelorTruth == bachelorSpecies ? 1U : 0U);
             record.primaries = static_cast<std::uint8_t>(v0.primaries + (isPrimary(bachelor) ? 1 : 0));
             const bool lambdaFake = v0.truthClass == static_cast<std::uint8_t>(FinderClass::kFake);
             if (lambdaFake || fake[bachelor] != 0U) {
@@ -913,7 +911,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       }
       const auto& state = entries.state[static_cast<std::size_t>(e)];
       const auto momentum = decay_fit_detail::momentumOf<double>(state.phi(), state.theta(), state.qOverP(), 1.);
-      sum.add(momentum.vector, decay_fit_detail::energyOf(momentum, hypothesis.species[slot].getMass()));
+      sum.add(momentum.vector, decay_fit_detail::energyOf(momentum, massOf(hypothesis.species[slot])));
     }
     return std::sqrt(std::max(sum.massSquared(), 0.));
   };
@@ -943,8 +941,8 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
           const auto& state = entries.state[static_cast<std::size_t>(e)];
           ptMin = std::min(ptMin, static_cast<float>(std::abs(std::sin(state.theta()) / state.qOverP())));
         }
-        const auto truth = truthSpecies(event.particles->at(particleOf[tracks[slot]]).pdg);
-        pid = pid && truth && truth->pid == hypothesis.species[slot];
+        const auto truth = speciesOf(event.particles->at(particleOf[tracks[slot]]).pdg);
+        pid = pid && truth && *truth == hypothesis.species[slot];
       }
       record.ptMin = refitted ? ptMin : CharmFinderCandidateRecord::kNaN;
       record.pidMatch = pid ? 1U : 0U;
@@ -1085,9 +1083,9 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
               const bool own = ownPair && decays[ownDecay->second].hypothesis == static_cast<int>(h);
               DecayFinderCandidateRecord record{.timeframe = event.timeframe, .collision = collision, .hypothesis = static_cast<std::uint8_t>(h), .s2Positive = s2Positive, .s2Negative = s2Negative};
               record.primaries = static_cast<std::uint8_t>((isPrimary(positive) ? 1 : 0) + (isPrimary(negative) ? 1 : 0));
-              const auto truthPositive = truthSpecies(event.particles->at(particleOf[positive]).pdg);
-              const auto truthNegative = truthSpecies(event.particles->at(particleOf[negative]).pdg);
-              record.pidMatch = static_cast<std::uint8_t>(truthPositive && truthNegative && truthPositive->pid == hypothesis.species[0] && truthNegative->pid == hypothesis.species[1] ? 1U : 0U);
+              const auto truthPositive = speciesOf(event.particles->at(particleOf[positive]).pdg);
+              const auto truthNegative = speciesOf(event.particles->at(particleOf[negative]).pdg);
+              record.pidMatch = static_cast<std::uint8_t>(truthPositive && truthNegative && *truthPositive == hypothesis.species[0] && *truthNegative == hypothesis.species[1] ? 1U : 0U);
               if (fake[positive] != 0U || fake[negative] != 0U) {
                 record.truthClass = static_cast<std::uint8_t>(FinderClass::kFake);
               } else if (sameMother) {
@@ -1308,7 +1306,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       if (lambda.rejection != LambdaRejection::kTaken) {
         return CascadeStage::kLambdaRejected;
       }
-      const auto eBachelor = table.entryOf(tracks[2], static_cast<std::uint8_t>(table.speciesIndex(cascade.omega != 0 ? PID{PID::Kaon} : PID{PID::Pion})));
+      const auto eBachelor = table.entryOf(tracks[2], static_cast<std::uint8_t>(table.speciesIndex(cascade.omega != 0 ? Species::kKaon : Species::kPion)));
       if (eBachelor < 0 || entries.status[static_cast<std::size_t>(eBachelor)] != PropagationStatus::kOk) {
         return CascadeStage::kBachelorRefitFailed;
       }
