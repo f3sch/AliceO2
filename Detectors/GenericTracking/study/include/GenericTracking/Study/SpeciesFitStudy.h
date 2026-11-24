@@ -13,8 +13,8 @@
 /// \brief A chain's rows (StudyChains.h) fitted with its particle's true
 ///        species (TruthFit.h) and held to the MC.
 ///
-/// For every chain of an electron, muon, pion, kaon or proton, every
-/// `TruthFitVariant`: a record each. Each fit's state on the chain's
+/// For every chain of a species `truthSpecies` knows (charge 2 included),
+/// every `TruthFitVariant`: a record each. Each fit's state on the chain's
 /// comparison row -- a track's row on its fitted state's surface, a truth
 /// chain's innermost row -- is held to the particle's MC crossing there
 /// (`stateTruth`); the true PID's refit (`kHypothesis`) also at the perigee
@@ -172,7 +172,7 @@ class SpeciesFitStudy
 
   [[nodiscard]] std::vector<std::string> summary() const
   {
-    return {std::format("species fit study: {} chains, {} records into {}; refused {} of another species or charge; {} without an outward state for the inward variants", mChains, mRecords, mWriter->path(), mUnsupported, mNoSeed)};
+    return {std::format("species fit study: {} chains, {} records into {}; refused {} of another species; {} without an outward state for the inward variants", mChains, mRecords, mWriter->path(), mUnsupported, mNoSeed)};
   }
 
  private:
@@ -201,7 +201,7 @@ void SpeciesFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const
     const auto& truth = event.particles->at(chain.particle);
     const auto species = truthSpecies(truth.pdg);
     const double charge = particleCharge(truth.pdg);
-    if (!species || std::lround(std::abs(charge)) != 1) {
+    if (!species) {
       ++mUnsupported;
       continue;
     }
@@ -319,7 +319,7 @@ void SpeciesFitStudy<Det>::fitChain(const TruthEvent<Det>& event, const Chain& c
       records.push_back(record);
       continue;
     }
-    fits[v] = truthFit(variant, species.mass, event.propagator, geometry, material, rows, count, outward ? *outward : BoundTrackState{});
+    fits[v] = truthFit(variant, species, event.propagator, geometry, material, rows, count, outward ? *outward : BoundTrackState{});
     record.chi2 = fits[v].chi2;
     record.ndf = fits[v].ndf;
     held(record, fits[v].status, fits[v].state);
