@@ -13,7 +13,8 @@
 /// \brief What the decay studies on the tracker's tracks share: the V0
 ///        hypotheses, the daughter table filled on the event's threads, an
 ///        entry's displacement against a reference point, a candidate's fit
-///        into a record.
+///        into a record, the fitted vertex against the true decay point, the
+///        Armenteros-Podolanski variables, a mother's rapidities.
 
 #ifndef GTRK_STUDY_DECAYSTUDYTOOLS_H_
 #define GTRK_STUDY_DECAYSTUDYTOOLS_H_
@@ -160,6 +161,89 @@ template <DetectorLayout Det>
     ahead += detail::hypothesis::planeAhead(daughter.innermost, daughter.surface, plane) ? 1 : 0;
   }
   return ahead;
+}
+
+/// The frame of a true flight from \a production to \a decay: along it,
+/// across it in the transverse plane, and the third axis (along x across).
+struct FlightFrame {
+  Vec3D along{};
+  Vec3D across{};
+  Vec3D third{};
+};
+
+[[nodiscard]] inline FlightFrame flightFrame(const Vec3D& production, const Vec3D& decay)
+{
+  FlightFrame frame{.along = {decay[0] - production[0], decay[1] - production[1], decay[2] - production[2]}};
+  const double flight = std::hypot(frame.along[0], frame.along[1], frame.along[2]);
+  for (auto& component : frame.along) {
+    component /= flight;
+  }
+  const double transverse = std::hypot(frame.along[0], frame.along[1]);
+  frame.across = transverse > 0. ? Vec3D{-frame.along[1] / transverse, frame.along[0] / transverse, 0.} : Vec3D{1., 0., 0.};
+  frame.third = crossOf(frame.along, frame.across);
+  return frame;
+}
+
+/// \a fit's root vertex less the true \a decay point of a mother made at
+/// \a production into \a record: the z difference (dZ), the transverse
+/// distance (dXY) if the record has it, and, if the record has them, the residuals and the
+/// fit's sigmas along and across the true flight (`FlightFrame`: dL, sL, dT,
+/// sT, dN, sN) for the pulls.
+template <typename Record>
+void writeVertexResiduals(Record& record, const DecayVertexFitResult& fit, const Vec3D& production, const Vec3D& decay)
+{
+  const Vec3D d{fit.vertex[0] - decay[0], fit.vertex[1] - decay[1], fit.vertex[2] - decay[2]};
+  if constexpr (requires { record.dXY; }) {
+    record.dXY = static_cast<float>(std::hypot(d[0], d[1]));
+  }
+  record.dZ = static_cast<float>(d[2]);
+  if constexpr (requires { record.dL; }) {
+    const auto frame = flightFrame(production, decay);
+    const auto project = [&](const Vec3D& axis, float& residual, float& sigma) {
+      residual = static_cast<float>(dotOf(d, axis));
+      sigma = static_cast<float>(sqrtClampedOf(decay_fit_detail::quadraticForm(axis, axis, 3, [&](int a, int b) { return fit.covarianceAt(a, b); })));
+    };
+    project(frame.along, record.dL, record.sL);
+    project(frame.across, record.dT, record.sT);
+    project(frame.third, record.dN, record.sN);
+  }
+}
+
+/// The Armenteros-Podolanski variables of a two-prong fit's daughters at
+/// their vertex, the first daughter the positive: alpha = (pL+ - pL-) /
+/// (pL+ + pL-), pL each daughter's momentum along their sum, and qT the
+/// first daughter's momentum across the sum [GeV].
+struct Armenteros {
+  float alpha = 0.F;
+  float qT = 0.F;
+};
+
+[[nodiscard]] inline Armenteros armenteros(const DecayVertexFitResult& fit)
+{
+  std::array<Vec3D, 2> p{};
+  for (std::size_t i = 0; i < p.size(); ++i) {
+    const auto& m = fit.momenta[i];
+    p[i] = decay_fit_detail::momentumOf<double>(m[0], m[1], m[2], decay_fit_detail::numeratorOf(fit.charges[i])).vector;
+  }
+  const Vec3D sum{p[0][0] + p[1][0], p[0][1] + p[1][1], p[0][2] + p[1][2]};
+  const double norm = std::sqrt(dotOf(sum, sum));
+  const double first = dotOf(p[0], sum) / norm;
+  const double second = dotOf(p[1], sum) / norm;
+  const auto across = crossOf(p[0], sum);
+  return {.alpha = static_cast<float>((first - second) / (first + second)), .qT = static_cast<float>(std::sqrt(dotOf(across, across)) / norm)};
+}
+
+/// A particle's pseudorapidity and rapidity, its \a momentum and \a mass.
+struct Rapidities {
+  float eta = 0.F;
+  float y = 0.F;
+};
+
+[[nodiscard]] inline Rapidities rapiditiesOf(const Vec3D& momentum, double mass)
+{
+  const double pt = std::hypot(momentum[0], momentum[1]);
+  const double energy = std::sqrt(dotOf(momentum, momentum) + (mass * mass));
+  return {.eta = static_cast<float>(pt > 0. ? etaOf(pt, momentum[2]) : std::copysign(std::numeric_limits<double>::infinity(), momentum[2])), .y = static_cast<float>(0.5 * std::log((energy + momentum[2]) / (energy - momentum[2])))};
 }
 
 /// \a result's fit into \a record's columns of the same names: its status

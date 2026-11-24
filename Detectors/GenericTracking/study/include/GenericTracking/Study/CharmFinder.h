@@ -177,6 +177,8 @@ struct CharmFinderDecayRecord {
   std::uint8_t hypothesis = 0U;
   float flight = 0.F; ///< the MC decay point's distance from the production point [cm]
   float pt = 0.F;
+  float eta = 0.F; ///< the mother's pseudorapidity and rapidity at production (`rapiditiesOf`)
+  float y = 0.F;
   float ptMin = 0.F;           ///< its leaves' smallest pT [GeV]
   std::uint8_t depth = 0U;     ///< resonances below it
   std::uint8_t stage = 0U;     ///< CharmStage
@@ -194,6 +196,14 @@ struct CharmFinderDecayRecord {
   float pointChi2 = kNaN;
   float dXY = kNaN;
   float dZ = kNaN;
+  /// The fitted vertex less the MC decay point along and across the true
+  /// flight, and the fit's sigmas there (`writeVertexResiduals`) [cm].
+  float dL = kNaN;
+  float sL = kNaN;
+  float dT = kNaN;
+  float sT = kNaN;
+  float dN = kNaN;
+  float sN = kNaN;
   float productionOffset = 0.F; ///< its production point's distance from its collision's vertex [cm] (a non-prompt D)
   float mcPointChi2 = kNaN;     ///< its own candidate's production chi2 at the MC collision vertex (exact)
   float qOverPPullMax = kNaN;   ///< its own tracks' refits at their first rows against the MC: the largest |q/p pull|
@@ -208,6 +218,8 @@ struct CharmFinderDecayRecord {
     visit("hypothesis", hypothesis);
     visit("flight", flight);
     visit("pt", pt);
+    visit("eta", eta);
+    visit("y", y);
     visit("ptMin", ptMin);
     visit("depth", depth);
     visit("stage", stage);
@@ -225,6 +237,12 @@ struct CharmFinderDecayRecord {
     visit("pointChi2", pointChi2);
     visit("dXY", dXY);
     visit("dZ", dZ);
+    visit("dL", dL);
+    visit("sL", sL);
+    visit("dT", dT);
+    visit("sT", sT);
+    visit("dN", dN);
+    visit("sN", sN);
     visit("productionOffset", productionOffset);
     visit("mcPointChi2", mcPointChi2);
     visit("qOverPPullMax", qOverPPullMax);

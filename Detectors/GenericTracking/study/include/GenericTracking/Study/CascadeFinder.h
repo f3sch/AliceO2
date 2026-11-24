@@ -245,6 +245,8 @@ struct CascadeFinderDecayRecord {
   float decayR = 0.F;       ///< the MC decay point's transverse radius [cm]
   float lambdaDecayR = 0.F; ///< the Lambda's
   float pt = 0.F;           ///< at production [GeV]
+  float eta = 0.F;          ///< the mother's pseudorapidity and rapidity at production (`rapiditiesOf`)
+  float y = 0.F;
   float ptPositive = 0.F;   ///< the Lambda's daughters' and the bachelor's at production [GeV]
   float ptNegative = 0.F;
   float ptBachelor = 0.F;
@@ -270,6 +272,14 @@ struct CascadeFinderDecayRecord {
   float cosPointing = kNaN;
   float dXY = kNaN; ///< the fitted cascade vertex less the MC decay point [cm]
   float dZ = kNaN;
+  /// The fitted vertex less the MC decay point along and across the true
+  /// flight, and the fit's sigmas there (`writeVertexResiduals`) [cm].
+  float dL = kNaN;
+  float sL = kNaN;
+  float dT = kNaN;
+  float sT = kNaN;
+  float dN = kNaN;
+  float sN = kNaN;
   std::uint8_t mcRows = 0U;     ///< the cascade's own rows in the MC (its chain's)
   std::uint8_t motherRows = 0U; ///< its own candidate's (held): rows found, and of those its own
   std::uint8_t motherTrue = 0U;
@@ -288,6 +298,8 @@ struct CascadeFinderDecayRecord {
     visit("decayR", decayR);
     visit("lambdaDecayR", lambdaDecayR);
     visit("pt", pt);
+    visit("eta", eta);
+    visit("y", y);
     visit("ptPositive", ptPositive);
     visit("ptNegative", ptNegative);
     visit("ptBachelor", ptBachelor);
@@ -313,6 +325,12 @@ struct CascadeFinderDecayRecord {
     visit("cosPointing", cosPointing);
     visit("dXY", dXY);
     visit("dZ", dZ);
+    visit("dL", dL);
+    visit("sL", sL);
+    visit("dT", dT);
+    visit("sT", sT);
+    visit("dN", dN);
+    visit("sN", sN);
     visit("mcRows", mcRows);
     visit("motherRows", motherRows);
     visit("motherTrue", motherTrue);

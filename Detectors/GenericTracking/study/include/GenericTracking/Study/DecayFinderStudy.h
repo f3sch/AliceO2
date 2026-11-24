@@ -41,7 +41,7 @@
 /// observables. One per MC V0 decaying into its two charged daughters
 /// (`DecayFinderDecayRecord`, a second file beside the first, `-decays`):
 /// the first stage that lost it, its legs' S^2 under their true species,
-/// its own candidate's fit.
+/// its own candidate's fit and its vertex against the MC decay point.
 ///
 /// Cascades (CascadeFinder.h): the Lambda candidates of the pairs that
 /// `DecayParam` (GTRKDecay) selects, each with every bachelor of its
@@ -150,6 +150,8 @@ struct DecayFinderCandidateRecord {
   float length = std::numeric_limits<float>::quiet_NaN(); ///< the flight from the point [cm]; NaN without a point
   float sLength = std::numeric_limits<float>::quiet_NaN();
   float cosPointing = std::numeric_limits<float>::quiet_NaN();
+  float alpha = std::numeric_limits<float>::quiet_NaN(); ///< the fit's Armenteros-Podolanski variables (`armenteros`); NaN unfitted
+  float qT = std::numeric_limits<float>::quiet_NaN();    ///< [GeV]
   std::uint8_t ahead = 0U; ///< its legs whose first measurement lies behind the fitted vertex (`leavesAhead`)
   float microseconds = 0.F;
 
@@ -183,6 +185,8 @@ struct DecayFinderCandidateRecord {
     visit("length", length);
     visit("sLength", sLength);
     visit("cosPointing", cosPointing);
+    visit("alpha", alpha);
+    visit("qT", qT);
     visit("ahead", ahead);
     visit("microseconds", microseconds);
   }
@@ -196,6 +200,8 @@ struct DecayFinderDecayRecord {
   std::int32_t pdg = 0;
   float decayR = 0.F;     ///< the MC decay point's transverse radius [cm]
   float pt = 0.F;         ///< the mother's at production [GeV]
+  float eta = 0.F;    ///< the mother's pseudorapidity and rapidity at production (`rapiditiesOf`)
+  float y = 0.F;
   float ptPositive = 0.F; ///< the daughters' at production [GeV]
   float ptNegative = 0.F;
   std::uint8_t stage = 0U; ///< FinderStage
@@ -209,8 +215,18 @@ struct DecayFinderDecayRecord {
   float length = std::numeric_limits<float>::quiet_NaN();
   float sLength = std::numeric_limits<float>::quiet_NaN();
   float cosPointing = std::numeric_limits<float>::quiet_NaN();
+  float alpha = std::numeric_limits<float>::quiet_NaN(); ///< its own candidate's Armenteros-Podolanski variables (`armenteros`)
+  float qT = std::numeric_limits<float>::quiet_NaN();    ///< [GeV]
   float dXY = 0.F; ///< the fitted vertex's transverse distance from the MC decay point [cm]
   float dZ = 0.F;
+  /// The fitted vertex less the MC decay point along and across the true
+  /// flight, and the fit's sigmas there (`writeVertexResiduals`) [cm].
+  float dL = std::numeric_limits<float>::quiet_NaN();
+  float sL = std::numeric_limits<float>::quiet_NaN();
+  float dT = std::numeric_limits<float>::quiet_NaN();
+  float sT = std::numeric_limits<float>::quiet_NaN();
+  float dN = std::numeric_limits<float>::quiet_NaN();
+  float sN = std::numeric_limits<float>::quiet_NaN();
   float opening = 0.F; ///< the daughters' MC opening angle at production [rad]
   /// Its own legs' tracks (both found): their rows; with their refits under
   /// the true species, those refits' innermost states against the MC
@@ -244,6 +260,8 @@ struct DecayFinderDecayRecord {
     visit("pdg", pdg);
     visit("decayR", decayR);
     visit("pt", pt);
+    visit("eta", eta);
+    visit("y", y);
     visit("ptPositive", ptPositive);
     visit("ptNegative", ptNegative);
     visit("stage", stage);
@@ -257,8 +275,16 @@ struct DecayFinderDecayRecord {
     visit("length", length);
     visit("sLength", sLength);
     visit("cosPointing", cosPointing);
+    visit("alpha", alpha);
+    visit("qT", qT);
     visit("dXY", dXY);
     visit("dZ", dZ);
+    visit("dL", dL);
+    visit("sL", sL);
+    visit("dT", dT);
+    visit("sT", sT);
+    visit("dN", dN);
+    visit("sN", sN);
     visit("opening", opening);
     visit("rowsPositive", rowsPositive);
     visit("wrongPositive", wrongPositive);
@@ -492,9 +518,10 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     }
     const auto& decayPoint = products.front()->vertex;
     const auto& p = member.momentum;
+    const auto rapidities = rapiditiesOf(p, particleMass(member.pdg));
     decayOfLeg.emplace(legs[0]->id, decays.size());
     decayOfLeg.emplace(legs[1]->id, decays.size());
-    decays.push_back({.mother = &member, .legs = legs, .hypothesis = h, .record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .decayR = static_cast<float>(std::hypot(decayPoint[0], decayPoint[1])), .pt = static_cast<float>(std::hypot(p[0], p[1])), .ptPositive = static_cast<float>(std::hypot(legs[0]->momentum[0], legs[0]->momentum[1])), .ptNegative = static_cast<float>(std::hypot(legs[1]->momentum[0], legs[1]->momentum[1]))}});
+    decays.push_back({.mother = &member, .legs = legs, .hypothesis = h, .record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .decayR = static_cast<float>(std::hypot(decayPoint[0], decayPoint[1])), .pt = static_cast<float>(std::hypot(p[0], p[1])), .eta = rapidities.eta, .y = rapidities.y, .ptPositive = static_cast<float>(std::hypot(legs[0]->momentum[0], legs[0]->momentum[1])), .ptNegative = static_cast<float>(std::hypot(legs[1]->momentum[0], legs[1]->momentum[1]))}});
   }
   // The MC cascades into a Lambda (an MC V0 above) and a charged pion
   // (Xi) or kaon (Omega), by Lambda and by bachelor.
@@ -531,9 +558,10 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       continue;
     }
     const auto& p = member.momentum;
+    const auto rapidities = rapiditiesOf(p, particleMass(member.pdg));
     const auto& l = decays[found->second].legs;
     cascadeOfLambda.emplace(lambda->id, cascades.size());
-    cascades.push_back({.mother = &member, .lambda = found->second, .bachelor = bachelor, .sign = sign, .omega = omega, .record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .decayR = static_cast<float>(std::hypot(lambda->vertex[0], lambda->vertex[1])), .lambdaDecayR = decays[found->second].record.decayR, .pt = static_cast<float>(std::hypot(p[0], p[1])), .ptPositive = static_cast<float>(std::hypot(l[0]->momentum[0], l[0]->momentum[1])), .ptNegative = static_cast<float>(std::hypot(l[1]->momentum[0], l[1]->momentum[1])), .ptBachelor = static_cast<float>(std::hypot(bachelor->momentum[0], bachelor->momentum[1]))}});
+    cascades.push_back({.mother = &member, .lambda = found->second, .bachelor = bachelor, .sign = sign, .omega = omega, .record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .decayR = static_cast<float>(std::hypot(lambda->vertex[0], lambda->vertex[1])), .lambdaDecayR = decays[found->second].record.decayR, .pt = static_cast<float>(std::hypot(p[0], p[1])), .eta = rapidities.eta, .y = rapidities.y, .ptPositive = static_cast<float>(std::hypot(l[0]->momentum[0], l[0]->momentum[1])), .ptNegative = static_cast<float>(std::hypot(l[1]->momentum[0], l[1]->momentum[1])), .ptBachelor = static_cast<float>(std::hypot(bachelor->momentum[0], bachelor->momentum[1]))}});
   }
   std::unordered_map<std::uint64_t, std::size_t> cascadeOfBachelor;
   for (std::size_t i = 0; i < cascades.size(); ++i) {
@@ -590,7 +618,8 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       charmOfLeaf.emplace(leg->id, charms.size());
     }
     const auto& decayPoint = decayPointOf(trees, member);
-    charm.record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .hypothesis = static_cast<std::uint8_t>(k), .flight = static_cast<float>(std::hypot(decayPoint[0] - member.vertex[0], decayPoint[1] - member.vertex[1], decayPoint[2] - member.vertex[2])), .pt = static_cast<float>(std::hypot(member.momentum[0], member.momentum[1])), .ptMin = ptMin, .depth = shape.depth};
+    const auto rapidities = rapiditiesOf(member.momentum, particleMass(member.pdg));
+    charm.record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .hypothesis = static_cast<std::uint8_t>(k), .flight = static_cast<float>(std::hypot(decayPoint[0] - member.vertex[0], decayPoint[1] - member.vertex[1], decayPoint[2] - member.vertex[2])), .pt = static_cast<float>(std::hypot(member.momentum[0], member.momentum[1])), .eta = rapidities.eta, .y = rapidities.y, .ptMin = ptMin, .depth = shape.depth};
     if (const auto mc = event.collisions->find(collisionOf(member.id)); mc != event.collisions->end()) {
       charm.record.productionOffset = static_cast<float>(std::hypot(member.vertex[0] - mc->second[0], member.vertex[1] - mc->second[1], member.vertex[2] - mc->second[2]));
     }
@@ -831,8 +860,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
               auto& cascade = cascades[lambdaCascade->second];
               const auto& decayPoint = decayPointOf(trees, *cascade.mother);
               if (fitted) {
-                record.dXY = static_cast<float>(std::hypot(result.fit.vertex[0] - decayPoint[0], result.fit.vertex[1] - decayPoint[1]));
-                record.dZ = static_cast<float>(result.fit.vertex[2] - decayPoint[2]);
+                writeVertexResiduals(record, result.fit, cascade.mother->vertex, decayPoint);
               }
               auto& d = cascade.record;
               if (record.truthClass == static_cast<std::uint8_t>(CascadeClass::kTrue) && held != 0 && fitted) {
@@ -845,8 +873,9 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
                 d.s2Bachelor = s2Bachelor;
                 if (held != 0) {
                   writeCandidateFit(d, result);
-                  d.dXY = record.dXY;
-                  d.dZ = record.dZ;
+                  if (fitted) {
+                    writeVertexResiduals(d, result.fit, cascade.mother->vertex, decayPoint);
+                  }
                   d.motherRows = record.motherRows;
                   d.motherTrue = record.motherTrue;
                   d.trackedStatus = record.trackedStatus;
@@ -973,9 +1002,8 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
           }
         }
         if (record.truthClass == static_cast<std::uint8_t>(CharmClass::kTrue) || record.truthClass == static_cast<std::uint8_t>(CharmClass::kReflection)) {
-          const auto& decayPoint = decayPointOf(trees, *trees.find(record.mother));
-          record.dXY = static_cast<float>(std::hypot(result.fit.vertex[0] - decayPoint[0], result.fit.vertex[1] - decayPoint[1]));
-          record.dZ = static_cast<float>(result.fit.vertex[2] - decayPoint[2]);
+          const auto* mother = trees.find(record.mother);
+          writeVertexResiduals(record, result.fit, mother->vertex, decayPointOf(trees, *mother));
         }
       }
       if (record.truthClass == static_cast<std::uint8_t>(CharmClass::kTrue) && fitted) {
@@ -988,8 +1016,9 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
         auto& d = charm.record;
         writeCandidateFit(d, result);
         d.pointChi2 = record.pointChi2;
-        d.dXY = record.dXY;
-        d.dZ = record.dZ;
+        if (fitted) {
+          writeVertexResiduals(d, result.fit, charm.mother->vertex, decayPointOf(trees, *charm.mother));
+        }
         if (const auto mc = event.collisions->find(collision); fitted && mc != event.collisions->end()) {
           const MeasuredPoint exact{.position = mc->second};
           DecayCandidateResult made;
@@ -1105,6 +1134,9 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
               if (result.fit.status == VertexFitStatus::kOk) {
                 record.radius = static_cast<float>(std::hypot(result.fit.vertex[0], result.fit.vertex[1]));
                 record.ahead = static_cast<std::uint8_t>(leavesAhead(candidate, allHypotheses, daughters, result));
+                const auto ap = armenteros(result.fit);
+                record.alpha = ap.alpha;
+                record.qT = ap.qT;
               }
               const auto rejection = h == 0 ? LambdaRejection::kNotFitted : rejectionOf(record, record.ahead);
               if (own && h != 0) {
@@ -1119,9 +1151,9 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
                 d.s2Positive = s2Positive;
                 d.s2Negative = s2Negative;
                 if (result.fit.status == VertexFitStatus::kOk) {
-                  const auto& decayPoint = decayPointOf(trees, *decay.mother);
-                  d.dXY = static_cast<float>(std::hypot(result.fit.vertex[0] - decayPoint[0], result.fit.vertex[1] - decayPoint[1]));
-                  d.dZ = static_cast<float>(result.fit.vertex[2] - decayPoint[2]);
+                  writeVertexResiduals(d, result.fit, decay.mother->vertex, decayPointOf(trees, *decay.mother));
+                  d.alpha = record.alpha;
+                  d.qT = record.qT;
                 }
               }
               out.push_back(record);

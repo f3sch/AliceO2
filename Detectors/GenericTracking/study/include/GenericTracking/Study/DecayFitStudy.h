@@ -859,21 +859,8 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         }
       }
       const double pTotal = std::hypot(pTrue[0], pTrue[1], pTrue[2]);
-      // The flight's frame: along it, across it in the transverse plane, and
-      // the third axis.
-      Vec3D along{decay[0] - mother.vertex[0], decay[1] - mother.vertex[1], decay[2] - mother.vertex[2]};
-      const double flight = std::hypot(along[0], along[1], along[2]);
-      for (auto& component : along) {
-        component /= flight;
-      }
-      Vec3D across{-along[1], along[0], 0.};
-      const double acrossNorm = std::hypot(across[0], across[1]);
-      if (acrossNorm > 0.) {
-        across = {across[0] / acrossNorm, across[1] / acrossNorm, 0.};
-      } else {
-        across = {1., 0., 0.};
-      }
-      const Vec3D third = crossOf(along, across);
+      const double flight = std::hypot(decay[0] - mother.vertex[0], decay[1] - mother.vertex[1], decay[2] - mother.vertex[2]);
+      const Vec3D across = flightFrame(mother.vertex, decay).across;
 
       DecayFitRecord base{
         .timeframe = event.timeframe,
@@ -1190,20 +1177,12 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         record.chi2 = static_cast<float>(fit.chi2);
         record.ndf = static_cast<std::int16_t>(fit.ndf);
         record.maxCarryX2X0 = static_cast<float>(*std::ranges::max_element(fit.carryX2X0));
-        const Vec3D d{fit.vertex[0] - decay[0], fit.vertex[1] - decay[1], fit.vertex[2] - decay[2]};
-        record.dX = static_cast<float>(d[0]);
-        record.dY = static_cast<float>(d[1]);
-        record.dZ = static_cast<float>(d[2]);
+        record.dX = static_cast<float>(fit.vertex[0] - decay[0]);
+        record.dY = static_cast<float>(fit.vertex[1] - decay[1]);
         record.sX = static_cast<float>(std::sqrt(at(0, 0)));
         record.sY = static_cast<float>(std::sqrt(at(1, 1)));
         record.sZ = static_cast<float>(std::sqrt(at(2, 2)));
-        const auto project = [&](const Vec3D& axis, float& residual, float& sigma) {
-          residual = static_cast<float>(dotOf(d, axis));
-          sigma = static_cast<float>(sqrtClampedOf(quadraticForm(axis, axis, 3, at)));
-        };
-        project(along, record.dL, record.sL);
-        project(across, record.dT, record.sT);
-        project(third, record.dN, record.sN);
+        writeVertexResiduals(record, fit, mother.vertex, decay);
         const auto fitted = fitKinematics(fit, fitMasses);
         record.mass = static_cast<float>(fitted.mass);
         record.sMass = static_cast<float>(fitted.sMass);
