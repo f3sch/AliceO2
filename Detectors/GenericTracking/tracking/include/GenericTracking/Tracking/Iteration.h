@@ -413,6 +413,11 @@ struct IterationParameters {
   std::uint16_t allOutLinkIndices[kLinkCount]{};
   std::uint32_t allInLinkOffsets[kLayerCount + 1U]{};
   std::uint16_t allInLinkIndices[kLinkCount]{};
+  /// Per layer, the layers one link of the layout -- every link, not only
+  /// the follow's -- reaches from it outward and inward, a bit each (the
+  /// join's and the inactive rows' reach).
+  std::uint64_t layerLinksOut[kLayerCount]{};
+  std::uint64_t layerLinksIn[kLayerCount]{};
   /// `IterationSettings::followEndMaxSqrtDet` and `followKeepDensity`.
   Scalar followEndMaxSqrtDet = 0.F;
   Scalar followKeepDensity = 0.F;
@@ -642,6 +647,8 @@ template <DetectorLayout Det>
     const auto& pair = Det::layerLinks[link];
     parameters.linkSources[link] = pair.from;
     parameters.linkTargets[link] = pair.to;
+    parameters.layerLinksOut[pair.from] |= std::uint64_t{1} << pair.to;
+    parameters.layerLinksIn[pair.to] |= std::uint64_t{1} << pair.from;
     if (alike != nullptr) {
       parameters.windows[link] = alike->windows[link];
       parameters.betweenBound[link] = alike->betweenBound[link];

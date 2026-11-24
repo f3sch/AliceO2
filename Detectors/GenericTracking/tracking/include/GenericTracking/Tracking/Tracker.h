@@ -935,7 +935,7 @@ class Tracker
   {
     auto& tracks = mRefit.tracks();
     const auto forEach = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(static_cast<Index>(count)))(static_cast<Index>(count), body); };
-    auto status = mJoin.run(forEach, [&](std::size_t iteration) -> const IterationParameters<Det>& { return mIterations[iteration]; }, frame, *mGeometry, mPropagator, tracks, trackOffset, plan.layerMaxWidthPS);
+    auto status = mJoin.run(forEach, mIterations.data(), frame, *mGeometry, mPropagator, tracks, trackOffset, plan.layerMaxWidthPS);
     joined = mJoin.joined().size();
     if (status != StageStatus::kComplete || joined == 0U) {
       return status;
