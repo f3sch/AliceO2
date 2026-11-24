@@ -812,12 +812,19 @@ class Tracker
       summary.status = joinTracks(frame, plan, trackOffset, followed, started, summary.tracksJoined);
     }
     if constexpr (Detector<Det>::inactiveLayers != 0U) {
+      const auto joined = summary.tracksJoined != 0U ? mJoin.changed() : std::span<const std::uint32_t>{};
+      if (summary.status == StageStatus::kComplete) {
+        summary.status = gatherInactiveCandidates(trackOffset, joined);
+      }
       if (summary.status == StageStatus::kComplete) {
         const profile::Zone zone{Phase::kInactiveRows};
-        summary.status = inactiveRows(iteration, frame, plan, trackOffset, summary.tracksJoined != 0U ? mJoin.changed() : std::span<const std::uint32_t>{}, summary.inactiveRows);
+        const auto forEach = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(static_cast<Index>(count)))(static_cast<Index>(count), body); };
+        summary.status = mInactiveRows.run(forEach, mIterations[iteration], frame, *mGeometry, mPropagator, mRefit.tracks(), std::span<const std::uint32_t>{mInactiveCandidates}, std::span<std::uint8_t>{mUsed}, plan.layerMaxWidthPS, mSensorCells.view());
+        summary.inactiveRows = mInactiveRows.changed().size();
       }
     }
-    if (summary.status == StageStatus::kComplete && (summary.tracksJoined != 0U || (!mInactiveRows.changed().empty() && mInactiveRows.changed().front() < trackOffset))) {
+    const auto changedEarlier = [&](std::span<const std::uint32_t> changed) { return !changed.empty() && changed.front() < trackOffset; };
+    if (summary.status == StageStatus::kComplete && (summary.tracksJoined != 0U || changedEarlier(mInactiveRows.changed()))) {
       // The earlier tracks the join or the inactive rows changed, committed again.
       summary.status = mStore.recommitChanged(spreadForEach(), spreadChunk(static_cast<Index>(mStore.size())), std::as_const(mRefit).tracks(), mChangedTracks);
     }
@@ -950,15 +957,13 @@ class Tracker
     return status;
   }
 
-  /// The inactive layers' rows (InactiveRows.h) for the iteration's tracks
-  /// from \a trackOffset on and the earlier ones the join changed
-  /// (\a joined); how many
-  /// took one into \a taken.
-  [[nodiscard]] StageStatus inactiveRows(std::size_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset, std::span<const std::uint32_t> joined, std::size_t& taken)
+  /// The candidates of the inactive layers' rows: the earlier tracks the
+  /// join changed (\a joined, ascending), then the tracks from
+  /// \a trackOffset on.
+  [[nodiscard]] StageStatus gatherInactiveCandidates(std::uint32_t trackOffset, std::span<const std::uint32_t> joined)
   {
-    auto& tracks = mRefit.tracks();
-    auto status = guardOutOfMemory([&] {
-      const auto own = static_cast<std::uint32_t>(tracks.size()) - trackOffset;
+    return guardOutOfMemory([&] {
+      const auto own = static_cast<std::uint32_t>(mRefit.size()) - trackOffset;
       resizeBoundedVector(mInactiveCandidates, joined.size() + own, mMemoryPool.get());
       std::ranges::copy(joined, mInactiveCandidates.begin());
       for (std::uint32_t at = 0; at < own; ++at) {
@@ -966,13 +971,6 @@ class Tracker
       }
       return StageStatus::kComplete;
     });
-    if (status != StageStatus::kComplete) {
-      return status;
-    }
-    const auto forEach = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(static_cast<Index>(count)))(static_cast<Index>(count), body); };
-    status = mInactiveRows.run(forEach, mIterations[iteration], frame, *mGeometry, mPropagator, tracks, std::span<const std::uint32_t>{mInactiveCandidates}, std::span<std::uint8_t>{mUsed}, plan.layerMaxWidthPS);
-    taken = mInactiveRows.changed().size();
-    return status;
   }
 
   /// The tracks from \a trackOffset on, of them only those `mKeptTracks`

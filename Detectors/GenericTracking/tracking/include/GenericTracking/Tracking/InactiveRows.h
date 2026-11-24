@@ -29,7 +29,12 @@
 /// either; of them the one whose insertion raises the whole track's refit
 /// chi2 least, kept where that rise -- the row's chi2 against the track
 /// fitted on both sides -- is within the gate and the refit passes the
-/// road's cut. A row two tracks want goes to the smaller rise (ties by the
+/// road's cut. A track whose walk ended short of a barrel inactive layer
+/// looks the same way beyond its outermost row, in the window of its outward
+/// state alone, where its walk can have ended only for lack of a sensor: the
+/// inactive layer is the next one it crosses, or one active layer lies
+/// between whose gate is not wholly on silicon (a gap the particle may have
+/// crossed). A row two tracks want goes to the smaller rise (ties by the
 /// track's index).
 
 #ifndef GTRK_TRACKING_INACTIVEROWS_H_
@@ -42,6 +47,7 @@
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/RoadFit.h"
+#include "GenericTracking/Tracking/SensorCells.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
 
@@ -77,7 +83,7 @@ class InactiveRows
   /// candidates bound by \a maxCandidateWidthPS: the tracks that took a row
   /// rewritten and listed (`changed`, ascending), their rows marked used.
   template <typename ForEach>
-  [[nodiscard]] StageStatus run(ForEach forEach, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, Tracks& tracks, std::span<const std::uint32_t> candidates, std::span<std::uint8_t> used, std::span<const std::uint32_t, kLayerCount> maxCandidateWidthPS)
+  [[nodiscard]] StageStatus run(ForEach forEach, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, Tracks& tracks, std::span<const std::uint32_t> candidates, std::span<std::uint8_t> used, std::span<const std::uint32_t, kLayerCount> maxCandidateWidthPS, SensorCellsView cells)
   {
     if constexpr (Detector<Det>::inactiveLayers == 0U) {
       resizeBoundedVector(mChanged, 0U, mMemoryPool.get());
@@ -88,7 +94,7 @@ class InactiveRows
         const auto count = static_cast<std::uint32_t>(candidates.size());
         resizeBoundedVector(mChoices, count, mMemoryPool.get());
         const follow::StepContext<Det> context{.parameters = &parameters, .frame = &frame, .geometry = &geometry, .propagator = &propagator, .used = used.data()};
-        forEach(count, [&](std::uint32_t at) { mChoices[at] = choose(context, view, candidates[at], maxCandidateWidthPS); });
+        forEach(count, [&](std::uint32_t at) { mChoices[at] = choose(context, view, candidates[at], maxCandidateWidthPS, cells); });
         // A row two tracks want to the smaller rise: by row, then rise, then track.
         std::uint32_t chosen = 0U;
         for (const auto& choice : mChoices) {
@@ -161,7 +167,7 @@ class InactiveRows
 
   /// \a track's row on the first inactive layer it straddles without one.
   template <typename View>
-  [[nodiscard]] Choice choose(const follow::StepContext<Det>& context, const View& view, std::uint32_t track, std::span<const std::uint32_t, kLayerCount> maxCandidateWidthPS) const
+  [[nodiscard]] Choice choose(const follow::StepContext<Det>& context, const View& view, std::uint32_t track, std::span<const std::uint32_t, kLayerCount> maxCandidateWidthPS, SensorCellsView cells) const
   {
     Choice best;
     const auto& parameters = *context.parameters;
@@ -271,7 +277,131 @@ class InactiveRows
         return best;
       }
     }
+    // Beyond the outermost row: the walk ended for lack of a sensor only.
+    if constexpr (Detector<Det>::hasBarrel) {
+      const LayerID lastLayer = geometry.surface(frame.measurements().surface[rows.index[n - 1U]]).layer;
+      if (Detector<Det>::isBarrelLayer(lastLayer)) {
+        const Scalar lastPosition = parameters.layerSpans[lastLayer].position;
+        for (std::uint64_t left = Detector<Det>::inactiveLayers & parameters.followLayers & ~held; left != 0U; left &= left - 1U) {
+          const auto layer = static_cast<LayerID>(std::countr_zero(left));
+          if (!Detector<Det>::isBarrelLayer(layer) || !(parameters.layerSpans[layer].position > lastPosition)) {
+            continue;
+          }
+          int between = 0;
+          bool certain = false;
+          for (int other = 0; other < static_cast<int>(Detector<Det>::nBarrelLayers); ++other) {
+            const auto position = parameters.layerSpans[other].position;
+            if (Detector<Det>::isInactiveLayer(static_cast<LayerID>(other)) || ((parameters.followLayers >> other) & 1U) == 0U || !(position > lastPosition) || !(position < parameters.layerSpans[layer].position)) {
+              continue;
+            }
+            ++between;
+            certain = certain || certainCrossing(parameters, geometry, propagator, cells, view.outwardState[track], static_cast<LayerID>(other));
+          }
+          if (between > 1 || certain) {
+            continue;
+          }
+          const auto plain = refit(parameters, frame, geometry, propagator, rows, static_cast<std::uint8_t>(n), view.kinks[track]);
+          const BoundTrackState& state = view.outwardState[track];
+          const auto prediction = predictLayerCrossing(propagator, parameters, geometry.planeOf(state), state, layer, PropagationDirection::kForward);
+          if (plain.status != PropagationStatus::kOk || prediction.status != PropagationStatus::kOk) {
+            continue;
+          }
+          const TimeEstPS box{.start = view.timePS[track], .width = view.widthPS[track]};
+          Scalar phiCentre = 0.F;
+          Scalar secondCentre = 0.F;
+          follow::windowCentre(parameters, layer, prediction, phiCentre, secondCentre);
+          CandidateWindow window{.earliestPS = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(maxCandidateWidthPS[layer]) + 1, .latestPS = static_cast<std::int64_t>(box.upper()) - 1, .afterPS = box.lower(), .phiCentre = phiCentre, .phiHalfWidth = kPi<Scalar>, .secondCentre = secondCentre, .secondHalfWidth = follow::kOpenBound};
+          const auto factors = factorCovariance(state.cov);
+          detail::StepMaterial traversed;
+          if (!follow::predictedWindow(propagator, parameters, geometry, detail::LinkSteps{}, state, factors, layer, PropagationDirection::kForward, prediction, window, nullptr, &traversed)) {
+            continue;
+          }
+          ClusterList<kMaxClusters> with = rows;
+          follow::visitInline<false, false, false, false>(
+            context, state, factors, 0.F, 0.F, layer, PropagationDirection::kForward, window, traversed, 0U, WorkCounter::kFollowUpdates, SoloGroup{}, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},
+            [&](const auto& candidate) {
+              with.index[n] = candidate.row;
+              const auto fit = refit(parameters, frame, geometry, propagator, with, static_cast<std::uint8_t>(n + 1U), view.kinks[track]);
+              const Scalar rise = fit.chi2 - plain.chi2;
+              if (follow::passesRoadChi2(parameters, fit) && rise <= parameters.clusterChi2Max && (best.row == kNone || rise < best.rise)) {
+                best = {.row = candidate.row, .at = n, .rise = rise};
+              }
+            });
+          return best;
+        }
+      }
+    }
     return best;
+  }
+
+  /// Whether \a state crosses a sensor of \a layer forward with every
+  /// crossing its gate admits on silicon (the four corners of the gate's
+  /// spread about the crossing, along the track's direction there).
+  [[nodiscard]] static bool certainCrossing(const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, const Propagator& propagator, SensorCellsView cells, const BoundTrackState& state, LayerID layer)
+  {
+    using Math = o2::gpu::CAMath;
+    const auto direction = PropagationDirection::kForward;
+    const auto& from = geometry.planeOf(state);
+    const auto prediction = predictLayerCrossing(propagator, parameters, from, state, layer, direction);
+    if (prediction.status != PropagationStatus::kOk) {
+      return false;
+    }
+    CandidateWindow window{.phiHalfWidth = kPi<Scalar>, .secondHalfWidth = follow::kOpenBound};
+    follow::windowCentre(parameters, layer, prediction, window.phiCentre, window.secondCentre);
+    Scalar reach[2]{};
+    if (!follow::predictedWindow(propagator, parameters, geometry, detail::LinkSteps{}, state, factorCovariance(state.cov), layer, direction, prediction, window, reach)) {
+      return false;
+    }
+    Scalar point[3]{};
+    follow::crossingPoint(parameters, layer, prediction, point);
+    const auto& carrier = pointPropagator(propagator, from, state);
+    const Scalar curvature = state.qOverP() * carrier.bzKiloGauss * static_cast<Scalar>(constants::math::B2C);
+    Scalar landing[3]{};
+    Scalar heading[3]{};
+    const bool crossed = cells.anySensor(layer, prediction.phi, reach[0], prediction.second, reach[1], [&](std::uint32_t id) {
+      const TrackingSurface plane = geometry.planeAt(static_cast<SensorID>(id), point);
+      BoundParameters at = state;
+      const auto result = propagate<CrossingRule::kFirstAhead, Scalar>(carrier, at, from, plane, direction);
+      if (result.status != PropagationStatus::kOk || follow::beyondHalfTurn(curvature * result.pathLength)) {
+        return false;
+      }
+      surfaceToGlobal(plane, at.loc0(), at.loc1(), landing);
+      Scalar sinPhi = 0.F;
+      Scalar cosPhi = 0.F;
+      Scalar sinTheta = 0.F;
+      Scalar cosTheta = 0.F;
+      sincosOf(at.phi(), sinPhi, cosPhi);
+      sincosOf(at.theta(), sinTheta, cosTheta);
+      heading[0] = sinTheta * cosPhi;
+      heading[1] = sinTheta * sinPhi;
+      heading[2] = cosTheta;
+      return true;
+    });
+    if (!crossed) {
+      return false;
+    }
+    const Scalar phiSpread = Math::Max(window.phiHalfWidth - reach[0], 0.F);
+    const Scalar secondSpread = Math::Max(window.secondHalfWidth - reach[1], 0.F);
+    const Scalar radius = Math::Sqrt((landing[0] * landing[0]) + (landing[1] * landing[1]));
+    const Scalar phi = Math::ATan2(landing[1], landing[0]);
+    for (int corner = 0; corner < 4; ++corner) {
+      const Scalar phiAt = phi + ((corner & 1) != 0 ? phiSpread : -phiSpread);
+      const Scalar zAt = landing[2] + ((corner & 2) != 0 ? secondSpread : -secondSpread);
+      Scalar sinPhi = 0.F;
+      Scalar cosPhi = 0.F;
+      sincosOf(phiAt, sinPhi, cosPhi);
+      const Scalar at[3] = {radius * cosPhi, radius * sinPhi, zAt};
+      const bool onSensor = cells.anySensor(layer, phiAt, reach[0], zAt, reach[1], [&](std::uint32_t id) {
+        const TrackingSurface plane = geometry.planeAt(static_cast<SensorID>(id), at);
+        Scalar step = 0.F;
+        Scalar loc[2]{};
+        return lineCrossing(plane, at, heading, step, loc) && plane.bounds.isInside(loc[0], loc[1]);
+      });
+      if (!onSensor) {
+        return false;
+      }
+    }
+    return true;
   }
 
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
