@@ -4334,7 +4334,7 @@ class MeasurementSinkTask : public Task
       return v;
     };
     const double sinTheta = std::abs(std::sin(static_cast<double>(state.theta())));
-    const Scalar momentum = 1.F / std::abs(state.qOverP());
+    const Scalar momentum = propagator.momentum(state.qOverP());
     entry.dca = {predicted.loc0(), static_cast<float>(static_cast<double>(predicted.loc1()) - header.GetZ())};
     entry.dcaSigma = {static_cast<float>(sqrtClampedOf(variance(jacobian.loc0))), static_cast<float>(sqrtClampedOf(variance(jacobian.loc1)))};
     {
@@ -4343,7 +4343,7 @@ class MeasurementSinkTask : public Task
       // the track's own momentum.
       const auto& beam = mInterface.beamLine();
       const auto point = pairPointAt(frame.measurements(), row);
-      const Scalar variance = beamScattering(mInterface.linkMaterial(), surface.layer, static_cast<Scalar>(beam.x), static_cast<Scalar>(beam.y), static_cast<Scalar>(header.GetZ()), point, momentum, propagator.massGeV, static_cast<Scalar>(sinTheta));
+      const Scalar variance = beamScattering(mInterface.linkMaterial(), surface.layer, static_cast<Scalar>(beam.x), static_cast<Scalar>(beam.y), static_cast<Scalar>(header.GetZ()), point, momentum, propagator.massGeV, propagator.absCharge, static_cast<Scalar>(sinTheta));
       entry.dcaScattering = {std::sqrt(variance), static_cast<float>(static_cast<double>(std::sqrt(variance)) / sinTheta)};
       PairCut ownMomentum;
       const Scalar betaPT = betaMomentum(momentum, propagator.massGeV) * static_cast<Scalar>(sinTheta);

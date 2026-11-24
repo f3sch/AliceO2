@@ -222,15 +222,15 @@ struct DaughterSource {
 };
 
 /// Daughter-table entry \a e of \a source as the fit takes it: its state,
-/// its plane, the field with its species' mass, an electron's mixture.
+/// its plane, the field with its species' mass and |q|, an electron's mixture.
 template <DetectorLayout Det>
 [[nodiscard]] DecayDaughter daughterOf(const DaughterSource<Det>& source, std::uint32_t e)
 {
   const auto view = source.table->view();
   const auto pid = source.table->species()[view.species[e]];
   auto propagator = source.propagator;
-  propagator.massGeV = pid.getMass();
-  DecayDaughter daughter{.innermost = view.state[e], .surface = source.innermostPlane(view.track[e]), .propagator = propagator, .mass = propagator.massGeV, .chargeMagnitude = std::abs(static_cast<double>(pid.getCharge()))};
+  propagator.setSpecies(pid);
+  DecayDaughter daughter{.innermost = view.state[e], .surface = source.innermostPlane(view.track[e]), .propagator = propagator, .mass = propagator.massGeV};
   if (view.mixture[e] >= 0) {
     daughter.mixture = source.table->mixture(static_cast<std::size_t>(view.mixture[e]));
   }

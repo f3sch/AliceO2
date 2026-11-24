@@ -213,7 +213,7 @@ struct DiscChain {
         surfaceToGlobal(from, outgoing.loc0(), outgoing.loc1(), a);
         surfaceToGlobal(tracking->surface(unkicked), probe.loc0(), probe.loc1(), b);
         const Scalar chord = std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-        theta0Half = highlandTheta0(0.5F * x2X0PerCm * chord, spanX2X0, 1.F / std::abs(outgoing.qOverP()), propagator.massGeV);
+        theta0Half = highlandTheta0(0.5F * x2X0PerCm * chord, spanX2X0, propagator.momentum(outgoing.qOverP()), propagator.massGeV, propagator.absCharge);
         test::scatteringKickKickedTheta(outgoing, theta0Half, gauss, rng);
       }
       const auto id = crossed(outgoing, from, step);

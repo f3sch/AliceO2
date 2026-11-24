@@ -355,10 +355,10 @@ template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typen
   if (traversed != nullptr) {
     *traversed = step;
   }
-  const Scalar momentum = 1.F / o2::gpu::CAMath::Abs(input.qOverP());
+  const Scalar momentum = propagator.momentum(input.qOverP());
   // As filterStep: the nearer half's noise before the transport, at the
   // direction the step leaves with.
-  const auto before = scatteringNoise(highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, momentum, propagator.massGeV), input.theta());
+  const auto before = scatteringNoise(highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, momentum, propagator.massGeV, propagator.absCharge), input.theta());
   outputFactors = inputFactors;
   return detail::transportStep<false>(propagator, step, momentum, before, direction, jacobian, output, outputFactors, 1.F) == PropagationStatus::kOk;
 }

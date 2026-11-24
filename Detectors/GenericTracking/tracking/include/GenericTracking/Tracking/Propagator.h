@@ -13,7 +13,7 @@
 /// \brief Exact helix propagation between sensor planes in a uniform Bz.
 ///
 /// A Propagator is configuration and nothing else: field, tolerances and the
-/// mass hypothesis.  It is a plain struct so it copies into device constant memory as
+/// species hypothesis (mass and |q|).  It is a plain struct so it copies into device constant memory as
 /// one object, and every operation on it is a free function.  There are no
 /// virtual calls: a field-map propagator later is a different type with the
 /// same operations, chosen at compile time.
@@ -33,13 +33,14 @@
 #include "CommonConstants/PhysicsConstants.h"
 #include "GPUCommonMath.h"
 #include "MathUtils/detail/trigonometric.h"
+#include "ReconstructionDataFormats/PID.h"
 
 #include <cstdint>
 
 namespace o2::gtrk
 {
 
-/// Field, tolerances and the mass hypothesis. Copied by value into kernels.
+/// Field, tolerances and the species hypothesis. Copied by value into kernels.
 struct Propagator {
   /// Longitudinal field in kGauss, O2's unit: 20 is 2 T.
   Scalar bzKiloGauss = 20.F;
@@ -53,6 +54,22 @@ struct Propagator {
   /// The mass hypothesis [GeV], positive: beta for the scattering, and the
   /// energy loss of the fitting stages.
   Scalar massGeV = static_cast<Scalar>(o2::constants::physics::MassPionCharged);
+
+  /// The hypothesis's |q| [e]. The state's q/p is q over p with this q, so
+  /// it sets the curvature whatever the charge (the inverse rigidity, as O2's
+  /// q/pt); the momentum, which the scattering and the energy loss take, is
+  /// |q| / |q/p| (`momentum`).
+  Scalar absCharge = 1.F;
+
+  /// The momentum [GeV] at \a qOverP under the hypothesis's |q|.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar momentum(Scalar qOverP) const { return absCharge / o2::gpu::GPUCommonMath::Abs(qOverP); }
+
+  /// Mass and |q| of \a pid; GPUd like the PID getters it calls.
+  GPUdi() void setSpecies(o2::track::PID pid)
+  {
+    massGeV = pid.getMass();
+    absCharge = o2::gpu::GPUCommonMath::Abs(static_cast<Scalar>(pid.getCharge()));
+  }
 
   /// Transverse curvature in 1/cm.
   ///

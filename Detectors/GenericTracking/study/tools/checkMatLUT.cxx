@@ -68,6 +68,7 @@
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Workflow/GeometryProvider.h"
 #include "GenericTracking/Study/Alice/Hits.h"
+#include "GenericTracking/Study/StateTruth.h"
 
 #include "DetectorsBase/GeometryManager.h"
 #include "DetectorsBase/MatLayerCylSet.h"
@@ -145,6 +146,7 @@ struct Step {
   double pt = 0.;
   double eta = 0.;
   double mass = 0.;
+  double absCharge = 1.; ///< |q| [e]
   int from = -1; ///< layer, -1 the vertex
   int to = -1;
   Point a;
@@ -325,6 +327,7 @@ std::vector<Step> collect(const Options& options, const o2::gtrk::Geometry<Det>&
           .pt = mc.GetPt(),
           .eta = mc.GetEta(),
           .mass = mc.GetMass(),
+          .absCharge = std::abs(o2::gtrk::study::particleCharge(mc.GetPdgCode())),
           .from = previousLayer,
           .to = layer,
           .a = previous,
@@ -428,7 +431,7 @@ void report(const Options& options, const std::vector<Step>& steps)
     const double dTheta = o2::gtrk::thetaOf(step.b.p) - o2::gtrk::thetaOf(step.a.p);
     // the step's two halves, each alone, its logarithm at its own material
     // (the follow's steps; a fit takes its span's logarithm, `SpanMaterial`)
-    const auto highland = [&](double x2X0) { return o2::gtrk::highlandTheta0(x2X0, x2X0, p, step.mass); };
+    const auto highland = [&](double x2X0) { return o2::gtrk::highlandTheta0(x2X0, x2X0, p, step.mass, step.absCharge); };
     const double geoTheta = std::hypot(highland(step.geo[0]), highland(step.geo[1]));
     const double lutTheta = std::hypot(highland(step.lut[0]), highland(step.lut[1]));
     if (geoTheta > 0. && lutTheta > 0.) {

@@ -31,11 +31,12 @@ namespace o2::gtrk
 GPUhdi() GPUAlwaysInline() Scalar betaMomentum(Scalar momentumGeV, Scalar massGeV) { return momentumGeV * momentumGeV / o2::gpu::GPUCommonMath::Sqrt((momentumGeV * momentumGeV) + (massGeV * massGeV)); }
 
 /// Highland's scattering angle for \a x2X0 of material, in radians (PDG,
-/// eq. 34.16, z = 1):
+/// eq. 34.16):
 ///
-/// theta0 = (13.6 MeV / beta c p) sqrt(x/X0) [1 + 0.038 ln(X/X0 / beta^2)]
+/// theta0 = (13.6 MeV z / beta c p) sqrt(x/X0) [1 + 0.038 ln(X/X0 z^2 / beta^2)]
 ///
-/// with beta and p from \a momentumGeV and the mass hypothesis \a massGeV.
+/// with beta and p from \a momentumGeV and the mass hypothesis \a massGeV,
+/// z the hypothesis's |q| \a absCharge.
 /// 13.6 MeV is 0.0136 in the GeV this state is parameterised in. The
 /// logarithm is taken at \a logX2X0: the whole scatterer the deflection is
 /// taken over. Highland's formula is the width of the central part of the
@@ -48,23 +49,23 @@ GPUhdi() GPUAlwaysInline() Scalar betaMomentum(Scalar momentumGeV, Scalar massGe
 /// its own material for both. O2's `correctForMaterial` leaves out the
 /// logarithmic term.
 ///
-/// The logarithmic correction turns negative below X/X0 / beta^2 =
+/// The logarithmic correction turns negative below X/X0 z^2 / beta^2 =
 /// exp(-1/0.038), about 4e-12, which is far outside anything a detector
 /// produces but is guarded because a negative sigma is worse than a zero one.
 /// In the precision T of \a x2X0, the others converted to it.
 template <typename T>
-GPUhdi() GPUAlwaysInline() T highlandTheta0(T x2X0, std::type_identity_t<T> logX2X0, std::type_identity_t<T> momentumGeV, std::type_identity_t<T> massGeV)
+GPUhdi() GPUAlwaysInline() T highlandTheta0(T x2X0, std::type_identity_t<T> logX2X0, std::type_identity_t<T> momentumGeV, std::type_identity_t<T> massGeV, std::type_identity_t<T> absCharge)
 {
   if (x2X0 <= T(0) || logX2X0 <= T(0) || momentumGeV <= T(0)) {
     return T(0);
   }
   const T energy2 = (momentumGeV * momentumGeV) + (massGeV * massGeV);
   const T beta2 = momentumGeV * momentumGeV / energy2;
-  const T corr = T(1) + T(0.038) * logOf(logX2X0 / beta2);
+  const T corr = T(1) + T(0.038) * logOf(logX2X0 * (absCharge * absCharge) / beta2);
   if (corr <= T(0)) {
     return T(0);
   }
-  return (T(0.0136) / (momentumGeV * sqrtOf(beta2))) * sqrtOf(x2X0) * corr;
+  return (T(0.0136) * absCharge / (momentumGeV * sqrtOf(beta2))) * sqrtOf(x2X0) * corr;
 }
 
 /// O2's mean Bethe-Bloch for silicon, `o2::track::BetheBlochSolidOpt`, at
@@ -104,12 +105,13 @@ struct EnergyLoss {
 };
 
 /// The mean energy lost -- or, against the momentum, regained -- over
-/// \a xRho [g/cm^2] by a particle of mass \a massGeV at \a qOverP: O2's
-/// Bethe-Bloch for silicon (`betheBlochSolid`) [GeV / (g/cm^2)], in sub-steps of at most 2.5 % of the kinetic energy, and
+/// \a xRho [g/cm^2] by a particle of mass \a massGeV and |q| \a absCharge
+/// at \a qOverP (q/p with that q): O2's Bethe-Bloch for silicon
+/// (`betheBlochSolid`) [GeV / (g/cm^2)] times z^2, in sub-steps of at most 2.5 % of the kinetic energy, and
 /// O2's straggling, 0.0007 sqrt(|dE|) [GeV] on the energy. \a xRho is negative
 /// along the momentum. A MatLUT carries no material's I or Z/A, which is why
 /// silicon's stand in for all of it, as in O2.
-GPUhdi() EnergyLoss energyLoss(Scalar qOverP, Scalar massGeV, Scalar xRho)
+GPUhdi() EnergyLoss energyLoss(Scalar qOverP, Scalar massGeV, Scalar absCharge, Scalar xRho)
 {
   EnergyLoss result;
   if (!(o2::gpu::GPUCommonMath::Abs(xRho) > 0.F)) {
@@ -118,9 +120,10 @@ GPUhdi() EnergyLoss energyLoss(Scalar qOverP, Scalar massGeV, Scalar xRho)
   constexpr Scalar kMinMomentum = 0.01F;          // O2's kMinP
   constexpr Scalar kStepsPerKineticEnergy = 40.F; // O2's ELoss2EKinThreshInv
   constexpr int kMaxSteps = 50;                   // O2's MaxELossIter
+  xRho *= absCharge * absCharge;                  // the loss goes with z^2
   const Scalar mass2 = massGeV * massGeV;
   const Scalar massInv = 1.F / massGeV;
-  const Scalar p0 = 1.F / o2::gpu::GPUCommonMath::Abs(qOverP);
+  const Scalar p0 = absCharge / o2::gpu::GPUCommonMath::Abs(qOverP);
   const Scalar e0 = o2::gpu::GPUCommonMath::Sqrt((p0 * p0) + mass2);
   Scalar p = p0;
   Scalar e = e0;

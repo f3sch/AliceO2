@@ -818,8 +818,8 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           daughters[i] = daughterOf(*tableSource, entry);
         } else {
           auto propagator = event.propagator;
-          propagator.massGeV = species.mass;
-          daughters[i] = {.innermost = refit.innermost, .surface = geometry.planeOf(rows[0]), .propagator = propagator, .mass = species.mass, .chargeMagnitude = std::abs(particleCharge(leaf->pdg))};
+          propagator.setSpecies(species.pid);
+          daughters[i] = {.innermost = refit.innermost, .surface = geometry.planeOf(rows[0]), .propagator = propagator, .mass = species.mass};
           if (species.pid == o2::track::PID::Electron) {
             daughters[i].mixture = refit.innermostMixture;
           }
@@ -894,7 +894,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         const double pFirst = std::hypot(segment->momentum[0], segment->momentum[1], segment->momentum[2]);
         base.lossTrue[i] = static_cast<float>(1. - (pFirst / pProduction));
         const auto budget = event.material->getMatBudget(static_cast<float>(leaf->vertex[0]), static_cast<float>(leaf->vertex[1]), static_cast<float>(leaf->vertex[2]), static_cast<float>(segment->start[0]), static_cast<float>(segment->start[1]), static_cast<float>(segment->start[2]));
-        const auto loss = energyLoss(static_cast<Scalar>(1. / pProduction), static_cast<Scalar>(masses[i]), -budget.meanRho * budget.length);
+        const auto loss = energyLoss(daughters[i].propagator.absCharge / static_cast<Scalar>(pProduction), static_cast<Scalar>(masses[i]), daughters[i].propagator.absCharge, -budget.meanRho * budget.length);
         if (loss.ok) {
           base.lossModel[i] = static_cast<float>(1. - (1. / static_cast<double>(loss.momentumScale)));
         }
@@ -960,6 +960,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           }
           auto propagator = event.propagator;
           propagator.massGeV = static_cast<Scalar>(particleMass(particle->pdg));
+          propagator.absCharge = static_cast<Scalar>(std::abs(particleCharge(particle->pdg)));
           auto& rows = motherRows.emplace_back();
           for (auto at = own.rbegin(); at != own.rend(); ++at) {
             const auto m = frame.measurement(*at);

@@ -216,6 +216,11 @@ BOOST_AUTO_TEST_CASE(BarrelParametersAreTheStatesPointMomentumAndCharge)
     BOOST_TEST(electron.getY() == t.getY());
     BOOST_TEST(electron.getQ2Pt() == t.getQ2Pt());
     BOOST_TEST(electron.getSigma1Pt2() == t.getSigma1Pt2());
+    // A 3He: its |q| rides along, O2's momentum is |q| / |q/p|.
+    const auto helium = toTrackParCov(s, p, alpha, kBz, o2::track::PID{o2::track::PID::Helium3});
+    BOOST_TEST(helium.getAbsCharge() == 2);
+    BOOST_TEST(helium.getQ2Pt() == t.getQ2Pt());
+    BOOST_TEST(helium.getP() == 2.F / std::abs(s.qOverP()), boost::test_tools::tolerance(1e-5F));
   }
   // Both branches were taken: the frame turns for states moving inward.
   BOOST_TEST(inward > 100U);

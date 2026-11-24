@@ -127,8 +127,8 @@ GPUdi() PropagationStatus carryInward(const Propagator& prop, const Material& ma
   if (!step.found) {
     return PropagationStatus::kNoMaterial;
   }
-  const Scalar momentum = 1.F / o2::gpu::GPUCommonMath::Abs(state.qOverP());
-  const auto before = scatteringNoise(highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, momentum, prop.massGeV), leaving);
+  const Scalar momentum = prop.momentum(state.qOverP());
+  const auto before = scatteringNoise(highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, momentum, prop.massGeV, prop.absCharge), leaving);
   return o2::gtrk::detail::transportStep<false>(prop, step, momentum, before, PropagationDirection::kBackward, jacobian, state, factors, 1.F);
 }
 
@@ -195,22 +195,17 @@ GPUdi() PropagationStatus carryStateInward(const Propagator& prop, const Materia
 
 /// \a n measurements of \a measurements, ordered from the innermost, refitted
 /// under \a pid's hypothesis, up to the state on the innermost measurement.
-/// The propagator's mass becomes the species', for the scattering and the
-/// ionisation alike. An electron: the Gaussian-sum fit (`fitGaussianSum`),
-/// its inward mixture kept. Another species: the Kalman fit
-/// (`fitMeasurements`) at its mass. A species of charge other than one is
-/// refused (kNotFinite, failedPass kNone): the energy loss takes a unit
-/// charge. The perigee fields stay empty (`carryToPerigee`).
+/// The propagator's mass and |q| become the species' (`setSpecies`), for the
+/// scattering and the ionisation alike; the states' q/p is q/p with that q.
+/// An electron: the Gaussian-sum fit (`fitGaussianSum`), its inward mixture
+/// kept. Another species: the Kalman fit (`fitMeasurements`) at its mass and
+/// |q|. The perigee fields stay empty (`carryToPerigee`).
 template <int K = BetheHeitlerLoss::kComponents, CrossingRule Rule = CrossingRule::kFirstAhead, DetectorLayout Det, typename Material, typename Chain>
 GPUdi() HypothesisFit<K> refitRowsWithHypothesis(const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, o2::track::PID pid)
 {
   HypothesisFit<K> fit{.pid = pid};
-  if (o2::gpu::GPUCommonMath::Abs(pid.getCharge()) != 1) {
-    fit.status = PropagationStatus::kNotFinite;
-    return fit;
-  }
   Propagator prop = base;
-  prop.massGeV = pid.getMass();
+  prop.setSpecies(pid);
   // What both fits give alike (TrackFitResult); false if the fit failed.
   const auto take = [&](const TrackFitResult& result, Scalar momentum) {
     fit.status = result.status;
@@ -233,7 +228,7 @@ GPUdi() HypothesisFit<K> refitRowsWithHypothesis(const Propagator& base, const T
     return fit;
   }
   const auto kalman = fitMeasurements<Rule>(prop, geometry, material, measurements, n);
-  take(kalman, 1.F / o2::gpu::GPUCommonMath::Abs(kalman.state.qOverP()));
+  take(kalman, prop.momentum(kalman.state.qOverP()));
   return fit;
 }
 
@@ -247,7 +242,7 @@ template <int K, DetectorLayout Det>
 GPUdi() PropagationStatus carryToPerigee(const Propagator& base, const TrackingGeometry<Det>& geometry, const TrackingSurface& innermostSurface, HypothesisFit<K>& fit, Scalar x, Scalar y)
 {
   Propagator prop = base;
-  prop.massGeV = fit.pid.getMass();
+  prop.setSpecies(fit.pid);
   fit.perigeePlane = detail::hypothesis::perigeePlaneOf(prop, fit.innermost, innermostSurface, x, y);
   if (fit.pid == o2::track::PID::Electron) {
     GSFMixture<K> mixture = fit.innermostMixture;
@@ -263,7 +258,7 @@ GPUdi() PropagationStatus carryToPerigee(const Propagator& base, const TrackingG
   fit.status = detail::hypothesis::carryStateInward(prop, geometry.material(), innermostSurface, fit.perigeePlane, state);
   if (fit.status == PropagationStatus::kOk) {
     fit.perigee = state;
-    fit.perigeeMomentum = 1.F / o2::gpu::GPUCommonMath::Abs(state.qOverP());
+    fit.perigeeMomentum = prop.momentum(state.qOverP());
   }
   return fit.status;
 }

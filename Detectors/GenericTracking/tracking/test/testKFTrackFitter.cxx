@@ -472,9 +472,9 @@ struct BarrelChain {
           *summed += leaving + reaching;
         }
         if (rng != nullptr) {
-          const Scalar momentum = 1.F / std::abs(outgoing.qOverP());
-          test::scatteringKick(outgoing, highlandTheta0(leaving, given, momentum, propagator.massGeV), gauss, *rng); // behind the sensor just left
-          arrival = highlandTheta0(reaching, given, momentum, propagator.massGeV);
+          const Scalar momentum = propagator.momentum(outgoing.qOverP());
+          test::scatteringKick(outgoing, highlandTheta0(leaving, given, momentum, propagator.massGeV, propagator.absCharge), gauss, *rng); // behind the sensor just left
+          arrival = highlandTheta0(reaching, given, momentum, propagator.massGeV, propagator.absCharge);
         }
       }
       const auto id = crossedSensor(outgoing, from, static_cast<LayerID>(layer));
@@ -778,30 +778,37 @@ BOOST_AUTO_TEST_CASE(TheEnergyLossIsO2s)
   for (const float betaGamma : {0.3F, 0.7F, 1.F, 3.5F, 10.F, 100.F, 1000.F, 1e4F}) {
     BOOST_TEST_CONTEXT("beta gamma " << betaGamma) { BOOST_TEST(betheBlochSolid(betaGamma) == o2::track::BetheBlochSolidOpt<float>(betaGamma), boost::test_tools::tolerance(1e-6F)); }
   }
-  // A step's loss against O2's own correction of a pion: outward loses
-  // (x rho < 0), inward regains, the thick step in sub-steps; q/p scales by
-  // O2's factor and its variance grows by O2's straggling.
-  constexpr float kMass = 0.13957F;
-  for (const float momentum : {0.12F, 0.3F, 2.F}) {
-    for (const float xRho : {-0.08F, 0.08F, -1.5F}) {
-      BOOST_TEST_CONTEXT("p " << momentum << " GeV, x rho " << xRho)
-      {
-        // At tan(lambda) = 0, O2's q/pT is our q/p.
-        o2::track::TrackParCov o2Track(0.F, 0.F, {0.F, 0.F, 0.F, 0.F, 1.F / momentum}, {1e-4F, 0.F, 1e-4F, 0.F, 0.F, 1e-4F, 0.F, 0.F, 0.F, 1e-4F, 0.F, 0.F, 0.F, 0.F, 1e-4F});
-        o2Track.setPID(o2::track::PID::Pion);
-        const float variance = o2Track.getSigma1Pt2();
-        BOOST_REQUIRE(o2Track.correctForMaterial(0.F, xRho));
-        const auto loss = energyLoss(1.F / momentum, kMass, xRho);
-        BOOST_REQUIRE(loss.ok);
-        BOOST_TEST(loss.momentumScale / momentum == o2Track.getQ2Pt(), boost::test_tools::tolerance(2e-6F));
-        BOOST_TEST(variance + loss.varQOverP == o2Track.getSigma1Pt2(), boost::test_tools::tolerance(2e-6F));
-        BOOST_TEST((xRho < 0.F ? loss.momentumScale > 1.F : loss.momentumScale < 1.F));
+  // A step's loss against O2's own correction of a pion, a 3He and an
+  // alpha: outward loses (x rho < 0), inward regains, the thick step in
+  // sub-steps; q/p scales by O2's factor and its variance grows by O2's
+  // straggling. O2's q/pT, like our q/p, is q over pT with |q| = 2 for the
+  // nuclei (`setPID(pid, true)`).
+  using o2::track::PID;
+  for (const auto [id, momenta] : {std::pair{PID::Pion, std::array{0.12F, 0.3F, 2.F}}, std::pair{PID::Helium3, std::array{1.F, 2.F, 6.F}}, std::pair{PID::Alpha, std::array{1.3F, 2.F, 6.F}}}) {
+    const PID pid{id};
+    const float charge = std::abs(static_cast<float>(pid.getCharge()));
+    for (const float momentum : momenta) {
+      for (const float xRho : {-0.08F, 0.08F, -1.5F}) {
+        BOOST_TEST_CONTEXT(pid.getName() << ", p " << momentum << " GeV, x rho " << xRho)
+        {
+          // At tan(lambda) = 0, O2's q/pT is our q/p.
+          o2::track::TrackParCov o2Track(0.F, 0.F, {0.F, 0.F, 0.F, 0.F, charge / momentum}, {1e-4F, 0.F, 1e-4F, 0.F, 0.F, 1e-4F, 0.F, 0.F, 0.F, 1e-4F, 0.F, 0.F, 0.F, 0.F, 1e-4F});
+          o2Track.setPID(pid, true);
+          const float variance = o2Track.getSigma1Pt2();
+          BOOST_REQUIRE(o2Track.correctForMaterial(0.F, xRho));
+          const auto loss = energyLoss(charge / momentum, pid.getMass(), charge, xRho);
+          BOOST_REQUIRE(loss.ok);
+          BOOST_TEST(loss.momentumScale * charge / momentum == o2Track.getQ2Pt(), boost::test_tools::tolerance(2e-6F));
+          BOOST_TEST(variance + loss.varQOverP == o2Track.getSigma1Pt2(), boost::test_tools::tolerance(2e-6F));
+          BOOST_TEST((xRho < 0.F ? loss.momentumScale > 1.F : loss.momentumScale < 1.F));
+        }
       }
     }
   }
   // No material: nothing; stopped: not ok.
-  BOOST_TEST(energyLoss(10.F, kMass, 0.F).momentumScale == 1.F);
-  BOOST_TEST(!energyLoss(1.F / 0.05F, kMass, -5.F).ok);
+  constexpr float kMass = 0.13957F;
+  BOOST_TEST(energyLoss(10.F, kMass, 1.F, 0.F).momentumScale == 1.F);
+  BOOST_TEST(!energyLoss(1.F / 0.05F, kMass, 1.F, -5.F).ok);
   // beta p: below p.
 }
 

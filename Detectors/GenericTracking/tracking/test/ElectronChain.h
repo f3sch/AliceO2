@@ -183,7 +183,7 @@ struct ElectronChain {
       if (!lose(start, xRho)) {
         return false;
       }
-      scatteringKickKickedTheta(start, highlandTheta0(x, x, 1.F / std::abs(qOverP), propagator.massGeV), gauss, rng);
+      scatteringKickKickedTheta(start, highlandTheta0(x, x, propagator.momentum(qOverP), propagator.massGeV, propagator.absCharge), gauss, rng);
       if (radiate) {
         before[0] = fraction(static_cast<double>(x), rng);
         start.par[kQOverP] /= static_cast<Scalar>(before[0]);
@@ -220,7 +220,7 @@ struct ElectronChain {
         if (!lose(state, leavingRho[layer - 1] + reachingRho[layer])) {
           return false;
         }
-        scatteringKick(state, highlandTheta0(reaching[layer], span, 1.F / std::abs(state.qOverP()), propagator.massGeV), gauss, rng);
+        scatteringKick(state, highlandTheta0(reaching[layer], span, propagator.momentum(state.qOverP()), propagator.massGeV, propagator.absCharge), gauss, rng);
         if (radiate) {
           before[layer] = fraction(static_cast<double>(reaching[layer]), rng);
           state.par[kQOverP] /= static_cast<Scalar>(before[layer]);
@@ -236,7 +236,7 @@ struct ElectronChain {
       m.varLoc1 = sigma * sigma;
       m.clusterIndex = static_cast<std::uint32_t>(layer);
       if (layer + 1 < kLayers) {
-        scatteringKick(state, highlandTheta0(leaving[layer], span, 1.F / std::abs(state.qOverP()), propagator.massGeV), gauss, rng);
+        scatteringKick(state, highlandTheta0(leaving[layer], span, propagator.momentum(state.qOverP()), propagator.massGeV, propagator.absCharge), gauss, rng);
         if (radiate) {
           after[layer] = fraction(static_cast<double>(leaving[layer]), rng);
           state.par[kQOverP] /= static_cast<Scalar>(after[layer]);

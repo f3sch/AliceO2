@@ -73,7 +73,7 @@ namespace o2::gtrk
 struct DecayDaughter {
   BoundTrackState innermost; ///< fitted, on `surface`; an electron's its mixture's collapse
   TrackingSurface surface;   ///< its innermost measurement's plane
-  Propagator propagator;     ///< the field, with the daughter's species' mass
+  Propagator propagator;     ///< the field, with the daughter's species' mass and |q|
   double mass = 0.;          ///< [GeV]
   /// An electron's Gaussian-sum fit there: carried as a mixture, its
   /// radiation on the way taken (`takeRadiation`), and collapsed on the plane;
@@ -86,10 +86,12 @@ struct DecayDaughter {
   /// (its mother's mass and production point fix three components); its
   /// start the caller's, `innermost`'s phi, theta and 1/p.
   bool unmeasured = false;
-  /// A charged daughter's |q| [e]: 2 for 3He, 4He.
-  double chargeMagnitude = 1.;
-  /// The daughter's charge [e], 0 for a neutral one.
-  [[nodiscard]] GPUhdi() double charge() const { return neutral ? 0. : (innermost.qOverP() > 0.F ? chargeMagnitude : -chargeMagnitude); }
+  /// The daughter's charge [e], its propagator's |q| with q/p's sign; 0 for a neutral one.
+  [[nodiscard]] GPUhdi() double charge() const
+  {
+    const auto magnitude = static_cast<double>(propagator.absCharge);
+    return neutral ? 0. : (innermost.qOverP() > 0.F ? magnitude : -magnitude);
+  }
 };
 
 /// A charged particle of the decay -- the root, or a composite below it --
@@ -975,8 +977,7 @@ class DecayVertexFitter
   // end point, exact from the material table's moment (theta0^2 L^2
   // int t^2 dx / X across, over sin^2(theta) along the beam). A neutral
   // particle crosses nothing: S = R. The chains are separate particles: S is
-  // block diagonal. The material model takes unit charge (Highland's p, the
-  // loss): a doubly charged chain's flight is not modelled.
+  // block diagonal. Highland and the loss take the chain's |q|.
   [[nodiscard]] GPUd() decay_fit_detail::FreeState<decay_fit_detail::kConstraintInputs, M> chainStart(std::span<const double> p, const Chain& chain) const
   {
     using namespace decay_fit_detail;
@@ -1139,7 +1140,7 @@ class DecayVertexFitter
               return VertexFitStatus::kNoMaterial;
             }
             totalX2X0 += static_cast<double>(segment[j].nearerX2X0 + segment[j].fartherX2X0);
-            const auto loss = energyLoss(static_cast<Scalar>(to[5].v), static_cast<Scalar>(chain.mass), segment[j].xRho);
+            const auto loss = energyLoss(static_cast<Scalar>(to[5].v), static_cast<Scalar>(chain.mass), static_cast<Scalar>(o2::gpu::CAMath::Abs(chain.charge)), segment[j].xRho);
             if (!loss.ok) {
               return VertexFitStatus::kStopped;
             }
@@ -1179,7 +1180,7 @@ class DecayVertexFitter
         continue;
       }
       const auto theta0 = [&](Scalar x2X0, const std::array<M, 6>& where) {
-        return static_cast<double>(highlandTheta0(x2X0, static_cast<Scalar>(totalX2X0), static_cast<Scalar>(o2::gpu::CAMath::Abs(chain.charge / where[5])), static_cast<Scalar>(chain.mass)));
+        return static_cast<double>(highlandTheta0(x2X0, static_cast<Scalar>(totalX2X0), static_cast<Scalar>(o2::gpu::CAMath::Abs(chain.charge / where[5])), static_cast<Scalar>(chain.mass), static_cast<Scalar>(o2::gpu::CAMath::Abs(chain.charge))));
       };
       // scatterer k sits at at[k]: V (k = 0) or after row k - 1
       for (int kink = 0; kink <= rows; ++kink) {
@@ -1236,7 +1237,7 @@ class DecayVertexFitter
         }
       }
       if (chain.end != -2 && last.x2X0 > 0.F) {
-        const auto t0 = static_cast<double>(highlandTheta0(last.x2X0, static_cast<Scalar>(totalX2X0), static_cast<Scalar>(o2::gpu::CAMath::Abs(chain.charge / state[5])), static_cast<Scalar>(chain.mass)));
+        const auto t0 = static_cast<double>(highlandTheta0(last.x2X0, static_cast<Scalar>(totalX2X0), static_cast<Scalar>(o2::gpu::CAMath::Abs(chain.charge / state[5])), static_cast<Scalar>(chain.mass), static_cast<Scalar>(o2::gpu::CAMath::Abs(chain.charge))));
         const double across = t0 * t0 * lastLength * lastLength * static_cast<double>(last.x2X0T2) / static_cast<double>(last.x2X0);
         const double sinTheta = sinOf(static_cast<double>(state[4]));
         const int e = 2 * rows;

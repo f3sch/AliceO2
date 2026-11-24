@@ -28,6 +28,7 @@
 #include <array>
 #include <cmath>
 #include <random>
+#include <tuple>
 #include <vector>
 
 namespace o2::gtrk
@@ -54,19 +55,20 @@ double standardDeviation(const std::vector<double>& values)
 
 } // namespace
 
-/// Any species but an electron: the Kalman fit at its mass, the same states to
-/// the bit; a species of charge two is refused.
+/// Any species but an electron: the Kalman fit at its mass and |q|, the same
+/// states to the bit; the nuclei of charge two included.
 BOOST_AUTO_TEST_CASE(AHadronIsTheKalmanFitAtItsMass)
 {
   const test::ChainBands material{.x2X0 = 5e-3F, .xRho = 0.11F};
   ElectronChain chain;
   std::mt19937 rng(1051);
-  for (const auto id : {o2::track::PID::Muon, o2::track::PID::Pion, o2::track::PID::Kaon, o2::track::PID::Proton}) {
-    const o2::track::PID pid{id};
+  using o2::track::PID;
+  for (const auto id : {PID::Muon, PID::Pion, PID::Kaon, PID::Proton, PID::Deuteron, PID::Triton, PID::Helium3, PID::Alpha}) {
+    const PID pid{id};
     while (!chain.generate(2.F, material, true, rng, true)) {
     }
     Propagator prop = chain.propagator;
-    prop.massGeV = pid.getMass();
+    prop.setSpecies(pid);
     const auto kalman = fitMeasurements(prop, *chain.tracking, material, chain.measurements.data(), kLayers);
     const auto refit = refitWithHypothesis(chain.propagator, *chain.tracking, material, chain.measurements.data(), kLayers, pid, 0.F, 0.F);
     BOOST_TEST_CONTEXT(pid.getName())
@@ -76,16 +78,15 @@ BOOST_AUTO_TEST_CASE(AHadronIsTheKalmanFitAtItsMass)
       BOOST_TEST(sameBitsEach(refit.innermost.cov, kalman.state.cov));
       BOOST_TEST(refit.chi2 == kalman.chi2);
       BOOST_TEST(refit.perigeeMixture.size == 0);
+      BOOST_TEST(refit.innermostMomentum == prop.absCharge / std::abs(kalman.state.qOverP()));
     }
   }
-  const auto refused = refitWithHypothesis(chain.propagator, *chain.tracking, material, chain.measurements.data(), kLayers, o2::track::PID{o2::track::PID::Alpha}, 0.F, 0.F);
-  BOOST_TEST((refused.status == PropagationStatus::kNotFinite));
-  BOOST_TEST((refused.failedPass == FitPass::kNone));
 }
 
-/// From a vertex through the bands: pions (no radiation), the Kalman
-/// fit carried to the perigee plane about the vertex, unit pulls of d0, z0,
-/// phi, theta and q/p there, the vertex at the origin and displaced; electrons (Bethe and
+/// From a vertex through the bands: pions and 3He (no radiation; q/p of
+/// 3He is 2 / p), the Kalman fit carried to the perigee plane about the
+/// vertex, unit pulls of d0, z0, phi, theta and q/p there, the vertex at the
+/// origin and displaced; electrons (Bethe and
 /// Heitler's losses sampled), the mixture's q/p marginal covers the true q/p
 /// at the vertex (the PIT flat) and the mode beats the electron-mass Kalman
 /// fit carried alike.
@@ -95,18 +96,21 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
   constexpr int kTracks = 1000;
   ElectronChain chain;
   std::mt19937 rng(1052);
-  // Pions, from the origin and from a vertex displaced in the transverse plane.
-  chain.propagator.massGeV = o2::track::PID::getMass(o2::track::PID::Pion);
+  // Pions (0.5 GeV) and 3He (2 GeV), from the origin and from a vertex
+  // displaced in the transverse plane.
   constexpr std::array<const char*, kNBoundParams> kNames{"d0", "z0", "phi", "theta", "q/p"};
-  for (const auto& [x, y] : {std::pair{0.F, 0.F}, std::pair{0.3F, -0.2F}}) {
+  for (const auto& [id, x, y] : {std::tuple{o2::track::PID::Pion, 0.F, 0.F}, std::tuple{o2::track::PID::Pion, 0.3F, -0.2F}, std::tuple{o2::track::PID::Helium3, 0.F, 0.F}, std::tuple{o2::track::PID::Helium3, 0.3F, -0.2F}}) {
+    const o2::track::PID pid{id};
+    chain.propagator.setSpecies(pid);
+    const Scalar momentum = pid == o2::track::PID::Pion ? 0.5F : 2.F;
     chain.vertexX = x;
     chain.vertexY = y;
     std::array<std::vector<double>, kNBoundParams> pulls;
     for (int track = 0; track < kTracks; ++track) {
-      const Scalar qOverP = (track % 2 == 0 ? 2.F : -2.F);
+      const Scalar qOverP = (track % 2 == 0 ? 1.F : -1.F) * chain.propagator.absCharge / momentum;
       while (!chain.generate(qOverP, material, false, rng, true)) {
       }
-      const auto refit = refitWithHypothesis(chain.propagator, *chain.tracking, material, chain.measurements.data(), kLayers, o2::track::PID{o2::track::PID::Pion}, x, y);
+      const auto refit = refitWithHypothesis(chain.propagator, *chain.tracking, material, chain.measurements.data(), kLayers, pid, x, y);
       BOOST_REQUIRE(refit.status == PropagationStatus::kOk);
       // The truth on the refit's perigee plane: through the vertex, as the
       // track; its direction and q/p there the vertex's.
@@ -119,7 +123,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
         pulls[static_cast<std::size_t>(i)].push_back(d / std::sqrt(static_cast<double>(refit.perigee.variance(i))));
       }
     }
-    std::string line = fmt::format("pions from the vertex at ({}, {}) cm, at the vertex, pull mean and standard deviation:", x, y);
+    std::string line = fmt::format("{} from the vertex at ({}, {}) cm, at the vertex, pull mean and standard deviation:", pid.getName(), x, y);
     for (int i = 0; i < kNBoundParams; ++i) {
       const auto& p = pulls[static_cast<std::size_t>(i)];
       double mean = 0.;
@@ -128,7 +132,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
       }
       const double width = standardDeviation(p);
       line += fmt::format("  {} {:+.3f} {:.3f}", kNames[static_cast<std::size_t>(i)], mean, width);
-      BOOST_TEST_CONTEXT("vertex (" << x << ", " << y << "), " << kNames[static_cast<std::size_t>(i)] << " mean " << mean << " width " << width)
+      BOOST_TEST_CONTEXT(pid.getName() << ", vertex (" << x << ", " << y << "), " << kNames[static_cast<std::size_t>(i)] << " mean " << mean << " width " << width)
       {
         BOOST_TEST(std::abs(mean) < 0.1);
         BOOST_TEST(std::abs(width - 1.) < 0.1);
@@ -139,7 +143,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
   chain.vertexX = 0.F;
   chain.vertexY = 0.F;
   // Electrons.
-  chain.propagator.massGeV = o2::track::PID::getMass(o2::track::PID::Electron);
+  chain.propagator.setSpecies(o2::track::PID{o2::track::PID::Electron});
   std::vector<double> pit;
   std::vector<double> mode;
   std::vector<double> kalman;

@@ -120,14 +120,14 @@ GPUhdi() GPUAlwaysInline() TrackingSurface beamLinePlane(Scalar x, Scalar y, Sca
 /// predicts, from the scattering on the straight segment from the beam point
 /// (\a beamX, \a beamY, \a z0) to \a innermost (as the pair cuts read it,
 /// about the corrected beam line, \a beamX and \a beamY added back): Highland's
-/// formula for the segment's whole x/X0 at the track's \a momentum and \a mass,
+/// formula for the segment's whole x/X0 at the track's \a momentum, \a mass and \a absCharge,
 /// the variance shared by its parts in proportion to their x/X0, each kink at
 /// its transverse distance from the beam point, t R at the fraction t of the
 /// way (\a material's segment to the innermost layer \a layer,
 /// LinkMaterial::segment, and `momentOf`): theta0^2 R^2 (int t^2 dx) / X,
 /// over sin^2(theta) for the displacement across the track.
 template <DetectorLayout Det>
-GPUdi() Scalar beamScattering(const LinkMaterial<Det>& material, LayerID layer, Scalar beamX, Scalar beamY, Scalar z0, const PairPoint& innermost, Scalar momentum, Scalar mass, Scalar sinTheta)
+GPUdi() Scalar beamScattering(const LinkMaterial<Det>& material, LayerID layer, Scalar beamX, Scalar beamY, Scalar z0, const PairPoint& innermost, Scalar momentum, Scalar mass, Scalar absCharge, Scalar sinTheta)
 {
   const Scalar beam[3] = {beamX, beamY, z0};
   const Scalar point[3] = {innermost.x + beamX, innermost.y + beamY, innermost.z};
@@ -135,7 +135,7 @@ GPUdi() Scalar beamScattering(const LinkMaterial<Det>& material, LayerID layer, 
   if (!(moment.x2X0 > 0.F) || !(sinTheta * sinTheta > 0.F)) {
     return 0.F;
   }
-  const Scalar theta0 = highlandTheta0(moment.x2X0, moment.x2X0, momentum, mass);
+  const Scalar theta0 = highlandTheta0(moment.x2X0, moment.x2X0, momentum, mass, absCharge);
   return theta0 * theta0 * innermost.r * innermost.r * moment.x2X0T2 / (moment.x2X0 * sinTheta * sinTheta);
 }
 
@@ -155,7 +155,6 @@ struct BeamLinePrediction {
 template <DetectorLayout Det>
 GPUdi() BeamLinePrediction predictBeamLine(const Propagator& prop, const IterationParameters<Det>& parameters, const TrackingSurface& surface, const PairPoint& innermost, const BoundTrackState& state)
 {
-  using Math = o2::gpu::GPUCommonMath;
   BeamLinePrediction prediction;
   const auto plane = beamLinePlane(parameters.beamX, parameters.beamY, perigeePhi(prop, state, surface));
   SolenoidJacobian jacobian;
@@ -172,7 +171,7 @@ GPUdi() BeamLinePrediction predictBeamLine(const Propagator& prop, const Iterati
   for (int i = 0; i < kNBoundParams; ++i) {
     prediction.derivatives[i] = jacobian.loc0[i];
   }
-  prediction.scattering = beamScattering(*parameters.material, surface.layer, parameters.beamX, parameters.beamY, predicted.loc1(), innermost, 1.F / Math::Abs(state.qOverP()), prop.massGeV, sinTheta);
+  prediction.scattering = beamScattering(*parameters.material, surface.layer, parameters.beamX, parameters.beamY, predicted.loc1(), innermost, prop.momentum(state.qOverP()), prop.massGeV, prop.absCharge, sinTheta);
   return prediction;
 }
 
