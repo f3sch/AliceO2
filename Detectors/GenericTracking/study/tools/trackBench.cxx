@@ -125,6 +125,8 @@ static int run(int argc, char** argv)
     ("truth-walk", bpo::value(&options.truthWalk)->default_value(""),
      "with --complete-anatomy and --hits: a CSV of every step of the truth walks, the step's prediction at the particle's own next row against the cluster and "
      "the MC crossing") //
+    ("inner-loss", bpo::value(&options.innerLoss)->default_value(""),
+     "with --complete-anatomy: a CSV of every good track lacking rows its particle has before its first, with its inward walk as replayed") //
     ("truth-walk-iteration", bpo::value(&options.truthWalkIteration)->default_value(-1),
      "with --complete-anatomy and --hits: the iteration the truth walk runs on (-1: the first whose layers hold the class's mask)") //
     ("inward-history", bpo::value(&options.inwardHistory)->default_value(""),
