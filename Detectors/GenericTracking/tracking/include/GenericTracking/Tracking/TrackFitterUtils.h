@@ -220,12 +220,12 @@ GPUdi() StepMaterial stepMaterial(const TrackingGeometry<Det>& geometry, const T
 /// in \a varQOverP for the step's noise (StepNoise), and \a lossQOverP and
 /// \a state both scaled by that fraction. Lost along the momentum, regained
 /// against it. False if the particle stopped. The mass is
-/// `lossMassGeV(prop)`, the propagator's hypothesis.
+/// `lossMassGeV(prop)`, the propagator's hypothesis, as is the |q|.
 template <typename Prop>
 GPUhdi() GPUAlwaysInline() bool applyEnergyLoss(const Prop& prop, Scalar xRho, PropagationDirection direction, Scalar& lossQOverP, BoundParameters& state, Scalar& varQOverP)
 {
   varQOverP = 0.F;
-  const auto loss = energyLoss(lossQOverP, lossMassGeV(prop), direction == PropagationDirection::kForward ? -xRho : xRho);
+  const auto loss = energyLoss(lossQOverP, lossMassGeV(prop), prop.absCharge, direction == PropagationDirection::kForward ? -xRho : xRho);
   if (!loss.ok) {
     return false;
   }
@@ -257,7 +257,7 @@ template <bool Scaled>
 template <bool Scaled, typename Prop>
 GPUdi() PropagationStatus stepNoise(const Prop& prop, const StepMaterial& step, Scalar momentum, const ScatteringNoise& before, PropagationDirection direction, BoundParameters& state, Scalar& lossQOverP, StepNoise& noise, Scalar noiseScale)
 {
-  const auto after = scatteringNoise(scaledTheta0<Scaled>(highlandTheta0(step.fartherX2X0, step.fartherLogX2X0, momentum, prop.massGeV), noiseScale), state.theta());
+  const auto after = scatteringNoise(scaledTheta0<Scaled>(highlandTheta0(step.fartherX2X0, step.fartherLogX2X0, momentum, prop.massGeV, prop.absCharge), noiseScale), state.theta());
   noise = StepNoise{.phiBefore = before.phi, .thetaBefore = before.theta, .phiAfter = after.phi, .thetaAfter = after.theta, .lever = step.lever, .spread = step.spread};
   if (!applyEnergyLoss(prop, step.xRho, direction, lossQOverP, state, noise.qOverPAfter)) {
     return PropagationStatus::kStopped;
@@ -337,10 +337,10 @@ GPUdi() PropagationStatus predictStep(const Prop& prop, const TrackingGeometry<D
   if (!step.found) {
     return PropagationStatus::kNoMaterial;
   }
-  const Scalar momentum = 1.F / o2::gpu::GPUCommonMath::Abs(referenceQOverP);
+  const Scalar momentum = prop.momentum(referenceQOverP);
   // The nearer half before the transport (StepMaterial), at the direction on
   // the surface the step leaves; the farther half after it.
-  const auto before = scatteringNoise(scaledTheta0<Scaled>(highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, momentum, prop.massGeV), noiseScale), leaving);
+  const auto before = scatteringNoise(scaledTheta0<Scaled>(highlandTheta0(step.nearerX2X0, step.nearerLogX2X0, momentum, prop.massGeV, prop.absCharge), noiseScale), leaving);
   const auto status = stepNoise<Scaled>(prop, step, momentum, before, direction, state, referenceQOverP, noise, noiseScale);
   if (status != PropagationStatus::kOk) {
     return status;

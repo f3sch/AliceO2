@@ -117,6 +117,7 @@ class ClusterPullStudy
     for (const auto& chain : chains) {
       const auto& truth = event.particles->at(chain.particle);
       const double mass = particleMass(truth.pdg);
+      const double absCharge = std::abs(particleCharge(truth.pdg));
       for (std::size_t i = 0; i < chain.rows.size(); ++i) {
         const auto m = frame.measurement(chain.rows[i]);
         const auto* segment = segmentOf(chain.particle, chain.rows[i]);
@@ -142,7 +143,7 @@ class ClusterPullStudy
             const auto& a = segment->start;
             const auto& b = next->start;
             chordX2X0 = event.material->getMatBudget(static_cast<float>(a[0]), static_cast<float>(a[1]), static_cast<float>(a[2]), static_cast<float>(b[0]), static_cast<float>(b[1]), static_cast<float>(b[2])).meanX2X0;
-            theta0 = highlandTheta0(chordX2X0, chordX2X0, static_cast<Scalar>(momentum), static_cast<Scalar>(mass));
+            theta0 = highlandTheta0(chordX2X0, chordX2X0, static_cast<Scalar>(momentum), static_cast<Scalar>(mass), static_cast<Scalar>(absCharge));
           }
         }
         mWriter->write(ClusterPullRecord{

@@ -45,17 +45,6 @@ namespace
 using test::ElectronChain;
 using test::medianWidth;
 
-/// No radiation: one component, z = 1, no variance.
-struct NoLoss {
-  static constexpr int kComponents = 1;
-  static constexpr Scalar kMaxX2X0 = FLT_MAX;
-  static int mixture(Scalar /*x2X0*/, BetheHeitlerComponent (&components)[kComponents])
-  {
-    components[0] = {.weight = 1.F, .mean = 1.F, .variance = 0.F};
-    return 1;
-  }
-};
-
 /// A loss of two components whatever the thickness: small and frequent, or
 /// large and rare.
 struct TwoLosses {
@@ -255,7 +244,7 @@ BOOST_AUTO_TEST_CASE(WithoutLossItIsTheKalmanFit)
     const Chain<4> chain(trial % 2 == 0 ? 3.F : -5.F, rng);
     BOOST_REQUIRE(chain.built);
     const auto kalman = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), 4);
-    const auto gsf = fitGaussianSum<NoLoss>(chain.propagator, *chain.tracking, material, chain.measurements.data(), 4);
+    const auto gsf = fitGaussianSum<NoRadiationLoss>(chain.propagator, *chain.tracking, material, chain.measurements.data(), 4);
     BOOST_REQUIRE(kalman.status == PropagationStatus::kOk);
     BOOST_REQUIRE(gsf.fit.status == PropagationStatus::kOk);
     BOOST_TEST(gsf.outwardMixture.size == 1);
@@ -410,7 +399,7 @@ BOOST_AUTO_TEST_CASE(TheMixtureCoversSampledLosses)
   rows.push_back({"thick, p 0.5 GeV, K 24", coverage<BetheHeitlerLoss, 24>(0.5, thick, true, kTracks, 106), false});
   // Who owns which loss: the ionisation alone (the no-loss model on tracks without radiation, the Kalman fit's
   // own q/p coverage), the radiation alone (no ionisation), and a radiation the tracks do not have.
-  rows.push_back({"thick, p 0.5 GeV, ionisation only", coverage<NoLoss>(0.5, thick, false, kTracks, 107), false});
+  rows.push_back({"thick, p 0.5 GeV, ionisation only", coverage<NoRadiationLoss>(0.5, thick, false, kTracks, 107), false});
   const test::ChainBands thickNoIonisation{.x2X0 = thick.x2X0, .xRho = 0.F};
   rows.push_back({"thick, p 0.5 GeV, radiation only", coverage<>(0.5, thickNoIonisation, true, kTracks, 108), true});
   rows.push_back({"thick, p 0.5 GeV, tracks without radiation", coverage<>(0.5, thick, false, kTracks, 107), false});

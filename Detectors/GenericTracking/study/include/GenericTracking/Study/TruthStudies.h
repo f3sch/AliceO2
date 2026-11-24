@@ -13,7 +13,8 @@
 /// \brief The truth studies a host runs: each a module, a source of chains
 ///        and an output, as `<module>:<source>:<path>` names them.
 ///
-/// Modules: `gsf` (GSFStudy.h), `species` (SpeciesFitStudy.h), `clusters`
+/// Modules: `gsf` (GSFStudy.h), `species` (SpeciesFitStudy.h), `likelihood`
+/// (SpeciesLikelihoodStudy.h), `clusters`
 /// (ClusterPullStudy.h), `overlaps` (OverlapStudy.h, which takes the
 /// tracker's output whole), `overlapFit` (OverlapFitStudy.h), `decaycensus`
 /// (DecayCensusStudy.h), `decayfit` (DecayFitStudy.h), `decayprecision` (its
@@ -40,6 +41,7 @@
 #include "GenericTracking/Study/PrimaryVertexStudy.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/SpeciesFitStudy.h"
+#include "GenericTracking/Study/SpeciesLikelihoodStudy.h"
 #include "GenericTracking/Study/StudyChains.h"
 #include "GenericTracking/Study/TruthEvent.h"
 
@@ -78,8 +80,8 @@ class TruthStudies
   {
     std::vector<std::string_view> paths;
     for (const auto& spec : specs) {
-      if (spec.module != "gsf" && spec.module != "species" && spec.module != "decaycensus" && spec.module != "decayfit" && spec.module != "decayprecision" && spec.module != "decaydevice" && spec.module != "clusters" && spec.module != "overlaps" && spec.module != "overlapFit" && spec.module != "primaryvertex" && spec.module != "decaycandidates" && spec.module != "decayfinder") {
-        throw std::invalid_argument("truth study " + spec.module + ": the modules are gsf, species, decaycensus, decayfit, decayprecision, decaydevice, clusters, overlaps, overlapFit, primaryvertex, decaycandidates and decayfinder");
+      if (spec.module != "gsf" && spec.module != "species" && spec.module != "likelihood" && spec.module != "decaycensus" && spec.module != "decayfit" && spec.module != "decayprecision" && spec.module != "decaydevice" && spec.module != "clusters" && spec.module != "overlaps" && spec.module != "overlapFit" && spec.module != "primaryvertex" && spec.module != "decaycandidates" && spec.module != "decayfinder") {
+        throw std::invalid_argument("truth study " + spec.module + ": the modules are gsf, species, likelihood, decaycensus, decayfit, decayprecision, decaydevice, clusters, overlaps, overlapFit, primaryvertex, decaycandidates and decayfinder");
       }
       if (!RecordWriter::writes(spec.path) || std::ranges::find(paths, spec.path) != paths.end()) {
         throw std::invalid_argument("truth study " + spec.module + ": its output " + spec.path + " is not a new .csv or .root path");
@@ -94,6 +96,8 @@ class TruthStudies
         study->module.template emplace<GSFStudy<Det>>(*study->writer);
       } else if (spec.module == "species") {
         study->module.template emplace<SpeciesFitStudy<Det>>(*study->writer);
+      } else if (spec.module == "likelihood") {
+        study->module.template emplace<SpeciesLikelihoodStudy<Det>>(*study->writer);
       } else if (spec.module == "clusters") {
         study->module.template emplace<ClusterPullStudy<Det>>(*study->writer);
       } else if (spec.module == "overlaps") {
@@ -177,7 +181,7 @@ class TruthStudies
   struct Study {
     ChainSource source = ChainSource::kTruth;
     std::unique_ptr<RecordWriter> writer;
-    std::variant<std::monostate, GSFStudy<Det>, SpeciesFitStudy<Det>, DecayCensusStudy<Det>, DecayFitStudy<Det>, ClusterPullStudy<Det>, OverlapStudy<Det>, OverlapFitStudy<Det>, PrimaryVertexStudy<Det>, DecayCandidateStudy<Det>, DecayFinderStudy<Det>> module;
+    std::variant<std::monostate, GSFStudy<Det>, SpeciesFitStudy<Det>, SpeciesLikelihoodStudy<Det>, DecayCensusStudy<Det>, DecayFitStudy<Det>, ClusterPullStudy<Det>, OverlapStudy<Det>, OverlapFitStudy<Det>, PrimaryVertexStudy<Det>, DecayCandidateStudy<Det>, DecayFinderStudy<Det>> module;
   };
 
   void dispatch(const TruthEvent<Det>& event, std::span<const Chain> chains, ChainSource source)

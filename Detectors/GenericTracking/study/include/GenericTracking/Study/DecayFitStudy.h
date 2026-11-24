@@ -54,6 +54,7 @@
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/RoadFit.h"
+#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/DecayCandidates.h"
 #include "GenericTracking/Study/DecayStudyTools.h"
 #include "GenericTracking/Study/DecayTrees.h"
@@ -744,7 +745,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       }
     }
     const bool usable = std::ranges::all_of(shape.leaves, [&](const TreeParticle* leaf) {
-      return truthSpecies(leaf->pdg).has_value() && chainOf.contains(leaf->id);
+      return speciesOf(leaf->pdg).has_value() && chainOf.contains(leaf->id);
     });
     if (!usable) {
       continue;
@@ -767,17 +768,20 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
   std::optional<DaughterTable<Det>> table;
   std::optional<DaughterSource<Det>> tableSource;
   if (source == ChainSource::kTracks) {
-    const std::array<o2::track::PID, 5> species{o2::track::PID{o2::track::PID::Electron}, o2::track::PID{o2::track::PID::Muon}, o2::track::PID{o2::track::PID::Pion}, o2::track::PID{o2::track::PID::Kaon}, o2::track::PID{o2::track::PID::Proton}};
-    table.emplace(std::span<const o2::track::PID>{species});
+    std::array<Species, kNSpecies> species{};
+    for (int s = 0; s < kNSpecies; ++s) {
+      species[static_cast<std::size_t>(s)] = static_cast<Species>(s);
+    }
+    table.emplace(std::span<const Species>{species});
     fillDaughterTable(*table, event, "decay fit study", [&](DaughterTable<Det>& asked) {
       for (const auto& one : work) {
         for (const auto* leaf : one.leaves) {
           const auto& context = chainOf.at(leaf->id)->track;
-          const auto species = truthSpecies(leaf->pdg);
+          const auto species = speciesOf(leaf->pdg);
           if (!context || !species) {
             throw std::logic_error("decay fit study: a track chain without its track, or a leaf without its species");
           }
-          asked.request(context->track, static_cast<std::uint8_t>(asked.speciesIndex(species->pid)));
+          asked.request(context->track, static_cast<std::uint8_t>(asked.speciesIndex(*species)));
         }
       }
     });
@@ -796,17 +800,17 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
       for (std::size_t i = 0; i < count; ++i) {
         const auto* leaf = one.leaves[i];
         const auto& chain = *chainOf.at(leaf->id);
-        const auto species = *truthSpecies(leaf->pdg);
+        const auto species = *speciesOf(leaf->pdg);
         const RowChain<Det> rows{.frame = &frame, .rows = chain.rows.data()};
         // The tracks' entry in the table, or the truth chain refitted.
         HypothesisFit<> refit;
         std::uint32_t entry = 0U;
         if (table) {
-          entry = static_cast<std::uint32_t>(table->entryOf(chain.track->track, static_cast<std::uint8_t>(table->speciesIndex(species.pid))));
+          entry = static_cast<std::uint32_t>(table->entryOf(chain.track->track, static_cast<std::uint8_t>(table->speciesIndex(species))));
           refit.status = table->view().status[entry];
           refit.failedPass = table->view().failedPass[entry];
         } else {
-          refit = refitRowsWithHypothesis(event.propagator, geometry, material, rows, static_cast<int>(chain.rows.size()), species.pid);
+          refit = refitRowsWithHypothesis(event.propagator, geometry, material, rows, static_cast<int>(chain.rows.size()), species);
         }
         if (refit.status != PropagationStatus::kOk) {
           one.refitFailed = true;
@@ -818,13 +822,13 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           daughters[i] = daughterOf(*tableSource, entry);
         } else {
           auto propagator = event.propagator;
-          propagator.massGeV = species.mass;
-          daughters[i] = {.innermost = refit.innermost, .surface = geometry.planeOf(rows[0]), .propagator = propagator, .mass = species.mass, .chargeMagnitude = std::abs(particleCharge(leaf->pdg))};
-          if (species.pid == o2::track::PID::Electron) {
+          propagator.setSpecies(species);
+          daughters[i] = {.innermost = refit.innermost, .surface = geometry.planeOf(rows[0]), .propagator = propagator, .mass = massOf(species)};
+          if (species == Species::kElectron) {
             daughters[i].mixture = refit.innermostMixture;
           }
         }
-        masses[i] = species.mass;
+        masses[i] = massOf(species);
       }
       // The unseen one: an unmeasured daughter, last, its start per job.
       double unseenMass = 0.;
@@ -894,7 +898,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
         const double pFirst = std::hypot(segment->momentum[0], segment->momentum[1], segment->momentum[2]);
         base.lossTrue[i] = static_cast<float>(1. - (pFirst / pProduction));
         const auto budget = event.material->getMatBudget(static_cast<float>(leaf->vertex[0]), static_cast<float>(leaf->vertex[1]), static_cast<float>(leaf->vertex[2]), static_cast<float>(segment->start[0]), static_cast<float>(segment->start[1]), static_cast<float>(segment->start[2]));
-        const auto loss = energyLoss(static_cast<Scalar>(1. / pProduction), static_cast<Scalar>(masses[i]), -budget.meanRho * budget.length);
+        const auto loss = energyLoss(daughters[i].propagator.absCharge / static_cast<Scalar>(pProduction), static_cast<Scalar>(masses[i]), daughters[i].propagator.absCharge, -budget.meanRho * budget.length);
         if (loss.ok) {
           base.lossModel[i] = static_cast<float>(1. - (1. / static_cast<double>(loss.momentumScale)));
         }
@@ -960,6 +964,7 @@ void DecayFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const C
           }
           auto propagator = event.propagator;
           propagator.massGeV = static_cast<Scalar>(particleMass(particle->pdg));
+          propagator.absCharge = static_cast<Scalar>(std::abs(particleCharge(particle->pdg)));
           auto& rows = motherRows.emplace_back();
           for (auto at = own.rbegin(); at != own.rend(); ++at) {
             const auto m = frame.measurement(*at);

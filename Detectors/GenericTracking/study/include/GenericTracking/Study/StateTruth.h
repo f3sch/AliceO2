@@ -102,11 +102,12 @@ template <DetectorLayout Det>
   for (int i = 0; i < 5; ++i) {
     truth.sigma[static_cast<std::size_t>(i)] = sqrtClampedOf(static_cast<double>(state.covAt(i, i)));
   }
-  // pT = sin(theta) / |q/p|: d/dtheta = cos(theta) / |q/p|, d/d(q/p) = -pT / (q/p).
+  // pT = |q| sin(theta) / |q/p|: d/dtheta = |q| cos(theta) / |q/p|, d/d(q/p) = -pT / (q/p).
   const auto theta = static_cast<double>(state.par[kTheta]);
   const auto qOverP = static_cast<double>(state.par[kQOverP]);
-  truth.fittedPt = std::sin(theta) / std::abs(qOverP);
-  const double dTheta = std::cos(theta) / std::abs(qOverP);
+  const double absCharge = std::abs(charge);
+  truth.fittedPt = absCharge * std::sin(theta) / std::abs(qOverP);
+  const double dTheta = absCharge * std::cos(theta) / std::abs(qOverP);
   const double dQOverP = -truth.fittedPt / qOverP;
   const double variance = (dTheta * dTheta * static_cast<double>(state.covAt(kTheta, kTheta))) + (2. * dTheta * dQOverP * static_cast<double>(state.covAt(kTheta, kQOverP))) + (dQOverP * dQOverP * static_cast<double>(state.covAt(kQOverP, kQOverP)));
   truth.ptSigma = sqrtClampedOf(variance);

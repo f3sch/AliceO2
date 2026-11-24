@@ -32,9 +32,8 @@
 #define GTRK_STUDY_CHARMFINDER_H_
 
 #include "GenericTracking/Tracking/DecayCandidateFit.h"
+#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/DecayStudyTools.h"
-
-#include "ReconstructionDataFormats/PID.h"
 
 #include <array>
 #include <cstddef>
@@ -58,11 +57,10 @@ inline constexpr std::array<std::int32_t, 7> kCharmHadrons{411, 421, 431, 4122, 
 /// The charm hypotheses (`kCharmMothers`' order).
 [[nodiscard]] inline std::vector<DecayHypothesis> charmHypotheses()
 {
-  using o2::track::PID;
-  const PID pion{PID::Pion};
-  const PID kaon{PID::Kaon};
-  const PID proton{PID::Proton};
-  const auto make = [](std::initializer_list<PID> species, std::initializer_list<std::int8_t> charges, std::int32_t pdg) {
+  const Species pion = Species::kPion;
+  const Species kaon = Species::kKaon;
+  const Species proton = Species::kProton;
+  const auto make = [](std::initializer_list<Species> species, std::initializer_list<std::int8_t> charges, std::int32_t pdg) {
     DecayHypothesis h;
     for (const auto s : species) {
       h.species.push_back(s);

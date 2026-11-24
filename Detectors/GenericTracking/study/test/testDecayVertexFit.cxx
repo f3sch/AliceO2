@@ -815,7 +815,7 @@ BOOST_AUTO_TEST_CASE(AResonanceMassIsSoft)
 }
 
 /// A hypertriton-like decay into 3He pi-: the 3He's q/p is 2 / p
-/// (`chargeMagnitude`). Exact inputs give the mother's mass back; under it,
+/// (its propagator's `absCharge`). Exact inputs give the mother's mass back; under it,
 /// smeared ones unit vertex pulls and the chi2's mean at its ndf.
 BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
 {
@@ -836,11 +836,11 @@ BOOST_AUTO_TEST_CASE(ADoublyChargedDaughterHasItsMomentum)
   const double massMother = std::sqrt((energy * energy) - (total[0] * total[0]) - (total[1] * total[1]) - (total[2] * total[2]));
   Propagator heliumProp = prop;
   heliumProp.massGeV = static_cast<Scalar>(kHelium3);
+  heliumProp.absCharge = 2.F;
   Propagator pionProp = prop;
   pionProp.massGeV = static_cast<Scalar>(kPion);
   auto he = daughterOf(helium, heliumProp, kVertex);
   he.mass = kHelium3;
-  he.chargeMagnitude = 2.;
   auto pi = daughterOf(pion, pionProp, kVertex);
   pi.mass = kPion;
   const std::vector<DecayDaughter> exactStates{he, pi};

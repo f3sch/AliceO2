@@ -8232,7 +8232,7 @@ class CompleteAnatomy
   {
     const auto budget = material.getMatBudget(midOf(a, 0), midOf(a, 1), midOf(a, 2), midOf(b, 0), midOf(b, 1), midOf(b, 2));
     const auto x2x0 = static_cast<double>(budget.meanX2X0);
-    return {highlandTheta0<double>(x2x0, x2x0, p, static_cast<double>(propagator.massGeV)), x2x0};
+    return {highlandTheta0<double>(x2x0, x2x0, p, static_cast<double>(propagator.massGeV), static_cast<double>(propagator.absCharge)), x2x0};
   }
 
   /// The true kinks from crossing \a a to crossing \a b, theta and the

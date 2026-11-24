@@ -25,9 +25,9 @@
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/RoadFit.h"
+#include "GenericTracking/Tracking/Species.h"
 
 #include "CommonConstants/PhysicsConstants.h"
-#include "ReconstructionDataFormats/PID.h"
 
 #include <array>
 #include <cmath>
@@ -109,61 +109,38 @@ enum class TruthFitVariant : std::uint8_t { kPion,
                                             kCount };
 inline constexpr std::size_t kTruthFitVariants = static_cast<std::size_t>(TruthFitVariant::kCount);
 
-/// A species' mass, as the fits take it, and its PID.
-struct Species {
-  Scalar mass = 0.F; ///< [GeV]
-  o2::track::PID pid;
-};
-
-/// The species of \a pdg: e, mu, pi, K, p; none for another.
-[[nodiscard]] inline std::optional<Species> truthSpecies(std::int32_t pdg)
-{
-  namespace physics = o2::constants::physics;
-  using o2::track::PID;
-  switch (std::abs(pdg)) {
-    case 11:
-      return Species{.mass = static_cast<Scalar>(physics::MassElectron), .pid = PID{PID::Electron}};
-    case 13:
-      return Species{.mass = static_cast<Scalar>(physics::MassMuon), .pid = PID{PID::Muon}};
-    case 211:
-      return Species{.mass = static_cast<Scalar>(physics::MassPionCharged), .pid = PID{PID::Pion}};
-    case 321:
-      return Species{.mass = static_cast<Scalar>(physics::MassKaonCharged), .pid = PID{PID::Kaon}};
-    case 2212:
-      return Species{.mass = static_cast<Scalar>(physics::MassProton), .pid = PID{PID::Proton}};
-    default:
-      return std::nullopt;
-  }
-}
-
 /// \a variant's fit (one of the first six) of the \a n rows of \a chain, with
-/// \a base's field and tolerances and \a mass, the particle's; \a outward the
-/// outward state the inward-only variants start from.
+/// \a base's field and tolerances and \a species, the particle's; \a outward
+/// the outward state the inward-only variants start from. The pion and
+/// electron hypotheses take unit charge, the true-mass variants the species'.
 template <DetectorLayout Det, typename Material, typename Chain>
-[[nodiscard]] TrackFitResult truthFit(TruthFitVariant variant, Scalar mass, const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& chain, int n, const BoundTrackState& outward)
+[[nodiscard]] TrackFitResult truthFit(TruthFitVariant variant, Species species, const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& chain, int n, const BoundTrackState& outward)
 {
   const auto pion = static_cast<Scalar>(o2::constants::physics::MassPionCharged);
   const auto electron = static_cast<Scalar>(o2::constants::physics::MassElectron);
-  const auto with = [&](Scalar scattering, Scalar loss) {
+  const auto mass = massOf(species);
+  const auto charge = absChargeOf(species);
+  const auto with = [&](Scalar scattering, Scalar loss, Scalar absCharge) {
     OraclePropagator prop;
     static_cast<Propagator&>(prop) = base;
     prop.massGeV = scattering;
     prop.lossMass = loss;
+    prop.absCharge = absCharge;
     return prop;
   };
   switch (variant) {
     case TruthFitVariant::kPion:
-      return fitMeasurements(with(pion, pion), geometry, material, chain, n);
+      return fitMeasurements(with(pion, pion, 1.F), geometry, material, chain, n);
     case TruthFitVariant::kTrue:
-      return fitMeasurements(with(mass, mass), geometry, material, chain, n);
+      return fitMeasurements(with(mass, mass, charge), geometry, material, chain, n);
     case TruthFitVariant::kTrueScattering:
-      return fitMeasurements(with(mass, pion), geometry, material, chain, n);
+      return fitMeasurements(with(mass, pion, charge), geometry, material, chain, n);
     case TruthFitVariant::kTrueLoss:
-      return fitMeasurements(with(pion, mass), geometry, material, chain, n);
+      return fitMeasurements(with(pion, mass, charge), geometry, material, chain, n);
     case TruthFitVariant::kTrueInward:
-      return fitInward(with(mass, mass), geometry, material, chain, n, outward);
+      return fitInward(with(mass, mass, charge), geometry, material, chain, n, outward);
     case TruthFitVariant::kElectronInward:
-      return fitInward(with(electron, electron), geometry, material, chain, n, outward);
+      return fitInward(with(electron, electron, 1.F), geometry, material, chain, n, outward);
     case TruthFitVariant::kHypothesis:
     case TruthFitVariant::kCount:
       break;

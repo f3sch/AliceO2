@@ -41,9 +41,8 @@
 #include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayObservables.h"
 #include "GenericTracking/Tracking/DecayVertexFit.h"
+#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Tracking/TrackStore.h"
-
-#include "ReconstructionDataFormats/PID.h"
 
 #include <array>
 #include <cmath>
@@ -57,8 +56,8 @@ namespace o2::gtrk
 
 /// One decay hypothesis (see the file's comment).
 struct DecayHypothesis {
-  FixedVector<o2::track::PID, decay_fit_detail::kMaxConstrainedDaughters> species; ///< per own track slot
-  FixedVector<std::int8_t, decay_fit_detail::kMaxConstrainedDaughters> charges;    ///< per own track slot, +1 or -1
+  FixedVector<Species, decay_fit_detail::kMaxConstrainedDaughters> species;     ///< per own track slot
+  FixedVector<std::int8_t, decay_fit_detail::kMaxConstrainedDaughters> charges; ///< per own track slot, +1 or -1
   /// Its composites' hypotheses, each of tracks only (a cascade's Lambda).
   FixedVector<std::uint16_t, decay_fit_detail::kMaxConstrainedVertices - 1> composites;
   double massGeV = 0.;         ///< the mother's
@@ -73,7 +72,7 @@ struct DecayHypothesis {
 /// each composite's leaves and mass.
 struct ExpandedHypothesis {
   VertexFitStatus status = VertexFitStatus::kOk; ///< kInvalidInput or kTooLarge for a hypothesis the fit cannot take
-  FixedVector<o2::track::PID, decay_fit_detail::kMaxConstrainedDaughters> species;
+  FixedVector<Species, decay_fit_detail::kMaxConstrainedDaughters> species;
   FixedVector<std::int8_t, decay_fit_detail::kMaxConstrainedDaughters> charges;
   DecayTopology topology;
   std::array<FixedVector<int, decay_fit_detail::kMaxConstrainedDaughters>, decay_fit_detail::kMaxConstrainedVertices - 1> compositeLeaves{};
@@ -222,15 +221,14 @@ struct DaughterSource {
 };
 
 /// Daughter-table entry \a e of \a source as the fit takes it: its state,
-/// its plane, the field with its species' mass, an electron's mixture.
+/// its plane, the field with its species' mass and |q|, an electron's mixture.
 template <DetectorLayout Det>
 [[nodiscard]] DecayDaughter daughterOf(const DaughterSource<Det>& source, std::uint32_t e)
 {
   const auto view = source.table->view();
-  const auto pid = source.table->species()[view.species[e]];
   auto propagator = source.propagator;
-  propagator.massGeV = pid.getMass();
-  DecayDaughter daughter{.innermost = view.state[e], .surface = source.innermostPlane(view.track[e]), .propagator = propagator, .mass = propagator.massGeV, .chargeMagnitude = std::abs(static_cast<double>(pid.getCharge()))};
+  propagator.setSpecies(source.table->species()[view.species[e]]);
+  DecayDaughter daughter{.innermost = view.state[e], .surface = source.innermostPlane(view.track[e]), .propagator = propagator, .mass = propagator.massGeV};
   if (view.mixture[e] >= 0) {
     daughter.mixture = source.table->mixture(static_cast<std::size_t>(view.mixture[e]));
   }

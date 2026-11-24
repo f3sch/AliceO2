@@ -31,6 +31,7 @@
 
 #include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayCandidateFit.h"
+#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/DecayCandidates.h"
 #include "GenericTracking/Study/DecayStudyTools.h"
 #include "GenericTracking/Study/MCTruth.h"
@@ -39,8 +40,6 @@
 #include "GenericTracking/Study/StudyChains.h"
 #include "GenericTracking/Study/TruthEvent.h"
 #include "GenericTracking/Study/TruthFit.h"
-
-#include "ReconstructionDataFormats/PID.h"
 
 #include <array>
 #include <chrono>
@@ -119,8 +118,7 @@ class DecayCandidateStudy
     if (source != ChainSource::kTracks || event.tracks == nullptr || event.trees == nullptr) {
       throw std::runtime_error("decay candidate study: it takes the tracker's tracks and the decay trees");
     }
-    using o2::track::PID;
-    const std::array<PID, 2> species{PID{PID::Pion}, PID{PID::Proton}};
+    const std::array<Species, 2> species{Species::kPion, Species::kProton};
     const auto hypotheses = v0Hypotheses();
 
     // The collisions' mocked primary vertices.
@@ -159,7 +157,7 @@ class DecayCandidateStudy
     }
 
     // Every pair's tracks under every species, refitted once.
-    DaughterTable<Det> table(std::span<const PID>{species});
+    DaughterTable<Det> table(std::span<const Species>{species});
     const auto flushed = std::chrono::steady_clock::now();
     fillDaughterTable(table, event, "decay candidate study", [&](DaughterTable<Det>& asked) {
       for (const auto& pair : pairs) {
@@ -185,8 +183,8 @@ class DecayCandidateStudy
         for (std::size_t slot = 0; slot < 2U; ++slot) {
           const auto entry = table.entryOf(pair.tracks[slot], static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
           candidate.entries.push_back(static_cast<std::uint32_t>(entry));
-          const auto truthSpeciesOf = truthSpecies(pair.pdgs[slot]);
-          pidMatch = pidMatch && truthSpeciesOf && truthSpeciesOf->pid == hypothesis.species[slot];
+          const auto truthSpecies = speciesOf(pair.pdgs[slot]);
+          pidMatch = pidMatch && truthSpecies && *truthSpecies == hypothesis.species[slot];
         }
         static_cast<void>(startDecayCandidate(candidate, std::span<const DecayHypothesis>{hypotheses}, daughters, reference.points.size()));
         candidates.push_back(candidate);

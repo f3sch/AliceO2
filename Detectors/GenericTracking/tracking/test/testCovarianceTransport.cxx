@@ -318,15 +318,22 @@ BOOST_AUTO_TEST_CASE(HighlandReproducesASensorByHand)
   BOOST_TEST(std::abs(static_cast<double>(x2X0) - 1.334e-3) < 1e-5);
 
   // A step alone (its own logarithm) of a massless particle: beta = 1.
-  const Scalar t0 = highlandTheta0(x2X0, x2X0, 1.F, 0.F);
+  const Scalar t0 = highlandTheta0(x2X0, x2X0, 1.F, 0.F, 1.F);
   BOOST_TEST(std::abs(static_cast<double>(t0) - 3.718e-4) < 1e-6);
 
   // 1/p scaling, and two sensors -- the overlap case -- 46 % wider.
-  BOOST_TEST(std::abs(static_cast<double>(highlandTheta0(x2X0, x2X0, 10.F, 0.F)) - 3.718e-5) < 1e-7);
-  const auto ratio = static_cast<double>(highlandTheta0(2.F * x2X0, 2.F * x2X0, 1.F, 0.F)) / static_cast<double>(t0);
+  BOOST_TEST(std::abs(static_cast<double>(highlandTheta0(x2X0, x2X0, 10.F, 0.F, 1.F)) - 3.718e-5) < 1e-7);
+  const auto ratio = static_cast<double>(highlandTheta0(2.F * x2X0, 2.F * x2X0, 1.F, 0.F, 1.F)) / static_cast<double>(t0);
   BOOST_TEST(std::abs(ratio - 1.46) < 0.01);
 
-  BOOST_TEST(std::abs(static_cast<double>(highlandTheta0(0.F, 0.F, 1.F, 0.F))) < 1e-12);
+  BOOST_TEST(std::abs(static_cast<double>(highlandTheta0(0.F, 0.F, 1.F, 0.F, 1.F))) < 1e-12);
+
+  // Charge z (PDG eq. 34.16): z / (beta p) in front, z^2 in the logarithm;
+  // a 3He of 2 GeV, by hand.
+  constexpr double kHelium3 = 2.80839;
+  const double beta2 = 4. / (4. + (kHelium3 * kHelium3));
+  const double byHand = 0.0136 * 2. / (2. * std::sqrt(beta2)) * std::sqrt(static_cast<double>(x2X0)) * (1. + (0.038 * std::log(static_cast<double>(x2X0) * 4. / beta2)));
+  BOOST_TEST(static_cast<double>(highlandTheta0(x2X0, x2X0, 2.F, static_cast<Scalar>(kHelium3), 2.F)) == byHand, boost::test_tools::tolerance(1e-5));
 }
 
 BOOST_AUTO_TEST_CASE(ScatteringProjectsOntoTheTwoAngles)
