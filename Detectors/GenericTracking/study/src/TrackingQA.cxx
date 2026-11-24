@@ -209,6 +209,7 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
   }
   std::ranges::stable_sort(order, {}, [&](std::size_t track) { return kinematics[track].iteration; });
   std::unordered_map<std::uint64_t, std::uint64_t> foundBy;
+  std::unordered_map<std::uint64_t, std::uint64_t> trackLayers; // the first good track's
   const auto chains = particleLayers(rows, settings);
   qa.tracks.resize(tracks.size());
   for (const auto track : order) {
@@ -245,6 +246,9 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
       }
       auto& mask = foundBy[particle];
       record.clone = mask != 0U;
+      if (!record.clone) {
+        trackLayers[particle] = record.layerMask;
+      }
       mask |= std::uint64_t{1} << k.iteration;
     }
   }
@@ -270,6 +274,7 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
       continue;
     }
     const auto entry = foundBy.find(id);
+    const auto held = trackLayers.find(id);
     const auto seeds = seeded.find(id);
     qa.particles.push_back({
       .pt = particle.pt,
@@ -282,6 +287,7 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
       .motherPdg = particle.motherPdg,
       .vz = particle.vz,
       .layers = layers.layers,
+      .trackLayers = held == trackLayers.end() ? 0U : held->second,
       .chain = static_cast<std::uint8_t>(layers.chain),
       .foundByO2 = foundByTheirs.contains(id),
       .findable = isFindable(particle.pt, layers, settings),
@@ -296,7 +302,7 @@ void stream(o2::utils::TreeStreamRedirector& output, const TrackingQA& qa)
 {
   for (const auto& p : qa.particles) {
     const auto& e = p.extras;
-    output << "particles" << "pt=" << p.pt << "eta=" << p.eta << "phi=" << p.phi << "origin=" << p.origin << "foundBy=" << p.foundBy << "seededBy=" << p.seededBy << "pdg=" << p.pdg << "motherPdg=" << p.motherPdg << "vr=" << e.vr << "vz=" << p.vz << "d0=" << e.d0 << "z0=" << e.z0 << "openingAngle=" << e.openingAngle << "motherMiss=" << e.motherMiss << "layers=" << p.layers << "chain=" << p.chain << "lostAt=" << e.lostAt << "pairLoss=" << e.pairLoss << "roadLoss=" << e.roadLoss << "fitLoss=" << e.fitLoss << "fitRoadLayers=" << e.fitRoadLayers << "roadLosses=" << e.roadLosses << "fitLosses=" << e.fitLosses << "raisedFit=" << e.raisedFit << "foundByO2=" << p.foundByO2 << "findable=" << p.findable << "inTimeframe=" << p.inTimeframe << "outwardLayers=" << e.outwardLayers << "legRows=" << e.legRows << "legLinked=" << e.legLinked << "legTaken=" << e.legTaken << "legAbsent=" << e.legAbsent << "legNotTaken=" << e.legNotTaken << "\n";
+    output << "particles" << "pt=" << p.pt << "eta=" << p.eta << "phi=" << p.phi << "origin=" << p.origin << "foundBy=" << p.foundBy << "seededBy=" << p.seededBy << "pdg=" << p.pdg << "motherPdg=" << p.motherPdg << "vr=" << e.vr << "vz=" << p.vz << "d0=" << e.d0 << "z0=" << e.z0 << "openingAngle=" << e.openingAngle << "motherMiss=" << e.motherMiss << "layers=" << p.layers << "trackLayers=" << p.trackLayers << "chain=" << p.chain << "lostAt=" << e.lostAt << "pairLoss=" << e.pairLoss << "roadLoss=" << e.roadLoss << "fitLoss=" << e.fitLoss << "fitRoadLayers=" << e.fitRoadLayers << "roadLosses=" << e.roadLosses << "fitLosses=" << e.fitLosses << "raisedFit=" << e.raisedFit << "foundByO2=" << p.foundByO2 << "findable=" << p.findable << "inTimeframe=" << p.inTimeframe << "outwardLayers=" << e.outwardLayers << "legRows=" << e.legRows << "legLinked=" << e.legLinked << "legTaken=" << e.legTaken << "legAbsent=" << e.legAbsent << "legNotTaken=" << e.legNotTaken << "\n";
   }
   streamTracks(output, qa.tracks);
 }
@@ -346,6 +352,6 @@ void streamVertices(o2::utils::TreeStreamRedirector& output, std::span<const QAV
   }
 }
 
-void streamRun(o2::utils::TreeStreamRedirector& output, int iterations, EtaRange eta, const ComparisonSettings& settings, std::size_t events, std::uint64_t fullLengthMask) { output << "run" << "iterations=" << iterations << "etaLow=" << eta.low << "etaHigh=" << eta.high << "minLayers=" << settings.minLayers << "minPtGeV=" << settings.minPtGeV << "minOutwardLayers=" << settings.minOutwardLayers << "events=" << static_cast<std::uint64_t>(events) << "fullLengthMask=" << fullLengthMask << "\n"; }
+void streamRun(o2::utils::TreeStreamRedirector& output, int iterations, EtaRange eta, const ComparisonSettings& settings, std::size_t events, std::uint64_t fullLengthMask, std::uint64_t inactiveLayers) { output << "run" << "iterations=" << iterations << "etaLow=" << eta.low << "etaHigh=" << eta.high << "minLayers=" << settings.minLayers << "minPtGeV=" << settings.minPtGeV << "minOutwardLayers=" << settings.minOutwardLayers << "events=" << static_cast<std::uint64_t>(events) << "fullLengthMask=" << fullLengthMask << "inactiveLayers=" << inactiveLayers << "\n"; }
 
 } // namespace o2::gtrk::study

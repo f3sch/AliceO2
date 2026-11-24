@@ -51,6 +51,7 @@
 #include "CompleteAnatomy.h"
 #include "FitInputs.h"
 #include "FollowAnatomy.h"
+#include "JoinStudy.h"
 #include "SeedingStrategy.h"
 #include "TrackBreakdown.h"
 #include "VertexStudy.h"
@@ -157,6 +158,8 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string fitResults;
   std::string clonesOut;      ///< --clones-out
   std::string rowsOut;        ///< --rows-out
+  std::string tofRows;        ///< --tof-rows
+  std::string joinStudy;      ///< --join-study
   std::string fakesOut;       ///< --fakes-out
   std::string followSteps;    ///< --follow-steps
   std::string cloneJoins;     ///< --clone-joins
@@ -177,6 +180,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string breakdownPopulation;       ///< --breakdown-population: the class's particles, primary, decay or v0
   std::string inwardHistory;             ///< --inward-history: the CSV of the inward refit's states
   std::string endDecisions;              ///< --end-decisions: the CSV of every follow walk's end
+  std::string anatomyInactive;           ///< --anatomy-inactive: the CSV of the inactive layers' census
   std::string endEdits;                  ///< --end-edits: with it, the CSV of each track's truth-free end edits
   int anatomyPdg = 0;                    ///< --anatomy-pdg
   bool anatomyFindable = false;          ///< --anatomy-findable
@@ -358,8 +362,8 @@ inline void printWork(const WorkCounts& work, std::size_t iteration)
     "  work, iteration {}, follow: {} layers without a row tested, {} of them holes; {} lookaheads; {} last rows unconfirmed, {} kept "
     "on their density, {} refused at the layout's end, {} against the beam line; {} road ends fitted again, {} replaced\n",
     iteration, at(kFollowHoleTests), at(kFollowHoles), at(kFollowLookaheads), at(kFollowUnconfirmed), at(kFollowDensityKept), at(kFollowEndRefused), at(kFollowBeamEndRefused), at(kFollowEndFits), at(kFollowEndReplaced));
-  if (at(kFollowInteriorSearches) != 0U || at(kFollowInactiveTail) != 0U) {
-    std::cout << std::format("  work, iteration {}, inactive layers: {} searched between two rows, {} without a free row in the gate, {} refused on the track's fit; {} rows taken by a walk's tail\n", iteration, at(kFollowInteriorSearches), at(kFollowInteriorEmpty), at(kFollowInteriorRefused), at(kFollowInactiveTail));
+  if (at(kFollowInactiveTail) != 0U) {
+    std::cout << std::format("  work, iteration {}, inactive layers: {} rows taken by a walk's tail\n", iteration, at(kFollowInactiveTail));
   }
   if (at(kTrackletShape) != 0U || at(kTripletShape) != 0U) {
     std::cout << std::format("  work, iteration {}, shapes: {} tracklet candidates and {} thirds refused\n", iteration, at(kTrackletShape), at(kTripletShape));
@@ -1000,6 +1004,59 @@ void writeClones(const std::string& path, const TrackStore<Det>& tracks, const s
       const auto& r = truth.rows[row];
       out << std::format("R {} {} {:.4f} {:.4f} {}\n", row, static_cast<int>(r.layer), r.r, r.z, static_cast<int>(r.count));
     }
+  }
+}
+
+/// The rows of \a tracks on the layout's inactive layers (ALICE 3's TOF),
+/// written to \a path for a time check between them: one line per track
+/// holding one -- its index, iteration, whether it is good, its particle (the
+/// good one, else the majority; 0 none) with its PDG code and true p [GeV],
+/// the outward state's q/p [1/GeV] and theta, the field [kG] -- and per
+/// inactive layer (layer order) its row (-1 none), global x, y, z [cm], time
+/// [ps] (the end of its box, the cluster's own time) and whether it carries
+/// the particle.
+template <DetectorLayout Det>
+void writeTofRows(const std::string& path, const TrackStore<Det>& tracks, const study::TrackingTruth& truth, const TimeFrame<Det>& frame, const Propagator& propagator)
+{
+  std::ofstream out(path);
+  if (!out) {
+    throw std::runtime_error("cannot write " + path);
+  }
+  constexpr auto kInactive = Detector<Det>::inactiveLayers;
+  out << "track,iteration,good,particle,pdg,p,qOverP,theta,bz";
+  for (std::uint64_t left = kInactive; left != 0U; left &= left - 1U) {
+    const auto layer = std::countr_zero(left);
+    out << std::format(",row{0},x{0},y{0},z{0},t{0},own{0}", layer);
+  }
+  out << '\n';
+  const auto view = tracks.tracks().view();
+  const auto rows = trackRows(tracks);
+  for (std::size_t track = 0; track < rows.size(); ++track) {
+    std::uint64_t held = 0U;
+    for (const auto row : rows[track]) {
+      held |= std::uint64_t{1} << truth.rows[row].layer;
+    }
+    if ((held & kInactive) == 0U) {
+      continue;
+    }
+    const auto good = study::goodParticle(truth.rows, rows[track]);
+    const auto particle = good != study::kNoTrackParticle ? good : study::majorityParticle(truth.rows, rows[track]).particle;
+    const auto found = truth.particles.find(particle);
+    const double p = found != truth.particles.end() ? static_cast<double>(found->second.pt) * std::cosh(static_cast<double>(found->second.eta)) : -1.;
+    const auto& state = view.outwardState[track];
+    out << std::format("{},{},{},{},{},{:.5f},{:.6g},{:.6g},{:.4f}", track, static_cast<int>(view.iteration[track]), good != study::kNoTrackParticle ? 1 : 0, particle == study::kNoTrackParticle ? 0U : particle,
+                       found != truth.particles.end() ? found->second.pdg : 0, p, static_cast<double>(state.qOverP()), static_cast<double>(state.theta()), static_cast<double>(propagator.bzKiloGauss));
+    for (std::uint64_t left = kInactive; left != 0U; left &= left - 1U) {
+      const auto layer = static_cast<LayerID>(std::countr_zero(left));
+      const auto at = std::ranges::find_if(rows[track], [&](std::uint32_t row) { return truth.rows[row].layer == layer; });
+      if (at == rows[track].end()) {
+        out << ",-1,0,0,0,0,0";
+        continue;
+      }
+      const auto m = frame.measurement(*at);
+      out << std::format(",{},{:.4f},{:.4f},{:.4f},{},{}", *at, static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z), timeBoxAt(frame.measurements(), *at).upper(), truth.rows[*at].carries(particle) ? 1 : 0);
+    }
+    out << '\n';
   }
 }
 
@@ -1712,18 +1769,22 @@ template <DetectorLayout Det>
 struct IterationStudies {
   std::vector<std::array<std::uint8_t, 2>> followed;
   std::optional<FollowAnatomy<Det, o2::base::MatLayerCylSet>> follow;
+  std::optional<study::JoinStudy<Det>> join;
   bool fakes = false;
 
   IterationStudies(const Options& options, const study::TrackingTruth* truth) : fakes(!options.fakesOut.empty())
   {
-    if ((fakes || !options.followSteps.empty() || options.followStops) && truth == nullptr) {
-      throw std::runtime_error("--fakes-out, --follow-steps and --follow-stops need the MC truth");
+    if ((fakes || !options.followSteps.empty() || options.followStops || !options.joinStudy.empty()) && truth == nullptr) {
+      throw std::runtime_error("--fakes-out, --follow-steps, --follow-stops and --join-study need the MC truth");
     }
     if (!options.followSteps.empty() || options.followStops) {
       follow.emplace(options.followSteps, *truth);
     }
+    if (!options.joinStudy.empty()) {
+      join.emplace(options.joinStudy, *truth);
+    }
   }
-  [[nodiscard]] bool active() const { return fakes || follow.has_value(); }
+  [[nodiscard]] bool active() const { return fakes || follow.has_value() || join.has_value(); }
 
   template <typename Observation>
   void observe(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const o2::base::MatLayerCylSet& material, const Propagator& propagator)
@@ -1828,6 +1889,9 @@ void writeTruthStudies(const Options& options, const TrackStore<Det>& tracks, co
   }
   if (!options.rowsOut.empty()) {
     writeRowsOut<Det>(options.rowsOut, tracks, truth, frame);
+  }
+  if (!options.tofRows.empty()) {
+    writeTofRows<Det>(options.tofRows, tracks, truth, frame, propagator);
   }
   if (!options.cloneJoins.empty()) {
     writeCloneJoins<Det>(options.cloneJoins, tracks, truth, comparison, frame, tracking, material, propagator, parametersOf);
@@ -2183,6 +2247,12 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     if (!options.endDecisions.empty()) {
       completeAnatomy->openEndDecisions(options.endDecisions);
     }
+    if (!options.anatomyInactive.empty()) {
+      if (options.hits.empty()) {
+        throw std::runtime_error("--anatomy-inactive needs --hits");
+      }
+      completeAnatomy->openInactiveCensus(options.anatomyInactive);
+    }
     if (!options.endEdits.empty()) {
       completeAnatomy->openEndEdits(options.endEdits);
     }
@@ -2233,6 +2303,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         static_cast<void>(seedingReal->endPass(settings[iteration.iteration], {.seconds = seconds}, std::cout, &seedingRealJson));
       }
       studies.observe(iteration, observed.iteration(iteration.iteration), frame, tracking, *material, propagator);
+      if (studies.join) {
+        studies.join->observe(iteration, observed, frame, tracking, propagator);
+      }
       if (completeAnatomy) {
         completeAnatomy->observe(iteration, observed.iteration(iteration.iteration), frame, tracking, *material, propagator);
       }
@@ -2501,7 +2574,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       std::cout << std::format("digest, tracks in clusters: {:016x}\n", deviceClusterDigest);
       for (std::size_t iteration = 0; iteration < deviceRun.iterations.size(); ++iteration) {
         const auto& report = deviceRun.iterations[iteration];
-        std::cout << std::format("  iteration {}: {} records, {} duplicates, {} mismatches, {} rounds, {} tracks, {} readbacks; arena peak {:.1f} MB\n", iteration, report.records, report.duplicates, report.mismatches, report.rounds, report.tracks, report.readbacks, static_cast<double>(report.arenaPeakBytes) / 1.e6);
+        std::cout << std::format("  iteration {}: {} records, {} duplicates, {} mismatches, {} rounds, {} tracks, {} joined, {} took an inactive layer's row, {} readbacks; arena peak {:.1f} MB\n", iteration, report.records, report.duplicates, report.mismatches, report.rounds, report.tracks, report.tracksJoined, report.inactiveRows, report.readbacks, static_cast<double>(report.arenaPeakBytes) / 1.e6);
       }
       const auto deviceRows = trackRows(*run.result.store);
       const auto score = scoreAndPrint(deviceRows);
@@ -2640,6 +2713,11 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     }
     if (truth && last) {
       writeTruthStudies<Det>(options, *result.store, *truth, comparison, frame, tracking, *material, propagator, studies.followed, [&](std::size_t iteration) -> const IterationParameters<Det>& { return tracker.iteration(iteration); }, [&](std::uint64_t id, std::size_t iteration) { return funnel ? funnel->stages(id, iteration) : std::nullopt; }, [&](std::size_t iteration, std::span<const std::uint32_t> rows) { return funnel ? funnel->recordChi2(iteration, rows) : std::nullopt; });
+      if (studies.join) {
+        for (const auto& line : studies.join->summary()) {
+          std::cout << line << '\n';
+        }
+      }
     }
     for (std::size_t iteration = 0; iteration < result.iterations.size(); ++iteration) {
       for (const auto& line : study::describeIteration(result.iterations[iteration], iteration)) {

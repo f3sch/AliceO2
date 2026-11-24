@@ -134,6 +134,9 @@ static int run(int argc, char** argv)
     ("end-decisions", bpo::value(&options.endDecisions)->default_value(""),
      "with --complete-anatomy: a CSV of every follow walk's end -- how it ended, the unconfirmed drop's verdict, its last and dropped rows against the truth, "
      "whether the last row stayed on the track") //
+    ("anatomy-inactive", bpo::value(&options.anatomyInactive)->default_value(""),
+     "with --complete-anatomy and --hits: a CSV of the inactive layers' census -- per correct road's outward walk and inactive layer the particle has a row "
+     "on, how the walk ended (the hole call against the MC hit and row), whether a step or the tail searched the layer and the particle's row's outcome there") //
     ("end-edits", bpo::value(&options.endEdits)->default_value(""),
      "with --end-decisions: a CSV of each track as it is and its truth-free end edits -- the last row refused, the unconfirmed drop's row put back -- "
      "refitted and floored") //
@@ -210,6 +213,12 @@ static int run(int argc, char** argv)
      "write the last run's tracks against the truth here: where each one's wrong rows are, road, follow or the earlier iterations' follow") //
     ("clones-out", bpo::value(&options.clonesOut)->default_value(""),
      "write the last run's findable physical primaries, their good tracks and the cloned ones' rows here") //
+    ("join-study", bpo::value(&options.joinStudy)->default_value(""),
+     "write the track join's dry run (plans/126) here: after each iteration, its tracks searched inward for an earlier track ending there, each pair "
+     "tested and arbitrated as the join would, nothing applied, against the truth") //
+    ("tof-rows", bpo::value(&options.tofRows)->default_value(""),
+     "write the last run's tracks holding a row on an inactive layer (ALICE 3's TOF) here: the track's particle and state, each such row's position, "
+     "time and truth -- for a time check between them") //
     ("rows-out", bpo::value(&options.rowsOut)->default_value(""),
      "write every row of the last run's frame here with its first particle's origin, kinematics and production point") //
     ("clone-joins", bpo::value(&options.cloneJoins)->default_value(""),

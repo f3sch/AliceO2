@@ -3313,7 +3313,7 @@ class MeasurementSinkTask : public Task
     const std::string name = mQAOutput->GetFile()->GetName();
     if (mInterface.configured()) {
       // The MC events: the signal source's, as the truth is.
-      streamRun(*mQAOutput, workflow::iterationCount(recoParam<Det>()), etaReach(PlacedEnvelopes<Det>::all()), findableRule(), mKinematics ? mKinematics->getNEvents(0) : 0U, kAlice3Tracker ? 0U : (std::uint64_t{1} << Detector<Det>::nLayers) - 1U);
+      streamRun(*mQAOutput, workflow::iterationCount(recoParam<Det>()), etaReach(PlacedEnvelopes<Det>::all()), findableRule(), mKinematics ? mKinematics->getNEvents(0) : 0U, kAlice3Tracker ? 0U : (std::uint64_t{1} << Detector<Det>::nLayers) - 1U, Detector<Det>::inactiveLayers);
     }
     mQAOutput->Close();
     mQAOutput.reset();

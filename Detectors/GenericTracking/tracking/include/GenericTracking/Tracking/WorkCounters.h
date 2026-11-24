@@ -136,9 +136,6 @@ enum class WorkCounter : std::uint8_t {
   kFollowBeamEndRefused,       ///< follow: inward last rows refused against the beam line (followBeamEnd)
   kTrackletShape,              ///< candidates whose line crosses a measurement outside its slope interval (shapeTest)
   kTripletShape,               ///< thirds whose triplet's line crosses a measurement outside its slope interval
-  kFollowInteriorSearches,     ///< inactive layers searched between two rows of a track (`FollowStage::interior`)
-  kFollowInteriorEmpty,        ///< of them, no free row in the gate
-  kFollowInteriorRefused,      ///< of the rest, the best row refused: the track's fit with it above the gate
   kFollowInactiveTail,         ///< rows a walk's tail took on inactive layers (`FollowStage::inactiveLayerTail`)
   kCount
 };

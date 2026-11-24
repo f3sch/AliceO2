@@ -244,7 +244,7 @@ decltype(auto) withBools(const Body& body, bool first, Rest... rest)
 
 /// `body(std::integral_constant<CrossingRule, rule>{})` for the run-time \a rule.
 template <typename Body>
-decltype(auto) withCrossingRule(CrossingRule rule, const Body& body)
+GPUhdi() decltype(auto) withCrossingRule(CrossingRule rule, const Body& body)
 {
   switch (rule) {
     case CrossingRule::kNearerCentre:

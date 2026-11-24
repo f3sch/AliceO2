@@ -58,6 +58,7 @@
 #include "GenericTracking/Tracking/GPU/DeviceStageOutput.h"
 #include "GenericTracking/Tracking/GPU/DeviceStorage.h"
 #include "GenericTracking/Tracking/GPU/DeviceTracker.h"
+#include "GenericTracking/Tracking/InactiveRows.h"
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/NeighbourStage.h"
 #include "GenericTracking/Tracking/OverlapPartners.h"
@@ -65,6 +66,7 @@
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/SensorCells.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
+#include "GenericTracking/Tracking/TrackJoin.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
 #include "GenericTracking/Tracking/TrackletStage.h"
 #include "GenericTracking/Tracking/TripletStage.h"
@@ -197,8 +199,9 @@ struct PartnerKeys {
   }
 };
 
-/// Whether the sorted proposal at \a at is its row's first: a flag per
-/// proposal, by its index.
+/// Whether the sorted entry at \a at is the first of its key's high half
+/// (a proposal's row, a choice's row or partner): a flag per entry, by its
+/// index.
 struct FirstOfRow {
   const std::uint64_t* keys = nullptr;
   const std::uint32_t* sorted = nullptr;
@@ -537,6 +540,106 @@ struct RoadOrderKey {
     const std::uint32_t phi = (bits & 0x80000000U) != 0U ? ~bits : bits | 0x80000000U;
     keys[road] = (static_cast<std::uint64_t>(pattern) << 32U) | phi;
     indices[road] = road;
+  }
+};
+
+/// \a x's bits as an unsigned key that sorts as the float does (-0 as +0;
+/// a NaN is never a key here).
+[[nodiscard]] GPUdi() std::uint32_t orderedBits(Scalar x)
+{
+  const auto bits = std::bit_cast<std::uint32_t>(x == 0.F ? 0.F : x);
+  return (bits & 0x80000000U) != 0U ? ~bits : (bits | 0x80000000U);
+}
+
+/// Whether a track has rows and its fit stands: the join's earlier tracks.
+struct HasRows {
+  const PropagationStatus* status = nullptr;
+  const std::uint8_t* count = nullptr;
+  GPUdi() bool operator()(std::uint32_t track) const { return status[track] == PropagationStatus::kOk && count[track] != 0U; }
+};
+
+/// The listed tracks' outermost and innermost rows.
+template <std::size_t K>
+struct EndRows {
+  const ClusterList<K>* clusters = nullptr;
+  const std::uint8_t* count = nullptr;
+  const std::uint32_t* listed = nullptr;
+  std::uint32_t* ends = nullptr;
+  std::uint32_t* starts = nullptr;
+  GPUdi() void operator()(std::uint32_t at) const
+  {
+    const auto track = listed[at];
+    ends[at] = clusters[track].index[count[track] - 1U];
+    starts[at] = clusters[track].index[0];
+  }
+};
+
+/// (row, track) pairs from the sorted rows and their tracks.
+struct ZipEnds {
+  const std::uint32_t* rows = nullptr;
+  const std::uint32_t* tracks = nullptr;
+  join::End* out = nullptr;
+  GPUdi() void operator()(std::uint32_t at) const { out[at] = {.row = rows[at], .track = tracks[at]}; }
+};
+
+/// Whether a piece chose a partner.
+struct ChosePartner {
+  const join::Choice* choices = nullptr;
+  GPUdi() bool operator()(std::uint32_t at) const { return choices[at].partner != join::kNone; }
+};
+
+/// A listed piece's sort key, its partner then its score, and the piece.
+struct JoinKeys {
+  const join::Choice* choices = nullptr;
+  const std::uint32_t* listed = nullptr;
+  std::uint64_t* keys = nullptr;
+  std::uint32_t* pieces = nullptr;
+  GPUdi() void operator()(std::uint32_t at) const
+  {
+    const auto piece = listed[at];
+    keys[at] = (std::uint64_t{choices[piece].partner} << 32U) | std::uint64_t{orderedBits(choices[piece].score)};
+    pieces[at] = piece;
+  }
+};
+
+/// Whether an element is not flagged.
+struct Unflagged {
+  const std::uint8_t* flags = nullptr;
+  GPUdi() bool operator()(std::uint32_t at) const { return flags[at] == 0U; }
+};
+
+/// The joined pieces' partners.
+struct PartnersOf {
+  const join::Choice* choices = nullptr;
+  const std::uint32_t* joined = nullptr;
+  std::uint32_t* partners = nullptr;
+  GPUdi() void operator()(std::uint32_t at) const { partners[at] = choices[joined[at]].partner; }
+};
+
+/// out[at] = first + at.
+struct Sequence {
+  std::uint32_t first = 0U;
+  std::uint32_t* out = nullptr;
+  GPUdi() void operator()(std::uint32_t at) const { out[at] = first + at; }
+};
+
+/// Whether a candidate chose an inactive layer's row.
+struct ChoseRow {
+  const inactive::Choice* choices = nullptr;
+  GPUdi() bool operator()(std::uint32_t at) const { return choices[at].row != inactive::kNone; }
+};
+
+/// A listed candidate's sort key, its row then its rise, and the candidate.
+struct InactiveKeys {
+  const inactive::Choice* choices = nullptr;
+  const std::uint32_t* listed = nullptr;
+  std::uint64_t* keys = nullptr;
+  std::uint32_t* positions = nullptr;
+  GPUdi() void operator()(std::uint32_t at) const
+  {
+    const auto position = listed[at];
+    keys[at] = (std::uint64_t{choices[position].row} << 32U) | std::uint64_t{orderedBits(choices[position].rise)};
+    positions[at] = position;
   }
 };
 
@@ -1426,6 +1529,45 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       }
     }
 
+    // The join to the earlier iterations' tracks (the host: Tracker::joinTracks)
+    // where they are and no iteration takes overlap partners, on every track
+    // so far gathered into one block; the earlier tracks it changes go back
+    // into their chunks as the last step, after every fallible one.
+    DeviceColumns<TrackRecord::template RecordT> gathered;
+    const auto earlier = static_cast<Index>(mTrackChunks.rows());
+    const std::size_t earlierChunks = mTrackChunks.chunks().size();
+    const bool joins = !mTakesPartners && earlier != 0U && keptCount != 0U;
+    DeviceSpan<Index> changed;
+    Index joinedCount = 0U;
+    if (joins) {
+      if (!gathered.allocate(mArena, std::size_t{earlier} + keptCount)) {
+        return StageStatus::kOutOfMemory;
+      }
+      mTrackChunks.gather(gathered, 0U, mStream);
+      copyColumns(tracks, 0U, gathered, earlier, keptCount, mStream);
+      status = joinTracks(gathered, earlier, tracks, proposals, keptCount, followCount != 0U, changed, joinedCount);
+      if (status != StageStatus::kComplete) {
+        return status;
+      }
+      report.tracksJoined = joinedCount;
+    }
+
+    // The inactive layers' rows (the host: InactiveRows::run) of the earlier
+    // tracks the join changed, then the iteration's own.
+    if constexpr (Detector<Det>::inactiveLayers != 0U) {
+      if (keptCount + joinedCount != 0U) {
+        Index taken = 0U;
+        status = joins ? inactiveRows(parameters, gathered.view(), earlier, keptCount, changed, joinedCount, working, taken) : inactiveRows(parameters, tracks.view(), 0U, keptCount, changed, 0U, working, taken);
+        if (status != StageStatus::kComplete) {
+          return status;
+        }
+        report.inactiveRows = taken;
+        if (joins && keptCount != 0U) {
+          copyColumns(gathered, earlier, tracks, 0U, keptCount, mStream);
+        }
+      }
+    }
+
     // The overlap partners (the host: OverlapPartners::run), into the used
     // mask and the tracks.
     // Only in a run whose iterations take any: per track its count, one more
@@ -1455,7 +1597,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     // storage stays until the timeframe ends.
     bool committed = false;
     if (mIteration + 1U < mIterationCount && mHostParameters[mIteration + 1U].followEarlier && mHostParameters[mIteration + 1U].follow && mTrackChunks.rows() + keptCount != 0U) {
-      status = followEarlier(mIteration + 1U, tracks, keptCount, working, selected.slots, rows);
+      status = followEarlier(mIteration + 1U, tracks, keptCount, working, selected.slots, rows, joinedCount != 0U ? &gathered : nullptr);
       if (status != StageStatus::kComplete) {
         return status;
       }
@@ -1476,6 +1618,9 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     }
     if (!committed && !mTrackChunks.append(mArena, ArenaEnd::kScratch, tracks, 0U, keptCount, mStream)) {
       return StageStatus::kOutOfMemory;
+    }
+    if (!committed && joinedCount != 0U) {
+      mTrackChunks.scatter(gathered, 0U, earlierChunks, mStream);
     }
     mRuntime->copyOnDevice(mUsed.data(), std::as_const(working).data(), rows, mStream);
     return StageStatus::kComplete; // endIteration synchronises
@@ -1575,12 +1720,183 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     return StageStatus::kComplete;
   }
 
+  /// The join (the host's `TrackJoin::run`) of the \a count tracks at
+  /// \a earlier in \a all -- the iteration's, after the earlier iterations'
+  /// -- to those before them: the earlier ones rewritten in \a all, the
+  /// pieces joined removed from \a tracks, their proposals (\a followed) and
+  /// from \a all (\a count then the pieces kept), the earlier tracks changed
+  /// into \a changed (ascending), their number into \a joined.
+  [[nodiscard]] StageStatus joinTracks(DeviceColumns<TrackRecord::template RecordT>& all, Index earlier, DeviceColumns<TrackRecord::template RecordT>& tracks, DeviceSpan<Proposal>& proposals, Index& count, bool followed, DeviceSpan<Index>& changed, Index& joined)
+  {
+    using View = typename DeviceColumns<TrackRecord::template RecordT>::View;
+    auto& report = mIterationReport;
+    joined = 0U;
+    const auto constView = std::as_const(all).view();
+    // The earlier tracks' ends and starts, by row then track: their rows
+    // sorted stably from ascending tracks.
+    DeviceSpan<Index> listed;
+    Index ends = 0U;
+    auto status = algorithms::selectIndices(*mRuntime, mArena, mStream, earlier, tracker_detail::HasRows{constView.status, constView.count}, listed, ends);
+    ++report.readbacks;
+    if (status != StageStatus::kComplete || ends == 0U) {
+      return status;
+    }
+    DeviceSpan<std::uint32_t> endRows;
+    DeviceSpan<std::uint32_t> startRows;
+    DeviceSpan<std::uint32_t> sortedRows;
+    DeviceSpan<std::uint32_t> sortedTracks;
+    DeviceSpan<join::End> endList;
+    DeviceSpan<join::End> startList;
+    if (!endRows.allocate(mArena, ends) || !startRows.allocate(mArena, ends) || !sortedRows.allocate(mArena, ends) || !sortedTracks.allocate(mArena, ends) || !endList.allocate(mArena, ends) || !startList.allocate(mArena, ends)) {
+      return StageStatus::kOutOfMemory;
+    }
+    algorithms::forEach(*mRuntime, mStream, ends, tracker_detail::EndRows<kMaxClusters>{constView.clusters, constView.count, std::as_const(listed).data(), endRows.data(), startRows.data()});
+    const int rowBits = algorithms::keyBits(static_cast<std::uint32_t>(mRows));
+    for (const bool outermost : {true, false}) {
+      status = algorithms::sortPairs(*mRuntime, mArena, mStream, std::as_const(outermost ? endRows : startRows).data(), sortedRows.data(), std::as_const(listed).data(), sortedTracks.data(), ends, rowBits);
+      if (status != StageStatus::kComplete) {
+        return status;
+      }
+      algorithms::forEach(*mRuntime, mStream, ends, tracker_detail::ZipEnds{std::as_const(sortedRows).data(), std::as_const(sortedTracks).data(), (outermost ? endList : startList).data()});
+    }
+    // Each piece's pair.
+    DeviceSpan<join::Choice> choices;
+    if (!choices.allocate(mArena, count)) {
+      return StageStatus::kOutOfMemory;
+    }
+    algorithms::forEach(*mRuntime, mStream, count, join::Choose<Det, View>{.parameters = std::as_const(mParameters).data(), .frame = std::as_const(mFrame).data(), .geometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = all.view(), .trackOffset = earlier, .ends = std::as_const(endList).data(), .starts = std::as_const(startList).data(), .endCount = ends, .maxCandidateWidthPS = std::as_const(mLayerMaxWidthPS).data(), .choices = choices.data()});
+    // Each earlier track the piece of the least score that chose it: the
+    // pieces with a partner by partner, then score, stably from ascending
+    // pieces, the first of each partner's run.
+    DeviceSpan<Index> chose;
+    Index chosen = 0U;
+    status = algorithms::selectIndices(*mRuntime, mArena, mStream, count, tracker_detail::ChosePartner{std::as_const(choices).data()}, chose, chosen);
+    ++report.readbacks;
+    if (status != StageStatus::kComplete || chosen == 0U) {
+      return status;
+    }
+    DeviceSpan<std::uint64_t> keys;
+    DeviceSpan<std::uint64_t> sortedKeys;
+    DeviceSpan<std::uint32_t> pieces;
+    DeviceSpan<std::uint32_t> sortedPieces;
+    DeviceSpan<std::uint8_t> joinedFlags;
+    if (!keys.allocate(mArena, chosen) || !sortedKeys.allocate(mArena, chosen) || !pieces.allocate(mArena, chosen) || !sortedPieces.allocate(mArena, chosen) || !joinedFlags.allocate(mArena, count)) {
+      return StageStatus::kOutOfMemory;
+    }
+    algorithms::forEach(*mRuntime, mStream, chosen, tracker_detail::JoinKeys{std::as_const(choices).data(), std::as_const(chose).data(), keys.data(), pieces.data()});
+    status = algorithms::sortPairs(*mRuntime, mArena, mStream, std::as_const(keys).data(), sortedKeys.data(), std::as_const(pieces).data(), sortedPieces.data(), chosen, 64);
+    if (status != StageStatus::kComplete) {
+      return status;
+    }
+    mRuntime->fill(joinedFlags.data(), 0U, count, mStream);
+    algorithms::forEach(*mRuntime, mStream, chosen, tracker_detail::FirstOfRow{std::as_const(sortedKeys).data(), std::as_const(sortedPieces).data(), joinedFlags.data()});
+    DeviceSpan<Index> joinedPieces;
+    status = algorithms::selectIndices(*mRuntime, mArena, mStream, count, tracker_detail::Flagged{std::as_const(joinedFlags).data()}, joinedPieces, joined);
+    ++report.readbacks;
+    if (status != StageStatus::kComplete || joined == 0U) {
+      return status;
+    }
+    // The joined tracks over the earlier ones, those listed ascending.
+    algorithms::forEach(*mRuntime, mStream, joined, join::Apply<Det, View>{.parameters = std::as_const(mParameters).data(), .frame = std::as_const(mFrame).data(), .geometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = all.view(), .trackOffset = earlier, .choices = std::as_const(choices).data(), .joined = std::as_const(joinedPieces).data()});
+    DeviceSpan<Index> partners;
+    if (!partners.allocate(mArena, joined) || !changed.allocate(mArena, joined)) {
+      return StageStatus::kOutOfMemory;
+    }
+    algorithms::forEach(*mRuntime, mStream, joined, tracker_detail::PartnersOf{std::as_const(choices).data(), std::as_const(joinedPieces).data(), partners.data()});
+    status = algorithms::sortKeys(*mRuntime, mArena, mStream, std::as_const(partners).data(), changed.data(), joined, algorithms::keyBits(earlier));
+    if (status != StageStatus::kComplete) {
+      return status;
+    }
+    // The pieces joined removed; their rows stay used, the earlier tracks'.
+    DeviceSpan<Index> kept;
+    Index keptCount = 0U;
+    status = algorithms::selectIndices(*mRuntime, mArena, mStream, count, tracker_detail::Unflagged{std::as_const(joinedFlags).data()}, kept, keptCount);
+    ++report.readbacks;
+    if (status != StageStatus::kComplete) {
+      return status;
+    }
+    DeviceColumns<TrackRecord::template RecordT> keptTracks;
+    DeviceSpan<Proposal> keptProposals;
+    if (!keptTracks.allocate(mArena, keptCount) || !keptProposals.allocate(mArena, followed ? keptCount : 0U)) {
+      return StageStatus::kOutOfMemory;
+    }
+    if (keptCount != 0U) {
+      device_storage_detail::forEachColumnPair(std::as_const(tracks).view(), keptTracks.view(), [&](auto* to, const auto* from) { algorithms::forEach(*mRuntime, mStream, keptCount, algorithms::Gather<std::remove_pointer_t<decltype(to)>>{from, std::as_const(kept).data(), to}); });
+      if (followed) {
+        algorithms::forEach(*mRuntime, mStream, keptCount, algorithms::Gather<Proposal>{std::as_const(proposals).data(), std::as_const(kept).data(), keptProposals.data()});
+      }
+      copyColumns(keptTracks, 0U, all, earlier, keptCount, mStream);
+    }
+    tracks = keptTracks;
+    proposals = keptProposals;
+    count = keptCount;
+    return StageStatus::kComplete;
+  }
+
+  /// The inactive layers' rows (the host's `InactiveRows::run`) with the
+  /// iteration's \a parameters for the \a changedCount tracks of \a view in
+  /// \a changed (ascending), then its \a ownCount from \a own: the chosen
+  /// rows marked in \a working, the tracks that took one rewritten, their
+  /// number into \a taken.
+  template <typename View>
+  [[nodiscard]] StageStatus inactiveRows(const IterationParameters<Det>* parameters, View view, Index own, Index ownCount, const DeviceSpan<Index>& changed, Index changedCount, DeviceSpan<std::uint8_t>& working, Index& taken)
+  {
+    auto& report = mIterationReport;
+    taken = 0U;
+    const Index count = changedCount + ownCount;
+    DeviceSpan<Index> candidates;
+    DeviceSpan<inactive::Choice> choices;
+    if (!candidates.allocate(mArena, count) || !choices.allocate(mArena, count)) {
+      return StageStatus::kOutOfMemory;
+    }
+    if (changedCount != 0U) {
+      mRuntime->copyOnDevice(candidates.data(), changed.data(), std::size_t{changedCount} * sizeof(Index), mStream);
+    }
+    if (ownCount != 0U) {
+      algorithms::forEach(*mRuntime, mStream, ownCount, tracker_detail::Sequence{own, candidates.data() + changedCount});
+    }
+    algorithms::forEach(*mRuntime, mStream, count, inactive::Choose<Det, View>{.iteration = parameters, .timeFrame = std::as_const(mFrame).data(), .trackingGeometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = view, .candidates = std::as_const(candidates).data(), .used = std::as_const(working).data(), .maxCandidateWidthPS = std::as_const(mLayerMaxWidthPS).data(), .cells = mSensorCells, .choices = choices.data()});
+    // A row two tracks want to the smaller rise, then the lower track: the
+    // choices by row, then rise, stably from ascending tracks, the first of
+    // each row's run.
+    DeviceSpan<Index> chose;
+    Index chosen = 0U;
+    auto status = algorithms::selectIndices(*mRuntime, mArena, mStream, count, tracker_detail::ChoseRow{std::as_const(choices).data()}, chose, chosen);
+    ++report.readbacks;
+    if (status != StageStatus::kComplete || chosen == 0U) {
+      return status;
+    }
+    DeviceSpan<std::uint64_t> keys;
+    DeviceSpan<std::uint64_t> sortedKeys;
+    DeviceSpan<std::uint32_t> positions;
+    DeviceSpan<std::uint32_t> sortedPositions;
+    DeviceSpan<std::uint8_t> winners;
+    if (!keys.allocate(mArena, chosen) || !sortedKeys.allocate(mArena, chosen) || !positions.allocate(mArena, chosen) || !sortedPositions.allocate(mArena, chosen) || !winners.allocate(mArena, count)) {
+      return StageStatus::kOutOfMemory;
+    }
+    algorithms::forEach(*mRuntime, mStream, chosen, tracker_detail::InactiveKeys{std::as_const(choices).data(), std::as_const(chose).data(), keys.data(), positions.data()});
+    status = algorithms::sortPairs(*mRuntime, mArena, mStream, std::as_const(keys).data(), sortedKeys.data(), std::as_const(positions).data(), sortedPositions.data(), chosen, 64);
+    if (status != StageStatus::kComplete) {
+      return status;
+    }
+    mRuntime->fill(winners.data(), 0U, count, mStream);
+    algorithms::forEach(*mRuntime, mStream, chosen, tracker_detail::FirstOfRow{std::as_const(sortedKeys).data(), std::as_const(sortedPositions).data(), winners.data()});
+    DeviceSpan<Index> order;
+    status = algorithms::selectIndices(*mRuntime, mArena, mStream, count, tracker_detail::Flagged{std::as_const(winners).data()}, order, taken);
+    ++report.readbacks;
+    if (status != StageStatus::kComplete || taken == 0U) {
+      return status;
+    }
+    algorithms::forEach(*mRuntime, mStream, taken, inactive::Apply<Det, View>{.iteration = parameters, .timeFrame = std::as_const(mFrame).data(), .trackingGeometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = view, .candidates = std::as_const(candidates).data(), .choices = std::as_const(choices).data(), .order = std::as_const(order).data(), .used = working.data()});
+    return StageStatus::kComplete;
+  }
+
   /// The recovery pass of iteration \a successor over every track so far --
   /// the chunks' and this iteration's \a tracks (\a trackCount of them) --
   /// with \a working as the used mask, its bids in \a slots (one per row,
   /// \a rows): the host's `Follow::run` with `earlier`. The tracks, updated,
   /// replace the chunks as one.
-  [[nodiscard]] StageStatus followEarlier(std::size_t successor, const DeviceColumns<TrackRecord::template RecordT>& tracks, Index trackCount, DeviceSpan<std::uint8_t>& working, DeviceSpan<Index>& slots, Index rows)
+  [[nodiscard]] StageStatus followEarlier(std::size_t successor, const DeviceColumns<TrackRecord::template RecordT>& tracks, Index trackCount, DeviceSpan<std::uint8_t>& working, DeviceSpan<Index>& slots, Index rows, const DeviceColumns<TrackRecord::template RecordT>* gathered)
   {
     const IterationParameters<Det>& host = mHostParameters[successor];
     const auto earlier = static_cast<Index>(mTrackChunks.rows());
@@ -1592,7 +1908,11 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     if (!all.allocate(mArena, total) || !proposals.allocate(mArena, total) || !followRows.allocate(mArena, total) || !followCounts.allocate(mArena, total)) {
       return StageStatus::kOutOfMemory;
     }
-    mTrackChunks.gather(all, 0U, mStream);
+    if (gathered != nullptr) {
+      copyColumns(*gathered, 0U, all, 0U, earlier, mStream);
+    } else {
+      mTrackChunks.gather(all, 0U, mStream);
+    }
     copyColumns(tracks, 0U, all, earlier, trackCount, mStream);
     runFollow(successor, all, total, true, proposals.data(), followRows, followCounts, slots, rows, working, nullptr);
     mTrackChunks.clear();

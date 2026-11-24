@@ -11,8 +11,7 @@
 
 /// \file testInactiveLayers.cxx
 /// \brief Inactive layers (LayerSpec.h), as ALICE 3's TOF in TRKFT3TOF: never
-///        a hole, found by the follow between two rows of a road that
-///        straddles one (the interior row) and after the outward walk (the
+///        a hole, found by the follow's walk and after the outward walk (the
 ///        tail).
 ///
 /// ToyInactive8 is ToyBarrel8's eight layers with layers 3 and 7 inactive:
@@ -277,7 +276,7 @@ Proposal followTrack(const Fixture& fixture, const Tracks& tracks, const std::ve
 
 } // namespace
 
-/// Both the interior row and the tail use the iteration's cluster gate.
+/// The follow takes an inactive layer's row with the iteration's cluster gate.
 BOOST_AUTO_TEST_CASE(InactiveLayersUseTheIterationsClusterGate)
 {
   static_assert(Detector<Det>::isInactiveLayer(3) && Detector<Det>::isInactiveLayer(7) && !Detector<Det>::isInactiveLayer(2));
@@ -295,13 +294,11 @@ BOOST_AUTO_TEST_CASE(InactiveLayersUseTheIterationsClusterGate)
   auto parameters = followParameters();
 
   const auto accepted = followTrack(fixture, tracks, used, parameters);
-  BOOST_TEST(accepted.interior == fixture.row(3));
   BOOST_REQUIRE_EQUAL(static_cast<int>(accepted.outwardCount), 2);
   BOOST_TEST(accepted.outward[1] == fixture.row(7));
 
   parameters.clusterChi2Max = 0.1F;
   const auto rejected = followTrack(fixture, tracks, used, parameters);
-  BOOST_TEST(rejected.interior == ClusterList<kMaxClusters>::kNoCluster);
   BOOST_REQUIRE_EQUAL(static_cast<int>(rejected.outwardCount), 1);
   BOOST_TEST(rejected.outward[0] == fixture.row(6));
 }
@@ -347,28 +344,8 @@ BOOST_AUTO_TEST_CASE(AStepOverTheInactiveLayerCrossesItsMaterial)
   BOOST_TEST(direct > x2X0[3]);
 }
 
-/// A road on 0, 1, 2, 4, 5 straddles the inactive layer 3 through the direct
-/// 2 -> 4 link: the follow proposes its row there, before row 4, and the
-/// rows beyond the road outward, 6 and 7.
-BOOST_AUTO_TEST_CASE(TheFollowTakesTheInteriorRowAndTheTail)
-{
-  const auto hits = helixHits(0.42, 0.025, 1.8);
-  BOOST_REQUIRE(hits.size() == kLayers);
-  const Fixture fixture{hits};
-  const auto pool = std::make_shared<BoundedMemoryResource>();
-  const auto tracks = fittedTrack(fixture, {0, 1, 2, 4, 5}, pool);
-  const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
-  const auto proposal = followTrack(fixture, tracks, used, followParameters());
-  BOOST_TEST(proposal.interior == fixture.row(3));
-  BOOST_TEST(proposal.interiorAt == 3U);
-  BOOST_REQUIRE_EQUAL(static_cast<int>(proposal.outwardCount), 2);
-  BOOST_TEST(proposal.outward[0] == fixture.row(6));
-  BOOST_TEST(proposal.outward[1] == fixture.row(7));
-  BOOST_TEST(proposal.inwardCount == 0U);
-}
-
-/// Without their rows the inactive layers cost nothing: no interior row, no
-/// hole on layer 7 with none allowed, and the track keeps layer 6's row.
+/// Without their rows the inactive layers cost nothing: no hole on layer 7
+/// with none allowed, and the track keeps layer 6's row.
 BOOST_AUTO_TEST_CASE(WithoutTheirRowsTheInactiveLayersCostNothing)
 {
   const auto hits = helixHits(0.42, 0.025, 1.8);
@@ -380,7 +357,6 @@ BOOST_AUTO_TEST_CASE(WithoutTheirRowsTheInactiveLayersCostNothing)
   used[fixture.row(3)] = kExclusive;
   used[fixture.row(7)] = kExclusive;
   const auto proposal = followTrack(fixture, tracks, used, followParameters());
-  BOOST_TEST(proposal.interior == ClusterList<kMaxClusters>::kNoCluster);
   BOOST_REQUIRE_EQUAL(static_cast<int>(proposal.outwardCount), 1);
   BOOST_TEST(proposal.outward[0] == fixture.row(6));
 }
@@ -433,31 +409,15 @@ BOOST_AUTO_TEST_CASE(TheTailUsesTheTimeBoxBeforeTheUnconfirmedRow)
   BOOST_TEST(proposal.outward[1] == fixture.row(7));
 }
 
-/// A road already on the inactive layer has no interior row to find: the
-/// follow adds what lies beyond it, as on any layer.
-BOOST_AUTO_TEST_CASE(ARoadOnTheInactiveLayerHasNoInteriorRow)
-{
-  const auto hits = helixHits(1.1, -0.02, 2.2);
-  BOOST_REQUIRE(hits.size() == kLayers);
-  const Fixture fixture{hits};
-  const auto pool = std::make_shared<BoundedMemoryResource>();
-  const auto tracks = fittedTrack(fixture, {0, 1, 2, 3, 4, 5}, pool);
-  const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
-  const auto proposal = followTrack(fixture, tracks, used, followParameters());
-  BOOST_TEST(proposal.interior == ClusterList<kMaxClusters>::kNoCluster);
-  BOOST_REQUIRE_EQUAL(static_cast<int>(proposal.outwardCount), 2);
-  BOOST_TEST(proposal.outward[1] == fixture.row(7));
-}
-
-/// The follow's passes (`Follow::run`): the track takes its interior row in
-/// path order, between rows 2 and 4, and the outward rows, and owns them.
-BOOST_AUTO_TEST_CASE(TheTrackHoldsItsInteriorRowInPathOrderAndOwnsIt)
+/// The follow's passes (`Follow::run`): the track takes the outward rows,
+/// the inactive layer 7's among them, in path order and owns them.
+BOOST_AUTO_TEST_CASE(TheTrackHoldsItsOutwardRowsInPathOrderAndOwnsThem)
 {
   const auto hits = helixHits(0.42, 0.025, 1.8);
   BOOST_REQUIRE(hits.size() == kLayers);
   const Fixture fixture{hits};
   const auto pool = std::make_shared<BoundedMemoryResource>();
-  auto tracks = fittedTrack(fixture, {0, 1, 2, 4, 5}, pool);
+  auto tracks = fittedTrack(fixture, {0, 1, 2, 3, 4, 5}, pool);
   std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
   const auto parameters = followParameters();
   Follow<Det> follow;
@@ -469,7 +429,7 @@ BOOST_AUTO_TEST_CASE(TheTrackHoldsItsInteriorRowInPathOrderAndOwnsIt)
   for (std::size_t layer = 0; layer < kLayers; ++layer) {
     BOOST_TEST(view.clusters[0].index[layer] == fixture.row(layer));
     // The follow owns the rows it adds; the road's are the selection's.
-    const bool added = layer == 3U || layer == 6U || layer == 7U;
+    const bool added = layer == 6U || layer == 7U;
     BOOST_TEST(used[fixture.row(layer)] == (added ? kExclusive : kFree));
   }
 }

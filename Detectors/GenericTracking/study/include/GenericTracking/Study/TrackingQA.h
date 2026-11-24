@@ -26,9 +26,9 @@
 ///              per iteration with a good track of it (`goodParticle`, the
 ///              text report's label rule), and `seededBy`, a bit per
 ///              iteration with a road of its own before the road fit
-///              (StageFunnel.h); its PDG codes, decay geometry, layers,
-///              the funnel's verdict and the other tracker's
-///              (`QAParticle`)
+///              (StageFunnel.h); its PDG codes, decay geometry, layers and
+///              the layers its first good track holds its measurement on,
+///              the funnel's verdict and the other tracker's (`QAParticle`)
 ///   tracks:    the fit's pT, eta and phi, its iteration, fake and clone;
 ///              fit status, generated pT/eta, origin and relative inverse-pT
 ///              residual for matched tracks, without requiring hit files
@@ -182,11 +182,16 @@ struct QAParticle {
   std::int32_t motherPdg = 0; ///< 0 without a mother
   float vz = 0.F;             ///< the production point's z [cm]
   std::uint64_t layers = 0U;  ///< the layers it has measurements on, a bit each
-  std::uint8_t chain = 0U;    ///< its longest chain's layers (`ParticleLayers::chain`)
-  bool foundByO2 = false;     ///< a good track of it among the other tracker's
-  bool findable = false;      ///< by `isFindable`
-  bool inTimeframe = false;   ///< its MC collision lies in the timeframe's time window
-  ParticleExtras extras;      ///< its decay geometry and funnel verdict, the tree's branches in between
+  /// The layers its first good track (in iteration and track order, the one
+  /// not a clone) holds a measurement on -- each carries the particle, a bit
+  /// each; 0 without a good track. Against `layers`, a layer's matching: ALICE
+  /// 3's TOF.
+  std::uint64_t trackLayers = 0U;
+  std::uint8_t chain = 0U;  ///< its longest chain's layers (`ParticleLayers::chain`)
+  bool foundByO2 = false;   ///< a good track of it among the other tracker's
+  bool findable = false;    ///< by `isFindable`
+  bool inTimeframe = false; ///< its MC collision lies in the timeframe's time window
+  ParticleExtras extras;    ///< its decay geometry and funnel verdict, the tree's branches in between
 };
 
 /// One crossing of a sensor by a particle, from its MC hit [cm].
@@ -419,7 +424,9 @@ void streamVertices(o2::utils::TreeStreamRedirector& output, std::span<const QAV
 /// \a settings' findable rules (`minLayers`, `minPtGeV`, `minOutwardLayers`)
 /// for its definitions, and the run's MC \a events. A nonzero fullLengthMask
 /// requires all detector layers; zero denotes per-particle MC traversal masks.
-void streamRun(o2::utils::TreeStreamRedirector& output, int iterations, EtaRange eta, const ComparisonSettings& settings, std::size_t events, std::uint64_t fullLengthMask = 0U);
+/// The layout's \a inactiveLayers (LayerSpec.h), a bit each: the layers the
+/// macro shows the matching on.
+void streamRun(o2::utils::TreeStreamRedirector& output, int iterations, EtaRange eta, const ComparisonSettings& settings, std::size_t events, std::uint64_t fullLengthMask = 0U, std::uint64_t inactiveLayers = 0U);
 
 } // namespace o2::gtrk::study
 
