@@ -17,5 +17,7 @@
 
 #pragma link C++ class o2::gtrk::study::MCVertexParam + ;
 #pragma link C++ class o2::conf::ConfigurableParamHelper < o2::gtrk::study::MCVertexParam> + ;
+#pragma link C++ class o2::gtrk::study::DecayParam + ;
+#pragma link C++ class o2::conf::ConfigurableParamHelper < o2::gtrk::study::DecayParam> + ;
 
 #endif

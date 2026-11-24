@@ -25,6 +25,7 @@ set(studyLibraries O2::GTrkTools O2::GTrkWorkflowITSMFT O2::GTrkWorkflowTRK O2::
 o2_add_library(GTrkStudy
                SOURCES src/Hits.cxx
                        src/Tracks.cxx
+                       src/DecayParam.cxx
                        src/MCVertexParam.cxx
                        src/MCVertexReaderSpec.cxx
                        src/ProfileReport.cxx
@@ -44,9 +45,10 @@ gtrk_study_o3(${targetName})
 target_include_directories(${targetName} PUBLIC $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 install(DIRECTORY include/GenericTracking DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-# GTRKMCVertex, a ConfigurableParam: a dictionary for --configKeyValues.
+# GTRKMCVertex and GTRKDecay, ConfigurableParams: a dictionary for --configKeyValues.
 o2_target_root_dictionary(GTrkStudy
-                          HEADERS include/GenericTracking/Study/MCVertexParam.h
+                          HEADERS include/GenericTracking/Study/DecayParam.h
+                                  include/GenericTracking/Study/MCVertexParam.h
                           LINKDEF src/GTrkStudyLinkDef.h)
 
 # The sink, one unit per detector: each instantiates the tracker and its QA.

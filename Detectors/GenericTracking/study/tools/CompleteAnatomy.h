@@ -411,6 +411,16 @@ class CompleteAnatomy
     }
   }
 
+  /// The CSV of the inner losses (`innerLoss`).
+  void openInnerLoss(const std::string& csv)
+  {
+    mInnerLossCsv = std::make_unique<std::ofstream>(csv);
+    if (!*mInnerLossCsv) {
+      throw std::runtime_error("cannot write " + csv);
+    }
+    *mInnerLossCsv << "iteration,track,particle,origin,pdg,pt,eta,ptTrack,count,followMinPt,inward,firstLayer,nextLayer,missing,steps,end,lastLayer,targets,targeted,ownOutcome,ownChi2,ownStepLayer,raw,kept,refit,droppedOwn,refusedOwn,heldBy,nextAt\n";
+  }
+
   /// The CSV of the replayed steps.
   void open(const std::string& csv)
   {
@@ -498,6 +508,9 @@ class CompleteAnatomy
       }
       return track < recovered.size() ? &recovered[track] : nullptr;
     };
+    if (mInnerLossCsv) {
+      innerLoss(iteration, replayed, particles, holder, parameters, frame);
+    }
 
     // The fate is decided anew each iteration; a short track's diagnosis is
     // made once, when the iteration that made it is observed (the only one
@@ -3276,6 +3289,88 @@ class CompleteAnatomy
   struct Replay : Walk {
     std::vector<Walk> outward;
   };
+
+  /// The inner losses (`--inner-loss`): each good track of the iteration
+  /// whose particle has a row before the track's first along its path, on
+  /// another layer -- an inner row the track lacks. The nearest such row
+  /// (`nextLayer`) and how many layers it lacks there, and the track's inward
+  /// walk as the replay has it: whether it ran (its steps; the follow's pT
+  /// floor and whether the stage walks inward beside), how it ended
+  /// (FollowEnd; -1 without steps), the layer it ended on and the layers its
+  /// last step searched (a mask; whether the nearest row's is among them),
+  /// the nearest row's outcome at the first inward step that saw it
+  /// (StepOutcome; -1 never a candidate) with its chi2 and that step's layer,
+  /// the rows the walk proposed and kept after the bid, the refit's outcome,
+  /// and whether the unconfirmed drop or the end tests removed the
+  /// particle's row. Who holds the nearest row after the iteration (0 none,
+  /// 1 another track of the particle, 2 another particle's good track, 3 a
+  /// fake) and its place in the particle's rows (0: the particle's first).
+  template <typename Observation>
+  void innerLoss(const Observation& iteration, const std::vector<Replay>& replayed, const std::vector<std::uint64_t>& particles, const std::vector<std::uint32_t>& holder, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame)
+  {
+    const auto view = iteration.tracks->view();
+    std::string text;
+    for (std::size_t i = 0; i < replayed.size(); ++i) {
+      const auto track = iteration.trackOffset + static_cast<std::uint32_t>(i);
+      const auto particle = particles[track];
+      const std::span<const std::uint32_t> rows{view.clusters[track].index, view.count[track]};
+      const auto* chain = particle == study::kNoTrackParticle ? nullptr : mChains->find(particle);
+      if (rows.empty() || chain == nullptr) {
+        continue;
+      }
+      const auto& own = chain->rows;
+      std::size_t first = own.size();
+      for (const auto row : rows) {
+        const auto at = std::ranges::find(own, row);
+        first = at == own.end() ? first : std::min(first, static_cast<std::size_t>(at - own.begin()));
+      }
+      if (first == own.size()) {
+        continue;
+      }
+      const LayerID firstLayer = mTruth->rows[own[first]].layer;
+      std::uint32_t next = kNoTrack;
+      std::size_t nextAt = 0U;
+      std::uint64_t missing = 0U;
+      for (std::size_t k = 0; k < first; ++k) {
+        const LayerID layer = mTruth->rows[own[k]].layer;
+        if (layer != firstLayer) {
+          next = own[k];
+          nextAt = k;
+          missing |= std::uint64_t{1} << layer;
+        }
+      }
+      if (next == kNoTrack) {
+        continue;
+      }
+      const LayerID nextLayer = mTruth->rows[next].layer;
+      const auto& walk = replayed[i];
+      int ownOutcome = -1;
+      Scalar ownChi2 = -1.F;
+      int ownStepLayer = -1;
+      for (const auto& step : walk.steps) {
+        const auto seen = std::ranges::find(step.candidates, next, &Candidate::row);
+        if (seen != step.candidates.end()) {
+          ownOutcome = static_cast<int>(seen->outcome);
+          ownChi2 = seen->chi2;
+          ownStepLayer = static_cast<int>(step.layer);
+          break;
+        }
+      }
+      std::uint64_t targets = 0U;
+      if (!walk.steps.empty()) {
+        for (const auto& target : walk.steps.back().targets) {
+          targets |= std::uint64_t{1} << target.layer;
+        }
+      }
+      const auto found = mTruth->particles.find(particle);
+      const bool truth = found != mTruth->particles.end();
+      const auto& state = view.state[track];
+      text += std::format("{},{},{},{},{},{:.4f},{:.3f},{:.4f},{},{:.3f},{},{},{},{},{},{},{},{},{},{},{:.5g},{},{},{},{},{},{},{},{}\n", iteration.iteration, track, particle, truth ? static_cast<int>(found->second.origin) : -1, truth ? found->second.pdg : 0, truth ? static_cast<double>(found->second.pt) : 0., truth ? static_cast<double>(found->second.eta) : 0.,
+                          static_cast<double>(std::sin(state.theta()) / std::abs(state.qOverP())), rows.size(), static_cast<double>(parameters.followMinPt), parameters.sharedInnermost == 0U ? 1 : 0, static_cast<int>(firstLayer), static_cast<int>(nextLayer), std::popcount(missing), walk.steps.size(),
+                          walk.steps.empty() ? -1 : static_cast<int>(walk.end), walk.steps.empty() ? -1 : static_cast<int>(walk.steps.back().layer), targets, ((targets >> nextLayer) & 1U) != 0U ? 1 : 0, ownOutcome, ownChi2, ownStepLayer, walk.raw.size(), walk.kept, static_cast<int>(walk.refit), walk.dropped == next ? 1 : 0, walk.refused == next ? 1 : 0, holder[next] == kNoTrack ? 0 : (particles[holder[next]] == particle ? 1 : (particles[holder[next]] == study::kNoTrackParticle ? 3 : 2)), nextAt);
+    }
+    *mInnerLossCsv << text;
+  }
 
   struct Recorder : follow::NoObserver {
     mutable Walk* replay = nullptr;
@@ -8416,6 +8511,7 @@ class CompleteAnatomy
   std::vector<std::uint8_t> mInStepKink;   ///< for an inward unconfirmed drop: the true kink over the step that took the dropped row
   std::vector<std::uint64_t> mLayersHeld;  ///< the good track's layers, a bit each (0: no good track), for `writeFates`
   std::unique_ptr<std::ofstream> mWalkCsv; ///< --truth-walk: one line per step of the truth walks
+  std::unique_ptr<std::ofstream> mInnerLossCsv; ///< --inner-loss: one line per good track lacking rows its particle has before its first
   /// The truth walks' predictions against the cluster, unselected, for the
   /// robust summary: [inward, outward][target layer][pT bin].
   struct WalkPulls {

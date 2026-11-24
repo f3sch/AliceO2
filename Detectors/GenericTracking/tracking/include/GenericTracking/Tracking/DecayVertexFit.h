@@ -106,7 +106,7 @@ struct DecayMother {
 
 /// A decay vertex fit's result: how it ended, then the decay.
 struct DecayVertexFitResult : VertexFitDiagnostics {
-  double pointSigma = 0.;               ///< the production point's equations' sigma across the flight [cm], with the scattering onto it
+  double pointSigma = 0.;               ///< the production point's equations' sigma across the flight [cm], with the scattering onto it and the point's own
   std::uint16_t combinations = 0U;      ///< `kGaussianSum`: the component combinations fitted and taken
   std::uint16_t combinationsTried = 0U; ///< and all combinations tried
   static constexpr std::size_t kVertices = decay_fit_detail::kMaxConstrainedVertices;
@@ -1246,7 +1246,22 @@ class DecayVertexFitter
     }
     for (const auto& chain : mChains) {
       if (chain.end == -1) {
+        // The point's own covariance, onto its plane's axes: the equations
+        // are the helix's crossing less the point's place there.
         const int e = chain.first + chain.count - 2;
+        const auto& c = mConstraints.pointCovariance;
+        const auto onto = [&](const Scalar* u, const Scalar* v) {
+          double sum = 0.;
+          for (int k = 0; k < 3; ++k) {
+            for (int l = 0; l < 3; ++l) {
+              sum += static_cast<double>(u[k]) * c[static_cast<std::size_t>(covIndex(k, l))] * static_cast<double>(v[l]);
+            }
+          }
+          return static_cast<S>(sum);
+        };
+        covariance[covIndex(e, e)] += onto(chain.endPlane.axis0, chain.endPlane.axis0);
+        covariance[covIndex(e + 1, e)] += onto(chain.endPlane.axis1, chain.endPlane.axis0);
+        covariance[covIndex(e + 1, e + 1)] += onto(chain.endPlane.axis1, chain.endPlane.axis1);
         mResult->pointSigma = sqrtOf(static_cast<double>(covariance[covIndex(e, e)]));
       }
     }

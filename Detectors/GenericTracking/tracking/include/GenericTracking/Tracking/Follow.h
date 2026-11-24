@@ -326,10 +326,12 @@ namespace follow
 /// it (`predictedWindow`), and `updateCandidate` is this plus the update.
 /// \a traversed, where given, gets the step's material. The body, inlined
 /// where it is called; the follow calls `transportCandidate`.
+/// \a from is the plane \a input lies on: its sensor's, or a plane of no
+/// layer (a decay vertex's, whose material is the table's gap share,
+/// `stepMaterial`).
 template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool transportCandidateInline(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& GPUrestrict() input, const CovarianceFactors& GPUrestrict() inputFactors, BoundParameters& GPUrestrict() output, CovarianceFactors& GPUrestrict() outputFactors, detail::StepMaterial* GPUrestrict() traversed = nullptr)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool transportCandidateInline(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& GPUrestrict() input, const CovarianceFactors& GPUrestrict() inputFactors, BoundParameters& GPUrestrict() output, CovarianceFactors& GPUrestrict() outputFactors, detail::StepMaterial* GPUrestrict() traversed = nullptr)
 {
-  const auto& from = geometry.planeOf(input);
   const auto& propagator = pointPropagator(prop, from, input);
   Scalar start[3]{};
   surfaceToGlobal(from, input.loc0(), input.loc1(), start);
@@ -366,6 +368,13 @@ template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typen
   return detail::transportStep<false>(propagator, step, momentum, before, direction, jacobian, output, outputFactors, 1.F) == PropagationStatus::kOk;
 }
 
+/// The same from \a input's own sensor.
+template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material>
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool transportCandidateInline(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& GPUrestrict() input, const CovarianceFactors& GPUrestrict() inputFactors, BoundParameters& GPUrestrict() output, CovarianceFactors& GPUrestrict() outputFactors, detail::StepMaterial* GPUrestrict() traversed = nullptr)
+{
+  return transportCandidateInline<Solve>(prop, geometry, material, geometry.planeOf(input), to, direction, input, inputFactors, output, outputFactors, traversed);
+}
+
 /// `transportCandidateInline`, never inlined on the device: the one copy
 /// every search shares. Only
 /// `FollowStage::passingOn` takes the body inline (`updateCandidate`'s
@@ -374,6 +383,13 @@ template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typen
 [[nodiscard]] GPUhdnii() bool transportCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& GPUrestrict() input, const CovarianceFactors& GPUrestrict() inputFactors, BoundParameters& GPUrestrict() output, CovarianceFactors& GPUrestrict() outputFactors, detail::StepMaterial* GPUrestrict() traversed = nullptr)
 {
   return transportCandidateInline<Solve>(prop, geometry, material, to, direction, input, inputFactors, output, outputFactors, traversed);
+}
+
+/// `transportCandidate` from the plane \a from (`transportCandidateInline`).
+template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material>
+[[nodiscard]] GPUhdnii() bool transportCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& GPUrestrict() input, const CovarianceFactors& GPUrestrict() inputFactors, BoundParameters& GPUrestrict() output, CovarianceFactors& GPUrestrict() outputFactors, detail::StepMaterial* GPUrestrict() traversed = nullptr)
+{
+  return transportCandidateInline<Solve>(prop, geometry, material, from, to, direction, input, inputFactors, output, outputFactors, traversed);
 }
 
 /// \a input, its covariance \a inputFactors (CovarianceFactors), carried to
@@ -403,6 +419,18 @@ template <bool Determinant = false, bool Inlined = false, typename Solve = Exact
   return updateUsable(update, outputFactors);
 }
 
+/// `updateCandidate` from the plane \a from (`transportCandidateInline`).
+template <typename Prop, DetectorLayout Det, typename Material>
+[[nodiscard]] bool updateCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& from, const Measurement& measurement, PropagationDirection direction, const BoundParameters& input, const CovarianceFactors& inputFactors, BoundParameters& output, CovarianceFactors& outputFactors, Scalar& chi2)
+{
+  if (!transportCandidate(prop, geometry, material, from, geometry.planeOf(measurement), direction, input, inputFactors, output, outputFactors)) {
+    return false;
+  }
+  const auto update = updateWithMeasurement<false>(output, outputFactors, measurement, nullptr);
+  chi2 = update.chi2;
+  return updateUsable(update, outputFactors);
+}
+
 /// The half-widths of the planes `predictedWindow` builds: no bound [cm].
 inline constexpr Scalar kOpenBound = 1.e4F;
 
@@ -425,8 +453,9 @@ inline constexpr Scalar kOpenBound = 1.e4F;
 /// may cross a sensor of the layer (the follow's hole test). \a traversed,
 /// where given, gets the material the state crossed to the plane: what the
 /// window's candidates take (`detail::GivenMaterial`).
+/// \a from is the plane \a state lies on (`transportCandidateInline`).
 template <typename Prop, DetectorLayout Det, typename Material>
-GPUhdi() bool predictedWindow(const Prop& prop, const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, const Material& material, const BoundParameters& state, const CovarianceFactors& factors, LayerID target, PropagationDirection direction, const LayerCrossingPrediction& nominal, CandidateWindow& window, Scalar* reach = nullptr, detail::StepMaterial* traversed = nullptr)
+GPUhdi() bool predictedWindow(const Prop& prop, const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& from, const BoundParameters& state, const CovarianceFactors& factors, LayerID target, PropagationDirection direction, const LayerCrossingPrediction& nominal, CandidateWindow& window, Scalar* reach = nullptr, detail::StepMaterial* traversed = nullptr)
 {
   using Math = o2::gpu::CAMath;
   const bool barrel = ((parameters.barrelLayers >> target) & 1U) != 0U;
@@ -449,7 +478,7 @@ GPUhdi() bool predictedWindow(const Prop& prop, const IterationParameters<Det>& 
   CovarianceFactors predictedFactors;
   // Navigation: the window's plane, centre and widths need no more than a
   // float solve (the states taken into the track are transported in double).
-  if (!transportCandidate<Scalar>(prop, geometry, material, plane, direction, state, factors, predicted, predictedFactors, traversed)) {
+  if (!transportCandidate<Scalar>(prop, geometry, material, from, plane, direction, state, factors, predicted, predictedFactors, traversed)) {
     return false;
   }
   Scalar predictedCov[kBoundCovSize]{};
@@ -488,6 +517,13 @@ GPUhdi() bool predictedWindow(const Prop& prop, const IterationParameters<Det>& 
     reach[1] = envelope * secondSlope;
   }
   return true;
+}
+
+/// The same from \a state's own sensor.
+template <typename Prop, DetectorLayout Det, typename Material>
+GPUhdi() bool predictedWindow(const Prop& prop, const IterationParameters<Det>& parameters, const TrackingGeometry<Det>& geometry, const Material& material, const BoundParameters& state, const CovarianceFactors& factors, LayerID target, PropagationDirection direction, const LayerCrossingPrediction& nominal, CandidateWindow& window, Scalar* reach = nullptr, detail::StepMaterial* traversed = nullptr)
+{
+  return predictedWindow(prop, parameters, geometry, material, geometry.planeOf(state), state, factors, target, direction, nominal, window, reach, traversed);
 }
 
 /// The material a follow step from \a state (its covariance \a factors)

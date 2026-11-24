@@ -65,6 +65,7 @@ struct SpeciesFitRecord {
   std::int32_t pdg = 0;
   std::int8_t charge = 0; ///< [e]
   std::uint8_t origin = 0U;
+  std::int32_t motherPdg = 0; ///< 0 without a mother
   float eta = 0.F;            ///< the truth's at production
   std::uint8_t layer = 0U;    ///< the comparison row's
   std::uint8_t kinks = 0U;    ///< a track's own refit's; 0 for a truth chain
@@ -121,6 +122,7 @@ struct SpeciesFitRecord {
     visit("pdg", pdg);
     visit("charge", charge);
     visit("origin", origin);
+    visit("motherPdg", motherPdg);
     visit("eta", eta);
     visit("layer", layer);
     visit("kinks", kinks);
@@ -244,6 +246,7 @@ void SpeciesFitStudy<Det>::fitChain(const TruthEvent<Det>& event, const Chain& c
     .pdg = truth.pdg,
     .charge = static_cast<std::int8_t>(std::lround(charge)),
     .origin = static_cast<std::uint8_t>(truth.origin),
+    .motherPdg = truth.motherPdg,
     .eta = truth.eta,
     .layer = static_cast<std::uint8_t>(event.rows[row].layer),
     .kinks = chain.track ? chain.track->kinks : std::uint8_t{0},

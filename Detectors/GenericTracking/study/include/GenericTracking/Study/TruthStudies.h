@@ -20,9 +20,8 @@
 /// fits in reduced precision against double, DecayPrecisionRecord),
 /// `decaydevice` (its fits through a packed batch on the host and on a GPU
 /// backend, DecayDeviceRecord), `primaryvertex` (PrimaryVertexStudy.h), `decaycandidates`
-/// (DecayCandidateStudy.h, the tracks only), `decayfinder`
-/// (DecayFinderStudy.h, the tracks only), `cascadecandidates`
-/// (CascadeCandidateStudy.h, the tracks only). Sources: `truth`, the particles' own rows,
+/// (DecayCandidateStudy.h, the tracks only), `decayfinder` (DecayFinderStudy.h,
+/// V0s and cascades, the tracks only). Sources: `truth`, the particles' own rows,
 /// and `tracks`, the tracker's good tracks (StudyChains.h). The path's
 /// extension picks the format (RecordWriter.h). The bench and the sink both
 /// hold one of these for the run and hand it each timeframe.
@@ -30,7 +29,6 @@
 #ifndef GTRK_STUDY_TRUTHSTUDIES_H_
 #define GTRK_STUDY_TRUTHSTUDIES_H_
 
-#include "GenericTracking/Study/CascadeCandidateStudy.h"
 #include "GenericTracking/Study/ClusterPullStudy.h"
 #include "GenericTracking/Study/DecayCandidateStudy.h"
 #include "GenericTracking/Study/DecayCensusStudy.h"
@@ -80,8 +78,8 @@ class TruthStudies
   {
     std::vector<std::string_view> paths;
     for (const auto& spec : specs) {
-      if (spec.module != "gsf" && spec.module != "species" && spec.module != "decaycensus" && spec.module != "decayfit" && spec.module != "decayprecision" && spec.module != "decaydevice" && spec.module != "clusters" && spec.module != "overlaps" && spec.module != "overlapFit" && spec.module != "primaryvertex" && spec.module != "decaycandidates" && spec.module != "decayfinder" && spec.module != "cascadecandidates") {
-        throw std::invalid_argument("truth study " + spec.module + ": the modules are gsf, species, decaycensus, decayfit, decayprecision, decaydevice, clusters, overlaps, overlapFit, primaryvertex, decaycandidates, decayfinder and cascadecandidates");
+      if (spec.module != "gsf" && spec.module != "species" && spec.module != "decaycensus" && spec.module != "decayfit" && spec.module != "decayprecision" && spec.module != "decaydevice" && spec.module != "clusters" && spec.module != "overlaps" && spec.module != "overlapFit" && spec.module != "primaryvertex" && spec.module != "decaycandidates" && spec.module != "decayfinder") {
+        throw std::invalid_argument("truth study " + spec.module + ": the modules are gsf, species, decaycensus, decayfit, decayprecision, decaydevice, clusters, overlaps, overlapFit, primaryvertex, decaycandidates and decayfinder");
       }
       if (!RecordWriter::writes(spec.path) || std::ranges::find(paths, spec.path) != paths.end()) {
         throw std::invalid_argument("truth study " + spec.module + ": its output " + spec.path + " is not a new .csv or .root path");
@@ -102,8 +100,6 @@ class TruthStudies
         study->module.template emplace<OverlapStudy<Det>>(*study->writer, mSelection);
       } else if (spec.module == "overlapFit") {
         study->module.template emplace<OverlapFitStudy<Det>>(*study->writer);
-      } else if (spec.module == "cascadecandidates") {
-        study->module.template emplace<CascadeCandidateStudy<Det>>(*study->writer);
       } else if (spec.module == "decayfinder") {
         study->module.template emplace<DecayFinderStudy<Det>>(*study->writer);
       } else if (spec.module == "decaycandidates") {
@@ -181,7 +177,7 @@ class TruthStudies
   struct Study {
     ChainSource source = ChainSource::kTruth;
     std::unique_ptr<RecordWriter> writer;
-    std::variant<std::monostate, GSFStudy<Det>, SpeciesFitStudy<Det>, DecayCensusStudy<Det>, DecayFitStudy<Det>, ClusterPullStudy<Det>, OverlapStudy<Det>, OverlapFitStudy<Det>, PrimaryVertexStudy<Det>, DecayCandidateStudy<Det>, DecayFinderStudy<Det>, CascadeCandidateStudy<Det>> module;
+    std::variant<std::monostate, GSFStudy<Det>, SpeciesFitStudy<Det>, DecayCensusStudy<Det>, DecayFitStudy<Det>, ClusterPullStudy<Det>, OverlapStudy<Det>, OverlapFitStudy<Det>, PrimaryVertexStudy<Det>, DecayCandidateStudy<Det>, DecayFinderStudy<Det>> module;
   };
 
   void dispatch(const TruthEvent<Det>& event, std::span<const Chain> chains, ChainSource source)

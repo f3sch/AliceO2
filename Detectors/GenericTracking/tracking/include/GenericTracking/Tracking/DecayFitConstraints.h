@@ -117,6 +117,9 @@ struct DecayConstraints {
   double massGeV = 0.; ///< the mother's
   bool production = false;
   Vec3D point{}; ///< where the mother was made [cm]
+  /// The point's own covariance (x, y, z, packed: `covIndex`) [cm^2]: a
+  /// fitted primary vertex's; zero for a point known exactly.
+  std::array<double, 6> pointCovariance{};
   /// Per vertex below the root, its composite's mass to hold [GeV]; 0 for none.
   FixedVector<double, decay_fit_detail::kMaxConstrainedVertices> compositeMasses;
   /// Resonances' masses, measured softly (a term of the chi2 each).

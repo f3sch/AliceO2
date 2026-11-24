@@ -170,6 +170,7 @@ struct Options { // NOLINT(clang-analyzer-optin.performance.Padding)
   bool completeAnatomy = false;          ///< --complete-anatomy
   std::string stepAnatomy;               ///< --step-anatomy: the CSV of the replayed steps
   std::string truthWalk;                 ///< --truth-walk: the CSV of the truth walks' steps
+  std::string innerLoss;                 ///< --inner-loss: the CSV of the good tracks lacking their particle's inner rows
   std::string fateOut;                   ///< --fate-out: the CSV of every class particle's fate
   std::string breakdown;                 ///< --breakdown: where the last run's tracks sit, a JSON line
   std::string breakdownParticles;        ///< --breakdown-particles: the same per particle of the class, a CSV
@@ -2166,6 +2167,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         throw std::runtime_error("--truth-walk needs --hits");
       }
       completeAnatomy->openTruthWalk(options.truthWalk);
+    }
+    if (!options.innerLoss.empty()) {
+      completeAnatomy->openInnerLoss(options.innerLoss);
     }
     if (options.truthWalkIteration >= 0) {
       completeAnatomy->setWalkIteration(static_cast<std::size_t>(options.truthWalkIteration));
