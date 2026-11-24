@@ -168,13 +168,11 @@ struct Options {
   /// The second iteration's kink allowance, whose follow runs in lane groups
   /// on the device, its links below
   /// `kFirstTwinLayer` and the soft tracks' twins there for the follow
-  /// (`hits`), and the first's end decided again:
-  /// never both in one iteration.
+  /// (`hits`).
   double kinkSigma = 1.;
-  bool followEnd = false;
 };
 
-std::string describe(const Options& options) { return std::string{options.source == VertexSource::kBeamLine ? "beam line" : "vertex list"} + ", width " + std::to_string(options.width) + ", shared " + std::to_string(options.sharedInnermost) + (options.extension ? ", follow" : ", no follow") + (options.kinkSigma > 1. ? ", kink allowance " + std::to_string(options.kinkSigma) + " sigma" : "") + (options.followEnd ? ", end again" : ""); }
+std::string describe(const Options& options) { return std::string{options.source == VertexSource::kBeamLine ? "beam line" : "vertex list"} + ", width " + std::to_string(options.width) + ", shared " + std::to_string(options.sharedInnermost) + (options.extension ? ", follow" : ", no follow") + (options.kinkSigma > 1. ? ", kink allowance " + std::to_string(options.kinkSigma) + " sigma" : ""); }
 
 std::unique_ptr<Host> makeHost(const Options& options)
 {
@@ -183,7 +181,6 @@ std::unique_ptr<Host> makeHost(const Options& options)
     iteration.sharedInnermost = options.sharedInnermost;
     iteration.follow = options.extension;
   }
-  settings.front().followEnd = options.followEnd;
   settings.back().kinkSigma = options.kinkSigma;
   if (options.kinkSigma > 1.) {
     settings.back().layerMask = (std::uint64_t{1} << kFirstTwinLayer) - 1U;
@@ -205,7 +202,7 @@ std::vector<IterationParameters<Det>> parametersOf(const Host& host)
 
 void configure(DeviceTracker<Det>& device, const Host& host) { BOOST_REQUIRE((device.configureRun(parametersOf(host), trackingGeometry(), Propagator{}) == StageStatus::kComplete)); }
 
-[[maybe_unused]] bool sameProposal(const FollowProposal<maxChainLayers<Det>>& lhs, const FollowProposal<maxChainLayers<Det>>& rhs) { return lhs.outwardCount == rhs.outwardCount && lhs.inwardCount == rhs.inwardCount && std::ranges::equal(lhs.outward, rhs.outward) && std::ranges::equal(lhs.inward, rhs.inward) && lhs.replacedEnd == rhs.replacedEnd; }
+[[maybe_unused]] bool sameProposal(const FollowProposal<maxChainLayers<Det>>& lhs, const FollowProposal<maxChainLayers<Det>>& rhs) { return lhs.outwardCount == rhs.outwardCount && lhs.inwardCount == rhs.inwardCount && std::ranges::equal(lhs.outward, rhs.outward) && std::ranges::equal(lhs.inward, rhs.inward); }
 
 /// The same for tracks: byte for byte in the deterministic build, the states field
 /// by field. With fast math a chi2's last bits may reorder ties, so the same
@@ -420,7 +417,7 @@ std::vector<Options> configurations()
     }
     result.push_back({.source = source, .width = 13, .sharedInnermost = 2U});
     result.push_back({.source = source, .width = 13, .extension = false});
-    result.push_back({.source = source, .width = 13, .kinkSigma = 5., .followEnd = true});
+    result.push_back({.source = source, .width = 13, .kinkSigma = 5.});
   }
   return result;
 }

@@ -109,43 +109,24 @@ const SensorCells<toybarrel8::Det>& toyCells()
 }
 
 /// An iteration that follows, \a holes allowed, the beam constraint with
-/// \a beamLine, the end decided again with \a followEnd.
-IterationParameters<toybarrel8::Det> followParameters(int holes = 0, bool beamLine = false, bool followEnd = false)
+/// \a beamLine.
+IterationParameters<toybarrel8::Det> followParameters(int holes = 0, bool beamLine = false)
 {
   auto settings = toybarrel8::iterationSettings();
   settings.follow = true;
-  settings.followEnd = followEnd;
   settings.followHoles = holes;
   settings.beamConstraint = beamLine;
   return iterationParameters<toybarrel8::Det>(settings, VertexConstraint{}, noMaterial<toybarrel8::Det>());
 }
 
-/// Track \a track of \a tracks followed (`FollowStage`, the end decided
-/// again with \a DecidesEnd), inward too with \a inward; serially, or on \a threads in chunks of
-/// \a chunkSize; with \a Greedy, the smallest chi2 instead of the lookahead; with
-/// \a BeamEnd, the inward end against the beam line.
-template <bool BeamLine = false, bool DecidesEnd = false, bool Greedy = false, bool BeamEnd = false>
+/// Track \a track of \a tracks followed (`FollowStage`), inward too with \a inward; serially, or on \a threads in chunks of
+/// \a chunkSize.
+template <bool BeamLine = false>
 ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tracks, const std::vector<std::uint8_t>& used, const IterationParameters<toybarrel8::Det>& parameters, bool inward = true, int threads = 0, std::uint32_t chunkSize = 1U)
 {
   const auto widths = widthBounds(fixture);
   std::vector<ToyProposal> proposals(tracks.size());
-  // The end decided again starts from the fit without it, a pass of its own.
-  std::vector<BoundTrackState> starts(tracks.size());
-  if constexpr (DecidesEnd) {
-    const follow::EndFit<toybarrel8::Det> fit{
-      .parameters = &parameters,
-      .frame = fixture.frame.get(),
-      .geometry = &toybarrel8::trackingGeometry(),
-      .propagator = Propagator{},
-      .tracks = tracks.view(),
-      .starts = starts.data(),
-      .trackOffset = 0U,
-    };
-    for (std::uint32_t track = 0; track < tracks.size(); ++track) {
-      fit(track);
-    }
-  }
-  const FollowStage<toybarrel8::Det, BeamLine, DecidesEnd, Greedy, BeamEnd> stage{&parameters, fixture.frame.get(), &toybarrel8::trackingGeometry(), Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), inward, 0U, DecidesEnd ? starts.data() : nullptr};
+  const FollowStage<toybarrel8::Det, BeamLine> stage{&parameters, fixture.frame.get(), &toybarrel8::trackingGeometry(), Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), inward, 0U};
   if (threads == 0) {
     for (std::uint32_t track = 0; track < tracks.size(); ++track) {
       stage(track);
@@ -159,7 +140,7 @@ ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tra
   return proposals.front();
 }
 
-bool sameProposal(const ToyProposal& a, const ToyProposal& b) { return a.outwardCount == b.outwardCount && a.inwardCount == b.inwardCount && a.replacedEnd == b.replacedEnd && std::ranges::equal(a.outward, b.outward) && std::ranges::equal(a.inward, b.inward); }
+bool sameProposal(const ToyProposal& a, const ToyProposal& b) { return a.outwardCount == b.outwardCount && a.inwardCount == b.inwardCount && std::ranges::equal(a.outward, b.outward) && std::ranges::equal(a.inward, b.inward); }
 
 /// The follow's passes over \a tracks (`Follow::run`), serially.
 StageStatus followAll(const toybarrel8::Fixture& fixture, const IterationParameters<toybarrel8::Det>& parameters, ToyTracks& tracks, std::vector<std::uint8_t>& used, Follow<toybarrel8::Det>& follow) { return follow.run(SerialForEach{}, parameters, *fixture.frame, toybarrel8::trackingGeometry(), Propagator{}, tracks, 0U, true, false, used, widthBounds(fixture), toyCells().view()); }
@@ -497,55 +478,6 @@ BOOST_AUTO_TEST_CASE(InwardFromTheBeamLineTakesTheSameRows)
   BOOST_TEST(sameProposal(beam, plain));
 }
 
-/// BeamEnd: a track on
-/// layers 3-7 from the origin walks inward to rows 2, 1 and 0 with the
-/// variant as without. Its row on layer 0 moved along r-phi: where the walk
-/// without the variant still takes it, the variant keeps it while the step's
-/// prediction updated with the beam line holds it under the gate and refuses
-/// it beyond, the walk's other rows as before; the refusal comes before the
-/// step's own.
-BOOST_AUTO_TEST_CASE(AnInwardLastRowOffTheBeamLineIsRefused)
-{
-  using namespace toybarrel8;
-  const auto pool = std::make_shared<BoundedMemoryResource>();
-  const auto parameters = followParameters(0, true);
-  const auto clean = sensorHelixHits(1.1, -0.02, 2.2);
-  const auto follow = [&](const std::vector<Hit>& hits) {
-    const Fixture fixture{hits};
-    const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
-    const auto tracks = fittedTrack(fixture, 3U, 7U, pool);
-    return std::pair{followTrack<true>(fixture, tracks, used, parameters), followTrack<true, false, false, true>(fixture, tracks, used, parameters)};
-  };
-  const auto [plain, beamEnd] = follow(clean);
-  BOOST_REQUIRE(plain.inwardCount == 3U);
-  BOOST_TEST(sameProposal(beamEnd, plain));
-  bool keptSeen = false;
-  bool refusedSeen = false;
-  bool keptAfterRefusal = false;
-  for (int step = 1; step <= 40; ++step) {
-    const double offset = 0.0005 * step;
-    auto hits = clean;
-    hits[0].point = moved(hits[0].point, 0., offset);
-    hits[0].loc0 += static_cast<Scalar>(offset);
-    const auto [without, with] = follow(hits);
-    if (without.inwardCount != 3U) {
-      continue;
-    }
-    if (with.inwardCount == 2U) {
-      refusedSeen = true;
-      BOOST_TEST(with.inward[0] == without.inward[0]);
-      BOOST_TEST(with.inward[1] == without.inward[1]);
-    } else {
-      BOOST_TEST(sameProposal(with, without));
-      keptSeen = true;
-      keptAfterRefusal = keptAfterRefusal || refusedSeen;
-    }
-  }
-  BOOST_TEST(keptSeen);
-  BOOST_TEST(refusedSeen);
-  BOOST_TEST(!keptAfterRefusal);
-}
-
 BOOST_AUTO_TEST_CASE(AFollowRejectsUsedNoiseAndDisplacedRows)
 {
   using namespace toybarrel8;
@@ -683,7 +615,7 @@ BOOST_AUTO_TEST_CASE(ARowRefusedAboveTheGateKeepsTheRowBeforeInwardOnly)
       }
       const auto widths = widthBounds(fixture);
       std::vector<ToyProposal> proposals(1U);
-      const FollowStage<Det> stage{&parameters, fixture.frame.get(), &trackingGeometry(), Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), true, 0U, nullptr};
+      const FollowStage<Det> stage{&parameters, fixture.frame.get(), &trackingGeometry(), Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), true, 0U};
       std::vector<std::tuple<LayerID, std::uint32_t, StepOutcome>> seen;
       const Seen observer{{}, &seen};
       const auto view = tracks.view();
@@ -800,7 +732,7 @@ BOOST_AUTO_TEST_CASE(TheConfirmationTakesTheTrueRowsOnACleanTrack)
   }
 }
 
-/// The lookahead where the greedy choice is wrong: the particle kinks at layer 5, its
+/// The lookahead where the smallest chi2 is wrong: the particle kinks at layer 5, its
 /// rows 5-7 shifted in r phi by 12, 24 and 36 um; a noise row where its row
 /// 5 would have been, nearer the prediction. The next layer confirms the
 /// particle's row and refuses the noise row.
@@ -820,12 +752,6 @@ BOOST_AUTO_TEST_CASE(TheConfirmationTakesTheRowTheNextLayerConfirms)
   for (std::size_t i = 0; i < 3U; ++i) {
     BOOST_TEST(proposal.outward[i] == fixture.row(5U + i));
   }
-  // The greedy choice takes the noise
-  // row, nearer the prediction, where the lookahead takes the confirmed one; the next
-  // layer refuses it, so nothing stands on it and the unconfirmed drop removes it: the
-  // direction ends with no row.
-  const auto greedy = followTrack<false, false, true>(fixture, tracks, used, followParameters());
-  BOOST_TEST(greedy.outwardCount == 0U);
 }
 
 /// The lookahead where nothing can confirm, on the last layer outward: two rows pass the
@@ -941,40 +867,6 @@ BOOST_AUTO_TEST_CASE(ARejectedRefitLeavesItsRowsFree)
   }
 }
 
-/// The followed prefix: a refit the cut
-/// refuses for the whole extension keeps its longest accepted prefix with
-/// `followPrefix`, and its rows only are marked; without it, none.
-BOOST_AUTO_TEST_CASE(ARefusedRefitKeepsItsLongestAcceptedPrefix)
-{
-  using namespace toybarrel8;
-  const auto hits = sensorHelixHits(2.8, -0.01, 1.6);
-  const Fixture fixture{hits};
-  const auto pool = std::make_shared<BoundedMemoryResource>();
-  for (const bool prefix : {false, true}) {
-    auto tracks = fittedTrack(fixture, 0U, 4U, pool);
-    std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
-    auto parameters = followParameters();
-    parameters.followPrefix = prefix;
-    // The track with all three outward rows refused, 2 * 8 - 5 degrees of
-    // freedom; with two of them, and fewer, accepted.
-    parameters.roadChi2MaxByNdf[(2U * kLayers) - static_cast<std::size_t>(kNBoundParams)] = -1.F;
-    Follow<Det> follow;
-    follow.setMemoryPool(pool);
-    BOOST_REQUIRE(followAll(fixture, parameters, tracks, used, follow) == StageStatus::kComplete);
-    BOOST_REQUIRE(follow.proposals().size() == 1U);
-    BOOST_TEST_CONTEXT("followPrefix " << prefix)
-    {
-      const auto view = std::as_const(tracks).view();
-      BOOST_TEST(follow.proposals()[0].outwardCount == (prefix ? 2U : 0U));
-      BOOST_TEST(view.count[0] == (prefix ? 7U : 5U));
-      BOOST_TEST(view.addedOutward[0] == (prefix ? 2U : 0U));
-      for (std::size_t layer = 5U; layer < kLayers; ++layer) {
-        BOOST_TEST(used[fixture.row(layer)] == (prefix && layer < 7U ? kExclusive : kFree));
-      }
-    }
-  }
-}
-
 /// The unconfirmed drop's row is not marked: it stays free after the passes.
 BOOST_AUTO_TEST_CASE(AnUnconfirmedRowStaysFreeAfterThePasses)
 {
@@ -996,12 +888,10 @@ BOOST_AUTO_TEST_CASE(AnUnconfirmedRowStaysFreeAfterThePasses)
 }
 
 /// The trim of an ambiguous last row: a second row within the gate on the outermost layer, 5 um
-/// off the particle's, makes the follow's last row one of two passing. With
-/// a `followTrimMargin` above the gate the row is dropped and left free, the
-/// track refitted one row shorter; it stays with the margin 0 (off), with a
-/// margin below the second row's chi2 less its own, without the second
-/// row, and where the length after the follow would drop the track one row
-/// shorter.
+/// off the particle's, makes the follow's last row one of two passing: the
+/// row is dropped and left free, the track refitted one row shorter; it stays
+/// without the second row, and where the length after the follow would drop
+/// the track one row shorter.
 BOOST_AUTO_TEST_CASE(AnAmbiguousLastRowIsTrimmedWhereTheTrackKeepsItsCuts)
 {
   using namespace toybarrel8;
@@ -1013,12 +903,11 @@ BOOST_AUTO_TEST_CASE(AnAmbiguousLastRowIsTrimmedWhereTheTrackKeepsItsCuts)
   other.loc1 += 0.0005F;
   ambiguous.push_back(other);
   const auto pool = std::make_shared<BoundedMemoryResource>();
-  const auto run = [&](const std::vector<Hit>& hits, float margin, std::uint32_t minAfter) {
+  const auto run = [&](const std::vector<Hit>& hits, std::uint32_t minAfter) {
     const Fixture fixture{hits};
     auto tracks = fittedTrack(fixture, 0U, 4U, pool);
     std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
     auto parameters = followParameters();
-    parameters.followTrimMargin = margin;
     parameters.minClustersAfterFollow = minAfter;
     Follow<Det> follow;
     follow.setMemoryPool(pool);
@@ -1027,16 +916,16 @@ BOOST_AUTO_TEST_CASE(AnAmbiguousLastRowIsTrimmedWhereTheTrackKeepsItsCuts)
     const auto view = std::as_const(tracks).view();
     return std::tuple{static_cast<std::uint32_t>(view.count[0]), static_cast<std::uint32_t>(follow.proposals()[0].outwardCount), static_cast<std::uint32_t>(view.addedOutward[0]), used[fixture.row(kLayers - 1U)]};
   };
-  const auto [count, outward, added, last] = run(ambiguous, 100.F, 0U);
+  const auto [count, outward, added, last] = run(ambiguous, 0U);
   BOOST_TEST(count == kLayers - 1U);
   BOOST_TEST(outward == 2U);
   BOOST_TEST(added == 2U);
   BOOST_TEST(last == kFree);
-  using Case = std::tuple<std::vector<Hit>, float, std::uint32_t>;
-  for (const auto& [hits, margin, minAfter] : {Case{ambiguous, 0.F, 0U}, Case{ambiguous, 1e-6F, 0U}, Case{clean, 100.F, 0U}, Case{ambiguous, 100.F, static_cast<std::uint32_t>(kLayers)}}) {
-    BOOST_TEST_CONTEXT("margin " << margin << ", rows " << hits.size() << ", length after the follow " << minAfter)
+  using Case = std::tuple<std::vector<Hit>, std::uint32_t>;
+  for (const auto& [hits, minAfter] : {Case{clean, 0U}, Case{ambiguous, static_cast<std::uint32_t>(kLayers)}}) {
+    BOOST_TEST_CONTEXT("rows " << hits.size() << ", length after the follow " << minAfter)
     {
-      const auto [kept, keptOutward, keptAdded, keptLast] = run(hits, margin, minAfter);
+      const auto [kept, keptOutward, keptAdded, keptLast] = run(hits, minAfter);
       BOOST_TEST(kept == kLayers);
       BOOST_TEST(keptOutward == 3U);
       BOOST_TEST(keptLast == kExclusive);
@@ -1070,93 +959,6 @@ BOOST_AUTO_TEST_CASE(TheFollowsPassesAddItsRowsToTheTrackAndMarkThem)
     BOOST_TEST(view.clusters[0].index[layer] == fixture.row(layer));
     BOOST_TEST(used[fixture.row(layer)] == kExclusive);
   }
-}
-
-/// The road's end decided again: the particle kinks at
-/// layer 4, its rows 4-7 shifted in r phi by 12, 24, 36 and 48 um; the road
-/// ends on a noise row where its row 4 would have been. Refitted without it,
-/// the follow takes the particle's row 4, which layer 5 confirms, in its
-/// place, and goes on outward.
-BOOST_AUTO_TEST_CASE(TheFollowReplacesARoadEndTheNextLayerRefuses)
-{
-  using namespace toybarrel8;
-  auto hits = sensorHelixHits(1.1, -0.02, 2.2);
-  const Hit noise = hits[4];
-  hits = kinkedBeyond(std::move(hits), 3U, 0.006);
-  hits.push_back(noise);
-  const Fixture fixture{hits};
-  const auto pool = std::make_shared<BoundedMemoryResource>();
-  const auto noiseRow = fixture.row(kLayers);
-  auto tracks = fittedRows(fixture, {fixture.row(0U), fixture.row(1U), fixture.row(2U), fixture.row(3U), noiseRow}, pool);
-  std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
-  for (std::size_t layer = 0; layer <= 3U; ++layer) {
-    used[fixture.row(layer)] = kExclusive;
-  }
-  used[noiseRow] = kExclusive;
-
-  const auto plain = followTrack(fixture, tracks, used, followParameters());
-  BOOST_TEST(plain.replacedEnd == ClusterList<kMaxClusters>::kNoCluster);
-  const auto parameters = followParameters(0, false, true);
-  const auto proposal = followTrack<false, true>(fixture, tracks, used, parameters);
-  BOOST_TEST(proposal.replacedEnd == noiseRow);
-  BOOST_REQUIRE(proposal.outwardCount == 4U);
-  for (std::size_t i = 0; i < 4U; ++i) {
-    BOOST_TEST(proposal.outward[i] == fixture.row(4U + i));
-  }
-
-  Follow<Det> follow;
-  follow.setMemoryPool(pool);
-  BOOST_REQUIRE(followAll(fixture, parameters, tracks, used, follow) == StageStatus::kComplete);
-  const auto view = std::as_const(tracks).view();
-  BOOST_REQUIRE(view.count[0] == kLayers);
-  BOOST_TEST(view.addedOutward[0] == 4U);
-  for (std::size_t layer = 0; layer < kLayers; ++layer) {
-    BOOST_TEST(view.clusters[0].index[layer] == fixture.row(layer));
-    BOOST_TEST(used[fixture.row(layer)] == kExclusive);
-  }
-  BOOST_TEST(used[noiseRow] == kFree);
-}
-
-/// On a clean road the follow takes its end again: the proposal is the
-/// plain follow's, the end kept.
-BOOST_AUTO_TEST_CASE(TheFollowKeepsACleanRoadEnd)
-{
-  using namespace toybarrel8;
-  const auto hits = sensorHelixHits(0.42, 0.025, 1.8);
-  const Fixture fixture{hits};
-  const auto pool = std::make_shared<BoundedMemoryResource>();
-  const auto tracks = fittedTrack(fixture, 0U, 4U, pool);
-  std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
-  for (std::size_t layer = 0; layer <= 4U; ++layer) {
-    used[fixture.row(layer)] = kExclusive;
-  }
-  const auto plain = followTrack(fixture, tracks, used, followParameters());
-  const auto again = followTrack<false, true>(fixture, tracks, used, followParameters(0, false, true));
-  BOOST_TEST(again.replacedEnd == ClusterList<kMaxClusters>::kNoCluster);
-  BOOST_TEST(sameProposal(again, plain));
-}
-
-/// Without the follow, the end alone is decided again: the particle's row
-/// replaces the noise row, nothing beyond it is taken, nothing inward.
-BOOST_AUTO_TEST_CASE(WithoutTheFollowOnlyTheEndIsDecidedAgain)
-{
-  using namespace toybarrel8;
-  auto hits = sensorHelixHits(1.1, -0.02, 2.2);
-  const Hit noise = hits[4];
-  hits = kinkedBeyond(std::move(hits), 3U, 0.006);
-  hits.push_back(noise);
-  const Fixture fixture{hits};
-  const auto pool = std::make_shared<BoundedMemoryResource>();
-  const auto noiseRow = fixture.row(kLayers);
-  const auto tracks = fittedRows(fixture, {fixture.row(1U), fixture.row(2U), fixture.row(3U), noiseRow}, pool);
-  const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
-  auto parameters = followParameters(0, false, true);
-  parameters.follow = false;
-  const auto proposal = followTrack<false, true>(fixture, tracks, used, parameters);
-  BOOST_TEST(proposal.replacedEnd == noiseRow);
-  BOOST_REQUIRE(proposal.outwardCount == 1U);
-  BOOST_TEST(proposal.outward[0] == fixture.row(4U));
-  BOOST_TEST(proposal.inwardCount == 0U);
 }
 
 BOOST_AUTO_TEST_CASE(EverySensorIsListedAtItsCentre)

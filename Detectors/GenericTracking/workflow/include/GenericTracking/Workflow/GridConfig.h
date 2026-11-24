@@ -171,18 +171,12 @@ inline void checkRecoParam(const RecoSettings& param)
   check("iterationSharedInnermost", param.iterationSharedInnermost.size(), 1U);
   check("iterationFollow", param.iterationFollow.size(), 1U);
   check("iterationFollowHoles", param.iterationFollowHoles.size(), 1U);
-  check("iterationFollowEnd", param.iterationFollowEnd.size(), 1U);
   check("iterationOverlapPartners", param.iterationOverlapPartners.size(), 1U);
   check("iterationInnerTrim", param.iterationInnerTrim.size(), 1U);
-  check("iterationFollowPrefix", param.iterationFollowPrefix.size(), 1U);
-  check("iterationFollowGreedy", param.iterationFollowGreedy.size(), 1U);
-  check("iterationFollowKeepChi2", param.iterationFollowKeepChi2.size(), 1U);
-  check("iterationFollowBeamEnd", param.iterationFollowBeamEnd.size(), 1U);
   check("iterationShapeTest", param.iterationShapeTest.size(), 1U);
   check("iterationMinPGeV", param.iterationMinPGeV.size(), 1U);
   check("iterationFollowEndMaxSqrtDet", param.iterationFollowEndMaxSqrtDet.size(), 1U);
   check("iterationFollowKeepDensity", param.iterationFollowKeepDensity.size(), 1U);
-  check("iterationFollowTrimMargin", param.iterationFollowTrimMargin.size(), 1U);
   check("iterationMinClustersAfterFollow", param.iterationMinClustersAfterFollow.size(), 1U);
   check("iterationBeamConstraint", param.iterationBeamConstraint.size(), 1U);
   check("iterationFollowEarlier", param.iterationFollowEarlier.size(), 1U);
@@ -226,22 +220,12 @@ inline void checkRecoParam(const RecoSettings& param)
   if (followHoles < 0) {
     throw std::invalid_argument(std::format("GTRKReco<DET>.iterationFollowHoles of iteration {} is {}", iteration, followHoles));
   }
-  const bool followEnd = flag(param.iterationFollowEnd, defaults.followEnd);
   const bool beamConstraint = flag(param.iterationBeamConstraint, defaults.beamConstraint);
-  const bool followBeamEnd = flag(param.iterationFollowBeamEnd, defaults.followBeamEnd);
-  if (followBeamEnd && !(follow && beamConstraint)) {
-    throw std::invalid_argument(std::format("GTRKReco<DET>.iterationFollowBeamEnd of iteration {} needs its iterationFollow and iterationBeamConstraint", iteration));
-  }
   const int innerTrim = entry(param.iterationInnerTrim, defaults.innerTrim);
   if (innerTrim < 0) {
     throw std::invalid_argument(std::format("GTRKReco<DET>.iterationInnerTrim of iteration {} is {}", iteration, innerTrim));
   }
   const double kinkSigma = entryDouble(param.iterationKinkSigma, defaults.kinkSigma);
-  // The road fit takes its last step with the allowance (fitOutward's
-  // LastStepAllowance); the follow's refit of the road without its end does not.
-  if (followEnd && kinkSigma > 1.) {
-    throw std::invalid_argument(std::format("GTRKReco<DET>.iterationFollowEnd of iteration {} with a kink allowance ({} sigma)", iteration, kinkSigma));
-  }
   return {
     .windows = windows,
     .vertexSource = entry(param.iterationVertexSource, static_cast<int>(defaults.vertexSource)) == 0 ? VertexSource::kBeamLine : VertexSource::kVertexList,
@@ -258,16 +242,10 @@ inline void checkRecoParam(const RecoSettings& param)
     .follow = follow,
     .followHoles = followHoles,
     .followMinPtGeV = param.followMinPtGeV,
-    .followEnd = followEnd,
     .overlapPartners = flag(param.iterationOverlapPartners, defaults.overlapPartners),
     .innerTrim = innerTrim,
-    .followPrefix = flag(param.iterationFollowPrefix, defaults.followPrefix),
-    .followGreedy = flag(param.iterationFollowGreedy, defaults.followGreedy),
-    .followKeepChi2 = entryDouble(param.iterationFollowKeepChi2, defaults.followKeepChi2),
     .followEndMaxSqrtDet = entryDouble(param.iterationFollowEndMaxSqrtDet, defaults.followEndMaxSqrtDet),
     .followKeepDensity = entryDouble(param.iterationFollowKeepDensity, defaults.followKeepDensity),
-    .followBeamEnd = followBeamEnd,
-    .followTrimMargin = entryDouble(param.iterationFollowTrimMargin, defaults.followTrimMargin),
     .minClustersAfterFollow = std::max(entry(param.iterationMinClustersAfterFollow, defaults.minClustersAfterFollow), 0),
     .beamConstraint = beamConstraint,
     .followEarlier = followEarlier,

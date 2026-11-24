@@ -146,18 +146,12 @@ class FollowAnatomy
       mCells = SensorCells<Det>(geometry);
       mWidths = frameBounds(frame).widthPS;
     }
-    if (parameters.followEnd) {
-      throw std::runtime_error("--follow-steps and --follow-stops cannot replay an iteration with iterationFollowEnd");
-    }
-    // The follow as the iteration ran it: the beam line, the greedy choice
-    // and the end decision on the beam line.
+    // The follow as the iteration ran it: with the beam line or without.
     withBools(
-      [&]<bool BeamLine, bool Greedy, bool BeamEnd, bool Shape>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<BeamEnd>, std::bool_constant<Shape>) {
-        if constexpr (BeamLine || !BeamEnd) {
-          replay<BeamLine, Greedy, BeamEnd, Shape>(iteration, parameters, frame, geometry, material, propagator);
-        }
+      [&]<bool BeamLine, bool Shape>(std::bool_constant<BeamLine>, std::bool_constant<Shape>) {
+        replay<BeamLine, Shape>(iteration, parameters, frame, geometry, material, propagator);
       },
-      parameters.beamConstraint, parameters.followGreedy, parameters.followBeamEnd, parameters.shapeTest);
+      parameters.beamConstraint, parameters.shapeTest);
   }
 
   /// Why the directions of the correct roads ended (`--follow-stops`): per
@@ -242,9 +236,8 @@ class FollowAnatomy
     const std::vector<std::uint8_t>* used = nullptr;
   };
 
-  /// The iteration's follow again, with \a BeamLine, \a Greedy and
-  /// \a BeamEnd as it ran.
-  template <bool BeamLine, bool Greedy, bool BeamEnd, bool Shape, typename Observation>
+  /// The iteration's follow again, with \a BeamLine as it ran.
+  template <bool BeamLine, bool Shape, typename Observation>
   void replay(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator)
   {
     const auto view = std::as_const(*iteration.tracks).view();
@@ -252,7 +245,7 @@ class FollowAnatomy
     // The mask as the follow read it: the tracker's copy, taken with the
     // starting states.
     std::vector<std::uint8_t> used(iteration.followUsed.begin(), iteration.followUsed.end());
-    const FollowStage<Det, BeamLine, false, Greedy, BeamEnd, Shape> stage{&parameters, &frame, &geometry, propagator, view, used.data(), mWidths.data(), mCells.view(), nullptr, parameters.sharedInnermost == 0U, iteration.trackOffset};
+    const FollowStage<Det, BeamLine, Shape> stage{&parameters, &frame, &geometry, propagator, view, used.data(), mWidths.data(), mCells.view(), nullptr, parameters.sharedInnermost == 0U, iteration.trackOffset};
     for (std::uint32_t i = 0; i < trackCount; ++i) {
       const auto track = iteration.trackOffset + i;
       if (view.status[track] != PropagationStatus::kOk) {

@@ -175,11 +175,6 @@ struct RecoSettings {
   /// as the follow starts; a track below it is left as its road, for the
   /// iteration's other rules. Non-negative (`checkRecoParam`); 0.01 by default.
   double followMinPtGeV = 0.01;
-  /// Whether each iteration decides its roads' outermost row again with the
-  /// follow: fitted without it, the follow's first row in its place where it
-  /// takes another; without iterationFollow,
-  /// that row alone. 0, off, by default; not with a kink allowance.
-  std::vector<int> iterationFollowEnd;
   /// Whether each iteration attaches to its tracks, after the follow and the
   /// length cut, the free rows of their layers on overlapping sensors that
   /// pass the follow's chi2 cut (OverlapPartners.h); 0, off, by default; not
@@ -190,23 +185,6 @@ struct RecoSettings {
   /// it takes the road's record; 0, off, by
   /// default.
   std::vector<int> iterationInnerTrim;
-  /// Whether each iteration's follow refit, where it refuses the rows the
-  /// follow added, keeps the longest prefix of them it accepts instead of
-  /// none; 0, off, by default.
-  std::vector<int> iterationFollowPrefix;
-  /// Whether each iteration's follow takes, where more than one row passes a
-  /// step, the smallest chi2 instead of the lookahead's confirmed row; 0, off, by
-  /// default.
-  std::vector<int> iterationFollowGreedy;
-  /// The chi2 below which each iteration's follow keeps a direction's
-  /// unconfirmed last row, which the unconfirmed drop removes otherwise; 0, none kept, by
-  /// default.
-  std::vector<double> iterationFollowKeepChi2;
-  /// Whether each iteration refuses its inward walk's last row, where a
-  /// nominal step took it, whose chi2 against that step's prediction updated
-  /// with the beam line is above the gate; needs the iteration's follow and
-  /// beam constraint; 0, off, by default.
-  std::vector<int> iterationFollowBeamEnd;
   /// Whether each iteration tests its pairs and triplets against their
   /// measurements' cluster shapes: a candidate's local slope at each of its measurements -- its line's
   /// |dz| over its length along the sensor's normal -- must lie in the
@@ -227,11 +205,6 @@ struct RecoSettings {
   /// density [cm^-2] above which the unconfirmed drop keeps a last row; 0, off, by default.
   std::vector<double> iterationFollowEndMaxSqrtDet;
   std::vector<double> iterationFollowKeepDensity;
-  /// The Delta chi2 below which each iteration's follow trims a track's
-  /// last outward row where it is one of two rows or more passing the gate
-  /// and the track keeps the cuts after the follow without it: the other
-  /// row's chi2 less its own; 0, off, by default; above the gate, every such row.
-  std::vector<double> iterationFollowTrimMargin;
   /// The clusters each iteration's tracks must hold after the follow; 0 for
   /// none (the default). A shorter track is dropped and its rows given back.
   std::vector<int> iterationMinClustersAfterFollow;

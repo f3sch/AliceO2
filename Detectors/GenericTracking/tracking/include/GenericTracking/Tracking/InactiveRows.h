@@ -274,7 +274,7 @@ struct Choose {
           if (!follow::predictedWindow(propagator, parameters, geometry, detail::LinkSteps{}, state, factors, layer, direction, prediction, window, nullptr, &traversed)) {
             continue;
           }
-          follow::visitInline<false, false, false, false>(
+          follow::visitInline<false, false, false>(
             context, state, factors, 0.F, 0.F, layer, direction, window, traversed, 0U, WorkCounter::kFollowUpdates, SoloGroup{}, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},
             [&](const auto& candidate) {
               bool known = false;
@@ -344,7 +344,7 @@ struct Choose {
             continue;
           }
           ClusterList<kMaxClusters> with = rows;
-          follow::visitInline<false, false, false, false>(
+          follow::visitInline<false, false, false>(
             context, state, factors, 0.F, 0.F, layer, PropagationDirection::kForward, window, traversed, 0U, WorkCounter::kFollowUpdates, SoloGroup{}, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},
             [&](const auto& candidate) {
               with.index[n] = candidate.row;

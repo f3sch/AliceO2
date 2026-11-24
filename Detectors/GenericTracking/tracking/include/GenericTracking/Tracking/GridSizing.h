@@ -116,7 +116,7 @@ template <DetectorLayout Det>
     }
     // The follow searches both layers of every link of the layout, from
     // either end; its window is its prediction's, the pair window its size.
-    if (settings.follow || settings.followEnd) {
+    if (settings.follow) {
       for (std::size_t link = 0; link < nLinks<Det>; ++link) {
         const auto& pair = Det::layerLinks[link];
         if (Detector<Det>::isBarrelLayer(pair.from) != Detector<Det>::isBarrelLayer(pair.to)) {

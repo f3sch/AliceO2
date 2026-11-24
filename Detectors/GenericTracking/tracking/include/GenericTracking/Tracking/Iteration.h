@@ -124,11 +124,6 @@ struct IterationSettings {
   /// The lowest pT [GeV] at which the follow follows a track, from its state
   /// as the follow starts (`RecoSettings::followMinPtGeV`).
   double followMinPtGeV = 0.01;
-  /// Whether the road's outermost row is decided again by the follow:
-  /// the road fitted without it, the follow's
-  /// first row takes its place where it is another; where the follow takes
-  /// none, the end stays. Without `follow`, the end alone.
-  bool followEnd = false;
   /// Whether the iteration's tracks, after the follow and the length cut,
   /// take as overlap partners the free rows of their layers on other sensors
   /// that pass `clusterChi2Max` (OverlapPartners.h).
@@ -136,31 +131,12 @@ struct IterationSettings {
   /// The innermost clusters a road the road fit refuses may be fitted again
   /// without, one more each time, down to `minClusters`; 0 for none.
   int innerTrim = 0;
-  /// Whether the follow's refit keeps the longest accepted prefix of the
-  /// rows it would refuse (`follow::Refit`'s Prefix).
-  bool followPrefix = false;
-  /// Whether the follow takes the smallest chi2 where more than one row
-  /// passes a step, instead of the lookahead's confirmed row (`FollowStage`'s Greedy).
-  bool followGreedy = false;
-  /// The unconfirmed drop's chi2 below which a direction's unconfirmed last row stays:
-  /// the unconfirmed drop removes it only at or
-  /// above; 0, the default, none stays.
-  double followKeepChi2 = 0.;
   /// The end decisions on the last row's own update (`FollowStage`), each 0, the
   /// default, off: inward, the sqrt|V| [cm^2] above which a nominal last row
   /// at the layout's end -- no inward link -- is refused; outward, the
   /// Gaussian density g [cm^-2] above which the unconfirmed drop keeps a nominal last row.
   double followEndMaxSqrtDet = 0.;
   double followKeepDensity = 0.;
-  /// Whether the inward walk's last row, where a nominal step took it, is
-  /// refused above the gate against that step's prediction updated with the
-  /// beam line (`FollowStage`'s BeamEnd); requires the follow and the beam constraint. False, the
-  /// default, off.
-  bool followBeamEnd = false;
-  /// The Delta chi2 below which the follow trims a track's last outward row
-  /// where it is one of two rows or more passing the gate: the other's
-  /// chi2 less its own (`follow::TrimAmbiguous`); 0, the default, off.
-  double followTrimMargin = 0.;
   /// The clusters a track of this iteration must hold after its follow; 0
   /// for none. A shorter one is
   /// dropped and its rows given back.
@@ -320,8 +296,7 @@ struct IterationParameters {
   Scalar roadChi2MaxByNdf[(2 * maxChainLayers<Det>)-4]{};
   /// The kinks a fit pass may take.
   std::uint8_t maxKinks = 0U;
-  /// `IterationSettings::followEnd` and `innerTrim`.
-  bool followEnd = false;
+  /// `IterationSettings::innerTrim`.
   std::uint8_t innerTrim = 0U;
   /// The update chi2 beyond which a step is a kink: two degrees of freedom at
   /// `nSigma`.
@@ -354,11 +329,6 @@ struct IterationParameters {
   bool beamConstraint = false;
   /// `IterationSettings::followEarlier`.
   bool followEarlier = false;
-  /// `IterationSettings::followPrefix` and `followGreedy`.
-  bool followPrefix = false;
-  bool followGreedy = false;
-  /// `IterationSettings::followKeepChi2`.
-  Scalar followKeepChi2 = 0.F;
   /// `IterationSettings::followMinPtGeV`.
   Scalar followMinPt = 0.F;
   /// The resolution term of the follow's window, `positionSigma` squared,
@@ -391,12 +361,6 @@ struct IterationParameters {
   /// `IterationSettings::followEndMaxSqrtDet` and `followKeepDensity`.
   Scalar followEndMaxSqrtDet = 0.F;
   Scalar followKeepDensity = 0.F;
-  /// `IterationSettings::followTrimMargin`.
-  Scalar followTrimMargin = 0.F;
-  /// `IterationSettings::followBeamEnd`, set only with the follow and the beam
-  /// constraint; read on the host only to choose the follow's instantiation
-  /// (`FollowStage`'s BeamEnd).
-  bool followBeamEnd = false;
   /// `IterationSettings::shapeTest`, read on the host only to choose the
   /// tracklet, triplet and follow stages' instantiations.
   bool shapeTest = false;
@@ -570,23 +534,17 @@ template <DetectorLayout Det>
   // window of its own prediction.
   parameters.follow = settings.follow;
   parameters.followEarlier = settings.follow && settings.followEarlier;
-  parameters.followPrefix = settings.follow && settings.followPrefix;
-  parameters.followGreedy = settings.follow && settings.followGreedy;
-  parameters.followKeepChi2 = static_cast<Scalar>(std::max(settings.followKeepChi2, 0.));
   parameters.followMinPt = static_cast<Scalar>(std::max(settings.followMinPtGeV, 0.));
   parameters.followEndMaxSqrtDet = static_cast<Scalar>(std::max(settings.followEndMaxSqrtDet, 0.));
   parameters.followKeepDensity = static_cast<Scalar>(std::max(settings.followKeepDensity, 0.));
-  parameters.followTrimMargin = settings.follow ? static_cast<Scalar>(std::max(settings.followTrimMargin, 0.)) : 0.F;
-  parameters.followBeamEnd = settings.follow && settings.beamConstraint && settings.followBeamEnd;
   parameters.shapeTest = settings.shapeTest;
   parameters.followHoles = static_cast<std::uint32_t>(std::max(settings.followHoles, 0));
-  parameters.followEnd = settings.followEnd;
   parameters.overlapPartners = settings.overlapPartners;
   parameters.discWindowMinP = static_cast<Scalar>(settings.minPGeV);
   for (std::size_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
     parameters.layerResolutions[layer] = layerResolution<Det>(static_cast<LayerID>(layer));
   }
-  if (settings.follow || settings.followEnd) {
+  if (settings.follow) {
     // Every layer, from wherever the track is: every link outward and inward.
     parameters.followLayers = layersOf<Det>(0U);
     std::array<bool, nLinks<Det>> every{};

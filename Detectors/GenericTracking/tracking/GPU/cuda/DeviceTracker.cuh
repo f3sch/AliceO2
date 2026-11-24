@@ -100,17 +100,11 @@ namespace tracker_detail
 inline constexpr std::uint32_t kFollowLanes = 16U;
 
 /// \a stage's follow of \a count tracks: `kFollowLanes` lanes in step a
-/// track (`FollowStage::together`). An iteration that decides the end again
-/// (`followEnd`) has no kink allowance (the settings refuse both) and is
-/// followed one thread a track: its stage has no group kernel.
+/// track (`FollowStage::together`).
 template <typename Stage>
 void follow(DeviceRuntime& runtime, DeviceStream& stream, std::uint32_t count, const Stage& stage)
 {
-  if constexpr (Stage::kDecidesEnd) {
-    algorithms::forEach(runtime, stream, count, stage);
-  } else {
-    algorithms::forEachGroup<kFollowLanes>(runtime, stream, count, stage);
-  }
+  algorithms::forEachGroup<kFollowLanes>(runtime, stream, count, stage);
 }
 
 /// The device's launches of the follow's passes (`follow::runSequence`) on
@@ -722,7 +716,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     // The sensors by place, once, where an iteration follows or takes
     // overlap partners.
     mSensorCells = {};
-    if (std::ranges::any_of(iterations, [](const auto& parameters) { return parameters.follow || parameters.followEnd || parameters.overlapPartners; })) {
+    if (std::ranges::any_of(iterations, [](const auto& parameters) { return parameters.follow || parameters.overlapPartners; })) {
       // Built on the host once per geometry: configureRun runs every timeframe.
       if (!mHostCells || std::memcmp(mHostCellsGeometry.data(), static_cast<const void*>(&geometry), sizeof(geometry)) != 0) {
         mHostCells.emplace(geometry);
@@ -1420,9 +1414,8 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     DeviceSpan<Proposal> proposals;
     DeviceSpan<ClusterList<kMaxClusters>> followRows;
     DeviceSpan<std::uint8_t> followCounts;
-    DeviceSpan<BoundTrackState> endStarts;
-    const Index followCount = hostParameters.follow || hostParameters.followEnd ? trackCount : 0U;
-    if (!tracks.allocate(mArena, trackCount) || !proposals.allocate(mArena, followCount) || !followRows.allocate(mArena, followCount) || !followCounts.allocate(mArena, followCount) || !endStarts.allocate(mArena, hostParameters.followEnd ? trackCount : 0U)) {
+    const Index followCount = hostParameters.follow ? trackCount : 0U;
+    if (!tracks.allocate(mArena, trackCount) || !proposals.allocate(mArena, followCount) || !followRows.allocate(mArena, followCount) || !followCounts.allocate(mArena, followCount)) {
       return StageStatus::kOutOfMemory;
     }
     const TrackRefitElement<Det> refit{mFrame.data(), mGeometry.data(), mPropagator, records.clusters, records.count, records.outwardState, records.chi2, std::as_const(selected.selected).data(), tracks.view(), 0U, static_cast<std::uint8_t>(mIteration), kinkBudget(hostParameters)};
@@ -1432,8 +1425,8 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     // (`follow::runSequence`), its bids in the rounds' slots. The host's
     // priority, trackCount - (trackOffset + track), is the iteration's count
     // less the track.
-    if ((hostParameters.follow || hostParameters.followEnd) && trackCount != 0U) {
-      runFollow(mIteration, tracks, trackCount, false, proposals.data(), followRows, followCounts, selected.slots, rows, working, hostParameters.followEnd ? endStarts.data() : nullptr);
+    if (hostParameters.follow && trackCount != 0U) {
+      runFollow(mIteration, tracks, trackCount, false, proposals.data(), followRows, followCounts, selected.slots, rows, working);
     }
 
     // The drop after the follow (the host: Tracker::dropTracks): the
@@ -1854,7 +1847,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       mTrackChunks.gather(all, 0U, mStream);
     }
     copyColumns(tracks, 0U, all, earlier, trackCount, mStream);
-    runFollow(successor, all, total, true, proposals.data(), followRows, followCounts, slots, rows, working, nullptr);
+    runFollow(successor, all, total, true, proposals.data(), followRows, followCounts, slots, rows, working);
     mTrackChunks.clear();
     if (!mTrackChunks.append(mArena, ArenaEnd::kScratch, all, 0U, total, mStream)) {
       return StageStatus::kOutOfMemory;
@@ -1867,9 +1860,8 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   /// earlier iterations' tracks (`followEarlier`), the proposals into
   /// \a settled, the combined rows into \a followRows and \a followCounts, the
   /// bids in \a slots (one per row, \a rows of them), the marks in
-  /// \a working, the end starts in \a endStarts where the iteration decides
-  /// the end again.
-  void runFollow(std::size_t iteration, DeviceColumns<TrackRecord::template RecordT>& tracks, Index count, bool earlier, Proposal* settled, DeviceSpan<ClusterList<kMaxClusters>>& followRows, DeviceSpan<std::uint8_t>& followCounts, DeviceSpan<Index>& slots, Index rows, DeviceSpan<std::uint8_t>& working, BoundTrackState* endStarts)
+  /// \a working.
+  void runFollow(std::size_t iteration, DeviceColumns<TrackRecord::template RecordT>& tracks, Index count, bool earlier, Proposal* settled, DeviceSpan<ClusterList<kMaxClusters>>& followRows, DeviceSpan<std::uint8_t>& followCounts, DeviceSpan<Index>& slots, Index rows, DeviceSpan<std::uint8_t>& working)
   {
     const IterationParameters<Det>& host = mHostParameters[iteration];
     follow::runSequence(tracker_detail::FollowLaunch{.runtime = *mRuntime, .stream = mStream}, follow::Inputs<Det>{
@@ -1892,7 +1884,6 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
                                                                                                  .bids = slots.data(),
                                                                                                  .rows = followRows.data(),
                                                                                                  .counts = followCounts.data(),
-                                                                                                 .endStarts = endStarts,
                                                                                                });
   }
 

@@ -256,7 +256,7 @@ class Tracker
     mPropagator = propagator;
     // The sensors by place, once, where an iteration follows or takes
     // overlap partners.
-    if (std::ranges::any_of(mIterations, [](const auto& parameters) { return parameters.follow || parameters.followEnd || parameters.overlapPartners; })) {
+    if (std::ranges::any_of(mIterations, [](const auto& parameters) { return parameters.follow || parameters.overlapPartners; })) {
       mSensorCells = SensorCells<Det>(geometry);
     }
   }
@@ -721,7 +721,7 @@ class Tracker
       for (auto track = static_cast<std::size_t>(trackOffset); track < mRefit.size(); ++track) {
         summary.refitFailures += static_cast<std::size_t>(status[track] != PropagationStatus::kOk);
       }
-      if (summary.status == StageStatus::kComplete && (mIterations[iteration].follow || mIterations[iteration].followEnd)) {
+      if (summary.status == StageStatus::kComplete && mIterations[iteration].follow) {
         // What the follow starts from, kept only for an observer's replay.
         started = static_cast<bool>(mIterationObserver);
         if (started) {

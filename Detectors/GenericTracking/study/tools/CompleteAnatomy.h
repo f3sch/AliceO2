@@ -1628,8 +1628,7 @@ class CompleteAnatomy
             for (auto k = static_cast<std::size_t>(keptIn); k-- > 0U;) {
               chain.push_back(proposal.inward[k]);
             }
-            // A replaced end goes with the outward rows that replace it (`FollowProposal`).
-            const auto kept = count - (proposal.replacedEnd != kNoRow && keptOut != 0U ? 1U : 0U);
+            const auto kept = count;
             chain.insert(chain.end(), road.index, road.index + kept);
             chain.insert(chain.end(), proposal.outward, proposal.outward + keptOut);
             const auto wrong = static_cast<std::size_t>(std::ranges::count_if(chain, notOwn));
@@ -1744,8 +1743,7 @@ class CompleteAnatomy
           for (auto k = static_cast<std::size_t>(keptIn); k-- > 0U;) {
             w.chain.push_back(proposal.inward[k]);
           }
-          // A replaced end goes with the outward rows that replace it (`FollowProposal`).
-          w.kept = count - (proposal.replacedEnd != kNoRow && keptOut != 0U ? 1U : 0U);
+          w.kept = count;
           w.chain.insert(w.chain.end(), road.index, road.index + w.kept);
           w.chain.insert(w.chain.end(), proposal.outward, proposal.outward + keptOut);
           w.chainState = fit.state;
@@ -3291,8 +3289,7 @@ class CompleteAnatomy
     /// chain.
     std::vector<std::uint32_t> refitRows;
     /// How the walk ended, the row the unconfirmed drop removed (kNoRow: none), the last row
-    /// refused after it -- at the layout's end (`followEndMaxSqrtDet`) or against the
-    /// beam line (BeamEnd) -- and whether its rows
+    /// refused after it at the layout's end (`followEndMaxSqrtDet`), and whether its rows
     /// begin with the ones the iteration kept.
     FollowEnd end = FollowEnd::kCapacity;
     std::uint32_t dropped = kNoRow;
@@ -3427,7 +3424,6 @@ class CompleteAnatomy
     void lookaheadConfirmation(std::uint32_t row, Scalar chi2, std::uint32_t next, Scalar nextChi2) const { replay->steps.back().lookaheads.push_back({.row = row, .chi2 = chi2, .next = next, .nextChi2 = nextChi2}); }
     void unconfirmed(std::uint32_t row) const { replay->dropped = row; }
     void refusedEnd(std::uint32_t row) const { replay->refused = row; }
-    void refusedBeamEnd(std::uint32_t row) const { replay->refused = row; }
     void tail() const { replay->tailFrom = replay->steps.size(); }
     void end(FollowEnd why) const { replay->end = why; }
   };
@@ -3436,13 +3432,11 @@ class CompleteAnatomy
   void withFollowStage(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, const std::uint8_t* used, std::uint32_t first, const Body& body)
   {
     withBools(
-      [&]<bool BeamLine, bool Greedy, bool BeamEnd, bool Shape>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<BeamEnd>, std::bool_constant<Shape>) {
-        if constexpr (BeamLine || !BeamEnd) {
-          const FollowStage<Det, BeamLine, false, Greedy, BeamEnd, Shape> stage{&parameters, &frame, &geometry, propagator, iteration.tracks->view(), used, mMaxWidthPS.data(), mCells.view(), nullptr, parameters.sharedInnermost == 0U, first};
-          body(stage);
-        }
+      [&]<bool BeamLine, bool Shape>(std::bool_constant<BeamLine>, std::bool_constant<Shape>) {
+        const FollowStage<Det, BeamLine, Shape> stage{&parameters, &frame, &geometry, propagator, iteration.tracks->view(), used, mMaxWidthPS.data(), mCells.view(), nullptr, parameters.sharedInnermost == 0U, first};
+        body(stage);
       },
-      parameters.beamConstraint, parameters.followGreedy, parameters.followBeamEnd, parameters.shapeTest);
+      parameters.beamConstraint, parameters.shapeTest);
   }
 
   /// Both walks through the stage's sequencing: outward first, its narrowed
@@ -7257,8 +7251,7 @@ class CompleteAnatomy
           agrees = replay.raw[i] == proposal.inward[i];
         }
         // A disagreement where the replay refuses the refit and the
-        // iteration kept rows inward: what the stage's prefix second chance
-        // (`iterationFollowPrefix`), not replayed, would explain.
+        // iteration kept rows inward is one of its own.
         faithful[track - first] = agrees ? kFaithful : (replay.refit != kRefitKept && proposal.inwardCount != 0U ? kRefusedKept : kUnfaithful);
       }
     });
