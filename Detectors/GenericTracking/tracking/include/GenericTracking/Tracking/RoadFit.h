@@ -140,7 +140,7 @@ template <DetectorLayout Det>
 template <DetectorLayout Det>
 [[nodiscard]] GPUdi() bool clearsBeamLine(const Propagator& propagator, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const std::uint32_t* rows, std::uint32_t count, const BoundTrackState& outwardState, Scalar& chi2)
 {
-  const auto inward = fitInward<CrossingRule::kFirstAhead, Scalar>(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows}, static_cast<int>(count), outwardState, kinkBudget(parameters));
+  const auto inward = fitInward<Scalar>(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows}, static_cast<int>(count), outwardState, kinkBudget(parameters));
   if (inward.status != PropagationStatus::kOk) {
     return false;
   }
@@ -170,19 +170,11 @@ class RoadRows
   RoadRows(TrackletConstView tracklets, TripletConstView triplets, const RoadWalk& walk) : mTracklets(tracklets), mTriplets(triplets), mWalk(walk) {}
 
   /// Road \a road's rows into \a rows, which holds `kMaxClusters`; their
-  /// count. With \a Kinks, \a kinked is set to whether a triplet on the road
-  /// is kinked; without, it is left as it is.
-  template <bool Kinks>
-  GPUhdi() std::uint32_t capture(Index road, std::uint32_t* rows, bool& kinked) const
+  /// count.
+  GPUhdi() std::uint32_t capture(Index road, std::uint32_t* rows) const
   {
     Index triplets[kMaxClusters - 2U];
     const std::uint32_t length = mWalk(road, triplets);
-    if constexpr (Kinks) {
-      kinked = false;
-      for (std::uint32_t i = 0; i < length; ++i) {
-        kinked = kinked || mTriplets.kinked[triplets[i]] != 0U;
-      }
-    }
     const Index first = mTriplets.first[triplets[0]];
     rows[0] = mTracklets.source[first];
     rows[1] = mTracklets.target[first];
@@ -206,19 +198,15 @@ class RoadRows
 /// `maxChainLayers<Det>`. With \a BeamLine, for an iteration with
 /// `beamConstraint`, a road must also clear the beam line
 /// (`clearsBeamLine`), and its record's chi2 takes the update's. With
-/// \a NominalOnly the fit takes the roads of nominal triplets only: of a
-/// graph built with the next iteration's kink allowance, the roads its own
-/// iteration would have made (one graph for both rounds; the next iteration
-/// fits every road). With \a LastStepAllowance, for an iteration with a kink
-/// allowance, the fit's last step takes it (`fitOutward`, against the
-/// road-end fakes): the host and the device trackers instantiate it for such
-/// an iteration. With \a InnerTrim, for an iteration with `innerTrim`, a road
-/// the fit refuses -- no common time, the fit, the floor, the beam line -- is
-/// tried again without its innermost cluster, then without two, down to
-/// `innerTrim` of them and the iteration's `minClusters`, and the first the
+/// \a LastStepAllowance, for an iteration with a kink allowance, the fit's
+/// last step takes it (`fitOutward`, against the road-end fakes): the host
+/// and the device trackers instantiate it for such an iteration. A road the
+/// fit refuses -- no common time, the fit, the floor, the beam line -- is
+/// tried again without its innermost cluster, then without two, down to the
+/// iteration's `innerTrim` of them and its `minClusters`, and the first the
 /// fit takes is the road's record (a decay daughter's chain walked on below
 /// it into a triplet of another's cluster).
-template <DetectorLayout Det, bool BeamLine, bool NominalOnly, bool LastStepAllowance, bool InnerTrim>
+template <DetectorLayout Det, bool BeamLine, bool LastStepAllowance>
 class RoadRowsFit
 {
  public:
@@ -234,32 +222,23 @@ class RoadRowsFit
   {
   }
 
-  /// The road of \a count rows \a rows, innermost first, \a kinked if a
-  /// triplet on it is: its record, if the fit takes it, emitted.
+  /// The road of \a count rows \a rows, innermost first: its record, if the
+  /// fit takes it, emitted.
   template <typename Emitter>
-  GPUhdi() void operator()(const std::uint32_t* rows, std::uint32_t count, bool kinked, Emitter& emitter) const
+  GPUhdi() void operator()(const std::uint32_t* rows, std::uint32_t count, Emitter& emitter) const
   {
-    if constexpr (NominalOnly) {
-      if (kinked) {
+    const std::uint32_t shortest = mParameters->minClusters;
+    const std::uint32_t trims = count > shortest ? o2::gpu::CAMath::Min(std::uint32_t{mParameters->innerTrim}, count - shortest) : 0U;
+    for (std::uint32_t dropped = 0; dropped <= trims; ++dropped) {
+      if (dropped != 0U) {
+        countWork(WorkCounter::kRoadTrimFits);
+      }
+      if (fitRows(rows + dropped, count - dropped, emitter)) {
+        if (dropped != 0U) {
+          countWork(WorkCounter::kRoadTrimAccepted);
+        }
         return;
       }
-    }
-    if constexpr (InnerTrim) {
-      const std::uint32_t shortest = mParameters->minClusters;
-      const std::uint32_t trims = count > shortest ? o2::gpu::CAMath::Min(std::uint32_t{mParameters->innerTrim}, count - shortest) : 0U;
-      for (std::uint32_t dropped = 0; dropped <= trims; ++dropped) {
-        if (dropped != 0U) {
-          countWork(WorkCounter::kRoadTrimFits);
-        }
-        if (fitRows(rows + dropped, count - dropped, emitter)) {
-          if (dropped != 0U) {
-            countWork(WorkCounter::kRoadTrimAccepted);
-          }
-          return;
-        }
-      }
-    } else {
-      fitRows(rows, count, emitter);
     }
   }
 
@@ -327,12 +306,12 @@ class RoadRowsFit
 
 /// One element per road, by its index: its rows captured (`RoadRows`) and
 /// fitted (`RoadRowsFit`, whose template arguments these are).
-template <DetectorLayout Det, bool BeamLine, bool NominalOnly, bool LastStepAllowance, bool InnerTrim>
+template <DetectorLayout Det, bool BeamLine, bool LastStepAllowance>
 class RoadFitStage
 {
  public:
   using Index = StageOutput<TripletT>::Index;
-  using Fit = RoadRowsFit<Det, BeamLine, NominalOnly, LastStepAllowance, InnerTrim>;
+  using Fit = RoadRowsFit<Det, BeamLine, LastStepAllowance>;
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using Record = typename Fit::Record;
 
@@ -346,9 +325,8 @@ class RoadFitStage
   GPUhdi() void operator()(Index road, Emitter& emitter) const
   {
     std::uint32_t rows[kMaxClusters];
-    bool kinked = false;
-    const std::uint32_t count = mRows.template capture<NominalOnly>(road, rows, kinked);
-    mFit(rows, count, kinked, emitter);
+    const std::uint32_t count = mRows.capture(road, rows);
+    mFit(rows, count, emitter);
   }
 
  private:

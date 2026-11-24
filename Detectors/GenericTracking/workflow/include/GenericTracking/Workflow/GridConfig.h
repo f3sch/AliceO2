@@ -164,8 +164,6 @@ inline void checkRecoParam(const RecoSettings& param)
   check("iterationMaxKinks", param.iterationMaxKinks.size(), 1U);
   check("iterationKinkSigma", param.iterationKinkSigma.size(), 1U);
   check("iterationGraphKinkSigma", param.iterationGraphKinkSigma.size(), 1U);
-  check("iterationImpactMaxCm", param.iterationImpactMaxCm.size(), 1U);
-  check("iterationImpactZMaxCm", param.iterationImpactZMaxCm.size(), 1U);
   check("iterationSkipLinks", param.iterationSkipLinks.size(), 1U);
   check("iterationLayerMask", param.iterationLayerMask.size(), 1U);
   check("iterationRoadEndLayers", param.iterationRoadEndLayers.size(), 1U);
@@ -173,11 +171,9 @@ inline void checkRecoParam(const RecoSettings& param)
   check("iterationSharedInnermost", param.iterationSharedInnermost.size(), 1U);
   check("iterationFollow", param.iterationFollow.size(), 1U);
   check("iterationFollowHoles", param.iterationFollowHoles.size(), 1U);
-  check("iterationFollowLayerMask", param.iterationFollowLayerMask.size(), 1U);
   check("iterationFollowEnd", param.iterationFollowEnd.size(), 1U);
   check("iterationOverlapPartners", param.iterationOverlapPartners.size(), 1U);
   check("iterationInnerTrim", param.iterationInnerTrim.size(), 1U);
-  check("iterationCrossingRule", param.iterationCrossingRule.size(), 1U);
   check("iterationFollowPrefix", param.iterationFollowPrefix.size(), 1U);
   check("iterationFollowGreedy", param.iterationFollowGreedy.size(), 1U);
   check("iterationFollowKeepChi2", param.iterationFollowKeepChi2.size(), 1U);
@@ -190,7 +186,6 @@ inline void checkRecoParam(const RecoSettings& param)
   check("iterationMinClustersAfterFollow", param.iterationMinClustersAfterFollow.size(), 1U);
   check("iterationBeamConstraint", param.iterationBeamConstraint.size(), 1U);
   check("iterationFollowEarlier", param.iterationFollowEarlier.size(), 1U);
-  check("iterationSharedGraph", param.iterationSharedGraph.size(), 1U);
   const auto floors = param.iterationClusterMinPtGeV.size();
   if (floors != 0U && floors != count * RecoSettings::kClusterSlots) {
     throw std::invalid_argument(std::format("GTRKReco<DET>.iterationClusterMinPtGeV has {} entries; {} iterations want {} per iteration, or none", floors, count, RecoSettings::kClusterSlots));
@@ -215,11 +210,6 @@ inline void checkRecoParam(const RecoSettings& param)
   const auto entryMask = [&](const std::vector<long>& values, std::uint64_t fallback) { return values.empty() ? fallback : static_cast<std::uint64_t>(values[index]); };
   auto windows = searchWindowPhysics(param);
   windows.minPtGeV = param.iterationMinPtGeV[index];
-  windows.impactMax = entryDouble(param.iterationImpactMaxCm, defaults.windows.impactMax);
-  windows.impactZMax = entryDouble(param.iterationImpactZMaxCm, defaults.windows.impactZMax);
-  if (!(windows.impactMax >= 0.) || !(windows.impactZMax >= 0.)) {
-    throw std::invalid_argument(std::format("GTRKReco<DET>.iterationImpactMaxCm / iterationImpactZMaxCm of iteration {} is negative", iteration));
-  }
   static_assert(RecoSettings::kClusterSlots == IterationSettings::kClusterSlots);
   std::array<double, IterationSettings::kClusterSlots> floors{};
   if (!param.iterationClusterMinPtGeV.empty()) {
@@ -246,10 +236,6 @@ inline void checkRecoParam(const RecoSettings& param)
   if (innerTrim < 0) {
     throw std::invalid_argument(std::format("GTRKReco<DET>.iterationInnerTrim of iteration {} is {}", iteration, innerTrim));
   }
-  const int crossingRule = entry(param.iterationCrossingRule, static_cast<int>(defaults.crossingRule));
-  if (crossingRule < 0 || crossingRule > static_cast<int>(CrossingRule::kInsideFirst)) {
-    throw std::invalid_argument(std::format("GTRKReco<DET>.iterationCrossingRule of iteration {} is {}", iteration, crossingRule));
-  }
   const double kinkSigma = entryDouble(param.iterationKinkSigma, defaults.kinkSigma);
   // The road fit takes its last step with the allowance (fitOutward's
   // LastStepAllowance); the follow's refit of the road without its end does not.
@@ -271,12 +257,10 @@ inline void checkRecoParam(const RecoSettings& param)
     .sharedInnermost = static_cast<std::uint32_t>(std::max(entry(param.iterationSharedInnermost, static_cast<int>(defaults.sharedInnermost)), 0)),
     .follow = follow,
     .followHoles = followHoles,
-    .followLayerMask = entryMask(param.iterationFollowLayerMask, defaults.followLayerMask),
     .followMinPtGeV = param.followMinPtGeV,
     .followEnd = followEnd,
     .overlapPartners = flag(param.iterationOverlapPartners, defaults.overlapPartners),
     .innerTrim = innerTrim,
-    .crossingRule = static_cast<CrossingRule>(crossingRule),
     .followPrefix = flag(param.iterationFollowPrefix, defaults.followPrefix),
     .followGreedy = flag(param.iterationFollowGreedy, defaults.followGreedy),
     .followKeepChi2 = entryDouble(param.iterationFollowKeepChi2, defaults.followKeepChi2),
@@ -287,7 +271,6 @@ inline void checkRecoParam(const RecoSettings& param)
     .minClustersAfterFollow = std::max(entry(param.iterationMinClustersAfterFollow, defaults.minClustersAfterFollow), 0),
     .beamConstraint = beamConstraint,
     .followEarlier = followEarlier,
-    .sharedGraph = flag(param.iterationSharedGraph, defaults.sharedGraph),
     .shapeTest = flag(param.iterationShapeTest, defaults.shapeTest),
     .minPGeV = entryDouble(param.iterationMinPGeV, defaults.minPGeV),
   };

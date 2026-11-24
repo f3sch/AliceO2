@@ -201,7 +201,7 @@ GPUdi() PropagationStatus carryStateInward(const Propagator& prop, const Materia
 /// (`fitMeasurements`) at its mass. A species of charge other than one is
 /// refused (kNotFinite, failedPass kNone): the energy loss takes a unit
 /// charge. The perigee fields stay empty (`carryToPerigee`).
-template <int K = BetheHeitlerLoss::kComponents, CrossingRule Rule = CrossingRule::kFirstAhead, DetectorLayout Det, typename Material, typename Chain>
+template <int K = BetheHeitlerLoss::kComponents, DetectorLayout Det, typename Material, typename Chain>
 GPUdi() HypothesisFit<K> refitRowsWithHypothesis(const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, o2::track::PID pid)
 {
   HypothesisFit<K> fit{.pid = pid};
@@ -226,13 +226,13 @@ GPUdi() HypothesisFit<K> refitRowsWithHypothesis(const Propagator& base, const T
     return true;
   };
   if (pid == o2::track::PID::Electron) {
-    const auto gsf = fitGaussianSum<BetheHeitlerLoss, K, Rule>(prop, geometry, material, measurements, n);
+    const auto gsf = fitGaussianSum<BetheHeitlerLoss, K>(prop, geometry, material, measurements, n);
     if (take(gsf.fit, gsf.momentumMode)) {
       fit.innermostMixture = gsf.mixture;
     }
     return fit;
   }
-  const auto kalman = fitMeasurements<Rule>(prop, geometry, material, measurements, n);
+  const auto kalman = fitMeasurements(prop, geometry, material, measurements, n);
   take(kalman, 1.F / o2::gpu::GPUCommonMath::Abs(kalman.state.qOverP()));
   return fit;
 }
@@ -271,10 +271,10 @@ GPUdi() PropagationStatus carryToPerigee(const Propagator& base, const TrackingG
 /// The rows' refit (`refitRowsWithHypothesis`) carried to the perigee plane
 /// about (\a x, \a y) (`carryToPerigee`); a failed carry leaves failedPass
 /// kNone with the failed status.
-template <int K = BetheHeitlerLoss::kComponents, CrossingRule Rule = CrossingRule::kFirstAhead, DetectorLayout Det, typename Material, typename Chain>
+template <int K = BetheHeitlerLoss::kComponents, DetectorLayout Det, typename Material, typename Chain>
 GPUdi() HypothesisFit<K> refitWithHypothesis(const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, o2::track::PID pid, Scalar x, Scalar y)
 {
-  auto fit = refitRowsWithHypothesis<K, Rule>(base, geometry, material, measurements, n, pid);
+  auto fit = refitRowsWithHypothesis<K>(base, geometry, material, measurements, n, pid);
   if (fit.status == PropagationStatus::kOk) {
     carryToPerigee(base, geometry, geometry.planeOf(measurements[0]), fit, x, y);
   }

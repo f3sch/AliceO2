@@ -32,7 +32,6 @@
 #include "GenericTracking/Base/LayerEnvelopes.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
-#include "GenericTracking/Tracking/DisplacedPair.h"
 #include "GenericTracking/Tracking/Material.h"
 #include "GenericTracking/Tracking/MathUtils.h"
 
@@ -73,15 +72,6 @@ struct SearchWindowParams {
   /// the window admits.  The curvature term is a bound, not a sigma, and is
   /// not scaled by this.
   double nSigma = 3.;
-
-  /// A displaced iteration's bounds: the
-  /// largest distance its tracks' circles may pass from the beam line, and
-  /// how far the z of that closest approach may lie from the beam spot's
-  /// centre [cm]. 0, the default, is a prompt iteration, whose pair test and
-  /// windows are the beam point's; a displaced one tests a pair with
-  /// `displacedPairWithin` and its windows hold what that admits.
-  double impactMax = 0.;
-  double impactZMax = 0.;
 
   [[nodiscard]] bool operator==(const SearchWindowParams&) const = default;
 };
@@ -728,73 +718,6 @@ template <DetectorLayout Det>
   };
 }
 
-/// The half-width in phi of a displaced iteration (`SearchWindowParams::
-/// impactMax`): the widest azimuth between
-/// the two points that the displaced pair test's transverse part admits
-/// (`displacedPairWithin`), scanned as `phiWindow` scans -- from half a turn
-/// down, over the layers' radius ranges -- with the window's uniform errors:
-/// `positionSigma` at both points, \a sourceKink and \a betweenKink as for
-/// `phiWindow` (a source kink of `theta` is `S = (theta r_i)^2`), the beam
-/// spot's width. The test is symmetric in the sign of the turn.
-template <DetectorLayout Det>
-[[nodiscard]] inline double displacedPhiWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, double sourceKink, double betweenKink = 0.)
-{
-  constexpr double kHalf = kPi<double>;
-  constexpr double kStep = 1.e-3;
-  constexpr int kSteps = static_cast<int>(kHalf / kStep) + 1;
-  constexpr int kSamples = 5;
-  const double curvatureMax = maxCurvature(params);
-  const double fromLow = radiusMin<Det>(from);
-  const double fromHigh = radiusMax<Det>(from);
-  const double toLow = radiusMin<Det>(to);
-  const double toHigh = radiusMax<Det>(to);
-  if (!(fromLow > 0.) || !(toLow > 0.)) {
-    return kHalf;
-  }
-  displaced::PairErrors<double> errors;
-  errors.sourceVarRPhi = errors.targetVarRPhi = params.positionSigma * params.positionSigma;
-  errors.betweenScatter = betweenKink * betweenKink;
-  errors.beamVarTransverse = vertex.sigmaTransverse * vertex.sigmaTransverse;
-  constexpr double kInfinity = std::numeric_limits<double>::infinity();
-  double widest = 0.;
-  for (int i = 0; i < kSamples; ++i) {
-    const double rFrom = fromLow + ((fromHigh - fromLow) * i / (kSamples - 1));
-    errors.sourceScatter = (sourceKink * rFrom) * (sourceKink * rFrom);
-    for (int j = 0; j < kSamples; ++j) {
-      const double rTo = toLow + ((toHigh - toLow) * j / (kSamples - 1));
-      for (int step = kSteps; step >= 0 && kStep * (step + 1) > widest; --step) {
-        const double phi = kStep * step;
-        const auto result = displaced::displacedPairWithin(rFrom, 0., 0., rTo * std::cos(phi), rTo * std::sin(phi), 0., errors, params.nSigma, curvatureMax, params.impactMax, -kInfinity, kInfinity);
-        if (result.transverse) {
-          widest = kStep * (step + 1);
-          break;
-        }
-      }
-    }
-  }
-  return std::min(widest, kHalf);
-}
-
-/// A displaced iteration's window (`displacedPhiWindow`): in the second
-/// coordinate the target's whole extent, about its middle, as the closest
-/// approach's z bound is the pair test's to apply, not a line's from the
-/// beam spot.
-template <DetectorLayout Det>
-[[nodiscard]] inline LayerPairWindow displacedPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, double sourceKink, double betweenKink = 0.)
-{
-  const double low = secondMin<Det>(to);
-  const double high = secondMax<Det>(to);
-  const auto middle = static_cast<Scalar>(0.5 * (low + high));
-  const double reach = std::max(std::abs(high - static_cast<double>(middle)), std::abs(static_cast<double>(middle) - low));
-  return {
-    .phiHalfWidth = conservativeScalarBound(displacedPhiWindow<Det>(from, to, params, vertex, sourceKink, betweenKink)),
-    .secondScale = 0.F,
-    .secondOffset = middle,
-    .secondHalfWidth = conservativeScalarBound(reach + params.positionSigma),
-    .kind = Detector<Det>::isBarrelLayer(to) ? PairKind::kBarrel : PairKind::kDisc,
-  };
-}
-
 /// Assemble the per-pair window an iteration queries with.
 ///
 /// \a seedSecond is only read for a disc-to-disc pair; the caller passes the
@@ -805,9 +728,6 @@ template <DetectorLayout Det>
 template <DetectorLayout Det>
 [[nodiscard]] inline LayerPairWindow layerPairWindow(LayerID from, LayerID to, double seedSecond, const SearchWindowParams& params, const VertexConstraint& vertex, double sourceKink, double betweenKink = 0.)
 {
-  if (params.impactMax > 0.) {
-    return displacedPairWindow<Det>(from, to, params, vertex, sourceKink, betweenKink);
-  }
   if (Detector<Det>::isBarrelLayer(from) != Detector<Det>::isBarrelLayer(to)) {
     return crossingPairWindow<Det>(from, to, params, vertex, sourceKink, betweenKink);
   }

@@ -57,10 +57,9 @@ namespace o2::gtrk
 /// What a person configures for one iteration. Host-side.
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): the fields follow the configuration; their order is the designated initialisers'
 struct IterationSettings {
-  /// The window physics. The minimum pT, nSigma and a displaced iteration's
-  /// bounds are what an iteration sets; the field, the mass, the uniform
-  /// material that sizes the grid (`materialX2X0`) and the resolution are the
-  /// run's.
+  /// The window physics. The minimum pT is what an iteration sets; nSigma,
+  /// the field, the mass, the uniform material that sizes the grid
+  /// (`materialX2X0`) and the resolution are the run's.
   SearchWindowParams windows;
   VertexSource vertexSource = VertexSource::kBeamLine;
   /// The shortest road this iteration fits, in clusters: at least 4 for a
@@ -122,12 +121,6 @@ struct IterationSettings {
   /// The holes a followed track may cross in each direction; past them the
   /// direction ends.
   int followHoles = 0;
-  /// The layers the follow steps onto, a bit per layer; 0 for every layer:
-  /// its walk takes the links onto them from wherever the track is, its
-  /// tail the inactive layers among them. A layer
-  /// with no link onto them is where the follow's walk ends, as at the
-  /// layout's end (the end decisions read it so).
-  std::uint64_t followLayerMask = 0U;
   /// The lowest pT [GeV] at which the follow follows a track, from its state
   /// as the follow starts (`RecoSettings::followMinPtGeV`).
   double followMinPtGeV = 0.01;
@@ -143,9 +136,6 @@ struct IterationSettings {
   /// The innermost clusters a road the road fit refuses may be fitted again
   /// without, one more each time, down to `minClusters`; 0 for none.
   int innerTrim = 0;
-  /// Which of a barrel plane's two crossings the follow's refit takes
-  /// (`CrossingRule`).
-  CrossingRule crossingRule = CrossingRule::kFirstAhead;
   /// Whether the follow's refit keeps the longest accepted prefix of the
   /// rows it would refuse (`follow::Refit`'s Prefix).
   bool followPrefix = false;
@@ -156,8 +146,7 @@ struct IterationSettings {
   /// the unconfirmed drop removes it only at or
   /// above; 0, the default, none stays.
   double followKeepChi2 = 0.;
-  /// The end decisions on the last row's own update (`FollowStage`'s
-  /// EndDensity), each 0, the
+  /// The end decisions on the last row's own update (`FollowStage`), each 0, the
   /// default, off: inward, the sqrt|V| [cm^2] above which a nominal last row
   /// at the layout's end -- no inward link -- is refused; outward, the
   /// Gaussian density g [cm^-2] above which the unconfirmed drop keeps a nominal last row.
@@ -187,16 +176,6 @@ struct IterationSettings {
   /// requires the follow. A length after the follow applies to this
   /// iteration's own tracks only.
   bool followEarlier = false;
-  /// Whether this iteration takes the previous one's graph instead of
-  /// building its own (one graph for both rounds):
-  /// the previous iteration's slices build the graph once with this
-  /// iteration's kink allowance; the roads of nominal triplets the nominal
-  /// fit accepts are the previous iteration's, every other road is fitted
-  /// with this iteration's settings and is this iteration's. Requires the
-  /// previous iteration's graph settings (the windows, the vertex source,
-  /// minClusters, skipLinks, layerMask, roadEndLayers, roadStartLayers and the pT floors by
-  /// cluster count), and no kink allowance there and one here.
-  bool sharedGraph = false;
   /// Whether the iteration tests its pairs, its triplets and its follow's rows
   /// against their measurements' cluster shapes: each measurement's slope
   /// interval (`MeasurementT::slopeLow`, `slopeHigh`) must hold the
@@ -247,8 +226,7 @@ template <DetectorLayout Det>
     narrowedLength = std::nextafter(narrowedLength, 0.F);
   }
   const double radialMax = std::max(std::abs(toHigh - fromLow), std::abs(fromHigh - toLow));
-  // Half a turn at most: a prompt window stays within a quarter, a displaced
-  // one may not.
+  // Half a turn at most.
   const double azimuth = std::min(phiHalfWidth, kPi<double>);
   const double chordMax = std::sqrt((radialMax * radialMax) + (2. * fromHigh * toHigh * (1. - std::cos(azimuth))));
   return {.lengthMin = narrowedLength, .chordMax = conservativeScalarBound(chordMax)};
@@ -331,10 +309,6 @@ struct IterationParameters {
   /// to be efficient in, and the only one a vertex-list iteration uses.
   Scalar vertexZCentre = 0.F;
   Scalar vertexZReach = 0.F;
-  /// A displaced iteration's impact bound and its closest approach's z bound
-  /// about `vertexZCentre` [cm] (`SearchWindowParams::impactMax`); 0 for a prompt one.
-  Scalar impactMax = 0.F;
-  Scalar impactZMax = 0.F;
   /// The adjacent-triplet fit's chi2 bound: three degrees of freedom at the
   /// confidence of `nSigma`, from `chiSquareQuantile`.
   Scalar neighbourChi2Max = 0.F;
@@ -346,11 +320,9 @@ struct IterationParameters {
   Scalar roadChi2MaxByNdf[(2 * maxChainLayers<Det>)-4]{};
   /// The kinks a fit pass may take.
   std::uint8_t maxKinks = 0U;
-  /// `IterationSettings::followEnd`, `innerTrim`
-  /// and `crossingRule`.
+  /// `IterationSettings::followEnd` and `innerTrim`.
   bool followEnd = false;
   std::uint8_t innerTrim = 0U;
-  CrossingRule crossingRule = CrossingRule::kFirstAhead;
   /// The update chi2 beyond which a step is a kink: two degrees of freedom at
   /// `nSigma`.
   Scalar kinkChi2Min = 0.F;
@@ -377,8 +349,6 @@ struct IterationParameters {
   /// `IterationSettings`' shareable innermost clusters and follow switch.
   std::uint32_t sharedInnermost = 0U;
   bool follow = true;
-  /// `IterationSettings::sharedGraph`.
-  bool sharedGraph = false;
   /// `IterationSettings::beamConstraint`,
   /// with its terms below.
   bool beamConstraint = false;
@@ -404,8 +374,8 @@ struct IterationParameters {
   Scalar beamVarTransverse = 0.F;
   Scalar beamChi2Max = 0.F;
   /// `IterationSettings::followHoles`, the layers the follow steps onto
-  /// (`followLayerMask`, every layer for 0), and the links out of each layer
-  /// onto one of them and into each layer from one, which the follow walks
+  /// (every layer where the iteration follows, none otherwise), and the
+  /// links out of each layer and into each layer, which the follow walks
   /// outward and inward.
   std::uint32_t followHoles = 0U;
   std::uint64_t followLayers = 0U;
@@ -569,14 +539,11 @@ template <DetectorLayout Det>
 template <DetectorLayout Det>
 [[nodiscard]] inline IterationParameters<Det> iterationParameters(const IterationSettings& settings, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material, const IterationParameters<Det>* alike = nullptr)
 {
-  if (settings.windows.impactMax > 0. && (settings.vertexSource != VertexSource::kBeamLine || !(settings.windows.impactZMax > 0.))) {
-    throw std::invalid_argument("a displaced iteration (impactMax > 0) needs the beam line as its vertex and a z bound (impactZMax > 0)");
-  }
   if (!(settings.minPGeV >= 0.) || !(settings.minPGeV < static_cast<double>(std::numeric_limits<Scalar>::max()))) {
     throw std::invalid_argument("a minimum momentum (minPGeV) is a non-negative number");
   }
-  if (settings.minPGeV > 0. && (settings.vertexSource != VertexSource::kBeamLine || settings.windows.impactMax > 0.)) {
-    throw std::invalid_argument("a minimum momentum (minPGeV, the disc windows per source) needs a prompt beam-line iteration");
+  if (settings.minPGeV > 0. && settings.vertexSource != VertexSource::kBeamLine) {
+    throw std::invalid_argument("a minimum momentum (minPGeV, the disc windows per source) needs a beam-line iteration");
   }
   IterationParameters<Det> parameters;
   parameters.pairCut = pairCut(settings.windows);
@@ -620,18 +587,12 @@ template <DetectorLayout Det>
     parameters.layerResolutions[layer] = layerResolution<Det>(static_cast<LayerID>(layer));
   }
   if (settings.follow || settings.followEnd) {
-    // Onto the follow's layers, from wherever the track is: outward a link
-    // whose target is one of them, inward one whose source is.
-    parameters.followLayers = layersOf<Det>(settings.followLayerMask);
-    std::array<bool, nLinks<Det>> onward{};
-    std::array<bool, nLinks<Det>> backward{};
-    for (std::size_t link = 0; link < nLinks<Det>; ++link) {
-      const auto& pair = Det::layerLinks[link];
-      onward[link] = ((parameters.followLayers >> pair.to) & 1U) != 0U;
-      backward[link] = ((parameters.followLayers >> pair.from) & 1U) != 0U;
-    }
-    keep(onward, outLinks<Det>, parameters.allOutLinkOffsets, parameters.allOutLinkIndices);
-    keep(backward, inLinks<Det>, parameters.allInLinkOffsets, parameters.allInLinkIndices);
+    // Every layer, from wherever the track is: every link outward and inward.
+    parameters.followLayers = layersOf<Det>(0U);
+    std::array<bool, nLinks<Det>> every{};
+    every.fill(true);
+    keep(every, outLinks<Det>, parameters.allOutLinkOffsets, parameters.allOutLinkIndices);
+    keep(every, inLinks<Det>, parameters.allInLinkOffsets, parameters.allInLinkIndices);
     parameters.followPositionVariance = static_cast<Scalar>(settings.windows.positionSigma * settings.windows.positionSigma);
   }
   parameters.minClustersAfterFollow = static_cast<std::uint32_t>(std::max(settings.minClustersAfterFollow, 0));
@@ -640,9 +601,6 @@ template <DetectorLayout Det>
     parameters.layerSpans[layer] = layerSpan<Det>(id);
   }
   parameters.barrelLayers = barrelLayerBits<Det>();
-  // A displaced iteration's tracks need not come from the beam spot the
-  // links' intervals were traced from: the whole layer.
-  const bool displaced = settings.windows.impactMax > 0.;
   for (std::size_t link = 0; link < IterationParameters<Det>::kLinkCount; ++link) {
     const auto& pair = Det::layerLinks[link];
     parameters.linkSources[link] = pair.from;
@@ -663,17 +621,14 @@ template <DetectorLayout Det>
       parameters.tripletBounds[link] = tripletLinkBounds<Det>(pair.from, pair.to, static_cast<double>(parameters.windows[link].phiHalfWidth));
     }
     parameters.holeLayers[link] = settings.skipLinks ? 0U : linkHoleLayers<Det>(pair.from, pair.to) & holeLayersOf<Det>(settings.layerMask);
-    parameters.sourceMin[link] = displaced ? -std::numeric_limits<Scalar>::infinity() : static_cast<Scalar>(pair.sourceMin);
-    parameters.sourceMax[link] = displaced ? std::numeric_limits<Scalar>::infinity() : static_cast<Scalar>(pair.sourceMax);
+    parameters.sourceMin[link] = static_cast<Scalar>(pair.sourceMin);
+    parameters.sourceMax[link] = static_cast<Scalar>(pair.sourceMax);
   }
   parameters.vertexZCentre = static_cast<Scalar>(beamSpot.z);
   parameters.vertexZReach = static_cast<Scalar>(settings.windows.nSigma * beamSpot.sigmaZ);
-  parameters.impactMax = static_cast<Scalar>(settings.windows.impactMax);
-  parameters.impactZMax = static_cast<Scalar>(settings.windows.impactZMax);
   parameters.neighbourChi2Max = static_cast<Scalar>(chiSquareQuantile(3, settings.windows.nSigma));
   parameters.clusterChi2Max = static_cast<Scalar>(chiSquareQuantile(2, settings.windows.nSigma));
   parameters.beamConstraint = settings.beamConstraint;
-  parameters.sharedGraph = settings.sharedGraph;
   parameters.beamX = static_cast<Scalar>(beamSpot.x);
   parameters.beamY = static_cast<Scalar>(beamSpot.y);
   parameters.beamVarTransverse = static_cast<Scalar>(beamSpot.sigmaTransverse * beamSpot.sigmaTransverse);
@@ -683,7 +638,6 @@ template <DetectorLayout Det>
   }
   parameters.maxKinks = static_cast<std::uint8_t>(std::max(settings.maxKinks, 0));
   parameters.innerTrim = static_cast<std::uint8_t>(std::clamp(settings.innerTrim, 0, static_cast<int>(maxChainLayers<Det>)));
-  parameters.crossingRule = settings.crossingRule;
   parameters.kinkChi2Min = static_cast<Scalar>(chiSquareQuantile(2, settings.windows.nSigma));
   {
     const double sigma = std::max(settings.kinkSigma, 1.);

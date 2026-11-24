@@ -179,8 +179,6 @@ GPUhdi() GPUAlwaysInline() void defaultDifferenceSteps(Scalar step[kNBoundParams
 /// propagations reached the plane. Out-of-bounds is accepted throughout: a
 /// derivative does not care whether the intersection landed on active silicon,
 /// and insisting it did would make the reference unusable near a sensor edge.
-/// \a Rule as `propagate`'s.
-template <CrossingRule Rule = CrossingRule::kFirstAhead>
 GPUdi() PropagationStatus jacobianFiniteDifference(const Propagator& prop, const BoundTrackState& state, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection dir, const Scalar step[kNBoundParams], Scalar jac[kJacobianSize])
 {
   for (int j = 0; j < kNBoundParams; ++j) {
@@ -189,8 +187,8 @@ GPUdi() PropagationStatus jacobianFiniteDifference(const Propagator& prop, const
     plus.par[j] += step[j];
     minus.par[j] -= step[j];
 
-    const auto rp = propagate<Rule>(prop, plus, from, to, dir);
-    const auto rm = propagate<Rule>(prop, minus, from, to, dir);
+    const auto rp = propagate(prop, plus, from, to, dir);
+    const auto rm = propagate(prop, minus, from, to, dir);
     if (rp.status != PropagationStatus::kOk && rp.status != PropagationStatus::kOutOfBounds) {
       return rp.status;
     }

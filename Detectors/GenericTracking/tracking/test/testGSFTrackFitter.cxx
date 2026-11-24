@@ -285,7 +285,6 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
   constexpr int kLayers = 4;     // ToyBarrel4Disc8's barrel
   constexpr int kBranchings = 4; // every plane
   constexpr int kPaths = 16;
-  constexpr auto kRule = CrossingRule::kFirstAhead;
   std::mt19937 rng(1050);
   const detail::LinkSteps material;
   double worstState = 0.;
@@ -330,7 +329,7 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
           Scalar density = 0.F;
           const Scalar stepReference = referenceTo(plane + increment);
           Scalar carried = stepReference;
-          BOOST_REQUIRE((detail::diffuseStepBody<kRule, true>(chain.propagator, *chain.tracking, span, measurements[plane + increment], direction, state[path], diffuse, chi2, carried, &density) == PropagationStatus::kOk));
+          BOOST_REQUIRE((detail::diffuseStepBody<true>(chain.propagator, *chain.tracking, span, measurements[plane + increment], direction, state[path], diffuse, chi2, carried, &density) == PropagationStatus::kOk));
           detail::advanceReference(reference, kLayers, direction, stepReference, carried);
           logWeight[path] -= 0.5 * static_cast<double>(density);
         }
@@ -345,7 +344,7 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
             Scalar logLikelihood = 0.F;
             const Scalar stepReference = referenceTo(plane + increment);
             Scalar carried = stepReference;
-            BOOST_REQUIRE((detail::filterStepBody<false, kRule, true>(chain.propagator, *chain.tracking, span, measurements[plane + increment], direction, state[path], factors[path], chi2, carried, 1.F, &logLikelihood) == PropagationStatus::kOk));
+            BOOST_REQUIRE((detail::filterStepBody<false, true>(chain.propagator, *chain.tracking, span, measurements[plane + increment], direction, state[path], factors[path], chi2, carried, 1.F, &logLikelihood) == PropagationStatus::kOk));
             detail::advanceReference(reference, kLayers, direction, stepReference, carried);
             logWeight[path] += logLikelihood;
           }

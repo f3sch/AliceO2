@@ -164,7 +164,7 @@ BOOST_AUTO_TEST_CASE(FactorizedScalarUpdateMatchesExactOracle)
   BOOST_TEST(scalar.variance(kQOverP) > 0.F);
 }
 
-/// The innovation covariance's determinant (the follow's EndDensity cuts on
+/// The innovation covariance's determinant (the follow's end decisions cut on
 /// it) from the two sequential
 /// innovations, against the determinant of V = H P H^T + R in double for the
 /// covariance P = U D U^T the factors hold -- the follow carries the factors,

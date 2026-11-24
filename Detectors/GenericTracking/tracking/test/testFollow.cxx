@@ -123,9 +123,8 @@ IterationParameters<toybarrel8::Det> followParameters(int holes = 0, bool beamLi
 /// Track \a track of \a tracks followed (`FollowStage`, the end decided
 /// again with \a DecidesEnd), inward too with \a inward; serially, or on \a threads in chunks of
 /// \a chunkSize; with \a Greedy, the smallest chi2 instead of the lookahead; with
-/// \a EndDensity, the ends decided on the last row's density; with
 /// \a BeamEnd, the inward end against the beam line.
-template <bool BeamLine = false, bool DecidesEnd = false, bool Greedy = false, bool EndDensity = false, bool BeamEnd = false>
+template <bool BeamLine = false, bool DecidesEnd = false, bool Greedy = false, bool BeamEnd = false>
 ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tracks, const std::vector<std::uint8_t>& used, const IterationParameters<toybarrel8::Det>& parameters, bool inward = true, int threads = 0, std::uint32_t chunkSize = 1U)
 {
   const auto widths = widthBounds(fixture);
@@ -146,7 +145,7 @@ ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tra
       fit(track);
     }
   }
-  const FollowStage<toybarrel8::Det, BeamLine, DecidesEnd, Greedy, EndDensity, BeamEnd> stage{&parameters, fixture.frame.get(), &toybarrel8::trackingGeometry(), Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), inward, 0U, DecidesEnd ? starts.data() : nullptr};
+  const FollowStage<toybarrel8::Det, BeamLine, DecidesEnd, Greedy, BeamEnd> stage{&parameters, fixture.frame.get(), &toybarrel8::trackingGeometry(), Propagator{}, tracks.view(), used.data(), widths.data(), toyCells().view(), proposals.data(), inward, 0U, DecidesEnd ? starts.data() : nullptr};
   if (threads == 0) {
     for (std::uint32_t track = 0; track < tracks.size(); ++track) {
       stage(track);
@@ -515,7 +514,7 @@ BOOST_AUTO_TEST_CASE(AnInwardLastRowOffTheBeamLineIsRefused)
     const Fixture fixture{hits};
     const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
     const auto tracks = fittedTrack(fixture, 3U, 7U, pool);
-    return std::pair{followTrack<true>(fixture, tracks, used, parameters), followTrack<true, false, false, false, true>(fixture, tracks, used, parameters)};
+    return std::pair{followTrack<true>(fixture, tracks, used, parameters), followTrack<true, false, false, true>(fixture, tracks, used, parameters)};
   };
   const auto [plain, beamEnd] = follow(clean);
   BOOST_REQUIRE(plain.inwardCount == 3U);
@@ -709,11 +708,11 @@ BOOST_AUTO_TEST_CASE(ARowRefusedAboveTheGateKeepsTheRowBeforeInwardOnly)
   }
 }
 
-/// EndDensity's layout-end refusal: a track
+/// The layout-end refusal (`followEndMaxSqrtDet`): a track
 /// on layers 1-7 has room for one row, so its inward walk takes row 0 and
 /// leaves through the capacity, at layer 0, which no link leads inward
 /// from: the row goes where its update's sqrt|V| is above the key, stays
-/// below it, and stays without the variant or with the key 0. Outward, at
+/// below it, and stays with the key 0. Outward, at
 /// the last layer, the key never acts; inward, on a walk that stops at
 /// layer 0 for want of targets, it does.
 BOOST_AUTO_TEST_CASE(AtTheLayoutsEndAWidePredictionLosesItsLastRow)
@@ -728,27 +727,26 @@ BOOST_AUTO_TEST_CASE(AtTheLayoutsEndAWidePredictionLosesItsLastRow)
   auto parameters = followParameters();
   BOOST_REQUIRE(followTrack(fixture, tracks, used, parameters).inwardCount == 1U);
   parameters.followEndMaxSqrtDet = static_cast<Scalar>(0.99 * sqrtDet);
-  BOOST_TEST(followTrack(fixture, tracks, used, parameters).inwardCount == 1U);
-  BOOST_TEST((followTrack<false, false, false, true>(fixture, tracks, used, parameters).inwardCount == 0U));
+  BOOST_TEST(followTrack(fixture, tracks, used, parameters).inwardCount == 0U);
   parameters.followEndMaxSqrtDet = static_cast<Scalar>(1.01 * sqrtDet);
-  BOOST_TEST((followTrack<false, false, false, true>(fixture, tracks, used, parameters).inwardCount == 1U));
+  BOOST_TEST((followTrack(fixture, tracks, used, parameters).inwardCount == 1U));
   parameters.followEndMaxSqrtDet = 0.F;
-  BOOST_TEST((followTrack<false, false, false, true>(fixture, tracks, used, parameters).inwardCount == 1U));
+  BOOST_TEST((followTrack(fixture, tracks, used, parameters).inwardCount == 1U));
 
   parameters.followEndMaxSqrtDet = 1e-12F;
-  const auto outward = followTrack<false, false, false, true>(fixture, fittedTrack(fixture, 0U, 4U, pool), used, parameters);
+  const auto outward = followTrack(fixture, fittedTrack(fixture, 0U, 4U, pool), used, parameters);
   BOOST_TEST(outward.outwardCount == 3U);
   std::vector<std::uint8_t> outerTaken(fixture.frame->size(), kFree);
   outerTaken[fixture.row(7U)] = kExclusive;
-  const auto inward = followTrack<false, false, false, true>(fixture, fittedTrack(fixture, 2U, 6U, pool), outerTaken, parameters);
+  const auto inward = followTrack(fixture, fittedTrack(fixture, 2U, 6U, pool), outerTaken, parameters);
   BOOST_REQUIRE(inward.inwardCount == 1U);
   BOOST_TEST(inward.inward[0] == fixture.row(1U));
 }
 
-/// EndDensity's density keep: row 6 taken, the outward walk takes row 5 and
+/// The density keep (`followKeepDensity`): row 6 taken, the outward walk takes row 5 and
 /// crosses layer 6's sensor without a row, and the unconfirmed drop removes row 5 -- unless its
 /// density g = exp(-chi2 / 2) / (2 pi sqrt|V|) is above the key: kept just
-/// below g, dropped just above it, without the variant or with the key 0.
+/// below g, dropped just above it or with the key 0.
 /// Inward the key never keeps: row 0 taken, the walk drops row 1 as before.
 BOOST_AUTO_TEST_CASE(ADenseLastRowStaysOutwardWhereTheUnconfirmedDropWouldRemoveIt)
 {
@@ -762,21 +760,21 @@ BOOST_AUTO_TEST_CASE(ADenseLastRowStaysOutwardWhereTheUnconfirmedDropWouldRemove
   const auto [chi2, sqrtDet] = firstStep(fixture, tracks.view().outwardState[0], fixture.row(5U), PropagationDirection::kForward);
   const double density = std::exp(-0.5 * chi2) / (kTwoPi<double> * sqrtDet);
   auto parameters = followParameters();
-  parameters.followKeepDensity = static_cast<Scalar>(0.99 * density);
   BOOST_TEST(followTrack(fixture, tracks, used, parameters).outwardCount == 0U);
-  const auto kept = followTrack<false, false, false, true>(fixture, tracks, used, parameters);
+  parameters.followKeepDensity = static_cast<Scalar>(0.99 * density);
+  const auto kept = followTrack(fixture, tracks, used, parameters);
   BOOST_REQUIRE(kept.outwardCount == 1U);
   BOOST_TEST(kept.outward[0] == fixture.row(5U));
   parameters.followKeepDensity = static_cast<Scalar>(1.01 * density);
-  BOOST_TEST((followTrack<false, false, false, true>(fixture, tracks, used, parameters).outwardCount == 0U));
+  BOOST_TEST((followTrack(fixture, tracks, used, parameters).outwardCount == 0U));
   parameters.followKeepDensity = 0.F;
-  BOOST_TEST((followTrack<false, false, false, true>(fixture, tracks, used, parameters).outwardCount == 0U));
+  BOOST_TEST((followTrack(fixture, tracks, used, parameters).outwardCount == 0U));
 
   parameters.followKeepDensity = 1e-30F;
   std::vector<std::uint8_t> innerTaken(fixture.frame->size(), kFree);
   innerTaken[fixture.row(0U)] = kExclusive;
   innerTaken[fixture.row(7U)] = kExclusive;
-  BOOST_TEST((followTrack<false, false, false, true>(fixture, fittedTrack(fixture, 2U, 6U, pool), innerTaken, parameters).inwardCount == 0U));
+  BOOST_TEST((followTrack(fixture, fittedTrack(fixture, 2U, 6U, pool), innerTaken, parameters).inwardCount == 0U));
 }
 
 /// The lookahead on a clean track: a noise row beside the true one on layer 5, the

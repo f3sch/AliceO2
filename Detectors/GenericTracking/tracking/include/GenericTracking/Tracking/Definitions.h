@@ -108,22 +108,6 @@ enum class PropagationDirection : std::int8_t {
   kBackward = -1 ///< against it, as the inward refit needs
 };
 
-/// Which of a barrel plane's two crossings a propagation takes
-/// (`propagate`). A compile-time choice
-/// (`withCrossingRule`); `kFirstAhead` is the default.
-enum class CrossingRule : std::uint8_t {
-  /// The crossing of smaller offset along the plane's line whenever it lies
-  /// ahead; the other only where it does not, and only nearer the centre.
-  kFirstAhead = 0,
-  /// Of the crossings ahead, the one nearer the plane's centre; a tie to the
-  /// first. With the first behind, as the default.
-  kNearerCentre,
-  /// Of the crossings ahead, one inside the sensor's bounds, the first if
-  /// both are; where neither is, the one nearer the plane's centre, a tie to
-  /// the first. With the first behind, as the default.
-  kInsideFirst
-};
-
 /// Where a failed fit stopped: the outward filter or the inward one.
 enum class FitPass : std::uint8_t { kNone = 0,
                                     kOutward,
@@ -240,21 +224,6 @@ decltype(auto) withBools(const Body& body, bool first, Rest... rest)
     return withBools([&](auto... fixed) { return body(std::true_type{}, fixed...); }, rest...);
   }
   return withBools([&](auto... fixed) { return body(std::false_type{}, fixed...); }, rest...);
-}
-
-/// `body(std::integral_constant<CrossingRule, rule>{})` for the run-time \a rule.
-template <typename Body>
-GPUhdi() decltype(auto) withCrossingRule(CrossingRule rule, const Body& body)
-{
-  switch (rule) {
-    case CrossingRule::kNearerCentre:
-      return body(std::integral_constant<CrossingRule, CrossingRule::kNearerCentre>{});
-    case CrossingRule::kInsideFirst:
-      return body(std::integral_constant<CrossingRule, CrossingRule::kInsideFirst>{});
-    case CrossingRule::kFirstAhead:
-      break;
-  }
-  return body(std::integral_constant<CrossingRule, CrossingRule::kFirstAhead>{});
 }
 
 /// `body(std::integral_constant<DecayFitVariant, variant>{})` for the

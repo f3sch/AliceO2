@@ -52,7 +52,7 @@ namespace
 {
 
 using namespace toybarrel8;
-using Stage = RoadFitStage<Det, false, false, false, false>;
+using Stage = RoadFitStage<Det, false, false>;
 using RecordOutput = StageOutput<SelectionRecordOf<maxChainLayers<Det>>::template RecordT>;
 constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
 /// A road cut that passes everything, per degree of freedom.
@@ -521,7 +521,7 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
   // The six tracks on every layer, refused at their full length by a floor
   // no track clears: with innerTrim each
   // road's record is its longest suffix the floors admit, never shorter
-  // than minClusters; without it, or with it off, there is none.
+  // than minClusters; with it off there is none.
   constexpr std::size_t kTracks = 6U;
   const Fixture fixture{trackHits(kTracks)};
   const RoadsRun roads{fixture};
@@ -529,9 +529,8 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
   const auto& count = roads.count;
   BOOST_REQUIRE(count.roadCount() == kTracks);
 
-  // The records, each its cluster count times 10 plus its first layer, by
-  // \a Trim's stage.
-  const auto recordsOf = [&]<bool Trim>(int innerTrim, int minClusters, std::size_t refusedBelow) {
+  // The records, each its cluster count times 10 plus its first layer.
+  const auto recordsOf = [&](int innerTrim, int minClusters, std::size_t refusedBelow) {
     auto settings = iterationSettings();
     settings.innerTrim = innerTrim;
     settings.minClusters = minClusters;
@@ -540,7 +539,7 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
       settings.minPtGeVByClusters[clusters] = 100.;
     }
     const auto iteration = iterationParameters<Det>(settings, Fixture::kBeamConstraint, noMaterial<Det>());
-    const RoadFitStage<Det, false, false, false, Trim> stage{iteration, *fixture.frame, trackingGeometry(), kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
+    const Stage stage{iteration, *fixture.frame, trackingGeometry(), kPropagator, *run.tracklets, *run.triplets, count.walk(*run.triplets, *run.neighbours)};
     RecordOutput records;
     records.setMemoryPool(std::make_shared<BoundedMemoryResource>());
     records.prepare(count.roadCount());
@@ -560,15 +559,14 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
   const std::vector<std::uint32_t> none;
   const std::vector<std::uint32_t> seven(kTracks, 71U);
   const std::vector<std::uint32_t> five(kTracks, 53U);
-  BOOST_TEST(recordsOf.template operator()<false>(3, 4, kLayers) == none, boost::test_tools::per_element());
-  BOOST_TEST(recordsOf.template operator()<true>(0, 4, kLayers) == none, boost::test_tools::per_element());
-  BOOST_TEST(recordsOf.template operator()<true>(1, 4, kLayers) == seven, boost::test_tools::per_element());
-  BOOST_TEST(recordsOf.template operator()<true>(3, 4, kLayers - 2U) == five, boost::test_tools::per_element());
-  BOOST_TEST(recordsOf.template operator()<true>(2, 4, kLayers - 2U) == none, boost::test_tools::per_element()); // two dropped are not enough
-  BOOST_TEST(recordsOf.template operator()<true>(3, static_cast<int>(kLayers) - 1, kLayers - 2U) == none,
+  BOOST_TEST(recordsOf(0, 4, kLayers) == none, boost::test_tools::per_element());
+  BOOST_TEST(recordsOf(1, 4, kLayers) == seven, boost::test_tools::per_element());
+  BOOST_TEST(recordsOf(3, 4, kLayers - 2U) == five, boost::test_tools::per_element());
+  BOOST_TEST(recordsOf(2, 4, kLayers - 2U) == none, boost::test_tools::per_element()); // two dropped are not enough
+  BOOST_TEST(recordsOf(3, static_cast<int>(kLayers) - 1, kLayers - 2U) == none,
              boost::test_tools::per_element()); // nor below minClusters
   // A road the stage takes whole is taken whole.
-  BOOST_TEST(recordsOf.template operator()<true>(3, 4, kLayers + 1U) == std::vector<std::uint32_t>(kTracks, 80U), boost::test_tools::per_element());
+  BOOST_TEST(recordsOf(3, 4, kLayers + 1U) == std::vector<std::uint32_t>(kTracks, 80U), boost::test_tools::per_element());
 }
 
 BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)

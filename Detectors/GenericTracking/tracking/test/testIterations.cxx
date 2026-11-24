@@ -630,51 +630,6 @@ BOOST_AUTO_TEST_CASE(NoFollowOfEarlierTracksAfterOverlapPartners)
   BOOST_CHECK_NO_THROW(makeTracker(settings));
 }
 
-/// The recovery pass on one graph (one graph for both rounds): the second
-/// iteration takes the first one's graph, built with its
-/// kink allowance, and finds the tracks the two iterations with a graph each
-/// find -- their iterations, rows and chi2s -- building no slice of its own.
-/// A second iteration whose graph settings differ, or without an allowance,
-/// is refused.
-BOOST_AUTO_TEST_CASE(TheRecoveryPassOnOneGraphFindsTheTwoGraphsTracks)
-{
-  const Fixture fixture{hits(), kDurationNS};
-  auto settings = iterations();
-  for (auto& iteration : settings) {
-    iteration.windows = settings[0].windows;
-    iteration.layerMask = ((1U << kLayers) - 1U) & ~0b111U;
-    iteration.skipLinks = false;
-    iteration.beamConstraint = true;
-  }
-  settings[1].kinkSigma = 5.;
-  settings[1].maxKinks = 2;
-  settings[1].followEarlier = true;
-  settings[1].minClustersAfterFollow = static_cast<int>(kLayers);
-  auto separate = makeTracker(settings);
-  const auto twoGraphs = separate->run(*fixture.frame, separate->planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, 3));
-  BOOST_REQUIRE(twoGraphs.status == StageStatus::kComplete);
-  settings[1].sharedGraph = true;
-  auto tracker = makeTracker(settings);
-  const auto oneGraph = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, 3));
-  BOOST_REQUIRE(oneGraph.status == StageStatus::kComplete);
-  // Both at the first iteration's floor: the stiffer half of the tracks.
-  BOOST_TEST(found(oneGraph).size() == kTracks / 2U);
-  BOOST_TEST((found(oneGraph) == found(twoGraphs)));
-  BOOST_TEST((std::vector<std::uint8_t>(tracker->used().begin(), tracker->used().end()) == std::vector<std::uint8_t>(separate->used().begin(), separate->used().end())));
-  BOOST_TEST(oneGraph.iterations[1].slices == 0U);
-  BOOST_TEST(oneGraph.iterations[1].roads == 0U);
-
-  auto otherFloor = settings;
-  otherFloor[1].windows.minPtGeV = 0.3;
-  BOOST_CHECK_THROW(makeTracker(otherFloor), std::invalid_argument);
-  auto noAllowance = settings;
-  noAllowance[1].kinkSigma = 1.;
-  BOOST_CHECK_THROW(makeTracker(noAllowance), std::invalid_argument);
-  auto first = settings;
-  first[0].sharedGraph = true;
-  BOOST_CHECK_THROW(makeTracker(first), std::invalid_argument);
-}
-
 namespace
 {
 

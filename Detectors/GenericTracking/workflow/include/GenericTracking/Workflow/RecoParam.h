@@ -134,13 +134,6 @@ struct RecoSettings {
   /// iterationKinkSigma there, which then sets only the road fit's and the
   /// follow's; 0, the default, iterationKinkSigma everywhere.
   std::vector<double> iterationGraphKinkSigma;
-  /// A displaced iteration's bounds [cm]:
-  /// how far its tracks' circles may pass from the beam line, and how far
-  /// the z of that closest approach from the beam spot's centre. 0, the
-  /// default, a prompt iteration; above, on the beam line and with both set,
-  /// the displaced pair test and its windows.
-  std::vector<double> iterationImpactMaxCm;
-  std::vector<double> iterationImpactZMaxCm;
   /// Whether each iteration makes tracklets that leave a hole, whose segment
   /// crosses the envelope of another layer of its mask (the default); 0 for
   /// none, so the tracks past a shorter layer's end are kept and those
@@ -178,10 +171,6 @@ struct RecoSettings {
   /// The holes each iteration's follow lets a track cross in each direction,
   /// a sensor crossed without a row; 0 by default.
   std::vector<int> iterationFollowHoles;
-  /// The layers each iteration's follow steps onto, a bit per layer; 0 for
-  /// every layer (the default): its walk takes the links onto them, its
-  /// tail the inactive layers among them.
-  std::vector<long> iterationFollowLayerMask;
   /// The lowest pT [GeV] at which the follow follows a track, from its state
   /// as the follow starts; a track below it is left as its road, for the
   /// iteration's other rules. Non-negative (`checkRecoParam`); 0.01 by default.
@@ -201,11 +190,6 @@ struct RecoSettings {
   /// it takes the road's record; 0, off, by
   /// default.
   std::vector<int> iterationInnerTrim;
-  /// Which of a barrel plane's two crossings each iteration's follow refit
-  /// takes (`CrossingRule`): 0 the first ahead
-  /// (the default), 1 of those ahead the one nearer the plane's centre, 2 one
-  /// inside the sensor first, else nearer the centre.
-  std::vector<int> iterationCrossingRule;
   /// Whether each iteration's follow refit, where it refuses the rows the
   /// follow added, keeps the longest prefix of them it accepts instead of
   /// none; 0, off, by default.
@@ -261,11 +245,6 @@ struct RecoSettings {
   /// iterationFollow; iterationMinClustersAfterFollow applies to the
   /// iteration's own tracks only.
   std::vector<int> iterationFollowEarlier;
-  /// Whether each iteration takes the previous one's graph instead of
-  /// building its own, one graph for both rounds; 0, off, by default. Needs
-  /// the previous iteration's graph settings, and its graph kink allowance 1
-  /// and this one's above.
-  std::vector<int> iterationSharedGraph;
 
   /// Requested width of one time slice [ps]. The actual width is rounded up
   /// to whole grid blocks, and zero means one slice over the timeframe.

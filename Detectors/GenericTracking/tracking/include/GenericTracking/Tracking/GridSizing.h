@@ -86,12 +86,6 @@ template <DetectorLayout Det>
     return *window;
   };
   for (const auto& settings : iterations) {
-    // A displaced iteration's windows hold what its pair test admits, up to
-    // half a turn and a target's whole length: sized by them the cells would be the prompt iterations' loss. Its
-    // queries visit more cells instead; the cells never decide a pair.
-    if (settings.windows.impactMax > 0.) {
-      continue;
-    }
     const auto taken = takenLinks<Det>(settings);
     const auto sizing = [&](std::size_t link) {
       const auto& pair = Det::layerLinks[link];

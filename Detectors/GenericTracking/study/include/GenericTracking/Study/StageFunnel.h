@@ -124,9 +124,7 @@ inline constexpr std::array<PairLoss, 9> kPairCutLosses{PairLoss::kSourceInterva
 /// The pair cut on a pair of rows on \a link from \a vertex: the first test the
 /// tracklet stage applies that it fails -- the source interval, time, the
 /// turning point, the curvature, the longitudinal test -- or kElsewhere if it
-/// passes them all; and the spatial terms as far as they were evaluated. In a
-/// displaced iteration the curvature is the displaced test's transverse part
-/// (its own turning point included) and the longitudinal its z; no terms.
+/// passes them all; and the spatial terms as far as they were evaluated.
 /// Includes the query's cells, the source's own disc window where the
 /// iteration takes it (`discPairWindow`), and the direct-pair rule; the
 /// stage's used, shape and bound tests are not replayed.
@@ -160,7 +158,7 @@ template <DetectorLayout Det>
   auto window = candidateWindow(parameters.windows[link], timeBox(sourceMeasurement), sourceMeasurement.phi, source.r, source.z, timeBox(targetMeasurement).width);
   // The tracklet stage's disc window per source, an iteration with a minimum
   // momentum: the query's window, and part of the acceptance.
-  const bool discWindow = parameters.discWindowMinP > 0.F && parameters.impactMax == 0.F && parameters.windows[link].kind == PairKind::kDisc;
+  const bool discWindow = parameters.discWindowMinP > 0.F && parameters.windows[link].kind == PairKind::kDisc;
   if (discWindow && !discPairWindow<Det>(parameters, to, source, sourceScattering<Det>(*parameters.material, parameters.pairCut, vertex, from, source), parameters.betweenBound[link], vertex.varTransverse, window)) {
     verdict.loss = PairLoss::kSourceWindow;
     return verdict;
@@ -213,17 +211,6 @@ template <DetectorLayout Det>
     const auto pair = betweenScattering<Det>(*parameters.material, parameters.pairCut, betweenSource<Det>(source, from), link, to, vertex, source, target, spanX);
     between = pair.between;
     scatter *= pair.sourceScale;
-  }
-  if (parameters.impactMax > 0.F) {
-    // A displaced iteration's test (TrackletStage.h, `displacedPairOf`): its
-    // transverse part as the curvature, its z as the longitudinal test.
-    const auto result = displacedPairOf(parameters, vertex, source, scatter, target, between);
-    if (!result.transverse) {
-      verdict.loss = PairLoss::kCurvature;
-    } else if (!result.longitudinal) {
-      verdict.loss = PairLoss::kLongitudinal;
-    }
-    return directPair();
   }
   verdict.terms = transversePairTerms(parameters.pairCut, vertex, source, scatter, target, between);
   if (!verdict.terms.beforeTurn) {

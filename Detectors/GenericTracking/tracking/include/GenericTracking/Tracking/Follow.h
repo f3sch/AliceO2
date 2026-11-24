@@ -332,7 +332,7 @@ template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typen
   surfaceToGlobal(from, input.loc0(), input.loc1(), start);
   SolenoidJacobian jacobian;
   PropagationResult propagated;
-  if (jacobianAnalytic<Scalar, CrossingRule::kFirstAhead, Solve>(propagator, input, from, to, direction, jacobian, &output, &propagated) != PropagationStatus::kOk) {
+  if (jacobianAnalytic<Scalar, Solve>(propagator, input, from, to, direction, jacobian, &output, &propagated) != PropagationStatus::kOk) {
     return false;
   }
   // The turn is kappa times the transverse path, (q/p) Bz B2C times the 3D
@@ -391,7 +391,7 @@ template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typen
 /// \a measurement (`transportCandidate`) and updated with it:
 /// \a output and \a outputFactors, and the update's \a chi2 -- and, with
 /// \a Determinant, its innovation covariance's determinant into
-/// \a determinant (the follow's EndDensity). False if the step or the
+/// \a determinant (the follow's end decisions). False if the step or the
 /// update is not usable. With
 /// \a Inlined the transport is inlined (`transportCandidateInline`), else
 /// called.
@@ -581,7 +581,7 @@ GPUhdi() GPUAlwaysInline() void windowCentre(const IterationParameters<Det>& par
 ///  - each hole test, with whether the track crosses a sensor;
 ///  - the row a step takes and its chi2;
 ///  - the last row dropped as nothing confirms it (the unconfirmed drop), refused at the
-///    layout's end (EndDensity) or against the beam line (BeamEnd);
+///    layout's end (`followEndMaxSqrtDet`) or against the beam line (BeamEnd);
 ///  - the outward walk's tail beginning (`inactiveLayerTail`), its steps
 ///    then as the walk's;
 ///  - the end.
@@ -597,7 +597,7 @@ struct NoObserver {
   GPUhdi() GPUAlwaysInline() void lookaheadConfirmation(std::uint32_t /*row*/, Scalar /*chi2*/, std::uint32_t /*next*/, Scalar /*nextChi2*/) const {}
   GPUhdi() GPUAlwaysInline() void taken(std::uint32_t /*row*/, Scalar /*chi2*/) const {}
   GPUhdi() GPUAlwaysInline() void unconfirmed(std::uint32_t /*row*/) const {}
-  /// The last row refused at the layout's end (EndDensity's layout-end refusal).
+  /// The last row refused at the layout's end (`followEndMaxSqrtDet`).
   GPUhdi() GPUAlwaysInline() void refusedEnd(std::uint32_t /*row*/) const {}
   /// The inward last row refused against the beam line (BeamEnd).
   GPUhdi() GPUAlwaysInline() void refusedBeamEnd(std::uint32_t /*row*/) const {}
@@ -624,15 +624,16 @@ struct Child {
   CovarianceFactors factors;
 };
 
-/// A step's row as EndDensity reads it: with its update's innovation covariance's determinant
-/// [cm^4]. A type of its own, so that the follow without it keeps `Child`.
+/// A step's row with its update's innovation covariance's determinant
+/// [cm^4], which the follow's end decisions read. A type of its own, so that
+/// the searches without them keep `Child`.
 struct DensityChild : Child {
   Scalar determinant = 0.F;
 };
 
-/// The follow's row type with or without \a EndDensity.
-template <bool EndDensity>
-using ChildOf = std::conditional_t<EndDensity, DensityChild, Child>;
+/// A search's row type with or without \a Determinant.
+template <bool Determinant>
+using ChildOf = std::conditional_t<Determinant, DensityChild, Child>;
 
 /// Where \a child's update writes its determinant (`updateCandidate`):
 /// nowhere for a `Child`.
@@ -647,7 +648,7 @@ using ChildOf = std::conditional_t<EndDensity, DensityChild, Child>;
 /// test, LinkHoles.h), and the update of \a state (its covariance \a factors)
 /// with it under the gate (`updateCandidate`), every row's step taking
 /// \a traversed, the window's material (`predictedWindow`). With
-/// \a EndDensity a candidate holds its update's determinant.
+/// \a Determinant a candidate holds its update's determinant.
 /// \a report(row, outcome, chi2) sees every row; \a counter counts the
 /// updates made.
 ///
@@ -663,7 +664,7 @@ using ChildOf = std::conditional_t<EndDensity, DensityChild, Child>;
 /// update is refused where the row's slope interval does not hold the
 /// updated state's direction (`slopeAdmits`, StepOutcome::kShape), before
 /// the gate. The body, inlined where it is called; the follow calls `visit`.
-template <bool Own = false, bool EndDensity = false, bool Inlined = false, bool Shape = false, DetectorLayout Det, typename Group, typename Report, typename Step>
+template <bool Own = false, bool Determinant = false, bool Inlined = false, bool Shape = false, DetectorLayout Det, typename Group, typename Report, typename Step>
 GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det>& context, const BoundParameters& state, const CovarianceFactors& factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& window, const detail::StepMaterial& traversed, std::uint64_t holes, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
 {
   const auto& parameters = *context.parameters;
@@ -687,12 +688,12 @@ GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det>& context, con
     return true;
   };
   // The update into \a candidate, its row set where it passes the gate.
-  const auto update = [&](std::uint32_t row, ChildOf<EndDensity>& candidate) {
+  const auto update = [&](std::uint32_t row, ChildOf<Determinant>& candidate) {
     countWork(counter);
     Scalar chi2 = 0.F;
     // The follow's states steer its own steps only (a proposal hands on
     // rows; the refit fits them again): a float solve.
-    const bool usable = updateCandidate<EndDensity, Inlined, Scalar>(*context.propagator, *context.geometry, detail::GivenMaterial{traversed}, measurementAt(frame, row), direction, state, factors, candidate.state, candidate.factors, chi2, determinantOf(candidate));
+    const bool usable = updateCandidate<Determinant, Inlined, Scalar>(*context.propagator, *context.geometry, detail::GivenMaterial{traversed}, measurementAt(frame, row), direction, state, factors, candidate.state, candidate.factors, chi2, determinantOf(candidate));
     if (!usable) {
       report(row, StepOutcome::kNoUpdate, 0.F);
       return;
@@ -721,7 +722,7 @@ GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det>& context, con
       if (!reaches(row)) {
         return;
       }
-      ChildOf<EndDensity> candidate;
+      ChildOf<Determinant> candidate;
       update(row, candidate);
       if (candidate.row != std::numeric_limits<std::uint32_t>::max()) {
         step(candidate);
@@ -731,7 +732,7 @@ GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det>& context, con
     // A group: one candidate a lane for the window, its row reset at every
     // step; the state and its factors are written by the update before they
     // are read.
-    ChildOf<EndDensity> candidate;
+    ChildOf<Determinant> candidate;
     frame.grid().visitCandidates(
       layer, window, frame.grid().geometry().allBlocks(),
       [&](std::uint32_t row, bool has) {
@@ -747,14 +748,14 @@ GPUhdi() GPUAlwaysInline() void visitInline(const StepContext<Det>& context, con
 
 /// `visitInline`, never inlined on the device: one copy for each call site,
 /// which the kernels then do not absorb.
-template <bool Own = false, bool EndDensity = false, bool Shape = false, DetectorLayout Det, typename Group, typename Report, typename Step>
+template <bool Own = false, bool Determinant = false, bool Shape = false, DetectorLayout Det, typename Group, typename Report, typename Step>
 GPUhdnii() void visit(const StepContext<Det>& GPUrestrict() context, const BoundParameters& GPUrestrict() state, const CovarianceFactors& GPUrestrict() factors, Scalar r, Scalar z, LayerID layer, PropagationDirection direction, const CandidateWindow& GPUrestrict() window, const detail::StepMaterial& GPUrestrict() traversed, std::uint64_t holes, WorkCounter counter, const Group& group, const Report& report, const Step& step, [[maybe_unused]] std::uint32_t own = std::numeric_limits<std::uint32_t>::max())
 {
-  visitInline<Own, EndDensity, false, Shape>(context, state, factors, r, z, layer, direction, window, traversed, holes, counter, group, report, step, own);
+  visitInline<Own, Determinant, false, Shape>(context, state, factors, r, z, layer, direction, window, traversed, holes, counter, group, report, step, own);
 }
 
 /// \a candidate of lane \a from of \a group, on every lane: its row, chi2,
-/// parameters, surface and factors (and with \a EndDensity its determinant).
+/// parameters, surface and factors (and with \a Determinant its determinant).
 template <typename Group, typename Row>
 [[nodiscard]] GPUhdi() GPUAlwaysInline() decltype(auto) shared(const Group& group, const Row& candidate, std::uint32_t from)
 {
@@ -865,23 +866,12 @@ struct Branch {
   CovarianceFactors factors;
   std::uint32_t rows[K]{};
   Scalar lastChi2 = 0.F;
+  Scalar lastDeterminant = 0.F; ///< the last row's update's determinant [cm^4], which the end decisions read
   std::uint32_t count = 0U;
   std::uint32_t holes = 0U;
   std::uint32_t own = std::numeric_limits<std::uint32_t>::max();
   bool crossed = false;
 };
-
-/// A direction as EndDensity reads it: with its last row's update's
-/// determinant [cm^4]. A type of its own, so that the follow without it
-/// keeps `Branch`.
-template <std::size_t K>
-struct DensityBranch : Branch<K> {
-  Scalar lastDeterminant = 0.F;
-};
-
-/// The follow's direction type with or without \a EndDensity.
-template <std::size_t K, bool EndDensity>
-using BranchOf = std::conditional_t<EndDensity, DensityBranch<K>, Branch<K>>;
 
 /// What BeamEnd reads of an inward walk: the states its last two steps started from -- entry 0 the
 /// latest -- their factors, and how many rows the walk took. A row the unconfirmed drop or the
@@ -965,10 +955,9 @@ struct Target {
 /// With \a Greedy, the iteration's `followGreedy`, a step more than one row passes takes the smallest chi2, the
 /// row breaking ties (`follow::beats`), instead of the lookahead's confirmation.
 ///
-/// With \a EndDensity, where the iteration has `followEndMaxSqrtDet` or
-/// `followKeepDensity`, a
-/// direction's end is decided on its last row's own update, V = H P H^T + R
-/// and the chi2:
+/// Where the iteration has `followEndMaxSqrtDet` or `followKeepDensity` (0,
+/// either off), a direction's end is decided on its last row's own update,
+/// V = H P H^T + R and the chi2:
 ///  - **inward at the layout's end** -- the layer it stands on has no
 ///    inward link -- the last row goes where sqrt|V| is above
 ///    `followEndMaxSqrtDet`: a prediction carried that far admits strangers;
@@ -983,7 +972,7 @@ struct Target {
 /// the gate. Its own step saw only the rows outside; the beam line is the
 /// evidence beyond the last row inward, where the strangers of the vertex
 /// detector -- QED pairs in Pb-Pb -- pass the step alone.
-template <DetectorLayout Det, bool BeamLine = false, bool DecidesEnd = false, bool Greedy = false, bool EndDensity = false, bool BeamEnd = false, bool Shape = false>
+template <DetectorLayout Det, bool BeamLine = false, bool DecidesEnd = false, bool Greedy = false, bool BeamEnd = false, bool Shape = false>
 class FollowStage
 {
  public:
@@ -993,8 +982,8 @@ class FollowStage
   static constexpr bool kDecidesEnd = DecidesEnd;
   using TrackView = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::ConstView;
   using Proposal = FollowProposal<kMaxClusters>;
-  using Branch = follow::BranchOf<kMaxClusters, EndDensity>;
-  using Child = follow::ChildOf<EndDensity>;
+  using Branch = follow::Branch<kMaxClusters>;
+  using Child = follow::DensityChild;
 
   FollowStage(const IterationParameters<Det>* parameters, const TimeFrame<Det>* frame, const TrackingGeometry<Det>* geometry, const Propagator& propagator, TrackView tracks, const std::uint8_t* used, const std::uint32_t* maxCandidateWidthPS, SensorCellsView cells, Proposal* proposals, bool inward, std::uint32_t trackOffset, const BoundTrackState* endStarts = nullptr)
     : mParameters(parameters),
@@ -1231,8 +1220,7 @@ class FollowStage
     // drops mostly the particle's own rows, the wrong ones at the higher
     // chi2).
     const bool evidence = (direction == PropagationDirection::kBackward && nearMiss) || branch.lastChi2 < mParameters->followKeepChi2;
-    // With EndDensity also an
-    // outward last row of a high density stays (`densityKept`).
+    // Also an outward last row of a high density stays (`densityKept`).
     [[maybe_unused]] bool dropped = false;
     if (branch.crossed && !evidence && branch.count != 0U && !densityKept(branch, direction)) {
       --branch.count;
@@ -1240,16 +1228,14 @@ class FollowStage
       countWork(WorkCounter::kFollowUnconfirmed);
       observe.unconfirmed(branch.rows[branch.count]);
     }
-    if constexpr (EndDensity) {
-      // At every exit: a row taken as the last the capacity allows leaves
-      // the loop before the search for targets. Never where the unconfirmed drop removed a
-      // row: a layer without an inward link has no targets, so the walk
-      // crossed nothing there.
-      if (refusesLayoutEnd(branch, direction)) {
-        --branch.count;
-        countWork(WorkCounter::kFollowEndRefused);
-        observe.refusedEnd(branch.rows[branch.count]);
-      }
+    // At every exit: a row taken as the last the capacity allows leaves
+    // the loop before the search for targets. Never where the unconfirmed drop removed a
+    // row: a layer without an inward link has no targets, so the walk
+    // crossed nothing there.
+    if (refusesLayoutEnd(branch, direction)) {
+      --branch.count;
+      countWork(WorkCounter::kFollowEndRefused);
+      observe.refusedEnd(branch.rows[branch.count]);
     }
     if constexpr (BeamEnd) {
       // After the unconfirmed drop and the layout's end, on the row that stands last.
@@ -1297,26 +1283,19 @@ class FollowStage
   }
 
  private:
-  /// EndDensity's density keep, asked where the unconfirmed drop would remove \a branch's last row:
+  /// The density keep, asked where the unconfirmed drop would remove \a branch's last row:
   /// whether, outward, it has its density g
   /// above the iteration's `followKeepDensity` -- in logs, chi2 + log|V|
   /// below -2 log(2 pi key). A determinant that is not positive never keeps.
-  /// Without EndDensity, false.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() bool densityKept(const Branch& branch, PropagationDirection direction) const
   {
-    if constexpr (EndDensity) {
-      const Scalar key = mParameters->followKeepDensity;
-      const bool kept = direction == PropagationDirection::kForward && key > 0.F && branch.lastDeterminant > 0.F && branch.lastChi2 + logOf(branch.lastDeterminant) < -2.F * logOf(kTwoPi<Scalar> * key);
-      countWork(WorkCounter::kFollowDensityKept, kept ? 1U : 0U);
-      return kept;
-    } else {
-      static_cast<void>(branch);
-      static_cast<void>(direction);
-      return false;
-    }
+    const Scalar key = mParameters->followKeepDensity;
+    const bool kept = direction == PropagationDirection::kForward && key > 0.F && branch.lastDeterminant > 0.F && branch.lastChi2 + logOf(branch.lastDeterminant) < -2.F * logOf(kTwoPi<Scalar> * key);
+    countWork(WorkCounter::kFollowDensityKept, kept ? 1U : 0U);
+    return kept;
   }
 
-  /// EndDensity's layout-end refusal: whether \a branch, inward, stands at the layout's
+  /// The layout-end refusal: whether \a branch, inward, stands at the layout's
   /// end -- no inward link from its layer, not a search whose every
   /// prediction failed -- on a row with sqrt|V| above the
   /// iteration's `followEndMaxSqrtDet`.
@@ -1551,7 +1530,7 @@ class FollowStage
       std::uint32_t firstLane = 0U; // \a child holds the first passing row on this lane
       Confirmed confirmed;
       bool gated = false; // this lane saw a row refused above the gate
-      follow::visit<DecidesEnd, EndDensity, Shape>(
+      follow::visit<DecidesEnd, true, Shape>(
         context(), branch.state, branch.factors, 0.F, 0.F, target.layer, direction, window, traversed, 0U, WorkCounter::kFollowUpdates, group,
         [&](std::uint32_t row, StepOutcome outcome, Scalar chi2) {
           gated = gated || outcome == StepOutcome::kChi2;
@@ -1687,9 +1666,7 @@ class FollowStage
     branch.state = child.state;
     branch.factors = child.factors;
     branch.lastChi2 = child.chi2;
-    if constexpr (EndDensity) {
-      branch.lastDeterminant = child.determinant;
-    }
+    branch.lastDeterminant = child.determinant;
     branch.crossed = false;
     box += timeBoxAt(mFrame->measurements(), child.row);
   }
@@ -1716,7 +1693,7 @@ class FollowStage
     const bool crossed = mCells.anySensor(target.layer, target.prediction.phi, reach[0], target.prediction.second, reach[1], [&](std::uint32_t id) {
       const TrackingSurface plane = mGeometry->planeAt(static_cast<SensorID>(id), point);
       BoundParameters at = state;
-      const auto result = propagate<CrossingRule::kFirstAhead, Scalar>(propagator, at, from, plane, direction);
+      const auto result = propagate<Scalar>(propagator, at, from, plane, direction);
       return result.status == PropagationStatus::kOk && !follow::beyondHalfTurn(curvature * result.pathLength);
     });
     countWork(WorkCounter::kFollowHoles, crossed ? 1U : 0U);
@@ -1896,13 +1873,12 @@ template <DetectorLayout Det, typename Fit>
   return fit.status == PropagationStatus::kOk && fit.chi2 <= parameters.roadChi2MaxByNdf[fit.ndf];
 }
 
-/// The extended refit of each followed track, all or nothing. \a Rule is
-/// the fit's choice of crossing (`CrossingRule`), the iteration's
-/// `crossingRule`. With \a Prefix, the iteration's `followPrefix`, a refit the cut
+/// The extended refit of each followed track, all or nothing. With
+/// \a Prefix, the iteration's `followPrefix`, a refit the cut
 /// refuses or that fails is tried again on the follow's rows' prefixes in
 /// the walks' order -- the outward rows first, then the inward ones --
 /// the longest first, and the first the refit accepts is kept.
-template <DetectorLayout Det, CrossingRule Rule = CrossingRule::kFirstAhead, bool Prefix = false>
+template <DetectorLayout Det, bool Prefix = false>
 struct Refit {
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using TrackView = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::View;
@@ -1947,7 +1923,7 @@ struct Refit {
   /// followed again with `followEarlier`.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() bool accept(std::uint32_t track, const ClusterList<kMaxClusters>& list, std::uint8_t n, std::uint8_t outward, std::uint8_t inward) const
   {
-    const auto fit = fitMeasurements<Rule>(propagator, *geometry, detail::LinkSteps{}, RowChain<Det>{.frame = frame, .rows = list.index}, static_cast<int>(n), kinkBudget(*parameters));
+    const auto fit = fitMeasurements(propagator, *geometry, detail::LinkSteps{}, RowChain<Det>{.frame = frame, .rows = list.index}, static_cast<int>(n), kinkBudget(*parameters));
     if (!passesRoadChi2(*parameters, fit)) {
       return false;
     }
@@ -2005,14 +1981,14 @@ struct Refit {
 /// track stays as the refit left it. The row dropped is not marked: it is free for the
 /// iterations after. Not with `followEnd`, whose replaced end goes with the
 /// outward rows.
-template <DetectorLayout Det, CrossingRule Rule = CrossingRule::kFirstAhead, bool Shape = false>
+template <DetectorLayout Det, bool Shape = false>
 struct TrimAmbiguous {
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using TrackView = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::View;
 
   /// The search of the step's rows, as a nominal step makes it (with \a Shape,
   /// the iteration's shape test).
-  FollowStage<Det, false, false, false, false, false, Shape> search;
+  FollowStage<Det, false, false, false, false, Shape> search;
   const IterationParameters<Det>* parameters = nullptr;
   const TimeFrame<Det>* frame = nullptr;
   const TrackingGeometry<Det>* geometry = nullptr;
@@ -2042,7 +2018,7 @@ struct TrimAmbiguous {
     rows.index[count - 1U] = ClusterList<kMaxClusters>::kNoCluster;
     const auto shorter = static_cast<std::uint8_t>(count - 1U);
     countWork(WorkCounter::kFollowTrimFits);
-    const auto fit = fitMeasurements<Rule>(propagator, *geometry, detail::LinkSteps{}, RowChain<Det>{.frame = frame, .rows = rows.index}, static_cast<int>(shorter), kinkBudget(*parameters));
+    const auto fit = fitMeasurements(propagator, *geometry, detail::LinkSteps{}, RowChain<Det>{.frame = frame, .rows = rows.index}, static_cast<int>(shorter), kinkBudget(*parameters));
     if (!passesRoadChi2(*parameters, fit) || !keptAfterFollow(*parameters, shorter, fit.state)) {
       return;
     }
@@ -2187,40 +2163,37 @@ void runSequence(const Launch& launch, const Inputs<Det>& in)
                   .trackOffset = in.trackOffset,
                 });
   }
-  // The iteration's choice among the passing rows, its end decisions on the
-  // last row's density and against the beam line (with the beam line only).
+  // The iteration's choice among the passing rows and its end decision
+  // against the beam line (with the beam line only).
   withBools(
-    [&]<bool BeamLine, bool DecidesEnd, bool Greedy, bool EndDensity, bool BeamEnd, bool Shape>(std::bool_constant<BeamLine>, std::bool_constant<DecidesEnd>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>, std::bool_constant<Shape>) {
+    [&]<bool BeamLine, bool DecidesEnd, bool Greedy, bool BeamEnd, bool Shape>(std::bool_constant<BeamLine>, std::bool_constant<DecidesEnd>, std::bool_constant<Greedy>, std::bool_constant<BeamEnd>, std::bool_constant<Shape>) {
       if constexpr (BeamLine || !BeamEnd) {
-        const FollowStage<Det, BeamLine, DecidesEnd, Greedy, EndDensity, BeamEnd, Shape> stage{in.parameters, in.frame, in.geometry, in.propagator, in.constTracks, in.used, in.maxCandidateWidthPS, in.cells, in.proposals, in.inward, in.trackOffset, DecidesEnd ? in.endStarts : nullptr};
+        const FollowStage<Det, BeamLine, DecidesEnd, Greedy, BeamEnd, Shape> stage{in.parameters, in.frame, in.geometry, in.propagator, in.constTracks, in.used, in.maxCandidateWidthPS, in.cells, in.proposals, in.inward, in.trackOffset, DecidesEnd ? in.endStarts : nullptr};
         launch.propose(Phase::kFollowPropose, elements, stage);
       }
     },
-    choices.beamConstraint, end, choices.followGreedy, Follow<Det>::endDensity(choices), choices.followBeamEnd, choices.shapeTest);
+    choices.beamConstraint, end, choices.followGreedy, choices.followBeamEnd, choices.shapeTest);
   launch.pass(Phase::kFollowResolve, elements, Bid<kMaxClusters>{in.proposals, in.bids, in.trackOffset, in.trackCount});
   launch.pass(Phase::kFollowResolve, elements, Resolve<kMaxClusters>{in.proposals, in.bids, in.trackOffset, in.trackCount, in.earlier});
   launch.pass(Phase::kFollowResolve, elements, Combine<kMaxClusters>{in.constTracks.clusters, in.constTracks.count, in.proposals, in.rows, in.counts, in.trackOffset});
-  // The iteration's choice of crossing and of
-  // the prefix.
-  withCrossingRule(choices.crossingRule, [&]<CrossingRule Rule>(std::integral_constant<CrossingRule, Rule>) { withBools([&]<bool Prefix>(std::bool_constant<Prefix>) { launch.pass(Phase::kFollowRefit, elements, Refit<Det, Rule, Prefix>{in.parameters, in.frame, in.geometry, in.propagator, in.tracks, in.proposals, in.rows, in.counts, in.trackOffset, in.earlier}); }, choices.followPrefix); });
+  // The iteration's choice of the prefix.
+  withBools([&]<bool Prefix>(std::bool_constant<Prefix>) { launch.pass(Phase::kFollowRefit, elements, Refit<Det, Prefix>{in.parameters, in.frame, in.geometry, in.propagator, in.tracks, in.proposals, in.rows, in.counts, in.trackOffset, in.earlier}); }, choices.followPrefix);
   // The ambiguous last rows trimmed, on the iteration's own
   // tracks, before the marks.
   if (choices.followTrimMargin > 0.F && !end && !in.earlier) {
     withBools([&]<bool Shape>(std::bool_constant<Shape>) {
-      const FollowStage<Det, false, false, false, false, false, Shape> search{in.parameters, in.frame, in.geometry, in.propagator, in.constTracks, in.used, in.maxCandidateWidthPS, in.cells, nullptr, false, in.trackOffset};
-      withCrossingRule(choices.crossingRule, [&]<CrossingRule Rule>(std::integral_constant<CrossingRule, Rule>) {
-        launch.pass(Phase::kFollowRefit, elements,
-                    TrimAmbiguous<Det, Rule, Shape>{
-                      .search = search,
-                      .parameters = in.parameters,
-                      .frame = in.frame,
-                      .geometry = in.geometry,
-                      .propagator = in.propagator,
-                      .tracks = in.tracks,
-                      .proposals = in.proposals,
-                      .trackOffset = in.trackOffset,
-                    });
-      });
+      const FollowStage<Det, false, false, false, false, Shape> search{in.parameters, in.frame, in.geometry, in.propagator, in.constTracks, in.used, in.maxCandidateWidthPS, in.cells, nullptr, false, in.trackOffset};
+      launch.pass(Phase::kFollowRefit, elements,
+                  TrimAmbiguous<Det, Shape>{
+                    .search = search,
+                    .parameters = in.parameters,
+                    .frame = in.frame,
+                    .geometry = in.geometry,
+                    .propagator = in.propagator,
+                    .tracks = in.tracks,
+                    .proposals = in.proposals,
+                    .trackOffset = in.trackOffset,
+                  });
     },
               choices.shapeTest);
   }
@@ -2307,10 +2280,6 @@ class Follow
 
   /// Each track's proposal after the passes: the rows it took.
   [[nodiscard]] std::span<const Proposal> proposals() const { return mProposals; }
-
-  /// Whether an iteration's follow decides its ends on the last row's
-  /// density (`FollowStage`'s EndDensity): either of its keys is set.
-  [[nodiscard]] static bool endDensity(const IterationParameters<Det>& parameters) { return parameters.followEndMaxSqrtDet > 0.F || parameters.followKeepDensity > 0.F; }
 
   /// Proposal \a first + i taken from proposal kept[i], for every i, as the
   /// tracker drops short tracks in parallel: \a kept ascends

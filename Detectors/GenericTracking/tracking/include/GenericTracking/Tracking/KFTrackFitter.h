@@ -85,24 +85,23 @@ namespace detail
 /// reached only with an accepted update. \a Scaled,
 /// the step's scattering theta0 is multiplied by \a noiseScale, both halves:
 /// the kink allowance's last step (`allowanceStep`); the nominal step is its
-/// own instantiation. \a Rule is the propagation's choice of crossing
-/// (`CrossingRule`), and with it every pass below. Never inlined on the
+/// own instantiation. Never inlined on the
 /// device: one copy for each instantiation, not one in every fit of every
 /// stage variant.
-template <bool Scaled = false, CrossingRule Rule = CrossingRule::kFirstAhead, typename Solve = ExactScalar, DetectorLayout Det, typename Material, typename Prop>
+template <bool Scaled = false, typename Solve = ExactScalar, DetectorLayout Det, typename Material, typename Prop>
 GPUdnii() PropagationStatus filterStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& GPUrestrict() state, CovarianceFactors& GPUrestrict() factors, Scalar& GPUrestrict() chi2, Scalar& GPUrestrict() referenceQOverP, [[maybe_unused]] Scalar noiseScale = 1.F)
 {
-  return filterStepBody<Scaled, Rule, false, Solve>(prop, geometry, material, measurement, direction, state, factors, chi2, referenceQOverP, noiseScale, nullptr);
+  return filterStepBody<Scaled, false, Solve>(prop, geometry, material, measurement, direction, state, factors, chi2, referenceQOverP, noiseScale, nullptr);
 }
 
 /// A filter step (`filterStep`) on a diffuse covariance \a c: the prediction
 /// the same, the transport `transportDiffuse`, the update `updateDiffuse`;
 /// \a chi2 gets only what the update tests. Once P_inf is gone, \a c's
 /// factors are the pass's. Never inlined on the device.
-template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Solve = ExactScalar, DetectorLayout Det, typename Material, typename Prop>
+template <typename Solve = ExactScalar, DetectorLayout Det, typename Material, typename Prop>
 GPUdnii() PropagationStatus diffuseStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& GPUrestrict() state, DiffuseFactors& GPUrestrict() c, Scalar& GPUrestrict() chi2, Scalar& GPUrestrict() referenceQOverP)
 {
-  return diffuseStepBody<Rule, false, Solve>(prop, geometry, material, measurement, direction, state, c, chi2, referenceQOverP, nullptr);
+  return diffuseStepBody<false, Solve>(prop, geometry, material, measurement, direction, state, c, chi2, referenceQOverP, nullptr);
 }
 
 /// \a budget for a pass over \a n measurements: no more kinks than leave the
@@ -143,17 +142,17 @@ GPUdi() void freeDirection(const CovarianceFactors& factors, DiffuseFactors& c)
 /// increment is beyond the gate, taken again from the surface before with the
 /// direction freed (`freeDirection`), and counted in \a kinks: the
 /// measurement then determines the direction and adds nothing to the chi2.
-template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Solve = ExactScalar, DetectorLayout Det, typename Material, typename Prop>
+template <typename Solve = ExactScalar, DetectorLayout Det, typename Material, typename Prop>
 GPUdi() PropagationStatus kinkStep(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, Scalar& referenceQOverP, const KinkBudget& budget, bool followed, int& kinks)
 {
   if (kinks >= budget.max || !followed) {
-    return filterStep<false, Rule, Solve>(prop, geometry, material, measurement, direction, state, factors, chi2, referenceQOverP);
+    return filterStep<false, Solve>(prop, geometry, material, measurement, direction, state, factors, chi2, referenceQOverP);
   }
   const BoundTrackState keptState = state;
   const CovarianceFactors keptFactors = factors;
   const Scalar keptChi2 = chi2;
   const Scalar keptReference = referenceQOverP;
-  auto status = filterStep<false, Rule, Solve>(prop, geometry, material, measurement, direction, state, factors, chi2, referenceQOverP);
+  auto status = filterStep<false, Solve>(prop, geometry, material, measurement, direction, state, factors, chi2, referenceQOverP);
   if (status != PropagationStatus::kOk || !(chi2 - keptChi2 > budget.gate)) {
     return status;
   }
@@ -162,7 +161,7 @@ GPUdi() PropagationStatus kinkStep(const Prop& prop, const TrackingGeometry<Det>
   referenceQOverP = keptReference;
   DiffuseFactors freed;
   freeDirection(keptFactors, freed);
-  status = diffuseStep<Rule, Solve>(prop, geometry, material, measurement, direction, state, freed, chi2, referenceQOverP);
+  status = diffuseStep<Solve>(prop, geometry, material, measurement, direction, state, freed, chi2, referenceQOverP);
   if (status == PropagationStatus::kOk && freed.rank != 0) {
     status = PropagationStatus::kNotFinite;
   }
@@ -180,18 +179,18 @@ GPUdi() PropagationStatus kinkStep(const Prop& prop, const TrackingGeometry<Det>
 /// \a noiseScale, as the extension's kink step, and counted in \a kinks;
 /// \a refused if the increment is still beyond the gate. It frees no
 /// parameter.
-template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Solve = ExactScalar, DetectorLayout Det, typename Material>
+template <typename Solve = ExactScalar, DetectorLayout Det, typename Material>
 GPUdi() PropagationStatus allowanceStep(const Propagator& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Measurement& measurement, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, Scalar& referenceQOverP, const KinkBudget& budget, Scalar noiseScale, int& kinks, bool& refused)
 {
   refused = false;
   if (kinks >= budget.max) {
-    return filterStep<false, Rule, Solve>(prop, geometry, material, measurement, direction, state, factors, chi2, referenceQOverP);
+    return filterStep<false, Solve>(prop, geometry, material, measurement, direction, state, factors, chi2, referenceQOverP);
   }
   const BoundTrackState keptState = state;
   const CovarianceFactors keptFactors = factors;
   const Scalar keptChi2 = chi2;
   const Scalar keptReference = referenceQOverP;
-  auto status = filterStep<false, Rule, Solve>(prop, geometry, material, measurement, direction, state, factors, chi2, referenceQOverP);
+  auto status = filterStep<false, Solve>(prop, geometry, material, measurement, direction, state, factors, chi2, referenceQOverP);
   if (status != PropagationStatus::kOk || !(chi2 - keptChi2 > budget.gate)) {
     return status;
   }
@@ -199,7 +198,7 @@ GPUdi() PropagationStatus allowanceStep(const Propagator& prop, const TrackingGe
   factors = keptFactors;
   chi2 = keptChi2;
   referenceQOverP = keptReference;
-  status = filterStep<true, Rule, Solve>(prop, geometry, material, measurement, direction, state, factors, chi2, referenceQOverP, noiseScale);
+  status = filterStep<true, Solve>(prop, geometry, material, measurement, direction, state, factors, chi2, referenceQOverP, noiseScale);
   if (status == PropagationStatus::kOk) {
     ++kinks;
     refused = !(chi2 - keptChi2 <= budget.gate);
@@ -217,7 +216,7 @@ GPUdi() PropagationStatus allowanceStep(const Propagator& prop, const TrackingGe
 /// from \a state's q/p as the pass begins. \a observe sees each
 /// measurement's increment. A pass whose measurements leave a direction
 /// undetermined determines no state.
-template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer>
+template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer>
 GPUdi() PropagationStatus startPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, PropagationDirection direction, BoundTrackState& state, CovarianceFactors& factors, Scalar& chi2, PassReference& reference, int& taken, std::int16_t& failedMeasurement, const Observer& observe)
 {
   const int first = direction == PropagationDirection::kForward ? 0 : n - 1;
@@ -237,7 +236,7 @@ GPUdi() PropagationStatus startPass(const Prop& prop, const TrackingGeometry<Det
     const auto& stepProp = stepPropagator(prop, geometry, measurements, index - increment, index);
     const Scalar stepReference = referenceFor(reference, n, direction, [&] { return leaveOneOutQOverP(prop, geometry, measurements, n, index); });
     Scalar carried = stepReference;
-    const auto status = diffuseStep<Rule, Solve>(stepProp, geometry, material, measurements[index], direction, state, c, chi2, carried);
+    const auto status = diffuseStep<Solve>(stepProp, geometry, material, measurements[index], direction, state, c, chi2, carried);
     if (status != PropagationStatus::kOk) {
       failedMeasurement = static_cast<std::int16_t>(index);
       return status;
@@ -262,7 +261,7 @@ GPUdi() PropagationStatus startPass(const Prop& prop, const TrackingGeometry<Det
 /// the end. \a seed's values are the point its first steps linearise about,
 /// its q/p the pass's reference momentum (`startPass`); a kink is not tested
 /// before the start has determined the state.
-template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer>
+template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer>
 GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, PropagationDirection direction, BoundTrackState seed, BoundTrackState& result, Scalar& chi2, std::int16_t& failedMeasurement, const KinkBudget& passBudget, int& kinks, std::int16_t& kinkMeasurement, const Observer& observe)
 {
   const auto budget = kinkBudgetFor(passBudget, n);
@@ -273,7 +272,7 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
   CovarianceFactors factors;
   PassReference reference;
   int taken = 0;
-  const auto started = startPass<Rule, Solve>(prop, geometry, material, measurements, n, direction, state, factors, chi2, reference, taken, failedMeasurement, observe);
+  const auto started = startPass<Solve>(prop, geometry, material, measurements, n, direction, state, factors, chi2, reference, taken, failedMeasurement, observe);
   if (started != PropagationStatus::kOk) {
     return started;
   }
@@ -284,7 +283,7 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
     const auto& stepProp = stepPropagator(prop, geometry, measurements, index - increment, index);
     const Scalar stepReference = referenceFor(reference, n, direction, [&] { return leaveOneOutQOverP(prop, geometry, measurements, n, index); });
     Scalar carried = stepReference;
-    const auto status = kinkStep<Rule, Solve>(stepProp, geometry, material, measurements[index], direction, state, factors, chi2, carried, budget, step < n - 1, kinks);
+    const auto status = kinkStep<Solve>(stepProp, geometry, material, measurements[index], direction, state, factors, chi2, carried, budget, step < n - 1, kinks);
     if (status != PropagationStatus::kOk) {
       failedMeasurement = static_cast<std::int16_t>(index);
       return status;
@@ -306,11 +305,11 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
 /// The inward pass of `fitMeasurements`: from the outward pass's end state
 /// (the whole-chain helix carried there unfitted misses the outermost rows at
 /// low momentum); its values only, so no measurement counts twice.
-template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer>
+template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer>
 GPUdi() void inwardPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, const KinkBudget& kinkBudget, const Observer& observe, TrackFitResult& fit)
 {
   int kinks = 0;
-  const auto status = runPass<Rule, Solve>(prop, geometry, material, measurements, n, PropagationDirection::kBackward, fit.outwardState, fit.state, fit.chi2, fit.failedMeasurement, kinkBudget, kinks, fit.kinkMeasurement, observe);
+  const auto status = runPass<Solve>(prop, geometry, material, measurements, n, PropagationDirection::kBackward, fit.outwardState, fit.state, fit.chi2, fit.failedMeasurement, kinkBudget, kinks, fit.kinkMeasurement, observe);
   if (status != PropagationStatus::kOk) {
     fit.status = status;
     fit.failedPass = FitPass::kInward;
@@ -341,7 +340,7 @@ GPUdi() void inwardPass(const Prop& prop, const TrackingGeometry<Det>& geometry,
 /// \a measurements is anything indexed by `[i]` giving a `Measurement`, as
 /// for `makeChainSeed`. Each pass may take \a kinkBudget's kinks. \a observe
 /// sees every update's chi2 increments (`NoFitObserver`).
-template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer = NoFitObserver>
+template <typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer = NoFitObserver>
 GPUdi() TrackFitResult fitMeasurements(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, const KinkBudget& kinkBudget = {}, const Observer& observe = {})
 {
   TrackFitResult fit{.ndf = static_cast<std::int16_t>((2 * n) - kNBoundParams)};
@@ -349,14 +348,14 @@ GPUdi() TrackFitResult fitMeasurements(const Prop& prop, const TrackingGeometry<
   const auto span = detail::spanMaterial(geometry, material, measurements, n);
   int outwardKinks = 0;
   std::int16_t outwardKinkMeasurement = -1;
-  auto status = detail::runPass<Rule>(prop, geometry, span, measurements, n, PropagationDirection::kForward, seed, fit.outwardState, fit.outwardChi2, fit.failedMeasurement, kinkBudget, outwardKinks, outwardKinkMeasurement, observe);
+  auto status = detail::runPass(prop, geometry, span, measurements, n, PropagationDirection::kForward, seed, fit.outwardState, fit.outwardChi2, fit.failedMeasurement, kinkBudget, outwardKinks, outwardKinkMeasurement, observe);
   fit.outwardKinks = static_cast<std::uint8_t>(outwardKinks);
   if (status != PropagationStatus::kOk) {
     fit.status = status;
     fit.failedPass = FitPass::kOutward;
     return fit;
   }
-  detail::inwardPass<Rule>(prop, geometry, span, measurements, n, kinkBudget, observe, fit);
+  detail::inwardPass(prop, geometry, span, measurements, n, kinkBudget, observe, fit);
   return fit;
 }
 
@@ -364,12 +363,12 @@ GPUdi() TrackFitResult fitMeasurements(const Prop& prop, const TrackingGeometry<
 /// -- as the road fit keeps it for an accepted
 /// road (`RoadFitResult::state`): only the inward pass runs. The outward
 /// pass's chi2 and kinks are not known here and stay zero.
-template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer = NoFitObserver>
+template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer = NoFitObserver>
 GPUdi() TrackFitResult fitInward(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, const BoundTrackState& outwardState, const KinkBudget& kinkBudget = {}, const Observer& observe = {})
 {
   TrackFitResult fit{.ndf = static_cast<std::int16_t>((2 * n) - kNBoundParams)};
   fit.outwardState = outwardState;
-  detail::inwardPass<Rule, Solve>(prop, geometry, detail::spanMaterial(geometry, material, measurements, n), measurements, n, kinkBudget, observe, fit);
+  detail::inwardPass<Solve>(prop, geometry, detail::spanMaterial(geometry, material, measurements, n), measurements, n, kinkBudget, observe, fit);
   return fit;
 }
 
@@ -398,7 +397,7 @@ struct RoadFitResult {
 /// beyond the gate, it frees no degree of freedom, and the result's kinks
 /// count it. A compile-time choice: without it the last step is a `kinkStep`
 /// like the others.
-template <bool LastStepAllowance = false, CrossingRule Rule = CrossingRule::kFirstAhead, typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material, typename Chain>
+template <bool LastStepAllowance = false, typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material, typename Chain>
 GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, const Scalar* chi2MaxByNdf, const KinkBudget& kinkBudget = {}, [[maybe_unused]] Scalar lastStepScale = 1.F)
 {
   const auto budget = detail::kinkBudgetFor(kinkBudget, n);
@@ -412,7 +411,7 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
   detail::PassReference reference;
   int taken = 0;
   std::int16_t failed = -1;
-  if (detail::startPass<Rule, Solve>(prop, geometry, span, measurements, n, PropagationDirection::kForward, state, factors, result.chi2, reference, taken, failed, NoFitObserver{}) != PropagationStatus::kOk) {
+  if (detail::startPass<Solve>(prop, geometry, span, measurements, n, PropagationDirection::kForward, state, factors, result.chi2, reference, taken, failed, NoFitObserver{}) != PropagationStatus::kOk) {
     // The steps tried, the failing one included. Not a measurement of this
     // road (a negative or NaN chi2 would pass the cut below and rank
     // first): counted with the propagation failures.
@@ -444,7 +443,7 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
       if (index == n - 1) {
         int kinksAfter = kinks;
         bool refused = false;
-        const auto status = detail::allowanceStep<Rule, Solve>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, carried, budget, lastStepScale, kinksAfter, refused);
+        const auto status = detail::allowanceStep<Solve>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, carried, budget, lastStepScale, kinksAfter, refused);
         if (status != PropagationStatus::kOk) {
           countWork(WorkCounter::kRoadPropagation);
           result.status = RoadFitStatus::kPropagationFailed;
@@ -459,7 +458,7 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
         continue;
       }
     }
-    const auto status = detail::kinkStep<Rule, Solve>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, carried, budget, index < n - 1, kinks);
+    const auto status = detail::kinkStep<Solve>(stepProp, geometry, span, measurements[index], PropagationDirection::kForward, state, factors, result.chi2, carried, budget, index < n - 1, kinks);
     if (status != PropagationStatus::kOk) {
       countWork(WorkCounter::kRoadPropagation);
       result.status = RoadFitStatus::kPropagationFailed;
@@ -482,13 +481,13 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
 /// budget, and with \a LastStepAllowance its kink allowance on the last step
 /// (`fitOutward`'s), with the allowance's theta0 factor. The stages make the
 /// choice at compile time (`RoadFitStage`).
-template <bool LastStepAllowance, CrossingRule Rule = CrossingRule::kFirstAhead, typename Parameters, typename Prop, DetectorLayout Det, typename Material, typename Chain>
+template <bool LastStepAllowance, typename Parameters, typename Prop, DetectorLayout Det, typename Material, typename Chain>
 [[nodiscard]] GPUdi() RoadFitResult fitRoad(const Parameters& parameters, const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n)
 {
   if constexpr (LastStepAllowance) {
-    return fitOutward<true, Rule, Scalar>(prop, geometry, material, measurements, n, parameters.roadChi2MaxByNdf, kinkBudget(parameters), o2::gpu::CAMath::Sqrt(parameters.kinkScale2));
+    return fitOutward<true, Scalar>(prop, geometry, material, measurements, n, parameters.roadChi2MaxByNdf, kinkBudget(parameters), o2::gpu::CAMath::Sqrt(parameters.kinkScale2));
   } else {
-    return fitOutward<false, Rule, Scalar>(prop, geometry, material, measurements, n, parameters.roadChi2MaxByNdf, kinkBudget(parameters));
+    return fitOutward<false, Scalar>(prop, geometry, material, measurements, n, parameters.roadChi2MaxByNdf, kinkBudget(parameters));
   }
 }
 

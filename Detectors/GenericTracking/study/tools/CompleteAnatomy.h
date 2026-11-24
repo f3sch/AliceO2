@@ -1892,13 +1892,13 @@ class CompleteAnatomy
   /// an iteration (`--anatomy-pair-loss`): two own rows of one leg in
   /// path order on a link the iteration takes, the segment crossing no other
   /// layer the leg has a row on; each link once an iteration, its pairs'
-  /// furthest test. Beam-line iterations without the displaced test, for the
+  /// furthest test. Beam-line iterations, for the
   /// particles not found before whose pT clears \a floor; a particle is
   /// sampled if its ID is a multiple of `mPairSample`.
   template <typename Stage>
   void pairStudy(const Stage& stage, double floor, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame)
   {
-    if (parameters.vertexSource != VertexSource::kBeamLine || parameters.impactMax > 0.F || !mPathOrdered || mFindable.empty()) {
+    if (parameters.vertexSource != VertexSource::kBeamLine || !mPathOrdered || mFindable.empty()) {
       return;
     }
     for (std::uint32_t index = 0; index < mFindable.size(); ++index) {
@@ -3291,7 +3291,7 @@ class CompleteAnatomy
     /// chain.
     std::vector<std::uint32_t> refitRows;
     /// How the walk ended, the row the unconfirmed drop removed (kNoRow: none), the last row
-    /// refused after it -- at the layout's end (EndDensity) or against the
+    /// refused after it -- at the layout's end (`followEndMaxSqrtDet`) or against the
     /// beam line (BeamEnd) -- and whether its rows
     /// begin with the ones the iteration kept.
     FollowEnd end = FollowEnd::kCapacity;
@@ -3436,13 +3436,13 @@ class CompleteAnatomy
   void withFollowStage(const Observation& iteration, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, const std::uint8_t* used, std::uint32_t first, const Body& body)
   {
     withBools(
-      [&]<bool BeamLine, bool Greedy, bool EndDensity, bool BeamEnd, bool Shape>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<EndDensity>, std::bool_constant<BeamEnd>, std::bool_constant<Shape>) {
+      [&]<bool BeamLine, bool Greedy, bool BeamEnd, bool Shape>(std::bool_constant<BeamLine>, std::bool_constant<Greedy>, std::bool_constant<BeamEnd>, std::bool_constant<Shape>) {
         if constexpr (BeamLine || !BeamEnd) {
-          const FollowStage<Det, BeamLine, false, Greedy, EndDensity, BeamEnd, Shape> stage{&parameters, &frame, &geometry, propagator, iteration.tracks->view(), used, mMaxWidthPS.data(), mCells.view(), nullptr, parameters.sharedInnermost == 0U, first};
+          const FollowStage<Det, BeamLine, false, Greedy, BeamEnd, Shape> stage{&parameters, &frame, &geometry, propagator, iteration.tracks->view(), used, mMaxWidthPS.data(), mCells.view(), nullptr, parameters.sharedInnermost == 0U, first};
           body(stage);
         }
       },
-      parameters.beamConstraint, parameters.followGreedy, Follow<Det>::endDensity(parameters), parameters.followBeamEnd, parameters.shapeTest);
+      parameters.beamConstraint, parameters.followGreedy, parameters.followBeamEnd, parameters.shapeTest);
   }
 
   /// Both walks through the stage's sequencing: outward first, its narrowed
@@ -5555,7 +5555,6 @@ class CompleteAnatomy
         *mInwardCsv << std::format("{},{},{:.4f},{},{},{},{},{},{},{},{},{:.5g},{:.5g},{:.6g},{:.6g},{:.6g},{:.6g},{:.4g},{:.4g},{:.4g},{:.5g},{:.5g},{:.5g},{:.5g},{:.6g},{},{}\n", static_cast<int>(kind), particle, static_cast<double>(pt), pdg, n, static_cast<int>(run.status), run.failedStep, k, one.row, static_cast<int>(mTruth->rows[one.row].layer), legOf(one.row), p, pTrue, static_cast<double>(state.phi()), phiTrue, static_cast<double>(state.theta()), thetaTrue, sigmaQOverP * p, sigmaPhi, static_cast<double>(one.chi2), static_cast<double>(state.loc0()), static_cast<double>(state.loc1()), locTrue[0], locTrue[1], static_cast<double>(state.qOverP()), charge, stepRoot);
       }
     }
-    ruleStudy(kind, particle, rows, parameters, frame, geometry, material, propagator);
     if (kind == kInwardControl) {
       return;
     }
@@ -5619,93 +5618,6 @@ class CompleteAnatomy
         outcome = again.failedStep == run.failedStep ? 1U : (again.failedStep > run.failedStep ? 2U : 3U);
       }
       ++mSeedOutcomes[variant][outcome];
-    }
-  }
-
-  /// The crossing rules compared: the refit of the same rows as `follow::Refit` takes it, under
-  /// each `CrossingRule`.
-  static constexpr std::array<CrossingRule, 3> kCrossingRules{CrossingRule::kFirstAhead, CrossingRule::kNearerCentre, CrossingRule::kInsideFirst};
-  static constexpr std::array<const char*, 3> kCrossingRuleNames{"the first ahead (default)", "nearer the centre", "inside first"};
-  static constexpr std::array<const char*, 1> kRuleSeedNames{"as the fit"};
-  enum RuleOutcome : std::uint8_t { kRuleOutward,
-                                    kRuleInward,
-                                    kRuleChi2,
-                                    kRuleAccepted,
-                                    kRuleOutcomes };
-  struct RuleTally {
-    std::array<std::size_t, kRuleOutcomes> outcome{};
-    /// Against the default from the same seed: accepted by both, the state
-    /// or chi2 not bit for bit; accepted by the default only; by this only.
-    std::array<std::size_t, 3> against{};
-    /// The accepted fits' state on the innermost row against the MC truth.
-    std::vector<double> pullQOverP, pullPhi, pullTheta, pullLoc0, pullLoc1;
-  };
-
-  /// One chain's refits under every rule and seed (`kCrossingRules`), each
-  /// against the default's from the same seed.
-  template <typename Material>
-  void ruleStudy(InwardKind kind, std::uint64_t particle, const std::vector<std::uint32_t>& rows, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Material& material, const Propagator& propagator)
-  {
-    const int n = static_cast<int>(rows.size());
-    const RowChain<Det> chain{.frame = &frame, .rows = rows.data()};
-    const auto found = mTruth->particles.find(particle);
-    const int charge = found != mTruth->particles.end() ? chargeOf(found->second.pdg) : 0;
-    const auto* inner = mTruth->rows[rows.front()].carries(particle) ? segmentOfRow(particle, frame, rows.front()) : nullptr;
-    struct Outcome {
-      RuleOutcome outcome = kRuleOutward;
-      BoundTrackState state;
-      Scalar chi2 = 0.F;
-    };
-    const auto refit = [&]<CrossingRule Rule>() {
-      Outcome out;
-      const auto one = fitMeasurements<Rule>(propagator, geometry, material, chain, n, kinkBudget(parameters));
-      if (one.failedPass == FitPass::kOutward) {
-        return out;
-      }
-      out.state = one.state;
-      out.chi2 = one.chi2;
-      const int ndf = one.ndf;
-      if (one.status != PropagationStatus::kOk) {
-        out.outcome = kRuleInward;
-        return out;
-      }
-      out.outcome = out.chi2 <= parameters.roadChi2MaxByNdf[ndf] ? kRuleAccepted : kRuleChi2;
-      return out;
-    };
-    for (std::size_t seed = 0; seed < kRuleSeedNames.size(); ++seed) {
-      std::array<Outcome, kCrossingRules.size()> outcomes{refit.template operator()<kCrossingRules[0]>(),
-                                                          refit.template operator()<kCrossingRules[1]>(),
-                                                          refit.template operator()<kCrossingRules[2]>()};
-      for (std::size_t rule = 0; rule < kCrossingRules.size(); ++rule) {
-        auto& tally = mRuleTallies[kind][rule][seed];
-        const auto& one = outcomes[rule];
-        ++tally.outcome[one.outcome];
-        const bool accepted = one.outcome == kRuleAccepted;
-        const bool byDefault = outcomes[0].outcome == kRuleAccepted;
-        if (accepted && byDefault) {
-          // Bit identity is intentional; these records have no padding.
-          // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison)
-          tally.against[0] += std::memcmp(&one.state, &outcomes[0].state, sizeof(BoundTrackState)) != 0 || std::bit_cast<std::uint32_t>(one.chi2) != std::bit_cast<std::uint32_t>(outcomes[0].chi2) ? 1U : 0U;
-        } else if (byDefault) {
-          ++tally.against[1];
-        } else if (accepted) {
-          ++tally.against[2];
-        }
-        if (!accepted || inner == nullptr || one.state.surface != geometry.planeOf(chain[0]).id) {
-          continue;
-        }
-        const auto& state = one.state;
-        const double pTrue = std::hypot(inner->momentum[0], inner->momentum[1], inner->momentum[2]);
-        const double sigma[kNBoundParams] = {std::sqrt(static_cast<double>(state.variance(kLoc0))), std::sqrt(static_cast<double>(state.variance(kLoc1))), std::sqrt(static_cast<double>(state.variance(kPhi))), std::sqrt(static_cast<double>(state.variance(kTheta))), std::sqrt(static_cast<double>(state.variance(kQOverP)))};
-        const auto locTrue = crossingOn(*inner, geometry.planeOf(state));
-        tally.pullLoc0.push_back((static_cast<double>(state.loc0()) - locTrue[0]) / sigma[kLoc0]);
-        tally.pullLoc1.push_back((static_cast<double>(state.loc1()) - locTrue[1]) / sigma[kLoc1]);
-        tally.pullPhi.push_back(toPMPiOf(static_cast<double>(state.phi()) - phiOf(inner->momentum)) / sigma[kPhi]);
-        tally.pullTheta.push_back((static_cast<double>(state.theta()) - thetaOf(inner->momentum)) / sigma[kTheta]);
-        if (charge != 0) {
-          tally.pullQOverP.push_back((static_cast<double>(state.qOverP()) - (static_cast<double>(charge) * kChargeSign / pTrue)) / sigma[kQOverP]);
-        }
-      }
     }
   }
 
@@ -6554,7 +6466,7 @@ class CompleteAnatomy
   /// \a beamLine the prediction is first updated with the beam line
   /// (`updateWithBeamLine`, the scattering between the beam and the row): the row
   /// against the beam line as the walk's reference. Without
-  /// it also |V| as the follow's EndDensity has it, the product of the
+  /// it also |V| as the follow's end decisions have it, the product of the
   /// update's float innovations, and from the carried factors in double
   /// (the variant's quantity against its oracle).
   struct OneStep {
@@ -7050,21 +6962,6 @@ class CompleteAnatomy
     text += "\n    the failing step's two crossings of the plane's line, from the filtered state it started from (status 1 no intersection, 2 wrong direction):";
     for (const auto& [key, count] : mRoots) {
       text += std::format("\n      {}: {}", key, count);
-    }
-    text +=
-      "\n    the same rows refitted under each crossing rule: failed outward / failed inward / chi2 over the cut / accepted | against the "
-      "default from the same seed: accepted by both, not bit for bit / the default's only / this one's only | the accepted's pulls on the innermost "
-      "row, median / width: q/p, phi, theta, loc0, loc1";
-    for (std::size_t kind = 0; kind < kInwardKinds; ++kind) {
-      for (std::size_t seed = 0; seed < kRuleSeedNames.size(); ++seed) {
-        for (std::size_t rule = 0; rule < kCrossingRules.size(); ++rule) {
-          const auto& t = mRuleTallies[kind][rule][seed];
-          text += std::format("\n      {} | {} | {}: {} / {} / {} / {} | {} / {} / {} |", kInwardKindNames[kind], kRuleSeedNames[seed], kCrossingRuleNames[rule], t.outcome[kRuleOutward], t.outcome[kRuleInward], t.outcome[kRuleChi2], t.outcome[kRuleAccepted], t.against[0], t.against[1], t.against[2]);
-          for (const auto* pulls : {&t.pullQOverP, &t.pullPhi, &t.pullTheta, &t.pullLoc0, &t.pullLoc1}) {
-            text += std::format(" {:+.2f} / {:.2f};", finiteMedian(*pulls), width(*pulls));
-          }
-        }
-      }
     }
     std::cout << text << '\n';
   }
@@ -8674,21 +8571,21 @@ class CompleteAnatomy
   std::unordered_map<std::uint64_t, std::uint32_t> mIndex;
   std::vector<std::uint64_t> mFindable;
   std::vector<std::uint8_t> mFate;
-  std::vector<std::uint8_t> mReason;       ///< a Missed, for those not found
-  std::vector<std::uint8_t> mStop;         ///< a Short, for the short, from their iteration
-  std::vector<LayerID> mStopLayer;         ///< for the short with a stop decision, the layer it missed
-  std::vector<std::uint8_t> mStopTaken;    ///< for the short whose own row passed: `takenKind`
-  std::vector<std::uint8_t> mOutStop;      ///< for the short of an outer layer: the outward step's Short
-  std::vector<LayerID> mOutStopLayer;      ///< for those: the first outer layer it missed
-  std::vector<std::uint8_t> mOutStopTaken; ///< for those whose own row passed: `takenKind`
-  std::vector<std::uint8_t> mInNext;       ///< for an unconfirmed drop: the next step's outcome on the own row (`afterDrop`), inward
-  std::vector<std::uint8_t> mOutNext;      ///< the same outward
-  std::vector<std::uint8_t> mInDropKink;   ///< for an unconfirmed drop: the particle's true kink over that next step (<= 3 / 3-5 / > 5 theta0 / no hits), inward
-  std::vector<std::uint8_t> mOutDropKink;  ///< the same outward
-  std::vector<std::uint8_t> mOutStepKink;  ///< for the short of an outer layer: the particle's true kink over the step from the layer below the gap (binned as above)
-  std::vector<std::uint8_t> mInStepKink;   ///< for an inward unconfirmed drop: the true kink over the step that took the dropped row
-  std::vector<std::uint64_t> mLayersHeld;  ///< the good track's layers, a bit each (0: no good track), for `writeFates`
-  std::unique_ptr<std::ofstream> mWalkCsv; ///< --truth-walk: one line per step of the truth walks
+  std::vector<std::uint8_t> mReason;            ///< a Missed, for those not found
+  std::vector<std::uint8_t> mStop;              ///< a Short, for the short, from their iteration
+  std::vector<LayerID> mStopLayer;              ///< for the short with a stop decision, the layer it missed
+  std::vector<std::uint8_t> mStopTaken;         ///< for the short whose own row passed: `takenKind`
+  std::vector<std::uint8_t> mOutStop;           ///< for the short of an outer layer: the outward step's Short
+  std::vector<LayerID> mOutStopLayer;           ///< for those: the first outer layer it missed
+  std::vector<std::uint8_t> mOutStopTaken;      ///< for those whose own row passed: `takenKind`
+  std::vector<std::uint8_t> mInNext;            ///< for an unconfirmed drop: the next step's outcome on the own row (`afterDrop`), inward
+  std::vector<std::uint8_t> mOutNext;           ///< the same outward
+  std::vector<std::uint8_t> mInDropKink;        ///< for an unconfirmed drop: the particle's true kink over that next step (<= 3 / 3-5 / > 5 theta0 / no hits), inward
+  std::vector<std::uint8_t> mOutDropKink;       ///< the same outward
+  std::vector<std::uint8_t> mOutStepKink;       ///< for the short of an outer layer: the particle's true kink over the step from the layer below the gap (binned as above)
+  std::vector<std::uint8_t> mInStepKink;        ///< for an inward unconfirmed drop: the true kink over the step that took the dropped row
+  std::vector<std::uint64_t> mLayersHeld;       ///< the good track's layers, a bit each (0: no good track), for `writeFates`
+  std::unique_ptr<std::ofstream> mWalkCsv;      ///< --truth-walk: one line per step of the truth walks
   std::unique_ptr<std::ofstream> mInnerLossCsv; ///< --inner-loss: one line per good track lacking rows its particle has before its first
   /// The truth walks' predictions against the cluster, unselected, for the
   /// robust summary: [inward, outward][target layer][pT bin].
@@ -8844,8 +8741,6 @@ class CompleteAnatomy
   std::array<std::size_t, kInwardKinds> mInwardMismatch{};
   std::array<std::array<std::size_t, 4>, kSeedNames.size()> mSeedOutcomes{};
   std::map<std::string, std::size_t> mRoots;
-  /// `ruleStudy`'s, per kind, rule and seed.
-  std::array<std::array<std::array<RuleTally, kRuleSeedNames.size()>, kCrossingRules.size()>, kInwardKinds> mRuleTallies{};
   std::unique_ptr<std::ofstream> mInwardCsv;
   std::unique_ptr<std::ofstream> mEndCsv;      ///< `endDecisions`' CSV
   std::unique_ptr<std::ofstream> mInactiveCsv; ///< `inactiveCensus`' CSV

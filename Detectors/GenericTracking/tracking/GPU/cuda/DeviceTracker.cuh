@@ -471,32 +471,28 @@ struct FlatTriplets {
 };
 
 /// A slice's roads as the iteration's fit takes them (`RoadRows`): each
-/// road's rows, their count, and whether a triplet on it is kinked.
+/// road's rows and their count.
 template <std::size_t K>
 struct CapturedRoadOf {
   // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
   template <template <class> class C>
   struct RecordT {
-    MEMLAYOUT_APPLY(RecordT, rows, count, kinked)
+    MEMLAYOUT_APPLY(RecordT, rows, count)
     C<ClusterList<K>> rows;
     C<std::uint8_t> count;
-    C<std::uint8_t> kinked; ///< only where a nominal round's fit reads it
   };
   // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
 };
 
-/// One road of a slice captured into \a roads, by its index; with \a Kinks,
-/// its kink flag too.
-template <DetectorLayout Det, bool Kinks>
+/// One road of a slice captured into \a roads, by its index.
+template <DetectorLayout Det>
 struct CaptureRoad {
   RoadRows<Det> rows;
   typename DeviceColumns<CapturedRoadOf<maxChainLayers<Det>>::template RecordT>::View roads;
 
   GPUdi() void operator()(std::uint32_t road) const
   {
-    bool kinked = false;
-    roads.count[road] = static_cast<std::uint8_t>(rows.template capture<Kinks>(road, roads.rows[road].index, kinked));
-    roads.kinked[road] = kinked ? 1U : 0U;
+    roads.count[road] = static_cast<std::uint8_t>(rows.capture(road, roads.rows[road].index));
   }
 };
 
@@ -510,7 +506,7 @@ struct CapturedRoadFit {
   template <typename Emitter>
   GPUdi() void operator()(std::uint32_t road, Emitter& emitter) const
   {
-    fit(roads.rows[road].index, roads.count[road], roads.kinked[road] != 0U, emitter);
+    fit(roads.rows[road].index, roads.count[road], emitter);
   }
 };
 
@@ -825,12 +821,6 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       throw std::logic_error("runSlice of a slice the plan does not have");
     }
     openSlice();
-    // An iteration that takes the previous one's graph has its records from
-    // that one's second fit (one graph for both rounds): no slice of its own,
-    // as on the host.
-    if (mHostParameters[mIteration].sharedGraph) {
-      return StageStatus::kComplete;
-    }
     StageStatus status = runStages(mIteration, slice, download);
     if (status == StageStatus::kComplete && mRoadChunks.rows() != 0U && mRoadChunks.rows() >= mRoadBatch) {
       status = fitBatch();
@@ -850,8 +840,6 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     }
     closeFrom(Scope::kSlice); // runSlice returns with the stream drained
     StageStatus status = mIterationStatus;
-    const bool shared = mHostParameters[mIteration].sharedGraph;
-    const bool sharesNext = mIteration + 1U < mIterationCount && mHostParameters[mIteration + 1U].sharedGraph;
     if (status == StageStatus::kComplete && mRoadChunks.rows() != 0U) {
       // The last batch's fit, its outputs in a base scope of their own until
       // its records are appended.
@@ -860,31 +848,16 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     }
     if (status == StageStatus::kComplete) {
       // The records of every batch, in slice order, into one array on the
-      // base end: the selection's input. A
-      // shared iteration's are its predecessor's second fit, kept for it in a
-      // scope of their own below the iteration's (`mSharedScope`).
-      if (sharesNext) {
-        mSharedScope.emplace(mArena.scope());
-        mSharedGathered = {};
-        if (!mSharedGathered.allocate(mArena, mSharedChunks.rows())) {
-          status = StageStatus::kOutOfMemory;
-        } else {
-          mSharedChunks.gather(mSharedGathered, 0U, mStream);
-        }
-      }
+      // base end: the selection's input.
       mIterationScope.emplace(mArena.scope());
       mGathered = {};
-      const std::size_t recordRows = shared ? mSharedGathered.size() : mChunks.rows();
+      const std::size_t recordRows = mChunks.rows();
       mIterationReport.records = recordRows;
       if (status == StageStatus::kComplete && !mGathered.allocate(mArena, recordRows)) {
         status = StageStatus::kOutOfMemory;
       }
       if (status == StageStatus::kComplete) {
-        if (shared) {
-          copyColumns(mSharedGathered, 0U, mGathered, 0U, recordRows, mStream);
-        } else {
-          mChunks.gather(mGathered, 0U, mStream);
-        }
+        mChunks.gather(mGathered, 0U, mStream);
         if (download != nullptr) {
           gtrk::download(mGathered, download->records, recordRows, mStream);
         }
@@ -898,12 +871,6 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     }
     closeFrom(Scope::kChunks);
     closeFrom(Scope::kIteration);
-    // The shared records go with the iteration that took them, or with a
-    // failure of the one that made them.
-    if (shared || status != StageStatus::kComplete) {
-      mSharedGathered = {};
-      mSharedScope.reset();
-    }
     mIterationReport.arenaPeakBytes = mArena.peak();
     mArena.raisePeak(mOuterArenaPeak);
     return status;
@@ -973,7 +940,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       DeviceStageOutput<TrackletT> tracklets;
       DeviceSpan<Index> permutation;
       DeviceStageOutput<TripletT> triplets;
-      status = tripletStages(pass, pass, slice, tracklets, permutation, triplets);
+      status = tripletStages(pass, slice, tracklets, permutation, triplets);
       VertexerResult found;
       if (status == StageStatus::kComplete) {
         status = vertex_glue::findVertices<Det>(*mRuntime, mArena, mStream, std::as_const(mColumns).view(), static_cast<Index>(mRows), constView(tracklets), constView(triplets), triplets.size(), mParameters.data() + pass, settings, beamSpot, ownedFrames(mHostFrame->grid().geometry(), slices[slice].slice.coreBlocks), found);
@@ -1046,7 +1013,6 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     if (startMasks) {
       for (std::size_t iteration = 0U; iteration < plan.parameters.size(); ++iteration) {
         for (const auto& slice : plan.slices) {
-          // A graph shared with the next iteration has its start layers too (Tracker.h).
           const auto masked = roadCores(std::span<const MeasurementRange, kLayerCount>{slice.slice.core}, mHostParameters[iteration].roadStartLayers);
           maskedCores.insert(maskedCores.end(), masked.begin(), masked.end());
         }
@@ -1117,13 +1083,11 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   /// A slice's tracklets and triplets, the first stages every slice runs
   /// and all the vertexing pass runs, into \a tracklets and \a triplets in
   /// the slice scope, with the triplet stage's first-tracklet order in
-  /// \a permutation. The slice is \a iteration's; the parameters are
-  /// \a graph's -- the successor's where it takes this iteration's graph,
-  /// this iteration's otherwise.
-  StageStatus tripletStages(std::size_t iteration, std::size_t graph, std::size_t sliceIndex, DeviceStageOutput<TrackletT>& tracklets, DeviceSpan<Index>& permutation, DeviceStageOutput<TripletT>& triplets)
+  /// \a permutation, with iteration \a iteration's parameters.
+  StageStatus tripletStages(std::size_t iteration, std::size_t sliceIndex, DeviceStageOutput<TrackletT>& tracklets, DeviceSpan<Index>& permutation, DeviceStageOutput<TripletT>& triplets)
   {
-    const IterationParameters<Det>* parameters = mParameters.data() + graph;
-    const IterationParameters<Det>& hostParameters = mHostParameters[graph];
+    const IterationParameters<Det>* parameters = mParameters.data() + iteration;
+    const IterationParameters<Det>& hostParameters = mHostParameters[iteration];
     const auto& slicePlan = mPlan->slices[sliceIndex];
     // The slices' sources and cores, uploaded once for every iteration.
     const LayerRowMap<Det>* sources = mSliceSources.data() + sliceIndex;
@@ -1137,14 +1101,12 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     if (!tracklets.prepare(mArena, sourceCount)) {
       return StageStatus::kOutOfMemory;
     }
-    // The beam-line stage for a beam-line iteration, its displaced one for a
-    // displaced iteration;
-    // each testing the shapes where the iteration does.
-    StageStatus status = withTrackletVertices(hostParameters.vertexSource, hostParameters.impactMax > 0.F, [&](auto beamLineOnly, auto displaced) {
+    // The beam-line stage for a beam-line iteration, testing the shapes where
+    // the iteration does.
+    StageStatus status = withTrackletVertices(hostParameters.vertexSource, [&](auto beamLineOnly) {
       return withShapeTest(hostParameters.shapeTest, [&](auto shape) {
-        constexpr bool prompt = decltype(beamLineOnly)::value && !decltype(displaced)::value;
-        return withDiscWindow<prompt>(hostParameters.discWindowMinP > 0.F, [&](auto discWindow) {
-          const TrackletStageFor<Det, decltype(beamLineOnly)::value, decltype(displaced)::value, decltype(shape)::value, decltype(discWindow)::value> stage{hostParameters, slicePlan.sources, *mHostFrame, inputs.targetBlocks, mPlan->beamLine, mPlan->vertices, inputs.maxCandidateWidthPS, mPlan->vertexWindows[iteration], nullptr, inputs.gate};
+        return withDiscWindow<decltype(beamLineOnly)::value>(hostParameters.discWindowMinP > 0.F, [&](auto discWindow) {
+          const TrackletStageFor<Det, decltype(beamLineOnly)::value, decltype(shape)::value, decltype(discWindow)::value> stage{hostParameters, slicePlan.sources, *mHostFrame, inputs.targetBlocks, mPlan->beamLine, mPlan->vertices, inputs.maxCandidateWidthPS, mPlan->vertexWindows[iteration], nullptr, inputs.gate};
           const auto bound = stage.bind({
             .parameters = parameters,
             .sources = sources,
@@ -1226,19 +1188,14 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
 
   StageStatus runStages(std::size_t iteration, std::size_t sliceIndex, DeviceSliceDownload<Det>* download)
   {
-    // The graph of a slice whose successor takes it is built with the
-    // successor's parameters (its kink allowance), as on the host; only the
-    // nominal round's fit below takes this iteration's.
-    const bool sharesNext = iteration + 1U < mIterationCount && mHostParameters[iteration + 1U].sharedGraph;
-    const std::size_t graph = sharesNext ? iteration + 1U : iteration;
-    const IterationParameters<Det>* parameters = mParameters.data() + graph;
-    const IterationParameters<Det>& hostParameters = mHostParameters[graph];
+    const IterationParameters<Det>* parameters = mParameters.data() + iteration;
+    const IterationParameters<Det>& hostParameters = mHostParameters[iteration];
     // The unmasked cores by slice; the masked ones by iteration and slice (`uploadPlan`).
     const MeasurementRange* core = mRoadCoresMasked ? mSliceRoadCores.data() + (((iteration * mPlan->slices.size()) + sliceIndex) * kLayerCount) : mSliceCores.data() + (sliceIndex * kLayerCount);
     DeviceStageOutput<TrackletT> tracklets;
     DeviceSpan<Index> permutation;
     DeviceStageOutput<TripletT> triplets;
-    StageStatus status = tripletStages(iteration, graph, sliceIndex, tracklets, permutation, triplets);
+    StageStatus status = tripletStages(iteration, sliceIndex, tracklets, permutation, triplets);
     if (status != StageStatus::kComplete) {
       return status;
     }
@@ -1323,10 +1280,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     }
     mReport.roads = roadCount;
 
-    // The roads captured for their batch's fit (fitBatch). Where a
-    // successor takes this graph (one graph for both rounds; the host:
-    // Tracker::runRoads), their kink flags too: the nominal round's fit
-    // refuses a road with a kinked triplet, the successor's fits every road.
+    // The roads captured for their batch's fit (fitBatch).
     if (roadCount != 0U) {
       if (!mBatchScope) {
         mBatchScope.emplace(mArena.scope(ArenaEnd::kScratch));
@@ -1336,11 +1290,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
         return StageStatus::kOutOfMemory;
       }
       const RoadRows<Det> rows{constView(tracklets), constView(triplets), RoadWalk{starts.data(), roadOffsets.data(), startCount, neighbours.offsets().data(), neighbours.view().from, triplets.view().level, roads.data()}};
-      if (sharesNext) {
-        algorithms::forEach(*mRuntime, mStream, roadCount, tracker_detail::CaptureRoad<Det, true>{.rows = rows, .roads = captured.view()});
-      } else {
-        algorithms::forEach(*mRuntime, mStream, roadCount, tracker_detail::CaptureRoad<Det, false>{.rows = rows, .roads = captured.view()});
-      }
+      algorithms::forEach(*mRuntime, mStream, roadCount, tracker_detail::CaptureRoad<Det>{.rows = rows, .roads = captured.view()});
       mRoadChunks.adopt(captured);
     }
 
@@ -1357,18 +1307,14 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     return StageStatus::kComplete; // runSlice synchronises
   }
 
-  /// The batch's captured roads fitted, in slice order, by one run per
-  /// round, the records appended to the iteration's chunks -- with a
-  /// successor that takes this graph, every road also with its settings,
-  /// into its chunks (one graph for both rounds; the host:
-  /// Tracker::runRoads) -- and the batch's scope closed. The fits' outputs
-  /// in the open base scope; their readbacks the iteration's.
+  /// The batch's captured roads fitted, in slice order, by one run, the
+  /// records appended to the iteration's chunks, and the batch's scope
+  /// closed. The fit's outputs in the open base scope; its readbacks the
+  /// iteration's.
   [[nodiscard]] StageStatus fitBatch()
   {
-    const bool sharesNext = mIteration + 1U < mIterationCount && mHostParameters[mIteration + 1U].sharedGraph;
     StageStatus status = StageStatus::kComplete;
     Records records;
-    Records shared;
     {
       // The batch's roads in one array: the one slice's where it is alone.
       CapturedRoads roads;
@@ -1398,10 +1344,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
         status = algorithms::sortPairs(*mRuntime, mArena, mStream, std::as_const(keys).data(), sortedKeys.data(), std::as_const(indices).data(), order.data(), static_cast<std::uint32_t>(count), 64);
       }
       if (status == StageStatus::kComplete) {
-        status = sharesNext ? fitRoads<true>(mIteration, roads, order.data(), records) : fitRoads<false>(mIteration, roads, order.data(), records);
-      }
-      if (status == StageStatus::kComplete && sharesNext) {
-        status = fitRoads<false>(mIteration + 1U, roads, order.data(), shared);
+        status = fitRoads(roads, order.data(), records);
       }
     }
     // The fits are queued before anything that reuses the roads' space.
@@ -1410,35 +1353,32 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     if (status != StageStatus::kComplete) {
       return status;
     }
-    if (!mChunks.append(mArena, ArenaEnd::kScratch, records.output(), 0U, records.size(), mStream) || (sharesNext && !mSharedChunks.append(mArena, ArenaEnd::kScratch, shared.output(), 0U, shared.size(), mStream))) {
+    if (!mChunks.append(mArena, ArenaEnd::kScratch, records.output(), 0U, records.size(), mStream)) {
       return StageStatus::kOutOfMemory;
     }
     return StageStatus::kComplete;
   }
 
-  /// The fit of the captured \a roads with iteration \a owner's settings
-  /// into \a records, in the open base scope: one stage run, its threads
-  /// taking the roads in \a order. With \a NominalOnly, a road with a kinked
-  /// triplet is refused whole (`RoadRowsFit`).
-  template <bool NominalOnly>
-  [[nodiscard]] StageStatus fitRoads(std::size_t owner, const CapturedRoads& roads, const Index* order, Records& records)
+  /// The fit of the captured \a roads with the iteration's settings into
+  /// \a records, in the open base scope: one stage run, its threads taking
+  /// the roads in \a order.
+  [[nodiscard]] StageStatus fitRoads(const CapturedRoads& roads, const Index* order, Records& records)
   {
     if (!records.prepare(mArena, static_cast<Index>(roads.size()))) {
       return StageStatus::kOutOfMemory;
     }
-    const IterationParameters<Det>* parameters = mParameters.data() + owner;
-    const IterationParameters<Det>& hostParameters = mHostParameters[owner];
+    const IterationParameters<Det>* parameters = mParameters.data() + mIteration;
+    const IterationParameters<Det>& hostParameters = mHostParameters[mIteration];
     // An iteration with a kink allowance takes it on the fit's last step
     // (against the road-end fakes): its own instantiation. An iteration with
-    // the beam constraint fits on the stage that also tests the beam line,
-    // and one with innerTrim fits a refused road again without its innermost
-    // clusters, as the host.
-    const auto run = [&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim>() {
-      using Fit = RoadRowsFit<Det, BeamLine, NominalOnly, LastStepAllowance, InnerTrim>;
+    // the beam constraint fits on the stage that also tests the beam line, as
+    // the host.
+    const auto run = [&]<bool BeamLine, bool LastStepAllowance>() {
+      using Fit = RoadRowsFit<Det, BeamLine, LastStepAllowance>;
       const tracker_detail::CapturedRoadFit<Fit, kMaxClusters> fit{.fit = Fit{parameters, mFrame.data(), mGeometry.data(), mPropagator}, .roads = std::as_const(roads).view()};
       return mRecordStage.run(records, fit, order, static_cast<Index>(roads.size()));
     };
-    const StageStatus status = withBools([&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim>(std::bool_constant<BeamLine>, std::bool_constant<LastStepAllowance>, std::bool_constant<InnerTrim>) { return run.template operator()<BeamLine, LastStepAllowance, InnerTrim>(); }, hostParameters.beamConstraint, takesLastStepAllowance(hostParameters), hostParameters.innerTrim != 0U);
+    const StageStatus status = withBools([&]<bool BeamLine, bool LastStepAllowance>(std::bool_constant<BeamLine>, std::bool_constant<LastStepAllowance>) { return run.template operator()<BeamLine, LastStepAllowance>(); }, hostParameters.beamConstraint, takesLastStepAllowance(hostParameters));
     mIterationReport.readbacks += mRecordStage.stagingPredictionMissed() ? 2U : 1U;
     return status;
   }
@@ -2015,8 +1955,6 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     }
     mIterationScope.reset();
     mGathered = {};
-    mSharedGathered = {};
-    mSharedScope.reset();
     closeChunks();
     mTrackChunks.clear();
     mPartnerCountChunks.clear();
@@ -2047,7 +1985,6 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     mRoadChunks.clear();
     mBatchScope.reset();
     mChunks.clear();
-    mSharedChunks.clear();
     mChunksScope.reset();
     mIterationOpen = false;
   }
@@ -2062,9 +1999,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   DeviceColumnChunks<tracker_detail::CapturedRoadOf<kMaxClusters>::template RecordT> mRoadChunks; ///< the open batch's roads, a chunk per slice
   std::size_t mRoadBatch = 0U;                                                                    ///< the roads that fill the device: a batch's fit is due at them
   DeviceColumnChunks<SelectionRecordOf<kMaxClusters>::template RecordT> mChunks;
-  DeviceColumnChunks<SelectionRecordOf<kMaxClusters>::template RecordT> mSharedChunks; ///< the successor's records, where it takes this graph
   DeviceColumns<SelectionRecordOf<kMaxClusters>::template RecordT> mGathered;
-  DeviceColumns<SelectionRecordOf<kMaxClusters>::template RecordT> mSharedGathered; ///< `mSharedChunks` gathered, in `mSharedScope`
   DeviceColumnChunks<TrackRecord::template RecordT> mTrackChunks;
   /// Beside them, each track's overlap partners: their count per track, and
   /// the partners, track after track.
@@ -2113,7 +2048,6 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   std::optional<ArenaScope> mChunksScope;
   std::optional<ArenaScope> mBatchScope; ///< the open batch's roads, inside the chunks
   std::optional<ArenaScope> mIterationScope;
-  std::optional<ArenaScope> mSharedScope; ///< the shared records', below the iteration's that takes them
   std::optional<ArenaScope> mSliceScope;
   std::size_t mIteration = 0U;
   StageStatus mIterationStatus = StageStatus::kComplete;
