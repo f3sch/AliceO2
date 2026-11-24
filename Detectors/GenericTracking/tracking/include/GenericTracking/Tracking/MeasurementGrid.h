@@ -495,9 +495,9 @@ struct SecondRun {
 /// pair, from the fields `crossingPairWindow`
 /// stored.
 ///
-/// The landing point is monotonic in the vertex z, in the target's position
-/// and in the seed's own coordinate separately, so its extremes lie at the
-/// corners of those three ranges. Barrel -> disc divides by `z_i - z_v`: a
+/// The landing point is monotonic in the vertex z and in the target's
+/// position separately, so its extremes lie at the corners of those two
+/// ranges. Barrel -> disc divides by `z_i - z_v`: a
 /// vertex level with the seed, or beyond it as seen from the disc, sends no
 /// track through the seed to the disc, and the landing radius grows without
 /// bound as the vertex approaches the seed. Such a corner opens the window to
@@ -507,29 +507,25 @@ struct SecondRun {
 {
   const Scalar vertices[2] = {vertexLow, vertexHigh};
   const Scalar targets[2] = {pair.targetLow, pair.targetHigh};
-  const Scalar spreads[2] = {-pair.seedSpread, pair.seedSpread};
   const bool toDisc = pair.kind == PairKind::kBarrelToDisc;
   Scalar low = pair.targetSecondMax;
   Scalar high = pair.targetSecondMin;
   bool open = false;
-  for (const Scalar spread : spreads) {
-    for (const Scalar vertex : vertices) {
-      for (const Scalar target : targets) {
-        Scalar landing = 0.F;
-        if (toDisc) {
-          const Scalar z = seedZ + spread;
-          const Scalar lever = z - vertex;
-          if (!(lever * (target - z) > 0.F)) {
-            open = true;
-            continue;
-          }
-          landing = seedR * (target - vertex) / lever;
-        } else {
-          landing = vertex + ((seedZ - vertex) * target / (seedR + spread));
+  for (const Scalar vertex : vertices) {
+    for (const Scalar target : targets) {
+      Scalar landing = 0.F;
+      if (toDisc) {
+        const Scalar lever = seedZ - vertex;
+        if (!(lever * (target - seedZ) > 0.F)) {
+          open = true;
+          continue;
         }
-        low = landing < low ? landing : low;
-        high = landing > high ? landing : high;
+        landing = seedR * (target - vertex) / lever;
+      } else {
+        landing = vertex + ((seedZ - vertex) * target / seedR);
       }
+      low = landing < low ? landing : low;
+      high = landing > high ? landing : high;
     }
   }
   if (open) {

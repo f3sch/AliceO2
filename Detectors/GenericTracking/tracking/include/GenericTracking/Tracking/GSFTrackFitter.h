@@ -446,7 +446,7 @@ inline constexpr int kStartBranches = power(Loss::kComponents, kPassStart - 1);
 /// moments. Ends reduced to at most K components on the last plane it took,
 /// before that plane's radiation; \a minusTwoLogLikelihood gets the start's
 /// -2 ln likelihood.
-template <typename Loss, CrossingRule Rule, typename Prop, DetectorLayout Det, typename Material, typename Chain, int K>
+template <typename Loss, typename Prop, DetectorLayout Det, typename Material, typename Chain, int K>
 GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, PropagationDirection direction, BoundTrackState seed, GSFMixture<K>& mixture, int& taken, std::int16_t& failedMeasurement, Scalar& minusTwoLogLikelihood)
 {
   constexpr int kBranches = kStartBranches<Loss>;
@@ -504,7 +504,7 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
       Scalar density = 0.F;
       const Scalar stepReference = referenceFor(component.reference, n, direction, [&] { return leftOut; });
       Scalar carried = stepReference;
-      const auto stepped = o2::gtrk::detail::diffuseStepBody<Rule, true>(stepProp, geometry, material, measurements[index], direction, component.state, component.factors, component.chi2, carried, &density);
+      const auto stepped = o2::gtrk::detail::diffuseStepBody<true>(stepProp, geometry, material, measurements[index], direction, component.state, component.factors, component.chi2, carried, &density);
       advanceReference(component.reference, n, direction, stepReference, carried);
       component.logWeight -= 0.5F * density;
       return stepped;
@@ -686,14 +686,14 @@ GPUhdi() void finishMixture(GSFMixture<K>& mixture, BoundTrackState& collapsed, 
 /// summaries (`finishMixture`, `GSFFitResult`) into \a mixture, \a end,
 /// \a chi2, \a momentumMode and \a minusTwoLogLikelihood. On a failure,
 /// \a failedMeasurement is the measurement the failed step went to.
-template <int K, typename Loss, CrossingRule Rule, typename Prop, DetectorLayout Det, typename Material, typename Chain>
+template <int K, typename Loss, typename Prop, DetectorLayout Det, typename Material, typename Chain>
 GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, PropagationDirection direction, const BoundTrackState& seed, GSFMixture<K>& mixture, BoundTrackState& end, Scalar& chi2, Scalar& momentumMode, Scalar& minusTwoLogLikelihood, std::int16_t& failedMeasurement)
 {
   const int first = direction == PropagationDirection::kForward ? 0 : n - 1;
   const int increment = direction == PropagationDirection::kForward ? 1 : -1;
   int taken = 0;
   minusTwoLogLikelihood = 0.F;
-  const auto started = startMixture<Loss, Rule>(prop, geometry, material, measurements, n, direction, seed, mixture, taken, failedMeasurement, minusTwoLogLikelihood);
+  const auto started = startMixture<Loss>(prop, geometry, material, measurements, n, direction, seed, mixture, taken, failedMeasurement, minusTwoLogLikelihood);
   if (started != PropagationStatus::kOk) {
     return started;
   }
@@ -713,7 +713,7 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
       Scalar logLikelihood = 0.F;
       const Scalar stepReference = referenceFor(component.reference, n, direction, [&] { return leftOut; });
       Scalar carried = stepReference;
-      const auto stepped = o2::gtrk::detail::filterStepBody<false, Rule, true>(stepProp, geometry, material, measurements[index], direction, component.state, component.factors, component.chi2, carried, 1.F, &logLikelihood);
+      const auto stepped = o2::gtrk::detail::filterStepBody<false, true>(stepProp, geometry, material, measurements[index], direction, component.state, component.factors, component.chi2, carried, 1.F, &logLikelihood);
       advanceReference(component.reference, n, direction, stepReference, carried);
       component.logWeight += logLikelihood;
       return stepped;
@@ -745,7 +745,7 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
 /// \a Loss the radiation model; at most \a K components after each
 /// reduction, by default as many as one loss has (a plane's mixture keeps one
 /// component per loss component; more changes nothing measurable).
-template <typename Loss = BetheHeitlerLoss, int K = Loss::kComponents, CrossingRule Rule = CrossingRule::kFirstAhead, typename Prop, DetectorLayout Det, typename Material, typename Chain>
+template <typename Loss = BetheHeitlerLoss, int K = Loss::kComponents, typename Prop, DetectorLayout Det, typename Material, typename Chain>
 GPUdi() GSFFitResult<K> fitGaussianSum(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n)
 {
   GSFFitResult<K> result;
@@ -753,13 +753,13 @@ GPUdi() GSFFitResult<K> fitGaussianSum(const Prop& prop, const TrackingGeometry<
   fit.ndf = static_cast<std::int16_t>((2 * n) - kNBoundParams);
   const auto seed = makeChainSeed(prop, geometry, measurements, n);
   const auto span = detail::spanMaterial(geometry, material, measurements, n);
-  auto status = detail::gsf::runPass<K, Loss, Rule>(prop, geometry, span, measurements, n, PropagationDirection::kForward, seed, result.outwardMixture, fit.outwardState, fit.outwardChi2, result.outwardMomentumMode, result.outwardMinusTwoLogLikelihood, fit.failedMeasurement);
+  auto status = detail::gsf::runPass<K, Loss>(prop, geometry, span, measurements, n, PropagationDirection::kForward, seed, result.outwardMixture, fit.outwardState, fit.outwardChi2, result.outwardMomentumMode, result.outwardMinusTwoLogLikelihood, fit.failedMeasurement);
   if (status != PropagationStatus::kOk) {
     fit.status = status;
     fit.failedPass = FitPass::kOutward;
     return result;
   }
-  status = detail::gsf::runPass<K, Loss, Rule>(prop, geometry, span, measurements, n, PropagationDirection::kBackward, fit.outwardState, result.mixture, fit.state, fit.chi2, result.momentumMode, result.minusTwoLogLikelihood, fit.failedMeasurement);
+  status = detail::gsf::runPass<K, Loss>(prop, geometry, span, measurements, n, PropagationDirection::kBackward, fit.outwardState, result.mixture, fit.state, fit.chi2, result.momentumMode, result.minusTwoLogLikelihood, fit.failedMeasurement);
   if (status != PropagationStatus::kOk) {
     fit.status = status;
     fit.failedPass = FitPass::kInward;

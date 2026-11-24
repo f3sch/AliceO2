@@ -80,15 +80,13 @@ struct Choice {
   Scalar rise = 0.F;
 };
 
-/// \a rows (\a count of them) refitted with the iteration's crossing rule
-/// and a budget of the track's own \a kinks.
+/// \a rows (\a count of them) refitted with a budget of the track's own
+/// \a kinks.
 template <DetectorLayout Det>
 [[nodiscard]] GPUhdi() TrackFitResult refit(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, const ClusterList<maxChainLayers<Det>>& rows, std::uint8_t count, std::uint8_t kinks)
 {
   const KinkBudget budget{.max = static_cast<int>(kinks), .gate = parameters.kinkChi2Min};
-  return withCrossingRule(parameters.crossingRule, [&]<CrossingRule Rule>(std::integral_constant<CrossingRule, Rule>) {
-    return fitMeasurements<Rule>(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows.index}, static_cast<int>(count), budget);
-  });
+  return fitMeasurements(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows.index}, static_cast<int>(count), budget);
 }
 
 /// Whether a link of the layout leads from \a from onto \a to.
@@ -126,7 +124,7 @@ template <DetectorLayout Det>
   const bool crossed = cells.anySensor(layer, prediction.phi, reach[0], prediction.second, reach[1], [&](std::uint32_t id) {
     const TrackingSurface plane = geometry.planeAt(static_cast<SensorID>(id), point);
     BoundParameters at = state;
-    const auto result = propagate<CrossingRule::kFirstAhead, Scalar>(carrier, at, from, plane, direction);
+    const auto result = propagate<Scalar>(carrier, at, from, plane, direction);
     if (result.status != PropagationStatus::kOk || follow::beyondHalfTurn(curvature * result.pathLength)) {
       return false;
     }
@@ -276,7 +274,7 @@ struct Choose {
           if (!follow::predictedWindow(propagator, parameters, geometry, detail::LinkSteps{}, state, factors, layer, direction, prediction, window, nullptr, &traversed)) {
             continue;
           }
-          follow::visitInline<false, false, false, false>(
+          follow::visitInline<false, false, false>(
             context, state, factors, 0.F, 0.F, layer, direction, window, traversed, 0U, WorkCounter::kFollowUpdates, SoloGroup{}, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},
             [&](const auto& candidate) {
               bool known = false;
@@ -346,7 +344,7 @@ struct Choose {
             continue;
           }
           ClusterList<kMaxClusters> with = rows;
-          follow::visitInline<false, false, false, false>(
+          follow::visitInline<false, false, false>(
             context, state, factors, 0.F, 0.F, layer, PropagationDirection::kForward, window, traversed, 0U, WorkCounter::kFollowUpdates, SoloGroup{}, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},
             [&](const auto& candidate) {
               with.index[n] = candidate.row;

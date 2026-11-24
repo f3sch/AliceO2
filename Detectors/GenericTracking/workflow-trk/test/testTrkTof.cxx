@@ -157,7 +157,7 @@ BOOST_AUTO_TEST_CASE(TheNativeGridAndFloorsCoverLongTOFChains)
   const std::vector<FrameTiming> trkFrames(static_cast<std::size_t>(kBaseLayers), FrameTiming{.lengthBC = 81, .firstStartBC = 0});
   const auto tofFrames = alice::trktofFrameTiming(trkFrames);
   const auto beam = workflow::nominalBeamLine();
-  const auto grid = std::make_unique<const GridGeometry<TOFLayout>>(workflow::makeGridGeometry<TOFLayout>(settings, beam, tofFrames, 32));
+  const auto grid = std::make_unique<const GridGeometry<TOFLayout>>(workflow::makeGridGeometry<TOFLayout>(settings, beam, tofFrames, 32, noMaterial<TOFLayout>()));
   BOOST_TEST(!grid->overflows());
   BOOST_TEST(grid->axes(TOFLayout::kInnerTOFLayer).nPhi > 0);
   const auto& scattering = noMaterial<TOFLayout>();

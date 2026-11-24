@@ -19,6 +19,7 @@
 #include "GenericTracking/Workflow/GridConfig.h"
 #include "GenericTracking/Workflow/RecoParam.h"
 
+#include "BandMaterial.h"
 #include "ToyBarrel3.h"
 
 #include "CommonConstants/LHCConstants.h"
@@ -73,7 +74,7 @@ BOOST_AUTO_TEST_CASE(OneLengthKeepsItsBlocks)
   constexpr std::int64_t kFirstBC = 64;
   constexpr std::int64_t kDurationBC = std::int64_t{32} * o2::constants::lhc::LHCMaxBunches;
   const IterationSettings settings{};
-  const auto windows = gridLayerWindows<detectors::ToyBarrel3>(std::span{&settings, 1U}, VertexConstraint{});
+  const auto windows = gridLayerWindows<detectors::ToyBarrel3>(std::span{&settings, 1U}, VertexConstraint{}, noMaterial<detectors::ToyBarrel3>());
   const GridGeometry<detectors::ToyBarrel3> geometry{psOfBC(kDurationBC), params, windows};
   const auto frameCount = (kDurationBC - kFirstBC) / kFrameBC;
   for (std::int64_t frame = 0; frame < frameCount; ++frame) {

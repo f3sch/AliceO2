@@ -203,7 +203,6 @@ class Tracker
     }
     for (std::size_t iteration = 0; iteration < iterations.size(); ++iteration) {
       const auto& settings = iterations[iteration];
-      checkSharedGraph(iterations, iteration);
       // An earlier iteration's partners are references the follow of its
       // tracks would not carry along.
       if (iterations[iteration].followEarlier && std::ranges::any_of(iterations.first(iteration), [](const auto& earlier) { return earlier.overlapPartners; })) {
@@ -227,13 +226,11 @@ class Tracker
     mRecordStage.setMemoryPool(mMemoryPool);
     mRoads.setMemoryPool(mMemoryPool);
     mRecords.setMemoryPool(mMemoryPool);
-    mSharedRecords.setMemoryPool(mMemoryPool);
     mTrackletStage.setPhases({.reset = Phase::kTrackletReset, .generate = Phase::kTrackletGenerate, .scan = Phase::kTrackletScan, .place = Phase::kTrackletPlace});
     mTripletStage.setPhases({.reset = Phase::kTripletReset, .generate = Phase::kTripletGenerate, .scan = Phase::kTripletScan, .place = Phase::kTripletPlace});
     mNeighbourStage.setPhases({.reset = Phase::kNeighbourReset, .generate = Phase::kNeighbourGenerate, .scan = Phase::kNeighbourScan, .place = Phase::kNeighbourPlace});
     mRecordStage.setPhases({.reset = Phase::kRoadFitReset, .generate = Phase::kRoadFitGenerate, .scan = Phase::kRoadFitScan, .place = Phase::kRoadFitPlace});
     mSelection.setMemoryPool(mMemoryPool);
-    mShared.setMemoryPool(mMemoryPool);
     mRefit.setMemoryPool(mMemoryPool);
     mStore.setMemoryPool(mMemoryPool);
     mPartners.setMemoryPool(mMemoryPool);
@@ -259,7 +256,7 @@ class Tracker
     mPropagator = propagator;
     // The sensors by place, once, where an iteration follows or takes
     // overlap partners.
-    if (std::ranges::any_of(mIterations, [](const auto& parameters) { return parameters.follow || parameters.followEnd || parameters.overlapPartners; })) {
+    if (std::ranges::any_of(mIterations, [](const auto& parameters) { return parameters.follow || parameters.overlapPartners; })) {
       mSensorCells = SensorCells<Det>(geometry);
     }
   }
@@ -296,7 +293,6 @@ class Tracker
     learnStaging(StagingSite::kRecords, mRecordStage);
     releaseIterationStorage();
     mSelection.clearStorage();
-    mShared.clearStorage();
     mRefit.clearStorage();
     mStore.clearStorage();
     deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection);
@@ -327,14 +323,13 @@ class Tracker
   /// numbered roads -- with \a fit, also the road fit's records -- and \a
   /// visit(result, roads, records, fitSeconds) after each slice while its
   /// graph lives, records null and fitSeconds 0 without \a fit. After `beginTimeframe`. An iteration that
-  /// shares a graph or follows the earlier tracks has no graph of its own:
-  /// std::invalid_argument. Returns the first status short of complete.
+  /// follows the earlier tracks has no graph of its own: std::invalid_argument. Returns the first status short of complete.
   template <typename Visit>
   [[nodiscard]] StageStatus runGraph(std::size_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, bool fit, const Visit& visit)
   {
     plan.check(frame, mIterations);
-    if (mIterations[iteration].sharedGraph || mIterations[iteration].followEarlier || (iteration + 1U < mIterations.size() && mIterations[iteration + 1U].sharedGraph)) {
-      throw std::invalid_argument("iteration " + std::to_string(iteration) + " shares a graph or follows the earlier tracks: no graph of its own");
+    if (mIterations[iteration].followEarlier) {
+      throw std::invalid_argument("iteration " + std::to_string(iteration) + " follows the earlier tracks: no graph of its own");
     }
     for (const auto& slicePlan : plan.slices) {
       const auto sliced = runPlannedSlice(iteration, frame, plan, slicePlan, slicePlan.slice, plan.beamLine, plan.vertices, plan.vertexWindows[iteration], true);
@@ -348,7 +343,7 @@ class Tracker
       double fitSeconds = 0.;
       if (fit) {
         const auto start = std::chrono::steady_clock::now();
-        const auto fitted = guardOutOfMemory([&] { return fitRoads<false>(frame, iteration, mRecords); });
+        const auto fitted = guardOutOfMemory([&] { return fitRoads(frame, iteration, mRecords); });
         if (fitted != StageStatus::kComplete) {
           return fitted;
         }
@@ -426,17 +421,12 @@ class Tracker
   /// `run(frame, plan)` from \a from: its tracks, used mask and summaries as
   /// its iterations left them, then this tracker's iterations after those.
   /// The whole run's result where those iterations were this tracker's first
-  /// ones on the same frame and plan: the caller checks the settings. Not
-  /// from before an iteration that takes the previous one's graph
-  /// (std::invalid_argument), which no checkpoint holds.
+  /// ones on the same frame and plan: the caller checks the settings.
   [[nodiscard]] TimeframeResult resume(const Frame& frame, const TimeframePlan<Det>& plan, const Checkpoint& from)
   {
     const std::size_t first = from.summaries.size();
     if (first > mIterations.size() || from.used.size() != frame.size()) {
       throw std::invalid_argument("a checkpoint of " + std::to_string(first) + " iterations on " + std::to_string(from.used.size()) + " rows for a tracker of " + std::to_string(mIterations.size()) + " on " + std::to_string(frame.size()));
-    }
-    if (first < mIterations.size() && mIterations[first].sharedGraph) {
-      throw std::invalid_argument("iteration " + std::to_string(first) + " takes the previous iteration's graph: no checkpoint before it");
     }
     return runIterations(frame, plan, &from, mIterations.size());
   }
@@ -528,35 +518,6 @@ class Tracker
   [[nodiscard]] std::size_t memoryHighWater() const { return mMemoryPool->getPeakMemory(); }
 
  private:
-  /// Throws std::invalid_argument for iteration \a iteration of \a iterations
-  /// taking its predecessor's graph (`IterationSettings::sharedGraph`) where
-  /// that graph is not its own but for the kink allowance: no predecessor,
-  /// one that takes its own predecessor's, a kink allowance in the
-  /// predecessor or none here, or a graph setting that differs.
-  static void checkSharedGraph(std::span<const IterationSettings> iterations, std::size_t iteration)
-  {
-    const auto& settings = iterations[iteration];
-    if (!settings.sharedGraph) {
-      return;
-    }
-    const auto fail = [&](const char* why) { throw std::invalid_argument("iteration " + std::to_string(iteration) + " takes the previous iteration's graph (iterationSharedGraph): " + why); };
-    if (iteration == 0U) {
-      fail("it is the first");
-    }
-    const auto& previous = iterations[iteration - 1U];
-    if (previous.sharedGraph) {
-      fail("the previous one builds none");
-    }
-    const auto graphSigma = [](const IterationSettings& one) { return one.graphKinkSigma > 0. ? one.graphKinkSigma : one.kinkSigma; };
-    if (!(graphSigma(previous) <= 1.) || !(graphSigma(settings) > 1.)) {
-      fail("it needs a kink allowance, and the previous one none");
-    }
-    const auto graph = [](const IterationSettings& one) { return std::tie(one.windows, one.vertexSource, one.minClusters, one.skipLinks, one.layerMask, one.roadEndLayers, one.roadStartLayers, one.minPtGeVByClusters, one.shapeTest, one.minPGeV); };
-    if (graph(settings) != graph(previous)) {
-      fail("its graph settings differ from the previous one's");
-    }
-  }
-
   [[nodiscard]] const IterationParameters<Det>& parameters() const { return mIterations[mIteration]; }
 
   /// \a site's staging for the timeframe, in \a backend: what the estimator
@@ -661,7 +622,6 @@ class Tracker
     mRecordStage.releaseStorage();
     mRoads.clearStorage();
     mRecords.clearStorage();
-    mSharedRecords.clearStorage();
     mSelection.clearRecordStorage();
     mFollow.clearStorage();
     mFollowEarlier.clearStorage();
@@ -682,14 +642,6 @@ class Tracker
     const auto sort = [&](std::span<std::uint32_t> indices, const auto& less) { mNeighbourStage.sortIndices(indices, less); };
     summary.haloPS = plan.haloPS;
     mSelection.clear();
-    // One graph for two iterations: an iteration
-    // whose successor takes its graph builds it with the successor's kink
-    // allowance and fits the roads for both; the successor builds none.
-    const bool shared = mIterations[iteration].sharedGraph;
-    const bool sharesNext = iteration + 1U < mIterations.size() && mIterations[iteration + 1U].sharedGraph;
-    if (sharesNext) {
-      mShared.clear();
-    }
     // With followEarlier the earlier iterations' tracks are followed first,
     // with this iteration's settings: the rows they take are theirs before
     // this iteration's seeds are made.
@@ -705,23 +657,18 @@ class Tracker
         return;
       }
     }
-    if (shared) {
-      const profile::Zone zone{Phase::kSelectionAppend};
-      summary.status = mSelection.append(mShared, spreadForEach());
-    }
-    for (const auto& slicePlan : shared ? std::span<const SlicePlan<Det>>{} : std::span<const SlicePlan<Det>>{plan.slices}) {
+    for (const auto& slicePlan : plan.slices) {
       if (summary.status != StageStatus::kComplete) {
         break;
       }
-      const auto graph = sharesNext ? iteration + 1U : iteration;
-      const auto sliced = runPlannedSlice(graph, frame, plan, slicePlan, slicePlan.slice, plan.beamLine, plan.vertices, plan.vertexWindows[iteration], true);
+      const auto sliced = runPlannedSlice(iteration, frame, plan, slicePlan, slicePlan.slice, plan.beamLine, plan.vertices, plan.vertexWindows[iteration], true);
       summary.status = sliced.status;
       if (summary.status == StageStatus::kComplete) {
         {
           const profile::Zone zone{Phase::kRoads};
           // Guarded whole: the fit's setup allocates before its stage's own
           // guard.
-          summary.status = guardOutOfMemory([&] { return runRoads(frame, summary, iteration, sharesNext); });
+          summary.status = guardOutOfMemory([&] { return runRoads(frame, summary, iteration); });
         }
         if (mSliceObserver && summary.status == StageStatus::kComplete) {
           const profile::Zone zone{Phase::kObservers};
@@ -774,7 +721,7 @@ class Tracker
       for (auto track = static_cast<std::size_t>(trackOffset); track < mRefit.size(); ++track) {
         summary.refitFailures += static_cast<std::size_t>(status[track] != PropagationStatus::kOk);
       }
-      if (summary.status == StageStatus::kComplete && (mIterations[iteration].follow || mIterations[iteration].followEnd)) {
+      if (summary.status == StageStatus::kComplete && mIterations[iteration].follow) {
         // What the follow starts from, kept only for an observer's replay.
         started = static_cast<bool>(mIterationObserver);
         if (started) {
@@ -1024,11 +971,10 @@ class Tracker
 
   /// The tracklet stage over host memory of \a inputs, as `runPlannedSlice`
   /// runs it, reading \a beamLine for a beam-line iteration (the general
-  /// one; the beam-line one for a beam-line iteration, which makes the same
-  /// tracklets, and the displaced one for a displaced iteration, which no
-  /// other makes).
-  template <bool BeamLine, bool Displaced, bool Shape, bool DiscWindow>
-  [[nodiscard]] TrackletStageFor<Det, BeamLine, Displaced, Shape, DiscWindow> trackletStage(const TrackletInputs<Det>& inputs, const Frame& frame, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, const VertexWindows& vertexWindows) const
+  /// one, or the beam-line one for a beam-line iteration, which makes the
+  /// same tracklets).
+  template <bool BeamLine, bool Shape, bool DiscWindow>
+  [[nodiscard]] TrackletStageFor<Det, BeamLine, Shape, DiscWindow> trackletStage(const TrackletInputs<Det>& inputs, const Frame& frame, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, const VertexWindows& vertexWindows) const
   {
     return {*inputs.parameters, *inputs.sources, frame, inputs.targetBlocks, beamLine, vertices, inputs.maxCandidateWidthPS, vertexWindows, mUsed.data(), inputs.gate};
   }
@@ -1060,11 +1006,10 @@ class Tracker
         std::optional<profile::Zone> setup{std::in_place, Phase::kTrackletSetup};
         beginTrackletSlice(plan, slicePlan, owner);
         const auto& parameters = *mTrackletInputs.parameters;
-        result = withTrackletVertices(parameters.vertexSource, parameters.impactMax > 0.F, [&](auto beamLineOnly, auto displaced) {
+        result = withTrackletVertices(parameters.vertexSource, [&](auto beamLineOnly) {
           return withShapeTest(parameters.shapeTest, [&](auto shape) {
-            constexpr bool prompt = decltype(beamLineOnly)::value && !decltype(displaced)::value;
-            return withDiscWindow<prompt>(parameters.discWindowMinP > 0.F, [&](auto discWindow) {
-              const auto stage = trackletStage<decltype(beamLineOnly)::value, decltype(displaced)::value, decltype(shape)::value, decltype(discWindow)::value>(mTrackletInputs, frame, beamLine, vertices, vertexWindows);
+            return withDiscWindow<decltype(beamLineOnly)::value>(parameters.discWindowMinP > 0.F, [&](auto discWindow) {
+              const auto stage = trackletStage<decltype(beamLineOnly)::value, decltype(shape)::value, decltype(discWindow)::value>(mTrackletInputs, frame, beamLine, vertices, vertexWindows);
               setup.reset();
               return mTrackletStage.run(mScratch.tracklets(), mChunkSize, stage);
             });
@@ -1131,11 +1076,10 @@ class Tracker
     }
   };
 
-  /// The fit of the counted roads (with \a NominalOnly, those of nominal
-  /// triplets) with iteration \a owner's settings into \a records, whose
-  /// staging is that iteration's. An iteration with the beam constraint fits
-  /// on the stage that also tests the beam line; the host alone makes it.
-  template <bool NominalOnly>
+  /// The fit of the counted roads with iteration \a owner's settings into
+  /// \a records, whose staging is that iteration's. An iteration with the
+  /// beam constraint fits on the stage that also tests the beam line; the
+  /// host alone makes it.
   [[nodiscard]] StageStatus fitRoads(const Frame& frame, std::size_t owner, Records& records)
   {
     const auto roads = mRoads.roadCount();
@@ -1143,46 +1087,29 @@ class Tracker
     const auto& fitted = mIterations[owner];
     std::optional<profile::Zone> setup{std::in_place, Phase::kRoadFitSetup};
     records.prepare(roads);
-    const auto run = [&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim>() {
-      const RoadFitStage<Det, BeamLine, NominalOnly, LastStepAllowance, InnerTrim> stage{fitted, frame, *mGeometry, mPropagator, mScratch.tracklets(), mScratch.triplets(), mRoads.walk(mScratch.triplets(), mScratch.neighbours())};
+    const auto run = [&]<bool BeamLine, bool LastStepAllowance>() {
+      const RoadFitStage<Det, BeamLine, LastStepAllowance> stage{fitted, frame, *mGeometry, mPropagator, mScratch.tracklets(), mScratch.triplets(), mRoads.walk(mScratch.triplets(), mScratch.neighbours())};
       setup.reset();
       return mRecordStage.run(records, fitChunk(static_cast<Index>(roads)), stage);
     };
     // An iteration with a kink allowance takes it on the fit's last step
-    // (against the road-end fakes); one with innerTrim fits a refused road
-    // again without its innermost clusters.
-    return withBools([&]<bool BeamLine, bool LastStepAllowance, bool InnerTrim>(std::bool_constant<BeamLine>, std::bool_constant<LastStepAllowance>, std::bool_constant<InnerTrim>) { return run.template operator()<BeamLine, LastStepAllowance, InnerTrim>(); }, fitted.beamConstraint, takesLastStepAllowance(fitted), fitted.innerTrim != 0U);
+    // (against the road-end fakes).
+    return withBools([&]<bool BeamLine, bool LastStepAllowance>(std::bool_constant<BeamLine>, std::bool_constant<LastStepAllowance>) { return run.template operator()<BeamLine, LastStepAllowance>(); }, fitted.beamConstraint, takesLastStepAllowance(fitted));
   }
 
-  /// The slice's roads, fitted, into the selection. With \a sharesNext, the graph
-  /// is iteration \a iteration + 1's: the nominal round's roads, fitted with
-  /// \a iteration's settings, go to its selection, and every other road,
-  /// fitted with the next one's, to the next one's (`mShared`).
-  [[nodiscard]] StageStatus runRoads(const Frame& frame, IterationSummary& summary, std::size_t iteration, bool sharesNext)
+  /// The slice's roads, fitted, into the selection.
+  [[nodiscard]] StageStatus runRoads(const Frame& frame, IterationSummary& summary, std::size_t iteration)
   {
     const auto counted = countRoads();
     if (counted != StageStatus::kComplete) {
       return counted;
     }
     summary.roads += mRoads.roadCount();
-    // With sharesNext this iteration's roads are the nominal triplets'; the
-    // next one fits every road with its own settings, as its own graph would
-    // give them: the selection then drops what conflicts with the tracks
-    // held before it.
-    auto fitted = sharesNext ? fitRoads<true>(frame, iteration, mRecords) : fitRoads<false>(frame, iteration, mRecords);
-    if (fitted == StageStatus::kComplete && sharesNext) {
-      fitted = fitRoads<false>(frame, iteration + 1U, mSharedRecords);
-    }
+    const auto fitted = fitRoads(frame, iteration, mRecords);
     if (fitted != StageStatus::kComplete) {
       return fitted;
     }
     const profile::Zone zone{Phase::kSelectionAppend};
-    if (sharesNext) {
-      const auto appended = mShared.append(mSharedRecords, spreadForEach());
-      if (appended != StageStatus::kComplete) {
-        return appended;
-      }
-    }
     return mSelection.append(mRecords, spreadForEach());
   }
 
@@ -1353,8 +1280,6 @@ class Tracker
   RoadCount mRoads;
   std::array<MeasurementRange, kLayerCount> mRoadCores{}; ///< the slice's core as the road counting reads it, with a start-layer mask
   Records mRecords;
-  Records mSharedRecords;                ///< a slice's records for the next iteration, which takes this one's graph
-  GlobalSelection<kMaxClusters> mShared; ///< the next iteration's records, over the slices
   GlobalSelection<kMaxClusters> mSelection;
   TrackRefit<Det> mRefit;
   TrackStore<Det> mStore;

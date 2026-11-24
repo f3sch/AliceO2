@@ -360,8 +360,8 @@ inline void printWork(const WorkCounts& work, std::size_t iteration)
     iteration, at(kFollowGridQueries), at(kFollowGridBlocks), at(kFollowGridRanges), at(kFollowGridCells), at(kFollowGridSearchedCells), at(kFollowGridRows), at(kFollowGridInBound), at(kFollowGridVisits), at(kFollowUpdates), at(kFollowProposed), at(kFollowOutbid), at(kFollowRefitRejected));
   std::cout << std::format(
     "  work, iteration {}, follow: {} layers without a row tested, {} of them holes; {} lookaheads; {} last rows unconfirmed, {} kept "
-    "on their density, {} refused at the layout's end, {} against the beam line; {} road ends fitted again, {} replaced\n",
-    iteration, at(kFollowHoleTests), at(kFollowHoles), at(kFollowLookaheads), at(kFollowUnconfirmed), at(kFollowDensityKept), at(kFollowEndRefused), at(kFollowBeamEndRefused), at(kFollowEndFits), at(kFollowEndReplaced));
+    "on their density, {} refused at the layout's end\n",
+    iteration, at(kFollowHoleTests), at(kFollowHoles), at(kFollowLookaheads), at(kFollowUnconfirmed), at(kFollowDensityKept), at(kFollowEndRefused));
   if (at(kFollowInactiveTail) != 0U) {
     std::cout << std::format("  work, iteration {}, inactive layers: {} rows taken by a walk's tail\n", iteration, at(kFollowInactiveTail));
   }
@@ -1982,8 +1982,14 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   workflow::checkRecoParam<Det>(param);
   workflow::TrackingInterface<Det> interface{!param.vertexer};
   interface.initGeometry(input.depths);
-  const auto geometry = workflow::makeGridGeometry<Det>(param, input.beamLine, frames, orbitsPerTimeframe);
   const auto* material = o2::base::MatLayerCylSet::rectifyPtrFromFile(ccdb.get<o2::base::MatLayerCylSet>(workflow::materialLutPath<Det>()));
+  // The grid as the producer derives it: sized with the run's link material,
+  // which the tracker fills again for itself (`configure`).
+  const auto geometry = [&] {
+    const auto table = std::make_unique<LinkMaterial<Det>>();
+    workflow::fillRunLinkMaterial<Det>(*table, param, workflow::beamSpotConstraint(input.beamLine, param), *material);
+    return workflow::makeGridGeometry<Det>(param, input.beamLine, frames, orbitsPerTimeframe, *table);
+  }();
   const bool device = options.backend != "cpu";
   if (options.noTracking && device) {
     throw std::runtime_error("--no-tracking runs on the host: no --backend");
@@ -2105,7 +2111,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       throw std::runtime_error(std::format("iteration {} seeds from the vertex list, and {} holds none", iteration, options.input));
     }
   }
-  const auto chunkSize = static_cast<typename Controller::Index>(std::max(param.trackletChunkSize, 1));
+  const auto chunkSize = static_cast<typename Controller::Index>(kHostChunkSize);
   tracker.setProfiling(!options.noProfile);
   if (options.dram && !profile::countDram()) {
     throw std::runtime_error("--dram: the memory controllers' counters (amd_umc) cannot be opened");

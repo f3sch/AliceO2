@@ -48,14 +48,13 @@ namespace o2::gtrk
 /// Per layer, the widest and the narrowest window of the queries \a iterations
 /// make into it.
 ///
-/// The window is the material-uniform pair window (`layerPairWindow` without a
-/// scattering table): the producer, which bins the rows, has no material map,
-/// and only the cells' sizes follow from it, never which rows a query
-/// accepts. Barrel <-> disc links do not size a layer: their window is per
+/// The window is the pair window the iteration queries with, its scattering
+/// \a material's (`layerPairWindow` in PairCut.h); only the cells' sizes
+/// follow from it, never which rows a query accepts. Barrel <-> disc links do not size a layer: their window is per
 /// seed, from a few percent of the target to
 /// all of it, so no cell width follows from it.
 template <DetectorLayout Det>
-[[nodiscard]] std::array<GridLayerWindow, static_cast<std::size_t>(Detector<Det>::nLayers)> gridLayerWindows(std::span<const IterationSettings> iterations, const VertexConstraint& beamSpot)
+[[nodiscard]] std::array<GridLayerWindow, static_cast<std::size_t>(Detector<Det>::nLayers)> gridLayerWindows(std::span<const IterationSettings> iterations, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material)
 {
   std::array<GridLayerWindow, static_cast<std::size_t>(Detector<Det>::nLayers)> result{};
   const auto widen = [&](LayerID layer, const LayerPairWindow& window) {
@@ -81,17 +80,11 @@ template <DetectorLayout Det>
     auto& window = entry->second[link];
     if (!window.has_value()) {
       const auto& pair = Det::layerLinks[link];
-      window = layerPairWindow<Det>(pair.from, pair.to, params, beamSpot);
+      window = layerPairWindow<Det>(pair.from, pair.to, params, beamSpot, material);
     }
     return *window;
   };
   for (const auto& settings : iterations) {
-    // A displaced iteration's windows hold what its pair test admits, up to
-    // half a turn and a target's whole length: sized by them the cells would be the prompt iterations' loss. Its
-    // queries visit more cells instead; the cells never decide a pair.
-    if (settings.windows.impactMax > 0.) {
-      continue;
-    }
     const auto taken = takenLinks<Det>(settings);
     const auto sizing = [&](std::size_t link) {
       const auto& pair = Det::layerLinks[link];
@@ -122,7 +115,7 @@ template <DetectorLayout Det>
     }
     // The follow searches both layers of every link of the layout, from
     // either end; its window is its prediction's, the pair window its size.
-    if (settings.follow || settings.followEnd) {
+    if (settings.follow) {
       for (std::size_t link = 0; link < nLinks<Det>; ++link) {
         const auto& pair = Det::layerLinks[link];
         if (Detector<Det>::isBarrelLayer(pair.from) != Detector<Det>::isBarrelLayer(pair.to)) {

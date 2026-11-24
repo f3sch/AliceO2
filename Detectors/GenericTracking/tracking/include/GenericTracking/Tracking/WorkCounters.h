@@ -120,11 +120,9 @@ enum class WorkCounter : std::uint8_t {
   kFollowUnconfirmed,          ///< last rows dropped, no row confirming them where a sensor was crossed
   kFollowDensityKept,          ///< of the unconfirmed last rows, kept on their density (followKeepDensity)
   kFollowEndRefused,           ///< inward last rows refused at the layout's end on sqrt|V| (followEndMaxSqrtDet)
-  kFollowTrimFits,             ///< tracks refitted without their last outward row (followTrimMargin)
+  kFollowTrimFits,             ///< tracks refitted without their last outward row (`follow::TrimAmbiguous`)
   kFollowTrimmed,              ///< of them, the row trimmed: two or more passed its gate, the track kept the cuts
   kFollowTrimUpdates,          ///< the updates counting the rows that pass the trimmed row's gate
-  kFollowEndFits,              ///< roads fitted again without their outermost row (followEnd)
-  kFollowEndReplaced,          ///< of them, the follow's first row another than that row
   kFollowEarlierProposed,      ///< rows the earlier iterations' follow proposes (`followEarlier`)
   kFollowEarlierOutbid,        ///< of them, cut by the bidding
   kFollowEarlierRefitRejected, ///< of the rest, dropped with their track's failed refit
@@ -133,7 +131,6 @@ enum class WorkCounter : std::uint8_t {
   kPairBetweenBoundIn,         ///< of kPairBetweenBound, candidates inside the window
   kPairTestsIn,                ///< of kPairTests, inside the window
   kPairLongitudinalTestsIn,    ///< candidates reaching the longitudinal test (kPairTransverse) that are inside the window
-  kFollowBeamEndRefused,       ///< follow: inward last rows refused against the beam line (followBeamEnd)
   kTrackletShape,              ///< candidates whose line crosses a measurement outside its slope interval (shapeTest)
   kTripletShape,               ///< thirds whose triplet's line crosses a measurement outside its slope interval
   kFollowInactiveTail,         ///< rows a walk's tail took on inactive layers (`FollowStage::inactiveLayerTail`)

@@ -93,7 +93,7 @@ void verifyVertexInterval(double minPtGeV, Scalar vertexZ, LayerID from, LayerID
 {
   SearchWindowParams params;
   params.minPtGeV = minPtGeV;
-  const auto material = bandMaterial<ToyBarrel4Disc8>(params.materialX2X0);
+  const auto material = bandMaterial<ToyBarrel4Disc8>(0.01);
   const auto& table = *material;
   const auto cut = pairCut(params);
   const VertexSeed vertex{.z = vertexZ, .varZ = 1.e-4F, .varTransverse = 4.e-6F};
@@ -112,8 +112,7 @@ void verifyVertexInterval(double minPtGeV, Scalar vertexZ, LayerID from, LayerID
     const auto vertexValue = static_cast<double>(vertexZ);
     sourceZ = static_cast<Scalar>(vertexValue + (static_cast<double>(sourceR) * (discZ<ToyBarrel4Disc8>(to) - vertexValue) / targetR));
   }
-  const auto variance = static_cast<Scalar>(params.positionSigma * params.positionSigma);
-  const PairPoint source{.x = sourceR, .z = sourceZ, .r = sourceR, .varZ = variance, .varR = variance, .varRPhi = variance};
+  const PairPoint source{.x = sourceR, .z = sourceZ, .r = sourceR};
   const Scalar scattering = sourceScattering<ToyBarrel4Disc8>(table, cut, vertex, from, source);
   const auto interval = vertexSecondRange(pair, bounds, source.r, source.z, vertex.z, vertex.varZ, cut.nSigma);
 
@@ -135,9 +134,6 @@ void verifyVertexInterval(double minPtGeV, Scalar vertexZ, LayerID from, LayerID
         .y = targetR * static_cast<Scalar>(std::sin(phi)),
         .z = targetZ,
         .r = targetR,
-        .varZ = variance,
-        .varR = variance,
-        .varRPhi = variance,
       };
       if (!pairCompatible(cut, vertex, source, scattering, target)) {
         continue;
@@ -205,8 +201,8 @@ BOOST_AUTO_TEST_CASE(PerVertexIntervalUsesThatVertexSigma)
   const SearchWindowParams params;
   constexpr LayerID kSource = 2;
   constexpr LayerID kTarget = 3;
-  const auto pair = layerPairWindow<ToyBarrel4Disc8>(kSource, kTarget, params, VertexConstraint{});
-  const auto bounds = vertexPairWindow<ToyBarrel4Disc8>(kSource, kTarget, params, {.low = -kVertexRange, .high = kVertexRange}, 0.1, uniformSourceKink(params));
+  const auto pair = layerPairWindow<ToyBarrel4Disc8>(kSource, kTarget, params, VertexConstraint{}, noMaterial<ToyBarrel4Disc8>());
+  const auto bounds = vertexPairWindow<ToyBarrel4Disc8>(kSource, kTarget, params, {.low = -kVertexRange, .high = kVertexRange}, 0.1, 0.);
   const auto sourceR = static_cast<Scalar>(layerDistance<ToyBarrel4Disc8>(kSource));
   const auto narrow = vertexSecondRange(pair, bounds, sourceR, 10.F, 0.F, 1.e-4F, static_cast<Scalar>(params.nSigma));
   const auto wide = vertexSecondRange(pair, bounds, sourceR, 10.F, 0.F, 1.e-2F, static_cast<Scalar>(params.nSigma));
@@ -481,7 +477,7 @@ BOOST_AUTO_TEST_CASE(TheSecondCoordinateWindowCoversHelixPitch)
   const double sourcePhi = std::asin(0.5 * curvature * sourceRadius);
   const double targetPhi = std::asin(0.5 * curvature * targetRadius);
 
-  const auto pair = layerPairWindow<ToyBarrel4Disc8>(kSourceLayer, kTargetLayer, params, vertex);
+  const auto pair = layerPairWindow<ToyBarrel4Disc8>(kSourceLayer, kTargetLayer, params, vertex, noMaterial<ToyBarrel4Disc8>());
   const auto window = candidateWindow(pair, TimeEstPS{.start = 0U, .width = 1U}, static_cast<Scalar>(sourcePhi), static_cast<Scalar>(sourceRadius), static_cast<Scalar>(kSourceZ), 1U);
   BOOST_TEST(helixSecondSpread<ToyBarrel4Disc8>(kSourceLayer, kTargetLayer, params, vertex) > 0.);
   BOOST_TEST(spatiallyCompatible(window, static_cast<Scalar>(targetPhi), static_cast<Scalar>(targetZ)));
@@ -542,8 +538,7 @@ BOOST_AUTO_TEST_CASE(ThePhiWindowHoldsTheTransverseTest)
       // Between two discs the target radius follows the seed's through the z ratio.
       const double rho = (zMin<ToyBarrel4Disc8>(to) + reach) / (static_cast<double>(sourceZ) + reach);
       const auto targetR = static_cast<Scalar>(Detector<ToyBarrel4Disc8>::isBarrelLayer(from) || Detector<ToyBarrel4Disc8>::isBarrelLayer(to) ? radiusMax<ToyBarrel4Disc8>(to) : rho * static_cast<double>(sourceR));
-      const auto variance = static_cast<Scalar>(params.positionSigma * params.positionSigma);
-      const PairPoint source{.x = sourceR, .z = sourceZ, .r = sourceR, .varRPhi = variance};
+      const PairPoint source{.x = sourceR, .z = sourceZ, .r = sourceR};
       const Scalar scatter = sourceScattering<ToyBarrel4Disc8>(table, cut, vertex, from, source);
       double widest = 0.;
       constexpr int kSteps = 15000;
@@ -553,7 +548,6 @@ BOOST_AUTO_TEST_CASE(ThePhiWindowHoldsTheTransverseTest)
           .x = targetR * static_cast<Scalar>(std::cos(phi)),
           .y = targetR * static_cast<Scalar>(std::sin(phi)),
           .r = targetR,
-          .varRPhi = variance,
         };
         if (transverseCompatible(cut, transversePairTerms(cut, vertex, source, scatter, target))) {
           widest = phi;

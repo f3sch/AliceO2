@@ -60,14 +60,8 @@ struct RecoSettings {
   /// frames nearest it.
   std::int64_t blockWidthPS = 10'000'000;
 
-  // The grid's cells are derived from the iterations' queries, with no key of
-  // their own (GridSizing.h).
-  /// The uniform material per layer [X/X0] that sizes the windows and the
-  /// grid, and the scattering when no material LUT is given; with a LUT the
-  /// tracking takes its budgets.
-  double materialX2X0 = 0.01;
-  /// The windows' position resolution [cm].
-  double positionSigma = 0.005;
+  // The grid's cells are derived from the iterations' queries with the
+  // material LUT's scattering, with no key of their own (GridSizing.h).
   /// Added in quadrature to every cluster's local errors [cm], for what the
   /// cluster shape does not know: the alignment's residuals on real data. O2
   /// adds 10 um per layer in its async reconstruction (ITSCATrackerParam.sysErrY2,
@@ -134,13 +128,6 @@ struct RecoSettings {
   /// iterationKinkSigma there, which then sets only the road fit's and the
   /// follow's; 0, the default, iterationKinkSigma everywhere.
   std::vector<double> iterationGraphKinkSigma;
-  /// A displaced iteration's bounds [cm]:
-  /// how far its tracks' circles may pass from the beam line, and how far
-  /// the z of that closest approach from the beam spot's centre. 0, the
-  /// default, a prompt iteration; above, on the beam line and with both set,
-  /// the displaced pair test and its windows.
-  std::vector<double> iterationImpactMaxCm;
-  std::vector<double> iterationImpactZMaxCm;
   /// Whether each iteration makes tracklets that leave a hole, whose segment
   /// crosses the envelope of another layer of its mask (the default); 0 for
   /// none, so the tracks past a shorter layer's end are kept and those
@@ -178,19 +165,10 @@ struct RecoSettings {
   /// The holes each iteration's follow lets a track cross in each direction,
   /// a sensor crossed without a row; 0 by default.
   std::vector<int> iterationFollowHoles;
-  /// The layers each iteration's follow steps onto, a bit per layer; 0 for
-  /// every layer (the default): its walk takes the links onto them, its
-  /// tail the inactive layers among them.
-  std::vector<long> iterationFollowLayerMask;
   /// The lowest pT [GeV] at which the follow follows a track, from its state
   /// as the follow starts; a track below it is left as its road, for the
   /// iteration's other rules. Non-negative (`checkRecoParam`); 0.01 by default.
   double followMinPtGeV = 0.01;
-  /// Whether each iteration decides its roads' outermost row again with the
-  /// follow: fitted without it, the follow's first row in its place where it
-  /// takes another; without iterationFollow,
-  /// that row alone. 0, off, by default; not with a kink allowance.
-  std::vector<int> iterationFollowEnd;
   /// Whether each iteration attaches to its tracks, after the follow and the
   /// length cut, the free rows of their layers on overlapping sensors that
   /// pass the follow's chi2 cut (OverlapPartners.h); 0, off, by default; not
@@ -201,28 +179,6 @@ struct RecoSettings {
   /// it takes the road's record; 0, off, by
   /// default.
   std::vector<int> iterationInnerTrim;
-  /// Which of a barrel plane's two crossings each iteration's follow refit
-  /// takes (`CrossingRule`): 0 the first ahead
-  /// (the default), 1 of those ahead the one nearer the plane's centre, 2 one
-  /// inside the sensor first, else nearer the centre.
-  std::vector<int> iterationCrossingRule;
-  /// Whether each iteration's follow refit, where it refuses the rows the
-  /// follow added, keeps the longest prefix of them it accepts instead of
-  /// none; 0, off, by default.
-  std::vector<int> iterationFollowPrefix;
-  /// Whether each iteration's follow takes, where more than one row passes a
-  /// step, the smallest chi2 instead of the lookahead's confirmed row; 0, off, by
-  /// default.
-  std::vector<int> iterationFollowGreedy;
-  /// The chi2 below which each iteration's follow keeps a direction's
-  /// unconfirmed last row, which the unconfirmed drop removes otherwise; 0, none kept, by
-  /// default.
-  std::vector<double> iterationFollowKeepChi2;
-  /// Whether each iteration refuses its inward walk's last row, where a
-  /// nominal step took it, whose chi2 against that step's prediction updated
-  /// with the beam line is above the gate; needs the iteration's follow and
-  /// beam constraint; 0, off, by default.
-  std::vector<int> iterationFollowBeamEnd;
   /// Whether each iteration tests its pairs and triplets against their
   /// measurements' cluster shapes: a candidate's local slope at each of its measurements -- its line's
   /// |dz| over its length along the sensor's normal -- must lie in the
@@ -243,11 +199,6 @@ struct RecoSettings {
   /// density [cm^-2] above which the unconfirmed drop keeps a last row; 0, off, by default.
   std::vector<double> iterationFollowEndMaxSqrtDet;
   std::vector<double> iterationFollowKeepDensity;
-  /// The Delta chi2 below which each iteration's follow trims a track's
-  /// last outward row where it is one of two rows or more passing the gate
-  /// and the track keeps the cuts after the follow without it: the other
-  /// row's chi2 less its own; 0, off, by default; above the gate, every such row.
-  std::vector<double> iterationFollowTrimMargin;
   /// The clusters each iteration's tracks must hold after the follow; 0 for
   /// none (the default). A shorter track is dropped and its rows given back.
   std::vector<int> iterationMinClustersAfterFollow;
@@ -261,18 +212,10 @@ struct RecoSettings {
   /// iterationFollow; iterationMinClustersAfterFollow applies to the
   /// iteration's own tracks only.
   std::vector<int> iterationFollowEarlier;
-  /// Whether each iteration takes the previous one's graph instead of
-  /// building its own, one graph for both rounds; 0, off, by default. Needs
-  /// the previous iteration's graph settings, and its graph kink allowance 1
-  /// and this one's above.
-  std::vector<int> iterationSharedGraph;
 
   /// Requested width of one time slice [ps]. The actual width is rounded up
   /// to whole grid blocks, and zero means one slice over the timeframe.
   std::int64_t sliceWidthPS = 10'000'000;
-
-  /// Consecutive source elements assigned to one CPU task.
-  int trackletChunkSize = 256;
 
   /// Maximum CPU workers; zero uses TBB's default.
   int threads = 0;

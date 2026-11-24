@@ -177,8 +177,6 @@ SearchWindowParams windowParameters()
   SearchWindowParams result;
   result.minPtGeV = 1.;
   result.bzKiloGauss = 20.;
-  result.materialX2X0 = 0.;
-  result.positionSigma = 0.003;
   result.nSigma = 3.;
   return result;
 }
@@ -269,7 +267,7 @@ Proposal followTrack(const Fixture& fixture, const Tracks& tracks, const std::ve
   const auto widths = frameBounds(*fixture.frame).widthPS;
   std::vector<Proposal> proposals(tracks.size());
   const UniformMaterial material;
-  const FollowStage<Det, false, false, false, false, false> stage{&parameters, fixture.frame.get(), &trackingGeometry(), Propagator{}, tracks.view(), used.data(), widths.data(), cells().view(), proposals.data(), true, 0U, nullptr};
+  const FollowStage<Det, false, false> stage{&parameters, fixture.frame.get(), &trackingGeometry(), Propagator{}, tracks.view(), used.data(), widths.data(), cells().view(), proposals.data(), true, 0U};
   stage(0U);
   return proposals.front();
 }

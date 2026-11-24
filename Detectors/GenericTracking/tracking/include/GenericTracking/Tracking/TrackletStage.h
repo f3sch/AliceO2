@@ -20,7 +20,6 @@
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Definitions.h"
-#include "GenericTracking/Tracking/DisplacedPair.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/LayerRowMap.h"
 #include "GenericTracking/Tracking/MathUtils.h"
@@ -87,31 +86,6 @@ struct TrackletBindings {
   const VertexSeed* vertices = nullptr;       ///< a copy of the vertices the stage reads: the beam line or the list
   const MeasurementRange* gateCore = nullptr; ///< per layer, if the stage is gated
 };
-
-/// A displaced iteration's pair test:
-/// `displacedPairWithin` with the two points' errors, \a scattering the
-/// source's (`sourceScattering`), \a between the material's between the two
-/// (`betweenScattering`), the beam line's width (\a vertex, the beam line),
-/// the pair cut's curvature bound and sigma, and the iteration's impact bound
-/// and z bound about the beam spot's centre. The tracklet stage's, the stage
-/// funnel's and the sink's brute force's, one test.
-template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() displaced::DisplacedPairResult displacedPairOf(const IterationParameters<Det>& parameters, const VertexSeed& vertex, const PairPoint& source, Scalar scattering, const PairPoint& target, Scalar between)
-{
-  const displaced::PairErrors<Scalar> errors{
-    .sourceVarR = source.varR,
-    .sourceVarRPhi = source.varRPhi,
-    .sourceVarZ = source.varZ,
-    .targetVarR = target.varR,
-    .targetVarRPhi = target.varRPhi,
-    .targetVarZ = target.varZ,
-    .sourceScatter = scattering,
-    .betweenScatter = between,
-    .beamVarTransverse = vertex.varTransverse,
-  };
-  const Scalar centre = parameters.vertexZCentre;
-  return displaced::displacedPairWithin<Scalar>(source.x, source.y, source.z, target.x, target.y, target.z, errors, parameters.pairCut.nSigma, parameters.pairCut.maxCurvature, parameters.impactMax, centre - parameters.impactZMax, centre + parameters.impactZMax);
-}
 
 /// A disc->disc pair's window per source (`IterationSettings::minPGeV`):
 /// the target radii and azimuths a track from the beam line through
@@ -232,27 +206,22 @@ template <DetectorLayout Det>
 /// no per-vertex intervals and no fallback past the cache, so neither is
 /// compiled. A beam-line iteration makes the same tracklets with either; the
 /// trackers take this one for it.
-/// With \a Displaced, on the beam line only, the stage serves a displaced
-/// iteration (`IterationParameters::impactMax`): its pair test is `displacedPairWithin`, a circle above pT_min
-/// passing within the impact bound of the beam line at a z within the z
-/// bound of the beam spot's centre, in place of the beam point's.
 ///
 /// With \a Shape, the iteration's `shapeTest`: a candidate's line must cross
 /// both its measurements at a local slope in their slope intervals
 /// (ShapeCut.h), tested first.
 ///
-/// With \a DiscWindow, on a prompt beam line only, an iteration with a
+/// With \a DiscWindow, on the beam line only, an iteration with a
 /// minimum momentum (`minPGeV`): a disc->disc query takes the source's own window
 /// (`discPairWindow`), and a candidate outside it is no tracklet.
-template <DetectorLayout Det, std::uint32_t VertexCapacity = 8U, bool BeamLine = false, bool Displaced = false, bool Shape = false, bool DiscWindow = false>
+template <DetectorLayout Det, std::uint32_t VertexCapacity = 8U, bool BeamLine = false, bool Shape = false, bool DiscWindow = false>
 class TrackletStage
 {
  public:
   using Index = typename LayerRowMap<Det>::Index;
   static constexpr std::size_t kLayerCount = LayerRowMap<Det>::kLayerCount;
   static_assert(!BeamLine || VertexCapacity == 1U, "the beam line is one vertex");
-  static_assert(!Displaced || BeamLine, "a displaced iteration pairs through the beam line");
-  static_assert(!DiscWindow || (BeamLine && !Displaced), "the disc windows per source are a prompt beam-line iteration's");
+  static_assert(!DiscWindow || BeamLine, "the disc windows per source are a beam-line iteration's");
   // How many compatible vertices get their own interval. A source with more
   // takes the beam-spot window with every one of them tested; both windows
   // hold every vertex `vertexUsable` admits, so the tracklets do not depend on
@@ -273,9 +242,6 @@ class TrackletStage
   {
     if (BeamLine && parameters.vertexSource != VertexSource::kBeamLine) {
       throw std::invalid_argument("the beam-line tracklet stage serves only a beam-line iteration");
-    }
-    if (Displaced != (parameters.impactMax > 0.F)) {
-      throw std::invalid_argument("the displaced tracklet stage serves exactly the displaced iterations");
     }
     if (Shape != parameters.shapeTest) {
       throw std::invalid_argument("the shape-testing tracklet stage serves exactly the iterations with shapeTest");
@@ -696,13 +662,6 @@ class TrackletStage
     const auto chord = pairChord(source, target);
     const auto compatible = [&](const VertexSeed& vertex, Scalar scattering, Scalar spanX, Scalar highland) {
       const auto& cut = mParameters->pairCut;
-      if constexpr (Displaced) {
-        if (!(betweenBound > 0.F)) {
-          return displacedCompatible(vertex, source, scattering, target, 0.F);
-        }
-        const auto pair = betweenOf(vertex, spanX, highland);
-        return displacedCompatible(vertex, source, scattering * pair.sourceScale, target, pair.between);
-      }
       // Counting only: the cascade's stages split by the window.
       const auto countStages = [&](Scalar betweenScatter) {
         if constexpr (kWorkCounters) {
@@ -760,22 +719,6 @@ class TrackletStage
     return false;
   }
 
-  /// A displaced iteration's pair test (`displacedPairOf`), counted.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool displacedCompatible(const VertexSeed& vertex, const PairPoint& source, Scalar scattering, const PairPoint& target, Scalar between) const
-  {
-    countWork(WorkCounter::kPairTests);
-    const auto result = displacedPairOf(*mParameters, vertex, source, scattering, target, between);
-    if (!result.transverse) {
-      return false;
-    }
-    countWork(WorkCounter::kPairTransverse);
-    if (!result.longitudinal) {
-      return false;
-    }
-    countWork(WorkCounter::kPairLongitudinal);
-    return true;
-  }
-
   template <typename Source, typename Target, typename Emitter>
   GPUhdi() GPUAlwaysInline() void emit(Index sourceRow, Index targetRow, std::size_t linkIndex, const Source& source, const Target& target, Emitter& emitter) const
   {
@@ -819,22 +762,18 @@ class TrackletStage
 };
 
 /// The tracklet stage a tracker runs for an iteration: the beam-line one
-/// for a beam-line iteration, its displaced one for a displaced iteration,
-/// the general one otherwise; each testing the shapes with \a Shape, the
-/// prompt beam-line one with disc windows per source with \a DiscWindow.
-template <DetectorLayout Det, bool BeamLine, bool Displaced = false, bool Shape = false, bool DiscWindow = false>
-using TrackletStageFor = std::conditional_t<BeamLine, TrackletStage<Det, 1U, true, Displaced, Shape, DiscWindow>, TrackletStage<Det, 8U, false, false, Shape>>;
+/// for a beam-line iteration, the general one otherwise; each testing the
+/// shapes with \a Shape, the beam-line one with disc windows per source with
+/// \a DiscWindow.
+template <DetectorLayout Det, bool BeamLine, bool Shape = false, bool DiscWindow = false>
+using TrackletStageFor = std::conditional_t<BeamLine, TrackletStage<Det, 1U, true, Shape, DiscWindow>, TrackletStage<Det, 8U, false, Shape>>;
 
-/// \a body called with two `std::bool_constant`s: whether the iteration is a
-/// beam-line one (\a source), and whether it is displaced (\a displaced, on
-/// the beam line only): the choice of `TrackletStageFor`, host code.
+/// \a body called with a `std::bool_constant`: whether the iteration is a
+/// beam-line one (\a source), the choice of `TrackletStageFor`, host code.
 template <typename Body>
-decltype(auto) withTrackletVertices(VertexSource source, bool displaced, const Body& body)
+decltype(auto) withTrackletVertices(VertexSource source, const Body& body)
 {
-  if (source == VertexSource::kBeamLine) {
-    return displaced ? body(std::true_type{}, std::true_type{}) : body(std::true_type{}, std::false_type{});
-  }
-  return body(std::false_type{}, std::false_type{});
+  return source == VertexSource::kBeamLine ? body(std::true_type{}) : body(std::false_type{});
 }
 
 /// \a body called with a `std::bool_constant`: whether the iteration tests
@@ -847,7 +786,7 @@ decltype(auto) withShapeTest(bool shapeTest, const Body& body)
 
 /// \a body called with a `std::bool_constant`: whether the iteration takes
 /// the disc windows per source (\a discWindow, its minimum momentum above 0), the choice of the tracklet
-/// stage's DiscWindow; only where \a Possible, a prompt beam-line stage
+/// stage's DiscWindow; only where \a Possible, a beam-line stage
 /// (`iterationParameters` refuses it elsewhere), host code.
 template <bool Possible, typename Body>
 decltype(auto) withDiscWindow(bool discWindow, const Body& body)

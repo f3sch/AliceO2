@@ -24,6 +24,16 @@
 #include <memory>
 #include <span>
 
+namespace o2::gtrk
+{
+
+/// The consecutive source elements one host task of a stage takes: small
+/// enough that the threads share a stage's work evenly, large enough that a
+/// task's overhead stays small beside its work.
+inline constexpr std::uint32_t kHostChunkSize = 256U;
+
+} // namespace o2::gtrk
+
 namespace o2::gtrk::detail
 {
 

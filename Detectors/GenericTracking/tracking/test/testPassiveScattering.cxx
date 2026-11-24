@@ -102,7 +102,6 @@ SearchWindowParams windowParams()
   SearchWindowParams params;
   params.minPtGeV = kMinPtGeV;
   params.bzKiloGauss = kBzKiloGauss;
-  params.positionSigma = 5.e-4;
   return params;
 }
 

@@ -30,6 +30,7 @@
 #include "GenericTracking/Workflow/FrameSelection.h"
 #include "GenericTracking/Workflow/GeometryProvider.h"
 #include "GenericTracking/Workflow/GridConfig.h"
+#include "GenericTracking/Workflow/MaterialLUT.h"
 #include "GenericTracking/Workflow/MeasurementProducerSpec.h"
 #include "GenericTracking/Workflow/RecoParam.h"
 
@@ -92,7 +93,7 @@ class MeasurementProducerTask : public o2::framework::Task
  public:
   using Selection = typename FrameSelectionOf<Det>::type;
 
-  MeasurementProducerTask(std::shared_ptr<Conditions<Det>> conditions, bool testsShapes) : mConditions(std::move(conditions)), mTestsShapes(testsShapes) {}
+  MeasurementProducerTask(std::shared_ptr<Conditions<Det, true>> conditions, bool testsShapes) : mConditions(std::move(conditions)), mTestsShapes(testsShapes) {}
 
   void init(o2::framework::InitContext& ic) final
   {
@@ -126,8 +127,9 @@ class MeasurementProducerTask : public o2::framework::Task
       mFrames = mConditions->frameTiming();
     }
     // The timeframe's beam line, its MeanVertex's where the detector has one,
-    // and the grid's layout, derived from the configuration and it: rebuilt
-    // when it changes, whatever order the timeframes come in.
+    // and the grid's layout, derived from the configuration, it and the
+    // material LUT (the queries' scattering sizes the cells): rebuilt when it
+    // changes, whatever order the timeframes come in.
     auto beamLine = nominalBeamLine();
     if constexpr (Conditions<Det>::kMeanVertex) {
       beamLine = beamLineOf(*pc.inputs().get<o2::dataformats::MeanVertexObject*>("meanVertex"));
@@ -135,7 +137,14 @@ class MeasurementProducerTask : public o2::framework::Task
     if (!mGrid || beamLine != mBeamLine) {
       mBeamLine = beamLine;
       LOGP(info, "the beam line, subtracted from every measurement's x and y: {}", describe(mBeamLine));
-      mGrid.emplace(makeGridGeometry<Det>(recoParam<Det>(), mBeamLine, mFrames, mConditions->orbitsPerTimeframe()));
+      const auto* lut = mConditions->materialLut();
+      if (lut == nullptr) {
+        throw std::runtime_error(std::format("{}: no material LUT from the CCDB ({})", Det::name, materialLutPath<Det>()));
+      }
+      // The trackers' link material, held only while the grid is derived.
+      const auto material = std::make_unique<LinkMaterial<Det>>();
+      fillRunLinkMaterial<Det>(*material, recoParam<Det>(), beamSpotConstraint(mBeamLine, recoParam<Det>()), *lut);
+      mGrid.emplace(makeGridGeometry<Det>(recoParam<Det>(), mBeamLine, mFrames, mConditions->orbitsPerTimeframe(), *material));
       std::string cells;
       std::string frames;
       for (std::size_t layer = 0; layer < GridGeometry<Det>::kLayerCount; ++layer) {
@@ -275,13 +284,13 @@ class MeasurementProducerTask : public o2::framework::Task
   }
 
  private:
-  std::unique_ptr<const Geometry<Det>> mGeometry; ///< placed on the first timeframe, once the conditions are in
-  BeamLine mBeamLine;                             ///< the last timeframe's
-  std::optional<GridGeometry<Det>> mGrid;         ///< the grid's layout, derived from the configuration and mBeamLine
-  std::vector<FrameTiming> mFrames;               ///< each layer's readout frames, from the conditions
-  std::shared_ptr<Conditions<Det>> mConditions;   ///< the run's field, geometry and frames (Conditions.h)
-  bool mTestsShapes = false;                      ///< whether a pass tests the cluster shapes, which takes the detector's band
-  const ClusterShapeBand* mShapeBand = nullptr;   ///< the CCDB cache's, with a pass that tests the shapes
+  std::unique_ptr<const Geometry<Det>> mGeometry;     ///< placed on the first timeframe, once the conditions are in
+  BeamLine mBeamLine;                                 ///< the last timeframe's
+  std::optional<GridGeometry<Det>> mGrid;             ///< the grid's layout, derived from the configuration and mBeamLine
+  std::vector<FrameTiming> mFrames;                   ///< each layer's readout frames, from the conditions
+  std::shared_ptr<Conditions<Det, true>> mConditions; ///< the run's field, geometry, frames and material LUT (Conditions.h)
+  bool mTestsShapes = false;                          ///< whether a pass tests the cluster shapes, which takes the detector's band
+  const ClusterShapeBand* mShapeBand = nullptr;       ///< the CCDB cache's, with a pass that tests the shapes
 };
 
 template <DetectorLayout Det>
@@ -297,7 +306,7 @@ o2::framework::DataProcessorSpec getMeasurementProducerSpec()
   static_assert(std::is_trivially_copyable_v<MeasurementGeometry<Det>>, "shipped as it is");
 
   std::vector<InputSpec> inputs{InputSpec{"clusters", gDataOrigin, description<Det>(kClusters), 0, Lifetime::Timeframe}};
-  auto conditions = std::make_shared<Conditions<Det>>(inputs);
+  auto conditions = std::make_shared<Conditions<Det, true>>(inputs);
   if constexpr (Conditions<Det>::kMeanVertex) {
     inputs.emplace_back("meanVertex", "GLO", "MEANVERTEX", 0, Lifetime::Condition, ccdbParamSpec("GLO/Calib/MeanVertex", {}, 1));
   }

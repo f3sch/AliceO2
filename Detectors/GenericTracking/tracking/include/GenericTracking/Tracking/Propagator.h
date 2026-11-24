@@ -160,21 +160,6 @@ GPUhdi() GPUAlwaysInline() T offCentreSquared(const TrackingSurface& to, const T
   return (loc[0] * loc[0]) + (loc[1] * loc[1]);
 }
 
-/// A crossing as the other crossing rules see it (`CrossingRule`): its
-/// squared distance from the target's centre, as `offCentreSquared`, and
-/// whether it lies inside the sensor's bounds.
-struct CrossingPlace {
-  ExactScalar offCentre2 = 0.;
-  bool inside = false;
-};
-template <typename T = ExactScalar>
-GPUhdi() GPUAlwaysInline() CrossingPlace crossingPlace(const TrackingSurface& to, const T fromTarget[3], const T dxy[2], T dz)
-{
-  T loc[2];
-  crossingLocal(to, fromTarget, dxy, dz, loc);
-  return {.offCentre2 = (loc[0] * loc[0]) + (loc[1] * loc[1]), .inside = to.bounds.isInside(static_cast<Scalar>(loc[0]), static_cast<Scalar>(loc[1]))};
-}
-
 } // namespace detail
 
 /// Advance \a state from the plane it is bound to onto \a to.
@@ -198,11 +183,7 @@ GPUhdi() GPUAlwaysInline() CrossingPlace crossingPlace(const TrackingSurface& to
 /// continue with a meaningless state. kOutOfBounds updates because the bound
 /// is reported rather than enforced: a fit may want the intersection, a
 /// search will not.
-///
-/// \a Rule is which of a barrel plane's two crossings is taken
-/// (`CrossingRule`); the default takes the first root ahead, and the others
-/// are their own instantiations.
-template <CrossingRule Rule = CrossingRule::kFirstAhead, typename Solve = ExactScalar>
+template <typename Solve = ExactScalar>
 GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& state, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection dir, detail::PropagationTrig* referenceTrig = nullptr)
 {
   using Math = o2::gpu::GPUCommonMath;
@@ -350,19 +331,10 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
     // crossing while still running the right way, in which case nothing is
     // reported and the update simply sees a large residual. A looper's inward
     // refit from its way back onto an outer barrel layer of its way out does
-    // exactly that, and fails a step or two later. The other rules (`CrossingRule`) look at the second root even when
-    // the first lies ahead: kNearerCentre takes it where it lies ahead and
-    // nearer the centre, kInsideFirst only where the first is outside the
-    // sensor and the second inside or, neither inside, nearer the centre.
-    // Selecting on the bounds moves the chosen root at the sensor edge, where
-    // testCovarianceTransport takes a derivative by finite differences; the
-    // ties go to the first root.
-    // The default: the first root, unless it is not usable and the second
-    // lands nearer the centre. The other rules, each its own instantiation:
-    // the second where the rule moves off the first.
-    [[maybe_unused]] auto firstOffCentre = Solve{0}; // NOLINT(misc-const-correctness): written in a dependent call the check does not see
-    [[maybe_unused]] detail::CrossingPlace first;    // NOLINT(misc-const-correctness): written in a dependent call the check does not see
-    [[maybe_unused]] bool firstAhead = false;        // NOLINT(misc-const-correctness): written in a dependent call the check does not see
+    // exactly that, and fails a step or two later.
+    // So: the first root, unless it is not usable and the second lands nearer
+    // the centre.
+    auto firstOffCentre = Solve{0};
     for (int root = 0; root < 2; ++root) {
       const Solve mu = root == 0 ? cCoef / den : den / quadratic;
       const Solve tryDxy[2] = {-a * nx + mu * tx, -a * ny + mu * ty};
@@ -386,23 +358,8 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
 
       const bool usable = isFiniteOf(static_cast<Scalar>(tryPath)) && tryPath * static_cast<Solve>(static_cast<int>(dir)) >= Solve{0};
       bool take = root == 0;
-      if constexpr (Rule == CrossingRule::kFirstAhead) {
-        if (root != 0) {
-          take = usable && detail::offCentreSquared<Solve>(to, fromTarget, tryDxy, tryPath * cosTheta) < firstOffCentre;
-        }
-      } else {
-        const auto place = detail::crossingPlace<Solve>(to, fromTarget, tryDxy, tryPath * cosTheta);
-        if (root == 0) {
-          first = place;
-          firstAhead = usable;
-        } else if constexpr (Rule == CrossingRule::kInsideFirst) {
-          // The first, if ahead, is outside: the second if it is inside or,
-          // neither inside, nearer the centre; with the first behind, as the
-          // default.
-          take = usable && (place.offCentre2 < first.offCentre2 || (firstAhead && place.inside));
-        } else {
-          take = usable && place.offCentre2 < first.offCentre2;
-        }
+      if (root != 0) {
+        take = usable && detail::offCentreSquared<Solve>(to, fromTarget, tryDxy, tryPath * cosTheta) < firstOffCentre;
       }
       if (take) {
         dxy[0] = tryDxy[0];
@@ -412,17 +369,11 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
         turnSin = trySin;
         turnCos = tryCos;
       }
-      if constexpr (Rule == CrossingRule::kFirstAhead) {
-        if (root == 0) {
-          if (usable) {
-            break; // the overwhelming majority: nothing below is reached or paid for
-          }
-          firstOffCentre = detail::offCentreSquared<Solve>(to, fromTarget, tryDxy, tryPath * cosTheta);
+      if (root == 0) {
+        if (usable) {
+          break; // the overwhelming majority: nothing below is reached or paid for
         }
-      } else if constexpr (Rule == CrossingRule::kInsideFirst) {
-        if (root == 0 && usable && first.inside) {
-          break;
-        }
+        firstOffCentre = detail::offCentreSquared<Solve>(to, fromTarget, tryDxy, tryPath * cosTheta);
       }
     }
   }

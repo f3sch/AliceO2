@@ -29,9 +29,8 @@
 /// A pair -- the inner and the outer track -- is taken where the two hold no
 /// layer in common, their rows fit a chain, their time boxes overlap, their
 /// charges agree, and their rows, the inner's then the outer's, refitted
-/// (`fitMeasurements`, the inner track's iteration's crossing rule) with a kink
-/// budget of the two tracks' own kinks and one more (the inner's iteration's
-/// kink gate) pass the road's chi2 cut both ways at their ndf. Its score is
+/// (`fitMeasurements`) with a kink budget of the two tracks' own kinks and
+/// one more (the inner's iteration's kink gate) pass the road's chi2 cut both ways at their ndf. Its score is
 /// the fit's deterioration, chi2(joined) - chi2(inner) - chi2(outer), per
 /// degree of freedom the join adds. Each piece keeps its pair of the least
 /// score, each earlier track the piece of the least score that chose it
@@ -121,8 +120,8 @@ GPUhdi() std::uint64_t reached(const IterationParameters<Det>& parameters, Layer
 }
 
 /// The joined rows of \a inner then \a outer of \a tracks into \a rows
-/// (\a count of them), refitted with \a parameters' crossing rule and a kink
-/// budget of the two tracks' kinks and one more.
+/// (\a count of them), refitted with a kink budget of the two tracks' kinks
+/// and one more (\a parameters' kink gate).
 template <DetectorLayout Det, typename Tracks>
 GPUhdi() TrackFitResult joinedFit(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, const Tracks& tracks, std::uint32_t inner, std::uint32_t outer, ClusterList<maxChainLayers<Det>>& rows, std::uint8_t& count)
 {
@@ -134,9 +133,7 @@ GPUhdi() TrackFitResult joinedFit(const IterationParameters<Det>& parameters, co
     rows.index[count++] = tracks.clusters[outer].index[i];
   }
   const KinkBudget budget{.max = static_cast<int>(tracks.kinks[inner]) + static_cast<int>(tracks.kinks[outer]) + 1, .gate = parameters.kinkChi2Min};
-  return withCrossingRule(parameters.crossingRule, [&]<CrossingRule Rule>(std::integral_constant<CrossingRule, Rule>) {
-    return fitMeasurements<Rule>(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows.index}, static_cast<int>(count), budget);
-  });
+  return fitMeasurements(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows.index}, static_cast<int>(count), budget);
 }
 
 /// The pair \a inner, \a outer of \a tracks: its score, infinity where it is

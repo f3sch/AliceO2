@@ -209,7 +209,7 @@ class TrackingInterface
       configureMaterial(conditions.material);
     }
     const auto beamSpot = beamSpotConstraint(mBeamLine, param);
-    const auto chunkSize = static_cast<typename Controller::Index>(std::max(param.trackletChunkSize, 1));
+    const auto chunkSize = static_cast<typename Controller::Index>(kHostChunkSize);
     // The tracker takes each iteration's configured source.
     std::vector<IterationSettings> settings;
     for (int iteration = 0; iteration < iterationCount(param); ++iteration) {
@@ -229,7 +229,7 @@ class TrackingInterface
     if (!mTracking) {
       mTracking = std::make_unique<TrackingGeometry<Det>>(*mGeometry);
     }
-    configureLinkMaterial(settings, param, beamSpot);
+    configureLinkMaterial(param, beamSpot);
     // One pool for the vertexer and the tracker: memoryLimitGB bounds what
     // both hold at once (the vertexer's pass stays while the tracking runs).
     mPool = trackerMemoryPool(param);
@@ -432,23 +432,10 @@ class TrackingInterface
   /// The seeding's, the follow's and the fits' material (LinkMaterial.h) from
   /// the LUT and the placed layers, over the vertices' z every iteration and
   /// the vertexer reach about \a beamSpot: on every beam line.
-  void configureLinkMaterial(const std::vector<IterationSettings>& settings, const RecoSettings& param, const VertexConstraint& beamSpot)
+  void configureLinkMaterial(const RecoSettings& param, const VertexConstraint& beamSpot)
   {
-    Interval vertexZ{.low = beamSpot.z, .high = beamSpot.z};
-    const auto widen = [&](const IterationSettings& iteration) {
-      const auto reach = vertexReach(iteration.windows, beamSpot);
-      vertexZ.low = std::min(vertexZ.low, reach.low);
-      vertexZ.high = std::max(vertexZ.high, reach.high);
-    };
-    for (const auto& iteration : settings) {
-      widen(iteration);
-    }
-    if (param.vertexer) {
-      widen(vertexingPassSettings(param));
-    }
     const auto filling = std::chrono::steady_clock::now();
-    detail::TaskArena arena{std::max(param.threads, 0)};
-    fillLinkMaterial<Det>(mTracking->material(), *mMaterial, vertexZ, arena);
+    const auto vertexZ = fillRunLinkMaterial<Det>(mTracking->material(), param, beamSpot, *mMaterial);
     LOGP(info, "the link material: {} layers, {} links, vertices at z {:.2f} .. {:.2f} cm, {:.1f} MB, filled in {:.2f} s", LinkMaterial<Det>::kLayers, LinkMaterial<Det>::kLinks, vertexZ.low, vertexZ.high, sizeof(LinkMaterial<Det>) / 1e6, std::chrono::duration<double>(std::chrono::steady_clock::now() - filling).count());
     const auto bands = detail::lutBands<Det>(*mMaterial);
     LOGP(info, "its layers' bands in the LUT's cells:\n{}", describeBands(bands, Detector<Det>::nBarrelLayers));

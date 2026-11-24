@@ -462,10 +462,9 @@ enum class AzimuthBound : std::uint8_t { kLargest,
 /// \a from -> \a to: the largest `K(x) (1 - 2 <f> + <f^2>) L^2` over the
 /// link's source and target bins a pair can join, each with the longest chord
 /// between them (their corners on the layers' nominal surfaces), at pT_min
-/// (`g >= 1`), its azimuth bins taken by \a azimuth. A prompt iteration's
-/// pairs leave from the link's source interval toward the line from the
-/// vertex reach through the source, a bin either side; a displaced one's from
-/// anywhere to anywhere. Zero if its gaps hold nothing.
+/// (`g >= 1`), its azimuth bins taken by \a azimuth. The pairs leave from the
+/// link's source interval toward the line from the vertex reach through the
+/// source, a bin either side. Zero if its gaps hold nothing.
 template <DetectorLayout Det>
 [[nodiscard]] inline double betweenKinkBound(const LinkMaterial<Det>& material, const SearchWindowParams& params, LayerID from, LayerID to, const VertexConstraint& vertex, AzimuthBound azimuth)
 {
@@ -485,7 +484,6 @@ template <DetectorLayout Det>
   const auto& targetAxis = material.layerSecond[to];
   // A layer point at second coordinate c, as (r, z).
   const auto rz = [](bool barrel, double position, double c) { return barrel ? std::pair{position, c} : std::pair{c, position}; };
-  const bool displaced = params.impactMax > 0.;
   const auto& pair = Det::layerLinks[link];
   const Interval reach = vertexReach(params, vertex);
   // The target coordinate the line from a vertex at zv through a source point reaches.
@@ -500,7 +498,7 @@ template <DetectorLayout Det>
   for (int s = 0; s < Table::kSourceSecond; ++s) {
     const double s0 = sourceAxis.low + (s / sourceAxis.perUnit);
     const double s1 = sourceAxis.low + ((s + 1) / sourceAxis.perUnit);
-    if (!displaced && (s1 < pair.sourceMin || s0 > pair.sourceMax)) {
+    if (s1 < pair.sourceMin || s0 > pair.sourceMax) {
       continue;
     }
     double low = std::numeric_limits<double>::infinity();
@@ -514,11 +512,11 @@ template <DetectorLayout Det>
         }
       }
     }
-    if (!displaced && !(low <= high)) {
+    if (!(low <= high)) {
       continue;
     }
-    const int tLow = displaced ? 0 : std::max(0, targetAxis.bin(static_cast<Scalar>(low), Table::kSecond) - 1);
-    const int tHigh = displaced ? Table::kSecond - 1 : std::min(Table::kSecond - 1, targetAxis.bin(static_cast<Scalar>(high), Table::kSecond) + 1);
+    const int tLow = std::max(0, targetAxis.bin(static_cast<Scalar>(low), Table::kSecond) - 1);
+    const int tHigh = std::min(Table::kSecond - 1, targetAxis.bin(static_cast<Scalar>(high), Table::kSecond) + 1);
     for (int t = tLow; t <= tHigh; ++t) {
       const double t0 = targetAxis.low + (t / targetAxis.perUnit);
       const double t1 = targetAxis.low + ((t + 1) / targetAxis.perUnit);
@@ -543,9 +541,9 @@ template <DetectorLayout Det>
   return std::sqrt(largest * betaMomentumFactor(params)) / params.minPtGeV;
 }
 
-/// The window a pair query uses: its phi and second-coordinate half-widths
-/// hold what the pair tests accept with \a material's scattering, not only
-/// the uniform material the grid's cells are sized with.
+/// The window a pair query uses, and the one that sizes the grid's cells
+/// (GridSizing.h): its phi and second-coordinate half-widths hold what the
+/// pair tests accept with \a material's scattering.
 template <DetectorLayout Det>
 [[nodiscard]] inline LayerPairWindow layerPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, const LinkMaterial<Det>& material)
 {

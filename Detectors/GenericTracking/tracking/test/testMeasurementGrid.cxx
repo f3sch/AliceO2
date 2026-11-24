@@ -93,12 +93,10 @@ BOOST_AUTO_TEST_CASE(VertexConstraintMovesAndWidensThePairWindow)
 {
   SearchWindowParams params;
   params.minPtGeV = 1.;
-  params.materialX2X0 = 0.;
-  params.positionSigma = 0.;
   params.nSigma = 1.;
 
-  const VertexConstraint pointVertex{.z = 1.5, .sigmaZ = 0.};
-  const auto pointWindow = layerPairWindow<Toy>(0, 1, params, pointVertex);
+  const VertexConstraint pointVertex{.z = 1.5, .sigmaZ = 0., .sigmaTransverse = 0.};
+  const auto pointWindow = layerPairWindow<Toy>(0, 1, params, pointVertex, noMaterial<Toy>());
 
   BOOST_TEST(pointWindow.secondScale == 2.F, boost::test_tools::tolerance(1e-6F));
   BOOST_TEST(pointWindow.secondOffset == -1.5F, boost::test_tools::tolerance(1e-6F));
@@ -113,13 +111,13 @@ BOOST_AUTO_TEST_CASE(VertexConstraintMovesAndWidensThePairWindow)
   BOOST_TEST(candidate.secondCentre == 2.5F, boost::test_tools::tolerance(1e-6F));
 
   const VertexConstraint broadVertex{.z = 1.5, .sigmaZ = 1.};
-  const auto broadWindow = layerPairWindow<Toy>(0, 1, params, broadVertex);
+  const auto broadWindow = layerPairWindow<Toy>(0, 1, params, broadVertex, noMaterial<Toy>());
   BOOST_TEST(broadWindow.secondHalfWidth > pointWindow.secondHalfWidth);
 
   constexpr LayerID kFirstPositiveDisc = 8;
   constexpr LayerID kSecondPositiveDisc = 9;
-  const auto centralDiscWindow = layerPairWindow<Mixed>(kFirstPositiveDisc, kSecondPositiveDisc, params, VertexConstraint{.z = 0., .sigmaZ = 0.});
-  const auto displacedDiscWindow = layerPairWindow<Mixed>(kFirstPositiveDisc, kSecondPositiveDisc, params, VertexConstraint{.z = 10., .sigmaZ = 0.});
+  const auto centralDiscWindow = layerPairWindow<Mixed>(kFirstPositiveDisc, kSecondPositiveDisc, params, VertexConstraint{.z = 0., .sigmaZ = 0.}, noMaterial<Mixed>());
+  const auto displacedDiscWindow = layerPairWindow<Mixed>(kFirstPositiveDisc, kSecondPositiveDisc, params, VertexConstraint{.z = 10., .sigmaZ = 0.}, noMaterial<Mixed>());
   // The lever arm between the discs' measured positions (26 / 22 cm nominal,
   // moved by their rings' offsets), from the vertex.
   const double first = discZ<Mixed>(kFirstPositiveDisc);
@@ -135,18 +133,16 @@ BOOST_AUTO_TEST_CASE(CrossingWindowFollowsTheSeed)
 {
   SearchWindowParams params;
   params.minPtGeV = 1.;
-  params.materialX2X0 = 0.;
-  params.positionSigma = 0.;
   params.nSigma = 3.;
   // A vertex range of +-3 cm.
-  const VertexConstraint beamSpot{.z = 0., .sigmaZ = 1.};
+  const VertexConstraint beamSpot{.z = 0., .sigmaZ = 1., .sigmaTransverse = 0.};
   const auto seed = test::toyTimeBox(0.);
   constexpr LayerID kInnermostBarrel = 0;
   constexpr LayerID kOuterBarrel = 3;
   constexpr LayerID kFirstPositiveDisc = 8;
 
   // Barrel 0 -> the +22 cm disc: r_j = r_i (Z - z_v) / (z_i - z_v).
-  const auto toDisc = layerPairWindow<Mixed>(kInnermostBarrel, kFirstPositiveDisc, params, beamSpot);
+  const auto toDisc = layerPairWindow<Mixed>(kInnermostBarrel, kFirstPositiveDisc, params, beamSpot, noMaterial<Mixed>());
   BOOST_TEST((toDisc.kind == PairKind::kBarrelToDisc));
   const double zLow = zMin<Mixed>(kFirstPositiveDisc);
   const double zHigh = zMax<Mixed>(kFirstPositiveDisc);
@@ -168,7 +164,7 @@ BOOST_AUTO_TEST_CASE(CrossingWindowFollowsTheSeed)
   BOOST_TEST(static_cast<double>(near.secondCentre - near.secondHalfWidth) == (3. * (zLow + 3.) / (static_cast<double>(2.9F) + 3.)) - helix, boost::test_tools::tolerance(1e-5));
 
   // The +22 cm disc -> barrel layer 3: z_j = z_v + (z_i - z_v) R / r_i.
-  const auto toBarrel = layerPairWindow<Mixed>(kFirstPositiveDisc, kOuterBarrel, params, beamSpot);
+  const auto toBarrel = layerPairWindow<Mixed>(kFirstPositiveDisc, kOuterBarrel, params, beamSpot, noMaterial<Mixed>());
   BOOST_TEST((toBarrel.kind == PairKind::kDiscToBarrel));
   const auto back = candidateWindow(toBarrel, seed, 0.F, 14.F, 22.F, seed.width);
   const double rLow = radiusMin<Mixed>(kOuterBarrel);
@@ -353,10 +349,10 @@ BOOST_AUTO_TEST_CASE(ALayerIsSizedByTheQueriesIntoIt)
   const VertexConstraint beam{.z = 0., .sigmaZ = 6., .sigmaTransverse = 0.002};
   const SearchWindowParams low{.minPtGeV = 0.1, .bzKiloGauss = 5.};
   const SearchWindowParams high{.minPtGeV = 1., .bzKiloGauss = 5.};
-  const auto pair = [&](LayerID from, LayerID to, const SearchWindowParams& windows) { return layerPairWindow<Toy>(from, to, windows, beam); };
+  const auto pair = [&](LayerID from, LayerID to, const SearchWindowParams& windows) { return layerPairWindow<Toy>(from, to, windows, beam, noMaterial<Toy>()); };
   const auto sizes = [&](std::initializer_list<IterationSettings> iterations) {
     const std::vector<IterationSettings> list{iterations};
-    return gridLayerWindows<Toy>(list, beam);
+    return gridLayerWindows<Toy>(list, beam, noMaterial<Toy>());
   };
 
   // Tracklet queries only: into each link's target; layer 0 is not searched

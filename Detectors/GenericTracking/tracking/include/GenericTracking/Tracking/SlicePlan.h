@@ -250,8 +250,7 @@ struct SeedingReach {
 /// links it takes (its out-link lists, `takenLinks`), with the triplets' time
 /// cut (`chainReach`); of their gates and of their halos the largest. A
 /// chain -- tracklet, triplet, neighbour, road, and the chains into a road its
-/// levels count -- belongs to one iteration (an iteration on its
-/// predecessor's graph, `sharedGraph`, takes the same links) and lies on its
+/// levels count -- belongs to one iteration and lies on its
 /// taken links, every three consecutive measurements a triplet; so a link no
 /// iteration takes, or a path through two iterations' links, widens no gate.
 /// The gate is each iteration's `R+ + R-`, and the largest of those -- not

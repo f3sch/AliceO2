@@ -223,7 +223,7 @@ BOOST_AUTO_TEST_CASE(CrossingLinksDoNotCollapseTheGrid)
   SearchWindowParams windows;
   windows.minPtGeV = 1.;
   const IterationSettings tracklets{.windows = windows, .follow = false};
-  const auto layers = gridLayerWindows<ToyBarrel4Disc8>(std::span<const IterationSettings>{&tracklets, 1U}, VertexConstraint{.sigmaZ = 1.});
+  const auto layers = gridLayerWindows<ToyBarrel4Disc8>(std::span<const IterationSettings>{&tracklets, 1U}, VertexConstraint{.sigmaZ = 1.}, noMaterial<ToyBarrel4Disc8>());
   const GridGeometry<ToyBarrel4Disc8> grid{100'000, test::withToyFrames(GridParams{.blockWidth = 100'000}), layers};
   for (int layer = 0; layer < Detector<ToyBarrel4Disc8>::nLayers; ++layer) {
     const auto id = static_cast<LayerID>(layer);
@@ -284,10 +284,10 @@ BOOST_AUTO_TEST_CASE(EdgeOnlyLinksDoNotSizeTheGrid)
   windows.bzKiloGauss = 20.;
   const IterationSettings without{.windows = windows, .minClusters = 2, .skipLinks = false, .follow = false};
   const IterationSettings with{.windows = windows, .minClusters = 2, .skipLinks = true, .follow = false};
-  const auto noSkips = gridLayerWindows<PastTheEnd>(std::span<const IterationSettings>{&without, 1U}, VertexConstraint{});
-  const auto skips = gridLayerWindows<PastTheEnd>(std::span<const IterationSettings>{&with, 1U}, VertexConstraint{});
-  const auto adjacent = layerPairWindow<PastTheEnd>(1, 2, windows, VertexConstraint{});
-  const auto skipping = layerPairWindow<PastTheEnd>(0, 2, windows, VertexConstraint{});
+  const auto noSkips = gridLayerWindows<PastTheEnd>(std::span<const IterationSettings>{&without, 1U}, VertexConstraint{}, noMaterial<PastTheEnd>());
+  const auto skips = gridLayerWindows<PastTheEnd>(std::span<const IterationSettings>{&with, 1U}, VertexConstraint{}, noMaterial<PastTheEnd>());
+  const auto adjacent = layerPairWindow<PastTheEnd>(1, 2, windows, VertexConstraint{}, noMaterial<PastTheEnd>());
+  const auto skipping = layerPairWindow<PastTheEnd>(0, 2, windows, VertexConstraint{}, noMaterial<PastTheEnd>());
   BOOST_REQUIRE(skipping.phiHalfWidth > adjacent.phiHalfWidth);
   BOOST_TEST(noSkips[2].phiHalfWidth == static_cast<double>(adjacent.phiHalfWidth));
   BOOST_TEST(skips[2].phiHalfWidth == static_cast<double>(skipping.phiHalfWidth));
