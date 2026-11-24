@@ -73,7 +73,7 @@ constexpr std::size_t kMeasurements = (3U * kTracks) + (3U * kNoisePerLayer);
 
 using InputPoint = test::FramePoint;
 
-SearchWindowParams windowParameters() { return test::toyWindows(0.003); }
+SearchWindowParams windowParameters() { return test::toyWindows(); }
 
 /// The toy's three layers make triplets and no road: its chains are 3
 /// clusters, or no link would be taken (`takenLinks`).

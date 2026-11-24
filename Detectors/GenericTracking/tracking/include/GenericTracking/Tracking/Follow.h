@@ -475,14 +475,14 @@ GPUhdi() bool predictedWindow(const Prop& prop, const IterationParameters<Det>& 
   }
   Scalar predictedCov[kBoundCovSize]{};
   covarianceFromFactors(predictedFactors, predictedCov);
-  const Scalar variance0 = predictedCov[varIndex(kLoc0)] + parameters.followPositionVariance;
-  const Scalar variance1 = predictedCov[varIndex(kLoc1)] + parameters.followPositionVariance;
+  const Scalar variance0 = predictedCov[varIndex(kLoc0)];
+  const Scalar variance1 = predictedCov[varIndex(kLoc1)];
   if (!(variance0 > 0.F) || !(variance1 > 0.F)) {
     return false;
   }
-  // The window spans what the update's gate admits on one axis,
-  // sqrt(clusterChi2Max), not the pair cut's nSigma: a row the gate takes is
-  // never outside the window.
+  // The window spans the prediction's variance at what the update's gate
+  // admits on one axis, sqrt(clusterChi2Max), not the pair cut's nSigma; the
+  // row's own variance, which the gate adds, is not in it.
   const Scalar nSigma = Math::Sqrt(parameters.clusterChi2Max);
   const Scalar phiSpread = nSigma * Math::Sqrt(barrel ? variance0 : variance1) / radius;
   const Scalar secondSpread = nSigma * Math::Sqrt(barrel ? variance1 : variance0);
@@ -887,11 +887,7 @@ struct Target {
 ///    made from there: the rows it confirms rank first, by their chi2 plus
 ///    the confirming row's; the others by their chi2; then the row.
 ///  - **The unconfirmed drop.** A direction whose last step crossed a sensor without a row
-///    drops its last row, which nothing confirms -- unless, inward, that step
-///    saw a row near: one within its window the update refused above the
-///    gate (inward the sensor usually held the particle's row, refused;
-///    outward the row near is a noise row too often). The row seen is not
-///    taken.
+///    drops its last row, which nothing confirms.
 ///
 /// Inward starts from the inner state updated with the beam line where the
 /// iteration has the beam constraint (\a BeamLine, its own instantiation),
@@ -1052,8 +1048,6 @@ class FollowStage
     branch.state = static_cast<const BoundParameters&>(start); // the covariance travels as its factors
     branch.factors = factorCovariance(start.cov);
     auto end = FollowEnd::kCapacity;
-    // Whether the latest step saw a row near where it took none (the unconfirmed drop, below).
-    bool nearMiss = false;
     // The inactive layers' tail resumes from the state and time box before
     // the last row when the unconfirmed drop removes it.
     [[maybe_unused]] BoundParameters beforeLast = branch.state;            // NOLINT(misc-const-correctness): written only for layouts with inactive layers
@@ -1069,9 +1063,8 @@ class FollowStage
         break;
       }
       branch.crossed = false;
-      nearMiss = false;
       Child child;
-      if (nominal(branch, box, direction, targets, nTargets, child, nearMiss, observe, group)) {
+      if (nominal(branch, box, direction, targets, nTargets, child, observe, group)) {
         observe.taken(child.row, child.chi2);
         if constexpr (Detector<Det>::inactiveLayers != 0U) {
           beforeLast = branch.state;
@@ -1084,15 +1077,11 @@ class FollowStage
       end = branch.holes > mParameters->followHoles ? FollowEnd::kHoles : FollowEnd::kNoRow;
       break;
     }
-    // The unconfirmed drop: the last step crossed a sensor
-    // without a row; the last row, which nothing confirms, goes -- unless,
-    // inward, the step saw a row near (inward that row is almost always the
-    // particle's own, outward a noise row often enough to add fakes, so
-    // the outward unconfirmed drop stands).
-    const bool evidence = direction == PropagationDirection::kBackward && nearMiss;
-    // Also an outward last row of a high density stays (`densityKept`).
+    // The unconfirmed drop: the last step crossed a sensor without a row; the
+    // last row, which nothing confirms, goes -- unless, outward, its density
+    // is high (`densityKept`).
     [[maybe_unused]] bool dropped = false;
-    if (branch.crossed && !evidence && branch.count != 0U && !densityKept(branch, direction)) {
+    if (branch.crossed && branch.count != 0U && !densityKept(branch, direction)) {
       --branch.count;
       dropped = true;
       countWork(WorkCounter::kFollowUnconfirmed);
@@ -1127,8 +1116,7 @@ class FollowStage
         while (branch.count < capacity) {
           observe.step(mGeometry->surface(branch.state.surface).layer, branch.state, branch.factors, branch.count);
           Child child;
-          bool nearTail = false;
-          if (!inactiveLayerTail(branch, heldLayers, box, direction, child, nearTail, observe, group)) {
+          if (!inactiveLayerTail(branch, heldLayers, box, direction, child, observe, group)) {
             break;
           }
           countWork(WorkCounter::kFollowInactiveTail);
@@ -1296,7 +1284,7 @@ class FollowStage
   /// ahead, nearest first, searched as a nominal step is (`nominal`), the
   /// holes not counted. Whether it found a row, into \a child.
   template <typename Observer, typename Group>
-  [[nodiscard]] GPUhdi() bool inactiveLayerTail(Branch& branch, std::uint64_t heldLayers, const TimeEstPS& box, PropagationDirection direction, Child& child, bool& nearMiss, const Observer& observe, const Group& group) const
+  [[nodiscard]] GPUhdi() bool inactiveLayerTail(Branch& branch, std::uint64_t heldLayers, const TimeEstPS& box, PropagationDirection direction, Child& child, const Observer& observe, const Group& group) const
   {
     follow::Target targets[follow::maxDegree<Det>];
     std::uint32_t nTargets = 0U;
@@ -1331,15 +1319,13 @@ class FollowStage
     }
     Branch tail = branch;
     tail.holes = 0U;
-    return nominal(tail, box, direction, targets, nTargets, child, nearMiss, observe, group);
+    return nominal(tail, box, direction, targets, nTargets, child, observe, group);
   }
 
   /// The nominal pass of a step of \a branch over its \a nTargets
   /// \a targets (`overTargets`): the first target with a row in the gate
   /// gives \a child -- the row, or, with more than one, the lookahead's best confirmed
   /// (`confirm`). Whether it found a row; its updates count as the follow's.
-  /// \a nearMiss is set where a target held a row within its window that
-  /// the update refused above the gate (the unconfirmed drop reads it).
   ///
   /// The lanes of \a group search a window in step: after each step of the
   /// walk the rows that passed, in lane order -- the grid's order -- are
@@ -1347,19 +1333,15 @@ class FollowStage
   /// comes, then both are confirmed, and every later one as it comes, each
   /// confirmation by the whole group from the row's state on every lane.
   template <typename Observer, typename Group>
-  [[nodiscard]] GPUhdi() bool nominal(Branch& branch, const TimeEstPS& box, PropagationDirection direction, const follow::Target* targets, std::uint32_t nTargets, Child& child, bool& nearMiss, const Observer& observe, const Group& group) const
+  [[nodiscard]] GPUhdi() bool nominal(Branch& branch, const TimeEstPS& box, PropagationDirection direction, const follow::Target* targets, std::uint32_t nTargets, Child& child, const Observer& observe, const Group& group) const
   {
     return overTargets(branch, box, direction, targets, nTargets, observe, [&](const follow::Target& target, const CandidateWindow& window, const detail::StepMaterial& traversed) {
       std::uint32_t passing = 0U;
       std::uint32_t firstLane = 0U; // \a child holds the first passing row on this lane
       Confirmed confirmed;
-      bool gated = false; // this lane saw a row refused above the gate
       follow::visit<true, Shape>(
         context(), branch.state, branch.factors, 0.F, 0.F, target.layer, direction, window, traversed, 0U, WorkCounter::kFollowUpdates, group,
-        [&](std::uint32_t row, StepOutcome outcome, Scalar chi2) {
-          gated = gated || outcome == StepOutcome::kChi2;
-          observe.candidate(target.layer, row, outcome, chi2);
-        },
+        [&](std::uint32_t row, StepOutcome outcome, Scalar chi2) { observe.candidate(target.layer, row, outcome, chi2); },
         [&](const Child& candidate) {
           for (auto lanes = group.ballot(candidate.row != ClusterList<kMaxClusters>::kNoCluster); lanes != 0U; lanes &= lanes - 1U) {
             const auto from = static_cast<std::uint32_t>(o2::gpu::CAMath::Ctz64(lanes));
@@ -1376,8 +1358,6 @@ class FollowStage
             confirm(branch, box, direction, follow::shared(group, candidate, from), confirmed, observe, group);
           }
         });
-      // Any lane's: a collective, every lane calls it.
-      nearMiss = nearMiss || group.ballot(gated) != 0U;
       if (passing == 0U) {
         return false;
       }

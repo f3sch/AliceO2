@@ -330,9 +330,6 @@ struct IterationParameters {
   bool followEarlier = false;
   /// `IterationSettings::followMinPtGeV`.
   Scalar followMinPt = 0.F;
-  /// The resolution term of the follow's window, `positionSigma` squared,
-  /// as the pair windows take it [cm^2].
-  Scalar followPositionVariance = 0.F;
   /// `IterationSettings::minClustersAfterFollow`; 0 for none.
   std::uint32_t minClustersAfterFollow = 0U;
   /// The beam-line update's terms (`beamConstraint`): the beam line's
@@ -550,7 +547,6 @@ template <DetectorLayout Det>
     every.fill(true);
     keep(every, outLinks<Det>, parameters.allOutLinkOffsets, parameters.allOutLinkIndices);
     keep(every, inLinks<Det>, parameters.allInLinkOffsets, parameters.allInLinkIndices);
-    parameters.followPositionVariance = static_cast<Scalar>(settings.windows.positionSigma * settings.windows.positionSigma);
   }
   parameters.minClustersAfterFollow = static_cast<std::uint32_t>(std::max(settings.minClustersAfterFollow, 0));
   for (std::size_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {

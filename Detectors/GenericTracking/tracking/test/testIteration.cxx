@@ -112,8 +112,7 @@ void verifyVertexInterval(double minPtGeV, Scalar vertexZ, LayerID from, LayerID
     const auto vertexValue = static_cast<double>(vertexZ);
     sourceZ = static_cast<Scalar>(vertexValue + (static_cast<double>(sourceR) * (discZ<ToyBarrel4Disc8>(to) - vertexValue) / targetR));
   }
-  const auto variance = static_cast<Scalar>(params.positionSigma * params.positionSigma);
-  const PairPoint source{.x = sourceR, .z = sourceZ, .r = sourceR, .varZ = variance, .varR = variance, .varRPhi = variance};
+  const PairPoint source{.x = sourceR, .z = sourceZ, .r = sourceR};
   const Scalar scattering = sourceScattering<ToyBarrel4Disc8>(table, cut, vertex, from, source);
   const auto interval = vertexSecondRange(pair, bounds, source.r, source.z, vertex.z, vertex.varZ, cut.nSigma);
 
@@ -135,9 +134,6 @@ void verifyVertexInterval(double minPtGeV, Scalar vertexZ, LayerID from, LayerID
         .y = targetR * static_cast<Scalar>(std::sin(phi)),
         .z = targetZ,
         .r = targetR,
-        .varZ = variance,
-        .varR = variance,
-        .varRPhi = variance,
       };
       if (!pairCompatible(cut, vertex, source, scattering, target)) {
         continue;
@@ -542,8 +538,7 @@ BOOST_AUTO_TEST_CASE(ThePhiWindowHoldsTheTransverseTest)
       // Between two discs the target radius follows the seed's through the z ratio.
       const double rho = (zMin<ToyBarrel4Disc8>(to) + reach) / (static_cast<double>(sourceZ) + reach);
       const auto targetR = static_cast<Scalar>(Detector<ToyBarrel4Disc8>::isBarrelLayer(from) || Detector<ToyBarrel4Disc8>::isBarrelLayer(to) ? radiusMax<ToyBarrel4Disc8>(to) : rho * static_cast<double>(sourceR));
-      const auto variance = static_cast<Scalar>(params.positionSigma * params.positionSigma);
-      const PairPoint source{.x = sourceR, .z = sourceZ, .r = sourceR, .varRPhi = variance};
+      const PairPoint source{.x = sourceR, .z = sourceZ, .r = sourceR};
       const Scalar scatter = sourceScattering<ToyBarrel4Disc8>(table, cut, vertex, from, source);
       double widest = 0.;
       constexpr int kSteps = 15000;
@@ -553,7 +548,6 @@ BOOST_AUTO_TEST_CASE(ThePhiWindowHoldsTheTransverseTest)
           .x = targetR * static_cast<Scalar>(std::cos(phi)),
           .y = targetR * static_cast<Scalar>(std::sin(phi)),
           .r = targetR,
-          .varRPhi = variance,
         };
         if (transverseCompatible(cut, transversePairTerms(cut, vertex, source, scatter, target))) {
           widest = phi;

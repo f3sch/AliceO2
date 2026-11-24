@@ -62,8 +62,6 @@ struct RecoSettings {
 
   // The grid's cells are derived from the iterations' queries with the
   // material LUT's scattering, with no key of their own (GridSizing.h).
-  /// The windows' position resolution [cm].
-  double positionSigma = 0.005;
   /// Added in quadrature to every cluster's local errors [cm], for what the
   /// cluster shape does not know: the alignment's residuals on real data. O2
   /// adds 10 um per layer in its async reconstruction (ITSCATrackerParam.sysErrY2,
@@ -218,9 +216,6 @@ struct RecoSettings {
   /// Requested width of one time slice [ps]. The actual width is rounded up
   /// to whole grid blocks, and zero means one slice over the timeframe.
   std::int64_t sliceWidthPS = 10'000'000;
-
-  /// Consecutive source elements assigned to one CPU task.
-  int trackletChunkSize = 256;
 
   /// Maximum CPU workers; zero uses TBB's default.
   int threads = 0;

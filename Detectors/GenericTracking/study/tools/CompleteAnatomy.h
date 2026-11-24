@@ -4139,8 +4139,8 @@ class CompleteAnatomy
   /// (`FollowEnd`), whether its last step called a sensor crossed (the
   /// unconfirmed drop's condition) and how many links leave the layer it ended on that way
   /// (none: the layout's end; else a `noTarget` is a failed prediction);
-  /// the unconfirmed drop's verdict -- the last row dropped, kept on evidence (the keep's chi2
-  /// or inward's near miss), kept unconfirmed (no sensor crossed), or no row
+  /// the unconfirmed drop's verdict -- the last row dropped, kept on evidence (its
+  /// density outward), kept unconfirmed (no sensor crossed), or no row
   /// walked; the rows walked and kept by the bid; the
   /// last row walked and the row the unconfirmed drop
   /// dropped, each with its layer, chi2 and what it is to the road's particle: its
@@ -4620,8 +4620,7 @@ class CompleteAnatomy
   /// gate's tail is exp(-gate / 2), 0.27 % at 11.83. Also the outward unconfirmed drops
   /// on every agreeing walk: whether the dropped row is the road particle's,
   /// and whether the last step saw a row near (a row in its window the gate
-  /// refused, inward's evidence) and whose -- the gain and the cost of
-  /// inward's evidence rule outward.
+  /// refused) and whose.
   template <typename Observation>
   void ownSteps(const Observation& iteration, const std::vector<Replay>& replayed, const IterationParameters<Det>& parameters)
   {

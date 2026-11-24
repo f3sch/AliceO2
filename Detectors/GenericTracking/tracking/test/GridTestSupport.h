@@ -85,14 +85,12 @@ inline constexpr FrameTiming kToyFrames{.lengthBC = 1, .firstStartBC = 0};
   return withToyFrames(result);
 }
 
-/// The toys' search windows: 1 GeV in their 2 T field at 3 sigma, the
-/// position resolution \a positionSigma [cm].
-[[nodiscard]] inline SearchWindowParams toyWindows(double positionSigma)
+/// The toys' search windows: 1 GeV in their 2 T field at 3 sigma.
+[[nodiscard]] inline SearchWindowParams toyWindows()
 {
   SearchWindowParams result;
   result.minPtGeV = 1.;
   result.bzKiloGauss = 20.;
-  result.positionSigma = positionSigma;
   result.nSigma = 3.;
   return result;
 }

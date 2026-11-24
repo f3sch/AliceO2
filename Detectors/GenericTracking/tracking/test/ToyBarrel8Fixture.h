@@ -51,7 +51,7 @@ constexpr std::size_t kHelixTracks = 5U;
 
 using InputPoint = test::FramePoint;
 
-inline SearchWindowParams windowParameters() { return test::toyWindows(0.003); }
+inline SearchWindowParams windowParameters() { return test::toyWindows(); }
 
 inline IterationSettings iterationSettings() { return test::toyIteration(windowParameters()); }
 

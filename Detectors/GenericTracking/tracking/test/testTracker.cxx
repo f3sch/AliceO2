@@ -56,7 +56,7 @@ struct InputPoint {
   Scalar r = 0.F;
 };
 
-SearchWindowParams windowParameters() { return test::toyWindows(0.01); }
+SearchWindowParams windowParameters() { return test::toyWindows(); }
 
 class Fixture
 {

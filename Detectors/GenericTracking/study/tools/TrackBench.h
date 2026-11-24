@@ -2111,7 +2111,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       throw std::runtime_error(std::format("iteration {} seeds from the vertex list, and {} holds none", iteration, options.input));
     }
   }
-  const auto chunkSize = static_cast<typename Controller::Index>(std::max(param.trackletChunkSize, 1));
+  const auto chunkSize = static_cast<typename Controller::Index>(kHostChunkSize);
   tracker.setProfiling(!options.noProfile);
   if (options.dram && !profile::countDram()) {
     throw std::runtime_error("--dram: the memory controllers' counters (amd_umc) cannot be opened");

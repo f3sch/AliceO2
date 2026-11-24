@@ -93,7 +93,6 @@ BOOST_AUTO_TEST_CASE(VertexConstraintMovesAndWidensThePairWindow)
 {
   SearchWindowParams params;
   params.minPtGeV = 1.;
-  params.positionSigma = 0.;
   params.nSigma = 1.;
 
   const VertexConstraint pointVertex{.z = 1.5, .sigmaZ = 0., .sigmaTransverse = 0.};
@@ -134,7 +133,6 @@ BOOST_AUTO_TEST_CASE(CrossingWindowFollowsTheSeed)
 {
   SearchWindowParams params;
   params.minPtGeV = 1.;
-  params.positionSigma = 0.;
   params.nSigma = 3.;
   // A vertex range of +-3 cm.
   const VertexConstraint beamSpot{.z = 0., .sigmaZ = 1., .sigmaTransverse = 0.};

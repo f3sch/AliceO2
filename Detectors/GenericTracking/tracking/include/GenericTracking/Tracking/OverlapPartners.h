@@ -337,9 +337,9 @@ struct ProposePartners {
       Scalar cov[kBoundCovSize]{};
       covarianceFromFactors(factors, cov);
       // The gate's reach about a predicted crossing: the prediction's
-      // variance and the follow's position term (`predictedWindow`), and the
-      // layer's largest measurement variance, which the gate adds.
-      const Scalar spread = nSigma * Math::Sqrt(Math::Max(cov[varIndex(kLoc0)], cov[varIndex(kLoc1)]) + parameters->followPositionVariance + measurementVariance[layer]);
+      // variance (`predictedWindow`) and the layer's largest measurement
+      // variance, which the gate adds.
+      const Scalar spread = nSigma * Math::Sqrt(Math::Max(cov[varIndex(kLoc0)], cov[varIndex(kLoc1)]) + measurementVariance[layer]);
       const Scalar sinTheta = sinOf(state.theta());
       const Scalar direction[3] = {sinTheta * cosOf(state.phi()), sinTheta * sinOf(state.phi()), cosOf(state.theta())};
       const auto& from = geometry->planeOf(state);

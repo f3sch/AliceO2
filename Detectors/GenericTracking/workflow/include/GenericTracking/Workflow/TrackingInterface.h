@@ -209,7 +209,7 @@ class TrackingInterface
       configureMaterial(conditions.material);
     }
     const auto beamSpot = beamSpotConstraint(mBeamLine, param);
-    const auto chunkSize = static_cast<typename Controller::Index>(std::max(param.trackletChunkSize, 1));
+    const auto chunkSize = static_cast<typename Controller::Index>(kHostChunkSize);
     // The tracker takes each iteration's configured source.
     std::vector<IterationSettings> settings;
     for (int iteration = 0; iteration < iterationCount(param); ++iteration) {

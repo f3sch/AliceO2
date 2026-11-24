@@ -97,7 +97,6 @@ namespace o2::gtrk::workflow
 {
   return {
     .bzKiloGauss = nominalBzKiloGauss(),
-    .positionSigma = param.positionSigma,
     .nSigma = param.windowNSigma,
   };
 }
