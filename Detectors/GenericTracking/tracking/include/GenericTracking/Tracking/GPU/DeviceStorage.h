@@ -358,6 +358,23 @@ class DeviceColumnChunks
     }
   }
 
+  /// The inverse of `gather` for the first \a chunks chunks: each copied
+  /// back from \a source, the chunks laid out in order from row
+  /// \a sourceOffset, all chunks' columns by one kernel.
+  void scatter(const DeviceColumns<S>& source, std::size_t sourceOffset, std::size_t chunks, DeviceStream& stream) const
+  {
+    std::vector<DeviceCopy> copies;
+    std::size_t at = sourceOffset;
+    for (std::size_t k = 0; k < chunks && k < mChunks.size(); ++k) {
+      auto chunk = mChunks[k];
+      device_storage_detail::columnCopies(source, at, chunk, 0U, chunk.size(), copies);
+      at += chunk.size();
+    }
+    if (!copies.empty()) {
+      source.arena().runtime().copyEachOnDevice(copies, stream);
+    }
+  }
+
   /// Download every chunk, in the order appended, into \a destination from
   /// row \a destinationOffset, which must hold them: no gather on the device.
   void download(BoundedColumns<S>& destination, std::size_t destinationOffset, DeviceStream& stream) const

@@ -167,7 +167,9 @@ class DeviceTracker
     std::uint32_t mismatches = 0U; ///< duplicates that differ: must be none -- a record found by more than one slice is the same record in each
     std::uint32_t rounds = 0U;
     std::uint32_t tracks = 0U;
-    std::uint32_t readbacks = 0U;    ///< of the road fit, the selection and the length cut
+    std::uint32_t readbacks = 0U;    ///< of the road fit, the selection, the length cut, the join and the inactive rows
+    std::uint32_t tracksJoined = 0U; ///< pieces the join put onto an earlier track (TrackJoin.h)
+    std::uint32_t inactiveRows = 0U; ///< tracks that took an inactive layer's row (InactiveRows.h)
     std::size_t arenaPeakBytes = 0U; ///< the whole arena, both ends, at its largest from beginIteration to endIteration
   };
   using Tracks = typename TrackRefit<Det>::Tracks;
