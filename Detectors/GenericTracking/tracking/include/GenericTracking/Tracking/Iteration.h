@@ -58,8 +58,7 @@ namespace o2::gtrk
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): the fields follow the configuration; their order is the designated initialisers'
 struct IterationSettings {
   /// The window physics. The minimum pT is what an iteration sets; nSigma,
-  /// the field, the mass, the uniform material that sizes the grid
-  /// (`materialX2X0`) and the resolution are the run's.
+  /// the field, the mass and the resolution are the run's.
   SearchWindowParams windows;
   VertexSource vertexSource = VertexSource::kBeamLine;
   /// The shortest road this iteration fits, in clusters: at least 4 for a

@@ -48,14 +48,13 @@ namespace o2::gtrk
 /// Per layer, the widest and the narrowest window of the queries \a iterations
 /// make into it.
 ///
-/// The window is the material-uniform pair window (`layerPairWindow` without a
-/// scattering table): the producer, which bins the rows, has no material map,
-/// and only the cells' sizes follow from it, never which rows a query
-/// accepts. Barrel <-> disc links do not size a layer: their window is per
+/// The window is the pair window the iteration queries with, its scattering
+/// \a material's (`layerPairWindow` in PairCut.h); only the cells' sizes
+/// follow from it, never which rows a query accepts. Barrel <-> disc links do not size a layer: their window is per
 /// seed, from a few percent of the target to
 /// all of it, so no cell width follows from it.
 template <DetectorLayout Det>
-[[nodiscard]] std::array<GridLayerWindow, static_cast<std::size_t>(Detector<Det>::nLayers)> gridLayerWindows(std::span<const IterationSettings> iterations, const VertexConstraint& beamSpot)
+[[nodiscard]] std::array<GridLayerWindow, static_cast<std::size_t>(Detector<Det>::nLayers)> gridLayerWindows(std::span<const IterationSettings> iterations, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material)
 {
   std::array<GridLayerWindow, static_cast<std::size_t>(Detector<Det>::nLayers)> result{};
   const auto widen = [&](LayerID layer, const LayerPairWindow& window) {
@@ -81,7 +80,7 @@ template <DetectorLayout Det>
     auto& window = entry->second[link];
     if (!window.has_value()) {
       const auto& pair = Det::layerLinks[link];
-      window = layerPairWindow<Det>(pair.from, pair.to, params, beamSpot);
+      window = layerPairWindow<Det>(pair.from, pair.to, params, beamSpot, material);
     }
     return *window;
   };

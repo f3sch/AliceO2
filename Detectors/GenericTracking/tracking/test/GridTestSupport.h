@@ -32,6 +32,8 @@
 #include "GenericTracking/Tracking/SearchWindow.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
 
+#include "BandMaterial.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -84,14 +86,12 @@ inline constexpr FrameTiming kToyFrames{.lengthBC = 1, .firstStartBC = 0};
 }
 
 /// The toys' search windows: 1 GeV in their 2 T field at 3 sigma, the
-/// position resolution \a positionSigma [cm] and \a materialX2X0 between
-/// layers.
-[[nodiscard]] inline SearchWindowParams toyWindows(double positionSigma, double materialX2X0 = 0.)
+/// position resolution \a positionSigma [cm].
+[[nodiscard]] inline SearchWindowParams toyWindows(double positionSigma)
 {
   SearchWindowParams result;
   result.minPtGeV = 1.;
   result.bzKiloGauss = 20.;
-  result.materialX2X0 = materialX2X0;
   result.positionSigma = positionSigma;
   result.nSigma = 3.;
   return result;
@@ -103,12 +103,12 @@ inline constexpr FrameTiming kToyFrames{.lengthBC = 1, .firstStartBC = 0};
 
 /// The windows of one iteration with \a windows, taking every link (chains
 /// of two clusters, `takenLinks`) and extending: every layer a link touches
-/// is sized.
+/// is sized; without material.
 template <DetectorLayout Det>
 [[nodiscard]] auto oneIterationWindows(const SearchWindowParams& windows, const VertexConstraint& beamSpot)
 {
   const IterationSettings settings{.windows = windows, .minClusters = 2};
-  return gridLayerWindows<Det>(std::span<const IterationSettings>{&settings, 1U}, beamSpot);
+  return gridLayerWindows<Det>(std::span<const IterationSettings>{&settings, 1U}, beamSpot, noMaterial<Det>());
 }
 
 /// The derived layout of one iteration with \a windows, each layer's counts

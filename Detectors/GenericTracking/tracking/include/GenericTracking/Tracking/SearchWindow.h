@@ -58,12 +58,6 @@ struct SearchWindowParams {
   /// rest of O2 are written in.  2 T is 20 kG.
   double bzKiloGauss = 20.;
 
-  /// Radiation lengths crossed between two layers: the uniform material that
-  /// sizes the grid's cells (`uniformSourceKink`); the pair queries take the
-  /// scattering table's per-layer values (`layerPairWindow` in PairCut.h).
-  /// 1 % X0 is the order of a pixel layer with its support.
-  double materialX2X0 = 0.01;
-
   /// Cluster position resolution entering the window [cm]. One number for
   /// every layer.
   double positionSigma = 0.005;
@@ -249,12 +243,6 @@ inline constexpr double kWindowMassGeV = o2::constants::physics::MassPionCharged
 /// `1 / (beta pT_min)^2` over `1 / pT_min^2`: what the windows' mass
 /// multiplies the scattering at pT_min by.
 [[nodiscard]] inline double betaMomentumFactor(const SearchWindowParams& params) { return invBetaMomentumMin2(params) * params.minPtGeV * params.minPtGeV; }
-
-/// The uniform stand-in for a source's transverse kink [rad]: `materialX2X0`
-/// at normal incidence in the seed's layer alone. It sizes the grid's cells;
-/// the pair queries take the pair cut's own table (`sourceKinkBound` in
-/// `PairCut.h`).
-[[nodiscard]] inline double uniformSourceKink(const SearchWindowParams& params) { return static_cast<double>(highlandTheta0(static_cast<Scalar>(params.materialX2X0), static_cast<Scalar>(params.materialX2X0), static_cast<Scalar>(params.minPtGeV), static_cast<Scalar>(kWindowMassGeV))); }
 
 /// How far the scattering before the seed moves the target's second
 /// coordinate, in one standard deviation [cm], for vertices in \a vertexZ and
@@ -746,15 +734,6 @@ template <DetectorLayout Det>
     .secondHalfWidth = conservativeScalarBound(secondWindow<Det>(from, to, seedSecond, params, vertex, sourceKink, betweenKink) + secondCentreSpread<Det>(from, to, vertex.z) + helixSecondSpread<Det>(from, to, params, vertex) + centreRounding),
     .kind = Detector<Det>::isBarrelLayer(from) ? PairKind::kBarrel : PairKind::kDisc,
   };
-}
-
-/// The same with the uniform kink, taking the seeding layer's own outer edge
-/// as the conservative seed radius: what sizes the grid's cells, and a
-/// whole-layer query.
-template <DetectorLayout Det>
-[[nodiscard]] inline LayerPairWindow layerPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex)
-{
-  return layerPairWindow<Det>(from, to, secondMax<Det>(from), params, vertex, uniformSourceKink(params));
 }
 
 } // namespace o2::gtrk

@@ -541,9 +541,9 @@ template <DetectorLayout Det>
   return std::sqrt(largest * betaMomentumFactor(params)) / params.minPtGeV;
 }
 
-/// The window a pair query uses: its phi and second-coordinate half-widths
-/// hold what the pair tests accept with \a material's scattering, not only
-/// the uniform material the grid's cells are sized with.
+/// The window a pair query uses, and the one that sizes the grid's cells
+/// (GridSizing.h): its phi and second-coordinate half-widths hold what the
+/// pair tests accept with \a material's scattering.
 template <DetectorLayout Det>
 [[nodiscard]] inline LayerPairWindow layerPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, const VertexConstraint& vertex, const LinkMaterial<Det>& material)
 {

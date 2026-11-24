@@ -1982,8 +1982,14 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   workflow::checkRecoParam<Det>(param);
   workflow::TrackingInterface<Det> interface{!param.vertexer};
   interface.initGeometry(input.depths);
-  const auto geometry = workflow::makeGridGeometry<Det>(param, input.beamLine, frames, orbitsPerTimeframe);
   const auto* material = o2::base::MatLayerCylSet::rectifyPtrFromFile(ccdb.get<o2::base::MatLayerCylSet>(workflow::materialLutPath<Det>()));
+  // The grid as the producer derives it: sized with the run's link material,
+  // which the tracker fills again for itself (`configure`).
+  const auto geometry = [&] {
+    const auto table = std::make_unique<LinkMaterial<Det>>();
+    workflow::fillRunLinkMaterial<Det>(*table, param, workflow::beamSpotConstraint(input.beamLine, param), *material);
+    return workflow::makeGridGeometry<Det>(param, input.beamLine, frames, orbitsPerTimeframe, *table);
+  }();
   const bool device = options.backend != "cpu";
   if (options.noTracking && device) {
     throw std::runtime_error("--no-tracking runs on the host: no --backend");

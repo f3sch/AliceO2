@@ -60,12 +60,8 @@ struct RecoSettings {
   /// frames nearest it.
   std::int64_t blockWidthPS = 10'000'000;
 
-  // The grid's cells are derived from the iterations' queries, with no key of
-  // their own (GridSizing.h).
-  /// The uniform material per layer [X/X0] that sizes the windows and the
-  /// grid, and the scattering when no material LUT is given; with a LUT the
-  /// tracking takes its budgets.
-  double materialX2X0 = 0.01;
+  // The grid's cells are derived from the iterations' queries with the
+  // material LUT's scattering, with no key of their own (GridSizing.h).
   /// The windows' position resolution [cm].
   double positionSigma = 0.005;
   /// Added in quadrature to every cluster's local errors [cm], for what the

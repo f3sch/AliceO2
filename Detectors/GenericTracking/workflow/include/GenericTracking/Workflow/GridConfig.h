@@ -22,7 +22,9 @@
 #include "GenericTracking/Base/TimeEstPS.h"
 #include "GenericTracking/Tracking/GridSizing.h"
 #include "GenericTracking/Tracking/Iteration.h"
+#include "GenericTracking/Tracking/LinkMaterialFill.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
+#include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
 #include "GenericTracking/Tracking/VertexStage.h"
@@ -95,7 +97,6 @@ namespace o2::gtrk::workflow
 {
   return {
     .bzKiloGauss = nominalBzKiloGauss(),
-    .materialX2X0 = param.materialX2X0,
     .positionSigma = param.positionSigma,
     .nSigma = param.windowNSigma,
   };
@@ -343,19 +344,38 @@ struct MeasurementGeometry {
 /// A timeframe of \a orbits orbits' span [ps], its bunch crossings' rounded down.
 [[nodiscard]] inline std::int64_t timeframeDurationPS(int orbits) { return psOfBC(static_cast<std::int64_t>(orbits) * o2::constants::lhc::LHCMaxBunches); }
 
+/// \a table filled from the material \a lut (`fillLinkMaterial`) over the
+/// vertices' z the run's passes reach about \a beamSpot (`gridIterations`:
+/// every iteration's and the vertexing pass's): the trackers' scattering, and
+/// what sizes the grid's cells (`makeGridGeometry`). Returns that z range.
+template <DetectorLayout Det, typename Lut>
+Interval fillRunLinkMaterial(LinkMaterial<Det>& table, const RecoSettings& param, const VertexConstraint& beamSpot, const Lut& lut)
+{
+  Interval vertexZ{.low = beamSpot.z, .high = beamSpot.z};
+  for (const auto& iteration : gridIterations(param)) {
+    const auto reach = vertexReach(iteration.windows, beamSpot);
+    vertexZ.low = std::min(vertexZ.low, reach.low);
+    vertexZ.high = std::max(vertexZ.high, reach.high);
+  }
+  detail::TaskArena arena{std::max(param.threads, 0)};
+  fillLinkMaterial<Det>(table, lut, vertexZ, arena);
+  return vertexZ;
+}
+
 /// The grid of the configured iterations: each layer's cells sized by the queries the iterations make
-/// into it (GridSizing.h), the vertexing pass's among them (`gridIterations`). A process derives it once, when it has its
+/// into it (GridSizing.h), the vertexing pass's among them (`gridIterations`), with the run's
+/// \a material (`fillRunLinkMaterial`). A process derives it once, when it has its
 /// configuration and conditions, and keeps it. \a frames: each layer's
 /// readout frames, which its time blocks follow and the slices' reach reads;
 /// \a orbitsPerTimeframe: the run's (`Conditions::orbitsPerTimeframe`).
 template <DetectorLayout Det>
-[[nodiscard]] GridGeometry<Det> makeGridGeometry(const RecoSettings& param, const BeamLine& beam, std::span<const FrameTiming> frames, int orbitsPerTimeframe)
+[[nodiscard]] GridGeometry<Det> makeGridGeometry(const RecoSettings& param, const BeamLine& beam, std::span<const FrameTiming> frames, int orbitsPerTimeframe, const LinkMaterial<Det>& material)
 {
   const auto iterations = gridIterations(param);
   if (frames.size() != static_cast<std::size_t>(Detector<Det>::nLayers)) {
     throw std::invalid_argument(std::format("{}'s grid follows its {} layers' readout frames, and {} were given", Det::name, Detector<Det>::nLayers, frames.size()));
   }
-  const auto windows = gridLayerWindows<Det>(iterations, beamSpotConstraint(beam, param));
+  const auto windows = gridLayerWindows<Det>(iterations, beamSpotConstraint(beam, param), material);
   GridGeometry<Det> geometry{timeframeDurationPS(orbitsPerTimeframe), gridParams(param, frames), windows};
   if (geometry.overflows()) {
     throw std::invalid_argument("GTRKReco<DET>'s grid has more cells or buckets than its 32-bit numbering holds: wider time blocks");

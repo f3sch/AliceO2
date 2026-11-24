@@ -177,7 +177,6 @@ SearchWindowParams windowParameters()
   SearchWindowParams result;
   result.minPtGeV = 1.;
   result.bzKiloGauss = 20.;
-  result.materialX2X0 = 0.;
   result.positionSigma = 0.003;
   result.nSigma = 3.;
   return result;
