@@ -28,6 +28,7 @@
 #include "GenericTracking/Tracking/Follow.h"
 #include "GenericTracking/Tracking/GPU/DeviceArena.h"
 #include "GenericTracking/Tracking/GPU/DeviceStageOutput.h"
+#include "GenericTracking/Tracking/InactiveMatch.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/Neighbour.h"
 #include "GenericTracking/Tracking/OverlapPartners.h"
@@ -240,6 +241,11 @@ class DeviceTracker
   /// Not with an iteration open.
   [[nodiscard]] virtual StageStatus finishPartners() = 0;
 
+  /// After `finishPartners`, the inactive layers' rows matched to the
+  /// tracks (the host's `InactiveMatch::run`), their rows marked used. Not
+  /// with an iteration open.
+  [[nodiscard]] virtual StageStatus matchInactive() = 0;
+
   /// Every iteration's tracks so far, in iteration order, each iteration's
   /// best first, into \a tracks; not with an iteration open.
   virtual void downloadTracks(Tracks& tracks) = 0;
@@ -249,6 +255,10 @@ class DeviceTracker
   /// \a offsets (one more than the tracks), each track's in path order; both
   /// empty without any. Not with an iteration open.
   virtual void downloadPartners(std::vector<std::uint32_t>& offsets, std::vector<OverlapPartner>& partners) = 0;
+
+  /// The matches `matchInactive` made, by track, then along the track, into
+  /// \a matched; empty without any. Not with an iteration open.
+  virtual void downloadMatches(std::vector<match::Matched>& matched) = 0;
 
   /// The vertexing pass: iteration \a pass
   /// of the configured run -- the pass, configured after the tracking's --
@@ -307,7 +317,9 @@ class DeviceTracker
   }
 
   /// A timeframe's tracks: its iterations [0, \a iterations) as \a plan
-  /// has them, then every track into \a tracks. With \a replaced, \a plan
+  /// has them -- the run's tracking, the vertexing pass after them not among
+  /// them -- then the run's end (`finishPartners`, `matchInactive`), then
+  /// every track into \a tracks. With \a replaced, \a plan
   /// -- the tracking's, with the vertexer's list -- replaces the open
   /// timeframe's (findTimeframeVertices'); else \a frame and \a plan begin
   /// the timeframe. Stops at the first failure and returns it, as
@@ -336,8 +348,11 @@ class DeviceTracker
       report.iterationSeconds.push_back(profile::secondsSince(start));
       report.iterations.push_back(lastIteration());
     }
-    if (status == StageStatus::kComplete && iterations == iterationCount()) {
+    if (status == StageStatus::kComplete) {
       status = finishPartners();
+    }
+    if (status == StageStatus::kComplete) {
+      status = matchInactive();
     }
     if (status != StageStatus::kComplete) {
       return status;

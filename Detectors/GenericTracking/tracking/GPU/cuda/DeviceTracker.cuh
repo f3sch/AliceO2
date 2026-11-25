@@ -58,6 +58,7 @@
 #include "GenericTracking/Tracking/GPU/DeviceStageOutput.h"
 #include "GenericTracking/Tracking/GPU/DeviceStorage.h"
 #include "GenericTracking/Tracking/GPU/DeviceTracker.h"
+#include "GenericTracking/Tracking/InactiveMatch.h"
 #include "GenericTracking/Tracking/InactiveRows.h"
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/NeighbourStage.h"
@@ -84,6 +85,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <numeric>
 #include <vector>
 
 namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
@@ -788,6 +790,98 @@ struct InactiveKeys {
   }
 };
 
+/// Whether a row is free and on an inactive layer: the inactive match's
+/// background.
+template <DetectorLayout Det>
+struct FreeInactive {
+  const TimeFrame<Det>* frame = nullptr;
+  const TrackingGeometry<Det>* geometry = nullptr;
+  const std::uint8_t* used = nullptr;
+  GPUdi() bool operator()(std::uint32_t row) const { return used[row] == kFree && Detector<Det>::isInactiveLayer(geometry->surface(frame->measurements().surface[row]).layer); }
+};
+
+/// A listed row's sort key, its sensor then its box start, and the row.
+template <DetectorLayout Det>
+struct SensorTimeKeys {
+  const TimeFrame<Det>* frame = nullptr;
+  const std::uint32_t* listed = nullptr;
+  std::uint64_t* keys = nullptr;
+  GPUdi() void operator()(std::uint32_t at) const
+  {
+    const auto measurements = frame->measurements();
+    const auto row = listed[at];
+    keys[at] = (std::uint64_t{measurements.surface[row]} << 32U) | std::uint64_t{measurements.timePS[row]};
+  }
+};
+
+/// From the sorted keys: each entry's box start, and per sensor where its
+/// rows begin -- the entry that starts a sensor's run fills the sensors from
+/// the previous run's on, the last also those after it.
+struct SensorBegins {
+  const std::uint64_t* keys = nullptr;
+  std::uint32_t count = 0U;
+  std::uint32_t sensors = 0U;
+  std::uint32_t* starts = nullptr;
+  std::uint32_t* begin = nullptr;
+  GPUdi() void operator()(std::uint32_t at) const
+  {
+    starts[at] = static_cast<std::uint32_t>(keys[at]);
+    const auto sensor = static_cast<std::uint32_t>(keys[at] >> 32U);
+    const std::uint32_t previous = at == 0U ? 0U : static_cast<std::uint32_t>(keys[at - 1U] >> 32U) + 1U;
+    if (at == 0U || sensor != static_cast<std::uint32_t>(keys[at - 1U] >> 32U)) {
+      for (std::uint32_t s = previous; s <= sensor; ++s) {
+        begin[s] = at;
+      }
+    }
+    if (at + 1U == count) {
+      for (std::uint32_t s = sensor + 1U; s <= sensors; ++s) {
+        begin[s] = count;
+      }
+    }
+  }
+};
+
+/// Whether a track's choice on a layer has a row.
+struct ChoseMatch {
+  const match::Choice* choices = nullptr;
+  GPUdi() bool operator()(std::uint32_t at) const { return choices[at].row != match::kNone; }
+};
+
+/// A listed choice's sort key, its row then its ratio, the larger first, and
+/// the choice.
+struct MatchKeys {
+  const match::Choice* choices = nullptr;
+  const std::uint32_t* listed = nullptr;
+  std::uint64_t* keys = nullptr;
+  std::uint32_t* positions = nullptr;
+  GPUdi() void operator()(std::uint32_t at) const
+  {
+    const auto position = listed[at];
+    keys[at] = (std::uint64_t{choices[position].row} << 32U) | std::uint64_t{~orderedBits(choices[position].ratio)};
+    positions[at] = position;
+  }
+};
+
+/// The winning choices: their rows marked used, their track, row and place
+/// along the track listed.
+struct TakeMatches {
+  const match::Choice* choices = nullptr;
+  const std::uint32_t* order = nullptr;
+  std::uint32_t slots = 0U;
+  std::uint8_t* used = nullptr;
+  std::uint32_t* tracks = nullptr;
+  std::uint32_t* rows = nullptr;
+  Scalar* distance2 = nullptr;
+  GPUdi() void operator()(std::uint32_t at) const
+  {
+    const auto& choice = choices[order[at]];
+    used[choice.row] = kExclusive;
+    tracks[at] = order[at] / slots;
+    rows[at] = choice.row;
+    distance2[at] = choice.distance2;
+  }
+};
+
 } // namespace tracker_detail
 
 template <DetectorLayout Det>
@@ -1151,6 +1245,117 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
           mFinishedPartners.push_back({.row = hostRows[at], .layerRow = hostLayerRowOf[at], .ahead = static_cast<std::uint8_t>(hostPaths[at] > 0.F ? 1U : 0U)});
         }
         mFinishedOffsets.push_back(static_cast<Index>(mFinishedPartners.size()));
+      }
+      return StageStatus::kComplete;
+    }
+  }
+
+  void downloadMatches(std::vector<match::Matched>& matched) final
+  {
+    requireNoIteration("downloadMatches");
+    matched = mMatched;
+  }
+
+  [[nodiscard]] StageStatus matchInactive() final
+  {
+    requireNoIteration("matchInactive");
+    mMatched.clear();
+    if constexpr (Detector<Det>::inactiveLayers == 0U) {
+      return StageStatus::kComplete;
+    } else {
+      const auto trackCount = static_cast<Index>(mTrackChunks.rows());
+      if (trackCount == 0U) {
+        return StageStatus::kComplete;
+      }
+      constexpr Index kSlots = match::kInactiveCount<Det>;
+      constexpr auto kSensors = static_cast<Index>(Det::nSensors);
+      auto scratch = mArena.scope(ArenaEnd::kScratch);
+      const auto rows = static_cast<Index>(mUsed.size());
+      // The free rows of the inactive layers per sensor, by box start.
+      DeviceSpan<Index> freeRows;
+      Index freeCount = 0U;
+      auto status = algorithms::selectIndices(*mRuntime, mArena, mStream, rows, tracker_detail::FreeInactive<Det>{.frame = std::as_const(mFrame).data(), .geometry = std::as_const(mGeometry).data(), .used = std::as_const(mUsed).data()}, freeRows, freeCount, ArenaEnd::kScratch);
+      if (status != StageStatus::kComplete) {
+        return status;
+      }
+      DeviceSpan<std::uint64_t> keys;
+      DeviceSpan<std::uint64_t> sortedKeys;
+      DeviceSpan<Index> sortedRows;
+      DeviceSpan<Index> starts;
+      DeviceSpan<Index> begin;
+      DeviceColumns<TrackRecord::template RecordT> all;
+      DeviceSpan<match::Choice> choices;
+      if (!keys.allocate(mArena, freeCount, ArenaEnd::kScratch) || !sortedKeys.allocate(mArena, freeCount, ArenaEnd::kScratch) || !sortedRows.allocate(mArena, freeCount, ArenaEnd::kScratch) || !starts.allocate(mArena, freeCount, ArenaEnd::kScratch) || !begin.allocate(mArena, std::size_t{kSensors} + 1U, ArenaEnd::kScratch) ||
+          !all.allocate(mArena, trackCount, ArenaEnd::kScratch) || !choices.allocate(mArena, std::size_t{trackCount} * kSlots, ArenaEnd::kScratch)) {
+        return StageStatus::kOutOfMemory;
+      }
+      if (freeCount == 0U) {
+        mRuntime->fill(begin.data(), Index{0U}, std::size_t{kSensors} + 1U, mStream);
+      } else {
+        algorithms::forEach(*mRuntime, mStream, freeCount, tracker_detail::SensorTimeKeys<Det>{.frame = std::as_const(mFrame).data(), .listed = std::as_const(freeRows).data(), .keys = keys.data()});
+        status = algorithms::sortPairs(*mRuntime, mArena, mStream, std::as_const(keys).data(), sortedKeys.data(), std::as_const(freeRows).data(), sortedRows.data(), freeCount, 64);
+        if (status != StageStatus::kComplete) {
+          return status;
+        }
+        algorithms::forEach(*mRuntime, mStream, freeCount, tracker_detail::SensorBegins{.keys = std::as_const(sortedKeys).data(), .count = freeCount, .sensors = kSensors, .starts = starts.data(), .begin = begin.data()});
+      }
+      const match::SensorRows table{.begin = std::as_const(begin).data(), .rows = std::as_const(sortedRows).data(), .startPS = std::as_const(starts).data(), .sensors = kSensors};
+      // Each track's choices.
+      mTrackChunks.gather(all, 0U, mStream);
+      const auto view = std::as_const(all).view();
+      algorithms::forEach(*mRuntime, mStream, trackCount, match::Choose<Det, decltype(view)>{.iterations = std::as_const(mParameters).data(), .timeFrame = std::as_const(mFrame).data(), .trackingGeometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = view, .used = std::as_const(mUsed).data(), .maxCandidateWidthPS = std::as_const(mLayerMaxWidthPS).data(), .freeRows = table, .choices = choices.data()});
+      // A row two tracks want to the larger ratio, then the lower track: the
+      // choices by row, then ratio, stably from ascending tracks, the first of
+      // each row's run.
+      const Index total = trackCount * kSlots;
+      DeviceSpan<Index> chose;
+      Index chosen = 0U;
+      status = algorithms::selectIndices(*mRuntime, mArena, mStream, total, tracker_detail::ChoseMatch{std::as_const(choices).data()}, chose, chosen, ArenaEnd::kScratch);
+      if (status != StageStatus::kComplete || chosen == 0U) {
+        return status;
+      }
+      DeviceSpan<std::uint64_t> choiceKeys;
+      DeviceSpan<std::uint64_t> sortedChoiceKeys;
+      DeviceSpan<Index> positions;
+      DeviceSpan<Index> sortedPositions;
+      DeviceSpan<std::uint8_t> winners;
+      if (!choiceKeys.allocate(mArena, chosen, ArenaEnd::kScratch) || !sortedChoiceKeys.allocate(mArena, chosen, ArenaEnd::kScratch) || !positions.allocate(mArena, chosen, ArenaEnd::kScratch) || !sortedPositions.allocate(mArena, chosen, ArenaEnd::kScratch) || !winners.allocate(mArena, total, ArenaEnd::kScratch)) {
+        return StageStatus::kOutOfMemory;
+      }
+      algorithms::forEach(*mRuntime, mStream, chosen, tracker_detail::MatchKeys{std::as_const(choices).data(), std::as_const(chose).data(), choiceKeys.data(), positions.data()});
+      status = algorithms::sortPairs(*mRuntime, mArena, mStream, std::as_const(choiceKeys).data(), sortedChoiceKeys.data(), std::as_const(positions).data(), sortedPositions.data(), chosen, 64);
+      if (status != StageStatus::kComplete) {
+        return status;
+      }
+      mRuntime->fill(winners.data(), std::uint8_t{0U}, total, mStream);
+      algorithms::forEach(*mRuntime, mStream, chosen, tracker_detail::FirstOfRow{std::as_const(sortedChoiceKeys).data(), std::as_const(sortedPositions).data(), winners.data()});
+      DeviceSpan<Index> order;
+      Index taken = 0U;
+      status = algorithms::selectIndices(*mRuntime, mArena, mStream, total, tracker_detail::Flagged{std::as_const(winners).data()}, order, taken, ArenaEnd::kScratch);
+      if (status != StageStatus::kComplete || taken == 0U) {
+        return status;
+      }
+      DeviceSpan<Index> takenTracks;
+      DeviceSpan<Index> takenRows;
+      DeviceSpan<Scalar> takenDistance2;
+      if (!takenTracks.allocate(mArena, taken, ArenaEnd::kScratch) || !takenRows.allocate(mArena, taken, ArenaEnd::kScratch) || !takenDistance2.allocate(mArena, taken, ArenaEnd::kScratch)) {
+        return StageStatus::kOutOfMemory;
+      }
+      algorithms::forEach(*mRuntime, mStream, taken, tracker_detail::TakeMatches{.choices = std::as_const(choices).data(), .order = std::as_const(order).data(), .slots = kSlots, .used = mUsed.data(), .tracks = takenTracks.data(), .rows = takenRows.data(), .distance2 = takenDistance2.data()});
+      std::vector<Index> hostTracks(taken);
+      std::vector<Index> hostRows(taken);
+      std::vector<Scalar> hostDistance2(taken);
+      gtrk::download(takenTracks, hostTracks.data(), taken, mStream);
+      gtrk::download(takenRows, hostRows.data(), taken, mStream);
+      gtrk::download(takenDistance2, hostDistance2.data(), taken, mStream);
+      mStream.synchronize();
+      // By track, then along it, as the host's.
+      std::vector<Index> byTrack(taken);
+      std::iota(byTrack.begin(), byTrack.end(), Index{0U});
+      std::ranges::sort(byTrack, [&](Index a, Index b) { return hostTracks[a] != hostTracks[b] ? hostTracks[a] < hostTracks[b] : hostDistance2[a] < hostDistance2[b]; });
+      mMatched.reserve(taken);
+      for (const auto at : byTrack) {
+        mMatched.push_back({.track = hostTracks[at], .row = hostRows[at]});
       }
       return StageStatus::kComplete;
     }
@@ -2386,6 +2591,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   DeviceColumns<MeasurementT> mColumns;
   DeviceSpan<Index> mOffsets;
   DeviceSpan<std::uint8_t> mUsed;
+  std::vector<match::Matched> mMatched; ///< `matchInactive`'s matches (`downloadMatches`)
   DeviceObject<Frame> mFrame;
   std::size_t mRows = 0U;
   const Frame* mHostFrame = nullptr;
