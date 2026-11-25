@@ -10,15 +10,19 @@
 // or submit itself to any jurisdiction.
 
 /// \file ITS3.cxx
-/// \brief ITS3's own: its chips placed.
+/// \brief ITS3's own: its chips placed and its cluster converter.
 
 #include "GenericTracking/Detectors/ITS3.h"
 
 #include "GenericTracking/Base/Definitions.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Alice/Placement.h"
+#include "GenericTracking/Workflow/ClusterConverterSpec.h"
 #include "GenericTracking/WorkflowITSMFT/Placement.h"
 
+#include "ClusterConverterITS3.h"
+
+#include "DataFormatsITSMFT/DPLAlpideParamInitializer.h"
 #include "ITS3Base/SegmentationMosaix.h"
 #include "ITS3Base/SpecsV2.h"
 #include "ITSBase/GeometryTGeo.h"
@@ -74,11 +78,7 @@ Sensor tileSensor(const o2::math_utils::Transform3D& l2g, int layer)
   double m[3][3];
   double t[3];
   l2g.GetComponents(m[0][0], m[0][1], m[0][2], t[0], m[1][0], m[1][1], m[1][2], t[1], m[2][0], m[2][1], m[2][2], t[2]);
-  // The arc's middle in O2's frame: its flat coordinate 0.
-  float middleX = 0.F;
-  float middleY = 0.F;
-  SegmentationMosaix{layer}.flatToCurved(0.F, 0.F, middleX, middleY);
-  const double angle = std::atan2(static_cast<double>(middleY), static_cast<double>(middleX));
+  const double angle = mosaix::middleAngle(layer);
   Vec3D x{};
   Vec3D z{};
   for (std::size_t i = 0; i < 3; ++i) {
@@ -124,3 +124,14 @@ std::array<SensorSpec, Detector<detectors::ITS3>::nLayers> placeSpecs<detectors:
 }
 
 } // namespace o2::gtrk::alice
+
+namespace o2::gtrk::workflow
+{
+
+template <>
+o2::framework::DataProcessorSpec getClusterConverterSpec<detectors::ITS3>(const o2::framework::ConfigContext& context, bool useMC)
+{
+  return ITS3ClusterConverterTask::spec(useMC, o2::itsmft::DPLAlpideParamInitializer::isITSStaggeringEnabled(context) ? Detector<detectors::ITS3>::nLayers : 1);
+}
+
+} // namespace o2::gtrk::workflow

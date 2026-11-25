@@ -100,8 +100,8 @@ o2_add_executable(check-matlut
 o2_add_executable(cluster-closure
                   SOURCES tools/clusterClosure.cxx
                   COMPONENT_NAME gtrk
-                  PUBLIC_LINK_LIBRARIES O2::GTrkStudy O2::ITSBase O2::MFTBase O2::DataFormatsITSMFT O2::TRKBase O2::FT3Base
-                                        O2::TRKReconstruction O2::DataFormatsTRKFT3 O2::DetectorsRaw O2::CommonUtils ROOT::RIO ROOT::Tree
+                  PUBLIC_LINK_LIBRARIES O2::GTrkStudy O2::GTrkWorkflowITS3 O2::ITSBase O2::MFTBase O2::DataFormatsITSMFT O2::TRKBase O2::FT3Base
+                                        O2::TRKReconstruction O2::ITS3Base O2::ITS3Reconstruction O2::DataFormatsTRKFT3 O2::DetectorsRaw O2::CommonUtils ROOT::RIO ROOT::Tree
                                         Boost::program_options)
 
 o2_add_executable(check-hits
