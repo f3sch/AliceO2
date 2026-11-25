@@ -512,6 +512,12 @@ class TrackingInterface
       };
       mDevice->downloadPartners(mDevicePartnerOffsets, mDevicePartners);
       tracked.result.status = mDevicePartnerOffsets.empty() ? mDeviceStore.commit(serial, 1024U, std::as_const(mDeviceTracks)) : mDeviceStore.commit(serial, 1024U, std::as_const(mDeviceTracks), std::span<const std::uint32_t>{mDevicePartnerOffsets}, std::span<const OverlapPartner>{mDevicePartners});
+      // Their inactive layers' matches after their references.
+      mDevice->downloadMatches(mDeviceMatches);
+      tracked.result.matches = mDeviceMatches.size();
+      if (tracked.result.status == StageStatus::kComplete && !mDeviceMatches.empty()) {
+        tracked.result.status = mDeviceStore.recommitMatched(serial, 1024U, std::span<const match::Matched>{mDeviceMatches});
+      }
       tracked.result.store = &mDeviceStore;
     }
     tracked.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -566,6 +572,7 @@ class TrackingInterface
   TrackStore<Det> mDeviceStore;                     ///< `mDeviceTracks` committed
   std::vector<std::uint32_t> mDevicePartnerOffsets; ///< the device's partners (`DeviceTracker::downloadPartners`)
   std::vector<OverlapPartner> mDevicePartners;
+  std::vector<match::Matched> mDeviceMatches; ///< the device's matches (`DeviceTracker::downloadMatches`)
   typename Device::TimeframeReport mDeviceReport;
   bool mDeviceTimeframe = false; ///< the device holds a timeframe
   bool mVertexed = false;        ///< the vertexer ran this timeframe

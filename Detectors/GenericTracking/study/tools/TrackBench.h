@@ -2591,6 +2591,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
         const auto& report = deviceRun.iterations[iteration];
         std::cout << std::format("  iteration {}: {} records, {} duplicates, {} mismatches, {} rounds, {} tracks, {} joined, {} took an inactive layer's row, {} readbacks; arena peak {:.1f} MB\n", iteration, report.records, report.duplicates, report.mismatches, report.rounds, report.tracks, report.tracksJoined, report.inactiveRows, report.readbacks, static_cast<double>(report.arenaPeakBytes) / 1.e6);
       }
+      if (run.result.matches != 0U) {
+        std::cout << std::format("inactive layers' rows matched after the last iteration: {}\n", run.result.matches);
+      }
       const auto deviceRows = trackRows(*run.result.store);
       const auto score = scoreAndPrint(deviceRows);
       const auto sourceScore = scoreSources(deviceRows);

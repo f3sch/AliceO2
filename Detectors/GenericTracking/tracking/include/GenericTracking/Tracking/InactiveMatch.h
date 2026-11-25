@@ -81,6 +81,13 @@ struct Choice {
   Scalar distance2 = 0.F;
 };
 
+/// A track's matched row, as the store takes them: by track, then along the
+/// track.
+struct Matched {
+  std::uint32_t track = 0U;
+  std::uint32_t row = 0U;
+};
+
 /// The free rows of the inactive layers per sensor, in box-start order:
 /// sensor s's from `begin[s]` to `begin[s + 1]` of `rows`, their box starts
 /// in `startPS`.
@@ -131,7 +138,7 @@ struct Choose {
   Tracks tracks;
   const std::uint8_t* used = nullptr;
   const std::uint32_t* maxCandidateWidthPS = nullptr;
-  SensorRows free;
+  SensorRows freeRows;
   Choice* choices = nullptr;
 
   GPUhdi() void operator()(std::uint32_t track) const
@@ -187,7 +194,7 @@ struct Choose {
           const auto sensor = measurements.surface[candidate.row];
           const auto& bounds = geometry.surface(sensor).bounds;
           // Itself among them: at least one.
-          const auto chance = o2::gpu::CAMath::Max(inTime(free, measurements, sensor, box, maxCandidateWidthPS[layer]), 1U);
+          const auto chance = o2::gpu::CAMath::Max(inTime(freeRows, measurements, sensor, box, maxCandidateWidthPS[layer]), 1U);
           const Scalar density = static_cast<Scalar>(chance) / (4.F * bounds.halfX * bounds.halfY);
           const Scalar ratio = o2::gpu::CAMath::Exp(-0.5F * candidate.chi2) / (2.F * kPi<Scalar> * o2::gpu::CAMath::Sqrt(candidate.determinant) * density);
           if (ratio > 1.F && (best.row == kNone || ratio > best.ratio)) {
@@ -218,12 +225,7 @@ class InactiveMatch
   static constexpr std::uint32_t kSlots = match::kInactiveCount<Det>;
   using Tracks = typename TrackRefit<Det>::Tracks;
 
-  /// A track's matched row, in the order the store takes them: by track,
-  /// then along the track.
-  struct Matched {
-    std::uint32_t track = 0U;
-    std::uint32_t row = 0U;
-  };
+  using Matched = match::Matched;
 
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
   {
@@ -247,13 +249,10 @@ class InactiveMatch
         const auto& measurements = frame.measurements();
         const auto rowCount = static_cast<std::uint32_t>(used.size());
         // The free rows of the inactive layers per sensor, by box start.
-        std::uint32_t sensors = 0U;
+        constexpr auto sensors = static_cast<std::uint32_t>(Det::nSensors);
         std::uint32_t freeRows = 0U;
         for (std::uint32_t row = 0; row < rowCount; ++row) {
-          if (used[row] == kFree && Detector<Det>::isInactiveLayer(geometry.surface(measurements.surface[row]).layer)) {
-            sensors = std::max<std::uint32_t>(sensors, static_cast<std::uint32_t>(measurements.surface[row]) + 1U);
-            ++freeRows;
-          }
+          freeRows += used[row] == kFree && Detector<Det>::isInactiveLayer(geometry.surface(measurements.surface[row]).layer) ? 1U : 0U;
         }
         resizeBoundedVector(mBegin, std::size_t{sensors} + 1U, mMemoryPool.get());
         std::fill(mBegin.begin(), mBegin.end(), 0U);
@@ -281,7 +280,7 @@ class InactiveMatch
         const auto count = static_cast<std::uint32_t>(tracks.size());
         resizeBoundedVector(mChoices, std::size_t{count} * kSlots, mMemoryPool.get());
         const auto view = tracks.view();
-        forEach(count, match::Choose<Det, std::remove_const_t<decltype(view)>>{.iterations = iterations, .timeFrame = &frame, .trackingGeometry = &geometry, .propagator = propagator, .tracks = view, .used = used.data(), .maxCandidateWidthPS = maxCandidateWidthPS.data(), .free = table, .choices = mChoices.data()});
+        forEach(count, match::Choose<Det, std::remove_const_t<decltype(view)>>{.iterations = iterations, .timeFrame = &frame, .trackingGeometry = &geometry, .propagator = propagator, .tracks = view, .used = used.data(), .maxCandidateWidthPS = maxCandidateWidthPS.data(), .freeRows = table, .choices = mChoices.data()});
         // A row two tracks want to the larger ratio: by row, then ratio
         // (larger first), then track.
         std::uint32_t chosen = 0U;
