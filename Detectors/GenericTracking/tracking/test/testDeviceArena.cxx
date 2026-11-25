@@ -54,6 +54,7 @@ class NoRuntime final : public DeviceRuntime
   void destroyStreamHandle(void* /*handle*/) noexcept final {}
   void synchronizeStreamHandle(void* /*handle*/) final { fail(); }
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::ITS>> makeITSTracker(DeviceBlock /*block*/) final { fail(); }
+  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::ITS3>> makeITS3Tracker(DeviceBlock /*block*/) final { fail(); }
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::MFT>> makeMFTTracker(DeviceBlock /*block*/) final { fail(); }
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3>> makeTRKFT3Tracker(DeviceBlock /*block*/) final { fail(); }
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3TOF>> makeTRKFT3TOFTracker(DeviceBlock /*block*/) final { fail(); }
