@@ -93,11 +93,14 @@ inline constexpr SensorSpec kChip{
 struct TRKFT3 {
   static constexpr const char* name = "TRKFT3";
   /// The layers on which a particle can leave two rows, on two overlapping
-  /// sensors (LayerLinks.h `overlapLayers`): every one but the vertex
-  /// detector's three, whose curved sensors leave gaps between them -- the
-  /// barrel's tilted, staggered staves and FT3's modules on both faces of
-  /// each disc.
-  static constexpr std::uint64_t overlapLayers = ((std::uint64_t{1} << 23U) - 1U) & ~std::uint64_t{0b111U};
+  /// sensors (LayerLinks.h `overlapLayers`): the ML and OT barrel layers
+  /// (3-10), with their tilted, staggered staves, and the three inner FT3
+  /// discs on each side (11-13, 17-19), whose staves alternate between the
+  /// disc's two faces and overlap their neighbours. Not the vertex detector's
+  /// three, whose curved sensors leave gaps between them, nor the three outer
+  /// discs on each side (14-16, 20-22), whose staves are spaced wider than
+  /// their sensors and leave gaps between neighbours.
+  static constexpr std::uint64_t overlapLayers = 0b1110'0011'1111'1111'1000U;
   // clang-format off
   // Chip counts measured by o2-gtrk-import-geometry from an ALICE 3 sgn_geometry-aligned.root: 50876 chips.
   static constexpr std::array<PlacedLayerSpec, 11> barrelLayers{{
