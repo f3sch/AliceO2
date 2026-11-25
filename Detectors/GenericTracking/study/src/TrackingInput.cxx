@@ -42,7 +42,7 @@ namespace
 constexpr std::array<char, 8> kMagic{'G', 'T', 'R', 'K', 'T', 'I', 'N', '1'};
 
 /// Bumped whenever the layout below or a column's type changes.
-constexpr std::uint32_t kVersion = 9U;
+constexpr std::uint32_t kVersion = 10U;
 
 /// The header: the blocks' element counts and the beam line the rows were
 /// placed about. The blocks follow: the readout frames, every measurement

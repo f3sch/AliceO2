@@ -37,6 +37,7 @@
 #include "GenericTracking/Workflow/GridConfig.h"
 #include "GenericTracking/Workflow/MaterialLUT.h"
 #include "GenericTracking/Workflow/RecoParam.h"
+#include "GenericTracking/Workflow/ClusterShapeBand.h"
 #include "GenericTracking/Workflow/TrackingInterface.h"
 #include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Study/Digest.h"
@@ -2008,6 +2009,33 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   }
   interface.configure({workflow::nominalBzKiloGauss(), input.depths, material}, {input.beamLine, geometry});
   auto& tracker = interface.tracker();
+  // TRIAL (plans/131): the TRK cluster-shape band's span shares for the follow's last-row trim, per layer of the
+  // layout; none without a band at --ccdb-url.
+  if constexpr (std::same_as<Det, detectors::TRKFT3> || std::same_as<Det, detectors::TRKFT3TOF>) {
+    if (const auto* band = ccdb.get<workflow::ClusterShapeBand>("TRK/Calib/ClusterShapeBand"); band != nullptr) {
+      if (!band->fits(workflow::ShapeBandLayers<Det>::barrelLayers, workflow::ShapeBandLayers<Det>::layers)) {
+        throw std::runtime_error("TRK/Calib/ClusterShapeBand at " + options.ccdbUrl + " is no band of this build (version 2, with the span shares): make it again");
+      }
+      constexpr auto kSpans = follow::ShapeFrequencies::kSpans;
+      static_assert(kSpans == workflow::ClusterShapeBand::kFrequencySpans);
+      const auto bins = band->slopeBins();
+      const auto layers = static_cast<std::size_t>(Detector<Det>::nLayers);
+      std::vector<float> column(layers * bins * kSpans, 0.F);
+      std::vector<float> row(layers * bins * kSpans, 0.F);
+      for (std::size_t layer = 0; layer < layers; ++layer) {
+        const auto own = static_cast<std::size_t>(workflow::ShapeBandLayers<Det>::layer(static_cast<LayerID>(layer)));
+        if (own >= band->shareLayers()) {
+          continue;
+        }
+        for (std::size_t at = 0; at < bins * kSpans; ++at) {
+          column[(layer * bins * kSpans) + at] = band->columnFrequency[(own * bins * kSpans) + at];
+          row[(layer * bins * kSpans) + at] = band->rowFrequency[(own * bins * kSpans) + at];
+        }
+      }
+      tracker.setShapeFrequencies(band->slopeEdges, std::move(column), std::move(row));
+      std::cout << "TRIAL p131: the size shares of " << band->describe() << ", " << bins << " slope bins\n";
+    }
+  }
   const auto& pool = interface.pool();
   auto* vertexing = interface.vertexing();
   const auto& tracking = interface.tracking();
