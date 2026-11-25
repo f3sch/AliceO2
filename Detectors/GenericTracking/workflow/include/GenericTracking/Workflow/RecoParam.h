@@ -109,7 +109,8 @@ struct RecoSettings {
   /// own.
   std::vector<double> iterationMinPtGeV{1., 0.5, 0.3};
   /// Where each iteration's vertex seeds come from: 0 the beam line (the
-  /// default), 1 the timeframe's vertex list.
+  /// default), 1 the timeframe's vertex list, 2 none: straight legs from
+  /// anywhere, cosmic muons (barrel links only, no beam constraint).
   std::vector<int> iterationVertexSource;
   /// The shortest road each iteration fits, in clusters, 4 by default; a road
   /// is at least 4 clusters, two triplets, whatever is set. An iteration takes

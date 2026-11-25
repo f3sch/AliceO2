@@ -344,7 +344,7 @@ class JoinStudy
     pair.outwardKinks = fit.outwardKinks;
     pair.kinkAt = fit.kinkMeasurement < 0 ? 99 : fit.kinkMeasurement - static_cast<int>(view.count[earlier]);
     pair.passes = follow::passesRoadChi2(parameters, fit);
-    const int outwardNdf = (2 * static_cast<int>(count)) - 5 - (2 * fit.outwardKinks);
+    const int outwardNdf = (2 * static_cast<int>(count)) - fittedParameters(propagator) - (2 * fit.outwardKinks);
     const auto cuts = static_cast<int>(std::size(parameters.roadChi2MaxByNdf));
     pair.passesOutward = outwardNdf > 0 && outwardNdf < cuts && fit.outwardChi2 <= parameters.roadChi2MaxByNdf[outwardNdf];
     pair.addedNdf = fit.ndf - view.ndf[earlier] - view.ndf[piece];

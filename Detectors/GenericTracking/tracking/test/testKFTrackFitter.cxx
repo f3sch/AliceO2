@@ -29,6 +29,7 @@
 
 #include "ReconstructionDataFormats/PID.h"
 #include "ReconstructionDataFormats/Track.h"
+#include "ReconstructionDataFormats/TrackParametrization.h"
 #include "ReconstructionDataFormats/TrackUtils.h"
 
 #include <boost/test/unit_test.hpp>
@@ -576,6 +577,34 @@ BOOST_AUTO_TEST_CASE(ChainSeedOfAStraightTrackHasNoCurvature)
   BOOST_TEST(std::abs(reference.phi() - exact.phi()) < 5e-6F);
   BOOST_TEST(std::abs(reference.theta() - exact.theta()) < 5e-6F);
   BOOST_TEST(std::abs(reference.qOverP() - exact.qOverP()) < 5e-4F);
+}
+
+/// At zero field nothing measures the momentum: the seed takes O2's
+/// convention, q/pT = 1 / `kMostProbablePt`, and both passes determine the
+/// other four parameters with q/p kept there, 2 N - 4 degrees of freedom.
+BOOST_AUTO_TEST_CASE(ZeroFieldFitsAStraightChainAtO2sMomentum)
+{
+  BarrelChain<4> chain(0.F);
+  BOOST_REQUIRE(chain.built);
+  chain.propagator.bzKiloGauss = 0.F;
+  const int n = static_cast<int>(chain.measurements.size());
+  const detail::LinkSteps material;
+  const auto fit = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), n);
+  BOOST_REQUIRE((fit.status == PropagationStatus::kOk));
+  BOOST_TEST(fit.ndf == (2 * n) - 4);
+  BOOST_TEST(std::abs(fit.chi2) < 1e-4F);
+  BOOST_TEST(std::abs(fit.outwardChi2) < 1e-4F);
+  const auto seed = makeChainSeed(chain.propagator, *chain.tracking, chain.measurements.data(), n);
+  const Scalar o2QOverP = std::sin(seed.theta()) / o2::track::kMostProbablePt;
+  BOOST_TEST(std::abs((seed.qOverP() / o2QOverP) - 1.F) < 1e-6F);
+  for (const auto& [state, truth] : {std::pair{fit.state, chain.truth[0]}, std::pair{fit.outwardState, chain.truth[n - 1]}}) {
+    BOOST_TEST(state.surface == truth.surface);
+    BOOST_TEST(std::abs(state.loc0() - truth.loc0()) < 1e-4F);
+    BOOST_TEST(std::abs(state.loc1() - truth.loc1()) < 1e-4F);
+    BOOST_TEST(std::abs(state.phi() - truth.phi()) < 1e-5F);
+    BOOST_TEST(std::abs(state.theta() - truth.theta()) < 1e-5F);
+    BOOST_TEST(std::abs((state.qOverP() / o2QOverP) - 1.F) < 1e-6F);
+  }
 }
 
 /// Why the seed takes the whole chain: a 0.4 GeV/c track crosses every barrel

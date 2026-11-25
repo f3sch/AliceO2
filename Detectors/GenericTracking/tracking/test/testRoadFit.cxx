@@ -164,7 +164,7 @@ BOOST_AUTO_TEST_CASE(TheOutwardPassStopsWhereTheFullOneWouldReject)
   moved.point.z = global[2];
   const Fixture fixture{hits};
   const auto iteration = parameters();
-  const auto cut = study::roadChi2Cut(iteration, kLayers);
+  const auto cut = study::roadChi2Cut(iteration, kPropagator, kLayers);
   BOOST_TEST(cut > 0.F);
 
   for (std::size_t track = 0; track < 6U; ++track) {
@@ -199,6 +199,16 @@ BOOST_AUTO_TEST_CASE(TheOutwardPassStopsWhereTheFullOneWouldReject)
   }
 }
 
+/// The road cut's table reaches the most degrees of freedom a road has, a
+/// road on every layer at zero field: 2 N - 4.
+BOOST_AUTO_TEST_CASE(TheRoadCutCoversAZeroFieldRoadOnEveryLayer)
+{
+  const auto iteration = parameters();
+  constexpr int kMost = (2 * static_cast<int>(maxChainLayers<Det>)) - 4;
+  BOOST_REQUIRE(std::size(iteration.roadChi2MaxByNdf) == static_cast<std::size_t>(kMost + 1));
+  BOOST_TEST(iteration.roadChi2MaxByNdf[kMost] > iteration.roadChi2MaxByNdf[kMost - 1]);
+}
+
 BOOST_AUTO_TEST_CASE(SmearedRoadsHaveTheirDegreesOfFreedom)
 {
   // Every hit smeared by its own errors in loc0 and loc1: the outward chi2 of
@@ -219,7 +229,7 @@ BOOST_AUTO_TEST_CASE(SmearedRoadsHaveTheirDegreesOfFreedom)
     hit.point.z = global[2];
   }
   const Fixture fixture{hits, 100.};
-  const auto cut = study::roadChi2Cut(parameters(), kLayers);
+  const auto cut = study::roadChi2Cut(parameters(), kPropagator, kLayers);
   double sum = 0.;
   std::size_t accepted = 0U;
   for (std::size_t track = 0; track < kTracks; ++track) {
@@ -306,7 +316,7 @@ BOOST_AUTO_TEST_CASE(AKinkRecoversAScatteredRoadWithTwoDegreesOfFreedom)
   const auto kinked = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<int>(kLayers), iteration.roadChi2MaxByNdf, budget);
   BOOST_TEST((kinked.status == RoadFitStatus::kAccepted));
   BOOST_TEST(kinked.kinks == 1U);
-  BOOST_TEST(kinked.chi2 <= study::roadChi2Cut(iteration, kLayers, 1U));
+  BOOST_TEST(kinked.chi2 <= study::roadChi2Cut(iteration, kPropagator, kLayers, 1U));
 
   // Each pass takes its own: the outward one at the cluster after the kink,
   // the inward one at the cluster before it, where the direction it brings
@@ -320,7 +330,7 @@ BOOST_AUTO_TEST_CASE(AKinkRecoversAScatteredRoadWithTwoDegreesOfFreedom)
   BOOST_TEST(fit.outwardChi2 == kinked.chi2);
   // Not zero: both passes start from one helix through every cluster,
   // which a 50 mrad kink leaves; a scatter of milliradians barely moves it.
-  BOOST_TEST(fit.chi2 <= study::roadChi2Cut(iteration, kLayers, fit.kinks));
+  BOOST_TEST(fit.chi2 <= study::roadChi2Cut(iteration, kPropagator, kLayers, fit.kinks));
 
   // A straight road uses none.
   const auto straight = kinkedChain(kKink, 0.);
@@ -400,7 +410,7 @@ BOOST_AUTO_TEST_CASE(TheLastStepTakesTheAllowanceNotAFreeDirection)
   const auto on = road(inside);
   BOOST_TEST((on.status == RoadFitStatus::kAccepted));
   BOOST_TEST(on.kinks == 1U);
-  BOOST_TEST(on.chi2 <= study::roadChi2Cut(iteration, kLayers, 0U));
+  BOOST_TEST(on.chi2 <= study::roadChi2Cut(iteration, kPropagator, kLayers, 0U));
   BOOST_TEST((road(beyond).status == RoadFitStatus::kRejected));
   // The refit's passes keep the rule: a kink at the innermost cluster going
   // inward would leave the track's direction there unchecked.

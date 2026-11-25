@@ -224,7 +224,7 @@ GPUdi() PropagationStatus startPass(const Prop& prop, const TrackingGeometry<Det
   DiffuseFactors c;
   taken = 0;
   reference = PassReference{.qOverP = state.qOverP()};
-  if (n < kPassStart || !startDiffuse(measurements[first], state, c)) {
+  if (n < kPassStart || !startDiffuse(stepPropagator(prop, geometry, measurements, 0, n - 1), measurements[first], state, c)) {
     failedMeasurement = static_cast<std::int16_t>(first);
     return PropagationStatus::kNotFinite;
   }
@@ -343,7 +343,7 @@ GPUdi() void inwardPass(const Prop& prop, const TrackingGeometry<Det>& geometry,
 template <typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer = NoFitObserver>
 GPUdi() TrackFitResult fitMeasurements(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, const KinkBudget& kinkBudget = {}, const Observer& observe = {})
 {
-  TrackFitResult fit{.ndf = static_cast<std::int16_t>((2 * n) - kNBoundParams)};
+  TrackFitResult fit{.ndf = static_cast<std::int16_t>((2 * n) - fittedParameters(stepPropagator(prop, geometry, measurements, 0, n - 1)))};
   const auto seed = makeChainSeed(prop, geometry, measurements, n);
   const auto span = detail::spanMaterial(geometry, material, measurements, n);
   int outwardKinks = 0;
@@ -366,7 +366,7 @@ GPUdi() TrackFitResult fitMeasurements(const Prop& prop, const TrackingGeometry<
 template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material, typename Chain, typename Observer = NoFitObserver>
 GPUdi() TrackFitResult fitInward(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, const BoundTrackState& outwardState, const KinkBudget& kinkBudget = {}, const Observer& observe = {})
 {
-  TrackFitResult fit{.ndf = static_cast<std::int16_t>((2 * n) - kNBoundParams)};
+  TrackFitResult fit{.ndf = static_cast<std::int16_t>((2 * n) - fittedParameters(stepPropagator(prop, geometry, measurements, 0, n - 1)))};
   fit.outwardState = outwardState;
   detail::inwardPass<Solve>(prop, geometry, detail::spanMaterial(geometry, material, measurements, n), measurements, n, kinkBudget, observe, fit);
   return fit;
@@ -386,9 +386,9 @@ struct RoadFitResult {
 
 /// Its chi2 is the whole road's; the inward pass only gives the state on the
 /// innermost surface, which the refit of an accepted track provides. The cut
-/// is \a chi2MaxByNdf read at the road's degrees of freedom, `2 N - 5` less
-/// two per kink. A filter's chi2 only grows as measurements are added, and the
-/// cut only falls as kinks are taken, so the pass stops as soon as the chi2
+/// is \a chi2MaxByNdf read at the road's degrees of freedom, `2 N - 5` (at
+/// zero field `2 N - 4`, `fittedParameters`) less two per kink. A filter's
+/// chi2 only grows as measurements are added, and the cut only falls as kinks are taken, so the pass stops as soon as the chi2
 /// exceeds the cut so far: the decision the complete pass would reach.
 ///
 /// With \a LastStepAllowance, for an iteration with a kink allowance, the
@@ -421,7 +421,7 @@ GPUdi() RoadFitResult fitOutward(const Prop& prop, const TrackingGeometry<Det>& 
     return result;
   }
   countWork(WorkCounter::kRoadSteps, static_cast<std::uint64_t>(taken - 1));
-  const int ndf = (2 * n) - kNBoundParams;
+  const int ndf = (2 * n) - fittedParameters(stepPropagator(prop, geometry, measurements, 0, n - 1));
   int kinks = 0;
   // The allowance's last step, which frees no degree of freedom; counted by its
   // instantiation alone.

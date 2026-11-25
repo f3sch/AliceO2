@@ -75,7 +75,7 @@ namespace detail
 /// The cut parameters of one iteration, the same for every layer pair and
 /// every vertex.
 struct PairCut {
-  Scalar twoRMin = 0.F;          ///< twice the softest track's transverse radius [cm]; 0 with no field
+  Scalar twoRMin = 0.F;          ///< twice the softest track's transverse radius [cm], the vertexer's; 0 with no field
   Scalar nSigma = 3.F;           ///< how many sigma of the Gaussian terms are admitted
   Scalar invBetaMomentum2 = 0.F; ///< 1 / (beta pT)^2 at pT_min [GeV^-2], for the scattering sum (`invBetaMomentumMin2`)
   /// The largest transverse curvature above pT_min [1/cm]: zero with no field,
@@ -550,12 +550,21 @@ template <DetectorLayout Det>
   return layerPairWindow<Det>(from, to, secondMax<Det>(from), params, vertex, sourceKinkBound<Det>(material, params, from, vertex), betweenKinkBound<Det>(material, params, from, to, vertex, AzimuthBound::kMean));
 }
 
+/// The window an iteration seeding from \a source queries with, and sizes the
+/// grid's cells with: without an origin any straight leg's
+/// (`originlessPairWindow`), else the beam line's (`layerPairWindow`).
+template <DetectorLayout Det>
+[[nodiscard]] inline LayerPairWindow iterationPairWindow(LayerID from, LayerID to, const SearchWindowParams& params, VertexSource source, const VertexConstraint& vertex, const LinkMaterial<Det>& material)
+{
+  return source == VertexSource::kNone ? originlessPairWindow<Det>(from, to) : layerPairWindow<Det>(from, to, params, vertex, material);
+}
+
 /// The two tests' ingredients for one source, vertex and candidate.
 struct PairTerms {
   bool beforeTurn = false;      ///< the circle's turning point is not between the two
-  Scalar curvature = 0.F;       ///< 2 R_min |P_i x P_j|
-  Scalar bound = 0.F;           ///< r_i r_j d: the curvature bound, in the same units
-  Scalar varCurvature = 0.F;    ///< (2 R_min sigma_X)^2
+  Scalar curvature = 0.F;       ///< 2 |P_i x P_j|
+  Scalar bound = 0.F;           ///< kappa_max r_i r_j d: the curvature bound, in the same units
+  Scalar varCurvature = 0.F;    ///< (2 sigma_X)^2
   Scalar collinearity2 = 0.F;   ///< D^2
   Scalar varCollinearity = 0.F; ///< sigma_D^2
 };
@@ -632,6 +641,23 @@ struct PairChord {
   return {.dx = dx, .dy = dy, .chord2 = chord2, .chord = o2::gpu::GPUCommonMath::Sqrt(chord2), .cross = (source.x * target.y) - (target.x * source.y)};
 }
 
+/// The circle through the beam point turns where it is farthest from it,
+/// opposite the beam point across its centre. The pair lies on one side of
+/// that diameter -- no turning point between them -- exactly when
+/// `P_i . P_j` lies between `r_i^2` and `r_j^2`: the step from one to the
+/// other leads outwards at both ends. That also keeps them in one hemisphere.
+/// A straight line from anywhere (a pass without an origin) the same: it
+/// leads outward from the one to the other.
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool noTurnBetween(const PairPoint& source, const PairPoint& target)
+{
+  const Scalar dot = (source.x * target.x) + (source.y * target.y);
+  const Scalar sourceR2 = source.r * source.r;
+  const Scalar targetR2 = target.r * target.r;
+  const Scalar lowR2 = sourceR2 < targetR2 ? sourceR2 : targetR2;
+  const Scalar highR2 = sourceR2 < targetR2 ? targetR2 : sourceR2;
+  return dot >= lowR2 && dot <= highR2;
+}
+
 /// \a betweenScatter is `betweenScattering` for the pair, zero where its
 /// link's gap holds no material.
 ///
@@ -647,22 +673,11 @@ struct PairChord {
   // A kink between the two moves P_j against the side of length r_i.
   const Scalar varCross = (source.r * source.r * (target.varRPhi + betweenScatter)) + (target.r * target.r * source.varRPhi) + (chord2 * (vertex.varTransverse + sourceScatter));
 
-  // The circle through the beam point turns where it is farthest from it,
-  // opposite the beam point across its centre. The pair lies on one side of
-  // that diameter -- no turning point between them -- exactly when
-  // `P_i . P_j` lies between `r_i^2` and `r_j^2`: the step from one to the
-  // other leads outwards at both ends. That also keeps them in one hemisphere.
-  const Scalar dot = (source.x * target.x) + (source.y * target.y);
-  const Scalar sourceR2 = source.r * source.r;
-  const Scalar targetR2 = target.r * target.r;
-  const Scalar lowR2 = sourceR2 < targetR2 ? sourceR2 : targetR2;
-  const Scalar highR2 = sourceR2 < targetR2 ? targetR2 : sourceR2;
-
   return {
-    .beforeTurn = dot >= lowR2 && dot <= highR2,
-    .curvature = cut.twoRMin * o2::gpu::GPUCommonMath::Abs(cross),
-    .bound = source.r * target.r * chord,
-    .varCurvature = cut.twoRMin * cut.twoRMin * varCross,
+    .beforeTurn = noTurnBetween(source, target),
+    .curvature = 2.F * o2::gpu::GPUCommonMath::Abs(cross),
+    .bound = cut.maxCurvature * source.r * target.r * chord,
+    .varCurvature = 4.F * varCross,
   };
 }
 
@@ -713,8 +728,10 @@ GPUhdi() void addLongitudinalPairTerms(PairTerms& terms, const PairCut& cut, con
 }
 
 /// Curvature at most the iteration's bound plus n sigma, with no turning point
-/// between the two: a looper's legs are found separately. With no field
-/// `twoRMin` is zero and every such pair passes.
+/// between the two: a looper's legs are found separately. The bound is
+/// `maxCurvature`: without a pT cut infinite, and every such pair passes; at
+/// zero field 0, every track straight, and the pair points back to the beam
+/// line within its errors and scattering.
 [[nodiscard]] GPUhdi() GPUAlwaysInline() bool transverseCompatible(const PairCut& cut, const PairTerms& terms)
 {
   const Scalar excess = terms.curvature - terms.bound;

@@ -176,7 +176,8 @@ struct TrackletRunSummary {
   std::array<std::uint64_t, kPtBins> trueTripletsKeptByPt{};
   double curvaturePullSum = 0.;
   double curvaturePullSum2 = 0.;
-  double curvatureResidualSum2 = 0.; ///< relative to the MC curvature
+  double curvatureResidualSum2 = 0.;   ///< relative to the MC curvature
+  std::size_t curvatureResiduals = 0U; ///< its count: none at zero field
   // The same pull by the particle's pT: the triplet's scattering is taken at
   // pT_min, so above it the pull's rms falls below 1 by design.
   std::array<double, kPtBins> curvaturePullSumByPt{};
@@ -272,13 +273,17 @@ template <std::size_t N>
 
 /// One MC-true kept triplet's curvature pull and relative residual, overall
 /// and in its particle's pT bin.
+/// \a relativeResidual NaN: none, the MC curvature being 0 (zero field).
 void addCurvaturePull(TrackletRunSummary& summary, Scalar pt, double pull, double relativeResidual)
 {
   summary.curvaturePullSum += pull;
   summary.curvaturePullSum2 += pull * pull;
   summary.curvaturePullSumByPt[binOf(pt, kPtEdges)] += pull;
   summary.curvaturePullSum2ByPt[binOf(pt, kPtEdges)] += pull * pull;
-  summary.curvatureResidualSum2 += relativeResidual * relativeResidual;
+  if (std::isfinite(relativeResidual)) {
+    summary.curvatureResidualSum2 += relativeResidual * relativeResidual;
+    ++summary.curvatureResiduals;
+  }
 }
 
 /// The MC-true kept triplets' curvature pulls, overall and by pT.
@@ -287,7 +292,7 @@ void logTripletCurvature(const TrackletRunSummary& summary)
   const auto count = static_cast<double>(summary.trueTripletsKept);
   if (count > 0.) {
     const double mean = summary.curvaturePullSum / count;
-    LOGP(info, "  curvature against MC 1/R(p): pull mean {:.3f}, rms {:.3f}; relative residual rms {:.4f}", mean, sqrtClampedOf(summary.curvaturePullSum2 / count - (mean * mean)), std::sqrt(summary.curvatureResidualSum2 / count));
+    LOGP(info, "  curvature against MC 1/R(p): pull mean {:.3f}, rms {:.3f}; relative residual rms {:.4f}", mean, sqrtClampedOf(summary.curvaturePullSum2 / count - (mean * mean)), summary.curvatureResiduals > 0U ? std::sqrt(summary.curvatureResidualSum2 / static_cast<double>(summary.curvatureResiduals)) : std::numeric_limits<double>::quiet_NaN());
     std::string pullByPt;
     for (std::size_t bin = 1; bin < kPtBins; ++bin) {
       const auto inBin = static_cast<double>(summary.trueTripletsKeptByPt[bin]);
@@ -1020,9 +1025,9 @@ class StageTruth
       }
       // The fit's curvature is the 3D one, 1/R at the momentum p.
       const double momentum = static_cast<double>(firstPair->pt) * std::hypot(1., static_cast<double>(firstPair->cotTheta));
-      const double truth = 1. / curvatureRadius(momentum, mBzKiloGauss);
+      const double truth = exactlyEqual(mBzKiloGauss, 0.) ? 0. : 1. / curvatureRadius(momentum, mBzKiloGauss);
       const double fitted = std::abs(static_cast<double>(tripletView.curvature[i]));
-      addCurvaturePull(summary, firstPair->pt, (fitted - truth) / std::sqrt(static_cast<double>(tripletView.varCurvature[i])), (fitted - truth) / truth);
+      addCurvaturePull(summary, firstPair->pt, (fitted - truth) / std::sqrt(static_cast<double>(tripletView.varCurvature[i])), truth > 0. ? (fitted - truth) / truth : std::numeric_limits<double>::quiet_NaN());
     }
 
     // Neighbours: each edge is owned by the slice whose core holds its first
@@ -1173,7 +1178,7 @@ class StageTruth
     summary.stagingPredictionMisses = tracker.stagingPredictionMisses() - initialPredictionMisses;
     summary.poolHighWater = tracker.memoryHighWater();
 
-    const auto label = fmt::format("iteration {}, {}", mIteration, vertexSource == VertexSource::kBeamLine ? "beam line" : "vertex list");
+    const auto label = fmt::format("iteration {}, {}", mIteration, vertexSource == VertexSource::kBeamLine ? "beam line" : (vertexSource == VertexSource::kNone ? "no origin" : "vertex list"));
     const double trackletSeconds = observed.summary->seconds(profile::Phase::kTracklets);
     const double timePerSourceNS = summary.sources == 0U ? 0. : 1.e9 * trackletSeconds / static_cast<double>(summary.sources);
     LOGP(info, "tracklets, {}: {} sources, {} accepted, {:.3f} s, {:.1f} ns/source", label, summary.sources, summary.tracklets, trackletSeconds, timePerSourceNS);
@@ -1536,7 +1541,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
       failures.push_back({.id = id, .rows = rows, .fit = fit});
       continue;
     }
-    const int outwardNdf = (2 * n) - kNBoundParams - (2 * fit.outwardKinks);
+    const int outwardNdf = (2 * n) - fittedParameters(propagator) - (2 * fit.outwardKinks);
     chi2Sum += static_cast<double>(fit.outwardChi2);
     ndfSum += static_cast<double>(outwardNdf);
     const auto layerOf = [&](int index) { return static_cast<std::size_t>(layerOfRow(frame, tracking, rows[static_cast<std::size_t>(index)])); };
@@ -1551,7 +1556,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
     }
     kinked += fit.outwardKinks != 0U ? 1U : 0U;
     chi2PerNdf.push_back(fit.outwardChi2 / static_cast<float>(outwardNdf));
-    if (!(fit.outwardChi2 <= roadChi2Cut(parameters, static_cast<std::uint32_t>(n), fit.outwardKinks))) {
+    if (!(fit.outwardChi2 <= roadChi2Cut(parameters, propagator, static_cast<std::uint32_t>(n), fit.outwardKinks))) {
       ++length.failed;
       int worst = 0;
       for (int index = 1; index < n; ++index) {
@@ -1578,7 +1583,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
           }
         }
         ++failedByWhy[why];
-        inwardPassesByWhy[why] += fit.chi2 <= roadChi2Cut(parameters, static_cast<std::uint32_t>(n), fit.kinks) ? 1U : 0U;
+        inwardPassesByWhy[why] += fit.chi2 <= roadChi2Cut(parameters, propagator, static_cast<std::uint32_t>(n), fit.kinks) ? 1U : 0U;
         fullLengthByWhy[why] += static_cast<std::size_t>(n) >= static_cast<std::size_t>(Detector<Det>::nLayers) ? 1U : 0U;
       }
       if (beyond == 0U) {
@@ -1789,7 +1794,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
     const int n = static_cast<int>(count);
     const auto fitRows = [&](const std::uint32_t* chain) { return fitMeasurements(propagator, tracking, material, RowChain<Det>{.frame = &frame, .rows = chain}, n, kinkBudget(parameters)); };
     const auto fakeFit = fitRows(trackRows.data());
-    const auto passes = [&](const TrackFitResult& fit) { return fit.status == PropagationStatus::kOk && fit.outwardChi2 <= roadChi2Cut(parameters, count, fit.outwardKinks); };
+    const auto passes = [&](const TrackFitResult& fit) { return fit.status == PropagationStatus::kOk && fit.outwardChi2 <= roadChi2Cut(parameters, propagator, count, fit.outwardKinks); };
     // The best alternative: a passing one with the lowest chi2, else the lowest.
     std::optional<TrackFitResult> best;
     for (const auto row : own) {
@@ -3298,7 +3303,7 @@ class MeasurementSinkTask : public Task
     if (mTruthOutput) {
       // The first iteration's.
       if (!mObservers.summaries.empty()) {
-        writeTruthBreakdown(mTruthOutput, mTimeframe, mInterface.trackerSource() == VertexSource::kBeamLine ? "beam_line" : "vertex_list", mObservers.summaries[0]);
+        writeTruthBreakdown(mTruthOutput, mTimeframe, mInterface.trackerSource() == VertexSource::kBeamLine ? "beam_line" : (mInterface.trackerSource() == VertexSource::kNone ? "no_origin" : "vertex_list"), mObservers.summaries[0]);
       }
       mTruthOutput.flush();
     }

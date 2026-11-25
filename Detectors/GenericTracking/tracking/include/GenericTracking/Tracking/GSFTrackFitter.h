@@ -473,7 +473,7 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
   start.state = seed;
   start.reference = PassReference{.qOverP = seed.qOverP()}; // as `startPass`'s
   taken = 0;
-  if (n < kPassStart || !startDiffuse(measurements[first], start.state, start.factors)) {
+  if (n < kPassStart || !startDiffuse(stepPropagator(prop, geometry, measurements, 0, n - 1), measurements[first], start.state, start.factors)) {
     failedMeasurement = static_cast<std::int16_t>(first);
     return PropagationStatus::kNotFinite;
   }
@@ -764,7 +764,7 @@ GPUdi() GSFFitResult<K> fitGaussianSum(const Prop& prop, const TrackingGeometry<
 {
   GSFFitResult<K> result;
   auto& fit = result.fit;
-  fit.ndf = static_cast<std::int16_t>((2 * n) - kNBoundParams);
+  fit.ndf = static_cast<std::int16_t>((2 * n) - fittedParameters(stepPropagator(prop, geometry, measurements, 0, n - 1)));
   const auto seed = makeChainSeed(prop, geometry, measurements, n);
   const auto span = detail::spanMaterial(geometry, material, measurements, n);
   auto status = detail::gsf::runPass<K, Loss>(prop, geometry, span, measurements, n, PropagationDirection::kForward, seed, result.outwardMixture, fit.outwardState, fit.outwardChi2, result.outwardMomentumMode, result.outwardMinusTwoLogLikelihood, fit.failedMeasurement);

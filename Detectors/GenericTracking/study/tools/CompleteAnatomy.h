@@ -5276,7 +5276,7 @@ class CompleteAnatomy
       out.history.push_back({.row = rows[static_cast<std::size_t>(n - 1)], .state = seed, .chi2 = 0.F, .determined = false});
     }
     o2::gtrk::detail::DiffuseFactors start;
-    if (n < o2::gtrk::detail::kPassStart || !o2::gtrk::detail::startDiffuse(chain[n - 1], state, start)) {
+    if (n < o2::gtrk::detail::kPassStart || !o2::gtrk::detail::startDiffuse(propagator, chain[n - 1], state, start)) {
       out.status = PropagationStatus::kNotFinite;
       out.failedIndex = n - 1;
       return out;
@@ -7010,7 +7010,7 @@ class CompleteAnatomy
       out.startMiss = std::hypot(seed.loc0() - measurement.loc0, seed.loc1() - measurement.loc1);
     }
     o2::gtrk::detail::DiffuseFactors start;
-    if (n < o2::gtrk::detail::kPassStart || !o2::gtrk::detail::startDiffuse(chain[first], state, start)) {
+    if (n < o2::gtrk::detail::kPassStart || !o2::gtrk::detail::startDiffuse(propagator, chain[first], state, start)) {
       return out;
     }
     Scalar chi2 = 0.F;
@@ -7518,7 +7518,7 @@ class CompleteAnatomy
     const auto fit = fitRoad(parameters, propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = road.data()}, static_cast<int>(count));
     // Against the kink-free cut: a lower bound of the ratio to the cut the
     // fit applied, whose kink count a refused fit need not report.
-    const double ratio = static_cast<double>(fit.chi2) / static_cast<double>(roadChi2Cut(parameters, count, 0U));
+    const double ratio = static_cast<double>(fit.chi2) / static_cast<double>(roadChi2Cut(parameters, propagator, count, 0U));
     std::vector<std::uint32_t> barrel;
     std::vector<std::uint32_t> other;
     for (const auto row : road) {

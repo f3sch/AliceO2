@@ -133,6 +133,10 @@ enum UsedState : std::uint8_t { kFree = 0U,
 enum class VertexSource : std::uint8_t {
   kBeamLine,   ///< one seed, the beam spot, compatible with every time
   kVertexList, ///< the timeframe's vertex seeds, sorted by time
+  /// No origin: straight legs from anywhere, a cosmic muon's (barrel links
+  /// only). Its pairs keep the no-turn condition alone (`noTurnBetween`), its
+  /// windows the reach of any straight leg (`originlessPairWindow`).
+  kNone,
 };
 
 /// How a pair's second-coordinate window follows from a seed.

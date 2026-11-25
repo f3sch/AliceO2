@@ -200,31 +200,6 @@ template <DetectorLayout Det>
   return {.lengthMin = narrowedLength, .chordMax = conservativeScalarBound(chordMax)};
 }
 
-/// A layer's resolution as its sensor defines it: a row's position spread
-/// over a pixel, pitch^2 / 12, along each of the layer's directions [cm^2] --
-/// the azimuth, the second coordinate (z on a barrel, r on a disc) and the
-/// normal (r on a barrel, z on a disc: the silicon's thickness). A disc's
-/// sensors lie at any angle in its plane, so both its in-plane directions
-/// take the larger pitch.
-struct LayerResolution {
-  Scalar varRPhi = 0.F;
-  Scalar varSecond = 0.F;
-  Scalar varNormal = 0.F;
-};
-
-template <DetectorLayout Det>
-[[nodiscard]] inline LayerResolution layerResolution(LayerID layer)
-{
-  const auto& sensor = PlacedSensorSpecs<Det>::get(layer);
-  const auto spread = [](double width) { return static_cast<Scalar>(width * width / 12.); };
-  const double thickness = 2. * sensor.halfThickness;
-  if (Detector<Det>::isBarrelLayer(layer)) {
-    return {.varRPhi = spread(sensor.pitchX), .varSecond = spread(sensor.pitchY), .varNormal = spread(thickness)};
-  }
-  const double pitch = std::max(sensor.pitchX, sensor.pitchY);
-  return {.varRPhi = spread(pitch), .varSecond = spread(pitch), .varNormal = spread(thickness)};
-}
-
 /// Everything one iteration's kernels read.
 template <DetectorLayout Det>
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): the fields follow the configuration; their order is the designated initialisers'
@@ -283,9 +258,10 @@ struct IterationParameters {
   /// A proposed cluster's update chi2 bound, two coordinates.
   Scalar clusterChi2Max = 0.F;
   /// The road fit's chi2 bound by degrees of freedom: `2 N - 5` for `N`
-  /// clusters, two fewer per kink, at the confidence of `nSigma`
-  /// (`roadChi2Cut`); a box gives the time none.
-  Scalar roadChi2MaxByNdf[(2 * maxChainLayers<Det>)-4]{};
+  /// clusters (`2 N - 4` at zero field, `fittedParameters`), two fewer per
+  /// kink, at the confidence of `nSigma` (`roadChi2Cut`); a box gives the
+  /// time none.
+  Scalar roadChi2MaxByNdf[(2 * maxChainLayers<Det>)-kNBoundParams + 2]{};
   /// The kinks a fit pass may take.
   std::uint8_t maxKinks = 0U;
   /// `IterationSettings::innerTrim`.
@@ -311,7 +287,7 @@ struct IterationParameters {
   /// The layers a road may start on; 0 for any (`IterationSettings`).
   std::uint64_t roadStartLayers = 0U;
   /// The lowest pT of a track by its cluster count [GeV]; 0 for none
-  /// (`IterationSettings::minPtGeVByClusters`).
+  /// (`IterationSettings::minPtGeVByClusters`), and none at zero field.
   Scalar minPtByClusters[maxChainLayers<Det> + 1U]{};
   /// `IterationSettings`' shareable innermost clusters and follow switch.
   std::uint32_t sharedInnermost = 0U;
@@ -481,8 +457,9 @@ template <DetectorLayout Det>
 /// their beta
 /// (`PairCut::logBeta2`). \a alike,
 /// where given, is an earlier iteration's parameters from the same beam spot
-/// and table with equal `settings.windows`: the links' windows and bounds
-/// depend on those alone and are taken from it instead of derived again.
+/// and table with equal `settings.windows`, and both with or both without an
+/// origin: the links' windows and bounds depend on those alone and are taken
+/// from it instead of derived again.
 template <DetectorLayout Det>
 [[nodiscard]] inline IterationParameters<Det> iterationParameters(const IterationSettings& settings, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material, const IterationParameters<Det>* alike = nullptr)
 {
@@ -491,6 +468,9 @@ template <DetectorLayout Det>
   }
   if (settings.minPGeV > 0. && settings.vertexSource != VertexSource::kBeamLine) {
     throw std::invalid_argument("a minimum momentum (minPGeV, the disc windows per source) needs a beam-line iteration");
+  }
+  if (settings.beamConstraint && settings.vertexSource == VertexSource::kNone) {
+    throw std::invalid_argument("a pass without an origin (iterationVertexSource 2) takes no beam constraint");
   }
   IterationParameters<Det> parameters;
   parameters.pairCut = pairCut(settings.windows);
@@ -551,7 +531,7 @@ template <DetectorLayout Det>
       parameters.betweenSourceScale[link] = alike->betweenSourceScale[link];
       parameters.tripletBounds[link] = alike->tripletBounds[link];
     } else {
-      parameters.windows[link] = layerPairWindow<Det>(pair.from, pair.to, settings.windows, beamSpot, material);
+      parameters.windows[link] = iterationPairWindow<Det>(pair.from, pair.to, settings.windows, settings.vertexSource, beamSpot, material);
       const double between = betweenKinkBound<Det>(material, settings.windows, pair.from, pair.to, beamSpot, AzimuthBound::kLargest);
       const double least = leastSourceSpan<Det>(material, pair.from);
       parameters.betweenSourceScale[link] = conservativeScalarBound(static_cast<double>(spanRatio(static_cast<Scalar>(least), static_cast<Scalar>(least + static_cast<double>(material.gapMax[link])), static_cast<Scalar>(logBeta2Min(settings.windows)))));
@@ -559,8 +539,11 @@ template <DetectorLayout Det>
       parameters.tripletBounds[link] = tripletLinkBounds<Det>(pair.from, pair.to, static_cast<double>(parameters.windows[link].phiHalfWidth));
     }
     parameters.holeLayers[link] = settings.skipLinks ? 0U : linkHoleLayers<Det>(pair.from, pair.to) & holeLayersOf<Det>(settings.layerMask);
-    parameters.sourceMin[link] = static_cast<Scalar>(pair.sourceMin);
-    parameters.sourceMax[link] = static_cast<Scalar>(pair.sourceMax);
+    // The links' source ranges are those of tracks from the beam spot; a leg
+    // from anywhere may start on the whole source layer.
+    const bool anywhere = settings.vertexSource == VertexSource::kNone;
+    parameters.sourceMin[link] = anywhere ? parameters.layerSpans[pair.from].low : static_cast<Scalar>(pair.sourceMin);
+    parameters.sourceMax[link] = anywhere ? parameters.layerSpans[pair.from].high : static_cast<Scalar>(pair.sourceMax);
   }
   parameters.vertexZCentre = static_cast<Scalar>(beamSpot.z);
   parameters.vertexZReach = static_cast<Scalar>(settings.windows.nSigma * beamSpot.sigmaZ);
@@ -571,7 +554,7 @@ template <DetectorLayout Det>
   parameters.beamY = static_cast<Scalar>(beamSpot.y);
   parameters.beamVarTransverse = static_cast<Scalar>(beamSpot.sigmaTransverse * beamSpot.sigmaTransverse);
   parameters.beamChi2Max = static_cast<Scalar>(chiSquareQuantile(1, settings.windows.nSigma));
-  for (int ndf = 1; ndf <= (2 * static_cast<int>(maxChainLayers<Det>)) - kNBoundParams; ++ndf) {
+  for (int ndf = 1; ndf <= (2 * static_cast<int>(maxChainLayers<Det>)) - kNBoundParams + 1; ++ndf) {
     parameters.roadChi2MaxByNdf[ndf] = static_cast<Scalar>(chiSquareQuantile(ndf, settings.windows.nSigma));
   }
   parameters.maxKinks = static_cast<std::uint8_t>(std::max(settings.maxKinks, 0));
@@ -588,10 +571,12 @@ template <DetectorLayout Det>
   parameters.roadEndLayers = settings.roadEndLayers;
   parameters.roadStartLayers = settings.roadStartLayers;
   // A pT floor per cluster count has a slot for every chain the layout can
-  // hold, or none would apply to the longest.
+  // hold, or none would apply to the longest. At zero field none: the fit
+  // measures no pT to cut (`fittedParameters`).
   static_assert(maxChainLayers<Det> + 1U <= IterationSettings::kClusterSlots);
+  const bool measuredPt = !exactlyEqual(settings.windows.bzKiloGauss, 0.);
   for (std::size_t count = 0; count <= maxChainLayers<Det>; ++count) {
-    parameters.minPtByClusters[count] = static_cast<Scalar>(settings.minPtGeVByClusters[count]);
+    parameters.minPtByClusters[count] = measuredPt ? static_cast<Scalar>(settings.minPtGeVByClusters[count]) : 0.F;
   }
   parameters.sharedInnermost = settings.sharedInnermost;
   return parameters;

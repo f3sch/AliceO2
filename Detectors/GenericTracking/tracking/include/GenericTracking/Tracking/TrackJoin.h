@@ -168,7 +168,7 @@ GPUhdi() Scalar pairScore(const IterationParameters<Det>* parameters, const Time
   if (!follow::passesRoadChi2(own, fit)) {
     return kRefused;
   }
-  const int outwardNdf = (2 * static_cast<int>(count)) - 5 - (2 * static_cast<int>(fit.outwardKinks));
+  const int outwardNdf = (2 * static_cast<int>(count)) - fittedParameters(propagator) - (2 * static_cast<int>(fit.outwardKinks));
   if (outwardNdf <= 0 || outwardNdf >= static_cast<int>(std::size(own.roadChi2MaxByNdf)) || !(fit.outwardChi2 <= own.roadChi2MaxByNdf[outwardNdf])) {
     return kRefused;
   }

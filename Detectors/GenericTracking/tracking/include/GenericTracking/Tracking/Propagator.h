@@ -61,6 +61,11 @@ struct Propagator {
   /// |q| / |q/p| (`momentum`).
   Scalar absCharge = 1.F;
 
+  /// Whether the field measures the momentum: not at exactly zero field, where
+  /// every track is straight and q/p is assumed (`makeChainSeed`), not fitted
+  /// (`startDiffuse`).
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool measuresMomentum() const { return !exactlyEqual(bzKiloGauss, 0.F); }
+
   /// The momentum [GeV] at \a qOverP under the hypothesis's |q|.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar momentum(Scalar qOverP) const { return absCharge / o2::gpu::GPUCommonMath::Abs(qOverP); }
 

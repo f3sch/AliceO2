@@ -222,9 +222,13 @@ inline void checkRecoParam(const RecoSettings& param)
     throw std::invalid_argument(std::format("GTRKReco<DET>.iterationInnerTrim of iteration {} is {}", iteration, innerTrim));
   }
   const double kinkSigma = entryDouble(param.iterationKinkSigma, defaults.kinkSigma);
+  const int vertexSource = entry(param.iterationVertexSource, static_cast<int>(defaults.vertexSource));
+  if (vertexSource < 0 || vertexSource > static_cast<int>(VertexSource::kNone)) {
+    throw std::invalid_argument(std::format("GTRKReco<DET>.iterationVertexSource of iteration {} is {}: 0, 1 or 2", iteration, vertexSource));
+  }
   return {
     .windows = windows,
-    .vertexSource = entry(param.iterationVertexSource, static_cast<int>(defaults.vertexSource)) == 0 ? VertexSource::kBeamLine : VertexSource::kVertexList,
+    .vertexSource = static_cast<VertexSource>(vertexSource),
     .minClusters = entry(param.iterationMinClusters, defaults.minClusters),
     .maxKinks = entry(param.iterationMaxKinks, defaults.maxKinks),
     .kinkSigma = kinkSigma,
@@ -321,17 +325,18 @@ struct MeasurementGeometry {
   HaloBounds<Det> bounds;
 };
 
-/// A tracker's sources as the log lines name them: "beam line" or "vertex
-/// list" when every iteration takes the one, both when the iterations differ.
+/// A tracker's sources as the log lines name them: "beam line", "vertex
+/// list" or "no origin", those the iterations take joined by "and".
 [[nodiscard]] inline std::string sourceLabel(std::span<const IterationSettings> settings)
 {
   const auto from = [&](VertexSource source) { return std::ranges::any_of(settings, [&](const auto& s) { return s.vertexSource == source; }); };
-  const bool beam = from(VertexSource::kBeamLine);
-  const bool list = from(VertexSource::kVertexList);
-  if (beam && list) {
-    return "beam line and vertex list";
+  std::string label;
+  for (const auto& [source, name] : {std::pair{VertexSource::kBeamLine, "beam line"}, std::pair{VertexSource::kVertexList, "vertex list"}, std::pair{VertexSource::kNone, "no origin"}}) {
+    if (from(source)) {
+      label += label.empty() ? name : std::string{" and "} + name;
+    }
   }
-  return list ? "vertex list" : "beam line";
+  return label;
 }
 
 /// A timeframe of \a orbits orbits' span [ps], its bunch crossings' rounded down.
