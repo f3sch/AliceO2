@@ -721,14 +721,6 @@ struct EndRows {
   }
 };
 
-/// (row, track) pairs from the sorted rows and their tracks.
-struct ZipEnds {
-  const std::uint32_t* rows = nullptr;
-  const std::uint32_t* tracks = nullptr;
-  join::End* out = nullptr;
-  GPUdi() void operator()(std::uint32_t at) const { out[at] = {.row = rows[at], .track = tracks[at]}; }
-};
-
 /// Whether a piece chose a partner.
 struct ChosePartner {
   const join::Choice* choices = nullptr;
@@ -2218,21 +2210,20 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     }
     DeviceSpan<std::uint32_t> endRows;
     DeviceSpan<std::uint32_t> startRows;
-    DeviceSpan<std::uint32_t> sortedRows;
-    DeviceSpan<std::uint32_t> sortedTracks;
-    DeviceSpan<join::End> endList;
-    DeviceSpan<join::End> startList;
-    if (!endRows.allocate(mArena, ends) || !startRows.allocate(mArena, ends) || !sortedRows.allocate(mArena, ends) || !sortedTracks.allocate(mArena, ends) || !endList.allocate(mArena, ends) || !startList.allocate(mArena, ends)) {
+    DeviceSpan<std::uint32_t> sortedEndRows;
+    DeviceSpan<std::uint32_t> sortedEndTracks;
+    DeviceSpan<std::uint32_t> sortedStartRows;
+    DeviceSpan<std::uint32_t> sortedStartTracks;
+    if (!endRows.allocate(mArena, ends) || !startRows.allocate(mArena, ends) || !sortedEndRows.allocate(mArena, ends) || !sortedEndTracks.allocate(mArena, ends) || !sortedStartRows.allocate(mArena, ends) || !sortedStartTracks.allocate(mArena, ends)) {
       return StageStatus::kOutOfMemory;
     }
     algorithms::forEach(*mRuntime, mStream, ends, tracker_detail::EndRows<kMaxClusters>{constView.clusters, constView.count, std::as_const(listed).data(), endRows.data(), startRows.data()});
     const int rowBits = algorithms::keyBits(static_cast<std::uint32_t>(mRows));
     for (const bool outermost : {true, false}) {
-      status = algorithms::sortPairs(*mRuntime, mArena, mStream, std::as_const(outermost ? endRows : startRows).data(), sortedRows.data(), std::as_const(listed).data(), sortedTracks.data(), ends, rowBits);
+      status = algorithms::sortPairs(*mRuntime, mArena, mStream, std::as_const(outermost ? endRows : startRows).data(), (outermost ? sortedEndRows : sortedStartRows).data(), std::as_const(listed).data(), (outermost ? sortedEndTracks : sortedStartTracks).data(), ends, rowBits);
       if (status != StageStatus::kComplete) {
         return status;
       }
-      algorithms::forEach(*mRuntime, mStream, ends, tracker_detail::ZipEnds{std::as_const(sortedRows).data(), std::as_const(sortedTracks).data(), (outermost ? endList : startList).data()});
     }
     // Each piece's pairs, their scores, its pair of the least score.
     DeviceStageOutput<join::PairCandidate::template RecordT> pairs;
@@ -2241,7 +2232,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       return StageStatus::kOutOfMemory;
     }
     mJoinStage.prepareStaging(std::max<std::size_t>(mJoinStage.stagingCapacity(), count));
-    status = mJoinStage.run(pairs, join::Find<Det, View>{.parameters = std::as_const(mParameters).data(), .frame = std::as_const(mFrame).data(), .geometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = all.view(), .trackOffset = earlier, .ends = std::as_const(endList).data(), .starts = std::as_const(startList).data(), .endCount = ends, .maxCandidateWidthPS = std::as_const(mLayerMaxWidthPS).data()});
+    status = mJoinStage.run(pairs, join::Find<Det, View>{.parameters = std::as_const(mParameters).data(), .frame = std::as_const(mFrame).data(), .geometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = all.view(), .trackOffset = earlier, .endRows = std::as_const(sortedEndRows).data(), .endTracks = std::as_const(sortedEndTracks).data(), .startRows = std::as_const(sortedStartRows).data(), .startTracks = std::as_const(sortedStartTracks).data(), .endCount = ends, .maxCandidateWidthPS = std::as_const(mLayerMaxWidthPS).data()});
     report.readbacks += mJoinStage.stagingPredictionMissed() ? 2U : 1U;
     if (status != StageStatus::kComplete) {
       return status;

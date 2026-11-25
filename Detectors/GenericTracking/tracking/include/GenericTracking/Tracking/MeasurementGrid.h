@@ -612,6 +612,14 @@ struct CellSpan {
   [[nodiscard]] GPUhdi() GPUAlwaysInline() std::int32_t cellCount() const { return blocks.empty() ? 0 : blocks.size() * (phiEnd - firstPhi + wrapEnd) * (lastSecond - firstSecond + 1); }
 };
 
+/// A subset of the rows to visit instead of all of them: `rows[0, count)`,
+/// ascending, a row listed more than once visited once, at its first entry
+/// (`MeasurementGrid::visitCandidates` with it as the share).
+struct ListedRows {
+  const std::uint32_t* rows = nullptr;
+  std::uint32_t count = 0U;
+};
+
 /// The index, bound to the columns whose order it describes.
 ///
 /// It borrows both: the measurement columns and the offset table belong to the
@@ -678,6 +686,10 @@ class MeasurementGrid
   /// group -- \a has whether the lane has a row there, \a row meaningful only
   /// then -- the same number of times in every range and cell, so that
   /// \a visit may call the group's collectives.
+  ///
+  /// With `ListedRows` only the listed rows among them, in the same order,
+  /// each as \a visit(row, at), \a at its first entry in the list: a walk of
+  /// the list, not of the cells' rows, where few rows are listed.
   template <typename Visitor, typename Share = Lanes>
   GPUhdi() void visitCandidates(LayerID target, const CandidateWindow& window, BlockRange blocks, Visitor visit, Share lanes = {}) const
   {
@@ -907,6 +919,34 @@ class MeasurementGrid
         const bool has = row < range.end && !(span.latestPS < std::int64_t{mMeasurements.timePS[row]}) && compatibleInBound(row, span);
         visit(row, has);
       }
+    }
+  }
+
+  /// `visitBuckets` over the \a listed rows only: the listed rows of the
+  /// range it would visit, in its order (ascending), each once as
+  /// \a visit(row, at) with \a at its first entry. The list is searched for
+  /// the range's first row and walked to its end; each row takes the same
+  /// time tests. The rows counted are the list's entries read.
+  template <typename Visitor>
+  GPUhdi() void visitBuckets(std::uint32_t firstBucket, std::uint32_t endBucket, const CellSpan& span, Visitor& visit, const ListedRows& listed) const
+  {
+    const Index begin = mOffsets[firstBucket];
+    const Index end = mOffsets[endBucket];
+    countGridWork(WorkCounter::kGridRanges);
+    countGridWork(WorkCounter::kGridCells, endBucket - firstBucket);
+    auto at = o2::gpu::CAAlgo::partitionPoint(Index{0}, listed.count, [&](Index i) { return listed.rows[i] < begin; });
+    while (at < listed.count && listed.rows[at] < end) {
+      const Index row = listed.rows[at];
+      countGridWork(WorkCounter::kGridRows);
+      const std::int64_t timePS = mMeasurements.timePS[row];
+      if (span.earliestPS <= timePS && timePS <= span.latestPS) {
+        countGridWork(WorkCounter::kGridInBound);
+        auto entry = [&](Index visited) { visit(visited, at); };
+        visitIfCompatible(row, span, entry);
+      }
+      do {
+        ++at;
+      } while (at < listed.count && listed.rows[at] == row);
     }
   }
 
