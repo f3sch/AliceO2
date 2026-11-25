@@ -25,13 +25,16 @@
 /// along z), so a band calibrates barrel layers only.
 ///
 /// Beside the band, how often such a particle leaves each span at each
-/// slope: per calibrated layer and bin of the slope (`slopeEdges`), the share
-/// of the calibration's crossings leaving each column span (along z, at the
-/// z slope) and each row span (along r-phi, at the r-phi slope -- the line's
-/// length along r-phi over that along the normal), spans from
-/// `kFrequencySpans` - 1 on together; none (every share 0) in a bin with
-/// too few crossings to say. The follow's last-row trim reads them
-/// (`follow::ShapeFrequencies`) against the timeframe's own rows' spans.
+/// slope: per layer of the detector's whole layout -- the barrel's, then the
+/// discs' (`ShapeBandLayers::layers`) -- and bin of the slope (`slopeEdges`),
+/// the share of the calibration's crossings leaving each column span at its
+/// slope along the columns and each row span at its slope along the rows,
+/// spans from `kFrequencySpans` - 1 on together; none (every share 0) on a
+/// layer or in a bin with too few crossings to say. On the barrel the slopes
+/// are the band's (along z and along r-phi, over the length along the radial
+/// normal); on a disc the chip's own (along its columns, loc1, and its rows,
+/// loc0, over the length along its normal). The follow's last-row trim reads
+/// them (`follow::ShapeFrequencies`) against the timeframe's own rows' spans.
 ///
 /// A band is its detector's sensors', so its layers are numbered as the
 /// detector's own layout numbers them, whatever layout tracks the detector
@@ -77,16 +80,19 @@ struct ClusterShapeBand {
   /// last one and every longer one together (0: no pattern).
   static constexpr std::size_t kFrequencySpans = 16;
   std::vector<float> slopeEdges;      ///< the slope bins' edges, ascending, from 0
-  std::vector<float> columnFrequency; ///< per layer, slope bin and column span, at (layer * bins + bin) * kFrequencySpans + span
+  std::vector<float> columnFrequency; ///< per layer of the layout, slope bin and column span, at (layer * bins + bin) * kFrequencySpans + span
   std::vector<float> rowFrequency;    ///< per layer, slope bin and row span, the same
 
   [[nodiscard]] std::size_t slopeBins() const { return slopeEdges.empty() ? 0U : slopeEdges.size() - 1U; }
+  /// The layers the span shares cover.
+  [[nodiscard]] std::size_t shareLayers() const { return slopeBins() == 0U ? 0U : columnFrequency.size() / (slopeBins() * kFrequencySpans); }
 
   /// Whether it is a band of a layout of \a barrelLayers barrel layers: of
-  /// its first layers at most, every layer's spans there.
-  [[nodiscard]] bool fits(std::size_t barrelLayers) const
+  /// its first layers at most, every layer's spans there --
+  /// and its span shares every one of the layout's \a layers.
+  [[nodiscard]] bool fits(std::size_t barrelLayers, std::size_t layers) const
   {
-    const auto frequencies = maxRows.size() * slopeBins() * kFrequencySpans;
+    const auto frequencies = layers * slopeBins() * kFrequencySpans;
     return maxRows.size() <= barrelLayers && slopeLow.size() == maxRows.size() * kSpans && slopeHigh.size() == maxRows.size() * kSpans && slopeBins() != 0U && columnFrequency.size() == frequencies && rowFrequency.size() == frequencies;
   }
 
@@ -124,6 +130,7 @@ struct ClusterShapeBand {
 template <DetectorLayout Det>
 struct ShapeBandLayers {
   static constexpr std::size_t barrelLayers = Detector<Det>::nBarrelLayers;
+  static constexpr std::size_t layers = Detector<Det>::nLayers;
   [[nodiscard]] static constexpr LayerID layer(LayerID layer) { return layer; }
 };
 
@@ -133,6 +140,7 @@ struct ShapeBandLayers {
 template <>
 struct ShapeBandLayers<detectors::TRKFT3TOF> {
   static constexpr std::size_t barrelLayers = Detector<detectors::TRKFT3>::nBarrelLayers;
+  static constexpr std::size_t layers = Detector<detectors::TRKFT3>::nLayers;
   [[nodiscard]] static constexpr LayerID layer(LayerID layer) { return detectors::trkft3tof::toTRKFT3(layer); }
 };
 #endif

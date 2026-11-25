@@ -1952,17 +1952,32 @@ struct TrimAmbiguous {
         // log g + log size ratio < log rho, g = exp(-chi2 / 2) / (2 pi sqrt(det S)).
         Scalar size = 0.F;
         if (evidence.found) {
+          // The slopes along the columns and the rows over the length along the normal: on the barrel the band's
+          // (z and r-phi, the radial normal at the row), on a disc the chip's own axes (ClusterShapeBand.h).
           const auto& measurements = frame->measurements();
-          const Scalar x = measurements.x[row];
-          const Scalar y = measurements.y[row];
-          const Scalar r = measurements.r[row];
           const Scalar sinTheta = o2::gpu::CAMath::Sin(evidence.theta);
-          const Scalar dx = o2::gpu::CAMath::Cos(evidence.phi) * sinTheta;
-          const Scalar dy = o2::gpu::CAMath::Sin(evidence.phi) * sinTheta;
-          const Scalar dz = o2::gpu::CAMath::Cos(evidence.theta);
-          const Scalar normal = o2::gpu::CAMath::Abs((dx * x) + (dy * y)) / r;
-          if (r > 0.F && normal > 0.F) {
-            size = logSizeRatio(shapes, layer, measurements.spans[row], o2::gpu::CAMath::Abs(dz) / normal, (o2::gpu::CAMath::Abs((dy * x) - (dx * y)) / r) / normal);
+          const Scalar d[3]{o2::gpu::CAMath::Cos(evidence.phi) * sinTheta, o2::gpu::CAMath::Sin(evidence.phi) * sinTheta, o2::gpu::CAMath::Cos(evidence.theta)};
+          Scalar alongNormal = 0.F;
+          Scalar alongColumns = 0.F;
+          Scalar alongRows = 0.F;
+          if (Detector<Det>::isBarrelLayer(layer)) {
+            const Scalar x = measurements.x[row];
+            const Scalar y = measurements.y[row];
+            const Scalar r = measurements.r[row];
+            if (r > 0.F) {
+              alongNormal = o2::gpu::CAMath::Abs((d[0] * x) + (d[1] * y)) / r;
+              alongColumns = o2::gpu::CAMath::Abs(d[2]);
+              alongRows = o2::gpu::CAMath::Abs((d[1] * x) - (d[0] * y)) / r;
+            }
+          } else {
+            const auto& sensor = geometry->surface(measurements.surface[row]);
+            const auto dot = [&](const Scalar (&axis)[3]) { return o2::gpu::CAMath::Abs((d[0] * axis[0]) + (d[1] * axis[1]) + (d[2] * axis[2])); };
+            alongNormal = dot(sensor.normal);
+            alongColumns = dot(sensor.axis1);
+            alongRows = dot(sensor.axis0);
+          }
+          if (alongNormal > 0.F) {
+            size = logSizeRatio(shapes, layer, measurements.spans[row], alongColumns / alongNormal, alongRows / alongNormal);
           }
         }
         unlikely = !evidence.found || (evidence.determinant > 0.F && rho > 0.F && evidence.chi2 + logOf(evidence.determinant) - 2.F * size > -2.F * logOf(kTwoPi<Scalar> * rho));

@@ -2013,7 +2013,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   // layout; none without a band at --ccdb-url.
   if constexpr (std::same_as<Det, detectors::TRKFT3> || std::same_as<Det, detectors::TRKFT3TOF>) {
     if (const auto* band = ccdb.get<workflow::ClusterShapeBand>("TRK/Calib/ClusterShapeBand"); band != nullptr) {
-      if (!band->fits(workflow::ShapeBandLayers<Det>::barrelLayers)) {
+      if (!band->fits(workflow::ShapeBandLayers<Det>::barrelLayers, workflow::ShapeBandLayers<Det>::layers)) {
         throw std::runtime_error("TRK/Calib/ClusterShapeBand at " + options.ccdbUrl + " is no band of this build (version 2, with the span shares): make it again");
       }
       constexpr auto kSpans = follow::ShapeFrequencies::kSpans;
@@ -2024,7 +2024,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
       std::vector<float> row(layers * bins * kSpans, 0.F);
       for (std::size_t layer = 0; layer < layers; ++layer) {
         const auto own = static_cast<std::size_t>(workflow::ShapeBandLayers<Det>::layer(static_cast<LayerID>(layer)));
-        if (own >= band->maxRows.size() || band->maxRows[own] == 0) {
+        if (own >= band->shareLayers()) {
           continue;
         }
         for (std::size_t at = 0; at < bins * kSpans; ++at) {

@@ -105,8 +105,8 @@ class MeasurementProducerTask : public o2::framework::Task
   {
     if (matcher == o2::framework::ConcreteDataMatcher(Conditions<Det>::origin(), "SHAPEBAND", 0)) {
       mShapeBand = static_cast<const ClusterShapeBand*>(obj);
-      if (!mShapeBand->fits(ShapeBandLayers<Det>::barrelLayers)) {
-        throw std::runtime_error(std::format("{}'s cluster-shape band from the CCDB is not one of its detector's {} barrel layers", Det::name, ShapeBandLayers<Det>::barrelLayers));
+      if (!mShapeBand->fits(ShapeBandLayers<Det>::barrelLayers, ShapeBandLayers<Det>::layers)) {
+        throw std::runtime_error(std::format("{}'s cluster-shape band from the CCDB is not one of its detector's {} barrel layers with span shares for its {} layers", Det::name, ShapeBandLayers<Det>::barrelLayers, ShapeBandLayers<Det>::layers));
       }
       LOGP(info, "{}'s {} from the CCDB", Det::name, mShapeBand->describe());
       return;
