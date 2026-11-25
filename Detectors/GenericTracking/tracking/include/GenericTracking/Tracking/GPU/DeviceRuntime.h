@@ -22,6 +22,7 @@
 #define GTRK_TRACKING_GPU_DEVICERUNTIME_H_
 
 #include "GenericTracking/Detectors/ITS.h"
+#include "GenericTracking/Detectors/ITS3.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
@@ -99,6 +100,8 @@ class DeviceRuntime
   {
     if constexpr (std::is_same_v<D, detectors::ITS>) {
       return makeITSTracker(block);
+    } else if constexpr (std::is_same_v<D, detectors::ITS3>) {
+      return makeITS3Tracker(block);
     } else if constexpr (std::is_same_v<D, detectors::MFT>) {
       return makeMFTTracker(block);
     } else if constexpr (std::is_same_v<D, detectors::TRKFT3>) {
@@ -133,6 +136,7 @@ class DeviceRuntime
   virtual void synchronizeStreamHandle(void* handle) = 0;
 
   [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::ITS>> makeITSTracker(DeviceBlock block) = 0;
+  [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::ITS3>> makeITS3Tracker(DeviceBlock block) = 0;
   [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::MFT>> makeMFTTracker(DeviceBlock block) = 0;
   [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::TRKFT3>> makeTRKFT3Tracker(DeviceBlock block) = 0;
   [[nodiscard]] virtual std::unique_ptr<DeviceTracker<detectors::TRKFT3TOF>> makeTRKFT3TOFTracker(DeviceBlock block) = 0;

@@ -16,6 +16,7 @@
 #include "GenericTracking/Base/LayerLinks.h"
 #include "GenericTracking/Base/Statistics.h"
 #include "GenericTracking/Detectors/ITS.h"
+#include "GenericTracking/Detectors/ITS3.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
@@ -4011,7 +4012,7 @@ class MeasurementSinkTask : public Task
     std::array<std::array<std::size_t, 3>, kO2PtEdges.size() - 1U> fullByPt{};
     std::array<std::array<std::size_t, 3>, kO2TglEdges.size() - 1U> fullByTgl{};
     std::vector<o2::track::TrackParCov> states;
-    if constexpr (std::same_as<Det, detectors::ITS>) {
+    if constexpr (std::same_as<Det, detectors::ITS> || std::same_as<Det, detectors::ITS3>) {
       states = mO2Tracks->innerStates(static_cast<long long>(mTimeframe));
     }
     const auto binOf = [](const auto& edges, double value) {
@@ -4437,7 +4438,7 @@ class MeasurementSinkTask : public Task
       }
     }
 
-    if constexpr (std::is_same_v<Det, detectors::ITS>) {
+    if constexpr (std::is_same_v<Det, detectors::ITS> || std::is_same_v<Det, detectors::ITS3>) {
       const auto point = [&](Frame::Index row) {
         const auto m = frame.measurement(row);
         return Vec3D{static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z)};
@@ -4548,6 +4549,8 @@ class MeasurementSinkTask : public Task
     return "sgn_HitsMFT.root";
   } else if constexpr (kAlice3Tracker) {
     return "sgn_HitsTRK.root";
+  } else if constexpr (std::is_same_v<Det, detectors::ITS3>) {
+    return "sgn_HitsIT3.root";
   } else {
     return "sgn_HitsITS.root";
   }

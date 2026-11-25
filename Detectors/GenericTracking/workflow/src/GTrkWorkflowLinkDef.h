@@ -21,6 +21,8 @@
 #pragma link C++ class o2::conf::ConfigurableParamPromoter < o2::gtrk::RecoParam < o2::detectors::DetID::ITS>, o2::gtrk::RecoSettings> + ;
 #pragma link C++ class o2::conf::ConfigurableParamPromoter < o2::gtrk::RecoParam < o2::detectors::DetID::MFT>, o2::gtrk::RecoSettings> + ;
 #ifdef ENABLE_UPGRADES
+#pragma link C++ class o2::gtrk::RecoParam < o2::detectors::DetID::IT3> + ;
+#pragma link C++ class o2::conf::ConfigurableParamPromoter < o2::gtrk::RecoParam < o2::detectors::DetID::IT3>, o2::gtrk::RecoSettings> + ;
 #pragma link C++ class o2::gtrk::RecoParam < o2::detectors::DetID::TRK> + ;
 #pragma link C++ class o2::conf::ConfigurableParamPromoter < o2::gtrk::RecoParam < o2::detectors::DetID::TRK>, o2::gtrk::RecoSettings> + ;
 #pragma link C++ class o2::gtrk::RecoParamTRKTOF + ;

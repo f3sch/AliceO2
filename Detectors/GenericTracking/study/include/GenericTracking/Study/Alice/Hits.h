@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 
 /// \file Hits.h
-/// \brief O2's simulated ITS, MFT and TRK hits, as the segments a particle crossed
+/// \brief O2's simulated ITS, ITS3, MFT and TRK hits, as the segments a particle crossed
 ///        each chip along.
 
 #ifndef GTRK_STUDY_ALICE_HITS_H_
@@ -18,6 +18,7 @@
 
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Detectors/ITS.h"
+#include "GenericTracking/Detectors/ITS3.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
@@ -41,19 +42,22 @@ namespace o2::gtrk::study
 /// \a high sort together, in \a low's order.
 [[nodiscard]] constexpr std::uint64_t packKey(std::uint32_t high, std::uint32_t low) { return (static_cast<std::uint64_t>(high) << 32U) | low; }
 
-/// Whose MC files: the ITS's, the MFT's, or the ALICE 3 tracker's (TRK's barrel, then FT3's discs).
+/// Whose MC files: the ITS's, ITS3's, the MFT's, or the ALICE 3 tracker's (TRK's barrel, then FT3's discs).
 enum class Chips : std::uint8_t { kITS,
+                                  kITS3,
                                   kMFT,
                                   kTRK };
 
 /// Whose MC files a layout's are: TRKFT3TOF's are the TRK's and FT3's, its
 /// TRK sensors TRKFT3's (the TOF's hits are not read).
 template <DetectorLayout Det>
-  requires std::same_as<Det, detectors::ITS> || std::same_as<Det, detectors::MFT> || std::same_as<Det, detectors::TRKFT3> || std::same_as<Det, detectors::TRKFT3TOF>
+  requires std::same_as<Det, detectors::ITS> || std::same_as<Det, detectors::ITS3> || std::same_as<Det, detectors::MFT> || std::same_as<Det, detectors::TRKFT3> || std::same_as<Det, detectors::TRKFT3TOF>
 [[nodiscard]] constexpr Chips chipsOf()
 {
   if constexpr (std::same_as<Det, detectors::ITS>) {
     return Chips::kITS;
+  } else if constexpr (std::same_as<Det, detectors::ITS3>) {
+    return Chips::kITS3;
   } else if constexpr (std::same_as<Det, detectors::MFT>) {
     return Chips::kMFT;
   } else {
@@ -71,7 +75,7 @@ struct HitSegment {
   double time = 0.; ///< the time of flight at the end: the order along the particle's path
 };
 
-/// `sgn_HitsITS.root`, `sgn_HitsMFT.root` or `sgn_HitsTRK.root`, one tree entry per MC event;
+/// `sgn_HitsITS.root`, `sgn_HitsIT3.root`, `sgn_HitsMFT.root` or `sgn_HitsTRK.root`, one tree entry per MC event;
 /// for the TRK, with `sgn_HitsFT3.root` beside it, FT3's hits too, and with `sgn_HitsTF3.root`
 /// the TOF's (TRKFT3TOF's sensors).
 class HitFile

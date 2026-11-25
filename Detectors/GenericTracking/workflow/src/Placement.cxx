@@ -11,6 +11,8 @@
 
 #include "GenericTracking/Alice/Placement.h"
 
+#include "GenericTracking/Base/ElementaryMath.h"
+
 #include <TClass.h>
 #include <TGeoBBox.h>
 #include <TGeoManager.h>
@@ -124,7 +126,64 @@ double leastRadius(const std::vector<std::array<double, 2>>& points)
   return inside ? 0. : least;
 }
 
-ShapeExtent extentOf(const TGeoShape& shape, const TGeoHMatrix& matrix)
+/// The least distance from the beam axis to \a shape placed by \a matrix,
+/// over z in [\a zMin, \a zMax]: the nearest of the shape along rays out
+/// from the axis, at the ends of the z range and between, across the azimuths
+/// the placed box's \a corners span (every azimuth when the box holds the
+/// axis). \a boxBound, the box's own least distance, where no ray meets the
+/// shape. Not the shape's safety, which is only a lower bound (a composite's,
+/// ITS3's carbon half rings, far below), nor the box's (a half ring's box
+/// reaches to the equatorial gap).
+double nearestToAxis(const TGeoShape& shape, const TGeoHMatrix& matrix, const std::vector<std::array<double, 2>>& corners, double zMin, double zMax, double boxBound)
+{
+  constexpr int kRays = 360;
+  constexpr int kZSteps = 5;
+  double from = 0.;
+  double span = kTwoPi<double>;
+  if (boxBound > 0.) {
+    // The box lies on one side of the axis: its corners within half a turn
+    // about their centroid's azimuth.
+    double cx = 0.;
+    double cy = 0.;
+    for (const auto& corner : corners) {
+      cx += corner[0];
+      cy += corner[1];
+    }
+    const double centre = std::atan2(cy, cx);
+    double low = 0.;
+    double high = 0.;
+    for (const auto& corner : corners) {
+      const double delta = toPMPiOf(std::atan2(corner[1], corner[0]) - centre);
+      low = std::min(low, delta);
+      high = std::max(high, delta);
+    }
+    from = centre + low;
+    span = high - low;
+  }
+  double least = TGeoShape::Big();
+  for (int step = 0; step < kZSteps; ++step) {
+    const double z = zMin + ((zMax - zMin) * static_cast<double>(step) / static_cast<double>(kZSteps - 1));
+    const double global[3] = {0., 0., z};
+    double local[3];
+    matrix.MasterToLocal(global, local);
+    if (shape.Contains(local)) {
+      return 0.;
+    }
+    for (int ray = 0; ray <= kRays; ++ray) {
+      const double angle = from + (span * static_cast<double>(ray) / static_cast<double>(kRays));
+      const double direction[3] = {std::cos(angle), std::sin(angle), 0.};
+      double localDirection[3];
+      matrix.MasterToLocalVect(direction, localDirection);
+      least = std::min(least, shape.DistFromOutside(local, localDirection));
+    }
+  }
+  return least < TGeoShape::Big() ? least : boxBound;
+}
+
+/// The extent of \a shape placed by \a matrix; its least radius exact
+/// (`nearestToAxis`) only where its box's comes below \a refineBelow, as
+/// nothing above can lower a band's edge.
+ShapeExtent extentOf(const TGeoShape& shape, const TGeoHMatrix& matrix, double refineBelow)
 {
   ShapeExtent out;
   const double* rotation = matrix.GetRotationMatrix();
@@ -159,17 +218,8 @@ ShapeExtent extentOf(const TGeoShape& shape, const TGeoHMatrix& matrix)
       least = std::min(least, pcon.GetRmin(i));
     }
     out.rMin = least;
-  } else if (out.rMin == 0.) {
-    // A shape whose box holds the axis but not a shape about it: the distance
-    // from the axis, at the box's ends and middle, to the shape.
-    double least = std::numeric_limits<double>::infinity();
-    for (const double z : {out.zMin, 0.5 * (out.zMin + out.zMax), out.zMax}) {
-      const double global[3] = {0., 0., z};
-      double local[3];
-      matrix.MasterToLocal(global, local);
-      least = std::min(least, shape.Contains(local) ? 0. : shape.Safety(local, false));
-    }
-    out.rMin = least;
+  } else if (out.rMin < refineBelow) {
+    out.rMin = nearestToAxis(shape, matrix, corners, out.zMin, out.zMax, out.rMin);
   }
   return out;
 }
@@ -253,7 +303,7 @@ std::vector<LayerBand> materialBands(std::span<const Sensor> sensors, std::span<
         if (volume.IsAssembly() || volume.GetMaterial() == nullptr || !(volume.GetMaterial()->GetDensity() > medium)) {
           return;
         }
-        const auto extent = extentOf(*volume.GetShape(), matrix);
+        const auto extent = extentOf(*volume.GetShape(), matrix, low);
         low = std::min(low, barrel ? extent.rMin : extent.zMin);
         high = std::max(high, barrel ? extent.rMax : extent.zMax);
       };

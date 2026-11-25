@@ -107,6 +107,9 @@ const std::vector<HitSegment>& HitFile::event(int event)
       case Chips::kITS:
         readSegments<o2::itsmft::Hit>(*mTree, "ITSHit", mEvents);
         break;
+      case Chips::kITS3:
+        readSegments<o2::itsmft::Hit>(*mTree, "IT3Hit", mEvents);
+        break;
       case Chips::kMFT:
         readSegments<o2::itsmft::Hit>(*mTree, "MFTHit", mEvents);
         break;

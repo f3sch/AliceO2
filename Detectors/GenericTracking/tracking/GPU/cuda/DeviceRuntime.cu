@@ -39,6 +39,7 @@ namespace o2::gtrk::gpu::GTRK_BACKEND_NAMESPACE
 
 /// In DeviceTracker<Layout>.cu, one translation unit per layout.
 std::unique_ptr<DeviceTracker<detectors::ITS>> makeITSTracker(DeviceRuntime& runtime, DeviceBlock block);
+std::unique_ptr<DeviceTracker<detectors::ITS3>> makeITS3Tracker(DeviceRuntime& runtime, DeviceBlock block);
 std::unique_ptr<DeviceTracker<detectors::MFT>> makeMFTTracker(DeviceRuntime& runtime, DeviceBlock block);
 std::unique_ptr<DeviceTracker<detectors::TRKFT3>> makeTRKFT3Tracker(DeviceRuntime& runtime, DeviceBlock block);
 std::unique_ptr<DeviceTracker<detectors::TRKFT3TOF>> makeTRKFT3TOFTracker(DeviceRuntime& runtime, DeviceBlock block);
@@ -202,6 +203,7 @@ class Runtime final : public DeviceRuntime
   void synchronizeStreamHandle(void* handle) final { check(cudaStreamSynchronize(static_cast<cudaStream_t>(handle)), "cudaStreamSynchronize"); }
 
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::ITS>> makeITSTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeITSTracker(*this, block); }
+  [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::ITS3>> makeITS3Tracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeITS3Tracker(*this, block); }
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::MFT>> makeMFTTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeMFTTracker(*this, block); }
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3>> makeTRKFT3Tracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeTRKFT3Tracker(*this, block); }
   [[nodiscard]] std::unique_ptr<DeviceTracker<detectors::TRKFT3TOF>> makeTRKFT3TOFTracker(DeviceBlock block) final { return GTRK_BACKEND_NAMESPACE::makeTRKFT3TOFTracker(*this, block); }

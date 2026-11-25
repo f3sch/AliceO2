@@ -225,7 +225,9 @@ void writeParameters(const std::string& path)
   const auto& its = RecoParam<o2::detectors::DetID::ITS>::Instance();
   const auto& mft = RecoParam<o2::detectors::DetID::MFT>::Instance();
   const auto& trk = RecoParam<o2::detectors::DetID::TRK>::Instance();
+  const auto& its3 = RecoParam<o2::detectors::DetID::IT3>::Instance();
   add(its.getName(), its);
+  add(its3.getName(), its3);
   add(mft.getName(), mft);
   add(trk.getName(), trk);
   const auto& trktof = RecoParamTRKTOF::Instance();

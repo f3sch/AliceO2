@@ -36,6 +36,7 @@
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Detectors/ITS.h"
+#include "GenericTracking/Detectors/ITS3.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
@@ -404,7 +405,7 @@ int run(int argc, char** argv)
   bpo::options_description description("Trace a detector's layer links");
   description.add_options()                                                                                      //
     ("help,h", "this message")                                                                                   //
-    ("detector,d", bpo::value(&options.detector)->required(), "ITS, MFT, TRKFT3 or TRKFT3TOF")                   //
+    ("detector,d", bpo::value(&options.detector)->required(), "ITS, ITS3, MFT, TRKFT3 or TRKFT3TOF")             //
     ("beam-spot-z", bpo::value(&options.beamSpotZ)->default_value(0.), "centre of the traced vertex range [cm]") //
     ("beam-spot-range", bpo::value(&options.beamSpotHalfRange)->default_value(18.),
      "half-width of the traced vertex range [cm]; 3 sigma of a 6 cm spot by default") //
@@ -456,6 +457,9 @@ int run(int argc, char** argv)
   using namespace detectors;
   if (options.detector == "ITS") {
     return runFor<ITS>(options);
+  }
+  if (options.detector == "ITS3") {
+    return runFor<ITS3>(options);
   }
   if (options.detector == "MFT") {
     return runFor<MFT>(options);

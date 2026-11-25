@@ -56,9 +56,9 @@ static int run(int argc, char** argv)
 {
   Options options;
   bpo::options_description description("Track a dumped tracking input");
-  description.add_options()                                                                                                                                           //
-    ("help,h", "this message")                                                                                                                                        //
-    ("detector,d", bpo::value(&options.detector)->required(), "its, mft, trk or trktof: the ITS, the MFT, ALICE 3's barrel on O2's clusters, or with its TOF layers") //
+  description.add_options()                                                                                                                                                       //
+    ("help,h", "this message")                                                                                                                                                    //
+    ("detector,d", bpo::value(&options.detector)->required(), "its, its3, mft, trk or trktof: the ITS, ITS3, the MFT, ALICE 3's barrel on O2's clusters, or with its TOF layers") //
     ("ccdb-url", bpo::value(&options.ccdbUrl)->default_value(o2::base::NameConf::getCCDBServer()),
      "the conditions' CCDB, e.g. file://<sample>/ccdb for its snapshots: the aligned geometry (GLO/Config/GeometryAligned), the field (GLO/Config/GRPMagField, not "
      "for trk) and the material LUT (ITS/Param/MatLUT, MFT/Param/MatLUT, TRK/Param/MatLUT, for trktof TRK/Param/MatLUTTOF), the sink's conditions") //
@@ -267,6 +267,9 @@ static int run(int argc, char** argv)
   if (options.detector == "its") {
     return track<detectors::ITS>(options);
   }
+  if (options.detector == "its3") {
+    return track<detectors::ITS3>(options);
+  }
   if (options.detector == "mft") {
     return track<detectors::MFT>(options);
   }
@@ -276,7 +279,7 @@ static int run(int argc, char** argv)
   if (options.detector == "trktof") {
     return track<detectors::TRKFT3TOF>(options);
   }
-  throw std::runtime_error("no detector called '" + options.detector + "'; its, mft, trk or trktof");
+  throw std::runtime_error("no detector called '" + options.detector + "'; its, its3, mft, trk or trktof");
 }
 
 } // namespace o2::gtrk::study

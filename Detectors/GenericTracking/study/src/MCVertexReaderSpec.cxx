@@ -12,6 +12,7 @@
 #include "GenericTracking/Study/MCVertexReaderSpec.h"
 
 #include "GenericTracking/Detectors/ITS.h"
+#include "GenericTracking/Detectors/ITS3.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
@@ -170,6 +171,7 @@ DataProcessorSpec getMCVertexReaderSpec()
 }
 
 template DataProcessorSpec getMCVertexReaderSpec<detectors::ITS>();
+template DataProcessorSpec getMCVertexReaderSpec<detectors::ITS3>();
 template DataProcessorSpec getMCVertexReaderSpec<detectors::MFT>();
 template DataProcessorSpec getMCVertexReaderSpec<detectors::TRKFT3>();
 template DataProcessorSpec getMCVertexReaderSpec<detectors::TRKFT3TOF>();

@@ -89,7 +89,7 @@ DataProcessorSpec getITS3DigitWriterSpec(bool mctruth, bool doStag, bool dec, bo
     auto const* dh = DataRefUtils::getHeader<o2::header::DataHeader*>(ref);
     return static_cast<size_t>(dh->subSpecification);
   };
-  auto getName = [&doStag](std::string base, size_t index) -> std::string {
+  auto getName = [doStag](std::string base, size_t index) -> std::string {
     if (doStag) {
       return base += "_" + std::to_string(index);
     }

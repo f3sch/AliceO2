@@ -115,7 +115,7 @@ TrackClusters TrackFile::read(long long entry)
   if (entry >= mTree->GetEntries()) {
     return {};
   }
-  if (mChips == Chips::kITS) {
+  if (mChips == Chips::kITS || mChips == Chips::kITS3) {
     return readEntry<o2::its::TrackITS>(*mTree, entry, "ITSTrack", "ITSTrackClusIdx", [](const o2::its::TrackITS& track) { return std::pair{track.getFirstClusterEntry(), track.getNumberOfClusters()}; });
   }
   return readEntry<o2::mft::TrackMFT>(*mTree, entry, "MFTTrack", "MFTTrackClusIdx", [](const o2::mft::TrackMFT& track) { return std::pair{track.getExternalClusterIndexOffset(), track.getNumberOfPoints()}; });
@@ -128,7 +128,7 @@ std::vector<bool> TrackFile::fakeFlags(long long entry)
   }
   std::vector<o2::MCCompLabel> labels;
   auto* pointer = &labels;
-  mTree->SetBranchAddress(mChips == Chips::kITS ? "ITSTrackMCTruth" : "MFTTrackMCTruth", &pointer);
+  mTree->SetBranchAddress(mChips == Chips::kITS || mChips == Chips::kITS3 ? "ITSTrackMCTruth" : "MFTTrackMCTruth", &pointer);
   mTree->GetEntry(entry);
   mTree->ResetBranchAddresses();
   std::vector<bool> result;
@@ -144,15 +144,15 @@ std::vector<TrackKinematics> TrackFile::kinematics(long long entry)
   if (entry >= mTree->GetEntries()) {
     return {};
   }
-  return mChips == Chips::kITS
+  return mChips == Chips::kITS || mChips == Chips::kITS3
            ? readKinematics<o2::its::TrackITS>(*mTree, entry, "ITSTrack")
            : readKinematics<o2::mft::TrackMFT>(*mTree, entry, "MFTTrack");
 }
 
 std::vector<o2::track::TrackParCov> TrackFile::innerStates(long long entry)
 {
-  if (mChips != Chips::kITS) {
-    throw std::runtime_error("innerStates: only the ITS's tracks are parameterised in the tracking frame");
+  if (mChips != Chips::kITS && mChips != Chips::kITS3) {
+    throw std::runtime_error("innerStates: only the ITS's (and ITS3's) tracks are parameterised in the tracking frame");
   }
   if (entry >= mTree->GetEntries()) {
     return {};

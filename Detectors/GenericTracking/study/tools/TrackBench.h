@@ -2883,6 +2883,7 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
 }
 
 extern template int track<detectors::ITS>(const Options& options);
+extern template int track<detectors::ITS3>(const Options& options);
 extern template int track<detectors::MFT>(const Options& options);
 extern template int track<detectors::TRKFT3>(const Options& options);
 extern template int track<detectors::TRKFT3TOF>(const Options& options);

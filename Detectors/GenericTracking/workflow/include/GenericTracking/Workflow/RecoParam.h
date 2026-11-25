@@ -33,6 +33,7 @@
 
 // ENABLE_UPGRADES comes with DetID.h (UpgradesStatus.h).
 #ifdef ENABLE_UPGRADES
+#include "GenericTracking/Detectors/ITS3.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
 #endif
@@ -222,13 +223,24 @@ struct RecoSettings {
   bool dropTFUponFailure = false;
 };
 
+/// Detector \a N's parameter name: `GTRKReco<DET>`, ITS3's `GTRKRecoITS3`.
+[[nodiscard]] constexpr std::string_view recoParamName(int n)
+{
+#ifdef ENABLE_UPGRADES
+  if (n == o2::detectors::DetID::IT3) {
+    return "GTRKRecoITS3";
+  }
+#endif
+  return n == o2::detectors::DetID::ITS ? "GTRKRecoITS" : (n == o2::detectors::DetID::MFT ? "GTRKRecoMFT" : "GTRKRecoTRK");
+}
+
 /// Detector \a N's settings (`o2::detectors::DetID`): `GTRKReco<DET>`.
 // O2ParamDef deletes the copy constructor and supplies the rest of the
 // boilerplate, so the rule about declaring all five has nothing to act on here.
 template <int N>
 // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
 struct RecoParam : public o2::conf::ConfigurableParamPromoter<RecoParam<N>, RecoSettings> {
-  static constexpr std::string_view getParamName() { return N == o2::detectors::DetID::ITS ? "GTRKRecoITS" : (N == o2::detectors::DetID::MFT ? "GTRKRecoMFT" : "GTRKRecoTRK"); }
+  static constexpr std::string_view getParamName() { return recoParamName(N); }
   O2ParamDef(RecoParam, getParamName().data());
 };
 
@@ -245,6 +257,12 @@ template <>
 struct DetIDOf<detectors::MFT> : std::integral_constant<o2::detectors::DetID::ID, o2::detectors::DetID::MFT> {
 };
 #ifdef ENABLE_UPGRADES
+/// ITS3 is O2's IT3: its own messages (GTRK/IT3...) and keys; O2's ITS3
+/// clusters, geometry and frames come with the ITS's origin
+/// (WorkflowITS3/ConditionsITS3.h).
+template <>
+struct DetIDOf<detectors::ITS3> : std::integral_constant<o2::detectors::DetID::ID, o2::detectors::DetID::IT3> {
+};
 template <>
 struct DetIDOf<detectors::TRKFT3> : std::integral_constant<o2::detectors::DetID::ID, o2::detectors::DetID::TRK> {
 };
