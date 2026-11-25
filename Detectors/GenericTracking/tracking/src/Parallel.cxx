@@ -146,6 +146,14 @@ void parallelSortIndices(TaskArena& arena, size_t count, void* context, Parallel
   profile::addOpaque(static_cast<double>(profile::now() - begin) * 1.e-9);
 }
 
+void parallelSortKeys(TaskArena& arena, std::span<std::uint64_t> keys)
+{
+  const auto begin = profile::now();
+  arena.mImpl->arena.execute([=] { tbb::parallel_sort(keys.begin(), keys.end()); });
+  // Parallel, but not in chunks a profile can see.
+  profile::addOpaque(static_cast<double>(profile::now() - begin) * 1.e-9);
+}
+
 void parallelFor(TaskArena& arena, size_t begin, size_t end, size_t grainSize, void* context, ParallelForBody body)
 {
   if (begin >= end) {

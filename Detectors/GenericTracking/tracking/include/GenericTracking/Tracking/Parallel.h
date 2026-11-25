@@ -59,10 +59,15 @@ class TaskArena
 
   friend void parallelFor(TaskArena& arena, size_t begin, size_t end, size_t grainSize, void* context, ParallelForBody body);
   friend void parallelSortIndices(TaskArena& arena, size_t count, void* context, ParallelSortLess less, uint32_t* first);
+  friend void parallelSortKeys(TaskArena& arena, std::span<std::uint64_t> keys);
 };
 
 /// The type-erased body of `parallelSort`.
 void parallelSortIndices(TaskArena& arena, size_t count, void* context, ParallelSortLess less, uint32_t* first);
+
+/// Sort \a keys ascending on \a arena's threads: the comparison of plain
+/// integers, where `parallelSort` calls a comparator through a pointer.
+void parallelSortKeys(TaskArena& arena, std::span<std::uint64_t> keys);
 
 void parallelFor(TaskArena& arena, size_t begin, size_t end, size_t grainSize, void* context, ParallelForBody body);
 [[nodiscard]] int currentArenaThreadIndex() noexcept;
