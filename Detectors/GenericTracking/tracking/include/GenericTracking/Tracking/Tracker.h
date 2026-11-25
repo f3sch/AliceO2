@@ -211,7 +211,7 @@ class Tracker
       // windows and bounds: derived once (`iterationParameters`).
       const IterationParameters<Det>* alike = nullptr;
       for (std::size_t earlier = 0; earlier < iteration && alike == nullptr; ++earlier) {
-        if (mWindowSettings[earlier] == settings.windows) {
+        if (mWindowSettings[earlier] == settings.windows && (mIterations[earlier].vertexSource == VertexSource::kNone) == (settings.vertexSource == VertexSource::kNone)) {
           alike = &mIterations[earlier];
         }
       }
@@ -1041,8 +1041,8 @@ class Tracker
   /// runs it, reading \a beamLine for a beam-line iteration (the general
   /// one, or the beam-line one for a beam-line iteration, which makes the
   /// same tracklets).
-  template <bool BeamLine, bool Shape, bool DiscWindow>
-  [[nodiscard]] TrackletStageFor<Det, BeamLine, Shape, DiscWindow> trackletStage(const TrackletInputs<Det>& inputs, const Frame& frame, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, const VertexWindows& vertexWindows) const
+  template <VertexSource Source, bool Shape, bool DiscWindow>
+  [[nodiscard]] TrackletStageFor<Det, Source, Shape, DiscWindow> trackletStage(const TrackletInputs<Det>& inputs, const Frame& frame, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, const VertexWindows& vertexWindows) const
   {
     return {*inputs.parameters, *inputs.sources, frame, inputs.targetBlocks, beamLine, vertices, inputs.maxCandidateWidthPS, vertexWindows, mUsed.data(), inputs.gate};
   }
@@ -1074,13 +1074,13 @@ class Tracker
         std::optional<profile::Zone> setup{std::in_place, Phase::kTrackletSetup};
         beginTrackletSlice(plan, slicePlan, owner);
         const auto& parameters = *mTrackletInputs.parameters;
-        result = withTrackletVertices(parameters.vertexSource, [&](auto beamLineOnly) {
+        result = withTrackletVertices(parameters.vertexSource, [&](auto source) {
           return withShapeTest(parameters.shapeTest, [&](auto shape) {
-            return withDiscWindow<decltype(beamLineOnly)::value>(parameters.discWindowMinP > 0.F, [&](auto discWindow) {
-              const auto stage = trackletStage<decltype(beamLineOnly)::value, decltype(shape)::value, decltype(discWindow)::value>(mTrackletInputs, frame, beamLine, vertices, vertexWindows);
-              setup.reset();
-              return mTrackletStage.run(mScratch.tracklets(), mChunkSize, stage);
-            });
+            return withDiscWindow < decltype(source)::value == VertexSource::kBeamLine > (parameters.discWindowMinP > 0.F, [&](auto discWindow) {
+                                                                 const auto stage = trackletStage<decltype(source)::value, decltype(shape)::value, decltype(discWindow)::value>(mTrackletInputs, frame, beamLine, vertices, vertexWindows);
+                                                                 setup.reset();
+                                                                 return mTrackletStage.run(mScratch.tracklets(), mChunkSize, stage);
+                                                               });
           });
         });
         if (result == StageStatus::kComplete) {

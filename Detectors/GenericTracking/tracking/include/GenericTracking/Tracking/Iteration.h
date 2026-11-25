@@ -457,8 +457,9 @@ template <DetectorLayout Det>
 /// their beta
 /// (`PairCut::logBeta2`). \a alike,
 /// where given, is an earlier iteration's parameters from the same beam spot
-/// and table with equal `settings.windows`: the links' windows and bounds
-/// depend on those alone and are taken from it instead of derived again.
+/// and table with equal `settings.windows`, and both with or both without an
+/// origin: the links' windows and bounds depend on those alone and are taken
+/// from it instead of derived again.
 template <DetectorLayout Det>
 [[nodiscard]] inline IterationParameters<Det> iterationParameters(const IterationSettings& settings, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material, const IterationParameters<Det>* alike = nullptr)
 {
@@ -467,6 +468,9 @@ template <DetectorLayout Det>
   }
   if (settings.minPGeV > 0. && settings.vertexSource != VertexSource::kBeamLine) {
     throw std::invalid_argument("a minimum momentum (minPGeV, the disc windows per source) needs a beam-line iteration");
+  }
+  if (settings.beamConstraint && settings.vertexSource == VertexSource::kNone) {
+    throw std::invalid_argument("a pass without an origin (iterationVertexSource 2) takes no beam constraint");
   }
   IterationParameters<Det> parameters;
   parameters.pairCut = pairCut(settings.windows);
@@ -527,7 +531,7 @@ template <DetectorLayout Det>
       parameters.betweenSourceScale[link] = alike->betweenSourceScale[link];
       parameters.tripletBounds[link] = alike->tripletBounds[link];
     } else {
-      parameters.windows[link] = layerPairWindow<Det>(pair.from, pair.to, settings.windows, beamSpot, material);
+      parameters.windows[link] = iterationPairWindow<Det>(pair.from, pair.to, settings.windows, settings.vertexSource, beamSpot, material);
       const double between = betweenKinkBound<Det>(material, settings.windows, pair.from, pair.to, beamSpot, AzimuthBound::kLargest);
       const double least = leastSourceSpan<Det>(material, pair.from);
       parameters.betweenSourceScale[link] = conservativeScalarBound(static_cast<double>(spanRatio(static_cast<Scalar>(least), static_cast<Scalar>(least + static_cast<double>(material.gapMax[link])), static_cast<Scalar>(logBeta2Min(settings.windows)))));
@@ -535,8 +539,11 @@ template <DetectorLayout Det>
       parameters.tripletBounds[link] = tripletLinkBounds<Det>(pair.from, pair.to, static_cast<double>(parameters.windows[link].phiHalfWidth));
     }
     parameters.holeLayers[link] = settings.skipLinks ? 0U : linkHoleLayers<Det>(pair.from, pair.to) & holeLayersOf<Det>(settings.layerMask);
-    parameters.sourceMin[link] = static_cast<Scalar>(pair.sourceMin);
-    parameters.sourceMax[link] = static_cast<Scalar>(pair.sourceMax);
+    // The links' source ranges are those of tracks from the beam spot; a leg
+    // from anywhere may start on the whole source layer.
+    const bool anywhere = settings.vertexSource == VertexSource::kNone;
+    parameters.sourceMin[link] = anywhere ? parameters.layerSpans[pair.from].low : static_cast<Scalar>(pair.sourceMin);
+    parameters.sourceMax[link] = anywhere ? parameters.layerSpans[pair.from].high : static_cast<Scalar>(pair.sourceMax);
   }
   parameters.vertexZCentre = static_cast<Scalar>(beamSpot.z);
   parameters.vertexZReach = static_cast<Scalar>(settings.windows.nSigma * beamSpot.sigmaZ);

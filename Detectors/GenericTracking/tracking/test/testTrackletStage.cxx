@@ -476,7 +476,7 @@ BOOST_AUTO_TEST_CASE(TheBeamLineStageKeepsTheSameTracklets)
   const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, {});
   const auto run = [&](const auto& stage) { return runStage(fixture, stage); };
   const TrackletStage<StageToy> general{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
-  const TrackletStageFor<StageToy, true> beamLine{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
+  const TrackletStageFor<StageToy, VertexSource::kBeamLine> beamLine{parameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, {}, fixture.maxCandidateWidthPS, vertexWindows, fixture.used.data()};
   const auto expected = run(general);
   BOOST_REQUIRE(expected->size() > 0U);
   BOOST_TEST(sameStageOutput(*run(beamLine), *expected));
@@ -484,7 +484,7 @@ BOOST_AUTO_TEST_CASE(TheBeamLineStageKeepsTheSameTracklets)
   const IterationSettings listSettings{.windows = windowParameters(), .vertexSource = VertexSource::kVertexList, .minClusters = kChainClusters};
   const auto listParameters = iterationParameters<StageToy>(listSettings, Fixture::kBeamConstraint, noMaterial<StageToy>());
   const auto listWindows = vertexWindowParameters<StageToy>(listParameters, listSettings.windows, fixture.vertices);
-  BOOST_CHECK_THROW((TrackletStageFor<StageToy, true>{listParameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, fixture.vertices, fixture.maxCandidateWidthPS, listWindows, fixture.used.data()}), std::invalid_argument);
+  BOOST_CHECK_THROW((TrackletStageFor<StageToy, VertexSource::kBeamLine>{listParameters, fixture.sources, *fixture.frame, fixture.geometry.allBlocks(), fixture.beamLine, fixture.vertices, fixture.maxCandidateWidthPS, listWindows, fixture.used.data()}), std::invalid_argument);
 }
 
 /// A stage bound to copies of its inputs -- what a device run binds to --

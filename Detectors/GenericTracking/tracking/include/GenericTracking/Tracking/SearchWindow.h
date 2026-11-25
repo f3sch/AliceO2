@@ -40,6 +40,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 
 namespace o2::gtrk
 {
@@ -719,6 +720,30 @@ template <DetectorLayout Det>
     .vertexHigh = static_cast<Scalar>(vertexZ.high),
     .targetSecondMin = static_cast<Scalar>(secondMin<Det>(to)),
     .targetSecondMax = static_cast<Scalar>(secondMax<Det>(to)),
+  };
+}
+
+/// The window of a pass without an origin (`VertexSource::kNone`) on a barrel
+/// link: any straight leg crossing the source and then the target layer
+/// outward. Its azimuth turns by at most acos(r_i / r_j) between the two
+/// (`noTurnBetween`), widest from the source's smallest radius to the
+/// target's largest; its second coordinate is anywhere on the target layer.
+template <DetectorLayout Det>
+[[nodiscard]] inline LayerPairWindow originlessPairWindow(LayerID from, LayerID to)
+{
+  if (!Detector<Det>::isBarrelLayer(from) || !Detector<Det>::isBarrelLayer(to)) {
+    throw std::invalid_argument("a pass without an origin takes barrel links only");
+  }
+  const double low = secondMin<Det>(to);
+  const double high = secondMax<Det>(to);
+  const double centre = 0.5 * (low + high);
+  const auto deviceCentre = static_cast<Scalar>(centre);
+  return {
+    .phiHalfWidth = conservativeScalarBound(std::acos(std::min(radiusMin<Det>(from) / radiusMax<Det>(to), 1.))),
+    .secondScale = 0.F,
+    .secondOffset = deviceCentre,
+    .secondHalfWidth = conservativeScalarBound((0.5 * (high - low)) + std::abs(centre - static_cast<double>(deviceCentre))),
+    .kind = PairKind::kBarrel,
   };
 }
 

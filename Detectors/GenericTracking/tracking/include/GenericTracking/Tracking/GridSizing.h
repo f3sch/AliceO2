@@ -68,19 +68,26 @@ template <DetectorLayout Det>
     entry.queried = true;
   };
   constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
-  // A link's window once per distinct window setting: the iterations with
-  // equal settings share it, as do an iteration's tracklet and follow sizing.
-  std::vector<std::pair<SearchWindowParams, std::array<std::optional<LayerPairWindow>, nLinks<Det>>>> derived;
-  const auto windowOf = [&](const SearchWindowParams& params, std::size_t link) {
-    auto entry = std::ranges::find_if(derived, [&](const auto& candidate) { return candidate.first == params; });
+  // A link's window once per distinct window setting, with or without an
+  // origin: the iterations with equal settings share it, as do an
+  // iteration's tracklet and follow sizing.
+  struct WindowKey {
+    SearchWindowParams params;
+    bool anywhere = false; ///< without an origin (`originlessPairWindow`)
+    [[nodiscard]] bool operator==(const WindowKey&) const = default;
+  };
+  std::vector<std::pair<WindowKey, std::array<std::optional<LayerPairWindow>, nLinks<Det>>>> derived;
+  const auto windowOf = [&](const SearchWindowParams& params, VertexSource source, std::size_t link) {
+    const WindowKey key{.params = params, .anywhere = source == VertexSource::kNone};
+    auto entry = std::ranges::find_if(derived, [&](const auto& candidate) { return candidate.first == key; });
     if (entry == derived.end()) {
-      derived.emplace_back(params, std::array<std::optional<LayerPairWindow>, nLinks<Det>>{});
+      derived.emplace_back(key, std::array<std::optional<LayerPairWindow>, nLinks<Det>>{});
       entry = std::prev(derived.end());
     }
     auto& window = entry->second[link];
     if (!window.has_value()) {
       const auto& pair = Det::layerLinks[link];
-      window = layerPairWindow<Det>(pair.from, pair.to, params, beamSpot, material);
+      window = iterationPairWindow<Det>(pair.from, pair.to, params, source, beamSpot, material);
     }
     return *window;
   };
@@ -108,7 +115,7 @@ template <DetectorLayout Det>
         continue;
       }
       const auto& pair = Det::layerLinks[link];
-      const auto window = windowOf(settings.windows, link);
+      const auto window = windowOf(settings.windows, settings.vertexSource, link);
       if (!(edgeOnly[link] && holeFreeInto[pair.to])) {
         widen(pair.to, window);
       }
@@ -121,7 +128,7 @@ template <DetectorLayout Det>
         if (Detector<Det>::isBarrelLayer(pair.from) != Detector<Det>::isBarrelLayer(pair.to)) {
           continue;
         }
-        const auto window = windowOf(settings.windows, link);
+        const auto window = windowOf(settings.windows, VertexSource::kBeamLine, link);
         widen(pair.from, window);
         widen(pair.to, window);
       }

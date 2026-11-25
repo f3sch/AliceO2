@@ -1178,7 +1178,7 @@ class StageTruth
     summary.stagingPredictionMisses = tracker.stagingPredictionMisses() - initialPredictionMisses;
     summary.poolHighWater = tracker.memoryHighWater();
 
-    const auto label = fmt::format("iteration {}, {}", mIteration, vertexSource == VertexSource::kBeamLine ? "beam line" : "vertex list");
+    const auto label = fmt::format("iteration {}, {}", mIteration, vertexSource == VertexSource::kBeamLine ? "beam line" : (vertexSource == VertexSource::kNone ? "no origin" : "vertex list"));
     const double trackletSeconds = observed.summary->seconds(profile::Phase::kTracklets);
     const double timePerSourceNS = summary.sources == 0U ? 0. : 1.e9 * trackletSeconds / static_cast<double>(summary.sources);
     LOGP(info, "tracklets, {}: {} sources, {} accepted, {:.3f} s, {:.1f} ns/source", label, summary.sources, summary.tracklets, trackletSeconds, timePerSourceNS);
@@ -3303,7 +3303,7 @@ class MeasurementSinkTask : public Task
     if (mTruthOutput) {
       // The first iteration's.
       if (!mObservers.summaries.empty()) {
-        writeTruthBreakdown(mTruthOutput, mTimeframe, mInterface.trackerSource() == VertexSource::kBeamLine ? "beam_line" : "vertex_list", mObservers.summaries[0]);
+        writeTruthBreakdown(mTruthOutput, mTimeframe, mInterface.trackerSource() == VertexSource::kBeamLine ? "beam_line" : (mInterface.trackerSource() == VertexSource::kNone ? "no_origin" : "vertex_list"), mObservers.summaries[0]);
       }
       mTruthOutput.flush();
     }

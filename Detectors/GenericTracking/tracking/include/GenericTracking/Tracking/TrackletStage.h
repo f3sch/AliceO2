@@ -214,7 +214,12 @@ template <DetectorLayout Det>
 /// With \a DiscWindow, on the beam line only, an iteration with a
 /// minimum momentum (`minPGeV`): a disc->disc query takes the source's own window
 /// (`discPairWindow`), and a candidate outside it is no tracklet.
-template <DetectorLayout Det, std::uint32_t VertexCapacity = 8U, bool BeamLine = false, bool Shape = false, bool DiscWindow = false>
+///
+/// Without \a Origin, an iteration without one (`VertexSource::kNone`): the
+/// beam-line stage, its one seed compatible with every time, whose pairs
+/// keep the no-turn condition alone (`noTurnBetween`); the iteration's
+/// windows are any straight leg's (`originlessPairWindow`).
+template <DetectorLayout Det, std::uint32_t VertexCapacity = 8U, bool BeamLine = false, bool Shape = false, bool DiscWindow = false, bool Origin = true>
 class TrackletStage
 {
  public:
@@ -222,6 +227,7 @@ class TrackletStage
   static constexpr std::size_t kLayerCount = LayerRowMap<Det>::kLayerCount;
   static_assert(!BeamLine || VertexCapacity == 1U, "the beam line is one vertex");
   static_assert(!DiscWindow || BeamLine, "the disc windows per source are a beam-line iteration's");
+  static_assert(Origin || (BeamLine && !DiscWindow), "a pass without an origin is a beam-line stage without disc windows");
   // How many compatible vertices get their own interval. A source with more
   // takes the beam-spot window with every one of them tested; both windows
   // hold every vertex `vertexUsable` admits, so the tracklets do not depend on
@@ -240,8 +246,11 @@ class TrackletStage
       mVertexWindows(&vertexWindows),
       mMaxCandidateWidthPS(maxCandidateWidthPS)
   {
-    if (BeamLine && parameters.vertexSource != VertexSource::kBeamLine) {
-      throw std::invalid_argument("the beam-line tracklet stage serves only a beam-line iteration");
+    if (BeamLine && parameters.vertexSource == VertexSource::kVertexList) {
+      throw std::invalid_argument("the beam-line tracklet stage serves no vertex-list iteration");
+    }
+    if (Origin == (parameters.vertexSource == VertexSource::kNone)) {
+      throw std::invalid_argument("the tracklet stage without an origin serves exactly the iterations without one");
     }
     if (Shape != parameters.shapeTest) {
       throw std::invalid_argument("the shape-testing tracklet stage serves exactly the iterations with shapeTest");
@@ -249,7 +258,7 @@ class TrackletStage
     if (DiscWindow != (parameters.discWindowMinP > 0.F)) {
       throw std::invalid_argument("the tracklet stage with disc windows per source serves exactly the iterations with a minimum momentum");
     }
-    if (parameters.vertexSource == VertexSource::kBeamLine) {
+    if (parameters.vertexSource != VertexSource::kVertexList) {
       mVertices = &beamLine;
       mVertexCount = 1U;
     } else {
@@ -656,6 +665,12 @@ class TrackletStage
   /// \a targetLayer: the pair's link and its target's layer.
   [[nodiscard]] GPUhdi() bool accepted(LayerID sourceLayer, const TimeEstPS& sourceBox, const PairPoint& source, const PairPoint& target, const CompatibleVertex* cachedVertices, std::uint32_t cachedCount, VertexRange uncachedRange, const SecondRange* intervals, Scalar targetSecond, Scalar betweenBound, std::size_t link, LayerID targetLayer, const BetweenSource<Det>& between, [[maybe_unused]] bool inWindow) const
   {
+    if constexpr (!Origin) {
+      // A leg from anywhere: outward from the source to the target, nothing
+      // else to test a pair by.
+      countWork(WorkCounter::kPairTests);
+      return noTurnBetween(source, target);
+    }
     // The pair's own kink, per vertex: its momentum follows the source's line from it.
     const auto betweenOf = [&](const VertexSeed& vertex, Scalar spanX, Scalar highland) { return betweenScattering<Det>(*mParameters->material, mParameters->pairCut, between, link, targetLayer, vertex, source, target, spanX, highland); };
     // What the pair tests compute of the two positions alone, once.
@@ -761,19 +776,28 @@ class TrackletStage
   std::array<std::uint32_t, kLayerCount> mMaxCandidateWidthPS{};
 };
 
-/// The tracklet stage a tracker runs for an iteration: the beam-line one
-/// for a beam-line iteration, the general one otherwise; each testing the
-/// shapes with \a Shape, the beam-line one with disc windows per source with
-/// \a DiscWindow.
-template <DetectorLayout Det, bool BeamLine, bool Shape = false, bool DiscWindow = false>
-using TrackletStageFor = std::conditional_t<BeamLine, TrackletStage<Det, 1U, true, Shape, DiscWindow>, TrackletStage<Det, 8U, false, Shape>>;
+/// The tracklet stage a tracker runs for an iteration seeding from \a Source:
+/// the beam-line one for a beam-line iteration, the general one for a
+/// vertex list, the beam-line one without an origin for an iteration without
+/// one; each testing the shapes with \a Shape, the beam-line one with disc
+/// windows per source with \a DiscWindow.
+template <DetectorLayout Det, VertexSource Source, bool Shape = false, bool DiscWindow = false>
+using TrackletStageFor = std::conditional_t<Source == VertexSource::kVertexList, TrackletStage<Det, 8U, false, Shape>, TrackletStage<Det, 1U, true, Shape, DiscWindow, Source == VertexSource::kBeamLine>>;
 
-/// \a body called with a `std::bool_constant`: whether the iteration is a
-/// beam-line one (\a source), the choice of `TrackletStageFor`, host code.
+/// \a body called with a `std::integral_constant` of the iteration's
+/// \a source, the choice of `TrackletStageFor`, host code.
 template <typename Body>
 decltype(auto) withTrackletVertices(VertexSource source, const Body& body)
 {
-  return source == VertexSource::kBeamLine ? body(std::true_type{}) : body(std::false_type{});
+  switch (source) {
+    case VertexSource::kBeamLine:
+      return body(std::integral_constant<VertexSource, VertexSource::kBeamLine>{});
+    case VertexSource::kVertexList:
+      return body(std::integral_constant<VertexSource, VertexSource::kVertexList>{});
+    case VertexSource::kNone:
+      return body(std::integral_constant<VertexSource, VertexSource::kNone>{});
+  }
+  throw std::invalid_argument("an iteration's vertex source is the beam line, a vertex list or none");
 }
 
 /// \a body called with a `std::bool_constant`: whether the iteration tests
