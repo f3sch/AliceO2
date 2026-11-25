@@ -412,7 +412,9 @@ struct ProposePartners {
           CovarianceFactors predictedFactors;
           Scalar chi2 = 0.F;
           // The transport inlined: the follow's shared copy stays its own.
-          if (!follow::updateCandidate<false, true>(propagator, *geometry, detail::LinkSteps{}, measurementAt(*frame, row), towards, state, factors, predicted, predictedFactors, chi2) || !(chi2 <= parameters->clusterChi2Max)) {
+          // A step between two sensors of one layer, which the link material
+          // holds no step for: none of its own (`LayerMaterial`).
+          if (!follow::updateCandidate<false, true>(propagator, *geometry, detail::LayerMaterial{}, measurementAt(*frame, row), towards, state, factors, predicted, predictedFactors, chi2) || !(chi2 <= parameters->clusterChi2Max)) {
             return;
           }
           if (!found || chi2 < best.chi2 || (!(best.chi2 < chi2) && row < best.row)) {
