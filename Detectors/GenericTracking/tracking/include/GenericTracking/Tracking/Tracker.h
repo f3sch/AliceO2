@@ -23,6 +23,7 @@
 #include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Follow.h"
+#include "GenericTracking/Tracking/InactiveMatch.h"
 #include "GenericTracking/Tracking/InactiveRows.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/NeighbourStage.h"
@@ -176,6 +177,9 @@ class Tracker
     /// After the last iteration, the tracks with overlap partners fitted with
     /// them (`OverlapPartners::finish`).
     typename OverlapPartners<Det>::Finished partners;
+    /// After the last iteration, the inactive layers' rows matched to the
+    /// tracks (InactiveMatch.h).
+    std::size_t matches = 0U;
   };
 
   /// What a run left after its first iterations, all that a later iteration
@@ -237,6 +241,7 @@ class Tracker
     mFollowEarlier.setMemoryPool(mMemoryPool);
     mJoin.setMemoryPool(mMemoryPool);
     mInactiveRows.setMemoryPool(mMemoryPool);
+    mMatch.setMemoryPool(mMemoryPool);
     deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection, mKeptTracks, mChangedTracks, mClaims, mPartnerCandidates);
     mDropScratch.setMemoryResource(mMemoryPool.get());
   }
@@ -602,6 +607,15 @@ class Tracker
         return;
       }
     }
+    if constexpr (Detector<Det>::inactiveLayers != 0U) {
+      if (last == mIterations.size()) {
+        const profile::Zone zone{Phase::kInactiveMatch};
+        result.status = matchInactive(frame, plan, result.matches);
+        if (result.status != StageStatus::kComplete) {
+          return;
+        }
+      }
+    }
     result.store = &mStore;
   }
 
@@ -615,6 +629,21 @@ class Tracker
   /// After the last iteration, every track with overlap partners fitted with
   /// them (`OverlapPartners::finish`) and committed again with them, what it
   /// did into \a finished.
+  /// After the last iteration, the inactive layers' rows matched to the
+  /// tracks (InactiveMatch.h), how many into \a matches, and the store's
+  /// matched tracks committed again with them.
+  [[nodiscard]] StageStatus matchInactive(const Frame& frame, const TimeframePlan<Det>& plan, std::size_t& matches)
+  {
+    const auto forEach = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(static_cast<Index>(count)))(static_cast<Index>(count), body); };
+    auto status = mMatch.run(forEach, mIterations.data(), frame, *mGeometry, mPropagator, std::as_const(mRefit).tracks(), std::span<std::uint8_t>{mUsed}, plan.layerMaxWidthPS);
+    matches = mMatch.matched().size();
+    if (status == StageStatus::kComplete && matches != 0U) {
+      status = mStore.recommitMatched(spreadForEach(), spreadChunk(static_cast<Index>(matches)), mMatch.matched());
+    }
+    mMatch.clearStorage();
+    return status;
+  }
+
   [[nodiscard]] StageStatus finishPartners(const Frame& frame, typename OverlapPartners<Det>::Finished& finished)
   {
     if (mClaims.empty()) {
@@ -650,6 +679,7 @@ class Tracker
     mFollowEarlier.clearStorage();
     mJoin.clearStorage();
     mInactiveRows.clearStorage();
+    mMatch.clearStorage();
     mPartners.clearStorage();
     deepVectorClear(mMemoryPool.get(), mKeptTracks, mChangedTracks);
     mDropScratch.setMemoryResource(mMemoryPool.get());
@@ -1354,6 +1384,7 @@ class Tracker
   OverlapPartners<Det> mPartners;
   TrackJoin<Det> mJoin;                             ///< the iteration's tracks joined to the earlier ones
   InactiveRows<Det> mInactiveRows;                  ///< inactive layers' rows on the whole track's fit
+  InactiveMatch<Det> mMatch;                        ///< inactive layers' rows matched after the last iteration
   BoundedVector<std::uint32_t> mInactiveCandidates; ///< its tracks: the iteration's and the joined earlier ones
   Follow<Det> mFollow;                              ///< the iteration's own tracks'
   Follow<Det> mFollowEarlier;                       ///< the earlier iterations' tracks', with followEarlier

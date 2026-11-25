@@ -101,6 +101,7 @@ constexpr std::array<PhaseInfo, kPhaseCount> kInfo{{
   {.name = "inactive rows", .parent = kIteration},
   {.name = "overlap partners", .parent = kIteration},
   {.name = "commit", .parent = kIteration},
+  {.name = "inactive match", .parent = kNone},
 }};
 
 /// Every parent precedes its children, so one pass in enum order is a

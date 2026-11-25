@@ -514,6 +514,46 @@ class TrackStore
       [&](std::uint32_t i, const auto& out, std::uint32_t at) { writePartneredRows(view.clusters[listed[i]], view.count[listed[i]], partners.data() + offsets[i], partners.data() + offsets[i + 1U], out, at); });
   }
 
+  /// The committed tracks of \a matched (by track, then along it; a
+  /// `track` and a `row` each) with their matches after their references
+  /// (`ReferenceRole::kMatch`, InactiveMatch.h): each track's references
+  /// again, as the store holds them, then its matched rows.
+  template <typename ForEach, typename Matched>
+  [[nodiscard]] StageStatus recommitMatched(const ForEach& forEach, std::uint32_t chunk, std::span<const Matched> matched)
+  {
+    // Each matched track's first entry in \a matched.
+    std::vector<std::uint32_t> firsts;
+    for (std::uint32_t i = 0; i < matched.size(); ++i) {
+      if (i == 0U || matched[i].track != matched[i - 1U].track) {
+        firsts.push_back(i);
+      }
+    }
+    firsts.push_back(static_cast<std::uint32_t>(matched.size()));
+    const auto n = static_cast<std::uint32_t>(firsts.size() - 1U);
+    std::vector<TrackRange> before(n);
+    for (std::uint32_t i = 0; i < n; ++i) {
+      before[i] = mReferences.range(matched[firsts[i]].track);
+    }
+    // The fill reads the old references through \a out: the append resizes
+    // the columns first, and their earlier records stay where they were.
+    return mReferences.append(
+      forEach, chunk, n, [&](std::uint32_t i) { return matched[firsts[i]].track; }, [&](std::uint32_t i) { return before[i].count + (firsts[i + 1U] - firsts[i]); },
+      [&](std::uint32_t i, const auto& out, std::uint32_t at) {
+        for (std::uint32_t k = 0; k < before[i].count; ++k) {
+          out.row[at + k] = out.row[before[i].first + k];
+          out.source[at + k] = out.source[before[i].first + k];
+          out.role[at + k] = out.role[before[i].first + k];
+        }
+        at += before[i].count;
+        for (std::uint32_t m = firsts[i]; m < firsts[i + 1U]; ++m) {
+          out.row[at] = matched[m].row;
+          out.source[at] = kOwnRows;
+          out.role[at] = static_cast<std::uint8_t>(ReferenceRole::kMatch);
+          ++at;
+        }
+      });
+  }
+
   /// Whether the committed tracks are \a tracks: the same fields, bit for
   /// bit, and as the references held as their layers' its rows in order,
   /// each its own detector's.

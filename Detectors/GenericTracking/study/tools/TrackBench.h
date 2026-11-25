@@ -2714,6 +2714,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     if (result.partners.tracks + result.partners.releasedTracks != 0U) {
       std::cout << std::format("overlap partners fitted after the last iteration: {} on {} tracks; {} released, of {} tracks whose fit with them failed\n", result.partners.partners, result.partners.tracks, result.partners.released, result.partners.releasedTracks);
     }
+    if (result.matches != 0U) {
+      std::cout << std::format("inactive layers' rows matched after the last iteration: {}\n", result.matches);
+    }
     if (!options.tracksOut.empty() && last) {
       writeTracks<Det>(options.tracksOut, *result.store, frame);
     }

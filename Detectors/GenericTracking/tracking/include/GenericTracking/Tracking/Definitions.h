@@ -172,11 +172,14 @@ enum class FollowEnd : std::uint8_t { kNoTarget,
 
 /// What a reference of a committed track (TrackStore.h) is to the track, as
 /// bits of a byte: a row it holds as its layer's, a second row on the same
-/// layer from an overlapping sensor, a measurement its fit rejected. A
-/// reference may be more than one (a partner the fit rejected).
+/// layer from an overlapping sensor, a measurement its fit rejected, an
+/// inactive layer's row matched to it after the tracking, outside its fit
+/// (InactiveMatch.h). A reference may be more than one (a partner the fit
+/// rejected).
 enum class ReferenceRole : std::uint8_t { kLayerRow = 1U << 0U,
                                           kOverlapPartner = 1U << 1U,
-                                          kOutlier = 1U << 2U };
+                                          kOutlier = 1U << 2U,
+                                          kMatch = 1U << 3U };
 
 /// What the map makes of one triplet, and why it is not a candidate.
 enum class VertexCandidateStatus : std::uint8_t { kAccepted,
