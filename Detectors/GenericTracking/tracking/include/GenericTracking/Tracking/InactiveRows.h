@@ -62,6 +62,7 @@
 #include <limits>
 #include <memory>
 #include <span>
+#include <type_traits>
 #include <utility>
 
 namespace o2::gtrk
@@ -123,7 +124,7 @@ template <DetectorLayout Det>
   Scalar heading[3]{};
   const bool crossed = cells.anySensor(layer, prediction.phi, reach[0], prediction.second, reach[1], [&](std::uint32_t id) {
     const TrackingSurface plane = geometry.planeAt(static_cast<SensorID>(id), point);
-    BoundParameters at = state;
+    BoundParameters at = static_cast<const BoundParameters&>(state);
     const auto result = propagate<Scalar>(carrier, at, from, plane, direction);
     if (result.status != PropagationStatus::kOk || follow::beyondHalfTurn(curvature * result.pathLength)) {
       return false;
@@ -425,7 +426,7 @@ class InactiveRows
         const auto view = tracks.view();
         const auto count = static_cast<std::uint32_t>(candidates.size());
         resizeBoundedVector(mChoices, count, mMemoryPool.get());
-        forEach(count, inactive::Choose<Det, decltype(view)>{.iteration = &parameters, .timeFrame = &frame, .trackingGeometry = &geometry, .propagator = propagator, .tracks = view, .candidates = candidates.data(), .used = used.data(), .maxCandidateWidthPS = maxCandidateWidthPS.data(), .cells = cells, .choices = mChoices.data()});
+        forEach(count, inactive::Choose<Det, std::remove_const_t<decltype(view)>>{.iteration = &parameters, .timeFrame = &frame, .trackingGeometry = &geometry, .propagator = propagator, .tracks = view, .candidates = candidates.data(), .used = used.data(), .maxCandidateWidthPS = maxCandidateWidthPS.data(), .cells = cells, .choices = mChoices.data()});
         // A row two tracks want to the smaller rise: by row, then rise, then track.
         std::uint32_t chosen = 0U;
         for (const auto& choice : mChoices) {
@@ -448,7 +449,7 @@ class InactiveRows
             mOrder[kept++] = mOrder[i];
           }
         }
-        forEach(kept, inactive::Apply<Det, decltype(view)>{.iteration = &parameters, .timeFrame = &frame, .trackingGeometry = &geometry, .propagator = propagator, .tracks = view, .candidates = candidates.data(), .choices = mChoices.data(), .order = mOrder.data(), .used = used.data()});
+        forEach(kept, inactive::Apply<Det, std::remove_const_t<decltype(view)>>{.iteration = &parameters, .timeFrame = &frame, .trackingGeometry = &geometry, .propagator = propagator, .tracks = view, .candidates = candidates.data(), .choices = mChoices.data(), .order = mOrder.data(), .used = used.data()});
         resizeBoundedVector(mChanged, kept, mMemoryPool.get());
         for (std::uint32_t i = 0; i < kept; ++i) {
           mChanged[i] = candidates[mOrder[i]];

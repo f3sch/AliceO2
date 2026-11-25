@@ -89,13 +89,13 @@ enum class CharmClass : std::uint8_t {
 
 /// Where an MC charm decay was lost (`CharmFinderDecayRecord::stage`), the first of:
 enum class CharmStage : std::uint8_t {
-  kFound = 0,       ///< its own candidate was fitted
-  kNotFound,        ///< a leaf has no good track of its own charge (`missing`)
-  kContributor,     ///< a leaf's track entered its primary vertex's fit
-  kRefitFailed,     ///< a leaf's refit under its true species failed
-  kOutsideWindow,   ///< a three-prong outside the pre-fit mass window
-  kNoStart,         ///< the helices give no start
-  kFitFailed        ///< the fit failed
+  kFound = 0,     ///< its own candidate was fitted
+  kNotFound,      ///< a leaf has no good track of its own charge (`missing`)
+  kContributor,   ///< a leaf's track entered its primary vertex's fit
+  kRefitFailed,   ///< a leaf's refit under its true species failed
+  kOutsideWindow, ///< a three-prong outside the pre-fit mass window
+  kNoStart,       ///< the helices give no start
+  kFitFailed      ///< the fit failed
 };
 
 /// One charm candidate (`decayfinder`, `-charm`).
@@ -109,7 +109,7 @@ struct CharmFinderCandidateRecord {
   std::uint8_t pidMatch = 0U;   ///< every slot's species its track's true one
   std::uint64_t mother = 0U;    ///< the tracks' common charm ancestor, 0 without one
   std::int32_t motherPdg = 0;
-  float s2First = kNaN;  ///< the slots' displacement S^2 against the point
+  float s2First = kNaN; ///< the slots' displacement S^2 against the point
   float s2Second = kNaN;
   float s2Third = kNaN; ///< NaN for a two-prong
   float ptMin = kNaN;   ///< the slots' smallest pT [GeV]

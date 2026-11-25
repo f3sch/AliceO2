@@ -114,15 +114,15 @@ struct CascadeFinderCandidateRecord {
   static constexpr float kNaN = std::numeric_limits<float>::quiet_NaN();
   std::uint32_t timeframe = 0U;
   std::uint64_t collision = 0U;
-  std::uint8_t sign = 0U;  ///< 0 a Lambda's (negative bachelor), 1 an anti-Lambda's
-  std::uint8_t omega = 0U; ///< 0 Xi, 1 Omega
-  std::uint8_t held = 0U;  ///< the Lambda's mass held
-  std::uint8_t truthClass = 0U; ///< CascadeClass
+  std::uint8_t sign = 0U;        ///< 0 a Lambda's (negative bachelor), 1 an anti-Lambda's
+  std::uint8_t omega = 0U;       ///< 0 Xi, 1 Omega
+  std::uint8_t held = 0U;        ///< the Lambda's mass held
+  std::uint8_t truthClass = 0U;  ///< CascadeClass
   std::uint8_t lambdaClass = 0U; ///< its Lambda pair's FinderClass (DecayFinderStudy.h)
-  std::uint8_t pidMatch = 0U;   ///< all three tracks' species their true ones
-  std::uint8_t primaries = 0U;  ///< its tracks whose particle is a physical primary
-  std::uint64_t cascade = 0U;   ///< the MC cascade of kTrue and kReflection, 0 otherwise
-  float s2Positive = kNaN;      ///< the Lambda legs' S^2 (the V0 pass's)
+  std::uint8_t pidMatch = 0U;    ///< all three tracks' species their true ones
+  std::uint8_t primaries = 0U;   ///< its tracks whose particle is a physical primary
+  std::uint64_t cascade = 0U;    ///< the MC cascade of kTrue and kReflection, 0 otherwise
+  float s2Positive = kNaN;       ///< the Lambda legs' S^2 (the V0 pass's)
   float s2Negative = kNaN;
   float s2Bachelor = kNaN;
   float lambdaV0Mass = kNaN; ///< the V0 fit's Lambda mass and sigma
@@ -150,9 +150,9 @@ struct CascadeFinderCandidateRecord {
   /// with any, the fit with them (`tracked*`).
   std::uint8_t motherLayers = 0U; ///< the layers searched
   std::uint8_t motherRows = 0U;
-  std::uint8_t motherFree = 0U;   ///< of those, rows no committed track holds
-  std::uint8_t motherTrue = 0U;   ///< of those, rows of the MC cascade (kTrue, kReflection)
-  float motherChi2 = kNaN;        ///< the rows' update chi2 summed
+  std::uint8_t motherFree = 0U; ///< of those, rows no committed track holds
+  std::uint8_t motherTrue = 0U; ///< of those, rows of the MC cascade (kTrue, kReflection)
+  float motherChi2 = kNaN;      ///< the rows' update chi2 summed
   std::uint8_t trackedStatus = 0U;
   float trackedChi2 = kNaN;
   std::int16_t trackedNdf = 0;
@@ -245,7 +245,7 @@ struct CascadeFinderDecayRecord {
   float pt = 0.F;           ///< at production [GeV]
   float eta = 0.F;          ///< the mother's pseudorapidity and rapidity at production (`rapiditiesOf`)
   float y = 0.F;
-  float ptPositive = 0.F;   ///< the Lambda's daughters' and the bachelor's at production [GeV]
+  float ptPositive = 0.F; ///< the Lambda's daughters' and the bachelor's at production [GeV]
   float ptNegative = 0.F;
   float ptBachelor = 0.F;
   std::uint8_t stage = 0U;           ///< CascadeStage

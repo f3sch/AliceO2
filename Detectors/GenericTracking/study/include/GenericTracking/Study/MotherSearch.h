@@ -106,7 +106,7 @@ struct MotherState {
   if (!crossToPlane<kInputs>(from, out.plane, fieldScale, to, local)) {
     return out;
   }
-  const std::array<const D*, kNBoundParams> bound{&local[0], &local[1], &to[3], &to[4], &to[5]};
+  const std::array<const D*, kNBoundParams> bound{local.data(), &local[1], &to[3], &to[4], &to[5]};
   for (int a = 0; a < kNBoundParams; ++a) {
     out.state.par[a] = static_cast<Scalar>(bound[static_cast<std::size_t>(a)]->v);
   }
@@ -164,7 +164,7 @@ class MotherSearch
   {
     using Math = o2::gpu::CAMath;
     MotherRows out;
-    BoundParameters state = start.state;
+    BoundParameters state = static_cast<const BoundParameters&>(start.state);
     auto factors = factorCovariance(start.state.cov);
     TrackingSurface from = start.plane;
     const auto& frame = *mFrame;
@@ -243,7 +243,7 @@ class MotherSearch
     const Scalar cotTheta = Math::Cos(start.state.theta()) / Math::Sin(start.state.theta());
     const Scalar axisZ = vertexZ - (vertexR * cotTheta);
     std::vector<std::pair<Scalar, int>> crossed;
-    for (int layer = 0; layer < static_cast<int>(kLayerCount); ++layer) {
+    for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
       const auto& span = mParameters.layerSpans[layer];
       Scalar fraction = 0.F; // from the vertex towards the axis
       if (((mParameters.barrelLayers >> layer) & 1U) != 0U) {
@@ -266,6 +266,7 @@ class MotherSearch
     }
     std::ranges::sort(crossed);
     std::vector<int> layers;
+    layers.reserve(crossed.size());
     for (const auto& [fraction, layer] : crossed) {
       layers.push_back(layer);
     }

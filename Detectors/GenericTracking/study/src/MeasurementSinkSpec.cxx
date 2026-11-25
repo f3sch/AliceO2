@@ -3840,7 +3840,7 @@ class MeasurementSinkTask : public Task
   {
     constexpr double kNSPerPS = 1.e-3;
     const double startNS = static_cast<double>(orbit) * o2::constants::lhc::LHCOrbitNS;
-    const double endNS = startNS + (kNSPerPS * static_cast<double>(workflow::timeframeDurationPS(mConditions->orbitsPerTimeframe())));
+    const double endNS = startNS + (kNSPerPS * static_cast<double>(workflow::timeframeDurationPS(workflow::Conditions<Det, true>::orbitsPerTimeframe())));
     ParticleTable particles = measured;
     std::unordered_set<std::uint64_t> collisions;
     const auto& records = mContext->getEventRecords();

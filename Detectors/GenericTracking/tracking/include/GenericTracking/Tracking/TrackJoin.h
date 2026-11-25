@@ -59,9 +59,11 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <span>
+#include <type_traits>
 #include <utility>
 
 namespace o2::gtrk
@@ -338,10 +340,10 @@ class TrackJoin
           mStarts[at++] = {.row = view.clusters[track].index[0], .track = track};
         }
       }
-      std::sort(mEnds.begin(), mEnds.end());
-      std::sort(mStarts.begin(), mStarts.end());
+      std::ranges::sort(mEnds, std::less{});
+      std::ranges::sort(mStarts, std::less{});
       resizeBoundedVector(mChoices, pieces, mMemoryPool.get());
-      forEach(pieces, join::Choose<Det, decltype(view)>{.parameters = parameters, .frame = &frame, .geometry = &geometry, .propagator = propagator, .tracks = view, .trackOffset = trackOffset, .ends = mEnds.data(), .starts = mStarts.data(), .endCount = ends, .maxCandidateWidthPS = maxCandidateWidthPS.data(), .choices = mChoices.data()});
+      forEach(pieces, join::Choose<Det, std::remove_const_t<decltype(view)>>{.parameters = parameters, .frame = &frame, .geometry = &geometry, .propagator = propagator, .tracks = view, .trackOffset = trackOffset, .ends = mEnds.data(), .starts = mStarts.data(), .endCount = ends, .maxCandidateWidthPS = maxCandidateWidthPS.data(), .choices = mChoices.data()});
       // Each earlier track the piece of the least score that chose it.
       resizeBoundedVector(mBest, trackOffset, mMemoryPool.get());
       std::ranges::fill(mBest, kNone);
@@ -366,7 +368,7 @@ class TrackJoin
         }
       }
       // The joined tracks, written over the earlier ones.
-      forEach(joined, join::Apply<Det, decltype(view)>{.parameters = parameters, .frame = &frame, .geometry = &geometry, .propagator = propagator, .tracks = view, .trackOffset = trackOffset, .choices = mChoices.data(), .joined = mJoined.data()});
+      forEach(joined, join::Apply<Det, std::remove_const_t<decltype(view)>>{.parameters = parameters, .frame = &frame, .geometry = &geometry, .propagator = propagator, .tracks = view, .trackOffset = trackOffset, .choices = mChoices.data(), .joined = mJoined.data()});
       resizeBoundedVector(mChanged, joined, mMemoryPool.get());
       for (std::uint32_t i = 0; i < joined; ++i) {
         mChanged[i] = mChoices[mJoined[i]].partner;

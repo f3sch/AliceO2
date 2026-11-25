@@ -522,7 +522,7 @@ class CompleteAnatomy
       return track < recovered.size() ? &recovered[track] : nullptr;
     };
     if (mInnerLossCsv) {
-      innerLoss(iteration, replayed, particles, holder, parameters, frame);
+      innerLoss(iteration, replayed, particles, holder, parameters);
     }
 
     // The fate is decided anew each iteration; a short track's diagnosis is
@@ -3322,7 +3322,7 @@ class CompleteAnatomy
   /// 1 another track of the particle, 2 another particle's good track, 3 a
   /// fake) and its place in the particle's rows (0: the particle's first).
   template <typename Observation>
-  void innerLoss(const Observation& iteration, const std::vector<Replay>& replayed, const std::vector<std::uint64_t>& particles, const std::vector<std::uint32_t>& holder, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame)
+  void innerLoss(const Observation& iteration, const std::vector<Replay>& replayed, const std::vector<std::uint64_t>& particles, const std::vector<std::uint32_t>& holder, const IterationParameters<Det>& parameters)
   {
     const auto view = iteration.tracks->view();
     std::string text;

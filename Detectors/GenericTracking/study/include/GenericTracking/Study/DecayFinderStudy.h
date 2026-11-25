@@ -151,7 +151,7 @@ struct DecayFinderCandidateRecord {
   float cosPointing = std::numeric_limits<float>::quiet_NaN();
   float alpha = std::numeric_limits<float>::quiet_NaN(); ///< the fit's Armenteros-Podolanski variables (`armenteros`); NaN unfitted
   float qT = std::numeric_limits<float>::quiet_NaN();    ///< [GeV]
-  std::uint8_t ahead = 0U; ///< its legs whose first measurement lies behind the fitted vertex (`leavesAhead`)
+  std::uint8_t ahead = 0U;                               ///< its legs whose first measurement lies behind the fitted vertex (`leavesAhead`)
   float microseconds = 0.F;
 
   template <typename Visit>
@@ -199,7 +199,7 @@ struct DecayFinderDecayRecord {
   std::int32_t pdg = 0;
   float decayR = 0.F;     ///< the MC decay point's transverse radius [cm]
   float pt = 0.F;         ///< the mother's at production [GeV]
-  float eta = 0.F;    ///< the mother's pseudorapidity and rapidity at production (`rapiditiesOf`)
+  float eta = 0.F;        ///< the mother's pseudorapidity and rapidity at production (`rapiditiesOf`)
   float y = 0.F;
   float ptPositive = 0.F; ///< the daughters' at production [GeV]
   float ptNegative = 0.F;
@@ -327,6 +327,350 @@ struct LegTruth {
 {
   const auto dot = path.rfind('.');
   return path.substr(0, dot) + std::string{tag} + path.substr(dot);
+}
+
+/// An MC V0 decaying into its two charged daughters.
+struct TruthV0 {
+  const TreeParticle* mother = nullptr;
+  std::array<const TreeParticle*, 2> legs{}; ///< the positive, the negative daughter
+  int hypothesis = 0;
+  DecayFinderDecayRecord record;
+  bool fitted = false;
+  LambdaRejection rejection = LambdaRejection::kNotFitted; ///< a Lambda's own candidate's, for its cascade
+};
+
+/// An MC cascade into a Lambda (a `TruthV0`) and a charged pion (Xi) or kaon (Omega).
+struct TruthCascade {
+  const TreeParticle* mother = nullptr;
+  std::size_t lambda = 0U; ///< into `TruthDecays::decays`
+  const TreeParticle* bachelor = nullptr;
+  int sign = 0; ///< 0 a Lambda's, 1 an anti-Lambda's
+  int omega = 0;
+  CascadeFinderDecayRecord record;
+  bool fitted = false;
+};
+
+/// An MC charm decay into a hypothesis's final state, its leaves in the hypothesis's slots.
+struct TruthCharm {
+  const TreeParticle* mother = nullptr;
+  std::size_t hypothesis = 0U; ///< into `kCharmMothers`
+  FixedVector<const TreeParticle*, 3> legs;
+  CharmFinderDecayRecord record;
+  bool fitted = false;
+};
+
+/// The MC decays of a timeframe the candidates are matched to, each kind by
+/// its particles' IDs.
+struct TruthDecays {
+  std::vector<TruthV0> decays;
+  std::unordered_map<std::uint64_t, std::size_t> decayOfLeg;
+  std::vector<TruthCascade> cascades;
+  std::unordered_map<std::uint64_t, std::size_t> cascadeOfLambda;
+  std::unordered_map<std::uint64_t, std::size_t> cascadeOfBachelor;
+  std::vector<TruthCharm> charms;
+  std::unordered_map<std::uint64_t, std::size_t> charmOfMother;
+  std::unordered_map<std::uint64_t, std::size_t> charmOfLeaf;
+};
+
+/// Whether \a legs are, slot by slot, \a h's species and charges.
+[[nodiscard]] inline bool slotsMatch(const DecayHypothesis& h, std::span<const TreeParticle* const> legs)
+{
+  for (std::size_t slot = 0; slot < legs.size(); ++slot) {
+    const auto truth = speciesOf(legs[slot]->pdg);
+    if (!truth || *truth != h.species[slot] || (particleCharge(legs[slot]->pdg) > 0.) != (h.charges[slot] > 0)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/// The MC V0s, cascades and charm decays of \a event into the final states of
+/// \a hypotheses (the charm hypotheses from \a charmFirst on).
+template <DetectorLayout Det>
+[[nodiscard]] TruthDecays truthDecays(const TruthEvent<Det>& event, std::span<const DecayHypothesis> hypotheses, std::size_t charmFirst)
+{
+  const auto& trees = *event.trees;
+  // The MC V0s decaying into their two charged daughters, by daughter.
+  TruthDecays out;
+  auto& decays = out.decays;
+  auto& decayOfLeg = out.decayOfLeg;
+  for (const auto& member : trees.particles) {
+    const auto found = std::ranges::find(kV0Mothers, member.pdg);
+    if (found == kV0Mothers.end()) {
+      continue;
+    }
+    const auto h = static_cast<int>(found - kV0Mothers.begin());
+    const auto products = decayProducts(trees, member);
+    if (products.size() != 2U) {
+      continue;
+    }
+    const bool firstPositive = particleCharge(products[0]->pdg) > 0.;
+    const std::array<const TreeParticle*, 2> legs{firstPositive ? products[0] : products[1], firstPositive ? products[1] : products[0]};
+    bool matches = particleCharge(legs[0]->pdg) > 0. && particleCharge(legs[1]->pdg) < 0.;
+    for (std::size_t slot = 0; slot < 2U && matches; ++slot) {
+      const auto truth = speciesOf(legs[slot]->pdg);
+      matches = truth && *truth == hypotheses[static_cast<std::size_t>(h)].species[slot];
+    }
+    if (!matches) {
+      continue;
+    }
+    const auto& decayPoint = products.front()->vertex;
+    const auto& p = member.momentum;
+    const auto rapidities = rapiditiesOf(p, particleMass(member.pdg));
+    decayOfLeg.emplace(legs[0]->id, decays.size());
+    decayOfLeg.emplace(legs[1]->id, decays.size());
+    decays.push_back({.mother = &member, .legs = legs, .hypothesis = h, .record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .decayR = static_cast<float>(std::hypot(decayPoint[0], decayPoint[1])), .pt = static_cast<float>(std::hypot(p[0], p[1])), .eta = rapidities.eta, .y = rapidities.y, .ptPositive = static_cast<float>(std::hypot(legs[0]->momentum[0], legs[0]->momentum[1])), .ptNegative = static_cast<float>(std::hypot(legs[1]->momentum[0], legs[1]->momentum[1]))}});
+  }
+  // The MC cascades into a Lambda (an MC V0 above) and a charged pion
+  // (Xi) or kaon (Omega), by Lambda and by bachelor.
+  std::unordered_map<std::uint64_t, std::size_t> decayOfMother;
+  for (std::size_t i = 0; i < decays.size(); ++i) {
+    decayOfMother.emplace(decays[i].mother->id, i);
+  }
+  auto& cascades = out.cascades;
+  auto& cascadeOfLambda = out.cascadeOfLambda;
+  for (const auto& member : trees.particles) {
+    const int sign = member.pdg == 3312 || member.pdg == 3334 ? 0 : (member.pdg == -3312 || member.pdg == -3334 ? 1 : -1);
+    if (sign < 0) {
+      continue;
+    }
+    const int omega = std::abs(member.pdg) == 3334 ? 1 : 0;
+    const auto products = decayProducts(trees, member);
+    if (products.size() != 2U) {
+      continue;
+    }
+    const bool lambdaFirst = products[0]->pdg == (sign == 0 ? 3122 : -3122);
+    const auto* lambda = lambdaFirst ? products[0] : products[1];
+    const auto* bachelor = lambdaFirst ? products[1] : products[0];
+    const auto found = decayOfMother.find(lambda->id);
+    if (lambda->pdg != (sign == 0 ? 3122 : -3122) || bachelor->pdg != (omega != 0 ? -321 : -211) * (sign == 0 ? 1 : -1) || found == decayOfMother.end()) {
+      continue;
+    }
+    const auto& p = member.momentum;
+    const auto rapidities = rapiditiesOf(p, particleMass(member.pdg));
+    const auto& l = decays[found->second].legs;
+    cascadeOfLambda.emplace(lambda->id, cascades.size());
+    cascades.push_back({.mother = &member, .lambda = found->second, .bachelor = bachelor, .sign = sign, .omega = omega, .record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .decayR = static_cast<float>(std::hypot(lambda->vertex[0], lambda->vertex[1])), .lambdaDecayR = decays[found->second].record.decayR, .pt = static_cast<float>(std::hypot(p[0], p[1])), .eta = rapidities.eta, .y = rapidities.y, .ptPositive = static_cast<float>(std::hypot(l[0]->momentum[0], l[0]->momentum[1])), .ptNegative = static_cast<float>(std::hypot(l[1]->momentum[0], l[1]->momentum[1])), .ptBachelor = static_cast<float>(std::hypot(bachelor->momentum[0], bachelor->momentum[1]))}});
+  }
+  auto& cascadeOfBachelor = out.cascadeOfBachelor;
+  for (std::size_t i = 0; i < cascades.size(); ++i) {
+    cascadeOfBachelor.emplace(cascades[i].bachelor->id, i);
+  }
+  // The MC charm decays into a hypothesis's final state (through any
+  // resonances, nothing unseen), their leaves in the hypothesis's slots.
+  auto& charms = out.charms;
+  auto& charmOfMother = out.charmOfMother;
+  auto& charmOfLeaf = out.charmOfLeaf;
+  for (const auto& member : trees.particles) {
+    const auto found = std::ranges::find(kCharmMothers, member.pdg);
+    if (found == kCharmMothers.end()) {
+      continue;
+    }
+    const auto k = static_cast<std::size_t>(found - kCharmMothers.begin());
+    const auto& hypothesis = hypotheses[charmFirst + k];
+    const auto shape = decayShape(trees, member, particleCharge);
+    if (!shape.closed() || shape.leaves.size() != hypothesis.species.size()) {
+      continue;
+    }
+    std::array<const TreeParticle*, 3> legs{};
+    std::ranges::copy(shape.leaves, legs.begin());
+    const std::span<const TreeParticle*> slots{legs.data(), shape.leaves.size()};
+    std::ranges::sort(slots);
+    bool matched = slotsMatch(hypothesis, slots);
+    while (!matched && std::ranges::next_permutation(slots).found) {
+      matched = slotsMatch(hypothesis, slots);
+    }
+    if (!matched) {
+      continue;
+    }
+    TruthCharm charm{.mother = &member, .hypothesis = k};
+    float ptMin = std::numeric_limits<float>::infinity();
+    for (const auto* leg : slots) {
+      charm.legs.push_back(leg);
+      ptMin = std::min(ptMin, static_cast<float>(std::hypot(leg->momentum[0], leg->momentum[1])));
+      charmOfLeaf.emplace(leg->id, charms.size());
+    }
+    const auto& decayPoint = decayPointOf(trees, member);
+    const auto rapidities = rapiditiesOf(member.momentum, particleMass(member.pdg));
+    charm.record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .hypothesis = static_cast<std::uint8_t>(k), .flight = static_cast<float>(std::hypot(decayPoint[0] - member.vertex[0], decayPoint[1] - member.vertex[1], decayPoint[2] - member.vertex[2])), .pt = static_cast<float>(std::hypot(member.momentum[0], member.momentum[1])), .eta = rapidities.eta, .y = rapidities.y, .ptMin = ptMin, .depth = shape.depth};
+    if (const auto mc = event.collisions->find(collisionOf(member.id)); mc != event.collisions->end()) {
+      charm.record.productionOffset = static_cast<float>(std::hypot(member.vertex[0] - mc->second[0], member.vertex[1] - mc->second[1], member.vertex[2] - mc->second[2]));
+    }
+    charmOfMother.emplace(member.id, charms.size());
+    charms.push_back(charm);
+  }
+  return out;
+}
+
+/// The MC daughters' tracks: each one's longest good track of its own charge
+/// (one of the other charge runs against the particle: a looper's way back),
+/// and the daughters with good tracks of the other charge alone.
+struct LegTracks {
+  std::unordered_map<std::uint64_t, std::uint32_t> trackOf;
+  std::unordered_set<std::uint64_t> reversed;
+};
+
+/// The tracks of the daughters of \a truth's decays among \a event's (`LegTracks`).
+template <DetectorLayout Det>
+[[nodiscard]] LegTracks legTracks(const TruthEvent<Det>& event, const MockAssociation& association, const TruthDecays& truth)
+{
+  const auto& store = *event.tracks;
+  const auto committed = store.tracks().view();
+  const auto n = static_cast<std::uint32_t>(store.size());
+  LegTracks out;
+  for (std::uint32_t t = 0; t < n; ++t) {
+    if (association.fake[t] != 0U || (!truth.decayOfLeg.contains(association.particle[t]) && !truth.cascadeOfBachelor.contains(association.particle[t]) && !truth.charmOfLeaf.contains(association.particle[t]))) {
+      continue;
+    }
+    if ((committed.state[t].qOverP() > 0.F) != (particleCharge(event.particles->at(association.particle[t]).pdg) > 0.)) {
+      out.reversed.insert(association.particle[t]);
+      continue;
+    }
+    const auto [at, inserted] = out.trackOf.try_emplace(association.particle[t], t);
+    if (!inserted && store.rows(t).size() > store.rows(at->second).size()) {
+      at->second = t;
+    }
+  }
+  return out;
+}
+
+/// Each of \a association's tracks' charm ancestor (`kCharmHadrons`) in
+/// \a trees, 0 for none or a fake.
+template <typename Trees>
+[[nodiscard]] std::vector<std::uint64_t> charmAncestors(const Trees& trees, const MockAssociation& association)
+{
+  const auto n = static_cast<std::uint32_t>(association.particle.size());
+  std::vector<std::uint64_t> charmAncestor(n, 0U);
+  for (std::uint32_t t = 0; t < n; ++t) {
+    if (association.fake[t] != 0U || association.particle[t] == kNoTrackParticle) {
+      continue;
+    }
+    for (const auto* at = trees.find(association.particle[t]); at != nullptr; at = at->mother == kNoTreeParticle ? nullptr : trees.find(at->mother)) {
+      if (std::ranges::find(kCharmHadrons, std::abs(at->pdg)) != kCharmHadrons.end()) {
+        charmAncestor[t] = at->id;
+        break;
+      }
+    }
+  }
+  return charmAncestor;
+}
+
+/// A charm candidate's MC class (`CharmClass`), and its tracks' common charm
+/// ancestor with its PDG code, into \a record: \a tracks in the slots of
+/// charm hypothesis \a k (`hypothesis`). Returns the MC decay it is the own
+/// candidate of (each track its leaf's in \a legs), nullptr otherwise.
+template <typename Trees>
+[[nodiscard]] const TruthCharm* classifyCharm(CharmFinderCandidateRecord& record, std::size_t k, const DecayHypothesis& hypothesis, std::span<const std::uint32_t> tracks, const Trees& trees, const MockAssociation& association, std::span<const std::uint64_t> charmAncestor, const TruthDecays& truth, const LegTracks& legs)
+{
+  const TruthCharm* own = nullptr;
+  const bool anyFake = std::ranges::any_of(tracks, [&](std::uint32_t t) { return association.fake[t] != 0U; });
+  const auto ancestor = charmAncestor[tracks[0]];
+  const bool common = ancestor != 0U && std::ranges::all_of(tracks, [&](std::uint32_t t) { return charmAncestor[t] == ancestor; });
+  if (anyFake) {
+    record.truthClass = static_cast<std::uint8_t>(CharmClass::kFake);
+  } else if (common) {
+    record.mother = ancestor;
+    const auto* m = trees.find(ancestor);
+    record.motherPdg = m != nullptr ? m->pdg : 0;
+    const auto decay = truth.charmOfMother.find(ancestor);
+    bool whole = decay != truth.charmOfMother.end() && truth.charms[decay->second].legs.size() == tracks.size();
+    for (std::size_t slot = 0; slot < tracks.size() && whole; ++slot) {
+      whole = std::ranges::any_of(truth.charms[decay->second].legs, [&](const TreeParticle* leg) { return leg->id == association.particle[tracks[slot]]; });
+    }
+    if (whole) {
+      const auto& charm = truth.charms[decay->second];
+      std::array<const TreeParticle*, 3> mine{};
+      for (std::size_t slot = 0; slot < tracks.size(); ++slot) {
+        mine[slot] = trees.find(association.particle[tracks[slot]]);
+      }
+      const bool right = charm.hypothesis == k && slotsMatch(hypothesis, std::span<const TreeParticle* const>{mine.data(), tracks.size()});
+      record.truthClass = static_cast<std::uint8_t>(right ? CharmClass::kTrue : CharmClass::kReflection);
+      if (right && std::ranges::all_of(tracks, [&](std::uint32_t t) { const auto rep = legs.trackOf.find(association.particle[t]); return rep != legs.trackOf.end() && rep->second == t; })) {
+        own = &charm;
+      }
+    } else {
+      record.truthClass = static_cast<std::uint8_t>(CharmClass::kPartial);
+    }
+  } else {
+    const bool some = std::ranges::any_of(tracks, [&](std::uint32_t t) { return charmAncestor[t] != 0U; });
+    record.truthClass = static_cast<std::uint8_t>(some ? CharmClass::kSomeFromCharm : CharmClass::kCombinatorial);
+  }
+  return own;
+}
+
+/// Where MC V0 \a decay was lost (`FinderStage`), its legs' S^2 into its record
+/// on the way: \a hypothesis its own, \a s2 and \a noPoint per entry of \a table.
+template <DetectorLayout Det>
+[[nodiscard]] FinderStage v0Stage(TruthV0& decay, const DecayHypothesis& hypothesis, const LegTracks& legs, const MockAssociation& association, const DaughterTable<Det>& table, std::span<const float> s2, std::span<const std::uint8_t> noPoint)
+{
+  auto& d = decay.record;
+  const auto entries = table.view();
+  const auto positive = legs.trackOf.find(decay.legs[0]->id);
+  const auto negative = legs.trackOf.find(decay.legs[1]->id);
+  if (positive == legs.trackOf.end() || negative == legs.trackOf.end()) {
+    const bool reversed = (positive == legs.trackOf.end() && legs.reversed.contains(decay.legs[0]->id)) || (negative == legs.trackOf.end() && legs.reversed.contains(decay.legs[1]->id));
+    return reversed ? FinderStage::kWrongCharge : FinderStage::kNotFound;
+  }
+  if (association.contributor(positive->second) || association.contributor(negative->second)) {
+    return FinderStage::kContributor;
+  }
+  const auto ePositive = table.entryOf(positive->second, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[0])));
+  const auto eNegative = table.entryOf(negative->second, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[1])));
+  if (ePositive < 0 || eNegative < 0 || entries.status[static_cast<std::size_t>(ePositive)] != PropagationStatus::kOk || entries.status[static_cast<std::size_t>(eNegative)] != PropagationStatus::kOk) {
+    return FinderStage::kRefitFailed;
+  }
+  if (noPoint[static_cast<std::size_t>(ePositive)] != 0U || noPoint[static_cast<std::size_t>(eNegative)] != 0U) {
+    return FinderStage::kNoPoint;
+  }
+  d.s2Positive = s2[static_cast<std::size_t>(ePositive)];
+  d.s2Negative = s2[static_cast<std::size_t>(eNegative)];
+  if (std::isnan(d.s2Positive) || std::isnan(d.s2Negative)) {
+    return FinderStage::kCarryFailed;
+  }
+  if (!decay.fitted) {
+    throw std::logic_error("decay finder study: an MC V0's own pair of its own charges was never fitted");
+  }
+  if (d.status == static_cast<std::uint8_t>(VertexFitStatus::kNoStart)) {
+    return FinderStage::kNoStart;
+  }
+  return d.status == static_cast<std::uint8_t>(VertexFitStatus::kOk) ? FinderStage::kFound : FinderStage::kFitFailed;
+}
+
+/// The columns of \a d of the V0 leg in \a slot (0 the positive, 1 the
+/// negative), MC particle \a daughter, by its track \a t: the track's rows, those
+/// not the particle's, the first one's layer; the refit under \a species
+/// against the MC at the first row (pulls, momentum).
+template <DetectorLayout Det>
+void writeLegTruth(DecayFinderDecayRecord& d, std::size_t slot, std::uint32_t t, const TreeParticle& daughter, Species species, const TruthEvent<Det>& event, const DaughterTable<Det>& table)
+{
+  const auto& store = *event.tracks;
+  const auto& geometry = *event.geometry;
+  const auto entries = table.view();
+  const auto particle = daughter.id;
+  const auto rows = store.rows(t);
+  int wrong = 0;
+  for (const auto row : rows) {
+    wrong += event.rows[row].carries(particle) ? 0 : 1;
+  }
+  const LegTruth leg = {.rows = &(slot == 0 ? d.rowsPositive : d.rowsNegative), .wrong = &(slot == 0 ? d.wrongPositive : d.wrongNegative), .layer = &(slot == 0 ? d.layerPositive : d.layerNegative), .pulls = {slot == 0 ? &d.pullLoc0Positive : &d.pullLoc0Negative, slot == 0 ? &d.pullLoc1Positive : &d.pullLoc1Negative, slot == 0 ? &d.pullPhiPositive : &d.pullPhiNegative, slot == 0 ? &d.pullThetaPositive : &d.pullThetaNegative, slot == 0 ? &d.pullQOverPPositive : &d.pullQOverPNegative}, .dpRel = slot == 0 ? &d.dpRelPositive : &d.dpRelNegative};
+  *leg.rows = static_cast<std::uint8_t>(std::min<std::size_t>(rows.size(), 255U));
+  *leg.wrong = static_cast<std::uint8_t>(std::min(wrong, 255));
+  *leg.layer = static_cast<std::uint8_t>(event.rows[rows.front()].layer);
+  const auto e = table.entryOf(t, static_cast<std::uint8_t>(table.speciesIndex(species)));
+  if (e < 0 || entries.status[static_cast<std::size_t>(e)] != PropagationStatus::kOk || event.hits == nullptr) {
+    return;
+  }
+  const double charge = particleCharge(daughter.pdg);
+  const auto& state = entries.state[static_cast<std::size_t>(e)];
+  const auto truth = stateTruth(geometry, *event.hits, *event.frame, state, particle, rows.front(), charge);
+  if (!truth) {
+    return;
+  }
+  for (int k = 0; k < 5; ++k) {
+    const double sign = k == 4 ? (charge > 0. ? 1. : -1.) : 1.;
+    *leg.pulls[static_cast<std::size_t>(k)] = static_cast<float>(sign * truth->residual[static_cast<std::size_t>(k)] / truth->sigma[static_cast<std::size_t>(k)]);
+  }
+  *leg.dpRel = static_cast<float>((1. / std::abs(static_cast<double>(state.qOverP()))) / truth->momentum - 1.);
 }
 
 } // namespace decay_finder_detail
@@ -483,165 +827,18 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   });
   mDisplacementSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - displacementStart).count();
 
-  // The MC V0s decaying into their two charged daughters, by daughter.
-  struct Decay {
-    const TreeParticle* mother = nullptr;
-    std::array<const TreeParticle*, 2> legs{}; ///< the positive, the negative daughter
-    int hypothesis = 0;
-    DecayFinderDecayRecord record;
-    bool fitted = false;
-    LambdaRejection rejection = LambdaRejection::kNotFitted; ///< a Lambda's own candidate's, for its cascade
-  };
-  std::vector<Decay> decays;
-  std::unordered_map<std::uint64_t, std::size_t> decayOfLeg;
-  for (const auto& member : trees.particles) {
-    const auto found = std::ranges::find(kV0Mothers, member.pdg);
-    if (found == kV0Mothers.end()) {
-      continue;
-    }
-    const auto h = static_cast<int>(found - kV0Mothers.begin());
-    const auto products = decayProducts(trees, member);
-    if (products.size() != 2U) {
-      continue;
-    }
-    const bool firstPositive = particleCharge(products[0]->pdg) > 0.;
-    const std::array<const TreeParticle*, 2> legs{firstPositive ? products[0] : products[1], firstPositive ? products[1] : products[0]};
-    bool matches = particleCharge(legs[0]->pdg) > 0. && particleCharge(legs[1]->pdg) < 0.;
-    for (std::size_t slot = 0; slot < 2U && matches; ++slot) {
-      const auto truth = speciesOf(legs[slot]->pdg);
-      matches = truth && *truth == hypotheses[static_cast<std::size_t>(h)].species[slot];
-    }
-    if (!matches) {
-      continue;
-    }
-    const auto& decayPoint = products.front()->vertex;
-    const auto& p = member.momentum;
-    const auto rapidities = rapiditiesOf(p, particleMass(member.pdg));
-    decayOfLeg.emplace(legs[0]->id, decays.size());
-    decayOfLeg.emplace(legs[1]->id, decays.size());
-    decays.push_back({.mother = &member, .legs = legs, .hypothesis = h, .record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .decayR = static_cast<float>(std::hypot(decayPoint[0], decayPoint[1])), .pt = static_cast<float>(std::hypot(p[0], p[1])), .eta = rapidities.eta, .y = rapidities.y, .ptPositive = static_cast<float>(std::hypot(legs[0]->momentum[0], legs[0]->momentum[1])), .ptNegative = static_cast<float>(std::hypot(legs[1]->momentum[0], legs[1]->momentum[1]))}});
-  }
-  // The MC cascades into a Lambda (an MC V0 above) and a charged pion
-  // (Xi) or kaon (Omega), by Lambda and by bachelor.
-  std::unordered_map<std::uint64_t, std::size_t> decayOfMother;
-  for (std::size_t i = 0; i < decays.size(); ++i) {
-    decayOfMother.emplace(decays[i].mother->id, i);
-  }
-  struct Cascade {
-    const TreeParticle* mother = nullptr;
-    std::size_t lambda = 0U; ///< into `decays`
-    const TreeParticle* bachelor = nullptr;
-    int sign = 0; ///< 0 a Lambda's, 1 an anti-Lambda's
-    int omega = 0;
-    CascadeFinderDecayRecord record;
-    bool fitted = false;
-  };
-  std::vector<Cascade> cascades;
-  std::unordered_map<std::uint64_t, std::size_t> cascadeOfLambda;
-  for (const auto& member : trees.particles) {
-    const int sign = member.pdg == 3312 || member.pdg == 3334 ? 0 : (member.pdg == -3312 || member.pdg == -3334 ? 1 : -1);
-    if (sign < 0) {
-      continue;
-    }
-    const int omega = std::abs(member.pdg) == 3334 ? 1 : 0;
-    const auto products = decayProducts(trees, member);
-    if (products.size() != 2U) {
-      continue;
-    }
-    const bool lambdaFirst = products[0]->pdg == (sign == 0 ? 3122 : -3122);
-    const auto* lambda = lambdaFirst ? products[0] : products[1];
-    const auto* bachelor = lambdaFirst ? products[1] : products[0];
-    const auto found = decayOfMother.find(lambda->id);
-    if (lambda->pdg != (sign == 0 ? 3122 : -3122) || bachelor->pdg != (omega != 0 ? -321 : -211) * (sign == 0 ? 1 : -1) || found == decayOfMother.end()) {
-      continue;
-    }
-    const auto& p = member.momentum;
-    const auto rapidities = rapiditiesOf(p, particleMass(member.pdg));
-    const auto& l = decays[found->second].legs;
-    cascadeOfLambda.emplace(lambda->id, cascades.size());
-    cascades.push_back({.mother = &member, .lambda = found->second, .bachelor = bachelor, .sign = sign, .omega = omega, .record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .decayR = static_cast<float>(std::hypot(lambda->vertex[0], lambda->vertex[1])), .lambdaDecayR = decays[found->second].record.decayR, .pt = static_cast<float>(std::hypot(p[0], p[1])), .eta = rapidities.eta, .y = rapidities.y, .ptPositive = static_cast<float>(std::hypot(l[0]->momentum[0], l[0]->momentum[1])), .ptNegative = static_cast<float>(std::hypot(l[1]->momentum[0], l[1]->momentum[1])), .ptBachelor = static_cast<float>(std::hypot(bachelor->momentum[0], bachelor->momentum[1]))}});
-  }
-  std::unordered_map<std::uint64_t, std::size_t> cascadeOfBachelor;
-  for (std::size_t i = 0; i < cascades.size(); ++i) {
-    cascadeOfBachelor.emplace(cascades[i].bachelor->id, i);
-  }
-  // The MC charm decays into a hypothesis's final state (through any
-  // resonances, nothing unseen), their leaves in the hypothesis's slots.
-  struct Charm {
-    const TreeParticle* mother = nullptr;
-    std::size_t hypothesis = 0U; ///< into `kCharmMothers`
-    FixedVector<const TreeParticle*, 3> legs;
-    CharmFinderDecayRecord record;
-    bool fitted = false;
-  };
-  std::vector<Charm> charms;
-  std::unordered_map<std::uint64_t, std::size_t> charmOfMother;
-  std::unordered_map<std::uint64_t, std::size_t> charmOfLeaf;
-  const auto slotsMatch = [&](const DecayHypothesis& h, std::span<const TreeParticle* const> legs) {
-    for (std::size_t slot = 0; slot < legs.size(); ++slot) {
-      const auto truth = speciesOf(legs[slot]->pdg);
-      if (!truth || *truth != h.species[slot] || (particleCharge(legs[slot]->pdg) > 0.) != (h.charges[slot] > 0)) {
-        return false;
-      }
-    }
-    return true;
-  };
-  for (const auto& member : trees.particles) {
-    const auto found = std::ranges::find(kCharmMothers, member.pdg);
-    if (found == kCharmMothers.end()) {
-      continue;
-    }
-    const auto k = static_cast<std::size_t>(found - kCharmMothers.begin());
-    const auto& hypothesis = hypotheses[charmFirst + k];
-    const auto shape = decayShape(trees, member, particleCharge);
-    if (!shape.closed() || shape.leaves.size() != hypothesis.species.size()) {
-      continue;
-    }
-    std::array<const TreeParticle*, 3> legs{};
-    std::ranges::copy(shape.leaves, legs.begin());
-    std::span<const TreeParticle*> slots{legs.data(), shape.leaves.size()};
-    std::ranges::sort(slots);
-    bool matched = false;
-    do {
-      matched = slotsMatch(hypothesis, slots);
-    } while (!matched && std::ranges::next_permutation(slots).found);
-    if (!matched) {
-      continue;
-    }
-    Charm charm{.mother = &member, .hypothesis = k};
-    float ptMin = std::numeric_limits<float>::infinity();
-    for (const auto* leg : slots) {
-      charm.legs.push_back(leg);
-      ptMin = std::min(ptMin, static_cast<float>(std::hypot(leg->momentum[0], leg->momentum[1])));
-      charmOfLeaf.emplace(leg->id, charms.size());
-    }
-    const auto& decayPoint = decayPointOf(trees, member);
-    const auto rapidities = rapiditiesOf(member.momentum, particleMass(member.pdg));
-    charm.record = {.timeframe = event.timeframe, .particle = member.id, .pdg = member.pdg, .hypothesis = static_cast<std::uint8_t>(k), .flight = static_cast<float>(std::hypot(decayPoint[0] - member.vertex[0], decayPoint[1] - member.vertex[1], decayPoint[2] - member.vertex[2])), .pt = static_cast<float>(std::hypot(member.momentum[0], member.momentum[1])), .eta = rapidities.eta, .y = rapidities.y, .ptMin = ptMin, .depth = shape.depth};
-    if (const auto mc = event.collisions->find(collisionOf(member.id)); mc != event.collisions->end()) {
-      charm.record.productionOffset = static_cast<float>(std::hypot(member.vertex[0] - mc->second[0], member.vertex[1] - mc->second[1], member.vertex[2] - mc->second[2]));
-    }
-    charmOfMother.emplace(member.id, charms.size());
-    charms.push_back(charm);
-  }
-  // Each MC daughter's longest good track of its own charge (one of the
-  // other charge runs against the particle: a looper's way back); the
-  // daughters with good tracks of the other charge alone.
-  std::unordered_map<std::uint64_t, std::uint32_t> trackOfLeg;
-  std::unordered_set<std::uint64_t> reversedLeg;
-  for (std::uint32_t t = 0; t < n; ++t) {
-    if (fake[t] != 0U || (!decayOfLeg.contains(particleOf[t]) && !cascadeOfBachelor.contains(particleOf[t]) && !charmOfLeaf.contains(particleOf[t]))) {
-      continue;
-    }
-    if ((committed.state[t].qOverP() > 0.F) != (particleCharge(event.particles->at(particleOf[t]).pdg) > 0.)) {
-      reversedLeg.insert(particleOf[t]);
-      continue;
-    }
-    const auto [at, inserted] = trackOfLeg.try_emplace(particleOf[t], t);
-    if (!inserted && store.rows(t).size() > store.rows(at->second).size()) {
-      at->second = t;
-    }
-  }
+  // The MC decays the candidates are matched to.
+  auto truth = truthDecays(event, allHypotheses, charmFirst);
+  auto& decays = truth.decays;
+  const auto& decayOfLeg = truth.decayOfLeg;
+  auto& cascades = truth.cascades;
+  const auto& cascadeOfLambda = truth.cascadeOfLambda;
+  auto& charms = truth.charms;
+  const auto& charmOfMother = truth.charmOfMother;
+  // The MC daughters' tracks (`LegTracks`).
+  const auto legs = legTracks(event, association, truth);
+  const auto& trackOfLeg = legs.trackOf;
+  const auto& reversedLeg = legs.reversed;
 
   // The pairs, collision by collision; every candidate fitted on its own.
   const auto motherOf = [&](std::uint32_t t) {
@@ -662,18 +859,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   std::vector<std::vector<CascadeFinderCandidateRecord>> perCollisionCascades(perCollision.size());
   std::vector<std::vector<CharmFinderCandidateRecord>> perCollisionCharm(perCollision.size());
   // Each track's charm ancestor (`kCharmHadrons`), 0 for none or a fake.
-  std::vector<std::uint64_t> charmAncestor(n, 0U);
-  for (std::uint32_t t = 0; t < n; ++t) {
-    if (fake[t] != 0U || particleOf[t] == kNoTrackParticle) {
-      continue;
-    }
-    for (const auto* at = trees.find(particleOf[t]); at != nullptr; at = at->mother == kNoTreeParticle ? nullptr : trees.find(at->mother)) {
-      if (std::ranges::find(kCharmHadrons, std::abs(at->pdg)) != kCharmHadrons.end()) {
-        charmAncestor[t] = at->id;
-        break;
-      }
-    }
-  }
+  const auto charmAncestor = charmAncestors(trees, association);
   // A Lambda candidate a cascade takes (`DecayParam`), from the V0 pass.
   struct TakenLambda {
     std::uint32_t positive = 0U;
@@ -727,7 +913,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
           const Species bachelorSpecies = omega != 0 ? Species::kKaon : Species::kPion;
           const auto eBachelor = table.entryOf(bachelor, static_cast<std::uint8_t>(table.speciesIndex(bachelorSpecies)));
           const bool bachelorRefitted = entries.status[static_cast<std::size_t>(eBachelor)] == PropagationStatus::kOk;
-          float s2Bachelor = s2[static_cast<std::size_t>(eBachelor)];
+          const float s2Bachelor = s2[static_cast<std::size_t>(eBachelor)];
           for (int held = 0; held < 2; ++held) {
             const auto h = cascadeIndex(lambda.sign, omega, held);
             CascadeFinderCandidateRecord record{.timeframe = event.timeframe, .collision = collision, .sign = static_cast<std::uint8_t>(lambda.sign), .omega = static_cast<std::uint8_t>(omega), .held = static_cast<std::uint8_t>(held), .lambdaClass = v0.truthClass, .s2Positive = v0.s2Positive, .s2Negative = v0.s2Negative, .s2Bachelor = s2Bachelor, .lambdaV0Mass = v0.mass, .lambdaV0SMass = v0.sMass};
@@ -947,39 +1133,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       record.ptMin = refitted ? ptMin : CharmFinderCandidateRecord::kNaN;
       record.pidMatch = pid ? 1U : 0U;
       // The MC class: the tracks' common charm ancestor, its decay's set.
-      const bool anyFake = std::ranges::any_of(tracks, [&](std::uint32_t t) { return fake[t] != 0U; });
-      const auto ancestor = charmAncestor[tracks[0]];
-      const bool common = ancestor != 0U && std::ranges::all_of(tracks, [&](std::uint32_t t) { return charmAncestor[t] == ancestor; });
-      const Charm* own = nullptr;
-      if (anyFake) {
-        record.truthClass = static_cast<std::uint8_t>(CharmClass::kFake);
-      } else if (common) {
-        record.mother = ancestor;
-        const auto* m = trees.find(ancestor);
-        record.motherPdg = m != nullptr ? m->pdg : 0;
-        const auto decay = charmOfMother.find(ancestor);
-        bool whole = decay != charmOfMother.end() && charms[decay->second].legs.size() == tracks.size();
-        for (std::size_t slot = 0; slot < tracks.size() && whole; ++slot) {
-          whole = std::ranges::any_of(charms[decay->second].legs, [&](const TreeParticle* leg) { return leg->id == particleOf[tracks[slot]]; });
-        }
-        if (whole) {
-          const auto& charm = charms[decay->second];
-          std::array<const TreeParticle*, 3> mine{};
-          for (std::size_t slot = 0; slot < tracks.size(); ++slot) {
-            mine[slot] = trees.find(particleOf[tracks[slot]]);
-          }
-          const bool right = charm.hypothesis == k && slotsMatch(hypothesis, std::span<const TreeParticle* const>{mine.data(), tracks.size()});
-          record.truthClass = static_cast<std::uint8_t>(right ? CharmClass::kTrue : CharmClass::kReflection);
-          if (right && std::ranges::all_of(tracks, [&](std::uint32_t t) { const auto rep = trackOfLeg.find(particleOf[t]); return rep != trackOfLeg.end() && rep->second == t; })) {
-            own = &charm;
-          }
-        } else {
-          record.truthClass = static_cast<std::uint8_t>(CharmClass::kPartial);
-        }
-      } else {
-        const bool some = std::ranges::any_of(tracks, [&](std::uint32_t t) { return charmAncestor[t] != 0U; });
-        record.truthClass = static_cast<std::uint8_t>(some ? CharmClass::kSomeFromCharm : CharmClass::kCombinatorial);
-      }
+      const TruthCharm* own = classifyCharm(record, k, hypothesis, tracks, trees, association, charmAncestor, truth, legs);
       DecayCandidateResult result;
       const auto started = std::chrono::steady_clock::now();
       if (refitted) {
@@ -1194,37 +1348,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     auto& d = decay.record;
     const auto positive = trackOfLeg.find(decay.legs[0]->id);
     const auto negative = trackOfLeg.find(decay.legs[1]->id);
-    const auto stageOf = [&]() {
-      if (positive == trackOfLeg.end() || negative == trackOfLeg.end()) {
-        const bool reversed = (positive == trackOfLeg.end() && reversedLeg.contains(decay.legs[0]->id)) || (negative == trackOfLeg.end() && reversedLeg.contains(decay.legs[1]->id));
-        return reversed ? FinderStage::kWrongCharge : FinderStage::kNotFound;
-      }
-      if (association.contributor(positive->second) || association.contributor(negative->second)) {
-        return FinderStage::kContributor;
-      }
-      const auto& hypothesis = hypotheses[static_cast<std::size_t>(decay.hypothesis)];
-      const auto ePositive = table.entryOf(positive->second, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[0])));
-      const auto eNegative = table.entryOf(negative->second, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[1])));
-      if (ePositive < 0 || eNegative < 0 || entries.status[static_cast<std::size_t>(ePositive)] != PropagationStatus::kOk || entries.status[static_cast<std::size_t>(eNegative)] != PropagationStatus::kOk) {
-        return FinderStage::kRefitFailed;
-      }
-      if (noPoint[static_cast<std::size_t>(ePositive)] != 0U || noPoint[static_cast<std::size_t>(eNegative)] != 0U) {
-        return FinderStage::kNoPoint;
-      }
-      d.s2Positive = s2[static_cast<std::size_t>(ePositive)];
-      d.s2Negative = s2[static_cast<std::size_t>(eNegative)];
-      if (std::isnan(d.s2Positive) || std::isnan(d.s2Negative)) {
-        return FinderStage::kCarryFailed;
-      }
-      if (!decay.fitted) {
-        throw std::logic_error("decay finder study: an MC V0's own pair of its own charges was never fitted");
-      }
-      if (d.status == static_cast<std::uint8_t>(VertexFitStatus::kNoStart)) {
-        return FinderStage::kNoStart;
-      }
-      return d.status == static_cast<std::uint8_t>(VertexFitStatus::kOk) ? FinderStage::kFound : FinderStage::kFitFailed;
-    };
-    d.stage = static_cast<std::uint8_t>(stageOf());
+    d.stage = static_cast<std::uint8_t>(v0Stage(decay, hypotheses[static_cast<std::size_t>(decay.hypothesis)], legs, association, table, std::span<const float>{s2}, std::span<const std::uint8_t>{noPoint}));
     {
       const auto& a = decay.legs[0]->momentum;
       const auto& b = decay.legs[1]->momentum;
@@ -1233,32 +1357,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     if (positive != trackOfLeg.end() && negative != trackOfLeg.end()) {
       const auto& hypothesis = hypotheses[static_cast<std::size_t>(decay.hypothesis)];
       for (std::size_t slot = 0; slot < 2U; ++slot) {
-        const auto t = (slot == 0 ? positive : negative)->second;
-        const auto particle = decay.legs[slot]->id;
-        const auto rows = store.rows(t);
-        int wrong = 0;
-        for (const auto row : rows) {
-          wrong += event.rows[row].carries(particle) ? 0 : 1;
-        }
-        const LegTruth leg = {.rows = &(slot == 0 ? d.rowsPositive : d.rowsNegative), .wrong = &(slot == 0 ? d.wrongPositive : d.wrongNegative), .layer = &(slot == 0 ? d.layerPositive : d.layerNegative), .pulls = {slot == 0 ? &d.pullLoc0Positive : &d.pullLoc0Negative, slot == 0 ? &d.pullLoc1Positive : &d.pullLoc1Negative, slot == 0 ? &d.pullPhiPositive : &d.pullPhiNegative, slot == 0 ? &d.pullThetaPositive : &d.pullThetaNegative, slot == 0 ? &d.pullQOverPPositive : &d.pullQOverPNegative}, .dpRel = slot == 0 ? &d.dpRelPositive : &d.dpRelNegative};
-        *leg.rows = static_cast<std::uint8_t>(std::min<std::size_t>(rows.size(), 255U));
-        *leg.wrong = static_cast<std::uint8_t>(std::min(wrong, 255));
-        *leg.layer = static_cast<std::uint8_t>(event.rows[rows.front()].layer);
-        const auto e = table.entryOf(t, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
-        if (e < 0 || entries.status[static_cast<std::size_t>(e)] != PropagationStatus::kOk || event.hits == nullptr) {
-          continue;
-        }
-        const double charge = particleCharge(decay.legs[slot]->pdg);
-        const auto& state = entries.state[static_cast<std::size_t>(e)];
-        const auto truth = stateTruth(geometry, *event.hits, *event.frame, state, particle, rows.front(), charge);
-        if (!truth) {
-          continue;
-        }
-        for (int k = 0; k < 5; ++k) {
-          const double sign = k == 4 ? (charge > 0. ? 1. : -1.) : 1.;
-          *leg.pulls[static_cast<std::size_t>(k)] = static_cast<float>(sign * truth->residual[static_cast<std::size_t>(k)] / truth->sigma[static_cast<std::size_t>(k)]);
-        }
-        *leg.dpRel = static_cast<float>((1. / std::abs(static_cast<double>(state.qOverP()))) / truth->momentum - 1.);
+        writeLegTruth(d, slot, (slot == 0 ? positive : negative)->second, *decay.legs[slot], hypothesis.species[slot], event, table);
       }
     }
     mFound += d.stage == static_cast<std::uint8_t>(FinderStage::kFound) ? 1U : 0U;

@@ -9,7 +9,6 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 
-
 #include "GenericTracking/Study/DecayParam.h"
 
 O2ParamImpl(o2::gtrk::study::DecayParam);
