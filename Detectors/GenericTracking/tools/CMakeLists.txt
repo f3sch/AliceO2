@@ -37,4 +37,4 @@ o2_add_executable(import-geometry
 o2_add_executable(build-matlut
                   SOURCES src/buildMatLUT.cxx
                   COMPONENT_NAME gtrk
-                  PUBLIC_LINK_LIBRARIES O2::GTrkTools O2::GTrkWorkflowITSMFT O2::GTrkWorkflowTRK O2::DetectorsBase ROOT::Geom Boost::program_options)
+                  PUBLIC_LINK_LIBRARIES O2::GTrkTools O2::GTrkWorkflowITSMFT O2::GTrkWorkflowITS3 O2::GTrkWorkflowTRK O2::DetectorsBase ROOT::Geom Boost::program_options)

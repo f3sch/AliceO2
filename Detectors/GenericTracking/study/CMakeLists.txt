@@ -20,7 +20,7 @@ function(gtrk_study_o3 target)
 endfunction()
 
 # What the study's sources and public headers include, outside GenericTracking.
-set(studyLibraries O2::GTrkTools O2::GTrkWorkflowITSMFT O2::GTrkWorkflowTRK O2::GTrkTracking O2::Framework O2::CommonUtils O2::CommonConstants
+set(studyLibraries O2::GTrkTools O2::GTrkWorkflowITSMFT O2::GTrkWorkflowITS3 O2::GTrkWorkflowTRK O2::GTrkTracking O2::Framework O2::CommonUtils O2::CommonConstants
                    O2::DetectorsBase O2::SimulationDataFormat O2::ReconstructionDataFormats)
 o2_add_library(GTrkStudy
                SOURCES src/Hits.cxx
@@ -52,7 +52,7 @@ o2_target_root_dictionary(GTrkStudy
                           LINKDEF src/GTrkStudyLinkDef.h)
 
 # The sink, one unit per detector: each instantiates the tracker and its QA.
-foreach(detector ITS MFT TRKFT3 TRKFT3TOF)
+foreach(detector ITS ITS3 MFT TRKFT3 TRKFT3TOF)
   add_library(gtrk_sink_${detector} OBJECT src/MeasurementSinkSpec.cxx)
   set_property(TARGET gtrk_sink_${detector} PROPERTY POSITION_INDEPENDENT_CODE ON)
   target_compile_definitions(gtrk_sink_${detector} PRIVATE GTRK_SINK_DETECTOR=${detector})
@@ -67,6 +67,10 @@ o2_add_executable(its-study-workflow
                   SOURCES tools/gtrk-its-study-workflow.cxx
                   COMPONENT_NAME gtrk
                   PUBLIC_LINK_LIBRARIES O2::GTrkStudy O2::DetectorsRaw O2::ITSMFTWorkflow)
+o2_add_executable(its3-study-workflow
+                  SOURCES tools/gtrk-its3-study-workflow.cxx
+                  COMPONENT_NAME gtrk
+                  PUBLIC_LINK_LIBRARIES O2::GTrkStudy O2::DetectorsRaw O2::ITSMFTWorkflow)
 o2_add_executable(mft-study-workflow
                   SOURCES tools/gtrk-mft-study-workflow.cxx
                   COMPONENT_NAME gtrk
@@ -79,7 +83,7 @@ o2_add_executable(trk-study-workflow
 # One unit per detector's run (TrackBench.h), the options and the dispatch in
 # trackBench.cxx: the detectors compile in parallel.
 o2_add_executable(track-bench
-                  SOURCES tools/trackBench.cxx tools/trackBenchITS.cxx tools/trackBenchMFT.cxx tools/trackBenchTRKFT3.cxx tools/trackBenchTRKFT3TOF.cxx
+                  SOURCES tools/trackBench.cxx tools/trackBenchITS.cxx tools/trackBenchITS3.cxx tools/trackBenchMFT.cxx tools/trackBenchTRKFT3.cxx tools/trackBenchTRKFT3TOF.cxx
                   COMPONENT_NAME gtrk
                   PUBLIC_LINK_LIBRARIES O2::GTrkStudy O2::Steer O2::CCDB Boost::program_options
                   TARGETVARNAME benchTarget)

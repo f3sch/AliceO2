@@ -71,6 +71,14 @@ inline constexpr double kOuterOffset = (kSiliconThickness - kMetalStackThickness
 /// The radius O2 measures a tile's flat coordinate at, the silicon's middle.
 [[nodiscard]] constexpr double middleRadius(int layer) { return (innerRadius(layer) + outerRadius(layer)) / 2.; }
 
+/// Where O2's dictionary puts a tile's cluster: this far above the silicon's
+/// middle (ITS3Base's APTS response depth), which the MC hits confirm.
+inline constexpr double kResponseShift = 15.5 * kUm;
+
+/// A tile layer's measurement depth (Geometry::measurementDepth), from our
+/// inner surface [cm].
+[[nodiscard]] constexpr double measurementDepth(int layer) { return middleRadius(layer) - innerRadius(layer) + kResponseShift; }
+
 /// The angle of the middle of a tile's arc in O2's tile frame, from its
 /// local +x axis, where O2's flat coordinate starts at half the width.
 [[nodiscard]] constexpr double middleAngle(int layer) { return 0.5 * kWidth / middleRadius(layer); }

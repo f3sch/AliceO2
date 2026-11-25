@@ -13,6 +13,7 @@
 #define GTRK_WORKFLOW_ITSMFTOPTIONS_H_
 
 #include "GenericTracking/Detectors/ITS.h"
+#include "GenericTracking/Detectors/ITS3.h"
 #include "GenericTracking/Detectors/MFT.h"
 
 #include "DataFormatsITSMFT/DPLAlpideParamInitializer.h"
@@ -48,7 +49,7 @@ inline void addITSMFTRecoOptions(std::vector<o2::framework::ConfigParamSpec>& op
 template <DetectorLayout Det>
 [[nodiscard]] bool staggeredInput(const o2::framework::ConfigContext& context)
 {
-  if constexpr (std::same_as<Det, detectors::ITS>) {
+  if constexpr (std::same_as<Det, detectors::ITS> || std::same_as<Det, detectors::ITS3>) {
     return o2::itsmft::DPLAlpideParamInitializer::isITSStaggeringEnabled(context);
   } else if constexpr (std::same_as<Det, detectors::MFT>) {
     return o2::itsmft::DPLAlpideParamInitializer::isMFTStaggeringEnabled(context);

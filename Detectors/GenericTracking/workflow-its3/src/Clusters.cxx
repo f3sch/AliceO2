@@ -111,13 +111,4 @@ std::vector<LocalCluster> its3LocalClusters(std::span<const o2::itsmft::CompClus
 
 std::vector<Cluster> its3Clusters(std::span<const LocalCluster> local, std::span<const o2::itsmft::ROFRecord> rofs, ReadoutFrames frames, std::uint32_t tfFirstOrbit) { return detail::toClusters(local, rofs, frames, tfFirstOrbit, 0.); }
 
-std::array<double, Detector<detectors::ITS3>::nLayers> its3MeasurementDepthsCM()
-{
-  std::array<double, Detector<detectors::ITS3>::nLayers> depths{};
-  for (int layer = 0; layer < static_cast<int>(specs::nLayers); ++layer) {
-    depths[static_cast<std::size_t>(layer)] = mosaix::middleRadius(layer) - mosaix::innerRadius(layer) + specs::pixelarray::pixels::apts::responseYShift;
-  }
-  return depths;
-}
-
 } // namespace o2::gtrk::alice

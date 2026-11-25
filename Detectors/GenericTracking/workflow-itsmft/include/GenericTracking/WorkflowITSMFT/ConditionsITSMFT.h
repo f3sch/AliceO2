@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 
 /// \file ConditionsITSMFT.h
-/// \brief The ITS's and the MFT's run conditions for a GTRK device
+/// \brief The ITS's, ITS3's and the MFT's run conditions for a GTRK device
 ///        (`Conditions`, Workflow/Conditions.h).
 ///
 /// The ITS's and MFT's are what O2's own trackers take by default: not the
@@ -18,8 +18,9 @@
 /// (`ITS/Config/Geometry`, `MFT/Config/Geometry`), with its chip matrices
 /// filled, which the placement reads like a loaded geometry; the field
 /// (`GLO/Config/GRPMagField`) through GRPGeomHelper; and `<DET>/Config/AlpideParam`
-/// for the frames. Offline, from CCDB snapshots through DPL's
-/// `--condition-remap`.
+/// for the frames. ITS3's are the ITS's (O2's ITS3 comes with the ITS's
+/// origin and GeometryTGeo), with its tiles' measurement depths. Offline,
+/// from CCDB snapshots through DPL's `--condition-remap`.
 
 #ifndef GTRK_WORKFLOWITSMFT_CONDITIONSITSMFT_H_
 #define GTRK_WORKFLOWITSMFT_CONDITIONSITSMFT_H_
@@ -27,6 +28,7 @@
 #include "GenericTracking/Base/FrameTiming.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Detectors/ITS.h"
+#include "GenericTracking/Detectors/ITS3.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Workflow/Conditions.h"
 #include "GenericTracking/Workflow/DataSpecs.h"
@@ -47,6 +49,7 @@
 #include <fairlogger/Logger.h>
 
 #include <concepts>
+#include <cstddef>
 #include <format>
 #include <memory>
 #include <stdexcept>
@@ -56,12 +59,13 @@
 namespace o2::gtrk::workflow
 {
 
-/// The ITS's and the MFT's.
+/// The ITS's, ITS3's and the MFT's.
 template <DetectorLayout Det, bool WithMaterial, ConditionsHolder Holder>
-  requires std::same_as<Det, detectors::ITS> || std::same_as<Det, detectors::MFT>
+  requires std::same_as<Det, detectors::ITS> || std::same_as<Det, detectors::ITS3> || std::same_as<Det, detectors::MFT>
 class Conditions<Det, WithMaterial, Holder>
 {
-  static constexpr bool kITS = std::same_as<Det, detectors::ITS>;
+  static constexpr bool kITS3 = std::same_as<Det, detectors::ITS3>;
+  static constexpr bool kITS = std::same_as<Det, detectors::ITS> || kITS3; ///< the ITS's GeometryTGeo and frames
   static constexpr bool kOwnDevice = Holder == ConditionsHolder::kOwnDevice;
 
  public:
@@ -78,7 +82,15 @@ class Conditions<Det, WithMaterial, Holder>
 
   static constexpr bool kMeanVertex = true;
 
-  [[nodiscard]] static o2::header::DataOrigin origin() { return detectorOrigin<Det>(); }
+  /// The origin of O2's data and conditions: ITS3's are the ITS's.
+  [[nodiscard]] static o2::header::DataOrigin origin()
+  {
+    if constexpr (kITS3) {
+      return o2::header::gDataOriginITS;
+    } else {
+      return detectorOrigin<Det>();
+    }
+  }
 
   void init(o2::framework::InitContext& /*ic*/)
   {
@@ -137,8 +149,19 @@ class Conditions<Det, WithMaterial, Holder>
   [[nodiscard]] static int orbitsPerTimeframe() { return o2::base::GRPGeomHelper::getNHBFPerTF(); }
 
   /// None: the ALPIDE's clusters are at the effective sensitive layer's
-  /// centre, 0 on every layer.
-  [[nodiscard]] std::vector<double> measurementDepthsCM() const { return {}; }
+  /// centre, 0 on every layer; on ITS3's tiles O2's response depth.
+  [[nodiscard]] std::vector<double> measurementDepthsCM() const
+  {
+    if constexpr (kITS3) {
+      std::vector<double> depths(Detector<Det>::nLayers, 0.);
+      for (std::size_t layer = 0; layer < detectors::mosaix::kNominalRadius.size(); ++layer) {
+        depths[layer] = detectors::mosaix::measurementDepth(static_cast<int>(layer));
+      }
+      return depths;
+    } else {
+      return {};
+    }
+  }
 
   /// The run's material LUT, the CCDB cache's; null before the first timeframe.
   [[nodiscard]] const o2::base::MatLayerCylSet* materialLut() const

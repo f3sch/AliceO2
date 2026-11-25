@@ -83,12 +83,6 @@ class ITS3Tiles
 /// Alice/Clusters.h's `toClusters`.
 [[nodiscard]] std::vector<Cluster> its3Clusters(std::span<const LocalCluster> local, std::span<const o2::itsmft::ROFRecord> rofs, ReadoutFrames frames, std::uint32_t tfFirstOrbit);
 
-/// Each layer's measurement depth [cm] (Geometry::measurementDepth): on a
-/// tile layer O2's, its dictionary's response depth above the silicon's
-/// middle (a common topology's; O2 puts a group's and an invalid pattern's
-/// on the middle), from our inner surface; 0 on the outer barrel.
-[[nodiscard]] std::array<double, Detector<detectors::ITS3>::nLayers> its3MeasurementDepthsCM();
-
 } // namespace o2::gtrk::alice
 
 #endif // GTRK_WORKFLOWITS3_CLUSTERS_H_

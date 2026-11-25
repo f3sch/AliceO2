@@ -15,6 +15,7 @@
 
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Detectors/ITS.h"
+#include "GenericTracking/Detectors/ITS3.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
 #include "GenericTracking/Alice/Placement.h"
@@ -440,16 +441,17 @@ std::vector<LUTLayer> itsLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
   return layers;
 }
 
-/// The ITS's bands from the loaded geometry, its envelopes and material bands
-/// printed (the LUT's provenance in its log). They end
-/// beyond the last layer: its band's outer face and half the gap below.
+/// The ITS's (or ITS3's, its region laid out alike) bands from the loaded
+/// geometry, its envelopes and material bands printed (the LUT's provenance
+/// in its log). They end beyond the last layer: its band's outer face and
+/// half the gap below.
+template <o2::gtrk::DetectorLayout Layout>
 std::vector<LUTLayer> itsBands()
 {
-  using ITS = o2::gtrk::detectors::ITS;
-  const auto sensors = o2::gtrk::alice::placeChecked<ITS>();
-  const o2::gtrk::Geometry<ITS> geometry(sensors);
-  const auto envelopes = o2::gtrk::PlacedEnvelopes<ITS>::all();
-  constexpr int kBarrel = o2::gtrk::Detector<ITS>::nBarrelLayers;
+  const auto sensors = o2::gtrk::alice::placeChecked<Layout>();
+  const o2::gtrk::Geometry<Layout> geometry(sensors);
+  const auto envelopes = o2::gtrk::PlacedEnvelopes<Layout>::all();
+  constexpr int kBarrel = o2::gtrk::Detector<Layout>::nBarrelLayers;
   std::cout << o2::gtrk::describeEnvelopes(envelopes, kBarrel);
   const auto bands = o2::gtrk::alice::materialBands(sensors, geometry.layerSpecs(), envelopes, kBarrel);
   std::cout << "the layers' material bands:\n"
@@ -475,7 +477,7 @@ int run(int argc, char** argv)
     ("output,o", bpo::value(&output)->default_value("gtrk_matlut.root"), "output LUT file") //
     ("trials,n", bpo::value(&trials)->default_value(10), "lines per cell axis")             //
     ("detector,d", bpo::value(&detector)->required(),                                       //
-     "ITS, MFT, TRKFT3 or TRKFT3TOF: the detector's region, from --geometry")               //
+     "ITS, ITS3, MFT, TRKFT3 or TRKFT3TOF: the detector's region, from --geometry")         //
     ("geometry,g", bpo::value(&geometryFile)->required(),                                   //
      "an o2sim geometry file (o2sim_geometry-aligned.root)")                                //
     ("threads,j", bpo::value(&threads)->default_value(-1),                                  //
@@ -496,8 +498,8 @@ int run(int argc, char** argv)
               << opts << '\n';
     return 1;
   }
-  if (detector != "ITS" && detector != "MFT" && detector != "TRKFT3" && detector != "TRKFT3TOF") {
-    std::cerr << "error: --detector is ITS, MFT, TRKFT3 or TRKFT3TOF\n\n"
+  if (detector != "ITS" && detector != "ITS3" && detector != "MFT" && detector != "TRKFT3" && detector != "TRKFT3TOF") {
+    std::cerr << "error: --detector is ITS, ITS3, MFT, TRKFT3 or TRKFT3TOF\n\n"
               << opts << '\n';
     return 1;
   }
@@ -507,8 +509,8 @@ int run(int argc, char** argv)
   std::span<const LUTLayer> layers;
   std::vector<LUTLayer> bands;
   float radialCheck = 0.F;
-  if (detector == "ITS") {
-    bands = itsBands();
+  if (detector == "ITS" || detector == "ITS3") {
+    bands = detector == "ITS" ? itsBands<o2::gtrk::detectors::ITS>() : itsBands<o2::gtrk::detectors::ITS3>();
     layers = bands;
     radialCheck = bands.back().rMax;
   } else if (detector == "MFT") {

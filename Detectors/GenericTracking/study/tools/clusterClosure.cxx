@@ -653,7 +653,10 @@ int runITS3(const Options& options)
   using Det = detectors::ITS3;
   auto& o2Geometry = *o2::its::GeometryTGeo::Instance();
   o2Geometry.fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::L2G));
-  const auto depths = alice::its3MeasurementDepthsCM();
+  std::array<double, Detector<Det>::nLayers> depths{};
+  for (std::size_t layer = 0; layer < detectors::mosaix::kNominalRadius.size(); ++layer) {
+    depths[layer] = detectors::mosaix::measurementDepth(static_cast<int>(layer));
+  }
   const auto geometry = workflow::makeGeometry<Det>(depths);
   const alice::ITS3Tiles tiles(o2Geometry);
   const std::unique_ptr<o2::its3::TopologyDictionary> dictionary{o2::its3::TopologyDictionary::loadFrom(options.dictionary)};

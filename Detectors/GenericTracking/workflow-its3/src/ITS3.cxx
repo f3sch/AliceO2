@@ -10,7 +10,8 @@
 // or submit itself to any jurisdiction.
 
 /// \file ITS3.cxx
-/// \brief ITS3's own: its chips placed and its cluster converter.
+/// \brief ITS3's own: its chips placed, its cluster converter and its
+///        measurement producer.
 
 #include "GenericTracking/Detectors/ITS3.h"
 
@@ -18,11 +19,14 @@
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Alice/Placement.h"
 #include "GenericTracking/Workflow/ClusterConverterSpec.h"
+#include "GenericTracking/Workflow/MeasurementProducer.h"
+#include "GenericTracking/Workflow/MeasurementProducerSpec.h"
+#include "GenericTracking/WorkflowITSMFT/ConditionsITSMFT.h"
+#include "GenericTracking/WorkflowITSMFT/ITSMFTOptions.h"
 #include "GenericTracking/WorkflowITSMFT/Placement.h"
 
 #include "ClusterConverterITS3.h"
 
-#include "DataFormatsITSMFT/DPLAlpideParamInitializer.h"
 #include "ITS3Base/SegmentationMosaix.h"
 #include "ITS3Base/SpecsV2.h"
 #include "ITSBase/GeometryTGeo.h"
@@ -50,6 +54,7 @@ static_assert(exactlyEqual(mosaix::kWidth, specs::pixelarray::width) && exactlyE
 static_assert(exactlyEqual(mosaix::kPitchRow, specs::pixelarray::pixels::mosaix::pitchX) && exactlyEqual(mosaix::kPitchColumn, specs::pixelarray::pixels::mosaix::pitchZ));
 static_assert(exactlyEqual(mosaix::kSiliconThickness, specs::silicon::thickness) && exactlyEqual(mosaix::kMetalStackThickness, specs::metalstack::thickness));
 static_assert(mosaix::kNominalRadius == specs::radii);
+static_assert(exactlyEqual(mosaix::kResponseShift, specs::pixelarray::pixels::apts::responseYShift));
 static_assert([] {
   for (int layer = 0; layer < static_cast<int>(specs::nLayers); ++layer) {
     const auto i = static_cast<std::size_t>(layer);
@@ -131,7 +136,9 @@ namespace o2::gtrk::workflow
 template <>
 o2::framework::DataProcessorSpec getClusterConverterSpec<detectors::ITS3>(const o2::framework::ConfigContext& context, bool useMC)
 {
-  return ITS3ClusterConverterTask::spec(useMC, o2::itsmft::DPLAlpideParamInitializer::isITSStaggeringEnabled(context) ? Detector<detectors::ITS3>::nLayers : 1);
+  return ITS3ClusterConverterTask::spec(useMC, staggeredInput<detectors::ITS3>(context) ? Detector<detectors::ITS3>::nLayers : 1);
 }
+
+template o2::framework::DataProcessorSpec getMeasurementProducerSpec<detectors::ITS3>();
 
 } // namespace o2::gtrk::workflow
