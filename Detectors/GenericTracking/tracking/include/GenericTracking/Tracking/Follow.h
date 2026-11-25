@@ -1629,7 +1629,11 @@ template <DetectorLayout Det, typename Fit>
   return fit.status == PropagationStatus::kOk && fit.chi2 <= parameters.roadChi2MaxByNdf[fit.ndf];
 }
 
-/// The extended refit of each followed track, all or nothing.
+/// The extended refit of each followed track. A refit the cut refuses or
+/// that fails is tried again on the follow's rows' prefixes in the walks'
+/// order -- the outward rows first, then the inward ones -- the longest
+/// first, and the first the refit accepts is kept; the rows beyond it stay
+/// free. How short a track may end is the cuts after the follow's.
 template <DetectorLayout Det>
 struct Refit {
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
@@ -1656,6 +1660,9 @@ struct Refit {
     }
     const std::uint8_t count = counts[element];
     if (!accept(track, rows[element], count, proposal.outwardCount, proposal.inwardCount)) {
+      if (keepPrefix(element, track, proposal, count)) {
+        return;
+      }
       countWork(earlier ? WorkCounter::kFollowEarlierRefitRejected : WorkCounter::kFollowRefitRejected, added);
       proposal.outwardCount = 0U;
       proposal.inwardCount = 0U;
@@ -1678,6 +1685,41 @@ struct Refit {
     tracks.addedOutward[track] = static_cast<std::uint8_t>(tracks.addedOutward[track] + outward);
     tracks.addedInward[track] = static_cast<std::uint8_t>(tracks.addedInward[track] + inward);
     return true;
+  }
+
+  /// The second chance: the combined rows are the inward ones innermost
+  /// first, the track's, the outward ones; a prefix of \a outward outward and
+  /// \a inward inward rows is the track's rows with the first of each.
+  /// Whether one was kept, its counts then the proposal's.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool keepPrefix(std::uint32_t element, std::uint32_t track, FollowProposal<kMaxClusters>& proposal, std::uint8_t count) const
+  {
+    const auto outwardAdded = static_cast<std::uint32_t>(proposal.outwardCount);
+    const auto inwardAdded = static_cast<std::uint32_t>(proposal.inwardCount);
+    const std::uint32_t kept = count - outwardAdded - inwardAdded;
+    const auto& combined = rows[element];
+    for (std::uint32_t length = outwardAdded + inwardAdded; length-- > 1U;) {
+      const auto outward = length < outwardAdded ? length : outwardAdded;
+      const auto inward = length - outward;
+      ClusterList<kMaxClusters> prefix{};
+      std::uint32_t n = 0U;
+      for (std::uint32_t i = inward; i-- > 0U;) {
+        prefix.index[n++] = proposal.inward[i];
+      }
+      for (std::uint32_t i = 0; i < kept; ++i) {
+        prefix.index[n++] = combined.index[inwardAdded + i];
+      }
+      for (std::uint32_t i = 0; i < outward; ++i) {
+        prefix.index[n++] = proposal.outward[i];
+      }
+      if (!accept(track, prefix, static_cast<std::uint8_t>(n), static_cast<std::uint8_t>(outward), static_cast<std::uint8_t>(inward))) {
+        continue;
+      }
+      countWork(earlier ? WorkCounter::kFollowEarlierRefitRejected : WorkCounter::kFollowRefitRejected, outwardAdded + inwardAdded - length);
+      proposal.outwardCount = static_cast<std::uint8_t>(outward);
+      proposal.inwardCount = static_cast<std::uint8_t>(inward);
+      return true;
+    }
+    return false;
   }
 };
 
