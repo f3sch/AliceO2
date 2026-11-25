@@ -10,7 +10,7 @@
 // or submit itself to any jurisdiction.
 
 /// \file importGeometry.cxx
-/// \brief Measure the ITS, MFT or ALICE 3 TRK layer table from an o2sim
+/// \brief Measure the ITS, ITS3, MFT or ALICE 3 TRK layer table from an o2sim
 ///        geometry, check the compiled one against it, and check our sensors
 ///        against O2's.
 ///
@@ -23,8 +23,8 @@
 /// placements, which is what fails after an O2 geometry change until the table
 /// is pasted again.
 ///
-/// For the TRK it also holds our sensors to O2's: every chip's four corner
-/// pixels and its middle one, placed by O2's
+/// For the TRK and ITS3's tiles it also holds our sensors to O2's: every
+/// chip's four corner pixels and its middle one, placed by O2's
 /// segmentation and L2G matrix and by our sensor, must coincide. (The MC hits
 /// on their chips: o2-gtrk-check-hits.)
 
@@ -32,6 +32,7 @@
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/LayerEnvelopes.h"
 #include "GenericTracking/Detectors/ITS.h"
+#include "GenericTracking/Detectors/ITS3.h"
 #include "GenericTracking/Detectors/MFT.h"
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Alice/Placement.h"
@@ -39,6 +40,8 @@
 
 #include "DetectorsBase/GeometryManager.h"
 #include "FT3Base/GeometryTGeo.h"
+#include "ITS3Base/SegmentationMosaix.h"
+#include "ITSBase/GeometryTGeo.h"
 #include "MathUtils/Cartesian.h"
 #include "TRKBase/GeometryTGeo.h"
 #include "TRKBase/SegmentationChip.h"
@@ -73,6 +76,8 @@ std::string sensorName(std::size_t layer)
 {
   if constexpr (std::same_as<Det, detectors::TRKFT3>) {
     return layer < detectors::trkft3::kVDRadius.size() ? std::format("trkft3::vdSensor({})", layer) : std::string{"trkft3::kChip"};
+  } else if constexpr (std::same_as<Det, detectors::ITS3>) {
+    return layer < detectors::mosaix::kNominalRadius.size() ? std::format("mosaix::tile({})", layer) : std::string{"alpide::kSensor"};
   } else {
     return "alpide::kSensor";
   }
@@ -110,6 +115,45 @@ double checkTRKPixels(std::span<const Sensor> sensors)
       spec.unrolledToFrame(static_cast<double>(xRow), static_cast<double>(zCol), 0., frame);
       double ours[3];
       sensors[chip].toGlobal(frame, ours);
+      worst = std::max(worst, std::hypot(ours[0] - expected.X(), ours[1] - expected.Y(), ours[2] - expected.Z()));
+    }
+  }
+  return worst;
+}
+
+/// Our tiles against O2's ITS3 tiles, as checkTRKPixels: pixel centres placed
+/// by O2's segmentation, `flatToCurved` and L2G matrix, and by our sensor,
+/// whose angle runs against O2's flat coordinate (against O2's angle on a
+/// mirrored tile) and whose arc is measured at the inner radius, O2's at the
+/// middle one. Returns the largest distance [cm].
+double checkITS3Pixels(std::span<const Sensor> sensors)
+{
+  using o2::its3::SegmentationMosaix;
+  auto& geometry = *o2::its::GeometryTGeo::Instance();
+  double worst = 0.;
+  for (int chip = 0; chip < detectors::ITS3::kFirstOuterSensor; ++chip) {
+    const int layer = geometry.getLayer(chip);
+    const SegmentationMosaix segmentation{layer};
+    const auto& spec = Detector<detectors::ITS3>::sensor(sensors[static_cast<std::size_t>(chip)].layer);
+    const auto& l2g = geometry.getMatrixL2G(chip);
+    double r[9];
+    double t[3];
+    l2g.GetComponents(r[0], r[1], r[2], t[0], r[3], r[4], r[5], t[1], r[6], r[7], r[8], t[2]);
+    const double handedness = (r[0] * ((r[4] * r[8]) - (r[5] * r[7]))) - (r[1] * ((r[3] * r[8]) - (r[5] * r[6]))) + (r[2] * ((r[3] * r[7]) - (r[4] * r[6])));
+    const double middle = detectors::mosaix::middleRadius(layer);
+    for (const auto [row, col] : std::array<std::array<int, 2>, 5>{{{0, 0}, {SegmentationMosaix::NRows - 1, 0}, {0, SegmentationMosaix::NCols - 1}, {SegmentationMosaix::NRows - 1, SegmentationMosaix::NCols - 1}, {SegmentationMosaix::NRows / 2, SegmentationMosaix::NCols / 2}}}) {
+      float xRow = 0.F;
+      float zCol = 0.F;
+      segmentation.detectorToLocalUnchecked(static_cast<float>(row), static_cast<float>(col), xRow, zCol);
+      float xCurved = 0.F;
+      float yCurved = 0.F;
+      segmentation.flatToCurved(xRow, 0.F, xCurved, yCurved);
+      const auto expected = l2g(o2::math_utils::Point3D<double>{static_cast<double>(xCurved), static_cast<double>(yCurved), static_cast<double>(zCol)});
+      const double x = (handedness > 0. ? -1. : 1.) * static_cast<double>(xRow) * spec.radius / middle;
+      double frame[3];
+      spec.unrolledToFrame(x, static_cast<double>(zCol), middle - spec.radius, frame);
+      double ours[3];
+      sensors[static_cast<std::size_t>(chip)].toGlobal(frame, ours);
       worst = std::max(worst, std::hypot(ours[0] - expected.X(), ours[1] - expected.Y(), ours[2] - expected.Z()));
     }
   }
@@ -454,8 +498,8 @@ int runFor(const std::string& file)
   if (status != 0) {
     return status;
   }
-  if constexpr (std::same_as<Det, detectors::TRKFT3>) {
-    const double worst = checkTRKPixels(sensors);
+  if constexpr (std::same_as<Det, detectors::TRKFT3> || std::same_as<Det, detectors::ITS3>) {
+    const double worst = std::same_as<Det, detectors::TRKFT3> ? checkTRKPixels(sensors) : checkITS3Pixels(sensors);
     std::cout << std::format("\npixel centres, ours against O2's segmentation and L2G: at most {:.3e} um apart\n", worst * 1e4);
     // O2's segmentation works in float: a few nm at these radii.
     status = worst < 1e-5 ? 0 : 1;
@@ -467,11 +511,11 @@ int run(int argc, char** argv)
 {
   std::string file;
   std::string detector;
-  bpo::options_description description("Measure the ITS, MFT or ALICE 3 TRK layer table from an o2sim geometry");
+  bpo::options_description description("Measure the ITS, ITS3, MFT or ALICE 3 TRK layer table from an o2sim geometry");
   description.add_options()                                                                                //
     ("help,h", "this message")                                                                             //
     ("geometry,g", bpo::value(&file)->default_value("o2sim_geometry-aligned.root"), "o2sim geometry file") //
-    ("detector,d", bpo::value(&detector)->default_value("ITS"), "ITS, MFT or TRKFT3");
+    ("detector,d", bpo::value(&detector)->default_value("ITS"), "ITS, ITS3, MFT or TRKFT3");
   bpo::variables_map vm;
   try {
     bpo::store(bpo::parse_command_line(argc, argv, description), vm);
@@ -488,6 +532,9 @@ int run(int argc, char** argv)
   o2::base::GeometryManager::loadGeometry(file);
   if (detector == "ITS") {
     return runFor<detectors::ITS>(file);
+  }
+  if (detector == "ITS3") {
+    return runFor<detectors::ITS3>(file);
   }
   if (detector == "MFT") {
     return runFor<detectors::MFT>(file);
