@@ -77,6 +77,9 @@ BOOST_AUTO_TEST_CASE(TRKFT3TOFReadsTRKsShapeBandInTRKFT3sLayers)
   band.slopeLow.assign(Layers::barrelLayers * workflow::ClusterShapeBand::kSpans, 0.F);
   band.slopeHigh.assign(Layers::barrelLayers * workflow::ClusterShapeBand::kSpans, 0.F);
   band.slopeHigh[(kML7 * workflow::ClusterShapeBand::kSpans) + 1] = 1.F;
+  band.slopeEdges = {0.F, 1.F};
+  band.columnFrequency.assign(Layers::barrelLayers * workflow::ClusterShapeBand::kFrequencySpans, 0.F);
+  band.rowFrequency.assign(Layers::barrelLayers * workflow::ClusterShapeBand::kFrequencySpans, 0.F);
   BOOST_REQUIRE(band.fits(Layers::barrelLayers));
   const auto onLayer = [&](LayerID layer) { return band.interval(Layers::layer(layer), 1, 1); };
   BOOST_TEST((onLayer(detectors::trkft3tof::fromTRKFT3(static_cast<LayerID>(kML7))) == workflow::ClusterShapeBand::Interval{0.F, 1.F}));

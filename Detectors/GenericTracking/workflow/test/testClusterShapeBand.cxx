@@ -37,6 +37,9 @@ ClusterShapeBand band()
     .maxRows = {0, 2, 0},
     .slopeLow = std::vector<float>(3 * ClusterShapeBand::kSpans, ClusterShapeBand::kNone.first),
     .slopeHigh = std::vector<float>(3 * ClusterShapeBand::kSpans, ClusterShapeBand::kNone.second),
+    .slopeEdges = {0.F, 1.F, 2.F},
+    .columnFrequency = std::vector<float>(3 * 2 * ClusterShapeBand::kFrequencySpans, 0.F),
+    .rowFrequency = std::vector<float>(3 * 2 * ClusterShapeBand::kFrequencySpans, 0.F),
   };
   const auto set = [&](std::size_t span, float low, float high) {
     result.slopeLow[ClusterShapeBand::kSpans + span] = low;

@@ -270,6 +270,7 @@ class MeasurementProducerTask : public o2::framework::Task
                          .varRPhi = positions[i][7],
                          .slopeLow = slope.first,
                          .slopeHigh = slope.second,
+                         .spans = measurementSpans(cluster.rowSpan, cluster.colSpan),
                        });
     }
     builder.finish();

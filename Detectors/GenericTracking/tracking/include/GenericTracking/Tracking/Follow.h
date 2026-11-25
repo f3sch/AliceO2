@@ -687,6 +687,61 @@ struct LayerOccupancy {
   return area > 0.F && started > ended ? static_cast<Scalar>(started - ended) / area : 0.F;
 }
 
+/// The shares of the cluster spans the last-row trim reads (TRIAL, plans/131),
+/// per layer of the layout: a particle's own crossing -- from the detector's
+/// cluster-shape calibration (ClusterShapeBand.h), per slope bin (`edges`,
+/// `bins` of them) and span, its column span at its z slope and its row span
+/// at its r-phi slope, NaN on a layer or in a bin it does not calibrate --
+/// and any row of the layer in the timeframe, per span: their logarithms,
+/// spans from kSpans - 1 on together.
+struct ShapeFrequencies {
+  static constexpr std::uint32_t kSpans = 16U;
+  std::uint32_t bins = 0U;
+  const float* edges = nullptr;        ///< bins + 1, ascending
+  const float* ownColumn = nullptr;    ///< at (layer * bins + bin) * kSpans + span
+  const float* ownRow = nullptr;       ///< the same
+  const float* chanceColumn = nullptr; ///< at layer * kSpans + span
+  const float* chanceRow = nullptr;    ///< the same
+};
+
+/// log P(spans | the track's own row) - log P(spans | a row of the layer) for
+/// a row of \a spans (`MeasurementT::spans`) on \a layer crossed at local
+/// slopes \a zSlope and \a rPhiSlope, each span on its own (the column's and
+/// the row's, their shares taken as independent); a side the calibration
+/// does not know, or a row without a pattern, adds nothing.
+[[nodiscard]] GPUhdi() Scalar logSizeRatio(const ShapeFrequencies& shares, LayerID layer, std::uint32_t spans, Scalar zSlope, Scalar rPhiSlope)
+{
+  const std::uint32_t row = o2::gpu::CAMath::Min(measurementRowSpan(spans), ShapeFrequencies::kSpans - 1U);
+  const std::uint32_t column = o2::gpu::CAMath::Min(measurementColumnSpan(spans), ShapeFrequencies::kSpans - 1U);
+  if (shares.bins == 0U || row == 0U || column == 0U) {
+    return 0.F;
+  }
+  const auto binOf = [&](Scalar slope) -> std::int32_t {
+    if (!(slope >= shares.edges[0]) || !(slope < shares.edges[shares.bins])) {
+      return -1;
+    }
+    std::uint32_t bin = 0U;
+    while (slope >= shares.edges[bin + 1U]) {
+      ++bin;
+    }
+    return static_cast<std::int32_t>(bin);
+  };
+  Scalar ratio = 0.F;
+  const auto side = [&](const float* own, const float* chance, Scalar slope, std::uint32_t span) {
+    const auto bin = binOf(slope);
+    if (bin < 0) {
+      return;
+    }
+    const float mine = own[((layer * shares.bins) + static_cast<std::uint32_t>(bin)) * ShapeFrequencies::kSpans + span];
+    if (mine == mine) {
+      ratio += mine - chance[(layer * ShapeFrequencies::kSpans) + span];
+    }
+  };
+  side(shares.ownColumn, shares.chanceColumn, zSlope, column);
+  side(shares.ownRow, shares.chanceRow, rPhiSlope, row);
+  return ratio;
+}
+
 /// What the nominal step from a state sees of one row on its layer
 /// (`FollowStage::rowEvidence`): whether the window could be made, the free
 /// rows passing the gate, and the row's own update -- its chi2 and the
@@ -697,6 +752,8 @@ struct RowEvidence {
   std::uint32_t passing = 0U;
   Scalar chi2 = 0.F;
   Scalar determinant = 0.F;
+  Scalar phi = 0.F;   ///< the row's update's direction
+  Scalar theta = 0.F;
   CandidateWindow box{};
 };
 
@@ -1099,6 +1156,8 @@ class FollowStage
             evidence.found = true;
             evidence.chi2 = candidate.chi2;
             evidence.determinant = candidate.determinant;
+            evidence.phi = candidate.state.phi();
+            evidence.theta = candidate.state.theta();
           }
         });
       return evidence;
@@ -1850,8 +1909,10 @@ struct TrimAmbiguous {
   TrackView tracks;
   FollowProposal<kMaxClusters>* proposals = nullptr;
   std::uint32_t trackOffset = 0U;
-  /// The layers' rows in time (TRIAL: host only; none on a device).
+  /// The layers' rows in time and the cluster spans' shares (TRIAL: host
+  /// only; none on a device).
   LayerOccupancy occupancy{};
+  ShapeFrequencies shapes{};
 
   GPUhdi() void operator()(std::uint32_t element) const
   {
@@ -1888,8 +1949,23 @@ struct TrimAmbiguous {
       bool unlikely = false;
       if (!ambiguous && evidence.window) {
         const Scalar rho = layerDensity(occupancy, layer, evidence.box);
-        // log g < log rho, g = exp(-chi2 / 2) / (2 pi sqrt(det S)).
-        unlikely = !evidence.found || (evidence.determinant > 0.F && rho > 0.F && evidence.chi2 + logOf(evidence.determinant) > -2.F * logOf(kTwoPi<Scalar> * rho));
+        // log g + log size ratio < log rho, g = exp(-chi2 / 2) / (2 pi sqrt(det S)).
+        Scalar size = 0.F;
+        if (evidence.found) {
+          const auto& measurements = frame->measurements();
+          const Scalar x = measurements.x[row];
+          const Scalar y = measurements.y[row];
+          const Scalar r = measurements.r[row];
+          const Scalar sinTheta = o2::gpu::CAMath::Sin(evidence.theta);
+          const Scalar dx = o2::gpu::CAMath::Cos(evidence.phi) * sinTheta;
+          const Scalar dy = o2::gpu::CAMath::Sin(evidence.phi) * sinTheta;
+          const Scalar dz = o2::gpu::CAMath::Cos(evidence.theta);
+          const Scalar normal = o2::gpu::CAMath::Abs((dx * x) + (dy * y)) / r;
+          if (r > 0.F && normal > 0.F) {
+            size = logSizeRatio(shapes, layer, measurements.spans[row], o2::gpu::CAMath::Abs(dz) / normal, (o2::gpu::CAMath::Abs((dy * x) - (dx * y)) / r) / normal);
+          }
+        }
+        unlikely = !evidence.found || (evidence.determinant > 0.F && rho > 0.F && evidence.chi2 + logOf(evidence.determinant) - 2.F * size > -2.F * logOf(kTwoPi<Scalar> * rho));
       }
       drop = ambiguous || unlikely;
 #ifndef GPUCA_GPUCODE
@@ -1963,6 +2039,7 @@ struct Inputs {
   ClusterList<kMaxClusters>* rows = nullptr;
   std::uint8_t* counts = nullptr;
   LayerOccupancy occupancy{}; ///< TRIAL: host only (`TrimAmbiguous`)
+  ShapeFrequencies shapes{};  ///< TRIAL: host only (`TrimAmbiguous`)
 };
 
 /// The host's launches of the follow's passes: each in its profile zone,
@@ -2037,6 +2114,7 @@ void runSequence(const Launch& launch, const Inputs<Det>& in)
                     .proposals = in.proposals,
                     .trackOffset = in.trackOffset,
                     .occupancy = in.occupancy,
+                    .shapes = in.shapes,
                   });
     },
               choices.shapeTest);
@@ -2077,7 +2155,7 @@ class Follow
   /// tracks (`followEarlier`), counted and timed apart -- within the
   /// caller's `kFollowEarlier` zone, no phase of its own.
   template <typename ForEach>
-  [[nodiscard]] StageStatus run(ForEach forEach, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, Tracks& tracks, std::uint32_t trackOffset, bool inward, bool earlier, std::span<std::uint8_t> used, std::span<const std::uint32_t, kLayerCount> maxCandidateWidthPS, SensorCellsView cells, follow::LayerOccupancy occupancy = {})
+  [[nodiscard]] StageStatus run(ForEach forEach, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, Tracks& tracks, std::uint32_t trackOffset, bool inward, bool earlier, std::span<std::uint8_t> used, std::span<const std::uint32_t, kLayerCount> maxCandidateWidthPS, SensorCellsView cells, follow::LayerOccupancy occupancy = {}, follow::ShapeFrequencies shapes = {})
   {
     using profile::Phase;
     return guardOutOfMemory([&] {
@@ -2113,6 +2191,7 @@ class Follow
                                                                                                   .rows = mRows.data(),
                                                                                                   .counts = mCounts.data(),
                                                                                                   .occupancy = occupancy,
+                                                                                                  .shapes = shapes,
                                                                                                 });
       return StageStatus::kComplete;
     });

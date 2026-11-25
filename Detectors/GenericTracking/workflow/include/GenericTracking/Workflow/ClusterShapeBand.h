@@ -24,6 +24,15 @@
 /// gives, none. The slope is the barrel's (the normal radial, the columns
 /// along z), so a band calibrates barrel layers only.
 ///
+/// Beside the band, how often such a particle leaves each span at each
+/// slope: per calibrated layer and bin of the slope (`slopeEdges`), the share
+/// of the calibration's crossings leaving each column span (along z, at the
+/// z slope) and each row span (along r-phi, at the r-phi slope -- the line's
+/// length along r-phi over that along the normal), spans from
+/// `kFrequencySpans` - 1 on together; none (every share 0) in a bin with
+/// too few crossings to say. The follow's last-row trim reads them
+/// (`follow::ShapeFrequencies`) against the timeframe's own rows' spans.
+///
 /// A band is its detector's sensors', so its layers are numbered as the
 /// detector's own layout numbers them, whatever layout tracks the detector
 /// (`ShapeBandLayers`): TRK's band serves TRKFT3 and TRKFT3TOF alike.
@@ -64,9 +73,22 @@ struct ClusterShapeBand {
   std::vector<float> slopeLow;  ///< per layer and column span, at layer * kSpans + span: the interval's start
   std::vector<float> slopeHigh; ///< and its end
 
+  /// The spans the frequencies tell apart: 1 to kFrequencySpans - 1, the
+  /// last one and every longer one together (0: no pattern).
+  static constexpr std::size_t kFrequencySpans = 16;
+  std::vector<float> slopeEdges;      ///< the slope bins' edges, ascending, from 0
+  std::vector<float> columnFrequency; ///< per layer, slope bin and column span, at (layer * bins + bin) * kFrequencySpans + span
+  std::vector<float> rowFrequency;    ///< per layer, slope bin and row span, the same
+
+  [[nodiscard]] std::size_t slopeBins() const { return slopeEdges.empty() ? 0U : slopeEdges.size() - 1U; }
+
   /// Whether it is a band of a layout of \a barrelLayers barrel layers: of
   /// its first layers at most, every layer's spans there.
-  [[nodiscard]] bool fits(std::size_t barrelLayers) const { return maxRows.size() <= barrelLayers && slopeLow.size() == maxRows.size() * kSpans && slopeHigh.size() == maxRows.size() * kSpans; }
+  [[nodiscard]] bool fits(std::size_t barrelLayers) const
+  {
+    const auto frequencies = maxRows.size() * slopeBins() * kFrequencySpans;
+    return maxRows.size() <= barrelLayers && slopeLow.size() == maxRows.size() * kSpans && slopeHigh.size() == maxRows.size() * kSpans && slopeBins() != 0U && columnFrequency.size() == frequencies && rowFrequency.size() == frequencies;
+  }
 
   /// The slope interval of a cluster of \a rowSpan rows and \a colSpan
   /// columns on layer \a layer.
@@ -94,7 +116,7 @@ struct ClusterShapeBand {
     return "cluster-shape band: " + (layers.empty() ? std::string{"no layer"} : layers);
   }
 
-  ClassDefNV(ClusterShapeBand, 1);
+  ClassDefNV(ClusterShapeBand, 2);
 };
 
 /// How \a Det's layers read its detector's band: layer `layer(l)` of a band

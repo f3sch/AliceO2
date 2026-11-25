@@ -50,6 +50,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <limits>
+#include <cmath>
 #include <cstdlib>
 #include <array>
 #include <atomic>
@@ -885,7 +887,7 @@ class Tracker
   /// proposals tallied into \a tracks, \a outward and \a inward.
   [[nodiscard]] StageStatus runFollow(Follow<Det>& follow, const IterationParameters<Det>& parameters, const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset, bool earlier, std::size_t& tracks, std::size_t& outward, std::size_t& inward)
   {
-    const auto status = follow.run(fitForEach(), parameters, frame, *mGeometry, mPropagator, mRefit.tracks(), trackOffset, parameters.sharedInnermost == 0U, earlier, mUsed, plan.layerMaxWidthPS, mSensorCells.view(), occupancy());
+    const auto status = follow.run(fitForEach(), parameters, frame, *mGeometry, mPropagator, mRefit.tracks(), trackOffset, parameters.sharedInnermost == 0U, earlier, mUsed, plan.layerMaxWidthPS, mSensorCells.view(), occupancy(), shapes());
     if (status != StageStatus::kComplete) {
       return status;
     }
@@ -1376,6 +1378,27 @@ class Tracker
       std::sort(mOccupancyLower.begin() + mOccupancyOffsets[layer], mOccupancyLower.begin() + mOccupancyOffsets[layer + 1U]);
       std::sort(mOccupancyUpper.begin() + mOccupancyOffsets[layer], mOccupancyUpper.begin() + mOccupancyOffsets[layer + 1U]);
     });
+    // The timeframe's rows' spans per layer, their shares' logarithms (one more of each, a share never 0).
+    {
+      constexpr auto kSpans = follow::ShapeFrequencies::kSpans;
+      std::array<std::uint32_t, kLayers * kSpans> columns{};
+      std::array<std::uint32_t, kLayers * kSpans> rowsOf{};
+      std::array<std::uint32_t, kLayers> total{};
+      for (std::uint32_t row = 0; row < rows; ++row) {
+        const auto layer = mGeometry->surface(measurements.surface[row]).layer;
+        const auto spans = measurements.spans[row];
+        ++columns[(layer * kSpans) + std::min(measurementColumnSpan(spans), kSpans - 1U)];
+        ++rowsOf[(layer * kSpans) + std::min(measurementRowSpan(spans), kSpans - 1U)];
+        ++total[layer];
+      }
+      for (std::size_t layer = 0; layer < kLayers; ++layer) {
+        for (std::size_t span = 0; span < kSpans; ++span) {
+          const auto all = static_cast<float>(total[layer] + kSpans);
+          mShapeChanceColumn[(layer * kSpans) + span] = std::log(static_cast<float>(columns[(layer * kSpans) + span] + 1U) / all);
+          mShapeChanceRow[(layer * kSpans) + span] = std::log(static_cast<float>(rowsOf[(layer * kSpans) + span] + 1U) / all);
+        }
+      }
+    }
     mOccupancyArea.fill(0.F);
     for (const auto& surface : mGeometry->surfaces()) {
       if (static_cast<std::size_t>(surface.layer) < kLayers) {
@@ -1385,6 +1408,40 @@ class Tracker
   }
 
   /// TRIAL (plans/131): GTRK_TRIAL_P131_OFF set runs the trim as dev has it, for the A/B on one build.
+ public:
+  /// TRIAL (plans/131): the calibration's shares of a particle's own spans per
+  /// layer of the layout, slope bin and span (`follow::ShapeFrequencies`:
+  /// \a edges, then the shares, not their logarithms, 0 where unknown); none
+  /// leaves the trim without the size.
+  void setShapeFrequencies(std::vector<float> edges, std::vector<float> ownColumn, std::vector<float> ownRow)
+  {
+    const auto bins = edges.empty() ? 0U : edges.size() - 1U;
+    const auto size = static_cast<std::size_t>(Detector<Det>::nLayers) * bins * follow::ShapeFrequencies::kSpans;
+    if (ownColumn.size() != size || ownRow.size() != size) {
+      throw std::invalid_argument("setShapeFrequencies: shares for another layout or binning");
+    }
+    const auto logs = [](std::vector<float>& shares) {
+      for (auto& share : shares) {
+        share = share > 0.F ? std::log(share) : std::numeric_limits<float>::quiet_NaN();
+      }
+    };
+    logs(ownColumn);
+    logs(ownRow);
+    mShapeEdges = std::move(edges);
+    mShapeOwnColumn = std::move(ownColumn);
+    mShapeOwnRow = std::move(ownRow);
+  }
+
+ private:
+  [[nodiscard]] follow::ShapeFrequencies shapes() const
+  {
+    static const bool off = std::getenv("GTRK_TRIAL_P131_NOSIZE") != nullptr;
+    if (off || mShapeEdges.empty()) {
+      return {};
+    }
+    return {.bins = static_cast<std::uint32_t>(mShapeEdges.size() - 1U), .edges = mShapeEdges.data(), .ownColumn = mShapeOwnColumn.data(), .ownRow = mShapeOwnRow.data(), .chanceColumn = mShapeChanceColumn.data(), .chanceRow = mShapeChanceRow.data()};
+  }
+
   [[nodiscard]] follow::LayerOccupancy occupancy() const
   {
     static const bool off = std::getenv("GTRK_TRIAL_P131_OFF") != nullptr;
@@ -1459,6 +1516,13 @@ class Tracker
   BoundedVector<std::uint32_t> mOccupancyLower;
   BoundedVector<std::uint32_t> mOccupancyUpper;
   std::array<Scalar, static_cast<std::size_t>(Detector<Det>::nLayers)> mOccupancyArea{};
+  // TRIAL (plans/131): the cluster spans' shares (`follow::ShapeFrequencies`): the calibration's, per run, and the
+  // timeframe's rows', per timeframe.
+  std::vector<float> mShapeEdges;
+  std::vector<float> mShapeOwnColumn;
+  std::vector<float> mShapeOwnRow;
+  std::array<float, static_cast<std::size_t>(Detector<Det>::nLayers) * follow::ShapeFrequencies::kSpans> mShapeChanceColumn{};
+  std::array<float, static_cast<std::size_t>(Detector<Det>::nLayers) * follow::ShapeFrequencies::kSpans> mShapeChanceRow{};
   BoundedVector<std::uint8_t> mUsed;
   BoundedVector<std::uint8_t> mUsedBeforeSelection; ///< the mask as the selection found it (`dropTracks`)
   BoundedVector<Index> mKeptTracks;                 ///< `dropTracks`' kept tracks
