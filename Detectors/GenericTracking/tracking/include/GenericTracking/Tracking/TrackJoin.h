@@ -83,7 +83,7 @@ namespace join
 inline constexpr std::uint32_t kNone = std::numeric_limits<std::uint32_t>::max();
 
 /// An earlier track's end: its outermost (or innermost) row and the track;
-/// a list of them ordered by row, then track.
+/// ordered by row, then track.
 struct End {
   std::uint32_t row = 0U;
   std::uint32_t track = 0U;
@@ -113,23 +113,6 @@ struct PairCandidate {
   };
   // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
 };
-
-/// The first of \a count \a ends at \a row (the lowest track ending there),
-/// \a count where none is.
-GPUhdi() std::uint32_t firstAt(const End* ends, std::uint32_t count, std::uint32_t row)
-{
-  std::uint32_t low = 0U;
-  std::uint32_t high = count;
-  while (low < high) {
-    const std::uint32_t middle = low + ((high - low) / 2U);
-    if (ends[middle].row < row) {
-      low = middle + 1U;
-    } else {
-      high = middle;
-    }
-  }
-  return low < count && ends[low].row == row ? low : count;
-}
 
 /// The layers one link, or two, of the layout reach from \a layer in
 /// \a direction, a bit each (`IterationParameters::layerLinksOut`/`In`).
@@ -213,9 +196,11 @@ GPUhdi() Scalar pairScore(const IterationParameters<Det>* parameters, const Time
 /// Per piece \a at (the track \a trackOffset + \a at of \a tracks), its
 /// admitted pairs (`pairAdmitted`), both ways, emitted in the order of the
 /// search: inward, from its inner state, for an earlier track's outermost row
-/// (\a ends); outward, from its outward state, for an earlier track's
-/// innermost row (\a starts) -- each \a endCount long, ordered by row then
-/// track.
+/// (\a endRows, its track \a endTracks); outward, from its outward state,
+/// for an earlier track's innermost row (\a startRows, \a startTracks) --
+/// each \a endCount long, ordered by row then track. A window's rows are
+/// those lists' (`ListedRows`): an earlier track ends on few of a layer's
+/// rows. A row where several end gives the lowest of them.
 template <DetectorLayout Det, typename Tracks>
 struct Find {
   using Record = typename BoundedColumns<PairCandidate::template RecordT>::Record;
@@ -226,8 +211,10 @@ struct Find {
   Propagator propagator;
   Tracks tracks;
   std::uint32_t trackOffset = 0U;
-  const End* ends = nullptr;
-  const End* starts = nullptr;
+  const std::uint32_t* endRows = nullptr;
+  const std::uint32_t* endTracks = nullptr;
+  const std::uint32_t* startRows = nullptr;
+  const std::uint32_t* startTracks = nullptr;
   std::uint32_t endCount = 0U;
   const std::uint32_t* maxCandidateWidthPS = nullptr; ///< per layer
 
@@ -251,7 +238,8 @@ struct Find {
       const BoundTrackState& state = inward ? tracks.state[piece] : tracks.outwardState[piece];
       const auto factors = factorCovariance(state.cov);
       const auto endRow = inward ? tracks.clusters[piece].index[0] : tracks.clusters[piece].index[tracks.count[piece] - 1U];
-      const End* partners = inward ? ends : starts;
+      const ListedRows listed{.rows = inward ? endRows : startRows, .count = endCount};
+      const std::uint32_t* partners = inward ? endTracks : startTracks;
       for (std::uint64_t left = reached(own, geometry->surface(measurements.surface[endRow]).layer, direction) & ~pieceLayers; left != 0U; left &= left - 1U) {
         const auto target = static_cast<LayerID>(o2::gpu::CAMath::Ctz64(left));
         const auto prediction = predictLayerCrossing(propagator, own, geometry->planeOf(state), state, target, direction);
@@ -273,20 +261,18 @@ struct Find {
         if (!follow::predictedWindow(propagator, own, *geometry, detail::LinkSteps{}, state, factors, target, direction, prediction, window)) {
           continue;
         }
-        frame->grid().visitCandidates(target, window, frame->grid().geometry().allBlocks(), [&](std::uint32_t row) {
-          const auto measurement = frame->measurement(row);
-          if (!spatiallyCompatible(window, measurement.phi, secondCoordinate<Det>(target, measurement.r, measurement.z))) {
-            return;
-          }
-          const auto found = firstAt(partners, endCount, row);
-          if (found == endCount) {
-            return;
-          }
-          const auto partner = partners[found].track;
-          if (pairAdmitted(*frame, *geometry, tracks, inward ? partner : piece, inward ? piece : partner)) {
-            emitter.emit(Record{at, partner, static_cast<std::uint8_t>(inward ? 0U : 1U)});
-          }
-        });
+        frame->grid().visitCandidates(
+          target, window, frame->grid().geometry().allBlocks(), [&](std::uint32_t row, std::uint32_t entry) {
+            const auto measurement = frame->measurement(row);
+            if (!spatiallyCompatible(window, measurement.phi, secondCoordinate<Det>(target, measurement.r, measurement.z))) {
+              return;
+            }
+            const auto partner = partners[entry];
+            if (pairAdmitted(*frame, *geometry, tracks, inward ? partner : piece, inward ? piece : partner)) {
+              emitter.emit(Record{at, partner, static_cast<std::uint8_t>(inward ? 0U : 1U)});
+            }
+          },
+          listed);
       }
     }
   }
@@ -394,7 +380,7 @@ class TrackJoin
   {
     mStage.releaseStorage();
     mPairs.clearStorage();
-    deepVectorClear(mMemoryPool.get(), mListed, mUnsorted, mOrder, mEnds, mStarts, mScores, mChoices, mBest, mJoined, mChanged);
+    deepVectorClear(mMemoryPool.get(), mListed, mUnsorted, mOrder, mEndRows, mEndTracks, mStartRows, mStartTracks, mScores, mChoices, mBest, mJoined, mChanged);
   }
 
   /// The join of \a tracks' pieces from \a trackOffset on to the tracks
@@ -431,8 +417,10 @@ class TrackJoin
       }
       resizeBoundedVector(mUnsorted, ends, mMemoryPool.get());
       resizeBoundedVector(mOrder, ends, mMemoryPool.get());
-      resizeBoundedVector(mEnds, ends, mMemoryPool.get());
-      resizeBoundedVector(mStarts, ends, mMemoryPool.get());
+      resizeBoundedVector(mEndRows, ends, mMemoryPool.get());
+      resizeBoundedVector(mEndTracks, ends, mMemoryPool.get());
+      resizeBoundedVector(mStartRows, ends, mMemoryPool.get());
+      resizeBoundedVector(mStartTracks, ends, mMemoryPool.get());
       for (const bool outermost : {true, false}) {
         forEach(ends, [&](std::uint32_t at) {
           const auto track = mListed[at];
@@ -440,12 +428,16 @@ class TrackJoin
           mOrder[at] = at;
         });
         mStage.sortIndices(std::span<std::uint32_t>{mOrder}, [&](std::uint32_t a, std::uint32_t b) { return mUnsorted[a] < mUnsorted[b]; });
-        auto& list = outermost ? mEnds : mStarts;
-        forEach(ends, [&](std::uint32_t at) { list[at] = mUnsorted[mOrder[at]]; });
+        auto& rows = outermost ? mEndRows : mStartRows;
+        auto& listedTracks = outermost ? mEndTracks : mStartTracks;
+        forEach(ends, [&](std::uint32_t at) {
+          rows[at] = mUnsorted[mOrder[at]].row;
+          listedTracks[at] = mUnsorted[mOrder[at]].track;
+        });
       }
       // Each piece's pairs, their scores, its pair of the least score.
       mPairs.prepare(pieces);
-      const auto status = mStage.run(mPairs, chunk, join::Find<Det, View>{.parameters = parameters, .frame = &frame, .geometry = &geometry, .propagator = propagator, .tracks = view, .trackOffset = trackOffset, .ends = mEnds.data(), .starts = mStarts.data(), .endCount = ends, .maxCandidateWidthPS = maxCandidateWidthPS.data()});
+      const auto status = mStage.run(mPairs, chunk, join::Find<Det, View>{.parameters = parameters, .frame = &frame, .geometry = &geometry, .propagator = propagator, .tracks = view, .trackOffset = trackOffset, .endRows = mEndRows.data(), .endTracks = mEndTracks.data(), .startRows = mStartRows.data(), .startTracks = mStartTracks.data(), .endCount = ends, .maxCandidateWidthPS = maxCandidateWidthPS.data()});
       if (status != StageStatus::kComplete) {
         return status;
       }
@@ -497,12 +489,14 @@ class TrackJoin
  private:
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
   CpuStage<join::PairCandidate::template RecordT> mStage;
-  Pairs mPairs;                         ///< each piece's pairs past the tests without a fit
-  BoundedVector<std::uint32_t> mListed; ///< the earlier tracks with rows, ascending
-  BoundedVector<join::End> mUnsorted;   ///< their ends (or starts), in that order
-  BoundedVector<std::uint32_t> mOrder;  ///< the order sorting them
-  BoundedVector<join::End> mEnds;       ///< each earlier track's outermost row, by row then track
-  BoundedVector<join::End> mStarts;     ///< and its innermost
+  Pairs mPairs;                            ///< each piece's pairs past the tests without a fit
+  BoundedVector<std::uint32_t> mListed;    ///< the earlier tracks with rows, ascending
+  BoundedVector<join::End> mUnsorted;      ///< their ends (or starts), in that order
+  BoundedVector<std::uint32_t> mOrder;     ///< the order sorting them
+  BoundedVector<std::uint32_t> mEndRows;   ///< each earlier track's outermost row, by row then track
+  BoundedVector<std::uint32_t> mEndTracks; ///< and its track
+  BoundedVector<std::uint32_t> mStartRows; ///< each earlier track's innermost row, by row then track
+  BoundedVector<std::uint32_t> mStartTracks;
   BoundedVector<Scalar> mScores;        ///< per pair
   BoundedVector<join::Choice> mChoices; ///< per piece
   BoundedVector<std::uint32_t> mBest;   ///< per earlier track, the winning piece
