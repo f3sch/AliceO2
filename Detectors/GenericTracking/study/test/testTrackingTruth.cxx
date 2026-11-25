@@ -174,7 +174,7 @@ BOOST_AUTO_TEST_CASE(TheInputKeepsEachLayersFramesAndItsBoxes)
   }
   const std::vector<std::uint32_t> offsets{0U, 3U};
   const std::vector<double> depths{8.25e-4, -41.25e-4, -40.73e-4};
-  writeTrackingInput(file.path, measurementView(input.columns), kClusters.size(), offsets, {}, workflow::nominalBeamLine(), frames, depths);
+  writeTrackingInput(file.path, measurementView(input.columns), kClusters.size(), offsets, {}, workflow::nominalBeamLine(), frames, depths, {});
   const auto read = readTrackingInput(file.path);
   BOOST_TEST(read.frames == frames);
   BOOST_TEST(read.depths == depths);

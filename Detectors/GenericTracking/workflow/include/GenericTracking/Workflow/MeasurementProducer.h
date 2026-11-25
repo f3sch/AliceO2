@@ -42,6 +42,7 @@
 
 #include <gsl/span>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -204,6 +205,11 @@ class MeasurementProducerTask : public o2::framework::Task
     // The slope intervals only with a band: without one every measurement takes kEvery.
     const auto* band = mShapeBand;
     std::vector<ClusterShapeBand::Interval> slopes(band != nullptr ? n : 0U);
+    // Each layer's rows' column and row spans, for the shares the follow's
+    // last-row trim reads (ShapeShares.h).
+    constexpr std::size_t kSpans = ShapeShares<Det>::kSpans;
+    std::vector<std::uint32_t> columnSpans(Detector<Det>::nLayers * kSpans, 0U);
+    std::vector<std::uint32_t> rowSpans(Detector<Det>::nLayers * kSpans, 0U);
     for (std::size_t i = 0; i < n; ++i) {
       const auto& cluster = clusters[clusterOf(i)];
       // The tracking takes every measurement as a point with a positive
@@ -239,6 +245,8 @@ class MeasurementProducerTask : public o2::framework::Task
       if (band != nullptr) {
         slopes[i] = band->interval(static_cast<std::size_t>(ShapeBandLayers<Det>::layer(point.layer)), cluster.rowSpan, cluster.colSpan);
       }
+      ++columnSpans[(static_cast<std::size_t>(point.layer) * kSpans) + std::min<std::size_t>(cluster.colSpan, kSpans - 1U)];
+      ++rowSpans[(static_cast<std::size_t>(point.layer) * kSpans) + std::min<std::size_t>(cluster.rowSpan, kSpans - 1U)];
       builder.count(buckets[i]);
     }
     builder.prefixSum();
@@ -274,7 +282,10 @@ class MeasurementProducerTask : public o2::framework::Task
                        });
     }
     builder.finish();
-    pc.outputs().snapshot(o2::framework::Output{gDataOrigin, description<Det>(kMeasurementGeometry), 0}, MeasurementGeometry<Det>{mBeamLine, grid, bounds});
+    auto shipped = std::make_unique<MeasurementGeometry<Det>>(MeasurementGeometry<Det>{.beamLine = mBeamLine, .grid = grid, .bounds = bounds});
+    fillOwnShares<Det>(band, shipped->shapes);
+    fillChanceShares<Det>(columnSpans, rowSpans, shipped->shapes);
+    pc.outputs().snapshot(o2::framework::Output{gDataOrigin, description<Det>(kMeasurementGeometry), 0}, *shipped);
 
     const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - start;
     const auto payloadBytes = n * kMeasurementRowBytes + offsets.size() * sizeof(std::uint32_t);

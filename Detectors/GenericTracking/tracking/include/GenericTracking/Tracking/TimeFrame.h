@@ -18,6 +18,7 @@
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
+#include "GenericTracking/Tracking/ShapeShares.h"
 #include "GenericTracking/Tracking/MeasurementRange.h"
 
 #include <array>
@@ -66,9 +67,10 @@ class TimeFrame
 
   /// Requires equal column lengths, `bucketCount() + 1` offsets, monotonic
   /// offsets and nondecreasing box starts within every bucket, as the
-  /// producer writes them.
-  TimeFrame(MeasurementView measurements, const GridGeometry<Det>& geometry, std::span<const Index> offsets)
-    : TimeFrame(measurements, geometry, offsets, offsets.empty() ? 0U : offsets.back())
+  /// producer writes them. \a shapes: the timeframe's cluster spans' shares
+  /// (ShapeShares.h), the producer's; none for a frame without them.
+  TimeFrame(MeasurementView measurements, const GridGeometry<Det>& geometry, std::span<const Index> offsets, const ShapeShares<Det>* shapes = nullptr)
+    : TimeFrame(measurements, geometry, offsets, offsets.empty() ? 0U : offsets.back(), shapes)
   {
   }
 
@@ -76,9 +78,10 @@ class TimeFrame
   /// device copy -- given the row count, which the other constructor reads
   /// from the last offset. Nothing here dereferences them; slices are cut
   /// from the host frame.
-  TimeFrame(MeasurementView measurements, const GridGeometry<Det>& geometry, std::span<const Index> offsets, Index rows)
+  TimeFrame(MeasurementView measurements, const GridGeometry<Det>& geometry, std::span<const Index> offsets, Index rows, const ShapeShares<Det>* shapes = nullptr)
     : mGrid(measurements, geometry, offsets),
-      mSize(rows)
+      mSize(rows),
+      mShapes(shapes)
   {
   }
 
@@ -92,10 +95,13 @@ class TimeFrame
   [[nodiscard]] GPUhdi() GPUAlwaysInline() const MeasurementGrid<Det>& grid() const { return mGrid; }
   /// The columns the frame borrows.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() MeasurementView measurements() const { return mGrid.measurements(); }
+  /// The cluster spans' shares; null for a frame without them.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() const ShapeShares<Det>* shapes() const { return mShapes; }
 
  private:
   MeasurementGrid<Det> mGrid;
   Index mSize = 0;
+  const ShapeShares<Det>* mShapes = nullptr;
 };
 
 } // namespace o2::gtrk

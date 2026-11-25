@@ -46,6 +46,7 @@
 #include "GenericTracking/Base/Definitions.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/ShapeCut.h"
+#include "GenericTracking/Tracking/ShapeShares.h"
 #ifdef ENABLE_UPGRADES
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
@@ -53,10 +54,13 @@
 
 #include <Rtypes.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <format>
 #include <limits>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -144,6 +148,63 @@ struct ShapeBandLayers<detectors::TRKFT3TOF> {
   [[nodiscard]] static constexpr LayerID layer(LayerID layer) { return detectors::trkft3tof::toTRKFT3(layer); }
 };
 #endif
+
+/// \a shares' calibration side from \a band, per layer of \a Det through
+/// `ShapeBandLayers`: the logarithms of its span shares, NaN where it has
+/// none; no calibration (0 bins) without a band. Throws std::runtime_error
+/// for a band of more slope bins than the shares hold.
+template <DetectorLayout Det>
+void fillOwnShares(const ClusterShapeBand* band, ShapeShares<Det>& shares)
+{
+  using Shares = ShapeShares<Det>;
+  static_assert(Shares::kSpans == ClusterShapeBand::kFrequencySpans);
+  shares.bins = 0U;
+  if (band == nullptr) {
+    return;
+  }
+  const auto bins = band->slopeBins();
+  if (bins > Shares::kMaxBins) {
+    throw std::runtime_error(std::format("the cluster-shape band's {} slope bins exceed the {} the shares hold", bins, Shares::kMaxBins));
+  }
+  shares.bins = static_cast<std::uint32_t>(bins);
+  for (std::size_t edge = 0; edge <= bins; ++edge) {
+    shares.edges[edge] = band->slopeEdges[edge];
+  }
+  constexpr float kNone = std::numeric_limits<float>::quiet_NaN();
+  for (std::size_t layer = 0; layer < Shares::kLayers; ++layer) {
+    const auto own = static_cast<std::size_t>(ShapeBandLayers<Det>::layer(static_cast<LayerID>(layer)));
+    for (std::size_t bin = 0; bin < bins; ++bin) {
+      for (std::size_t span = 0; span < Shares::kSpans; ++span) {
+        const auto at = (((own * bins) + bin) * Shares::kSpans) + span;
+        const bool known = own < band->shareLayers();
+        shares.ownColumn[layer][bin][span] = known && band->columnFrequency[at] > 0.F ? std::log(band->columnFrequency[at]) : kNone;
+        shares.ownRow[layer][bin][span] = known && band->rowFrequency[at] > 0.F ? std::log(band->rowFrequency[at]) : kNone;
+      }
+    }
+  }
+}
+
+/// \a shares' timeframe side from each layer's counts of its rows' column
+/// and row spans (\a columns, \a rows: layer * kSpans + span, spans from
+/// kSpans - 1 on together): the logarithms of their shares, each span counted
+/// once more (no share 0).
+template <DetectorLayout Det>
+void fillChanceShares(std::span<const std::uint32_t> columns, std::span<const std::uint32_t> rows, ShapeShares<Det>& shares)
+{
+  using Shares = ShapeShares<Det>;
+  for (std::size_t layer = 0; layer < Shares::kLayers; ++layer) {
+    std::uint64_t columnTotal = Shares::kSpans;
+    std::uint64_t rowTotal = Shares::kSpans;
+    for (std::size_t span = 0; span < Shares::kSpans; ++span) {
+      columnTotal += columns[(layer * Shares::kSpans) + span];
+      rowTotal += rows[(layer * Shares::kSpans) + span];
+    }
+    for (std::size_t span = 0; span < Shares::kSpans; ++span) {
+      shares.chanceColumn[layer][span] = static_cast<float>(std::log(static_cast<double>(columns[(layer * Shares::kSpans) + span] + 1U) / static_cast<double>(columnTotal)));
+      shares.chanceRow[layer][span] = static_cast<float>(std::log(static_cast<double>(rows[(layer * Shares::kSpans) + span] + 1U) / static_cast<double>(rowTotal)));
+    }
+  }
+}
 
 } // namespace o2::gtrk::workflow
 

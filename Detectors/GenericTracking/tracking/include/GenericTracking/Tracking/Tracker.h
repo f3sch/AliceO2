@@ -49,10 +49,6 @@
 #include "GPUCommonAlgorithm.h"
 
 #include <algorithm>
-#include <cstdio>
-#include <limits>
-#include <cmath>
-#include <cstdlib>
 #include <array>
 #include <atomic>
 #include <cassert>
@@ -281,8 +277,8 @@ class Tracker
     return guardOutOfMemory([&] {
       clearResizeBoundedVector(mUsed, frame.size(), mMemoryPool.get(), std::uint8_t{kFree});
       mRows = frame.size();
-      // TRIAL (plans/131): the layers' rows in time for the follow's last-row trim; none for a tracker that does not
-      // follow (the vertexing pass's).
+      // The layers' rows in time for the follow's last-row trim; none for a
+      // tracker that does not follow (the vertexing pass's).
       if (std::ranges::any_of(mIterations, [](const auto& iteration) { return iteration.follow; })) {
         buildOccupancy(frame);
       }
@@ -312,13 +308,6 @@ class Tracker
     mStore.clearStorage();
     deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection, mClaims);
     deepVectorClear(mMemoryPool.get(), mOccupancyOffsets, mOccupancyLower, mOccupancyUpper);
-    {
-      auto& d = follow::trial::decisions;
-      std::fprintf(stderr, "TRIAL p131 last-row trim: active ambiguous %llu kept %llu outside-gate %llu below-density %llu; inactive kept %llu outside-gate %llu below-density %llu\n",
-                   static_cast<unsigned long long>(d[0][0].exchange(0U)), static_cast<unsigned long long>(d[0][1].exchange(0U)), static_cast<unsigned long long>(d[0][2].exchange(0U)), static_cast<unsigned long long>(d[0][3].exchange(0U)),
-                   static_cast<unsigned long long>(d[1][1].exchange(0U)), static_cast<unsigned long long>(d[1][2].exchange(0U)), static_cast<unsigned long long>(d[1][3].exchange(0U)));
-      d[1][0].store(0U);
-    }
     mFollowStartInner = {};
     mFollowStart = {};
     mFollowStartCount = {};
@@ -893,7 +882,7 @@ class Tracker
   /// proposals tallied into \a tracks, \a outward and \a inward.
   [[nodiscard]] StageStatus runFollow(Follow<Det>& follow, const IterationParameters<Det>& parameters, const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset, bool earlier, std::size_t& tracks, std::size_t& outward, std::size_t& inward)
   {
-    const auto status = follow.run(fitForEach(), parameters, frame, *mGeometry, mPropagator, mRefit.tracks(), trackOffset, parameters.sharedInnermost == 0U, earlier, mUsed, plan.layerMaxWidthPS, mSensorCells.view(), occupancy(), shapes());
+    const auto status = follow.run(fitForEach(), parameters, frame, *mGeometry, mPropagator, mRefit.tracks(), trackOffset, parameters.sharedInnermost == 0U, earlier, mUsed, plan.layerMaxWidthPS, mSensorCells.view(), occupancy());
     if (status != StageStatus::kComplete) {
       return status;
     }
@@ -1357,105 +1346,19 @@ class Tracker
   }
 
   /// `hostForEach` in fit chunks (`fitChunk`).
-  /// TRIAL (plans/131): \a frame's rows' time boxes by layer, each layer's
-  /// starts and ends sorted (`follow::LayerOccupancy`), and its sensors' area.
+  /// \a frame's rows' time boxes by layer, each layer's starts and ends
+  /// sorted, and its sensors' area (`follow::LayerOccupancy`): the chance
+  /// density the follow's last-row trim compares a row with.
   void buildOccupancy(const Frame& frame)
   {
-    constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
-    const auto& measurements = frame.measurements();
-    const auto rows = static_cast<std::uint32_t>(frame.size());
-    clearResizeBoundedVector(mOccupancyOffsets, kLayers + 1U, mMemoryPool.get(), 0U);
-    for (std::uint32_t row = 0; row < rows; ++row) {
-      ++mOccupancyOffsets[mGeometry->surface(measurements.surface[row]).layer + 1U];
-    }
-    for (std::size_t layer = 0; layer < kLayers; ++layer) {
-      mOccupancyOffsets[layer + 1U] += mOccupancyOffsets[layer];
-    }
-    resizeBoundedVector(mOccupancyLower, rows, mMemoryPool.get());
-    resizeBoundedVector(mOccupancyUpper, rows, mMemoryPool.get());
-    BoundedVector<std::uint32_t> next(mOccupancyOffsets.begin(), mOccupancyOffsets.end() - 1, std::pmr::polymorphic_allocator<std::uint32_t>{mMemoryPool.get()});
-    for (std::uint32_t row = 0; row < rows; ++row) {
-      const auto at = next[mGeometry->surface(measurements.surface[row]).layer]++;
-      const auto box = timeBoxAt(measurements, row);
-      mOccupancyLower[at] = box.lower();
-      mOccupancyUpper[at] = box.upper();
-    }
-    fitForEach()(static_cast<Index>(kLayers), [&](Index layer) {
-      std::sort(mOccupancyLower.begin() + mOccupancyOffsets[layer], mOccupancyLower.begin() + mOccupancyOffsets[layer + 1U]);
-      std::sort(mOccupancyUpper.begin() + mOccupancyOffsets[layer], mOccupancyUpper.begin() + mOccupancyOffsets[layer + 1U]);
-    });
-    // The timeframe's rows' spans per layer, their shares' logarithms (one more of each, a share never 0).
-    {
-      constexpr auto kSpans = follow::ShapeFrequencies::kSpans;
-      std::array<std::uint32_t, kLayers * kSpans> columns{};
-      std::array<std::uint32_t, kLayers * kSpans> rowsOf{};
-      std::array<std::uint32_t, kLayers> total{};
-      for (std::uint32_t row = 0; row < rows; ++row) {
-        const auto layer = mGeometry->surface(measurements.surface[row]).layer;
-        const auto spans = measurements.spans[row];
-        ++columns[(layer * kSpans) + std::min(measurementColumnSpan(spans), kSpans - 1U)];
-        ++rowsOf[(layer * kSpans) + std::min(measurementRowSpan(spans), kSpans - 1U)];
-        ++total[layer];
-      }
-      for (std::size_t layer = 0; layer < kLayers; ++layer) {
-        for (std::size_t span = 0; span < kSpans; ++span) {
-          const auto all = static_cast<float>(total[layer] + kSpans);
-          mShapeChanceColumn[(layer * kSpans) + span] = std::log(static_cast<float>(columns[(layer * kSpans) + span] + 1U) / all);
-          mShapeChanceRow[(layer * kSpans) + span] = std::log(static_cast<float>(rowsOf[(layer * kSpans) + span] + 1U) / all);
-        }
-      }
-    }
-    mOccupancyArea.fill(0.F);
-    for (const auto& surface : mGeometry->surfaces()) {
-      if (static_cast<std::size_t>(surface.layer) < kLayers) {
-        mOccupancyArea[surface.layer] += 4.F * surface.bounds.halfX * surface.bounds.halfY;
-      }
-    }
+    clearResizeBoundedVector(mOccupancyOffsets, static_cast<std::size_t>(Detector<Det>::nLayers) + 1U, mMemoryPool.get(), 0U);
+    resizeBoundedVector(mOccupancyLower, frame.size(), mMemoryPool.get());
+    resizeBoundedVector(mOccupancyUpper, frame.size(), mMemoryPool.get());
+    follow::fillLayerOccupancy(frame, *mGeometry, std::span{mOccupancyOffsets}, std::span{mOccupancyLower}, std::span{mOccupancyUpper}, fitForEach());
+    mOccupancyArea = follow::layerAreas(*mGeometry);
   }
 
-  /// TRIAL (plans/131): GTRK_TRIAL_P131_OFF set runs the trim as dev has it, for the A/B on one build.
- public:
-  /// TRIAL (plans/131): the calibration's shares of a particle's own spans per
-  /// layer of the layout, slope bin and span (`follow::ShapeFrequencies`:
-  /// \a edges, then the shares, not their logarithms, 0 where unknown); none
-  /// leaves the trim without the size.
-  void setShapeFrequencies(std::vector<float> edges, std::vector<float> ownColumn, std::vector<float> ownRow)
-  {
-    const auto bins = edges.empty() ? 0U : edges.size() - 1U;
-    const auto size = static_cast<std::size_t>(Detector<Det>::nLayers) * bins * follow::ShapeFrequencies::kSpans;
-    if (ownColumn.size() != size || ownRow.size() != size) {
-      throw std::invalid_argument("setShapeFrequencies: shares for another layout or binning");
-    }
-    const auto logs = [](std::vector<float>& shares) {
-      for (auto& share : shares) {
-        share = share > 0.F ? std::log(share) : std::numeric_limits<float>::quiet_NaN();
-      }
-    };
-    logs(ownColumn);
-    logs(ownRow);
-    mShapeEdges = std::move(edges);
-    mShapeOwnColumn = std::move(ownColumn);
-    mShapeOwnRow = std::move(ownRow);
-  }
-
- private:
-  [[nodiscard]] follow::ShapeFrequencies shapes() const
-  {
-    static const bool off = std::getenv("GTRK_TRIAL_P131_NOSIZE") != nullptr;
-    if (off || mShapeEdges.empty()) {
-      return {};
-    }
-    return {.bins = static_cast<std::uint32_t>(mShapeEdges.size() - 1U), .edges = mShapeEdges.data(), .ownColumn = mShapeOwnColumn.data(), .ownRow = mShapeOwnRow.data(), .chanceColumn = mShapeChanceColumn.data(), .chanceRow = mShapeChanceRow.data()};
-  }
-
-  [[nodiscard]] follow::LayerOccupancy occupancy() const
-  {
-    static const bool off = std::getenv("GTRK_TRIAL_P131_OFF") != nullptr;
-    if (off) {
-      return {};
-    }
-    return {.offsets = mOccupancyOffsets.data(), .lower = mOccupancyLower.data(), .upper = mOccupancyUpper.data(), .area = mOccupancyArea.data()};
-  }
+  [[nodiscard]] follow::LayerOccupancy occupancy() const { return {.offsets = mOccupancyOffsets.data(), .lower = mOccupancyLower.data(), .upper = mOccupancyUpper.data(), .area = mOccupancyArea.data()}; }
 
   [[nodiscard]] auto fitForEach()
   {
@@ -1517,18 +1420,11 @@ class Tracker
   std::vector<std::uint8_t> mFollowEndCount;
   std::vector<BoundTrackState> mFollowEndState;
   SensorCells<Det> mSensorCells;
-  // TRIAL (plans/131): every row's time box by layer, for the last-row trim's chance density.
+  // Every row's time box by layer, for the last-row trim's chance density (`buildOccupancy`).
   BoundedVector<std::uint32_t> mOccupancyOffsets;
   BoundedVector<std::uint32_t> mOccupancyLower;
   BoundedVector<std::uint32_t> mOccupancyUpper;
   std::array<Scalar, static_cast<std::size_t>(Detector<Det>::nLayers)> mOccupancyArea{};
-  // TRIAL (plans/131): the cluster spans' shares (`follow::ShapeFrequencies`): the calibration's, per run, and the
-  // timeframe's rows', per timeframe.
-  std::vector<float> mShapeEdges;
-  std::vector<float> mShapeOwnColumn;
-  std::vector<float> mShapeOwnRow;
-  std::array<float, static_cast<std::size_t>(Detector<Det>::nLayers) * follow::ShapeFrequencies::kSpans> mShapeChanceColumn{};
-  std::array<float, static_cast<std::size_t>(Detector<Det>::nLayers) * follow::ShapeFrequencies::kSpans> mShapeChanceRow{};
   BoundedVector<std::uint8_t> mUsed;
   BoundedVector<std::uint8_t> mUsedBeforeSelection; ///< the mask as the selection found it (`dropTracks`)
   BoundedVector<Index> mKeptTracks;                 ///< `dropTracks`' kept tracks

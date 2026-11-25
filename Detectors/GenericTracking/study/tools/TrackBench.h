@@ -37,7 +37,6 @@
 #include "GenericTracking/Workflow/GridConfig.h"
 #include "GenericTracking/Workflow/MaterialLUT.h"
 #include "GenericTracking/Workflow/RecoParam.h"
-#include "GenericTracking/Workflow/ClusterShapeBand.h"
 #include "GenericTracking/Workflow/TrackingInterface.h"
 #include "GenericTracking/Study/Alice/Hits.h"
 #include "GenericTracking/Study/Digest.h"
@@ -370,7 +369,7 @@ inline void printWork(const WorkCounts& work, std::size_t iteration)
     std::cout << std::format("  work, iteration {}, shapes: {} tracklet candidates and {} thirds refused\n", iteration, at(kTrackletShape), at(kTripletShape));
   }
   if (at(kFollowTrimFits) != 0U) {
-    std::cout << std::format("  work, iteration {}, follow trim: {} tracks refitted without their last outward row, {} trimmed, {} updates\n", iteration, at(kFollowTrimFits), at(kFollowTrimmed), at(kFollowTrimUpdates));
+    std::cout << std::format("  work, iteration {}, follow trim: {} tracks refitted without their last outward row, {} trimmed ({} unlikely, {} outside the gate), {} updates\n", iteration, at(kFollowTrimFits), at(kFollowTrimmed), at(kFollowTrimUnlikely), at(kFollowTrimOutsideGate), at(kFollowTrimUpdates));
   }
   if (at(kFollowEarlierProposed) != 0U) {
     std::cout << std::format("  work, iteration {}, earlier iterations' follow: {} rows proposed, {} outbid, {} with a failed refit\n", iteration, at(kFollowEarlierProposed), at(kFollowEarlierOutbid), at(kFollowEarlierRefitRejected));
@@ -2009,33 +2008,6 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
   }
   interface.configure({workflow::nominalBzKiloGauss(), input.depths, material}, {input.beamLine, geometry});
   auto& tracker = interface.tracker();
-  // TRIAL (plans/131): the TRK cluster-shape band's span shares for the follow's last-row trim, per layer of the
-  // layout; none without a band at --ccdb-url.
-  if constexpr (std::same_as<Det, detectors::TRKFT3> || std::same_as<Det, detectors::TRKFT3TOF>) {
-    if (const auto* band = ccdb.get<workflow::ClusterShapeBand>("TRK/Calib/ClusterShapeBand"); band != nullptr) {
-      if (!band->fits(workflow::ShapeBandLayers<Det>::barrelLayers, workflow::ShapeBandLayers<Det>::layers)) {
-        throw std::runtime_error("TRK/Calib/ClusterShapeBand at " + options.ccdbUrl + " is no band of this build (version 2, with the span shares): make it again");
-      }
-      constexpr auto kSpans = follow::ShapeFrequencies::kSpans;
-      static_assert(kSpans == workflow::ClusterShapeBand::kFrequencySpans);
-      const auto bins = band->slopeBins();
-      const auto layers = static_cast<std::size_t>(Detector<Det>::nLayers);
-      std::vector<float> column(layers * bins * kSpans, 0.F);
-      std::vector<float> row(layers * bins * kSpans, 0.F);
-      for (std::size_t layer = 0; layer < layers; ++layer) {
-        const auto own = static_cast<std::size_t>(workflow::ShapeBandLayers<Det>::layer(static_cast<LayerID>(layer)));
-        if (own >= band->shareLayers()) {
-          continue;
-        }
-        for (std::size_t at = 0; at < bins * kSpans; ++at) {
-          column[(layer * bins * kSpans) + at] = band->columnFrequency[(own * bins * kSpans) + at];
-          row[(layer * bins * kSpans) + at] = band->rowFrequency[(own * bins * kSpans) + at];
-        }
-      }
-      tracker.setShapeFrequencies(band->slopeEdges, std::move(column), std::move(row));
-      std::cout << "TRIAL p131: the size shares of " << band->describe() << ", " << bins << " slope bins\n";
-    }
-  }
   const auto& pool = interface.pool();
   auto* vertexing = interface.vertexing();
   const auto& tracking = interface.tracking();
@@ -2052,7 +2024,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     std::cout << std::format(" {}x{}", axes.nPhi, axes.nSecond);
   }
   std::cout << std::format("; {} buckets, offsets {:.1f} MB\n", geometry.bucketCount(), static_cast<double>(input.offsets.size() * sizeof(std::uint32_t)) / 1.e6);
-  const Frame frame{measurementView(input.columns), geometry, std::span<const typename Frame::Index>{input.offsets}};
+  // The cluster spans' shares the producer shipped with the dump's timeframe.
+  const auto shapes = std::make_unique<const ShapeShares<Det>>(study::shapeSharesOf<Det>(input));
+  const Frame frame{measurementView(input.columns), geometry, std::span<const typename Frame::Index>{input.offsets}, shapes.get()};
   // The frame's bounds, which the measurement producer ships with the grid and a
   // dump does not hold: taken once here, outside the timed runs, as it would.
   const auto bounds = frameBounds(frame);

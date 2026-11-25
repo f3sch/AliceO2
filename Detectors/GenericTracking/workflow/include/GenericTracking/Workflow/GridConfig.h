@@ -26,6 +26,7 @@
 #include "GenericTracking/Tracking/MeasurementGrid.h"
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/Propagator.h"
+#include "GenericTracking/Tracking/ShapeShares.h"
 #include "GenericTracking/Tracking/SlicePlan.h"
 #include "GenericTracking/Tracking/VertexStage.h"
 #include "GenericTracking/Workflow/BeamLine.h"
@@ -316,13 +317,15 @@ inline void checkRecoParam(const RecoSettings& param)
 /// beside them (DataSpecs.h's kMeasurementGeometry): the beam line subtracted
 /// from their x and y, and the grid they are binned in, built from the
 /// configuration and the timeframe's conditions; and their bounds over the
-/// whole frame (`frameBounds`), which the producer takes as it places them.
-/// Whoever reads the measurements takes all three from here.
+/// whole frame (`frameBounds`), which the producer takes as it places them;
+/// and their cluster spans' shares (ShapeShares.h), the calibration's and the
+/// timeframe's. Whoever reads the measurements takes all four from here.
 template <DetectorLayout Det>
 struct MeasurementGeometry {
   BeamLine beamLine;
   GridGeometry<Det> grid;
   HaloBounds<Det> bounds;
+  ShapeShares<Det> shapes;
 };
 
 /// A tracker's sources as the log lines name them: "beam line", "vertex

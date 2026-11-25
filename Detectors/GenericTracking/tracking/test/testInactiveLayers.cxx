@@ -85,6 +85,22 @@ inline const bool kToyInactive8Published = publishToy<ToyInactive8>();
 
 namespace
 {
+/// A frame's layers' rows in time for the follow's last-row trim
+/// (`follow::LayerOccupancy`), held.
+template <DetectorLayout Det>
+struct HeldOccupancy {
+  std::vector<std::uint32_t> offsets;
+  std::vector<std::uint32_t> lower;
+  std::vector<std::uint32_t> upper;
+  std::array<Scalar, static_cast<std::size_t>(Detector<Det>::nLayers)> area{};
+
+  HeldOccupancy(const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry)
+    : offsets(static_cast<std::size_t>(Detector<Det>::nLayers) + 1U), lower(frame.size()), upper(frame.size()), area(follow::layerAreas(geometry))
+  {
+    follow::fillLayerOccupancy(frame, geometry, std::span{offsets}, std::span{lower}, std::span{upper}, SerialForEach{});
+  }
+  [[nodiscard]] follow::LayerOccupancy view() const { return {.offsets = offsets.data(), .lower = lower.data(), .upper = upper.data(), .area = area.data()}; }
+};
 
 using Det = detectors::ToyInactive8;
 using Frame = TimeFrame<Det>;
@@ -420,7 +436,8 @@ BOOST_AUTO_TEST_CASE(TheTrackHoldsItsOutwardRowsInPathOrderAndOwnsThem)
   const auto parameters = followParameters();
   Follow<Det> follow;
   follow.setMemoryPool(pool);
-  const auto status = follow.run(SerialForEach{}, parameters, *fixture.frame, trackingGeometry(), Propagator{}, tracks, 0U, true, false, used, frameBounds(*fixture.frame).widthPS, cells().view());
+  const HeldOccupancy<Det> occupancy{*fixture.frame, trackingGeometry()};
+  const auto status = follow.run(SerialForEach{}, parameters, *fixture.frame, trackingGeometry(), Propagator{}, tracks, 0U, true, false, used, frameBounds(*fixture.frame).widthPS, cells().view(), occupancy.view());
   BOOST_REQUIRE(status == StageStatus::kComplete);
   const auto view = tracks.view();
   BOOST_REQUIRE_EQUAL(static_cast<std::size_t>(view.count[0]), kLayers);
