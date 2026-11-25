@@ -109,6 +109,7 @@ enum class Phase : std::uint8_t { kRun,
                                   kInactiveRows,
                                   kOverlapPartners,
                                   kCommit,
+                                  kInactiveMatch,
                                   kCount,
                                   kNone };
 
