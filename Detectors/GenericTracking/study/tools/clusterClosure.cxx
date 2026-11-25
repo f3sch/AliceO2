@@ -747,7 +747,7 @@ int runITS3(const Options& options)
     const auto columns = static_cast<std::uint32_t>(cluster.colSpan);
     badSpans += rows == 0U || columns == 0U || local[i].nPixels > rows * columns ? 1U : 0U;
     badErrors += cluster.sigmaXLocal > 0.F && cluster.sigmaYLocal > 0.F ? 0U : 1U;
-    if (const auto id = file.clusters[i].getPatternID(); id != o2::itsmft::CompCluster::InvalidPatternID && !(dictionary->getErr2X(id, tile) > 0.F && dictionary->getErr2Z(id, tile) > 0.F)) {
+    if (const auto id = file.clusters[i].getPatternID(); id != o2::itsmft::CompCluster::InvalidPatternID && (!(dictionary->getErr2X(id, tile) > 0.F) || !(dictionary->getErr2Z(id, tile) > 0.F))) {
       ++defaultErrors;
     }
     ++perLayer[layer];

@@ -37,6 +37,7 @@
 #include <cstddef>
 #include <format>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace o2::gtrk::alice
@@ -56,7 +57,7 @@ static_assert(exactlyEqual(mosaix::kSiliconThickness, specs::silicon::thickness)
 static_assert(mosaix::kNominalRadius == specs::radii);
 static_assert(exactlyEqual(mosaix::kResponseShift, specs::pixelarray::pixels::apts::responseYShift));
 static_assert([] {
-  for (int layer = 0; layer < static_cast<int>(specs::nLayers); ++layer) {
+  for (int layer = 0; std::cmp_less(layer, specs::nLayers); ++layer) {
     const auto i = static_cast<std::size_t>(layer);
     if (!exactlyEqual(mosaix::innerRadius(layer), specs::radiiInner[i]) || !exactlyEqual(mosaix::outerRadius(layer), specs::radiiOuter[i]) || !exactlyEqual(mosaix::middleRadius(layer), specs::radiiMiddle[i])) {
       return false;
@@ -114,7 +115,7 @@ std::vector<Sensor> placeChips<detectors::ITS3>()
   for (int chip = 0; chip < geometry.getNumberOfChips(); ++chip) {
     const int layer = geometry.getLayer(chip);
     const bool tile = specs::detID::isDetITS3(chip);
-    if (tile != (layer < static_cast<int>(specs::nLayers))) {
+    if (tile != std::cmp_less(layer, specs::nLayers)) {
       throw std::runtime_error(std::format("ITS3: chip {} on layer {} is {}a tile: the loaded geometry is not ITS3's", chip, layer, tile ? "" : "not "));
     }
     sensors.push_back(tile ? tileSensor(geometry.getMatrixL2G(chip), layer) : flatSensor(geometry.getMatrixL2G(chip), layer, kActiveCentreX));

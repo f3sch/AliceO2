@@ -392,7 +392,7 @@ class TrackStore
   [[nodiscard]] References& references() { return mReferences; }
   /// \a track's layer rows alone, one per layer, in path order, into \a out
   /// (a chain's length): how many.
-  std::uint32_t layerRows(std::size_t track, std::span<std::uint32_t, kMaxClusters> out) const
+  [[nodiscard]] std::uint32_t layerRows(std::size_t track, std::span<std::uint32_t, kMaxClusters> out) const
   {
     const auto range = mReferences.range(track);
     const auto records = mReferences.view().records;
