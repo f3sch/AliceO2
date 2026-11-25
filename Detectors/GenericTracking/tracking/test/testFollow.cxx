@@ -798,6 +798,33 @@ BOOST_AUTO_TEST_CASE(ARejectedRefitLeavesItsRowsFree)
   }
 }
 
+/// A refit the cut refuses for the whole extension keeps its longest
+/// accepted prefix, and its rows only are marked.
+BOOST_AUTO_TEST_CASE(ARefusedRefitKeepsItsLongestAcceptedPrefix)
+{
+  using namespace toybarrel8;
+  const auto hits = sensorHelixHits(2.8, -0.01, 1.6);
+  const Fixture fixture{hits};
+  const auto pool = std::make_shared<BoundedMemoryResource>();
+  auto tracks = fittedTrack(fixture, 0U, 4U, pool);
+  std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
+  auto parameters = followParameters();
+  // The track with all three outward rows refused, 2 * 8 - 5 degrees of
+  // freedom; with two of them, and fewer, accepted.
+  parameters.roadChi2MaxByNdf[(2U * kLayers) - static_cast<std::size_t>(kNBoundParams)] = -1.F;
+  Follow<Det> follow;
+  follow.setMemoryPool(pool);
+  BOOST_REQUIRE(followAll(fixture, parameters, tracks, used, follow) == StageStatus::kComplete);
+  BOOST_REQUIRE(follow.proposals().size() == 1U);
+  const auto view = std::as_const(tracks).view();
+  BOOST_TEST(follow.proposals()[0].outwardCount == 2U);
+  BOOST_TEST(view.count[0] == 7U);
+  BOOST_TEST(view.addedOutward[0] == 2U);
+  for (std::size_t layer = 5U; layer < kLayers; ++layer) {
+    BOOST_TEST(used[fixture.row(layer)] == (layer < 7U ? kExclusive : kFree));
+  }
+}
+
 /// The unconfirmed drop's row is not marked: it stays free after the passes.
 BOOST_AUTO_TEST_CASE(AnUnconfirmedRowStaysFreeAfterThePasses)
 {
