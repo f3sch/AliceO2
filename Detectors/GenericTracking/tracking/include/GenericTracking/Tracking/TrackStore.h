@@ -286,10 +286,33 @@ struct LayerRowReferences {
   }
 };
 
+/// A track's rows \a rows (\a count of them) and its overlap partners
+/// \a partners to \a end (OverlapPartners.h), each partner's `layerRow` its
+/// row's position, written to \a out from \a at in path order: for each row,
+/// its partners before it, the row, its partners after it.
+template <std::size_t K, typename Partner, typename View>
+GPUhdi() void writePartneredRows(const ClusterList<K>& rows, std::uint32_t count, const Partner* partners, const Partner* end, const View& out, std::uint32_t at)
+{
+  const auto emit = [&](std::uint32_t row, ReferenceRole role) {
+    out.row[at] = row;
+    out.source[at] = kOwnRows;
+    out.role[at] = static_cast<std::uint8_t>(role);
+    ++at;
+  };
+  for (std::uint32_t k = 0; k < count; ++k) {
+    for (; partners != end && partners->layerRow == k && partners->ahead == 0U; ++partners) {
+      emit(partners->row, ReferenceRole::kOverlapPartner);
+    }
+    emit(rows.index[k], ReferenceRole::kLayerRow);
+    for (; partners != end && partners->layerRow == k; ++partners) {
+      emit(partners->row, ReferenceRole::kOverlapPartner);
+    }
+  }
+}
+
 /// The references of a track's inline rows and of its overlap partners
-/// (OverlapPartners.h), merged in path order: for each row, its partners
-/// before it, the row, its partners after it. \a offsets and \a partners
-/// are per track from \a first, the first of the tracks committed with them.
+/// (`writePartneredRows`). \a offsets and \a partners are per track from
+/// \a first, the first of the tracks committed with them.
 template <std::size_t K, typename Partner>
 struct PartneredReferences {
   LayerRowReferences<K> rows;
@@ -302,23 +325,7 @@ struct PartneredReferences {
   template <typename View>
   GPUhdi() void write(std::uint32_t track, const View& out, std::uint32_t at) const
   {
-    const auto emit = [&](std::uint32_t row, ReferenceRole role) {
-      out.row[at] = row;
-      out.source[at] = kOwnRows;
-      out.role[at] = static_cast<std::uint8_t>(role);
-      ++at;
-    };
-    std::uint32_t next = offsets[track - first];
-    const std::uint32_t end = offsets[track - first + 1U];
-    for (std::uint32_t k = 0; k < rows.count[track]; ++k) {
-      for (; next < end && partners[next].layerRow == k && partners[next].ahead == 0U; ++next) {
-        emit(partners[next].row, ReferenceRole::kOverlapPartner);
-      }
-      emit(rows.clusters[track].index[k], ReferenceRole::kLayerRow);
-      for (; next < end && partners[next].layerRow == k; ++next) {
-        emit(partners[next].row, ReferenceRole::kOverlapPartner);
-      }
-    }
+    writePartneredRows(rows.clusters[track], rows.count[track], partners + offsets[track - first], partners + offsets[track - first + 1U], out, at);
   }
 };
 
@@ -383,6 +390,20 @@ class TrackStore
   }
   [[nodiscard]] const References& references() const { return mReferences; }
   [[nodiscard]] References& references() { return mReferences; }
+  /// \a track's layer rows alone, one per layer, in path order, into \a out
+  /// (a chain's length): how many.
+  std::uint32_t layerRows(std::size_t track, std::span<std::uint32_t, kMaxClusters> out) const
+  {
+    const auto range = mReferences.range(track);
+    const auto records = mReferences.view().records;
+    std::uint32_t count = 0U;
+    for (std::uint32_t at = range.first; at < range.first + range.count; ++at) {
+      if ((records.role[at] & static_cast<std::uint8_t>(ReferenceRole::kLayerRow)) != 0U) {
+        out[count++] = records.row[at];
+      }
+    }
+    return count;
+  }
 
   /// A table of \a S's records per committed track, empty for those committed
   /// so far; std::logic_error if the store has one of \a S already.
@@ -474,6 +495,23 @@ class TrackStore
     const LayerRowReferences<kMaxClusters> rows{.clusters = view.clusters, .count = view.count};
     return mReferences.append(
       forEach, chunk, static_cast<std::uint32_t>(changed.size()), [&](std::uint32_t i) { return changed[i]; }, [&](std::uint32_t i) { return rows.references(changed[i]); }, [&](std::uint32_t i, const auto& out, std::uint32_t at) { rows.write(changed[i], out, at); });
+  }
+
+  /// The committed tracks \a listed (ascending) as \a tracks holds them,
+  /// with their overlap partners (OverlapPartners.h): each one's fields
+  /// again, and its rows and partners as new references -- \a listed[i]'s
+  /// partners from \a offsets[i] to the next, in path order.
+  template <typename ForEach, typename Partner>
+  [[nodiscard]] StageStatus recommitPartnered(const ForEach& forEach, std::uint32_t chunk, const Tracks& tracks, std::span<const std::uint32_t> listed, std::span<const std::uint32_t> offsets, std::span<const Partner> partners)
+  {
+    assert(offsets.size() == listed.size() + 1U);
+    const auto view = tracks.view();
+    const auto committed = mTrackColumns.view();
+    const auto n = static_cast<std::uint32_t>(listed.size());
+    forEach(n, [&](std::uint32_t i) { copyTrackFields(view, listed[i], committed, listed[i]); });
+    return mReferences.append(
+      forEach, chunk, n, [&](std::uint32_t i) { return listed[i]; }, [&](std::uint32_t i) { return view.count[listed[i]] + offsets[i + 1U] - offsets[i]; },
+      [&](std::uint32_t i, const auto& out, std::uint32_t at) { writePartneredRows(view.clusters[listed[i]], view.count[listed[i]], partners.data() + offsets[i], partners.data() + offsets[i + 1U], out, at); });
   }
 
   /// Whether the committed tracks are \a tracks: the same fields, bit for

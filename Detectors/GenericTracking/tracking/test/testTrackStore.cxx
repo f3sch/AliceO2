@@ -300,6 +300,28 @@ BOOST_AUTO_TEST_CASE(PartnersGoBesideTheirRows)
   BOOST_TEST(inlined.view().clusters[2].index[3] == ClusterList<kClusters>::kNoCluster);
 }
 
+/// Committed tracks given their overlap partners after the run
+/// (`recommitPartnered`): the listed ones' references are their rows and
+/// partners in path order and their fields the tracks' again; the others keep
+/// theirs.
+BOOST_AUTO_TEST_CASE(PartnersAddedToCommittedTracks)
+{
+  Store store;
+  Tracks tracks;
+  appendTracks(tracks, {3U, 2U, 3U});
+  BOOST_REQUIRE(store.commit(serial, 2U, tracks) == StageStatus::kComplete);
+  tracks.view().chi2[2] = 7.F;
+  // Track 2 (rows 200-202): two partners before row 1, one after row 2.
+  const std::vector<std::uint32_t> listed{2U};
+  const std::vector<std::uint32_t> offsets{0U, 3U};
+  const std::vector<OverlapPartner> partners{{.row = 9000U, .layerRow = 1U, .ahead = 0U}, {.row = 9001U, .layerRow = 1U, .ahead = 0U}, {.row = 9002U, .layerRow = 2U, .ahead = 1U}};
+  BOOST_REQUIRE(store.recommitPartnered(serial, 2U, tracks, std::span<const std::uint32_t>{listed}, std::span<const std::uint32_t>{offsets}, std::span<const OverlapPartner>{partners}) == StageStatus::kComplete);
+  BOOST_TEST((referencedRows(store, 2) == std::vector<std::uint32_t>{200U, 9000U, 9001U, 201U, 202U, 9002U}));
+  BOOST_TEST((referencedRows(store, 0) == std::vector<std::uint32_t>{0U, 1U, 2U}));
+  BOOST_TEST(store.tracks().view().chi2[2] == 7.F);
+  BOOST_TEST(store.holds(tracks));
+}
+
 /// A new timeframe starts with no tracks in any table, the tables still
 /// there; the timeframe's end gives every table's storage back to the pool.
 BOOST_AUTO_TEST_CASE(TheTimeframesStorageGoesBackToThePool)

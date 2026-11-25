@@ -637,7 +637,7 @@ void writeFitResults(const std::string& path, const TrackStore<Det>& tracks, con
 /// line, the dump's vertices, the slicing). Read back by the same build only
 /// (the header's sizes; the caller's file names carry the build).
 struct CheckpointHeader {
-  std::array<char, 8> magic{'G', 'T', 'R', 'K', 'C', 'K', 'P', '2'};
+  std::array<char, 8> magic{'G', 'T', 'R', 'K', 'C', 'K', 'P', '3'};
   std::uint64_t frame = 0U;
   std::uint64_t conditions = 0U;
   std::uint64_t iterations = 0U;
@@ -646,6 +646,8 @@ struct CheckpointHeader {
   std::uint64_t settingsBytes = 0U;
   std::uint64_t summaryBytes = 0U;
   std::uint64_t trackBytes = 0U;
+  std::uint64_t claims = 0U; ///< the overlap partners claimed, not fitted yet
+  std::uint64_t claimBytes = 0U;
 };
 
 /// The checkpoint's frame fingerprint: every measurement column of \a frame.
@@ -681,7 +683,8 @@ void writeCheckpoint(const std::string& path, const Checkpoint& state, std::span
 {
   using Summary = typename decltype(state.summaries)::value_type;
   using Record = typename decltype(state.tracks)::value_type;
-  static_assert(std::is_trivially_copyable_v<IterationSettings> && std::is_trivially_copyable_v<Summary> && std::is_trivially_copyable_v<Record>);
+  using Claim = typename decltype(state.claims)::value_type;
+  static_assert(std::is_trivially_copyable_v<IterationSettings> && std::is_trivially_copyable_v<Summary> && std::is_trivially_copyable_v<Record> && std::is_trivially_copyable_v<Claim>);
   std::ofstream out(path, std::ios::binary);
   if (!out) {
     throw std::runtime_error("cannot write " + path);
@@ -695,6 +698,8 @@ void writeCheckpoint(const std::string& path, const Checkpoint& state, std::span
     .settingsBytes = sizeof(IterationSettings),
     .summaryBytes = sizeof(Summary),
     .trackBytes = sizeof(Record),
+    .claims = state.claims.size(),
+    .claimBytes = sizeof(Claim),
   };
   const auto write = [&](const auto* data, std::size_t count) {
     out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(count * sizeof(*data))); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -704,6 +709,7 @@ void writeCheckpoint(const std::string& path, const Checkpoint& state, std::span
   write(state.summaries.data(), state.summaries.size());
   write(state.used.data(), state.used.size());
   write(state.tracks.data(), state.tracks.size());
+  write(state.claims.data(), state.claims.size());
   if (!out) {
     throw std::runtime_error("cannot write " + path);
   }
@@ -716,6 +722,7 @@ Checkpoint readCheckpoint(const std::string& path, std::span<const IterationSett
 {
   using Summary = typename decltype(Checkpoint::summaries)::value_type;
   using Record = typename decltype(Checkpoint::tracks)::value_type;
+  using Claim = typename decltype(Checkpoint::claims)::value_type;
   std::ifstream in(path, std::ios::binary);
   if (!in) {
     throw std::runtime_error("cannot read " + path);
@@ -729,10 +736,10 @@ Checkpoint readCheckpoint(const std::string& path, std::span<const IterationSett
   CheckpointHeader header;
   const auto magic = header.magic;
   read(&header, 1U);
-  if (header.magic != magic || header.settingsBytes != sizeof(IterationSettings) || header.summaryBytes != sizeof(Summary) || header.trackBytes != sizeof(Record)) {
+  if (header.magic != magic || header.settingsBytes != sizeof(IterationSettings) || header.summaryBytes != sizeof(Summary) || header.trackBytes != sizeof(Record) || header.claimBytes != sizeof(Claim)) {
     throw std::runtime_error(path + " is not a checkpoint of this build");
   }
-  const auto bytes = sizeof(header) + (header.iterations * (header.settingsBytes + header.summaryBytes)) + header.rows + (header.tracks * header.trackBytes);
+  const auto bytes = sizeof(header) + (header.iterations * (header.settingsBytes + header.summaryBytes)) + header.rows + (header.tracks * header.trackBytes) + (header.claims * header.claimBytes);
   if (std::filesystem::file_size(path) != bytes) {
     throw std::runtime_error(std::format("{} has {} bytes, its header promises {}", path, std::filesystem::file_size(path), bytes));
   }
@@ -753,9 +760,11 @@ Checkpoint readCheckpoint(const std::string& path, std::span<const IterationSett
   state.summaries.resize(header.iterations);
   state.used.resize(header.rows);
   state.tracks.resize(header.tracks);
+  state.claims.resize(header.claims);
   read(state.summaries.data(), state.summaries.size());
   read(state.used.data(), state.used.size());
   read(state.tracks.data(), state.tracks.size());
+  read(state.claims.data(), state.claims.size());
   return state;
 }
 
@@ -2702,6 +2711,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     const auto& references = result.store->references();
     constexpr std::size_t kReferenceBytes = sizeof(std::uint32_t) + sizeof(SourceID) + sizeof(std::uint8_t);
     std::cout << std::format("track store: {} tracks, {} references ({:.2f} MB with the ranges); they are the tracks' rows: {}\n", result.store->size(), references.recordCount(), static_cast<double>((references.recordCount() * kReferenceBytes) + (references.trackCount() * sizeof(TrackRange))) / 1.e6, result.store->holds(tracker.workingTracks()) ? "yes" : "NO");
+    if (result.partners.tracks + result.partners.releasedTracks != 0U) {
+      std::cout << std::format("overlap partners fitted after the last iteration: {} on {} tracks; {} released, of {} tracks whose fit with them failed\n", result.partners.partners, result.partners.tracks, result.partners.released, result.partners.releasedTracks);
+    }
     if (!options.tracksOut.empty() && last) {
       writeTracks<Det>(options.tracksOut, *result.store, frame);
     }

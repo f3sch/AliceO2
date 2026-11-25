@@ -616,20 +616,6 @@ BOOST_AUTO_TEST_CASE(TheRecoveryPassKeepsWholeTracksWhole)
   BOOST_TEST(std::ranges::all_of(tracker->used(), [](std::uint8_t state) { return state == kExclusive; }));
 }
 
-/// The follow of earlier iterations' tracks after an iteration with
-/// overlap partners is refused: their partners are references it would not
-/// carry along.
-BOOST_AUTO_TEST_CASE(NoFollowOfEarlierTracksAfterOverlapPartners)
-{
-  auto settings = iterations();
-  settings[0].overlapPartners = true;
-  settings[1].followEarlier = true;
-  BOOST_CHECK_THROW(makeTracker(settings), std::invalid_argument);
-  settings[0].overlapPartners = false;
-  settings[1].overlapPartners = true;
-  BOOST_CHECK_NO_THROW(makeTracker(settings));
-}
-
 namespace
 {
 
