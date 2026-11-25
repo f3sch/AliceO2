@@ -26,8 +26,8 @@
 #ifndef GTRK_STUDY_CASCADEFINDER_H_
 #define GTRK_STUDY_CASCADEFINDER_H_
 
+#include "GenericTracking/Base/Species.h"
 #include "GenericTracking/Tracking/DecayCandidateFit.h"
-#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/DecayStudyTools.h"
 
 #include <cstddef>

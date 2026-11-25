@@ -29,9 +29,9 @@
 #ifndef GTRK_STUDY_DECAYCANDIDATESTUDY_H_
 #define GTRK_STUDY_DECAYCANDIDATESTUDY_H_
 
+#include "GenericTracking/Base/Species.h"
 #include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayCandidateFit.h"
-#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/DecayCandidates.h"
 #include "GenericTracking/Study/DecayStudyTools.h"
 #include "GenericTracking/Study/MCTruth.h"

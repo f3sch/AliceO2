@@ -29,13 +29,13 @@
 #ifndef GTRK_TRACKING_HYPOTHESISREFIT_H_
 #define GTRK_TRACKING_HYPOTHESISREFIT_H_
 
+#include "GenericTracking/Base/Species.h"
 #include "GenericTracking/Tracking/BeamConstraint.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/GSFTrackFitter.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/MeasurementUpdate.h"
-#include "GenericTracking/Tracking/Species.h"
 
 #include <cstdint>
 

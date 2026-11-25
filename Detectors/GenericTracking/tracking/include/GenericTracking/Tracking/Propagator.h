@@ -23,10 +23,10 @@
 
 #include "GenericTracking/Base/Definitions.h"
 #include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Base/Species.h"
 #include "GenericTracking/Tracking/BoundTrackState.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/MathUtils.h"
-#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
 #include "GenericTracking/Tracking/WorkCounters.h"
 

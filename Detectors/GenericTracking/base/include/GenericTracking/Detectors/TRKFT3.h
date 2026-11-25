@@ -45,11 +45,6 @@ namespace o2::gtrk::detectors
 namespace trkft3
 {
 
-// O2's units, so that each value below is O2's to the bit.
-inline constexpr double kCm = 1.;
-inline constexpr double kMm = 0.1;
-inline constexpr double kUm = 1e-4;
-
 /// A VD sensor: a quarter of a cylinder of radius kVDRadius less the gap
 /// between petals, 50 cm long, 20 um of silicon, 10 um pixels. O2 measures its
 /// flat coordinate on the inner surface (SensorSpec::radius).

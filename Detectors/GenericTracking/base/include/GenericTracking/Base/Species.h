@@ -19,13 +19,12 @@
 /// and |q|. `o2::track::PID` lacks the lithium ions and the Sigmas, so the
 /// tracking keeps its own list; the list is fixed and its order is policy.
 
-#ifndef GTRK_TRACKING_SPECIES_H_
-#define GTRK_TRACKING_SPECIES_H_
+#ifndef GTRK_BASE_SPECIES_H_
+#define GTRK_BASE_SPECIES_H_
 
-#include "GenericTracking/Tracking/Definitions.h"
+#include "GenericTracking/Base/Definitions.h"
 
 #include "CommonConstants/PhysicsConstants.h"
-#include "GPUCommonDef.h"
 
 #include <cstdint>
 
@@ -61,48 +60,48 @@ inline constexpr int kNSpecies = static_cast<int>(Species::kCount);
 
 /// The mass [GeV] of \a species: O2's (`PhysicsConstants.h`); the lithium
 /// ions' from O2's ion table (`extra_ions_pdg_table.dat`).
-GPUhdi() constexpr Scalar massOf(Species species)
+GPUhdi() constexpr float massOf(Species species)
 {
   namespace physics = o2::constants::physics;
   switch (species) {
     case Species::kElectron:
-      return static_cast<Scalar>(physics::MassElectron);
+      return static_cast<float>(physics::MassElectron);
     case Species::kMuon:
-      return static_cast<Scalar>(physics::MassMuon);
+      return static_cast<float>(physics::MassMuon);
     case Species::kPion:
-      return static_cast<Scalar>(physics::MassPionCharged);
+      return static_cast<float>(physics::MassPionCharged);
     case Species::kKaon:
-      return static_cast<Scalar>(physics::MassKaonCharged);
+      return static_cast<float>(physics::MassKaonCharged);
     case Species::kProton:
-      return static_cast<Scalar>(physics::MassProton);
+      return static_cast<float>(physics::MassProton);
     case Species::kDeuteron:
-      return static_cast<Scalar>(physics::MassDeuteron);
+      return static_cast<float>(physics::MassDeuteron);
     case Species::kTriton:
-      return static_cast<Scalar>(physics::MassTriton);
+      return static_cast<float>(physics::MassTriton);
     case Species::kHelium3:
-      return static_cast<Scalar>(physics::MassHelium3);
+      return static_cast<float>(physics::MassHelium3);
     case Species::kHelium4:
-      return static_cast<Scalar>(physics::MassAlpha);
+      return static_cast<float>(physics::MassAlpha);
     case Species::kLithium6:
       return 5.60152F;
     case Species::kLithium7:
       return 6.53383F;
     case Species::kXi:
-      return static_cast<Scalar>(physics::MassXiMinus);
+      return static_cast<float>(physics::MassXiMinus);
     case Species::kOmega:
-      return static_cast<Scalar>(physics::MassOmegaMinus);
+      return static_cast<float>(physics::MassOmegaMinus);
     case Species::kSigmaPlus:
-      return static_cast<Scalar>(physics::MassSigmaPlus);
+      return static_cast<float>(physics::MassSigmaPlus);
     case Species::kSigmaMinus:
-      return static_cast<Scalar>(physics::MassSigmaMinus);
+      return static_cast<float>(physics::MassSigmaMinus);
     case Species::kHyperTriton:
-      return static_cast<Scalar>(physics::MassHyperTriton);
+      return static_cast<float>(physics::MassHyperTriton);
     case Species::kHyperHydrogen4:
-      return static_cast<Scalar>(physics::MassHyperHydrogen4);
+      return static_cast<float>(physics::MassHyperHydrogen4);
     case Species::kHyperHelium4:
-      return static_cast<Scalar>(physics::MassHyperHelium4);
+      return static_cast<float>(physics::MassHyperHelium4);
     case Species::kHyperHelium5:
-      return static_cast<Scalar>(physics::MassHyperHelium5);
+      return static_cast<float>(physics::MassHyperHelium5);
     case Species::kCount:
       break;
   }
@@ -110,7 +109,7 @@ GPUhdi() constexpr Scalar massOf(Species species)
 }
 
 /// The |q| [e] of \a species.
-GPUhdi() constexpr Scalar absChargeOf(Species species)
+GPUhdi() constexpr float absChargeOf(Species species)
 {
   switch (species) {
     case Species::kHelium3:
@@ -198,4 +197,4 @@ GPUhdi() constexpr Scalar absChargeOf(Species species)
 
 } // namespace o2::gtrk
 
-#endif // GTRK_TRACKING_SPECIES_H_
+#endif // GTRK_BASE_SPECIES_H_

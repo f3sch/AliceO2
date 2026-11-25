@@ -112,8 +112,8 @@ BOOST_AUTO_TEST_CASE(PropagationClosesOnItsOwnHelixWithinOneMicron)
 
   worst.report("sweep");
   BOOST_TEST(worst.checked > trials / 2);
-  BOOST_TEST(worst.value.position < kMicron);
-  BOOST_TEST(worst.value.plane < kMicron);
+  BOOST_TEST(worst.value.position < kUm);
+  BOOST_TEST(worst.value.plane < kUm);
   BOOST_TEST(worst.value.azimuth < 1.e-6);
 }
 
@@ -161,8 +161,8 @@ BOOST_AUTO_TEST_CASE(GrazingHalfTurnAndStraightLimitsStayWithinOneMicron)
               if (result.status == PropagationStatus::kOk || result.status == PropagationStatus::kOutOfBounds) {
                 const auto next = closure(prop, initial, state, from, to, result.pathLength);
                 worst.add(next);
-                BOOST_TEST(next.position < kMicron);
-                BOOST_TEST(next.plane < kMicron);
+                BOOST_TEST(next.position < kUm);
+                BOOST_TEST(next.plane < kUm);
               }
             }
           }

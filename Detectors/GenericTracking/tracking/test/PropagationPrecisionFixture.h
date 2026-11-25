@@ -19,8 +19,6 @@
 namespace o2::gtrk::propagation_precision
 {
 
-constexpr double kMicron = 1.e-4; ///< [cm]
-
 inline TrackingSurface plane(double x, double y, double z, double angle, bool disc, SensorID id)
 {
   const Scalar origin[3]{static_cast<Scalar>(x), static_cast<Scalar>(y), static_cast<Scalar>(z)};
@@ -90,7 +88,7 @@ struct Worst {
     ++checked;
   }
 
-  void report(const char* label) const { std::cout << label << ": checked=" << checked << " position um=" << value.position / kMicron << " plane um=" << value.plane / kMicron << " azimuth urad=" << value.azimuth * 1.e6 << '\n'; }
+  void report(const char* label) const { std::cout << label << ": checked=" << checked << " position um=" << value.position / kUm << " plane um=" << value.plane / kUm << " azimuth urad=" << value.azimuth * 1.e6 << '\n'; }
 };
 
 } // namespace o2::gtrk::propagation_precision

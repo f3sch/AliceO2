@@ -56,9 +56,9 @@
 #ifndef GTRK_STUDY_DECAYFINDERSTUDY_H_
 #define GTRK_STUDY_DECAYFINDERSTUDY_H_
 
+#include "GenericTracking/Base/Species.h"
 #include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayCandidateFit.h"
-#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/CascadeFinder.h"
 #include "GenericTracking/Study/CharmFinder.h"
 #include "GenericTracking/Study/DecayCandidates.h"

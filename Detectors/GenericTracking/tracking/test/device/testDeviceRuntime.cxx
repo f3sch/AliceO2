@@ -249,8 +249,8 @@ BOOST_AUTO_TEST_CASE(DevicePropagationClosesWithinOneMicron)
   }
   worst.report(device.runtime->backend());
   BOOST_TEST(worst.checked > kTrials / 2);
-  BOOST_TEST(worst.value.position < kMicron);
-  BOOST_TEST(worst.value.plane < kMicron);
+  BOOST_TEST(worst.value.position < kUm);
+  BOOST_TEST(worst.value.plane < kUm);
   BOOST_TEST(worst.value.azimuth < 1.e-6);
 }
 

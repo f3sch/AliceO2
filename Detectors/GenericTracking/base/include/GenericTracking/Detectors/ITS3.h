@@ -44,11 +44,6 @@ namespace o2::gtrk::detectors
 namespace mosaix
 {
 
-// O2's units, so that each value below is O2's to the bit.
-inline constexpr double kCm = 1.;
-inline constexpr double kMm = 0.1;
-inline constexpr double kUm = 1e-4;
-
 /// A tile's pixel array: 442 rows across it, 156 columns along the beam.
 inline constexpr int kRows = 442;
 inline constexpr int kColumns = 156;

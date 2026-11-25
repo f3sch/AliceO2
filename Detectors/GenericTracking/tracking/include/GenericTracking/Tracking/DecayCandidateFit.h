@@ -38,10 +38,10 @@
 #define GTRK_TRACKING_DECAYCANDIDATEFIT_H_
 
 #include "GenericTracking/Base/FixedVector.h"
+#include "GenericTracking/Base/Species.h"
 #include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayObservables.h"
 #include "GenericTracking/Tracking/DecayVertexFit.h"
-#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Tracking/TrackStore.h"
 
 #include <array>

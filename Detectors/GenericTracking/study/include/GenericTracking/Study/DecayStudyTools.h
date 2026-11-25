@@ -19,10 +19,10 @@
 #ifndef GTRK_STUDY_DECAYSTUDYTOOLS_H_
 #define GTRK_STUDY_DECAYSTUDYTOOLS_H_
 
+#include "GenericTracking/Base/Species.h"
 #include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayCandidateFit.h"
 #include "GenericTracking/Tracking/HypothesisRefit.h"
-#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/StateTruth.h"
 #include "GenericTracking/Study/TruthEvent.h"
 

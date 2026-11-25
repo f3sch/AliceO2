@@ -27,9 +27,9 @@
 #ifndef GTRK_STUDY_SPECIESLIKELIHOODSTUDY_H_
 #define GTRK_STUDY_SPECIESLIKELIHOODSTUDY_H_
 
+#include "GenericTracking/Base/Species.h"
 #include "GenericTracking/Tracking/GSFTrackFitter.h"
 #include "GenericTracking/Tracking/RoadFit.h"
-#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/MCTruth.h"
 #include "GenericTracking/Study/RecordWriter.h"
 #include "GenericTracking/Study/StateTruth.h"

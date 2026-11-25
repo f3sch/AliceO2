@@ -42,6 +42,7 @@
 #define GTRK_STUDY_DECAYFITSTUDY_H_
 
 #include "GenericTracking/Base/ElementaryMath.h"
+#include "GenericTracking/Base/Species.h"
 #include "GenericTracking/Tracking/DaughterTable.h"
 #include "GenericTracking/Tracking/DecayCandidateFit.h"
 #include "GenericTracking/Tracking/DecayFitBatch.h"
@@ -54,7 +55,6 @@
 #include "GenericTracking/Tracking/HypothesisRefit.h"
 #include "GenericTracking/Tracking/Parallel.h"
 #include "GenericTracking/Tracking/RoadFit.h"
-#include "GenericTracking/Tracking/Species.h"
 #include "GenericTracking/Study/DecayCandidates.h"
 #include "GenericTracking/Study/DecayStudyTools.h"
 #include "GenericTracking/Study/DecayTrees.h"

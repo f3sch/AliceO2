@@ -10,7 +10,8 @@
 // or submit itself to any jurisdiction.
 
 /// \file Definitions.h
-/// \brief Index types and GPU annotations shared by every GTRK header.
+/// \brief Index types, length units and GPU annotations shared by every GTRK
+///        header.
 ///
 /// This is the single place GPUCommonDef.h is pulled in from, so that the
 /// host/device annotations arrive identically everywhere.
@@ -84,6 +85,13 @@ inline constexpr SensorID kInvalidSensorID = std::numeric_limits<SensorID>::max(
 
 /// Sentinel for "no layer", same reasoning as kInvalidSensorID.
 inline constexpr LayerID kInvalidLayerID = std::numeric_limits<LayerID>::max();
+
+/// Lengths are in cm, O2's unit. These write a length given in another unit,
+/// `25 * kMm`, with O2's factors, so that a value copied from O2's geometry is
+/// O2's to the bit.
+inline constexpr double kCm = 1.;
+inline constexpr double kMm = 0.1;
+inline constexpr double kUm = 1e-4;
 
 /// A few numbers that belong together, by count and precision (D double, F
 /// float): a point, a direction, a momentum, a local position or a packed 2x2

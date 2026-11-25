@@ -22,10 +22,10 @@
 #ifndef GTRK_STUDY_TRUTHFIT_H_
 #define GTRK_STUDY_TRUTHFIT_H_
 
+#include "GenericTracking/Base/Species.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/RoadFit.h"
-#include "GenericTracking/Tracking/Species.h"
 
 #include "CommonConstants/PhysicsConstants.h"
 
