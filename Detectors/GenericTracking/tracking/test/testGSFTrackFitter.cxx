@@ -308,7 +308,7 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
         };
         const auto referenceTo = [&](int index) { return detail::referenceFor(reference, kLayers, direction, [&] { return detail::leaveOneOutQOverP(chain.propagator, *chain.tracking, measurements, kLayers, index); }); };
         detail::DiffuseFactors diffuse;
-        BOOST_REQUIRE(detail::startDiffuse(measurements[first], state[path], diffuse));
+        BOOST_REQUIRE(detail::startDiffuse(chain.propagator, measurements[first], state[path], diffuse));
         int plane = first;
         for (int b = 0; b < detail::kPassStart - 1; ++b, plane += increment) {
           const auto loss = lossOf(b);

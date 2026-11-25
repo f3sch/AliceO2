@@ -77,11 +77,12 @@ template <DetectorLayout Det>
   return false;
 }
 
-/// The road fit's chi2 bound for \a clusters clusters and \a kinks kinks.
+/// The road fit's chi2 bound for \a clusters clusters and \a kinks kinks
+/// under \a propagator's field (`fittedParameters`).
 template <DetectorLayout Det>
-[[nodiscard]] inline Scalar roadChi2Cut(const IterationParameters<Det>& parameters, std::uint32_t clusters, std::uint32_t kinks = 0U)
+[[nodiscard]] inline Scalar roadChi2Cut(const IterationParameters<Det>& parameters, const Propagator& propagator, std::uint32_t clusters, std::uint32_t kinks = 0U)
 {
-  return parameters.roadChi2MaxByNdf[(2U * clusters) - kNBoundParams - (2U * kinks)];
+  return parameters.roadChi2MaxByNdf[(2 * static_cast<int>(clusters)) - fittedParameters(propagator) - (2 * static_cast<int>(kinks))];
 }
 
 /// Why the road fit stage refuses a road, in the order of its tests, or that

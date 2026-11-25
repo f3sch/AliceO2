@@ -23,6 +23,7 @@
 #include "GenericTracking/Tracking/TrackingSurface.h"
 
 #include "GPUCommonMath.h"
+#include "ReconstructionDataFormats/TrackParametrization.h"
 
 #include <cstddef>
 #include <utility>
@@ -64,6 +65,9 @@ GPUdi() void relativePosition(const TrackingSurface& surface, const Measurement&
 /// measurement; its curvature is positive clockwise, ours counter-clockwise.
 /// Longitudinal: z against transverse arc length from the closest approach to
 /// the first measurement, least squares in intercept and slope.
+///
+/// q/p is the curvature's; at zero field, which measures no momentum, O2's
+/// convention: positive, pT = `o2::track::kMostProbablePt`.
 ///
 /// Both fits are unweighted: cluster-level accuracy is all a starting point
 /// needs.
@@ -254,7 +258,9 @@ GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<D
   state.par[kLoc1] = static_cast<Scalar>(local[1]);
   state.par[kPhi] = static_cast<Scalar>(phi);
   state.par[kTheta] = static_cast<Scalar>(theta);
-  state.par[kQOverP] = static_cast<Scalar>(curvature * sinTheta / field);
+  // At zero field the curvature measures no momentum: O2's convention, a
+  // positive track of pT `kMostProbablePt`.
+  state.par[kQOverP] = static_cast<Scalar>(stepPropagator(prop, geometry, measurements, 0, n - 1).measuresMomentum() ? curvature * sinTheta / field : sinTheta / static_cast<T>(o2::track::kMostProbablePt));
   state.surface = measurements[0].surface;
   state.surfacePhi = firstSurface.surfacePhi;
   return state;

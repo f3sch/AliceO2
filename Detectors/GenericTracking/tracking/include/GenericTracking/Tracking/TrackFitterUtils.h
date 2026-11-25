@@ -32,6 +32,7 @@
 
 #include "GPUCommonMath.h"
 #include "MathUtils/detail/trigonometric.h"
+#include "ReconstructionDataFormats/TrackParametrization.h"
 
 #include <cfloat>
 #include <cstdint>
@@ -60,7 +61,8 @@ struct TrackFitResult {
   /// The measurement the failed step was propagating to.
   std::int16_t failedMeasurement = -1;
   /// The kinks each pass took. `ndf` is the inward pass's, two fewer per
-  /// kink; the outward pass has `2 N - 5 - 2 outwardKinks`.
+  /// kink; the outward pass has `2 N - p - 2 outwardKinks`, p the fitted
+  /// parameters (`fittedParameters`).
   std::uint8_t kinks = 0;
   std::uint8_t outwardKinks = 0;
   /// The measurement the inward pass's last kink updated with; -1 without.
@@ -77,6 +79,11 @@ GPUhdi() GPUAlwaysInline() Scalar lossMassGeV(const Propagator& prop) { return p
 /// propagator type overloads it (the study's TruthFit.h) to change \a state's q/p
 /// and add to the step's q/p variance \a varQOverP.
 GPUhdi() GPUAlwaysInline() void applyRadiation(const Propagator& /*prop*/, Scalar /*x2X0*/, PropagationDirection /*direction*/, BoundParameters& /*state*/, Scalar& /*varQOverP*/) {}
+
+/// The parameters a fit over a chain determines, which its degrees of freedom
+/// are counted against: the five, or four at zero field, where q/p is
+/// assumed (`detail::startDiffuse`).
+GPUhdi() GPUAlwaysInline() int fittedParameters(const Propagator& prop) { return prop.measuresMomentum() ? kNBoundParams : kNBoundParams - 1; }
 
 namespace detail
 {
@@ -716,7 +723,13 @@ GPUdi() GPUAlwaysInline() PropagationStatus diffuseStepBody(const Prop& prop, co
 /// covariance as P_star; the angles and q/p are P_inf, undetermined, and keep
 /// \a state's values only as the point the pass linearises about. False if
 /// the measurement's covariance is not positive definite.
-GPUdi() bool startDiffuse(const Measurement& measurement, BoundTrackState& state, DiffuseFactors& c)
+///
+/// At zero field (\a prop's `measuresMomentum`) no measurement determines
+/// q/p: no derivative of a position or of phi by it survives the field's
+/// factor. It starts in P_star at \a state's value, O2's convention
+/// (`makeChainSeed`), with O2's variance of q/pT, `kC1Pt2max`, and no
+/// correlation; no update moves it. P_inf is the two angles.
+GPUdi() bool startDiffuse(const Propagator& prop, const Measurement& measurement, BoundTrackState& state, DiffuseFactors& c)
 {
   state.par[kLoc0] = measurement.loc0;
   state.par[kLoc1] = measurement.loc1;
@@ -728,8 +741,14 @@ GPUdi() bool startDiffuse(const Measurement& measurement, BoundTrackState& state
   // Any basis of the angles and q/p gives the same limit.
   c.root[kPhi][0] = 1.F;
   c.root[kTheta][1] = 1.F;
-  c.root[kQOverP][2] = 1.F;
-  c.rank = 3;
+  if (prop.measuresMomentum()) {
+    c.root[kQOverP][2] = 1.F;
+    c.rank = 3;
+  } else {
+    const Scalar sinTheta = sinOf(state.theta());
+    c.star.diagonal[kQOverP] = sinTheta * sinTheta * static_cast<Scalar>(o2::track::kC1Pt2max);
+    c.rank = 2;
+  }
   return c.star.diagonal[kLoc1] > 0.F && c.star.diagonal[kLoc0] > 0.F;
 }
 

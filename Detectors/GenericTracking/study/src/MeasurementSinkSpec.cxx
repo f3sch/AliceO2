@@ -1536,7 +1536,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
       failures.push_back({.id = id, .rows = rows, .fit = fit});
       continue;
     }
-    const int outwardNdf = (2 * n) - kNBoundParams - (2 * fit.outwardKinks);
+    const int outwardNdf = (2 * n) - fittedParameters(propagator) - (2 * fit.outwardKinks);
     chi2Sum += static_cast<double>(fit.outwardChi2);
     ndfSum += static_cast<double>(outwardNdf);
     const auto layerOf = [&](int index) { return static_cast<std::size_t>(layerOfRow(frame, tracking, rows[static_cast<std::size_t>(index)])); };
@@ -1551,7 +1551,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
     }
     kinked += fit.outwardKinks != 0U ? 1U : 0U;
     chi2PerNdf.push_back(fit.outwardChi2 / static_cast<float>(outwardNdf));
-    if (!(fit.outwardChi2 <= roadChi2Cut(parameters, static_cast<std::uint32_t>(n), fit.outwardKinks))) {
+    if (!(fit.outwardChi2 <= roadChi2Cut(parameters, propagator, static_cast<std::uint32_t>(n), fit.outwardKinks))) {
       ++length.failed;
       int worst = 0;
       for (int index = 1; index < n; ++index) {
@@ -1578,7 +1578,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
           }
         }
         ++failedByWhy[why];
-        inwardPassesByWhy[why] += fit.chi2 <= roadChi2Cut(parameters, static_cast<std::uint32_t>(n), fit.kinks) ? 1U : 0U;
+        inwardPassesByWhy[why] += fit.chi2 <= roadChi2Cut(parameters, propagator, static_cast<std::uint32_t>(n), fit.kinks) ? 1U : 0U;
         fullLengthByWhy[why] += static_cast<std::size_t>(n) >= static_cast<std::size_t>(Detector<Det>::nLayers) ? 1U : 0U;
       }
       if (beyond == 0U) {
@@ -1789,7 +1789,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
     const int n = static_cast<int>(count);
     const auto fitRows = [&](const std::uint32_t* chain) { return fitMeasurements(propagator, tracking, material, RowChain<Det>{.frame = &frame, .rows = chain}, n, kinkBudget(parameters)); };
     const auto fakeFit = fitRows(trackRows.data());
-    const auto passes = [&](const TrackFitResult& fit) { return fit.status == PropagationStatus::kOk && fit.outwardChi2 <= roadChi2Cut(parameters, count, fit.outwardKinks); };
+    const auto passes = [&](const TrackFitResult& fit) { return fit.status == PropagationStatus::kOk && fit.outwardChi2 <= roadChi2Cut(parameters, propagator, count, fit.outwardKinks); };
     // The best alternative: a passing one with the lowest chi2, else the lowest.
     std::optional<TrackFitResult> best;
     for (const auto row : own) {

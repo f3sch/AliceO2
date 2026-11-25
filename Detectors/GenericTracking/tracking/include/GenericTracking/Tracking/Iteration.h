@@ -283,9 +283,10 @@ struct IterationParameters {
   /// A proposed cluster's update chi2 bound, two coordinates.
   Scalar clusterChi2Max = 0.F;
   /// The road fit's chi2 bound by degrees of freedom: `2 N - 5` for `N`
-  /// clusters, two fewer per kink, at the confidence of `nSigma`
-  /// (`roadChi2Cut`); a box gives the time none.
-  Scalar roadChi2MaxByNdf[(2 * maxChainLayers<Det>)-4]{};
+  /// clusters (`2 N - 4` at zero field, `fittedParameters`), two fewer per
+  /// kink, at the confidence of `nSigma` (`roadChi2Cut`); a box gives the
+  /// time none.
+  Scalar roadChi2MaxByNdf[(2 * maxChainLayers<Det>)-kNBoundParams + 2]{};
   /// The kinks a fit pass may take.
   std::uint8_t maxKinks = 0U;
   /// `IterationSettings::innerTrim`.
@@ -571,7 +572,7 @@ template <DetectorLayout Det>
   parameters.beamY = static_cast<Scalar>(beamSpot.y);
   parameters.beamVarTransverse = static_cast<Scalar>(beamSpot.sigmaTransverse * beamSpot.sigmaTransverse);
   parameters.beamChi2Max = static_cast<Scalar>(chiSquareQuantile(1, settings.windows.nSigma));
-  for (int ndf = 1; ndf <= (2 * static_cast<int>(maxChainLayers<Det>)) - kNBoundParams; ++ndf) {
+  for (int ndf = 1; ndf <= (2 * static_cast<int>(maxChainLayers<Det>)) - kNBoundParams + 1; ++ndf) {
     parameters.roadChi2MaxByNdf[ndf] = static_cast<Scalar>(chiSquareQuantile(ndf, settings.windows.nSigma));
   }
   parameters.maxKinks = static_cast<std::uint8_t>(std::max(settings.maxKinks, 0));
