@@ -176,7 +176,8 @@ struct TrackletRunSummary {
   std::array<std::uint64_t, kPtBins> trueTripletsKeptByPt{};
   double curvaturePullSum = 0.;
   double curvaturePullSum2 = 0.;
-  double curvatureResidualSum2 = 0.; ///< relative to the MC curvature
+  double curvatureResidualSum2 = 0.;   ///< relative to the MC curvature
+  std::size_t curvatureResiduals = 0U; ///< its count: none at zero field
   // The same pull by the particle's pT: the triplet's scattering is taken at
   // pT_min, so above it the pull's rms falls below 1 by design.
   std::array<double, kPtBins> curvaturePullSumByPt{};
@@ -272,13 +273,17 @@ template <std::size_t N>
 
 /// One MC-true kept triplet's curvature pull and relative residual, overall
 /// and in its particle's pT bin.
+/// \a relativeResidual NaN: none, the MC curvature being 0 (zero field).
 void addCurvaturePull(TrackletRunSummary& summary, Scalar pt, double pull, double relativeResidual)
 {
   summary.curvaturePullSum += pull;
   summary.curvaturePullSum2 += pull * pull;
   summary.curvaturePullSumByPt[binOf(pt, kPtEdges)] += pull;
   summary.curvaturePullSum2ByPt[binOf(pt, kPtEdges)] += pull * pull;
-  summary.curvatureResidualSum2 += relativeResidual * relativeResidual;
+  if (std::isfinite(relativeResidual)) {
+    summary.curvatureResidualSum2 += relativeResidual * relativeResidual;
+    ++summary.curvatureResiduals;
+  }
 }
 
 /// The MC-true kept triplets' curvature pulls, overall and by pT.
@@ -287,7 +292,7 @@ void logTripletCurvature(const TrackletRunSummary& summary)
   const auto count = static_cast<double>(summary.trueTripletsKept);
   if (count > 0.) {
     const double mean = summary.curvaturePullSum / count;
-    LOGP(info, "  curvature against MC 1/R(p): pull mean {:.3f}, rms {:.3f}; relative residual rms {:.4f}", mean, sqrtClampedOf(summary.curvaturePullSum2 / count - (mean * mean)), std::sqrt(summary.curvatureResidualSum2 / count));
+    LOGP(info, "  curvature against MC 1/R(p): pull mean {:.3f}, rms {:.3f}; relative residual rms {:.4f}", mean, sqrtClampedOf(summary.curvaturePullSum2 / count - (mean * mean)), summary.curvatureResiduals > 0U ? std::sqrt(summary.curvatureResidualSum2 / static_cast<double>(summary.curvatureResiduals)) : std::numeric_limits<double>::quiet_NaN());
     std::string pullByPt;
     for (std::size_t bin = 1; bin < kPtBins; ++bin) {
       const auto inBin = static_cast<double>(summary.trueTripletsKeptByPt[bin]);
@@ -1020,9 +1025,9 @@ class StageTruth
       }
       // The fit's curvature is the 3D one, 1/R at the momentum p.
       const double momentum = static_cast<double>(firstPair->pt) * std::hypot(1., static_cast<double>(firstPair->cotTheta));
-      const double truth = 1. / curvatureRadius(momentum, mBzKiloGauss);
+      const double truth = exactlyEqual(mBzKiloGauss, 0.) ? 0. : 1. / curvatureRadius(momentum, mBzKiloGauss);
       const double fitted = std::abs(static_cast<double>(tripletView.curvature[i]));
-      addCurvaturePull(summary, firstPair->pt, (fitted - truth) / std::sqrt(static_cast<double>(tripletView.varCurvature[i])), (fitted - truth) / truth);
+      addCurvaturePull(summary, firstPair->pt, (fitted - truth) / std::sqrt(static_cast<double>(tripletView.varCurvature[i])), truth > 0. ? (fitted - truth) / truth : std::numeric_limits<double>::quiet_NaN());
     }
 
     // Neighbours: each edge is owned by the slice whose core holds its first

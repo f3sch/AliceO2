@@ -75,7 +75,7 @@ namespace detail
 /// The cut parameters of one iteration, the same for every layer pair and
 /// every vertex.
 struct PairCut {
-  Scalar twoRMin = 0.F;          ///< twice the softest track's transverse radius [cm]; 0 with no field
+  Scalar twoRMin = 0.F;          ///< twice the softest track's transverse radius [cm], the vertexer's; 0 with no field
   Scalar nSigma = 3.F;           ///< how many sigma of the Gaussian terms are admitted
   Scalar invBetaMomentum2 = 0.F; ///< 1 / (beta pT)^2 at pT_min [GeV^-2], for the scattering sum (`invBetaMomentumMin2`)
   /// The largest transverse curvature above pT_min [1/cm]: zero with no field,
@@ -553,9 +553,9 @@ template <DetectorLayout Det>
 /// The two tests' ingredients for one source, vertex and candidate.
 struct PairTerms {
   bool beforeTurn = false;      ///< the circle's turning point is not between the two
-  Scalar curvature = 0.F;       ///< 2 R_min |P_i x P_j|
-  Scalar bound = 0.F;           ///< r_i r_j d: the curvature bound, in the same units
-  Scalar varCurvature = 0.F;    ///< (2 R_min sigma_X)^2
+  Scalar curvature = 0.F;       ///< 2 |P_i x P_j|
+  Scalar bound = 0.F;           ///< kappa_max r_i r_j d: the curvature bound, in the same units
+  Scalar varCurvature = 0.F;    ///< (2 sigma_X)^2
   Scalar collinearity2 = 0.F;   ///< D^2
   Scalar varCollinearity = 0.F; ///< sigma_D^2
 };
@@ -660,9 +660,9 @@ struct PairChord {
 
   return {
     .beforeTurn = dot >= lowR2 && dot <= highR2,
-    .curvature = cut.twoRMin * o2::gpu::GPUCommonMath::Abs(cross),
-    .bound = source.r * target.r * chord,
-    .varCurvature = cut.twoRMin * cut.twoRMin * varCross,
+    .curvature = 2.F * o2::gpu::GPUCommonMath::Abs(cross),
+    .bound = cut.maxCurvature * source.r * target.r * chord,
+    .varCurvature = 4.F * varCross,
   };
 }
 
@@ -713,8 +713,10 @@ GPUhdi() void addLongitudinalPairTerms(PairTerms& terms, const PairCut& cut, con
 }
 
 /// Curvature at most the iteration's bound plus n sigma, with no turning point
-/// between the two: a looper's legs are found separately. With no field
-/// `twoRMin` is zero and every such pair passes.
+/// between the two: a looper's legs are found separately. The bound is
+/// `maxCurvature`: without a pT cut infinite, and every such pair passes; at
+/// zero field 0, every track straight, and the pair points back to the beam
+/// line within its errors and scattering.
 [[nodiscard]] GPUhdi() GPUAlwaysInline() bool transverseCompatible(const PairCut& cut, const PairTerms& terms)
 {
   const Scalar excess = terms.curvature - terms.bound;

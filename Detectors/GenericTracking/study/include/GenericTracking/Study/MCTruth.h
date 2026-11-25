@@ -44,7 +44,8 @@ namespace o2::gtrk::study
 
 using workflow::carriesParticle;
 
-/// Whether a primary's measurement lies on its first outward helix pass.
+/// Whether a primary's measurement lies on its first outward helix pass: at
+/// zero field on its straight line.
 template <DetectorLayout Det>
 [[nodiscard]] bool onFirstOutwardPass(const o2::MCTrack& mc, LayerID layer, Scalar phi, Scalar second, double bzKiloGauss)
 {
@@ -54,15 +55,16 @@ template <DetectorLayout Det>
     return true;
   }
   const double pt = mc.GetPt();
+  const bool straight = exactlyEqual(bzKiloGauss, 0.);
   const double radius = curvatureRadius(pt, bzKiloGauss);
   const double layerRadius = layerDistance<Det>(layer);
-  if (!(2. * radius > layerRadius)) {
+  if (!straight && !(2. * radius > layerRadius)) {
     return false;
   }
-  const double deflection = std::asin(layerRadius / (2. * radius));
+  const double deflection = straight ? 0. : std::asin(layerRadius / (2. * radius));
   const double cotTheta = mc.GetStartVertexMomentumZ() / pt;
-  const double predictedZ = mc.Vz() + (cotTheta * 2. * radius * deflection);
-  const double zTolerance = std::max(kZTolerance, kPi<double> * radius * std::abs(cotTheta));
+  const double predictedZ = mc.Vz() + (cotTheta * (straight ? layerRadius : 2. * radius * deflection));
+  const double zTolerance = straight ? kZTolerance : std::max(kZTolerance, kPi<double> * radius * std::abs(cotTheta));
   if (std::abs(static_cast<double>(second) - predictedZ) > zTolerance) {
     return false;
   }

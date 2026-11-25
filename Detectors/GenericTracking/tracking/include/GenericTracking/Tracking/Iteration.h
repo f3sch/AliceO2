@@ -200,31 +200,6 @@ template <DetectorLayout Det>
   return {.lengthMin = narrowedLength, .chordMax = conservativeScalarBound(chordMax)};
 }
 
-/// A layer's resolution as its sensor defines it: a row's position spread
-/// over a pixel, pitch^2 / 12, along each of the layer's directions [cm^2] --
-/// the azimuth, the second coordinate (z on a barrel, r on a disc) and the
-/// normal (r on a barrel, z on a disc: the silicon's thickness). A disc's
-/// sensors lie at any angle in its plane, so both its in-plane directions
-/// take the larger pitch.
-struct LayerResolution {
-  Scalar varRPhi = 0.F;
-  Scalar varSecond = 0.F;
-  Scalar varNormal = 0.F;
-};
-
-template <DetectorLayout Det>
-[[nodiscard]] inline LayerResolution layerResolution(LayerID layer)
-{
-  const auto& sensor = PlacedSensorSpecs<Det>::get(layer);
-  const auto spread = [](double width) { return static_cast<Scalar>(width * width / 12.); };
-  const double thickness = 2. * sensor.halfThickness;
-  if (Detector<Det>::isBarrelLayer(layer)) {
-    return {.varRPhi = spread(sensor.pitchX), .varSecond = spread(sensor.pitchY), .varNormal = spread(thickness)};
-  }
-  const double pitch = std::max(sensor.pitchX, sensor.pitchY);
-  return {.varRPhi = spread(pitch), .varSecond = spread(pitch), .varNormal = spread(thickness)};
-}
-
 /// Everything one iteration's kernels read.
 template <DetectorLayout Det>
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): the fields follow the configuration; their order is the designated initialisers'
@@ -312,7 +287,7 @@ struct IterationParameters {
   /// The layers a road may start on; 0 for any (`IterationSettings`).
   std::uint64_t roadStartLayers = 0U;
   /// The lowest pT of a track by its cluster count [GeV]; 0 for none
-  /// (`IterationSettings::minPtGeVByClusters`).
+  /// (`IterationSettings::minPtGeVByClusters`), and none at zero field.
   Scalar minPtByClusters[maxChainLayers<Det> + 1U]{};
   /// `IterationSettings`' shareable innermost clusters and follow switch.
   std::uint32_t sharedInnermost = 0U;
@@ -589,10 +564,12 @@ template <DetectorLayout Det>
   parameters.roadEndLayers = settings.roadEndLayers;
   parameters.roadStartLayers = settings.roadStartLayers;
   // A pT floor per cluster count has a slot for every chain the layout can
-  // hold, or none would apply to the longest.
+  // hold, or none would apply to the longest. At zero field none: the fit
+  // measures no pT to cut (`fittedParameters`).
   static_assert(maxChainLayers<Det> + 1U <= IterationSettings::kClusterSlots);
+  const bool measuredPt = !exactlyEqual(settings.windows.bzKiloGauss, 0.);
   for (std::size_t count = 0; count <= maxChainLayers<Det>; ++count) {
-    parameters.minPtByClusters[count] = static_cast<Scalar>(settings.minPtGeVByClusters[count]);
+    parameters.minPtByClusters[count] = measuredPt ? static_cast<Scalar>(settings.minPtGeVByClusters[count]) : 0.F;
   }
   parameters.sharedInnermost = settings.sharedInnermost;
   return parameters;

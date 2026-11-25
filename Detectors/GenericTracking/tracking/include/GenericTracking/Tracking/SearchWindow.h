@@ -335,23 +335,50 @@ struct VertexPairWindow {
   return narrowed;
 }
 
+/// A layer's resolution as its sensor defines it: a row's position spread
+/// over a pixel, pitch^2 / 12, along each of the layer's directions [cm^2] --
+/// the azimuth, the second coordinate (z on a barrel, r on a disc) and the
+/// normal (r on a barrel, z on a disc: the silicon's thickness). A disc's
+/// sensors lie at any angle in its plane, so both its in-plane directions
+/// take the larger pitch.
+struct LayerResolution {
+  Scalar varRPhi = 0.F;
+  Scalar varSecond = 0.F;
+  Scalar varNormal = 0.F;
+};
+
+template <DetectorLayout Det>
+[[nodiscard]] inline LayerResolution layerResolution(LayerID layer)
+{
+  const auto& sensor = PlacedSensorSpecs<Det>::get(layer);
+  const auto spread = [](double width) { return static_cast<Scalar>(width * width / 12.); };
+  const double thickness = 2. * sensor.halfThickness;
+  if (Detector<Det>::isBarrelLayer(layer)) {
+    return {.varRPhi = spread(sensor.pitchX), .varSecond = spread(sensor.pitchY), .varNormal = spread(thickness)};
+  }
+  const double pitch = std::max(sensor.pitchX, sensor.pitchY);
+  return {.varRPhi = spread(pitch), .varSecond = spread(pitch), .varNormal = spread(thickness)};
+}
+
 /// The half-width in phi: the widest azimuth the transverse pair test accepts.
 ///
 /// The test admits a pair when
 ///
 /// ```
-/// sin(dphi) <= d / (2 R_min) + n sqrt(res^2 + (d/r_j)^2 kink^2)
-/// d^2 = r_i^2 + r_j^2 - 2 r_i r_j cos(dphi),    res^2 = sigma^2 (1/r_i^2 + 1/r_j^2)
+/// sin(dphi) <= kappa_max d / 2 + n sqrt(res^2 + (d/r_j)^2 kink^2)
+/// d^2 = r_i^2 + r_j^2 - 2 r_i r_j cos(dphi),    res^2 = sigma_i^2 / r_i^2 + sigma_j^2 / r_j^2
 /// cos(dphi) >= min(r_i, r_j) / max(r_i, r_j)
 /// ```
 ///
 /// with \a sourceKink one standard deviation of the track's transverse
-/// direction at the seed [rad].
+/// direction at the seed [rad], `kappa_max` the curvature bound
+/// (`maxCurvature`; without a pT cut no window, at zero field 0) and sigma
+/// each layer's sensor resolution along r-phi (`layerResolution`).
 /// The last line is the test's no-turning-point condition. The chord grows
 /// with dphi, so no closed form bounds the accepted set; it is scanned from
 /// the quarter turn down over the pair's radius ranges. Between two discs the target radius follows the
 /// seed's through the z ratio `rho`, pulled in by the helix to
-/// `r_i sin(rho a)/sin(a)` for the seed's half-turn `a`.
+/// `r_i sin(rho a)/sin(a)` for the seed's half-turn `a`, `sin(a) = kappa r_i / 2`.
 ///
 /// \a betweenKink bounds `sqrt(T)` as for `secondScattering`: the transverse
 /// test's variance gains `r_i^2 T`, which in the accepted `sin(dphi)` is
@@ -363,13 +390,14 @@ template <DetectorLayout Det>
   constexpr double kStep = 1.e-3;
   constexpr int kSteps = static_cast<int>(kQuarter / kStep) + 1;
   constexpr int kSamples = 5;
-  const double radius = curvatureRadius(params.minPtGeV, params.bzKiloGauss);
+  const double halfKappa = 0.5 * maxCurvature(params);
   const double fromLow = radiusMin<Det>(from);
   const double fromHigh = radiusMax<Det>(from);
-  if (!(radius > 0.) || !(fromLow > 0.)) {
+  if (!(halfKappa < std::numeric_limits<double>::infinity()) || !(fromLow > 0.)) {
     return kQuarter;
   }
-  const double twoR = 2. * radius;
+  const double fromResolution = layerResolution<Det>(from).varRPhi;
+  const double toResolution = layerResolution<Det>(to).varRPhi;
 
   const bool discs = !Detector<Det>::isBarrelLayer(from) && !Detector<Det>::isBarrelLayer(to);
   const auto rho = ratioRange(zRange<Det>(to), zRange<Det>(from), vertexReach(params, vertex));
@@ -382,8 +410,9 @@ template <DetectorLayout Det>
     }
     const double chord = sqrtClampedOf((rFrom * rFrom) + (rTo * rTo) - (2. * rFrom * rTo * std::cos(phi)));
     const double lever = chord / rTo;
-    const double gaussian = std::sqrt((lever * lever * sourceKink * sourceKink) + (betweenKink * betweenKink / (rTo * rTo)));
-    return std::sin(phi) <= (chord / twoR) + (params.nSigma * gaussian);
+    const double resolution = (fromResolution / (rFrom * rFrom)) + (toResolution / (rTo * rTo));
+    const double gaussian = std::sqrt((lever * lever * sourceKink * sourceKink) + (betweenKink * betweenKink / (rTo * rTo)) + resolution);
+    return std::sin(phi) <= (chord * halfKappa) + (params.nSigma * gaussian);
   };
 
   double widest = 0.;
@@ -392,7 +421,7 @@ template <DetectorLayout Det>
     double toLow = radiusMin<Det>(to);
     double toHigh = radiusMax<Det>(to);
     if (discs) {
-      const double turn = std::min(std::asin(std::min(rFrom / twoR, 1.)), 0.5 * kPi<double> / std::max(rhoLow, 1.));
+      const double turn = std::min(std::asin(std::min(rFrom * halfKappa, 1.)), 0.5 * kPi<double> / std::max(rhoLow, 1.));
       toLow = std::max(toLow, turn > 0. ? rFrom * std::sin(rhoLow * turn) / std::sin(turn) : rhoLow * rFrom);
       toHigh = std::min(toHigh, rhoHigh * rFrom);
       if (toHigh < toLow) {
