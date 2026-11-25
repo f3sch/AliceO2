@@ -911,6 +911,8 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       mNeighbourStage(runtime, mArena, mStream),
       mRecordStage(runtime, mArena, mStream),
       mPartnerStage(runtime, mArena, mStream),
+      mJoinStage(runtime, mArena, mStream),
+      mInactiveStage(runtime, mArena, mStream),
       mRoadBatch(static_cast<std::size_t>(runtime.properties().residentThreads))
   {
     setStagingCapacity(kInitialStaging);
@@ -2232,12 +2234,28 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       }
       algorithms::forEach(*mRuntime, mStream, ends, tracker_detail::ZipEnds{std::as_const(sortedRows).data(), std::as_const(sortedTracks).data(), (outermost ? endList : startList).data()});
     }
-    // Each piece's pair.
+    // Each piece's pairs, their scores, its pair of the least score.
+    DeviceStageOutput<join::PairCandidate::template RecordT> pairs;
     DeviceSpan<join::Choice> choices;
-    if (!choices.allocate(mArena, count)) {
+    if (!pairs.prepare(mArena, count) || !choices.allocate(mArena, count)) {
       return StageStatus::kOutOfMemory;
     }
-    algorithms::forEach(*mRuntime, mStream, count, join::Choose<Det, View>{.parameters = std::as_const(mParameters).data(), .frame = std::as_const(mFrame).data(), .geometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = all.view(), .trackOffset = earlier, .ends = std::as_const(endList).data(), .starts = std::as_const(startList).data(), .endCount = ends, .maxCandidateWidthPS = std::as_const(mLayerMaxWidthPS).data(), .choices = choices.data()});
+    mJoinStage.prepareStaging(std::max<std::size_t>(mJoinStage.stagingCapacity(), count));
+    status = mJoinStage.run(pairs, join::Find<Det, View>{.parameters = std::as_const(mParameters).data(), .frame = std::as_const(mFrame).data(), .geometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = all.view(), .trackOffset = earlier, .ends = std::as_const(endList).data(), .starts = std::as_const(startList).data(), .endCount = ends, .maxCandidateWidthPS = std::as_const(mLayerMaxWidthPS).data()});
+    report.readbacks += mJoinStage.stagingPredictionMissed() ? 2U : 1U;
+    if (status != StageStatus::kComplete) {
+      return status;
+    }
+    if (pairs.size() == 0U) {
+      return StageStatus::kComplete;
+    }
+    const auto paired = std::as_const(pairs).view();
+    DeviceSpan<Scalar> scores;
+    if (!scores.allocate(mArena, pairs.size())) {
+      return StageStatus::kOutOfMemory;
+    }
+    algorithms::forEach(*mRuntime, mStream, pairs.size(), join::Score<Det, View>{.parameters = std::as_const(mParameters).data(), .frame = std::as_const(mFrame).data(), .geometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = all.view(), .trackOffset = earlier, .pieces = paired.piece, .partners = paired.partner, .pieceInner = paired.pieceInner, .scores = scores.data()});
+    algorithms::forEach(*mRuntime, mStream, count, join::Pick{.offsets = std::as_const(pairs.offsets()).data(), .partners = paired.partner, .pieceInner = paired.pieceInner, .scores = std::as_const(scores).data(), .choices = choices.data()});
     // Each earlier track the piece of the least score that chose it: the
     // pieces with a partner by partner, then score, stably from ascending
     // pieces, the first of each partner's run.
@@ -2318,8 +2336,9 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     taken = 0U;
     const Index count = changedCount + ownCount;
     DeviceSpan<Index> candidates;
+    DeviceStageOutput<inactive::RowCandidate::template RecordT> found;
     DeviceSpan<inactive::Choice> choices;
-    if (!candidates.allocate(mArena, count) || !choices.allocate(mArena, count)) {
+    if (!candidates.allocate(mArena, count) || !found.prepare(mArena, count) || !choices.allocate(mArena, count)) {
       return StageStatus::kOutOfMemory;
     }
     if (changedCount != 0U) {
@@ -2328,13 +2347,26 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     if (ownCount != 0U) {
       algorithms::forEach(*mRuntime, mStream, ownCount, tracker_detail::Sequence{own, candidates.data() + changedCount});
     }
-    algorithms::forEach(*mRuntime, mStream, count, inactive::Choose<Det, View>{.iteration = parameters, .timeFrame = std::as_const(mFrame).data(), .trackingGeometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = view, .candidates = std::as_const(candidates).data(), .used = std::as_const(working).data(), .maxCandidateWidthPS = std::as_const(mLayerMaxWidthPS).data(), .cells = mSensorCells, .choices = choices.data()});
+    // Each candidate's rows, their fits, its row of the least rise.
+    mInactiveStage.prepareStaging(std::max<std::size_t>(mInactiveStage.stagingCapacity(), count));
+    auto status = mInactiveStage.run(found, inactive::Find<Det, View>{.iteration = parameters, .timeFrame = std::as_const(mFrame).data(), .trackingGeometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = view, .candidates = std::as_const(candidates).data(), .used = std::as_const(working).data(), .maxCandidateWidthPS = std::as_const(mLayerMaxWidthPS).data(), .cells = mSensorCells});
+    report.readbacks += mInactiveStage.stagingPredictionMissed() ? 2U : 1U;
+    if (status != StageStatus::kComplete || found.size() == 0U) {
+      return status;
+    }
+    const auto rows = std::as_const(found).view();
+    DeviceSpan<Scalar> chi2;
+    if (!chi2.allocate(mArena, found.size())) {
+      return StageStatus::kOutOfMemory;
+    }
+    algorithms::forEach(*mRuntime, mStream, found.size(), inactive::Score<Det, View>{.iteration = parameters, .timeFrame = std::as_const(mFrame).data(), .trackingGeometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = view, .candidates = std::as_const(candidates).data(), .elements = rows.element, .rows = rows.row, .at = rows.at, .chi2 = chi2.data()});
+    algorithms::forEach(*mRuntime, mStream, count, inactive::Pick<Det>{.iteration = parameters, .offsets = std::as_const(found.offsets()).data(), .rows = rows.row, .at = rows.at, .chi2 = std::as_const(chi2).data(), .choices = choices.data()});
     // A row two tracks want to the smaller rise, then the lower track: the
     // choices by row, then rise, stably from ascending tracks, the first of
     // each row's run.
     DeviceSpan<Index> chose;
     Index chosen = 0U;
-    auto status = algorithms::selectIndices(*mRuntime, mArena, mStream, count, tracker_detail::ChoseRow{std::as_const(choices).data()}, chose, chosen);
+    status = algorithms::selectIndices(*mRuntime, mArena, mStream, count, tracker_detail::ChoseRow{std::as_const(choices).data()}, chose, chosen);
     ++report.readbacks;
     if (status != StageStatus::kComplete || chosen == 0U) {
       return status;
@@ -2551,6 +2583,8 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   GpuStage<NeighbourT> mNeighbourStage;
   GpuStage<SelectionRecordOf<kMaxClusters>::template RecordT> mRecordStage;
   GpuStage<PartnerProposal::template RecordT> mPartnerStage;
+  GpuStage<join::PairCandidate::template RecordT> mJoinStage;
+  GpuStage<inactive::RowCandidate::template RecordT> mInactiveStage;
   DeviceColumnChunks<tracker_detail::CapturedRoadOf<kMaxClusters>::template RecordT> mRoadChunks; ///< the open batch's roads, a chunk per slice
   std::size_t mRoadBatch = 0U;                                                                    ///< the roads that fill the device: a batch's fit is due at them
   DeviceColumnChunks<SelectionRecordOf<kMaxClusters>::template RecordT> mChunks;

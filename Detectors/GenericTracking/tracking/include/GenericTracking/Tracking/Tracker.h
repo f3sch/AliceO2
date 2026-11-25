@@ -204,6 +204,8 @@ class Tracker
       mNeighbourStage(mArena),
       mRecordStage(mArena),
       mPartners(mArena),
+      mJoin(mArena),
+      mInactiveRows(mArena),
       mChunkSize(chunkSize)
   {
     if (iterations.empty()) {
@@ -821,7 +823,7 @@ class Tracker
       if (summary.status == StageStatus::kComplete) {
         const profile::Zone zone{Phase::kInactiveRows};
         const auto forEach = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(static_cast<Index>(count)))(static_cast<Index>(count), body); };
-        summary.status = mInactiveRows.run(forEach, mIterations[iteration], frame, *mGeometry, mPropagator, mRefit.tracks(), std::span<const std::uint32_t>{mInactiveCandidates}, std::span<std::uint8_t>{mUsed}, plan.layerMaxWidthPS, mSensorCells.view());
+        summary.status = mInactiveRows.run(forEach, spreadChunk(static_cast<Index>(mInactiveCandidates.size())), mIterations[iteration], frame, *mGeometry, mPropagator, mRefit.tracks(), std::span<const std::uint32_t>{mInactiveCandidates}, std::span<std::uint8_t>{mUsed}, plan.layerMaxWidthPS, mSensorCells.view());
         summary.inactiveRows = mInactiveRows.changed().size();
       }
     }
@@ -980,7 +982,7 @@ class Tracker
   {
     auto& tracks = mRefit.tracks();
     const auto forEach = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(static_cast<Index>(count)))(static_cast<Index>(count), body); };
-    auto status = mJoin.run(forEach, mIterations.data(), frame, *mGeometry, mPropagator, tracks, trackOffset, plan.layerMaxWidthPS);
+    auto status = mJoin.run(forEach, spreadChunk(static_cast<Index>(tracks.size() - trackOffset)), mIterations.data(), frame, *mGeometry, mPropagator, tracks, trackOffset, plan.layerMaxWidthPS);
     joined = mJoin.joined().size();
     if (status != StageStatus::kComplete || joined == 0U) {
       return status;

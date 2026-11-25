@@ -37,25 +37,33 @@
 /// (ties by the piece's index): one join per earlier track and per piece.
 /// The earlier track takes the joined rows and fit; the piece goes.
 ///
-/// The per-piece work is the element functors `join::Choose` and
-/// `join::Apply`, which the host's tracker runs here and the device's in its
-/// own stage; the arbitration between them reads their outputs.
+/// The per-piece work is three steps, each an element functor the host's
+/// tracker runs here and the device's in its own stage: `join::Find` lists
+/// each piece's pairs past the tests without a fit (a stage's records, in the
+/// piece's order of search), `join::Score` fits each pair, `join::Pick` takes
+/// each piece's least score in that order; `join::Apply` writes the joins the
+/// arbitration keeps. The fits apart from the search run one pair per thread
+/// on a device, not the few pieces of a group that found one.
 
 #ifndef GTRK_TRACKING_TRACKJOIN_H_
 #define GTRK_TRACKING_TRACKJOIN_H_
 
 #include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Base/LayerSpec.h"
+#include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Follow.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/MeasurementGrid.h"
 #include "GenericTracking/Tracking/RoadFit.h"
+#include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
 
 #include "GPUCommonMath.h"
+
+#include <memlayout/wrapper.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -88,6 +96,22 @@ struct Choice {
   std::uint32_t partner = kNone;
   bool pieceInner = false;
   Scalar score = std::numeric_limits<Scalar>::infinity();
+};
+
+/// A piece's pair past the tests without a fit (`Find`): the piece (from the
+/// iteration's first), its partner, and whether the piece is the inner track.
+struct PairCandidate {
+  // As for TrackletT: upstream's `apply` macro also uses the member names as
+  // enum constants.
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  template <template <class> class C>
+  struct RecordT {
+    MEMLAYOUT_APPLY(RecordT, piece, partner, pieceInner)
+    C<std::uint32_t> piece;
+    C<std::uint32_t> partner;
+    C<std::uint8_t> pieceInner;
+  };
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
 };
 
 /// The first of \a count \a ends at \a row (the lowest track ending there),
@@ -138,12 +162,12 @@ GPUhdi() TrackFitResult joinedFit(const IterationParameters<Det>& parameters, co
   return fitMeasurements(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows.index}, static_cast<int>(count), budget);
 }
 
-/// The pair \a inner, \a outer of \a tracks: its score, infinity where it is
-/// refused. \a parameters holds every iteration's, the inner track's taken.
+/// Whether the pair \a inner, \a outer of \a tracks passes the tests
+/// without a fit: no layer in common, rows to fit one chain, time boxes
+/// overlapping, charges agreeing.
 template <DetectorLayout Det, typename Tracks>
-GPUhdi() Scalar pairScore(const IterationParameters<Det>* parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, const Tracks& tracks, std::uint32_t inner, std::uint32_t outer)
+GPUhdi() bool pairAdmitted(const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Tracks& tracks, std::uint32_t inner, std::uint32_t outer)
 {
-  constexpr Scalar kRefused = std::numeric_limits<Scalar>::infinity();
   const auto& measurements = frame.measurements();
   std::uint64_t innerLayers = 0U;
   std::uint64_t outerLayers = 0U;
@@ -154,13 +178,20 @@ GPUhdi() Scalar pairScore(const IterationParameters<Det>* parameters, const Time
     outerLayers |= std::uint64_t{1} << geometry.surface(measurements.surface[tracks.clusters[outer].index[i]]).layer;
   }
   if ((innerLayers & outerLayers) != 0U || static_cast<std::size_t>(tracks.count[inner]) + tracks.count[outer] > maxChainLayers<Det>) {
-    return kRefused;
+    return false;
   }
   const TimeEstPS innerBox{.start = tracks.timePS[inner], .width = tracks.widthPS[inner]};
   const TimeEstPS outerBox{.start = tracks.timePS[outer], .width = tracks.widthPS[outer]};
-  if (!innerBox.isCompatible(outerBox) || (tracks.outwardState[inner].qOverP() > 0.F) != (tracks.state[outer].qOverP() > 0.F)) {
-    return kRefused;
-  }
+  return innerBox.isCompatible(outerBox) && (tracks.outwardState[inner].qOverP() > 0.F) == (tracks.state[outer].qOverP() > 0.F);
+}
+
+/// The admitted pair \a inner, \a outer of \a tracks (`pairAdmitted`): its
+/// score, infinity where its fit is refused. \a parameters holds every
+/// iteration's, the inner track's taken.
+template <DetectorLayout Det, typename Tracks>
+GPUhdi() Scalar pairScore(const IterationParameters<Det>* parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, const Tracks& tracks, std::uint32_t inner, std::uint32_t outer)
+{
+  constexpr Scalar kRefused = std::numeric_limits<Scalar>::infinity();
   const auto& own = parameters[tracks.iteration[inner]];
   ClusterList<maxChainLayers<Det>> rows;
   std::uint8_t count = 0U;
@@ -179,13 +210,16 @@ GPUhdi() Scalar pairScore(const IterationParameters<Det>* parameters, const Time
   return (fit.chi2 - tracks.chi2[inner] - tracks.chi2[outer]) / static_cast<Scalar>(added);
 }
 
-/// Per piece \a at (the track \a trackOffset + \a at of \a tracks), its pair
-/// of the least score, both ways, into \a choices[at]: inward, from its inner
-/// state, for an earlier track's outermost row (\a ends); outward, from its
-/// outward state, for an earlier track's innermost row (\a starts) -- each
-/// \a endCount long, ordered by row then track.
+/// Per piece \a at (the track \a trackOffset + \a at of \a tracks), its
+/// admitted pairs (`pairAdmitted`), both ways, emitted in the order of the
+/// search: inward, from its inner state, for an earlier track's outermost row
+/// (\a ends); outward, from its outward state, for an earlier track's
+/// innermost row (\a starts) -- each \a endCount long, ordered by row then
+/// track.
 template <DetectorLayout Det, typename Tracks>
-struct Choose {
+struct Find {
+  using Record = typename BoundedColumns<PairCandidate::template RecordT>::Record;
+
   const IterationParameters<Det>* parameters = nullptr; ///< every iteration's, by the tracks' iteration
   const TimeFrame<Det>* frame = nullptr;
   const TrackingGeometry<Det>* geometry = nullptr;
@@ -196,15 +230,13 @@ struct Choose {
   const End* starts = nullptr;
   std::uint32_t endCount = 0U;
   const std::uint32_t* maxCandidateWidthPS = nullptr; ///< per layer
-  Choice* choices = nullptr;
 
-  GPUhdi() void operator()(std::uint32_t at) const { choices[at] = choose(trackOffset + at); }
-
-  [[nodiscard]] GPUhdi() Choice choose(std::uint32_t piece) const
+  template <typename Emitter>
+  GPUhdi() void operator()(std::uint32_t at, Emitter& emitter) const
   {
-    Choice best;
+    const auto piece = trackOffset + at;
     if (tracks.status[piece] != PropagationStatus::kOk || tracks.count[piece] == 0U) {
-      return best;
+      return;
     }
     const auto& measurements = frame->measurements();
     const auto& own = parameters[tracks.iteration[piece]];
@@ -251,16 +283,61 @@ struct Choose {
             return;
           }
           const auto partner = partners[found].track;
-          const auto inner = inward ? partner : piece;
-          const auto outer = inward ? piece : partner;
-          const auto score = pairScore(parameters, *frame, *geometry, propagator, tracks, inner, outer);
-          if (score < best.score || (score == best.score && best.partner != kNone && partner < best.partner)) {
-            best = {.partner = partner, .pieceInner = !inward, .score = score};
+          if (pairAdmitted(*frame, *geometry, tracks, inward ? partner : piece, inward ? piece : partner)) {
+            emitter.emit(Record{at, partner, static_cast<std::uint8_t>(inward ? 0U : 1U)});
           }
         });
       }
     }
-    return best;
+  }
+};
+
+/// Per pair \a k (`Find`'s records: \a pieces from \a trackOffset,
+/// \a partners, \a pieceInner): its score (`pairScore`) into \a scores[k].
+template <DetectorLayout Det, typename Tracks>
+struct Score {
+  const IterationParameters<Det>* parameters = nullptr; ///< every iteration's, by the tracks' iteration
+  const TimeFrame<Det>* frame = nullptr;
+  const TrackingGeometry<Det>* geometry = nullptr;
+  Propagator propagator;
+  Tracks tracks;
+  std::uint32_t trackOffset = 0U;
+  const std::uint32_t* pieces = nullptr;
+  const std::uint32_t* partners = nullptr;
+  const std::uint8_t* pieceInner = nullptr;
+  Scalar* scores = nullptr;
+
+  GPUhdi() void operator()(std::uint32_t k) const
+  {
+    const auto piece = trackOffset + pieces[k];
+    const auto inner = pieceInner[k] != 0U ? piece : partners[k];
+    const auto outer = pieceInner[k] != 0U ? partners[k] : piece;
+    scores[k] = pairScore(parameters, *frame, *geometry, propagator, tracks, inner, outer);
+  }
+};
+
+/// Per piece \a at, its pair of the least score among its pairs
+/// (\a offsets[at] up to \a offsets[at + 1] of \a partners, \a pieceInner,
+/// \a scores), ties by the lower partner, then the first found, into
+/// \a choices[at]; none where every score is infinite.
+struct Pick {
+  const std::uint32_t* offsets = nullptr;
+  const std::uint32_t* partners = nullptr;
+  const std::uint8_t* pieceInner = nullptr;
+  const Scalar* scores = nullptr;
+  Choice* choices = nullptr;
+
+  GPUhdi() void operator()(std::uint32_t at) const
+  {
+    Choice best;
+    for (auto k = offsets[at]; k < offsets[at + 1U]; ++k) {
+      const auto partner = partners[k];
+      const auto score = scores[k];
+      if (score < best.score || (score == best.score && best.partner != kNone && partner < best.partner)) {
+        best = {.partner = partner, .pieceInner = pieceInner[k] != 0U, .score = score};
+      }
+    }
+    choices[at] = best;
   }
 };
 
@@ -301,25 +378,38 @@ class TrackJoin
   static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
   static constexpr std::uint32_t kNone = join::kNone;
   using Tracks = typename TrackRefit<Det>::Tracks;
+  using Pairs = StageOutput<join::PairCandidate::template RecordT>;
+
+  /// On \a arena, the tracker's.
+  explicit TrackJoin(detail::TaskArena& arena) : mStage(arena) {}
 
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
   {
     mMemoryPool = std::move(pool);
+    mStage.setMemoryPool(mMemoryPool);
+    mPairs.setMemoryPool(mMemoryPool);
     clearStorage();
   }
-  void clearStorage() noexcept { deepVectorClear(mMemoryPool.get(), mEnds, mStarts, mChoices, mBest, mJoined, mChanged); }
+  void clearStorage() noexcept
+  {
+    mStage.releaseStorage();
+    mPairs.clearStorage();
+    deepVectorClear(mMemoryPool.get(), mListed, mUnsorted, mOrder, mEnds, mStarts, mScores, mChoices, mBest, mJoined, mChanged);
+  }
 
   /// The join of \a tracks' pieces from \a trackOffset on to the tracks
   /// before it, each with its own iteration's \a parameters (every
   /// iteration's), each layer's candidates bound by \a maxCandidateWidthPS:
   /// the earlier tracks rewritten, the pieces joined listed (`joined`,
   /// offsets from \a trackOffset, ascending) for the caller to drop, the
-  /// earlier tracks changed listed (`changed`, ascending).
+  /// earlier tracks changed listed (`changed`, ascending). \a forEach(n, body)
+  /// runs body(i) for every i below n; \a chunk is the pairs' stage's chunk.
   template <typename ForEach>
-  [[nodiscard]] StageStatus run(ForEach forEach, const IterationParameters<Det>* parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, Tracks& tracks, std::uint32_t trackOffset, std::span<const std::uint32_t, kLayerCount> maxCandidateWidthPS)
+  [[nodiscard]] StageStatus run(ForEach forEach, std::uint32_t chunk, const IterationParameters<Det>* parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, Tracks& tracks, std::uint32_t trackOffset, std::span<const std::uint32_t, kLayerCount> maxCandidateWidthPS)
   {
     return guardOutOfMemory([&] {
       const auto view = tracks.view();
+      using View = std::remove_const_t<decltype(view)>;
       const auto size = static_cast<std::uint32_t>(tracks.size());
       const auto pieces = size - trackOffset;
       resizeBoundedVector(mJoined, 0U, mMemoryPool.get());
@@ -327,23 +417,44 @@ class TrackJoin
       if (trackOffset == 0U || pieces == 0U) {
         return StageStatus::kComplete;
       }
-      // The earlier tracks' ends and starts, by row, then track.
+      // The earlier tracks' ends and starts, by row, then track: each list
+      // sorted by index (the records are distinct by track), then gathered.
       std::uint32_t ends = 0U;
       for (std::uint32_t track = 0; track < trackOffset; ++track) {
         ends += view.status[track] == PropagationStatus::kOk && view.count[track] != 0U ? 1U : 0U;
       }
-      resizeBoundedVector(mEnds, ends, mMemoryPool.get());
-      resizeBoundedVector(mStarts, ends, mMemoryPool.get());
+      resizeBoundedVector(mListed, ends, mMemoryPool.get());
       for (std::uint32_t track = 0, at = 0; track < trackOffset; ++track) {
         if (view.status[track] == PropagationStatus::kOk && view.count[track] != 0U) {
-          mEnds[at] = {.row = view.clusters[track].index[view.count[track] - 1U], .track = track};
-          mStarts[at++] = {.row = view.clusters[track].index[0], .track = track};
+          mListed[at++] = track;
         }
       }
-      std::ranges::sort(mEnds, std::less{});
-      std::ranges::sort(mStarts, std::less{});
+      resizeBoundedVector(mUnsorted, ends, mMemoryPool.get());
+      resizeBoundedVector(mOrder, ends, mMemoryPool.get());
+      resizeBoundedVector(mEnds, ends, mMemoryPool.get());
+      resizeBoundedVector(mStarts, ends, mMemoryPool.get());
+      for (const bool outermost : {true, false}) {
+        forEach(ends, [&](std::uint32_t at) {
+          const auto track = mListed[at];
+          mUnsorted[at] = {.row = view.clusters[track].index[outermost ? view.count[track] - 1U : 0U], .track = track};
+          mOrder[at] = at;
+        });
+        mStage.sortIndices(std::span<std::uint32_t>{mOrder}, [&](std::uint32_t a, std::uint32_t b) { return mUnsorted[a] < mUnsorted[b]; });
+        auto& list = outermost ? mEnds : mStarts;
+        forEach(ends, [&](std::uint32_t at) { list[at] = mUnsorted[mOrder[at]]; });
+      }
+      // Each piece's pairs, their scores, its pair of the least score.
+      mPairs.prepare(pieces);
+      const auto status = mStage.run(mPairs, chunk, join::Find<Det, View>{.parameters = parameters, .frame = &frame, .geometry = &geometry, .propagator = propagator, .tracks = view, .trackOffset = trackOffset, .ends = mEnds.data(), .starts = mStarts.data(), .endCount = ends, .maxCandidateWidthPS = maxCandidateWidthPS.data()});
+      if (status != StageStatus::kComplete) {
+        return status;
+      }
+      const auto pairs = std::as_const(mPairs).view();
+      const auto total = mPairs.size();
+      resizeBoundedVector(mScores, total, mMemoryPool.get());
+      forEach(total, join::Score<Det, View>{.parameters = parameters, .frame = &frame, .geometry = &geometry, .propagator = propagator, .tracks = view, .trackOffset = trackOffset, .pieces = pairs.piece, .partners = pairs.partner, .pieceInner = pairs.pieceInner, .scores = mScores.data()});
       resizeBoundedVector(mChoices, pieces, mMemoryPool.get());
-      forEach(pieces, join::Choose<Det, std::remove_const_t<decltype(view)>>{.parameters = parameters, .frame = &frame, .geometry = &geometry, .propagator = propagator, .tracks = view, .trackOffset = trackOffset, .ends = mEnds.data(), .starts = mStarts.data(), .endCount = ends, .maxCandidateWidthPS = maxCandidateWidthPS.data(), .choices = mChoices.data()});
+      forEach(pieces, join::Pick{.offsets = mPairs.offsets().data(), .partners = pairs.partner, .pieceInner = pairs.pieceInner, .scores = mScores.data(), .choices = mChoices.data()});
       // Each earlier track the piece of the least score that chose it.
       resizeBoundedVector(mBest, trackOffset, mMemoryPool.get());
       std::ranges::fill(mBest, kNone);
@@ -368,7 +479,7 @@ class TrackJoin
         }
       }
       // The joined tracks, written over the earlier ones.
-      forEach(joined, join::Apply<Det, std::remove_const_t<decltype(view)>>{.parameters = parameters, .frame = &frame, .geometry = &geometry, .propagator = propagator, .tracks = view, .trackOffset = trackOffset, .choices = mChoices.data(), .joined = mJoined.data()});
+      forEach(joined, join::Apply<Det, View>{.parameters = parameters, .frame = &frame, .geometry = &geometry, .propagator = propagator, .tracks = view, .trackOffset = trackOffset, .choices = mChoices.data(), .joined = mJoined.data()});
       resizeBoundedVector(mChanged, joined, mMemoryPool.get());
       for (std::uint32_t i = 0; i < joined; ++i) {
         mChanged[i] = mChoices[mJoined[i]].partner;
@@ -385,8 +496,14 @@ class TrackJoin
 
  private:
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
+  CpuStage<join::PairCandidate::template RecordT> mStage;
+  Pairs mPairs;                         ///< each piece's pairs past the tests without a fit
+  BoundedVector<std::uint32_t> mListed; ///< the earlier tracks with rows, ascending
+  BoundedVector<join::End> mUnsorted;   ///< their ends (or starts), in that order
+  BoundedVector<std::uint32_t> mOrder;  ///< the order sorting them
   BoundedVector<join::End> mEnds;       ///< each earlier track's outermost row, by row then track
   BoundedVector<join::End> mStarts;     ///< and its innermost
+  BoundedVector<Scalar> mScores;        ///< per pair
   BoundedVector<join::Choice> mChoices; ///< per piece
   BoundedVector<std::uint32_t> mBest;   ///< per earlier track, the winning piece
   BoundedVector<std::uint32_t> mJoined;

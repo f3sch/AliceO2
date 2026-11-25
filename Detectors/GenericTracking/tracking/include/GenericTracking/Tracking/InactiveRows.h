@@ -37,25 +37,34 @@
 /// crossed). A row two tracks want goes to the smaller rise (ties by the
 /// track's index).
 ///
-/// The per-track work is the element functors `inactive::Choose` and
-/// `inactive::Apply`, which the host's tracker runs here and the device's in
-/// its own stage; the arbitration between them reads their outputs.
+/// The per-track work is three steps, each an element functor the host's
+/// tracker runs here and the device's in its own stage: `inactive::Find`
+/// lists each track's candidate rows (a stage's records, in the order of the
+/// search, after one for the track's fit without a row), `inactive::Score`
+/// fits each, `inactive::Pick` takes each track's least rise in that order;
+/// `inactive::Apply` writes the rows the arbitration keeps. The fits apart
+/// from the search run one per thread on a device, not the few tracks of a
+/// group that found a row.
 
 #ifndef GTRK_TRACKING_INACTIVEROWS_H_
 #define GTRK_TRACKING_INACTIVEROWS_H_
 
 #include "GenericTracking/Base/BoundedAllocator.h"
 #include "GenericTracking/Base/LayerSpec.h"
+#include "GenericTracking/Tracking/CpuBackend.h"
 #include "GenericTracking/Tracking/Definitions.h"
 #include "GenericTracking/Tracking/Follow.h"
 #include "GenericTracking/Tracking/Iteration.h"
 #include "GenericTracking/Tracking/KFTrackFitter.h"
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/SensorCells.h"
+#include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
 
 #include "GPUCommonMath.h"
+
+#include <memlayout/wrapper.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -79,6 +88,23 @@ struct Choice {
   std::uint32_t row = kNone;
   std::uint32_t at = 0U;
   Scalar rise = 0.F;
+};
+
+/// A candidate's row (`Find`): the candidate (its place among the
+/// candidates), the row and its place among the track's rows; the row
+/// `kNone` for the track's fit without one, its candidate's first record.
+struct RowCandidate {
+  // As for TrackletT: upstream's `apply` macro also uses the member names as
+  // enum constants.
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  template <template <class> class C>
+  struct RecordT {
+    MEMLAYOUT_APPLY(RecordT, element, row, at)
+    C<std::uint32_t> element;
+    C<std::uint32_t> row;
+    C<std::uint8_t> at;
+  };
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
 };
 
 /// \a rows (\a count of them) refitted with a budget of the track's own
@@ -168,14 +194,15 @@ template <DetectorLayout Det>
   return true;
 }
 
-/// Per candidate \a at (the track \a candidates[at] of \a tracks), its row
-/// on the first inactive layer it straddles without one, or beyond its
-/// outermost row, into \a choices[at]: the free rows in \a used, each
-/// layer's candidates bound by \a maxCandidateWidthPS, the sensors' cells
-/// \a cells.
+/// Per candidate \a element (the track \a candidates[element] of \a tracks),
+/// its candidate rows on the first inactive layer it straddles without one,
+/// or beyond its outermost row, emitted in the order of the search after the
+/// record of its fit without one: the free rows in \a used, each layer's
+/// candidates bound by \a maxCandidateWidthPS, the sensors' cells \a cells.
 template <DetectorLayout Det, typename Tracks>
-struct Choose {
+struct Find {
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  using Record = typename BoundedColumns<RowCandidate::template RecordT>::Record;
   const IterationParameters<Det>* iteration = nullptr; ///< the iteration's
   const TimeFrame<Det>* timeFrame = nullptr;
   const TrackingGeometry<Det>* trackingGeometry = nullptr;
@@ -185,21 +212,18 @@ struct Choose {
   const std::uint8_t* used = nullptr;
   const std::uint32_t* maxCandidateWidthPS = nullptr; ///< per layer
   SensorCellsView cells;
-  Choice* choices = nullptr;
 
-  GPUhdi() void operator()(std::uint32_t at) const { choices[at] = choose(candidates[at]); }
-
-  /// \a track's row on the first inactive layer it straddles without one.
-  [[nodiscard]] GPUhdi() Choice choose(std::uint32_t track) const
+  template <typename Emitter>
+  GPUhdi() void operator()(std::uint32_t element, Emitter& emitter) const
   {
-    Choice best;
+    const auto track = candidates[element];
     const auto& parameters = *iteration;
     const auto& frame = *timeFrame;
     const auto& geometry = *trackingGeometry;
     const follow::StepContext<Det> context{.parameters = iteration, .frame = timeFrame, .geometry = trackingGeometry, .propagator = &propagator, .used = used};
     const auto n = static_cast<std::uint32_t>(tracks.count[track]);
     if (tracks.status[track] != PropagationStatus::kOk || n < 2U || n + 1U > kMaxClusters) {
-      return best;
+      return;
     }
     const auto& measurements = frame.measurements();
     const auto& rows = tracks.clusters[track];
@@ -229,10 +253,6 @@ struct Choose {
         }
         const RowChain<Det> chain{.frame = &frame, .rows = rows.index};
         const TimeEstPS box{.start = tracks.timePS[track], .width = tracks.widthPS[track]};
-        const auto plain = refit(parameters, frame, geometry, propagator, rows, static_cast<std::uint8_t>(n), tracks.kinks[track]);
-        if (plain.status != PropagationStatus::kOk) {
-          return best;
-        }
         // The candidates: free rows passing the gate from either side.
         std::uint32_t found[2 * kMaxClusters];
         std::uint32_t nFound = 0U;
@@ -287,22 +307,13 @@ struct Choose {
               }
             });
         }
-        // Of them the smallest rise of the whole track's chi2, within the gate.
-        ClusterList<kMaxClusters> with;
-        for (std::uint32_t k = 0; k < nFound; ++k) {
-          for (std::uint32_t m = 0, j = 0; m <= n; ++m) {
-            with.index[m] = m == i + 1U ? found[k] : rows.index[j++];
-          }
-          const auto fit = refit(parameters, frame, geometry, propagator, with, static_cast<std::uint8_t>(n + 1U), tracks.kinks[track]);
-          if (!follow::passesRoadChi2(parameters, fit)) {
-            continue;
-          }
-          const Scalar rise = fit.chi2 - plain.chi2;
-          if (rise <= parameters.clusterChi2Max && (best.row == kNone || rise < best.rise)) {
-            best = {.row = found[k], .at = i + 1U, .rise = rise};
+        if (nFound != 0U) {
+          emitter.emit(Record{element, kNone, 0U});
+          for (std::uint32_t k = 0; k < nFound; ++k) {
+            emitter.emit(Record{element, found[k], static_cast<std::uint8_t>(i + 1U)});
           }
         }
-        return best;
+        return;
       }
     }
     // Beyond the outermost row: the walk ended for lack of a sensor only.
@@ -328,10 +339,9 @@ struct Choose {
           if (between > 1 || certain) {
             continue;
           }
-          const auto plain = refit(parameters, frame, geometry, propagator, rows, static_cast<std::uint8_t>(n), tracks.kinks[track]);
           const BoundTrackState& state = tracks.outwardState[track];
           const auto prediction = predictLayerCrossing(propagator, parameters, geometry.planeOf(state), state, layer, PropagationDirection::kForward);
-          if (plain.status != PropagationStatus::kOk || prediction.status != PropagationStatus::kOk) {
+          if (prediction.status != PropagationStatus::kOk) {
             continue;
           }
           const TimeEstPS box{.start = tracks.timePS[track], .width = tracks.widthPS[track]};
@@ -344,22 +354,91 @@ struct Choose {
           if (!follow::predictedWindow(propagator, parameters, geometry, detail::LinkSteps{}, state, factors, layer, PropagationDirection::kForward, prediction, window, nullptr, &traversed)) {
             continue;
           }
-          ClusterList<kMaxClusters> with = rows;
+          bool listed = false;
           follow::visitInline<false, false, false>(
             context, state, factors, 0.F, 0.F, layer, PropagationDirection::kForward, window, traversed, 0U, WorkCounter::kFollowUpdates, SoloGroup{}, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},
             [&](const auto& candidate) {
-              with.index[n] = candidate.row;
-              const auto fit = refit(parameters, frame, geometry, propagator, with, static_cast<std::uint8_t>(n + 1U), tracks.kinks[track]);
-              const Scalar rise = fit.chi2 - plain.chi2;
-              if (follow::passesRoadChi2(parameters, fit) && rise <= parameters.clusterChi2Max && (best.row == kNone || rise < best.rise)) {
-                best = {.row = candidate.row, .at = n, .rise = rise};
+              if (!listed) {
+                emitter.emit(Record{element, kNone, 0U});
+                listed = true;
               }
+              emitter.emit(Record{element, candidate.row, static_cast<std::uint8_t>(n)});
             });
-          return best;
+          return;
         }
       }
     }
-    return best;
+  }
+};
+
+/// Per record \a k of `Find` (\a elements, \a rows, \a at): the candidate's
+/// track refitted with its own kinks, with the row inserted at its place, its
+/// chi2 into \a chi2[k] where the fit passes the road's cut; for the record
+/// without a row, the track's rows alone, its chi2 where the fit stands.
+/// Infinity otherwise.
+template <DetectorLayout Det, typename Tracks>
+struct Score {
+  const IterationParameters<Det>* iteration = nullptr; ///< the iteration's
+  const TimeFrame<Det>* timeFrame = nullptr;
+  const TrackingGeometry<Det>* trackingGeometry = nullptr;
+  Propagator propagator;
+  Tracks tracks;
+  const std::uint32_t* candidates = nullptr;
+  const std::uint32_t* elements = nullptr;
+  const std::uint32_t* rows = nullptr;
+  const std::uint8_t* at = nullptr;
+  Scalar* chi2 = nullptr;
+
+  GPUhdi() void operator()(std::uint32_t k) const
+  {
+    constexpr Scalar kRefused = std::numeric_limits<Scalar>::infinity();
+    const auto track = candidates[elements[k]];
+    const auto n = tracks.count[track];
+    const auto& own = tracks.clusters[track];
+    if (rows[k] == kNone) {
+      const auto plain = refit(*iteration, *timeFrame, *trackingGeometry, propagator, own, n, tracks.kinks[track]);
+      chi2[k] = plain.status == PropagationStatus::kOk ? plain.chi2 : kRefused;
+      return;
+    }
+    ClusterList<maxChainLayers<Det>> with;
+    for (std::uint32_t m = 0, j = 0; m <= n; ++m) {
+      with.index[m] = m == at[k] ? rows[k] : own.index[j++];
+    }
+    const auto fit = refit(*iteration, *timeFrame, *trackingGeometry, propagator, with, static_cast<std::uint8_t>(n + 1U), tracks.kinks[track]);
+    chi2[k] = follow::passesRoadChi2(*iteration, fit) ? fit.chi2 : kRefused;
+  }
+};
+
+/// Per candidate \a element, of its records (\a offsets[element] up to
+/// \a offsets[element + 1], `Find`'s, their \a chi2 from `Score`) the row
+/// whose fit stands and whose rise over the fit without one is the least,
+/// the first found among equals, kept within the gate, into
+/// \a choices[element]; none where the fit without one fails.
+template <DetectorLayout Det>
+struct Pick {
+  const IterationParameters<Det>* iteration = nullptr; ///< the iteration's
+  const std::uint32_t* offsets = nullptr;
+  const std::uint32_t* rows = nullptr;
+  const std::uint8_t* at = nullptr;
+  const Scalar* chi2 = nullptr;
+  Choice* choices = nullptr;
+
+  GPUhdi() void operator()(std::uint32_t element) const
+  {
+    Choice best;
+    const auto first = offsets[element];
+    const auto end = offsets[element + 1U];
+    constexpr Scalar kRefused = std::numeric_limits<Scalar>::infinity();
+    if (first != end && chi2[first] < kRefused) {
+      const Scalar plain = chi2[first];
+      for (auto k = first + 1U; k < end; ++k) {
+        const Scalar rise = chi2[k] - plain;
+        if (chi2[k] < kRefused && rise <= iteration->clusterChi2Max && (best.row == kNone || rise < best.rise)) {
+          best = {.row = rows[k], .at = at[k], .rise = rise};
+        }
+      }
+    }
+    choices[element] = best;
   }
 };
 
@@ -403,20 +482,33 @@ class InactiveRows
   static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
   static constexpr std::uint32_t kNone = inactive::kNone;
   using Tracks = typename TrackRefit<Det>::Tracks;
+  using Rows = StageOutput<inactive::RowCandidate::template RecordT>;
+
+  /// On \a arena, the tracker's.
+  explicit InactiveRows(detail::TaskArena& arena) : mStage(arena) {}
 
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
   {
     mMemoryPool = std::move(pool);
+    mStage.setMemoryPool(mMemoryPool);
+    mRows.setMemoryPool(mMemoryPool);
     clearStorage();
   }
-  void clearStorage() noexcept { deepVectorClear(mMemoryPool.get(), mChoices, mOrder, mChanged); }
+  void clearStorage() noexcept
+  {
+    mStage.releaseStorage();
+    mRows.clearStorage();
+    deepVectorClear(mMemoryPool.get(), mChi2, mChoices, mOrder, mChanged);
+  }
 
   /// The search for \a tracks' \a candidates (track indices, ascending), with
   /// \a parameters (the iteration's), the \a used mask, each layer's
   /// candidates bound by \a maxCandidateWidthPS: the tracks that took a row
   /// rewritten and listed (`changed`, ascending), their rows marked used.
+  /// \a forEach(n, body) runs body(i) for every i below n; \a chunk is the
+  /// rows' stage's chunk.
   template <typename ForEach>
-  [[nodiscard]] StageStatus run(ForEach forEach, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, Tracks& tracks, std::span<const std::uint32_t> candidates, std::span<std::uint8_t> used, std::span<const std::uint32_t, kLayerCount> maxCandidateWidthPS, SensorCellsView cells)
+  [[nodiscard]] StageStatus run(ForEach forEach, std::uint32_t chunk, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, Tracks& tracks, std::span<const std::uint32_t> candidates, std::span<std::uint8_t> used, std::span<const std::uint32_t, kLayerCount> maxCandidateWidthPS, SensorCellsView cells)
   {
     if constexpr (Detector<Det>::inactiveLayers == 0U) {
       resizeBoundedVector(mChanged, 0U, mMemoryPool.get());
@@ -424,9 +516,24 @@ class InactiveRows
     } else {
       return guardOutOfMemory([&] {
         const auto view = tracks.view();
+        using View = std::remove_const_t<decltype(view)>;
         const auto count = static_cast<std::uint32_t>(candidates.size());
+        resizeBoundedVector(mChanged, 0U, mMemoryPool.get());
+        if (count == 0U) {
+          return StageStatus::kComplete;
+        }
+        // Each candidate's rows, their fits, its row of the least rise.
+        mRows.prepare(count);
+        const auto status = mStage.run(mRows, chunk, inactive::Find<Det, View>{.iteration = &parameters, .timeFrame = &frame, .trackingGeometry = &geometry, .propagator = propagator, .tracks = view, .candidates = candidates.data(), .used = used.data(), .maxCandidateWidthPS = maxCandidateWidthPS.data(), .cells = cells});
+        if (status != StageStatus::kComplete) {
+          return status;
+        }
+        const auto found = std::as_const(mRows).view();
+        const auto total = mRows.size();
+        resizeBoundedVector(mChi2, total, mMemoryPool.get());
+        forEach(total, inactive::Score<Det, View>{.iteration = &parameters, .timeFrame = &frame, .trackingGeometry = &geometry, .propagator = propagator, .tracks = view, .candidates = candidates.data(), .elements = found.element, .rows = found.row, .at = found.at, .chi2 = mChi2.data()});
         resizeBoundedVector(mChoices, count, mMemoryPool.get());
-        forEach(count, inactive::Choose<Det, std::remove_const_t<decltype(view)>>{.iteration = &parameters, .timeFrame = &frame, .trackingGeometry = &geometry, .propagator = propagator, .tracks = view, .candidates = candidates.data(), .used = used.data(), .maxCandidateWidthPS = maxCandidateWidthPS.data(), .cells = cells, .choices = mChoices.data()});
+        forEach(count, inactive::Pick<Det>{.iteration = &parameters, .offsets = mRows.offsets().data(), .rows = found.row, .at = found.at, .chi2 = mChi2.data(), .choices = mChoices.data()});
         // A row two tracks want to the smaller rise: by row, then rise, then track.
         std::uint32_t chosen = 0U;
         for (const auto& choice : mChoices) {
@@ -449,7 +556,7 @@ class InactiveRows
             mOrder[kept++] = mOrder[i];
           }
         }
-        forEach(kept, inactive::Apply<Det, std::remove_const_t<decltype(view)>>{.iteration = &parameters, .timeFrame = &frame, .trackingGeometry = &geometry, .propagator = propagator, .tracks = view, .candidates = candidates.data(), .choices = mChoices.data(), .order = mOrder.data(), .used = used.data()});
+        forEach(kept, inactive::Apply<Det, View>{.iteration = &parameters, .timeFrame = &frame, .trackingGeometry = &geometry, .propagator = propagator, .tracks = view, .candidates = candidates.data(), .choices = mChoices.data(), .order = mOrder.data(), .used = used.data()});
         resizeBoundedVector(mChanged, kept, mMemoryPool.get());
         for (std::uint32_t i = 0; i < kept; ++i) {
           mChanged[i] = candidates[mOrder[i]];
@@ -465,6 +572,9 @@ class InactiveRows
 
  private:
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
+  CpuStage<inactive::RowCandidate::template RecordT> mStage;
+  Rows mRows;                  ///< each candidate's rows
+  BoundedVector<Scalar> mChi2; ///< per row, `inactive::Score`
   BoundedVector<inactive::Choice> mChoices;
   BoundedVector<std::uint32_t> mOrder;
   BoundedVector<std::uint32_t> mChanged;
