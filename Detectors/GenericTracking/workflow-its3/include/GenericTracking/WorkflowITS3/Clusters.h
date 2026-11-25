@@ -75,7 +75,9 @@ class ITS3Tiles
 [[nodiscard]] std::array<double, 3> tileUnrolled(const ITS3Tiles& tiles, std::uint32_t chip, double x, double y, double z);
 
 /// Every compact cluster's position and errors in our sensor's frame, in
-/// order, reading the patterns of the group and invalid ones as it goes.
+/// order, reading the patterns of the group and invalid ones as it goes. An
+/// entry without errors in the dictionary (O2's ITS3 dictionary has rare
+/// entries at zero) takes O2's default, half a pitch.
 /// Throws std::runtime_error for a pattern ID beyond \a dictionary.
 [[nodiscard]] std::vector<LocalCluster> its3LocalClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const unsigned char> patterns, const o2::its3::TopologyDictionary& dictionary, const ITS3Tiles& tiles);
 

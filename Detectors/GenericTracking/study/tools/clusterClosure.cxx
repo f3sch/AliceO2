@@ -695,6 +695,8 @@ int runITS3(const Options& options)
   std::size_t outside = 0;
   std::size_t outsideTime = 0;
   std::size_t badSpans = 0;
+  std::size_t badErrors = 0;
+  std::size_t defaultErrors = 0; // the dictionary's entry without errors, O2's default taken
   std::size_t signal = 0;
   std::size_t noHit = 0;
   std::array<std::size_t, 2> tileClusters{}; // by class: group or invalid, common
@@ -744,6 +746,10 @@ int runITS3(const Options& options)
     const auto rows = static_cast<std::uint32_t>(cluster.rowSpan);
     const auto columns = static_cast<std::uint32_t>(cluster.colSpan);
     badSpans += rows == 0U || columns == 0U || local[i].nPixels > rows * columns ? 1U : 0U;
+    badErrors += cluster.sigmaXLocal > 0.F && cluster.sigmaYLocal > 0.F ? 0U : 1U;
+    if (const auto id = file.clusters[i].getPatternID(); id != o2::itsmft::CompCluster::InvalidPatternID && !(dictionary->getErr2X(id, tile) > 0.F && dictionary->getErr2Z(id, tile) > 0.F)) {
+      ++defaultErrors;
+    }
     ++perLayer[layer];
 
     // The tile's signal clusters against their particle's crossing of the tile.
@@ -794,7 +800,8 @@ int runITS3(const Options& options)
   }
   std::cout << std::format("\n  double position (at O2's depth): worst {:.3g} cm (cluster {}), tolerance {:.0e}\n", exact.worst, exact.at, kDoubleTolerance)
             << std::format("  float position (tiles across and along): worst {:.3g} cm (cluster {}), tolerance {:.0e}\n", narrow.worst, narrow.at, kFloatTolerance)
-            << std::format("  wrong layer {}, outside the active area {}, outside the timeframe {}, spans that cannot hold their pixels {}\n", wrongLayer, outside, outsideTime, badSpans)
+            << std::format("  wrong layer {}, outside the active area {}, outside the timeframe {}, spans that cannot hold their pixels {}, errors not positive {}\n", wrongLayer, outside, outsideTime, badSpans, badErrors)
+            << std::format("  clusters whose dictionary entry has no errors (O2's default taken) {}\n", defaultErrors)
             << std::format("  tile clusters: common topologies {} ({} off the layer's depth), groups and invalid IDs {} ({} off it)\n", tileClusters[1], offDepth[1], tileClusters[0], offDepth[0])
             << std::format("  tile signal clusters {}, without their particle's hit on the tile {}\n", signal, noHit);
   std::cout << "  each layer's measurement depth (our unrolled z) [um]:";
@@ -818,7 +825,7 @@ int runITS3(const Options& options)
       std::cout << std::format("    {:5.2f} um {:6} across {}\n", depthUM, commonClass ? "common" : "group", spread[0].describe()) << std::format("    {:5.2f} um {:6} along  {}\n", depthUM, commonClass ? "common" : "group", spread[1].describe());
     }
   }
-  bool ok = exact.worst <= kDoubleTolerance && narrow.worst <= kFloatTolerance && wrongLayer == 0U && outside == 0U && outsideTime == 0U && badSpans == 0U;
+  bool ok = exact.worst <= kDoubleTolerance && narrow.worst <= kFloatTolerance && wrongLayer == 0U && outside == 0U && outsideTime == 0U && badSpans == 0U && badErrors == 0U;
   if (file.hasLabels) {
     std::cout << std::format("  MC labels for {} of {} clusters\n", file.labels.getIndexedSize(), clusters.size());
     ok = ok && file.labels.getIndexedSize() == clusters.size();

@@ -79,6 +79,12 @@ std::vector<LocalCluster> its3LocalClusters(std::span<const o2::itsmft::CompClus
     float sigma2X = 0.F;
     float sigma2Z = 0.F;
     const auto point = o2::its3::ioutils::extractClusterData(cluster, pattern, &dictionary, sigma2X, sigma2Z);
+    // An entry the dictionary has no errors for (zero) takes O2's default,
+    // half a pitch, as a pattern it has no entry for.
+    if (!(sigma2X > 0.F) || !(sigma2Z > 0.F)) {
+      sigma2X = tile ? o2::its3::ioutils::DefClusError2Row : o2::its::ioutils::DefClusError2Row;
+      sigma2Z = tile ? o2::its3::ioutils::DefClusError2Col : o2::its::ioutils::DefClusError2Col;
+    }
     LocalCluster local{.chip = chip, .sigma2X = sigma2X, .sigma2Z = sigma2Z};
     // The pattern: a group's and an invalid ID's from the stream, read
     // again where the decode read it; a common topology's from the dictionary.
