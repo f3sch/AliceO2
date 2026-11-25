@@ -431,7 +431,7 @@ class CompleteAnatomy
     if (!*mInnerLossCsv) {
       throw std::runtime_error("cannot write " + csv);
     }
-    *mInnerLossCsv << "iteration,track,particle,origin,pdg,pt,eta,ptTrack,count,followMinPt,inward,firstLayer,nextLayer,missing,steps,end,lastLayer,targets,targeted,ownOutcome,ownChi2,ownStepLayer,raw,kept,refit,droppedOwn,refusedOwn,heldBy,nextAt\n";
+    *mInnerLossCsv << "iteration,track,particle,origin,pdg,pt,eta,ptTrack,count,belowFollowMin,inward,firstLayer,nextLayer,missing,steps,end,lastLayer,targets,targeted,ownOutcome,ownChi2,ownStepLayer,raw,kept,refit,droppedOwn,refusedOwn,heldBy,nextAt\n";
   }
 
   /// The CSV of the replayed steps.
@@ -3381,8 +3381,8 @@ class CompleteAnatomy
       const auto found = mTruth->particles.find(particle);
       const bool truth = found != mTruth->particles.end();
       const auto& state = view.state[track];
-      text += std::format("{},{},{},{},{},{:.4f},{:.3f},{:.4f},{},{:.3f},{},{},{},{},{},{},{},{},{},{},{:.5g},{},{},{},{},{},{},{},{}\n", iteration.iteration, track, particle, truth ? static_cast<int>(found->second.origin) : -1, truth ? found->second.pdg : 0, truth ? static_cast<double>(found->second.pt) : 0., truth ? static_cast<double>(found->second.eta) : 0.,
-                          static_cast<double>(std::sin(state.theta()) / std::abs(state.qOverP())), rows.size(), static_cast<double>(parameters.followMinPt), parameters.sharedInnermost == 0U ? 1 : 0, static_cast<int>(firstLayer), static_cast<int>(nextLayer), std::popcount(missing), walk.steps.size(),
+      text += std::format("{},{},{},{},{},{:.4f},{:.3f},{:.4f},{},{},{},{},{},{},{},{},{},{},{},{},{:.5g},{},{},{},{},{},{},{},{}\n", iteration.iteration, track, particle, truth ? static_cast<int>(found->second.origin) : -1, truth ? found->second.pdg : 0, truth ? static_cast<double>(found->second.pt) : 0., truth ? static_cast<double>(found->second.eta) : 0.,
+                          static_cast<double>(std::sin(state.theta()) / std::abs(state.qOverP())), rows.size(), std::abs(state.qOverP()) * follow::kMinMomentumGeV > 1.F ? 1 : 0, parameters.sharedInnermost == 0U ? 1 : 0, static_cast<int>(firstLayer), static_cast<int>(nextLayer), std::popcount(missing), walk.steps.size(),
                           walk.steps.empty() ? -1 : static_cast<int>(walk.end), walk.steps.empty() ? -1 : static_cast<int>(walk.steps.back().layer), targets, ((targets >> nextLayer) & 1U) != 0U ? 1 : 0, ownOutcome, ownChi2, ownStepLayer, walk.raw.size(), walk.kept, static_cast<int>(walk.refit), walk.dropped == next ? 1 : 0, walk.refused == next ? 1 : 0, holder[next] == kNoTrack ? 0 : (particles[holder[next]] == particle ? 1 : (particles[holder[next]] == study::kNoTrackParticle ? 3 : 2)), nextAt);
     }
     *mInnerLossCsv << text;

@@ -74,6 +74,12 @@ struct LayerCrossingPrediction {
 namespace follow
 {
 
+/// The lowest momentum [GeV] at which the follow follows a track, from its
+/// state as the follow starts. Below it the scattering and energy loss the
+/// windows are sized by, which depend on the momentum and not on the field,
+/// would open them across whole layers; such a track is left as its road.
+inline constexpr Scalar kMinMomentumGeV = 0.01F;
+
 template <typename T>
 GPUhdi() GPUAlwaysInline() T directedTurn(T turn, T curvature, PropagationDirection direction)
 {
@@ -961,9 +967,8 @@ class FollowStage
   GPUhdi() void follow(const BoundTrackState& inner, const BoundTrackState& outer, const ClusterList<kMaxClusters>& rows, std::uint32_t count, Proposal& proposal, const Observer& observe, const Group& group = {}) const
   {
     // A track as long as a chain can be is not followed, nor one below the
-    // follow's pT minimum: its windows, sized by the scattering at its
-    // momentum, would take in whole layers.
-    if (count >= kMaxClusters || !reachesPt(inner, mParameters->followMinPt)) {
+    // follow's momentum minimum (`follow::kMinMomentumGeV`).
+    if (count >= kMaxClusters || o2::gpu::CAMath::Abs(inner.qOverP()) * follow::kMinMomentumGeV > 1.F) {
       return;
     }
     const std::uint32_t capacity = static_cast<std::uint32_t>(kMaxClusters) - count;

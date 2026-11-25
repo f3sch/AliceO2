@@ -120,9 +120,6 @@ struct IterationSettings {
   /// The holes a followed track may cross in each direction; past them the
   /// direction ends.
   int followHoles = 0;
-  /// The lowest pT [GeV] at which the follow follows a track, from its state
-  /// as the follow starts (`RecoSettings::followMinPtGeV`).
-  double followMinPtGeV = 0.01;
   /// Whether the iteration's tracks, after the follow and the length cut,
   /// take as overlap partners the free rows of their layers on other sensors
   /// that pass `clusterChi2Max` (OverlapPartners.h).
@@ -328,8 +325,6 @@ struct IterationParameters {
   bool beamConstraint = false;
   /// `IterationSettings::followEarlier`.
   bool followEarlier = false;
-  /// `IterationSettings::followMinPtGeV`.
-  Scalar followMinPt = 0.F;
   /// `IterationSettings::minClustersAfterFollow`; 0 for none.
   std::uint32_t minClustersAfterFollow = 0U;
   /// The beam-line update's terms (`beamConstraint`): the beam line's
@@ -530,7 +525,6 @@ template <DetectorLayout Det>
   // window of its own prediction.
   parameters.follow = settings.follow;
   parameters.followEarlier = settings.follow && settings.followEarlier;
-  parameters.followMinPt = static_cast<Scalar>(std::max(settings.followMinPtGeV, 0.));
   parameters.followEndMaxSqrtDet = static_cast<Scalar>(std::max(settings.followEndMaxSqrtDet, 0.));
   parameters.followKeepDensity = static_cast<Scalar>(std::max(settings.followKeepDensity, 0.));
   parameters.shapeTest = settings.shapeTest;

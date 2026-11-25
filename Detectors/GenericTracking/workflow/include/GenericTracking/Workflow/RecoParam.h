@@ -165,10 +165,6 @@ struct RecoSettings {
   /// The holes each iteration's follow lets a track cross in each direction,
   /// a sensor crossed without a row; 0 by default.
   std::vector<int> iterationFollowHoles;
-  /// The lowest pT [GeV] at which the follow follows a track, from its state
-  /// as the follow starts; a track below it is left as its road, for the
-  /// iteration's other rules. Non-negative (`checkRecoParam`); 0.01 by default.
-  double followMinPtGeV = 0.01;
   /// Whether each iteration attaches to its tracks, after the follow and the
   /// length cut, the free rows of their layers on overlapping sensors that
   /// pass the follow's chi2 cut (OverlapPartners.h); 0, off, by default; not
