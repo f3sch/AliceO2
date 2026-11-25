@@ -82,14 +82,6 @@ namespace join
 
 inline constexpr std::uint32_t kNone = std::numeric_limits<std::uint32_t>::max();
 
-/// An earlier track's end: its outermost (or innermost) row and the track;
-/// ordered by row, then track.
-struct End {
-  std::uint32_t row = 0U;
-  std::uint32_t track = 0U;
-  GPUhdi() bool operator<(const End& other) const { return row != other.row ? row < other.row : track < other.track; }
-};
-
 /// A piece's pair: its partner (kNone without), which of the two is the
 /// inner track, and the score.
 struct Choice {
@@ -380,7 +372,7 @@ class TrackJoin
   {
     mStage.releaseStorage();
     mPairs.clearStorage();
-    deepVectorClear(mMemoryPool.get(), mListed, mUnsorted, mOrder, mEndRows, mEndTracks, mStartRows, mStartTracks, mScores, mChoices, mBest, mJoined, mChanged);
+    deepVectorClear(mMemoryPool.get(), mListed, mKeys, mEndRows, mEndTracks, mStartRows, mStartTracks, mScores, mChoices, mBest, mJoined, mChanged);
   }
 
   /// The join of \a tracks' pieces from \a trackOffset on to the tracks
@@ -403,8 +395,8 @@ class TrackJoin
       if (trackOffset == 0U || pieces == 0U) {
         return StageStatus::kComplete;
       }
-      // The earlier tracks' ends and starts, by row, then track: each list
-      // sorted by index (the records are distinct by track), then gathered.
+      // The earlier tracks' ends and starts, by row, then track: each a key
+      // of the row above the track, sorted, then split.
       std::uint32_t ends = 0U;
       for (std::uint32_t track = 0; track < trackOffset; ++track) {
         ends += view.status[track] == PropagationStatus::kOk && view.count[track] != 0U ? 1U : 0U;
@@ -415,8 +407,7 @@ class TrackJoin
           mListed[at++] = track;
         }
       }
-      resizeBoundedVector(mUnsorted, ends, mMemoryPool.get());
-      resizeBoundedVector(mOrder, ends, mMemoryPool.get());
+      resizeBoundedVector(mKeys, ends, mMemoryPool.get());
       resizeBoundedVector(mEndRows, ends, mMemoryPool.get());
       resizeBoundedVector(mEndTracks, ends, mMemoryPool.get());
       resizeBoundedVector(mStartRows, ends, mMemoryPool.get());
@@ -424,15 +415,15 @@ class TrackJoin
       for (const bool outermost : {true, false}) {
         forEach(ends, [&](std::uint32_t at) {
           const auto track = mListed[at];
-          mUnsorted[at] = {.row = view.clusters[track].index[outermost ? view.count[track] - 1U : 0U], .track = track};
-          mOrder[at] = at;
+          const std::uint64_t row = view.clusters[track].index[outermost ? view.count[track] - 1U : 0U];
+          mKeys[at] = (row << 32U) | track;
         });
-        mStage.sortIndices(std::span<std::uint32_t>{mOrder}, [&](std::uint32_t a, std::uint32_t b) { return mUnsorted[a] < mUnsorted[b]; });
+        mStage.sortKeys(std::span<std::uint64_t>{mKeys});
         auto& rows = outermost ? mEndRows : mStartRows;
         auto& listedTracks = outermost ? mEndTracks : mStartTracks;
         forEach(ends, [&](std::uint32_t at) {
-          rows[at] = mUnsorted[mOrder[at]].row;
-          listedTracks[at] = mUnsorted[mOrder[at]].track;
+          rows[at] = static_cast<std::uint32_t>(mKeys[at] >> 32U);
+          listedTracks[at] = static_cast<std::uint32_t>(mKeys[at]);
         });
       }
       // Each piece's pairs, their scores, its pair of the least score.
@@ -491,8 +482,7 @@ class TrackJoin
   CpuStage<join::PairCandidate::template RecordT> mStage;
   Pairs mPairs;                            ///< each piece's pairs past the tests without a fit
   BoundedVector<std::uint32_t> mListed;    ///< the earlier tracks with rows, ascending
-  BoundedVector<join::End> mUnsorted;      ///< their ends (or starts), in that order
-  BoundedVector<std::uint32_t> mOrder;     ///< the order sorting them
+  BoundedVector<std::uint64_t> mKeys;      ///< their ends (or starts) above their tracks
   BoundedVector<std::uint32_t> mEndRows;   ///< each earlier track's outermost row, by row then track
   BoundedVector<std::uint32_t> mEndTracks; ///< and its track
   BoundedVector<std::uint32_t> mStartRows; ///< each earlier track's innermost row, by row then track

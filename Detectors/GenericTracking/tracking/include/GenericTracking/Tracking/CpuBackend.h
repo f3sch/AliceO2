@@ -383,6 +383,10 @@ class CpuStage
     detail::parallelSort(mArena, indices, less);
   }
 
+  /// Sort \a keys ascending on this stage's task arena
+  /// (`detail::parallelSortKeys`).
+  void sortKeys(std::span<std::uint64_t> keys) { detail::parallelSortKeys(mArena, keys); }
+
   /// A filtering generator's view of the records staged by its run
   /// (`run`, `filterStaged`), after the raw scan: each element's records, and
   /// their compaction.
