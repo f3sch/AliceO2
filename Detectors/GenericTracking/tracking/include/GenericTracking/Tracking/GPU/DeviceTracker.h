@@ -122,6 +122,8 @@ struct DeviceIterationDownload {
 ///   endIteration      the last batch fitted, the iteration's records gathered
 ///                     and selected, the tracks refitted, extended and kept;
 ///                     the next may begin
+///   finishPartners    after the last iteration, the tracks with overlap
+///                     partners fitted with them
 ///   downloadTracks    every iteration's tracks so far
 ///   endTimeframe      the timeframe closed: the host frame and plan no
 ///                     longer read
@@ -170,6 +172,7 @@ class DeviceTracker
     std::uint32_t readbacks = 0U;    ///< of the road fit, the selection, the length cut, the join and the inactive rows
     std::uint32_t tracksJoined = 0U; ///< pieces the join put onto an earlier track (TrackJoin.h)
     std::uint32_t inactiveRows = 0U; ///< tracks that took an inactive layer's row (InactiveRows.h)
+    std::uint32_t overlapPartners = 0U; ///< overlap partners claimed (OverlapPartners.h)
     std::size_t arenaPeakBytes = 0U; ///< the whole arena, both ends, at its largest from beginIteration to endIteration
   };
   using Tracks = typename TrackRefit<Det>::Tracks;
@@ -231,14 +234,20 @@ class DeviceTracker
   /// mask and the tracks as they were before it.
   [[nodiscard]] virtual StageStatus endIteration(DeviceIterationDownload<Det>* download) = 0;
 
+  /// After the run's last iteration, every track with overlap partners
+  /// fitted on its rows and partners and taking that fit, a track whose fit
+  /// with them fails losing them (the host's `OverlapPartners::finish`).
+  /// Not with an iteration open.
+  [[nodiscard]] virtual StageStatus finishPartners() = 0;
+
   /// Every iteration's tracks so far, in iteration order, each iteration's
   /// best first, into \a tracks; not with an iteration open.
   virtual void downloadTracks(Tracks& tracks) = 0;
 
-  /// Those tracks' overlap partners (OverlapPartners.h): per track where its
-  /// partners begin in \a partners, into \a offsets (one more than the
-  /// tracks), each track's in path order; both empty where no iteration
-  /// takes them. Not with an iteration open.
+  /// Those tracks' overlap partners (OverlapPartners.h), as `finishPartners`
+  /// left them: per track where its partners begin in \a partners, into
+  /// \a offsets (one more than the tracks), each track's in path order; both
+  /// empty without any. Not with an iteration open.
   virtual void downloadPartners(std::vector<std::uint32_t>& offsets, std::vector<OverlapPartner>& partners) = 0;
 
   /// The vertexing pass: iteration \a pass
@@ -327,6 +336,9 @@ class DeviceTracker
       report.iterationSeconds.push_back(profile::secondsSince(start));
       report.iterations.push_back(lastIteration());
     }
+    if (status == StageStatus::kComplete && iterations == iterationCount()) {
+      status = finishPartners();
+    }
     if (status != StageStatus::kComplete) {
       return status;
     }
@@ -340,6 +352,8 @@ class DeviceTracker
     return StageStatus::kComplete;
   }
 
+  /// The configured run's iterations.
+  [[nodiscard]] virtual std::size_t iterationCount() const = 0;
   [[nodiscard]] virtual const SliceReport& lastSlice() const = 0;
   [[nodiscard]] virtual const IterationReport& lastIteration() const = 0;
   /// The arena's size, what each end holds now, and the largest part of it

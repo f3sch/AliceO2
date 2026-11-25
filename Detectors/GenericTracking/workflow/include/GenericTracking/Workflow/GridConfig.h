@@ -111,9 +111,6 @@ inline void checkRecoParam(const RecoSettings& param)
   if (margins != 0U && margins != static_cast<std::size_t>(Detector<Det>::nLayers)) {
     throw std::invalid_argument(std::format("{}.frameMarginBC has {} entries for {}'s {} layers", RecoParamOf<Det>::type::Instance().getName(), margins, Det::name, Detector<Det>::nLayers));
   }
-  if (!std::isfinite(param.followMinPtGeV) || !(param.followMinPtGeV >= 0.)) {
-    throw std::invalid_argument(std::format("GTRKReco<DET>.followMinPtGeV is {}: the follow's pT minimum must not be negative", param.followMinPtGeV));
-  }
   for (const auto margin : param.frameMarginBC) {
     if (margin < 0) {
       throw std::invalid_argument(std::format("GTRKReco<DET>.frameMarginBC holds {}: a margin widens a frame", margin));
@@ -171,7 +168,6 @@ inline void checkRecoParam(const RecoSettings& param)
   check("iterationSharedInnermost", param.iterationSharedInnermost.size(), 1U);
   check("iterationFollow", param.iterationFollow.size(), 1U);
   check("iterationFollowHoles", param.iterationFollowHoles.size(), 1U);
-  check("iterationOverlapPartners", param.iterationOverlapPartners.size(), 1U);
   check("iterationInnerTrim", param.iterationInnerTrim.size(), 1U);
   check("iterationShapeTest", param.iterationShapeTest.size(), 1U);
   check("iterationMinPGeV", param.iterationMinPGeV.size(), 1U);
@@ -241,8 +237,6 @@ inline void checkRecoParam(const RecoSettings& param)
     .sharedInnermost = static_cast<std::uint32_t>(std::max(entry(param.iterationSharedInnermost, static_cast<int>(defaults.sharedInnermost)), 0)),
     .follow = follow,
     .followHoles = followHoles,
-    .followMinPtGeV = param.followMinPtGeV,
-    .overlapPartners = flag(param.iterationOverlapPartners, defaults.overlapPartners),
     .innerTrim = innerTrim,
     .followEndMaxSqrtDet = entryDouble(param.iterationFollowEndMaxSqrtDet, defaults.followEndMaxSqrtDet),
     .followKeepDensity = entryDouble(param.iterationFollowKeepDensity, defaults.followKeepDensity),

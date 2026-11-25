@@ -120,13 +120,6 @@ struct IterationSettings {
   /// The holes a followed track may cross in each direction; past them the
   /// direction ends.
   int followHoles = 0;
-  /// The lowest pT [GeV] at which the follow follows a track, from its state
-  /// as the follow starts (`RecoSettings::followMinPtGeV`).
-  double followMinPtGeV = 0.01;
-  /// Whether the iteration's tracks, after the follow and the length cut,
-  /// take as overlap partners the free rows of their layers on other sensors
-  /// that pass `clusterChi2Max` (OverlapPartners.h).
-  bool overlapPartners = false;
   /// The innermost clusters a road the road fit refuses may be fitted again
   /// without, one more each time, down to `minClusters`; 0 for none.
   int innerTrim = 0;
@@ -328,8 +321,6 @@ struct IterationParameters {
   bool beamConstraint = false;
   /// `IterationSettings::followEarlier`.
   bool followEarlier = false;
-  /// `IterationSettings::followMinPtGeV`.
-  Scalar followMinPt = 0.F;
   /// `IterationSettings::minClustersAfterFollow`; 0 for none.
   std::uint32_t minClustersAfterFollow = 0U;
   /// The beam-line update's terms (`beamConstraint`): the beam line's
@@ -360,10 +351,6 @@ struct IterationParameters {
   /// `IterationSettings::shapeTest`, read on the host only to choose the
   /// tracklet, triplet and follow stages' instantiations.
   bool shapeTest = false;
-  /// `IterationSettings::overlapPartners`, read on the host only to run the
-  /// overlap partners' stage (OverlapPartners.h). Last, so that no other
-  /// member moves.
-  bool overlapPartners = false;
   /// `IterationSettings::minPGeV` [GeV]: above 0 the tracklet stage's disc
   /// windows per source (the host chooses its instantiation by it), which
   /// read it, and every layer's resolution, which they read too
@@ -530,12 +517,10 @@ template <DetectorLayout Det>
   // window of its own prediction.
   parameters.follow = settings.follow;
   parameters.followEarlier = settings.follow && settings.followEarlier;
-  parameters.followMinPt = static_cast<Scalar>(std::max(settings.followMinPtGeV, 0.));
   parameters.followEndMaxSqrtDet = static_cast<Scalar>(std::max(settings.followEndMaxSqrtDet, 0.));
   parameters.followKeepDensity = static_cast<Scalar>(std::max(settings.followKeepDensity, 0.));
   parameters.shapeTest = settings.shapeTest;
   parameters.followHoles = static_cast<std::uint32_t>(std::max(settings.followHoles, 0));
-  parameters.overlapPartners = settings.overlapPartners;
   parameters.discWindowMinP = static_cast<Scalar>(settings.minPGeV);
   for (std::size_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
     parameters.layerResolutions[layer] = layerResolution<Det>(static_cast<LayerID>(layer));

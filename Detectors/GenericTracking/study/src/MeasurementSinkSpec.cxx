@@ -1750,19 +1750,21 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
   std::array<std::uint32_t, kMaxClusters> trackRows{};
   std::array<std::uint32_t, kMaxClusters> altRows{};
   for (const auto& fake : fakes) {
-    const auto count = tracks.rows(fake.track).size();
-    if (count - fake.most != 1U) {
+    // Its layer rows, one per layer: the fits below are the tracker's.
+    const auto count = tracks.layerRows(fake.track, trackRows);
+    std::uint32_t wrong = 0U;
+    std::uint32_t wrongRows = 0U;
+    for (std::uint32_t i = 0; i < count; ++i) {
+      if (!rows[trackRows[i]].carries(fake.label)) {
+        wrong = i;
+        ++wrongRows;
+      }
+    }
+    if (wrongRows != 1U) {
       continue;
     }
     auto& t = tally[fake.cls];
     ++t.oneWrong;
-    std::uint32_t wrong = 0U;
-    for (std::uint32_t i = 0; i < count; ++i) {
-      trackRows[i] = tracks.rows(fake.track)[i];
-      if (!rows[trackRows[i]].carries(fake.label)) {
-        wrong = i;
-      }
-    }
     std::size_t at = 2U;
     if (wrong == 0U) {
       at = 0U;
@@ -2054,7 +2056,8 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
         }
       }
     }
-    if (tracks.rows(best).size() >= nLayers) {
+    std::array<std::uint32_t, maxChainLayers<Det>> bestRows{};
+    if (tracks.layerRows(best, bestRows) >= nLayers) {
       continue;
     }
     ++incomplete;
@@ -2455,6 +2458,9 @@ void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const Reco
     ++tracksByIteration[iteration];
     ++tracksByCount[std::min<std::size_t>(count, kCountSlots - 1U)];
     const auto trackRows = tracks.rows(track);
+    // The rows the follow added and the kink are positions among the layer rows.
+    std::array<std::uint32_t, maxChainLayers<Det>> layerRows{};
+    const auto layerCount = tracks.layerRows(track, layerRows);
     const std::uint32_t addedInward = view.addedInward[track];
     const std::uint32_t addedOutward = view.addedOutward[track];
     const std::uint32_t added = addedInward + addedOutward;
@@ -2462,11 +2468,11 @@ void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const Reco
     if (added != 0U) {
       ++extendedTracks;
       addedClusters += added;
-      const std::uint32_t originalEnd = count - addedOutward;
-      const auto owner = majorityParticle(truthRows, trackRows.subspan(addedInward, originalEnd - addedInward)).particle;
-      for (std::uint32_t i = 0; i < count; ++i) {
+      const std::uint32_t originalEnd = layerCount - addedOutward;
+      const auto owner = majorityParticle(truthRows, std::span<const std::uint32_t>{layerRows}.subspan(addedInward, originalEnd - addedInward)).particle;
+      for (std::uint32_t i = 0; i < layerCount; ++i) {
         const bool addedHere = i < addedInward || i >= originalEnd;
-        ownAddedClusters += addedHere && owner != kNoTrackParticle && truthRows[trackRows[i]].carries(owner) ? 1U : 0U;
+        ownAddedClusters += addedHere && owner != kNoTrackParticle && truthRows[layerRows[i]].carries(owner) ? 1U : 0U;
       }
     }
     const auto goodId = goodParticle(truthRows, trackRows);
@@ -2474,7 +2480,7 @@ void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const Reco
     if (view.kinks[track] != 0U) {
       ++kinkedTracks;
       kinkedFakes += one ? 0U : 1U;
-      const auto kinkRow = tracks.rows(track)[view.kinkCluster[track]];
+      const auto kinkRow = layerRows[view.kinkCluster[track]];
       ++kinksByLayer[layerOfRow(frame, tracking, kinkRow)];
     }
     if (one) {
@@ -2797,7 +2803,9 @@ void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const Reco
       const auto iterationB = std::min<std::size_t>(view.iteration[b], iterations - 1U);
       ++cloneRelations[iterationA][iterationB][relation];
       if (relation == kInner || relation == kOuter) {
-        const auto need = static_cast<std::uint32_t>(tracks.rows(a).size()) + tracks.rows(b).size();
+        // The chain the two make: their layer rows.
+        std::array<std::uint32_t, maxChainLayers<Det>> scratch{};
+        const auto need = tracks.layerRows(a, scratch) + tracks.layerRows(b, scratch);
         const auto stage = funnel != nullptr ? funnel->stages(id, 0U) : std::nullopt;
         const auto splitParticle = particles.find(id);
         Split split = kSplitElse;

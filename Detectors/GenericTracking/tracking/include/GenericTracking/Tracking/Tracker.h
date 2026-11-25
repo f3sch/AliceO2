@@ -149,8 +149,8 @@ class Tracker
     /// Tracks that took an inactive layer's row on their whole fit
     /// (InactiveRows.h).
     std::size_t inactiveRows = 0U;
-    /// With overlapPartners, the partners attached and the tracks they went
-    /// to (OverlapPartners.h).
+    /// The overlap partners claimed and the tracks they went to
+    /// (OverlapPartners.h).
     std::size_t overlapPartners = 0U;
     std::size_t tracksWithPartners = 0U;
     std::size_t recordBytes = 0U; ///< the selection records held for the iteration
@@ -173,6 +173,9 @@ class Tracker
     std::vector<IterationSummary> iterations;
     /// The run's phases: `run`, `begin timeframe`, and the iterations' summed.
     profile::Profile profile;
+    /// After the last iteration, the tracks with overlap partners fitted with
+    /// them (`OverlapPartners::finish`).
+    typename OverlapPartners<Det>::Finished partners;
   };
 
   /// What a run left after its first iterations, all that a later iteration
@@ -183,6 +186,7 @@ class Tracker
     std::vector<typename TrackRefit<Det>::Tracks::Record> tracks;
     std::vector<std::uint8_t> used;
     std::vector<IterationSummary> summaries;
+    std::vector<PartnerClaim> claims; ///< the overlap partners claimed, not fitted yet
   };
 
   /// One tracker for every iteration of \a iterations, their parameters built
@@ -203,11 +207,6 @@ class Tracker
     }
     for (std::size_t iteration = 0; iteration < iterations.size(); ++iteration) {
       const auto& settings = iterations[iteration];
-      // An earlier iteration's partners are references the follow of its
-      // tracks would not carry along.
-      if (iterations[iteration].followEarlier && std::ranges::any_of(iterations.first(iteration), [](const auto& earlier) { return earlier.overlapPartners; })) {
-        throw std::invalid_argument("iteration " + std::to_string(iteration) + " follows earlier iterations' tracks after an iteration with overlap partners");
-      }
       // An earlier iteration with the same windows has the same links'
       // windows and bounds: derived once (`iterationParameters`).
       const IterationParameters<Det>* alike = nullptr;
@@ -238,7 +237,7 @@ class Tracker
     mFollowEarlier.setMemoryPool(mMemoryPool);
     mJoin.setMemoryPool(mMemoryPool);
     mInactiveRows.setMemoryPool(mMemoryPool);
-    deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection, mKeptTracks, mChangedTracks);
+    deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection, mKeptTracks, mChangedTracks, mClaims, mPartnerCandidates);
     mDropScratch.setMemoryResource(mMemoryPool.get());
   }
 
@@ -254,9 +253,9 @@ class Tracker
   {
     mGeometry = &geometry;
     mPropagator = propagator;
-    // The sensors by place, once, where an iteration follows or takes
-    // overlap partners.
-    if (std::ranges::any_of(mIterations, [](const auto& parameters) { return parameters.follow || parameters.overlapPartners; })) {
+    // The sensors by place, once, where an iteration follows or the layout
+    // has overlap partners.
+    if (overlapLayers<Det> != 0U || std::ranges::any_of(mIterations, [](const auto& parameters) { return parameters.follow; })) {
       mSensorCells = SensorCells<Det>(geometry);
     }
   }
@@ -295,7 +294,7 @@ class Tracker
     mSelection.clearStorage();
     mRefit.clearStorage();
     mStore.clearStorage();
-    deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection);
+    deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection, mClaims);
     mFollowStartInner = {};
     mFollowStart = {};
     mFollowStartCount = {};
@@ -397,7 +396,8 @@ class Tracker
   }
 
   /// What \a result, this tracker's last `run` and complete, left: its
-  /// tracks, the used mask and its iterations' summaries. Before
+  /// tracks, the used mask, its iterations' summaries and the overlap
+  /// partners claimed (a run of every iteration has fitted them). Before
   /// `endTimeframe`, which releases them.
   [[nodiscard]] Checkpoint checkpoint(const TimeframeResult& result) const
   {
@@ -411,6 +411,7 @@ class Tracker
       state.tracks.push_back(tracks.read(track));
     }
     state.used.assign(mUsed.begin(), mUsed.end());
+    state.claims.assign(mClaims.begin(), mClaims.end());
     state.summaries = result.iterations;
     for (auto& summary : state.summaries) {
       summary.profile = {};
@@ -561,6 +562,7 @@ class Tracker
     }
     mRefit.clear();
     mStore.clear();
+    mClaims.clear();
     std::size_t first = 0U;
     if (from != nullptr) {
       first = from->summaries.size();
@@ -572,6 +574,7 @@ class Tracker
         for (std::size_t track = 0; track < from->tracks.size(); ++track) {
           tracks.write(track, from->tracks[track]);
         }
+        mClaims.assign(from->claims.begin(), from->claims.end());
         return StageStatus::kComplete;
       });
       if (result.status == StageStatus::kComplete) {
@@ -592,18 +595,38 @@ class Tracker
         return;
       }
     }
+    if (last == mIterations.size()) {
+      const profile::Zone zone{Phase::kOverlapPartners};
+      result.status = finishPartners(frame, result.partners);
+      if (result.status != StageStatus::kComplete) {
+        return;
+      }
+    }
     result.store = &mStore;
   }
 
-  /// The tracks not committed yet into the store (TrackStore::commit), with
-  /// \a partnered the overlap partners' last run gave them.
-  [[nodiscard]] StageStatus commitTracks(bool partnered = false)
+  /// The tracks not committed yet into the store (TrackStore::commit).
+  [[nodiscard]] StageStatus commitTracks()
   {
     const auto count = static_cast<Index>(mRefit.size() - mStore.size());
-    if (partnered) {
-      return mStore.commit(spreadForEach(), spreadChunk(count), std::as_const(mRefit).tracks(), mPartners.offsets(), mPartners.partners());
-    }
     return mStore.commit(spreadForEach(), spreadChunk(count), std::as_const(mRefit).tracks());
+  }
+
+  /// After the last iteration, every track with overlap partners fitted with
+  /// them (`OverlapPartners::finish`) and committed again with them, what it
+  /// did into \a finished.
+  [[nodiscard]] StageStatus finishPartners(const Frame& frame, typename OverlapPartners<Det>::Finished& finished)
+  {
+    if (mClaims.empty()) {
+      return StageStatus::kComplete;
+    }
+    auto status = mPartners.finish(fitForEach(), mIterations.data(), frame, *mGeometry, mPropagator, mRefit.tracks(), std::span<const PartnerClaim>{mClaims}, std::span<std::uint8_t>{mUsed});
+    finished = mPartners.finished();
+    if (status == StageStatus::kComplete) {
+      status = mStore.recommitPartnered(spreadForEach(), spreadChunk(static_cast<Index>(mPartners.listed().size())), std::as_const(mRefit).tracks(), mPartners.listed(), mPartners.offsets(), mPartners.partners());
+    }
+    mPartners.clearStorage();
+    return status;
   }
 
   /// What one iteration grew, back to the pool at its end, after its
@@ -642,6 +665,7 @@ class Tracker
     const auto sort = [&](std::span<std::uint32_t> indices, const auto& less) { mNeighbourStage.sortIndices(indices, less); };
     summary.haloPS = plan.haloPS;
     mSelection.clear();
+    mPartnerCandidates.clear();
     // With followEarlier the earlier iterations' tracks are followed first,
     // with this iteration's settings: the rows they take are theirs before
     // this iteration's seeds are made.
@@ -652,6 +676,9 @@ class Tracker
       if (summary.status == StageStatus::kComplete) {
         // The tracks it extended or trimmed in place, committed again.
         summary.status = mStore.recommitChanged(spreadForEach(), spreadChunk(static_cast<Index>(mStore.size())), std::as_const(mRefit).tracks(), mChangedTracks);
+      }
+      if (summary.status == StageStatus::kComplete) {
+        summary.status = notePartnerCandidates();
       }
       if (summary.status != StageStatus::kComplete) {
         return;
@@ -751,10 +778,8 @@ class Tracker
         return StageStatus::kComplete;
       });
     }
-    // The join of the iteration's tracks to the earlier iterations' ones;
-    // none where an iteration attaches overlap partners, which a joined
-    // earlier track's references would lose.
-    if (summary.status == StageStatus::kComplete && trackOffset != 0U && std::ranges::none_of(mIterations, [](const auto& parameters) { return parameters.overlapPartners; })) {
+    // The join of the iteration's tracks to the earlier iterations' ones.
+    if (summary.status == StageStatus::kComplete && trackOffset != 0U) {
       const profile::Zone zone{Phase::kJoin};
       summary.status = joinTracks(frame, plan, trackOffset, followed, started, summary.tracksJoined);
     }
@@ -774,19 +799,22 @@ class Tracker
     if (summary.status == StageStatus::kComplete && (summary.tracksJoined != 0U || changedEarlier(mInactiveRows.changed()))) {
       // The earlier tracks the join or the inactive rows changed, committed again.
       summary.status = mStore.recommitChanged(spreadForEach(), spreadChunk(static_cast<Index>(mStore.size())), std::as_const(mRefit).tracks(), mChangedTracks);
+      if (summary.status == StageStatus::kComplete) {
+        summary.status = notePartnerCandidates();
+      }
     }
-    const bool partnered = summary.status == StageStatus::kComplete && mIterations[iteration].overlapPartners;
-    if (partnered) {
-      const profile::Zone zone{Phase::kOverlapPartners};
-      summary.status = mPartners.run(fitForEach(), fitChunk(static_cast<Index>(mRefit.size() - trackOffset)), mIterations[iteration], frame, *mGeometry, mPropagator, mSensorCells.view(), std::span<const SensorFootprint>{mSensorCells.footprints()}, mRefit.tracks(), trackOffset, std::span<std::uint8_t>{mUsed}, std::span<const std::uint32_t>{plan.layerMaxWidthPS}, std::span<const Scalar>{plan.layerMaxLocVariance});
-      summary.overlapPartners = mPartners.counts().attached;
-      summary.tracksWithPartners = mPartners.counts().tracks;
+    if constexpr (overlapLayers<Det> != 0U) {
+      if (summary.status == StageStatus::kComplete) {
+        const profile::Zone zone{Phase::kOverlapPartners};
+        summary.status = claimPartners(iteration, frame, plan, trackOffset);
+        summary.overlapPartners = mPartners.counts().attached;
+        summary.tracksWithPartners = mPartners.counts().tracks;
+      }
     }
     if (summary.status == StageStatus::kComplete) {
-      // The iteration's tracks as the follow, the length cut and the
-      // partners left them.
+      // The iteration's tracks as the follow and the length cut left them.
       const profile::Zone zone{Phase::kCommit};
-      summary.status = commitTracks(partnered);
+      summary.status = commitTracks();
     }
     if (mIterationObserver && summary.status == StageStatus::kComplete) {
       const profile::Zone zone{Phase::kObservers};
@@ -873,6 +901,46 @@ class Tracker
     keepTracks(trackOffset, followed, started);
     copyInParallel(std::span<const std::uint8_t>{mUsedBeforeSelection}, std::span<std::uint8_t>{mUsed});
     return dropped;
+  }
+
+  /// The earlier tracks `TrackStore::recommitChanged` just listed as
+  /// changed, noted as the iteration's overlap partners' candidates.
+  [[nodiscard]] StageStatus notePartnerCandidates()
+  {
+    return guardOutOfMemory([&] {
+      mPartnerCandidates.insert(mPartnerCandidates.end(), mChangedTracks.begin(), mChangedTracks.end());
+      return StageStatus::kComplete;
+    });
+  }
+
+  /// Iteration \a iteration's overlap partners (`OverlapPartners::run`) for
+  /// its tracks, from \a trackOffset, and the earlier ones it changed: the
+  /// new claims merged into the run's, which stay ordered by track.
+  [[nodiscard]] StageStatus claimPartners(std::size_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset)
+  {
+    auto status = guardOutOfMemory([&] {
+      std::ranges::sort(mPartnerCandidates);
+      const auto unique = std::ranges::unique(mPartnerCandidates);
+      mPartnerCandidates.erase(unique.begin(), unique.end());
+      for (auto track = trackOffset; track < static_cast<std::uint32_t>(mRefit.size()); ++track) {
+        mPartnerCandidates.push_back(track);
+      }
+      return StageStatus::kComplete;
+    });
+    if (status != StageStatus::kComplete || mPartnerCandidates.empty()) {
+      return status;
+    }
+    status = mPartners.run(fitForEach(), fitChunk(static_cast<Index>(mPartnerCandidates.size())), mIterations.data(), iteration, frame, *mGeometry, mPropagator, mSensorCells.view(), std::span<const SensorFootprint>{mSensorCells.footprints()}, mRefit.tracks(), std::span<const std::uint32_t>{mPartnerCandidates}, std::span<const PartnerClaim>{mClaims}, std::span<std::uint8_t>{mUsed}, std::span<const std::uint32_t>{plan.layerMaxWidthPS}, std::span<const Scalar>{plan.layerMaxLocVariance});
+    if (status != StageStatus::kComplete) {
+      return status;
+    }
+    return guardOutOfMemory([&] {
+      const auto claims = mPartners.claims();
+      const auto middle = static_cast<std::ptrdiff_t>(mClaims.size());
+      mClaims.insert(mClaims.end(), claims.begin(), claims.end());
+      std::inplace_merge(mClaims.begin(), mClaims.begin() + middle, mClaims.end(), [](const PartnerClaim& a, const PartnerClaim& b) { return a.track < b.track; });
+      return StageStatus::kComplete;
+    });
   }
 
   /// The join of the tracks from \a trackOffset on to the earlier ones
@@ -1304,6 +1372,8 @@ class Tracker
   BoundedVector<Index> mKeptTracks;                 ///< `dropTracks`' kept tracks
   typename TrackRefit<Det>::Tracks mDropScratch;    ///< `dropTracks`' moved tracks
   BoundedVector<Index> mChangedTracks;              ///< `TrackStore::recommitChanged`'s scratch
+  BoundedVector<std::uint32_t> mPartnerCandidates;  ///< the iteration's earlier tracks changed, then its own: the overlap partners' candidates
+  BoundedVector<PartnerClaim> mClaims;              ///< the run's overlap partners, ordered by track
   const TrackingGeometry<Det>* mGeometry = nullptr;
   Propagator mPropagator;
   profile::Trace* mTrace = nullptr;
