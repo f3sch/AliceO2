@@ -54,18 +54,18 @@ class TrackFile
 
   /// The tracks of entry \a entry; empty past the last. Throws
   /// std::runtime_error if a track points past the cluster index array.
-  [[nodiscard]] TrackClusters read(long long entry);
+  [[nodiscard]] TrackClusters read(std::int64_t entry);
 
   /// Whether each track's own MC label is flagged fake, as O2's tracker set it.
-  [[nodiscard]] std::vector<bool> fakeFlags(long long entry);
+  [[nodiscard]] std::vector<bool> fakeFlags(std::int64_t entry);
 
   /// Fitted inward kinematics in the same order as read(). Native outputs
   /// contain accepted tracks; fitValid checks finite, positive momentum.
-  [[nodiscard]] std::vector<TrackKinematics> kinematics(long long entry);
+  [[nodiscard]] std::vector<TrackKinematics> kinematics(std::int64_t entry);
 
   /// Every ITS track's state at its innermost cluster. Throws
   /// std::runtime_error for the MFT, whose tracks are parameterised in z.
-  [[nodiscard]] std::vector<o2::track::TrackParCov> innerStates(long long entry);
+  [[nodiscard]] std::vector<o2::track::TrackParCov> innerStates(std::int64_t entry);
 
  private:
   Chips mChips;

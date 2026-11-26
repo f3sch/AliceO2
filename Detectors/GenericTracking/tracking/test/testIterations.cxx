@@ -52,15 +52,15 @@ using namespace toybarrel8;
 /// Twelve tracks over 1.1 us: the even ones stiff, 2 to 3 GeV, the odd ones
 /// soft, 0.4 to 0.7 GeV -- below the first iteration's 1 GeV, above the
 /// second's 0.3.
-constexpr std::size_t kTracks = 12U;
+constexpr std::uint32_t kTracks = 12U;
 constexpr double kDurationNS = 1100.;
 
-bool stiff(std::size_t track) { return track % 2U == 0U; }
+bool stiff(std::uint32_t track) { return track % 2U == 0U; }
 
 std::vector<Hit> hits()
 {
   std::vector<Hit> result;
-  for (std::size_t track = 0; track < kTracks; ++track) {
+  for (std::uint32_t track = 0; track < kTracks; ++track) {
     const auto k = static_cast<double>(track);
     const double pt = stiff(track) ? 2. + (0.2 * static_cast<double>(track % 5U)) : 0.4 + (0.06 * static_cast<double>(track % 5U));
     const auto one = sensorHelixHits(std::fmod(0.3 + (0.9 * k), kTwoPi<double>), 0.03 * std::cos(1.3 * k), pt, 37. + (83. * k));
@@ -90,7 +90,7 @@ struct Found {
 struct Outcome {
   std::vector<Found> tracks;
   std::vector<std::uint8_t> used;
-  std::vector<std::size_t> records;
+  std::vector<std::uint32_t> records;
 };
 
 auto rows(const std::vector<Found>& tracks)
@@ -104,7 +104,7 @@ auto rows(const std::vector<Found>& tracks)
   return result;
 }
 
-std::unique_ptr<Tracker<Det>> makeTracker(std::vector<IterationSettings> settings, bool follow = true, std::uint32_t shared = 0U, int threads = 1)
+std::unique_ptr<Tracker<Det>> makeTracker(std::vector<IterationSettings> settings, bool follow = true, std::uint32_t shared = 0U, std::int32_t threads = 1)
 {
   for (auto& iteration : settings) {
     iteration.follow = follow;
@@ -120,7 +120,7 @@ std::vector<Found> found(const Tracker<Det>::TimeframeResult& result)
   std::vector<Found> tracks;
   tracks.reserve(result.store->size());
   const auto view = result.store->tracks().view();
-  for (std::size_t i = 0; i < result.store->size(); ++i) {
+  for (std::uint32_t i = 0; i < result.store->size(); ++i) {
     const auto rows = result.store->rows(i);
     tracks.push_back({
       .iteration = view.iteration[i],
@@ -131,7 +131,7 @@ std::vector<Found> found(const Tracker<Det>::TimeframeResult& result)
   return tracks;
 }
 
-Outcome track(const Fixture& fixture, std::int32_t widthBlocks, int threads)
+Outcome track(const Fixture& fixture, std::int32_t widthBlocks, std::int32_t threads)
 {
   auto owned = makeTracker(iterations(), false, 0U, threads);
   auto& tracker = *owned;
@@ -170,7 +170,7 @@ BOOST_AUTO_TEST_CASE(EachIterationFindsItsTracksOnce)
       // each whole and once.
       BOOST_TEST(t.iteration == (stiff(index) ? 0U : 1U));
       BOOST_TEST(!found[index]);
-      for (std::size_t layer = 0; layer < kLayers; ++layer) {
+      for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
         BOOST_TEST(t.rows[layer] == fixture.row((kLayers * index) + layer));
       }
     }
@@ -193,10 +193,10 @@ BOOST_AUTO_TEST_CASE(AnyMemoryLimitEndsARunWithAStatus)
 {
   const Fixture fixture{hits(), kDurationNS};
   constexpr std::int32_t kWidth = 3;
-  const auto runOn = [&](const std::shared_ptr<BoundedMemoryResource>& pool, int threads, std::vector<StageStatus>& statuses) {
+  const auto runOn = [&](const std::shared_ptr<BoundedMemoryResource>& pool, std::int32_t threads, std::vector<StageStatus>& statuses) {
     Tracker<Det> tracker{iterations(), Fixture::kBeamConstraint, noMaterial<Det>(), pool, 2U, threads};
     tracker.setTrackModel(trackingGeometry(), Propagator{});
-    for (int run = 0; run < 2; ++run) {
+    for (std::int32_t run = 0; run < 2; ++run) {
       Tracker<Det>::TimeframeResult result;
       BOOST_CHECK_NO_THROW(result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, kWidth)));
       statuses.push_back(result.status);
@@ -213,10 +213,10 @@ BOOST_AUTO_TEST_CASE(AnyMemoryLimitEndsARunWithAStatus)
   }
   BOOST_REQUIRE(peak > 0U);
   constexpr std::size_t kSteps = 1000U;
-  std::size_t failed = 0U;
+  std::uint32_t failed = 0U;
   for (std::size_t step = 0; step <= kSteps; ++step) {
     const std::size_t limit = 1U + (peak * step / kSteps);
-    for (const int threads : {1, 3}) {
+    for (const std::int32_t threads : {1, 3}) {
       const auto bounded = std::make_shared<BoundedMemoryResource>(limit);
       std::vector<StageStatus> statuses;
       runOn(bounded, threads, statuses);
@@ -238,7 +238,7 @@ BOOST_AUTO_TEST_CASE(TheTracksDoNotDependOnTheSlicingOrTheThreads)
   const Fixture fixture{hits(), kDurationNS};
   const auto whole = track(fixture, fixture.geometry.blockCount(), 1);
   for (const std::int32_t width : {1, 2, 3, 7}) {
-    for (const int threads : {1, 4}) {
+    for (const std::int32_t threads : {1, 4}) {
       const auto sliced = track(fixture, width, threads);
       BOOST_TEST_CONTEXT("slices of " << width << " blocks, " << threads << " threads")
       {
@@ -260,9 +260,9 @@ BOOST_AUTO_TEST_CASE(TheSliceObserverSeesEverySliceWithItsUsedMask)
 
   Tracker<Det> tracker{iterations(), Fixture::kBeamConstraint, noMaterial<Det>(), std::make_shared<BoundedMemoryResource>(), 2U, 1};
   tracker.setTrackModel(trackingGeometry(), Propagator{});
-  std::vector<std::size_t> slicesPerIteration(2U, 0U);
-  std::vector<std::size_t> exclusivePerIteration(2U, 0U);
-  std::vector<std::size_t> recordsPerIteration(2U, 0U);
+  std::vector<std::uint32_t> slicesPerIteration(2U, 0U);
+  std::vector<std::uint32_t> exclusivePerIteration(2U, 0U);
+  std::vector<std::uint32_t> recordsPerIteration(2U, 0U);
   std::int32_t nextBlock = 0;
   tracker.setSliceObserver([&](const Tracker<Det>& observed, const Tracker<Det>::SliceObservation& slice) {
     BOOST_TEST(&observed == &tracker);
@@ -279,11 +279,11 @@ BOOST_AUTO_TEST_CASE(TheSliceObserverSeesEverySliceWithItsUsedMask)
     BOOST_TEST(slice.slice->coreBlocks.begin == nextBlock);
     nextBlock = slice.slice->coreBlocks.end == fixture.geometry.blockCount() ? 0 : slice.slice->coreBlocks.end;
     ++slicesPerIteration[slice.iteration];
-    exclusivePerIteration[slice.iteration] = static_cast<std::size_t>(std::ranges::count(observed.used(), std::uint8_t{kExclusive}));
+    exclusivePerIteration[slice.iteration] = static_cast<std::uint32_t>(std::ranges::count(observed.used(), std::uint8_t{kExclusive}));
   });
   const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, kWidth));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
-  const auto slices = static_cast<std::size_t>((fixture.geometry.blockCount() + kWidth - 1) / kWidth);
+  const auto slices = static_cast<std::uint32_t>((fixture.geometry.blockCount() + kWidth - 1) / kWidth);
   BOOST_TEST(slicesPerIteration[0] == slices);
   BOOST_TEST(slicesPerIteration[1] == slices);
   BOOST_TEST(exclusivePerIteration[0] == 0U);
@@ -308,7 +308,7 @@ BOOST_AUTO_TEST_CASE(TheIterationObserverSeesEveryIterationsSelection)
       firstCluster.push_back(slice.records->view().clusters[record].index[0]);
     }
   });
-  std::vector<std::size_t> seen;
+  std::vector<std::uint32_t> seen;
   tracker.setIterationObserver([&](const Tracker<Det>& observed, const Tracker<Det>::IterationObservation& iteration) {
     seen.push_back(iteration.iteration);
     BOOST_REQUIRE(iteration.selection != nullptr && iteration.summary != nullptr);
@@ -324,11 +324,11 @@ BOOST_AUTO_TEST_CASE(TheIterationObserverSeesEveryIterationsSelection)
     }
     firstCluster.clear();
     const auto exclusive = std::ranges::count(observed.used(), std::uint8_t{kExclusive});
-    BOOST_TEST(static_cast<std::size_t>(exclusive) == (iteration.iteration + 1U) * (kTracks / 2U) * kLayers);
+    BOOST_TEST(static_cast<std::uint32_t>(exclusive) == (iteration.iteration + 1U) * (kTracks / 2U) * kLayers);
   });
   const auto result = tracker.run(*fixture.frame, tracker.planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, 3));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
-  BOOST_TEST((seen == std::vector<std::size_t>{0U, 1U}));
+  BOOST_TEST((seen == std::vector<std::uint32_t>{0U, 1U}));
 }
 
 namespace
@@ -348,8 +348,8 @@ std::vector<VertexSeed> trackVertices()
 {
   std::vector<VertexSeed> vertices;
   vertices.reserve(kTracks);
-  for (std::size_t track = 0; track < kTracks; ++track) {
-    const auto timePS = static_cast<std::uint32_t>(37'000U + (83'000U * track));
+  for (std::uint32_t track = 0; track < kTracks; ++track) {
+    const std::uint32_t timePS = 37'000U + (83'000U * track);
     vertices.push_back({.timePS = timePS, .widthPS = 0U, .z = 0.F, .varZ = 4.e-4F, .varTransverse = 1.e-6F});
   }
   return vertices;
@@ -419,7 +419,7 @@ BOOST_AUTO_TEST_CASE(ASlicePlanHoldsTheSlicesBoundsAndGate)
   const auto tracker = makeTracker(iterations());
   const auto plan = tracker->planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, 3);
   const auto& frame = *fixture.frame;
-  BOOST_TEST(plan.slices.size() == static_cast<std::size_t>((fixture.geometry.blockCount() + 2) / 3));
+  BOOST_TEST(plan.slices.size() == static_cast<std::uint32_t>((fixture.geometry.blockCount() + 2) / 3));
   // The toys' blocks start at 0 and are whole picoseconds. The gate is the
   // iterations' chains' (`chainReach`): the toy's rows are boxes of one width,
   // not frames, so a link reaches that width and so does a triplet's two, and
@@ -486,7 +486,7 @@ BOOST_AUTO_TEST_CASE(TheIterationObservationCarriesMaskTracksAndProposals)
       });
       const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, 3));
       BOOST_REQUIRE(result.status == StageStatus::kComplete);
-      BOOST_TEST((offsets == std::vector<std::uint32_t>{0U, static_cast<std::uint32_t>(kTracks / 2U)}));
+      BOOST_TEST((offsets == std::vector<std::uint32_t>{0U, kTracks / 2U}));
       const std::vector<std::size_t> expected = follow ? std::vector<std::size_t>{kTracks / 2U, kTracks / 2U} : std::vector<std::size_t>{0U, 0U};
       BOOST_TEST(proposals == expected, boost::test_tools::per_element());
     }
@@ -507,8 +507,8 @@ BOOST_AUTO_TEST_CASE(InnerSeedsFollowOverEveryLayerAndShortTracksGiveTheirRowsBa
   const auto expected = found(everyLayer);
   BOOST_REQUIRE(expected.size() == kTracks);
 
-  constexpr int kWhole = static_cast<int>(kLayers);
-  const auto seeded = [](std::array<int, 2> minClustersAfterFollow) {
+  constexpr auto kWhole = static_cast<std::int32_t>(kLayers);
+  const auto seeded = [](std::array<std::int32_t, 2> minClustersAfterFollow) {
     auto settings = iterations();
     for (std::size_t i = 0; i < settings.size(); ++i) {
       settings[i].layerMask = 0b11111U;
@@ -533,7 +533,7 @@ BOOST_AUTO_TEST_CASE(InnerSeedsFollowOverEveryLayerAndShortTracksGiveTheirRowsBa
     // The first iteration asks more than a track can hold: its six stiff
     // tracks are dropped, and the second, at 0.3 GeV, finds all twelve.
     auto tracker = makeTracker(seeded({kWhole + 1, kWhole}));
-    std::vector<std::size_t> observed;
+    std::vector<std::uint32_t> observed;
     tracker->setIterationObserver([&](const Tracker<Det>&, const Tracker<Det>::IterationObservation& iteration) {
       BOOST_TEST(iteration.tracks->size() == iteration.trackOffset + iteration.summary->tracks - iteration.summary->refitFailures - iteration.summary->tracksDropped - iteration.summary->tracksJoined);
       BOOST_TEST(iteration.proposals.size() == iteration.tracks->size() - iteration.trackOffset);
@@ -543,7 +543,7 @@ BOOST_AUTO_TEST_CASE(InnerSeedsFollowOverEveryLayerAndShortTracksGiveTheirRowsBa
     BOOST_REQUIRE(result.status == StageStatus::kComplete);
     BOOST_TEST(result.iterations[0].tracksDropped == kTracks / 2U);
     BOOST_TEST(result.iterations[1].tracksDropped == 0U);
-    BOOST_TEST((observed == std::vector<std::size_t>{0U, kTracks}));
+    BOOST_TEST((observed == std::vector<std::uint32_t>{0U, kTracks}));
     const auto tracks = found(result);
     BOOST_TEST((rows(tracks) == rows(expected)));
     BOOST_TEST(std::ranges::all_of(tracks, [](const Found& track) { return track.iteration == 1U; }));
@@ -606,7 +606,7 @@ BOOST_AUTO_TEST_CASE(TheRecoveryPassKeepsWholeTracksWhole)
   settings[1].kinkSigma = 5.;
   settings[1].maxKinks = 2;
   settings[1].followEarlier = true;
-  settings[1].minClustersAfterFollow = static_cast<int>(kLayers);
+  settings[1].minClustersAfterFollow = static_cast<std::int32_t>(kLayers);
   auto tracker = makeTracker(settings);
   const auto result = tracker->run(*fixture.frame, tracker->planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, 3));
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
@@ -644,7 +644,7 @@ GridParams twoLengthGrid()
   params.partsPerPS = kPartsPerPS;
   params.blockWidth = kPartsPerBC * 2 * kOuterFrameBC;
   params.blockOrigin = -kPartsPerPS;
-  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
     params.frames[layer] = {.lengthBC = frameLengthBC(static_cast<LayerID>(layer)), .firstStartBC = 0};
   }
   return params;
@@ -662,7 +662,7 @@ TimeEstPS frameOf(const Hit& hit, std::int64_t marginBC)
 std::vector<Hit> framedHits()
 {
   std::vector<Hit> result;
-  for (std::size_t track = 0; track < kCrossingBC.size(); ++track) {
+  for (std::uint32_t track = 0; track < kCrossingBC.size(); ++track) {
     const auto k = static_cast<double>(track);
     const double pt = stiff(track) ? 2. + (0.2 * static_cast<double>(track % 5U)) : 0.4 + (0.06 * static_cast<double>(track % 5U));
     const double startNS = (static_cast<double>(kCrossingBC[track]) * kBunchNS) + 5.;
@@ -686,7 +686,7 @@ FramedRun trackFramed(const Fixture& fixture, std::int32_t widthBlocks, const st
   BOOST_REQUIRE(result.status == StageStatus::kComplete);
   FramedRun run{.tracks = found(result), .times = std::vector<TimeEstPS>(kCrossingBC.size()), .haloPS = result.iterations.front().haloPS};
   const auto view = result.store->tracks().view();
-  for (std::size_t i = 0; i < result.store->size(); ++i) {
+  for (std::uint32_t i = 0; i < result.store->size(); ++i) {
     const auto index = fixture.frame->measurement(result.store->rows(i)[0]).clusterIndex / kLayers;
     run.times[index] = {.start = view.timePS[i], .width = view.widthPS[i]};
   }
@@ -717,7 +717,7 @@ BOOST_AUTO_TEST_CASE(TwoFrameLengthsSliceWithOneOuterFrameOfHalo)
 
   const auto whole = trackFramed(fixture, geometry.blockCount());
   BOOST_REQUIRE(whole.tracks.size() == kCrossingBC.size());
-  for (std::size_t track = 0; track < kCrossingBC.size(); ++track) {
+  for (std::uint32_t track = 0; track < kCrossingBC.size(); ++track) {
     BOOST_TEST_CONTEXT("track at " << kCrossingBC[track] << " BC")
     {
       const auto bc = kCrossingBC[track];
@@ -769,7 +769,7 @@ BOOST_AUTO_TEST_CASE(ANarrowBoxLayerBetweenLayersOfTheSameFrames)
     iteration.layerMask = 0xF8U;
   }
   for (const LayerID narrow : {LayerID{6}, LayerID{5}}) {
-    BOOST_TEST_CONTEXT("narrow layer " << int{narrow})
+    BOOST_TEST_CONTEXT("narrow layer " << std::int32_t{narrow})
     {
       auto params = twoLengthGrid();
       params.frames[narrow] = {.lengthBC = 1, .firstStartBC = 0};
@@ -781,7 +781,7 @@ BOOST_AUTO_TEST_CASE(ANarrowBoxLayerBetweenLayersOfTheSameFrames)
         return TimeEstPS{.start = static_cast<std::uint32_t>(t - narrowPS), .width = static_cast<std::uint32_t>(narrowPS)};
       };
       std::vector<Hit> hits;
-      for (std::size_t track = 0; track < kCrossings.size(); ++track) {
+      for (std::uint32_t track = 0; track < kCrossings.size(); ++track) {
         const auto k = static_cast<double>(track);
         const double pt = stiff(track) ? 2. + (0.2 * static_cast<double>(track % 5U)) : 0.4 + (0.06 * static_cast<double>(track % 5U));
         const auto one = sensorHelixHits(std::fmod(0.3 + (0.9 * k), 2 * std::numbers::pi_v<double>), 0.03 * std::cos(1.3 * k), pt, (static_cast<double>(kCrossings[track]) * kBunchNS) + 5.);
@@ -793,15 +793,15 @@ BOOST_AUTO_TEST_CASE(ANarrowBoxLayerBetweenLayersOfTheSameFrames)
       BOOST_TEST(!bounds.rowsAreFrames[narrow]);
       BOOST_TEST(bounds.widthPS[narrow] == narrowPS);
       const auto& geometry = fixture.geometry;
-      std::size_t acrossFrame = 0;
-      std::size_t acrossBlock = 0;
+      std::uint32_t acrossFrame = 0;
+      std::uint32_t acrossBlock = 0;
       for (const auto& hit : hits) {
         if (hit.point.layer == narrow) {
           const auto box = boxOf(hit);
           // The BC a picosecond lies in, rounded down (bcOfPS rounds up: it inverts psOfBC).
           const auto bcAt = [](std::int64_t ps) { return (ps * kPSPerBCDenominator) / kPSPerBCNumerator; };
-          acrossFrame += static_cast<std::size_t>(bcAt(box.start) / kOuterFrameBC != bcAt(box.start + box.width - 1) / kOuterFrameBC);
-          acrossBlock += static_cast<std::size_t>(geometry.blockOfPS(box.start) != geometry.blockOfPS(box.start + box.width - 1));
+          acrossFrame += static_cast<std::uint32_t>(bcAt(box.start) / kOuterFrameBC != bcAt(box.start + box.width - 1) / kOuterFrameBC);
+          acrossBlock += static_cast<std::uint32_t>(geometry.blockOfPS(box.start) != geometry.blockOfPS(box.start + box.width - 1));
         }
       }
       BOOST_TEST(acrossFrame >= 4U);
@@ -809,7 +809,7 @@ BOOST_AUTO_TEST_CASE(ANarrowBoxLayerBetweenLayersOfTheSameFrames)
 
       const auto outerTracker = makeTracker(outer, false);
       const auto taken = takenLinks<Det>(outer.front());
-      for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+      for (std::uint32_t link = 0; link < nLinks<Det>; ++link) {
         BOOST_TEST(taken[link] == (Det::layerLinks[link].from >= 3));
       }
       const auto chains = chainReach(bounds, geometry, taken);

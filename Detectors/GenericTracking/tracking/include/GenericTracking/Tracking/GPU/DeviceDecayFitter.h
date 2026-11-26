@@ -43,8 +43,8 @@ class DeviceDecayFitter
     double sizeSeconds = 0.;
     double fitSeconds = 0.;
     double downloadSeconds = 0.;
-    std::size_t launches = 0U;
-    std::size_t refused = 0U;   ///< decays whose workspace did not fit
+    std::uint32_t launches = 0U;
+    std::uint32_t refused = 0U; ///< decays whose workspace did not fit
     std::size_t peakBytes = 0U; ///< the arena's peak
   };
 

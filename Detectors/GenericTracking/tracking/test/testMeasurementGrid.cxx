@@ -53,7 +53,7 @@ GridParams fixedCellParams(std::int64_t blockWidthPS, std::int32_t phi, std::int
 {
   auto params = test::withToyFrames(GridParams{});
   params.blockWidth = blockWidthPS;
-  for (std::size_t layer = 0; layer < GridParams::kMaxLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < GridParams::kMaxLayers; ++layer) {
     params.phiBins[layer] = phi;
     params.secondBins[layer] = second;
   }
@@ -74,10 +74,10 @@ std::vector<std::uint32_t> visitedPoints(const GridGeometry<Det>& geometry, Laye
   MeasurementStore columns;
   resizeMeasurementColumns(columns, N);
   test::buildGridRows(
-    N, offsets, [&](std::size_t i) { return geometry.bucketAt(points[i].layer, 0U, points[i].phi, points[i].second); },
-    [&](std::size_t i, std::uint32_t row) {
+    N, offsets, [&](std::uint32_t i) { return geometry.bucketAt(points[i].layer, 0U, points[i].phi, points[i].second); },
+    [&](std::uint32_t i, std::uint32_t row) {
       columns.widthPS[row] = 1U;
-      columns.clusterIndex[row] = static_cast<std::uint32_t>(i);
+      columns.clusterIndex[row] = i;
     });
 
   const MeasurementGrid<Det> grid{measurementView(columns), geometry, std::span<const std::uint32_t>{offsets}};
@@ -279,21 +279,21 @@ namespace
 /// Per link, the most layers a path through it visits, every path walked
 /// one by one: the predicate's two sweeps checked by brute force.
 template <DetectorLayout Det>
-std::array<int, nLinks<Det>> longestPathsThrough()
+std::array<std::int32_t, nLinks<Det>> longestPathsThrough()
 {
-  std::array<int, nLinks<Det>> longest{};
-  std::vector<std::vector<std::size_t>> paths;
+  std::array<std::int32_t, nLinks<Det>> longest{};
+  std::vector<std::vector<std::uint32_t>> paths;
   paths.reserve(nLinks<Det>);
-  for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+  for (std::uint32_t link = 0; link < nLinks<Det>; ++link) {
     paths.push_back({link});
   }
   while (!paths.empty()) {
     const auto path = std::move(paths.back());
     paths.pop_back();
     for (const auto link : path) {
-      longest[link] = std::max(longest[link], static_cast<int>(path.size()) + 1);
+      longest[link] = std::max(longest[link], static_cast<std::int32_t>(path.size()) + 1);
     }
-    for (std::size_t next = 0; next < nLinks<Det>; ++next) {
+    for (std::uint32_t next = 0; next < nLinks<Det>; ++next) {
       if (Det::layerLinks[next].from == Det::layerLinks[path.back()].to) {
         auto longer = path;
         longer.push_back(next);
@@ -313,7 +313,7 @@ BOOST_AUTO_TEST_CASE(TheLinkPredicateFollowsMaskAndPathLength)
   const auto noSkips = takenLinks<Mixed>(IterationSettings{.windows = {}, .minClusters = 2, .skipLinks = false});
   const auto inner = takenLinks<Mixed>(IterationSettings{.windows = {}, .minClusters = 2, .layerMask = 0b111U});
   const auto none = takenLinks<Mixed>(IterationSettings{.windows = {}, .minClusters = 2, .layerMask = 0b1U}); // a single layer: no link has both ends in it
-  for (std::size_t link = 0; link < nLinks<Mixed>; ++link) {
+  for (std::uint32_t link = 0; link < nLinks<Mixed>; ++link) {
     const auto& pair = Mixed::layerLinks[link];
     BOOST_TEST_CONTEXT("link " << link)
     {
@@ -327,9 +327,9 @@ BOOST_AUTO_TEST_CASE(TheLinkPredicateFollowsMaskAndPathLength)
   // every length from 2 to one past the
   // longest path, which takes none.
   const auto longest = longestPathsThrough<Mixed>();
-  for (int length = 2; std::cmp_less_equal(length, maxChainLayers<Mixed> + 1U); ++length) {
+  for (std::int32_t length = 2; std::cmp_less_equal(length, maxChainLayers<Mixed> + 1U); ++length) {
     const auto taken = takenLinks<Mixed>(IterationSettings{.windows = {}, .minClusters = length});
-    for (std::size_t link = 0; link < nLinks<Mixed>; ++link) {
+    for (std::uint32_t link = 0; link < nLinks<Mixed>; ++link) {
       BOOST_TEST_CONTEXT("length " << length << ", link " << link) { BOOST_TEST(taken[link] == (longest[link] >= length)); }
     }
   }
@@ -337,7 +337,7 @@ BOOST_AUTO_TEST_CASE(TheLinkPredicateFollowsMaskAndPathLength)
   // hold a triplet's three on the one path 0 -> 1 -> 2, and no more; the
   // link 0 -> 2 past layer 1's end is on none.
   const auto triplets = takenLinks<Mixed>(IterationSettings{.windows = {}, .minClusters = 3, .layerMask = 0b111U});
-  for (std::size_t link = 0; link < nLinks<Mixed>; ++link) {
+  for (std::uint32_t link = 0; link < nLinks<Mixed>; ++link) {
     const auto& pair = Mixed::layerLinks[link];
     BOOST_TEST_CONTEXT("link " << link) { BOOST_TEST(triplets[link] == (inner[link] && pair.to == pair.from + 1U)); }
   }
@@ -481,7 +481,7 @@ BOOST_AUTO_TEST_CASE(QueryWrapsPhiAcrossZero)
 {
   auto params = test::withToyFrames(GridParams{});
   params.blockWidth = 100'000;
-  for (std::size_t layer = 0; layer < GridParams::kMaxLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < GridParams::kMaxLayers; ++layer) {
     params.phiBins[layer] = 8;
     params.secondBins[layer] = 1;
   }
@@ -494,8 +494,8 @@ BOOST_AUTO_TEST_CASE(QueryWrapsPhiAcrossZero)
   MeasurementStore columns;
   resizeMeasurementColumns(columns, phis.size());
   test::buildGridRows(
-    phis.size(), offsets, [&](std::size_t i) { return geometry.bucketAt(1, 0U, phis[i], 0.F); },
-    [&](std::size_t i, std::uint32_t row) {
+    phis.size(), offsets, [&](std::uint32_t i) { return geometry.bucketAt(1, 0U, phis[i], 0.F); },
+    [&](std::uint32_t i, std::uint32_t row) {
       columns.widthPS[row] = 1U;
       columns.clusterIndex[row] = ids[i];
     });
@@ -518,7 +518,7 @@ BOOST_AUTO_TEST_CASE(QueryCoversEveryPhiCellWhenAWrappingWindowEndsInItsStartCel
 {
   auto params = test::withToyFrames(GridParams{});
   params.blockWidth = 100'000;
-  for (std::size_t layer = 0; layer < GridParams::kMaxLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < GridParams::kMaxLayers; ++layer) {
     params.phiBins[layer] = 3;
     params.secondBins[layer] = 1;
   }
@@ -541,7 +541,7 @@ BOOST_AUTO_TEST_CASE(QueryCoversEveryPhiCellWhenAWrappingWindowEndsInItsStartCel
 BOOST_AUTO_TEST_CASE(QueryReachesDiscSensorCornersBeyondTheRingEdge)
 {
   const auto placement = toyGeometry<Mixed>();
-  constexpr std::size_t kPositiveDisc = 4;
+  constexpr std::uint32_t kPositiveDisc = 4;
   constexpr auto kDisc = static_cast<LayerID>(Detector<Mixed>::nBarrelLayers + kPositiveDisc);
   const auto& ring = Mixed::discSpecs[kPositiveDisc].rings[1];
   const auto& sensor = Mixed::discSpecs[kPositiveDisc].sensor;
@@ -578,11 +578,11 @@ BOOST_AUTO_TEST_CASE(QueryVisitsTheOverlappingBoxesInsideTheSearchBracket)
   MeasurementStore columns;
   resizeMeasurementColumns(columns, starts.size());
   test::buildGridRows(
-    starts.size(), offsets, [&](std::size_t) { return bucket; },
-    [&](std::size_t i, std::uint32_t row) {
+    starts.size(), offsets, [&](std::uint32_t) { return bucket; },
+    [&](std::uint32_t i, std::uint32_t row) {
       columns.timePS[row] = starts[i];
       columns.widthPS[row] = kWidth;
-      columns.clusterIndex[row] = static_cast<std::uint32_t>(i);
+      columns.clusterIndex[row] = i;
     });
 
   const Grid grid{measurementView(columns), geometry, std::span<const std::uint32_t>{offsets}};
@@ -609,8 +609,8 @@ BOOST_AUTO_TEST_CASE(LanesShareAQueryAndVisitEachRowOnce)
     MeasurementStore columns;
     resizeMeasurementColumns(columns, rows);
     test::buildGridRows(
-      rows, offsets, [&](std::size_t) { return bucket; },
-      [&](std::size_t i, std::uint32_t row) {
+      rows, offsets, [&](std::uint32_t) { return bucket; },
+      [&](std::uint32_t i, std::uint32_t row) {
         columns.timePS[row] = 5U * i;
         columns.widthPS[row] = 10U;
         columns.clusterIndex[row] = i;
@@ -645,12 +645,12 @@ struct LaneOf {
 template <std::uint32_t L>
 static void checkGroupInStep(const Grid& grid, const MeasurementStore& columns, const CandidateWindow& window, const GeometryGrid& geometry)
 {
-  std::size_t steps = 0U;
+  std::uint32_t steps = 0U;
   for (std::uint32_t lane = 0; lane < L; ++lane) {
     std::vector<std::uint32_t> own;
     grid.visitCandidates(1, window, geometry.allBlocks(), [&](std::uint32_t row) { own.push_back(columns.clusterIndex[row]); }, Lanes{.lane = lane, .count = L});
     std::vector<std::uint32_t> inStep;
-    std::size_t calls = 0U;
+    std::uint32_t calls = 0U;
     grid.visitCandidates(
       1, window, geometry.allBlocks(),
       [&](std::uint32_t row, bool has) {
@@ -702,14 +702,15 @@ BOOST_AUTO_TEST_CASE(AGroupInStepGivesEachLaneItsLanesRowsAtEveryStep)
     const auto rows = rowsOf(perCell);
     std::vector<std::uint32_t> offsets(static_cast<std::size_t>(geometry.bucketCount()) + 1U);
     MeasurementStore columns;
-    resizeMeasurementColumns(columns, rows.size());
+    const auto rowCount = static_cast<std::uint32_t>(rows.size());
+    resizeMeasurementColumns(columns, rowCount);
     const auto bucketOf = [&](const Row& row) { return geometry.bucketAt(1, row.start, (static_cast<Scalar>(row.cell) + 0.5F) * cellWidth, 0.F); };
     test::buildGridRows(
-      rows.size(), offsets, [&](std::size_t i) { return bucketOf(rows[i]); },
-      [&](std::size_t i, std::uint32_t at) {
+      rowCount, offsets, [&](std::uint32_t i) { return bucketOf(rows[i]); },
+      [&](std::uint32_t i, std::uint32_t at) {
         columns.timePS[at] = rows[i].start;
         columns.widthPS[at] = rows[i].width;
-        columns.clusterIndex[at] = static_cast<std::uint32_t>(i);
+        columns.clusterIndex[at] = i;
       });
 
     const Grid grid{measurementView(columns), geometry, std::span<const std::uint32_t>{offsets}};
@@ -735,7 +736,7 @@ BOOST_AUTO_TEST_CASE(QueryVisitsOrderedSecondRunsWithoutDuplicates)
 {
   auto params = test::withToyFrames(GridParams{});
   params.blockWidth = 100'000;
-  for (std::size_t layer = 0; layer < GridParams::kMaxLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < GridParams::kMaxLayers; ++layer) {
     params.phiBins[layer] = 1;
     params.secondBins[layer] = 8;
   }
@@ -754,10 +755,10 @@ BOOST_AUTO_TEST_CASE(QueryVisitsOrderedSecondRunsWithoutDuplicates)
   MeasurementStore columns;
   resizeMeasurementColumns(columns, kBins);
   test::buildGridRows(
-    points.size(), offsets, [&](std::size_t i) { return geometry.bucketAt(points[i].layer, 0U, points[i].phi, points[i].second); },
-    [&](std::size_t i, std::uint32_t row) {
+    points.size(), offsets, [&](std::uint32_t i) { return geometry.bucketAt(points[i].layer, 0U, points[i].phi, points[i].second); },
+    [&](std::uint32_t i, std::uint32_t row) {
       columns.widthPS[row] = 1U;
-      columns.clusterIndex[row] = static_cast<std::uint32_t>(i);
+      columns.clusterIndex[row] = i;
     });
 
   const Grid grid{measurementView(columns), geometry, std::span<const std::uint32_t>{offsets}};

@@ -55,17 +55,17 @@ struct BoundTrackState : BoundParameters {
 
   /// Covariance element (i, j).  Symmetric, so the caller never has to order
   /// the indices.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar covAt(int i, int j) const { return cov[covIndex(i, j)]; }
-  GPUhdi() GPUAlwaysInline() Scalar& covAt(int i, int j) { return cov[covIndex(i, j)]; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar covAt(std::int32_t i, std::int32_t j) const { return cov[covIndex(i, j)]; }
+  GPUhdi() GPUAlwaysInline() Scalar& covAt(std::int32_t i, std::int32_t j) { return cov[covIndex(i, j)]; }
 
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar variance(int i) const { return cov[varIndex(i)]; }
-  GPUhdi() GPUAlwaysInline() Scalar& variance(int i) { return cov[varIndex(i)]; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar variance(std::int32_t i) const { return cov[varIndex(i)]; }
+  GPUhdi() GPUAlwaysInline() Scalar& variance(std::int32_t i) { return cov[varIndex(i)]; }
 
   /// Drop the covariances of parameters \a a and \a b with every other
   /// parameter; their variances and the rest stay.
-  GPUhdi() GPUAlwaysInline() void decorrelate(int a, int b)
+  GPUhdi() GPUAlwaysInline() void decorrelate(std::int32_t a, std::int32_t b)
   {
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       if (i != a) {
         covAt(i, a) = 0.F;
       }

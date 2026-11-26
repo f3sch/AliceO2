@@ -67,7 +67,7 @@ template <DetectorLayout Det>
     entry.secondHalfWidth = std::max(entry.secondHalfWidth, second);
     entry.queried = true;
   };
-  constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
+  constexpr auto kLayers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   // A link's window once per distinct window setting, with or without an
   // origin: the iterations with equal settings share it, as do an
   // iteration's tracklet and follow sizing.
@@ -77,7 +77,7 @@ template <DetectorLayout Det>
     [[nodiscard]] bool operator==(const WindowKey&) const = default;
   };
   std::vector<std::pair<WindowKey, std::array<std::optional<LayerPairWindow>, nLinks<Det>>>> derived;
-  const auto windowOf = [&](const SearchWindowParams& params, VertexSource source, std::size_t link) {
+  const auto windowOf = [&](const SearchWindowParams& params, VertexSource source, std::uint32_t link) {
     const WindowKey key{.params = params, .anywhere = source == VertexSource::kNone};
     auto entry = std::ranges::find_if(derived, [&](const auto& candidate) { return candidate.first == key; });
     if (entry == derived.end()) {
@@ -93,7 +93,7 @@ template <DetectorLayout Det>
   };
   for (const auto& settings : iterations) {
     const auto taken = takenLinks<Det>(settings);
-    const auto sizing = [&](std::size_t link) {
+    const auto sizing = [&](std::uint32_t link) {
       const auto& pair = Det::layerLinks[link];
       return taken[link] && Detector<Det>::isBarrelLayer(pair.from) == Detector<Det>::isBarrelLayer(pair.to);
     };
@@ -103,14 +103,14 @@ template <DetectorLayout Det>
     // queries it into the target.
     std::array<bool, nLinks<Det>> edgeOnly{};
     std::array<bool, kLayers> holeFreeInto{};
-    for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+    for (std::uint32_t link = 0; link < nLinks<Det>; ++link) {
       const auto& pair = Det::layerLinks[link];
       edgeOnly[link] = !settings.skipLinks && (linkHoleLayers<Det>(pair.from, pair.to) & holeLayersOf<Det>(settings.layerMask)) != 0U;
       if (sizing(link) && !edgeOnly[link]) {
         holeFreeInto[pair.to] = true;
       }
     }
-    for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+    for (std::uint32_t link = 0; link < nLinks<Det>; ++link) {
       if (!sizing(link)) {
         continue;
       }
@@ -123,7 +123,7 @@ template <DetectorLayout Det>
     // The follow searches both layers of every link of the layout, from
     // either end; its window is its prediction's, the pair window its size.
     if (settings.follow) {
-      for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+      for (std::uint32_t link = 0; link < nLinks<Det>; ++link) {
         const auto& pair = Det::layerLinks[link];
         if (Detector<Det>::isBarrelLayer(pair.from) != Detector<Det>::isBarrelLayer(pair.to)) {
           continue;

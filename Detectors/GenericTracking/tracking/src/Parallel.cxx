@@ -18,6 +18,8 @@
 #include <oneapi/tbb/task_arena.h>
 #include <oneapi/tbb/task_scheduler_observer.h>
 
+#include <cstdint>
+
 #if defined(__linux__)
 #include <pthread.h>
 #include <sched.h>
@@ -49,7 +51,7 @@ namespace
 class OneThreadPerCpu final : public tbb::task_scheduler_observer
 {
  public:
-  OneThreadPerCpu(tbb::task_arena& arena, std::vector<int> cpus) : tbb::task_scheduler_observer{arena}, mCpus{std::move(cpus)} { observe(true); }
+  OneThreadPerCpu(tbb::task_arena& arena, std::vector<std::int32_t> cpus) : tbb::task_scheduler_observer{arena}, mCpus{std::move(cpus)} { observe(true); }
   ~OneThreadPerCpu() override { observe(false); }
   OneThreadPerCpu(const OneThreadPerCpu&) = delete;
   OneThreadPerCpu& operator=(const OneThreadPerCpu&) = delete;
@@ -57,13 +59,13 @@ class OneThreadPerCpu final : public tbb::task_scheduler_observer
   OneThreadPerCpu& operator=(OneThreadPerCpu&&) = delete;
 
   /// The CPUs of the calling thread's affinity mask, in order.
-  [[nodiscard]] static std::vector<int> allowedCpus()
+  [[nodiscard]] static std::vector<std::int32_t> allowedCpus()
   {
     cpu_set_t mask;
     CPU_ZERO(&mask);
-    std::vector<int> cpus;
+    std::vector<std::int32_t> cpus;
     if (sched_getaffinity(0, sizeof(mask), &mask) == 0) {
-      for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
+      for (std::int32_t cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
         if (CPU_ISSET(static_cast<std::size_t>(cpu), &mask)) {
           cpus.push_back(cpu);
         }
@@ -74,8 +76,8 @@ class OneThreadPerCpu final : public tbb::task_scheduler_observer
 
   void on_scheduler_entry(bool worker) override
   {
-    const int slot = tbb::this_task_arena::current_thread_index();
-    if (slot < 0 || static_cast<std::size_t>(slot) >= mCpus.size()) {
+    const std::int32_t slot = tbb::this_task_arena::current_thread_index();
+    if (slot < 0 || static_cast<std::uint32_t>(slot) >= mCpus.size()) {
       return;
     }
     if (!worker && tCaller.depth++ == 0) {
@@ -83,7 +85,7 @@ class OneThreadPerCpu final : public tbb::task_scheduler_observer
     }
     cpu_set_t one;
     CPU_ZERO(&one);
-    CPU_SET(static_cast<std::size_t>(mCpus[static_cast<std::size_t>(slot)]), &one);
+    CPU_SET(static_cast<std::size_t>(mCpus[static_cast<std::uint32_t>(slot)]), &one);
     pthread_setaffinity_np(pthread_self(), sizeof(one), &one);
   }
 
@@ -100,13 +102,13 @@ class OneThreadPerCpu final : public tbb::task_scheduler_observer
  private:
   /// A calling thread's mask before it entered the first of its arenas.
   struct Caller {
-    int depth = 0;
+    std::int32_t depth = 0;
     bool saved = false;
     cpu_set_t mask{};
   };
   static thread_local Caller tCaller;
 
-  std::vector<int> mCpus;
+  std::vector<std::int32_t> mCpus;
 };
 
 thread_local OneThreadPerCpu::Caller OneThreadPerCpu::tCaller;
@@ -115,12 +117,12 @@ thread_local OneThreadPerCpu::Caller OneThreadPerCpu::tCaller;
 } // namespace
 
 struct TaskArena::Impl {
-  explicit Impl(int maxConcurrency) : arena{maxConcurrency > 0 ? maxConcurrency : tbb::task_arena::automatic}
+  explicit Impl(std::int32_t maxConcurrency) : arena{maxConcurrency > 0 ? maxConcurrency : tbb::task_arena::automatic}
   {
 #if defined(__linux__)
     auto cpus = OneThreadPerCpu::allowedCpus();
     arena.initialize();
-    if (!cpus.empty() && static_cast<std::size_t>(arena.max_concurrency()) == cpus.size()) {
+    if (!cpus.empty() && static_cast<std::uint32_t>(arena.max_concurrency()) == cpus.size()) {
       pinning = std::make_unique<OneThreadPerCpu>(arena, std::move(cpus));
     }
 #endif
@@ -132,11 +134,11 @@ struct TaskArena::Impl {
 #endif
 };
 
-TaskArena::TaskArena(int maxConcurrency) : mImpl{std::make_unique<Impl>(maxConcurrency)} {}
+TaskArena::TaskArena(std::int32_t maxConcurrency) : mImpl{std::make_unique<Impl>(maxConcurrency)} {}
 
 TaskArena::~TaskArena() = default;
 
-int TaskArena::maxConcurrency() const noexcept { return mImpl->arena.max_concurrency(); }
+std::int32_t TaskArena::maxConcurrency() const noexcept { return mImpl->arena.max_concurrency(); }
 
 void parallelSortIndices(TaskArena& arena, size_t count, void* context, ParallelSortLess less, uint32_t* first)
 {
@@ -165,10 +167,10 @@ void parallelFor(TaskArena& arena, size_t begin, size_t end, size_t grainSize, v
   // taking chunks after its first failed steal and sleeps.
   arena.mImpl->arena.execute([=, &arena] {
     std::atomic<size_t> next{begin};
-    const int slots = arena.mImpl->arena.max_concurrency();
+    const std::int32_t slots = arena.mImpl->arena.max_concurrency();
     tbb::parallel_for(
       0, slots, 1,
-      [&](int /*slot*/) {
+      [&](std::int32_t /*slot*/) {
         for (;;) {
           const size_t first = next.fetch_add(grainSize, std::memory_order_relaxed);
           if (first >= end) {
@@ -181,6 +183,6 @@ void parallelFor(TaskArena& arena, size_t begin, size_t end, size_t grainSize, v
   });
 }
 
-int currentArenaThreadIndex() noexcept { return tbb::this_task_arena::current_thread_index(); }
+std::int32_t currentArenaThreadIndex() noexcept { return tbb::this_task_arena::current_thread_index(); }
 
 } // namespace o2::gtrk::detail

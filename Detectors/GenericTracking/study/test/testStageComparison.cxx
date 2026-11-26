@@ -220,7 +220,7 @@ BOOST_AUTO_TEST_CASE(TracksCompareTheirStates)
     tracks->setMemoryResource(pool.get());
     tracks->resize(2U);
     const auto view = tracks->view();
-    for (std::size_t row = 0; row < 2U; ++row) {
+    for (std::uint32_t row = 0; row < 2U; ++row) {
       for (auto* state : {&view.state[row], &view.outwardState[row]}) {
         *state = BoundTrackState{};
         state->par[0] = 1.F + static_cast<Scalar>(row);

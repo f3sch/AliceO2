@@ -45,11 +45,11 @@ using o2::itsmft::ROFRecord;
 
 /// \a count frames of \a lengthBC from \a firstBC of orbit \a orbit, with
 /// \a perFrame clusters each.
-std::vector<ROFRecord> frames(int count, int lengthBC, int firstBC, std::uint32_t orbit, int perFrame)
+std::vector<ROFRecord> frames(std::int32_t count, std::int32_t lengthBC, std::int32_t firstBC, std::uint32_t orbit, std::int32_t perFrame)
 {
   std::vector<ROFRecord> result;
-  for (int i = 0; i < count; ++i) {
-    const int bc = firstBC + (i * lengthBC);
+  for (std::int32_t i = 0; i < count; ++i) {
+    const std::int32_t bc = firstBC + (i * lengthBC);
     const o2::InteractionRecord ir{static_cast<std::uint16_t>(bc % o2::constants::lhc::LHCMaxBunches), orbit + static_cast<std::uint32_t>(bc / o2::constants::lhc::LHCMaxBunches)};
     result.emplace_back(ir, i, i * perFrame, perFrame);
   }

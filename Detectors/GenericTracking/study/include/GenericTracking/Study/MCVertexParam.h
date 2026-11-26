@@ -34,7 +34,7 @@ struct MCVertexParam : public o2::conf::ConfigurableParamHelper<MCVertexParam> {
   double sigmaTransverse = 0.002; ///< [cm], independently in x and y
   std::uint64_t randomSeed = 0x4754524b56455254ULL;
 
-  O2ParamDef(MCVertexParam, "GTRKMCVertex");
+  O2ParamDef(MCVertexParam, "GTRKMCVertex")
 };
 
 } // namespace o2::gtrk::study

@@ -95,8 +95,8 @@ class Geometry
   [[nodiscard]] static constexpr std::array<SensorSpec, Detector<Det>::nLayers> layoutSpecs()
   {
     std::array<SensorSpec, Detector<Det>::nLayers> specs{};
-    for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
-      specs[static_cast<std::size_t>(layer)] = Detector<Det>::sensor(static_cast<LayerID>(layer));
+    for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+      specs[static_cast<std::uint32_t>(layer)] = Detector<Det>::sensor(static_cast<LayerID>(layer));
     }
     return specs;
   }

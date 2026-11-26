@@ -53,7 +53,7 @@ class GPUChainGenericTracking;
 /// `--gtrk-gpu-device`, `--gtrk-gpu-arena-mb`).
 struct TrackingDevice {
   std::string backend;     ///< empty: the host; else "cuda" or "hip"
-  int device = 0;          ///< the backend's device index
+  std::int32_t device = 0; ///< the backend's device index
   std::size_t arenaMB = 0; ///< the arena in O2's GPU pool [MB]; 0: the whole device
 };
 
@@ -64,7 +64,7 @@ class DeviceContext
   /// of each of \a blockBytes; std::runtime_error if it cannot be had. A
   /// block of 0 bytes is the whole device (all of its free memory but O2's
   /// reserve); one such block at most.
-  DeviceContext(std::string_view backend, int device, std::span<const std::size_t> blockBytes);
+  DeviceContext(std::string_view backend, std::int32_t device, std::span<const std::size_t> blockBytes);
   /// On \a reconstruction, initialised by its owner: its backend, the device
   /// it selected. std::runtime_error if it cannot lend its pool: not a GPU, or
   /// its memory settings do not give back what is borrowed (individual
@@ -79,7 +79,7 @@ class DeviceContext
   [[nodiscard]] DeviceRuntime& runtime() const noexcept { return *mRuntime; }
   /// Block \a index, in the order of the constructor's sizes; not on a
   /// borrowed reconstruction (std::logic_error).
-  [[nodiscard]] DeviceBlock block(std::size_t index) const;
+  [[nodiscard]] DeviceBlock block(std::uint32_t index) const;
 
   /// The pool's free memory, borrowed from the reconstruction until the
   /// borrow goes: a stack allocation of all of it between the pool's push and

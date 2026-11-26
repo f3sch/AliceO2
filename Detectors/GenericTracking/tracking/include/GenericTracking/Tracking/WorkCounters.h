@@ -140,7 +140,7 @@ enum class WorkCounter : std::uint8_t {
   kCount
 };
 
-inline constexpr std::size_t kWorkCounterCount = static_cast<std::size_t>(WorkCounter::kCount);
+inline constexpr auto kWorkCounterCount = static_cast<std::uint32_t>(WorkCounter::kCount);
 using WorkCounts = std::array<std::uint64_t, kWorkCounterCount>;
 
 /// The tracklet stage's counts per link, indexed by the layout's link.
@@ -150,7 +150,7 @@ enum class LinkCounter : std::uint8_t {
   kTracklets,  ///< tracklets emitted
   kCount
 };
-inline constexpr std::size_t kLinkCounterCount = static_cast<std::size_t>(LinkCounter::kCount);
+inline constexpr auto kLinkCounterCount = static_cast<std::uint32_t>(LinkCounter::kCount);
 using LinkWorkCounts = std::vector<std::array<std::uint64_t, kLinkCounterCount>>;
 
 #if defined(GTRK_WORK_COUNTERS) && !defined(__CUDACC__) && !defined(__HIPCC__)
@@ -171,15 +171,15 @@ namespace detail
 /// The same per link.
 [[nodiscard]] LinkWorkCounts linkWorkCounts();
 
-inline void countWork(WorkCounter counter, std::uint64_t amount = 1U) { detail::threadWorkCounts()[static_cast<std::size_t>(counter)] += amount; }
+inline void countWork(WorkCounter counter, std::uint64_t amount = 1U) { detail::threadWorkCounts()[static_cast<std::uint32_t>(counter)] += amount; }
 
-inline void countLinkWork(std::size_t link, LinkCounter counter, std::uint64_t amount = 1U)
+inline void countLinkWork(std::uint32_t link, LinkCounter counter, std::uint64_t amount = 1U)
 {
   auto& counts = detail::threadLinkWorkCounts();
   if (link >= counts.size()) {
     counts.resize(link + 1U);
   }
-  counts[link][static_cast<std::size_t>(counter)] += amount;
+  counts[link][static_cast<std::uint32_t>(counter)] += amount;
 }
 
 namespace detail
@@ -194,7 +194,7 @@ inline thread_local bool tFollowGrid = false;
 inline void countGridWork(WorkCounter counter, std::uint64_t amount = 1U)
 {
   if (detail::tFollowGrid) {
-    counter = static_cast<WorkCounter>(static_cast<std::size_t>(WorkCounter::kFollowGridQueries) + static_cast<std::size_t>(counter) - static_cast<std::size_t>(WorkCounter::kGridQueries));
+    counter = static_cast<WorkCounter>(static_cast<std::uint32_t>(WorkCounter::kFollowGridQueries) + static_cast<std::uint32_t>(counter) - static_cast<std::uint32_t>(WorkCounter::kGridQueries));
   }
   countWork(counter, amount);
 }
@@ -243,7 +243,7 @@ inline constexpr bool kWorkCounters = false;
 [[nodiscard]] inline LinkWorkCounts linkWorkCounts() { return {}; }
 
 GPUhdi() GPUAlwaysInline() void countWork(WorkCounter /*counter*/, std::uint64_t /*amount*/ = 1U) {}
-GPUhdi() GPUAlwaysInline() void countLinkWork(std::size_t /*link*/, LinkCounter /*counter*/, std::uint64_t /*amount*/ = 1U) {}
+GPUhdi() GPUAlwaysInline() void countLinkWork(std::uint32_t /*link*/, LinkCounter /*counter*/, std::uint64_t /*amount*/ = 1U) {}
 GPUhdi() GPUAlwaysInline() void countGridWork(WorkCounter /*counter*/, std::uint64_t /*amount*/ = 1U) {}
 
 class FollowGridScope

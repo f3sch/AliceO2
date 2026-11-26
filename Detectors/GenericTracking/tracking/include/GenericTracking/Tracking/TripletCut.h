@@ -127,7 +127,7 @@ struct TripletFirstTerms {
 
 /// \a firstLink: the first tracklet's link.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletFirstTerms<Det> tripletFirstTerms(const IterationParameters<Det>& parameters, std::size_t firstLink, const PairPoint& first, const PairPoint& middle)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletFirstTerms<Det> tripletFirstTerms(const IterationParameters<Det>& parameters, std::uint32_t firstLink, const PairPoint& first, const PairPoint& middle)
 {
   TripletFirstTerms<Det> terms;
   terms.chord = pairChord(first, middle).chord;
@@ -196,7 +196,7 @@ template <DetectorLayout Det>
 /// \a first is the first tracklet's part (`tripletFirstTerms`), the same for
 /// every out-link of `b`; this adds the link's.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar tripletLambdaHalfWidth(const IterationParameters<Det>& parameters, std::size_t secondLink, const TripletFirstTerms<Det>& first, const TripletTargetBounds& target)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar tripletLambdaHalfWidth(const IterationParameters<Det>& parameters, std::uint32_t secondLink, const TripletFirstTerms<Det>& first, const TripletTargetBounds& target)
 {
   const auto& bounds = parameters.tripletBounds[secondLink];
   if (!first.valid || !(bounds.lengthMin > 0.F)) {
@@ -219,7 +219,7 @@ template <DetectorLayout Det>
 
 /// The same for one link from the points, the first tracklet's part made here.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar tripletLambdaHalfWidth(const IterationParameters<Det>& parameters, std::size_t firstLink, std::size_t secondLink, const PairPoint& first, const PairPoint& middle, const TripletTargetBounds& target)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar tripletLambdaHalfWidth(const IterationParameters<Det>& parameters, std::uint32_t firstLink, std::uint32_t secondLink, const PairPoint& first, const PairPoint& middle, const TripletTargetBounds& target)
 {
   return tripletLambdaHalfWidth(parameters, secondLink, tripletFirstTerms(parameters, firstLink, first, middle), target);
 }

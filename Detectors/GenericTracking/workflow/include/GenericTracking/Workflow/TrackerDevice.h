@@ -113,7 +113,7 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
     const auto mask = selection.clockMask();
     selectedROFs.assign(mask.begin(), mask.end());
   }
-  if (const char* invalid = TrackingInterface<Det>::checkInput(input.columns, input.offsets, static_cast<std::size_t>(interface.grid().bucketCount()), input.seeds)) {
+  if (const char* invalid = TrackingInterface<Det>::checkInput(input.columns, input.offsets, interface.grid().bucketCount(), input.seeds)) {
     LOGP(fatal, "{}", invalid);
     return;
   }
@@ -140,7 +140,7 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
     foundContributors = found.found->contributors;
   }
   if (selection.cut(foundVertices, foundContributors)) {
-    afterVertices = selection.filter(measurements, offsets, [&](SensorID sensor) { return static_cast<int>(interface.geometry().sensor(sensor).layer); });
+    afterVertices = selection.filter(measurements, offsets, [&](SensorID sensor) { return static_cast<std::int32_t>(interface.geometry().sensor(sensor).layer); });
     if (afterVertices) {
       interface.endTimeframe();
       measurements = measurementView(afterVertices->columns);
@@ -207,8 +207,8 @@ class TrackerTask : public o2::framework::Task
     printConfiguration<Det>(ic);
     mInterface.initDevice({
       .backend = ic.options().get<std::string>("gtrk-gpu-backend"),
-      .device = ic.options().get<int>("gtrk-gpu-device"),
-      .arenaMB = static_cast<std::size_t>(ic.options().get<int>("gtrk-gpu-arena-mb")),
+      .device = ic.options().get<std::int32_t>("gtrk-gpu-device"),
+      .arenaMB = static_cast<std::size_t>(ic.options().get<std::int32_t>("gtrk-gpu-arena-mb")),
     });
   }
 

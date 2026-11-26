@@ -61,7 +61,7 @@ struct Reordered {
     {.from = 0, .to = 2, .sourceMin = -1., .sourceMax = 1.},
     {.from = 0, .to = 1, .sourceMin = -0.5, .sourceMax = 0.5},
   }};
-  static constexpr int nSensors = ToyBarrel3::nSensors;
+  static constexpr std::int32_t nSensors = ToyBarrel3::nSensors;
 };
 
 /// ToyBarrel3's inner layers with a two-module outer one, |z| 2 cm at r 8:
@@ -82,7 +82,7 @@ struct PastTheEnd {
     {.from = 0, .to = 2, .sourceMin = -1.5, .sourceMax = 1.5},
     {.from = 1, .to = 2, .sourceMin = -1.5, .sourceMax = 1.5},
   }};
-  static constexpr int nSensors = countSensors(barrelLayers, discLayers);
+  static constexpr std::int32_t nSensors = countSensors(barrelLayers, discLayers);
 };
 
 [[maybe_unused]] const bool kReorderedPublished = publishToy<Reordered>();
@@ -93,7 +93,7 @@ template <DetectorLayout Det>
 auto spansOf()
 {
   std::array<LayerSpan, static_cast<std::size_t>(Detector<Det>::nLayers)> spans{};
-  for (std::size_t layer = 0; layer < spans.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < spans.size(); ++layer) {
     spans[layer] = layerSpan<Det>(static_cast<LayerID>(layer));
   }
   return spans;
@@ -104,34 +104,34 @@ auto spansOf()
 /// pair. A direct pair from a source the check refuses fails; returns the
 /// sources refused and the sources checked.
 template <DetectorLayout Det>
-std::pair<std::size_t, std::size_t> checkEveryDirectPairIsPossible()
+std::pair<std::uint32_t, std::uint32_t> checkEveryDirectPairIsPossible()
 {
-  constexpr int kSteps = 25;
+  constexpr std::int32_t kSteps = 25;
   const auto spans = spansOf<Det>();
   const auto barrels = barrelLayerBits<Det>();
-  const auto along = [](Scalar low, Scalar high, int i, int steps) { return low + ((high - low) * static_cast<Scalar>(i) / static_cast<Scalar>(steps - 1)); };
+  const auto along = [](Scalar low, Scalar high, std::int32_t i, std::int32_t steps) { return low + ((high - low) * static_cast<Scalar>(i) / static_cast<Scalar>(steps - 1)); };
   // A point of a layer's extent, as (r, z).
-  const auto point = [&](LayerID layer, int i, int j, int positionSteps) {
+  const auto point = [&](LayerID layer, std::int32_t i, std::int32_t j, std::int32_t positionSteps) {
     const auto& span = spans[layer];
     const Scalar position = along(span.positionMin, span.positionMax, i, positionSteps);
     const Scalar second = along(span.low, span.high, j, kSteps);
     return ((barrels >> layer) & 1U) != 0U ? std::pair{position, second} : std::pair{second, position};
   };
-  std::size_t refused = 0;
-  std::size_t checked = 0;
+  std::uint32_t refused = 0;
+  std::uint32_t checked = 0;
   for (const auto& link : Det::layerLinks) {
     const auto holes = linkHoleLayers<Det>(link.from, link.to);
     if (holes == 0U) {
       continue;
     }
-    for (int i = 0; i < 3; ++i) {
-      for (int j = 0; j < kSteps; ++j) {
+    for (std::int32_t i = 0; i < 3; ++i) {
+      for (std::int32_t j = 0; j < kSteps; ++j) {
         const auto [ra, za] = point(link.from, i, j, 3);
         const bool possible = directPairPossible(holes, barrels, spans.data(), link.to, ra, za, spans[link.to].low, spans[link.to].high);
         ++checked;
         refused += possible ? 0U : 1U;
-        for (int k = 0; k < 3 && !possible; ++k) {
-          for (int l = 0; l < kSteps; ++l) {
+        for (std::int32_t k = 0; k < 3 && !possible; ++k) {
+          for (std::int32_t l = 0; l < kSteps; ++l) {
             const auto [rb, zb] = point(link.to, k, l, 3);
             BOOST_TEST_CONTEXT(Det::name << " link " << link.from << " -> " << link.to << " from (" << ra << ", " << za << ") to (" << rb << ", " << zb << ")") { BOOST_TEST(segmentLeavesHole(holes, barrels, spans.data(), ra, za, rb, zb)); }
           }
@@ -146,8 +146,8 @@ std::pair<std::size_t, std::size_t> checkEveryDirectPairIsPossible()
 template <DetectorLayout Det>
 constexpr auto positions()
 {
-  std::array<std::size_t, static_cast<std::size_t>(Detector<Det>::nLayers)> result{};
-  for (std::size_t i = 0; i < result.size(); ++i) {
+  std::array<std::uint32_t, static_cast<std::size_t>(Detector<Det>::nLayers)> result{};
+  for (std::uint32_t i = 0; i < result.size(); ++i) {
     result[layerOrder<Det>[i]] = i;
   }
   return result;
@@ -165,13 +165,13 @@ constexpr bool everyLinkPointsForward()
 template <DetectorLayout Det>
 constexpr bool indexedOnceEachWay()
 {
-  for (std::size_t i = 0; i < nLinks<Det>; ++i) {
+  for (std::uint32_t i = 0; i < nLinks<Det>; ++i) {
     const auto& link = Det::layerLinks[i];
-    std::size_t out = 0;
+    std::uint32_t out = 0;
     for (auto k = outLinks<Det>.begin(link.from); k < outLinks<Det>.end(link.from); ++k) {
       out += outLinks<Det>.links[k] == i ? 1U : 0U;
     }
-    std::size_t in = 0;
+    std::uint32_t in = 0;
     for (auto k = inLinks<Det>.begin(link.to); k < inLinks<Det>.end(link.to); ++k) {
       in += inLinks<Det>.links[k] == i ? 1U : 0U;
     }
@@ -225,7 +225,7 @@ BOOST_AUTO_TEST_CASE(CrossingLinksDoNotCollapseTheGrid)
   const IterationSettings tracklets{.windows = windows, .follow = false};
   const auto layers = gridLayerWindows<ToyBarrel4Disc8>(std::span<const IterationSettings>{&tracklets, 1U}, VertexConstraint{.sigmaZ = 1.}, noMaterial<ToyBarrel4Disc8>());
   const GridGeometry<ToyBarrel4Disc8> grid{100'000, test::withToyFrames(GridParams{.blockWidth = 100'000}), layers};
-  for (int layer = 0; layer < Detector<ToyBarrel4Disc8>::nLayers; ++layer) {
+  for (std::int32_t layer = 0; layer < Detector<ToyBarrel4Disc8>::nLayers; ++layer) {
     const auto id = static_cast<LayerID>(layer);
     bool sameKindIn = false;
     for (const auto& link : ToyBarrel4Disc8::layerLinks) {

@@ -50,9 +50,9 @@ MeasurementStore timeColumns(const std::array<double, N>& times)
 {
   MeasurementStore columns;
   resizeMeasurementColumns(columns, N);
-  for (std::size_t row = 0; row < N; ++row) {
+  for (std::uint32_t row = 0; row < N; ++row) {
     columns.timePS[row] = static_cast<std::uint32_t>(std::llround(times[row] * 1000.));
-    columns.clusterIndex[row] = static_cast<std::uint32_t>(row);
+    columns.clusterIndex[row] = row;
   }
   return columns;
 }
@@ -87,7 +87,7 @@ BOOST_AUTO_TEST_CASE(HalfOpenCoresAndWideHalos)
   BOOST_TEST(slice.halo[1].end == 4U);
   BOOST_TEST(slice.halo[2].end == 6U);
 
-  std::array<unsigned, 6> coreVisits{};
+  std::array<std::uint32_t, 6> coreVisits{};
   for (std::int32_t block = 0; block < geometry.blockCount(); ++block) {
     const Frame::TimeSlice part{frame, {.begin = block, .end = block + 1}, 0};
     for (const auto range : part.core) {
@@ -100,7 +100,7 @@ BOOST_AUTO_TEST_CASE(HalfOpenCoresAndWideHalos)
     BOOST_TEST(visits == 1U);
   }
 
-  unsigned haloVisits = 0;
+  std::uint32_t haloVisits = 0;
   for (std::int32_t block = 0; block < geometry.blockCount(); ++block) {
     const Frame::TimeSlice part{frame, {.begin = block, .end = block + 1}, 12'000};
     if (part.halo[0].begin <= 1U && 1U < part.halo[0].end) {
@@ -151,7 +151,7 @@ BOOST_AUTO_TEST_CASE(TheRowCountCanBeGivenInsteadOfRead)
   BOOST_TEST(given.size() == read.size());
   BOOST_TEST(given.grid().offsets().data() == offsets.data());
   BOOST_TEST(given.grid().offsets().size() == offsets.size());
-  for (std::size_t layer = 0; layer < Frame::kLayerCount; ++layer) {
+  for (std::uint32_t layer = 0; layer < Frame::kLayerCount; ++layer) {
     const auto id = static_cast<LayerID>(layer);
     BOOST_TEST(given.grid().layerRows(id).begin == read.grid().layerRows(id).begin);
     BOOST_TEST(given.grid().layerRows(id).end == read.grid().layerRows(id).end);

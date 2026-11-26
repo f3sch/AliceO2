@@ -65,7 +65,7 @@ struct LocalCluster {
 
 /// How long a detector's readout frames are.
 struct ReadoutFrames {
-  int lengthBC = 0;
+  std::int32_t lengthBC = 0;
 };
 
 namespace detail
@@ -80,18 +80,18 @@ template <typename ROFRecord>
     throw std::runtime_error("readout frame length not set");
   }
   std::vector<Cluster> result(local.size());
-  std::size_t next = 0;
+  std::uint32_t next = 0;
   for (const auto& rof : rofs) {
     const auto& ir = rof.getBCData();
     if (ir.orbit < tfFirstOrbit) {
       throw std::runtime_error(std::format("a readout frame starts in orbit {}, before the timeframe's {}", ir.orbit, tfFirstOrbit));
     }
-    if (std::cmp_not_equal(rof.getFirstEntry(), next) || rof.getNEntries() < 0 || next + static_cast<std::size_t>(rof.getNEntries()) > local.size()) {
+    if (std::cmp_not_equal(rof.getFirstEntry(), next) || rof.getNEntries() < 0 || next + static_cast<std::uint32_t>(rof.getNEntries()) > local.size()) {
       throw std::runtime_error(std::format("readout frame at orbit {} bc {} does not continue the clusters at {}", ir.orbit, ir.bc, next));
     }
     const auto startBC = (static_cast<std::int64_t>(ir.orbit - tfFirstOrbit) * o2::constants::lhc::LHCMaxBunches) + ir.bc;
     const auto box = frameBox(startBC, startBC + frames.lengthBC, 0);
-    for (int i = 0; i < rof.getNEntries(); ++i, ++next) {
+    for (std::int32_t i = 0; i < rof.getNEntries(); ++i, ++next) {
       const auto& in = local[next];
       auto& out = result[next];
       out.chipID = in.chip;
@@ -128,7 +128,7 @@ template <typename ROFRecord>
   if (length <= 0) {
     throw std::runtime_error("readout frames out of order");
   }
-  return {.lengthBC = static_cast<int>(length)};
+  return {.lengthBC = static_cast<std::int32_t>(length)};
 }
 
 } // namespace detail

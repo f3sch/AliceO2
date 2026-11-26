@@ -87,7 +87,7 @@ class TrackBreakdown
                               kAfter,
                               kPlaces };
   static constexpr std::size_t kLengths = study::kScoreLengthSlots;
-  static constexpr std::size_t kMaxLayers = 64;
+  static constexpr std::uint32_t kMaxLayers = 64;
 
   /// A particle's status.
   enum Status : std::uint8_t { kComplete,
@@ -161,7 +161,7 @@ class TrackBreakdown
         continue;
       }
       ++mFindable;
-      const auto layerCount = static_cast<std::size_t>(std::popcount(mine.layers));
+      const auto layerCount = static_cast<std::uint32_t>(std::popcount(mine.layers));
       const auto at = best.find(id);
       auto& record = mParticles.emplace_back(Particle{.id = id, .truth = found->second, .layers = mine.layers, .inbound = inbound(rows, rowsOf[id], found->second)});
       if (at == best.end()) {
@@ -212,7 +212,7 @@ class TrackBreakdown
           fate[layer] = std::min<std::uint8_t>(fate[layer], kind);
         }
       }
-      for (std::size_t layer = 0; layer < kMaxLayers; ++layer) {
+      for (std::uint32_t layer = 0; layer < kMaxLayers; ++layer) {
         if (((missing >> layer) & 1U) == 0U) {
           continue;
         }
@@ -243,9 +243,9 @@ class TrackBreakdown
       return text + "]";
     };
     std::string missing = "[";
-    for (std::size_t layer = 0; layer < kMaxLayers; ++layer) {
+    for (std::uint32_t layer = 0; layer < kMaxLayers; ++layer) {
       missing += layer == 0U ? "[" : ",[";
-      for (std::size_t fate = 0; fate < kFates; ++fate) {
+      for (std::uint32_t fate = 0; fate < kFates; ++fate) {
         missing += std::format("{}{}", fate == 0U ? "" : ",", list(mMissing[layer][fate]));
       }
       missing += "]";
@@ -292,7 +292,7 @@ class TrackBreakdown
       out << "id,pdg,pt,eta,phi,vx,vy,vz,layers,status,best,iteration,goodTracks,split,ownFake,fake,otherGood,free,before,after,inbound\n";
     }
     for (const auto& p : mParticles) {
-      out << std::format("{},{},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:x},{},{:x},{},{},{:x},{:x},{:x},{:x},{:x},{:x},{:x},{:x}\n", p.id, p.truth.pdg, p.truth.pt, p.truth.eta, p.truth.phi, p.truth.vx, p.truth.vy, p.truth.vz, p.layers, static_cast<int>(p.status), p.best, static_cast<int>(p.bestIteration), p.goodTracks, p.fates[kSplit], p.fates[kOwnFake], p.fates[kFake], p.fates[kOtherGood], p.fates[kFree], p.before, p.after, p.inbound);
+      out << std::format("{},{},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:.9g},{:x},{},{:x},{},{},{:x},{:x},{:x},{:x},{:x},{:x},{:x},{:x}\n", p.id, p.truth.pdg, p.truth.pt, p.truth.eta, p.truth.phi, p.truth.vx, p.truth.vy, p.truth.vz, p.layers, static_cast<std::int32_t>(p.status), p.best, static_cast<std::int32_t>(p.bestIteration), p.goodTracks, p.fates[kSplit], p.fates[kOwnFake], p.fates[kFake], p.fates[kOtherGood], p.fates[kFree], p.before, p.after, p.inbound);
     }
   }
 

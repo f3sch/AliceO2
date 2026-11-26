@@ -85,7 +85,7 @@ inline constexpr Scalar kMinMomentumGeV = 0.01F;
 template <typename T>
 GPUhdi() GPUAlwaysInline() T directedTurn(T turn, T curvature, PropagationDirection direction)
 {
-  const auto wanted = static_cast<T>(static_cast<int>(direction));
+  const auto wanted = static_cast<T>(static_cast<std::int32_t>(direction));
   if ((turn / curvature) * wanted < T{0}) {
     turn += wanted * (curvature > T{0} ? kTwoPi<T> : -kTwoPi<T>);
   }
@@ -142,7 +142,7 @@ template <typename Prop>
   LayerCrossingStart s;
   const auto& propagator = pointPropagator(prop, from, state);
   surfaceToGlobal(from, state.loc0(), state.loc1(), s.position);
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     s.start[i] = s.position[i];
   }
   sincosOf(state.phi(), s.sinPhi, s.cosPhi);
@@ -182,7 +182,7 @@ template <DetectorLayout Det>
   const Scalar sinTheta = s.sinTheta;
   const Scalar cosTheta = s.cosTheta;
   const Scalar curvature = s.curvature;
-  const auto directionValue = static_cast<Scalar>(static_cast<int>(direction));
+  const auto directionValue = static_cast<Scalar>(static_cast<std::int32_t>(direction));
   Scalar path = 0.F;
   Scalar x = start[0];
   Scalar y = start[1];
@@ -259,7 +259,7 @@ template <DetectorLayout Det>
       Scalar chosenPath = 0.F;
       Scalar chosenX = 0.F;
       Scalar chosenY = 0.F;
-      for (int side = -1; side <= 1; side += 2) {
+      for (std::int32_t side = -1; side <= 1; side += 2) {
         const auto sideValue = static_cast<Scalar>(side);
         const Scalar candidateX = (along * unitX) - (sideValue * height * unitY);
         const Scalar candidateY = (along * unitY) + (sideValue * height * unitX);
@@ -656,7 +656,7 @@ template <DetectorLayout Det>
 {
   std::array<Scalar, static_cast<std::size_t>(Detector<Det>::nLayers)> area{};
   for (const auto& surface : geometry.surfaces()) {
-    if (static_cast<std::size_t>(surface.layer) < area.size()) {
+    if (surface.layer < area.size()) {
       area[surface.layer] += 4.F * surface.bounds.halfX * surface.bounds.halfY;
     }
   }
@@ -670,14 +670,14 @@ template <DetectorLayout Det>
 template <DetectorLayout Det, typename ForEach>
 void fillLayerOccupancy(const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, std::span<std::uint32_t> offsets, std::span<std::uint32_t> lower, std::span<std::uint32_t> upper, const ForEach& forEach)
 {
-  constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
+  constexpr auto kLayers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   const auto& measurements = frame.measurements();
-  const auto rows = static_cast<std::uint32_t>(frame.size());
-  std::fill(offsets.begin(), offsets.end(), 0U);
+  const auto rows = frame.size();
+  std::ranges::fill(offsets, 0U);
   for (std::uint32_t row = 0; row < rows; ++row) {
     ++offsets[geometry.surface(measurements.surface[row]).layer + 1U];
   }
-  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
     offsets[layer + 1U] += offsets[layer];
   }
   std::array<std::uint32_t, kLayers> next{};
@@ -688,7 +688,7 @@ void fillLayerOccupancy(const TimeFrame<Det>& frame, const TrackingGeometry<Det>
     lower[at] = box.lower();
     upper[at] = box.upper();
   }
-  forEach(static_cast<std::uint32_t>(kLayers), [&](std::uint32_t layer) {
+  forEach(kLayers, [&](std::uint32_t layer) {
     std::sort(lower.begin() + offsets[layer], lower.begin() + offsets[layer + 1U]);
     std::sort(upper.begin() + offsets[layer], upper.begin() + offsets[layer + 1U]);
   });
@@ -708,7 +708,8 @@ void fillLayerOccupancy(const TimeFrame<Det>& frame, const TrackingGeometry<Det>
     std::uint32_t hi = last;
     while (lo < hi) {
       const std::uint32_t mid = lo + ((hi - lo) / 2U);
-      if (static_cast<std::int64_t>(values[mid]) <= bound) {
+      const std::int64_t value = values[mid];
+      if (value <= bound) {
         lo = mid + 1U;
       } else {
         hi = mid;
@@ -882,7 +883,7 @@ template <typename Group, typename Row>
       .surfacePhi = candidate.state.surfacePhi,
       .factors = candidate.factors,
     };
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       wire.par[i] = candidate.state.par[i];
     }
     wire = group.broadcast(wire, from);
@@ -892,7 +893,7 @@ template <typename Group, typename Row>
     }
     out.row = wire.row;
     out.chi2 = wire.chi2;
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       out.state.par[i] = wire.par[i];
     }
     out.state.surface = wire.surface;
@@ -938,9 +939,9 @@ template <typename Group>
 /// The most links leaving or entering one layer of \a Det: the targets a
 /// step orders.
 template <DetectorLayout Det>
-inline constexpr std::size_t maxDegree = [] {
-  std::size_t most = 1U;
-  for (std::size_t layer = 0; layer < static_cast<std::size_t>(Detector<Det>::nLayers); ++layer) {
+inline constexpr std::uint32_t maxDegree = [] {
+  std::uint32_t most = 1U;
+  for (std::uint32_t layer = 0; layer < static_cast<std::uint32_t>(Detector<Det>::nLayers); ++layer) {
     most = std::max(most, outLinks<Det>.count(static_cast<LayerID>(layer)));
     most = std::max(most, inLinks<Det>.count(static_cast<LayerID>(layer)));
   }
@@ -1016,7 +1017,7 @@ template <DetectorLayout Det, bool BeamLine = false, bool Shape = false>
 class FollowStage
 {
  public:
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using TrackView = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::ConstView;
   using Proposal = FollowProposal<kMaxClusters>;
   using Branch = follow::Branch<kMaxClusters>;
@@ -1047,7 +1048,7 @@ class FollowStage
   {
     const std::uint32_t input = mTrackOffset + track;
     Proposal proposal;
-    for (std::size_t i = 0; i < kMaxClusters; ++i) {
+    for (std::uint32_t i = 0; i < kMaxClusters; ++i) {
       proposal.outward[i] = ClusterList<kMaxClusters>::kNoCluster;
       proposal.inward[i] = ClusterList<kMaxClusters>::kNoCluster;
     }
@@ -1072,7 +1073,7 @@ class FollowStage
     if (count >= kMaxClusters || o2::gpu::CAMath::Abs(inner.qOverP()) * follow::kMinMomentumGeV > 1.F) {
       return;
     }
-    const std::uint32_t capacity = static_cast<std::uint32_t>(kMaxClusters) - count;
+    const auto capacity = kMaxClusters - count;
     auto box = trackTimeBox(mFrame->measurements(), rows, static_cast<std::uint8_t>(count));
     const std::uint64_t heldLayers = heldInactive(rows, count);
     proposal.outwardCount = walk(outer, PropagationDirection::kForward, proposal.outward, capacity, box, heldLayers, observe, group);
@@ -1324,9 +1325,7 @@ class FollowStage
       // With one link there is nothing to sort; compiling the loop out also
       // spares GCC's -Warray-bounds a subscript it cannot prove unreachable.
       // The link tables are `outLinks<Det>`/`inLinks<Det>`'s (Iteration.h), so
-      // a layer's links never outnumber `maxDegree<Det>`, the targets' size;
-      // the analyzer, not seeing the tables' origin, takes them as any.
-      // NOLINTBEGIN(clang-analyzer-security.ArrayBound)
+      // a layer's links never outnumber `maxDegree<Det>`, the targets' size.
       if constexpr (follow::maxDegree<Det> > 1U) {
         std::uint32_t slot = nTargets++;
         while (slot > 0U && (target.distance2 < targets[slot - 1U].distance2 || (!(targets[slot - 1U].distance2 < target.distance2) && target.layer < targets[slot - 1U].layer))) {
@@ -1337,7 +1336,6 @@ class FollowStage
       } else {
         targets[nTargets++] = target;
       }
-      // NOLINTEND(clang-analyzer-security.ArrayBound)
     }
     return nTargets;
   }
@@ -1353,7 +1351,7 @@ class FollowStage
   [[nodiscard]] GPUhdi() GPUAlwaysInline() bool overTargets(Branch& branch, const TimeEstPS& box, PropagationDirection direction, const follow::Target* targets, std::uint32_t nTargets, const Observer& observe, const Search& search) const
   {
     for (std::uint32_t t = 0; t < nTargets; ++t) {
-      const auto& target = targets[t]; // NOLINT(clang-analyzer-security.ArrayBound): nTargets <= maxDegree<Det> (`targetsOf`)
+      const auto& target = targets[t];
       CandidateWindow window;
       Scalar reach[2]{};
       detail::StepMaterial traversed;
@@ -1677,10 +1675,10 @@ struct Resolve {
   {
     const std::uint32_t priority = trackCount - (trackOffset + track);
     auto& proposal = proposals[track];
-    const std::uint32_t proposed = static_cast<std::uint32_t>(proposal.outwardCount) + proposal.inwardCount;
+    const auto proposed = static_cast<std::uint32_t>(proposal.outwardCount) + proposal.inwardCount;
     proposal.outwardCount = kept(proposal.outward, proposal.outwardCount, priority);
     proposal.inwardCount = kept(proposal.inward, proposal.inwardCount, priority);
-    const std::uint32_t left = static_cast<std::uint32_t>(proposal.outwardCount) + proposal.inwardCount;
+    const auto left = static_cast<std::uint32_t>(proposal.outwardCount) + proposal.inwardCount;
     countWork(earlier ? WorkCounter::kFollowEarlierProposed : WorkCounter::kFollowProposed, proposed);
     countWork(earlier ? WorkCounter::kFollowEarlierOutbid : WorkCounter::kFollowOutbid, proposed - left);
   }
@@ -1711,7 +1709,7 @@ struct Combine {
     const std::uint32_t track = trackOffset + element;
     const auto& proposal = proposals[element];
     ClusterList<K> combined;
-    for (std::size_t i = 0; i < K; ++i) {
+    for (std::uint32_t i = 0; i < K; ++i) {
       combined.index[i] = ClusterList<K>::kNoCluster;
     }
     for (std::uint32_t i = 0; i < proposal.inwardCount; ++i) {
@@ -1744,7 +1742,7 @@ template <DetectorLayout Det, typename Fit>
 /// free. How short a track may end is the cuts after the follow's.
 template <DetectorLayout Det>
 struct Refit {
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using TrackView = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::View;
 
   const IterationParameters<Det>* parameters = nullptr;
@@ -1762,7 +1760,7 @@ struct Refit {
   {
     const std::uint32_t track = trackOffset + element;
     auto& proposal = proposals[element];
-    const std::uint32_t added = static_cast<std::uint32_t>(proposal.outwardCount) + proposal.inwardCount;
+    const auto added = static_cast<std::uint32_t>(proposal.outwardCount) + proposal.inwardCount;
     if (added == 0U) {
       return;
     }
@@ -1785,7 +1783,7 @@ struct Refit {
   /// followed again with `followEarlier`.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() bool accept(std::uint32_t track, const ClusterList<kMaxClusters>& list, std::uint8_t n, std::uint8_t outward, std::uint8_t inward) const
   {
-    const auto fit = fitMeasurements(propagator, *geometry, detail::LinkSteps{}, RowChain<Det>{.frame = frame, .rows = list.index}, static_cast<int>(n), kinkBudget(*parameters));
+    const auto fit = fitMeasurements(propagator, *geometry, detail::LinkSteps{}, RowChain<Det>{.frame = frame, .rows = list.index}, static_cast<std::int32_t>(n), kinkBudget(*parameters));
     if (!passesRoadChi2(*parameters, fit)) {
       return false;
     }
@@ -1852,7 +1850,7 @@ struct Refit {
 /// rows dropped are not marked: they are free for the iterations after.
 template <DetectorLayout Det, bool Shape = false>
 struct TrimAmbiguous {
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using TrackView = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::View;
 
   /// The search of the step's rows, as a nominal step makes it (with \a Shape,
@@ -1885,7 +1883,7 @@ struct TrimAmbiguous {
       rows.index[count - 1U] = ClusterList<kMaxClusters>::kNoCluster;
       const auto shorter = static_cast<std::uint8_t>(count - 1U);
       countWork(WorkCounter::kFollowTrimFits);
-      const auto fit = fitMeasurements(propagator, *geometry, detail::LinkSteps{}, RowChain<Det>{.frame = frame, .rows = rows.index}, static_cast<int>(shorter), kinkBudget(*parameters));
+      const auto fit = fitMeasurements(propagator, *geometry, detail::LinkSteps{}, RowChain<Det>{.frame = frame, .rows = rows.index}, static_cast<std::int32_t>(shorter), kinkBudget(*parameters));
       if (!passesRoadChi2(*parameters, fit) || !keptAfterFollow(*parameters, shorter, fit.state)) {
         return;
       }
@@ -1954,7 +1952,7 @@ namespace follow
 /// followed -- the end starts only where it decides the end again.
 template <DetectorLayout Det>
 struct Inputs {
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using TrackView = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::View;
   using ConstTrackView = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::ConstView;
 
@@ -1970,7 +1968,7 @@ struct Inputs {
   bool inward = false;
   bool earlier = false;
   std::uint8_t* used = nullptr;
-  std::size_t rowCount = 0U;
+  std::uint32_t rowCount = 0U;
   const std::uint32_t* maxCandidateWidthPS = nullptr;
   SensorCellsView cells;
   FollowProposal<kMaxClusters>* proposals = nullptr;
@@ -2003,10 +2001,10 @@ struct HostLaunch {
   }
 
   /// The bids zeroed in parallel, as the selection's slots are.
-  void clearBids(std::uint32_t* bids, std::size_t rows) const
+  void clearBids(std::uint32_t* bids, std::uint32_t rows) const
   {
     const profile::Zone zone{phase(profile::Phase::kFollowPropose)};
-    (*forEach)(static_cast<std::uint32_t>(rows), [bids](std::uint32_t row) { bids[row] = 0U; });
+    (*forEach)(rows, [bids](std::uint32_t row) { bids[row] = 0U; });
   }
 };
 
@@ -2020,7 +2018,7 @@ template <DetectorLayout Det, typename Launch>
 void runSequence(const Launch& launch, const Inputs<Det>& in)
 {
   using profile::Phase;
-  constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   const IterationParameters<Det>& choices = *in.choices;
   const std::uint32_t elements = in.trackCount - in.trackOffset;
   launch.clearBids(in.bids, in.rowCount);
@@ -2071,8 +2069,8 @@ template <DetectorLayout Det>
 class Follow
 {
  public:
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
-  static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr auto kLayerCount = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   using Proposal = FollowProposal<kMaxClusters>;
   using Tracks = typename TrackRefit<Det>::Tracks;
 
@@ -2096,7 +2094,7 @@ class Follow
   {
     using profile::Phase;
     return guardOutOfMemory([&] {
-      const auto trackCount = static_cast<std::uint32_t>(tracks.size());
+      const auto trackCount = tracks.size();
       const auto elements = trackCount - trackOffset;
       {
         const profile::Zone zone{earlier ? Phase::kNone : Phase::kFollowPropose};
@@ -2120,7 +2118,7 @@ class Follow
                                                                                                   .inward = inward,
                                                                                                   .earlier = earlier,
                                                                                                   .used = used.data(),
-                                                                                                  .rowCount = used.size(),
+                                                                                                  .rowCount = static_cast<std::uint32_t>(used.size()),
                                                                                                   .maxCandidateWidthPS = maxCandidateWidthPS.data(),
                                                                                                   .cells = cells,
                                                                                                   .proposals = mProposals.data(),
@@ -2141,7 +2139,7 @@ class Follow
   /// and kept[i] >= first + i, so the moves go through a scratch.
   /// \a forEach(count, body) runs body(i) for i in [0, count).
   template <typename Index, typename ForEach>
-  void keepProposals(std::span<const Index> kept, std::size_t first, const ForEach& forEach)
+  void keepProposals(std::span<const Index> kept, Index first, const ForEach& forEach)
   {
     const auto count = static_cast<Index>(kept.size());
     const auto move = [&](auto& values) {
@@ -2153,7 +2151,7 @@ class Follow
     };
     move(mProposals);
   }
-  void truncateProposals(std::size_t count) { mProposals.resize(count); }
+  void truncateProposals(std::uint32_t count) { mProposals.resize(count); }
 
  private:
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;

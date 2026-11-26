@@ -53,20 +53,20 @@ namespace
 
 using namespace toybarrel8;
 using NeighbourOutput = StageOutput<NeighbourT>;
-constexpr std::size_t kTracks = kHelixTracks;
+constexpr std::uint32_t kTracks = kHelixTracks;
 /// The last track drifts in time, its layers in the toys' ticks 0, 1, 1, 2, 2,
 /// 3, 3, 4 (GridTestSupport.h): every pair and every triplet of it shares a
 /// time, but every other `a-d` span is two ticks -- equal boxes cannot fail
 /// every `a-d` with every triplet passing.
-constexpr std::size_t kDriftingTrack = 4U;
-constexpr std::array<int, 8> kDriftTicks{0, 1, 1, 2, 2, 3, 3, 4};
-constexpr std::size_t kNoisePerLayer = 3U;
+constexpr std::uint32_t kDriftingTrack = 4U;
+constexpr std::array<std::int32_t, 8> kDriftTicks{0, 1, 1, 2, 2, 3, 3, 4};
+constexpr std::uint32_t kNoisePerLayer = 3U;
 /// Hits on layer 4 next to a track, moved along z and r-phi [cm]: branches
 /// whose triplets all pass, and whose neighbours pass, fail the curvature
 /// agreement, or fail only the fit -- which sees the theta kinks and one
 /// shared curvature together.
 struct Branch {
-  std::size_t track = 0U;
+  std::uint32_t track = 0U;
   double dz = 0.;
   double dRPhi = 0.;
 };
@@ -78,15 +78,15 @@ constexpr LayerID kBranchLayer = 4;
 std::vector<Hit> neighbourHits()
 {
   std::vector<Hit> hits;
-  for (std::size_t track = 0; track < kTracks; ++track) {
-    for (std::size_t layer = 0; layer < kLayers; ++layer) {
+  for (std::uint32_t track = 0; track < kTracks; ++track) {
+    for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
       const double drift = track == kDriftingTrack ? test::kToyTickNS * static_cast<double>(kDriftTicks[layer]) : 0.;
       hits.push_back({.point = helixPoint(track, static_cast<LayerID>(layer)), .timeNS = 10. + drift});
     }
   }
-  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
     const double radius = layerDistance<Det>(static_cast<LayerID>(layer));
-    for (std::size_t noise = 0; noise < kNoisePerLayer; ++noise) {
+    for (std::uint32_t noise = 0; noise < kNoisePerLayer; ++noise) {
       const double phi = 0.55 + (1.85 * static_cast<double>(noise)) + (0.23 * static_cast<double>(layer));
       hits.push_back({
         .point =
@@ -135,7 +135,7 @@ struct Levels {
 
 /// The level sweep over a copy of \a triplets: serial when \a threads is 0,
 /// else on the CPU backend in chunks of \a chunk.
-Levels sweepLevels(const Triplets& triplets, const NeighbourOutput& neighbours, int threads = 0, std::uint32_t chunk = 1U)
+Levels sweepLevels(const Triplets& triplets, const NeighbourOutput& neighbours, std::int32_t threads = 0, std::uint32_t chunk = 1U)
 {
   Triplets copy;
   copyTriplets(triplets, copy);
@@ -176,7 +176,7 @@ void checkFixedPoint(const Levels& levels, const NeighbourOutput& neighbours)
 /// chunks of 1 to 16. The number of sweeps may differ; the levels may not.
 void checkScheduleInvariance(const Triplets& triplets, const NeighbourOutput& neighbours, const Levels& serial)
 {
-  for (const int threads : {1, 2, 4}) {
+  for (const std::int32_t threads : {1, 2, 4}) {
     for (const std::uint32_t chunk : {1U, 2U, 3U, 7U, 16U}) {
       const auto parallel = sweepLevels(triplets, neighbours, threads, chunk);
       BOOST_TEST_CONTEXT("threads " << threads << ", chunk " << chunk) { BOOST_TEST(parallel.level == serial.level, boost::test_tools::per_element()); }
@@ -284,10 +284,10 @@ BOOST_AUTO_TEST_CASE(NeighboursMatchBruteForceAndEveryTrueChainIsLinked)
   const auto trackletView = tracklets.view();
   const auto tripletView = triplets.view();
   const auto neighbourView = serial.view();
-  std::size_t candidates = 0U;
-  std::size_t curvatureRejected = 0U;
-  std::size_t timeRejected = 0U;
-  std::size_t fitRejected = 0U;
+  std::uint32_t candidates = 0U;
+  std::uint32_t curvatureRejected = 0U;
+  std::uint32_t timeRejected = 0U;
+  std::uint32_t fitRejected = 0U;
   for (std::uint32_t to = 0; to < triplets.size(); ++to) {
     std::vector<std::uint32_t> expected;
     const auto shared = tripletView.first[to];
@@ -330,13 +330,13 @@ BOOST_AUTO_TEST_CASE(NeighboursMatchBruteForceAndEveryTrueChainIsLinked)
   // Each track crosses all eight layers: six true triplets, linked by five
   // true neighbours -- except the drifting one, whose links 1, 3 and 5 span
   // two ticks `a-d`.
-  for (std::size_t track = 0; track < kTracks; ++track) {
+  for (std::uint32_t track = 0; track < kTracks; ++track) {
     std::array<std::uint32_t, kLayers - 2U> chain{};
-    for (std::size_t layer = 0; layer + 2U < kLayers; ++layer) {
+    for (std::uint32_t layer = 0; layer + 2U < kLayers; ++layer) {
       chain[layer] = findTriplet(tracklets, triplets, fixture.row(Fixture::logicalIndex(track, layer)), fixture.row(Fixture::logicalIndex(track, layer + 1U)), fixture.row(Fixture::logicalIndex(track, layer + 2U)));
       BOOST_REQUIRE_MESSAGE(chain[layer] < triplets.size(), "track " << track << " misses the triplet from layer " << layer);
     }
-    for (std::size_t link = 1; link < chain.size(); ++link) {
+    for (std::uint32_t link = 1; link < chain.size(); ++link) {
       const auto* begin = neighbourView.from + serial.offsets()[chain[link]];
       const auto* end = neighbourView.from + serial.offsets()[chain[link] + 1U];
       const bool linked = std::find(begin, end, chain[link - 1U]) != end;
@@ -344,7 +344,7 @@ BOOST_AUTO_TEST_CASE(NeighboursMatchBruteForceAndEveryTrueChainIsLinked)
     }
   }
 
-  for (const int threads : {1, 2, 4}) {
+  for (const std::int32_t threads : {1, 2, 4}) {
     for (const NeighbourOutput::Index chunk : {1U, 2U, 3U, 7U, 16U}) {
       NeighbourOutput parallel;
       const auto parallelPool = std::make_shared<BoundedMemoryResource>();
@@ -429,7 +429,7 @@ BOOST_AUTO_TEST_CASE(LevelsOnTheDeepBarrelMatchTheirHandCount)
   // 1. Levels up to 6 need at most five sweeps that change one.
   BOOST_TEST(chainedTriplets(neighbours).size() == 9U);
   BOOST_TEST(levels.sweeps >= 1U);
-  BOOST_TEST(levels.sweeps <= static_cast<std::uint32_t>(maxChainLayers<Det>) - 3U);
+  BOOST_TEST(levels.sweeps <= maxChainLayers<Det> - 3U);
   checkFixedPoint(levels, neighbours);
   checkScheduleInvariance(*triplets, neighbours, levels);
 }

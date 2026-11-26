@@ -66,9 +66,9 @@ class GPUChainGenericTracking final : public o2::gpu::GPUChain
   static size_t HostMemoryBytes();
 
   /// A block of \a bytes, before Init; its index for GetBlock.
-  size_t AddBlock(size_t bytes);
+  std::uint32_t AddBlock(size_t bytes);
   /// Block \a index, after Init.
-  [[nodiscard]] Block GetBlock(size_t index) const;
+  [[nodiscard]] Block GetBlock(std::uint32_t index) const;
 
  private:
   /// A block's processor: the host-side one registers the resource, its

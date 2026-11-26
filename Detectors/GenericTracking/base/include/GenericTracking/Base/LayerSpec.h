@@ -126,10 +126,10 @@ struct LayerEnvelope {
 /// and disc still differ in which second coordinate a layer is binned in, and
 /// that is all the tracking asks of the kind.
 struct PlacedLayerSpec {
-  int sensorCount;
+  std::int32_t sensorCount;
   SensorSpec sensor;
 
-  [[nodiscard]] constexpr int nSensors() const { return sensorCount; }
+  [[nodiscard]] constexpr std::int32_t nSensors() const { return sensorCount; }
 };
 
 /// One directed link of a detector's layer graph: a track from the luminous
@@ -162,7 +162,7 @@ struct LayerLink {
 template <typename Det>
 concept DetectorLayout = requires {
   { Det::name } -> std::convertible_to<const char*>;
-  { Det::nSensors } -> std::convertible_to<int>;
+  { Det::nSensors } -> std::convertible_to<std::int32_t>;
   { Det::layerLinks[0] } -> std::convertible_to<const LayerLink&>;
   { Det::barrelLayers[0] } -> std::convertible_to<const PlacedLayerSpec&>;
   { Det::discLayers[0] } -> std::convertible_to<const PlacedLayerSpec&>;
@@ -174,9 +174,9 @@ concept DetectorLayout = requires {
 /// without requiring each layout to repeat facts that follow from its arrays.
 template <DetectorLayout Layout>
 struct Detector {
-  static constexpr int nBarrelLayers = static_cast<int>(std::size(Layout::barrelLayers));
-  static constexpr int nDiscLayers = static_cast<int>(std::size(Layout::discLayers));
-  static constexpr int nLayers = nBarrelLayers + nDiscLayers;
+  static constexpr auto nBarrelLayers = static_cast<std::int32_t>(std::size(Layout::barrelLayers));
+  static constexpr auto nDiscLayers = static_cast<std::int32_t>(std::size(Layout::discLayers));
+  static constexpr std::int32_t nLayers = nBarrelLayers + nDiscLayers;
   static constexpr bool hasBarrel = nBarrelLayers > 0;
   static constexpr bool hasDiscs = nDiscLayers > 0;
   /// Whether any layer's sensors are curved (SensorSpec::curved).
@@ -223,22 +223,22 @@ struct Detector {
   [[nodiscard]] static constexpr bool isHitTimedLayer(LayerID layer) { return std::cmp_less(layer, 64) && ((hitTimedLayers >> layer) & 1U) != 0U; }
 
   /// Position of a disc layer within Layout::discLayers.
-  [[nodiscard]] static constexpr std::size_t discIndex(LayerID layer) { return static_cast<std::size_t>(layer) - static_cast<std::size_t>(nBarrelLayers); }
+  [[nodiscard]] static constexpr std::uint32_t discIndex(LayerID layer) { return std::uint32_t{layer} - static_cast<std::uint32_t>(nBarrelLayers); }
 
   /// A layer's sensor.
   [[nodiscard]] static constexpr const SensorSpec& sensor(LayerID layer) { return isBarrelLayer(layer) ? Layout::barrelLayers[layer].sensor : Layout::discLayers[discIndex(layer)].sensor; }
 
   /// A layer's stated sensor count.
-  [[nodiscard]] static constexpr int sensorCount(LayerID layer) { return isBarrelLayer(layer) ? Layout::barrelLayers[layer].sensorCount : Layout::discLayers[discIndex(layer)].sensorCount; }
+  [[nodiscard]] static constexpr std::int32_t sensorCount(LayerID layer) { return isBarrelLayer(layer) ? Layout::barrelLayers[layer].sensorCount : Layout::discLayers[discIndex(layer)].sensorCount; }
 };
 
 /// Total sensor count of a detector, for the detector struct to use when
 /// declaring its own nSensors -- keeping that number derived rather than typed
 /// in a second time.
 template <typename BarrelArray, typename DiscArray>
-[[nodiscard]] constexpr int countSensors(const BarrelArray& barrel, const DiscArray& discs)
+[[nodiscard]] constexpr std::int32_t countSensors(const BarrelArray& barrel, const DiscArray& discs)
 {
-  int n = 0;
+  std::int32_t n = 0;
   for (const auto& layer : barrel) {
     n += layer.nSensors();
   }

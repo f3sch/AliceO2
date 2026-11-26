@@ -76,7 +76,7 @@ struct ToyInactive8 {
   }};
   static constexpr auto barrelLayers = placedLayers(barrelSpecs);
   static constexpr auto discLayers = placedLayers(discSpecs);
-  static constexpr int nSensors = countSensors(barrelLayers, discLayers);
+  static constexpr std::int32_t nSensors = countSensors(barrelLayers, discLayers);
 };
 
 inline const bool kToyInactive8Published = publishToy<ToyInactive8>();
@@ -104,8 +104,8 @@ struct HeldOccupancy {
 
 using Det = detectors::ToyInactive8;
 using Frame = TimeFrame<Det>;
-constexpr std::size_t kLayers = 8U;
-constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+constexpr std::uint32_t kLayers = 8U;
+constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
 using Tracks = BoundedColumns<TrackOf<kMaxClusters>::template RecordT>;
 using Proposal = FollowProposal<kMaxClusters>;
 
@@ -150,7 +150,7 @@ std::vector<Hit> helixHits(double phi0, double slope, double ptGeV)
     position[2] = slope * arc;
   };
   std::vector<Hit> hits;
-  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
     const auto id = static_cast<LayerID>(layer);
     const double crossing = 2. * std::asin(0.5 * curvature * layerDistance<Det>(id)) / curvature;
     for (SensorID sensor = firstSensorOfLayer<Det>(id); sensor < firstSensorOfLayer<Det>(static_cast<LayerID>(layer + 1)); ++sensor) {
@@ -159,7 +159,7 @@ std::vector<Hit> helixHits(double phi0, double slope, double ptGeV)
         double position[3]{};
         at(arc, position);
         double result = 0.;
-        for (int i = 0; i < 3; ++i) {
+        for (std::int32_t i = 0; i < 3; ++i) {
           result += (position[i] - static_cast<double>(surface.origin[i])) * static_cast<double>(surface.normal[i]);
         }
         return result;
@@ -169,7 +169,7 @@ std::vector<Hit> helixHits(double phi0, double slope, double ptGeV)
       if ((height(low) < 0.) == (height(high) < 0.)) {
         continue;
       }
-      for (int i = 0; i < 100; ++i) {
+      for (std::int32_t i = 0; i < 100; ++i) {
         const double middle = 0.5 * (low + high);
         ((height(middle) < 0.) == (height(low) < 0.) ? low : high) = middle;
       }
@@ -203,8 +203,8 @@ struct Fixture {
     : geometry(test::cappedGrid<Det>(20., test::withToyFrames(GridParams{.blockWidth = 20'000}), windowParameters(), VertexConstraint{.z = 0., .sigmaZ = 0.02, .sigmaTransverse = 0.001}, 16, 8)),
       offsets(static_cast<std::size_t>(geometry.bucketCount()) + 1U),
       frame(test::frameOf(
-        geometry, hits.size(),
-        [&](std::size_t i) {
+        geometry, static_cast<std::uint32_t>(hits.size()),
+        [&](std::uint32_t i) {
           const auto& hit = hits[i];
           double phi = std::atan2(hit.y, hit.x);
           if (phi < 0.) {
@@ -212,10 +212,10 @@ struct Fixture {
           }
           return toybarrel8InputPoint(hit, static_cast<Scalar>(phi));
         },
-        [&](std::size_t i) { return hits[i].time; },
-        [](std::size_t /*i*/) { return test::PointVariances{.z = 1.e-6F, .r = 2.e-6F, .rPhi = 1.e-6F}; },
+        [&](std::uint32_t i) { return hits[i].time; },
+        [](std::uint32_t /*i*/) { return test::PointVariances{.z = 1.e-6F, .r = 2.e-6F, .rPhi = 1.e-6F}; },
         columns, offsets,
-        [&](std::size_t i, std::uint32_t row) {
+        [&](std::uint32_t i, std::uint32_t row) {
           columns.surface[row] = hits[i].surface;
           columns.loc0[row] = hits[i].loc0;
           columns.loc1[row] = hits[i].loc1;
@@ -235,7 +235,7 @@ struct Fixture {
   };
   static InputPoint toybarrel8InputPoint(const Hit& hit, Scalar phi) { return {.layer = hit.layer, .x = hit.x, .y = hit.y, .z = hit.z, .r = std::hypot(hit.x, hit.y), .phi = phi}; }
 
-  [[nodiscard]] std::uint32_t row(std::size_t layer) const { return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(layer)) - columns.clusterIndex.begin()); }
+  [[nodiscard]] std::uint32_t row(std::uint32_t layer) const { return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, layer) - columns.clusterIndex.begin()); }
 
   GridGeometry<Det> geometry;
   std::vector<std::uint32_t> offsets;
@@ -244,7 +244,7 @@ struct Fixture {
 };
 
 /// The track of \a fixture's rows on \a layers, innermost first, fitted.
-Tracks fittedTrack(const Fixture& fixture, std::initializer_list<std::size_t> layers, const std::shared_ptr<BoundedMemoryResource>& pool)
+Tracks fittedTrack(const Fixture& fixture, std::initializer_list<std::uint32_t> layers, const std::shared_ptr<BoundedMemoryResource>& pool)
 {
   ClusterList<kMaxClusters> rows;
   std::ranges::fill(rows.index, ClusterList<kMaxClusters>::kNoCluster);
@@ -282,7 +282,6 @@ Proposal followTrack(const Fixture& fixture, const Tracks& tracks, const std::ve
 {
   const auto widths = frameBounds(*fixture.frame).widthPS;
   std::vector<Proposal> proposals(tracks.size());
-  const UniformMaterial material;
   const FollowStage<Det, false, false> stage{&parameters, fixture.frame.get(), &trackingGeometry(), Propagator{}, tracks.view(), used.data(), widths.data(), cells().view(), proposals.data(), true, 0U};
   stage(0U);
   return proposals.front();
@@ -297,7 +296,7 @@ BOOST_AUTO_TEST_CASE(InactiveLayersUseTheIterationsClusterGate)
   static_assert(Detector<detectors::ToyBarrel8>::inactiveLayers == 0U);
   auto hits = helixHits(0.42, 0.025, 1.8);
   BOOST_REQUIRE(hits.size() == kLayers);
-  for (const std::size_t layer : {3U, 7U}) {
+  for (const std::uint32_t layer : {3U, 7U}) {
     hits[layer].z += 0.002F;
     hits[layer].loc1 += 0.002F;
   }
@@ -308,12 +307,12 @@ BOOST_AUTO_TEST_CASE(InactiveLayersUseTheIterationsClusterGate)
   auto parameters = followParameters();
 
   const auto accepted = followTrack(fixture, tracks, used, parameters);
-  BOOST_REQUIRE_EQUAL(static_cast<int>(accepted.outwardCount), 2);
+  BOOST_REQUIRE_EQUAL(static_cast<std::int32_t>(accepted.outwardCount), 2);
   BOOST_TEST(accepted.outward[1] == fixture.row(7));
 
   parameters.clusterChi2Max = 0.1F;
   const auto rejected = followTrack(fixture, tracks, used, parameters);
-  BOOST_REQUIRE_EQUAL(static_cast<int>(rejected.outwardCount), 1);
+  BOOST_REQUIRE_EQUAL(static_cast<std::int32_t>(rejected.outwardCount), 1);
   BOOST_TEST(rejected.outward[0] == fixture.row(6));
 }
 
@@ -371,7 +370,7 @@ BOOST_AUTO_TEST_CASE(WithoutTheirRowsTheInactiveLayersCostNothing)
   used[fixture.row(3)] = kExclusive;
   used[fixture.row(7)] = kExclusive;
   const auto proposal = followTrack(fixture, tracks, used, followParameters());
-  BOOST_REQUIRE_EQUAL(static_cast<int>(proposal.outwardCount), 1);
+  BOOST_REQUIRE_EQUAL(static_cast<std::int32_t>(proposal.outwardCount), 1);
   BOOST_TEST(proposal.outward[0] == fixture.row(6));
 }
 
@@ -392,7 +391,7 @@ BOOST_AUTO_TEST_CASE(TheTailReachesTheInactiveLayerPastTheWalksEnd)
   auto parameters = followParameters();
   parameters.followHoles = 1U;
   const auto proposal = followTrack(fixture, tracks, used, parameters);
-  BOOST_REQUIRE_EQUAL(static_cast<int>(proposal.outwardCount), 1);
+  BOOST_REQUIRE_EQUAL(static_cast<std::int32_t>(proposal.outwardCount), 1);
   BOOST_TEST(proposal.outward[0] == fixture.row(7));
   // A hole too many: no tail.
   BOOST_TEST(followTrack(fixture, tracks, used, followParameters()).outwardCount == 0U);
@@ -418,7 +417,7 @@ BOOST_AUTO_TEST_CASE(TheTailUsesTheTimeBoxBeforeTheUnconfirmedRow)
   auto parameters = followParameters();
   parameters.followHoles = 1U;
   const auto proposal = followTrack(fixture, tracks, used, parameters);
-  BOOST_REQUIRE_EQUAL(static_cast<int>(proposal.outwardCount), 2);
+  BOOST_REQUIRE_EQUAL(static_cast<std::int32_t>(proposal.outwardCount), 2);
   BOOST_TEST(proposal.outward[0] == fixture.row(4));
   BOOST_TEST(proposal.outward[1] == fixture.row(7));
 }
@@ -440,8 +439,8 @@ BOOST_AUTO_TEST_CASE(TheTrackHoldsItsOutwardRowsInPathOrderAndOwnsThem)
   const auto status = follow.run(SerialForEach{}, parameters, *fixture.frame, trackingGeometry(), Propagator{}, tracks, 0U, true, false, used, frameBounds(*fixture.frame).widthPS, cells().view(), occupancy.view());
   BOOST_REQUIRE(status == StageStatus::kComplete);
   const auto view = tracks.view();
-  BOOST_REQUIRE_EQUAL(static_cast<std::size_t>(view.count[0]), kLayers);
-  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+  BOOST_REQUIRE_EQUAL(static_cast<std::uint32_t>(view.count[0]), kLayers);
+  for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
     BOOST_TEST(view.clusters[0].index[layer] == fixture.row(layer));
     // The follow owns the rows it adds; the road's are the selection's.
     const bool added = layer == 6U || layer == 7U;

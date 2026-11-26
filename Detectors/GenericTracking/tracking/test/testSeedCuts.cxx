@@ -27,6 +27,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <random>
 
 namespace o2::gtrk
@@ -37,7 +38,7 @@ using detectors::ToyBarrel4Disc8;
 using Helix = GeneratedHelixFixture<ToyBarrel4Disc8>;
 using State = Helix::State;
 using Errors = Helix::Errors;
-constexpr int kDraws = 2000;
+constexpr std::int32_t kDraws = 2000;
 constexpr double kKept = 0.99;
 } // namespace
 
@@ -52,10 +53,10 @@ struct Case {
 };
 
 struct Rates {
-  int lambda = 0;
-  int time = 0;
-  int curvature = 0;
-  int all = 0;
+  std::int32_t lambda = 0;
+  std::int32_t time = 0;
+  std::int32_t curvature = 0;
+  std::int32_t all = 0;
 };
 
 /// Generate kDraws triplets on the case's layers at \a ptGeV, with the
@@ -75,9 +76,9 @@ Rates rates(const Case& c, double ptGeV, double minPtGeV, double zShift = 0., do
   };
 
   // A fixed seed: the rates are compared against fixed thresholds.
-  std::mt19937_64 generator(20260926U); // NOLINT(cert-msc51-cpp)
+  std::mt19937_64 generator(20260926U);
   Rates result;
-  for (int draw = 0; draw < kDraws; ++draw) {
+  for (std::int32_t draw = 0; draw < kDraws; ++draw) {
     const State origin{.phi = 0.3, .slope = c.slope};
     const State a = Helix::toLayer(origin, curvature, c.layers[0]);
     const State b = Helix::toLayer(a, curvature, c.layers[1]);
@@ -118,7 +119,7 @@ BOOST_AUTO_TEST_CASE(TrueTripletsPassEveryCut)
   for (const auto& c : kCases) {
     for (const auto& [pt, minPt] : std::array<Vec2D, 4>{{{1., 1.}, {1.5, 1.}, {5., 1.}, {0.3, 0.3}}}) {
       const auto kept = rates(c, pt, minPt);
-      BOOST_TEST_CONTEXT("layers " << int(c.layers[0]) << " " << int(c.layers[1]) << " " << int(c.layers[2]) << " pT " << pt << " min " << minPt)
+      BOOST_TEST_CONTEXT("layers " << std::int32_t(c.layers[0]) << " " << std::int32_t(c.layers[1]) << " " << std::int32_t(c.layers[2]) << " pT " << pt << " min " << minPt)
       {
         BOOST_TEST(kept.lambda >= kKept * kDraws);
         BOOST_TEST(kept.time == kDraws);
@@ -137,17 +138,17 @@ namespace
 /// at \a minPtGeV with the kink allowance \a kinkSigma: how many pass the
 /// nominal cuts, how many only with the allowance.
 struct KinkedRates {
-  int nominal = 0;
-  int kinked = 0;
+  std::int32_t nominal = 0;
+  std::int32_t kinked = 0;
 };
 
 KinkedRates kinkedRates(const Case& c, double ptGeV, double minPtGeV, double kinkTheta0, double kinkSigma)
 {
   const auto parameters = Helix::parametersAt(minPtGeV, kinkSigma);
   const double curvature = 1. / curvatureRadius(ptGeV, 20.);
-  std::mt19937_64 generator(20261004U); // NOLINT(cert-msc51-cpp)
+  std::mt19937_64 generator(20261004U);
   KinkedRates result;
-  for (int draw = 0; draw < kDraws; ++draw) {
+  for (std::int32_t draw = 0; draw < kDraws; ++draw) {
     const State origin{.phi = 0.3, .slope = c.slope};
     const State a = Helix::toLayer(origin, curvature, c.layers[0]);
     const State b = Helix::toLayer(a, curvature, c.layers[1]);
@@ -236,12 +237,12 @@ struct Departure {
 };
 
 struct Rates {
-  int curvature = 0;
-  int time = 0;
-  int fit = 0;
-  int all = 0;
+  std::int32_t curvature = 0;
+  std::int32_t time = 0;
+  std::int32_t fit = 0;
+  std::int32_t all = 0;
   double chi2Sum = 0.; ///< over the draws the adjacent fit converged on
-  int fitted = 0;
+  std::int32_t fitted = 0;
 };
 
 /// Generate kDraws four-measurement chains on the case's layers at \a ptGeV,
@@ -253,9 +254,9 @@ Rates rates(const Case& c, double ptGeV, double minPtGeV, const Departure& depar
   const double curvature = 1. / curvatureRadius(ptGeV, 20.);
 
   // A fixed seed: the rates are compared against fixed thresholds.
-  std::mt19937_64 generator(20260926U); // NOLINT(cert-msc51-cpp)
+  std::mt19937_64 generator(20260926U);
   Rates result;
-  for (int draw = 0; draw < kDraws; ++draw) {
+  for (std::int32_t draw = 0; draw < kDraws; ++draw) {
     const State origin{.phi = 0.3, .slope = c.slope};
     const State a = Helix::toLayer(origin, curvature, c.layers[0]);
     const State b = Helix::toLayer(a, curvature, c.layers[1]);
@@ -302,7 +303,7 @@ BOOST_AUTO_TEST_CASE(TrueNeighboursPassEveryCut)
   for (const auto& c : kCases) {
     for (const auto& [pt, minPt] : std::array<Vec2D, 4>{{{1., 1.}, {1.5, 1.}, {5., 1.}, {0.3, 0.3}}}) {
       const auto kept = rates(c, pt, minPt);
-      BOOST_TEST_CONTEXT("layers " << int(c.layers[0]) << " " << int(c.layers[1]) << " " << int(c.layers[2]) << " " << int(c.layers[3]) << " slope " << c.slope << " pT " << pt << " min " << minPt)
+      BOOST_TEST_CONTEXT("layers " << std::int32_t(c.layers[0]) << " " << std::int32_t(c.layers[1]) << " " << std::int32_t(c.layers[2]) << " " << std::int32_t(c.layers[3]) << " slope " << c.slope << " pT " << pt << " min " << minPt)
       {
         BOOST_TEST(kept.curvature >= kKept * kDraws);
         BOOST_TEST(kept.time == kDraws);
@@ -321,7 +322,7 @@ BOOST_AUTO_TEST_CASE(TheAdjacentChi2HasThreeDegreesOfFreedomAtPtMin)
   for (const auto& c : kCases) {
     const auto kept = rates(c, 1., 1.);
     const double mean = kept.chi2Sum / kept.fitted;
-    BOOST_TEST_CONTEXT("layers " << int(c.layers[0]) << " " << int(c.layers[1]) << " " << int(c.layers[2]) << " " << int(c.layers[3]) << " slope " << c.slope)
+    BOOST_TEST_CONTEXT("layers " << std::int32_t(c.layers[0]) << " " << std::int32_t(c.layers[1]) << " " << std::int32_t(c.layers[2]) << " " << std::int32_t(c.layers[3]) << " slope " << c.slope)
     {
       BOOST_TEST_MESSAGE("mean chi2 " << mean);
       BOOST_TEST(kept.fitted == kDraws);

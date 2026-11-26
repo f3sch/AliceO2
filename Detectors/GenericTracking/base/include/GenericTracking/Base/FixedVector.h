@@ -21,6 +21,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <initializer_list>
 
 namespace o2::gtrk
@@ -33,7 +34,7 @@ namespace o2::gtrk
 template <typename T, std::size_t Capacity>
 struct FixedVector {
   std::array<T, Capacity> items{};
-  std::size_t count = 0;
+  std::uint32_t count = 0;
   bool overflow = false;
 
   FixedVector() = default;
@@ -45,8 +46,8 @@ struct FixedVector {
     }
   }
 
-  [[nodiscard]] GPUhdi() static constexpr std::size_t capacity() { return Capacity; }
-  [[nodiscard]] GPUhdi() std::size_t size() const { return count; }
+  [[nodiscard]] GPUhdi() static constexpr std::uint32_t capacity() { return Capacity; }
+  [[nodiscard]] GPUhdi() std::uint32_t size() const { return count; }
   [[nodiscard]] GPUhdi() bool empty() const { return count == 0; }
   [[nodiscard]] GPUhdi() T* data() { return items.data(); }
   [[nodiscard]] GPUhdi() const T* data() const { return items.data(); }
@@ -54,8 +55,8 @@ struct FixedVector {
   [[nodiscard]] GPUhdi() T* end() { return items.data() + count; }
   [[nodiscard]] GPUhdi() const T* begin() const { return items.data(); }
   [[nodiscard]] GPUhdi() const T* end() const { return items.data() + count; }
-  [[nodiscard]] GPUhdi() T& operator[](std::size_t i) { return items[i]; }
-  [[nodiscard]] GPUhdi() const T& operator[](std::size_t i) const { return items[i]; }
+  [[nodiscard]] GPUhdi() T& operator[](std::uint32_t i) { return items[i]; }
+  [[nodiscard]] GPUhdi() const T& operator[](std::uint32_t i) const { return items[i]; }
   [[nodiscard]] GPUhdi() T& front() { return items[0]; }
   [[nodiscard]] GPUhdi() const T& front() const { return items[0]; }
   [[nodiscard]] GPUhdi() T& back() { return items[count - 1]; }
@@ -76,13 +77,13 @@ struct FixedVector {
     }
   }
   GPUhdi() void pop_back() { --count; } // NOLINT(readability-identifier-naming): the std containers' name
-  GPUhdi() void resize(std::size_t size)
+  GPUhdi() void resize(std::uint32_t size)
   {
     if (size > Capacity) {
       overflow = true;
       size = Capacity;
     }
-    for (std::size_t i = count; i < size; ++i) {
+    for (std::uint32_t i = count; i < size; ++i) {
       items[i] = T{};
     }
     count = size;

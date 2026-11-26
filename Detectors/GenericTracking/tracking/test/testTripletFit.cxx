@@ -37,13 +37,13 @@ namespace o2::gtrk
 namespace
 {
 
-constexpr std::size_t kCoordinates = 9U;
+constexpr std::int32_t kCoordinates = 9;
 
 // The reference below is ITS's makeTripletFitFactor geometry, kept in its
 // original nine-derivative form so it is independent of GTRK's gradient,
 // and evaluated in double: the float port is compared with the true value,
 // not with a second float evaluation whose rounding differs.
-using ReferenceDual = dual::Dual<static_cast<int>(kCoordinates)>;
+using ReferenceDual = dual::Dual<kCoordinates>;
 
 struct ReferenceSegment {
   ReferenceDual bendingAngle;
@@ -94,10 +94,10 @@ struct ReferenceGeometry {
 ReferenceGeometry referenceGeometry(const std::array<PairPoint, 3>& measurements)
 {
   std::array<std::array<ReferenceDual, 3>, 3> point{};
-  for (std::size_t hit = 0; hit < measurements.size(); ++hit) {
+  for (std::uint32_t hit = 0; hit < measurements.size(); ++hit) {
     const double position[3]{static_cast<double>(measurements[hit].x), static_cast<double>(measurements[hit].y), static_cast<double>(measurements[hit].z)};
-    for (std::size_t coordinate = 0; coordinate < 3U; ++coordinate) {
-      point[hit][coordinate] = dual::variable<static_cast<int>(kCoordinates)>(position[coordinate], static_cast<int>((3U * hit) + coordinate));
+    for (std::uint32_t coordinate = 0; coordinate < 3U; ++coordinate) {
+      point[hit][coordinate] = dual::variable<kCoordinates>(position[coordinate], (3U * hit) + coordinate);
     }
   }
   const ReferenceDual dx01 = point[1][0] - point[0][0];
@@ -149,13 +149,13 @@ ReferenceFactor referenceFactor(const std::array<PairPoint, 3>& points, Scalar a
     .rho = {.theta = static_cast<Scalar>(geometry.rhoTheta.v), .phi = static_cast<Scalar>(geometry.rhoPhi.v)},
     .covariance = {.thetaTheta = angularVariance, .thetaPhi = 0.F, .phiPhi = angularVariance / sineTheta2},
   };
-  for (std::size_t hit = 0; hit < points.size(); ++hit) {
+  for (std::uint32_t hit = 0; hit < points.size(); ++hit) {
     const Scalar inverseR = 1.F / points[hit].r;
     const Scalar radialX = points[hit].x * inverseR;
     const Scalar radialY = points[hit].y * inverseR;
     const Scalar tangentX = -points[hit].y * inverseR;
     const Scalar tangentY = points[hit].x * inverseR;
-    const std::size_t coordinate = 3U * hit;
+    const std::uint32_t coordinate = 3U * hit;
     const Scalar thetaX = static_cast<Scalar>(geometry.theta.d[coordinate]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.d[coordinate]);
     const Scalar thetaY = static_cast<Scalar>(geometry.theta.d[coordinate + 1U]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.d[coordinate + 1U]);
     const Scalar thetaZ = static_cast<Scalar>(geometry.theta.d[coordinate + 2U]) + kappaReference * static_cast<Scalar>(geometry.rhoTheta.d[coordinate + 2U]);
@@ -169,7 +169,7 @@ ReferenceFactor referenceFactor(const std::array<PairPoint, 3>& points, Scalar a
     const Scalar variance[3]{points[hit].varR, points[hit].varRPhi, points[hit].varZ};
     const Scalar thetaDerivative[3]{thetaRadial, thetaTangent, thetaZ};
     const Scalar phiDerivative[3]{phiRadial, phiTangent, phiZ};
-    for (std::size_t axis = 0; axis < 3U; ++axis) {
+    for (std::uint32_t axis = 0; axis < 3U; ++axis) {
       result.covariance.thetaTheta += variance[axis] * thetaDerivative[axis] * thetaDerivative[axis];
       result.covariance.thetaPhi += variance[axis] * thetaDerivative[axis] * phiDerivative[axis];
       result.covariance.phiPhi += variance[axis] * phiDerivative[axis] * phiDerivative[axis];
@@ -193,7 +193,7 @@ ReferenceFit referenceAdjacentFit(const std::array<PairPoint, 4>& points, double
   const std::array<ReferenceGeometry, 2> geometry{referenceGeometry({points[0], points[1], points[2]}), referenceGeometry({points[1], points[2], points[3]})};
   const std::array<double, 4> psi{geometry[0].theta.v, geometry[0].phi.v, geometry[1].theta.v, geometry[1].phi.v};
   const std::array<double, 4> rho{geometry[0].rhoTheta.v, geometry[0].rhoPhi.v, geometry[1].rhoTheta.v, geometry[1].rhoPhi.v};
-  const auto sine2 = [&](std::size_t from, std::size_t to) {
+  const auto sine2 = [&](std::uint32_t from, std::uint32_t to) {
     const double dx = static_cast<double>(points[to].x) - static_cast<double>(points[from].x);
     const double dy = static_cast<double>(points[to].y) - static_cast<double>(points[from].y);
     const double dz = static_cast<double>(points[to].z) - static_cast<double>(points[from].z);
@@ -204,20 +204,20 @@ ReferenceFit referenceAdjacentFit(const std::array<PairPoint, 4>& points, double
   covariance[1][1] = varianceSecond / sine2(0, 2);
   covariance[2][2] = varianceThird;
   covariance[3][3] = varianceThird / sine2(1, 3);
-  for (std::size_t hit = 0; hit < points.size(); ++hit) {
+  for (std::uint32_t hit = 0; hit < points.size(); ++hit) {
     const double r = std::hypot(static_cast<double>(points[hit].x), static_cast<double>(points[hit].y));
     const double radialX = static_cast<double>(points[hit].x) / r;
     const double radialY = static_cast<double>(points[hit].y) / r;
     // gradient[kink][axis], axes radial, r-phi, z
     std::array<Vec3D, 4> gradient{};
-    for (std::size_t triplet = 0; triplet < 2U; ++triplet) {
+    for (std::uint32_t triplet = 0; triplet < 2U; ++triplet) {
       if (hit < triplet || hit > triplet + 2U) {
         continue;
       }
       const auto& g = geometry[triplet];
       const double kappa = -g.phi.v / g.rhoPhi.v;
-      const std::size_t coordinate = 3U * (hit - triplet);
-      for (std::size_t angle = 0; angle < 2U; ++angle) {
+      const std::uint32_t coordinate = 3U * (hit - triplet);
+      for (std::uint32_t angle = 0; angle < 2U; ++angle) {
         const auto& kink = angle == 0U ? g.theta : g.phi;
         const auto& slope = angle == 0U ? g.rhoTheta : g.rhoPhi;
         const double dX = kink.d[coordinate] + kappa * slope.d[coordinate];
@@ -227,9 +227,9 @@ ReferenceFit referenceAdjacentFit(const std::array<PairPoint, 4>& points, double
       }
     }
     const Vec3D variance{static_cast<double>(points[hit].varR), static_cast<double>(points[hit].varRPhi), static_cast<double>(points[hit].varZ)};
-    for (std::size_t row = 0; row < 4U; ++row) {
-      for (std::size_t column = 0; column < 4U; ++column) {
-        for (std::size_t axis = 0; axis < 3U; ++axis) {
+    for (std::uint32_t row = 0; row < 4U; ++row) {
+      for (std::uint32_t column = 0; column < 4U; ++column) {
+        for (std::uint32_t axis = 0; axis < 3U; ++axis) {
           covariance[row][column] += variance[axis] * gradient[row][axis] * gradient[column][axis];
         }
       }
@@ -237,22 +237,22 @@ ReferenceFit referenceAdjacentFit(const std::array<PairPoint, 4>& points, double
   }
   // [V | psi | rho] reduced to [1 | V^-1 psi | V^-1 rho]
   std::array<std::array<double, 6>, 4> augmented{};
-  for (std::size_t row = 0; row < 4U; ++row) {
-    for (std::size_t column = 0; column < 4U; ++column) {
+  for (std::uint32_t row = 0; row < 4U; ++row) {
+    for (std::uint32_t column = 0; column < 4U; ++column) {
       augmented[row][column] = covariance[row][column];
     }
     augmented[row][4] = psi[row];
     augmented[row][5] = rho[row];
   }
-  for (std::size_t pivot = 0; pivot < 4U; ++pivot) {
+  for (std::uint32_t pivot = 0; pivot < 4U; ++pivot) {
     const double scale = augmented[pivot][pivot];
     for (auto& entry : augmented[pivot]) {
       entry /= scale;
     }
-    for (std::size_t row = 0; row < 4U; ++row) {
+    for (std::uint32_t row = 0; row < 4U; ++row) {
       if (row != pivot) {
         const double factor = augmented[row][pivot];
-        for (std::size_t column = 0; column < 6U; ++column) {
+        for (std::uint32_t column = 0; column < 6U; ++column) {
           augmented[row][column] -= factor * augmented[pivot][column];
         }
       }
@@ -261,7 +261,7 @@ ReferenceFit referenceAdjacentFit(const std::array<PairPoint, 4>& points, double
   double psiPsi = 0.;
   double rhoPsi = 0.;
   double rhoRho = 0.;
-  for (std::size_t row = 0; row < 4U; ++row) {
+  for (std::uint32_t row = 0; row < 4U; ++row) {
     psiPsi += psi[row] * augmented[row][4];
     rhoPsi += rho[row] * augmented[row][4];
     rhoRho += rho[row] * augmented[row][5];
@@ -369,7 +369,7 @@ BOOST_AUTO_TEST_CASE(HelixCurvatureAcrossLayerKindsAndMomenta)
   const std::array<Vec3D, 3> geometries{{{{2., 4., 7.}}, {{4., 8., 12.}}, {{2., 6., 11.}}}};
   const double cotangents[3]{0.25, 1.5, 0.8};
   const double momenta[3]{0.1, 1., 10.};
-  for (std::size_t geometry = 0; geometry < geometries.size(); ++geometry) {
+  for (std::uint32_t geometry = 0; geometry < geometries.size(); ++geometry) {
     for (const double momentum : momenta) {
       checkHelix(momentum, geometries[geometry], cotangents[geometry]);
     }
@@ -398,7 +398,7 @@ BOOST_AUTO_TEST_CASE(AdjacentFitMatchesTheDoubleOracleAcrossScales)
 {
   std::mt19937 random{501010U};
   std::uniform_real_distribution<double> unit{0., 1.};
-  for (int sample = 0; sample < 300; ++sample) {
+  for (std::int32_t sample = 0; sample < 300; ++sample) {
     const double curvature = (sample % 2 == 0 ? 1. : -1.) * (0.002 + 0.013 * unit(random));
     const double cotangent = 0.1 + 7. * unit(random);
     double arc = 2. + 5. * unit(random);

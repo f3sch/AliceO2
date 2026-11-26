@@ -43,7 +43,7 @@ struct BetheHeitlerComponent {
 };
 
 /// The most components a step's mixture has.
-inline constexpr int kBetheHeitlerComponents = 6;
+inline constexpr std::int32_t kBetheHeitlerComponents = 6;
 
 /// The thickest step the mixture describes [x / X0]; a thicker step's loss is
 /// the product of the losses of its parts (the shapes of the Gamma add), so
@@ -68,7 +68,7 @@ inline constexpr Scalar kBetheHeitlerNoLossX2X0 = 1e-4F;
 /// analysis/betheHeitlerFit.py. On a GPU the table is in constant memory,
 /// which host code in a device compilation unit cannot read: only device
 /// functions read it.
-inline constexpr int kBetheHeitlerTablePoints = 107;
+inline constexpr std::int32_t kBetheHeitlerTablePoints = 107;
 inline constexpr Scalar kBetheHeitlerTableLogTMin = -9.210340372e+00F;
 inline constexpr Scalar kBetheHeitlerTableLogTStep = 7.170662698e-02F;
 // NOLINTBEGIN(modernize-use-std-numbers): fitted values, not constants
@@ -195,7 +195,7 @@ GPUhdi() GPUAlwaysInline() Scalar logistic(Scalar x) { return 1.F / (1.F + expOf
 /// component's loss 1 - mean scaled to give the model's mean loss 1 - e^-t,
 /// and the variances scaled to its second moment 3^(-t / ln 2): the mixture
 /// has Bethe and Heitler's mean and variance at every thickness.
-GPUdi() int betheHeitlerMixture(Scalar x2X0, BetheHeitlerComponent (&mixture)[kBetheHeitlerComponents])
+GPUdi() std::int32_t betheHeitlerMixture(Scalar x2X0, BetheHeitlerComponent (&mixture)[kBetheHeitlerComponents])
 {
   if (!(x2X0 >= 0.F && x2X0 <= kBetheHeitlerMaxX2X0)) { // NOLINT(readability-simplify-boolean-expr): a NaN thickness fails both comparisons
     return 0;
@@ -205,15 +205,15 @@ GPUdi() int betheHeitlerMixture(Scalar x2X0, BetheHeitlerComponent (&mixture)[kB
     return 1;
   }
   const Scalar at = (logOf(x2X0) - detail::kBetheHeitlerTableLogTMin) / detail::kBetheHeitlerTableLogTStep;
-  const int last = detail::kBetheHeitlerTablePoints - 2;
-  const int low = at < 0.F ? 0 : (at >= static_cast<Scalar>(last) ? last : static_cast<int>(at));
+  const std::int32_t last = detail::kBetheHeitlerTablePoints - 2;
+  const std::int32_t low = at < 0.F ? 0 : (at >= static_cast<Scalar>(last) ? last : static_cast<std::int32_t>(at));
   const Scalar f = at - static_cast<Scalar>(low);
   // Each component's loss 1 - mean, as the logistic of minus the mean's
   // logit: full precision where the mean is close to 1.
   Scalar componentLoss[kBetheHeitlerComponents];
   Scalar weights = 0.F;
   Scalar loss = 0.F;
-  for (int k = 0; k < kBetheHeitlerComponents; ++k) {
+  for (std::int32_t k = 0; k < kBetheHeitlerComponents; ++k) {
     const auto& a = detail::kBetheHeitlerTable[low][k];
     const auto& b = detail::kBetheHeitlerTable[low + 1][k];
     mixture[k].weight = a[0] + (f * (b[0] - a[0]));
@@ -228,7 +228,7 @@ GPUdi() int betheHeitlerMixture(Scalar x2X0, BetheHeitlerComponent (&mixture)[kB
   // whose rounding errors cancel: full precision for small x.
   const auto lossOf = [](Scalar x) {
     const Scalar u = expOf(-x);
-    return u == 1.F ? x : (1.F - u) * x / -logOf(u);
+    return exactlyEqual(u, 1.F) ? x : (1.F - u) * x / -logOf(u);
   };
   constexpr Scalar kLn3OverLn2 = 1.5849625F;
   const Scalar meanLoss = lossOf(x2X0);
@@ -236,7 +236,7 @@ GPUdi() int betheHeitlerMixture(Scalar x2X0, BetheHeitlerComponent (&mixture)[kB
   const Scalar lossScale = weights * meanLoss / loss;
   Scalar square = 0.F;
   Scalar spread = 0.F;
-  for (int k = 0; k < kBetheHeitlerComponents; ++k) {
+  for (std::int32_t k = 0; k < kBetheHeitlerComponents; ++k) {
     auto& component = mixture[k];
     const Scalar y = componentLoss[k] * lossScale;
     component.weight /= weights;
@@ -269,7 +269,7 @@ GPUhdi() bool applyBetheHeitlerFactors(const BetheHeitlerComponent& component, P
   const Scalar scale = betheHeitlerScale(component, direction);
   const Scalar qOverP = state.par[kQOverP] * scale;
   state.par[kQOverP] = qOverP;
-  for (int row = 0; row < kQOverP; ++row) {
+  for (std::int32_t row = 0; row < kQOverP; ++row) {
     factors.upper[strictUpperIndex(row, kQOverP)] /= scale;
   }
   factors.diagonal[kQOverP] *= scale * scale;

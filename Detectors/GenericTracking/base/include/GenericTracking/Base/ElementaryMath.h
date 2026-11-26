@@ -157,7 +157,7 @@ GPUhdi() GPUAlwaysInline() double hypotOf(double a, double b, double c) { return
 GPUhdi() GPUAlwaysInline() double log1pOf(double x)
 {
   const double u = 1. + x;
-  return u == 1. ? x : logOf(u) * x / (u - 1.);
+  return exactlyEqual(u, 1.) ? x : logOf(u) * x / (u - 1.);
 }
 
 GPUhdi() GPUAlwaysInline() void sincosOf(float x, float& s, float& c)

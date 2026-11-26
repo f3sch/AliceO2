@@ -41,7 +41,7 @@ using enum profile::Phase;
   for (std::size_t bin = 0; bin < profile::kChunkBins; ++bin) {
     below += stats.chunkHistogram[bin];
     if (static_cast<double>(below) >= target) {
-      return std::ldexp(1., static_cast<int>(bin) + 1) * 1.e-9;
+      return std::ldexp(1., static_cast<std::int32_t>(bin) + 1) * 1.e-9;
     }
   }
   return stats.maxChunkSeconds;
@@ -49,7 +49,7 @@ using enum profile::Phase;
 
 } // namespace
 
-void report(std::ostream& out, const profile::Profile& profile, profile::Phase root, int threads)
+void report(std::ostream& out, const profile::Profile& profile, profile::Phase root, std::int32_t threads)
 {
   const auto& top = profile[root];
   if (top.calls == 0U) {
@@ -83,7 +83,7 @@ void report(std::ostream& out, const profile::Profile& profile, profile::Phase r
     }
   }
   const auto depthOf = [&](std::size_t index) {
-    int depth = 0;
+    std::int32_t depth = 0;
     for (auto phase = static_cast<profile::Phase>(index); phase != root; phase = parentOf(static_cast<std::size_t>(phase))) {
       ++depth;
     }
@@ -100,7 +100,7 @@ void report(std::ostream& out, const profile::Profile& profile, profile::Phase r
     const double concurrency = stats.capacitySeconds / stats.regionSeconds;
     return std::format("{:>11} {:>8.1f} {:>5.2f} {:>5.2f} {:>7.4f} {:>8.1e} {:>8.1e} {:>8.1e}", stats.elements, stats.elements != 0U ? 1.e9 * stats.busySeconds / static_cast<double>(stats.elements) : 0., stats.busySeconds / stats.capacitySeconds, stats.maxSlotSeconds * concurrency / stats.busySeconds, stats.tailSeconds / concurrency, chunkQuantile(stats, 0.5), chunkQuantile(stats, 0.99), stats.maxChunkSeconds);
   };
-  const auto row = [&](std::string_view label, int depth, double seconds, double parentSeconds, std::uint64_t calls, double serial, const std::string& parallel, std::uint64_t faults, std::uint64_t bytes, const std::string& peak) {
+  const auto row = [&](std::string_view label, std::int32_t depth, double seconds, double parentSeconds, std::uint64_t calls, double serial, const std::string& parallel, std::uint64_t faults, std::uint64_t bytes, const std::string& peak) {
     const std::string indented = std::string(static_cast<std::size_t>(2 * depth), ' ') + std::string{label};
     out << std::format("{:<36} {:>8.4f} {:>5.1f}% {:>6} {:>8.4f} {} {:>8} {:>8.1f} {}\n", indented, seconds, parentSeconds > 0. ? 100. * seconds / parentSeconds : 100., calls, serial, parallel, faults, static_cast<double>(bytes) / 1.e6, peak);
   };

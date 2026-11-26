@@ -66,40 +66,40 @@ struct MotherState {
 /// (`crossToPlane`'s dual numbers over the fit's parameters), its covariance
 /// J C J^T from the fit's; none for a neutral one or where the fit holds no
 /// covariance. \a fieldScale: Bz B2C.
-[[nodiscard]] inline MotherState motherStateAt(const DecayVertexFitResult& fit, const DecayTopology& topology, int w, double fieldScale)
+[[nodiscard]] inline MotherState motherStateAt(const DecayVertexFitResult& fit, const DecayTopology& topology, std::uint32_t w, double fieldScale)
 {
   using namespace decay_fit_detail;
-  constexpr int kInputs = (3 * kMaxConstrainedVertices) + (3 * kMaxConstrainedDaughters);
+  constexpr std::int32_t kInputs = (3 * kMaxConstrainedVertices) + (3 * kMaxConstrainedDaughters);
   using D = Dual<kInputs>;
   MotherState out;
-  const int vertices = static_cast<int>(fit.vertices.size());
-  const int count = static_cast<int>(fit.momenta.size());
-  const int inputs = (3 * vertices) + (3 * count);
-  if (fit.covariance.size() != static_cast<std::size_t>(covSize(inputs))) {
+  const auto vertices = fit.vertices.size();
+  const auto count = fit.momenta.size();
+  const auto inputs = static_cast<std::int32_t>((3 * vertices) + (3 * count));
+  if (std::cmp_not_equal(fit.covariance.size(), covSize(inputs))) {
     return out;
   }
   FreeState<kInputs> from{};
-  const auto vertex = vertexOfInputs<kInputs>(fit.vertices[static_cast<std::size_t>(w)], w);
-  for (int c = 0; c < 3; ++c) {
+  const auto vertex = vertexOfInputs<kInputs>(fit.vertices[w], w);
+  for (std::uint32_t c = 0; c < 3; ++c) {
     from[c] = vertex[c];
   }
   MomentumSum<D> sum;
   double charge = 0.;
-  for (int i = 0; i < count; ++i) {
+  for (std::uint32_t i = 0; i < count; ++i) {
     if (topology.under(i, w)) {
-      const auto& m = fit.momenta[static_cast<std::size_t>(i)];
-      sum.add(momentumOfInputs<kInputs>(m[0], m[1], m[2], (3 * vertices) + (3 * i), fit.charges[static_cast<std::size_t>(i)]).vector);
-      charge += fit.charges[static_cast<std::size_t>(i)];
+      const auto& m = fit.momenta[i];
+      sum.add(momentumOfInputs<kInputs>(m[0], m[1], m[2], (3 * vertices) + (3 * i), fit.charges[i]).vector);
+      charge += fit.charges[i];
     }
   }
-  if (charge == 0.) {
+  if (exactlyEqual(charge, 0.)) {
     return out;
   }
   const auto direction = directionOfMomentum(sum.vector);
   from[3] = direction.phi;
   from[4] = direction.theta;
   from[5] = D{charge} / direction.p;
-  const auto& at = fit.vertices[static_cast<std::size_t>(w)];
+  const auto& at = fit.vertices[w];
   out.plane = beamLinePlane(static_cast<Scalar>(at[0]), static_cast<Scalar>(at[1]), static_cast<Scalar>(direction.phi.v));
   FreeState<kInputs> to{};
   std::array<D, 2> local{};
@@ -107,18 +107,18 @@ struct MotherState {
     return out;
   }
   const std::array<const D*, kNBoundParams> bound{local.data(), &local[1], &to[3], &to[4], &to[5]};
-  for (int a = 0; a < kNBoundParams; ++a) {
-    out.state.par[a] = static_cast<Scalar>(bound[static_cast<std::size_t>(a)]->v);
+  for (std::int32_t a = 0; a < kNBoundParams; ++a) {
+    out.state.par[a] = static_cast<Scalar>(bound[static_cast<std::uint32_t>(a)]->v);
   }
-  for (int a = 0; a < kNBoundParams; ++a) {
-    for (int b = 0; b <= a; ++b) {
+  for (std::int32_t a = 0; a < kNBoundParams; ++a) {
+    for (std::int32_t b = 0; b <= a; ++b) {
       double value = 0.;
-      for (int k = 0; k < inputs; ++k) {
+      for (std::int32_t k = 0; k < inputs; ++k) {
         double row = 0.;
-        for (int l = 0; l < inputs; ++l) {
-          row += fit.covarianceAt(k, l) * bound[static_cast<std::size_t>(b)]->d[l];
+        for (std::int32_t l = 0; l < inputs; ++l) {
+          row += fit.covarianceAt(k, l) * bound[static_cast<std::uint32_t>(b)]->d[static_cast<std::uint32_t>(l)];
         }
-        value += bound[static_cast<std::size_t>(a)]->d[k] * row;
+        value += bound[static_cast<std::uint32_t>(a)]->d[static_cast<std::uint32_t>(k)] * row;
       }
       out.state.covAt(a, b) = static_cast<Scalar>(value);
     }
@@ -145,7 +145,7 @@ class MotherSearch
   /// \a nSigma: the gate on each row, `chiSquareQuantile(2, nSigma)`.
   MotherSearch(const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, double nSigma) : mFrame(&frame), mGeometry(&geometry)
   {
-    for (std::size_t layer = 0; layer < kLayerCount; ++layer) {
+    for (std::uint32_t layer = 0; layer < kLayerCount; ++layer) {
       mParameters.layerSpans[layer] = layerSpan<Det>(static_cast<LayerID>(layer));
       const auto range = frame.grid().layerRows(static_cast<LayerID>(layer));
       for (auto row = range.begin; row < range.end; ++row) {
@@ -162,7 +162,6 @@ class MotherSearch
   template <typename Skip>
   [[nodiscard]] MotherRows search(const MotherState& start, const Propagator& propagator, TimeEstPS box, const Skip& skip) const
   {
-    using Math = o2::gpu::CAMath;
     MotherRows out;
     BoundParameters state = static_cast<const BoundParameters&>(start.state);
     auto factors = factorCovariance(start.state.cov);
@@ -179,7 +178,7 @@ class MotherSearch
       Scalar secondCentre = 0.F;
       follow::windowCentre(mParameters, id, nominal, phiCentre, secondCentre);
       CandidateWindow window{
-        .earliestPS = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(mMaxWidthPS[layer]) + 1,
+        .earliestPS = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(mMaxWidthPS[static_cast<std::uint32_t>(layer)]) + 1,
         .latestPS = static_cast<std::int64_t>(box.upper()) - 1,
         .afterPS = box.lower(),
         .phiCentre = phiCentre,
@@ -235,15 +234,15 @@ class MotherSearch
   /// barrel layer whose sensors begin inside the vertex's radius, a disc
   /// between the vertex's z and the line's at the axis), the nearest to the
   /// vertex first.
-  [[nodiscard]] std::vector<int> layersBehind(const MotherState& start) const
+  [[nodiscard]] std::vector<std::int32_t> layersBehind(const MotherState& start) const
   {
     using Math = o2::gpu::CAMath;
     const Scalar vertexR = Math::Sqrt((start.plane.origin[0] * start.plane.origin[0]) + (start.plane.origin[1] * start.plane.origin[1]));
     const Scalar vertexZ = start.state.loc1();
     const Scalar cotTheta = Math::Cos(start.state.theta()) / Math::Sin(start.state.theta());
     const Scalar axisZ = vertexZ - (vertexR * cotTheta);
-    std::vector<std::pair<Scalar, int>> crossed;
-    for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+    std::vector<std::pair<Scalar, std::int32_t>> crossed;
+    for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
       const auto& span = mParameters.layerSpans[layer];
       Scalar fraction = 0.F; // from the vertex towards the axis
       if (((mParameters.barrelLayers >> layer) & 1U) != 0U) {
@@ -265,7 +264,7 @@ class MotherSearch
       crossed.emplace_back(fraction, layer);
     }
     std::ranges::sort(crossed);
-    std::vector<int> layers;
+    std::vector<std::int32_t> layers;
     layers.reserve(crossed.size());
     for (const auto& [fraction, layer] : crossed) {
       layers.push_back(layer);

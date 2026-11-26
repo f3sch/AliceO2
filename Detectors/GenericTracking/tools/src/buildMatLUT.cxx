@@ -33,6 +33,7 @@
 #include <cmath>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <iomanip>
 #include <iostream>
@@ -146,8 +147,8 @@ std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
     if (!(outer > inner)) {
       return;
     }
-    const auto count = static_cast<int>(std::ceil((outer - inner) / kTrkGapDr));
-    for (int band = 0; band < count; ++band) {
+    const auto count = static_cast<std::int32_t>(std::ceil((outer - inner) / kTrkGapDr));
+    for (std::int32_t band = 0; band < count; ++band) {
       const float low = band == 0 ? inner : inner + ((outer - inner) * static_cast<float>(band) / static_cast<float>(count));
       const float high = band + 1 == count ? outer : inner + ((outer - inner) * static_cast<float>(band + 1) / static_cast<float>(count));
       layers.push_back({.rMin = low, .rMax = high, .zMax = zMaxCM, .dz = kTrkDz, .drPhi = cell(low, high, drPhi)});
@@ -169,7 +170,7 @@ std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
   // the VD's layers, the layout's first barrel layers
   constexpr std::size_t kVDLayers = o2::gtrk::detectors::trkft3::kVDRadius.size();
   float previous = 0.F;
-  for (std::size_t layer = 0; layer < envelopes.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < envelopes.size(); ++layer) {
     const bool vd = layer < kVDLayers;
     const auto rMin = static_cast<float>(envelopes[layer].rMin);
     const auto rMax = static_cast<float>(envelopes[layer].rMax);
@@ -197,13 +198,13 @@ std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
     const auto thickness = static_cast<float>(chipThickness[layer]);
     float drPhi = vd ? 0.05F : 0.3F;
     const float tanAlpha = std::sqrt((rMax * rMax) - (rMin * rMin)) / rMin;
-    int parts = 1;
+    std::int32_t parts = 1;
     if (tanAlpha > 0.F && std::floor((rMax - rMin) / thickness) > 1.F) {
       drPhi = std::min(drPhi, 0.5F * thickness / tanAlpha);
-      parts = std::max(1, static_cast<int>(std::floor((rMax - rMin) / (drPhi * tanAlpha))));
+      parts = std::max(1, static_cast<std::int32_t>(std::floor((rMax - rMin) / (drPhi * tanAlpha))));
     }
     addPart(bandLow, rMin, drPhi);
-    for (int part = 0; part < parts; ++part) {
+    for (std::int32_t part = 0; part < parts; ++part) {
       const float low = part == 0 ? rMin : rMin + ((rMax - rMin) * static_cast<float>(part) / static_cast<float>(parts));
       const float high = part + 1 == parts ? rMax : rMin + ((rMax - rMin) * static_cast<float>(part + 1) / static_cast<float>(parts));
       layers.push_back({.rMin = low, .rMax = high, .zMax = zMaxCM, .dz = kTrkDz, .drPhi = cell(low, high, drPhi)});
@@ -228,7 +229,7 @@ std::vector<LUTLayer> trkLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
 /// misses. The offsets s are the
 /// centres of \a trials equal parts of dz; the cell keeps O2's mean density
 /// and mean 1/X0 along the lines.
-void populateCell(o2::base::MatLayerCyl& layer, int ip, int iz, int trials, TGeoNavigator* nav)
+void populateCell(o2::base::MatLayerCyl& layer, std::int32_t ip, std::int32_t iz, std::int32_t trials, TGeoNavigator* nav)
 {
   const double rMin = layer.getRMin();
   const double rMax = layer.getRMax();
@@ -249,11 +250,11 @@ void populateCell(o2::base::MatLayerCyl& layer, int ip, int iz, int trials, TGeo
       length += segment;
     }
   };
-  for (int iPhi = 0; iPhi < trials; ++iPhi) {
+  for (std::int32_t iPhi = 0; iPhi < trials; ++iPhi) {
     const double phi = phiLow + ((iPhi + 0.5) * dPhi / trials);
     const double cs = std::cos(phi);
     const double sn = std::sin(phi);
-    for (int iShift = 0; iShift < trials; ++iShift) {
+    for (std::int32_t iShift = 0; iShift < trials; ++iShift) {
       const double shift = (iShift + 0.5) / trials;
       // The line reaches the upper z face at this radius, and goes on from the lower one.
       const double rWrap = rMin + ((1. - shift) * dr);
@@ -270,18 +271,18 @@ void populateCell(o2::base::MatLayerCyl& layer, int ip, int iz, int trials, TGeo
 
 /// Every cell of \a lut by populateCell, on \a threads threads, each with its
 /// own TGeo navigator (`tools::forEachOnNavigators`).
-void populate(o2::base::MatLayerCylSet& lut, int trials, int threads)
+void populate(o2::base::MatLayerCylSet& lut, std::int32_t trials, std::int32_t threads)
 {
   struct Cell {
-    int layer;
-    int ip;
-    int iz;
+    std::int32_t layer;
+    std::int32_t ip;
+    std::int32_t iz;
   };
   std::vector<Cell> cells;
-  for (int layer = 0; layer < lut.getNLayers(); ++layer) {
+  for (std::int32_t layer = 0; layer < lut.getNLayers(); ++layer) {
     const auto& cyl = lut.getLayer(layer);
-    for (int iz = 0; iz < cyl.getNZBins(); ++iz) {
-      for (int ip = 0; ip < cyl.getNPhiBins(); ++ip) {
+    for (std::int32_t iz = 0; iz < cyl.getNZBins(); ++iz) {
+      for (std::int32_t ip = 0; ip < cyl.getNPhiBins(); ++ip) {
         cells.push_back({.layer = layer, .ip = ip, .iz = iz});
       }
     }
@@ -299,8 +300,8 @@ std::pair<float, float> trkExtent(std::span<const o2::gtrk::LayerEnvelope> envel
 {
   double r = 0.;
   double z = 0.;
-  for (int layer = 0; layer < o2::gtrk::Detector<Det>::nLayers; ++layer) {
-    const auto l = static_cast<std::size_t>(layer);
+  for (std::int32_t layer = 0; layer < o2::gtrk::Detector<Det>::nLayers; ++layer) {
+    const auto l = static_cast<std::uint32_t>(layer);
     const auto& e = envelopes[l];
     if (o2::gtrk::Detector<Det>::isBarrelLayer(static_cast<o2::gtrk::LayerID>(layer))) {
       r = std::max({r, e.rMax, bands[l].high});
@@ -320,11 +321,11 @@ std::pair<float, float> trkExtent(std::span<const o2::gtrk::LayerEnvelope> envel
 /// the staves' services (`tofSolidThickness`), as a TRK layer's silicon with
 /// its stack.
 template <o2::gtrk::DetectorLayout Det>
-std::vector<LUTLayer> trkBands(int threads, float& rMaxCM, float& zMaxCM)
+std::vector<LUTLayer> trkBands(std::int32_t threads, float& rMaxCM, float& zMaxCM)
 {
   // On the heap: the geometry holds every sensor of the layout.
   const auto geometry = o2::gtrk::workflow::makeGeometry<Det>();
-  constexpr int kBarrel = o2::gtrk::Detector<Det>::nBarrelLayers;
+  constexpr std::int32_t kBarrel = o2::gtrk::Detector<Det>::nBarrelLayers;
   const auto& specs = geometry->layerSpecs();
   const std::span<const o2::gtrk::Sensor> sensors{geometry->sensors()};
   // TRKFT3TOF's sensors are TRKFT3's, then the TOF's.
@@ -338,7 +339,7 @@ std::vector<LUTLayer> trkBands(int threads, float& rMaxCM, float& zMaxCM)
   auto stack = o2::gtrk::tools::trkStackThickness(sensors.first(trkSensors), specs, kBarrel);
   if constexpr (std::same_as<Det, o2::gtrk::detectors::TRKFT3TOF>) {
     const auto tof = o2::gtrk::tools::tofSolidThickness(sensors.subspan(trkSensors), specs, kBarrel);
-    for (std::size_t layer = 0; layer < stack.size(); ++layer) {
+    for (std::uint32_t layer = 0; layer < stack.size(); ++layer) {
       if (o2::gtrk::Detector<Det>::isInactiveLayer(static_cast<o2::gtrk::LayerID>(layer))) {
         stack[layer] = tof[layer];
       }
@@ -364,8 +365,8 @@ std::vector<LUTLayer> trkBands(int threads, float& rMaxCM, float& zMaxCM)
   }
   std::cout << '\n';
   std::vector<double> chipThickness;
-  for (int layer = 0; layer < kBarrel; ++layer) {
-    const auto l = static_cast<std::size_t>(layer);
+  for (std::int32_t layer = 0; layer < kBarrel; ++layer) {
+    const auto l = static_cast<std::uint32_t>(layer);
     chipThickness.push_back((2. * specs[l].halfThickness) + stack[l].inner + stack[l].outer);
   }
   return trkLayers(std::span{chips}.first(static_cast<std::size_t>(kBarrel)), std::span{bands}.first(static_cast<std::size_t>(kBarrel)), walls, faces, chipThickness, rMaxCM, zMaxCM);
@@ -403,14 +404,14 @@ std::vector<LUTLayer> itsLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
 {
   std::vector<LUTLayer> layers;
   const auto& outermost = envelopes[envelopes.size() - 1];
-  const auto zMax = static_cast<float>(std::max(-outermost.zMin, outermost.zMax) * rMax / outermost.rMin);
+  const auto zMax = static_cast<float>(std::max(-outermost.zMin, outermost.zMax) * static_cast<double>(rMax) / outermost.rMin);
   // [inner, outer] in equal bands no wider than maxDr, their cells in r-phi drPhi
   const auto addEqual = [&](float inner, float outer, float maxDr, float drPhi) {
     if (!(outer > inner)) {
       return;
     }
-    const auto count = std::max(1, static_cast<int>(std::ceil((outer - inner) / maxDr)));
-    for (int band = 0; band < count; ++band) {
+    const auto count = std::max(1, static_cast<std::int32_t>(std::ceil((outer - inner) / maxDr)));
+    for (std::int32_t band = 0; band < count; ++band) {
       const float low = band == 0 ? inner : inner + ((outer - inner) * static_cast<float>(band) / static_cast<float>(count));
       const float high = band + 1 == count ? outer : inner + ((outer - inner) * static_cast<float>(band + 1) / static_cast<float>(count));
       layers.push_back({.rMin = low, .rMax = high, .zMax = zMax, .dz = kItsDz, .drPhi = drPhi});
@@ -418,7 +419,7 @@ std::vector<LUTLayer> itsLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
   };
   const auto addGap = [&](float inner, float outer) { addEqual(inner, outer, kItsGapDr, kItsGapDrPhi); };
   float previous = 0.F;
-  for (std::size_t layer = 0; layer < envelopes.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < envelopes.size(); ++layer) {
     const auto rMin = static_cast<float>(envelopes[layer].rMin);
     const auto rMaxHull = static_cast<float>(envelopes[layer].rMax);
     // The layer's band, a run of shells of its own (kBandHole about it): the
@@ -430,7 +431,7 @@ std::vector<LUTLayer> itsLayers(std::span<const o2::gtrk::LayerEnvelope> envelop
       addGap(previous, bandLow - kBandHole);
     }
     const float tanAlpha = std::sqrt((rMaxHull * rMaxHull) - (rMin * rMin)) / rMin;
-    const auto parts = std::max(1, static_cast<int>(std::ceil((rMaxHull - rMin) / kItsHullPart)));
+    const auto parts = std::max(1, static_cast<std::int32_t>(std::ceil((rMaxHull - rMin) / kItsHullPart)));
     const float drPhi = 0.5F * ((rMaxHull - rMin) / static_cast<float>(parts)) / tanAlpha;
     addEqual(bandLow, rMin, kItsGapDr, drPhi);
     addEqual(rMin, rMaxHull, kItsHullPart, drPhi);
@@ -451,7 +452,7 @@ std::vector<LUTLayer> itsBands()
   const auto sensors = o2::gtrk::alice::placeChecked<Layout>();
   const o2::gtrk::Geometry<Layout> geometry(sensors);
   const auto envelopes = o2::gtrk::PlacedEnvelopes<Layout>::all();
-  constexpr int kBarrel = o2::gtrk::Detector<Layout>::nBarrelLayers;
+  constexpr std::int32_t kBarrel = o2::gtrk::Detector<Layout>::nBarrelLayers;
   std::cout << o2::gtrk::describeEnvelopes(envelopes, kBarrel);
   const auto bands = o2::gtrk::alice::materialBands(sensors, geometry.layerSpecs(), envelopes, kBarrel);
   std::cout << "the layers' material bands:\n"
@@ -462,13 +463,13 @@ std::vector<LUTLayer> itsBands()
   return itsLayers(envelopes, bands, rMax);
 }
 
-int run(int argc, char** argv)
+std::int32_t run(std::int32_t argc, char** argv)
 {
   std::string output;
   std::string geometryFile;
   std::string detector;
-  int trials = 10;
-  int threads = -1;
+  std::int32_t trials = 10;
+  std::int32_t threads = -1;
   float maxRelativeDifference = 0.05F;
 
   bpo::options_description opts("Build the GTRK material-budget LUT");

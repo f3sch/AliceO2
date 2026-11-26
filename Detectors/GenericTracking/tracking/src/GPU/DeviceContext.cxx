@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <format>
 #include <memory>
 #include <stdexcept>
@@ -42,7 +43,7 @@ std::string upperCase(std::string_view backend)
 }
 
 /// GenericTracking's runtime on \a device, made by \a reconstruction's backend.
-std::unique_ptr<DeviceRuntime> runtimeOf(o2::gpu::GPUReconstruction& reconstruction, const std::string& backend, int device)
+std::unique_ptr<DeviceRuntime> runtimeOf(o2::gpu::GPUReconstruction& reconstruction, const std::string& backend, std::int32_t device)
 {
   std::unique_ptr<DeviceRuntime> runtime;
   reconstruction.GetGenericTrackingRuntime(&runtime, device);
@@ -57,7 +58,7 @@ std::unique_ptr<DeviceRuntime> runtimeOf(o2::gpu::GPUReconstruction& reconstruct
 /// (GPUReconstructionCUDA, which HIP does not offer): 40 MB a multiprocessor,
 /// and 512 MB more on a device of 10 GB or more. Read by a runtime of its own
 /// before the reconstruction allocates anything.
-std::size_t wholeDevice(o2::gpu::GPUReconstruction& reconstruction, const std::string& backend, int device)
+std::size_t wholeDevice(o2::gpu::GPUReconstruction& reconstruction, const std::string& backend, std::int32_t device)
 {
   const auto properties = runtimeOf(reconstruction, backend, device)->properties();
   constexpr std::size_t kMB = std::size_t{1} << 20U;
@@ -69,7 +70,7 @@ std::size_t wholeDevice(o2::gpu::GPUReconstruction& reconstruction, const std::s
 }
 } // namespace
 
-DeviceContext::DeviceContext(std::string_view backend, int device, std::span<const std::size_t> blockBytes)
+DeviceContext::DeviceContext(std::string_view backend, std::int32_t device, std::span<const std::size_t> blockBytes)
   : mOwned(o2::gpu::GPUReconstruction::CreateInstance(upperCase(backend).c_str(), true)),
     mReconstruction(mOwned.get())
 {
@@ -136,7 +137,7 @@ std::unique_ptr<DeviceContext::Borrowed> DeviceContext::borrow(std::uint64_t tag
   return std::unique_ptr<Borrowed>{new Borrowed(*mReconstruction, tag)};
 }
 
-DeviceBlock DeviceContext::block(std::size_t index) const
+DeviceBlock DeviceContext::block(std::uint32_t index) const
 {
   if (mChain == nullptr) {
     throw std::logic_error("GenericTracking: no blocks on a borrowed GPU reconstruction");

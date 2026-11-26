@@ -48,6 +48,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 
@@ -57,17 +58,17 @@ namespace o2::gtrk
 // ---- the covariance transport's oracles ----
 
 /// Row-major 5x5: jac[i * kNBoundParams + j] is d(out_i) / d(in_j).
-inline constexpr int kJacobianSize = kNBoundParams * kNBoundParams;
+inline constexpr std::int32_t kJacobianSize = kNBoundParams * kNBoundParams;
 
 /// Write a SolenoidJacobian out as a dense 5x5, filling in the constants.
 /// For comparison against the finite-difference reference and for QA; the
 /// transport never needs it.
 GPUhdi() GPUAlwaysInline() void expandJacobian(const SolenoidJacobian& jac, Scalar dense[kJacobianSize])
 {
-  for (int i = 0; i < kJacobianSize; ++i) {
+  for (std::int32_t i = 0; i < kJacobianSize; ++i) {
     dense[i] = 0.F;
   }
-  for (int j = 0; j < kNBoundParams; ++j) {
+  for (std::int32_t j = 0; j < kNBoundParams; ++j) {
     dense[kLoc0 * kNBoundParams + j] = jac.loc0[j];
     dense[kLoc1 * kNBoundParams + j] = jac.loc1[j];
     dense[kPhi * kNBoundParams + j] = jac.phi[j];
@@ -84,10 +85,10 @@ GPUhdi() GPUAlwaysInline() void expandJacobian(const SolenoidJacobian& jac, Scal
 GPUhdi() GPUAlwaysInline() void transportCovarianceDense(const Scalar jac[kJacobianSize], Scalar cov[kBoundCovSize])
 {
   Scalar m[kJacobianSize] = {}; // m = F P
-  for (int i = 0; i < kNBoundParams; ++i) {
-    for (int j = 0; j < kNBoundParams; ++j) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t j = 0; j < kNBoundParams; ++j) {
       Scalar sum = 0.F;
-      for (int k = 0; k < kNBoundParams; ++k) {
+      for (std::int32_t k = 0; k < kNBoundParams; ++k) {
         sum += jac[i * kNBoundParams + k] * cov[covIndex(k, j)];
       }
       m[i * kNBoundParams + j] = sum;
@@ -95,17 +96,17 @@ GPUhdi() GPUAlwaysInline() void transportCovarianceDense(const Scalar jac[kJacob
   }
 
   Scalar out[kBoundCovSize] = {}; // out = m F^T, lower triangle only
-  for (int i = 0; i < kNBoundParams; ++i) {
-    for (int j = 0; j <= i; ++j) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t j = 0; j <= i; ++j) {
       Scalar sum = 0.F;
-      for (int k = 0; k < kNBoundParams; ++k) {
+      for (std::int32_t k = 0; k < kNBoundParams; ++k) {
         sum += m[i * kNBoundParams + k] * jac[j * kNBoundParams + k];
       }
       out[covIndex(i, j)] = sum;
     }
   }
 
-  for (int i = 0; i < kBoundCovSize; ++i) {
+  for (std::int32_t i = 0; i < kBoundCovSize; ++i) {
     cov[i] = out[i];
   }
 }
@@ -118,18 +119,18 @@ GPUhdi() GPUAlwaysInline() void predictCovarianceExact(const SolenoidJacobian& j
   Scalar dense[kJacobianSize];
   expandJacobian(jac, dense);
   ExactScalar p[kNBoundParams][kNBoundParams];
-  for (int i = 0; i < kNBoundParams; ++i) {
-    for (int j = 0; j < kNBoundParams; ++j) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t j = 0; j < kNBoundParams; ++j) {
       p[i][j] = static_cast<ExactScalar>(cov[covIndex(i, j)]);
     }
   }
   p[kPhi][kPhi] += static_cast<ExactScalar>(noise.phiBefore);
   p[kTheta][kTheta] += static_cast<ExactScalar>(noise.thetaBefore);
-  for (int i = 0; i < kNBoundParams; ++i) {
-    for (int j = 0; j <= i; ++j) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t j = 0; j <= i; ++j) {
       ExactScalar sum = 0.;
-      for (int k = 0; k < kNBoundParams; ++k) {
-        for (int l = 0; l < kNBoundParams; ++l) {
+      for (std::int32_t k = 0; k < kNBoundParams; ++k) {
+        for (std::int32_t l = 0; l < kNBoundParams; ++l) {
           sum += static_cast<ExactScalar>(dense[(i * kNBoundParams) + k]) * p[k][l] * static_cast<ExactScalar>(dense[(j * kNBoundParams) + l]);
         }
       }
@@ -181,7 +182,7 @@ GPUhdi() GPUAlwaysInline() void defaultDifferenceSteps(Scalar step[kNBoundParams
 /// and insisting it did would make the reference unusable near a sensor edge.
 GPUdi() PropagationStatus jacobianFiniteDifference(const Propagator& prop, const BoundTrackState& state, const TrackingSurface& from, const TrackingSurface& to, PropagationDirection dir, const Scalar step[kNBoundParams], Scalar jac[kJacobianSize])
 {
-  for (int j = 0; j < kNBoundParams; ++j) {
+  for (std::int32_t j = 0; j < kNBoundParams; ++j) {
     BoundTrackState plus = state;
     BoundTrackState minus = state;
     plus.par[j] += step[j];
@@ -197,7 +198,7 @@ GPUdi() PropagationStatus jacobianFiniteDifference(const Propagator& prop, const
     }
 
     const Scalar inv = 1.F / (2.F * step[j]);
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       ExactScalar diff = static_cast<ExactScalar>(plus.par[i]) - static_cast<ExactScalar>(minus.par[i]);
       if (i == kPhi) {
         // phi lives on a circle: the difference of two normalised angles is
@@ -226,7 +227,7 @@ GPUhdi() GPUAlwaysInline() void canonicalizeDirection(BoundTrackState& state)
   if (state.theta() < 0.F) {
     state.par[kTheta] = -state.theta();
     state.par[kPhi] += kPi<Scalar>;
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       if (i != kTheta) {
         state.covAt(kTheta, i) = -state.covAt(kTheta, i);
       }
@@ -285,7 +286,7 @@ GPUhdi() GPUAlwaysInline() void spatialChi2(T a, T b, T d, T residualLoc0, T res
   result.residualLoc0 = static_cast<Scalar>(residual[0]);
   result.residualLoc1 = static_cast<Scalar>(residual[1]);
 
-  const auto cov = [&state](int i, int j) { return static_cast<ExactScalar>(state.covAt(i, j)); };
+  const auto cov = [&state](std::int32_t i, std::int32_t j) { return static_cast<ExactScalar>(state.covAt(i, j)); };
   const ExactScalar innovation[2][2] = {
     {cov(kLoc0, kLoc0) + static_cast<ExactScalar>(measurement.varLoc0), cov(kLoc0, kLoc1) + static_cast<ExactScalar>(measurement.covLoc01)},
     {cov(kLoc1, kLoc0) + static_cast<ExactScalar>(measurement.covLoc01), cov(kLoc1, kLoc1) + static_cast<ExactScalar>(measurement.varLoc1)},
@@ -299,19 +300,19 @@ GPUhdi() GPUAlwaysInline() void spatialChi2(T a, T b, T d, T residualLoc0, T res
     {-b * invDet, a * invDet},
   };
 
-  constexpr int measured[2] = {kLoc0, kLoc1};
+  constexpr std::int32_t measured[2] = {kLoc0, kLoc1};
   ExactScalar gain[kNBoundParams][2]{};
-  for (int i = 0; i < kNBoundParams; ++i) {
-    for (int column = 0; column < 2; ++column) {
-      for (int row = 0; row < 2; ++row) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t column = 0; column < 2; ++column) {
+      for (std::int32_t row = 0; row < 2; ++row) {
         gain[i][column] += cov(i, measured[row]) * inverse[row][column];
       }
     }
   }
 
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     ExactScalar correction = 0.;
-    for (int column = 0; column < 2; ++column) {
+    for (std::int32_t column = 0; column < 2; ++column) {
       correction += gain[i][column] * residual[column];
     }
     state.par[i] += static_cast<Scalar>(correction);
@@ -327,22 +328,22 @@ GPUhdi() GPUAlwaysInline() void spatialChi2(T a, T b, T d, T residualLoc0, T res
   // shorter form can leave the covariance indefinite, which shows as negative
   // chi2 in low-pT fits.
   ExactScalar updated[kBoundCovSize]{};
-  for (int i = 0; i < kNBoundParams; ++i) {
-    for (int j = 0; j <= i; ++j) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t j = 0; j <= i; ++j) {
       ExactScalar value = cov(i, j);
-      for (int measuredIndex = 0; measuredIndex < 2; ++measuredIndex) {
+      for (std::int32_t measuredIndex = 0; measuredIndex < 2; ++measuredIndex) {
         value -= gain[i][measuredIndex] * cov(measured[measuredIndex], j);
         value -= cov(i, measured[measuredIndex]) * gain[j][measuredIndex];
       }
-      for (int row = 0; row < 2; ++row) {
-        for (int column = 0; column < 2; ++column) {
+      for (std::int32_t row = 0; row < 2; ++row) {
+        for (std::int32_t column = 0; column < 2; ++column) {
           value += gain[i][row] * innovation[row][column] * gain[j][column];
         }
       }
       updated[covIndex(i, j)] = value;
     }
   }
-  for (int i = 0; i < kBoundCovSize; ++i) {
+  for (std::int32_t i = 0; i < kBoundCovSize; ++i) {
     state.cov[i] = static_cast<Scalar>(updated[i]);
   }
 
@@ -377,7 +378,7 @@ GPUdi() BoundTrackState makeThreePointSeed(const Prop& prop, const Measurement& 
   T firstGlobal[3]{};
   T secondGlobal[3]{};
   T thirdGlobal[3]{};
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     firstGlobal[i] = static_cast<T>(firstGlobalScalar[i]);
     secondGlobal[i] = static_cast<T>(secondGlobalScalar[i]);
     thirdGlobal[i] = static_cast<T>(thirdGlobalScalar[i]);
@@ -425,13 +426,13 @@ GPUdi() BoundTrackState makeThreePointSeed(const Prop& prop, const Measurement& 
 /// The layout link from \a from to \a to in \a material; a test that asks for
 /// one the layout has not is wrong (std::invalid_argument).
 template <DetectorLayout Det>
-[[nodiscard]] inline std::size_t linkOf(const LinkMaterial<Det>& material, LayerID from, LayerID to)
+[[nodiscard]] inline std::uint32_t linkOf(const LinkMaterial<Det>& material, LayerID from, LayerID to)
 {
-  const int link = material.link(from, to);
+  const std::int32_t link = material.link(from, to);
   if (link < 0) {
     throw std::invalid_argument("no layout link " + std::to_string(from) + " -> " + std::to_string(to));
   }
-  return static_cast<std::size_t>(link);
+  return static_cast<std::uint32_t>(link);
 }
 
 /// The material of the triplet `a b c` on layers \a layers.

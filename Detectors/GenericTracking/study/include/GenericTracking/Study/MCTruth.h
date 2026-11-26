@@ -33,7 +33,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -123,7 +122,7 @@ bool forEachCommonParticle(std::span<const TruthRow> rows, std::span<const std::
   }
   bool any = false;
   const auto& first = rows[held.front()];
-  for (std::size_t at = 0; at < first.count; ++at) {
+  for (std::uint32_t at = 0; at < first.count; ++at) {
     const auto id = first.particles[at];
     if (std::all_of(held.begin() + 1, held.end(), [&](std::uint32_t row) { return rows[row].carries(id); })) {
       body(id);

@@ -275,7 +275,7 @@ struct PairScattering {
 /// (`sourceScattering`) and the gap: `sourceScale` carries the source's term
 /// there.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() PairScattering betweenScattering(const LinkMaterial<Det>& material, const PairCut& cut, const BetweenSource<Det>& from, std::size_t link, LayerID targetLayer, const VertexSeed& vertex, const PairPoint& source, const PairPoint& target, Scalar sourceSpanX, Scalar sourceHighland)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() PairScattering betweenScattering(const LinkMaterial<Det>& material, const PairCut& cut, const BetweenSource<Det>& from, std::uint32_t link, LayerID targetLayer, const VertexSeed& vertex, const PairPoint& source, const PairPoint& target, Scalar sourceSpanX, Scalar sourceHighland)
 {
   if (!(source.r > 0.F)) {
     return {};
@@ -302,7 +302,7 @@ template <DetectorLayout Det>
 
 /// The same, the source's Highland factor from its span.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() PairScattering betweenScattering(const LinkMaterial<Det>& material, const PairCut& cut, const BetweenSource<Det>& from, std::size_t link, LayerID targetLayer, const VertexSeed& vertex, const PairPoint& source, const PairPoint& target, Scalar sourceSpanX)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() PairScattering betweenScattering(const LinkMaterial<Det>& material, const PairCut& cut, const BetweenSource<Det>& from, std::uint32_t link, LayerID targetLayer, const VertexSeed& vertex, const PairPoint& source, const PairPoint& target, Scalar sourceSpanX)
 {
   return betweenScattering(material, cut, from, link, targetLayer, vertex, source, target, sourceSpanX, sourceSpanX > 0.F ? 1.F + (0.038F * (logOf(sourceSpanX) - cut.logBeta2)) : 0.F);
 }
@@ -315,14 +315,14 @@ template <DetectorLayout Det>
 {
   using Table = LinkMaterial<Det>;
   double least = std::numeric_limits<double>::infinity();
-  for (int s = 0; s < Table::kSecond; ++s) {
+  for (std::int32_t s = 0; s < Table::kSecond; ++s) {
     double node = std::numeric_limits<double>::infinity();
-    for (int phi = 0; phi < Table::kNodePhi; ++phi) {
-      node = std::min(node, static_cast<double>(material.nodes[(((static_cast<std::size_t>(from) * Table::kNodePhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)].x));
+    for (std::int32_t phi = 0; phi < Table::kNodePhi; ++phi) {
+      node = std::min(node, static_cast<double>(material.nodes[(((std::uint32_t{from} * Table::kNodePhi) + static_cast<std::uint32_t>(phi)) * Table::kSecond) + static_cast<std::uint32_t>(s)].x));
     }
-    for (int v = 0; v < Table::kVertexZ; ++v) {
-      for (int phi = 0; phi < Table::kGapPhi; ++phi) {
-        least = std::min(least, node + static_cast<double>(material.vertexGaps[(((((static_cast<std::size_t>(from) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)].x));
+    for (std::int32_t v = 0; v < Table::kVertexZ; ++v) {
+      for (std::int32_t phi = 0; phi < Table::kGapPhi; ++phi) {
+        least = std::min(least, node + static_cast<double>(material.vertexGaps[(((((std::uint32_t{from} * Table::kGapPhi) + static_cast<std::uint32_t>(phi)) * Table::kVertexZ) + static_cast<std::uint32_t>(v)) * Table::kSecond) + static_cast<std::uint32_t>(s)].x));
       }
     }
   }
@@ -336,30 +336,30 @@ template <DetectorLayout Det>
 /// the factor, monotonic in each, is largest. Zero if no vertex of the reach
 /// is in the bin.
 template <DetectorLayout Det>
-[[nodiscard]] inline double largestIncidence(const LinkMaterial<Det>& material, LayerID from, int s, int v, const Interval& reach)
+[[nodiscard]] inline double largestIncidence(const LinkMaterial<Det>& material, LayerID from, std::int32_t s, std::int32_t v, const Interval& reach)
 {
-  const double v0 = std::max(reach.low, static_cast<double>(material.vertexZ.low) + (v / material.vertexZ.perUnit));
-  const double v1 = std::min(reach.high, static_cast<double>(material.vertexZ.low) + ((v + 1) / material.vertexZ.perUnit));
+  const double v0 = std::max(reach.low, static_cast<double>(material.vertexZ.low) + static_cast<double>(static_cast<float>(v) / material.vertexZ.perUnit));
+  const double v1 = std::min(reach.high, static_cast<double>(material.vertexZ.low) + static_cast<double>(static_cast<float>(v + 1) / material.vertexZ.perUnit));
   if (v0 > v1) {
     return 0.;
   }
   const bool barrel = Detector<Det>::isBarrelLayer(from);
   const auto& axis = material.layerSecond[from];
-  const double s0 = axis.low + (s / axis.perUnit);
-  const double s1 = axis.low + ((s + 1) / axis.perUnit);
+  const double s0 = axis.low + (static_cast<float>(s) / axis.perUnit);
+  const double s1 = axis.low + (static_cast<float>(s + 1) / axis.perUnit);
   // The band's faces (LinkMaterial::layerDepth holds them unsigned).
   const auto& depth = material.layerDepth[from];
   const double inner = depth.low;
-  const double outer = depth.low + (1. / depth.perUnit);
+  const double outer = static_cast<double>(depth.low) + (1. / static_cast<double>(depth.perUnit));
   const bool forward = barrel || PlacedEnvelopes<Det>::get(from).position > 0.;
   const double d0 = forward ? inner : -outer;
   const double d1 = forward ? outer : -inner;
   double largest = 0.;
   for (const double second : {s0, s1}) {
-    for (const double depth : {d0, d1}) {
+    for (const double face : {d0, d1}) {
       for (const double zv : {v0, v1}) {
-        const double r = barrel ? depth : second;
-        const double dz = (barrel ? second : depth) - zv;
+        const double r = barrel ? face : second;
+        const double dz = (barrel ? second : face) - zv;
         const double length = std::hypot(r, dz);
         const double across = barrel ? r : std::abs(dz);
         if (across > 0.) {
@@ -380,18 +380,18 @@ template <DetectorLayout Det>
   using Table = LinkMaterial<Det>;
   const Interval reach = vertexReach(params, vertex);
   double largest = 0.;
-  for (int s = 0; s < Table::kSecond; ++s) {
+  for (std::int32_t s = 0; s < Table::kSecond; ++s) {
     double node = 0.;
-    for (int phi = 0; phi < Table::kNodePhi; ++phi) {
-      node = std::max(node, static_cast<double>(material.nodes[(((static_cast<std::size_t>(from) * Table::kNodePhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)].x));
+    for (std::int32_t phi = 0; phi < Table::kNodePhi; ++phi) {
+      node = std::max(node, static_cast<double>(material.nodes[(((std::uint32_t{from} * Table::kNodePhi) + static_cast<std::uint32_t>(phi)) * Table::kSecond) + static_cast<std::uint32_t>(s)].x));
     }
-    for (int v = 0; v < Table::kVertexZ; ++v) {
+    for (std::int32_t v = 0; v < Table::kVertexZ; ++v) {
       const double incidence = largestIncidence<Det>(material, from, s, v, reach);
       if (!(incidence > 0.)) {
         continue;
       }
-      for (int phi = 0; phi < Table::kGapPhi; ++phi) {
-        const auto& gap = material.vertexGaps[(((((static_cast<std::size_t>(from) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)];
+      for (std::int32_t phi = 0; phi < Table::kGapPhi; ++phi) {
+        const auto& gap = material.vertexGaps[(((((std::uint32_t{from} * Table::kGapPhi) + static_cast<std::uint32_t>(phi)) * Table::kVertexZ) + static_cast<std::uint32_t>(v)) * Table::kSecond) + static_cast<std::uint32_t>(s)];
         largest = std::max(largest, (static_cast<double>(gap.x) + node) * incidence);
       }
     }
@@ -420,23 +420,23 @@ template <DetectorLayout Det>
   const auto logBeta2 = static_cast<Scalar>(logBeta2Min(params));
   const Interval reach = vertexReach(params, vertex);
   double largest = 0.;
-  for (int s = 0; s < Table::kSecond; ++s) {
+  for (std::int32_t s = 0; s < Table::kSecond; ++s) {
     double node = 0.;
-    for (int phi = 0; phi < Table::kNodePhi; ++phi) {
-      const auto& n = material.nodes[(((static_cast<std::size_t>(from) * Table::kNodePhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)];
+    for (std::int32_t phi = 0; phi < Table::kNodePhi; ++phi) {
+      const auto& n = material.nodes[(((std::uint32_t{from} * Table::kNodePhi) + static_cast<std::uint32_t>(phi)) * Table::kSecond) + static_cast<std::uint32_t>(s)];
       node += static_cast<double>(n.x) / Table::kNodePhi;
     }
-    for (int v = 0; v < Table::kVertexZ; ++v) {
+    for (std::int32_t v = 0; v < Table::kVertexZ; ++v) {
       const double incidence = largestIncidence<Det>(material, from, s, v, reach);
       if (!(incidence > 0.)) {
         continue;
       }
       double gapX = 0.;
       double gapM2 = 0.;
-      for (int phi = 0; phi < Table::kGapPhi; ++phi) {
-        const auto& gap = material.vertexGaps[(((((static_cast<std::size_t>(from) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s)];
+      for (std::int32_t phi = 0; phi < Table::kGapPhi; ++phi) {
+        const auto& gap = material.vertexGaps[(((((std::uint32_t{from} * Table::kGapPhi) + static_cast<std::uint32_t>(phi)) * Table::kVertexZ) + static_cast<std::uint32_t>(v)) * Table::kSecond) + static_cast<std::uint32_t>(s)];
         gapX += static_cast<double>(gap.x) * incidence / Table::kGapPhi;
-        gapM2 += static_cast<double>(gap.x) * incidence * gap.m2 / Table::kGapPhi;
+        gapM2 += static_cast<double>(gap.x) * incidence * static_cast<double>(gap.m2) / Table::kGapPhi;
       }
       const double nodeX = node * incidence;
       const double spanX = gapX + nodeX;
@@ -469,7 +469,7 @@ template <DetectorLayout Det>
 [[nodiscard]] inline double betweenKinkBound(const LinkMaterial<Det>& material, const SearchWindowParams& params, LayerID from, LayerID to, const VertexConstraint& vertex, AzimuthBound azimuth)
 {
   using Table = LinkMaterial<Det>;
-  const int link = material.link(from, to);
+  const std::int32_t link = material.link(from, to);
   if (link < 0 || !(params.minPtGeV > 0.)) {
     return 0.;
   }
@@ -480,11 +480,11 @@ template <DetectorLayout Det>
   const bool barrelTo = Detector<Det>::isBarrelLayer(to);
   const double positionFrom = PlacedEnvelopes<Det>::get(from).position;
   const double positionTo = PlacedEnvelopes<Det>::get(to).position;
-  const auto& sourceAxis = material.linkSource[link];
+  const auto& sourceAxis = material.linkSource[static_cast<std::uint32_t>(link)];
   const auto& targetAxis = material.layerSecond[to];
   // A layer point at second coordinate c, as (r, z).
   const auto rz = [](bool barrel, double position, double c) { return barrel ? std::pair{position, c} : std::pair{c, position}; };
-  const auto& pair = Det::layerLinks[link];
+  const auto& pair = Det::layerLinks[static_cast<std::uint32_t>(link)];
   const Interval reach = vertexReach(params, vertex);
   // The target coordinate the line from a vertex at zv through a source point reaches.
   const auto projected = [&](double cs, double zv) {
@@ -495,9 +495,9 @@ template <DetectorLayout Det>
     return std::abs(za - zv) > 0. ? ra * (positionTo - zv) / (za - zv) : std::numeric_limits<double>::quiet_NaN();
   };
   double largest = 0.;
-  for (int s = 0; s < Table::kSourceSecond; ++s) {
-    const double s0 = sourceAxis.low + (s / sourceAxis.perUnit);
-    const double s1 = sourceAxis.low + ((s + 1) / sourceAxis.perUnit);
+  for (std::int32_t s = 0; s < Table::kSourceSecond; ++s) {
+    const double s0 = sourceAxis.low + (static_cast<float>(s) / sourceAxis.perUnit);
+    const double s1 = sourceAxis.low + (static_cast<float>(s + 1) / sourceAxis.perUnit);
     if (s1 < pair.sourceMin || s0 > pair.sourceMax) {
       continue;
     }
@@ -515,11 +515,11 @@ template <DetectorLayout Det>
     if (!(low <= high)) {
       continue;
     }
-    const int tLow = std::max(0, targetAxis.bin(static_cast<Scalar>(low), Table::kSecond) - 1);
-    const int tHigh = std::min(Table::kSecond - 1, targetAxis.bin(static_cast<Scalar>(high), Table::kSecond) + 1);
-    for (int t = tLow; t <= tHigh; ++t) {
-      const double t0 = targetAxis.low + (t / targetAxis.perUnit);
-      const double t1 = targetAxis.low + ((t + 1) / targetAxis.perUnit);
+    const std::int32_t tLow = std::max(0, targetAxis.bin(static_cast<Scalar>(low), Table::kSecond) - 1);
+    const std::int32_t tHigh = std::min(Table::kSecond - 1, targetAxis.bin(static_cast<Scalar>(high), Table::kSecond) + 1);
+    for (std::int32_t t = tLow; t <= tHigh; ++t) {
+      const double t0 = targetAxis.low + (static_cast<float>(t) / targetAxis.perUnit);
+      const double t1 = targetAxis.low + (static_cast<float>(t + 1) / targetAxis.perUnit);
       double chord2 = 0.;
       for (const double cs : {s0, s1}) {
         for (const double ct : {t0, t1}) {
@@ -529,10 +529,10 @@ template <DetectorLayout Det>
         }
       }
       double cell = 0.;
-      for (int phi = 0; phi < Table::kGapPhi; ++phi) {
-        const auto& gap = material.gaps[(((((static_cast<std::size_t>(link) * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kSourceSecond) + static_cast<std::size_t>(s)) * Table::kSecond) + static_cast<std::size_t>(t)];
+      for (std::int32_t phi = 0; phi < Table::kGapPhi; ++phi) {
+        const auto& gap = material.gaps[(((((static_cast<std::uint32_t>(link) * Table::kGapPhi) + static_cast<std::uint32_t>(phi)) * Table::kSourceSecond) + static_cast<std::uint32_t>(s)) * Table::kSecond) + static_cast<std::uint32_t>(t)];
         const auto logSpan = static_cast<Scalar>(std::log(sourceSpan + static_cast<double>(gap.x) > 0. ? sourceSpan + static_cast<double>(gap.x) : 1.));
-        const double term = static_cast<double>(materialKick(gap.x, logSpan, logBeta2)) * (1. - (2. * gap.m1) + gap.m2) * chord2;
+        const double term = static_cast<double>(materialKick(gap.x, logSpan, logBeta2)) * (1. - (2. * static_cast<double>(gap.m1)) + static_cast<double>(gap.m2)) * chord2;
         cell = azimuth == AzimuthBound::kLargest ? std::max(cell, term) : cell + (term / Table::kGapPhi);
       }
       largest = std::max(largest, cell);

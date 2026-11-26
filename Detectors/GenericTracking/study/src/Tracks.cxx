@@ -21,6 +21,7 @@
 #include <TTree.h>
 
 #include <cmath>
+#include <cstdint>
 #include <format>
 #include <stdexcept>
 #include <type_traits>
@@ -34,7 +35,7 @@ namespace
 /// The cluster indices of every track in \a tracks, whose own range into
 /// \a indices \a range gives as (first, count).
 template <typename Track, typename Range>
-TrackClusters clustersOf(const std::vector<Track>& tracks, const std::vector<int>& indices, Range range)
+TrackClusters clustersOf(const std::vector<Track>& tracks, const std::vector<std::int32_t>& indices, Range range)
 {
   TrackClusters result;
   result.reserve(tracks.size());
@@ -45,7 +46,7 @@ TrackClusters clustersOf(const std::vector<Track>& tracks, const std::vector<int
     }
     auto& clusters = result.emplace_back();
     clusters.reserve(static_cast<std::size_t>(count));
-    for (int i = 0; i < count; ++i) {
+    for (std::int32_t i = 0; i < count; ++i) {
       clusters.push_back(static_cast<std::uint32_t>(indices[static_cast<std::size_t>(first) + static_cast<std::size_t>(i)]));
     }
   }
@@ -53,10 +54,10 @@ TrackClusters clustersOf(const std::vector<Track>& tracks, const std::vector<int
 }
 
 template <typename Track>
-TrackClusters readEntry(TTree& tree, long long entry, const char* trackBranch, const char* indexBranch, auto range)
+TrackClusters readEntry(TTree& tree, std::int64_t entry, const char* trackBranch, const char* indexBranch, auto range)
 {
   std::vector<Track> tracks;
-  std::vector<int> indices;
+  std::vector<std::int32_t> indices;
   auto* trackPointer = &tracks;
   auto* indexPointer = &indices;
   tree.SetBranchAddress(trackBranch, &trackPointer);
@@ -68,7 +69,7 @@ TrackClusters readEntry(TTree& tree, long long entry, const char* trackBranch, c
 }
 
 template <typename Track>
-std::vector<TrackKinematics> readKinematics(TTree& tree, long long entry, const char* branch)
+std::vector<TrackKinematics> readKinematics(TTree& tree, std::int64_t entry, const char* branch)
 {
   std::vector<Track> tracks;
   auto* pointer = &tracks;
@@ -82,7 +83,7 @@ std::vector<TrackKinematics> readKinematics(TTree& tree, long long entry, const 
     const auto eta = static_cast<float>(track.getEta());
     const auto phi = static_cast<float>(track.getPhi());
     float chi2 = 0.F;
-    int ndf = 0;
+    std::int32_t ndf = 0;
     if constexpr (std::is_same_v<Track, o2::its::TrackITS>) {
       chi2 = track.getChi2();
       ndf = 2 * track.getNumberOfClusters() - 5;
@@ -110,7 +111,7 @@ TrackFile::TrackFile(const std::string& path, Chips chips) : mChips(chips), mFil
 
 TrackFile::~TrackFile() = default;
 
-TrackClusters TrackFile::read(long long entry)
+TrackClusters TrackFile::read(std::int64_t entry)
 {
   if (entry >= mTree->GetEntries()) {
     return {};
@@ -121,7 +122,7 @@ TrackClusters TrackFile::read(long long entry)
   return readEntry<o2::mft::TrackMFT>(*mTree, entry, "MFTTrack", "MFTTrackClusIdx", [](const o2::mft::TrackMFT& track) { return std::pair{track.getExternalClusterIndexOffset(), track.getNumberOfPoints()}; });
 }
 
-std::vector<bool> TrackFile::fakeFlags(long long entry)
+std::vector<bool> TrackFile::fakeFlags(std::int64_t entry)
 {
   if (entry >= mTree->GetEntries()) {
     return {};
@@ -139,7 +140,7 @@ std::vector<bool> TrackFile::fakeFlags(long long entry)
   return result;
 }
 
-std::vector<TrackKinematics> TrackFile::kinematics(long long entry)
+std::vector<TrackKinematics> TrackFile::kinematics(std::int64_t entry)
 {
   if (entry >= mTree->GetEntries()) {
     return {};
@@ -149,7 +150,7 @@ std::vector<TrackKinematics> TrackFile::kinematics(long long entry)
            : readKinematics<o2::mft::TrackMFT>(*mTree, entry, "MFTTrack");
 }
 
-std::vector<o2::track::TrackParCov> TrackFile::innerStates(long long entry)
+std::vector<o2::track::TrackParCov> TrackFile::innerStates(std::int64_t entry)
 {
   if (mChips != Chips::kITS && mChips != Chips::kITS3) {
     throw std::runtime_error("innerStates: only the ITS's (and ITS3's) tracks are parameterised in the tracking frame");

@@ -47,7 +47,7 @@ namespace o2::gtrk
 /// covariance, a Gaussian a vertexer can take -- and the momentum estimate
 /// apart: the mode of the momentum's density (`GSFFitResult::momentumMode`),
 /// the estimate the mixture's posterior is skewed about.
-template <int K = BetheHeitlerLoss::kComponents>
+template <std::int32_t K = BetheHeitlerLoss::kComponents>
 struct HypothesisFit {
   Species species = Species::kPion;
   BoundTrackState innermost{}; ///< on the innermost measurement, the inward pass's end
@@ -199,8 +199,8 @@ GPUdi() PropagationStatus carryStateInward(const Propagator& prop, const Materia
 /// An electron: the Gaussian-sum fit (`fitGaussianSum`), its inward mixture
 /// kept. Another species: the Kalman fit (`fitMeasurements`) at its mass and
 /// |q|. The perigee fields stay empty (`carryToPerigee`).
-template <int K = BetheHeitlerLoss::kComponents, DetectorLayout Det, typename Material, typename Chain>
-GPUdi() HypothesisFit<K> refitRowsWithHypothesis(const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, Species species)
+template <std::int32_t K = BetheHeitlerLoss::kComponents, DetectorLayout Det, typename Material, typename Chain>
+GPUdi() HypothesisFit<K> refitRowsWithHypothesis(const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, std::int32_t n, Species species)
 {
   HypothesisFit<K> fit{.species = species};
   Propagator prop = base;
@@ -237,7 +237,7 @@ GPUdi() HypothesisFit<K> refitRowsWithHypothesis(const Propagator& base, const T
 /// segment's radiation undone first (branched and reduced, as on a plane),
 /// each component on its own trajectory onto the collapse's perigee plane;
 /// another species' state. Its perigee fields and status set.
-template <int K, DetectorLayout Det>
+template <std::int32_t K, DetectorLayout Det>
 GPUdi() PropagationStatus carryToPerigee(const Propagator& base, const TrackingGeometry<Det>& geometry, const TrackingSurface& innermostSurface, HypothesisFit<K>& fit, Scalar x, Scalar y)
 {
   Propagator prop = base;
@@ -265,8 +265,8 @@ GPUdi() PropagationStatus carryToPerigee(const Propagator& base, const TrackingG
 /// The rows' refit (`refitRowsWithHypothesis`) carried to the perigee plane
 /// about (\a x, \a y) (`carryToPerigee`); a failed carry leaves failedPass
 /// kNone with the failed status.
-template <int K = BetheHeitlerLoss::kComponents, DetectorLayout Det, typename Material, typename Chain>
-GPUdi() HypothesisFit<K> refitWithHypothesis(const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, Species species, Scalar x, Scalar y)
+template <std::int32_t K = BetheHeitlerLoss::kComponents, DetectorLayout Det, typename Material, typename Chain>
+GPUdi() HypothesisFit<K> refitWithHypothesis(const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, std::int32_t n, Species species, Scalar x, Scalar y)
 {
   auto fit = refitRowsWithHypothesis<K>(base, geometry, material, measurements, n, species);
   if (fit.status == PropagationStatus::kOk) {

@@ -136,7 +136,7 @@ inline constexpr double kMeasurementPrecision = std::numeric_limits<Scalar>::eps
 
 /// A track's parameters in a vertex fit: its vertex's x, y, z, then its phi,
 /// theta, q/p there.
-inline constexpr int kTrackParameters = 6;
+inline constexpr std::uint32_t kTrackParameters = 6;
 
 /// A track's measurement: its state carried to \a plane, the perigee plane
 /// about its vertex; the inverse covariance packed.
@@ -160,7 +160,7 @@ template <typename S>
     return false;
   }
   m.plane = plane;
-  for (int r = 0; r < 5; ++r) {
+  for (std::uint32_t r = 0; r < 5; ++r) {
     m.value[r] = state.par[r];
   }
   if (logDet != nullptr) {
@@ -200,8 +200,8 @@ template <typename M, typename S>
   using namespace decay_fit_detail;
   using D = Dual<kTrackParameters, M>;
   FreeState<kTrackParameters, M> from{};
-  for (int c = 0; c < kTrackParameters; ++c) {
-    from[c] = dual::variable<kTrackParameters, M>(at[c], c);
+  for (std::uint32_t c = 0; c < kTrackParameters; ++c) {
+    from[c] = dual::variable<kTrackParameters, M>(static_cast<M>(at[c]), c);
   }
   FreeState<kTrackParameters, M> to{};
   std::array<D, 2> local{};
@@ -210,39 +210,39 @@ template <typename M, typename S>
   }
   const std::array<D, 5> predicted{local[0], local[1], to[3], to[4], to[5]};
   std::array<M, 5> residual{};
-  for (int r = 0; r < 5; ++r) {
+  for (std::uint32_t r = 0; r < 5; ++r) {
     residual[r] = static_cast<M>(m.value[r]) - predicted[r].v;
   }
   residual[2] = toPMPiOf(residual[2]);
   const auto& weight = m.weight;
-  for (int r = 0; r < 5; ++r) {
-    rounding += roundingOf(m.value[r]) * static_cast<double>(weight[covIndex(r, r)]);
+  for (std::uint32_t r = 0; r < 5; ++r) {
+    rounding += roundingOf(m.value[r]) * static_cast<double>(weight[packedIndex(r, r)]);
   }
   // W r in double: the chi2 is a sum in double
   std::array<double, 5> weighted{};
-  for (int r = 0; r < 5; ++r) {
-    for (int c = 0; c < 5; ++c) {
-      weighted[r] += static_cast<double>(weight[covIndex(r, c)]) * static_cast<double>(residual[c]);
+  for (std::uint32_t r = 0; r < 5; ++r) {
+    for (std::uint32_t c = 0; c < 5; ++c) {
+      weighted[r] += static_cast<double>(weight[packedIndex(r, c)]) * static_cast<double>(residual[c]);
     }
     chi2 += static_cast<double>(residual[r]) * weighted[r];
   }
   if (term == nullptr) {
     return true;
   }
-  for (int a = 0; a < kTrackParameters; ++a) {
+  for (std::uint32_t a = 0; a < kTrackParameters; ++a) {
     S g = 0.;
-    for (int r = 0; r < 5; ++r) {
+    for (std::uint32_t r = 0; r < 5; ++r) {
       g += static_cast<S>(predicted[r].d[a]) * static_cast<S>(weighted[r]);
     }
     term->gradient[a] = g;
-    for (int b = 0; b <= a; ++b) {
+    for (std::uint32_t b = 0; b <= a; ++b) {
       S h = 0.;
-      for (int r = 0; r < 5; ++r) {
-        for (int c = 0; c < 5; ++c) {
-          h += static_cast<S>(predicted[r].d[a]) * weight[covIndex(r, c)] * static_cast<S>(predicted[c].d[b]);
+      for (std::uint32_t r = 0; r < 5; ++r) {
+        for (std::uint32_t c = 0; c < 5; ++c) {
+          h += static_cast<S>(predicted[r].d[a]) * weight[packedIndex(r, c)] * static_cast<S>(predicted[c].d[b]);
         }
       }
-      term->normal[covIndex(a, b)] = h;
+      term->normal[packedIndex(a, b)] = h;
     }
   }
   return true;
@@ -254,8 +254,8 @@ struct MinimiserState {
   double mu = 0.;     ///< the largest |lambda| of the Gauss-Newton steps seen: the merit's penalty
   double metric = 0.; ///< the last step's predicted gain
   double bound = 0.;  ///< and what it was held to
-  int iterations = 0; ///< all minimisations'
-  int steps = 0;      ///< the last minimisation's steps taken
+  std::int32_t iterations = 0; ///< all minimisations'
+  std::int32_t steps = 0;      ///< the last minimisation's steps taken
   double shift = 0.;  ///< the last minimisation's first predicted gain: what the model moved the solution by
 };
 
@@ -305,17 +305,17 @@ struct MinimiserState {
 /// step's gain and bound and its first step's gain (`MinimiserState`).
 /// \a trial, \a step and \a dampedStep are n each.
 template <typename M, typename S, typename System>
-[[nodiscard]] GPUd() VertexFitStatus minimiseFrozen(System& system, int n, int ndf, std::span<double> parameters, double* trial, S* step, S* dampedStep, double& chi2, MinimiserState& state)
+[[nodiscard]] GPUd() VertexFitStatus minimiseFrozen(System& system, std::uint32_t n, std::int32_t ndf, std::span<double> parameters, double* trial, S* step, S* dampedStep, double& chi2, MinimiserState& state)
 {
   double& mu = state.mu;
   double& metric = state.metric;
-  int& steps = state.steps;
+  std::int32_t& steps = state.steps;
   const bool constrained = system.constrained();
-  const std::span<double> trialPoint{trial, static_cast<std::size_t>(n)};
+  const std::span<double> trialPoint{trial, n};
   double damping = 0.;
   double growth = 2.;
   steps = 0;
-  for (int iteration = 0; iteration < decay_fit_detail::kMaxSteps; ++iteration) {
+  for (std::int32_t iteration = 0; iteration < decay_fit_detail::kMaxSteps; ++iteration) {
     ++state.iterations;
     double rounding = 0.;
     if (!system.evaluate(parameters, chi2, rounding, true)) {
@@ -360,8 +360,8 @@ template <typename M, typename S, typename System>
     bool reached = false;
     bool taken = false;
     double scale = 1.;
-    for (int halving = 0; halving < decay_fit_detail::kMaxSteps && !taken; ++halving, scale *= 0.5) {
-      for (int j = 0; j < n; ++j) {
+    for (std::int32_t halving = 0; halving < decay_fit_detail::kMaxSteps && !taken; ++halving, scale *= 0.5) {
+      for (std::uint32_t j = 0; j < n; ++j) {
         trialPoint[j] = parameters[j] + (scale * static_cast<double>(d[j]));
       }
       double trialChi2 = 0.;
@@ -407,7 +407,7 @@ template <typename Refresh, typename Minimise>
 {
   double lastShift = std::numeric_limits<double>::infinity();
   out.status = VertexFitStatus::kNotConverged;
-  for (int outer = 0; outer < decay_fit_detail::kMaxSteps; ++outer) {
+  for (std::int32_t outer = 0; outer < decay_fit_detail::kMaxSteps; ++outer) {
     if (outer != 0) {
       if (const auto status = refresh(); status != VertexFitStatus::kOk) {
         out.status = status;

@@ -169,27 +169,27 @@ class AdaptorTask : public o2::framework::Task
 
  private:
   template <typename LayerOf>
-  void runITS(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, const adaptor::ExportRows& exported, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const ITSMFTInput& input, std::span<const FrameTiming> timings, std::size_t clock, double bz, std::uint32_t orbit, const LayerOf& layerOf)
+  void runITS(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, const adaptor::ExportRows& exported, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const ITSMFTInput& input, std::span<const FrameTiming> timings, std::uint32_t clock, double bz, std::uint32_t orbit, const LayerOf& layerOf)
   {
     using o2::framework::Output;
     using AlpideParam = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>;
     const auto& origin = detectorOrigin<Det>();
     const auto selectedROFs = pc.inputs().get<gsl::span<std::uint8_t>>("selectedROFs");
     auto& irFrames = pc.outputs().make<std::vector<o2::dataformats::IRFrame>>(Output{origin, "IRFRAMES", 0});
-    auto& clusterIds = pc.outputs().make<std::vector<int>>(Output{origin, "TRACKCLSID", 0});
+    auto& clusterIds = pc.outputs().make<std::vector<std::int32_t>>(Output{origin, "TRACKCLSID", 0});
     auto& tracks = pc.outputs().make<std::vector<o2::its::TrackITS>>(Output{origin, "TRACKS", 0});
     auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{origin, "ITSTrackROF", 0});
     auto& vertices = pc.outputs().make<std::vector<o2::its::Vertex>>(Output{origin, "VERTICES", 0});
     auto& vertexROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{origin, "VERTICESROF", 0});
 
     const auto length = static_cast<std::int64_t>(timings[clock].lengthBC);
-    const auto delay = static_cast<std::int64_t>(AlpideParam::Instance().getROFDelayInBC(static_cast<int>(clock)));
+    const auto delay = static_cast<std::int64_t>(AlpideParam::Instance().getROFDelayInBC(static_cast<std::int32_t>(clock)));
     using BC = o2::itsmft::tracking::ROFTimingLayer::BCType;
     // ITS's frame of a time: its lower edge's, 0 before the first.
     const o2::itsmft::tracking::ROFTimingLayer rofTiming{
       .mROFLength = static_cast<BC>(length),
       .mROFDelay = static_cast<BC>(delay),
-      .mROFBias = static_cast<BC>(AlpideParam::Instance().getROFBiasInBC(static_cast<int>(clock))),
+      .mROFBias = static_cast<BC>(AlpideParam::Instance().getROFBiasInBC(static_cast<std::int32_t>(clock))),
     };
     // A vertex's frame as a track's: the lower edge of its time with the half
     // width at most half a frame. Its box's own lower edge lies a margin
@@ -200,7 +200,7 @@ class AdaptorTask : public o2::framework::Task
     };
 
     // A cluster in more than one track's innermost place: ITS's shared flag.
-    std::vector<std::uint8_t> innermost(clusterIndex.empty() ? 0U : *std::ranges::max_element(clusterIndex) + 1U, 0U); // NOLINT(misc-const-correctness): written in a dependent call the check does not see
+    std::vector<std::uint8_t> innermost(clusterIndex.empty() ? 0U : *std::ranges::max_element(clusterIndex) + 1U, 0U);
     for (std::uint32_t track = 0; track < records.size(); ++track) {
       auto& uses = innermost[clusterIndex[exported.of(track).front()]];
       uses = static_cast<std::uint8_t>(std::min(uses + 1, 2));
@@ -214,31 +214,31 @@ class AdaptorTask : public o2::framework::Task
     };
     std::vector<Converted> converted;
     converted.reserve(records.size());
-    std::size_t turned = 0U;
+    std::uint32_t turned = 0U;
     std::array<bool, TrackRefit<Det>::kMaxClusters> carried{};
     for (std::uint32_t track = 0; track < records.size(); ++track) {
       const auto& record = records[track];
       const auto rows = exported.of(track);
       auto* const geometry = o2::its::GeometryTGeo::Instance();
-      const double sensorAlpha = geometry->getSensorRefAlpha(static_cast<int>(record.state.surface));
+      const double sensorAlpha = geometry->getSensorRefAlpha(static_cast<std::int32_t>(record.state.surface));
       const double alpha = frameAlpha(record.state, sensorAlpha);
       turned += std::cos(static_cast<double>(record.state.phi()) - sensorAlpha) < 0. ? 1U : 0U;
       auto& out = converted.emplace_back();
       out.record = track;
       out.track = o2::its::TrackITS{toTrackParCov(record.state, mGeometry->planeOf(record.state), alpha, bz)};
-      const double outerAlpha = frameAlpha(record.outwardState, geometry->getSensorRefAlpha(static_cast<int>(record.outwardState.surface)));
+      const double outerAlpha = frameAlpha(record.outwardState, geometry->getSensorRefAlpha(static_cast<std::int32_t>(record.outwardState.surface)));
       out.track.getParamOut() = toTrackParCov(record.outwardState, mGeometry->planeOf(record.outwardState), outerAlpha, bz);
       out.track.setChi2(record.chi2);
-      out.track.setNumberOfClusters(static_cast<int>(rows.size()));
+      out.track.setNumberOfClusters(static_cast<std::int32_t>(rows.size()));
       if (mUseMC) {
         out.label = adaptor::trackLabel(rows, clusterIndex, input, std::span<bool>{carried.data(), rows.size()});
       }
       std::uint32_t pattern = 0U;
-      for (std::size_t i = 0; i < rows.size(); ++i) {
+      for (std::uint32_t i = 0; i < rows.size(); ++i) {
         const auto layer = layerOf(rows[i]);
         pattern |= 1U << layer;
         pattern |= mUseMC && carried[i] ? 1U << (16U + layer) : 0U;
-        out.track.setClusterSize(layer, static_cast<int>(pixels[clusterIndex[rows[i]]]));
+        out.track.setClusterSize(layer, static_cast<std::int32_t>(pixels[clusterIndex[rows[i]]]));
       }
       out.track.setPattern(pattern);
       out.track.setSharedClusters(innermost[clusterIndex[rows.front()]] > 1U);
@@ -255,7 +255,7 @@ class AdaptorTask : public o2::framework::Task
     const auto shipped = pc.inputs().get<MeasurementGeometry<Det>>("measurementGeometry");
     const auto seeds = pc.inputs().get<gsl::span<VertexSeed>>("vertices");
     const auto contributors = pc.inputs().get<gsl::span<std::uint32_t>>("contributors");
-    for (std::size_t v = 0; v < seeds.size(); ++v) {
+    for (std::uint32_t v = 0; v < seeds.size(); ++v) {
       const auto& seed = seeds[v];
       const std::array<float, o2::its::Vertex::kNCov> cov{seed.varTransverse, 0.F, seed.varTransverse, 0.F, 0.F, seed.varZ};
       auto& vertex = vertices.emplace_back(o2::math_utils::Point3D<float>(static_cast<float>(shipped.beamLine.x), static_cast<float>(shipped.beamLine.y), seed.z), cov, static_cast<ushort>(std::min<std::uint32_t>(contributors[v], std::numeric_limits<ushort>::max())), 0.F);
@@ -281,7 +281,7 @@ class AdaptorTask : public o2::framework::Task
     for (const auto& vertex : vertices) {
       frameCount = std::max(frameCount, vertexFrame(vertex) + 1);
     }
-    adaptor::fillClockRecords(trackROFs, static_cast<std::size_t>(frameCount), static_cast<int>(length), static_cast<int>(delay), orbit);
+    adaptor::fillClockRecords(trackROFs, static_cast<std::uint32_t>(frameCount), static_cast<std::int32_t>(length), static_cast<std::int32_t>(delay), orbit);
     vertexROFs = trackROFs;
     // As ITS: the standard vertexing mode on the input's frames, with the vertexer.
     if (recoParam<Det>().vertexer) {
@@ -290,11 +290,11 @@ class AdaptorTask : public o2::framework::Task
       }
     }
 
-    std::vector<int> entries(static_cast<std::size_t>(frameCount) + 1U, 0);
+    std::vector<std::int32_t> entries(static_cast<std::size_t>(frameCount) + 1U, 0);
     tracks.reserve(converted.size());
     for (auto& c : converted) {
       const auto rows = exported.of(c.record);
-      c.track.setFirstClusterEntry(static_cast<int>(clusterIds.size()));
+      c.track.setFirstClusterEntry(static_cast<std::int32_t>(clusterIds.size()));
       for (std::size_t i = rows.size(); i-- > 0;) { // outermost first
         clusterIds.push_back(input.externalIndex(clusterIndex[rows[i]]));
       }
@@ -336,22 +336,22 @@ class AdaptorTask : public o2::framework::Task
   }
 
   template <typename LayerOf>
-  void runMFT(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, const adaptor::ExportRows& exported, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const ITSMFTInput& input, std::span<const FrameTiming> timings, std::size_t clock, double bz, std::uint32_t orbit, const LayerOf& layerOf)
+  void runMFT(o2::framework::ProcessingContext& pc, gsl::span<const Record> records, const adaptor::ExportRows& exported, std::span<const std::uint32_t> clusterIndex, std::span<const o2::itsmft::ROFRecord> rofs, const adaptor::ClusterFrames& frames, std::span<const std::uint32_t> pixels, const ITSMFTInput& input, std::span<const FrameTiming> timings, std::uint32_t clock, double bz, std::uint32_t orbit, const LayerOf& layerOf)
   {
     using o2::framework::Output;
     const auto& origin = detectorOrigin<Det>();
     auto& trackROFs = pc.outputs().make<std::vector<o2::itsmft::ROFRecord>>(Output{origin, "MFTTrackROF", 0}, rofs.begin(), rofs.end());
-    auto& clusterIds = pc.outputs().make<std::vector<int>>(Output{origin, "TRACKCLSID", 0});
+    auto& clusterIds = pc.outputs().make<std::vector<std::int32_t>>(Output{origin, "TRACKCLSID", 0});
     auto& tracks = pc.outputs().make<std::vector<o2::mft::TrackMFT>>(Output{origin, "TRACKS", 0});
 
     using AlpideParam = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::MFT>;
     using BC = o2::itsmft::tracking::ROFTimingLayer::BCType;
     const auto length = timings[clock].lengthBC;
-    const auto delay = AlpideParam::Instance().getROFDelayInBC(static_cast<int>(clock));
+    const auto delay = AlpideParam::Instance().getROFDelayInBC(static_cast<std::int32_t>(clock));
     const o2::itsmft::tracking::ROFTimingLayer rofTiming{
       .mROFLength = static_cast<BC>(length),
       .mROFDelay = static_cast<BC>(delay),
-      .mROFBias = static_cast<BC>(AlpideParam::Instance().getROFBiasInBC(static_cast<int>(clock))),
+      .mROFBias = static_cast<BC>(AlpideParam::Instance().getROFBiasInBC(static_cast<std::int32_t>(clock))),
     };
 
     struct Converted {
@@ -362,7 +362,7 @@ class AdaptorTask : public o2::framework::Task
     };
     std::vector<Converted> converted;
     converted.reserve(records.size());
-    std::size_t crossing = 0U;
+    std::uint32_t crossing = 0U;
     std::array<bool, TrackRefit<Det>::kMaxClusters> carried{};
     for (std::uint32_t track = 0; track < records.size(); ++track) {
       const auto& record = records[track];
@@ -373,12 +373,12 @@ class AdaptorTask : public o2::framework::Task
       static_cast<o2::track::TrackParCovFwd&>(out.track) = inner;
       out.track.setOutParam(toTrackParCovFwd(record.outwardState, mGeometry->planeOf(record.outwardState), bz, record.outwardChi2));
       out.track.setCA(true);
-      out.track.setNumberOfPoints(static_cast<int>(rows.size()));
+      out.track.setNumberOfPoints(static_cast<std::int32_t>(rows.size()));
       if (mUseMC) {
         out.label = adaptor::trackLabel(rows, clusterIndex, input, std::span<bool>{carried.data(), rows.size()});
       }
       for (const auto row : rows) {
-        out.track.setClusterSize(layerOf(row), static_cast<int>(pixels[clusterIndex[row]]));
+        out.track.setClusterSize(layerOf(row), static_cast<std::int32_t>(pixels[clusterIndex[row]]));
       }
       // Preserve the monolithic MFT's earliest-record convention. Per-layer
       // record numbers have different clocks: use the interval's lower edge
@@ -399,18 +399,18 @@ class AdaptorTask : public o2::framework::Task
       }
     }
     if (mStaggered) {
-      std::size_t count = static_cast<std::size_t>(o2::constants::lhc::LHCMaxBunches / length) * mConditions->orbitsPerTimeframe();
+      auto count = static_cast<std::uint32_t>(o2::constants::lhc::LHCMaxBunches / length) * static_cast<std::uint32_t>(mConditions->orbitsPerTimeframe());
       for (const auto& track : converted) {
-        count = std::max(count, static_cast<std::size_t>(track.frame) + 1U);
+        count = std::max(count, track.frame + 1U);
       }
       adaptor::fillClockRecords(trackROFs, count, length, delay, orbit);
     }
     std::ranges::stable_sort(converted, {}, &Converted::frame);
 
-    std::vector<int> entries(trackROFs.size() + 1U, 0);
+    std::vector<std::int32_t> entries(trackROFs.size() + 1U, 0);
     tracks.reserve(converted.size());
     for (auto& c : converted) {
-      c.track.setExternalClusterIndexOffset(static_cast<int>(clusterIds.size()));
+      c.track.setExternalClusterIndexOffset(static_cast<std::int32_t>(clusterIds.size()));
       for (const auto row : exported.of(c.record)) { // innermost first
         clusterIds.push_back(input.externalIndex(clusterIndex[row]));
       }

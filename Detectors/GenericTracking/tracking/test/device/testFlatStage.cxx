@@ -50,7 +50,7 @@ using synthetic::Kind;
 /// The host's serial reference: the same candidates, the same test.
 std::unique_ptr<Output> serial(Kind kind, std::uint32_t divisor, std::uint32_t elements, StageStatus expected = StageStatus::kComplete) { return serialOutput<TrackletT>(synthetic::FlatGenerator{.count = {.kind = kind}, .accept = {.divisor = divisor}}, elements, expected); }
 
-std::unique_ptr<DeviceRun<FlatRunInfo>> onDevice(DeviceRuntime& device, DeviceArena& arena, Kind kind, std::uint32_t divisor, std::uint32_t elements, bool listed = false, std::size_t maxChunkPairs = 0U)
+std::unique_ptr<DeviceRun<FlatRunInfo>> onDevice(DeviceRuntime& device, DeviceArena& arena, Kind kind, std::uint32_t divisor, std::uint32_t elements, bool listed = false, std::uint32_t maxChunkPairs = 0U)
 {
   return runOnDevice<FlatRunInfo>(device, [&](DeviceStream& stream, Output& output, FlatRunInfo& info) { return kernels().runFlatSynthetic(device, stream, arena, kind, divisor, elements, listed, maxChunkPairs, output, info); });
 }
@@ -85,7 +85,7 @@ BOOST_AUTO_TEST_CASE(TheDeviceMatchesTheSerialReference)
       const auto reference = serial(kind, divisor, 97U);
       const auto run = onDevice(*device, arena, kind, divisor, 97U);
       BOOST_REQUIRE((run->status == StageStatus::kComplete));
-      BOOST_TEST(sameStageOutput(run->output, *reference), "kind " << static_cast<int>(kind) << " divisor " << divisor);
+      BOOST_TEST(sameStageOutput(run->output, *reference), "kind " << static_cast<std::int32_t>(kind) << " divisor " << divisor);
     }
   }
   constexpr std::uint32_t kLarge = 200000U;
@@ -108,7 +108,7 @@ BOOST_AUTO_TEST_CASE(ChunksConcatenate)
   const auto whole = onDevice(*device, arena, Kind::kIrregular, 3U, kElements);
   BOOST_REQUIRE((whole->status == StageStatus::kComplete));
   BOOST_TEST(whole->info.report.chunks == 1U);
-  for (const std::size_t chunk : {std::size_t{1U}, std::size_t{7U}, std::size_t{1000U}}) {
+  for (const std::uint32_t chunk : {1U, 7U, 1000U}) {
     const auto run = onDevice(*device, arena, Kind::kIrregular, 3U, kElements, false, chunk);
     BOOST_REQUIRE((run->status == StageStatus::kComplete));
     BOOST_TEST(run->info.report.chunks > 1U);
@@ -130,10 +130,10 @@ BOOST_AUTO_TEST_CASE(AListedRunGivesTheFullOutput)
     const auto run = onDevice(*device, arena, kind, 3U, kElements, true);
     BOOST_REQUIRE((run->status == StageStatus::kComplete));
     BOOST_TEST(run->info.listed < kElements);
-    BOOST_TEST(sameStageOutput(run->output, *reference), "kind " << static_cast<int>(kind));
+    BOOST_TEST(sameStageOutput(run->output, *reference), "kind " << static_cast<std::int32_t>(kind));
     const auto chunked = onDevice(*device, arena, kind, 3U, kElements, true, 5U);
     BOOST_REQUIRE((chunked->status == StageStatus::kComplete));
-    BOOST_TEST(sameStageOutput(chunked->output, *reference), "kind " << static_cast<int>(kind) << " in chunks");
+    BOOST_TEST(sameStageOutput(chunked->output, *reference), "kind " << static_cast<std::int32_t>(kind) << " in chunks");
   }
 }
 

@@ -185,7 +185,7 @@ template <DetectorLayout Det>
 [[nodiscard]] std::vector<MockPrimaryVertex> mockPrimaryVertices(const TruthEvent<Det>& event, std::span<const Chain> chains)
 {
   std::unordered_map<std::uint64_t, const Chain*> longest;
-  std::unordered_map<std::uint64_t, std::size_t> chainsOf;
+  std::unordered_map<std::uint64_t, std::uint32_t> chainsOf;
   for (const auto& chain : chains) {
     ++chainsOf[chain.particle];
     const double charge = particleCharge(event.particles->at(chain.particle).pdg);
@@ -212,7 +212,7 @@ template <DetectorLayout Det>
     const auto collision = collisionOf(chain.particle);
     const auto [at, inserted] = index.try_emplace(collision, vertices.size());
     if (inserted) {
-      vertices.push_back({.collision = collision});
+      vertices.push_back({.collision = collision, .fit = {}, .contributors = {}});
       members.emplace_back();
     }
     const auto offset = productionOffset(*event.collisions, chain.particle, Vec3D{truth.vx, truth.vy, truth.vz});
@@ -245,7 +245,7 @@ template <DetectorLayout Det>
           continue;
         }
         const RowChain<Det> rows{.frame = &frame, .rows = chain->rows.data()};
-        auto refit = refitRowsWithHypothesis(event.propagator, geometry, material, rows, static_cast<int>(chain->rows.size()), *species);
+        auto refit = refitRowsWithHypothesis(event.propagator, geometry, material, rows, static_cast<std::int32_t>(chain->rows.size()), *species);
         const auto& surface = geometry.planeOf(rows[0]);
         if (refit.status != PropagationStatus::kOk || carryToPerigee(event.propagator, geometry, surface, refit, static_cast<Scalar>(beam.x), static_cast<Scalar>(beam.y)) != PropagationStatus::kOk) {
           ++out.refitFailed;
@@ -287,7 +287,7 @@ template <DetectorLayout Det>
               best = without.chi2;
               out.culprit = fitted[i]->particle;
               out.culpritRows = static_cast<std::uint16_t>(fitted[i]->rows.size());
-              out.culpritChains = static_cast<std::uint8_t>(std::min<std::size_t>(chainsOf.contains(out.culprit) ? chainsOf.at(out.culprit) : 0U, 255U));
+              out.culpritChains = static_cast<std::uint8_t>(std::min(chainsOf.contains(out.culprit) ? chainsOf.at(out.culprit) : 0U, 255U));
               const auto& truth = event.particles->at(out.culprit);
               const double trueQOverP = particleCharge(truth.pdg) / (static_cast<double>(truth.pt) * std::cosh(static_cast<double>(truth.eta)));
               const auto& state = tracks[i].innermost;
@@ -364,8 +364,8 @@ template <DetectorLayout Det>
   out.particle.assign(n, kNoTrackParticle);
   out.fake.assign(n, 0U);
   out.flags.assign(n, 0U);
-  o2::gtrk::detail::parallelFor(*event.arena, 0U, n, 256, [&](std::size_t begin, std::size_t end) {
-    for (std::size_t t = begin; t < end; ++t) {
+  o2::gtrk::detail::parallelFor(*event.arena, 0U, n, 256, [&](std::uint32_t begin, std::uint32_t end) {
+    for (std::uint32_t t = begin; t < end; ++t) {
       const auto rows = store.rows(t);
       const auto good = goodParticle(event.rows, rows);
       out.particle[t] = good != kNoTrackParticle ? good : majorityParticle(event.rows, rows).particle;
@@ -373,7 +373,7 @@ template <DetectorLayout Det>
     }
   });
   ChainSelection primaries;
-  primaries.origins = 1U << static_cast<unsigned>(ParticleOrigin::kPhysicalPrimary);
+  primaries.origins = 1U << static_cast<std::uint32_t>(ParticleOrigin::kPhysicalPrimary);
   ChainCounts unusedCounts;
   const auto chains = trackChains(event, store, primaries, unusedCounts);
   const auto vertices = mockPrimaryVertices(event, std::span<const Chain>{chains});
@@ -449,11 +449,11 @@ class PrimaryVertexStudy
     const std::array<float*, 3> d{&record.dX, &record.dY, &record.dZ};
     const std::array<float*, 3> sigma{&record.sX, &record.sY, &record.sZ};
     const std::array<double, 3> truthPoint{record.mcX, record.mcY, record.mcZ};
-    for (int k = 0; k < 3; ++k) {
+    for (std::uint32_t k = 0; k < 3; ++k) {
       *d[k] = static_cast<float>(1e4 * (fit.vertex[k] - truthPoint[k]));
-      *sigma[k] = static_cast<float>(1e4 * std::sqrt(fit.covariance[covIndex(k, k)]));
+      *sigma[k] = static_cast<float>(1e4 * std::sqrt(fit.covariance[decay_fit_detail::packedIndex(k, k)]));
     }
-    const auto rho = [&](int a, int b) { return static_cast<float>(fit.covariance[covIndex(a, b)] / std::sqrt(fit.covariance[covIndex(a, a)] * fit.covariance[covIndex(b, b)])); };
+    const auto rho = [&](std::uint32_t a, std::uint32_t b) { return static_cast<float>(fit.covariance[decay_fit_detail::packedIndex(a, b)] / std::sqrt(fit.covariance[decay_fit_detail::packedIndex(a, a)] * fit.covariance[decay_fit_detail::packedIndex(b, b)])); };
     record.rhoXY = rho(0, 1);
     record.rhoXZ = rho(0, 2);
     record.rhoYZ = rho(1, 2);
@@ -465,8 +465,8 @@ class PrimaryVertexStudy
   }
 
   RecordWriter* mWriter = nullptr;
-  std::size_t mCollisions = 0U;
-  std::size_t mFitted = 0U;
+  std::uint64_t mCollisions = 0U;
+  std::uint64_t mFitted = 0U;
 };
 
 } // namespace o2::gtrk::study

@@ -123,9 +123,9 @@ class SpeciesLikelihoodStudy
 
  private:
   RecordWriter* mWriter = nullptr;
-  std::size_t mChains = 0U;
-  std::size_t mRecords = 0U;
-  std::size_t mFailed = 0U;
+  std::uint64_t mChains = 0U;
+  std::uint64_t mRecords = 0U;
+  std::uint64_t mFailed = 0U;
 };
 
 template <DetectorLayout Det>
@@ -140,7 +140,7 @@ void SpeciesLikelihoodStudy<Det>::process(const TruthEvent<Det>& event, std::spa
       const auto& chain = chains[c];
       const auto& truth = event.particles->at(chain.particle);
       const auto identity = identityOf(chain, event.timeframe, source);
-      const auto count = static_cast<int>(chain.rows.size());
+      const auto count = static_cast<std::int32_t>(chain.rows.size());
       SpeciesLikelihoodRecord base{
         .timeframe = identity.timeframe,
         .source = identity.source,
@@ -171,7 +171,7 @@ void SpeciesLikelihoodStudy<Det>::process(const TruthEvent<Det>& event, std::spa
       }
       const RowChain<Det> rows{.frame = &frame, .rows = chain.rows.data()};
       auto& out = records[c];
-      for (int s = 0; s < kNSpecies; ++s) {
+      for (std::int32_t s = 0; s < kNSpecies; ++s) {
         const auto species = static_cast<Species>(s);
         auto prop = event.propagator;
         prop.setSpecies(species);

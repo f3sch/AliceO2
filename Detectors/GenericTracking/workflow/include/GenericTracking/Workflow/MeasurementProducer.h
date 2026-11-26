@@ -148,7 +148,7 @@ class MeasurementProducerTask : public o2::framework::Task
       mGrid.emplace(makeGridGeometry<Det>(recoParam<Det>(), mBeamLine, mFrames, mConditions->orbitsPerTimeframe(), *material));
       std::string cells;
       std::string frames;
-      for (std::size_t layer = 0; layer < GridGeometry<Det>::kLayerCount; ++layer) {
+      for (std::uint32_t layer = 0; layer < GridGeometry<Det>::kLayerCount; ++layer) {
         const auto& axes = mGrid->axes(static_cast<LayerID>(layer));
         cells += std::format("{}{}x{}", layer == 0U ? "" : " ", axes.nPhi, axes.nSecond);
         frames += std::format("{}{}@{}", layer == 0U ? "" : " ", mFrames[layer].lengthBC, mFrames[layer].firstStartBC);
@@ -185,8 +185,8 @@ class MeasurementProducerTask : public o2::framework::Task
         }
       }
     }
-    const std::size_t n = selected ? kept.size() : clusters.size();
-    const auto clusterOf = [&](std::size_t row) { return selected ? kept[row] : static_cast<std::uint32_t>(row); };
+    const auto n = static_cast<std::uint32_t>(selected ? kept.size() : clusters.size());
+    const auto clusterOf = [&](std::uint32_t row) { return selected ? kept[row] : row; };
     const auto& param = recoParam<Det>();
     const auto& grid = *mGrid;
     const auto systematic2 = static_cast<Scalar>(param.clusterSystematicSigmaCM * param.clusterSystematicSigmaCM);
@@ -194,7 +194,7 @@ class MeasurementProducerTask : public o2::framework::Task
     const auto start = std::chrono::steady_clock::now();
     const std::int64_t durationPS = timeframeDurationPS(mConditions->orbitsPerTimeframe());
 
-    auto offsets = pc.outputs().make<std::uint32_t>(o2::framework::Output{gDataOrigin, description<Det>(kMeasurements), kColGridOffsets}, static_cast<std::size_t>(grid.bucketCount()) + 1U);
+    auto offsets = pc.outputs().make<std::uint32_t>(o2::framework::Output{gDataOrigin, description<Det>(kMeasurements), kColGridOffsets}, grid.bucketCount() + 1U);
     MeasurementGridBuilder builder{std::span<std::uint32_t>{offsets.data(), offsets.size()}};
 
     std::vector<std::uint32_t> buckets(n);
@@ -207,10 +207,10 @@ class MeasurementProducerTask : public o2::framework::Task
     std::vector<ClusterShapeBand::Interval> slopes(band != nullptr ? n : 0U);
     // Each layer's rows' column and row spans, for the shares the follow's
     // last-row trim reads (ShapeShares.h).
-    constexpr std::size_t kSpans = ShapeShares<Det>::kSpans;
+    constexpr auto kSpans = ShapeShares<Det>::kSpans;
     std::vector<std::uint32_t> columnSpans(Detector<Det>::nLayers * kSpans, 0U);
     std::vector<std::uint32_t> rowSpans(Detector<Det>::nLayers * kSpans, 0U);
-    for (std::size_t i = 0; i < n; ++i) {
+    for (std::uint32_t i = 0; i < n; ++i) {
       const auto& cluster = clusters[clusterOf(i)];
       // The tracking takes every measurement as a point with a positive
       // covariance: none of its steps tests for one that is not.
@@ -241,19 +241,19 @@ class MeasurementProducerTask : public o2::framework::Task
       }
       buckets[i] = grid.bucketAt(point.layer, boxes[i].start, point.phi, point.second);
       positions[i] = {point.x, point.y, point.z, point.r, point.phi, variances.z, variances.r, variances.rPhi};
-      bounds.add(static_cast<std::size_t>(point.layer), grid.frames(point.layer), boxes[i], positions[i][5], positions[i][6], positions[i][7], varLoc0, varLoc1);
+      bounds.add(point.layer, grid.frames(point.layer), boxes[i], positions[i][5], positions[i][6], positions[i][7], varLoc0, varLoc1);
       if (band != nullptr) {
-        slopes[i] = band->interval(static_cast<std::size_t>(ShapeBandLayers<Det>::layer(point.layer)), cluster.rowSpan, cluster.colSpan);
+        slopes[i] = band->interval(ShapeBandLayers<Det>::layer(point.layer), cluster.rowSpan, cluster.colSpan);
       }
-      ++columnSpans[(static_cast<std::size_t>(point.layer) * kSpans) + std::min<std::size_t>(cluster.colSpan, kSpans - 1U)];
-      ++rowSpans[(static_cast<std::size_t>(point.layer) * kSpans) + std::min<std::size_t>(cluster.rowSpan, kSpans - 1U)];
+      ++columnSpans[(std::uint32_t{point.layer} * kSpans) + std::min<std::uint32_t>(cluster.colSpan, kSpans - 1U)];
+      ++rowSpans[(std::uint32_t{point.layer} * kSpans) + std::min<std::uint32_t>(cluster.rowSpan, kSpans - 1U)];
       builder.count(buckets[i]);
     }
     builder.prefixSum();
 
     auto columns = makeMeasurementColumns<gsl::span>([&]<class T>(std::type_identity<T>, MeasurementColumn column) { return pc.outputs().make<T>(o2::framework::Output{gDataOrigin, description<Det>(kMeasurements), static_cast<std::uint32_t>(column)}, n); });
 
-    for (std::size_t i = 0; i < n; ++i) {
+    for (std::uint32_t i = 0; i < n; ++i) {
       const auto& cluster = clusters[clusterOf(i)];
       const auto at = builder.place(buckets[i]);
       const auto slope = band != nullptr ? slopes[i] : ClusterShapeBand::kEvery;
@@ -282,13 +282,13 @@ class MeasurementProducerTask : public o2::framework::Task
                        });
     }
     builder.finish();
-    auto shipped = std::make_unique<MeasurementGeometry<Det>>(MeasurementGeometry<Det>{.beamLine = mBeamLine, .grid = grid, .bounds = bounds});
+    auto shipped = std::make_unique<MeasurementGeometry<Det>>(MeasurementGeometry<Det>{.beamLine = mBeamLine, .grid = grid, .bounds = bounds, .shapes = {}});
     fillOwnShares<Det>(band, shipped->shapes);
     fillChanceShares<Det>(columnSpans, rowSpans, shipped->shapes);
     pc.outputs().snapshot(o2::framework::Output{gDataOrigin, description<Det>(kMeasurementGeometry), 0}, *shipped);
 
     const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - start;
-    const auto payloadBytes = n * kMeasurementRowBytes + offsets.size() * sizeof(std::uint32_t);
+    const auto payloadBytes = std::size_t{n} * kMeasurementRowBytes + offsets.size() * sizeof(std::uint32_t);
     LOGP(info,
          "{} measurements in {} blocks and {} buckets over {} layers, {} columns, "
          "{} MB, {:.3f} s, about the beam line {}",

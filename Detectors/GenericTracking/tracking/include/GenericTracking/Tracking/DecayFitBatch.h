@@ -56,7 +56,7 @@ struct DecayFitInput {
 /// the batch's row arrays, each array's own share kept, so a mother whose
 /// arrays differ in length reaches the fit's input check as it was given.
 struct DecayMotherRows {
-  int vertex = 0;
+  std::int32_t vertex = 0;
   Propagator propagator;
   std::uint32_t firstRow = 0U;
   std::uint32_t rows = 0U; ///< planes
@@ -132,7 +132,7 @@ class DecayFitBatch
     }
   }
 
-  [[nodiscard]] std::size_t size() const noexcept { return mDecays.size(); }
+  [[nodiscard]] std::uint32_t size() const noexcept { return static_cast<std::uint32_t>(mDecays.size()); }
   [[nodiscard]] bool empty() const noexcept { return mDecays.empty(); }
   void clear() noexcept
   {

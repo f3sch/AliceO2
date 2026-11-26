@@ -20,6 +20,7 @@
 
 #include "GPUCommonMath.h"
 
+#include <cstdint>
 #include <type_traits>
 
 namespace o2::gtrk
@@ -119,7 +120,7 @@ GPUhdi() EnergyLoss energyLoss(Scalar qOverP, Scalar massGeV, Scalar absCharge, 
   }
   constexpr Scalar kMinMomentum = 0.01F;          // O2's kMinP
   constexpr Scalar kStepsPerKineticEnergy = 40.F; // O2's ELoss2EKinThreshInv
-  constexpr int kMaxSteps = 50;                   // O2's MaxELossIter
+  constexpr std::int32_t kMaxSteps = 50;          // O2's MaxELossIter
   xRho *= absCharge * absCharge;                  // the loss goes with z^2
   const Scalar mass2 = massGeV * massGeV;
   const Scalar massInv = 1.F / massGeV;
@@ -128,7 +129,7 @@ GPUhdi() EnergyLoss energyLoss(Scalar qOverP, Scalar massGeV, Scalar absCharge, 
   Scalar p = p0;
   Scalar e = e0;
   Scalar dE = betheBlochSolid(p * massInv) * xRho;
-  int steps = 1 + static_cast<int>(o2::gpu::GPUCommonMath::Abs(dE) / (e - massGeV) * kStepsPerKineticEnergy);
+  std::int32_t steps = 1 + static_cast<std::int32_t>(o2::gpu::GPUCommonMath::Abs(dE) / (e - massGeV) * kStepsPerKineticEnergy);
   steps = steps > kMaxSteps ? kMaxSteps : steps;
   if (steps > 1) {
     dE /= static_cast<Scalar>(steps);

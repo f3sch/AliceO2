@@ -77,9 +77,9 @@ template <std::size_t K>
 }
 
 template <std::size_t K>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() int compareKeys(const ClusterList<K>& lhs, const ClusterList<K>& rhs)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() std::int32_t compareKeys(const ClusterList<K>& lhs, const ClusterList<K>& rhs)
 {
-  for (std::size_t i = 0; i < K; ++i) {
+  for (std::uint32_t i = 0; i < K; ++i) {
     if (lhs.index[i] != rhs.index[i]) {
       return lhs.index[i] < rhs.index[i] ? -1 : 1;
     }
@@ -88,7 +88,7 @@ template <std::size_t K>
 }
 
 /// The width of `qualityKey` in bits.
-inline constexpr int kQualityKeyBits = 48;
+inline constexpr std::int32_t kQualityKeyBits = 48;
 
 /// The quality order's key: clusters descending, kinks ascending, chi2
 /// ascending, over `kQualityKeyBits` bits; the cluster set breaks ties. The fits refuse a
@@ -277,8 +277,8 @@ class GlobalSelection
   [[nodiscard]] StageStatus append(const Records& records, const ForEach& forEach)
   {
     return guardOutOfMemory([&] {
-      const std::size_t begin = mRecords.size();
-      const std::size_t count = records.size();
+      const Index begin = mRecords.size();
+      const Index count = records.size();
       mRecords.resize(begin + count);
       copyRows(records.view(), begin, count, forEach);
       return StageStatus::kComplete;
@@ -292,8 +292,8 @@ class GlobalSelection
   [[nodiscard]] StageStatus append(const GlobalSelection& other, const ForEach& forEach)
   {
     return guardOutOfMemory([&] {
-      const std::size_t begin = mRecords.size();
-      const std::size_t count = other.mRecords.size();
+      const Index begin = mRecords.size();
+      const Index count = other.mRecords.size();
       mRecords.resize(begin + count);
       copyRows(other.mRecords.view(), begin, count, forEach);
       return StageStatus::kComplete;
@@ -312,7 +312,7 @@ class GlobalSelection
     using profile::Phase;
     return guardOutOfMemory([&] {
       const auto records = mRecords.view();
-      const auto total = static_cast<Index>(mRecords.size());
+      const auto total = mRecords.size();
       mDuplicates = 0U;
       mMismatches = 0U;
 
@@ -333,7 +333,7 @@ class GlobalSelection
         // A total order -- the tie-break is the record index -- so the sorted
         // result is unique and a parallel unstable sort gives the serial one's.
         sort(std::span<Index>{mOrder}, [&](Index lhs, Index rhs) {
-          const int order = selection::compareKeys(mKeys[lhs], mKeys[rhs]);
+          const std::int32_t order = selection::compareKeys(mKeys[lhs], mKeys[rhs]);
           if (order != 0) {
             return order < 0;
           }
@@ -446,7 +446,7 @@ class GlobalSelection
 
   /// The records appended this iteration.
   [[nodiscard]] typename BoundedColumns<SelectionRecordOf<K>::template RecordT>::ConstView records() const { return mRecords.view(); }
-  [[nodiscard]] Index recordCount() const { return static_cast<Index>(mRecords.size()); }
+  [[nodiscard]] Index recordCount() const { return mRecords.size(); }
   /// The accepted records, as indices into records(), best first.
   [[nodiscard]] std::span<const Index> selected() const { return mSelected; }
   /// The deduplicated records, best first: the order the selection follows.
@@ -462,10 +462,10 @@ class GlobalSelection
   /// The \a count rows of \a from to rows \a begin on, every column of the
   /// record, whatever it holds, the rows in \a forEach's chunks.
   template <typename View, typename ForEach>
-  void copyRows(const View& from, std::size_t begin, std::size_t count, const ForEach& forEach)
+  void copyRows(const View& from, Index begin, Index count, const ForEach& forEach)
   {
     const auto to = mRecords.view();
-    forEach(static_cast<Index>(count), [&](Index row) { from.apply([&](const auto*... source) { to.apply([&](auto*... target) { ((target[begin + row] = source[row]), ...); }); }); });
+    forEach(count, [&](Index row) { from.apply([&](const auto*... source) { to.apply([&](auto*... target) { ((target[begin + row] = source[row]), ...); }); }); });
   }
 
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;

@@ -57,11 +57,11 @@ volatile Scalar gSink = 0.F;
 /// The shortest of \a repeat runs of \a body, in seconds; \a body returns a
 /// value that depends on all its work.
 template <typename Body>
-double shortest(unsigned repeat, const Body& body)
+double shortest(std::uint32_t repeat, const Body& body)
 {
   double best = std::numeric_limits<double>::infinity();
   Scalar sink = 0.F;
-  for (unsigned run = 0; run < repeat; ++run) {
+  for (std::uint32_t run = 0; run < repeat; ++run) {
     const auto start = std::chrono::steady_clock::now();
     sink += body();
     best = std::min(best, std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
@@ -93,17 +93,17 @@ void addResult(Digest& digest, bool fitted, const TripletFitResult& result)
 
 double perCall(double seconds, std::size_t calls) { return calls == 0U ? 0. : seconds * 1.e9 / static_cast<double>(calls); }
 
-void benchTriplets(const std::vector<TripletFitInput>& inputs, unsigned repeat)
+void benchTriplets(const std::vector<TripletFitInput>& inputs, std::uint32_t repeat)
 {
   Digest digest;
-  std::size_t same = 0U;
-  std::size_t passed = 0U;
+  std::uint32_t same = 0U;
+  std::uint32_t passed = 0U;
   for (const auto& input : inputs) {
     TripletFitResult result;
     const bool fitted = fitTripletInput(input, result);
     addResult(digest, fitted, result);
-    same += static_cast<std::size_t>(fitted && sameBits<Scalar>(result.curvature, input.curvature) && sameBits<Scalar>(result.varCurvature, input.varCurvature));
-    passed += static_cast<std::size_t>(fitted && result.chi2 <= input.chi2Max);
+    same += static_cast<std::uint32_t>(fitted && sameBits<Scalar>(result.curvature, input.curvature) && sameBits<Scalar>(result.varCurvature, input.varCurvature));
+    passed += static_cast<std::uint32_t>(fitted && result.chi2 <= input.chi2Max);
   }
 
   const double fit = shortest(repeat, [&] {
@@ -130,15 +130,15 @@ void benchTriplets(const std::vector<TripletFitInput>& inputs, unsigned repeat)
   std::cout << std::format("  digest {:016x}; the stage's curvature and variance {}/{}, within the chi2 bound {}/{}\n", digest.result(), same, inputs.size(), passed, inputs.size());
 }
 
-void benchNeighbours(const std::vector<NeighbourFitInput>& inputs, unsigned repeat)
+void benchNeighbours(const std::vector<NeighbourFitInput>& inputs, std::uint32_t repeat)
 {
   Digest digest;
-  std::size_t passed = 0U;
+  std::uint32_t passed = 0U;
   for (const auto& input : inputs) {
     TripletFitResult result;
     const bool fitted = fitNeighbourInput(input, result);
     addResult(digest, fitted, result);
-    passed += static_cast<std::size_t>(fitted && result.chi2 <= input.chi2Max);
+    passed += static_cast<std::uint32_t>(fitted && result.chi2 <= input.chi2Max);
   }
 
   const double fit = shortest(repeat, [&] {
@@ -186,10 +186,10 @@ void benchNeighbours(const std::vector<NeighbourFitInput>& inputs, unsigned repe
   std::cout << std::format("  digest {:016x}, from the stored terms {:016x}; within the chi2 bound {}/{}\n", digest.result(), storedDigest.result(), passed, inputs.size());
 }
 
-int run(int argc, char** argv)
+std::int32_t run(std::int32_t argc, char** argv)
 {
   std::string input;
-  unsigned repeat = 5U;
+  std::uint32_t repeat = 5U;
   std::string which;
   bpo::options_description description("Run the triplet and the adjacent-triplet fit alone");
   description.add_options()                                                                                     //

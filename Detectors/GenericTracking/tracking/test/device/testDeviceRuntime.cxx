@@ -52,19 +52,19 @@ BOOST_AUTO_TEST_CASE(TrigGivesTheHostsBitsInTheDeterministicBuild)
   std::uniform_real_distribution<double> unit{-1., 1.};
   std::uniform_real_distribution<double> turnCosine{-0.2, 1.};
   std::uniform_real_distribution<double> wide{-60., 60.};
-  for (int i = 0; i < 400'000; ++i) {
+  for (std::int32_t i = 0; i < 400'000; ++i) {
     ys.push_back(unit(generator));
     xs.push_back(turnCosine(generator));
   }
-  for (int i = 0; i < 400'000; ++i) {
+  for (std::int32_t i = 0; i < 400'000; ++i) {
     ys.push_back(wide(generator));
     xs.push_back(wide(generator));
   }
   // Multiples of pi/2 and the next two doubles above each, where sin and cos
   // reduce with most cancellation; not above zero, where they are subnormal.
-  for (int n = -200; n <= 200; ++n) {
+  for (std::int32_t n = -200; n <= 200; ++n) {
     double y = n * (kPi<double> / 2.);
-    for (int step = 0; step < (n == 0 ? 1 : 3); ++step) {
+    for (std::int32_t step = 0; step < (n == 0 ? 1 : 3); ++step) {
       ys.push_back(y);
       xs.push_back(-y);
       y = std::nextafter(y, std::numeric_limits<double>::infinity());
@@ -102,8 +102,8 @@ BOOST_AUTO_TEST_CASE(TrigGivesTheHostsBitsInTheDeterministicBuild)
 
   constexpr std::size_t kFunctions = 15U;
   constexpr std::array<const char*, kFunctions> kNames{"sin", "cos", "sincos.sin", "sincos.cos", "asin", "atan", "atan2", "sinf", "cosf", "sincosf.sin", "sincosf.cos", "asinf", "atanf", "atan2f", "logf"};
-  std::array<std::size_t, kFunctions> differ{};
-  const auto compare = [&](std::size_t function, auto host, auto onDevice) {
+  std::array<std::uint32_t, kFunctions> differ{};
+  const auto compare = [&](std::uint32_t function, auto host, auto onDevice) {
     differ[function] += sameBits(host, onDevice) ? 0U : 1U;
   };
   for (std::uint32_t i = 0; i < count; ++i) {
@@ -125,7 +125,7 @@ BOOST_AUTO_TEST_CASE(TrigGivesTheHostsBitsInTheDeterministicBuild)
     compare(13U, host.atan2F, onDevice.atan2F);
     compare(14U, host.logF, onDevice.logF);
   }
-  for (std::size_t function = 0; function < kFunctions; ++function) {
+  for (std::uint32_t function = 0; function < kFunctions; ++function) {
     BOOST_TEST_MESSAGE(kNames[function] << ": " << differ[function] << " of " << count << " differ from the host");
 #ifdef GPUCA_DETERMINISTIC_MODE
     BOOST_TEST(differ[function] == 0U, kNames[function] << " differs from the host in " << differ[function] << " of " << count);
@@ -146,8 +146,9 @@ BOOST_AUTO_TEST_CASE(LaneGroupsAgreeWhateverTheOtherGroupsOfTheWarpDo)
   for (std::uint32_t lanes = 2U; std::cmp_less_equal(lanes, device.runtime->properties().warpSize); lanes *= 2U) {
     std::vector<std::uint64_t> folded;
     BOOST_REQUIRE(kernels().laneGroups(*device.runtime, device.stream, *device.arena, lanes, kItems, folded) == StageStatus::kComplete);
-    BOOST_REQUIRE(folded.size() == std::size_t{2U} * kItems * lanes);
-    std::size_t mismatches = 0U;
+    const std::uint32_t words = 2U * kItems * lanes;
+    BOOST_REQUIRE(folded.size() == words);
+    std::uint32_t mismatches = 0U;
     for (std::uint32_t item = 0U; item < kItems; ++item) {
       for (std::uint32_t lane = 0U; lane < lanes; ++lane) {
         std::array<std::uint64_t, 2> expected{};
@@ -168,7 +169,7 @@ BOOST_AUTO_TEST_CASE(LaneGroupsAgreeWhateverTheOtherGroupsOfTheWarpDo)
             expected[1] += innerValue(innerSource(inner, trip, lanes), inner);
           }
         }
-        const std::size_t at = 2U * ((std::size_t{item} * lanes) + lane);
+        const std::uint32_t at = 2U * ((item * lanes) + lane);
         mismatches += folded[at] != expected[0] || folded[at + 1U] != expected[1] ? 1U : 0U;
       }
     }
@@ -188,9 +189,9 @@ BOOST_AUTO_TEST_CASE(DevicePropagationClosesWithinOneMicron)
   std::uniform_real_distribution<double> unit{0., 1.};
   const auto sample = [&](double low, double high) { return low + (high - low) * unit(random); };
   std::vector<PropagationProbe> probes;
-  constexpr int kTrials = 1000000;
+  constexpr std::int32_t kTrials = 1000000;
   probes.reserve(kTrials);
-  for (int trial = 0; trial < kTrials; ++trial) {
+  for (std::int32_t trial = 0; trial < kTrials; ++trial) {
     const double phi = sample(-kPi<double>, kPi<double>);
     const double theta = sample(0.01, kPi<double> - 0.01);
     const double pt = std::exp(sample(std::log(0.03), std::log(10000.)));

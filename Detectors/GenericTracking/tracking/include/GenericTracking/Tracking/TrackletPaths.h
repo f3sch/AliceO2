@@ -104,14 +104,14 @@ GPUhdi() GPUAlwaysInline() std::uint32_t measurementPathSuffix(const TrackletPat
 /// a smaller depth, so a sweep's invariant -- a layer's predecessors final
 /// before it -- holds depth by depth, forward or back.
 template <DetectorLayout Det, typename ForEach, typename Begin, typename End, typename Body>
-void forEachOfDepth(const ForEach& forEach, std::size_t group, const Begin& rangeBegin, const End& rangeEnd, const Body& body)
+void forEachOfDepth(const ForEach& forEach, std::uint32_t group, const Begin& rangeBegin, const End& rangeEnd, const Body& body)
 {
   using Index = StageOutput<TrackletT>::Index;
   constexpr auto groups = layerDepthGroups<Det>;
   std::array<LayerID, LayerDepthGroups<Det>::kLayers> layers{};
   std::array<Index, LayerDepthGroups<Det>::kLayers> bases{};
   std::array<Index, LayerDepthGroups<Det>::kLayers + 1U> starts{};
-  std::size_t count = 0U;
+  std::uint32_t count = 0U;
   for (auto at = groups.groups[group]; at < groups.groups[group + 1U]; ++at) {
     layers[count] = groups.order[at];
     bases[count] = rangeBegin(layers[count]);
@@ -119,7 +119,7 @@ void forEachOfDepth(const ForEach& forEach, std::size_t group, const Begin& rang
     ++count;
   }
   forEach(starts[count], [&](Index index) {
-    std::size_t i = 0U;
+    std::uint32_t i = 0U;
     while (index >= starts[i + 1U]) {
       ++i;
     }
@@ -154,7 +154,7 @@ class TrackletPaths
     // the prefix's floor of one measurement.
     resizeBoundedVector(mPrefix, sources.size());
     resizeBoundedVector(mSuffix, sources.size());
-    forEach(static_cast<Index>(sources.size()), [&](Index element) { mPrefix[element] = std::uint8_t{1U}; });
+    forEach(sources.size(), [&](Index element) { mPrefix[element] = std::uint8_t{1U}; });
     mMinClusters = parameters.minClusters;
     const auto view = tracklets.view();
     const auto offsets = tracklets.offsets();
@@ -162,7 +162,7 @@ class TrackletPaths
     constexpr auto groups = layerDepthGroups<Det>;
     const auto elementBegin = [&](LayerID layer) { return static_cast<Index>(sources.offsets[layer]); };
     const auto elementEnd = [&](LayerID layer) { return static_cast<Index>(sources.offsets[layer] + sources.ranges[layer].size()); };
-    for (std::size_t group = 0U; group < groups.count; ++group) {
+    for (std::uint32_t group = 0U; group < groups.count; ++group) {
       forEachOfDepth<Det>(forEach, group, elementBegin, elementEnd, [&](LayerID /*layer*/, Index element) { raiseTargetPrefixes(parameters, sources, view, offsets.data(), element, mPrefix.data()); });
     }
     const TrackletPathBounds partial{.prefix = mPrefix.data(), .suffix = mSuffix.data(), .minClusters = mMinClusters};

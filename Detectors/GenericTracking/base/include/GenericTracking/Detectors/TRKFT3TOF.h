@@ -70,7 +70,7 @@ inline constexpr SensorSpec kTOFChip{.shape = ShapeType::kRectangle, .halfX = 0.
 /// the TOF.
 inline constexpr std::uint64_t kOverlapLayers = [] {
   std::uint64_t layers = 0U;
-  for (int layer = 0; layer < 64; ++layer) {
+  for (std::int32_t layer = 0; layer < 64; ++layer) {
     if (((TRKFT3::overlapLayers >> layer) & 1U) != 0U) {
       layers |= std::uint64_t{1} << fromTRKFT3(static_cast<LayerID>(layer));
     }
@@ -94,7 +94,7 @@ struct TRKFT3TOF {
   /// iTOF's and the oTOF's chips.
   static constexpr std::array<PlacedLayerSpec, 13> barrelLayers = [] {
     std::array<PlacedLayerSpec, 13> layers{};
-    for (std::size_t layer = 0; layer < TRKFT3::barrelLayers.size(); ++layer) {
+    for (std::uint32_t layer = 0; layer < TRKFT3::barrelLayers.size(); ++layer) {
       layers[trkft3tof::fromTRKFT3(static_cast<LayerID>(layer))] = TRKFT3::barrelLayers[layer];
     }
     layers[kInnerTOFLayer] = {.sensorCount = 2352, .sensor = trkft3tof::kTOFChip};
@@ -279,10 +279,10 @@ struct TRKFT3TOF {
     {.from = 23, .to = 24, .sourceMin = 15.18, .sourceMax = 68.29}, // 1.0000
   }};
   // clang-format on
-  static constexpr int nSensors = countSensors(barrelLayers, discLayers);
-  static constexpr int kFirstDiscSensor = TRKFT3::kFirstDiscSensor;
+  static constexpr std::int32_t nSensors = countSensors(barrelLayers, discLayers);
+  static constexpr std::int32_t kFirstDiscSensor = TRKFT3::kFirstDiscSensor;
   /// The first TOF sensor's ID: O2's IOTOF chip 0, after every TRKFT3 chip.
-  static constexpr int kFirstTOFSensor = TRKFT3::nSensors;
+  static constexpr std::int32_t kFirstTOFSensor = TRKFT3::nSensors;
 };
 
 } // namespace o2::gtrk::detectors

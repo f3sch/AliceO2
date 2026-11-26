@@ -100,7 +100,7 @@ class NeighbourStage
     if (!mPaths.onPath(shared, last)) {
       return;
     }
-    const std::size_t secondLink = mTracklets.link[shared];
+    const std::uint32_t secondLink = mTracklets.link[shared];
     const Scalar curvature = mTriplets.curvature[element];
     const Scalar varCurvature = mTriplets.varCurvature[element];
     // A kinked triplet's middle point takes the kink allowance in the adjacent

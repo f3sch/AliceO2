@@ -29,6 +29,7 @@
 #include "AnalyticLayout.h"
 
 #include <array>
+#include <cstdint>
 
 namespace o2::gtrk::detectors
 {
@@ -114,7 +115,7 @@ struct ToyBarrel4Disc8 {
 
   static constexpr auto barrelLayers = placedLayers(barrelSpecs);
   static constexpr auto discLayers = placedLayers(discSpecs);
-  static constexpr int nSensors = countSensors(barrelLayers, discLayers);
+  static constexpr std::int32_t nSensors = countSensors(barrelLayers, discLayers);
 };
 
 inline const bool kToyBarrel4Disc8Published = publishToy<ToyBarrel4Disc8>();

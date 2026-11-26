@@ -94,7 +94,8 @@ class TripletEndIndex
       resizeBoundedVector(mBucketStarts, static_cast<std::size_t>(buckets) + 1U, mMemoryPool.get());
       // 1. Each chunk's triplets per bucket.
       forEach(chunks, [&](Index chunk) {
-        Index* row = mCursors.data() + (static_cast<std::size_t>(chunk) * buckets);
+        const Index first = chunk * buckets;
+        Index* row = mCursors.data() + first;
         std::fill_n(row, buckets, Index{0U});
         const Index end = chunking.end(chunk);
         for (Index triplet = chunking.begin(chunk); triplet < end; ++triplet) {
@@ -107,7 +108,7 @@ class TripletEndIndex
       for (Index bucket = 0U; bucket < buckets; ++bucket) {
         mBucketStarts[bucket] = total;
         for (Index chunk = 0U; chunk < chunks; ++chunk) {
-          Index& cell = mCursors[(static_cast<std::size_t>(chunk) * buckets) + bucket];
+          Index& cell = mCursors[(chunk * buckets) + bucket];
           const Index counted = cell;
           cell = total;
           total += counted;
@@ -117,7 +118,8 @@ class TripletEndIndex
       // 3. Each chunk places its triplets at its cursors, in arena order: a
       // bucket's triplets end in chunk order, so in arena order.
       forEach(chunks, [&](Index chunk) {
-        Index* cursor = mCursors.data() + (static_cast<std::size_t>(chunk) * buckets);
+        const Index first = chunk * buckets;
+        Index* cursor = mCursors.data() + first;
         const Index end = chunking.end(chunk);
         for (Index triplet = chunking.begin(chunk); triplet < end; ++triplet) {
           mByBucket[cursor[view.second[triplet] / kBucketTracklets]++] = triplet;

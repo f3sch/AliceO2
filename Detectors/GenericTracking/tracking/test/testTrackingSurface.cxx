@@ -32,6 +32,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <set>
@@ -52,10 +53,10 @@ BOOST_AUTO_TEST_CASE(PackedCovarianceIndexingIsUnambiguous)
   static_assert(kNBoundParams == 5);
   static_assert(kBoundCovSize == 15);
 
-  std::set<int> seen;
-  for (int i = 0; i < kNBoundParams; ++i) {
-    for (int j = 0; j <= i; ++j) {
-      const int idx = covIndex(i, j);
+  std::set<std::int32_t> seen;
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t j = 0; j <= i; ++j) {
+      const std::int32_t idx = covIndex(i, j);
       BOOST_TEST(idx >= 0);
       BOOST_TEST(idx < kBoundCovSize);
       // Symmetric in its arguments: this is the property that keeps a caller
@@ -96,7 +97,7 @@ BOOST_AUTO_TEST_CASE(SurfaceAgreesWithTheGeometryItWasBuiltFrom)
         Scalar got[3] = {};
         surfaceToGlobal(s, static_cast<Scalar>(loc0), static_cast<Scalar>(loc1), got);
 
-        for (int k = 0; k < 3; ++k) {
+        for (std::int32_t k = 0; k < 3; ++k) {
           BOOST_TEST(std::abs(static_cast<double>(got[k]) - expected[k]) < kMaxPosError);
         }
 
@@ -123,8 +124,8 @@ BOOST_AUTO_TEST_CASE(AxesAreOrthonormalAndRightHanded)
     const TrackingSurface& s = tgeo.surface(id);
     const Scalar* ax[3] = {s.axis0, s.axis1, s.normal};
 
-    for (int i = 0; i < 3; ++i) {
-      for (int j = 0; j < 3; ++j) {
+    for (std::int32_t i = 0; i < 3; ++i) {
+      for (std::int32_t j = 0; j < 3; ++j) {
         const Scalar dot = ax[i][0] * ax[j][0] + ax[i][1] * ax[j][1] + ax[i][2] * ax[j][2];
         BOOST_TEST(std::abs(dot - (i == j ? 1.F : 0.F)) < 1e-5F);
       }
@@ -152,8 +153,8 @@ BOOST_AUTO_TEST_CASE(NormalsFallIntoTheTwoFamiliesTheClosedFormIntersectionNeeds
   const auto tgeoOwner = std::make_unique<const TrackingGeometry<Mixed>>(geo);
   const TrackingGeometry<Mixed>& tgeo = *tgeoOwner;
 
-  int barrel = 0;
-  int disc = 0;
+  std::int32_t barrel = 0;
+  std::int32_t disc = 0;
   for (SensorID id = 0; id < static_cast<SensorID>(Mixed::nSensors); ++id) {
     const TrackingSurface& s = tgeo.surface(id);
     if (s.layer < Detector<Mixed>::nBarrelLayers) {

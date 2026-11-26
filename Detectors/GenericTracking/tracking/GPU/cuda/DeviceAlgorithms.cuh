@@ -91,9 +91,9 @@ GPUg() void GTRK_KERNEL_BOUNDS flagIndicesKernel(Predicate predicate, std::uint3
 }
 
 /// CUB's and hipCUB's item counts are ints.
-inline void requireItems(std::size_t items)
+inline void requireItems(std::uint32_t items)
 {
-  if (items > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+  if (items > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max())) {
     throw std::length_error("a device algorithm's item count exceeds INT_MAX");
   }
 }
@@ -140,7 +140,7 @@ struct Gather {
 };
 
 /// The bits a radix sort needs for keys up to and including \a largest.
-[[nodiscard]] inline int keyBits(std::uint32_t largest) { return std::max(1, static_cast<int>(std::bit_width(largest))); }
+[[nodiscard]] inline std::int32_t keyBits(std::uint32_t largest) { return std::max(1, static_cast<std::int32_t>(std::bit_width(largest))); }
 
 namespace detail
 {
@@ -186,7 +186,7 @@ template <typename Predicate>
   const auto shape = launchFor(count);
   detail::flagIndicesKernel<<<shape.blocks, shape.threads, 0U, native>>>(predicate, count, indices.data(), flags.data());
   checkLaunch();
-  const auto flagged = detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceSelect::Flagged(temporary, bytes, indices.data(), flags.data(), output.data(), selectedCount.data(), static_cast<int>(count), native); });
+  const auto flagged = detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceSelect::Flagged(temporary, bytes, indices.data(), flags.data(), output.data(), selectedCount.data(), static_cast<std::int32_t>(count), native); });
   if (flagged != StageStatus::kComplete) {
     return flagged;
   }
@@ -198,7 +198,7 @@ template <typename Predicate>
 /// `output[i]` = the sum of `input[0..i)`, over \a items entries of any
 /// integer type; queued on \a stream, nothing read back.
 template <typename T>
-[[nodiscard]] StageStatus exclusiveScan(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const T* input, T* output, std::size_t items)
+[[nodiscard]] StageStatus exclusiveScan(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const T* input, T* output, std::uint32_t items)
 {
   detail::requireItems(items);
   if (items == 0U) {
@@ -206,13 +206,13 @@ template <typename T>
   }
   auto scratch = arena.scope(ArenaEnd::kScratch);
   const auto native = nativeStream(runtime, stream);
-  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceScan::ExclusiveSum(temporary, bytes, input, output, static_cast<int>(items), native); });
+  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceScan::ExclusiveSum(temporary, bytes, input, output, static_cast<std::int32_t>(items), native); });
 }
 
 /// `output[i]` = \a op over `input[0..i]`, over \a items entries; queued on
 /// \a stream, nothing read back.
 template <typename T, typename Op>
-[[nodiscard]] StageStatus inclusiveScan(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const T* input, T* output, std::size_t items, const Op& op)
+[[nodiscard]] StageStatus inclusiveScan(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const T* input, T* output, std::uint32_t items, const Op& op)
 {
   detail::requireItems(items);
   if (items == 0U) {
@@ -220,29 +220,29 @@ template <typename T, typename Op>
   }
   auto scratch = arena.scope(ArenaEnd::kScratch);
   const auto native = nativeStream(runtime, stream);
-  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceScan::InclusiveScan(temporary, bytes, input, output, op, static_cast<int>(items), native); });
+  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceScan::InclusiveScan(temporary, bytes, input, output, op, static_cast<std::int32_t>(items), native); });
 }
 
 /// Sort \a count pairs by \a keys' low \a endBit bits, stably: \a keys into
 /// \a sortedKeys, \a values into \a sortedValues. Queued on \a stream.
 template <typename Key, typename Value>
-[[nodiscard]] StageStatus sortPairs(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const Key* keys, Key* sortedKeys, const Value* values, Value* sortedValues, std::uint32_t count, int endBit)
+[[nodiscard]] StageStatus sortPairs(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const Key* keys, Key* sortedKeys, const Value* values, Value* sortedValues, std::uint32_t count, std::int32_t endBit)
 {
   detail::requireItems(count);
   auto scratch = arena.scope(ArenaEnd::kScratch);
   const auto native = nativeStream(runtime, stream);
-  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceRadixSort::SortPairs(temporary, bytes, keys, sortedKeys, values, sortedValues, static_cast<int>(count), 0, endBit, native); });
+  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceRadixSort::SortPairs(temporary, bytes, keys, sortedKeys, values, sortedValues, static_cast<std::int32_t>(count), 0, endBit, native); });
 }
 
 /// Sort \a count keys by their low \a endBit bits, stably, \a keys into
 /// \a sortedKeys. Queued on \a stream.
 template <typename Key>
-[[nodiscard]] StageStatus sortKeys(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const Key* keys, Key* sortedKeys, std::uint32_t count, int endBit)
+[[nodiscard]] StageStatus sortKeys(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const Key* keys, Key* sortedKeys, std::uint32_t count, std::int32_t endBit)
 {
   detail::requireItems(count);
   auto scratch = arena.scope(ArenaEnd::kScratch);
   const auto native = nativeStream(runtime, stream);
-  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceRadixSort::SortKeys(temporary, bytes, keys, sortedKeys, static_cast<int>(count), 0, endBit, native); });
+  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceRadixSort::SortKeys(temporary, bytes, keys, sortedKeys, static_cast<std::int32_t>(count), 0, endBit, native); });
 }
 
 /// Sort the items of every segment [\a begin[s], \a end[s]) by key, stably,
@@ -259,7 +259,7 @@ template <typename Key, typename Value, typename Offsets>
   }
   auto scratch = arena.scope(ArenaEnd::kScratch);
   const auto native = nativeStream(runtime, stream);
-  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceSegmentedSort::StableSortPairs(temporary, bytes, keys, values, static_cast<int>(items), static_cast<int>(segments), begin, end, native); });
+  return detail::withTemporary(arena, [&](void* temporary, std::size_t& bytes) { return cubapi::DeviceSegmentedSort::StableSortPairs(temporary, bytes, keys, values, static_cast<std::int32_t>(items), static_cast<std::int32_t>(segments), begin, end, native); });
 }
 
 /// What a sweep to a fixed point ended with.

@@ -168,7 +168,7 @@ GPUdi() BeamLinePrediction predictBeamLine(const Propagator& prop, const Iterati
   sincosOf(state.theta(), sinTheta, cosTheta);
   prediction.ok = true;
   prediction.d0 = predicted.loc0();
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     prediction.derivatives[i] = jacobian.loc0[i];
   }
   prediction.scattering = beamScattering(*parameters.material, surface.layer, parameters.beamX, parameters.beamY, predicted.loc1(), innermost, prop.momentum(state.qOverP()), prop.massGeV, prop.absCharge, sinTheta);
@@ -193,22 +193,22 @@ GPUdi() BeamLineUpdate updateWithBeamLine(const IterationParameters<Det>& parame
   // update subtracts u u^T / s from a covariance whose entries span orders of
   // magnitude.
   ExactScalar u[kNBoundParams]{};
-  for (int i = 0; i < kNBoundParams; ++i) {
-    for (int j = 0; j < kNBoundParams; ++j) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t j = 0; j < kNBoundParams; ++j) {
       u[i] += static_cast<ExactScalar>(state.covAt(i, j)) * static_cast<ExactScalar>(prediction.derivatives[j]);
     }
   }
   ExactScalar variance = static_cast<ExactScalar>(parameters.beamVarTransverse) + static_cast<ExactScalar>(scattering);
-  for (int j = 0; j < kNBoundParams; ++j) {
+  for (std::int32_t j = 0; j < kNBoundParams; ++j) {
     variance += static_cast<ExactScalar>(prediction.derivatives[j]) * u[j];
   }
   if (!(variance > 0.)) {
     return result;
   }
   const auto residual = -static_cast<ExactScalar>(prediction.d0);
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     state.par[i] = static_cast<Scalar>(static_cast<ExactScalar>(state.par[i]) + (u[i] * residual / variance));
-    for (int j = 0; j <= i; ++j) {
+    for (std::int32_t j = 0; j <= i; ++j) {
       state.covAt(i, j) = static_cast<Scalar>(static_cast<ExactScalar>(state.covAt(i, j)) - (u[i] * u[j] / variance));
     }
   }

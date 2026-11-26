@@ -36,6 +36,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <random>
@@ -67,16 +68,16 @@ PullMoments moments(std::span<const double> values)
 
 using Toy = detectors::ToyBarrel3;
 
-void collectPulls(int trial, const BoundTrackState& state, const BoundTrackState& truth, std::array<std::vector<double>, kNBoundParams>& pull)
+void collectPulls(std::int32_t trial, const BoundTrackState& state, const BoundTrackState& truth, std::array<std::vector<double>, kNBoundParams>& pull)
 {
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     double diff = static_cast<double>(state.par[i]) - static_cast<double>(truth.par[i]);
     if (i == kPhi) {
       math_utils::detail::bringToPMPi<double>(diff);
     }
     const auto variance = static_cast<double>(state.variance(i));
     BOOST_TEST_CONTEXT("trial " << trial << " parameter " << i << " variance " << variance) { BOOST_REQUIRE(variance > 0.); }
-    pull[static_cast<std::size_t>(i)].push_back(diff / std::sqrt(variance));
+    pull[static_cast<std::uint32_t>(i)].push_back(diff / std::sqrt(variance));
   }
 }
 
@@ -117,7 +118,7 @@ struct SyntheticChain {
     truth[0].par[kQOverP] = 0.5F;
     truth[0].surface = firstSensorOfLayer<Toy>(0);
 
-    for (std::size_t layer = 1; layer < truth.size(); ++layer) {
+    for (std::uint32_t layer = 1; layer < truth.size(); ++layer) {
       truth[layer] = truth[layer - 1];
       const auto& from = tracking->surface(truth[layer - 1].surface);
       const auto toID = firstSensorOfLayer<Toy>(static_cast<LayerID>(layer));
@@ -125,8 +126,8 @@ struct SyntheticChain {
       const auto result = propagate(propagator, truth[layer], from, to, PropagationDirection::kForward);
       BOOST_REQUIRE(result.status == PropagationStatus::kOk);
     }
-    for (std::size_t i = 0; i < measurements.size(); ++i) {
-      measurements[i] = measurementFromState(truth[i], static_cast<std::uint32_t>(100 + i));
+    for (std::uint32_t i = 0; i < measurements.size(); ++i) {
+      measurements[i] = measurementFromState(truth[i], 100U + i);
     }
   }
 };
@@ -228,9 +229,9 @@ BOOST_AUTO_TEST_CASE(IndependentPassesFitTheSameNoiselessChain)
 {
   const SyntheticChain chain;
   const detail::LinkSteps material;
-  const auto fit = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
+  const auto fit = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), static_cast<std::int32_t>(chain.measurements.size()));
 
-  BOOST_TEST(static_cast<int>(fit.status) == static_cast<int>(PropagationStatus::kOk));
+  BOOST_TEST(static_cast<std::int32_t>(fit.status) == static_cast<std::int32_t>(PropagationStatus::kOk));
   BOOST_TEST(fit.ndf == 1);
   BOOST_TEST(fit.outwardState.surface == chain.truth[2].surface);
   BOOST_TEST(fit.state.surface == chain.truth[0].surface);
@@ -278,7 +279,7 @@ BOOST_AUTO_TEST_CASE(LayerZeroAtShallowIncidenceFitsBothWays)
   BOOST_TEST_REQUIRE(std::abs(incidence) > static_cast<double>(propagator.minAbsCosIncidence));
 
   constexpr std::array<LayerID, 4> kDiscs{8, 9, 10, 11};
-  for (std::size_t i = 0; i < kDiscs.size(); ++i) {
+  for (std::uint32_t i = 0; i < kDiscs.size(); ++i) {
     const auto& from = tracking.surface(truth[i].surface);
     for (SensorID sensor = firstSensorOfLayer<Mixed>(kDiscs[i]); sensor < firstSensorOfLayer<Mixed>(static_cast<LayerID>(kDiscs[i] + 1U)); ++sensor) {
       BoundTrackState probe = truth[i];
@@ -290,19 +291,19 @@ BOOST_AUTO_TEST_CASE(LayerZeroAtShallowIncidenceFitsBothWays)
     BOOST_TEST_REQUIRE(truth[i + 1U].surface != truth[i].surface);
   }
   std::array<Measurement, 5> measurements;
-  for (std::size_t i = 0; i < measurements.size(); ++i) {
-    measurements[i] = measurementFromState(truth[i], static_cast<std::uint32_t>(i));
+  for (std::uint32_t i = 0; i < measurements.size(); ++i) {
+    measurements[i] = measurementFromState(truth[i], i);
   }
 
-  const auto fit = fitMeasurements(propagator, tracking, material, measurements.data(), static_cast<int>(measurements.size()));
-  BOOST_TEST(static_cast<int>(fit.status) == static_cast<int>(PropagationStatus::kOk));
+  const auto fit = fitMeasurements(propagator, tracking, material, measurements.data(), static_cast<std::int32_t>(measurements.size()));
+  BOOST_TEST(static_cast<std::int32_t>(fit.status) == static_cast<std::int32_t>(PropagationStatus::kOk));
   BOOST_TEST(fit.state.surface == start);
   BOOST_TEST(std::abs(fit.state.theta() - truth[0].theta()) < 1e-5F);
 
   const Propagator former{.minAbsCosIncidence = 0.05F};
-  const auto failed = fitMeasurements(former, tracking, material, measurements.data(), static_cast<int>(measurements.size()));
-  BOOST_TEST(static_cast<int>(failed.status) == static_cast<int>(PropagationStatus::kGrazing));
-  BOOST_TEST(static_cast<int>(failed.failedPass) == static_cast<int>(FitPass::kInward));
+  const auto failed = fitMeasurements(former, tracking, material, measurements.data(), static_cast<std::int32_t>(measurements.size()));
+  BOOST_TEST(static_cast<std::int32_t>(failed.status) == static_cast<std::int32_t>(PropagationStatus::kGrazing));
+  BOOST_TEST(static_cast<std::int32_t>(failed.failedPass) == static_cast<std::int32_t>(FitPass::kInward));
   BOOST_TEST(failed.failedMeasurement == 0);
 }
 
@@ -317,7 +318,7 @@ BOOST_AUTO_TEST_CASE(SmearedChainsGiveUnbiasedParametersAndUnitPulls)
   const SyntheticChain chain;
   const detail::LinkSteps material;
 
-  constexpr int kTrials = 3000;
+  constexpr std::int32_t kTrials = 3000;
   const Scalar sigmaLoc = 1.5811388e-3F; // sqrt(2.5e-6) cm
 
   std::mt19937 rng(20260919);
@@ -325,22 +326,22 @@ BOOST_AUTO_TEST_CASE(SmearedChainsGiveUnbiasedParametersAndUnitPulls)
 
   std::array<std::vector<double>, kNBoundParams> pull;
 
-  for (int trial = 0; trial < kTrials; ++trial) {
+  for (std::int32_t trial = 0; trial < kTrials; ++trial) {
     auto smeared = chain.measurements;
     for (auto& m : smeared) {
       m.loc0 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
       m.loc1 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
     }
 
-    const auto fit = fitMeasurements(chain.propagator, *chain.tracking, material, smeared.data(), static_cast<int>(smeared.size()));
+    const auto fit = fitMeasurements(chain.propagator, *chain.tracking, material, smeared.data(), static_cast<std::int32_t>(smeared.size()));
     BOOST_REQUIRE(fit.status == PropagationStatus::kOk);
 
     collectPulls(trial, fit.state, chain.truth[0], pull);
   }
 
   const char* names[kNBoundParams] = {"loc0", "loc1", "phi", "theta", "qOverP"};
-  for (int i = 0; i < kNBoundParams; ++i) {
-    const auto& p = pull[static_cast<std::size_t>(i)];
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    const auto& p = pull[static_cast<std::uint32_t>(i)];
     const auto n = static_cast<double>(p.size());
 
     const auto [meanPull, width] = moments(p);
@@ -415,7 +416,7 @@ struct BarrelChain {
   /// without straggling.
   void generate(Scalar qOverP, Scalar bandX2X0 = 0.F, std::mt19937* rng = nullptr, Scalar bandXRho = 0.F)
   {
-    if (bandX2X0 != mBandX2X0 || bandXRho != mBandXRho) {
+    if (!exactlyEqual(bandX2X0, mBandX2X0) || !exactlyEqual(bandXRho, mBandXRho)) {
       constexpr auto kAll = static_cast<std::size_t>(Detector<Mixed>::nLayers);
       std::array<double, kAll> x{};
       std::array<double, kAll> rho{};
@@ -447,7 +448,7 @@ struct BarrelChain {
     truth[0].surface = firstSensorOfLayer<Mixed>(0);
 
     std::normal_distribution<double> gauss(0., 1.);
-    for (std::size_t layer = 1; layer < truth.size(); ++layer) {
+    for (std::uint32_t layer = 1; layer < truth.size(); ++layer) {
       const auto& from = tracking->surface(truth[layer - 1].surface);
       BoundTrackState outgoing = truth[layer - 1];
       Scalar arrival = 0.F;
@@ -498,8 +499,8 @@ struct BarrelChain {
         test::scatteringKick(truth[layer], arrival, gauss, *rng); // in front of the sensor reached: the direction at its mid-plane
       }
     }
-    for (std::size_t i = 0; i < measurements.size(); ++i) {
-      measurements[i] = measurementFromState(truth[i], static_cast<std::uint32_t>(200 + i));
+    for (std::uint32_t i = 0; i < measurements.size(); ++i) {
+      measurements[i] = measurementFromState(truth[i], 200U + i);
     }
     built = true;
   }
@@ -513,20 +514,20 @@ BOOST_AUTO_TEST_CASE(TheChiSquaredIsSpatialAlone)
   BOOST_REQUIRE(chain.built);
   const detail::LinkSteps material;
 
-  const auto clean = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
+  const auto clean = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), static_cast<std::int32_t>(chain.measurements.size()));
   BOOST_REQUIRE(clean.status == PropagationStatus::kOk);
   BOOST_TEST(clean.ndf == 3);
   BOOST_TEST(std::abs(clean.chi2) < 1e-2F);
 
   auto spatialOutlier = chain.measurements;
   spatialOutlier[1].loc0 += 0.02F; // about thirteen sigma
-  const auto spatial = fitMeasurements(chain.propagator, *chain.tracking, material, spatialOutlier.data(), static_cast<int>(spatialOutlier.size()));
+  const auto spatial = fitMeasurements(chain.propagator, *chain.tracking, material, spatialOutlier.data(), static_cast<std::int32_t>(spatialOutlier.size()));
   BOOST_REQUIRE(spatial.status == PropagationStatus::kOk);
   BOOST_TEST(spatial.chi2 > 10.F);
 
   auto timeOutlier = chain.measurements;
   timeOutlier[2].timePS += 30'000U;
-  const auto timed = fitMeasurements(chain.propagator, *chain.tracking, material, timeOutlier.data(), static_cast<int>(timeOutlier.size()));
+  const auto timed = fitMeasurements(chain.propagator, *chain.tracking, material, timeOutlier.data(), static_cast<std::int32_t>(timeOutlier.size()));
   BOOST_REQUIRE(timed.status == PropagationStatus::kOk);
   BOOST_TEST(timed.chi2 == clean.chi2);
 }
@@ -541,8 +542,8 @@ BOOST_AUTO_TEST_CASE(ChainSeedRecoversTheGeneratingHelix)
     BOOST_TEST_CONTEXT("q/p " << qOverP)
     {
       BOOST_REQUIRE(chain.built);
-      const auto reference = makeChainSeed<Scalar>(chain.propagator, *chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
-      const auto exact = makeChainSeed<ExactScalar>(chain.propagator, *chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
+      const auto reference = makeChainSeed<Scalar>(chain.propagator, *chain.tracking, chain.measurements.data(), static_cast<std::int32_t>(chain.measurements.size()));
+      const auto exact = makeChainSeed<ExactScalar>(chain.propagator, *chain.tracking, chain.measurements.data(), static_cast<std::int32_t>(chain.measurements.size()));
       const auto& truth = chain.truth[0];
       BOOST_TEST(reference.surface == truth.surface);
       BOOST_TEST(std::abs(reference.loc0() - truth.loc0()) < 1e-4F);
@@ -566,8 +567,8 @@ BOOST_AUTO_TEST_CASE(ChainSeedOfAStraightTrackHasNoCurvature)
 {
   const BarrelChain<4> chain(0.F);
   BOOST_REQUIRE(chain.built);
-  const auto reference = makeChainSeed<Scalar>(chain.propagator, *chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
-  const auto exact = makeChainSeed<ExactScalar>(chain.propagator, *chain.tracking, chain.measurements.data(), static_cast<int>(chain.measurements.size()));
+  const auto reference = makeChainSeed<Scalar>(chain.propagator, *chain.tracking, chain.measurements.data(), static_cast<std::int32_t>(chain.measurements.size()));
+  const auto exact = makeChainSeed<ExactScalar>(chain.propagator, *chain.tracking, chain.measurements.data(), static_cast<std::int32_t>(chain.measurements.size()));
   BOOST_TEST(std::isfinite(reference.qOverP()));
   BOOST_TEST(std::abs(reference.qOverP()) < 1e-3F);
   BOOST_TEST(std::abs(reference.phi() - chain.truth[0].phi()) < 1e-5F);
@@ -587,7 +588,7 @@ BOOST_AUTO_TEST_CASE(ZeroFieldFitsAStraightChainAtO2sMomentum)
   BarrelChain<4> chain(0.F);
   BOOST_REQUIRE(chain.built);
   chain.propagator.bzKiloGauss = 0.F;
-  const int n = static_cast<int>(chain.measurements.size());
+  const auto n = static_cast<std::int32_t>(chain.measurements.size());
   const detail::LinkSteps material;
   const auto fit = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), n);
   BOOST_REQUIRE((fit.status == PropagationStatus::kOk));
@@ -633,7 +634,7 @@ BOOST_AUTO_TEST_CASE(LowMomentumChainsFitWithUnitPulls)
   BOOST_REQUIRE(chain.built);
   const detail::LinkSteps material;
 
-  constexpr int kTrials = 1000;
+  constexpr std::int32_t kTrials = 1000;
   const Scalar sigmaLoc = 1.5811388e-3F; // sqrt(2.5e-6) cm
 
   std::mt19937 rng(20260923);
@@ -643,10 +644,10 @@ BOOST_AUTO_TEST_CASE(LowMomentumChainsFitWithUnitPulls)
   double inwardChi2PerDof = 0.;
   double outwardChi2PerDof = 0.;
 
-  for (int trial = 0; trial < kTrials; ++trial) {
+  for (std::int32_t trial = 0; trial < kTrials; ++trial) {
     // A kink can send the track through the 0.5 mm gap between two modules;
     // draw again rather than fit a chain with a missing layer.
-    for (int attempt = 0; attempt < 10; ++attempt) {
+    for (std::int32_t attempt = 0; attempt < 10; ++attempt) {
       chain.generate(kQOverP, kBandX2X0, &rng);
       if (chain.built) {
         break;
@@ -658,8 +659,8 @@ BOOST_AUTO_TEST_CASE(LowMomentumChainsFitWithUnitPulls)
       m.loc0 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
       m.loc1 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
     }
-    const auto fit = fitMeasurements(chain.propagator, *chain.tracking, material, smeared.data(), static_cast<int>(smeared.size()));
-    BOOST_TEST_CONTEXT("trial " << trial << ", propagation status " << static_cast<int>(fit.status)) { BOOST_REQUIRE(fit.status == PropagationStatus::kOk); }
+    const auto fit = fitMeasurements(chain.propagator, *chain.tracking, material, smeared.data(), static_cast<std::int32_t>(smeared.size()));
+    BOOST_TEST_CONTEXT("trial " << trial << ", propagation status " << static_cast<std::int32_t>(fit.status)) { BOOST_REQUIRE(fit.status == PropagationStatus::kOk); }
     collectPulls(trial, fit.state, chain.truth[0], inwardPull);
     collectPulls(trial, fit.outwardState, chain.truth[kLayers - 1], outwardPull);
     inwardChi2PerDof += static_cast<double>(fit.chi2) / fit.ndf / kTrials;
@@ -668,8 +669,8 @@ BOOST_AUTO_TEST_CASE(LowMomentumChainsFitWithUnitPulls)
 
   const char* names[kNBoundParams] = {"loc0", "loc1", "phi", "theta", "qOverP"};
   for (const auto* pass : {&inwardPull, &outwardPull}) {
-    for (int i = 0; i < kNBoundParams; ++i) {
-      const auto& p = (*pass)[static_cast<std::size_t>(i)];
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+      const auto& p = (*pass)[static_cast<std::uint32_t>(i)];
       const auto n = static_cast<double>(p.size());
       const auto [mean, width] = moments(p);
       BOOST_TEST_CONTEXT((pass == &inwardPull ? "inward" : "outward") << " parameter " << names[i] << " pull mean " << mean << " width " << width)
@@ -704,7 +705,7 @@ BOOST_AUTO_TEST_CASE(LowMomentumChainsLosingEnergyFitWithUnitPulls)
   BOOST_REQUIRE(chain.built);
   const detail::LinkSteps material;
 
-  constexpr int kTrials = 1000;
+  constexpr std::int32_t kTrials = 1000;
   const Scalar sigmaLoc = 1.5811388e-3F;
   std::mt19937 rng(20261021);
   std::normal_distribution<double> gauss(0., 1.);
@@ -712,8 +713,8 @@ BOOST_AUTO_TEST_CASE(LowMomentumChainsLosingEnergyFitWithUnitPulls)
   double inwardChi2PerDof = 0.;
   double outwardChi2PerDof = 0.;
   double lostShare = 0.;
-  for (int trial = 0; trial < kTrials; ++trial) {
-    for (int attempt = 0; attempt < 10; ++attempt) {
+  for (std::int32_t trial = 0; trial < kTrials; ++trial) {
+    for (std::int32_t attempt = 0; attempt < 10; ++attempt) {
       chain.generate(kQOverP, kBandX2X0, &rng, kBandXRho);
       if (chain.built) {
         break;
@@ -726,16 +727,16 @@ BOOST_AUTO_TEST_CASE(LowMomentumChainsLosingEnergyFitWithUnitPulls)
       m.loc0 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
       m.loc1 += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigmaLoc));
     }
-    const auto fit = fitMeasurements(chain.propagator, *chain.tracking, material, smeared.data(), static_cast<int>(smeared.size()));
-    BOOST_TEST_CONTEXT("trial " << trial << ", propagation status " << static_cast<int>(fit.status)) { BOOST_REQUIRE(fit.status == PropagationStatus::kOk); }
+    const auto fit = fitMeasurements(chain.propagator, *chain.tracking, material, smeared.data(), static_cast<std::int32_t>(smeared.size()));
+    BOOST_TEST_CONTEXT("trial " << trial << ", propagation status " << static_cast<std::int32_t>(fit.status)) { BOOST_REQUIRE(fit.status == PropagationStatus::kOk); }
     collectPulls(trial, fit.state, chain.truth[0], inwardPull);
     inwardChi2PerDof += static_cast<double>(fit.chi2) / fit.ndf / kTrials;
     outwardChi2PerDof += static_cast<double>(fit.outwardChi2) / fit.ndf / kTrials;
   }
   BOOST_TEST_MESSAGE("momentum lost over the chain " << lostShare << ", chi2 per dof inward " << inwardChi2PerDof << " outward " << outwardChi2PerDof);
   BOOST_TEST(lostShare > 0.01);
-  for (int i = 0; i < kNBoundParams; ++i) {
-    const auto& p = inwardPull[static_cast<std::size_t>(i)];
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    const auto& p = inwardPull[static_cast<std::uint32_t>(i)];
     const bool held = i != o2::gtrk::kQOverP;
     const auto n = static_cast<double>(p.size());
     const auto [mean, width] = moments(p);
@@ -761,7 +762,7 @@ BOOST_AUTO_TEST_CASE(PerigeePhiIsTheDirectionAtTheTransverseClosestApproach)
   // The closest approach by search: the smallest transverse radius on a
   // coarse scan, refined by ternary search.
   double best = 0.;
-  for (int step = -1000; step <= 1000; ++step) {
+  for (std::int32_t step = -1000; step <= 1000; ++step) {
     const double path = 0.1 * step;
     if (transverseRadius2At(chain.propagator, state, surface, path) < transverseRadius2At(chain.propagator, state, surface, best)) {
       best = path;
@@ -769,7 +770,7 @@ BOOST_AUTO_TEST_CASE(PerigeePhiIsTheDirectionAtTheTransverseClosestApproach)
   }
   double low = best - 0.1;
   double high = best + 0.1;
-  for (int i = 0; i < 200; ++i) {
+  for (std::int32_t i = 0; i < 200; ++i) {
     const double left = low + ((high - low) / 3.);
     const double right = high - ((high - low) / 3.);
     if (transverseRadius2At(chain.propagator, state, surface, left) < transverseRadius2At(chain.propagator, state, surface, right)) {
@@ -813,7 +814,7 @@ BOOST_AUTO_TEST_CASE(TheEnergyLossIsO2s)
   // straggling. O2's q/pT, like our q/p, is q over pT with |q| = 2 for the
   // nuclei (`setPID(pid, true)`).
   using o2::track::PID;
-  for (const auto [id, momenta] : {std::pair{PID::Pion, std::array{0.12F, 0.3F, 2.F}}, std::pair{PID::Helium3, std::array{1.F, 2.F, 6.F}}, std::pair{PID::Alpha, std::array{1.3F, 2.F, 6.F}}}) {
+  for (const auto& [id, momenta] : {std::pair{PID::Pion, std::array{0.12F, 0.3F, 2.F}}, std::pair{PID::Helium3, std::array{1.F, 2.F, 6.F}}, std::pair{PID::Alpha, std::array{1.3F, 2.F, 6.F}}}) {
     const PID pid{id};
     const float charge = std::abs(static_cast<float>(pid.getCharge()));
     for (const float momentum : momenta) {

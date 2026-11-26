@@ -28,6 +28,7 @@
 #include "MathUtils/Utils.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace o2::gtrk::alice
@@ -45,7 +46,7 @@ template <typename GeometryTGeo>
   geometry.fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::L2G));
   std::vector<Sensor> sensors;
   sensors.reserve(static_cast<std::size_t>(geometry.getNumberOfChips()));
-  for (int chip = 0; chip < geometry.getNumberOfChips(); ++chip) {
+  for (std::int32_t chip = 0; chip < geometry.getNumberOfChips(); ++chip) {
     sensors.push_back(flatSensor(geometry.getMatrixL2G(chip), geometry.getLayer(chip), kActiveCentreX));
   }
   return sensors;

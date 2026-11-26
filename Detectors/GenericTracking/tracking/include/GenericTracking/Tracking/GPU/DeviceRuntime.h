@@ -58,9 +58,9 @@ struct DeviceCopy {
 struct DeviceProperties {
   std::string name;
   std::string architecture;
-  int warpSize = 0;
-  int residentThreads = 0; ///< the multiprocessors' threads at once, all of them
-  int multiprocessors = 0;
+  std::int32_t warpSize = 0;
+  std::int32_t residentThreads = 0; ///< the multiprocessors' threads at once, all of them
+  std::int32_t multiprocessors = 0;
   std::size_t freeMemoryBytes = 0; ///< the device's free memory when the runtime was made
 };
 

@@ -28,7 +28,6 @@
 
 #include <array>
 #include <cmath>
-#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <limits>
@@ -68,9 +67,9 @@ template <DetectorLayout Det>
 [[nodiscard]] auto eventForEach(const TruthEvent<Det>& event)
 {
   return [&event](std::uint32_t n, const auto& body) {
-    o2::gtrk::detail::parallelFor(*event.arena, 0U, n, 16, [&](std::size_t begin, std::size_t end) {
-      for (std::size_t i = begin; i < end; ++i) {
-        body(static_cast<std::uint32_t>(i));
+    o2::gtrk::detail::parallelFor(*event.arena, 0U, n, 16, [&](std::uint32_t begin, std::uint32_t end) {
+      for (std::uint32_t i = begin; i < end; ++i) {
+        body(i);
       }
     });
   };
@@ -124,11 +123,11 @@ template <DetectorLayout Det>
   const double cotTheta = 1. / std::tan(static_cast<double>(perigee.theta()));
   const std::array<std::array<double, 3>, 2> j{{{-(across[0] - origin[0]), -(across[1] - origin[1]), -(across[2] - origin[2])}, {cotTheta * std::cos(phi), cotTheta * std::sin(phi), -1.}}};
   std::array<double, 3> m{static_cast<double>(perigee.covAt(kLoc0, kLoc0)), static_cast<double>(perigee.covAt(kLoc0, kLoc1)), static_cast<double>(perigee.covAt(kLoc1, kLoc1))};
-  const auto projected = [&](int a, int b) {
+  const auto projected = [&](std::uint32_t a, std::uint32_t b) {
     double sum = 0.;
-    for (int k = 0; k < 3; ++k) {
-      for (int l = 0; l < 3; ++l) {
-        sum += j[a][k] * point.covariance[covIndex(k, l)] * j[b][l];
+    for (std::uint32_t k = 0; k < 3; ++k) {
+      for (std::uint32_t l = 0; l < 3; ++l) {
+        sum += j[a][k] * point.covariance[decay_fit_detail::packedIndex(k, l)] * j[b][l];
       }
     }
     return sum;
@@ -147,13 +146,13 @@ template <DetectorLayout Det>
 /// first measurement lies behind their vertex in the fit (`planeAhead`: the
 /// fit carried them forward to it); a decay's own lie before it.
 template <DetectorLayout Det>
-[[nodiscard]] int leavesAhead(const DecayCandidate& candidate, std::span<const DecayHypothesis> hypotheses, const DaughterSource<Det>& source, const DecayCandidateResult& result)
+[[nodiscard]] std::int32_t leavesAhead(const DecayCandidate& candidate, std::span<const DecayHypothesis> hypotheses, const DaughterSource<Det>& source, const DecayCandidateResult& result)
 {
   const auto tree = expandHypothesis(hypotheses, candidate.hypothesis);
   const auto daughters = candidateDaughters(candidate, source);
-  int ahead = 0;
-  for (std::size_t i = 0; i < daughters.size(); ++i) {
-    const auto& vertex = result.fit.vertices[static_cast<std::size_t>(tree.topology.vertexOfDaughter(static_cast<int>(i)))];
+  std::int32_t ahead = 0;
+  for (std::uint32_t i = 0; i < daughters.size(); ++i) {
+    const auto& vertex = result.fit.vertices[static_cast<std::uint32_t>(tree.topology.vertexOfDaughter(i))];
     const auto& daughter = daughters[i];
     const auto plane = detail::hypothesis::perigeePlaneOf(daughter.propagator, daughter.innermost, daughter.surface, static_cast<Scalar>(vertex[0]), static_cast<Scalar>(vertex[1]));
     ahead += detail::hypothesis::planeAhead(daughter.innermost, daughter.surface, plane) ? 1 : 0;
@@ -199,7 +198,7 @@ void writeVertexResiduals(Record& record, const DecayVertexFitResult& fit, const
     const auto frame = flightFrame(production, decay);
     const auto project = [&](const Vec3D& axis, float& residual, float& sigma) {
       residual = static_cast<float>(dotOf(d, axis));
-      sigma = static_cast<float>(sqrtClampedOf(decay_fit_detail::quadraticForm(axis, axis, 3, [&](int a, int b) { return fit.covarianceAt(a, b); })));
+      sigma = static_cast<float>(sqrtClampedOf(decay_fit_detail::quadraticForm(axis, axis, 3, [&](std::int32_t a, std::int32_t b) { return fit.covarianceAt(a, b); })));
     };
     project(frame.along, record.dL, record.sL);
     project(frame.across, record.dT, record.sT);
@@ -219,7 +218,7 @@ struct Armenteros {
 [[nodiscard]] inline Armenteros armenteros(const DecayVertexFitResult& fit)
 {
   std::array<Vec3D, 2> p{};
-  for (std::size_t i = 0; i < p.size(); ++i) {
+  for (std::uint32_t i = 0; i < p.size(); ++i) {
     const auto& m = fit.momenta[i];
     p[i] = decay_fit_detail::momentumOf<double>(m[0], m[1], m[2], decay_fit_detail::numeratorOf(fit.charges[i])).vector;
   }

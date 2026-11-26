@@ -53,7 +53,7 @@ using namespace device_test;
 
 using namespace toybarrel8;
 using Sources = LayerRowMap<Det>;
-constexpr std::size_t kLayerCount = Sources::kLayerCount;
+constexpr std::uint32_t kLayerCount = Sources::kLayerCount;
 
 constexpr std::uint32_t kLayerStride = 100000U; ///< rows of layer l start at l * kLayerStride
 
@@ -63,9 +63,9 @@ Sources sourceMap(std::uint32_t total)
 {
   std::array<MeasurementRange, kLayerCount> ranges{};
   std::array<bool, kLayerCount> presented{};
-  for (std::size_t layer = 0; layer < kLayerCount; ++layer) {
-    const auto rows = static_cast<std::uint32_t>((total / kLayerCount) + (layer < total % kLayerCount ? 1U : 0U));
-    const auto begin = static_cast<std::uint32_t>(layer) * kLayerStride;
+  for (std::uint32_t layer = 0; layer < kLayerCount; ++layer) {
+    const std::uint32_t rows = (total / kLayerCount) + (layer < total % kLayerCount ? 1U : 0U);
+    const auto begin = layer * kLayerStride;
     ranges[layer] = {.begin = begin, .end = begin + rows};
     presented[layer] = true;
   }
@@ -99,7 +99,7 @@ BOOST_AUTO_TEST_CASE(ThePermutationIsTheHostOrder)
     const auto generate = [&](std::uint32_t element, auto& emitter) {
       const auto row = sources.row(element);
       const auto outBegin = iteration.outLinkOffsets[row.layer];
-      const auto outCount = iteration.outLinkOffsets[static_cast<std::size_t>(row.layer) + 1U] - outBegin;
+      const auto outCount = iteration.outLinkOffsets[row.layer + 1U] - outBegin;
       if (outCount == 0U) {
         return;
       }
@@ -158,7 +158,7 @@ BOOST_AUTO_TEST_CASE(TheEndIndexIsTheHostIndex)
     BOOST_REQUIRE((kernels().endIndex(*device.runtime, device.stream, *device.arena, *triplets, trackletCount, offsets, indices) == StageStatus::kComplete));
     BOOST_TEST_CONTEXT("tracklets " << trackletCount)
     {
-      BOOST_TEST(std::ranges::equal(offsets, std::span<const std::uint32_t>{host.offsets(), std::size_t{trackletCount} + 1U}));
+      BOOST_TEST(std::ranges::equal(offsets, std::span<const std::uint32_t>{host.offsets(), trackletCount + 1U}));
       BOOST_TEST(std::ranges::equal(indices, std::span<const std::uint32_t>{host.triplets(), host.offsets()[trackletCount]}));
     }
   }
@@ -203,8 +203,8 @@ BOOST_AUTO_TEST_CASE(ThePathBoundsAndPrunedPermutationMatchTheHost)
     auto iteration = parameters();
     std::array<MeasurementRange, kLayerCount> ranges{};
     std::array<bool, kLayerCount> presented{};
-    for (std::size_t layer = 0U; layer < kLayerCount; ++layer) {
-      const auto begin = static_cast<std::uint32_t>(layer) * 3U;
+    for (std::uint32_t layer = 0U; layer < kLayerCount; ++layer) {
+      const auto begin = layer * 3U;
       ranges[layer] = {.begin = begin, .end = begin + static_cast<std::uint32_t>(random() % 4U)};
       presented[layer] = layer + 1U < kLayerCount;
     }

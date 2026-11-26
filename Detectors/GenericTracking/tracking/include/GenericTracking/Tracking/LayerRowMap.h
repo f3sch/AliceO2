@@ -41,7 +41,7 @@ namespace o2::gtrk
 template <DetectorLayout Det>
 struct LayerRowMap {
   using Index = std::uint32_t;
-  static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
+  static constexpr auto kLayerCount = static_cast<std::uint32_t>(Detector<Det>::nLayers);
 
   struct Row {
     LayerID layer = kInvalidLayerID;
@@ -53,7 +53,7 @@ struct LayerRowMap {
   /// \a rows per layer; only the layers \a presented marks contribute.
   LayerRowMap(std::span<const MeasurementRange, kLayerCount> rows, const std::array<bool, kLayerCount>& presented)
   {
-    for (std::size_t layer = 0; layer < kLayerCount; ++layer) {
+    for (std::uint32_t layer = 0; layer < kLayerCount; ++layer) {
       ranges[layer] = presented[layer] ? rows[layer] : MeasurementRange{rows[layer].begin, rows[layer].begin};
       offsets[layer + 1U] = offsets[layer] + ranges[layer].size();
     }
@@ -61,7 +61,7 @@ struct LayerRowMap {
 
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Index size() const { return offsets[kLayerCount]; }
 
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool contains(LayerID layer, Index row) const { return static_cast<std::size_t>(layer) < kLayerCount && row >= ranges[layer].begin && row < ranges[layer].end; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool contains(LayerID layer, Index row) const { return layer < kLayerCount && row >= ranges[layer].begin && row < ranges[layer].end; }
 
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Index element(LayerID layer, Index row) const
   {
@@ -72,7 +72,7 @@ struct LayerRowMap {
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Row row(Index element) const
   {
     assert(element < size());
-    const std::size_t low = o2::gpu::CAAlgo::partitionPoint(std::size_t{1}, kLayerCount - 1U, [&](std::size_t layer) { return offsets[layer] <= element; }) - 1U;
+    const std::uint32_t low = o2::gpu::CAAlgo::partitionPoint(std::uint32_t{1}, kLayerCount - 1U, [&](std::uint32_t layer) { return offsets[layer] <= element; }) - 1U;
     return {.layer = static_cast<LayerID>(low), .row = ranges[low].begin + (element - offsets[low])};
   }
 

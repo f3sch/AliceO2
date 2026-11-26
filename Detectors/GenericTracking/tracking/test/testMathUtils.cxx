@@ -48,8 +48,8 @@ BOOST_AUTO_TEST_CASE(TransverseArcHasTheStraightAndCurvedLimits)
 /// quotient alone, over the domain and at its ends.
 BOOST_AUTO_TEST_CASE(AsinOverArgumentWithDerivativeIsTheQuotient)
 {
-  int mismatches = 0;
-  for (int i = -20000; i <= 20000; ++i) {
+  std::int32_t mismatches = 0;
+  for (std::int32_t i = -20000; i <= 20000; ++i) {
     const float x = static_cast<float>(i) / 20000.F;
     const auto both = detail::asinOverArgumentWithDerivative(x);
     mismatches += sameBits(both.value, detail::asinOverArgument(x)) ? 0 : 1;
@@ -81,7 +81,7 @@ namespace
 // do.
 using Long = long double;
 
-Long sincReference(Long x) { return x == 0.L ? 1.L : std::sin(x) / x; }
+Long sincReference(Long x) { return exactlyEqual(x, 0.L) ? 1.L : std::sin(x) / x; }
 
 Long dSincReference(Long x)
 {
@@ -89,7 +89,7 @@ Long dSincReference(Long x)
     // -x/3 sum_n (-x^2)^n / prod 2k (2k + 3)
     Long term = 1.L;
     Long sum = 1.L;
-    for (int k = 1; k < 40; ++k) {
+    for (std::int32_t k = 1; k < 40; ++k) {
       term *= -(x * x) / (2.L * k * ((2.L * k) + 3.L));
       sum += term;
     }
@@ -110,7 +110,7 @@ Long dVersineReference(Long x)
   return h * (std::cos(x / 2.L) - (0.5L * h));
 }
 
-Long asinOverArgumentReference(Long x) { return x == 0.L ? 1.L : std::asin(x) / x; }
+Long asinOverArgumentReference(Long x) { return exactlyEqual(x, 0.L) ? 1.L : std::asin(x) / x; }
 
 Long dAsinOverArgumentReference(Long x)
 {
@@ -119,7 +119,7 @@ Long dAsinOverArgumentReference(Long x)
     Long a = 1.L;
     Long sum = 0.L;
     Long power = x;
-    for (int n = 1; n < 60; ++n) {
+    for (std::int32_t n = 1; n < 60; ++n) {
       a *= ((2.L * n) - 1.L) * ((2.L * n) - 1.L) / ((2.L * n) * ((2.L * n) + 1.L));
       sum += 2.L * n * a * power;
       power *= x * x;
@@ -129,7 +129,7 @@ Long dAsinOverArgumentReference(Long x)
   return ((x / std::sqrt((1.L - x) * (1.L + x))) - std::asin(x)) / (x * x);
 }
 
-Long atanOverArgumentReference(Long x) { return x == 0.L ? 1.L : std::atan(x) / x; }
+Long atanOverArgumentReference(Long x) { return exactlyEqual(x, 0.L) ? 1.L : std::atan(x) / x; }
 
 // The arguments: log-spaced from 1e-30 to the end, both signs, and a
 // thousand around dSinc's switch.
@@ -137,8 +137,8 @@ template <typename T>
 std::vector<T> argumentsUpTo(double end)
 {
   std::vector<T> xs;
-  const int steps = static_cast<int>(std::floor((std::log10(end) + 30.) / 0.005));
-  for (int step = 0; step <= steps; ++step) {
+  const auto steps = static_cast<std::int32_t>(std::floor((std::log10(end) + 30.) / 0.005));
+  for (std::int32_t step = 0; step <= steps; ++step) {
     const T x = static_cast<T>(std::pow(10., -30. + (step * 0.005)));
     if (x > T(0) && static_cast<double>(x) <= end) {
       xs.push_back(x);
@@ -146,7 +146,7 @@ std::vector<T> argumentsUpTo(double end)
     }
   }
   const auto at = static_cast<double>(detail::DSincSeries<T>::kSwitch);
-  for (int i = -500; i <= 500; ++i) {
+  for (std::int32_t i = -500; i <= 500; ++i) {
     xs.push_back(static_cast<T>(at * (1. + (i * 1e-4))));
   }
   return xs;
@@ -159,7 +159,7 @@ double worstError(const std::vector<T>& xs, F f, R reference)
   double worst = 0.;
   for (const T x : xs) {
     const Long truth = reference(static_cast<Long>(x));
-    if (truth == 0.L) {
+    if (exactlyEqual(truth, 0.L)) {
       continue;
     }
     const double error = static_cast<double>(std::abs((static_cast<Long>(f(x)) - truth) / truth)) / static_cast<double>(std::numeric_limits<T>::epsilon());
@@ -199,7 +199,7 @@ void checkAccuracy(const char* type)
   // Towards 1, A' = -sinc'(theta) A^2 / r: r's factored form keeps its
   // digits, so the error stays bounded where 1 - x^2 would lose them.
   std::vector<T> nearOne;
-  for (int k = 1; k < std::numeric_limits<T>::digits; ++k) {
+  for (std::int32_t k = 1; k < std::numeric_limits<T>::digits; ++k) {
     nearOne.push_back(T(1) - std::ldexp(T(1), -k));
   }
   const double nearOneError = worstError(nearOne, [](T x) { return detail::asinOverArgumentWithDerivative(x).derivative; }, dAsinOverArgumentReference);

@@ -82,7 +82,7 @@ GPUhdi() GPUAlwaysInline() bool negative(double x) { return (bits(x) >> 63U) != 
 /// assumption about NaNs can remove them.
 GPUhdi() GPUAlwaysInline() bool isNaN(double x) { return (bits(x) & 0x7FFFFFFFFFFFFFFFULL) > 0x7FF0000000000000ULL; }
 GPUhdi() GPUAlwaysInline() bool isZero(double x) { return (bits(x) & 0x7FFFFFFFFFFFFFFFULL) == 0U; }
-GPUhdi() GPUAlwaysInline() int biasedExponent(double x) { return static_cast<int>((high(x) >> 20U) & 0x7FFU); }
+GPUhdi() GPUAlwaysInline() std::int32_t biasedExponent(double x) { return static_cast<std::int32_t>((high(x) >> 20U) & 0x7FFU); }
 
 GPUhdi() GPUAlwaysInline() double quietNaN() { return fromBits(0x7FF8000000000000ULL); }
 GPUhdi() GPUAlwaysInline() double infinity() { return fromBits(0x7FF0000000000000ULL); }
@@ -132,7 +132,7 @@ GPUhdi() GPUAlwaysInline() double kernelCos(double x, double y)
 /// x - n pi/2 as y0 + y1, and n, for pi/4 < |x| < 2^20 pi/2: fdlibm's
 /// __ieee754_rem_pio2, the medium-size path, pi/2 in three parts of 33 bits
 /// so that n times each is exact.
-GPUhdi() GPUAlwaysInline() int remPio2(double x, double& y0, double& y1)
+GPUhdi() GPUAlwaysInline() std::int32_t remPio2(double x, double& y0, double& y1)
 {
   constexpr double kInvPio2 = 6.36619772367581382433e-01;
   constexpr double kPio2Part1 = 1.57079632673412561417e+00;
@@ -144,10 +144,10 @@ GPUhdi() GPUAlwaysInline() int remPio2(double x, double& y0, double& y1)
   // 1.5 * 2^52: adding and subtracting it rounds to the nearest integer.
   constexpr double kToInteger = 6755399441055744.0;
   const double fn = (x * kInvPio2 + kToInteger) - kToInteger;
-  const int n = static_cast<int>(fn);
+  const auto n = static_cast<std::int32_t>(fn);
   double r = x - fn * kPio2Part1;
   double w = fn * kPio2Tail1;
-  const int j = biasedExponent(x);
+  const std::int32_t j = biasedExponent(x);
   y0 = r - w;
   if (j - biasedExponent(y0) > 16) { // cancellation: a second round, 118 bits
     double t = r;
@@ -170,7 +170,7 @@ GPUhdi() GPUAlwaysInline() int remPio2(double x, double& y0, double& y1)
 /// atan(c) for c = 1/2, 1, 3/2 and infinity, as a high and a low part. A
 /// switch, not a local array: HIP, compiling with real calls and relocatable
 /// device code, reads wrong values from such an array.
-GPUhdi() GPUAlwaysInline() double atanHi(int id)
+GPUhdi() GPUAlwaysInline() double atanHi(std::int32_t id)
 {
   switch (id) {
     case 0:
@@ -184,7 +184,7 @@ GPUhdi() GPUAlwaysInline() double atanHi(int id)
   }
 }
 
-GPUhdi() GPUAlwaysInline() double atanLo(int id)
+GPUhdi() GPUAlwaysInline() double atanLo(std::int32_t id)
 {
   switch (id) {
     case 0:
@@ -285,7 +285,7 @@ GPUhdi() GPUAlwaysInline() double atan(double x)
     }
     return sign ? -detail::atanHi(3) - detail::atanLo(3) : detail::atanHi(3) + detail::atanLo(3);
   }
-  int id = -1;
+  std::int32_t id = -1;
   if (ix < 0x3FDC0000U) {   // |x| < 0.4375
     if (ix < 0x3E400000U) { // |x| < 2^-27: atan x is x
       return x;

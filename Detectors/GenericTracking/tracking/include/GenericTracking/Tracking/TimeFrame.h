@@ -39,7 +39,7 @@ class TimeFrame
 {
  public:
   using Index = std::uint32_t;
-  static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
+  static constexpr auto kLayerCount = static_cast<std::uint32_t>(Detector<Det>::nLayers);
 
   /// Core blocks partition the timeframe. Halo blocks may overlap any number
   /// of slices. The row ranges use global indices into the shared SoA columns.
@@ -52,7 +52,7 @@ class TimeFrame
       const auto blocks = frame.grid().geometry().slice(coreRange, haloPS);
       coreBlocks = blocks.core;
       haloBlocks = blocks.halo;
-      for (std::size_t layer = 0; layer < kLayerCount; ++layer) {
+      for (std::uint32_t layer = 0; layer < kLayerCount; ++layer) {
         const auto id = static_cast<LayerID>(layer);
         core[layer] = frame.grid().rows(id, coreBlocks);
         halo[layer] = frame.grid().rows(id, haloBlocks);

@@ -98,11 +98,11 @@ class Event
   /// \a cotTheta and transverse radius of curvature \a radius [cm] (bending
   /// by \a charge), in frame \a frame; z measured with kSigmaZ. \a offset
   /// shifts its points sideways [cm], away from the beam axis.
-  void track(double zVertex, double phi, double cotTheta, double radius, int charge, std::int64_t frame, double offset = 0., double kink = 0.)
+  void track(double zVertex, double phi, double cotTheta, double radius, std::int32_t charge, std::int64_t frame, double offset = 0., double kink = 0.)
   {
     std::normal_distribution<double> noise{0., kSigmaZ};
     std::array<std::uint32_t, 3> rows{};
-    for (std::size_t layer = 0; layer < kRadii.size(); ++layer) {
+    for (std::uint32_t layer = 0; layer < kRadii.size(); ++layer) {
       const double r = kRadii[layer];
       const double half = std::asin(r / (2. * radius));
       const double angle = phi + (charge * half);
@@ -114,24 +114,24 @@ class Event
   }
 
   /// \a count tracks from \a zVertex in \a frame, spread in azimuth and dip.
-  void vertex(double zVertex, std::size_t count, std::int64_t frame)
+  void vertex(double zVertex, std::uint32_t count, std::int64_t frame)
   {
     std::uniform_real_distribution<double> phi{0., kTwoPi<double>};
     std::uniform_real_distribution<double> cot{-1.2, 1.2};
     std::uniform_real_distribution<double> radius{300., 1500.};
-    for (std::size_t i = 0; i < count; ++i) {
+    for (std::uint32_t i = 0; i < count; ++i) {
       track(zVertex, phi(mRandom), cot(mRandom), radius(mRandom), (i % 2U) == 0U ? 1 : -1, frame);
     }
   }
 
   /// \a count triplets of unrelated points in \a frame.
-  void noise(std::size_t count, std::int64_t frame)
+  void noise(std::uint32_t count, std::int64_t frame)
   {
     std::uniform_real_distribution<double> phi{0., kTwoPi<double>};
     std::uniform_real_distribution<double> z{-15., 15.};
-    for (std::size_t i = 0; i < count; ++i) {
+    for (std::uint32_t i = 0; i < count; ++i) {
       std::array<std::uint32_t, 3> rows{};
-      for (std::size_t layer = 0; layer < kRadii.size(); ++layer) {
+      for (std::uint32_t layer = 0; layer < kRadii.size(); ++layer) {
         const double angle = phi(mRandom);
         rows[layer] = point(kRadii[layer] * std::cos(angle), kRadii[layer] * std::sin(angle), z(mRandom), frameTime(frame));
       }
@@ -154,7 +154,7 @@ class Event
 
   static TimeEstPS frameTime(std::int64_t frame) { return frameBox(frame * kFrameBC, (frame + 1) * kFrameBC, 0); }
 
-  [[nodiscard]] VertexerResult find(const VertexerSettings& settings, detail::TaskArena* arena = nullptr) const { return Vertexer{settings, VertexConstraint{}}.find(m, t, p, p.first.size(), arena, true, LineErrors{}); }
+  [[nodiscard]] VertexerResult find(const VertexerSettings& settings, detail::TaskArena* arena = nullptr) const { return Vertexer{settings, VertexConstraint{}}.find(m, t, p, static_cast<std::uint32_t>(p.first.size()), arena, true, LineErrors{}); }
 
   Measurements m;
   Tracklets t;
@@ -307,8 +307,8 @@ BOOST_AUTO_TEST_CASE(AVertexOwnsItsMeasurements)
   event.vertex(-2.0, 80U, 4);
   // Twelve fakes at z = 3 cm: each a dense track's innermost measurement
   // with two new points on its transverse path, on a line to z = 3 cm.
-  const auto denseTriplets = event.p.first.size();
-  for (std::size_t i = 0; i < 12U; ++i) {
+  const auto denseTriplets = static_cast<std::uint32_t>(event.p.first.size());
+  for (std::uint32_t i = 0; i < 12U; ++i) {
     const auto a = event.t.source[event.p.first[i]];
     const auto b = event.t.target[event.p.first[i]];
     const auto c = event.t.target[event.p.second[i]];
@@ -325,7 +325,7 @@ BOOST_AUTO_TEST_CASE(AVertexOwnsItsMeasurements)
   BOOST_TEST(std::abs(result.vertices[1].z - 6.0F) < 1.e-3F);
   BOOST_TEST(result.contributors[1] == 8U);
   // Every fake is free: kept by the deduplication or not, none claimed.
-  for (std::size_t t = denseTriplets; t < denseTriplets + 12U; ++t) {
+  for (std::uint32_t t = denseTriplets; t < denseTriplets + 12U; ++t) {
     BOOST_TEST(result.tripletVertex[t] < 0);
   }
 }
@@ -353,7 +353,7 @@ BOOST_AUTO_TEST_CASE(OneTrackletSharedByManyTripletsCountsOnce)
   const auto a = event.point(2.34, 0., 4. + (2.34 * 0.5), Event::frameTime(4));
   const auto b = event.point(3.15, 0., 4. + (3.15 * 0.5), Event::frameTime(4));
   const auto shared = event.tracklet(a, b);
-  for (int i = 0; i < 12; ++i) {
+  for (std::int32_t i = 0; i < 12; ++i) {
     const double angle = 1.e-4 * i;
     const auto c = event.point(3.93 * std::cos(angle), 3.93 * std::sin(angle), 4. + (3.93 * 0.5) + (2.e-4 * i), Event::frameTime(4));
     event.triplet(shared, event.tracklet(b, c));
@@ -372,8 +372,8 @@ BOOST_AUTO_TEST_CASE(OneTrackletSharedByManyTripletsCountsOnce)
 BOOST_AUTO_TEST_CASE(AParticleWithTwoTripletsCountsOnce)
 {
   Event event;
-  constexpr int kTracks = 8;
-  for (int i = 0; i < kTracks; ++i) {
+  constexpr std::int32_t kTracks = 8;
+  for (std::int32_t i = 0; i < kTracks; ++i) {
     const double phi = 0.7 * i;
     const auto at = [&](double r, double dz) { return event.point(r * std::cos(phi), r * std::sin(phi), 1. + (0.5 * r) + dz, Event::frameTime(2)); };
     const auto a = at(2.34, 0.);
@@ -385,7 +385,7 @@ BOOST_AUTO_TEST_CASE(AParticleWithTwoTripletsCountsOnce)
   }
   const auto result = event.find({});
   BOOST_TEST(result.accepted == 2U * kTracks);
-  BOOST_TEST(result.candidates == static_cast<std::size_t>(kTracks));
+  BOOST_TEST(result.candidates == static_cast<std::uint32_t>(kTracks));
   BOOST_REQUIRE(result.vertices.size() == 1U);
   BOOST_TEST(result.contributors[0] == static_cast<std::uint32_t>(kTracks));
   BOOST_TEST(std::abs(result.vertices[0].z - 1.F) < 1.e-4F);
@@ -405,13 +405,13 @@ BOOST_AUTO_TEST_CASE(TheListDoesNotDependOnThreadsOrOrder)
 {
   Event event{11U};
   for (std::int64_t frame = 1; frame < 40; frame += 2) {
-    event.vertex(-10. + (0.5 * static_cast<double>(frame)), 30U + static_cast<std::size_t>(frame), frame);
+    event.vertex(-10. + (0.5 * static_cast<double>(frame)), 30U + static_cast<std::uint32_t>(frame), frame);
     event.vertex(4. - (0.3 * static_cast<double>(frame)), 12U, frame);
     event.noise(400U, frame);
   }
   const auto serial = event.find({});
   BOOST_TEST(serial.vertices.size() >= 40U);
-  for (const int threads : {1, 4, 16}) {
+  for (const std::int32_t threads : {1, 4, 16}) {
     detail::TaskArena arena{threads};
     const auto parallel = event.find({}, &arena);
     BOOST_TEST(sameVertices(serial, parallel));

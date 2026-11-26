@@ -113,7 +113,7 @@ enum class Phase : std::uint8_t { kRun,
                                   kCount,
                                   kNone };
 
-inline constexpr std::size_t kPhaseCount = static_cast<std::size_t>(Phase::kCount);
+inline constexpr auto kPhaseCount = static_cast<std::uint32_t>(Phase::kCount);
 
 /// A phase's name in reports and traces, and the phase that contains it;
 /// kNone for a root.
@@ -125,7 +125,7 @@ struct PhaseInfo {
 [[nodiscard]] const PhaseInfo& info(Phase phase);
 
 /// Chunk durations in powers of two of nanoseconds: bin b holds [2^b, 2^(b+1)).
-inline constexpr std::size_t kChunkBins = 40U;
+inline constexpr std::uint32_t kChunkBins = 40U;
 
 /// What one phase did, summed over every time it was entered.
 struct PhaseStats {
@@ -169,8 +169,8 @@ struct PhaseStats {
 struct Profile {
   std::array<PhaseStats, kPhaseCount> phases{};
 
-  [[nodiscard]] PhaseStats& operator[](Phase phase) { return phases[static_cast<std::size_t>(phase)]; }
-  [[nodiscard]] const PhaseStats& operator[](Phase phase) const { return phases[static_cast<std::size_t>(phase)]; }
+  [[nodiscard]] PhaseStats& operator[](Phase phase) { return phases[static_cast<std::uint32_t>(phase)]; }
+  [[nodiscard]] const PhaseStats& operator[](Phase phase) const { return phases[static_cast<std::uint32_t>(phase)]; }
   Profile& operator+=(const Profile& other);
 };
 
@@ -198,10 +198,10 @@ class Trace
   };
 
   /// Room for arena slots [0, \a slots); a chunk on another slot is dropped.
-  explicit Trace(std::size_t slots = 1024U);
+  explicit Trace(std::uint32_t slots = 1024U);
 
   /// Events of slot \a slot; each slot is written by one thread at a time.
-  void chunk(int slot, const Event& event);
+  void chunk(std::int32_t slot, const Event& event);
   void zone(const Event& event) { mZones.push_back(event); }
   void clear();
 
@@ -285,9 +285,9 @@ class RegionSlots
     std::array<std::uint32_t, kChunkBins> histogram{};
   };
 
-  explicit RegionSlots(int slots = 0) { resize(slots); }
-  void resize(int slots);
-  [[nodiscard]] std::size_t size() const { return mSlots.size(); }
+  explicit RegionSlots(std::int32_t slots = 0) { resize(slots); }
+  void resize(std::int32_t slots);
+  [[nodiscard]] std::uint32_t size() const { return static_cast<std::uint32_t>(mSlots.size()); }
   [[nodiscard]] Slot* data() { return mSlots.data(); }
 
  private:
@@ -300,7 +300,7 @@ class RegionSlots
 class Region
 {
  public:
-  Region(RegionSlots& slots, int concurrency, std::uint64_t elements);
+  Region(RegionSlots& slots, std::int32_t concurrency, std::uint64_t elements);
   ~Region();
   Region(const Region&) = delete;
   Region& operator=(const Region&) = delete;
@@ -308,15 +308,15 @@ class Region
   Region& operator=(Region&&) = delete;
 
   [[nodiscard]] std::int64_t begin() const noexcept { return mContext != nullptr ? now() : 0; }
-  void end(int slot, std::int64_t begin) const noexcept;
+  void end(std::int32_t slot, std::int64_t begin) const noexcept;
 
  private:
   Context* mContext = nullptr;
   Trace* mTrace = nullptr;
   Phase mPhase = Phase::kNone;
   RegionSlots::Slot* mSlots = nullptr;
-  std::size_t mSlotCount = 0U;
-  int mConcurrency = 1;
+  std::uint32_t mSlotCount = 0U;
+  std::int32_t mConcurrency = 1;
   std::uint64_t mElements = 0U;
   std::int64_t mBegin = 0;
 };

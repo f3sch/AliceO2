@@ -79,7 +79,7 @@ class ITS3Tiles
 /// entry without errors in the dictionary (O2's ITS3 dictionary has rare
 /// entries at zero) takes O2's default, half a pitch.
 /// Throws std::runtime_error for a pattern ID beyond \a dictionary.
-[[nodiscard]] std::vector<LocalCluster> its3LocalClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const unsigned char> patterns, const o2::its3::TopologyDictionary& dictionary, const ITS3Tiles& tiles);
+[[nodiscard]] std::vector<LocalCluster> its3LocalClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const std::uint8_t> patterns, const o2::its3::TopologyDictionary& dictionary, const ITS3Tiles& tiles);
 
 /// Our clusters from those of `its3LocalClusters`, in the same order, as
 /// Alice/Clusters.h's `toClusters`.

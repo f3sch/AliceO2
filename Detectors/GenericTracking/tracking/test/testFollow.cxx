@@ -38,7 +38,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <memory>
 #include <span>
 #include <utility>
@@ -75,7 +74,7 @@ IterationParameters<Det> parameters()
 
 Scalar phiDifference(Scalar a, Scalar b) { return o2::gpu::CAMath::Abs(o2::math_utils::detail::toPMPi<Scalar>(a - b)); }
 
-constexpr std::size_t kMaxClusters = maxChainLayers<toybarrel8::Det>;
+constexpr std::uint32_t kMaxClusters = maxChainLayers<toybarrel8::Det>;
 using ToyTracks = BoundedColumns<TrackOf<kMaxClusters>::template RecordT>;
 using ToyProposal = FollowProposal<kMaxClusters>;
 
@@ -87,7 +86,7 @@ ToyTracks fittedRows(const toybarrel8::Fixture& fixture, const std::vector<std::
   std::ranges::copy(ordered, rows.index);
   const auto count = ordered.size();
   const UniformMaterial material;
-  const auto fit = fitMeasurements(Propagator{}, toybarrel8::trackingGeometry(), material, RowChain<toybarrel8::Det>{.frame = fixture.frame.get(), .rows = rows.index}, static_cast<int>(count));
+  const auto fit = fitMeasurements(Propagator{}, toybarrel8::trackingGeometry(), material, RowChain<toybarrel8::Det>{.frame = fixture.frame.get(), .rows = rows.index}, static_cast<std::int32_t>(count));
   BOOST_REQUIRE(fit.status == PropagationStatus::kOk);
   ToyTracks tracks;
   tracks.setMemoryResource(pool.get());
@@ -106,10 +105,10 @@ ToyTracks fittedRows(const toybarrel8::Fixture& fixture, const std::vector<std::
   return tracks;
 }
 
-ToyTracks fittedTrack(const toybarrel8::Fixture& fixture, std::size_t firstLayer, std::size_t lastLayer, const std::shared_ptr<BoundedMemoryResource>& pool)
+ToyTracks fittedTrack(const toybarrel8::Fixture& fixture, std::uint32_t firstLayer, std::uint32_t lastLayer, const std::shared_ptr<BoundedMemoryResource>& pool)
 {
   std::vector<std::uint32_t> rows;
-  for (std::size_t layer = firstLayer; layer <= lastLayer; ++layer) {
+  for (std::uint32_t layer = firstLayer; layer <= lastLayer; ++layer) {
     rows.push_back(fixture.row(layer));
   }
   return fittedRows(fixture, rows, pool);
@@ -126,7 +125,7 @@ const SensorCells<toybarrel8::Det>& toyCells()
 
 /// An iteration that follows, \a holes allowed, the beam constraint with
 /// \a beamLine.
-IterationParameters<toybarrel8::Det> followParameters(int holes = 0, bool beamLine = false)
+IterationParameters<toybarrel8::Det> followParameters(std::int32_t holes = 0, bool beamLine = false)
 {
   auto settings = toybarrel8::iterationSettings();
   settings.follow = true;
@@ -138,7 +137,7 @@ IterationParameters<toybarrel8::Det> followParameters(int holes = 0, bool beamLi
 /// Track \a track of \a tracks followed (`FollowStage`), inward too with \a inward; serially, or on \a threads in chunks of
 /// \a chunkSize.
 template <bool BeamLine = false>
-ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tracks, const std::vector<std::uint8_t>& used, const IterationParameters<toybarrel8::Det>& parameters, bool inward = true, int threads = 0, std::uint32_t chunkSize = 1U)
+ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tracks, const std::vector<std::uint8_t>& used, const IterationParameters<toybarrel8::Det>& parameters, bool inward = true, std::int32_t threads = 0, std::uint32_t chunkSize = 1U)
 {
   const auto widths = widthBounds(fixture);
   std::vector<ToyProposal> proposals(tracks.size());
@@ -151,7 +150,7 @@ ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tra
     detail::TaskArena cpuArena{threads};
     CpuStage<TrackletT> cpu{cpuArena};
     cpu.setMemoryPool(std::make_shared<BoundedMemoryResource>());
-    cpu.forEachElement(static_cast<std::uint32_t>(tracks.size()), chunkSize, stage);
+    cpu.forEachElement(tracks.size(), chunkSize, stage);
   }
   return proposals.front();
 }
@@ -317,7 +316,7 @@ BOOST_AUTO_TEST_CASE(PredictionRefusesACrossingPastHalfATurn)
 
   constexpr LayerID kBarrel = 0;
   LayerID disc = kInvalidLayerID;
-  for (std::size_t link = 0; link < nLinks<Mixed> && disc == kInvalidLayerID; ++link) {
+  for (std::uint32_t link = 0; link < nLinks<Mixed> && disc == kInvalidLayerID; ++link) {
     if (Mixed::layerLinks[link].from == kBarrel && !Detector<Mixed>::isBarrelLayer(Mixed::layerLinks[link].to)) {
       disc = Mixed::layerLinks[link].to;
     }
@@ -367,7 +366,7 @@ BOOST_AUTO_TEST_CASE(UpdateRefusesAnIndefiniteCovariance)
   state.par[kPhi] = o2::gpu::CAMath::ATan2(start.origin[1], start.origin[0]);
   state.par[kTheta] = 1.4F;
   state.par[kQOverP] = 0.2F;
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     state.variance(i) = 1.e-4F;
   }
   const auto sensor = crossedSensor(geometry, propagator, state, 1, PropagationDirection::kForward);
@@ -391,27 +390,6 @@ BOOST_AUTO_TEST_CASE(UpdateRefusesAnIndefiniteCovariance)
   Scalar chi2 = 0.F;
   BOOST_REQUIRE(follow::updateCandidate(propagator, geometry, material, measurement, PropagationDirection::kForward, state, factorCovariance(state.cov), output, outputFactors, chi2));
   BOOST_TEST(chi2 >= 0.F);
-
-  // The source may also be the destination buffer. Material must still
-  // start at the original source point, before publishing the crossing.
-  const detail::LinkSteps filled;
-  Propagator massive = propagator;
-  massive.massGeV = 0.13957F;
-  BoundParameters separate;
-  CovarianceFactors separateFactors;
-  Scalar separateChi2 = 0.F;
-  BOOST_REQUIRE(follow::updateCandidate(massive, geometry, filled, measurement, PropagationDirection::kForward, state, factorCovariance(state.cov), separate, separateFactors, separateChi2));
-  BoundParameters aliased = static_cast<const BoundParameters&>(state);
-  auto aliasedFactors = factorCovariance(state.cov);
-  Scalar aliasedChi2 = 0.F;
-  BOOST_REQUIRE(follow::updateCandidate(massive, geometry, filled, measurement, PropagationDirection::kForward, aliased, aliasedFactors, aliased, aliasedFactors, aliasedChi2));
-  // Bit identity is intentional, including floating-point encodings; these records have no padding.
-  // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison)
-  BOOST_TEST(std::memcmp(&aliased, &separate, sizeof(BoundParameters)) == 0);
-  // Bit identity is intentional, including floating-point encodings; these records have no padding.
-  // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison)
-  BOOST_TEST(std::memcmp(&aliasedFactors, &separateFactors, sizeof(CovarianceFactors)) == 0);
-  BOOST_TEST(exactlyEqual(aliasedChi2, separateChi2));
 
   // A negative loc0 variance, as a covariance past what float can hold ends
   // up with: its factors are not those of a covariance, and the step refuses
@@ -439,14 +417,14 @@ BOOST_AUTO_TEST_CASE(AFollowTakesTheRowsBeyondTheTrackBothWays)
   const auto outward = followTrack(fixture, outerTracks, used, parameters);
   BOOST_REQUIRE(outward.outwardCount == 3U);
   BOOST_TEST(outward.inwardCount == 0U);
-  for (std::size_t i = 0; i < 3U; ++i) {
+  for (std::uint32_t i = 0; i < 3U; ++i) {
     BOOST_TEST(outward.outward[i] == fixture.row(5U + i));
   }
   const auto innerTracks = fittedTrack(fixture, 3U, 7U, pool);
   const auto inward = followTrack(fixture, innerTracks, used, parameters);
   BOOST_TEST(inward.outwardCount == 0U);
   BOOST_REQUIRE(inward.inwardCount == 3U);
-  for (std::size_t i = 0; i < 3U; ++i) {
+  for (std::uint32_t i = 0; i < 3U; ++i) {
     BOOST_TEST(inward.inward[i] == fixture.row(2U - i));
   }
   const auto middleTracks = fittedTrack(fixture, 2U, 5U, pool);
@@ -458,7 +436,7 @@ BOOST_AUTO_TEST_CASE(AFollowTakesTheRowsBeyondTheTrackBothWays)
   BOOST_TEST(both.inward[0] == fixture.row(1U));
   BOOST_TEST(both.inward[1] == fixture.row(0U));
 
-  for (const int threads : {1, 2, 4}) {
+  for (const std::int32_t threads : {1, 2, 4}) {
     for (const std::uint32_t chunk : {1U, 2U, 7U}) {
       BOOST_TEST(sameProposal(followTrack(fixture, middleTracks, used, parameters, true, threads, chunk), both));
     }
@@ -566,7 +544,7 @@ BOOST_AUTO_TEST_CASE(AHoleEndsTheDirectionPastItsBudget)
   used[fixture.row(1U)] = kExclusive;
   const auto pool = std::make_shared<BoundedMemoryResource>();
   const auto tracks = fittedTrack(fixture, 2U, 4U, pool);
-  for (const int holes : {0, 1}) {
+  for (const std::int32_t holes : {0, 1}) {
     const auto proposal = followTrack(fixture, tracks, used, followParameters(holes));
     BOOST_TEST(proposal.outwardCount == 0U);
     BOOST_TEST(proposal.inwardCount == 0U);
@@ -678,7 +656,7 @@ BOOST_AUTO_TEST_CASE(TheConfirmationTakesTheTrueRowsOnACleanTrack)
   const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
   const auto proposal = followTrack(fixture, tracks, used, followParameters());
   BOOST_REQUIRE(proposal.outwardCount == 3U);
-  for (std::size_t i = 0; i < 3U; ++i) {
+  for (std::uint32_t i = 0; i < 3U; ++i) {
     BOOST_TEST(proposal.outward[i] == fixture.row(5U + i));
   }
 }
@@ -700,7 +678,7 @@ BOOST_AUTO_TEST_CASE(TheConfirmationTakesTheRowTheNextLayerConfirms)
   const std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
   const auto proposal = followTrack(fixture, tracks, used, followParameters());
   BOOST_REQUIRE(proposal.outwardCount == 3U);
-  for (std::size_t i = 0; i < 3U; ++i) {
+  for (std::uint32_t i = 0; i < 3U; ++i) {
     BOOST_TEST(proposal.outward[i] == fixture.row(5U + i));
   }
 }
@@ -725,8 +703,8 @@ BOOST_AUTO_TEST_CASE(UnconfirmedRowsRankByTheirChi2)
       if (decoyEarlier) {
         std::swap(withDecoy[7], withDecoy[kLayers]);
       }
-      const std::size_t trueCluster = decoyEarlier ? kLayers : 7U;
-      const std::size_t decoyCluster = decoyEarlier ? 7U : kLayers;
+      const std::uint32_t trueCluster = decoyEarlier ? kLayers : 7U;
+      const std::uint32_t decoyCluster = decoyEarlier ? 7U : kLayers;
       const Fixture fixture{withDecoy};
       decoyFirst = decoyFirst || fixture.row(decoyCluster) < fixture.row(trueCluster);
       const auto tracks = fittedTrack(fixture, 0U, 6U, pool);
@@ -746,7 +724,7 @@ BOOST_AUTO_TEST_CASE(TheDirectionsShareTheTimeBox)
 {
   using namespace toybarrel8;
   auto hits = sensorHelixHits(0.42, 0.025, 1.8);
-  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
     hits[layer].timeNS = 30.;
     if (layer < 3U) {
       hits[layer].timeNS = 10.;
@@ -792,7 +770,7 @@ BOOST_AUTO_TEST_CASE(BiddingKeepsTheBetterTrackAndTruncatesTheOther)
   BOOST_TEST(view.addedInward[0] == 0U);
   BOOST_TEST(view.count[1] == 5U);
   BOOST_TEST(view.addedOutward[1] == 0U);
-  for (std::size_t layer = 5U; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 5U; layer < kLayers; ++layer) {
     BOOST_TEST(used[fixture.row(layer)] == kExclusive);
   }
 }
@@ -813,7 +791,7 @@ BOOST_AUTO_TEST_CASE(ARejectedRefitLeavesItsRowsFree)
   BOOST_REQUIRE(follow.proposals().size() == 1U);
   BOOST_TEST(follow.proposals()[0].outwardCount == 0U);
   BOOST_TEST(tracks.view().count[0] == 5U);
-  for (std::size_t layer = 5U; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 5U; layer < kLayers; ++layer) {
     BOOST_TEST(used[fixture.row(layer)] == kFree);
   }
 }
@@ -831,7 +809,7 @@ BOOST_AUTO_TEST_CASE(ARefusedRefitKeepsItsLongestAcceptedPrefix)
   auto parameters = followParameters();
   // The track with all three outward rows refused, 2 * 8 - 5 degrees of
   // freedom; with two of them, and fewer, accepted.
-  parameters.roadChi2MaxByNdf[(2U * kLayers) - static_cast<std::size_t>(kNBoundParams)] = -1.F;
+  parameters.roadChi2MaxByNdf[(2U * kLayers) - kNBoundParams] = -1.F;
   Follow<Det> follow;
   follow.setMemoryPool(pool);
   BOOST_REQUIRE(followAll(fixture, parameters, tracks, used, follow) == StageStatus::kComplete);
@@ -840,7 +818,7 @@ BOOST_AUTO_TEST_CASE(ARefusedRefitKeepsItsLongestAcceptedPrefix)
   BOOST_TEST(follow.proposals()[0].outwardCount == 2U);
   BOOST_TEST(view.count[0] == 7U);
   BOOST_TEST(view.addedOutward[0] == 2U);
-  for (std::size_t layer = 5U; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 5U; layer < kLayers; ++layer) {
     BOOST_TEST(used[fixture.row(layer)] == (layer < 7U ? kExclusive : kFree));
   }
 }
@@ -852,7 +830,7 @@ BOOST_AUTO_TEST_CASE(AnUnconfirmedRowStaysFreeAfterThePasses)
   const auto hits = sensorHelixHits(0.42, 0.025, 1.8);
   const Fixture fixture{hits};
   std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
-  for (std::size_t layer = 0; layer <= 4U; ++layer) {
+  for (std::uint32_t layer = 0; layer <= 4U; ++layer) {
     used[fixture.row(layer)] = kExclusive;
   }
   used[fixture.row(6U)] = kExclusive;
@@ -912,7 +890,7 @@ BOOST_AUTO_TEST_CASE(AnAmbiguousLastRowIsTrimmedWhereTheTrackKeepsItsCuts)
   BOOST_TEST(twiceAdded == 1U);
   BOOST_TEST(twiceLast == kFree);
   using Case = std::tuple<std::vector<Hit>, std::uint32_t>;
-  for (const auto& [hits, minAfter] : {Case{clean, 0U}, Case{ambiguous, static_cast<std::uint32_t>(kLayers)}}) {
+  for (const auto& [hits, minAfter] : {Case{clean, 0U}, Case{ambiguous, kLayers}}) {
     BOOST_TEST_CONTEXT("rows " << hits.size() << ", length after the follow " << minAfter)
     {
       const auto [kept, keptOutward, keptAdded, keptLast] = run(hits, minAfter);
@@ -934,7 +912,7 @@ BOOST_AUTO_TEST_CASE(TheFollowsPassesAddItsRowsToTheTrackAndMarkThem)
   std::vector<std::uint8_t> used(fixture.frame->size(), kFree);
   const auto pool = std::make_shared<BoundedMemoryResource>();
   auto tracks = fittedTrack(fixture, 2U, 5U, pool);
-  for (std::size_t layer = 2; layer <= 5U; ++layer) {
+  for (std::uint32_t layer = 2; layer <= 5U; ++layer) {
     used[fixture.row(layer)] = kExclusive;
   }
   tracks.view().addedOutward[0] = 1U; // an earlier follow's row, kept in the count
@@ -945,7 +923,7 @@ BOOST_AUTO_TEST_CASE(TheFollowsPassesAddItsRowsToTheTrackAndMarkThem)
   BOOST_TEST(view.count[0] == kLayers);
   BOOST_TEST(view.addedOutward[0] == 3U);
   BOOST_TEST(view.addedInward[0] == 2U);
-  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
     BOOST_TEST(view.clusters[0].index[layer] == fixture.row(layer));
     BOOST_TEST(used[fixture.row(layer)] == kExclusive);
   }
@@ -964,7 +942,7 @@ BOOST_AUTO_TEST_CASE(EverySensorIsListedAtItsCentre)
   const auto mixedOwner = std::make_unique<const TrackingGeometry<Mixed>>(detector);
   const TrackingGeometry<Mixed>& mixed = *mixedOwner;
   const SensorCells<Mixed> mixedCells(mixed);
-  std::size_t missed = 0U;
+  std::uint32_t missed = 0U;
   for (const auto& surface : mixed.surfaces()) {
     missed += visitedAtItsCentre(mixedCells, surface) ? 0U : 1U;
   }

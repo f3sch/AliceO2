@@ -53,7 +53,7 @@ using synthetic::Kind;
 /// The host's serial reference for \a kind over \a elements elements.
 std::unique_ptr<Output> serial(Kind kind, std::uint32_t elements, StageStatus expected = StageStatus::kComplete) { return serialOutput<TrackletT>(synthetic::Generator{.count = {.kind = kind}}, elements, expected); }
 
-std::unique_ptr<DeviceRun<SyntheticRunInfo>> onDevice(DeviceRuntime& device, DeviceArena& arena, Kind kind, std::uint32_t elements, std::size_t capacity)
+std::unique_ptr<DeviceRun<SyntheticRunInfo>> onDevice(DeviceRuntime& device, DeviceArena& arena, Kind kind, std::uint32_t elements, std::uint32_t capacity)
 {
   return runOnDevice<SyntheticRunInfo>(device, [&](DeviceStream& stream, Output& output, SyntheticRunInfo& info) { return kernels().runSynthetic(device, stream, arena, kind, elements, capacity, output, info); });
 }
@@ -89,12 +89,12 @@ BOOST_AUTO_TEST_CASE(TheDeviceMatchesTheSerialReference)
     const auto run = onDevice(*device, arena, kind, 97U, 4096U);
     BOOST_REQUIRE((run->status == StageStatus::kComplete));
     BOOST_TEST(!run->info.predictionMissed);
-    BOOST_TEST(sameStageOutput(run->output, *reference), "kind " << static_cast<int>(kind));
+    BOOST_TEST(sameStageOutput(run->output, *reference), "kind " << static_cast<std::int32_t>(kind));
   }
 
   constexpr std::uint32_t kLarge = 200000U;
   const auto reference = serial(Kind::kIrregular, kLarge);
-  const auto run = onDevice(*device, arena, Kind::kIrregular, kLarge, std::size_t{kLarge} * 6U);
+  const auto run = onDevice(*device, arena, Kind::kIrregular, kLarge, kLarge * 6U);
   BOOST_REQUIRE((run->status == StageStatus::kComplete));
   BOOST_TEST(run->output.size() == reference->size());
   BOOST_TEST(sameStageOutput(run->output, *reference));
@@ -109,10 +109,10 @@ BOOST_AUTO_TEST_CASE(AListedRunGivesTheFullOutput)
   for (const Kind kind : {Kind::kUneven, Kind::kIrregular}) {
     constexpr std::uint32_t kElements = 2000U;
     const auto reference = serial(kind, kElements);
-    const auto run = runOnDevice<SyntheticRunInfo>(*device, [&](DeviceStream& stream, Output& output, SyntheticRunInfo& info) { return kernels().runSyntheticListed(*device, stream, arena, kind, kElements, std::size_t{kElements} * 12U, output, info); });
+    const auto run = runOnDevice<SyntheticRunInfo>(*device, [&](DeviceStream& stream, Output& output, SyntheticRunInfo& info) { return kernels().runSyntheticListed(*device, stream, arena, kind, kElements, kElements * 12U, output, info); });
     BOOST_REQUIRE((run->status == StageStatus::kComplete));
     BOOST_TEST(run->info.listed < kElements);
-    BOOST_TEST(sameStageOutput(run->output, *reference), "kind " << static_cast<int>(kind));
+    BOOST_TEST(sameStageOutput(run->output, *reference), "kind " << static_cast<std::int32_t>(kind));
   }
 }
 

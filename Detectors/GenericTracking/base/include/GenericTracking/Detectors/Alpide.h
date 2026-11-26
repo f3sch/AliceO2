@@ -32,8 +32,8 @@
 namespace o2::gtrk::detectors::alpide
 {
 
-inline constexpr int kRows = 512;
-inline constexpr int kColumns = 1024;
+inline constexpr std::int32_t kRows = 512;
+inline constexpr std::int32_t kColumns = 1024;
 inline constexpr double kPitchRow = 26.88e-4;        ///< across the chip [cm]
 inline constexpr double kPitchColumn = 29.24e-4;     ///< along the chip [cm]
 inline constexpr double kEffectiveThickness = 28e-4; ///< [cm]

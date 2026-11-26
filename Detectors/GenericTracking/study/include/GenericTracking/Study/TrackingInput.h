@@ -86,7 +86,7 @@ template <DetectorLayout Det>
 /// \a frames, \a depths and the cluster spans' shares \a shapes (a
 /// `ShapeShares<Det>`'s bytes) to \a path; the caller writes the parameters
 /// to `<path>.ini` with `writeParameters`. Throws std::runtime_error.
-void writeTrackingInput(const std::string& path, const MeasurementView& view, std::size_t rows, std::span<const std::uint32_t> offsets, std::span<const VertexSeed> vertices, const workflow::BeamLine& beamLine, std::span<const FrameTiming> frames, std::span<const double> depths, std::span<const std::uint8_t> shapes);
+void writeTrackingInput(const std::string& path, const MeasurementView& view, std::uint32_t rows, std::span<const std::uint32_t> offsets, std::span<const VertexSeed> vertices, const workflow::BeamLine& beamLine, std::span<const FrameTiming> frames, std::span<const double> depths, std::span<const std::uint8_t> shapes);
 
 /// Every configurable parameter to \a path as INI, as
 /// `ConfigurableParam::writeINI` writes it, but GTRKReco<DET>'s floating-point

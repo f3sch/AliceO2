@@ -50,7 +50,7 @@ struct OraclePropagator : Propagator {
 /// The oracle's propagator for every step: itself, as `stepPropagator`
 /// gives a `Propagator`.
 template <typename Geometry, typename Chain>
-[[nodiscard]] const OraclePropagator& stepPropagator(const OraclePropagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, int /*from*/, int /*to*/)
+[[nodiscard]] const OraclePropagator& stepPropagator(const OraclePropagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, std::int32_t /*from*/, std::int32_t /*to*/)
 {
   return prop; // NOLINT(bugprone-return-const-ref-from-parameter)
 }
@@ -85,7 +85,7 @@ inline void applyRadiation(const RadiationPropagator& prop, Scalar x2X0, Propaga
 /// The radiation propagator for every step: itself, as `stepPropagator`
 /// gives a `Propagator`.
 template <typename Geometry, typename Chain>
-[[nodiscard]] const RadiationPropagator& stepPropagator(const RadiationPropagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, int /*from*/, int /*to*/)
+[[nodiscard]] const RadiationPropagator& stepPropagator(const RadiationPropagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, std::int32_t /*from*/, std::int32_t /*to*/)
 {
   return prop; // NOLINT(bugprone-return-const-ref-from-parameter)
 }
@@ -114,7 +114,7 @@ inline constexpr std::size_t kTruthFitVariants = static_cast<std::size_t>(TruthF
 /// the outward state the inward-only variants start from. The pion and
 /// electron hypotheses take unit charge, the true-mass variants the species'.
 template <DetectorLayout Det, typename Material, typename Chain>
-[[nodiscard]] TrackFitResult truthFit(TruthFitVariant variant, Species species, const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& chain, int n, const BoundTrackState& outward)
+[[nodiscard]] TrackFitResult truthFit(TruthFitVariant variant, Species species, const Propagator& base, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& chain, std::int32_t n, const BoundTrackState& outward)
 {
   const auto pion = static_cast<Scalar>(o2::constants::physics::MassPionCharged);
   const auto electron = static_cast<Scalar>(o2::constants::physics::MassElectron);

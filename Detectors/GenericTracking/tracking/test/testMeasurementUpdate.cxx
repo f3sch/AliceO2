@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <random>
 
 namespace o2::gtrk
@@ -95,9 +96,9 @@ BOOST_AUTO_TEST_CASE(CorrelationsUpdateAllFiveParameters)
   BOOST_TEST(std::abs(static_cast<double>(state.loc1()) + 1.316650625602) < 1e-6);
   BOOST_TEST(std::abs(static_cast<double>(result.chi2) - 0.523580365736) < 1e-6);
 
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     BOOST_TEST(state.variance(i) > 0.F);
-    for (int j = 0; j < kNBoundParams; ++j) {
+    for (std::int32_t j = 0; j < kNBoundParams; ++j) {
       BOOST_TEST(state.covAt(i, j) == state.covAt(j, i));
     }
   }
@@ -123,10 +124,10 @@ BOOST_AUTO_TEST_CASE(FactorizedScalarUpdateMatchesExactOracle)
   scalar.par[kPhi] = 0.3F;
   scalar.par[kTheta] = 1.2F;
   scalar.par[kQOverP] = 2.5F;
-  for (int row = 0; row < kNBoundParams; ++row) {
-    for (int column = 0; column <= row; ++column) {
+  for (std::int32_t row = 0; row < kNBoundParams; ++row) {
+    for (std::int32_t column = 0; column <= row; ++column) {
       Scalar value = 0.F;
-      for (int k = 0; k < kNBoundParams; ++k) {
+      for (std::int32_t k = 0; k < kNBoundParams; ++k) {
         value += lower[row][k] * lower[column][k];
       }
       scalar.covAt(row, column) = value;
@@ -144,13 +145,13 @@ BOOST_AUTO_TEST_CASE(FactorizedScalarUpdateMatchesExactOracle)
   const auto scalarResult = updateWithMeasurement(scalar, measurement);
   const auto exactResult = updateWithMeasurementExact(exact, measurement);
 
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     const Scalar scale = std::max(1.F, std::abs(exact.par[i]));
     BOOST_TEST_CONTEXT("parameter " << i) { BOOST_TEST(std::abs(scalar.par[i] - exact.par[i]) < 2e-5F * scale); }
   }
 
-  for (int row = 0; row < kNBoundParams; ++row) {
-    for (int column = 0; column <= row; ++column) {
+  for (std::int32_t row = 0; row < kNBoundParams; ++row) {
+    for (std::int32_t column = 0; column <= row; ++column) {
       const Scalar expected = exact.covAt(row, column);
       const Scalar covarianceScale = std::sqrt(exact.variance(row) * exact.variance(column));
       const Scalar tolerance = row == column ? 2e-5F * std::abs(expected) : 1e-4F * covarianceScale;
@@ -181,7 +182,7 @@ BOOST_AUTO_TEST_CASE(TheInnovationsMultiplyToTheJointDeterminant)
   std::uniform_real_distribution<double> unit(0., 1.);
   std::normal_distribution<double> normal;
   double worst = 0.;
-  for (int sample = 0; sample < 200000; ++sample) {
+  for (std::int32_t sample = 0; sample < 200000; ++sample) {
     // The prior as L L^T in double, factored in double, the factors in float.
     const double sigma0 = std::pow(10., -3. + (2. * unit(random)));
     const double sigma1 = std::pow(10., -3. + (2. * unit(random)));
@@ -190,18 +191,18 @@ BOOST_AUTO_TEST_CASE(TheInnovationsMultiplyToTheJointDeterminant)
     lower[kLoc0][kLoc0] = sigma0;
     lower[kLoc1][kLoc0] = sigma1 * rho;
     lower[kLoc1][kLoc1] = sigma1 * std::sqrt(1. - (rho * rho));
-    for (int row = kPhi; row < kNBoundParams; ++row) {
+    for (std::int32_t row = kPhi; row < kNBoundParams; ++row) {
       const double scale = std::pow(10., -4. + (3. * unit(random)));
-      for (int column = 0; column < row; ++column) {
+      for (std::int32_t column = 0; column < row; ++column) {
         lower[row][column] = 0.5 * scale * normal(random);
       }
       lower[row][row] = scale;
     }
     double packed[kBoundCovSize]{};
-    for (int row = 0; row < kNBoundParams; ++row) {
-      for (int column = 0; column <= row; ++column) {
+    for (std::int32_t row = 0; row < kNBoundParams; ++row) {
+      for (std::int32_t column = 0; column <= row; ++column) {
         double value = 0.;
-        for (int k = 0; k < kNBoundParams; ++k) {
+        for (std::int32_t k = 0; k < kNBoundParams; ++k) {
           value += lower[row][k] * lower[column][k];
         }
         packed[covIndex(row, column)] = value;
@@ -214,13 +215,13 @@ BOOST_AUTO_TEST_CASE(TheInnovationsMultiplyToTheJointDeterminant)
     for (std::size_t i = 0; i < std::size(upper); ++i) {
       factors.upper[i] = static_cast<Scalar>(upper[i]);
     }
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       factors.diagonal[i] = static_cast<Scalar>(diagonal[i]);
     }
     // The oracle: P from the float factors, in double.
-    const auto covariance = [&](int i, int j) {
+    const auto covariance = [&](std::int32_t i, std::int32_t j) {
       double sum = 0.;
-      for (int k = std::max(i, j); k < kNBoundParams; ++k) {
+      for (std::int32_t k = std::max(i, j); k < kNBoundParams; ++k) {
         const double ui = k == i ? 1. : static_cast<double>(factors.upper[detail::strictUpperIndex(i, k)]);
         const double uj = k == j ? 1. : static_cast<double>(factors.upper[detail::strictUpperIndex(j, k)]);
         sum += ui * static_cast<double>(factors.diagonal[k]) * uj;
@@ -273,7 +274,7 @@ BOOST_AUTO_TEST_CASE(DirectionIsCanonicalAfterTheUpdate)
 
 BOOST_AUTO_TEST_CASE(SyntheticResidualsAndPosteriorPullsClose)
 {
-  constexpr int kSamples = 50000;
+  constexpr std::int32_t kSamples = 50000;
   constexpr double kPriorSigmaLoc0 = 2.;
   constexpr double kPriorSigmaLoc1 = 3.;
   constexpr double kMeasurementSigmaLoc0 = 1.;
@@ -284,7 +285,7 @@ BOOST_AUTO_TEST_CASE(SyntheticResidualsAndPosteriorPullsClose)
 
   std::array<double, 4> sum{};
   std::array<double, 4> sum2{};
-  for (int sample = 0; sample < kSamples; ++sample) {
+  for (std::int32_t sample = 0; sample < kSamples; ++sample) {
     const double truth0 = kPriorSigmaLoc0 * normal(random);
     const double truth1 = kPriorSigmaLoc1 * normal(random);
 

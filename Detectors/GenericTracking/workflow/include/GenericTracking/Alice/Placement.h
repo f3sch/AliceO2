@@ -39,6 +39,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -50,12 +51,12 @@ namespace o2::gtrk::alice
 /// Our flat sensor on layer \a layer from its L2G matrix: axes ALICE's
 /// (x, z, -y), origin moved by \a activeCentreX along ALICE's x onto the
 /// active matrix's centre (0 where the sensor volume is the active matrix).
-[[nodiscard]] Sensor flatSensor(const o2::math_utils::Transform3D& l2g, int layer, double activeCentreX);
+[[nodiscard]] Sensor flatSensor(const o2::math_utils::Transform3D& l2g, std::int32_t layer, double activeCentreX);
 
 /// Our curved sensor on layer \a layer from its L2G matrix: O2's frame whole,
 /// the cylinder's, z along its axis and the sensor's arc centred on +x
 /// (SensorSpec::unrolledToFrame).
-[[nodiscard]] Sensor curvedSensor(const o2::math_utils::Transform3D& l2g, int layer);
+[[nodiscard]] Sensor curvedSensor(const o2::math_utils::Transform3D& l2g, std::int32_t layer);
 
 /// Every chip of \a Det as our Sensor, indexed by our sensor ID, from the
 /// detector's GeometryTGeo: the one adopted from the CCDB, or one built from
@@ -81,7 +82,7 @@ template <DetectorLayout Det>
 /// \a specs as Geometry takes them, layers
 /// numbered barrel first, the first \a nBarrelLayers barrel layers. Throws
 /// std::runtime_error if a sensor's centre is in no volume.
-[[nodiscard]] std::vector<LayerBand> materialBands(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::span<const LayerEnvelope> envelopes, int nBarrelLayers);
+[[nodiscard]] std::vector<LayerBand> materialBands(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::span<const LayerEnvelope> envelopes, std::int32_t nBarrelLayers);
 
 /// The placed geometry of \a Det from the geometry in gGeoManager, checked
 /// against the layout's sensor counts, in total and per layer. Throws
@@ -96,7 +97,7 @@ template <DetectorLayout Det>
   if (sensors.size() != static_cast<std::size_t>(Det::nSensors)) {
     throw std::runtime_error(std::string{Det::name} + ": " + std::to_string(sensors.size()) + " chips in the geometry, " + std::to_string(Det::nSensors) + " in the layout");
   }
-  std::vector<int> counts(static_cast<std::size_t>(Detector<Det>::nLayers), 0);
+  std::vector<std::int32_t> counts(static_cast<std::size_t>(Detector<Det>::nLayers), 0);
   for (const auto& sensor : sensors) {
     if (sensor.layer >= counts.size()) {
       throw std::runtime_error(std::string{Det::name} + ": a chip on layer " + std::to_string(sensor.layer) + ", beyond the layout's " + std::to_string(Detector<Det>::nLayers) + " layers");
@@ -104,7 +105,7 @@ template <DetectorLayout Det>
     ++counts[sensor.layer];
   }
   for (std::size_t layer = 0; layer < counts.size(); ++layer) {
-    const int stated = Detector<Det>::sensorCount(static_cast<LayerID>(layer));
+    const std::int32_t stated = Detector<Det>::sensorCount(static_cast<LayerID>(layer));
     if (counts[layer] != stated) {
       throw std::runtime_error(std::string{Det::name} + ": layer " + std::to_string(layer) + " has " + std::to_string(counts[layer]) + " chips in the geometry, " + std::to_string(stated) + " in the layout");
     }

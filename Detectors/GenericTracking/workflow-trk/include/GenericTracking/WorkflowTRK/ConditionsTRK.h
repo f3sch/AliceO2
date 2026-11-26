@@ -48,6 +48,7 @@
 
 #include <fairlogger/Logger.h>
 
+#include <cstdint>
 #include <format>
 #include <memory>
 #include <stdexcept>
@@ -79,7 +80,7 @@ class TrkDictionaryConditions
   /// layers or discs.
   bool finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj)
   {
-    constexpr int kBarrel = Detector<detectors::TRKFT3>::nBarrelLayers;
+    constexpr std::int32_t kBarrel = Detector<detectors::TRKFT3>::nBarrelLayers;
     if (matcher == o2::framework::ConcreteDataMatcher("TRK", "CLUSDICT", 0)) {
       mTrk = checked(static_cast<const alice::TrkDictionary*>(obj), "TRK", kBarrel);
       return true;
@@ -97,7 +98,7 @@ class TrkDictionaryConditions
 
  private:
   template <typename Dictionary>
-  static const Dictionary* checked(const Dictionary* dictionary, const char* name, int layers)
+  static const Dictionary* checked(const Dictionary* dictionary, const char* name, std::int32_t layers)
   {
     if (dictionary->getNumberOfLayers() != layers) {
       throw std::runtime_error(std::format("{}'s topology dictionary has {} layers, the TRKFT3 layout {}", name, dictionary->getNumberOfLayers(), layers));
@@ -125,7 +126,7 @@ class Conditions<detectors::TRKFT3, WithMaterial>
 
   /// The orbits per timeframe of the ALICE 3 simulation's HBFUtils: it
   /// writes no GRPECS.
-  [[nodiscard]] static int orbitsPerTimeframe() { return o2::raw::HBFUtils::Instance().getNOrbitsPerTF(); }
+  [[nodiscard]] static std::int32_t orbitsPerTimeframe() { return o2::raw::HBFUtils::Instance().getNOrbitsPerTF(); }
 
   /// None: the beam line is the nominal one.
   static constexpr bool kMeanVertex = false;
@@ -192,7 +193,7 @@ class Conditions<detectors::TRKFT3TOF, WithMaterial>
     MaterialConditionOf<detectors::TRKFT3TOF, WithMaterial>::declare(inputs);
   }
 
-  [[nodiscard]] static int orbitsPerTimeframe() { return Conditions<detectors::TRKFT3>::orbitsPerTimeframe(); }
+  [[nodiscard]] static std::int32_t orbitsPerTimeframe() { return Conditions<detectors::TRKFT3>::orbitsPerTimeframe(); }
 
   static constexpr bool kMeanVertex = false;
 

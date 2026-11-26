@@ -37,6 +37,7 @@
 #include "SimulationDataFormat/MCCompLabel.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <optional>
 #include <stdexcept>
@@ -59,7 +60,7 @@ class ITS3ClusterConverterTask : public o2::framework::Task
  public:
   using AlpideParam = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>;
 
-  ITS3ClusterConverterTask(bool useMC, int streams) : mUseMC(useMC), mStreams(streams) {}
+  ITS3ClusterConverterTask(bool useMC, std::int32_t streams) : mUseMC(useMC), mStreams(streams) {}
 
   void finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj) final
   {
@@ -93,11 +94,11 @@ class ITS3ClusterConverterTask : public o2::framework::Task
     std::vector<Cluster> clusters;
     clusters.reserve(input.size());
     std::size_t rofCount = 0U;
-    for (std::size_t stream = 0; stream < input.streams().size(); ++stream) {
+    for (std::uint32_t stream = 0; stream < input.streams().size(); ++stream) {
       const auto& source = input.streams()[stream];
       // One stream holds every layer, whose frames must then be alike.
-      const int lengthBC = param.getROFLengthInBC(static_cast<int>(stream));
-      for (int layer = 0; mStreams == 1 && layer < Detector<detectors::ITS3>::nLayers; ++layer) {
+      const std::int32_t lengthBC = param.getROFLengthInBC(static_cast<std::int32_t>(stream));
+      for (std::int32_t layer = 0; mStreams == 1 && layer < Detector<detectors::ITS3>::nLayers; ++layer) {
         if (param.getROFLengthInBC(layer) != lengthBC) {
           throw std::runtime_error("staggered ITS3 timing needs per-layer cluster input (--enable-its-staggering)");
         }
@@ -119,7 +120,7 @@ class ITS3ClusterConverterTask : public o2::framework::Task
   }
 
   /// The converter's device; \a streams 1, or one per layer (staggered).
-  [[nodiscard]] static o2::framework::DataProcessorSpec spec(bool useMC, int streams)
+  [[nodiscard]] static o2::framework::DataProcessorSpec spec(bool useMC, std::int32_t streams)
   {
     using namespace o2::framework;
     std::vector<InputSpec> inputs;
@@ -142,7 +143,7 @@ class ITS3ClusterConverterTask : public o2::framework::Task
 
  private:
   bool mUseMC;
-  int mStreams;
+  std::int32_t mStreams;
   const o2::its3::TopologyDictionary* mDictionary = nullptr; ///< the CCDB cache's
   std::optional<alice::ITS3Tiles> mTiles;                    ///< from the adopted geometry, at its first timeframe
 };

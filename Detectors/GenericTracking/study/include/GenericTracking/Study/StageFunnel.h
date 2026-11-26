@@ -135,7 +135,7 @@ struct PairCutVerdict {
 };
 
 template <DetectorLayout Det>
-[[nodiscard]] PairCutVerdict pairCutLoss(const TimeFrame<Det>& frame, const IterationParameters<Det>& parameters, const VertexSeed& vertex, std::size_t link, std::uint32_t sourceRow, std::uint32_t targetRow)
+[[nodiscard]] PairCutVerdict pairCutLoss(const TimeFrame<Det>& frame, const IterationParameters<Det>& parameters, const VertexSeed& vertex, std::uint32_t link, std::uint32_t sourceRow, std::uint32_t targetRow)
 {
   PairCutVerdict verdict;
   const auto sourceMeasurement = frame.measurement(sourceRow);
@@ -322,8 +322,8 @@ class StageFunnel
   /// which the layer IDs do not (an FT3 disc links to a TRK barrel layer).
   static constexpr auto kLayerRank = [] {
     std::array<std::uint32_t, Detector<Det>::nLayers> rank{};
-    for (std::size_t position = 0; position < layerOrder<Det>.size(); ++position) {
-      rank[layerOrder<Det>[position]] = static_cast<std::uint32_t>(position);
+    for (std::uint32_t position = 0; position < layerOrder<Det>.size(); ++position) {
+      rank[layerOrder<Det>[position]] = position;
     }
     return rank;
   }();
@@ -376,13 +376,13 @@ class StageFunnel
     }
     // Each row's findable particles, and each particle's rows.
     mRowOffsets.assign(rows.size() + 1U, 0U);
-    for (std::size_t row = 0; row < rows.size(); ++row) {
+    for (std::uint32_t row = 0; row < rows.size(); ++row) {
       mRowOffsets[row + 1U] = mRowOffsets[row];
       for (std::uint8_t i = 0; i < rows[row].count; ++i) {
         const auto found = mIndex.find(rows[row].particles[i]);
         if (found != mIndex.end()) {
           mRowParticles.push_back(found->second);
-          mParticles[found->second].rows.push_back(static_cast<std::uint32_t>(row));
+          mParticles[found->second].rows.push_back(row);
           ++mRowOffsets[row + 1U];
         }
       }
@@ -396,14 +396,14 @@ class StageFunnel
     const auto& result = *slice.result;
     const auto tracklets = result.tracklets->view();
     const auto triplets = result.triplets->view();
-    for (std::size_t i = 0; i < result.tracklets->size(); ++i) {
+    for (std::uint32_t i = 0; i < result.tracklets->size(); ++i) {
       const std::array<std::uint32_t, 2> ends{tracklets.source[i], tracklets.target[i]};
       const bool owned = forEachOwner(ends, [&](std::uint32_t particle) { mPairs[particle].emplace_back(ends[0], ends[1]); });
       if (owned) {
         mKept.insert(packKey(ends[0], ends[1]));
       }
     }
-    for (std::size_t i = 0; i < result.triplets->size(); ++i) {
+    for (std::uint32_t i = 0; i < result.triplets->size(); ++i) {
       const auto first = triplets.first[i];
       const std::array<std::uint32_t, 3> rows{tracklets.source[first], tracklets.target[first], tracklets.target[triplets.second[i]]};
       // The road counts of the slice that owns it: its first measurement in the core.
@@ -422,7 +422,7 @@ class StageFunnel
     }
     const auto from = result.neighbours->view().from;
     const auto offsets = result.neighbours->offsets();
-    for (std::size_t to = 0; to + 1U < offsets.size(); ++to) {
+    for (std::uint32_t to = 0; to + 1U < offsets.size(); ++to) {
       const auto shared = triplets.first[to];
       const auto b = tracklets.source[shared];
       const auto c = tracklets.target[shared];
@@ -454,7 +454,7 @@ class StageFunnel
       });
     }
     const auto records = slice.records->view();
-    for (std::size_t record = 0; record < slice.records->size(); ++record) {
+    for (std::uint32_t record = 0; record < slice.records->size(); ++record) {
       const auto count = static_cast<std::uint32_t>(records.count[record]);
       const std::span<const std::uint32_t> rows{records.clusters[record].index, count};
       const auto chi2 = static_cast<float>(records.chi2[record]);
@@ -468,7 +468,7 @@ class StageFunnel
         auto& p = mParticles[particle];
         const auto before = slice.iteration < p.longestBy.size() ? p.longestBy[slice.iteration][static_cast<std::size_t>(FunnelStage::kFit)] : 0U;
         raise(particle, slice.iteration, FunnelStage::kFit, count);
-        p.recordChi2.resize(std::max(p.recordChi2.size(), slice.iteration + 1U), -1.F);
+        p.recordChi2.resize(std::max<std::size_t>(p.recordChi2.size(), slice.iteration + 1U), -1.F);
         auto& best = p.recordChi2[slice.iteration];
         if (count > before || best < 0.F) {
           best = chi2;
@@ -546,16 +546,16 @@ class StageFunnel
     }
     if (iteration.iteration == 0U) {
       // The layers' spans from the loaded geometry, for the hole test.
-      for (std::size_t layer = 0; layer < mSpans.size(); ++layer) {
+      for (std::uint32_t layer = 0; layer < mSpans.size(); ++layer) {
         mSpans[layer] = layerSpan<Det>(static_cast<LayerID>(layer));
       }
     }
     lostPairReasons(tracker.iteration(iteration.iteration), iteration.iteration);
     {
       const auto& parameters = tracker.iteration(iteration.iteration);
-      mTakenLinks.resize(std::max(mTakenLinks.size(), iteration.iteration + 1U));
+      mTakenLinks.resize(std::max<std::size_t>(mTakenLinks.size(), iteration.iteration + 1U));
       auto& taken = mTakenLinks[iteration.iteration];
-      for (std::size_t link = 0; link < Det::layerLinks.size(); ++link) {
+      for (std::uint32_t link = 0; link < Det::layerLinks.size(); ++link) {
         taken[link] = linkTaken(parameters, link);
       }
     }
@@ -604,7 +604,7 @@ class StageFunnel
   };
 
   /// Particle \a id's in \a iteration; none for a particle not findable.
-  [[nodiscard]] std::optional<IterationStages> stages(std::uint64_t id, std::size_t iteration) const
+  [[nodiscard]] std::optional<IterationStages> stages(std::uint64_t id, std::uint32_t iteration) const
   {
     const auto found = mIndex.find(id);
     if (found == mIndex.end()) {
@@ -700,15 +700,15 @@ class StageFunnel
       }
       return static_cast<std::uint8_t>(best);
     };
-    result.linked = longest([](std::size_t) { return true; });
+    result.linked = longest([](std::uint32_t) { return true; });
     std::vector<bool> anyTakes(Det::layerLinks.size(), false);
     for (std::size_t iteration = 0; iteration < mTakenLinks.size(); ++iteration) {
       if (iteration < mMinPtGeV.size() && static_cast<double>(particle.pt) < mMinPtGeV[iteration]) {
         continue;
       }
       const auto& taken = mTakenLinks[iteration];
-      result.taken = std::max(result.taken, longest([&](std::size_t link) { return taken[link]; }));
-      for (std::size_t link = 0; link < Det::layerLinks.size(); ++link) {
+      result.taken = std::max(result.taken, longest([&](std::uint32_t link) { return taken[link]; }));
+      for (std::uint32_t link = 0; link < Det::layerLinks.size(); ++link) {
         anyTakes[link] = anyTakes[link] || taken[link];
       }
     }
@@ -754,14 +754,14 @@ class StageFunnel
     for (const auto loss : particle.roadLosses) {
       if (loss != RoadLoss::kNoChain) {
         result.roadLoss = loss;
-        result.roadLosses |= static_cast<std::uint8_t>(1U << static_cast<unsigned>(loss));
+        result.roadLosses |= static_cast<std::uint8_t>(1U << static_cast<std::uint32_t>(loss));
       }
     }
     for (std::size_t iteration = 0; iteration < particle.fitLosses.size(); ++iteration) {
       if (const auto loss = particle.fitLosses[iteration]; loss != FitLoss::kNoRoad) {
         result.fitLoss = loss;
         result.fitRoadLayers = particle.fitRoadLayers[iteration];
-        result.fitLosses |= static_cast<std::uint8_t>(1U << static_cast<unsigned>(loss));
+        result.fitLosses |= static_cast<std::uint8_t>(1U << static_cast<std::uint32_t>(loss));
       }
     }
     for (const auto loss : particle.raisedFits) {
@@ -775,7 +775,7 @@ class StageFunnel
   /// The chi2 of \a iteration's record on exactly \a rows, in any order
   /// (the best of its duplicates); none if no slice gave one, or without
   /// `keepReportInputs(true)` (for the road fakes).
-  [[nodiscard]] std::optional<float> recordChi2(std::size_t iteration, std::span<const std::uint32_t> rows) const
+  [[nodiscard]] std::optional<float> recordChi2(std::uint32_t iteration, std::span<const std::uint32_t> rows) const
   {
     const auto found = mRecordChi2.find(recordKey(iteration, rows));
     if (found == mRecordChi2.end()) {
@@ -809,11 +809,11 @@ class StageFunnel
       }
       // A fake: its label is the findable particle most of its measurements carry.
       std::uint32_t label = 0U;
-      std::size_t most = 0U;
+      std::uint32_t most = 0U;
       for (const auto row : track) {
         for (auto candidate = mRowOffsets[row]; candidate < mRowOffsets[row + 1U]; ++candidate) {
           const auto id = mParticles[mRowParticles[candidate]].id;
-          const auto count = static_cast<std::size_t>(std::ranges::count_if(track, [&](std::uint32_t other) { return mRows[other].carries(id); }));
+          const auto count = static_cast<std::uint32_t>(std::ranges::count_if(track, [&](std::uint32_t other) { return mRows[other].carries(id); }));
           if (count > most) {
             most = count;
             label = mRowParticles[candidate];
@@ -893,15 +893,15 @@ class StageFunnel
         auto& species = row.fitBySpecies[particle.species];
         ++species[0];
         species[1] += last == FitLoss::kChi2 ? 1U : 0U;
-        row.fitLosses.resize(std::max(row.fitLosses.size(), mIterations));
-        for (std::size_t iteration = 0; iteration < mIterations; ++iteration) {
+        row.fitLosses.resize(std::max<std::size_t>(row.fitLosses.size(), mIterations));
+        for (std::uint32_t iteration = 0; iteration < mIterations; ++iteration) {
           const auto loss = iteration < particle.fitLosses.size() ? particle.fitLosses[iteration] : FitLoss::kNoRoad;
           ++row.fitLosses[iteration][static_cast<std::size_t>(loss)];
         }
       }
       if (stage == FunnelStage::kRoads) {
-        row.roadLosses.resize(std::max(row.roadLosses.size(), mIterations));
-        for (std::size_t iteration = 0; iteration < mIterations; ++iteration) {
+        row.roadLosses.resize(std::max<std::size_t>(row.roadLosses.size(), mIterations));
+        for (std::uint32_t iteration = 0; iteration < mIterations; ++iteration) {
           const auto loss = iteration < particle.roadLosses.size() ? particle.roadLosses[iteration] : RoadLoss::kNoChain;
           ++row.roadLosses[iteration][static_cast<std::size_t>(loss)];
         }
@@ -930,7 +930,7 @@ class StageFunnel
                   "found %, then the missed by the first stage without a chain of {} of their own (% of the findable)",
                   mSettings.minPtGeV, mSettings.minLayers, mSettings.productionAlongZ ? "|z|" : "radius", edges, mSettings.minLayers)};
     std::string seeded = std::format("  seeded, a road of its own, of {} findable, by iteration:", mParticles.size());
-    for (std::size_t iteration = 0; iteration < mIterations; ++iteration) {
+    for (std::uint32_t iteration = 0; iteration < mIterations; ++iteration) {
       seeded += std::format(" {} {}", iteration, std::ranges::count_if(mParticles, [&](const Particle& p) { return ((p.seededBy >> iteration) & 1U) != 0U; }));
     }
     lines.push_back(seeded + std::format(", any {}", std::ranges::count_if(mParticles, [](const Particle& p) { return p.seededBy != 0U; })));
@@ -999,10 +999,10 @@ class StageFunnel
   /// pair of its longest chain of direct pairs that no iteration kept, by the
   /// first test it fails in the iteration of its track, \a iterations[i]
   /// being track i's.
-  [[nodiscard]] std::vector<std::string> lengthReport(const TrackRows& tracks, std::span<const std::size_t> iterations, const Controller& tracker) const
+  [[nodiscard]] std::vector<std::string> lengthReport(const TrackRows& tracks, std::span<const std::uint32_t> iterations, const Controller& tracker) const
   {
     std::vector<std::uint32_t> found(mParticles.size(), 0U);
-    std::vector<std::size_t> foundIn(mParticles.size(), 0U);
+    std::vector<std::uint32_t> foundIn(mParticles.size(), 0U);
     for (std::size_t track = 0; track < tracks.size(); ++track) {
       const auto at = mIndex.find(goodParticle(mRows, tracks[track]));
       if (at != mIndex.end() && tracks[track].size() > found[at->second]) {
@@ -1020,7 +1020,7 @@ class StageFunnel
     }();
     const std::uint64_t barrels = barrelLayerBits<Det>();
     std::array<LayerSpan, kLayerBits> spans{};
-    for (std::size_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+    for (std::uint32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
       spans[layer] = layerSpan<Det>(static_cast<LayerID>(layer));
     }
     struct Counts {
@@ -1040,7 +1040,7 @@ class StageFunnel
       std::map<std::pair<LayerID, LayerID>, std::uint64_t> missingLinks;
     };
     std::array<Counts, 2> counts; // physical primaries, all
-    for (std::size_t index = 0; index < mParticles.size(); ++index) {
+    for (std::uint32_t index = 0; index < mParticles.size(); ++index) {
       if (found[index] == 0U) {
         continue;
       }
@@ -1092,7 +1092,7 @@ class StageFunnel
           count.overMiss += directCeiling < ceiling ? 1U : 0U;
           if (particle.longest[0] < directCeiling) {
             const auto& parameters = tracker.iteration(foundIn[index]);
-            const auto kept = mOwnKept.find(static_cast<std::uint32_t>(index));
+            const auto kept = mOwnKept.find(index);
             bool first = true;
             for (std::size_t i = 1; i < directPath.size(); ++i) {
               const auto a = directPath[i - 1U];
@@ -1200,8 +1200,8 @@ class StageFunnel
   /// A link of a particle's consecutive pairs an iteration took and did not
   /// keep: the iteration, the link, the furthest test its pairs reached.
   struct LostPair {
-    std::size_t iteration = 0U;
-    std::size_t link = 0U;
+    std::uint32_t iteration = 0U;
+    std::uint32_t link = 0U;
     PairLoss loss = PairLoss::kElsewhere;
   };
 
@@ -1229,12 +1229,12 @@ class StageFunnel
 
   /// Why each particle's longest road of its own in \a iteration, if it
   /// reaches the minimum and gave no record as long, was no record.
-  void fitLosses(const IterationParameters<Det>& parameters, std::size_t iteration)
+  void fitLosses(const IterationParameters<Det>& parameters, std::uint32_t iteration)
   {
     if (mTracking == nullptr || !mPropagator) {
       return;
     }
-    const auto minimum = static_cast<std::size_t>(mSettings.minLayers);
+    const auto minimum = static_cast<std::uint32_t>(mSettings.minLayers);
     for (const auto& [particle, rows] : mOwnRoad) {
       if (rows.size() < minimum) {
         continue;
@@ -1244,9 +1244,9 @@ class StageFunnel
         continue;
       }
       auto& losses = mParticles[particle].fitLosses;
-      losses.resize(std::max(losses.size(), iteration + 1U), FitLoss::kNoRoad);
+      losses.resize(std::max<std::size_t>(losses.size(), iteration + 1U), FitLoss::kNoRoad);
       auto& layers = mParticles[particle].fitRoadLayers;
-      layers.resize(std::max(layers.size(), iteration + 1U), 0U);
+      layers.resize(std::max<std::size_t>(layers.size(), iteration + 1U), 0U);
       for (const auto row : rows) {
         layers[iteration] |= std::uint64_t{1} << mRows[row].layer;
       }
@@ -1258,19 +1258,19 @@ class StageFunnel
   /// (`raisedHow`) with no record of its own: kOther if the fit, the floor
   /// and the beam line all take it -- a road without the other's triplets
   /// below would have been a record.
-  void raisedFitLosses(const IterationParameters<Det>& parameters, std::size_t iteration)
+  void raisedFitLosses(const IterationParameters<Det>& parameters, std::uint32_t iteration)
   {
     if (mTracking == nullptr || !mPropagator) {
       return;
     }
-    const auto minimum = static_cast<std::size_t>(mSettings.minLayers);
+    const auto minimum = static_cast<std::uint32_t>(mSettings.minLayers);
     for (const auto& [particle, rows] : mRaisedChain) {
       const auto record = mOwnRecord.find(particle);
       if (rows.size() < minimum || (record != mOwnRecord.end() && record->second >= minimum)) {
         continue;
       }
       auto& fits = mParticles[particle].raisedFits;
-      fits.resize(std::max(fits.size(), iteration + 1U), FitLoss::kNoRoad);
+      fits.resize(std::max<std::size_t>(fits.size(), iteration + 1U), FitLoss::kNoRoad);
       fits[iteration] = fitLoss(parameters, *mPropagator, rows);
     }
   }
@@ -1306,10 +1306,10 @@ class StageFunnel
 
   /// Why \a particle's chain of \a length triplets ending at \a end is no road
   /// of its own in \a iteration; \a chains, its neighbours.
-  void roadLoss(std::uint32_t particle, std::size_t iteration, const IterationParameters<Det>& parameters, std::uint32_t length, const std::pair<std::uint64_t, std::uint32_t>& end, const std::vector<std::array<std::uint32_t, 4>>& chains)
+  void roadLoss(std::uint32_t particle, std::uint32_t iteration, const IterationParameters<Det>& parameters, std::uint32_t length, const std::pair<std::uint64_t, std::uint32_t>& end, const std::vector<std::array<std::uint32_t, 4>>& chains)
   {
     auto& losses = mParticles[particle].roadLosses;
-    losses.resize(std::max(losses.size(), iteration + 1U), RoadLoss::kNoChain);
+    losses.resize(std::max<std::size_t>(losses.size(), iteration + 1U), RoadLoss::kNoChain);
     const auto& infos = mTripletInfo[particle];
     const auto found = infos.find(end);
     auto loss = RoadLoss::kOther;
@@ -1417,7 +1417,7 @@ class StageFunnel
   }
 
   /// A record's key: \a iteration and its rows, sorted, hashed (FNV-1a).
-  [[nodiscard]] static std::uint64_t recordKey(std::size_t iteration, std::span<const std::uint32_t> rows)
+  [[nodiscard]] static std::uint64_t recordKey(std::uint32_t iteration, std::span<const std::uint32_t> rows)
   {
     std::vector<std::uint32_t> sorted(rows.begin(), rows.end());
     std::ranges::sort(sorted);
@@ -1433,19 +1433,19 @@ class StageFunnel
     return hash;
   }
 
-  void raise(std::uint32_t particle, std::size_t iteration, FunnelStage stage, std::uint32_t length)
+  void raise(std::uint32_t particle, std::uint32_t iteration, FunnelStage stage, std::uint32_t length)
   {
     auto& p = mParticles[particle];
     auto& longest = p.longest[static_cast<std::size_t>(stage)];
     longest = std::max(longest, length);
-    p.longestBy.resize(std::max(p.longestBy.size(), iteration + 1U));
+    p.longestBy.resize(std::max<std::size_t>(p.longestBy.size(), iteration + 1U));
     auto& here = p.longestBy[iteration][static_cast<std::size_t>(stage)];
     here = std::max(here, length);
   }
 
   /// Every findable particle's links of its consecutive pairs that this
   /// iteration took and did not keep, by the furthest test their pairs reach.
-  void lostPairReasons(const IterationParameters<Det>& parameters, std::size_t iteration)
+  void lostPairReasons(const IterationParameters<Det>& parameters, std::uint32_t iteration)
   {
     // The cut's vertex is the beam line's here; an iteration from the vertex
     // list keeps none.
@@ -1465,16 +1465,16 @@ class StageFunnel
   /// other layer the particle has a row on -- each link once, kept in the
   /// iteration or lost at the furthest test one of its pairs reached. A link
   /// the iteration does not take loses nothing here (`legLinks` tells those).
-  void lostPairReasons(const IterationParameters<Det>& parameters, std::size_t iteration, Particle& particle) const
+  void lostPairReasons(const IterationParameters<Det>& parameters, std::uint32_t iteration, Particle& particle) const
   {
     auto& reasons = particle.reasons;
-    reasons.resize(std::max(reasons.size(), iteration + 1U));
+    reasons.resize(std::max<std::size_t>(reasons.size(), iteration + 1U));
     std::uint64_t layers = 0U;
     for (const auto row : particle.rows) {
       layers |= std::uint64_t{1} << mRows[row].layer;
     }
     struct LinkState {
-      std::size_t link = 0U;
+      std::uint32_t link = 0U;
       bool kept = false;
       PairLoss furthest = PairLoss::kLinkNotTaken;
     };
@@ -1516,7 +1516,7 @@ class StageFunnel
     }
   }
 
-  [[nodiscard]] PairLoss pairLoss(const IterationParameters<Det>& parameters, std::size_t link, std::uint32_t sourceRow, std::uint32_t targetRow) const
+  [[nodiscard]] PairLoss pairLoss(const IterationParameters<Det>& parameters, std::uint32_t link, std::uint32_t sourceRow, std::uint32_t targetRow) const
   {
     if (!linkTaken(parameters, link)) {
       return PairLoss::kLinkNotTaken;
@@ -1558,7 +1558,7 @@ class StageFunnel
   std::vector<std::uint8_t> mUsed;                                               ///< the mask the open iteration read
   bool mKeepOwnKept = false;                                                     ///< `keepReportInputs`
   bool mKeepRecordChi2s = false;
-  std::size_t mIterations = 0U; ///< observed
+  std::uint32_t mIterations = 0U; ///< observed
 };
 
 } // namespace o2::gtrk::study

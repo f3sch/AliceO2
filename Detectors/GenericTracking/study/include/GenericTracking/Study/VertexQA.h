@@ -52,14 +52,14 @@ namespace o2::gtrk::study
 
 /// One timeframe's vertices against its collisions.
 struct VertexScore {
-  std::size_t vertices = 0U;
-  std::size_t collisions = 0U; ///< with a measured primary
-  std::size_t found = 0U;
+  std::uint32_t vertices = 0U;
+  std::uint32_t collisions = 0U; ///< with a measured primary
+  std::uint32_t found = 0U;
   std::uint64_t findable = 0U; ///< the collisions' findable primaries
   std::uint64_t covered = 0U;  ///< those of the found collisions
-  std::size_t fakes = 0U;
-  std::size_t splits = 0U;
-  std::size_t merged = 0U;
+  std::uint32_t fakes = 0U;
+  std::uint32_t splits = 0U;
+  std::uint32_t merged = 0U;
   std::vector<double> residualsUM; ///< |z - z_true| of each found collision's vertex [um]
   std::vector<double> pulls;       ///< (z - z_true) / its sigma z, the same vertices
   /// Each collision with a measured primary and the vertices that are its.
@@ -101,7 +101,7 @@ struct VertexClaimsScore {
   VertexClaimsScore result;
   result.best.assign(wentTo.size(), -1);
   result.isMerged.assign(wentTo.size(), false);
-  for (std::size_t v = 0; v < labels.size(); ++v) {
+  for (std::uint32_t v = 0; v < labels.size(); ++v) {
     const auto collision = labels[v].empty() ? -1 : std::ranges::max_element(labels[v], {}, [](const auto& entry) { return entry.second; })->first;
     result.collision.push_back(collision);
     if (collision < 0) {
@@ -148,7 +148,7 @@ template <DetectorLayout Det>
     }
     const auto [at, inserted] = index.try_emplace(collisionOf(particle), collisions.size());
     if (inserted) {
-      collisions.push_back({.particle = particle});
+      collisions.push_back({.productionZ = {}, .particle = particle});
     }
     auto& collision = collisions[at->second];
     collision.productionZ.push_back(static_cast<double>(info.vz));
@@ -164,8 +164,8 @@ template <DetectorLayout Det>
     return info != particles.end() && info->second.primary ? static_cast<std::int64_t>(index.at(collisionOf(*particle))) : -1;
   };
   VertexScore score;
-  score.vertices = found.vertices.size();
-  score.collisions = collisions.size();
+  score.vertices = static_cast<std::uint32_t>(found.vertices.size());
+  score.collisions = static_cast<std::uint32_t>(collisions.size());
   std::vector<std::map<std::int64_t, std::uint32_t>> labels(found.vertices.size());
   std::vector<std::map<std::int64_t, std::uint32_t>> wentTo(collisions.size()); // per collision: the vertices its triplets went to, -1 free, -2 cut
   for (const auto& claim : claims) {

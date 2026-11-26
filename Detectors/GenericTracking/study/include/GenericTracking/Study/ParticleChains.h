@@ -110,7 +110,7 @@ class ParticleChains
   /// The radial direction of \a segment: +1 outward, -1 inward; from its ends,
   /// or where they are at one radius (a crossing at the turning point) from
   /// its momentum. A leg's crossings all have its sign.
-  [[nodiscard]] static int radialSign(const HitSegment& segment)
+  [[nodiscard]] static std::int32_t radialSign(const HitSegment& segment)
   {
     const double dr = std::hypot(segment.end[0], segment.end[1]) - std::hypot(segment.start[0], segment.start[1]);
     if (std::abs(dr) > 1e-4) {

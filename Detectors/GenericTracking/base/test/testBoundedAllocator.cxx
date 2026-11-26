@@ -16,6 +16,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <cstdint>
 #include <stdexcept>
 
 using namespace o2::gtrk;
@@ -31,7 +32,7 @@ class ThrowingResource final : public std::pmr::memory_resource
 
 // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions): the throwing copy is the point; moves fall back to it
 struct ThrowingCopy {
-  static inline int copiesBeforeFailure = -1;
+  static inline std::int32_t copiesBeforeFailure = -1;
   ThrowingCopy() = default;
   ThrowingCopy(const ThrowingCopy& /*unused*/)
   {
@@ -92,7 +93,7 @@ BOOST_AUTO_TEST_CASE(legacy_mutable_budget_and_stage_peak_are_preserved)
 BOOST_AUTO_TEST_CASE(failed_rebuild_leaves_valid_vector_on_requested_resource)
 {
   BoundedMemoryResource pool{64};
-  BoundedVector<int> values{&pool};
+  BoundedVector<std::int32_t> values{&pool};
   values.assign(8, 7);
   BOOST_CHECK_THROW(clearResizeBoundedVector(values, 32, &pool, 3), BoundedMemoryResource::MemoryLimitExceeded);
   BOOST_CHECK(values.empty());
@@ -122,7 +123,7 @@ BOOST_AUTO_TEST_CASE(resize_reuses_capacity_and_honors_resource_changes)
 {
   BoundedMemoryResource first;
   BoundedMemoryResource second;
-  BoundedVector<int> values{&first};
+  BoundedVector<std::int32_t> values{&first};
   values.reserve(16);
   const auto allocations = first.getAllocationCount();
   auto* storage = values.data();
@@ -138,7 +139,7 @@ BOOST_AUTO_TEST_CASE(nested_vectors_and_arrays_retain_legacy_clear_semantics)
 {
   BoundedMemoryResource first;
   BoundedMemoryResource second;
-  std::vector<BoundedVector<int>> nested;
+  std::vector<BoundedVector<std::int32_t>> nested;
   clearResizeBoundedVector(nested, 3, &first);
   for (auto& values : nested) {
     values.assign(4, 5);
@@ -150,7 +151,7 @@ BOOST_AUTO_TEST_CASE(nested_vectors_and_arrays_retain_legacy_clear_semantics)
     BOOST_CHECK(values.empty());
     BOOST_CHECK(values.get_allocator().resource() == &second);
   }
-  std::array<BoundedVector<int>, 2> array;
+  std::array<BoundedVector<std::int32_t>, 2> array;
   for (auto& values : array) {
     clearResizeBoundedVector(values, 4, &second, 7);
   }

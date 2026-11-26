@@ -116,7 +116,7 @@ class SerialStage
   };
 
   /// Staging for \a capacity records; by default for any run.
-  explicit SerialStage(std::size_t capacity = std::numeric_limits<std::size_t>::max()) : mCapacity(capacity) {}
+  explicit SerialStage(std::uint32_t capacity = std::numeric_limits<std::uint32_t>::max()) : mCapacity(capacity) {}
 
   /// \a generate(element, emitter) for every element of \a output, in order,
   /// into \a output.
@@ -146,14 +146,14 @@ class SerialStage
       }
       const auto offsets = output.offsets();
       for (const auto& staged : mStaged) {
-        output.output().write(std::size_t{offsets[staged.element]} + staged.ordinal, staged.record);
+        output.output().write(offsets[staged.element] + staged.ordinal, staged.record);
       }
       return StageStatus::kComplete;
     });
   }
 
   /// The records the last run emitted, past the capacity too.
-  [[nodiscard]] std::uint64_t stagedCount() const { return mStagedCount; }
+  [[nodiscard]] std::uint32_t stagedCount() const { return mStagedCount; }
 
  private:
   struct Staged {
@@ -164,7 +164,7 @@ class SerialStage
 
   void stage(Index element, Index ordinal, const Record& record)
   {
-    const std::uint64_t slot = mStagedCount++;
+    const std::uint32_t slot = mStagedCount++;
     if (ordinal >= Output::kMaxPerElement) {
       mOrdinalOverflow = true;
       return;
@@ -175,9 +175,9 @@ class SerialStage
     mStaged.push_back({.record = record, .element = element, .ordinal = ordinal});
   }
 
-  std::size_t mCapacity;
+  std::uint32_t mCapacity;
   std::vector<Staged> mStaged;
-  std::uint64_t mStagedCount = 0;
+  std::uint32_t mStagedCount = 0;
   bool mOrdinalOverflow = false;
 };
 

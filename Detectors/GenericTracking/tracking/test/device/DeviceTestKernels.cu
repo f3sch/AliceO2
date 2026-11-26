@@ -57,7 +57,7 @@ void runTrig(DeviceRuntime& runtime, DeviceStream& stream, const double* ys, con
   checkLaunch();
 }
 
-StageStatus runSynthetic(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, synthetic::Kind kind, std::uint32_t elements, std::size_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info)
+StageStatus runSynthetic(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, synthetic::Kind kind, std::uint32_t elements, std::uint32_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info)
 {
   GpuStage<TrackletT> stage{runtime, arena, stream};
   DeviceStageOutput<TrackletT> output;
@@ -83,7 +83,7 @@ struct ListedSynthetic {
   GPUdi() bool operator()(std::uint32_t element) const { return count(element) != 0U || element % 3U == 0U; }
 };
 
-StageStatus runSyntheticListed(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, synthetic::Kind kind, std::uint32_t elements, std::size_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info)
+StageStatus runSyntheticListed(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, synthetic::Kind kind, std::uint32_t elements, std::uint32_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info)
 {
   GpuStage<TrackletT> stage{runtime, arena, stream};
   DeviceStageOutput<TrackletT> output;
@@ -141,7 +141,7 @@ struct FlatSynthetic {
   {
     sourceBegin = begin;
     DeviceSpan<std::uint32_t> storage;
-    if (!storage.allocate(arena, std::max<std::size_t>(sources, 1U), ArenaEnd::kScratch)) {
+    if (!storage.allocate(arena, std::max(sources, 1U), ArenaEnd::kScratch)) {
       return false;
     }
     contexts = storage.data();
@@ -156,7 +156,7 @@ struct AllElements {
   GPUdi() bool operator()(std::uint32_t) const { return true; }
 };
 
-StageStatus runFlatSynthetic(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, synthetic::Kind kind, std::uint32_t divisor, std::uint32_t elements, bool listedRun, std::size_t maxChunkPairs, StageOutput<TrackletT>& result, FlatRunInfo& info)
+StageStatus runFlatSynthetic(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, synthetic::Kind kind, std::uint32_t divisor, std::uint32_t elements, bool listedRun, std::uint32_t maxChunkPairs, StageOutput<TrackletT>& result, FlatRunInfo& info)
 {
   DeviceStageOutput<TrackletT> output;
   if (!output.prepare(arena, elements)) {
@@ -271,7 +271,7 @@ StageStatus runPathBounds(DeviceRuntime& runtime, DeviceStream& stream, DeviceAr
   if (status != StageStatus::kComplete) {
     return status;
   }
-  status = glue::tripletPaths<Toy>(runtime, arena, stream, deviceParameters.data(), sources, std::as_const(deviceTracklets).view(), tracklets.size(), trackletOffsets.data(), std::as_const(deviceTriplets).view(), tripletOffsets.data(), firsts.data(), permutation.size(), accepted);
+  status = glue::tripletPaths<Toy>(runtime, arena, stream, deviceParameters.data(), sources, std::as_const(deviceTracklets).view(), tracklets.size(), trackletOffsets.data(), std::as_const(deviceTriplets).view(), tripletOffsets.data(), firsts.data(), static_cast<std::uint32_t>(permutation.size()), accepted);
   if (status == StageStatus::kComplete) {
     result.measurementPrefix.resize(sources.size());
     result.measurementSuffix.resize(sources.size());
@@ -366,7 +366,7 @@ StageStatus runScan(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& a
     return StageStatus::kOutOfMemory;
   }
   upload(input.data(), deviceInput, input.size(), stream);
-  const auto status = algorithms::exclusiveScan(runtime, arena, stream, std::as_const(deviceInput).data(), deviceOutput.data(), input.size());
+  const auto status = algorithms::exclusiveScan(runtime, arena, stream, std::as_const(deviceInput).data(), deviceOutput.data(), static_cast<std::uint32_t>(input.size()));
   if (status == StageStatus::kComplete) {
     result.resize(input.size());
     download(deviceOutput, result.data(), input.size(), stream);
@@ -424,7 +424,7 @@ StageStatus runSweepChain(DeviceRuntime& runtime, DeviceStream& stream, DeviceAr
   return swept.status;
 }
 
-StageStatus runCopyColumns(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const StageOutput<TrackletT>& source, std::size_t sourceOffset, std::size_t destinationRows, std::size_t destinationOffset, std::size_t rows, std::vector<Tracklet>& destination)
+StageStatus runCopyColumns(DeviceRuntime& runtime, DeviceStream& stream, DeviceArena& arena, const StageOutput<TrackletT>& source, std::uint32_t sourceOffset, std::uint32_t destinationRows, std::uint32_t destinationOffset, std::uint32_t rows, std::vector<Tracklet>& destination)
 {
   auto scope = arena.scope();
   DeviceColumns<TrackletT> from;
@@ -433,7 +433,7 @@ StageStatus runCopyColumns(DeviceRuntime& runtime, DeviceStream& stream, DeviceA
     return StageStatus::kOutOfMemory;
   }
   upload<TrackletT>(source.view(), source.size(), from, stream);
-  to.view().apply([&](auto*... column) { (runtime.fill(column, 0xFFU, destinationRows * sizeof(*column), stream), ...); });
+  to.view().apply([&](auto*... column) { (runtime.fill(column, 0xFFU, std::size_t{destinationRows} * sizeof(*column), stream), ...); });
   copyColumns(from, sourceOffset, to, destinationOffset, rows, stream);
   const auto pool = std::make_shared<BoundedMemoryResource>();
   BoundedColumns<TrackletT> host;
@@ -442,13 +442,13 @@ StageStatus runCopyColumns(DeviceRuntime& runtime, DeviceStream& stream, DeviceA
   stream.synchronize();
   destination.resize(destinationRows);
   const auto view = host.view();
-  for (std::size_t row = 0; row < destinationRows; ++row) {
+  for (std::uint32_t row = 0; row < destinationRows; ++row) {
     destination[row] = Tracklet{.source = view.source[row], .target = view.target[row], .link = view.link[row], .lambda = view.lambda[row], .phi = view.phi[row]};
   }
   return StageStatus::kComplete;
 }
 
-bool runGatherChunks(DeviceRuntime& /*runtime*/, DeviceStream& stream, DeviceArena& arena, const StageOutput<TrackletT>& source, std::span<const std::size_t> chunkRows, std::vector<Tracklet>& gathered)
+bool runGatherChunks(DeviceRuntime& /*runtime*/, DeviceStream& stream, DeviceArena& arena, const StageOutput<TrackletT>& source, std::span<const std::uint32_t> chunkRows, std::vector<Tracklet>& gathered)
 {
   auto base = arena.scope();
   DeviceColumns<TrackletT> from;
@@ -458,8 +458,8 @@ bool runGatherChunks(DeviceRuntime& /*runtime*/, DeviceStream& stream, DeviceAre
   upload<TrackletT>(source.view(), source.size(), from, stream);
   auto chunksScope = arena.scope(ArenaEnd::kScratch);
   DeviceColumnChunks<TrackletT> chunks;
-  std::size_t at = 0U;
-  for (const std::size_t rows : chunkRows) {
+  std::uint32_t at = 0U;
+  for (const std::uint32_t rows : chunkRows) {
     if (!chunks.append(arena, ArenaEnd::kScratch, from, at, rows, stream)) {
       return false;
     }
@@ -540,7 +540,7 @@ StageStatus runOrderedRoadGlue(DeviceRuntime& runtime, DeviceStream& stream, Dev
   for (std::uint32_t element = 0U; element < tripletCount; ++element) {
     highest = std::max(highest, triplets.view().level[element]);
   }
-  for (int attempt = 0; attempt < 2; ++attempt) {
+  for (std::int32_t attempt = 0; attempt < 2; ++attempt) {
     for (std::uint32_t level = 1U; level <= highest; ++level) {
       algorithms::forEach(runtime, stream, tripletCount, CountAtLevel{std::as_const(deviceTracklets).view(), std::as_const(deviceTriplets).view(), offsets.data(), std::as_const(from).view().from, counts.view(road_glue::linkSourcesOf(deviceParameters.data()), deviceCore.data()), level});
     }
@@ -622,7 +622,7 @@ struct LaneGroupBody {
   GPUdi() void together(std::uint32_t item, const Group& group) const
   {
     const auto words = lane_group_script::run(group, item);
-    const std::size_t at = 2U * ((std::size_t{item} * Group::kLanes) + group.lane());
+    const std::uint32_t at = 2U * ((item * Group::kLanes) + group.lane());
     folded[at] = words[0];
     folded[at + 1U] = words[1];
   }
@@ -632,7 +632,7 @@ StageStatus runLaneGroups(DeviceRuntime& runtime, DeviceStream& stream, DeviceAr
 {
   auto scope = arena.scope();
   DeviceSpan<std::uint64_t> folded;
-  const std::size_t words = 2U * std::size_t{items} * lanes;
+  const std::uint32_t words = 2U * items * lanes;
   if (!folded.allocate(arena, words)) {
     return StageStatus::kOutOfMemory;
   }

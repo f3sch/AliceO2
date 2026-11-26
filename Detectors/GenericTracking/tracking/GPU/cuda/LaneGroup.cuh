@@ -59,14 +59,14 @@ struct WarpGroup {
   [[nodiscard]] GPUdii() T broadcast(const T& value, std::uint32_t from) const
   {
     static_assert(std::is_trivially_copyable_v<T> && sizeof(T) % sizeof(std::uint32_t) == 0U, "a broadcast value is whole 32-bit words");
-    constexpr std::size_t kWords = sizeof(T) / sizeof(std::uint32_t);
+    constexpr auto kWords = static_cast<std::uint32_t>(sizeof(T) / sizeof(std::uint32_t));
     std::uint32_t words[kWords];
     __builtin_memcpy(words, &value, sizeof(T));
-    for (std::size_t i = 0; i < kWords; ++i) {
+    for (std::uint32_t i = 0; i < kWords; ++i) {
 #ifdef __HIPCC__
-      words[i] = __shfl(words[i], static_cast<int>(from), static_cast<int>(L));
+      words[i] = __shfl(words[i], static_cast<std::int32_t>(from), static_cast<std::int32_t>(L));
 #else
-      words[i] = __shfl_sync(mask(), words[i], static_cast<int>(from), static_cast<int>(L));
+      words[i] = __shfl_sync(mask(), words[i], static_cast<std::int32_t>(from), static_cast<std::int32_t>(L));
 #endif
     }
     T out;

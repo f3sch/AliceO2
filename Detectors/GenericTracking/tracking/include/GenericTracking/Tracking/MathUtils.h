@@ -25,6 +25,7 @@
 #include "GPUCommonMath.h"
 
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <numbers>
 
@@ -47,10 +48,10 @@ namespace detail
 /// below it the series, above it the closed form, neither beyond the target.
 inline constexpr double kDSincTarget = 8.;
 
-[[nodiscard]] constexpr double dSincSeriesError(int terms, double x)
+[[nodiscard]] constexpr double dSincSeriesError(std::int32_t terms, double x)
 {
   double error = 1.;
-  for (int n = 1; n <= terms; ++n) {
+  for (std::int32_t n = 1; n <= terms; ++n) {
     error *= (x * x) / (2. * n * ((2. * n) + 3.));
   }
   return error / (1. - ((x * x) / 10.));
@@ -59,11 +60,11 @@ inline constexpr double kDSincTarget = 8.;
 /// The argument in (0, 1) where `terms` terms' truncation meets the closed
 /// form's cancellation 3 eps / x^2: the series' error grows with x, the closed
 /// form's falls, so one bisection finds it.
-[[nodiscard]] constexpr double dSincMeeting(int terms, double eps)
+[[nodiscard]] constexpr double dSincMeeting(std::int32_t terms, double eps)
 {
   double low = 0.;
   double high = 1.;
-  for (int i = 0; i < 200; ++i) {
+  for (std::int32_t i = 0; i < 200; ++i) {
     const double middle = 0.5 * (low + high);
     (dSincSeriesError(terms, middle) < 3. * eps / (middle * middle) ? low : high) = middle;
   }
@@ -71,9 +72,9 @@ inline constexpr double kDSincTarget = 8.;
 }
 
 /// The fewest terms whose meeting point is within the target (at most 64).
-[[nodiscard]] constexpr int dSincTerms(double eps)
+[[nodiscard]] constexpr std::int32_t dSincTerms(double eps)
 {
-  int terms = 1;
+  std::int32_t terms = 1;
   for (; terms < 64; ++terms) {
     const double x = dSincMeeting(terms, eps);
     if (3. * eps / (x * x) <= kDSincTarget * eps) {
@@ -86,7 +87,7 @@ inline constexpr double kDSincTarget = 8.;
 template <typename T>
 struct DSincSeries {
   static constexpr double kEpsilon = static_cast<double>(std::numeric_limits<T>::epsilon());
-  static constexpr int kTerms = dSincTerms(kEpsilon);
+  static constexpr std::int32_t kTerms = dSincTerms(kEpsilon);
   static constexpr T kSwitch = static_cast<T>(dSincMeeting(kTerms, kEpsilon));
 };
 
@@ -97,7 +98,7 @@ struct DSincSeries {
 template <typename T>
 GPUhdi() GPUAlwaysInline() T sinc(T x)
 {
-  return x == T(0) ? T(1) : sinOf(x) / x;
+  return exactlyEqual(x, T(0)) ? T(1) : sinOf(x) / x;
 }
 
 /// (1 - cos(x)) / x without forming the cancelling subtraction: x sinc(x/2)^2 / 2.
@@ -120,7 +121,7 @@ GPUhdi() GPUAlwaysInline() void sincVersine(T x, T& sincX, T& versineX)
   T s = T(0);
   T c = T(1);
   sincosOf(h, s, c);
-  const T sincH = h == T(0) ? T(1) : s / h;
+  const T sincH = exactlyEqual(h, T(0)) ? T(1) : s / h;
   sincX = sincH * c;
   versineX = T(0.5) * x * sincH * sincH;
 }
@@ -135,7 +136,7 @@ GPUhdi() GPUAlwaysInline() T dSinc(T x)
   if (o2::gpu::GPUCommonMath::Abs(x) < Series::kSwitch) {
     const T x2 = x * x;
     T nested = T(1);
-    for (int n = Series::kTerms - 1; n >= 1; --n) {
+    for (std::int32_t n = Series::kTerms - 1; n >= 1; --n) {
       nested = T(1) - (x2 * nested * (T(1) / T(2 * n * ((2 * n) + 3))));
     }
     return -(x / T(3)) * nested;
@@ -154,7 +155,7 @@ GPUhdi() GPUAlwaysInline() T dVersine(T x)
 }
 
 /// sinc of a dual number: the value and its derivative chained.
-template <int N, typename T>
+template <std::int32_t N, typename T>
 [[nodiscard]] GPUhdi() dual::Dual<N, T> sinc(const dual::Dual<N, T>& a)
 {
   return dual::chain(a, sinc<T>(a.v), dSinc<T>(a.v));
@@ -164,7 +165,7 @@ namespace detail
 {
 
 /// Column-major strict-upper index. The caller supplies first < second.
-GPUhdi() GPUAlwaysInline() constexpr int strictUpperIndex(int first, int second) { return (second * (second - 1)) / 2 + first; }
+GPUhdi() GPUAlwaysInline() constexpr std::int32_t strictUpperIndex(std::int32_t first, std::int32_t second) { return (second * (second - 1)) / 2 + first; }
 
 /// Factor a packed symmetric positive-definite matrix as U D U^T. U is unit
 /// upper triangular, so only its strict upper triangle is stored. Working
@@ -173,17 +174,17 @@ GPUhdi() GPUAlwaysInline() constexpr int strictUpperIndex(int first, int second)
 template <typename T>
 GPUhdi() GPUAlwaysInline() void factorUD(const T (&matrix)[kBoundCovSize], T (&upper)[kBoundUpperSize], T (&diagonal)[kNBoundParams])
 {
-  for (int column = kNBoundParams - 1; column >= 0; --column) {
+  for (std::int32_t column = kNBoundParams - 1; column >= 0; --column) {
     T pivot = matrix[covIndex(column, column)];
-    for (int k = column + 1; k < kNBoundParams; ++k) {
+    for (std::int32_t k = column + 1; k < kNBoundParams; ++k) {
       const T value = upper[strictUpperIndex(column, k)];
       pivot -= value * value * diagonal[k];
     }
     diagonal[column] = pivot;
 
-    for (int row = 0; row < column; ++row) {
+    for (std::int32_t row = 0; row < column; ++row) {
       T value = matrix[covIndex(row, column)];
-      for (int k = column + 1; k < kNBoundParams; ++k) {
+      for (std::int32_t k = column + 1; k < kNBoundParams; ++k) {
         value -= upper[strictUpperIndex(row, k)] * upper[strictUpperIndex(column, k)] * diagonal[k];
       }
       upper[strictUpperIndex(row, column)] = value / pivot;
@@ -204,9 +205,9 @@ GPUhdi() GPUAlwaysInline() T updateUD(T (&upper)[kBoundUpperSize], T (&diagonal)
 {
   T projected[kNBoundParams]{};
   T weighted[kNBoundParams]{};
-  for (int column = 0; column < kNBoundParams; ++column) {
+  for (std::int32_t column = 0; column < kNBoundParams; ++column) {
     projected[column] = measurement[column];
-    for (int row = 0; row < column; ++row) {
+    for (std::int32_t row = 0; row < column; ++row) {
       projected[column] += upper[strictUpperIndex(row, column)] * measurement[row];
     }
     weighted[column] = diagonal[column] * projected[column];
@@ -214,14 +215,14 @@ GPUhdi() GPUAlwaysInline() T updateUD(T (&upper)[kBoundUpperSize], T (&diagonal)
 
   T numerator[kNBoundParams]{};
   T innovation = variance;
-  for (int column = 0; column < kNBoundParams; ++column) {
+  for (std::int32_t column = 0; column < kNBoundParams; ++column) {
     const T previousInnovation = innovation;
     innovation += projected[column] * weighted[column];
     const T factor = projected[column] / previousInnovation;
     diagonal[column] *= previousInnovation / innovation;
 
-    for (int row = 0; row < column; ++row) {
-      const int index = strictUpperIndex(row, column);
+    for (std::int32_t row = 0; row < column; ++row) {
+      const std::int32_t index = strictUpperIndex(row, column);
       const T value = upper[index];
       upper[index] = value - factor * numerator[row];
       numerator[row] += weighted[column] * value;
@@ -229,7 +230,7 @@ GPUhdi() GPUAlwaysInline() T updateUD(T (&upper)[kBoundUpperSize], T (&diagonal)
     numerator[column] += weighted[column];
   }
 
-  for (int row = 0; row < kNBoundParams; ++row) {
+  for (std::int32_t row = 0; row < kNBoundParams; ++row) {
     gain[row] = numerator[row] / innovation;
   }
   return innovation;
@@ -246,7 +247,7 @@ GPUhdi() GPUAlwaysInline() T updateUD(T (&upper)[kBoundUpperSize], T (&diagonal)
 template <typename T>
 GPUhdi() GPUAlwaysInline() void rankOneUpdateUD(T (&upper)[kBoundUpperSize], T (&diagonal)[kNBoundParams], T c, T (&a)[kNBoundParams])
 {
-  for (int column = kNBoundParams - 1; column >= 0; --column) {
+  for (std::int32_t column = kNBoundParams - 1; column >= 0; --column) {
     const T entry = a[column];
     const T pivot = diagonal[column] + (c * entry * entry);
     if (!(pivot > T(0))) {
@@ -255,8 +256,8 @@ GPUhdi() GPUAlwaysInline() void rankOneUpdateUD(T (&upper)[kBoundUpperSize], T (
     const T gain = c * entry / pivot;
     c *= diagonal[column] / pivot;
     diagonal[column] = pivot;
-    for (int row = 0; row < column; ++row) {
-      const int index = strictUpperIndex(row, column);
+    for (std::int32_t row = 0; row < column; ++row) {
+      const std::int32_t index = strictUpperIndex(row, column);
       a[row] -= entry * upper[index];
       upper[index] += gain * a[row];
     }
@@ -267,13 +268,13 @@ GPUhdi() GPUAlwaysInline() void rankOneUpdateUD(T (&upper)[kBoundUpperSize], T (
 template <typename T>
 GPUhdi() GPUAlwaysInline() void covarianceFromUD(const T (&upper)[kBoundUpperSize], const T (&diagonal)[kNBoundParams], T (&matrix)[kBoundCovSize])
 {
-  for (int row = 0; row < kNBoundParams; ++row) {
-    for (int col = 0; col <= row; ++col) {
+  for (std::int32_t row = 0; row < kNBoundParams; ++row) {
+    for (std::int32_t col = 0; col <= row; ++col) {
       T value = diagonal[row];
       if (col < row) {
         value *= upper[strictUpperIndex(col, row)];
       }
-      for (int k = row + 1; k < kNBoundParams; ++k) {
+      for (std::int32_t k = row + 1; k < kNBoundParams; ++k) {
         value += upper[strictUpperIndex(row, k)] * diagonal[k] * upper[strictUpperIndex(col, k)];
       }
       matrix[covIndex(row, col)] = value;
@@ -285,14 +286,14 @@ GPUhdi() GPUAlwaysInline() void covarianceFromUD(const T (&upper)[kBoundUpperSiz
 template <typename T>
 GPUhdi() GPUAlwaysInline() T asinOverArgument(T x)
 {
-  return x == T(0) ? T(1) : asinOf(x) / x;
+  return exactlyEqual(x, T(0)) ? T(1) : asinOf(x) / x;
 }
 
 /// atan(x) / x, 1 at 0: the quotient does not cancel.
 template <typename T>
 [[nodiscard]] GPUhdi() GPUAlwaysInline() T atanOverArgument(T x)
 {
-  return x == T(0) ? T(1) : atanOf(x) / x;
+  return exactlyEqual(x, T(0)) ? T(1) : atanOf(x) / x;
 }
 
 template <typename T>
@@ -312,7 +313,7 @@ template <typename T>
 GPUhdi() GPUAlwaysInline() AsinOverArgument<T> asinOverArgumentWithDerivative(T x)
 {
   const T angle = asinOf(x);
-  if (x == T(0)) {
+  if (exactlyEqual(x, T(0))) {
     return {.value = T(1), .derivative = T(0), .angle = angle};
   }
   const T value = angle / x;
@@ -321,7 +322,7 @@ GPUhdi() GPUAlwaysInline() AsinOverArgument<T> asinOverArgumentWithDerivative(T 
 }
 
 /// asin(x) / x of a dual number: the value and its derivative chained.
-template <int N, typename T>
+template <std::int32_t N, typename T>
 [[nodiscard]] GPUhdi() dual::Dual<N, T> asinOverArgument(const dual::Dual<N, T>& a)
 {
   const auto both = asinOverArgumentWithDerivative<T>(a.v);
@@ -349,7 +350,7 @@ GPUhdi() GPUAlwaysInline() T transverseArc(T curvature, T dx, T dy)
   if (x < a + 1.) {
     double term = 1. / a;
     double sum = term;
-    for (int n = 1; n < 1000 && std::abs(term) > std::abs(sum) * 1.e-16; ++n) {
+    for (std::int32_t n = 1; n < 1000 && std::abs(term) > std::abs(sum) * 1.e-16; ++n) {
       term *= x / (a + n);
       sum += term;
     }
@@ -360,7 +361,7 @@ GPUhdi() GPUAlwaysInline() T transverseArc(T curvature, T dx, T dy)
   double c = 1. / kTiny;
   double d = 1. / b;
   double h = d;
-  for (int n = 1; n < 1000; ++n) {
+  for (std::int32_t n = 1; n < 1000; ++n) {
     const double an = -n * (n - a);
     b += 2.;
     d = (an * d) + b;
@@ -383,7 +384,7 @@ GPUhdi() GPUAlwaysInline() T transverseArc(T curvature, T dx, T dy)
 /// of nSigma of a Gaussian, two-sided. The distribution P(ndf/2, x/2) is
 /// inverted by bisection. ROOT's `chisquared_quantile` has this contract; not
 /// in a header the device units read.
-[[nodiscard]] inline double chiSquareQuantile(int ndf, double nSigma)
+[[nodiscard]] inline double chiSquareQuantile(std::int32_t ndf, double nSigma)
 {
   const double confidence = std::erf(nSigma / std::numbers::sqrt2);
   const double half = 0.5 * static_cast<double>(ndf);
@@ -394,7 +395,7 @@ GPUhdi() GPUAlwaysInline() T transverseArc(T curvature, T dx, T dy)
     low = high;
     high *= 2.;
   }
-  for (int i = 0; i < 100; ++i) {
+  for (std::int32_t i = 0; i < 100; ++i) {
     const double middle = 0.5 * (low + high);
     (distribution(middle) < confidence ? low : high) = middle;
   }

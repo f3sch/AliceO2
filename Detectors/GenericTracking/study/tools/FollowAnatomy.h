@@ -110,7 +110,7 @@ template <DetectorLayout Det, typename Material>
 class FollowAnatomy
 {
  public:
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using Proposal = FollowProposal<kMaxClusters>;
 
   /// Steps into \a path, none where it is empty (`--follow-stops` alone).
@@ -161,9 +161,9 @@ class FollowAnatomy
   void printStops() const
   {
     std::cout << std::format("follow stops of the correct roads: {} replayed, {} agree with the tracking\n", mReplayed, mAgree);
-    for (std::size_t direction = 0; direction < 2U; ++direction) {
+    for (std::uint32_t direction = 0; direction < 2U; ++direction) {
       std::string line = std::format("  {}: end (particle's free row further along / none):", direction == 0U ? "outward" : "inward");
-      for (std::size_t end = 0; end < mStops[direction].size(); ++end) {
+      for (std::uint32_t end = 0; end < mStops[direction].size(); ++end) {
         line += std::format(" {} {}/{}", kEndNames[end], mStops[direction][end][1], mStops[direction][end][0]);
       }
       std::cout << line << '\n';
@@ -177,7 +177,7 @@ class FollowAnatomy
     Scalar chi2 = 0.F;
   };
   struct Step {
-    std::size_t direction = 0U; ///< 0 outward, 1 inward
+    std::uint32_t direction = 0U; ///< 0 outward, 1 inward
     BoundTrackState state;
     CovarianceFactors factors;
     std::vector<LayerID> targets;
@@ -190,7 +190,7 @@ class FollowAnatomy
   };
   struct Recorder {
     std::vector<Step> steps;
-    std::size_t direction = 0U;
+    std::uint32_t direction = 0U;
     std::array<FollowEnd, 2> end{FollowEnd::kCapacity, FollowEnd::kCapacity};
   };
   /// The stage's observer, writing into a recorder.
@@ -225,7 +225,7 @@ class FollowAnatomy
 
   /// What a track's checks read.
   struct Context {
-    std::size_t iteration = 0U;
+    std::uint32_t iteration = 0U;
     std::uint32_t track = 0U;
     std::uint64_t particle = 0U;
     const IterationParameters<Det>* parameters = nullptr;
@@ -335,7 +335,7 @@ class FollowAnatomy
     const auto owns = [&](std::uint32_t row) { return truthRows[row].carries(context.particle); };
     const auto found = mTruth->particles.find(context.particle);
     bool agrees = true;
-    for (std::size_t direction = 0; direction < 2U; ++direction) {
+    for (std::uint32_t direction = 0; direction < 2U; ++direction) {
       const bool outward = direction == 0U;
       const std::uint32_t* proposed = outward ? proposal.outward : proposal.inward;
       const std::uint32_t proposedCount = outward ? proposal.outwardCount : proposal.inwardCount;
@@ -354,14 +354,14 @@ class FollowAnatomy
       for (std::uint32_t i = 0; i < before; ++i) {
         reached = outward ? std::max(reached, distance2(road.index[i])) : std::min(reached, distance2(road.index[i]));
       }
-      int firstWrong = -1;
+      std::int32_t firstWrong = -1;
       auto firstClass = StepClass::kOwn;
-      std::size_t k = 0U;
+      std::uint32_t k = 0U;
       for (const auto& step : recorder.steps) {
         if (step.direction != direction) {
           continue;
         }
-        int takenLayer = -1;
+        std::int32_t takenLayer = -1;
         bool takenOwn = false;
         std::uint32_t passing = 0U;
         Scalar ownChi2 = -1.F;
@@ -383,7 +383,7 @@ class FollowAnatomy
           if (!takenOwn) {
             stepClass = classify(step, takenLayer, ownChi2, outward, reached, *context.used, *context.parameters, context.particle);
             if (firstWrong < 0) {
-              firstWrong = static_cast<int>(k);
+              firstWrong = static_cast<std::int32_t>(k);
               firstClass = stepClass;
             }
           }
@@ -391,10 +391,10 @@ class FollowAnatomy
         }
         if (!mPath.empty()) {
           const auto ranked = std::ranges::find(step.confirmations, step.taken, &std::pair<std::uint32_t, bool>::first);
-          const int confirmed = ranked == step.confirmations.end() ? -1 : (ranked->second ? 1 : 0);
+          const std::int32_t confirmed = ranked == step.confirmations.end() ? -1 : (ranked->second ? 1 : 0);
           const auto ownRanked = std::ranges::find(step.confirmations, ownRow, &std::pair<std::uint32_t, bool>::first);
-          const int ownConfirmed = ownRow == ClusterList<kMaxClusters>::kNoCluster || ownRanked == step.confirmations.end() ? -1 : (ownRanked->second ? 1 : 0);
-          mOut << std::format("S {} {} {} {} {} {} {:.4f} {} {} {:.4f} {} {} {} {}\n", context.iteration, context.track, direction, k, takenLayer, step.taken == ClusterList<kMaxClusters>::kNoCluster ? 0 : 1, static_cast<double>(step.chi2), takenOwn ? 1 : 0, passing, static_cast<double>(ownChi2), kClassNames[static_cast<std::size_t>(stepClass)], step.confirmations.size(), confirmed, ownConfirmed);
+          const std::int32_t ownConfirmed = ownRow == ClusterList<kMaxClusters>::kNoCluster || ownRanked == step.confirmations.end() ? -1 : (ownRanked->second ? 1 : 0);
+          mOut << std::format("S {} {} {} {} {} {} {:.4f} {} {} {:.4f} {} {} {} {}\n", context.iteration, context.track, direction, k, takenLayer, step.taken == ClusterList<kMaxClusters>::kNoCluster ? 0 : 1, static_cast<double>(step.chi2), takenOwn ? 1 : 0, passing, static_cast<double>(ownChi2), kClassNames[static_cast<std::uint32_t>(stepClass)], step.confirmations.size(), confirmed, ownConfirmed);
           writePredictions(context, step, k);
         }
         ++k;
@@ -406,10 +406,10 @@ class FollowAnatomy
       const auto end = recorder.end[direction];
       if (k != 0U) {
         const bool beyond = std::ranges::any_of(mRowsOf[context.particle], [&](std::uint32_t row) { return (*context.used)[row] == kFree && (outward ? distance2(row) > reached : distance2(row) < reached); });
-        ++mStops[direction][static_cast<std::size_t>(end)][beyond ? 1U : 0U];
+        ++mStops[direction][static_cast<std::uint32_t>(end)][beyond ? 1U : 0U];
       }
       if (!mPath.empty()) {
-        mOut << std::format("F {} {} {} {:.4f} {} {} {} {} {} {} {} {} {} {}\n", context.iteration, context.track, context.particle, found != mTruth->particles.end() ? static_cast<double>(found->second.pt) : 0., before, direction, proposedCount, keptCount, keptWrong, prefix ? 1 : 0, firstWrong, kClassNames[static_cast<std::size_t>(firstClass)], kEndNames[static_cast<std::size_t>(end)], proposedWrong);
+        mOut << std::format("F {} {} {} {:.4f} {} {} {} {} {} {} {} {} {} {}\n", context.iteration, context.track, context.particle, found != mTruth->particles.end() ? static_cast<double>(found->second.pt) : 0., before, direction, proposedCount, keptCount, keptWrong, prefix ? 1 : 0, firstWrong, kClassNames[static_cast<std::uint32_t>(firstClass)], kEndNames[static_cast<std::uint32_t>(end)], proposedWrong);
       }
     }
     return agrees;
@@ -417,7 +417,7 @@ class FollowAnatomy
 
   /// The `Q` lines of step \a k: per layer it targeted, the particle's row
   /// there predicted from the step's own state (`predict`), the best by chi2.
-  void writePredictions(const Context& context, const Step& step, std::size_t k)
+  void writePredictions(const Context& context, const Step& step, std::uint32_t k)
   {
     const auto direction = step.direction == 0U ? PropagationDirection::kForward : PropagationDirection::kBackward;
     for (const auto target : step.targets) {
@@ -436,12 +436,12 @@ class FollowAnatomy
       if (bestRow == ClusterList<kMaxClusters>::kNoCluster) {
         continue;
       }
-      mOut << std::format("Q {} {} {} {} {} {} {:.4g} {:.4g} {:.4g} {:.4g} {:.4g} {:.4g} {:.4g}\n", context.iteration, context.track, step.direction, k, static_cast<int>(target), (*context.used)[bestRow] == kFree ? 1 : 0, static_cast<double>(best[0]), static_cast<double>(best[1]), static_cast<double>(best[2]), static_cast<double>(best[3]), static_cast<double>(best[4]), static_cast<double>(best[5]), static_cast<double>(best[6]));
+      mOut << std::format("Q {} {} {} {} {} {} {:.4g} {:.4g} {:.4g} {:.4g} {:.4g} {:.4g} {:.4g}\n", context.iteration, context.track, step.direction, k, static_cast<std::int32_t>(target), (*context.used)[bestRow] == kFree ? 1 : 0, static_cast<double>(best[0]), static_cast<double>(best[1]), static_cast<double>(best[2]), static_cast<double>(best[3]), static_cast<double>(best[4]), static_cast<double>(best[5]), static_cast<double>(best[6]));
     }
   }
 
   /// The class of a step that took a row not of the particle (`StepClass`).
-  [[nodiscard]] StepClass classify(const Step& step, int takenLayer, Scalar ownChi2, bool outward, Scalar reached, const std::vector<std::uint8_t>& used, const IterationParameters<Det>& parameters, std::uint64_t particle) const
+  [[nodiscard]] StepClass classify(const Step& step, std::int32_t takenLayer, Scalar ownChi2, bool outward, Scalar reached, const std::vector<std::uint8_t>& used, const IterationParameters<Det>& parameters, std::uint64_t particle) const
   {
     if (!(ownChi2 < 0.F)) {
       return ownChi2 <= parameters.clusterChi2Max ? StepClass::kSwap : StepClass::kRefused;

@@ -41,14 +41,14 @@ namespace o2::gtrk::study
 
 /// The finder's hypotheses: the V0s' (`v0Hypotheses`, `kV0Mothers`' order),
 /// then the cascades' at `cascadeIndex`.
-[[nodiscard]] inline std::size_t cascadeIndex(int sign, int omega, int held)
+[[nodiscard]] inline std::size_t cascadeIndex(std::int32_t sign, std::int32_t omega, std::int32_t held)
 {
   return kV0Mothers.size() + (std::size_t{4} * static_cast<std::size_t>(held)) + (std::size_t{2} * static_cast<std::size_t>(omega)) + static_cast<std::size_t>(sign);
 }
 
 /// The cascade of a Lambda's \a sign (0 the Lambda's, 1 the anti-Lambda's)
 /// and \a omega (0 Xi, 1 Omega).
-[[nodiscard]] inline std::int32_t cascadePdg(int sign, int omega) { return (omega != 0 ? 3334 : 3312) * (sign == 0 ? 1 : -1); }
+[[nodiscard]] inline std::int32_t cascadePdg(std::int32_t sign, std::int32_t omega) { return (omega != 0 ? 3334 : 3312) * (sign == 0 ? 1 : -1); }
 
 /// The V0 hypotheses, then per Lambda sign Xi and Omega, the Lambda's mass
 /// free and held (`cascadeIndex`): Xi- -> Lambda pi-, Omega- -> Lambda K-
@@ -58,9 +58,9 @@ namespace o2::gtrk::study
   const auto v0 = v0Hypotheses();
   std::vector<DecayHypothesis> hypotheses(v0.begin(), v0.end());
   hypotheses.resize(cascadeIndex(1, 1, 1) + 1U);
-  for (int held = 0; held < 2; ++held) {
-    for (int omega = 0; omega < 2; ++omega) {
-      for (int sign = 0; sign < 2; ++sign) {
+  for (std::int32_t held = 0; held < 2; ++held) {
+    for (std::int32_t omega = 0; omega < 2; ++omega) {
+      for (std::int32_t sign = 0; sign < 2; ++sign) {
         auto& h = hypotheses[cascadeIndex(sign, omega, held)];
         h.composites.push_back(static_cast<std::uint16_t>(1 + sign)); // the Lambda's or the anti-Lambda's V0 hypothesis
         h.species.push_back(omega != 0 ? Species::kKaon : Species::kPion);

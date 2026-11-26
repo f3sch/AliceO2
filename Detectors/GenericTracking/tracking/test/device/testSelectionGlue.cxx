@@ -46,7 +46,7 @@ namespace
 {
 
 using namespace device_test;
-constexpr std::size_t kK = kToyBarrel8Clusters;
+constexpr std::uint32_t kK = kToyBarrel8Clusters;
 using Record = ToyBarrel8Records::Record;
 using Selection = GlobalSelection<kK>;
 
@@ -65,7 +65,7 @@ std::vector<Record> generate(std::uint32_t count, std::uint32_t rows, bool diffe
 {
   std::mt19937 random{seed};
   std::uniform_int_distribution<std::uint32_t> row{0U, rows - 1U};
-  std::uniform_int_distribution<std::uint32_t> length{3U, static_cast<std::uint32_t>(kK)};
+  std::uniform_int_distribution<std::uint32_t> length{3U, kK};
   std::uniform_int_distribution<std::uint32_t> pick{0U, 3U};
   constexpr std::array<Scalar, 4> kChi2{0.F, 1.5F, 1.5F, 7.25F};
   std::vector<Record> records;
@@ -91,7 +91,7 @@ std::vector<Record> generate(std::uint32_t count, std::uint32_t rows, bool diffe
         chosen.push_back(candidate);
       }
     }
-    for (std::size_t k = 0; k < kK; ++k) {
+    for (std::uint32_t k = 0; k < kK; ++k) {
       record.clusters.index[k] = k < chosen.size() ? chosen[k] : ClusterList<kK>::kNoCluster;
     }
     record.count = static_cast<std::uint8_t>(clusters);
@@ -106,7 +106,7 @@ std::unique_ptr<ToyBarrel8Records> columnsOf(const std::vector<Record>& records,
 {
   auto columns = std::make_unique<ToyBarrel8Records>();
   columns->setMemoryResource(pool.get());
-  columns->resize(records.size());
+  columns->resize(static_cast<std::uint32_t>(records.size()));
   const auto view = columns->view();
   for (std::size_t i = 0; i < records.size(); ++i) {
     view.clusters[i] = records[i].clusters;

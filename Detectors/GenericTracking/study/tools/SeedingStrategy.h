@@ -120,11 +120,11 @@ class SeedingStrategy
       mSteps(std::move(steps)),
       mRemove(remove),
       mFit(fit),
-      mPopulation(kPopulationNames[static_cast<std::size_t>(population)])
+      mPopulation(kPopulationNames[static_cast<std::uint32_t>(population)])
   {
     const auto& rows = truth.rows;
     // Every particle the rows carry, numbered, and the rows of each.
-    std::vector<std::size_t> counts;
+    std::vector<std::uint32_t> counts;
     for (const auto& row : rows) {
       for (std::uint8_t at = 0U; at < row.count; ++at) {
         const auto [found, inserted] = mIndex.try_emplace(row.particles[at], static_cast<std::uint32_t>(mIds.size()));
@@ -136,29 +136,29 @@ class SeedingStrategy
       }
     }
     mParticleOffsets.assign(mIds.size() + 1U, 0U);
-    for (std::size_t particle = 0; particle < mIds.size(); ++particle) {
+    for (std::uint32_t particle = 0; particle < mIds.size(); ++particle) {
       mParticleOffsets[particle + 1U] = mParticleOffsets[particle] + counts[particle];
     }
     mParticleRows.resize(mParticleOffsets.back());
-    std::vector<std::size_t> filled(mParticleOffsets.begin(), mParticleOffsets.end() - 1);
+    std::vector<std::uint32_t> filled(mParticleOffsets.begin(), mParticleOffsets.end() - 1);
     for (std::uint32_t row = 0; row < rows.size(); ++row) {
       for (std::uint8_t at = 0U; at < rows[row].count; ++at) {
         mParticleRows[filled[mIndex.at(rows[row].particles[at])]++] = row;
       }
     }
     mRowOffsets.assign(rows.size() + 1U, 0U);
-    for (std::size_t row = 0; row < rows.size(); ++row) {
+    for (std::uint32_t row = 0; row < rows.size(); ++row) {
       mRowOffsets[row + 1U] = mRowOffsets[row] + rows[row].count;
     }
     mRowParticles.resize(mRowOffsets.back());
-    for (std::size_t row = 0; row < rows.size(); ++row) {
+    for (std::uint32_t row = 0; row < rows.size(); ++row) {
       for (std::uint8_t at = 0U; at < rows[row].count; ++at) {
         mRowParticles[mRowOffsets[row] + at] = mIndex.at(rows[row].particles[at]);
       }
     }
     mHeld.assign(rows.size(), std::uint8_t{0});
     mPt.assign(mIds.size(), 0.F);
-    for (std::size_t particle = 0; particle < mIds.size(); ++particle) {
+    for (std::uint32_t particle = 0; particle < mIds.size(); ++particle) {
       const auto found = truth.particles.find(mIds[particle]);
       mPt[particle] = found == truth.particles.end() ? 0.F : found->second.pt;
     }
@@ -172,7 +172,7 @@ class SeedingStrategy
     mEver.assign(mIds.size(), Mechanism::kNone);
     mRefusal.assign(mIds.size(), std::int8_t{-1});
     mRefusals.assign(mIds.size(), std::uint8_t{0});
-    for (std::size_t layer = 0; layer < comparison.layerSpans.size(); ++layer) {
+    for (std::uint32_t layer = 0; layer < comparison.layerSpans.size(); ++layer) {
       if (((comparison.barrelLayers >> layer) & 1U) == 0U) {
         (comparison.layerSpans[layer].position > 0.F ? mPositiveDiscs : mNegativeDiscs) |= std::uint64_t{1} << layer;
       }
@@ -206,7 +206,7 @@ class SeedingStrategy
   template <typename Result, typename Roads, typename Records>
   void observe(const Result& result, const Roads& roads, const Records* records)
   {
-    constexpr std::size_t kMax = maxChainLayers<Det>;
+    constexpr std::uint32_t kMax = maxChainLayers<Det>;
     const auto tracklets = result.tracklets->view();
     const auto triplets = result.triplets->view();
     mPass.tracklets += result.tracklets->size();
@@ -247,8 +247,8 @@ class SeedingStrategy
     }
     const auto view = records->view();
     mPass.records += records->size();
-    for (std::size_t record = 0; record < records->size(); ++record) {
-      const std::span<const std::uint32_t> held{view.clusters[record].index, static_cast<std::size_t>(view.count[record])};
+    for (std::uint32_t record = 0; record < records->size(); ++record) {
+      const std::span<const std::uint32_t> held{view.clusters[record].index, view.count[record]};
       const bool owned = forEachOwner(held, [&](std::uint32_t particle) { seed(particle); });
       mPass.pureRecords += owned ? 1U : 0U;
     }
@@ -260,11 +260,11 @@ class SeedingStrategy
   /// held, and the passes are numbered on from \a iterations; reported to
   /// \a out.
   template <typename Tracks>
-  void startAfter(std::size_t iterations, const Tracks& tracks, std::span<const std::uint8_t> used, std::ostream& out)
+  void startAfter(std::uint32_t iterations, const Tracks& tracks, std::span<const std::uint8_t> used, std::ostream& out)
   {
     std::uint64_t fakes = 0U;
     for (const auto& track : tracks) {
-      const auto id = study::goodParticle(mTruth->rows, std::span<const std::uint32_t>{track.clusters.index, static_cast<std::size_t>(track.count)});
+      const auto id = study::goodParticle(mTruth->rows, std::span<const std::uint32_t>{track.clusters.index, track.count});
       if (id == study::kNoTrackParticle) {
         ++fakes;
         continue;
@@ -274,11 +274,11 @@ class SeedingStrategy
       mSeededIn[particle] = kByRun;
     }
     std::uint64_t held = 0U;
-    for (std::size_t row = 0; row < mHeld.size(); ++row) {
+    for (std::uint32_t row = 0; row < mHeld.size(); ++row) {
       mHeld[row] = used[row] == kExclusive ? 1U : 0U;
       held += mHeld[row];
     }
-    mPassIndex = static_cast<std::uint32_t>(iterations);
+    mPassIndex = iterations;
     std::string line = std::format("after the run's first {} iterations: {} tracks, {} fake; {} rows held ({:.2f} %); found of the findable {} at or above:", iterations, tracks.size(), fakes, held, percent(held, mHeld.size()), mPopulation);
     for (const auto step : mSteps) {
       std::uint64_t findable = 0U;
@@ -299,13 +299,13 @@ class SeedingStrategy
   /// `observe` would have it, its good tracks seeding; `endPass` reports it
   /// with the real-run counts (a study made without removal).
   template <typename TrackView>
-  void observeReal(const TrackView& view, std::size_t first, std::size_t end, std::span<const std::uint8_t> used, std::uint64_t roads)
+  void observeReal(const TrackView& view, std::uint32_t first, std::uint32_t end, std::span<const std::uint8_t> used, std::uint64_t roads)
   {
     beginPass(false);
     mPass.roads = roads;
     auto& real = mReal.emplace();
-    for (std::size_t track = first; track < end; ++track) {
-      const std::span<const std::uint32_t> rows{view.clusters[track].index, static_cast<std::size_t>(view.count[track])};
+    for (std::uint32_t track = first; track < end; ++track) {
+      const std::span<const std::uint32_t> rows{view.clusters[track].index, view.count[track]};
       ++real.tracks;
       const auto id = study::goodParticle(mTruth->rows, rows);
       if (id == study::kNoTrackParticle) {
@@ -314,11 +314,11 @@ class SeedingStrategy
       }
       seed(mIndex.at(id));
     }
-    for (std::size_t row = 0; row < mHeld.size(); ++row) {
+    for (std::uint32_t row = 0; row < mHeld.size(); ++row) {
       mHeld[row] = used[row] == kExclusive ? 1U : 0U;
       real.heldRows += mHeld[row];
     }
-    for (std::size_t particle = 0; particle < mIds.size(); ++particle) {
+    for (std::uint32_t particle = 0; particle < mIds.size(); ++particle) {
       if (mSeededBy[particle] == kUnseeded) {
         continue;
       }
@@ -331,7 +331,7 @@ class SeedingStrategy
       real.foundWithFree += free != 0U ? 1U : 0U;
       real.findableWithFree += free != 0U && mIsFindable[particle] != 0U ? 1U : 0U;
     }
-    for (std::size_t row = 0; row < mHeld.size(); ++row) {
+    for (std::uint32_t row = 0; row < mHeld.size(); ++row) {
       if (mHeld[row] == 0U) {
         continue;
       }
@@ -368,7 +368,7 @@ class SeedingStrategy
     std::array<std::uint64_t, study::kParticleOrigins> seededByOrigin{};
     for (const auto particle : mSeeded) {
       const auto found = mTruth->particles.find(mIds[particle]);
-      ++seededByOrigin[static_cast<std::size_t>(found == mTruth->particles.end() ? study::ParticleOrigin::kMaterial : found->second.origin)];
+      ++seededByOrigin[static_cast<std::uint32_t>(found == mTruth->particles.end() ? study::ParticleOrigin::kMaterial : found->second.origin)];
     }
     std::uint64_t seededFindable = 0U;
     std::uint64_t firstFindable = 0U;
@@ -403,19 +403,19 @@ class SeedingStrategy
         const bool shadow = mShadowIn[number] == mShadowPass;
         bothSeeded += main && shadow ? 1U : 0U;
         if (main && !shadow) {
-          ++mainOnly[static_cast<std::size_t>(mechanismOf(mShadowPure[number], mShadowBest[number], mShadowMinClusters))];
+          ++mainOnly[static_cast<std::uint32_t>(mechanismOf(mShadowPure[number], mShadowBest[number], mShadowMinClusters))];
         } else if (shadow && !main) {
-          ++shadowOnly[static_cast<std::size_t>(mechanismOf(mPureLength[number], mBest[number], settings.minClusters))];
+          ++shadowOnly[static_cast<std::uint32_t>(mechanismOf(mPureLength[number], mBest[number], settings.minClusters))];
         }
       }
       if (mFit && !mShadow && mRoadIn[number] == mPassIndex) {
         ++roadFindable;
         if (mSeededIn[number] != mPassIndex) {
           ++lostByLength[mPureLength[number]];
-          ++lostByClass[static_cast<std::size_t>(particle.kind)];
+          ++lostByClass[static_cast<std::uint32_t>(particle.kind)];
           if (refit) {
             const auto why = refit(mPureRows.at(number));
-            ++lostBy[static_cast<std::size_t>(why)];
+            ++lostBy[static_cast<std::uint32_t>(why)];
             mRefusal[number] = static_cast<std::int8_t>(why);
             ++mRefusals[number];
           }
@@ -434,12 +434,12 @@ class SeedingStrategy
         }
       }
       if (static_cast<double>(particle.pt) >= floor) {
-        ++classFindable[static_cast<std::size_t>(particle.kind)];
-        classCovered[static_cast<std::size_t>(particle.kind)] += seeded ? 1U : 0U;
-        classGained[static_cast<std::size_t>(particle.kind)] += first ? 1U : 0U;
+        ++classFindable[static_cast<std::uint32_t>(particle.kind)];
+        classCovered[static_cast<std::uint32_t>(particle.kind)] += seeded ? 1U : 0U;
+        classGained[static_cast<std::uint32_t>(particle.kind)] += first ? 1U : 0U;
         if (!seeded) {
           ++unseeded[particle.layers];
-          ++unseededBy[static_cast<std::size_t>(mEver[particle.particle])];
+          ++unseededBy[static_cast<std::uint32_t>(mEver[particle.particle])];
         }
       }
     }
@@ -448,7 +448,7 @@ class SeedingStrategy
              "pass {}{}: floor {} GeV, layers {} (mask {}), starts {}, {} clusters, kink sigma {}; {} tracklets, {} triplets{}, {} neighbours{}, {} roads "
              "({:.2f} % impure, {:.2f} owners per seeded particle); {:.3f} s, pool peak {:.2f} GB\n",
              mPassIndex, mShadow ? " (shadow: holds nothing)" : "", floor, layerList(settings.layerMask), settings.layerMask, settings.roadStartLayers == 0U ? "any" : layerList(settings.roadStartLayers), settings.minClusters, settings.graphKinkSigma > 0. ? std::format("{} (graph {})", settings.kinkSigma, settings.graphKinkSigma) : std::format("{}", settings.kinkSigma), mPass.tracklets, mPass.triplets, cost.counted ? std::format(" ({} fits)", cost.tripletFits) : std::string{}, mPass.neighbours, cost.counted ? std::format(" ({} fits)", cost.neighbourFits) : std::string{}, mPass.roads, percent(mPass.impureRoads, mPass.roads), multiplicity, cost.seconds, static_cast<double>(cost.poolPeakBytes) / 1.e9)
-        << std::format("  seeded {} particles: {} findable {} ({} first seeded here); by origin {} primaries, {} decay daughters, {} material; {} rows held\n", mSeeded.size(), seededFindable, mPopulation, firstFindable, seededByOrigin[static_cast<std::size_t>(study::ParticleOrigin::kPhysicalPrimary)], seededByOrigin[static_cast<std::size_t>(study::ParticleOrigin::kDecay)], seededByOrigin[static_cast<std::size_t>(study::ParticleOrigin::kMaterial)], hold.size());
+        << std::format("  seeded {} particles: {} findable {} ({} first seeded here); by origin {} primaries, {} decay daughters, {} material; {} rows held\n", mSeeded.size(), seededFindable, mPopulation, firstFindable, seededByOrigin[static_cast<std::uint32_t>(study::ParticleOrigin::kPhysicalPrimary)], seededByOrigin[static_cast<std::uint32_t>(study::ParticleOrigin::kDecay)], seededByOrigin[static_cast<std::uint32_t>(study::ParticleOrigin::kMaterial)], hold.size());
     std::uint64_t lost = 0U;
     for (const auto count : lostByLength) {
       lost += count;
@@ -459,7 +459,7 @@ class SeedingStrategy
         line += lostByLength[length] == 0U ? std::string{} : std::format(" {}: {}", length, lostByLength[length]);
       }
       line += "; refused by";
-      for (std::size_t why = 0; why < kFitRefusals; ++why) {
+      for (std::uint32_t why = 0; why < kFitRefusals; ++why) {
         line += std::format(" {} {}", kFitRefusalNames[why], lostBy[why]);
       }
       out << line << '\n';
@@ -479,7 +479,7 @@ class SeedingStrategy
     }
     out << line << '\n';
     line = std::format("  at the floor, by class, covered % (this pass's gain %) of the findable:");
-    for (std::size_t kind = 0; kind < kClasses; ++kind) {
+    for (std::uint32_t kind = 0; kind < kClasses; ++kind) {
       line += std::format(" {} {:.2f} ({:+.2f}) of {}", kClassNames[kind], percent(classCovered[kind], classFindable[kind]), percent(classGained[kind], classFindable[kind]), classFindable[kind]);
     }
     out << line << '\n';
@@ -487,7 +487,7 @@ class SeedingStrategy
     // particle's at or above the lowest step, or only particles below it.
     const double lowest = *std::ranges::min_element(mSteps);
     std::array<std::uint64_t, kFreeKinds> free{};
-    for (std::size_t row = 0; row < mHeld.size(); ++row) {
+    for (std::uint32_t row = 0; row < mHeld.size(); ++row) {
       if (mHeld[row] != 0U) {
         continue;
       }
@@ -525,7 +525,7 @@ class SeedingStrategy
         coverage += std::format("{}[{},{},{}]", step == 0U ? "" : ",", mSteps[step], covered[step], findable[step]);
       }
       std::string classes;
-      for (std::size_t kind = 0; kind < kClasses; ++kind) {
+      for (std::uint32_t kind = 0; kind < kClasses; ++kind) {
         classes += std::format(R"({}"{}":[{},{},{}])", kind == 0U ? "" : ",", kClassNames[kind], classCovered[kind], classGained[kind], classFindable[kind]);
       }
       std::string top;
@@ -533,7 +533,7 @@ class SeedingStrategy
         top += std::format("{}[{},{}]", at == 0U ? "" : ",", patterns[at].first, patterns[at].second);
       }
       std::string origins;
-      for (std::size_t origin = 0; origin < study::kParticleOrigins; ++origin) {
+      for (std::uint32_t origin = 0; origin < study::kParticleOrigins; ++origin) {
         origins += std::format("{}{}", origin == 0U ? "" : ",", seededByOrigin[origin]);
       }
       const auto fits = [&](std::uint64_t count) { return cost.counted ? std::to_string(count) : std::string{"null"}; };
@@ -584,7 +584,7 @@ class SeedingStrategy
       const auto number = particle.particle;
       const auto found = mTruth->particles.find(mIds[number]);
       const auto truth = found == mTruth->particles.end() ? study::ParticleTruth{} : found->second;
-      out << std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n", mIds[number], particle.pt, static_cast<int>(particle.kind), particle.layers, pass(mSeededBy[number]), pass(mRoadBy[number]), pass(mShadowBy[number]), mSeededBy[number] == kUnseeded ? static_cast<int>(mEver[number]) : -1, truth.pdg, truth.eta, std::hypot(truth.vx, truth.vy), truth.vz, mRefusals[number], mRefusal[number], truth.motherPdg);
+      out << std::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n", mIds[number], particle.pt, static_cast<std::int32_t>(particle.kind), particle.layers, pass(mSeededBy[number]), pass(mRoadBy[number]), pass(mShadowBy[number]), mSeededBy[number] == kUnseeded ? static_cast<std::int32_t>(mEver[number]) : -1, truth.pdg, truth.eta, std::hypot(truth.vx, truth.vy), truth.vz, mRefusals[number], mRefusal[number], truth.motherPdg);
     }
   }
 
@@ -640,7 +640,7 @@ class SeedingStrategy
 
   /// The mechanism of a particle not seeded in a pass where its longest pure
   /// road had \a pure rows (0: none) and its most rows in one road were \a best.
-  [[nodiscard]] static Mechanism mechanismOf(std::uint8_t pure, std::uint8_t best, int minClusters)
+  [[nodiscard]] static Mechanism mechanismOf(std::uint8_t pure, std::uint8_t best, std::int32_t minClusters)
   {
     if (pure > 0U) {
       return Mechanism::kRefused;
@@ -649,7 +649,7 @@ class SeedingStrategy
   }
 
   /// Mechanisms best first: refused, inside, partly, none.
-  [[nodiscard]] static int rank(Mechanism mechanism) { return mechanism == Mechanism::kRefused ? -1 : static_cast<int>(mechanism); }
+  [[nodiscard]] static std::int32_t rank(Mechanism mechanism) { return mechanism == Mechanism::kRefused ? -1 : static_cast<std::int32_t>(mechanism); }
 
   [[nodiscard]] static std::string mechanismLine(const std::array<std::uint64_t, kMechanisms>& counts) { return std::format("{} inside an impure road, {} partly in one, {} in none, {} in a pure road the fit refused", counts[0], counts[1], counts[2], counts[3]); }
 
@@ -681,15 +681,15 @@ class SeedingStrategy
   void noteOwnRows(std::span<const std::uint32_t> rows)
   {
     std::array<std::uint32_t, maxChainLayers<Det> * study::TruthRow::kMaxParticles> labels{};
-    std::size_t count = 0U;
+    std::uint32_t count = 0U;
     for (const auto row : rows) {
       for (auto at = mRowOffsets[row]; at < mRowOffsets[row + 1U]; ++at) {
         labels[count++] = mRowParticles[at];
       }
     }
     std::sort(labels.begin(), labels.begin() + static_cast<std::ptrdiff_t>(count));
-    for (std::size_t at = 0; at < count;) {
-      std::size_t end = at + 1U;
+    for (std::uint32_t at = 0; at < count;) {
+      std::uint32_t end = at + 1U;
       while (end < count && labels[end] == labels[at]) {
         ++end;
       }
@@ -703,7 +703,7 @@ class SeedingStrategy
   {
     std::string barrel;
     std::string discs;
-    for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+    for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
       if (((mask >> layer) & 1U) == 0U) {
         continue;
       }
@@ -721,7 +721,7 @@ class SeedingStrategy
   std::string_view mPopulation;          ///< the scored particles' name
   bool mShadow = false;                  ///< the pass is a shadow pass
   std::uint32_t mShadowPass = kUnseeded; ///< the last shadow pass
-  int mShadowMinClusters = 0;
+  std::int32_t mShadowMinClusters = 0;
   std::vector<std::uint8_t> mBest;                                         ///< per number, its most rows in one road of the pass
   std::vector<std::uint8_t> mShadowBest;                                   ///< `mBest` of the last shadow pass
   std::vector<std::uint8_t> mPureLength;                                   ///< per number, its longest pure road in the pass
@@ -734,11 +734,11 @@ class SeedingStrategy
   std::vector<Mechanism> mEver;                                            ///< per number, its best mechanism over the passes that did not seed it
   std::vector<std::int8_t> mRefusal;                                       ///< with the fit: per number, the last refusal of its pure road, -1 none
   std::vector<std::uint8_t> mRefusals;                                     ///< with the fit: per number, the passes that refused it
-  std::vector<std::size_t> mRowOffsets;                                    ///< per row, its first number in `mRowParticles`
+  std::vector<std::uint32_t> mRowOffsets;                                  ///< per row, its first number in `mRowParticles`
   std::vector<std::uint32_t> mRowParticles;                                ///< the rows' particles, as numbers
   std::unordered_map<std::uint64_t, std::uint32_t> mIndex;                 ///< particle id -> number
   std::vector<std::uint64_t> mIds;                                         ///< number -> particle id
-  std::vector<std::size_t> mParticleOffsets;                               ///< per number, its first row in `mParticleRows`
+  std::vector<std::uint32_t> mParticleOffsets;                             ///< per number, its first row in `mParticleRows`
   std::vector<std::uint32_t> mParticleRows;
   std::vector<std::uint32_t> mSeededBy; ///< per number, the pass that first seeded it
   std::vector<std::uint32_t> mSeededIn; ///< per number, the last pass that seeded it

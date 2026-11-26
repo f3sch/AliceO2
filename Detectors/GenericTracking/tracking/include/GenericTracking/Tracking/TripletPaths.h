@@ -40,7 +40,7 @@ class TripletPaths
 {
  public:
   using Index = StageOutput<TrackletT>::Index;
-  static constexpr std::size_t kLayers = LayerRowMap<Det>::kLayerCount;
+  static constexpr std::uint32_t kLayers = LayerRowMap<Det>::kLayerCount;
   static_assert(maxChainLayers<Det> <= 255U);
 
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
@@ -72,7 +72,7 @@ class TripletPaths
     if (parameters.roadEndLayers != 0U) {
       const auto view = tracklets.view();
       std::array<std::uint8_t, nLinks<Det>> allowed{};
-      for (std::size_t link = 0U; link < nLinks<Det>; ++link) {
+      for (std::uint32_t link = 0U; link < nLinks<Det>; ++link) {
         allowed[link] = ((parameters.roadEndLayers >> parameters.linkTargets[link]) & 1U) != 0U ? 1U : 0U;
       }
       forEach(tracklets.size(), [&](Index edge) {
@@ -86,18 +86,18 @@ class TripletPaths
       });
     }
     const auto indices = permutation.indices();
-    for (std::size_t layer = 0U; layer <= kLayers; ++layer) {
+    for (std::uint32_t layer = 0U; layer <= kLayers; ++layer) {
       const auto first = tracklets.offsets()[sources.offsets[layer]];
       mElements[layer] = o2::gpu::CAAlgo::partitionPoint(Index{0U}, permutation.size(), [&](Index element) { return indices[element] < first; });
     }
     constexpr auto groups = layerDepthGroups<Det>;
-    const auto forEachOfGroup = [&](std::size_t group, const auto& body) {
+    const auto forEachOfGroup = [&](std::uint32_t group, const auto& body) {
       for (auto at = groups.groups[group]; at < groups.groups[group + 1U]; ++at) {
-        const auto layer = static_cast<std::size_t>(groups.order[at]);
+        const auto layer = groups.order[at];
         forEachTriplet(mElements[layer], mElements[layer + 1U], body);
       }
     };
-    for (std::size_t group = 0U; group < groups.count; ++group) {
+    for (std::uint32_t group = 0U; group < groups.count; ++group) {
       forEachOfGroup(group, [&](Index /*element*/, Index first, Index second) {
         // A host loop: O2's AtomicMax is device code in a GPU unit.
         const auto length = static_cast<std::uint8_t>(mPrefix[first] + 1U);

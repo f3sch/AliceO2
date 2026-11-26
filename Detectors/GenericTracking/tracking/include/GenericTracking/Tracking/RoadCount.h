@@ -55,7 +55,7 @@ template <std::size_t N>
 [[nodiscard]] inline std::array<MeasurementRange, N> roadCores(std::span<const MeasurementRange, N> core, std::uint64_t startLayers)
 {
   std::array<MeasurementRange, N> cores{};
-  for (std::size_t layer = 0U; layer < N; ++layer) {
+  for (std::uint32_t layer = 0U; layer < N; ++layer) {
     cores[layer] = startLayers == 0U || ((startLayers >> layer) & 1U) != 0U ? core[layer] : MeasurementRange{core[layer].begin, core[layer].begin};
   }
   return cores;

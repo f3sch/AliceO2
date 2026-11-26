@@ -28,6 +28,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <numbers>
 #include <random>
@@ -63,18 +65,18 @@ double betheHeitlerCdf(double t, double z0) { return boost::math::gamma_q(betheH
 double normalCdf(double x) { return 0.5 * std::erfc(-x / std::numbers::sqrt2); }
 
 struct Mixture {
-  int size = 0;
+  std::int32_t size = 0;
   BetheHeitlerComponent components[kBetheHeitlerComponents];
 
   explicit Mixture(double t) { size = betheHeitlerMixture(static_cast<Scalar>(t), components); }
 
-  [[nodiscard]] double moment(int k) const
+  [[nodiscard]] double moment(std::int32_t k) const
   {
     double sum = 0.;
-    for (int i = 0; i < size; ++i) {
+    for (std::int32_t i = 0; i < size; ++i) {
       const double m = components[i].mean;
       const double v = components[i].variance;
-      sum += components[i].weight * (k == 1 ? m : (v + (m * m)));
+      sum += static_cast<double>(components[i].weight) * (k == 1 ? m : (v + (m * m)));
     }
     return sum;
   }
@@ -82,8 +84,8 @@ struct Mixture {
   [[nodiscard]] double cdf(double z0) const
   {
     double sum = 0.;
-    for (int i = 0; i < size; ++i) {
-      sum += components[i].weight * normalCdf((z0 - components[i].mean) / std::sqrt(components[i].variance));
+    for (std::int32_t i = 0; i < size; ++i) {
+      sum += static_cast<double>(components[i].weight) * normalCdf((z0 - static_cast<double>(components[i].mean)) / static_cast<double>(std::sqrt(components[i].variance)));
     }
     return sum;
   }
@@ -92,9 +94,9 @@ struct Mixture {
   [[nodiscard]] double linearisedInverseTail(double y0) const
   {
     double sum = 0.;
-    for (int i = 0; i < size; ++i) {
+    for (std::int32_t i = 0; i < size; ++i) {
       const double m = components[i].mean;
-      sum += components[i].weight * normalCdf(-(y0 - (1. / m)) / (std::sqrt(components[i].variance) / (m * m)));
+      sum += static_cast<double>(components[i].weight) * normalCdf(-(y0 - (1. / m)) / (static_cast<double>(std::sqrt(components[i].variance)) / (m * m)));
     }
     return sum;
   }
@@ -111,13 +113,13 @@ std::array<double, kBoundCovSize> randomCovariance(std::mt19937& rng)
     }
   }
   std::array<double, kBoundCovSize> cov{};
-  for (int i = 0; i < kNBoundParams; ++i) {
-    for (int j = 0; j <= i; ++j) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t j = 0; j <= i; ++j) {
       double sum = i == j ? 0.5 : 0.;
-      for (int k = 0; k < kNBoundParams; ++k) {
+      for (std::int32_t k = 0; k < kNBoundParams; ++k) {
         sum += b[i][k] * b[j][k];
       }
-      cov[covIndex(i, j)] = sum * scale[i] * scale[j];
+      cov[static_cast<std::uint32_t>(covIndex(i, j))] = sum * scale[i] * scale[j];
     }
   }
   return cov;
@@ -130,7 +132,7 @@ BOOST_AUTO_TEST_CASE(TheRankOneUpdateIsTheDenseSum)
   std::mt19937 rng(105);
   std::normal_distribution<double> gauss;
   double worst = 0.;
-  for (int trial = 0; trial < 200; ++trial) {
+  for (std::int32_t trial = 0; trial < 200; ++trial) {
     const auto start = randomCovariance(rng);
     double cov[kBoundCovSize];
     std::ranges::copy(start, cov);
@@ -143,16 +145,16 @@ BOOST_AUTO_TEST_CASE(TheRankOneUpdateIsTheDenseSum)
     }
     const double c = std::exp(gauss(rng));
     double expected[kBoundCovSize];
-    for (int i = 0; i < kNBoundParams; ++i) {
-      for (int j = 0; j <= i; ++j) {
-        expected[covIndex(i, j)] = start[covIndex(i, j)] + (c * a[i] * a[j]);
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+      for (std::int32_t j = 0; j <= i; ++j) {
+        expected[covIndex(i, j)] = start[static_cast<std::uint32_t>(covIndex(i, j))] + (c * a[i] * a[j]);
       }
     }
     detail::rankOneUpdateUD(upper, diagonal, c, a);
     double result[kBoundCovSize];
     detail::covarianceFromUD(upper, diagonal, result);
-    for (int i = 0; i < kNBoundParams; ++i) {
-      for (int j = 0; j <= i; ++j) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+      for (std::int32_t j = 0; j <= i; ++j) {
         const double norm = std::sqrt(expected[covIndex(i, i)] * expected[covIndex(j, j)]);
         worst = std::max(worst, std::abs(result[covIndex(i, j)] - expected[covIndex(i, j)]) / norm);
       }
@@ -170,14 +172,14 @@ BOOST_AUTO_TEST_CASE(TheMixtureIsAProbability)
     {
       BOOST_TEST(mixture.size == (t < 1e-4 ? 1 : kBetheHeitlerComponents));
       double sum = 0.;
-      for (int i = 0; i < mixture.size; ++i) {
+      for (std::int32_t i = 0; i < mixture.size; ++i) {
         const auto& c = mixture.components[i];
         BOOST_TEST(c.weight > 0.F);
         BOOST_TEST(c.mean > 0.F);
         BOOST_TEST(c.mean <= 1.F);
         BOOST_TEST(c.variance >= 0.F);
         BOOST_TEST((c.variance > 0.F) == (t >= 1e-4));
-        sum += c.weight;
+        sum += static_cast<double>(c.weight);
       }
       BOOST_TEST(sum == 1., boost::test_tools::tolerance(1e-6));
     }
@@ -234,12 +236,12 @@ BOOST_AUTO_TEST_CASE(ALossComponentScalesQOverPAndItsCovariance)
   std::mt19937 rng(1050);
   std::uniform_real_distribution<double> uniform;
   double worst = 0.;
-  for (int trial = 0; trial < 200; ++trial) {
+  for (std::int32_t trial = 0; trial < 200; ++trial) {
     const auto cov = randomCovariance(rng);
     BoundTrackState state;
     state.par[kQOverP] = static_cast<Scalar>((uniform(rng) < 0.5 ? -1. : 1.) / (0.05 + uniform(rng)));
-    for (int i = 0; i < kBoundCovSize; ++i) {
-      state.cov[i] = static_cast<Scalar>(cov[i]);
+    for (std::int32_t i = 0; i < kBoundCovSize; ++i) {
+      state.cov[i] = static_cast<Scalar>(cov[static_cast<std::uint32_t>(i)]);
     }
     auto factors = factorCovariance(state.cov);
     const BetheHeitlerComponent component{.weight = 1.F, .mean = static_cast<Scalar>(0.2 + (0.8 * uniform(rng))), .variance = static_cast<Scalar>(0.05 * uniform(rng))};
@@ -249,20 +251,20 @@ BOOST_AUTO_TEST_CASE(ALossComponentScalesQOverPAndItsCovariance)
     const double s = along ? 1. / z : z;
     const double slope = along ? u / (z * z) : u;
     double expected[kBoundCovSize];
-    for (int i = 0; i < kNBoundParams; ++i) {
-      for (int j = 0; j <= i; ++j) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+      for (std::int32_t j = 0; j <= i; ++j) {
         expected[covIndex(i, j)] = static_cast<double>(state.cov[covIndex(i, j)]) * (i == kQOverP ? s : 1.) * (j == kQOverP ? s : 1.);
       }
     }
-    expected[covIndex(kQOverP, kQOverP)] += slope * slope * component.variance;
+    expected[covIndex(kQOverP, kQOverP)] += slope * slope * static_cast<double>(component.variance);
     BOOST_TEST(applyBetheHeitler(component, along ? PropagationDirection::kForward : PropagationDirection::kBackward, state, factors));
     BOOST_TEST(state.qOverP() == u * s, boost::test_tools::tolerance(1e-6));
     Scalar result[kBoundCovSize];
     covarianceFromFactors(factors, result);
-    for (int i = 0; i < kNBoundParams; ++i) {
-      for (int j = 0; j <= i; ++j) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+      for (std::int32_t j = 0; j <= i; ++j) {
         const double norm = std::sqrt(expected[covIndex(i, i)] * expected[covIndex(j, j)]);
-        worst = std::max(worst, std::abs(result[covIndex(i, j)] - expected[covIndex(i, j)]) / norm);
+        worst = std::max(worst, std::abs(static_cast<double>(result[covIndex(i, j)]) - expected[covIndex(i, j)]) / norm);
       }
     }
   }
@@ -278,8 +280,8 @@ BOOST_AUTO_TEST_CASE(AnUnspreadLossIsUndoneAgainstTheMomentum)
   const auto cov = randomCovariance(rng);
   BoundTrackState state;
   state.par[kQOverP] = -2.5F;
-  for (int i = 0; i < kBoundCovSize; ++i) {
-    state.cov[i] = static_cast<Scalar>(cov[i]);
+  for (std::int32_t i = 0; i < kBoundCovSize; ++i) {
+    state.cov[i] = static_cast<Scalar>(cov[static_cast<std::uint32_t>(i)]);
   }
   auto factors = factorCovariance(state.cov);
   const auto before = factors;
@@ -287,10 +289,10 @@ BOOST_AUTO_TEST_CASE(AnUnspreadLossIsUndoneAgainstTheMomentum)
   BOOST_TEST(applyBetheHeitler(component, PropagationDirection::kForward, state, factors));
   BOOST_TEST(applyBetheHeitler(component, PropagationDirection::kBackward, state, factors));
   BOOST_TEST(state.qOverP() == -2.5F, boost::test_tools::tolerance(1e-6F));
-  for (int i = 0; i < kBoundUpperSize; ++i) {
+  for (std::int32_t i = 0; i < kBoundUpperSize; ++i) {
     BOOST_TEST(factors.upper[i] == before.upper[i], boost::test_tools::tolerance(1e-6F));
   }
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     BOOST_TEST(factors.diagonal[i] == before.diagonal[i], boost::test_tools::tolerance(1e-6F));
   }
 }

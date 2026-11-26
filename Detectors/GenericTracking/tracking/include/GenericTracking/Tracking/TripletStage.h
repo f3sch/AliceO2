@@ -121,7 +121,7 @@ class TripletStage
   [[nodiscard]] GPUhdi() bool prepareFirst(Index element, FirstContext& context) const
   {
     context.firstIndex = mPermutation[element];
-    const std::size_t firstLink = mTracklets.link[context.firstIndex];
+    const std::uint32_t firstLink = mTracklets.link[context.firstIndex];
     context.middleLayer = mParameters->linkTargets[firstLink];
     const Index middleRow = mTracklets.target[context.firstIndex];
     countWork(WorkCounter::kTripletFirsts);
@@ -158,8 +158,8 @@ class TripletStage
   {
     // The dip-angle window's first-tracklet part, once for every out-link.
     const auto firstTerms = tripletFirstTerms(*mParameters, mTracklets.link[context.firstIndex], context.first.point, context.middle.point);
-    for (auto out = mParameters->outLinkOffsets[context.middleLayer]; out < mParameters->outLinkOffsets[static_cast<std::size_t>(context.middleLayer) + 1U]; ++out) {
-      const std::size_t secondLink = mParameters->outLinkIndices[out];
+    for (auto out = mParameters->outLinkOffsets[context.middleLayer]; out < mParameters->outLinkOffsets[context.middleLayer + 1U]; ++out) {
+      const std::uint32_t secondLink = mParameters->outLinkIndices[out];
       const Index linkBegin = lowerBoundLink(context.begin, context.end, secondLink);
       const Index linkEnd = upperBoundLink(linkBegin, context.end, secondLink);
       if (linkBegin == linkEnd) {
@@ -231,12 +231,12 @@ class TripletStage
   }
 
  private:
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() Index lowerBoundLink(Index searchBegin, Index searchEnd, std::size_t value) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Index lowerBoundLink(Index searchBegin, Index searchEnd, std::uint32_t value) const
   {
     return o2::gpu::CAAlgo::partitionPoint(searchBegin, searchEnd - searchBegin, [&](Index tracklet) { return mTracklets.link[tracklet] < value; });
   }
 
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() Index upperBoundLink(Index searchBegin, Index searchEnd, std::size_t value) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Index upperBoundLink(Index searchBegin, Index searchEnd, std::uint32_t value) const
   {
     return o2::gpu::CAAlgo::partitionPoint(searchBegin, searchEnd - searchBegin, [&](Index tracklet) { return mTracklets.link[tracklet] <= value; });
   }

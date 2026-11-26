@@ -59,9 +59,9 @@ namespace o2::gtrk
 /// for a thickness up to `kMaxX2X0`; the filter takes a thicker one in equal
 /// parts.
 struct BetheHeitlerLoss {
-  static constexpr int kComponents = kBetheHeitlerComponents;
+  static constexpr std::int32_t kComponents = kBetheHeitlerComponents;
   static constexpr Scalar kMaxX2X0 = kBetheHeitlerMaxX2X0;
-  GPUdi() static int mixture(Scalar x2X0, BetheHeitlerComponent (&components)[kComponents]) { return betheHeitlerMixture(x2X0, components); }
+  GPUdi() static std::int32_t mixture(Scalar x2X0, BetheHeitlerComponent (&components)[kComponents]) { return betheHeitlerMixture(x2X0, components); }
 };
 
 /// No radiation: one component that keeps the momentum, for any thickness.
@@ -69,9 +69,9 @@ struct BetheHeitlerLoss {
 /// electron, with the measurements' likelihood under its predictions
 /// (`GSFFitResult`).
 struct NoRadiationLoss {
-  static constexpr int kComponents = 1;
+  static constexpr std::int32_t kComponents = 1;
   static constexpr Scalar kMaxX2X0 = FLT_MAX;
-  GPUdi() static int mixture(Scalar /*x2X0*/, BetheHeitlerComponent (&components)[kComponents])
+  GPUdi() static std::int32_t mixture(Scalar /*x2X0*/, BetheHeitlerComponent (&components)[kComponents])
   {
     components[0] = {.weight = 1.F, .mean = 1.F, .variance = 0.F};
     return 1;
@@ -94,11 +94,11 @@ struct GSFComponent {
 
 /// A mixture of at most \a Capacity components, all on one plane; a pass's
 /// start holds diffuse ones (`DiffuseFactors`).
-template <int Capacity, typename Factors = CovarianceFactors>
+template <std::int32_t Capacity, typename Factors = CovarianceFactors>
 struct GSFMixture {
-  static constexpr int kCapacity = Capacity;
-  int size = 0;
-  GSFComponent<Factors> components[Capacity]{};
+  static constexpr std::int32_t kCapacity = Capacity;
+  std::int32_t size = 0;
+  GSFComponent<Factors> components[static_cast<std::size_t>(Capacity)]{};
 };
 
 /// The Gaussian-sum fit of a chain (`fitGaussianSum`): the outward and the
@@ -113,7 +113,7 @@ struct GSFMixture {
 /// diffuse likelihood (`startMixture`), without the constant 2 ln 2 pi per
 /// coordinate pair, given that the components it kept propagated (a failed
 /// one's weight is dropped).
-template <int K>
+template <std::int32_t K>
 struct GSFFitResult {
   TrackFitResult fit;
   GSFMixture<K> mixture;
@@ -128,12 +128,12 @@ namespace detail::gsf
 {
 
 /// A step's loss as one Gaussian: the mixture's mean and variance of z.
-template <int M>
-GPUhdi() BetheHeitlerComponent momentsOf(const BetheHeitlerComponent (&components)[M], int size)
+template <std::size_t M>
+GPUhdi() BetheHeitlerComponent momentsOf(const BetheHeitlerComponent (&components)[M], std::int32_t size)
 {
   Scalar mean = 0.F;
   Scalar second = 0.F;
-  for (int k = 0; k < size; ++k) {
+  for (std::int32_t k = 0; k < size; ++k) {
     mean += components[k].weight * components[k].mean;
     second += components[k].weight * (components[k].variance + (components[k].mean * components[k].mean));
   }
@@ -147,7 +147,7 @@ GPUhdi() BetheHeitlerComponent momentsOf(const BetheHeitlerComponent (&component
 GPUhdi() bool applyBetheHeitler(const BetheHeitlerComponent& component, PropagationDirection direction, BoundTrackState& state, DiffuseFactors& c)
 {
   const Scalar scale = betheHeitlerScale(component, direction);
-  for (int k = 0; k < c.rank; ++k) {
+  for (std::int32_t k = 0; k < c.rank; ++k) {
     c.root[kQOverP][k] *= scale;
   }
   return o2::gtrk::detail::applyBetheHeitlerFactors(component, direction, state, c.star);
@@ -167,12 +167,12 @@ GPUhdi() bool applyLoss(const BetheHeitlerComponent& loss, PropagationDirection 
 /// Every component of \a from with each of the \a m loss components \a loss
 /// into \a to: the weights multiplied (`applyLoss`). False if a loss gave no
 /// finite state.
-template <typename Factors, int N, int M>
-GPUdi() bool branch(const GSFMixture<N, Factors>& from, const BetheHeitlerComponent* loss, int m, PropagationDirection direction, GSFMixture<M, Factors>& to)
+template <typename Factors, std::int32_t N, std::int32_t M>
+GPUdi() bool branch(const GSFMixture<N, Factors>& from, const BetheHeitlerComponent* loss, std::int32_t m, PropagationDirection direction, GSFMixture<M, Factors>& to)
 {
   to.size = 0;
-  for (int k = 0; k < from.size; ++k) {
-    for (int j = 0; j < m; ++j) {
+  for (std::int32_t k = 0; k < from.size; ++k) {
+    for (std::int32_t j = 0; j < m; ++j) {
       auto& component = to.components[to.size++];
       component = from.components[k];
       component.logWeight += logOf(loss[j].weight);
@@ -187,12 +187,12 @@ GPUdi() bool branch(const GSFMixture<N, Factors>& from, const BetheHeitlerCompon
 /// \a step (a status of a component) on every component of \a mixture, the
 /// ones it fails dropped and the rest kept in order: kOk if any is left,
 /// else the last failure.
-template <int N, typename Factors, typename Step>
+template <std::int32_t N, typename Factors, typename Step>
 GPUdi() PropagationStatus stepEach(GSFMixture<N, Factors>& mixture, const Step& step)
 {
-  int kept = 0;
+  std::int32_t kept = 0;
   PropagationStatus failure = PropagationStatus::kOk;
-  for (int k = 0; k < mixture.size; ++k) {
+  for (std::int32_t k = 0; k < mixture.size; ++k) {
     const auto status = step(mixture.components[k]);
     if (status != PropagationStatus::kOk) {
       failure = status;
@@ -210,7 +210,7 @@ GPUdi() PropagationStatus stepEach(GSFMixture<N, Factors>& mixture, const Step& 
 /// gap before, the band left and the first half of the gap after); nothing
 /// beyond the chain's ends.
 template <DetectorLayout Det, typename Chain>
-GPUdi() Scalar planeRadiation(const TrackingGeometry<Det>& geometry, const Chain& measurements, int n, int i)
+GPUdi() Scalar planeRadiation(const TrackingGeometry<Det>& geometry, const Chain& measurements, std::int32_t n, std::int32_t i)
 {
   Scalar point[3];
   const auto& plane = geometry.planeOf(measurements[i]);
@@ -236,9 +236,9 @@ GPUdi() Scalar planeRadiation(const TrackingGeometry<Det>& geometry, const Chain
 /// How many equal parts a plane's radiation \a x2X0 is taken in: the fewest
 /// no thicker than the model's range.
 template <typename Loss>
-GPUhdi() int lossParts(Scalar x2X0)
+GPUhdi() std::int32_t lossParts(Scalar x2X0)
 {
-  int parts = 1;
+  std::int32_t parts = 1;
   if (!isFiniteOf(x2X0)) {
     return parts; // the model refuses it
   }
@@ -268,16 +268,16 @@ GPUdi() void mergeInto(Scalar wa, Scalar wb, GSFComponent<CovarianceFactors>& ca
   const Scalar sa = wa / total;
   const Scalar sb = wb / total;
   Scalar difference[kNBoundParams];
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     difference[i] = a.par[i] - b.par[i];
   }
   o2::math_utils::detail::bringToPMPi<Scalar>(difference[kPhi]);
-  constexpr int kDifference = 2 * kNBoundParams; // the column of d
-  constexpr int kColumns = kDifference + 1;
+  constexpr std::int32_t kDifference = 2 * kNBoundParams; // the column of d
+  constexpr std::int32_t kColumns = kDifference + 1;
   Scalar y[kNBoundParams][kColumns]{};
   Scalar w[kColumns]{};
-  for (int k = 0; k < kNBoundParams; ++k) {
-    for (int i = 0; i < k; ++i) {
+  for (std::int32_t k = 0; k < kNBoundParams; ++k) {
+    for (std::int32_t i = 0; i < k; ++i) {
       y[i][k] = fa.upper[strictUpperIndex(i, k)];
       y[i][kNBoundParams + k] = fb.upper[strictUpperIndex(i, k)];
     }
@@ -290,7 +290,7 @@ GPUdi() void mergeInto(Scalar wa, Scalar wb, GSFComponent<CovarianceFactors>& ca
   w[kDifference] = sa * sb;
   factorColumns(y, w, fa);
   // a's mean moves towards b's by b's share of the difference.
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     a.par[i] -= sb * difference[i];
   }
   o2::math_utils::detail::bringToPMPi<Scalar>(a.par[kPhi]);
@@ -318,44 +318,44 @@ GPUhdi() Scalar mergeCost(Scalar wa, Scalar ma, Scalar sa, Scalar logSa, Scalar 
 /// the pair of least `mergeCost` merges (`mergeInto`). The pair costs sit in
 /// a triangular table over \a from's slots; a merge recomputes the merged
 /// component's costs and retires the other's.
-template <int K, int N>
+template <std::int32_t K, std::int32_t N>
 GPUdi() void reduce(GSFMixture<N>& from, GSFMixture<K>& to)
 {
   auto& c = from.components;
   Scalar maxLog = -FLT_MAX;
-  for (int k = 0; k < from.size; ++k) {
+  for (std::int32_t k = 0; k < from.size; ++k) {
     maxLog = o2::gpu::GPUCommonMath::Max(maxLog, c[k].logWeight);
   }
-  Scalar weight[N];
-  Scalar logVariance[N];
-  bool alive[N];
-  bool merged[N];
-  for (int k = 0; k < from.size; ++k) {
+  Scalar weight[static_cast<std::size_t>(N)];
+  Scalar logVariance[static_cast<std::size_t>(N)];
+  bool alive[static_cast<std::size_t>(N)];
+  bool merged[static_cast<std::size_t>(N)];
+  for (std::int32_t k = 0; k < from.size; ++k) {
     weight[k] = expOf(c[k].logWeight - maxLog);
     logVariance[k] = logOf(c[k].factors.diagonal[kQOverP]);
     alive[k] = true;
     merged[k] = false;
   }
-  int remaining = from.size;
+  std::int32_t remaining = from.size;
   if (remaining > K) {
-    constexpr int kPairs = N * (N - 1) / 2;
-    Scalar cost[kPairs > 0 ? kPairs : 1];
-    const auto pairCost = [&](int a, int b) {
+    constexpr std::int32_t kPairs = N * (N - 1) / 2;
+    Scalar cost[static_cast<std::size_t>(kPairs > 0 ? kPairs : 1)];
+    const auto pairCost = [&](std::int32_t a, std::int32_t b) {
       return mergeCost(weight[a], c[a].state.qOverP(), c[a].factors.diagonal[kQOverP], logVariance[a],
                        weight[b], c[b].state.qOverP(), c[b].factors.diagonal[kQOverP], logVariance[b]);
     };
-    for (int b = 1; b < from.size; ++b) {
-      for (int a = 0; a < b; ++a) {
+    for (std::int32_t b = 1; b < from.size; ++b) {
+      for (std::int32_t a = 0; a < b; ++a) {
         cost[strictUpperIndex(a, b)] = pairCost(a, b);
       }
     }
     while (remaining > K) {
       // The least cost; a NaN never wins, the first alive pair stands in.
-      int bestA = -1;
-      int bestB = -1;
+      std::int32_t bestA = -1;
+      std::int32_t bestB = -1;
       Scalar best = FLT_MAX;
-      for (int b = 1; b < from.size; ++b) {
-        for (int a = 0; a < b && alive[b]; ++a) {
+      for (std::int32_t b = 1; b < from.size; ++b) {
+        for (std::int32_t a = 0; a < b && alive[b]; ++a) {
           if (alive[a] && (bestA < 0 || cost[strictUpperIndex(a, b)] < best)) {
             best = cost[strictUpperIndex(a, b)] < best ? cost[strictUpperIndex(a, b)] : best;
             bestA = a;
@@ -369,7 +369,7 @@ GPUdi() void reduce(GSFMixture<N>& from, GSFMixture<K>& to)
       logVariance[bestA] = logOf(c[bestA].factors.diagonal[kQOverP]);
       alive[bestB] = false;
       --remaining;
-      for (int k = 0; k < from.size; ++k) {
+      for (std::int32_t k = 0; k < from.size; ++k) {
         if (alive[k] && k != bestA) {
           cost[k < bestA ? strictUpperIndex(k, bestA) : strictUpperIndex(bestA, k)] = k < bestA ? pairCost(k, bestA) : pairCost(bestA, k);
         }
@@ -377,7 +377,7 @@ GPUdi() void reduce(GSFMixture<N>& from, GSFMixture<K>& to)
     }
   }
   to.size = 0;
-  for (int k = 0; k < from.size; ++k) {
+  for (std::int32_t k = 0; k < from.size; ++k) {
     if (!alive[k]) {
       continue;
     }
@@ -394,16 +394,16 @@ GPUdi() void reduce(GSFMixture<N>& from, GSFMixture<K>& to)
 /// \a x2X0, reduced back to at most K (`reduce`); the radiation in equal
 /// parts if it is thicker than the model's range. False if a component's
 /// loss gave no finite state.
-template <typename Loss, int K>
+template <typename Loss, std::int32_t K>
 GPUdi() bool takeRadiation(Scalar x2X0, PropagationDirection direction, GSFMixture<K>& mixture)
 {
-  const int parts = lossParts<Loss>(x2X0);
+  const std::int32_t parts = lossParts<Loss>(x2X0);
   BetheHeitlerComponent loss[Loss::kComponents];
-  const int m = Loss::mixture(x2X0 / static_cast<Scalar>(parts), loss);
+  const std::int32_t m = Loss::mixture(x2X0 / static_cast<Scalar>(parts), loss);
   if (m <= 0) {
     return false;
   }
-  for (int part = 0; part < parts; ++part) {
+  for (std::int32_t part = 0; part < parts; ++part) {
     GSFMixture<K * Loss::kComponents> branched;
     if (!branch(mixture, loss, m, direction, branched)) {
       return false;
@@ -419,24 +419,24 @@ template <typename Mixture>
 GPUhdi() Scalar normalise(Mixture& mixture)
 {
   Scalar maxLog = -FLT_MAX;
-  for (int k = 0; k < mixture.size; ++k) {
+  for (std::int32_t k = 0; k < mixture.size; ++k) {
     maxLog = o2::gpu::GPUCommonMath::Max(maxLog, mixture.components[k].logWeight);
   }
   Scalar sum = 0.F;
-  for (int k = 0; k < mixture.size; ++k) {
+  for (std::int32_t k = 0; k < mixture.size; ++k) {
     sum += expOf(mixture.components[k].logWeight - maxLog);
   }
   const Scalar logSum = maxLog + logOf(sum);
-  for (int k = 0; k < mixture.size; ++k) {
+  for (std::int32_t k = 0; k < mixture.size; ++k) {
     mixture.components[k].logWeight -= logSum;
   }
   return logSum;
 }
 
-GPUhdi() constexpr int power(int base, int exponent)
+GPUhdi() constexpr std::int32_t power(std::int32_t base, std::int32_t exponent)
 {
-  int result = 1;
-  for (int i = 0; i < exponent; ++i) {
+  std::int32_t result = 1;
+  for (std::int32_t i = 0; i < exponent; ++i) {
     result *= base;
   }
   return result;
@@ -445,7 +445,7 @@ GPUhdi() constexpr int power(int base, int exponent)
 /// The start's branches: every loss path over the planes a start of
 /// `kPassStart` rows leaves.
 template <typename Loss>
-inline constexpr int kStartBranches = power(Loss::kComponents, kPassStart - 1);
+inline constexpr std::int32_t kStartBranches = power(Loss::kComponents, kPassStart - 1);
 
 /// The pass's start: the Kalman diffuse start (`startDiffuse`, `diffuseStep`)
 /// over its first measurements until nothing is undetermined, each plane it
@@ -460,13 +460,13 @@ inline constexpr int kStartBranches = power(Loss::kComponents, kPassStart - 1);
 /// moments. Ends reduced to at most K components on the last plane it took,
 /// before that plane's radiation; \a minusTwoLogLikelihood gets the start's
 /// -2 ln likelihood.
-template <typename Loss, typename Prop, DetectorLayout Det, typename Material, typename Chain, int K>
-GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, PropagationDirection direction, BoundTrackState seed, GSFMixture<K>& mixture, int& taken, std::int16_t& failedMeasurement, Scalar& minusTwoLogLikelihood)
+template <typename Loss, typename Prop, DetectorLayout Det, typename Material, typename Chain, std::int32_t K>
+GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, std::int32_t n, PropagationDirection direction, BoundTrackState seed, GSFMixture<K>& mixture, std::int32_t& taken, std::int16_t& failedMeasurement, Scalar& minusTwoLogLikelihood)
 {
-  constexpr int kBranches = kStartBranches<Loss>;
+  constexpr std::int32_t kBranches = kStartBranches<Loss>;
   using Branches = GSFMixture<kBranches, DiffuseFactors>;
-  const int first = direction == PropagationDirection::kForward ? 0 : n - 1;
-  const int increment = direction == PropagationDirection::kForward ? 1 : -1;
+  const std::int32_t first = direction == PropagationDirection::kForward ? 0 : n - 1;
+  const std::int32_t increment = direction == PropagationDirection::kForward ? 1 : -1;
   Branches branches;
   branches.size = 1;
   auto& start = branches.components[0];
@@ -479,23 +479,23 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
   }
   const auto undetermined = [&]() {
     bool any = false;
-    for (int b = 0; b < branches.size; ++b) {
+    for (std::int32_t b = 0; b < branches.size; ++b) {
       any = any || branches.components[b].factors.rank > 0;
     }
     return any;
   };
   for (taken = 1; taken < n && undetermined(); ++taken) {
-    const int previous = first + ((taken - 1) * increment);
-    const int index = previous + increment;
+    const std::int32_t previous = first + ((taken - 1) * increment);
+    const std::int32_t index = previous + increment;
     const Scalar x2X0 = planeRadiation(geometry, measurements, n, previous);
-    const int parts = lossParts<Loss>(x2X0);
+    const std::int32_t parts = lossParts<Loss>(x2X0);
     BetheHeitlerComponent loss[Loss::kComponents];
-    const int m = Loss::mixture(x2X0 / static_cast<Scalar>(parts), loss);
+    const std::int32_t m = Loss::mixture(x2X0 / static_cast<Scalar>(parts), loss);
     if (m <= 0) {
       failedMeasurement = static_cast<std::int16_t>(previous);
       return PropagationStatus::kNotFinite;
     }
-    for (int part = 0; part < parts; ++part) {
+    for (std::int32_t part = 0; part < parts; ++part) {
       bool finite = true;
       if (branches.size * m <= kBranches) {
         Branches branched;
@@ -503,7 +503,7 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
         branches = branched;
       } else {
         const auto moments = momentsOf(loss, m);
-        for (int b = 0; b < branches.size && finite; ++b) {
+        for (std::int32_t b = 0; b < branches.size && finite; ++b) {
           finite = applyLoss(moments, direction, branches.components[b]);
         }
       }
@@ -535,7 +535,7 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
   }
   GSFMixture<kBranches> determined;
   determined.size = branches.size;
-  for (int b = 0; b < branches.size; ++b) {
+  for (std::int32_t b = 0; b < branches.size; ++b) {
     const auto& from = branches.components[b];
     determined.components[b] = {.logWeight = from.logWeight, .state = from.state, .factors = from.factors.star, .chi2 = from.chi2, .reference = from.reference};
   }
@@ -545,22 +545,22 @@ GPUdi() PropagationStatus startMixture(const Prop& prop, const TrackingGeometry<
 
 /// The mixture as one Gaussian: the weighted mean (phi about the heaviest
 /// component's, wrapped) and the covariance with the means' spread.
-template <int K>
+template <std::int32_t K>
 GPUhdi() BoundTrackState collapse(const GSFMixture<K>& mixture)
 {
   const auto& c = mixture.components;
-  int heaviest = 0;
-  for (int k = 1; k < mixture.size; ++k) {
+  std::int32_t heaviest = 0;
+  for (std::int32_t k = 1; k < mixture.size; ++k) {
     if (c[k].logWeight > c[heaviest].logWeight) {
       heaviest = k;
     }
   }
   BoundTrackState out = c[heaviest].state;
   Scalar mean[kNBoundParams]{};
-  Scalar weights[K];
-  for (int k = 0; k < mixture.size; ++k) {
+  Scalar weights[static_cast<std::size_t>(K)];
+  for (std::int32_t k = 0; k < mixture.size; ++k) {
     weights[k] = expOf(c[k].logWeight);
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       Scalar value = c[k].state.par[i] - out.par[i];
       if (i == kPhi) {
         o2::math_utils::detail::bringToPMPi<Scalar>(value);
@@ -569,26 +569,26 @@ GPUhdi() BoundTrackState collapse(const GSFMixture<K>& mixture)
     }
   }
   Scalar cov[kBoundCovSize]{};
-  for (int k = 0; k < mixture.size; ++k) {
+  for (std::int32_t k = 0; k < mixture.size; ++k) {
     Scalar d[kNBoundParams];
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       d[i] = c[k].state.par[i] - out.par[i];
       if (i == kPhi) {
         o2::math_utils::detail::bringToPMPi<Scalar>(d[i]);
       }
       d[i] -= mean[i];
     }
-    for (int i = 0; i < kNBoundParams; ++i) {
-      for (int j = 0; j <= i; ++j) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+      for (std::int32_t j = 0; j <= i; ++j) {
         cov[covIndex(i, j)] += weights[k] * (c[k].state.cov[covIndex(i, j)] + (d[i] * d[j]));
       }
     }
   }
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     out.par[i] += mean[i];
   }
   o2::math_utils::detail::bringToPMPi<Scalar>(out.par[kPhi]);
-  for (int i = 0; i < kBoundCovSize; ++i) {
+  for (std::int32_t i = 0; i < kBoundCovSize; ++i) {
     out.cov[i] = cov[i];
   }
   return out;
@@ -599,14 +599,14 @@ GPUhdi() BoundTrackState collapse(const GSFMixture<K>& mixture)
 /// component's mean, Newton's steps on the log density, a step that does not
 /// raise the density halved, until the step no longer moves u; the highest
 /// of the ends.
-template <int K>
+template <std::int32_t K>
 GPUhdi() Scalar momentumModeOf(const GSFMixture<K>& mixture)
 {
   const auto& c = mixture.components;
   const auto logDensity = [&](Scalar u, Scalar& gradient, Scalar& curvature) {
     Scalar maxLog = -FLT_MAX;
-    Scalar logTerm[K];
-    for (int k = 0; k < mixture.size; ++k) {
+    Scalar logTerm[static_cast<std::size_t>(K)];
+    for (std::int32_t k = 0; k < mixture.size; ++k) {
       const Scalar s = c[k].state.cov[covIndex(kQOverP, kQOverP)];
       const Scalar d = u - c[k].state.qOverP();
       logTerm[k] = c[k].logWeight - (0.5F * logOf(s)) - (0.5F * d * d / s);
@@ -615,7 +615,7 @@ GPUhdi() Scalar momentumModeOf(const GSFMixture<K>& mixture)
     Scalar f = 0.F;
     Scalar f1 = 0.F;
     Scalar f2 = 0.F;
-    for (int k = 0; k < mixture.size; ++k) {
+    for (std::int32_t k = 0; k < mixture.size; ++k) {
       const Scalar s = c[k].state.cov[covIndex(kQOverP, kQOverP)];
       const Scalar d = u - c[k].state.qOverP();
       const Scalar term = expOf(logTerm[k] - maxLog);
@@ -632,7 +632,7 @@ GPUhdi() Scalar momentumModeOf(const GSFMixture<K>& mixture)
   };
   Scalar best = c[0].state.qOverP();
   Scalar bestValue = -FLT_MAX;
-  for (int k = 0; k < mixture.size; ++k) {
+  for (std::int32_t k = 0; k < mixture.size; ++k) {
     Scalar u = c[k].state.qOverP();
     Scalar gradient;
     Scalar curvature;
@@ -641,7 +641,7 @@ GPUhdi() Scalar momentumModeOf(const GSFMixture<K>& mixture)
     // halvings leaves u unchanged in float), and the walk ends when a step leaves u unchanged. Newton's steps
     // double the digits they resolve near the mode and halved steps halve the distance to it, so float's
     // digits bound the steps that still move u; the walk is held to that many.
-    for (int iteration = 0; iteration < std::numeric_limits<Scalar>::digits; ++iteration) {
+    for (std::int32_t iteration = 0; iteration < std::numeric_limits<Scalar>::digits; ++iteration) {
       Scalar step = curvature < 0.F ? -gradient / curvature : gradient * c[k].state.cov[covIndex(kQOverP, kQOverP)];
       if (!isFiniteOf(step)) {
         break;
@@ -650,12 +650,12 @@ GPUhdi() Scalar momentumModeOf(const GSFMixture<K>& mixture)
       Scalar nextGradient;
       Scalar nextCurvature;
       Scalar nextValue = logDensity(next, nextGradient, nextCurvature);
-      while (!(nextValue > value) && next != u) {
+      while (!(nextValue > value) && !exactlyEqual(next, u)) {
         step *= 0.5F;
         next = u + step;
         nextValue = logDensity(next, nextGradient, nextCurvature);
       }
-      if (next == u) {
+      if (exactlyEqual(next, u)) {
         break;
       }
       u = next;
@@ -674,11 +674,11 @@ GPUhdi() Scalar momentumModeOf(const GSFMixture<K>& mixture)
 /// A mixture's end on a plane: the weights normalised (the radiation and the
 /// merges keep their sum, to rounding), each component's `state.cov`
 /// written, the mixture's collapse into \a collapsed.
-template <int K>
+template <std::int32_t K>
 GPUhdi() void collapseMixture(GSFMixture<K>& mixture, BoundTrackState& collapsed)
 {
   normalise(mixture);
-  for (int k = 0; k < mixture.size; ++k) {
+  for (std::int32_t k = 0; k < mixture.size; ++k) {
     covarianceFromFactors(mixture.components[k].factors, mixture.components[k].state.cov);
   }
   collapsed = collapse(mixture);
@@ -686,7 +686,7 @@ GPUhdi() void collapseMixture(GSFMixture<K>& mixture, BoundTrackState& collapsed
 
 /// `collapseMixture`, and the mode of the momentum's density [GeV] into
 /// \a momentumMode.
-template <int K>
+template <std::int32_t K>
 GPUhdi() void finishMixture(GSFMixture<K>& mixture, BoundTrackState& collapsed, Scalar& momentumMode)
 {
   collapseMixture(mixture, collapsed);
@@ -700,19 +700,19 @@ GPUhdi() void finishMixture(GSFMixture<K>& mixture, BoundTrackState& collapsed, 
 /// summaries (`finishMixture`, `GSFFitResult`) into \a mixture, \a end,
 /// \a chi2, \a momentumMode and \a minusTwoLogLikelihood. On a failure,
 /// \a failedMeasurement is the measurement the failed step went to.
-template <int K, typename Loss, typename Prop, DetectorLayout Det, typename Material, typename Chain>
-GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n, PropagationDirection direction, const BoundTrackState& seed, GSFMixture<K>& mixture, BoundTrackState& end, Scalar& chi2, Scalar& momentumMode, Scalar& minusTwoLogLikelihood, std::int16_t& failedMeasurement)
+template <std::int32_t K, typename Loss, typename Prop, DetectorLayout Det, typename Material, typename Chain>
+GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, std::int32_t n, PropagationDirection direction, const BoundTrackState& seed, GSFMixture<K>& mixture, BoundTrackState& end, Scalar& chi2, Scalar& momentumMode, Scalar& minusTwoLogLikelihood, std::int16_t& failedMeasurement)
 {
-  const int first = direction == PropagationDirection::kForward ? 0 : n - 1;
-  const int increment = direction == PropagationDirection::kForward ? 1 : -1;
-  int taken = 0;
+  const std::int32_t first = direction == PropagationDirection::kForward ? 0 : n - 1;
+  const std::int32_t increment = direction == PropagationDirection::kForward ? 1 : -1;
+  std::int32_t taken = 0;
   minusTwoLogLikelihood = 0.F;
   const auto started = startMixture<Loss>(prop, geometry, material, measurements, n, direction, seed, mixture, taken, failedMeasurement, minusTwoLogLikelihood);
   if (started != PropagationStatus::kOk) {
     return started;
   }
-  for (int step = taken; step <= n; ++step) {
-    const int previous = first + ((step - 1) * increment);
+  for (std::int32_t step = taken; step <= n; ++step) {
+    const std::int32_t previous = first + ((step - 1) * increment);
     if (!takeRadiation<Loss>(planeRadiation(geometry, measurements, n, previous), direction, mixture)) {
       failedMeasurement = static_cast<std::int16_t>(previous);
       return PropagationStatus::kNotFinite;
@@ -720,7 +720,7 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
     if (step == n) {
       break;
     }
-    const int index = previous + increment;
+    const std::int32_t index = previous + increment;
     const auto& stepProp = stepPropagator(prop, geometry, measurements, previous, index);
     const Scalar leftOut = leftOutQOverP(prop, geometry, measurements, n, index, direction);
     const auto status = stepEach(mixture, [&](GSFComponent<CovarianceFactors>& component) {
@@ -740,7 +740,7 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
   }
   finishMixture(mixture, end, momentumMode);
   chi2 = 0.F;
-  for (int k = 0; k < mixture.size; ++k) {
+  for (std::int32_t k = 0; k < mixture.size; ++k) {
     chi2 += expOf(mixture.components[k].logWeight) * mixture.components[k].chi2;
   }
   return PropagationStatus::kOk;
@@ -759,8 +759,8 @@ GPUdi() PropagationStatus runPass(const Prop& prop, const TrackingGeometry<Det>&
 /// \a Loss the radiation model; at most \a K components after each
 /// reduction, by default as many as one loss has (a plane's mixture keeps one
 /// component per loss component; more changes nothing measurable).
-template <typename Loss = BetheHeitlerLoss, int K = Loss::kComponents, typename Prop, DetectorLayout Det, typename Material, typename Chain>
-GPUdi() GSFFitResult<K> fitGaussianSum(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n)
+template <typename Loss = BetheHeitlerLoss, std::int32_t K = Loss::kComponents, typename Prop, DetectorLayout Det, typename Material, typename Chain>
+GPUdi() GSFFitResult<K> fitGaussianSum(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, std::int32_t n)
 {
   GSFFitResult<K> result;
   auto& fit = result.fit;
@@ -785,11 +785,11 @@ GPUdi() GSFFitResult<K> fitGaussianSum(const Prop& prop, const TrackingGeometry<
 /// The q/p marginal's distribution function at \a u, from the components'
 /// `state.cov` (a pass's end): the probability integral transform of a true
 /// q/p.
-template <int K>
+template <std::int32_t K>
 inline double marginalCdf(const GSFMixture<K>& mixture, double u)
 {
   double sum = 0.;
-  for (int k = 0; k < mixture.size; ++k) {
+  for (std::int32_t k = 0; k < mixture.size; ++k) {
     const auto& c = mixture.components[k];
     const double sigma = std::sqrt(static_cast<double>(c.state.variance(kQOverP)));
     sum += std::exp(static_cast<double>(c.logWeight)) * 0.5 * std::erfc(-(u - static_cast<double>(c.state.qOverP())) / (sigma * std::numbers::sqrt2));

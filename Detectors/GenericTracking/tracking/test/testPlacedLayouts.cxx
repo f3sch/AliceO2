@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -94,9 +95,9 @@ template <DetectorLayout Det>
 std::vector<Sensor> standInPlacements(double shiftZ = 0.)
 {
   std::vector<Sensor> sensors;
-  for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+  for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
     const auto id = static_cast<LayerID>(layer);
-    for (int chip = 0; chip < Detector<Det>::sensorCount(id); ++chip) {
+    for (std::int32_t chip = 0; chip < Detector<Det>::sensorCount(id); ++chip) {
       Sensor sensor{};
       if (Detector<Det>::isBarrelLayer(id)) {
         sensor.rot[3] = sensor.rot[7] = sensor.rot[2] = 1.; // local x, y, z along global y, z, x
@@ -309,7 +310,7 @@ BOOST_AUTO_TEST_CASE(CurvedEnvelopeIsTheHullOfItsSilicon)
     // The silicon sampled densely lies within the hull and reaches it.
     double rMin = 1e9;
     double rMax = 0.;
-    for (int i = 0; i <= 2000; ++i) {
+    for (std::int32_t i = 0; i <= 2000; ++i) {
       const double x = -kCurved.halfX + (2. * kCurved.halfX * i / 2000.);
       for (const double z : {kCurved.surfaceMin(), kCurved.surfaceMax()}) {
         double frame[3];
@@ -365,7 +366,7 @@ BOOST_AUTO_TEST_CASE(TangentPlaneTouchesItsCylinder)
     BOOST_TEST(plane.surfacePhi == angle);
     // (axis0, axis1, normal) is right-handed and orthonormal.
     const Scalar cross[3]{(plane.axis0[1] * plane.axis1[2]) - (plane.axis0[2] * plane.axis1[1]), (plane.axis0[2] * plane.axis1[0]) - (plane.axis0[0] * plane.axis1[2]), (plane.axis0[0] * plane.axis1[1]) - (plane.axis0[1] * plane.axis1[0])};
-    for (int i = 0; i < 3; ++i) {
+    for (std::int32_t i = 0; i < 3; ++i) {
       BOOST_TEST(std::abs(cross[i] - plane.normal[i]) < 1e-6F);
     }
     // The touching point is on the cylinder at the angle, and its plane

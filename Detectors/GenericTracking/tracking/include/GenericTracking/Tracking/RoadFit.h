@@ -59,9 +59,8 @@ struct ClusterList {
 /// road takes instead of running that pass again, and runs only the inward one.
 template <std::size_t K>
 struct SelectionRecordOf {
-  // As for TrackletT: upstream's `apply` macro also uses the member names as
-  // enum constants.
-  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // As for MeasurementT: an SoA element proxy holds references.
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   template <template <class> class C>
   struct RecordT {
     MEMLAYOUT_APPLY(RecordT, clusters, count, chi2, kinks, outwardState)
@@ -71,7 +70,7 @@ struct SelectionRecordOf {
     C<std::uint8_t> kinks;           ///< the outward pass's
     C<BoundTrackState> outwardState; ///< the outward pass's, on the outermost surface
   };
-  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 /// Row \a row of \a frame as a fit reads it: only the nine columns it uses
@@ -101,7 +100,7 @@ struct RowChain {
   const TimeFrame<Det>* frame = nullptr;
   const std::uint32_t* rows = nullptr;
 
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() Measurement operator[](int i) const { return measurementAt(*frame, rows[i]); }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Measurement operator[](std::int32_t i) const { return measurementAt(*frame, rows[i]); }
 };
 
 /// Whether \a state's pT reaches \a floor [GeV], as |sin theta| >= floor |q/p|
@@ -141,7 +140,7 @@ template <DetectorLayout Det>
 template <DetectorLayout Det>
 [[nodiscard]] GPUdi() bool clearsBeamLine(const Propagator& propagator, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const std::uint32_t* rows, std::uint32_t count, const BoundTrackState& outwardState, Scalar& chi2)
 {
-  const auto inward = fitInward<Scalar>(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows}, static_cast<int>(count), outwardState, kinkBudget(parameters));
+  const auto inward = fitInward<Scalar>(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows}, static_cast<std::int32_t>(count), outwardState, kinkBudget(parameters));
   if (inward.status != PropagationStatus::kOk) {
     return false;
   }
@@ -166,7 +165,7 @@ class RoadRows
 {
  public:
   using Index = StageOutput<TripletT>::Index;
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
 
   RoadRows(TrackletConstView tracklets, TripletConstView triplets, const RoadWalk& walk) : mTracklets(tracklets), mTriplets(triplets), mWalk(walk) {}
 
@@ -220,7 +219,7 @@ template <DetectorLayout Det, bool BeamLine, bool LastStepAllowance, bool Size>
 class RoadRowsFit
 {
  public:
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using Record = memlayout::Wrapper<SelectionRecordOf<kMaxClusters>::template RecordT, memlayout::value>;
 
   /// Every argument is only stored: the inputs may be a device's copies.
@@ -270,7 +269,7 @@ class RoadRowsFit
       }
       common += box;
     }
-    const auto fit = fitRoad<LastStepAllowance>(*mParameters, mPropagator, *mGeometry, detail::LinkSteps{}, RowChain<Det>{.frame = mFrame, .rows = rows}, static_cast<int>(count));
+    const auto fit = fitRoad<LastStepAllowance>(*mParameters, mPropagator, *mGeometry, detail::LinkSteps{}, RowChain<Det>{.frame = mFrame, .rows = rows}, static_cast<std::int32_t>(count));
     countWork(WorkCounter::kRoadFits);
     if (fit.status != RoadFitStatus::kAccepted) {
       return false;
@@ -280,20 +279,8 @@ class RoadRowsFit
       return false;
     }
     Scalar chi2 = fit.chi2;
-    if constexpr (Size) {
-      if (mFrame->shapes() != nullptr) {
-        for (std::uint32_t i = 0; i < count; ++i) {
-          const std::uint32_t from = i == 0U ? 0U : i - 1U;
-          const std::uint32_t to = i + 1U == count ? i : i + 1U;
-          const Scalar direction[3]{columns.x[rows[to]] - columns.x[rows[from]], columns.y[rows[to]] - columns.y[rows[from]], columns.z[rows[to]] - columns.z[rows[from]]};
-          chi2 -= 2.F * logSizeRatioAlong<Det>(*mFrame->shapes(), *mGeometry, columns, rows[i], mGeometry->surface(columns.surface[rows[i]]).layer, direction);
-        }
-        const int ndf = (2 * static_cast<int>(count)) - fittedParameters(stepPropagator(mPropagator, *mGeometry, RowChain<Det>{.frame = mFrame, .rows = rows}, 0, static_cast<int>(count) - 1)) - (2 * static_cast<int>(fit.kinks));
-        if (!(chi2 <= mParameters->roadChi2MaxByNdf[ndf])) {
-          countWork(WorkCounter::kRoadSize);
-          return false;
-        }
-      }
+    if (!passesSizes(chi2, columns, rows, count, fit)) {
+      return false;
     }
     if constexpr (BeamLine) {
       Scalar beamChi2 = 0.F;
@@ -304,6 +291,33 @@ class RoadRowsFit
       emitRecord(emitter, rows, count, fit, chi2 + beamChi2);
     } else {
       emitRecord(emitter, rows, count, fit, chi2);
+    }
+    return true;
+  }
+
+  /// With \a Size and the frame's shares, \a chi2 less, row by row, twice
+  /// the log of how much more likely each row's cluster spans in \a columns
+  /// are for the road's direction there than for a row of its layer
+  /// (`logSizeRatioAlong`), and whether that chi2 still passes the road's cut
+  /// for \a fit's degrees of freedom (counted where not). True and \a chi2
+  /// as it was without them.
+  template <typename Columns>
+  GPUhdi() GPUAlwaysInline() bool passesSizes(Scalar& chi2, const Columns& columns, const std::uint32_t* rows, std::uint32_t count, const RoadFitResult& fit) const
+  {
+    if constexpr (Size) {
+      if (mFrame->shapes() != nullptr) {
+        for (std::uint32_t i = 0; i < count; ++i) {
+          const std::uint32_t from = i == 0U ? 0U : i - 1U;
+          const std::uint32_t to = i + 1U == count ? i : i + 1U;
+          const Scalar direction[3]{columns.x[rows[to]] - columns.x[rows[from]], columns.y[rows[to]] - columns.y[rows[from]], columns.z[rows[to]] - columns.z[rows[from]]};
+          chi2 -= 2.F * logSizeRatioAlong<Det>(*mFrame->shapes(), *mGeometry, columns, rows[i], mGeometry->surface(columns.surface[rows[i]]).layer, direction);
+        }
+        const std::int32_t ndf = (2 * static_cast<std::int32_t>(count)) - fittedParameters(stepPropagator(mPropagator, *mGeometry, RowChain<Det>{.frame = mFrame, .rows = rows}, 0, static_cast<std::int32_t>(count) - 1)) - (2 * static_cast<std::int32_t>(fit.kinks));
+        if (!(chi2 <= mParameters->roadChi2MaxByNdf[ndf])) {
+          countWork(WorkCounter::kRoadSize);
+          return false;
+        }
+      }
     }
     return true;
   }
@@ -338,7 +352,7 @@ class RoadFitStage
  public:
   using Index = StageOutput<TripletT>::Index;
   using Fit = RoadRowsFit<Det, BeamLine, LastStepAllowance, Size>;
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using Record = typename Fit::Record;
 
   RoadFitStage(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, const StageOutput<TrackletT>& tracklets, const StageOutput<TripletT>& triplets, const RoadWalk& walk)

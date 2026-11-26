@@ -90,7 +90,7 @@ template <DetectorLayout Det>
 /// keeps for the others of the same triplet. The terms are the triplet fit's
 /// own: the same function of the same points.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourCompatible(const IterationParameters<Det>& parameters, std::size_t firstLink, std::size_t secondLink, std::size_t thirdLink, const TimedPoint& a, const TimedPoint& b, const TimedPoint& c, const TimedPoint& d, KinkTerms& bcd, bool& made, bool& valid, TripletFitResult& fit, Scalar secondScale, Scalar thirdScale)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool neighbourCompatible(const IterationParameters<Det>& parameters, std::uint32_t firstLink, std::uint32_t secondLink, std::uint32_t thirdLink, const TimedPoint& a, const TimedPoint& b, const TimedPoint& c, const TimedPoint& d, KinkTerms& bcd, bool& made, bool& valid, TripletFitResult& fit, Scalar secondScale, Scalar thirdScale)
 {
   if (!neighbourTimeCompatible(a, d)) {
     countWork(WorkCounter::kNeighbourTime);

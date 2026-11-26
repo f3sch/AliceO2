@@ -14,6 +14,7 @@
 #include "GenericTracking/Base/BoundedAllocator.h"
 
 #if defined(__linux__)
+#include <cstdint>
 #include <linux/perf_event.h>
 #include <sys/syscall.h>
 #endif
@@ -108,8 +109,8 @@ constexpr std::array<PhaseInfo, kPhaseCount> kInfo{{
 /// depth-first walk once children are grouped under their parent.
 constexpr bool parentsFirst()
 {
-  for (std::size_t phase = 0; phase < kPhaseCount; ++phase) {
-    if (kInfo[phase].parent != kNone && static_cast<std::size_t>(kInfo[phase].parent) >= phase) {
+  for (std::uint32_t phase = 0; phase < kPhaseCount; ++phase) {
+    if (kInfo[phase].parent != kNone && static_cast<std::uint32_t>(kInfo[phase].parent) >= phase) {
       return false;
     }
   }
@@ -124,12 +125,12 @@ thread_local Context* tCurrent = nullptr;
 
 // The memory controllers' counters, once `countDram` opened them.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-std::vector<int> gDramCounters;
+std::vector<std::int32_t> gDramCounters;
 
 [[nodiscard]] std::uint64_t dramBytes()
 {
   std::uint64_t commands = 0U;
-  for (const int counter : gDramCounters) {
+  for (const std::int32_t counter : gDramCounters) {
     std::uint64_t value = 0U;
     if (read(counter, &value, sizeof(value)) == static_cast<ssize_t>(sizeof(value))) {
       commands += value;
@@ -146,10 +147,10 @@ std::vector<int> gDramCounters;
   return static_cast<std::uint64_t>(usage.ru_minflt); // NOLINT(cppcoreguidelines-pro-type-union-access)
 }
 
-[[nodiscard]] std::size_t chunkBin(std::int64_t nanoseconds)
+[[nodiscard]] std::uint32_t chunkBin(std::int64_t nanoseconds)
 {
   const auto value = static_cast<std::uint64_t>(std::max<std::int64_t>(nanoseconds, 1));
-  return std::min<std::size_t>(static_cast<std::size_t>(std::bit_width(value)) - 1U, kChunkBins - 1U);
+  return std::min(static_cast<std::uint32_t>(std::bit_width(value)) - 1U, kChunkBins - 1U);
 }
 
 [[nodiscard]] double seconds(std::int64_t nanoseconds) { return static_cast<double>(nanoseconds) * 1.e-9; }
@@ -159,7 +160,7 @@ std::vector<int> gDramCounters;
 const PhaseInfo& info(Phase phase)
 {
   static const PhaseInfo kNoPhase{.name = "none"};
-  return phase < kCount ? kInfo[static_cast<std::size_t>(phase)] : kNoPhase;
+  return phase < kCount ? kInfo[static_cast<std::uint32_t>(phase)] : kNoPhase;
 }
 
 PhaseStats& PhaseStats::operator+=(const PhaseStats& other)
@@ -176,7 +177,7 @@ PhaseStats& PhaseStats::operator+=(const PhaseStats& other)
   maxSlotSeconds += other.maxSlotSeconds;
   tailSeconds += other.tailSeconds;
   maxChunkSeconds = std::max(maxChunkSeconds, other.maxChunkSeconds);
-  for (std::size_t bin = 0; bin < kChunkBins; ++bin) {
+  for (std::uint32_t bin = 0; bin < kChunkBins; ++bin) {
     chunkHistogram[bin] += other.chunkHistogram[bin];
   }
   opaqueSeconds += other.opaqueSeconds;
@@ -191,7 +192,7 @@ PhaseStats& PhaseStats::operator+=(const PhaseStats& other)
 
 Profile& Profile::operator+=(const Profile& other)
 {
-  for (std::size_t phase = 0; phase < kPhaseCount; ++phase) {
+  for (std::uint32_t phase = 0; phase < kPhaseCount; ++phase) {
     phases[phase] += other.phases[phase];
   }
   return *this;
@@ -204,13 +205,13 @@ bool countDram()
   }
   // One PMU per memory controller; its event 0x0a counts CAS commands, read
   // (mask 1) and write (mask 2) ones apart. System-wide, on the CPU the PMU names.
-  for (int umc = 0;; ++umc) {
+  for (std::int32_t umc = 0;; ++umc) {
     const std::filesystem::path pmu{std::format("/sys/bus/event_source/devices/amd_umc_{}", umc)};
     if (!std::filesystem::exists(pmu)) {
       break;
     }
     std::uint32_t type = 0U;
-    int cpu = 0;
+    std::int32_t cpu = 0;
     std::ifstream{pmu / "type"} >> type;
     std::ifstream{pmu / "cpumask"} >> cpu;
 #if defined(__linux__)
@@ -219,9 +220,9 @@ bool countDram()
       attr.size = sizeof(attr);
       attr.type = type;
       attr.config = 0x0aU | (mask << 8U);
-      const auto counter = static_cast<int>(syscall(SYS_perf_event_open, &attr, -1, cpu, -1, 0UL)); // NOLINT(cppcoreguidelines-pro-type-vararg): perf_event_open has no libc wrapper
+      const auto counter = static_cast<std::int32_t>(syscall(SYS_perf_event_open, &attr, -1, cpu, -1, 0UL)); // NOLINT(cppcoreguidelines-pro-type-vararg): perf_event_open has no libc wrapper
       if (counter < 0) {
-        for (const int open : gDramCounters) {
+        for (const std::int32_t open : gDramCounters) {
           close(open);
         }
         gDramCounters.clear();
@@ -241,12 +242,12 @@ bool countDram()
 
 std::int64_t now() noexcept { return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 
-Trace::Trace(std::size_t slots) : mSlots(slots) {}
+Trace::Trace(std::uint32_t slots) : mSlots(slots) {}
 
-void Trace::chunk(int slot, const Event& event)
+void Trace::chunk(std::int32_t slot, const Event& event)
 {
   if (std::cmp_greater_equal(slot, 0) && std::cmp_less(slot, mSlots.size())) {
-    mSlots[static_cast<std::size_t>(slot)].push_back(event);
+    mSlots[static_cast<std::uint32_t>(slot)].push_back(event);
   }
 }
 
@@ -272,11 +273,11 @@ void Trace::write(std::ostream& out) const
   // Chrome's format is microseconds; tid 0 is the calling thread's zones,
   // tid s + 1 arena slot s.
   bool first = true;
-  const auto emit = [&](const Event& event, std::size_t tid, std::string_view category) {
+  const auto emit = [&](const Event& event, std::uint32_t tid, std::string_view category) {
     out << (first ? "\n" : ",\n") << std::format(R"({{"name":"{}","cat":"{}","ph":"X","pid":1,"tid":{},"ts":{:.3f},"dur":{:.3f}}})", info(event.phase).name, category, tid, static_cast<double>(event.begin - origin) * 1.e-3, static_cast<double>(event.end - event.begin) * 1.e-3);
     first = false;
   };
-  const auto name = [&](std::size_t tid, std::string_view label) {
+  const auto name = [&](std::uint32_t tid, std::string_view label) {
     out << (first ? "\n" : ",\n") << std::format(R"({{"name":"thread_name","ph":"M","pid":1,"tid":{},"args":{{"name":"{}"}}}})", tid, label);
     first = false;
   };
@@ -285,7 +286,7 @@ void Trace::write(std::ostream& out) const
   for (const auto& event : mZones) {
     emit(event, 0U, "zone");
   }
-  for (std::size_t slot = 0; slot < mSlots.size(); ++slot) {
+  for (std::uint32_t slot = 0; slot < mSlots.size(); ++slot) {
     if (mSlots[slot].empty()) {
       continue;
     }
@@ -372,9 +373,9 @@ void addOpaque(double seconds)
   (*tCurrent->profile)[tCurrent->phase].opaqueSeconds += seconds;
 }
 
-void RegionSlots::resize(int slots) { mSlots.assign(static_cast<std::size_t>(std::max(slots, 0)), Slot{}); }
+void RegionSlots::resize(std::int32_t slots) { mSlots.assign(static_cast<std::size_t>(std::max(slots, 0)), Slot{}); }
 
-Region::Region(RegionSlots& slots, int concurrency, std::uint64_t elements)
+Region::Region(RegionSlots& slots, std::int32_t concurrency, std::uint64_t elements)
 {
   if (tCurrent == nullptr || tCurrent->phase >= kCount) {
     return;
@@ -389,14 +390,14 @@ Region::Region(RegionSlots& slots, int concurrency, std::uint64_t elements)
   mBegin = now();
 }
 
-void Region::end(int slot, std::int64_t begin) const noexcept
+void Region::end(std::int32_t slot, std::int64_t begin) const noexcept
 {
   if (mContext == nullptr || std::cmp_less(slot, 0) || std::cmp_greater_equal(slot, mSlotCount)) {
     return;
   }
   const auto end = now();
   const auto duration = end - begin;
-  auto& record = mSlots[static_cast<std::size_t>(slot)];
+  auto& record = mSlots[static_cast<std::uint32_t>(slot)];
   record.busy += duration;
   record.lastEnd = end;
   record.maxChunk = std::max(record.maxChunk, duration);
@@ -420,7 +421,7 @@ Region::~Region()
   stats.regionSeconds += wall;
   stats.capacitySeconds += wall * mConcurrency;
   std::int64_t busiest = 0;
-  for (std::size_t slot = 0; slot < mSlotCount; ++slot) {
+  for (std::uint32_t slot = 0; slot < mSlotCount; ++slot) {
     auto& record = mSlots[slot];
     if (record.chunks == 0U) {
       continue;
@@ -429,7 +430,7 @@ Region::~Region()
     stats.busySeconds += seconds(record.busy);
     stats.tailSeconds += seconds(end - record.lastEnd);
     stats.maxChunkSeconds = std::max(stats.maxChunkSeconds, seconds(record.maxChunk));
-    for (std::size_t bin = 0; bin < kChunkBins; ++bin) {
+    for (std::uint32_t bin = 0; bin < kChunkBins; ++bin) {
       stats.chunkHistogram[bin] += record.histogram[bin];
     }
     busiest = std::max(busiest, record.busy);

@@ -97,7 +97,7 @@ inline constexpr FrameTiming kToyFrames{.lengthBC = 1, .firstStartBC = 0};
 
 /// A toy iteration with \a windows on the beam line, its chains of at least
 /// \a minClusters clusters.
-[[nodiscard]] inline IterationSettings toyIteration(const SearchWindowParams& windows, int minClusters = IterationSettings{}.minClusters) { return {.windows = windows, .vertexSource = VertexSource::kBeamLine, .minClusters = minClusters}; }
+[[nodiscard]] inline IterationSettings toyIteration(const SearchWindowParams& windows, std::int32_t minClusters = IterationSettings{}.minClusters) { return {.windows = windows, .vertexSource = VertexSource::kBeamLine, .minClusters = minClusters}; }
 
 /// The windows of one iteration with \a windows, taking every link (chains
 /// of two clusters, `takenLinks`) and extending: every layer a link touches
@@ -118,7 +118,7 @@ template <DetectorLayout Det>
   // The toys' times are in ns; the grid's in ps.
   const auto durationPS = static_cast<std::int64_t>(std::llround(durationNS * 1.e3));
   const GridGeometry<Det> derived{durationPS, params, layers};
-  for (std::size_t layer = 0; layer < GridGeometry<Det>::kLayerCount; ++layer) {
+  for (std::uint32_t layer = 0; layer < GridGeometry<Det>::kLayerCount; ++layer) {
     const auto& axes = derived.axes(static_cast<LayerID>(layer));
     params.phiBins[layer] = std::min(axes.nPhi, maxPhi);
     params.secondBins[layer] = std::min(axes.nSecond, maxSecond);
@@ -129,16 +129,16 @@ template <DetectorLayout Det>
 /// Stable grid placement shared by frame fixtures and grid-only queries.
 /// Callers supply the bucket of each input and fill its placed row.
 template <typename BucketOf, typename Fill>
-void buildGridRows(std::size_t count, std::span<std::uint32_t> offsets, const BucketOf& bucketOf, const Fill& fill)
+void buildGridRows(std::uint32_t count, std::span<std::uint32_t> offsets, const BucketOf& bucketOf, const Fill& fill)
 {
   MeasurementGridBuilder builder{offsets};
   std::vector<std::uint32_t> buckets(count);
-  for (std::size_t i = 0; i < count; ++i) {
+  for (std::uint32_t i = 0; i < count; ++i) {
     buckets[i] = bucketOf(i);
     builder.count(buckets[i]);
   }
   builder.prefixSum();
-  for (std::size_t i = 0; i < count; ++i) {
+  for (std::uint32_t i = 0; i < count; ++i) {
     fill(i, builder.place(buckets[i]));
   }
   builder.finish();
@@ -177,7 +177,7 @@ template <DetectorLayout Det>
 
 /// The cluster index of track \a track's hit on \a layer in a fixture that
 /// lists \a layers hits per track, track after track.
-[[nodiscard]] constexpr std::size_t logicalIndex(std::size_t layers, std::size_t track, std::size_t layer) { return (layers * track) + layer; }
+[[nodiscard]] constexpr std::uint32_t logicalIndex(std::uint32_t layers, std::uint32_t track, std::uint32_t layer) { return (layers * track) + layer; }
 
 struct PointVariances {
   Scalar z = 0.F;
@@ -186,29 +186,29 @@ struct PointVariances {
 };
 
 struct NoLocalMeasurement {
-  void operator()(std::size_t /*input*/, std::uint32_t /*row*/) const {}
+  void operator()(std::uint32_t /*input*/, std::uint32_t /*row*/) const {}
 };
 
 /// Build a frame in caller-owned columns and offsets. Logical input indices
 /// become cluster indices; optional local measurements follow the same placement.
 template <DetectorLayout Det, typename PointOf, typename BoxOf, typename VarianceOf, typename FillLocal = NoLocalMeasurement>
-std::unique_ptr<TimeFrame<Det>> frameOf(const GridGeometry<Det>& geometry, std::size_t size, const PointOf& pointOf, const BoxOf& boxOf, const VarianceOf& varianceOf, MeasurementStore& columns, std::vector<std::uint32_t>& offsets, const FillLocal& fillLocal = {})
+std::unique_ptr<TimeFrame<Det>> frameOf(const GridGeometry<Det>& geometry, std::uint32_t size, const PointOf& pointOf, const BoxOf& boxOf, const VarianceOf& varianceOf, MeasurementStore& columns, std::vector<std::uint32_t>& offsets, const FillLocal& fillLocal = {})
 {
   resizeMeasurementColumns(columns, size);
   offsets.resize(static_cast<std::size_t>(geometry.bucketCount()) + 1U);
   buildGridRows(
     size, offsets,
-    [&](std::size_t i) {
+    [&](std::uint32_t i) {
       const auto p = pointOf(i);
       return geometry.bucketAt(p.layer, boxOf(i).start, p.phi, secondCoordinate<Det>(p.layer, p.r, p.z));
     },
-    [&](std::size_t i, std::uint32_t row) {
+    [&](std::uint32_t i, std::uint32_t row) {
       const auto p = pointOf(i);
       const auto box = boxOf(i);
       const auto variance = varianceOf(i);
       columns.timePS[row] = box.start;
       columns.widthPS[row] = box.width;
-      columns.clusterIndex[row] = static_cast<std::uint32_t>(i);
+      columns.clusterIndex[row] = i;
       columns.x[row] = p.x;
       columns.y[row] = p.y;
       columns.z[row] = p.z;
@@ -227,7 +227,7 @@ std::unique_ptr<TimeFrame<Det>> frameOf(const GridGeometry<Det>& geometry, std::
 /// \a vertices as `planTimeframe` plans them, the slice planned as it plans
 /// its slices.
 template <typename Tracker, DetectorLayout Det>
-[[nodiscard]] auto runSlice(Tracker& tracker, std::size_t iteration, const TimeFrame<Det>& frame, const typename TimeFrame<Det>::TimeSlice& slice, std::span<const VertexSeed> vertices)
+[[nodiscard]] auto runSlice(Tracker& tracker, std::uint32_t iteration, const TimeFrame<Det>& frame, const typename TimeFrame<Det>::TimeSlice& slice, std::span<const VertexSeed> vertices)
 {
   const auto plan = tracker.planTimeframe(frame, frameBounds(frame), vertices, frame.grid().geometry().blockCount());
   const auto slicePlan = planSlice(frame, slice, seedingReach(frameBounds(frame), frame.grid().geometry(), std::span<const IterationParameters<Det>>{plan.parameters}).gatePS);

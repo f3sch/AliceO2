@@ -52,12 +52,12 @@ class TimeFrameScratch
   using Triplets = StageOutput<TripletT>;
   using Neighbours = StageOutput<NeighbourT>;
   using Permutation = TripletPermutation<Det>;
-  static constexpr std::size_t kLayerCount = Sources::kLayerCount;
+  static constexpr std::uint32_t kLayerCount = Sources::kLayerCount;
 
   /// The layers a tracklet can start on: those with an outgoing link.
   static constexpr std::array<bool, kLayerCount> kSourceLayers = [] {
     std::array<bool, kLayerCount> presented{};
-    for (std::size_t layer = 0; layer < kLayerCount; ++layer) {
+    for (std::uint32_t layer = 0; layer < kLayerCount; ++layer) {
       presented[layer] = outLinks<Det>.count(static_cast<LayerID>(layer)) != 0U;
     }
     return presented;

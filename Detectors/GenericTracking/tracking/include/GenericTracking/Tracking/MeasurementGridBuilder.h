@@ -115,7 +115,7 @@ template <DetectorLayout Det>
     // In the cylinder's frame: across (-sin a, cos a, 0), along (0, 0, 1).
     const double angle = loc0 / spec.radius;
     const double across[3] = {-std::sin(angle), std::cos(angle), 0.};
-    for (int axis = 0; axis < 3; ++axis) {
+    for (std::int32_t axis = 0; axis < 3; ++axis) {
       u[axis] = (rot[(3 * axis) + 0] * across[0]) + (rot[(3 * axis) + 1] * across[1]);
       v[axis] = rot[(3 * axis) + 2];
     }
@@ -188,7 +188,7 @@ class MeasurementGridBuilder
   /// After the second pass: ends become starts again.
   void finish()
   {
-    for (std::size_t bucket = mOffsets.size() - 1; bucket > 0; --bucket) {
+    for (auto bucket = static_cast<std::uint32_t>(mOffsets.size()) - 1U; bucket > 0; --bucket) {
       mOffsets[bucket] = mOffsets[bucket - 1];
     }
     mOffsets[0] = 0;

@@ -15,6 +15,7 @@
 #include "GenericTracking/Study/TruthStudies.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <limits>
 #include <stdexcept>
@@ -60,7 +61,7 @@ ChainSelection parseChainSelection(std::string_view text)
         if (bit == ParticleOrigin::kCount) {
           throw std::invalid_argument(std::format("truth selection: origin {}: primary, decay or material", origin));
         }
-        selection.origins |= 1U << static_cast<unsigned>(bit);
+        selection.origins |= 1U << static_cast<std::uint32_t>(bit);
       }
     } else if (key == "pdg") {
       for (const auto code : splitList(value, '+')) {

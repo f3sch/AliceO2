@@ -72,7 +72,7 @@ struct PrimaryVertexFitResult : VertexFitDiagnostics {
   std::array<double, 6> covariance{}; ///< the vertex's, packed
   double chi2 = 0.;                   ///< the tracks' and the prior's
   double priorChi2 = 0.;              ///< the prior's share
-  int ndf = 0;                        ///< 2 per track: 5 measured, 3 fitted; the prior's 3 against the vertex's 3
+  std::int32_t ndf = 0;               ///< 2 per track: 5 measured, 3 fitted; the prior's 3 against the vertex's 3
 };
 
 /// The vertex of \a tracks (at least one) and \a prior (the beam line),
@@ -107,12 +107,12 @@ class PrimaryVertexFitter
 
  public:
   GPUd() PrimaryVertexFitter(std::span<const VertexTrack> tracks, const Material& material, const MeasuredPoint& prior)
-    : mTracks(tracks), mMaterial(material), mPrior(prior), mCount(static_cast<int>(tracks.size())), mParameterCount(3 + (3 * static_cast<int>(tracks.size())))
+    : mTracks(tracks), mMaterial(material), mPrior(prior), mCount(static_cast<std::uint32_t>(tracks.size())), mParameterCount(3 + (3 * mCount))
   {
   }
 
   /// The bytes of workspace a fit of \a tracks tracks takes.
-  [[nodiscard]] GPUhdi() static std::size_t workspaceSize(int tracks)
+  [[nodiscard]] GPUhdi() static std::size_t workspaceSize(std::uint32_t tracks)
   {
     Space unused;
     return layout(tracks, nullptr, unused);
@@ -143,7 +143,7 @@ class PrimaryVertexFitter
       result.status = status;
       return;
     }
-    mNdf = 2 * mCount;
+    mNdf = 2 * static_cast<std::int32_t>(mCount);
     const auto refresh = [this]() { return carry(parameters()); };
     const auto minimiseOnce = [this]() { return minimise(); };
     if (!vertex_fit_detail::modelLoop(refresh, minimiseOnce, mMinimiser, result)) {
@@ -173,15 +173,15 @@ class PrimaryVertexFitter
   }
 
   /// After `fit`: track \a i's phi, theta, q/p at the vertex.
-  [[nodiscard]] GPUd() Vec3D momentum(int i) const { return {mSpace.parameters[3 + (3 * i)], mSpace.parameters[4 + (3 * i)], mSpace.parameters[5 + (3 * i)]}; }
+  [[nodiscard]] GPUd() Vec3D momentum(std::uint32_t i) const { return {mSpace.parameters[3 + (3 * i)], mSpace.parameters[4 + (3 * i)], mSpace.parameters[5 + (3 * i)]}; }
 
   /// After `fit`: track \a i's chi2 at the solution.
-  [[nodiscard]] GPUd() double trackChi2(int i) const { return mSpace.trackChi2[i]; }
+  [[nodiscard]] GPUd() double trackChi2(std::uint32_t i) const { return mSpace.trackChi2[i]; }
 
   /// After a fit that reached its covariance: the vertex without track \a i
   /// and its covariance (packed), at the solution's linearisation; false
   /// if that leaves no positive-definite S (never with the prior).
-  [[nodiscard]] GPUd() bool withoutTrack(int i, Vec3D& vertex, std::array<double, 6>& covariance) const
+  [[nodiscard]] GPUd() bool withoutTrack(std::uint32_t i, Vec3D& vertex, std::array<double, 6>& covariance) const
   {
     using namespace decay_fit_detail;
     if (!mFitted) {
@@ -192,10 +192,10 @@ class PrimaryVertexFitter
     std::array<S, 6> own{};
     std::array<S, 3> ownRhs{};
     trackShare(i, own, ownRhs);
-    for (int k = 0; k < 6; ++k) {
+    for (std::uint32_t k = 0; k < 6; ++k) {
       reduced[k] -= own[k];
     }
-    for (int k = 0; k < 3; ++k) {
+    for (std::uint32_t k = 0; k < 3; ++k) {
       rhs[k] -= ownRhs[k];
     }
     std::array<S, 6> factor{};
@@ -204,7 +204,7 @@ class PrimaryVertexFitter
       return false;
     }
     llt.solve(rhs.data());
-    for (int k = 0; k < 3; ++k) {
+    for (std::uint32_t k = 0; k < 3; ++k) {
       vertex[k] = mSpace.parameters[k] + static_cast<double>(rhs[k]);
     }
     llt.inverse(covariance.data());
@@ -230,24 +230,23 @@ class PrimaryVertexFitter
     }
   };
 
-  [[nodiscard]] GPUhdi() static std::size_t layout(int tracks, std::byte* base, Space& space)
+  [[nodiscard]] GPUhdi() static std::size_t layout(std::uint32_t tracks, std::byte* base, Space& space)
   {
-    const auto n = std::size_t{3} + (std::size_t{3} * static_cast<std::size_t>(tracks));
-    const auto count = static_cast<std::size_t>(tracks);
+    const std::size_t n = std::size_t{3} + (std::size_t{3} * tracks);
     using vertex_fit_detail::place;
     std::size_t at = 0U;
     space.parameters = place<double>(base, at, n);
     space.trial = place<double>(base, at, n);
     space.step = place<S>(base, at, n);
     space.dampedStep = place<S>(base, at, n);
-    space.measurements = place<Measurement>(base, at, count);
-    space.terms = place<Term>(base, at, count);
-    space.eliminated = place<Eliminated>(base, at, count);
-    space.trackChi2 = place<double>(base, at, count);
+    space.measurements = place<Measurement>(base, at, tracks);
+    space.terms = place<Term>(base, at, tracks);
+    space.eliminated = place<Eliminated>(base, at, tracks);
+    space.trackChi2 = place<double>(base, at, tracks);
     return at;
   }
 
-  [[nodiscard]] GPUd() std::span<double> parameters() const { return {mSpace.parameters, static_cast<std::size_t>(mParameterCount)}; }
+  [[nodiscard]] GPUd() std::span<double> parameters() const { return {mSpace.parameters, mParameterCount}; }
 
   // The prior's weight B^-1 into mPriorWeight; false if B is not positive
   // definite.
@@ -269,7 +268,7 @@ class PrimaryVertexFitter
   // measurement there; the momenta's start from the carried states.
   [[nodiscard]] GPUd() VertexFitStatus carry(std::span<const double> at)
   {
-    for (int i = 0; i < mCount; ++i) {
+    for (std::uint32_t i = 0; i < mCount; ++i) {
       const auto& track = mTracks[i];
       const auto plane = detail::hypothesis::perigeePlaneOf(track.propagator, track.innermost, track.surface, static_cast<Scalar>(at[0]), static_cast<Scalar>(at[1]));
       BoundTrackState state = track.innermost;
@@ -294,7 +293,7 @@ class PrimaryVertexFitter
     using namespace decay_fit_detail;
     chi2 = 0.;
     rounding = 0.;
-    for (int i = 0; i < mCount; ++i) {
+    for (std::uint32_t i = 0; i < mCount; ++i) {
       const double fieldScale = vertex_fit_detail::fieldScaleOf(mTracks[i].propagator);
       const std::array<double, vertex_fit_detail::kTrackParameters> at{p[0], p[1], p[2], p[3 + (3 * i)], p[4 + (3 * i)], p[5 + (3 * i)]};
       const double before = chi2;
@@ -305,14 +304,14 @@ class PrimaryVertexFitter
     }
     // The prior: r = b - V, weight B^-1.
     std::array<double, 3> r{};
-    for (int k = 0; k < 3; ++k) {
+    for (std::uint32_t k = 0; k < 3; ++k) {
       r[k] = mPrior.position[k] - p[k];
     }
     double prior = 0.;
-    for (int k = 0; k < 3; ++k) {
-      rounding += vertex_fit_detail::roundingOf(mPrior.position[k]) * static_cast<double>(mPriorWeight[covIndex(k, k)]);
-      for (int l = 0; l < 3; ++l) {
-        prior += r[k] * static_cast<double>(mPriorWeight[covIndex(k, l)]) * r[l];
+    for (std::uint32_t k = 0; k < 3; ++k) {
+      rounding += vertex_fit_detail::roundingOf(mPrior.position[k]) * static_cast<double>(mPriorWeight[packedIndex(k, k)]);
+      for (std::uint32_t l = 0; l < 3; ++l) {
+        prior += r[k] * static_cast<double>(mPriorWeight[packedIndex(k, l)]) * r[l];
       }
     }
     mPriorChi2 = prior;
@@ -320,22 +319,22 @@ class PrimaryVertexFitter
     if (!normal) {
       return true;
     }
-    for (int k = 0; k < 3; ++k) {
+    for (std::uint32_t k = 0; k < 3; ++k) {
       S g = 0.;
-      for (int l = 0; l < 3; ++l) {
-        g += mPriorWeight[covIndex(k, l)] * static_cast<S>(r[l]);
+      for (std::uint32_t l = 0; l < 3; ++l) {
+        g += mPriorWeight[packedIndex(k, l)] * static_cast<S>(r[l]);
       }
       mGradient[k] = g;
-      for (int l = 0; l <= k; ++l) {
-        mVertexBlock[covIndex(k, l)] = mPriorWeight[covIndex(k, l)];
+      for (std::uint32_t l = 0; l <= k; ++l) {
+        mVertexBlock[packedIndex(k, l)] = mPriorWeight[packedIndex(k, l)];
       }
     }
-    for (int i = 0; i < mCount; ++i) {
+    for (std::uint32_t i = 0; i < mCount; ++i) {
       const auto& term = mSpace.terms[i];
-      for (int k = 0; k < 3; ++k) {
+      for (std::uint32_t k = 0; k < 3; ++k) {
         mGradient[k] += term.gradient[k];
-        for (int l = 0; l <= k; ++l) {
-          mVertexBlock[covIndex(k, l)] += term.normal[covIndex(k, l)];
+        for (std::uint32_t l = 0; l <= k; ++l) {
+          mVertexBlock[packedIndex(k, l)] += term.normal[packedIndex(k, l)];
         }
       }
     }
@@ -343,8 +342,8 @@ class PrimaryVertexFitter
   }
 
   // Track i's E_i (momentum row r, vertex column c) and C_i, a_i, c_i.
-  [[nodiscard]] GPUd() S coupling(int i, int r, int c) const { return mSpace.terms[i].normal[covIndex(3 + r, c)]; }
-  [[nodiscard]] GPUd() S momentumBlock(int i, int r, int c) const { return mSpace.terms[i].normal[covIndex(3 + r, 3 + c)]; }
+  [[nodiscard]] GPUd() S coupling(std::uint32_t i, std::uint32_t r, std::uint32_t c) const { return mSpace.terms[i].normal[decay_fit_detail::packedIndex(3 + r, c)]; }
+  [[nodiscard]] GPUd() S momentumBlock(std::uint32_t i, std::uint32_t r, std::uint32_t c) const { return mSpace.terms[i].normal[decay_fit_detail::packedIndex(3 + r, 3 + c)]; }
 
   // The tracks' blocks eliminated under damping \a tau (N + tau diag N):
   // each track's `Eliminated`, the reduced vertex block S (`mReduced`) and
@@ -353,32 +352,32 @@ class PrimaryVertexFitter
   {
     using namespace decay_fit_detail;
     const auto t = static_cast<S>(tau);
-    for (int k = 0; k < 3; ++k) {
+    for (std::uint32_t k = 0; k < 3; ++k) {
       mRhs[k] = mGradient[k];
-      for (int l = 0; l <= k; ++l) {
-        mReduced[covIndex(k, l)] = mVertexBlock[covIndex(k, l)] + (k == l ? t * mVertexBlock[covIndex(k, k)] : S(0.));
+      for (std::uint32_t l = 0; l <= k; ++l) {
+        mReduced[packedIndex(k, l)] = mVertexBlock[packedIndex(k, l)] + (k == l ? t * mVertexBlock[packedIndex(k, k)] : S(0.));
       }
     }
-    for (int i = 0; i < mCount; ++i) {
+    for (std::uint32_t i = 0; i < mCount; ++i) {
       auto& e = mSpace.eliminated[i];
       std::array<S, 6> block{};
-      for (int r = 0; r < 3; ++r) {
-        for (int c = 0; c <= r; ++c) {
-          block[covIndex(r, c)] = momentumBlock(i, r, c) + (r == c ? t * momentumBlock(i, r, r) : S(0.));
+      for (std::uint32_t r = 0; r < 3; ++r) {
+        for (std::uint32_t c = 0; c <= r; ++c) {
+          block[packedIndex(r, c)] = momentumBlock(i, r, c) + (r == c ? t * momentumBlock(i, r, r) : S(0.));
         }
       }
       Cholesky<S> llt{.l = e.factor.data()};
       if (!llt.factor(block.data(), 3)) {
         return false;
       }
-      for (int c = 0; c < 3; ++c) {
+      for (std::uint32_t c = 0; c < 3; ++c) {
         std::array<S, 3> column{coupling(i, 0, c), coupling(i, 1, c), coupling(i, 2, c)};
         llt.solve(column.data());
-        for (int r = 0; r < 3; ++r) {
+        for (std::uint32_t r = 0; r < 3; ++r) {
           e.inverseE[(3 * r) + c] = column[r];
         }
       }
-      for (int r = 0; r < 3; ++r) {
+      for (std::uint32_t r = 0; r < 3; ++r) {
         e.inverseC[r] = mSpace.terms[i].gradient[3 + r];
       }
       llt.solve(e.inverseC.data());
@@ -389,34 +388,34 @@ class PrimaryVertexFitter
 
   // Track i's eliminated block taken from \a reduced and \a rhs: E_i^T
   // C_i^-1 E_i and E_i^T C_i^-1 c_i.
-  GPUd() void eliminate(int i, std::array<S, 6>& reduced, std::array<S, 3>& rhs) const
+  GPUd() void eliminate(std::uint32_t i, std::array<S, 6>& reduced, std::array<S, 3>& rhs) const
   {
     using namespace decay_fit_detail;
     const auto& e = mSpace.eliminated[i];
-    for (int k = 0; k < 3; ++k) {
-      for (int r = 0; r < 3; ++r) {
+    for (std::uint32_t k = 0; k < 3; ++k) {
+      for (std::uint32_t r = 0; r < 3; ++r) {
         rhs[k] -= coupling(i, r, k) * e.inverseC[r];
       }
-      for (int l = 0; l <= k; ++l) {
+      for (std::uint32_t l = 0; l <= k; ++l) {
         S sum = 0.;
-        for (int r = 0; r < 3; ++r) {
+        for (std::uint32_t r = 0; r < 3; ++r) {
           sum += coupling(i, r, k) * e.inverseE[(3 * r) + l];
         }
-        reduced[covIndex(k, l)] -= sum;
+        reduced[packedIndex(k, l)] -= sum;
       }
     }
   }
 
   // Track i's share of the undamped S and h (`reduce(0)`): A_i - E_i^T
   // C_i^-1 E_i and a_i - E_i^T C_i^-1 c_i.
-  GPUd() void trackShare(int i, std::array<S, 6>& share, std::array<S, 3>& rhs) const
+  GPUd() void trackShare(std::uint32_t i, std::array<S, 6>& share, std::array<S, 3>& rhs) const
   {
     using namespace decay_fit_detail;
     const auto& term = mSpace.terms[i];
-    for (int k = 0; k < 3; ++k) {
+    for (std::uint32_t k = 0; k < 3; ++k) {
       rhs[k] = term.gradient[k];
-      for (int l = 0; l <= k; ++l) {
-        share[covIndex(k, l)] = term.normal[covIndex(k, l)];
+      for (std::uint32_t l = 0; l <= k; ++l) {
+        share[packedIndex(k, l)] = term.normal[packedIndex(k, l)];
       }
     }
     eliminate(i, share, rhs);
@@ -437,11 +436,11 @@ class PrimaryVertexFitter
     std::array<S, 3> dv = mRhs;
     llt.solve(dv.data());
     copyN(dv.data(), 3, d);
-    for (int i = 0; i < mCount; ++i) {
+    for (std::uint32_t i = 0; i < mCount; ++i) {
       const auto& e = mSpace.eliminated[i];
-      for (int r = 0; r < 3; ++r) {
+      for (std::uint32_t r = 0; r < 3; ++r) {
         S value = e.inverseC[r];
-        for (int c = 0; c < 3; ++c) {
+        for (std::uint32_t c = 0; c < 3; ++c) {
           value -= e.inverseE[(3 * r) + c] * dv[c];
         }
         d[3 + (3 * i) + r] = value;
@@ -454,15 +453,15 @@ class PrimaryVertexFitter
   [[nodiscard]] GPUd() double quadratic(const S* v, double start) const
   {
     double sum = start;
-    for (int k = 0; k < 3; ++k) {
-      for (int l = 0; l < 3; ++l) {
-        sum += static_cast<double>(v[k]) * static_cast<double>(mVertexBlock[covIndex(k, l)]) * static_cast<double>(v[l]);
+    for (std::uint32_t k = 0; k < 3; ++k) {
+      for (std::uint32_t l = 0; l < 3; ++l) {
+        sum += static_cast<double>(v[k]) * static_cast<double>(mVertexBlock[decay_fit_detail::packedIndex(k, l)]) * static_cast<double>(v[l]);
       }
     }
-    for (int i = 0; i < mCount; ++i) {
-      const S* q = v + 3 + (std::ptrdiff_t{3} * i);
-      for (int r = 0; r < 3; ++r) {
-        for (int c = 0; c < 3; ++c) {
+    for (std::uint32_t i = 0; i < mCount; ++i) {
+      const S* q = v + 3 + (std::size_t{3} * i);
+      for (std::uint32_t r = 0; r < 3; ++r) {
+        for (std::uint32_t c = 0; c < 3; ++c) {
           sum += 2. * static_cast<double>(q[r]) * static_cast<double>(coupling(i, r, c)) * static_cast<double>(v[c]);
           sum += static_cast<double>(q[r]) * static_cast<double>(momentumBlock(i, r, c)) * static_cast<double>(q[c]);
         }
@@ -474,13 +473,13 @@ class PrimaryVertexFitter
   GPUd() void forms(const S* v, double& gd, double& dNd, double& dDd) const
   {
     gd = dDd = 0.;
-    for (int k = 0; k < 3; ++k) {
+    for (std::uint32_t k = 0; k < 3; ++k) {
       gd += static_cast<double>(mGradient[k]) * static_cast<double>(v[k]);
-      dDd += static_cast<double>(mVertexBlock[covIndex(k, k)]) * static_cast<double>(v[k]) * static_cast<double>(v[k]);
+      dDd += static_cast<double>(mVertexBlock[decay_fit_detail::packedIndex(k, k)]) * static_cast<double>(v[k]) * static_cast<double>(v[k]);
     }
-    for (int i = 0; i < mCount; ++i) {
-      const S* q = v + 3 + (std::ptrdiff_t{3} * i);
-      for (int r = 0; r < 3; ++r) {
+    for (std::uint32_t i = 0; i < mCount; ++i) {
+      const S* q = v + 3 + (std::size_t{3} * i);
+      for (std::uint32_t r = 0; r < 3; ++r) {
         gd += static_cast<double>(mSpace.terms[i].gradient[3 + r]) * static_cast<double>(q[r]);
         dDd += static_cast<double>(momentumBlock(i, r, r)) * static_cast<double>(q[r]) * static_cast<double>(q[r]);
       }
@@ -497,9 +496,9 @@ class PrimaryVertexFitter
   std::span<const VertexTrack> mTracks;
   const Material& mMaterial; // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
   MeasuredPoint mPrior;
-  int mCount = 0;
-  int mParameterCount = 0;
-  int mNdf = 0;
+  std::uint32_t mCount = 0;
+  std::uint32_t mParameterCount = 0;
+  std::int32_t mNdf = 0;
   bool mStarted = false;
   bool mFitted = false;
   std::array<S, 6> mPriorWeight{};
@@ -525,11 +524,11 @@ template <typename Material>
   PrimaryVertexFitResult result;
   fitter.fit(start, storage.take(fitter.workspace()), result);
   if (result.status == VertexFitStatus::kOk) {
-    for (std::size_t i = 0; i < momenta.size(); ++i) {
-      momenta[i] = fitter.momentum(static_cast<int>(i));
+    for (std::uint32_t i = 0; i < momenta.size(); ++i) {
+      momenta[i] = fitter.momentum(i);
     }
-    for (std::size_t i = 0; i < trackChi2.size(); ++i) {
-      trackChi2[i] = fitter.trackChi2(static_cast<int>(i));
+    for (std::uint32_t i = 0; i < trackChi2.size(); ++i) {
+      trackChi2[i] = fitter.trackChi2(i);
     }
   }
   return result;

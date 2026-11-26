@@ -60,13 +60,13 @@ enum BoundIndex : std::uint8_t { kLoc0 = 0,
                                  kNBoundParams = 5 };
 
 /// A symmetric 5x5 needs 15 numbers, not 25 (packed by `covIndex`).
-inline constexpr int kBoundCovSize = covSize(kNBoundParams);
+inline constexpr std::int32_t kBoundCovSize = covSize(kNBoundParams);
 
 /// The strict upper triangle of a 5x5, the U of a U D U^T factorisation.
-inline constexpr int kBoundUpperSize = kBoundCovSize - kNBoundParams;
+inline constexpr std::int32_t kBoundUpperSize = kBoundCovSize - kNBoundParams;
 
 /// Index of the variance of parameter \a i.
-GPUhdi() GPUAlwaysInline() constexpr int varIndex(int i) { return covIndex(i, i); }
+GPUhdi() GPUAlwaysInline() constexpr std::int32_t varIndex(std::int32_t i) { return covIndex(i, i); }
 
 // Propagation and fits.
 

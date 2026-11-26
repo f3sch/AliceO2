@@ -49,7 +49,7 @@ namespace o2::gtrk::study
 /// The triplet's kink variance with theta from the first to the third
 /// measurement; the triplet's links \a firstLink and \a secondLink.
 template <DetectorLayout Det>
-[[nodiscard]] inline Scalar tripletScattering(const LinkMaterial<Det>& material, const PairCut& cut, std::size_t firstLink, std::size_t secondLink, const PairPoint& first, const PairPoint& middle, const PairPoint& third)
+[[nodiscard]] inline Scalar tripletScattering(const LinkMaterial<Det>& material, const PairCut& cut, std::uint32_t firstLink, std::uint32_t secondLink, const PairPoint& first, const PairPoint& middle, const PairPoint& third)
 {
   return tripletScattering(tripletMaterial(material, firstLink, secondLink, first, middle, third), cut, detail::referenceSinTheta(first, third));
 }
@@ -66,9 +66,9 @@ template <DetectorLayout Det>
 /// which hold the links `takenLinks` gives: the skip rule, the layer mask and
 /// the path length.
 template <DetectorLayout Det>
-[[nodiscard]] inline bool linkTaken(const IterationParameters<Det>& parameters, std::size_t link)
+[[nodiscard]] inline bool linkTaken(const IterationParameters<Det>& parameters, std::uint32_t link)
 {
-  const auto source = static_cast<std::size_t>(parameters.linkSources[link]);
+  const std::uint32_t source = parameters.linkSources[link];
   for (auto at = parameters.outLinkOffsets[source]; at < parameters.outLinkOffsets[source + 1U]; ++at) {
     if (parameters.outLinkIndices[at] == link) {
       return true;
@@ -82,7 +82,7 @@ template <DetectorLayout Det>
 template <DetectorLayout Det>
 [[nodiscard]] inline Scalar roadChi2Cut(const IterationParameters<Det>& parameters, const Propagator& propagator, std::uint32_t clusters, std::uint32_t kinks = 0U)
 {
-  return parameters.roadChi2MaxByNdf[(2 * static_cast<int>(clusters)) - fittedParameters(propagator) - (2 * static_cast<int>(kinks))];
+  return parameters.roadChi2MaxByNdf[(2 * static_cast<std::int32_t>(clusters)) - fittedParameters(propagator) - (2 * static_cast<std::int32_t>(kinks))];
 }
 
 /// Why the road fit stage refuses a road, in the order of its tests, or that
@@ -100,7 +100,7 @@ inline constexpr std::array<std::string_view, kFitRefusals> kFitRefusalNames{"ti
 /// where the iteration has the allowance (`takesLastStepAllowance`), for the
 /// studies that repeat it; the stages choose at compile time.
 template <typename Parameters, typename Prop, DetectorLayout Det, typename Material, typename Chain>
-[[nodiscard]] RoadFitResult fitRoad(const Parameters& parameters, const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, int n)
+[[nodiscard]] RoadFitResult fitRoad(const Parameters& parameters, const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const Chain& measurements, std::int32_t n)
 {
   return takesLastStepAllowance(parameters) ? o2::gtrk::fitRoad<true>(parameters, prop, geometry, material, measurements, n) : o2::gtrk::fitRoad<false>(parameters, prop, geometry, material, measurements, n);
 }
@@ -116,7 +116,7 @@ template <DetectorLayout Det, typename Material>
 {
   const auto columns = frame.measurements();
   auto common = timeBoxAt(columns, rows[0]);
-  for (std::size_t i = 1; i < rows.size(); ++i) {
+  for (std::uint32_t i = 1; i < rows.size(); ++i) {
     const auto box = timeBoxAt(columns, rows[i]);
     if (!common.isCompatible(box)) {
       return FitRefusal::kTime;
@@ -124,7 +124,7 @@ template <DetectorLayout Det, typename Material>
     common += box;
   }
   const auto count = static_cast<std::uint32_t>(rows.size());
-  const auto fit = fitRoad(parameters, propagator, tracking, material, RowChain<Det>{.frame = &frame, .rows = rows.data()}, static_cast<int>(count));
+  const auto fit = fitRoad(parameters, propagator, tracking, material, RowChain<Det>{.frame = &frame, .rows = rows.data()}, static_cast<std::int32_t>(count));
   if (fit.status == RoadFitStatus::kRejected) {
     return FitRefusal::kChi2;
   }

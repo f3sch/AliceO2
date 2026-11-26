@@ -35,13 +35,13 @@ ClusterShapeBand band()
 {
   ClusterShapeBand result{
     .maxRows = {0, 2, 0},
-    .slopeLow = std::vector<float>(3 * ClusterShapeBand::kSpans, ClusterShapeBand::kNone.first),
-    .slopeHigh = std::vector<float>(3 * ClusterShapeBand::kSpans, ClusterShapeBand::kNone.second),
+    .slopeLow = std::vector<float>(std::size_t{3} * ClusterShapeBand::kSpans, ClusterShapeBand::kNone.first),
+    .slopeHigh = std::vector<float>(std::size_t{3} * ClusterShapeBand::kSpans, ClusterShapeBand::kNone.second),
     .slopeEdges = {0.F, 1.F, 2.F},
-    .columnFrequency = std::vector<float>(3 * 2 * ClusterShapeBand::kFrequencySpans, 0.F),
-    .rowFrequency = std::vector<float>(3 * 2 * ClusterShapeBand::kFrequencySpans, 0.F),
+    .columnFrequency = std::vector<float>(std::size_t{3} * 2U * ClusterShapeBand::kFrequencySpans, 0.F),
+    .rowFrequency = std::vector<float>(std::size_t{3} * 2U * ClusterShapeBand::kFrequencySpans, 0.F),
   };
-  const auto set = [&](std::size_t span, float low, float high) {
+  const auto set = [&](std::uint32_t span, float low, float high) {
     result.slopeLow[ClusterShapeBand::kSpans + span] = low;
     result.slopeHigh[ClusterShapeBand::kSpans + span] = high;
   };

@@ -31,6 +31,7 @@
 #include "GPUCommonMath.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <type_traits>
 
@@ -44,7 +45,7 @@ struct TripletKinkVector {
 
 /// The measurement axes of a triplet: radial, r-phi and z of each of its
 /// three points, direction `3 slot + axis`.
-inline constexpr std::size_t kTripletAxes = 9;
+inline constexpr std::uint32_t kTripletAxes = 9;
 
 /// What the fits read of a triplet `a b c` beyond its points' errors: the
 /// kinks `psi` at `b` and their slopes `rho` in the curvature, sin(theta) from
@@ -397,11 +398,11 @@ GPUhdi() GPUAlwaysInline() void chordBackward(const KinkAdjoint& chordAdjoint, S
   zAdjoint[1] -= dz12Adjoint;
   zAdjoint[2] += dz12Adjoint;
   const PairPoint* points[3]{&first, &middle, &third};
-  for (int slot = 0; slot < 3; ++slot) {
+  for (std::int32_t slot = 0; slot < 3; ++slot) {
     const Scalar inverseR = 1.F / points[slot]->r;
     const Scalar radialX = points[slot]->x * inverseR;
     const Scalar radialY = points[slot]->y * inverseR;
-    const int radial = 3 * slot;
+    const std::int32_t radial = 3 * slot;
     result.theta[radial] = xAdjoint[slot].theta * radialX + yAdjoint[slot].theta * radialY;
     result.phi[radial] = xAdjoint[slot].phi * radialX + yAdjoint[slot].phi * radialY;
     result.theta[radial + 1] = yAdjoint[slot].theta * radialX - xAdjoint[slot].theta * radialY;
@@ -418,7 +419,7 @@ GPUhdi() GPUAlwaysInline() void chordBackward(const KinkAdjoint& chordAdjoint, S
 namespace detail
 {
 
-[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar axisVariance(const PairPoint& point, int axis)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar axisVariance(const PairPoint& point, std::int32_t axis)
 {
   if (axis == 0) {
     return point.varR;
@@ -497,7 +498,7 @@ struct TripletMaterial {
 /// The material of the triplet `a b c` on the links \a abLink and
 /// \a bcLink.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletMaterial tripletMaterial(const LinkMaterial<Det>& material, std::size_t abLink, std::size_t bcLink, const PairPoint& a, const PairPoint& b, const PairPoint& c)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletMaterial tripletMaterial(const LinkMaterial<Det>& material, std::uint32_t abLink, std::uint32_t bcLink, const PairPoint& a, const PairPoint& b, const PairPoint& c)
 {
   using Table = LinkMaterial<Det>;
   const LayerID first = material.linkFrom[abLink];
@@ -519,7 +520,7 @@ template <DetectorLayout Det>
 /// its second links' gaps, \a middlePhi and \a middleSecond
 /// (`secondGap`): once for every third point.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletMaterial firstTripletMaterial(const LinkMaterial<Det>& material, std::size_t abLink, const PairPoint& a, const PairPoint& b, std::uint32_t& middlePhi, Scalar& middleSecond)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() TripletMaterial firstTripletMaterial(const LinkMaterial<Det>& material, std::uint32_t abLink, const PairPoint& a, const PairPoint& b, std::uint32_t& middlePhi, Scalar& middleSecond)
 {
   using Table = LinkMaterial<Det>;
   const LayerID first = material.linkFrom[abLink];
@@ -539,7 +540,7 @@ template <DetectorLayout Det>
 /// The second gap of a triplet whose first tracklet `firstTripletMaterial`
 /// gave \a middlePhi and \a middleSecond, on \a bcLink to \a c.
 template <DetectorLayout Det>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() const MaterialGap& secondGap(const LinkMaterial<Det>& material, std::size_t bcLink, std::uint32_t middlePhi, Scalar middleSecond, const PairPoint& c)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() const MaterialGap& secondGap(const LinkMaterial<Det>& material, std::uint32_t bcLink, std::uint32_t middlePhi, Scalar middleSecond, const PairPoint& c)
 {
   const LayerID third = material.linkTo[bcLink];
   return material.gap(material.gapRowAt(bcLink, middlePhi, middleSecond), third, LinkMaterial<Det>::second(third, c.r, c.z));
@@ -586,7 +587,7 @@ template <DetectorLayout Det>
   terms.psi = gradient.kinks.psi;
   terms.rho = gradient.kinks.rho;
   terms.sineTheta = sineTheta;
-  for (std::size_t direction = 0; direction < kTripletAxes; ++direction) {
+  for (std::uint32_t direction = 0; direction < kTripletAxes; ++direction) {
     terms.theta[direction] = gradient.theta[direction];
     terms.phi[direction] = gradient.phi[direction];
   }
@@ -605,15 +606,15 @@ template <DetectorLayout Det>
     .rho = terms.rho,
     .covariance = {.thetaTheta = angularVariance, .thetaPhi = 0.F, .phiPhi = angularVariance / (sineTheta * sineTheta)},
   };
-  for (int hit = 0; hit < 3; ++hit) {
+  for (std::int32_t hit = 0; hit < 3; ++hit) {
     const PairPoint* point = &third;
     if (hit == 0) {
       point = &first;
     } else if (hit == 1) {
       point = &middle;
     }
-    for (int axis = 0; axis < 3; ++axis) {
-      const int direction = (3 * hit) + axis;
+    for (std::int32_t axis = 0; axis < 3; ++axis) {
+      const std::int32_t direction = (3 * hit) + axis;
       detail::addCovariance(scratch.covariance, detail::axisVariance(*point, axis), terms.theta[direction], terms.phi[direction]);
     }
   }
@@ -660,12 +661,12 @@ template <DetectorLayout Det>
 namespace detail
 {
 
-constexpr int kAdjacentKinks = 4;
+constexpr std::int32_t kAdjacentKinks = 4;
 
 [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar dot(const Scalar (&left)[kAdjacentKinks], const Scalar (&right)[kAdjacentKinks])
 {
   Scalar result = 0.F;
-  for (int i = 0; i < kAdjacentKinks; ++i) {
+  for (std::int32_t i = 0; i < kAdjacentKinks; ++i) {
     result += left[i] * right[i];
   }
   return result;
@@ -698,7 +699,7 @@ constexpr int kAdjacentKinks = 4;
   covariance[3][3] = varianceThird / (sineSecond * sineSecond);
   covariance[2][0] = covarianceSecondThird;
   covariance[3][1] = covarianceSecondThird / (sineFirst * sineSecond);
-  for (int hit = 0; hit < 4; ++hit) {
+  for (std::int32_t hit = 0; hit < 4; ++hit) {
     const PairPoint* point = &d;
     if (hit == 0) {
       point = &a;
@@ -707,21 +708,21 @@ constexpr int kAdjacentKinks = 4;
     } else if (hit == 2) {
       point = &c;
     }
-    for (int axis = 0; axis < 3; ++axis) {
+    for (std::int32_t axis = 0; axis < 3; ++axis) {
       Scalar gradient[detail::kAdjacentKinks]{};
       if (hit < 3) {
-        const int direction = (3 * hit) + axis;
+        const std::int32_t direction = (3 * hit) + axis;
         gradient[0] = first.theta[direction];
         gradient[1] = first.phi[direction];
       }
       if (hit > 0) {
-        const int direction = (3 * (hit - 1)) + axis;
+        const std::int32_t direction = (3 * (hit - 1)) + axis;
         gradient[2] = second.theta[direction];
         gradient[3] = second.phi[direction];
       }
       const Scalar variance = detail::axisVariance(*point, axis);
-      for (int row = 0; row < detail::kAdjacentKinks; ++row) {
-        for (int column = 0; column <= row; ++column) {
+      for (std::int32_t row = 0; row < detail::kAdjacentKinks; ++row) {
+        for (std::int32_t column = 0; column <= row; ++column) {
           covariance[row][column] += variance * gradient[row] * gradient[column];
         }
       }
@@ -730,7 +731,7 @@ constexpr int kAdjacentKinks = 4;
 
   // The kinks whitened by the covariance's Cholesky factor L: the curvature
   // fit needs only contractions with C^-1 = L^-T L^-1, so L^-1 alone.
-  constexpr std::integral_constant<int, detail::kAdjacentKinks> kKinks{};
+  constexpr std::integral_constant<std::int32_t, detail::kAdjacentKinks> kKinks{};
   const dense::MatrixView<Scalar> lower{.data = &covariance[0][0], .stride = detail::kAdjacentKinks};
   if (!dense::choleskyFactor(lower, kKinks)) {
     return false;

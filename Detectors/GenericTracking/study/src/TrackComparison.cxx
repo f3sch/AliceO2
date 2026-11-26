@@ -19,6 +19,7 @@
 #include <bit>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <format>
 #include <functional>
@@ -83,7 +84,7 @@ struct Tally {
 
 /// Each track's particle by `majorityParticle`, and whether every
 /// measurement carries it.
-Tally tally(std::span<const TruthRow> rows, const TrackRows& tracks, const std::unordered_map<std::uint64_t, Particle>& particles, int nLayers)
+Tally tally(std::span<const TruthRow> rows, const TrackRows& tracks, const std::unordered_map<std::uint64_t, Particle>& particles, std::int32_t nLayers)
 {
   Tally result;
   auto& anatomy = result.anatomy;
@@ -135,7 +136,7 @@ Tally tally(std::span<const TruthRow> rows, const TrackRows& tracks, const std::
         continue;
       }
       ++anatomy.wrong;
-      ++anatomy.wrongByLayer[std::min<std::size_t>(truth.layer, FakeAnatomy::kLayerSlots - 1U)];
+      ++anatomy.wrongByLayer[std::min<std::uint32_t>(truth.layer, FakeAnatomy::kLayerSlots - 1U)];
       ++((ownLayers & (std::uint64_t{1} << truth.layer)) != 0U ? anatomy.swaps : anatomy.holes);
       if (truth.count == 0U) {
         ++anatomy.noise;
@@ -150,7 +151,7 @@ Tally tally(std::span<const TruthRow> rows, const TrackRows& tracks, const std::
 }
 
 /// \a mine's fakes, and what \a other made of their particles.
-void describeFakes(std::vector<std::string>& report, const std::string& name, const Tally& mine, const Tally& other, int nLayers)
+void describeFakes(std::vector<std::string>& report, const std::string& name, const Tally& mine, const Tally& other, std::int32_t nLayers)
 {
   const auto& a = mine.anatomy;
   report.push_back(
@@ -158,8 +159,8 @@ void describeFakes(std::vector<std::string>& report, const std::string& name, co
                 "4+: {:.1f} / {:.1f} / {:.1f} / {:.1f} %",
                 name, mine.fakes, percent(a.labelPrimary, mine.fakes), percent(a.labelSecondary, mine.fakes), percent(a.byWrong[0], mine.fakes), percent(a.byWrong[1], mine.fakes), percent(a.byWrong[2], mine.fakes), percent(a.byWrong[3], mine.fakes), percent(a.byWrong[4], mine.fakes)));
   std::string layers;
-  for (int layer = 0; layer < nLayers; ++layer) {
-    layers += std::format(" {}: {:.1f}", layer, percent(a.wrongByLayer[static_cast<std::size_t>(layer)], a.wrong));
+  for (std::int32_t layer = 0; layer < nLayers; ++layer) {
+    layers += std::format(" {}: {:.1f}", layer, percent(a.wrongByLayer[static_cast<std::uint32_t>(layer)], a.wrong));
   }
   report.push_back(std::format("         {} wrong measurements, by layer (%):{}", a.wrong, layers));
   report.push_back(
@@ -617,9 +618,9 @@ ParticleLayers chainLayers(std::span<const TruthRow> rows, std::span<const std::
   std::array<std::uint32_t, std::numeric_limits<std::uint64_t>::digits> depth{};
   // A step joins one of the particle's measurements on each of its layers
   // without crossing another layer.
-  const auto direct = [&](std::span<const std::uint32_t> own, const ChainLink& link) {
-    for (const auto a : own) {
-      for (const auto b : own) {
+  const auto direct = [&](std::span<const std::uint32_t> particleRows, const ChainLink& link) {
+    for (const auto a : particleRows) {
+      for (const auto b : particleRows) {
         const auto& from = rows[a];
         const auto& to = rows[b];
         if (from.layer == link.from && to.layer == link.to && !segmentLeavesHole(link.holes, settings.barrelLayers, settings.layerSpans.data(), from.r, from.z, to.r, to.z)) {
@@ -713,9 +714,9 @@ std::vector<std::string> compareTrackSets(std::span<const TruthRow> rows, const 
   describeFakes(report, theirName, theirTally, ourTally, settings.nLayers);
 
   // Track by track, by measurement sets.
-  std::unordered_map<std::uint32_t, std::vector<std::size_t>> ourTracksOfRow;
+  std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> ourTracksOfRow;
   std::vector<std::vector<std::uint32_t>> ourSorted(ours.size());
-  for (std::size_t track = 0; track < ours.size(); ++track) {
+  for (std::uint32_t track = 0; track < ours.size(); ++track) {
     ourSorted[track] = ours[track];
     std::ranges::sort(ourSorted[track]);
     for (const auto row : ours[track]) {
@@ -730,7 +731,7 @@ std::vector<std::string> compareTrackSets(std::span<const TruthRow> rows, const 
                                  kRelations };
   std::array<std::uint64_t, kRelations> relations{};
   std::vector<std::uint32_t> sorted;
-  std::map<std::size_t, std::size_t> shared;
+  std::map<std::uint32_t, std::uint32_t> shared;
   for (const auto& track : theirs) {
     sorted = track;
     std::ranges::sort(sorted);

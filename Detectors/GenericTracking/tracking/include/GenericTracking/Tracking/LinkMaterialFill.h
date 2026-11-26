@@ -29,6 +29,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -61,10 +62,10 @@ template <DetectorLayout Det>
 [[nodiscard]] inline std::array<LayerBand, Detector<Det>::nLayers> envelopeBands()
 {
   std::array<LayerBand, Detector<Det>::nLayers> bands{};
-  for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+  for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
     const auto id = static_cast<LayerID>(layer);
     const auto& e = PlacedEnvelopes<Det>::get(id);
-    bands[static_cast<std::size_t>(layer)] = Detector<Det>::isBarrelLayer(id) ? LayerBand{.low = e.rMin, .high = e.rMax} : LayerBand{.low = e.zMin, .high = e.zMax};
+    bands[static_cast<std::uint32_t>(layer)] = Detector<Det>::isBarrelLayer(id) ? LayerBand{.low = e.rMin, .high = e.rMax} : LayerBand{.low = e.zMin, .high = e.zMax};
   }
   return bands;
 }
@@ -84,42 +85,42 @@ template <DetectorLayout Det, typename Lut>
 {
   auto bands = envelopeBands<Det>();
   if constexpr (std::is_same_v<Lut, o2::base::MatLayerCylSet>) {
-    for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+    for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
       const auto& e = PlacedEnvelopes<Det>::get(static_cast<LayerID>(layer));
       // At the LUT's precision: its edges are floats.
       if (static_cast<float>(e.rMax) > lut.getRMax() || static_cast<float>(std::max(std::abs(e.zMin), std::abs(e.zMax))) > lut.getZMax()) {
         throw std::runtime_error(std::string{Det::name} + ": the material LUT (r < " + std::to_string(lut.getRMax()) + " cm, |z| < " + std::to_string(lut.getZMax()) + " cm) does not reach layer " + std::to_string(layer) + "'s sensors (r " + std::to_string(e.rMin) + " .. " + std::to_string(e.rMax) + " cm, z " + std::to_string(e.zMin) + " .. " + std::to_string(e.zMax) + " cm): build it for this layout and geometry (o2-gtrk-build-matlut)");
       }
     }
-    const int shells = lut.getNLayers();
-    for (int layer = 0; layer < Detector<Det>::nBarrelLayers; ++layer) {
+    const std::int32_t shells = lut.getNLayers();
+    for (std::int32_t layer = 0; layer < Detector<Det>::nBarrelLayers; ++layer) {
       const auto id = static_cast<LayerID>(layer);
       const auto& e = PlacedEnvelopes<Det>::get(id);
-      int at = -1;
-      for (int i = 0; i < shells; ++i) {
-        if (e.position >= lut.getLayer(i).getRMin() && e.position < lut.getLayer(i).getRMax()) {
+      std::int32_t at = -1;
+      for (std::int32_t i = 0; i < shells; ++i) {
+        if (e.position >= static_cast<double>(lut.getLayer(i).getRMin()) && e.position < static_cast<double>(lut.getLayer(i).getRMax())) {
           at = i;
         }
       }
       if (at < 0) {
         throw std::runtime_error(std::string{Det::name} + ": no shell of the material LUT holds layer " + std::to_string(layer) + "'s sensors (r " + std::to_string(e.position) + " cm)");
       }
-      int first = at;
-      while (first > 0 && lut.getLayer(first - 1).getRMax() == lut.getLayer(first).getRMin()) {
+      std::int32_t first = at;
+      while (first > 0 && exactlyEqual(lut.getLayer(first - 1).getRMax(), lut.getLayer(first).getRMin())) {
         --first;
       }
-      int last = at;
-      while (last + 1 < shells && lut.getLayer(last).getRMax() == lut.getLayer(last + 1).getRMin()) {
+      std::int32_t last = at;
+      while (last + 1 < shells && exactlyEqual(lut.getLayer(last).getRMax(), lut.getLayer(last + 1).getRMin())) {
         ++last;
       }
       const LayerBand band{.low = std::min<double>(e.rMin, lut.getLayer(first).getRMin()), .high = std::max<double>(e.rMax, lut.getLayer(last).getRMax())};
-      for (int other = 0; other < Detector<Det>::nBarrelLayers; ++other) {
+      for (std::int32_t other = 0; other < Detector<Det>::nBarrelLayers; ++other) {
         const auto& o = PlacedEnvelopes<Det>::get(static_cast<LayerID>(other));
         if (other != layer && o.position > band.low && o.position < band.high && o.zMin < e.zMax && e.zMin < o.zMax) {
           throw std::runtime_error(std::string{Det::name} + ": the material LUT's shells around layer " + std::to_string(layer) + " (r " + std::to_string(band.low) + " .. " + std::to_string(band.high) + " cm) hold layer " + std::to_string(other) + " too: not a LUT of o2-gtrk-build-matlut, whose bands are runs of their own");
         }
       }
-      bands[static_cast<std::size_t>(layer)] = band;
+      bands[static_cast<std::uint32_t>(layer)] = band;
     }
   }
   return bands;
@@ -140,7 +141,7 @@ template <DetectorLayout Det>
     }
     return (-b + std::sqrt(discriminant)) / (2. * a);
   }
-  return u[2] != 0. ? (face - origin[2]) / u[2] : std::numeric_limits<double>::quiet_NaN();
+  return !exactlyEqual(u[2], 0.) ? (face - origin[2]) / u[2] : std::numeric_limits<double>::quiet_NaN();
 }
 
 /// A layer's point at its nominal position, azimuth \a phi, second coordinate \a second.
@@ -170,8 +171,8 @@ struct RaySums {
     out.xf *= factor;
     out.xf2 *= factor;
     out.xRho *= factor;
-    for (auto& x : out.byFraction) {
-      x *= factor;
+    for (auto& part : out.byFraction) {
+      part *= factor;
     }
     return out;
   }
@@ -182,20 +183,20 @@ struct RaySums {
     xf += other.xf;
     xf2 += other.xf2;
     xRho += other.xRho;
-    for (int k = 0; k < kGapProfile; ++k) {
-      byFraction[static_cast<std::size_t>(k)] += other.byFraction[static_cast<std::size_t>(k)];
+    for (std::int32_t k = 0; k < kGapProfile; ++k) {
+      byFraction[static_cast<std::uint32_t>(k)] += other.byFraction[static_cast<std::uint32_t>(k)];
     }
   }
 };
 
 template <typename Lut>
-[[nodiscard]] inline RaySums raySums(const Lut& lut, const Vec3D& origin, const Vec3D& u, double l0, double l1, double length, int pieces)
+[[nodiscard]] inline RaySums raySums(const Lut& lut, const Vec3D& origin, const Vec3D& u, double l0, double l1, double length, std::int32_t pieces)
 {
   RaySums sums;
   if (!std::isfinite(l0) || !std::isfinite(l1) || !(l1 > l0)) {
     return sums;
   }
-  for (int i = 0; i < pieces; ++i) {
+  for (std::int32_t i = 0; i < pieces; ++i) {
     const double a = l0 + ((l1 - l0) * i / pieces);
     const double b = l0 + ((l1 - l0) * (i + 1) / pieces);
     const auto budget = lut.getMatBudget(static_cast<float>(origin[0] + (a * u[0])), static_cast<float>(origin[1] + (a * u[1])), static_cast<float>(origin[2] + (a * u[2])), static_cast<float>(origin[0] + (b * u[0])), static_cast<float>(origin[1] + (b * u[1])), static_cast<float>(origin[2] + (b * u[2])));
@@ -205,8 +206,8 @@ template <typename Lut>
     sums.x += x;
     sums.xf += x * f;
     sums.xf2 += x * f * f;
-    const auto part = std::clamp(static_cast<int>(f * kGapProfile), 0, kGapProfile - 1);
-    sums.byFraction[static_cast<std::size_t>(part)] += x;
+    const auto part = std::clamp(static_cast<std::int32_t>(f * kGapProfile), 0, kGapProfile - 1);
+    sums.byFraction[static_cast<std::uint32_t>(part)] += x;
   }
   return sums;
 }
@@ -220,15 +221,15 @@ template <typename Lut>
 
 /// The gap of the rays' sums \a total over \a rays rays (those through no
 /// material included).
-[[nodiscard]] inline MaterialGap gapOf(const RaySums& total, int rays)
+[[nodiscard]] inline MaterialGap gapOf(const RaySums& total, std::int32_t rays)
 {
   if (!(total.x > 0.) || rays == 0) {
     return {};
   }
   const double x = total.x / rays;
   double firstHalf = 0.;
-  for (int k = 0; k < kGapProfile / 2; ++k) {
-    firstHalf += total.byFraction[static_cast<std::size_t>(k)];
+  for (std::int32_t k = 0; k < kGapProfile / 2; ++k) {
+    firstHalf += total.byFraction[static_cast<std::uint32_t>(k)];
   }
   return {.x = static_cast<float>(x), .m1 = static_cast<float>(total.xf / total.x), .m2 = static_cast<float>(total.xf2 / total.x), .half = static_cast<float>(firstHalf / total.x), .xRho = static_cast<float>(total.xRho / rays)};
 }
@@ -238,8 +239,8 @@ template <typename Lut>
 {
   GapProfile profile;
   double cumulative = 0.;
-  for (int k = 0; k < kGapProfile; ++k) {
-    cumulative += total.byFraction[static_cast<std::size_t>(k)];
+  for (std::int32_t k = 0; k < kGapProfile; ++k) {
+    cumulative += total.byFraction[static_cast<std::uint32_t>(k)];
     profile.share[k + 1] = static_cast<std::uint8_t>(total.x > 0. ? std::lround(255. * cumulative / total.x) : 0);
   }
   return profile;
@@ -262,21 +263,21 @@ template <DetectorLayout Det, typename Lut>
 inline void fillLinkMaterial(LinkMaterial<Det>& table, const Lut& lut, Interval vertexZ, detail::TaskArena& arena)
 {
   using Table = LinkMaterial<Det>;
-  constexpr int kL = Table::kLayers;
-  constexpr int kRays = 4;    // per azimuth bin
-  constexpr int kPieces = 32; // per gap ray
+  constexpr std::int32_t kL = Table::kLayers;
+  constexpr std::int32_t kRays = 4;    // per azimuth bin
+  constexpr std::int32_t kPieces = 32; // per gap ray
   table.linkOf = Table::noLinks();
   const auto bands = detail::lutBands<Det>(lut);
-  for (int link = 0; link < Table::kLinks; ++link) {
+  for (std::uint32_t link = 0; link < static_cast<std::uint32_t>(Table::kLinks); ++link) {
     const auto& l = Det::layerLinks[link];
-    table.linkOf[(static_cast<std::size_t>(l.from) * kL) + l.to] = static_cast<std::int16_t>(link);
+    table.linkOf[(std::uint32_t{l.from} * kL) + l.to] = static_cast<std::int16_t>(link);
     table.linkFrom[link] = l.from;
     table.linkTo[link] = l.to;
     // the source layer's whole second coordinate: a displaced vertex puts a
     // link's sources beyond its traced interval
     table.linkSource[link] = {.low = static_cast<float>(secondMin<Det>(l.from)), .perUnit = static_cast<float>(Table::kSourceSecond / (secondMax<Det>(l.from) - secondMin<Det>(l.from)))};
   }
-  for (int layer = 0; layer < kL; ++layer) {
+  for (std::uint32_t layer = 0; std::cmp_less(layer, kL); ++layer) {
     const auto id = static_cast<LayerID>(layer);
     table.layerSecond[layer] = {.low = static_cast<float>(secondMin<Det>(id)), .perUnit = static_cast<float>(Table::kSecond / (secondMax<Det>(id) - secondMin<Det>(id)))};
     const double inner = std::abs(detail::innerFace<Det>(bands, id));
@@ -288,22 +289,22 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const Lut& lut, Interval 
   const double zHigh = vertexZ.high > vertexZ.low ? vertexZ.high : vertexZ.low + 1.;
   table.vertexZ = {.low = static_cast<float>(zLow), .perUnit = static_cast<float>(Table::kVertexZ / (zHigh - zLow))};
 
-  const auto centre = [](const MaterialAxis& axis, int bin) { return axis.low + ((bin + 0.5) / axis.perUnit); };
-  const auto phiOfRay = [](int bin, int bins, int ray) { return kTwoPi<double> * (bin + ((ray + 0.5) / kRays)) / bins; };
+  const auto centre = [](const MaterialAxis& axis, std::int32_t bin) { return static_cast<double>(axis.low) + ((bin + 0.5) / static_cast<double>(axis.perUnit)); };
+  const auto phiOfRay = [](std::int32_t bin, std::int32_t bins, std::int32_t ray) { return kTwoPi<double> * (bin + ((ray + 0.5) / kRays)) / bins; };
 
   // Jobs: a layer's nodes and vertex gaps, a link's gaps.
-  const auto jobs = static_cast<std::size_t>(kL) + static_cast<std::size_t>(Table::kLinks);
-  detail::parallelFor(arena, 0U, jobs, 1U, [&](std::size_t first, std::size_t last) {
-    for (std::size_t job = first; job < last; ++job) {
+  const auto jobs = static_cast<std::uint32_t>(kL + Table::kLinks);
+  detail::parallelFor(arena, 0U, jobs, 1U, [&](std::uint32_t first, std::uint32_t last) {
+    for (auto job = first; job < last; ++job) {
       if (std::cmp_less(job, kL)) {
         const auto id = static_cast<LayerID>(job);
         const bool barrel = Detector<Det>::isBarrelLayer(id);
-        for (int phi = 0; phi < Table::kNodePhi; ++phi) {
-          for (int s = 0; s < Table::kSecond; ++s) {
+        for (std::int32_t phi = 0; phi < Table::kNodePhi; ++phi) {
+          for (std::int32_t s = 0; s < Table::kSecond; ++s) {
             const double second = centre(table.layerSecond[job], s);
             std::array<double, kNodeDepths> depths{};
             double xRho = 0.;
-            for (int ray = 0; ray < kRays; ++ray) {
+            for (std::int32_t ray = 0; ray < kRays; ++ray) {
               const double angle = phiOfRay(phi, Table::kNodePhi, ray);
               const Vec3D origin{0., 0., 0.};
               double length = 0.;
@@ -312,9 +313,9 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const Lut& lut, Interval 
               const double l1 = detail::faceCrossing<Det>(id, detail::outerFace<Det>(bands, id), origin, u);
               // To normal incidence: the ray's path factor through the band.
               const double incidence = barrel ? std::hypot(u[0], u[1]) : std::abs(u[2]);
-              for (int k = 0; k < kNodeDepths; ++k) {
+              for (std::int32_t k = 0; k < kNodeDepths; ++k) {
                 const auto piece = detail::raySums(lut, origin, u, l0 + ((l1 - l0) * k / kNodeDepths), l0 + ((l1 - l0) * (k + 1) / kNodeDepths), 1., 1);
-                depths[static_cast<std::size_t>(k)] += piece.x * incidence;
+                depths[static_cast<std::uint32_t>(k)] += piece.x * incidence;
                 xRho += piece.xRho * incidence;
               }
             }
@@ -327,20 +328,20 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const Lut& lut, Interval 
             node.xRho = static_cast<float>(xRho / kRays);
             double cumulative = 0.;
             node.depth[0] = 0U;
-            for (int k = 0; k < kNodeDepths; ++k) {
-              cumulative += depths[static_cast<std::size_t>(k)];
+            for (std::int32_t k = 0; k < kNodeDepths; ++k) {
+              cumulative += depths[static_cast<std::uint32_t>(k)];
               node.depth[k + 1] = static_cast<std::uint8_t>(total > 0. ? std::lround(255. * cumulative / total) : 255);
             }
-            table.nodes[(((job * Table::kNodePhi) + static_cast<std::size_t>(phi)) * Table::kSecond) + static_cast<std::size_t>(s)] = node;
+            table.nodes[(((job * Table::kNodePhi) + static_cast<std::uint32_t>(phi)) * Table::kSecond) + static_cast<std::uint32_t>(s)] = node;
           }
         }
-        for (int phi = 0; phi < Table::kGapPhi; ++phi) {
-          for (int v = 0; v < Table::kVertexZ; ++v) {
+        for (std::int32_t phi = 0; phi < Table::kGapPhi; ++phi) {
+          for (std::int32_t v = 0; v < Table::kVertexZ; ++v) {
             const double z = centre(table.vertexZ, v);
-            for (int s = 0; s < Table::kSecond; ++s) {
+            for (std::int32_t s = 0; s < Table::kSecond; ++s) {
               const double second = centre(table.layerSecond[job], s);
               detail::RaySums total;
-              for (int ray = 0; ray < kRays; ++ray) {
+              for (std::int32_t ray = 0; ray < kRays; ++ray) {
                 const Vec3D origin{0., 0., z};
                 double length = 0.;
                 const Vec3D u = detail::unitFrom(origin, detail::nominalPoint<Det>(id, second, phiOfRay(phi, Table::kGapPhi, ray)), length);
@@ -348,7 +349,7 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const Lut& lut, Interval 
                 const double cosine = Detector<Det>::isBarrelLayer(id) ? std::hypot(u[0], u[1]) : std::abs(u[2]);
                 total.add(detail::raySums(lut, origin, u, 0., detail::faceCrossing<Det>(id, detail::innerFace<Det>(bands, id), origin, u), length, kPieces).scaled(cosine));
               }
-              const auto index = (((((job * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kVertexZ) + static_cast<std::size_t>(v)) * Table::kSecond) + static_cast<std::size_t>(s);
+              const auto index = (((((job * Table::kGapPhi) + static_cast<std::uint32_t>(phi)) * Table::kVertexZ) + static_cast<std::uint32_t>(v)) * Table::kSecond) + static_cast<std::uint32_t>(s);
               table.vertexGaps[index] = detail::gapOf(total, kRays);
               table.vertexProfiles[index] = detail::profileOf(total);
             }
@@ -356,17 +357,17 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const Lut& lut, Interval 
         }
         continue;
       }
-      const std::size_t link = job - static_cast<std::size_t>(kL);
+      const std::uint32_t link = job - static_cast<std::uint32_t>(kL);
       const auto& l = Det::layerLinks[link];
-      for (int phi = 0; phi < Table::kGapPhi; ++phi) {
-        for (int s = 0; s < Table::kSourceSecond; ++s) {
+      for (std::int32_t phi = 0; phi < Table::kGapPhi; ++phi) {
+        for (std::int32_t s = 0; s < Table::kSourceSecond; ++s) {
           const double sourceSecond = centre(table.linkSource[link], s);
           float rowMax = 0.F;
           float gapX = 0.F;
-          for (int t = 0; t < Table::kSecond; ++t) {
+          for (std::int32_t t = 0; t < Table::kSecond; ++t) {
             const double targetSecond = centre(table.layerSecond[l.to], t);
             detail::RaySums total;
-            for (int ray = 0; ray < kRays; ++ray) {
+            for (std::int32_t ray = 0; ray < kRays; ++ray) {
               const double angle = phiOfRay(phi, Table::kGapPhi, ray);
               const Vec3D source = detail::nominalPoint<Det>(l.from, sourceSecond, angle);
               double length = 0.;
@@ -377,10 +378,10 @@ inline void fillLinkMaterial(LinkMaterial<Det>& table, const Lut& lut, Interval 
             }
             const auto gap = detail::gapOf(total, kRays);
             gapX = std::max(gapX, gap.x);
-            table.gaps[(((((link * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kSourceSecond) + static_cast<std::size_t>(s)) * Table::kSecond) + static_cast<std::size_t>(t)] = gap;
+            table.gaps[(((((link * Table::kGapPhi) + static_cast<std::uint32_t>(phi)) * Table::kSourceSecond) + static_cast<std::uint32_t>(s)) * Table::kSecond) + static_cast<std::uint32_t>(t)] = gap;
             rowMax = std::max(rowMax, gap.x * (1.F - (2.F * gap.m1) + gap.m2));
           }
-          table.gapRowMax[(((link * Table::kGapPhi) + static_cast<std::size_t>(phi)) * Table::kSourceSecond) + static_cast<std::size_t>(s)] = rowMax;
+          table.gapRowMax[(((link * Table::kGapPhi) + static_cast<std::uint32_t>(phi)) * Table::kSourceSecond) + static_cast<std::uint32_t>(s)] = rowMax;
           table.gapMax[link] = std::max(table.gapMax[link], gapX);
         }
       }

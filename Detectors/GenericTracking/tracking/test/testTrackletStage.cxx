@@ -73,7 +73,7 @@ struct StageToy {
     {.from = 1, .to = 2, .sourceMin = -10., .sourceMax = 10.},
     {.from = 0, .to = 1, .sourceMin = -2., .sourceMax = 2.},
   }};
-  static constexpr int nSensors = countSensors(barrelLayers, discLayers);
+  static constexpr std::int32_t nSensors = countSensors(barrelLayers, discLayers);
 };
 
 [[maybe_unused]] const bool kStageToyPublished = publishToy<StageToy>();
@@ -84,10 +84,10 @@ using Output = StageOutput<TrackletT>;
 using Cpu = CpuStage<TrackletT>;
 /// The tracklet stage alone: chains of two clusters, so the iteration takes
 /// every link (`takenLinks`).
-constexpr int kChainClusters = 2;
-constexpr std::size_t kReferenceMeasurements = 9;
-constexpr std::size_t kExtraSources = 64;
-constexpr std::size_t kMeasurements = kReferenceMeasurements + kExtraSources;
+constexpr std::int32_t kChainClusters = 2;
+constexpr std::uint32_t kReferenceMeasurements = 9;
+constexpr std::uint32_t kExtraSources = 64;
+constexpr std::uint32_t kMeasurements = kReferenceMeasurements + kExtraSources;
 /// Every row at 110 ns, in its toy tick's box [92, 133) ns.
 constexpr double kRowTimeNS = 110.;
 const TimeEstPS kRowBox = test::toyTimeBox(kRowTimeNS);
@@ -123,7 +123,7 @@ class Fixture
     }};
     std::array<InputPoint, kMeasurements> input{};
     std::ranges::copy(reference, input.begin());
-    for (std::size_t i = 0; i < kExtraSources; ++i) {
+    for (std::uint32_t i = 0; i < kExtraSources; ++i) {
       input[kReferenceMeasurements + i] = {
         .layer = 0,
         .r = 2.F,
@@ -132,10 +132,10 @@ class Fixture
       };
     }
 
-    frame = test::frameOf(geometry, input.size(), [&](std::size_t i) { return test::FramePoint{.layer = input[i].layer, .x = input[i].r * std::cos(input[i].phi), .y = input[i].r * std::sin(input[i].phi), .z = input[i].z, .r = input[i].r, .phi = input[i].phi}; }, [&](std::size_t /*i*/) { return kRowBox; }, [&](std::size_t /*i*/) { return test::PointVariances{.z = 1e-4F, .r = 1e-4F, .rPhi = 1e-4F}; }, columns, offsets);
+    frame = test::frameOf(geometry, kMeasurements, [&](std::uint32_t i) { return test::FramePoint{.layer = input[i].layer, .x = input[i].r * std::cos(input[i].phi), .y = input[i].r * std::sin(input[i].phi), .z = input[i].z, .r = input[i].r, .phi = input[i].phi}; }, [&](std::uint32_t /*i*/) { return kRowBox; }, [&](std::uint32_t /*i*/) { return test::PointVariances{.z = 1e-4F, .r = 1e-4F, .rPhi = 1e-4F}; }, columns, offsets);
     used.assign(frame->size(), kFree);
     std::array<MeasurementRange, Sources::kLayerCount> rows{};
-    for (std::size_t layer = 0; layer < rows.size(); ++layer) {
+    for (std::uint32_t layer = 0; layer < rows.size(); ++layer) {
       rows[layer] = frame->grid().layerRows(static_cast<LayerID>(layer));
     }
     sources = Sources{rows, {true, true, false}};
@@ -169,7 +169,7 @@ std::unique_ptr<Output> runStage(const Fixture& fixture, const Stage& stage)
   return output;
 }
 
-std::vector<std::uint32_t> bruteForceTargets(const Fixture& fixture, const IterationParameters<StageToy>& parameters, std::span<const VertexSeed> vertices, Sources::Index sourceElement, std::size_t linkIndex)
+std::vector<std::uint32_t> bruteForceTargets(const Fixture& fixture, const IterationParameters<StageToy>& parameters, std::span<const VertexSeed> vertices, Sources::Index sourceElement, std::uint32_t linkIndex)
 {
   const auto sourceAt = fixture.sources.row(sourceElement);
   const auto source = fixture.frame->measurement(sourceAt.row);
@@ -224,10 +224,10 @@ void verify(VertexSource vertexSource, std::span<const VertexSeed> suppliedVerti
   for (Sources::Index sourceElement = 0; sourceElement < fixture.sources.size(); ++sourceElement) {
     const auto sourceAt = fixture.sources.row(sourceElement);
     const auto source = fixture.frame->measurement(sourceAt.row);
-    std::size_t outputAt = output.offsets()[sourceElement];
+    std::uint32_t outputAt = output.offsets()[sourceElement];
 
     for (auto at = outLinks<StageToy>.begin(sourceAt.layer); at < outLinks<StageToy>.end(sourceAt.layer); ++at) {
-      const std::size_t linkIndex = outLinks<StageToy>.links[at];
+      const std::uint32_t linkIndex = outLinks<StageToy>.links[at];
       const auto brute = bruteForceTargets(fixture, parameters, selected, sourceElement, linkIndex);
       std::vector<std::uint32_t> emitted;
       while (outputAt < output.offsets()[sourceElement + 1U] && view[outputAt].link == linkIndex) {
@@ -294,11 +294,11 @@ void verify(VertexSource vertexSource, std::span<const VertexSeed> suppliedVerti
     BOOST_TEST(wrappedOrder[0] == highTarget);
     BOOST_TEST(wrappedOrder[1] == lowTarget);
 
-    constexpr std::size_t kFirstPassingVertex = 2U;
+    constexpr std::uint32_t kFirstPassingVertex = 2U;
     if (vertexSource == VertexSource::kVertexList && selected.size() > kFirstPassingVertex) {
       const auto sourcePoint = pairPoint(fixture.frame->measurement(wrappedSource));
       const auto targetPoint = pairPoint(fixture.frame->measurement(lowTarget));
-      for (std::size_t i = 0; i < kFirstPassingVertex; ++i) {
+      for (std::uint32_t i = 0; i < kFirstPassingVertex; ++i) {
         if (!vertexUsed(parameters, fixture.frame->measurement(wrappedSource), selected[i])) {
           continue;
         }
@@ -309,7 +309,7 @@ void verify(VertexSource vertexSource, std::span<const VertexSeed> suppliedVerti
       const Scalar passingScattering = sourceScattering<StageToy>(*parameters.material, parameters.pairCut, selected[kFirstPassingVertex], LayerID{0}, sourcePoint);
       BOOST_TEST(pairCompatible(parameters.pairCut, selected[kFirstPassingVertex], sourcePoint, passingScattering, targetPoint));
       bool found = false;
-      for (std::size_t i = 0; i < output.size(); ++i) {
+      for (std::uint32_t i = 0; i < output.size(); ++i) {
         found = found || (view[i].source == wrappedSource && view[i].target == lowTarget && view[i].link == 2U);
       }
       BOOST_TEST(found);
@@ -381,7 +381,7 @@ BOOST_AUTO_TEST_CASE(TheSourceGateSkipsHaloSourcesOutsideItsWindow)
   const auto vertexWindows = vertexWindowParameters<StageToy>(parameters, settings.windows, {});
   std::array<MeasurementRange, Sources::kLayerCount> everything{};
   std::array<MeasurementRange, Sources::kLayerCount> nothing{};
-  for (std::size_t layer = 0; layer < everything.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < everything.size(); ++layer) {
     everything[layer] = fixture.frame->grid().layerRows(static_cast<LayerID>(layer));
   }
   const auto run = [&](const SourceGate& gate) {
@@ -414,7 +414,7 @@ BOOST_AUTO_TEST_CASE(TheUsedMaskRemovesExclusiveRows)
   const auto source = view.source[0];
   const auto target = view.target[0];
   const auto count = [&](const Output& output, auto keep) {
-    std::size_t result = 0U;
+    std::uint32_t result = 0U;
     for (std::uint32_t i = 0; i < output.size(); ++i) {
       result += keep(output.view().source[i], output.view().target[i]) ? 1U : 0U;
     }
@@ -562,7 +562,7 @@ BOOST_AUTO_TEST_CASE(CpuStageMatchesTheSerialReference)
     BOOST_REQUIRE((runSerial(serial, stage) == StageStatus::kComplete));
     BOOST_REQUIRE(serial.size() > 0U);
 
-    for (const int threads : {1, 2, 4}) {
+    for (const std::int32_t threads : {1, 2, 4}) {
       for (const Output::Index chunk : {1U, 3U, 8U, 17U, 64U}) {
         Output parallel;
         const auto parallelPool = std::make_shared<BoundedMemoryResource>();
@@ -572,8 +572,8 @@ BOOST_AUTO_TEST_CASE(CpuStageMatchesTheSerialReference)
         Cpu cpu{cpuArena};
         cpu.setMemoryPool(parallelPool);
         const auto status = cpu.run(parallel, chunk, stage);
-        BOOST_REQUIRE_MESSAGE(status == StageStatus::kComplete, "vertex source " << static_cast<int>(vertexSource) << ", threads " << threads << ", chunk " << chunk);
-        BOOST_TEST(sameStageOutput(parallel, serial), "vertex source " << static_cast<int>(vertexSource) << ", threads " << threads << ", chunk " << chunk);
+        BOOST_REQUIRE_MESSAGE(status == StageStatus::kComplete, "vertex source " << static_cast<std::int32_t>(vertexSource) << ", threads " << threads << ", chunk " << chunk);
+        BOOST_TEST(sameStageOutput(parallel, serial), "vertex source " << static_cast<std::int32_t>(vertexSource) << ", threads " << threads << ", chunk " << chunk);
       }
     }
   }

@@ -63,7 +63,7 @@ struct MaterialGap {
 };
 
 /// The parts a vertex gap's profile resolves its ray in.
-inline constexpr int kGapProfile = 16;
+inline constexpr std::int32_t kGapProfile = 16;
 
 /// How a vertex gap's material lies along its ray from the vertex to the
 /// layer's nominal point: the share before each of `kGapProfile + 1` equal
@@ -79,7 +79,7 @@ struct GapProfile {
     Scalar total = 0.F;
     Scalar first = 0.F;
     Scalar second = 0.F;
-    for (int k = 0; k < kGapProfile; ++k) {
+    for (std::int32_t k = 0; k < kGapProfile; ++k) {
       const Scalar low = static_cast<Scalar>(k) / static_cast<Scalar>(kGapProfile);
       const Scalar high = static_cast<Scalar>(k + 1) / static_cast<Scalar>(kGapProfile);
       const Scalar a = f0 > low ? f0 : low;
@@ -99,7 +99,7 @@ struct GapProfile {
 };
 
 /// The depths a node's profile resolves its band in.
-inline constexpr int kNodeDepths = 32;
+inline constexpr std::int32_t kNodeDepths = 32;
 
 /// A layer band's x/X0 at normal incidence and how it is spread across the
 /// band's depth: the share in front of each of `kNodeDepths + 1` equal depths
@@ -114,7 +114,7 @@ struct MaterialNode {
   [[nodiscard]] GPUhdi() GPUAlwaysInline() Scalar frontShare(Scalar t) const
   {
     const Scalar at = (t < 0.F ? 0.F : (t > 1.F ? 1.F : t)) * static_cast<Scalar>(kNodeDepths);
-    const int k = at >= static_cast<Scalar>(kNodeDepths) ? kNodeDepths - 1 : static_cast<int>(at);
+    const std::int32_t k = at >= static_cast<Scalar>(kNodeDepths) ? kNodeDepths - 1 : static_cast<std::int32_t>(at);
     const auto low = static_cast<Scalar>(depth[k]);
     return (low + ((static_cast<Scalar>(depth[k + 1]) - low) * (at - static_cast<Scalar>(k)))) * (1.F / 255.F);
   }
@@ -140,28 +140,28 @@ struct LinkStep {
 struct MaterialAxis {
   float low = 0.F;
   float perUnit = 0.F;
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() int bin(Scalar value, int bins) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::int32_t bin(Scalar value, std::int32_t bins) const
   {
-    const int b = static_cast<int>((value - low) * perUnit);
+    const auto b = static_cast<std::int32_t>((value - low) * perUnit);
     return b < 0 ? 0 : (b >= bins ? bins - 1 : b);
   }
 };
 
 template <DetectorLayout Det>
 struct LinkMaterial {
-  static constexpr int kLayers = Detector<Det>::nLayers;
-  static constexpr int kLinks = static_cast<int>(std::size(Det::layerLinks));
+  static constexpr std::int32_t kLayers = Detector<Det>::nLayers;
+  static constexpr auto kLinks = static_cast<std::int32_t>(std::size(Det::layerLinks));
   /// Azimuth bins of the nodes: as fine as a stave, whose sensors split its
   /// band in front and behind differently across its width.
-  static constexpr int kNodePhi = 1024;
+  static constexpr std::int32_t kNodePhi = 1024;
   /// Azimuth bins of the gaps: supports and services are not uniform in it.
-  static constexpr int kGapPhi = 32;
+  static constexpr std::int32_t kGapPhi = 32;
   /// Bins of a layer's second coordinate, of a link's source layer's (finer:
   /// a link's material changes fast with where it leaves, past a stave's
   /// end), and the vertex's z.
-  static constexpr int kSecond = 16;
-  static constexpr int kSourceSecond = 32;
-  static constexpr int kVertexZ = 8;
+  static constexpr std::int32_t kSecond = 16;
+  static constexpr std::int32_t kSourceSecond = 32;
+  static constexpr std::int32_t kVertexZ = 8;
 
   [[nodiscard]] static constexpr std::array<std::int16_t, static_cast<std::size_t>(kLayers) * kLayers> noLinks()
   {
@@ -175,18 +175,18 @@ struct LinkMaterial {
   /// The link from layer `from` to layer `to`, -1 for none (an unfilled
   /// table has none); each link's layers.
   std::array<std::int16_t, static_cast<std::size_t>(kLayers) * kLayers> linkOf = noLinks();
-  std::array<LayerID, kLinks> linkFrom{};
-  std::array<LayerID, kLinks> linkTo{};
+  std::array<LayerID, static_cast<std::size_t>(kLinks)> linkFrom{};
+  std::array<LayerID, static_cast<std::size_t>(kLinks)> linkTo{};
   /// Each layer's second coordinate over its envelope, the source interval of
   /// each link, the vertex's z.
-  std::array<MaterialAxis, kLayers> layerSecond{};
-  std::array<MaterialAxis, kLinks> linkSource{};
+  std::array<MaterialAxis, static_cast<std::size_t>(kLayers)> layerSecond{};
+  std::array<MaterialAxis, static_cast<std::size_t>(kLinks)> linkSource{};
   MaterialAxis vertexZ{};
   /// Each layer's band in depth: the fraction of the way from its inner face
   /// to its outer one, in radius on a barrel layer, in |z| on a disc.
-  std::array<MaterialAxis, kLayers> layerDepth{};
+  std::array<MaterialAxis, static_cast<std::size_t>(kLayers)> layerDepth{};
   /// Each disc's side of the vertex, +1 or -1 (0 on a barrel layer).
-  std::array<std::int8_t, kLayers> layerSide{};
+  std::array<std::int8_t, static_cast<std::size_t>(kLayers)> layerSide{};
   std::array<MaterialNode, static_cast<std::size_t>(kLayers) * kNodePhi * kSecond> nodes{};
   std::array<MaterialGap, static_cast<std::size_t>(kLinks) * kGapPhi * kSourceSecond * kSecond> gaps{};
   /// Per row of a link's gaps (one source azimuth and coordinate), the
@@ -194,7 +194,7 @@ struct LinkMaterial {
   /// window takes for its second link before the third point is known.
   std::array<float, static_cast<std::size_t>(kLinks) * kGapPhi * kSourceSecond> gapRowMax{};
   /// Per link, its gaps' largest x/X0: what bounds a pair's span before its gap is read.
-  std::array<float, kLinks> gapMax{};
+  std::array<float, static_cast<std::size_t>(kLinks)> gapMax{};
   /// Each layer's vertex gaps, from the vertex to its band, at normal
   /// incidence (radial on a barrel layer, along z on a disc): a ray's x/X0
   /// times its depth over its length. A use takes its own line's path.
@@ -203,46 +203,46 @@ struct LinkMaterial {
   std::array<GapProfile, static_cast<std::size_t>(kLayers) * kGapPhi * kVertexZ * kSecond> vertexProfiles{};
 
   /// The azimuth bin of \a phi [rad, either -pi..pi or 0..2pi].
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() static int phiBinOf(Scalar phi, int bins)
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() static std::int32_t phiBinOf(Scalar phi, std::int32_t bins)
   {
     phi = phi < 0.F ? phi + kTwoPi<Scalar> : phi;
-    const int b = static_cast<int>(phi * (static_cast<Scalar>(bins) / kTwoPi<Scalar>));
+    const auto b = static_cast<std::int32_t>(phi * (static_cast<Scalar>(bins) / kTwoPi<Scalar>));
     return b < 0 ? 0 : (b >= bins ? bins - 1 : b);
   }
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() static int phiBin(Scalar x, Scalar y, int bins) { return phiBinOf(atan2Of(y, x), bins); }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() static std::int32_t phiBin(Scalar x, Scalar y, std::int32_t bins) { return phiBinOf(atan2Of(y, x), bins); }
 
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() int link(LayerID from, LayerID to) const { return linkOf[(static_cast<std::size_t>(from) * kLayers) + to]; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::int32_t link(LayerID from, LayerID to) const { return linkOf[(std::uint32_t{from} * kLayers) + to]; }
 
   /// Layer \a layer's node at azimuth \a phi with second coordinate \a second.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() const MaterialNode& nodeAt(LayerID layer, Scalar phi, Scalar second) const
   {
-    const auto bin = static_cast<std::size_t>(phiBinOf(phi, kNodePhi));
-    const auto s = static_cast<std::size_t>(layerSecond[layer].bin(second, kSecond));
-    return nodes[(((static_cast<std::size_t>(layer) * kNodePhi) + bin) * kSecond) + s];
+    const auto bin = static_cast<std::uint32_t>(phiBinOf(phi, kNodePhi));
+    const auto s = static_cast<std::uint32_t>(layerSecond[layer].bin(second, kSecond));
+    return nodes[(((std::uint32_t{layer} * kNodePhi) + bin) * kSecond) + s];
   }
 
   /// Layer \a layer's node at the point (\a x, \a y) with second coordinate \a second.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() const MaterialNode& node(LayerID layer, Scalar x, Scalar y, Scalar second) const
   {
-    const auto phi = static_cast<std::size_t>(phiBin(x, y, kNodePhi));
-    const auto s = static_cast<std::size_t>(layerSecond[layer].bin(second, kSecond));
-    return nodes[(((static_cast<std::size_t>(layer) * kNodePhi) + phi) * kSecond) + s];
+    const auto phi = static_cast<std::uint32_t>(phiBin(x, y, kNodePhi));
+    const auto s = static_cast<std::uint32_t>(layerSecond[layer].bin(second, kSecond));
+    return nodes[(((std::uint32_t{layer} * kNodePhi) + phi) * kSecond) + s];
   }
 
   /// The first cell of link \a link's row for a source at (\a x, \a y) with
   /// second coordinate \a coordinate.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t gapRow(std::size_t link, Scalar x, Scalar y, Scalar coordinate) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t gapRow(std::uint32_t link, Scalar x, Scalar y, Scalar coordinate) const
   {
     const auto phi = static_cast<std::uint32_t>(phiBin(x, y, kGapPhi));
     const auto s = static_cast<std::uint32_t>(linkSource[link].bin(coordinate, kSourceSecond));
-    return ((((static_cast<std::uint32_t>(link) * kGapPhi) + phi) * kSourceSecond) + s) * kSecond;
+    return ((((link * kGapPhi) + phi) * kSourceSecond) + s) * kSecond;
   }
 
   /// The same for a source in gap azimuth bin \a phiBin (`phiBin` with `kGapPhi`).
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t gapRowAt(std::size_t link, std::uint32_t phiBin, Scalar coordinate) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t gapRowAt(std::uint32_t link, std::uint32_t phiBin, Scalar coordinate) const
   {
     const auto s = static_cast<std::uint32_t>(linkSource[link].bin(coordinate, kSourceSecond));
-    return ((((static_cast<std::uint32_t>(link) * kGapPhi) + phiBin) * kSourceSecond) + s) * kSecond;
+    return ((((link * kGapPhi) + phiBin) * kSourceSecond) + s) * kSecond;
   }
 
   /// The fraction of layer \a layer's band's depth a point at \a r, \a z lies at.
@@ -301,7 +301,7 @@ struct LinkMaterial {
     if (!(a > 0.F)) {
       return out;
     }
-    const int sign = toLayer > fromLayer ? 1 : -1;
+    const std::int32_t sign = toLayer > fromLayer ? 1 : -1;
     LayerID previous = fromLayer;
     Scalar previousPoint[3] = {start[0], start[1], start[2]};
     Scalar previousT = 0.F;
@@ -338,7 +338,7 @@ struct LinkMaterial {
       }
       out.xRho += part.xRho;
     };
-    for (int layer = static_cast<int>(fromLayer) + sign; std::cmp_not_equal(layer, toLayer); layer += sign) {
+    for (auto layer = static_cast<std::int32_t>(fromLayer) + sign; std::cmp_not_equal(layer, toLayer); layer += sign) {
       const auto crossed = static_cast<LayerID>(layer);
       if (!Detector<Det>::isBarrelLayer(crossed)) {
         return out;
@@ -399,7 +399,7 @@ struct LinkMaterial {
   {
     using Math = o2::gpu::GPUCommonMath;
     LinkStep out;
-    int l = link(fromLayer, toLayer);
+    std::int32_t l = link(fromLayer, toLayer);
     const bool inward = l < 0;
     if (inward) {
       l = link(toLayer, fromLayer);
@@ -417,11 +417,11 @@ struct LinkMaterial {
     }
     const Scalar* source = inward ? end : start;
     const Scalar* target = inward ? start : end;
-    const LayerID sourceLayer = linkFrom[l];
-    const LayerID targetLayer = linkTo[l];
+    const LayerID sourceLayer = linkFrom[static_cast<std::uint32_t>(l)];
+    const LayerID targetLayer = linkTo[static_cast<std::uint32_t>(l)];
     const Scalar rSource = Math::Sqrt((source[0] * source[0]) + (source[1] * source[1]));
     const Scalar rTarget = Math::Sqrt((target[0] * target[0]) + (target[1] * target[1]));
-    const auto& g = gaps[gapRow(static_cast<std::size_t>(l), source[0], source[1], second(sourceLayer, rSource, source[2])) + static_cast<std::uint32_t>(layerSecond[targetLayer].bin(second(targetLayer, rTarget, target[2]), kSecond))];
+    const auto& g = gaps[gapRow(static_cast<std::uint32_t>(l), source[0], source[1], second(sourceLayer, rSource, source[2])) + static_cast<std::uint32_t>(layerSecond[targetLayer].bin(second(targetLayer, rTarget, target[2]), kSecond))];
     Scalar oblique = 1.F;
     if (Detector<Det>::isBarrelLayer(sourceLayer) && Detector<Det>::isBarrelLayer(targetLayer)) {
       oblique = Math::Sqrt((dx * dx) + (dy * dy)) / Math::Abs(rTarget - rSource);
@@ -473,10 +473,10 @@ struct LinkMaterial {
   /// layer at azimuth \a phi with second coordinate \a second.
   [[nodiscard]] GPUhdi() GPUAlwaysInline() const MaterialGap& vertexGapAt(LayerID layer, Scalar phi, Scalar z, Scalar second) const
   {
-    const auto bin = static_cast<std::size_t>(phiBinOf(phi, kGapPhi));
-    const auto v = static_cast<std::size_t>(vertexZ.bin(z, kVertexZ));
-    const auto s = static_cast<std::size_t>(layerSecond[layer].bin(second, kSecond));
-    return vertexGaps[(((((static_cast<std::size_t>(layer) * kGapPhi) + bin) * kVertexZ) + v) * kSecond) + s];
+    const auto bin = static_cast<std::uint32_t>(phiBinOf(phi, kGapPhi));
+    const auto v = static_cast<std::uint32_t>(vertexZ.bin(z, kVertexZ));
+    const auto s = static_cast<std::uint32_t>(layerSecond[layer].bin(second, kSecond));
+    return vertexGaps[(((((std::uint32_t{layer} * kGapPhi) + bin) * kVertexZ) + v) * kSecond) + s];
   }
 
   /// Layer \a layer's vertex gap for a vertex at \a z and a point (\a x,
@@ -484,12 +484,12 @@ struct LinkMaterial {
   [[nodiscard]] GPUhdi() GPUAlwaysInline() const MaterialGap& vertexGap(LayerID layer, Scalar x, Scalar y, Scalar z, Scalar second) const { return vertexGaps[vertexIndex(layer, x, y, z, second)]; }
 
   /// The index of that vertex gap (and its profile).
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::size_t vertexIndex(LayerID layer, Scalar x, Scalar y, Scalar z, Scalar second) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t vertexIndex(LayerID layer, Scalar x, Scalar y, Scalar z, Scalar second) const
   {
-    const auto phi = static_cast<std::size_t>(phiBin(x, y, kGapPhi));
-    const auto v = static_cast<std::size_t>(vertexZ.bin(z, kVertexZ));
-    const auto s = static_cast<std::size_t>(layerSecond[layer].bin(second, kSecond));
-    return (((((static_cast<std::size_t>(layer) * kGapPhi) + phi) * kVertexZ) + v) * kSecond) + s;
+    const auto phi = static_cast<std::uint32_t>(phiBin(x, y, kGapPhi));
+    const auto v = static_cast<std::uint32_t>(vertexZ.bin(z, kVertexZ));
+    const auto s = static_cast<std::uint32_t>(layerSecond[layer].bin(second, kSecond));
+    return (((((std::uint32_t{layer} * kGapPhi) + phi) * kVertexZ) + v) * kSecond) + s;
   }
 
   /// The middle of layer \a layer's band: a radius on a barrel layer, |z| on a disc.
@@ -542,7 +542,7 @@ struct LinkMaterial {
       bOn = true;
     } else {
       // the innermost barrel layer holding both, else the nearest disc
-      for (int l = 0; l < kLayers; ++l) {
+      for (std::int32_t l = 0; l < kLayers; ++l) {
         const auto candidate = static_cast<LayerID>(l);
         if (!inside(candidate, ra, a[2]) || !inside(candidate, rb, b[2])) {
           continue;

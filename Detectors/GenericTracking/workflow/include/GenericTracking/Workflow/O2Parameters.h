@@ -33,6 +33,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdint>
 
 namespace o2::gtrk::workflow
 {
@@ -48,15 +49,15 @@ using Jacobian = std::array<std::array<double, kNBoundParams>, kNBoundParams>;
 inline std::array<double, kBoundCovSize> transported(const Jacobian& jac, const BoundTrackState& state)
 {
   std::array<double, kBoundCovSize> result{};
-  for (int i = 0; i < kNBoundParams; ++i) {
-    for (int j = 0; j <= i; ++j) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t j = 0; j <= i; ++j) {
       double sum = 0.;
-      for (int k = 0; k < kNBoundParams; ++k) {
-        for (int l = 0; l < kNBoundParams; ++l) {
-          sum += jac[i][k] * static_cast<double>(state.covAt(k, l)) * jac[j][l];
+      for (std::int32_t k = 0; k < kNBoundParams; ++k) {
+        for (std::int32_t l = 0; l < kNBoundParams; ++l) {
+          sum += jac[static_cast<std::uint32_t>(i)][static_cast<std::uint32_t>(k)] * static_cast<double>(state.covAt(k, l)) * jac[static_cast<std::uint32_t>(j)][static_cast<std::uint32_t>(l)];
         }
       }
-      result[covIndex(i, j)] = sum;
+      result[static_cast<std::uint32_t>(covIndex(i, j))] = sum;
     }
   }
   return result;
@@ -82,13 +83,14 @@ inline Shift shiftOnto(const BoundTrackState& state, const TrackingSurface& plan
   s.t[2] = std::cos(theta);
   const double et = dotOf(e, s.t);
   // d phi / d s of the helix, GenericTracking's (CovarianceTransport.h).
-  const double turn = static_cast<double>(state.qOverP()) * bzKiloGauss * constants::math::B2C;
+  const double turn = static_cast<double>(state.qOverP()) * bzKiloGauss * static_cast<double>(constants::math::B2C);
   surfaceToGlobal(plane, static_cast<double>(state.loc0()), static_cast<double>(state.loc1()), s.r);
-  for (int k = 0; k < 2; ++k) {
+  for (std::int32_t k = 0; k < 2; ++k) {
     const Scalar* axis = k == 0 ? plane.axis0 : plane.axis1;
-    const double path = -dotOf(e, axis) / et;
-    for (int i = 0; i < 3; ++i) {
-      s.dr[k][i] = axis[i] + (s.t[i] * path);
+    const Vec3D axisD{static_cast<double>(axis[0]), static_cast<double>(axis[1]), static_cast<double>(axis[2])};
+    const double path = -dotOf(e, axisD) / et;
+    for (std::int32_t i = 0; i < 3; ++i) {
+      s.dr[k][i] = static_cast<double>(axis[i]) + (s.t[i] * path);
     }
     s.dPhi[k] = turn * path;
   }
@@ -105,7 +107,7 @@ inline Jacobian barrelJacobian(const BoundTrackState& state, const Shift& s, dou
   const double sinTheta = std::sin(theta);
   const double cosLocal = std::cos(static_cast<double>(state.phi()) - alpha);
   Jacobian jac{};
-  for (int k = 0; k < 2; ++k) {
+  for (std::uint32_t k = 0; k < 2; ++k) {
     jac[0][k] = (-sa * s.dr[k][0]) + (ca * s.dr[k][1]);
     jac[1][k] = s.dr[k][2];
     jac[2][k] = cosLocal * s.dPhi[k];
@@ -124,7 +126,7 @@ inline Jacobian forwardJacobian(const BoundTrackState& state, const Shift& s)
   const double theta = state.theta();
   const double sinTheta = std::sin(theta);
   Jacobian jac{};
-  for (int k = 0; k < 2; ++k) {
+  for (std::uint32_t k = 0; k < 2; ++k) {
     jac[0][k] = s.dr[k][0];
     jac[1][k] = s.dr[k][1];
     jac[2][k] = s.dPhi[k];
@@ -168,7 +170,7 @@ inline Jacobian forwardJacobian(const BoundTrackState& state, const Shift& s)
   const double qOverP = state.qOverP();
   const auto cov = detail::transported(detail::barrelJacobian(state, s, alpha), state);
   o2::track::TrackParCov::covMat_t o2Cov{};
-  for (int i = 0; i < kBoundCovSize; ++i) {
+  for (std::uint32_t i = 0; i < kBoundCovSize; ++i) {
     o2Cov[i] = static_cast<float>(cov[i]);
   }
   const o2::track::TrackParCov::params_t par{static_cast<float>((-sa * s.r[0]) + (ca * s.r[1])), static_cast<float>(s.r[2]), static_cast<float>(std::sin(phi - alpha)), static_cast<float>(std::cos(theta) / sinTheta), static_cast<float>(qOverP / sinTheta)};

@@ -28,6 +28,7 @@
 #define GTRK_TRACKING_TRACKINGSURFACE_H_
 
 #include "GenericTracking/Base/Definitions.h"
+#include "GenericTracking/Base/Dual.h"
 #include "GenericTracking/Base/ElementaryMath.h"
 #include "GenericTracking/Base/Geometry.h"
 #include "GenericTracking/Base/LayerSpec.h"
@@ -105,7 +106,7 @@ GPUhdi() GPUAlwaysInline() TrackingSurface tangentPlane(const TrackingSurface& c
   sincosOf(angle, sinAngle, cosAngle);
   TrackingSurface plane = cylinder;
   const Scalar arc = cylinder.radius * angle;
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     const Scalar radial = cosAngle * cylinder.axis0[i] + sinAngle * cylinder.axis1[i];
     const Scalar along = -sinAngle * cylinder.axis0[i] + cosAngle * cylinder.axis1[i];
     plane.origin[i] = cylinder.origin[i] + (cylinder.radius + cylinder.depth) * radial - arc * along;
@@ -126,8 +127,9 @@ GPUhdi() GPUAlwaysInline() void surfaceToGlobal(const TrackingSurface& s, std::t
 {
   // The surface's floats as plain numbers: a Dual multiplies them as
   // scalars; in float or double the same sum as origin + loc0 a0 + loc1 a1.
-  for (int i = 0; i < 3; ++i) {
-    g[i] = ((s.axis0[i] * loc0) + s.origin[i]) + (s.axis1[i] * loc1);
+  using Plain = typename dual::ScalarOf<T>::type;
+  for (std::int32_t i = 0; i < 3; ++i) {
+    g[i] = ((static_cast<Plain>(s.axis0[i]) * loc0) + static_cast<Plain>(s.origin[i])) + (static_cast<Plain>(s.axis1[i]) * loc1);
   }
 }
 
@@ -140,12 +142,13 @@ template <typename T>
 GPUhdi() GPUAlwaysInline() void surfaceToLocal(const TrackingSurface& s, const T g[3], T l[3])
 {
   // As in surfaceToGlobal, the surface's floats enter as plain numbers.
-  const T d0 = g[0] + -s.origin[0];
-  const T d1 = g[1] + -s.origin[1];
-  const T d2 = g[2] + -s.origin[2];
-  l[0] = s.axis0[0] * d0 + s.axis0[1] * d1 + s.axis0[2] * d2;
-  l[1] = s.axis1[0] * d0 + s.axis1[1] * d1 + s.axis1[2] * d2;
-  l[2] = s.normal[0] * d0 + s.normal[1] * d1 + s.normal[2] * d2;
+  using Plain = typename dual::ScalarOf<T>::type;
+  const T d0 = g[0] + static_cast<Plain>(-s.origin[0]);
+  const T d1 = g[1] + static_cast<Plain>(-s.origin[1]);
+  const T d2 = g[2] + static_cast<Plain>(-s.origin[2]);
+  l[0] = static_cast<Plain>(s.axis0[0]) * d0 + static_cast<Plain>(s.axis0[1]) * d1 + static_cast<Plain>(s.axis0[2]) * d2;
+  l[1] = static_cast<Plain>(s.axis1[0]) * d0 + static_cast<Plain>(s.axis1[1]) * d1 + static_cast<Plain>(s.axis1[2]) * d2;
+  l[2] = static_cast<Plain>(s.normal[0]) * d0 + static_cast<Plain>(s.normal[1]) * d1 + static_cast<Plain>(s.normal[2]) * d2;
 }
 
 /// \a n dot \a d, the cosine of incidence on a surface.  Its magnitude is what
@@ -153,7 +156,8 @@ GPUhdi() GPUAlwaysInline() void surfaceToLocal(const TrackingSurface& s, const T
 template <typename T>
 GPUhdi() GPUAlwaysInline() T cosIncidence(const TrackingSurface& s, const T d[3])
 {
-  return s.normal[0] * d[0] + s.normal[1] * d[1] + s.normal[2] * d[2];
+  using Plain = typename dual::ScalarOf<T>::type;
+  return static_cast<Plain>(s.normal[0]) * d[0] + static_cast<Plain>(s.normal[1]) * d[1] + static_cast<Plain>(s.normal[2]) * d[2];
 }
 
 /// Where the straight line through \a point along \a direction crosses plane
@@ -166,7 +170,7 @@ GPUhdi() GPUAlwaysInline() bool lineCrossing(const TrackingSurface& s, const T p
 {
   T normalDirection = T(0);
   T normalOffset = T(0);
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     normalDirection += static_cast<T>(s.normal[i]) * direction[i];
     normalOffset += static_cast<T>(s.normal[i]) * (static_cast<T>(s.origin[i]) - point[i]);
   }
@@ -176,7 +180,7 @@ GPUhdi() GPUAlwaysInline() bool lineCrossing(const TrackingSurface& s, const T p
   step = normalOffset / normalDirection;
   loc[0] = T(0);
   loc[1] = T(0);
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     const T offset = point[i] + (step * direction[i]) - static_cast<T>(s.origin[i]);
     loc[0] += offset * static_cast<T>(s.axis0[i]);
     loc[1] += offset * static_cast<T>(s.axis1[i]);
@@ -191,7 +195,7 @@ GPUhdi() GPUAlwaysInline() bool lineCrossing(const TrackingSurface& s, const T p
 GPUhdi() GPUAlwaysInline() TrackingSurface radialPlane(const Scalar origin[3], Scalar sinPhi, Scalar cosPhi)
 {
   TrackingSurface plane;
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     plane.origin[i] = origin[i];
   }
   plane.axis0[0] = -sinPhi;
@@ -208,7 +212,7 @@ GPUhdi() GPUAlwaysInline() TrackingSurface radialPlane(const Scalar origin[3], S
 GPUhdi() GPUAlwaysInline() TrackingSurface discPlane(const Scalar origin[3], Scalar sinPhi, Scalar cosPhi)
 {
   TrackingSurface plane;
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     plane.origin[i] = origin[i];
   }
   plane.axis0[0] = cosPhi;
@@ -226,7 +230,7 @@ GPUhdi() GPUAlwaysInline() Scalar angleOn(const TrackingSurface& cylinder, const
 {
   Scalar along0 = 0.F;
   Scalar along1 = 0.F;
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     along0 += (g[i] - cylinder.origin[i]) * cylinder.axis0[i];
     along1 += (g[i] - cylinder.origin[i]) * cylinder.axis1[i];
   }
@@ -319,7 +323,7 @@ void TrackingGeometry<Det>::build(const Geometry<Det>& geo)
     const double depth = geo.measurementDepth(src.layer);
     const double shift = spec.curved() ? 0. : depth;
 
-    for (int i = 0; i < 3; ++i) {
+    for (std::int32_t i = 0; i < 3; ++i) {
       dst.origin[i] = static_cast<Scalar>(src.trans[i] + (shift * src.rot[3 * i + 2]));
       // Columns, not rows: rot is row-major local -> global, so column j is
       // the global direction of local axis j.

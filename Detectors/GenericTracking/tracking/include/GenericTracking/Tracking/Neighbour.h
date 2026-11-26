@@ -28,15 +28,14 @@
 namespace o2::gtrk
 {
 
-// As for TrackletT: upstream's `apply` macro also uses the member names as
-// enum constants.
-// NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+// As for MeasurementT: an SoA element proxy holds references.
+// NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
 template <template <class> class C>
 struct NeighbourT {
   MEMLAYOUT_APPLY(NeighbourT, from)
   C<std::uint32_t> from; ///< index of the predecessor triplet `T1`, whose second tracklet is this triplet's first
 };
-// NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+// NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 
 using Neighbour = NeighbourT<memlayout::value>;
 

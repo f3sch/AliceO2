@@ -119,7 +119,7 @@ GPUg() void GTRK_KERNEL_BOUNDS tripletPathsKernel(TripletConstView triplets, con
   const bool isForward = blockIdx.y == 0U;
   const LayerID layer = isForward ? forward : reverse;
   const Index begin = firstRanges[layer];
-  const Index end = firstRanges[static_cast<std::size_t>(layer) + 1U];
+  const Index end = firstRanges[layer + 1U];
   const Index stride = blockDim.x * gridDim.x;
   for (Index local = blockIdx.x * blockDim.x + threadIdx.x; local < end - begin; local += stride) {
     const Index element = begin + local;
@@ -130,9 +130,9 @@ GPUg() void GTRK_KERNEL_BOUNDS tripletPathsKernel(TripletConstView triplets, con
         atomicMax(prefix + triplets.second[edge], length);
       }
     } else {
-      unsigned int length = suffix[first];
+      std::uint32_t length = suffix[first];
       for (Index edge = tripletOffsets[element]; edge < tripletOffsets[element + 1U]; ++edge) {
-        const unsigned int after = suffix[triplets.second[edge]];
+        const std::uint32_t after = suffix[triplets.second[edge]];
         if (after != 0U && length < after + 1U) {
           length = after + 1U;
         }
@@ -217,7 +217,7 @@ template <DetectorLayout Det>
   // Step i of the forward sweep (order[i]) and of the reverse sweep
   // (order[n - 1 - i]) in one launch; each sees its own earlier steps done.
   const auto& order = layerDepthGroups<Det>.order;
-  for (std::size_t step = 0; step < order.size(); ++step) {
+  for (std::uint32_t step = 0; step < order.size(); ++step) {
     const LayerID forward = order[step];
     const LayerID reverse = order[order.size() - 1U - step];
     const auto forwardSize = static_cast<std::uint32_t>(sources.ranges[forward].size());
@@ -252,13 +252,13 @@ template <DetectorLayout Det>
   // launch, once per boundary.
   algorithms::forEach(runtime, stream, std::max(trackletCount, kBoundaries), path_detail::InitializeTriplets<Det>{tracklets, parameters, prefix.data(), bounds.suffix.data(), trackletCount, trackletOffsets, permutation, firstCount, sources.offsets, bounds.layerElements.data()});
   // Grid-stride loops cover skewed layer populations without a count readback.
-  const auto shape = launchFor(std::max(1U, firstCount / static_cast<std::uint32_t>(LayerRowMap<Det>::kLayerCount)));
+  const auto shape = launchFor(std::max(1U, firstCount / LayerRowMap<Det>::kLayerCount));
   // Step i of the forward sweep (order[i]) and of the reverse sweep
   // (order[n - 1 - i]) in one launch, a direction per grid row; a layer
   // without sources has an empty range of the permutation.
-  const auto empty = [&](LayerID layer) { return sources.offsets[layer] == sources.offsets[static_cast<std::size_t>(layer) + 1U]; };
+  const auto empty = [&](LayerID layer) { return sources.offsets[layer] == sources.offsets[layer + 1U]; };
   const auto& order = layerDepthGroups<Det>.order;
-  for (std::size_t step = 0; step < order.size(); ++step) {
+  for (std::uint32_t step = 0; step < order.size(); ++step) {
     const LayerID forward = order[step];
     const LayerID reverse = order[order.size() - 1U - step];
     if (empty(forward) && empty(reverse)) {
@@ -283,7 +283,7 @@ template <DetectorLayout Det>
   }
   const TripletConstView view = triplets.view();
   algorithms::forEach(runtime, stream, elements + 1U, path_detail::CountOnPath{view, triplets.offsets().data(), paths, elements, kept.counts().data()});
-  auto status = algorithms::exclusiveScan(runtime, arena, stream, std::as_const(kept.counts()).data(), kept.offsets().data(), std::size_t{elements} + 1U);
+  auto status = algorithms::exclusiveScan(runtime, arena, stream, std::as_const(kept.counts()).data(), kept.offsets().data(), elements + 1U);
   if (status != StageStatus::kComplete) {
     return status;
   }

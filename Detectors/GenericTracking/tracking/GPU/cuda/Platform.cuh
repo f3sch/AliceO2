@@ -45,7 +45,7 @@
 namespace o2::gtrk::gpu
 {
 
-inline constexpr int kWarpSize = GPUCA_WARP_SIZE;
+inline constexpr std::int32_t kWarpSize = GPUCA_WARP_SIZE;
 static_assert(kWarpSize > 0, "no GPUCA_GPUTYPE_* with a warp size");
 
 /// Every kernel launches blocks of this size (launchFor); on HIP it is also
@@ -53,7 +53,7 @@ static_assert(kWarpSize > 0, "no GPUCA_GPUTYPE_* with a warp size");
 /// 64: a block of the divergent generate kernels and fits leaves its
 /// multiprocessor when its own warps are done, not with the slowest of a larger
 /// block.
-inline constexpr int kBlockSize = 64;
+inline constexpr std::int32_t kBlockSize = 64;
 static_assert(kBlockSize % kWarpSize == 0);
 
 /// The lanes that walk one source together in a flat run's fill

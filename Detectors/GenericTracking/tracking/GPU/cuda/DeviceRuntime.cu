@@ -58,13 +58,13 @@ constexpr std::string_view kBackend = "CUDA";
 /// bytes, the widest of 16, 8, 4 or 1 dividing both addresses, and the
 /// `tail` bytes after the last whole unit.
 struct CopyBatch {
-  static constexpr std::size_t kCopies = 32U;
+  static constexpr std::uint32_t kCopies = 32U;
   struct Copy {
     std::byte* to;
     const std::byte* from;
     std::size_t units;
-    unsigned unitShift;
-    unsigned tail;
+    std::uint32_t unitShift;
+    std::uint32_t tail;
   };
   Copy copies[kCopies];
 };
@@ -112,7 +112,7 @@ GPUg() void GTRK_KERNEL_BOUNDS copyEachKernel(CopyBatch batch)
 class Runtime final : public DeviceRuntime
 {
  public:
-  explicit Runtime(int device)
+  explicit Runtime(std::int32_t device)
   {
     cudaDeviceProp properties{};
     check(cudaGetDeviceProperties(&properties, device), "cudaGetDeviceProperties");
@@ -126,7 +126,7 @@ class Runtime final : public DeviceRuntime
     mProperties.residentThreads = properties.multiProcessorCount * properties.maxThreadsPerMultiProcessor;
     mProperties.multiprocessors = properties.multiProcessorCount;
     // The free memory is the current device's: ask \a device's, then leave the current one as it was.
-    int current = 0;
+    std::int32_t current = 0;
     check(cudaGetDevice(&current), "cudaGetDevice");
     check(cudaSetDevice(device), "cudaSetDevice");
     std::size_t total = 0;
@@ -148,7 +148,7 @@ class Runtime final : public DeviceRuntime
     // Zero-byte copies take no slot: a launch has at least one unit.
     while (!copies.empty()) {
       CopyBatch batch{};
-      std::size_t taken = 0U;
+      std::uint32_t taken = 0U;
       std::size_t largest = 0U;
       for (; !copies.empty() && taken < CopyBatch::kCopies; copies = copies.subspan(1U)) {
         const DeviceCopy& copy = copies.front();
@@ -156,10 +156,10 @@ class Runtime final : public DeviceRuntime
           continue;
         }
         const auto bits = reinterpret_cast<std::uintptr_t>(copy.to) | reinterpret_cast<std::uintptr_t>(copy.from) | (std::uintptr_t{1} << 4U);
-        const int zeros = std::countr_zero(bits);
-        const unsigned shift = zeros >= 2 ? static_cast<unsigned>(zeros) : 0U; // no 2-byte unit
+        const std::int32_t zeros = std::countr_zero(bits);
+        const std::uint32_t shift = zeros >= 2 ? static_cast<std::uint32_t>(zeros) : 0U; // no 2-byte unit
         const std::size_t units = copy.bytes >> shift;
-        const auto tail = static_cast<unsigned>(copy.bytes - (units << shift));
+        const auto tail = static_cast<std::uint32_t>(copy.bytes - (units << shift));
         batch.copies[taken] = {
           .to = static_cast<std::byte*>(copy.to),
           .from = static_cast<const std::byte*>(copy.from),
@@ -177,13 +177,13 @@ class Runtime final : public DeviceRuntime
       if (largest > std::size_t{std::numeric_limits<std::int32_t>::max()} * threads) {
         throw std::length_error("copyEachOnDevice: a copy of more units than a launch counts");
       }
-      const dim3 grid{static_cast<unsigned>((largest + threads - 1U) / threads), static_cast<unsigned>(taken)};
+      const dim3 grid{static_cast<std::uint32_t>((largest + threads - 1U) / threads), taken};
       copyEachKernel<<<grid, threads, 0U, nativeStreamOf(stream)>>>(batch);
       checkLaunch();
     }
   }
 
-  void fill(void* to, std::uint8_t value, std::size_t bytes, DeviceStream& stream) final { check(cudaMemsetAsync(to, static_cast<int>(value), bytes, nativeStreamOf(stream)), "cudaMemsetAsync"); }
+  void fill(void* to, std::uint8_t value, std::size_t bytes, DeviceStream& stream) final { check(cudaMemsetAsync(to, static_cast<std::int32_t>(value), bytes, nativeStreamOf(stream)), "cudaMemsetAsync"); }
 
  protected:
   [[nodiscard]] void* createStreamHandle() final

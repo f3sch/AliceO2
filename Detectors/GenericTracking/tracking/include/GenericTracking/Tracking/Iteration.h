@@ -55,7 +55,6 @@ namespace o2::gtrk
 {
 
 /// What a person configures for one iteration. Host-side.
-// NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): the fields follow the configuration; their order is the designated initialisers'
 struct IterationSettings {
   /// The window physics. The minimum pT is what an iteration sets; nSigma,
   /// the field, the mass and the resolution are the run's.
@@ -66,9 +65,9 @@ struct IterationSettings {
   /// 3 for a pass that stops at triplets, the vertexing pass. It also names
   /// the links the iteration takes: only those on a path of this many layers
   /// (`takenLinks`).
-  int minClusters = 4;
+  std::int32_t minClusters = 4;
   /// The kinks a fit pass may take; 0 for none.
-  int maxKinks = 1;
+  std::int32_t maxKinks = 1;
   /// The triplet and neighbour cuts' kink allowance: the factor on theta0 at pT_min a triplet's middle
   /// point may have scattered by, beyond the nominal cuts, to be kept as a
   /// kinked triplet; 1 for none.
@@ -105,7 +104,7 @@ struct IterationSettings {
   /// count; 0 for none. O2's ITS `TrackingParameters::MinPt`, by track
   /// length. The final track's: where the iteration
   /// follows, after the follow, on the track's count then; else on the road.
-  static constexpr std::size_t kClusterSlots = 18U;
+  static constexpr std::uint32_t kClusterSlots = 18U;
   std::array<double, kClusterSlots> minPtGeVByClusters{};
   /// How many of a track's innermost clusters this iteration's selection and
   /// follow let it share; 0, strict: the
@@ -119,10 +118,10 @@ struct IterationSettings {
   bool follow = true;
   /// The holes a followed track may cross in each direction; past them the
   /// direction ends.
-  int followHoles = 0;
+  std::int32_t followHoles = 0;
   /// The innermost clusters a road the road fit refuses may be fitted again
   /// without, one more each time, down to `minClusters`; 0 for none.
-  int innerTrim = 0;
+  std::int32_t innerTrim = 0;
   /// The end decisions on the last row's own update (`FollowStage`), each 0, the
   /// default, off: inward, the sqrt|V| [cm^2] above which a nominal last row
   /// at the layout's end -- no inward link -- is refused; outward, the
@@ -132,7 +131,7 @@ struct IterationSettings {
   /// The clusters a track of this iteration must hold after its follow; 0
   /// for none. A shorter one is
   /// dropped and its rows given back.
-  int minClustersAfterFollow = 0;
+  std::int32_t minClustersAfterFollow = 0;
   /// Whether each road is updated with the beam line on its innermost surface
   /// and refused above the update's gate;
   /// the constrained state starts the follow inward, and the refits leave
@@ -207,11 +206,10 @@ template <DetectorLayout Det>
 
 /// Everything one iteration's kernels read.
 template <DetectorLayout Det>
-// NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): the fields follow the configuration; their order is the designated initialisers'
 struct IterationParameters {
-  static constexpr std::size_t kLinkCount = nLinks<Det>;
-  static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
-  static_assert(kLinkCount <= std::size_t{std::numeric_limits<std::uint16_t>::max()} + 1U);
+  static constexpr std::uint32_t kLinkCount = nLinks<Det>;
+  static constexpr auto kLayerCount = static_cast<std::uint32_t>(Detector<Det>::nLayers);
+  static_assert(kLinkCount <= std::uint32_t{std::numeric_limits<std::uint16_t>::max()} + 1U);
 
   PairCut pairCut;
   VertexSource vertexSource = VertexSource::kBeamLine;
@@ -363,7 +361,7 @@ template <DetectorLayout Det>
 /// iteration parameters uploaded once per run.
 template <DetectorLayout Det>
 struct VertexWindowParameters {
-  static constexpr std::size_t kLinkCount = nLinks<Det>;
+  static constexpr std::uint32_t kLinkCount = nLinks<Det>;
   VertexPairWindow windows[kLinkCount]{};
 };
 
@@ -385,7 +383,7 @@ template <DetectorLayout Det>
   const VertexConstraint envelope{.z = centre, .sigmaZ = settings.nSigma > 0. ? reach / settings.nSigma : 0., .sigmaTransverse = maxSigmaTransverse};
 
   VertexWindowParameters<Det> result;
-  for (std::size_t link = 0; link < VertexWindowParameters<Det>::kLinkCount; ++link) {
+  for (std::uint32_t link = 0; link < VertexWindowParameters<Det>::kLinkCount; ++link) {
     const auto& pair = Det::layerLinks[link];
     const double kink = sourceKinkBound<Det>(*parameters.material, settings, pair.from, envelope);
     const double between = betweenKinkBound<Det>(*parameters.material, settings, pair.from, pair.to, envelope, AzimuthBound::kMean);
@@ -422,15 +420,15 @@ template <DetectorLayout Det>
   const auto mask = layersOf<Det>(settings.layerMask);
   const auto inMask = [&](LayerID layer) { return ((mask >> layer) & 1U) != 0U; };
   std::array<bool, nLinks<Det>> allowed{};
-  for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+  for (std::uint32_t link = 0; link < nLinks<Det>; ++link) {
     const auto& pair = Det::layerLinks[link];
     allowed[link] = inMask(pair.from) && inMask(pair.to);
   }
   // The most layers a path of allowed links visits ending at each layer, and
   // leaving it, the layer itself counted in both.
-  constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
-  std::array<int, kLayers> ending{};
-  std::array<int, kLayers> leaving{};
+  constexpr auto kLayers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
+  std::array<std::int32_t, kLayers> ending{};
+  std::array<std::int32_t, kLayers> leaving{};
   ending.fill(1);
   leaving.fill(1);
   for (const auto layer : layerOrder<Det>) {
@@ -452,7 +450,7 @@ template <DetectorLayout Det>
     }
   }
   std::array<bool, nLinks<Det>> taken{};
-  for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+  for (std::uint32_t link = 0; link < nLinks<Det>; ++link) {
     const auto& pair = Det::layerLinks[link];
     taken[link] = allowed[link] && ending[pair.from] + leaving[pair.to] >= settings.minClusters;
   }
@@ -488,7 +486,7 @@ template <DetectorLayout Det>
   // not take: no tracklet is made on them, and no triplet crosses them.
   const auto keep = [&](const std::array<bool, nLinks<Det>>& taken, const LinksByLayer<Det>& all, std::uint32_t* offsets, std::uint16_t* indices) {
     std::uint32_t kept = 0U;
-    for (std::size_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
+    for (std::uint32_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
       offsets[layer] = kept;
       for (auto i = all.begin(static_cast<LayerID>(layer)); i < all.end(static_cast<LayerID>(layer)); ++i) {
         if (taken[all.links[i]]) {
@@ -511,7 +509,7 @@ template <DetectorLayout Det>
   parameters.roadSize = settings.roadSize;
   parameters.followHoles = static_cast<std::uint32_t>(std::max(settings.followHoles, 0));
   parameters.discWindowMinP = static_cast<Scalar>(settings.minPGeV);
-  for (std::size_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
+  for (std::uint32_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
     parameters.layerResolutions[layer] = layerResolution<Det>(static_cast<LayerID>(layer));
   }
   if (settings.follow) {
@@ -523,12 +521,12 @@ template <DetectorLayout Det>
     keep(every, inLinks<Det>, parameters.allInLinkOffsets, parameters.allInLinkIndices);
   }
   parameters.minClustersAfterFollow = static_cast<std::uint32_t>(std::max(settings.minClustersAfterFollow, 0));
-  for (std::size_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
+  for (std::uint32_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
     const auto id = static_cast<LayerID>(layer);
     parameters.layerSpans[layer] = layerSpan<Det>(id);
   }
   parameters.barrelLayers = barrelLayerBits<Det>();
-  for (std::size_t link = 0; link < IterationParameters<Det>::kLinkCount; ++link) {
+  for (std::uint32_t link = 0; link < IterationParameters<Det>::kLinkCount; ++link) {
     const auto& pair = Det::layerLinks[link];
     parameters.linkSources[link] = pair.from;
     parameters.linkTargets[link] = pair.to;
@@ -563,11 +561,11 @@ template <DetectorLayout Det>
   parameters.beamY = static_cast<Scalar>(beamSpot.y);
   parameters.beamVarTransverse = static_cast<Scalar>(beamSpot.sigmaTransverse * beamSpot.sigmaTransverse);
   parameters.beamChi2Max = static_cast<Scalar>(chiSquareQuantile(1, settings.windows.nSigma));
-  for (int ndf = 1; ndf <= (2 * static_cast<int>(maxChainLayers<Det>)) - kNBoundParams + 1; ++ndf) {
+  for (std::int32_t ndf = 1; ndf <= (2 * static_cast<std::int32_t>(maxChainLayers<Det>)) - kNBoundParams + 1; ++ndf) {
     parameters.roadChi2MaxByNdf[ndf] = static_cast<Scalar>(chiSquareQuantile(ndf, settings.windows.nSigma));
   }
   parameters.maxKinks = static_cast<std::uint8_t>(std::max(settings.maxKinks, 0));
-  parameters.innerTrim = static_cast<std::uint8_t>(std::clamp(settings.innerTrim, 0, static_cast<int>(maxChainLayers<Det>)));
+  parameters.innerTrim = static_cast<std::uint8_t>(std::clamp(settings.innerTrim, 0, static_cast<std::int32_t>(maxChainLayers<Det>)));
   parameters.kinkChi2Min = static_cast<Scalar>(chiSquareQuantile(2, settings.windows.nSigma));
   {
     const double sigma = std::max(settings.kinkSigma, 1.);
@@ -584,7 +582,7 @@ template <DetectorLayout Det>
   // measures no pT to cut (`fittedParameters`).
   static_assert(maxChainLayers<Det> + 1U <= IterationSettings::kClusterSlots);
   const bool measuredPt = !exactlyEqual(settings.windows.bzKiloGauss, 0.);
-  for (std::size_t count = 0; count <= maxChainLayers<Det>; ++count) {
+  for (std::uint32_t count = 0; count <= maxChainLayers<Det>; ++count) {
     parameters.minPtByClusters[count] = measuredPt ? static_cast<Scalar>(settings.minPtGeVByClusters[count]) : 0.F;
   }
   parameters.sharedInnermost = settings.sharedInnermost;

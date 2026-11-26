@@ -28,6 +28,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <format>
 #include <limits>
 #include <numeric>
@@ -43,7 +45,7 @@ using Overlap = Estimator::ROFOverlapTableN;
 using Mask = Estimator::ROFMaskTableN;
 using Timing = o2::itsmft::tracking::ROFTimingLayer;
 using Alpide = o2::itsmft::DPLAlpideParam<o2::detectors::DetID::ITS>;
-constexpr int kLayers = Estimator::NLayers;
+constexpr std::int32_t kLayers = Estimator::NLayers;
 
 /// O2's frame tables of \a counts frames per layer: the layer's length, its
 /// delay and bias from AlpideParam, its margin.
@@ -55,8 +57,9 @@ Overlap overlapTable(std::span<const std::uint32_t> counts, std::span<const Fram
   const auto& alpide = Alpide::Instance();
   const auto& margins = recoParam<detectors::ITS>().frameMarginBC;
   Overlap overlap;
-  for (int layer = 0; layer < kLayers; ++layer) {
-    overlap.defineLayer(layer, {static_cast<Timing::BCType>(counts[layer]), static_cast<Timing::BCType>(timing[layer].lengthBC), static_cast<Timing::BCType>(alpide.getROFDelayInBC(layer)), static_cast<Timing::BCType>(alpide.getROFBiasInBC(layer)), static_cast<Timing::BCType>(margins.empty() ? 0 : margins[layer])});
+  for (std::int32_t layer = 0; layer < kLayers; ++layer) {
+    const auto index = static_cast<std::uint32_t>(layer);
+    overlap.defineLayer(layer, {static_cast<Timing::BCType>(counts[index]), static_cast<Timing::BCType>(timing[index].lengthBC), static_cast<Timing::BCType>(alpide.getROFDelayInBC(layer)), static_cast<Timing::BCType>(alpide.getROFBiasInBC(layer)), static_cast<Timing::BCType>(margins.empty() ? 0 : margins[index])});
   }
   overlap.init();
   return overlap;
@@ -84,13 +87,13 @@ ITSTriggers itsTriggers(const o2::framework::ConfigContext& context)
   throw std::invalid_argument(std::format("--{} is {}: phys, trd or none", kOption, name));
 }
 
-bool FrameMask::enabled(int layer, std::uint32_t frame) const
+bool FrameMask::enabled(std::int32_t layer, std::uint32_t frame) const
 {
-  const auto at = static_cast<std::size_t>(layer);
+  const auto at = static_cast<std::uint32_t>(layer);
   if (at >= counts.size() || frame >= counts[at]) {
     throw std::out_of_range(std::format("ITS frame selection: frame {} of layer {} is not in the mask", frame, layer));
   }
-  return mask[std::accumulate(counts.begin(), counts.begin() + layer, std::size_t{0}) + frame] != 0U;
+  return mask[std::accumulate(counts.begin(), counts.begin() + layer, std::uint32_t{0}) + frame] != 0U;
 }
 
 bool FrameMask::allEnabled() const
@@ -136,18 +139,18 @@ FrameMask selectFrames(o2::framework::ProcessingContext& pc, const ITSMFTInput& 
   std::array<gsl::span<const o2::itsmft::ROFRecord>, kLayers> rofs{};
   FrameMask result;
   result.counts.resize(kLayers);
-  for (std::size_t stream = 0; stream < streams.size(); ++stream) {
+  for (std::uint32_t stream = 0; stream < streams.size(); ++stream) {
     clusters[stream] = {streams[stream].compact.data(), streams[stream].compact.size()};
     rofs[stream] = {streams[stream].rofs.data(), streams[stream].rofs.size()};
   }
   // Every layer's frames as its records lay them out: O2 writes one record
   // per frame of the timeframe.
-  for (int layer = 0; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
     result.counts[layer] = static_cast<std::uint32_t>(rofs[staggered ? layer : 0].size());
   }
   const auto& mult = o2::its::FastMultEstConfig::Instance();
   if (!mult.isRequested() && triggers == ITSTriggers::kNone) {
-    result.mask.assign(std::accumulate(result.counts.begin(), result.counts.end(), std::size_t{0}), 1U);
+    result.mask.assign(std::accumulate(result.counts.begin(), result.counts.end(), std::uint32_t{0}), 1U);
     return result;
   }
   auto overlap = overlapTable(result.counts, timing);
@@ -171,11 +174,11 @@ FrameMask selectFrames(o2::framework::ProcessingContext& pc, const ITSMFTInput& 
   }
   // The estimator indexes the selection layer's frames with a trigger's
   // frame: the triggers outside this input's frames are not handed to it.
-  const int layer = mult.isMultCutRequested() ? std::clamp(mult.cutMultClusLayer, 0, kLayers - 1) : overlap.getView().getClock();
-  const auto count = rofs[staggered ? layer : 0].size();
+  const std::int32_t layer = mult.isMultCutRequested() ? std::clamp(mult.cutMultClusLayer, 0, kLayers - 1) : overlap.getView().getClock();
+  const auto count = static_cast<std::uint32_t>(rofs[staggered ? static_cast<std::uint32_t>(layer) : 0U].size());
   std::erase_if(fired, [&](const auto& trigger) {
     const auto bc = trigger.ir.differenceInBC(firstIR);
-    return bc < 0 || bc > std::numeric_limits<Timing::BCType>::max() || static_cast<std::size_t>(overlap.getLayer(layer).getROF(static_cast<Timing::BCType>(bc))) >= count;
+    return bc < 0 || bc > std::numeric_limits<Timing::BCType>::max() || overlap.getLayer(layer).getROF(static_cast<Timing::BCType>(bc)) >= count;
   });
   const auto selected = Estimator{}.selectROFs(rofs, clusters, fired, firstOrbit, staggered, overlap.getView(), mask);
   LOGP(info, "ITS frame selection: {} of {} frames on selection layer {}", selected, count, layer);
@@ -197,7 +200,7 @@ FrameMask receiveFrameMask(o2::framework::ProcessingContext& pc)
   const auto counts = pc.inputs().get<gsl::span<std::uint32_t>>(binding("frameMaskCounts").c_str());
   const auto mask = pc.inputs().get<gsl::span<std::uint8_t>>(binding("frameMask").c_str());
   FrameMask result{.counts = {counts.begin(), counts.end()}, .mask = {mask.begin(), mask.end()}};
-  if (result.counts.size() != static_cast<std::size_t>(kLayers) || result.mask.size() != std::accumulate(result.counts.begin(), result.counts.end(), std::size_t{0})) {
+  if (result.counts.size() != static_cast<std::size_t>(kLayers) || result.mask.size() != std::accumulate(result.counts.begin(), result.counts.end(), std::uint32_t{0})) {
     throw std::runtime_error("ITS frame selection: the mask does not hold its frame counts");
   }
   return result;
@@ -207,7 +210,7 @@ struct ITSFrameSelection::State {
   Overlap overlap;
   Mask mask;
   std::vector<FrameTiming> timing;
-  std::vector<int> margins;
+  std::vector<std::int32_t> margins;
 };
 
 ITSFrameSelection::ITSFrameSelection(const FrameMask& mask, std::span<const FrameTiming> timing)
@@ -218,11 +221,11 @@ ITSFrameSelection::ITSFrameSelection(const FrameMask& mask, std::span<const Fram
   state.mask = Mask{state.overlap};
   state.timing.assign(timing.begin(), timing.end());
   const auto& margins = recoParam<detectors::ITS>().frameMarginBC;
-  state.margins = margins.empty() ? std::vector<int>(kLayers, 0) : margins;
-  std::size_t at = 0;
-  for (int layer = 0; layer < kLayers; ++layer) {
-    for (std::uint32_t frame = 0; frame < mask.counts[layer]; ++frame, ++at) {
-      state.mask.setROFEnabled(layer, static_cast<int>(frame), mask.mask[at]);
+  state.margins = margins.empty() ? std::vector<std::int32_t>(kLayers, 0) : margins;
+  std::uint32_t at = 0;
+  for (std::int32_t layer = 0; layer < kLayers; ++layer) {
+    for (std::uint32_t frame = 0; frame < mask.counts[static_cast<std::uint32_t>(layer)]; ++frame, ++at) {
+      state.mask.setROFEnabled(layer, static_cast<std::int32_t>(frame), mask.mask[at]);
     }
   }
 }
@@ -239,7 +242,7 @@ bool ITSFrameSelection::cut(std::span<const VertexSeed> seeds, std::span<const s
   }
   std::vector<o2::its::Vertex> vertices;
   vertices.reserve(seeds.size());
-  for (std::size_t v = 0; v < seeds.size(); ++v) {
+  for (std::uint32_t v = 0; v < seeds.size(); ++v) {
     auto& vertex = vertices.emplace_back();
     vertex.setNContributors(static_cast<ushort>(std::min<std::uint32_t>(contributors[v], std::numeric_limits<ushort>::max())));
     const auto start = bcOfPS(seeds[v].timePS);
@@ -256,23 +259,23 @@ std::vector<std::uint8_t> ITSFrameSelection::clockMask() const
   std::vector<std::uint8_t> result(mState->overlap.getLayer(clock).mNROFsTF);
   const auto mask = mState->mask.getView();
   for (std::size_t r = 0; r < result.size(); ++r) {
-    result[r] = mask.isROFEnabled(clock, static_cast<int>(r)) ? 1U : 0U;
+    result[r] = mask.isROFEnabled(clock, static_cast<std::int32_t>(r)) ? 1U : 0U;
   }
   return result;
 }
 
-bool ITSFrameSelection::enabled(int layer, std::uint32_t timePS, std::uint32_t widthPS) const
+bool ITSFrameSelection::enabled(std::int32_t layer, std::uint32_t timePS, std::uint32_t widthPS) const
 {
   // The producer's box (`measurementTimeBox`): the frame [start, start +
   // length) widened by the layer's margin, clamped at the timeframe's start
   // below, so the frame is read from the upper edge; both edges exact in BC.
-  const auto& timing = mState->timing[static_cast<std::size_t>(layer)];
+  const auto& timing = mState->timing[static_cast<std::uint32_t>(layer)];
   const auto upperBC = bcOfPS(timePS) + bcOfPS(widthPS);
-  const auto fromFirst = upperBC - mState->margins[static_cast<std::size_t>(layer)] - timing.lengthBC - timing.firstStartBC;
+  const auto fromFirst = upperBC - mState->margins[static_cast<std::uint32_t>(layer)] - timing.lengthBC - timing.firstStartBC;
   if (fromFirst < 0 || fromFirst % timing.lengthBC != 0) {
     throw std::runtime_error(std::format("ITS vertex selection: a measurement's box on layer {} is not one of the layer's frames", layer));
   }
-  return mState->mask.getView().isROFEnabled(layer, static_cast<int>(fromFirst / timing.lengthBC));
+  return mState->mask.getView().isROFEnabled(layer, static_cast<std::int32_t>(fromFirst / timing.lengthBC));
 }
 
 SelectedMeasurements ITSFrameSelection::select(MeasurementView source, std::span<const std::uint32_t> offsets, std::span<const std::uint8_t> keep)
@@ -284,9 +287,9 @@ SelectedMeasurements ITSFrameSelection::select(MeasurementView source, std::span
     }
   }
   SelectedMeasurements selected;
-  resizeMeasurementColumns(selected.columns, rows.size());
+  resizeMeasurementColumns(selected.columns, static_cast<std::uint32_t>(rows.size()));
   selected.originalRows = rows;
-  for (std::size_t i = 0; i < rows.size(); ++i) {
+  for (std::uint32_t i = 0; i < rows.size(); ++i) {
     Measurement measurement;
     measurement.apply(source[rows[i]], [](auto& to, const auto& from) -> auto& { to = from; return to; });
     writeMeasurement(selected.columns, i, measurement);

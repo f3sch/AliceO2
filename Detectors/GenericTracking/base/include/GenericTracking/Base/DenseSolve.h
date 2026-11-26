@@ -33,6 +33,7 @@
 #include "GPUCommonDef.h"
 #include "GPUCommonMath.h"
 
+#include <cstdint>
 #include <type_traits>
 
 namespace o2::gtrk
@@ -54,15 +55,15 @@ namespace o2::gtrk
 /// Symmetric in its arguments, so a caller never has to know which of the two
 /// indices is the larger one -- which is exactly the mistake that makes a
 /// packed covariance silently wrong rather than loudly broken.
-GPUhdi() GPUAlwaysInline() constexpr int covIndex(int row, int col)
+GPUhdi() GPUAlwaysInline() constexpr std::int32_t covIndex(std::int32_t row, std::int32_t col)
 {
-  const int hi = row > col ? row : col;
-  const int lo = row > col ? col : row;
+  const std::int32_t hi = row > col ? row : col;
+  const std::int32_t lo = row > col ? col : row;
   return (hi * (hi + 1)) / 2 + lo;
 }
 
 /// The entries a packed symmetric n x n matrix holds, n (n + 1) / 2.
-GPUhdi() GPUAlwaysInline() constexpr int covSize(int n) { return (n * (n + 1)) / 2; }
+GPUhdi() GPUAlwaysInline() constexpr std::int32_t covSize(std::int32_t n) { return (n * (n + 1)) / 2; }
 
 } // namespace o2::gtrk
 
@@ -73,8 +74,8 @@ namespace o2::gtrk::dense
 template <typename T>
 struct MatrixView {
   T* data = nullptr;
-  int stride = 0;
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() T& operator()(int row, int column) const { return data[(row * stride) + column]; }
+  std::int32_t stride = 0;
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() T& operator()(std::int32_t row, std::int32_t column) const { return data[(row * stride) + column]; }
 };
 
 /// A symmetric matrix by its lower triangle, packed (`covIndex`):
@@ -82,7 +83,7 @@ struct MatrixView {
 template <typename T>
 struct PackedView {
   T* data = nullptr;
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() T& operator()(int row, int column) const { return data[covIndex(row, column)]; }
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() T& operator()(std::int32_t row, std::int32_t column) const { return data[covIndex(row, column)]; }
 };
 
 /// A view's element type.
@@ -96,11 +97,11 @@ template <typename View, typename Size>
 [[nodiscard]] GPUhdi() GPUAlwaysInline() bool choleskyFactor(View a, Size size)
 {
   using T = ElementOf<View>;
-  const int n = static_cast<int>(size);
-  for (int row = 0; row < n; ++row) {
-    for (int column = 0; column <= row; ++column) {
+  const auto n = static_cast<std::int32_t>(size);
+  for (std::int32_t row = 0; row < n; ++row) {
+    for (std::int32_t column = 0; column <= row; ++column) {
       T value = a(row, column);
-      for (int k = 0; k < column; ++k) {
+      for (std::int32_t k = 0; k < column; ++k) {
         value -= a(row, k) * a(column, k);
       }
       if (row == column) {
@@ -121,10 +122,10 @@ template <typename View, typename Size>
 template <typename View, typename Size, typename T>
 GPUhdi() GPUAlwaysInline() void forwardSolve(View l, Size size, T* x)
 {
-  const int n = static_cast<int>(size);
-  for (int row = 0; row < n; ++row) {
+  const auto n = static_cast<std::int32_t>(size);
+  for (std::int32_t row = 0; row < n; ++row) {
     T value = x[row];
-    for (int column = 0; column < row; ++column) {
+    for (std::int32_t column = 0; column < row; ++column) {
       value -= l(row, column) * x[column];
     }
     x[row] = value / l(row, row);
@@ -135,10 +136,10 @@ GPUhdi() GPUAlwaysInline() void forwardSolve(View l, Size size, T* x)
 template <typename View, typename Size, typename T>
 GPUhdi() GPUAlwaysInline() void backwardSolve(View l, Size size, T* x)
 {
-  const int n = static_cast<int>(size);
-  for (int row = n - 1; row >= 0; --row) {
+  const auto n = static_cast<std::int32_t>(size);
+  for (std::int32_t row = n - 1; row >= 0; --row) {
     T value = x[row];
-    for (int k = row + 1; k < n; ++k) {
+    for (std::int32_t k = row + 1; k < n; ++k) {
       value -= l(k, row) * x[k];
     }
     x[row] = value / l(row, row);
@@ -158,9 +159,9 @@ template <typename View, typename Size>
 [[nodiscard]] GPUhdi() GPUAlwaysInline() ElementOf<View> choleskyLogDeterminant(View l, Size size)
 {
   using T = ElementOf<View>;
-  const int n = static_cast<int>(size);
+  const auto n = static_cast<std::int32_t>(size);
   T sum = T(0);
-  for (int i = 0; i < n; ++i) {
+  for (std::int32_t i = 0; i < n; ++i) {
     sum += logOf(l(i, i));
   }
   return T(2) * sum;
@@ -176,29 +177,29 @@ template <typename View, typename Size, typename OutView>
 GPUhdi() GPUAlwaysInline() void choleskyInverse(View l, Size size, OutView inverse)
 {
   using T = ElementOf<OutView>;
-  const int n = static_cast<int>(size);
-  for (int column = 0; column < n; ++column) {
+  const auto n = static_cast<std::int32_t>(size);
+  for (std::int32_t column = 0; column < n; ++column) {
     inverse(column, column) = T(1) / l(column, column);
-    for (int row = column + 1; row < n; ++row) {
+    for (std::int32_t row = column + 1; row < n; ++row) {
       T value = T(0);
-      for (int k = column; k < row; ++k) {
+      for (std::int32_t k = column; k < row; ++k) {
         value -= l(row, k) * inverse(k, column);
       }
       inverse(row, column) = value / l(row, row);
     }
   }
-  for (int column = 0; column < n; ++column) {
-    for (int row = column; row < n; ++row) {
+  for (std::int32_t column = 0; column < n; ++column) {
+    for (std::int32_t row = column; row < n; ++row) {
       T value = T(0);
-      for (int k = row; k < n; ++k) {
+      for (std::int32_t k = row; k < n; ++k) {
         value += inverse(k, row) * inverse(k, column);
       }
       inverse(row, column) = value;
     }
   }
   if constexpr (std::is_same_v<OutView, MatrixView<T>>) {
-    for (int row = 0; row < n; ++row) {
-      for (int column = row + 1; column < n; ++column) {
+    for (std::int32_t row = 0; row < n; ++row) {
+      for (std::int32_t column = row + 1; column < n; ++column) {
         inverse(row, column) = inverse(column, row); // NOLINT(readability-suspicious-call-argument): the transpose
       }
     }
@@ -211,16 +212,16 @@ namespace detail
 /// held by \a a's lower triangle, the columns before k included (the rows
 /// of L found so far): the lower triangle of P a P^T.
 template <typename View>
-GPUhdi() GPUAlwaysInline() void exchange(View a, int n, int k, int p)
+GPUhdi() GPUAlwaysInline() void exchange(View a, std::int32_t n, std::int32_t k, std::int32_t p)
 {
-  for (int j = 0; j < k; ++j) {
+  for (std::int32_t j = 0; j < k; ++j) {
     o2::gpu::CAMath::Swap(a(k, j), a(p, j));
   }
   o2::gpu::CAMath::Swap(a(k, k), a(p, p));
-  for (int i = k + 1; i < p; ++i) {
+  for (std::int32_t i = k + 1; i < p; ++i) {
     o2::gpu::CAMath::Swap(a(i, k), a(p, i));
   }
-  for (int i = p + 1; i < n; ++i) {
+  for (std::int32_t i = p + 1; i < n; ++i) {
     o2::gpu::CAMath::Swap(a(i, k), a(i, p));
   }
 }
@@ -261,21 +262,21 @@ struct ScaledBlock {
 /// k, \a blocks[k] the size of the block starting at k (0 for a 2 x 2
 /// block's second row). False if a pivot block is exactly singular.
 template <typename View, typename Size>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() bool ldltFactor(View a, Size size, int* swaps, int* blocks)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() bool ldltFactor(View a, Size size, std::int32_t* swaps, std::int32_t* blocks)
 {
   using T = ElementOf<View>;
-  const int n = static_cast<int>(size);
+  const auto n = static_cast<std::int32_t>(size);
   const T alpha = (T(1) + sqrtOf(T(17))) / T(8);
-  for (int k = 0; k < n; ++k) {
+  for (std::int32_t k = 0; k < n; ++k) {
     swaps[k] = k;
     blocks[k] = 1;
   }
-  int k = 0;
+  std::int32_t k = 0;
   while (k < n) {
     const T diagonal = o2::gpu::GPUCommonMath::Abs(a(k, k));
-    int largestRow = k;
+    std::int32_t largestRow = k;
     T columnLargest = T(0);
-    for (int i = k + 1; i < n; ++i) {
+    for (std::int32_t i = k + 1; i < n; ++i) {
       const T magnitude = o2::gpu::GPUCommonMath::Abs(a(i, k));
       if (magnitude > columnLargest) {
         columnLargest = magnitude;
@@ -284,15 +285,15 @@ template <typename View, typename Size>
     }
     // A non-finite entry would defeat every comparison below (and select a
     // 2 x 2 block past the last row): refused like a singular block.
-    if (!isFiniteOf(diagonal) || !isFiniteOf(columnLargest) || !(diagonal != T(0) || columnLargest != T(0))) {
+    if (!isFiniteOf(diagonal) || !isFiniteOf(columnLargest) || (exactlyEqual(diagonal, T(0)) && exactlyEqual(columnLargest, T(0)))) {
       return false;
     }
-    int step = 1;
-    int pivot = k;
+    std::int32_t step = 1;
+    std::int32_t pivot = k;
     if (!(diagonal >= alpha * columnLargest)) {
       // columnLargest > 0 here, so largestRow > k: a 2 x 2 block has its row.
       T rowLargest = T(0);
-      for (int j = k; j < n; ++j) {
+      for (std::int32_t j = k; j < n; ++j) {
         if (j != largestRow) {
           rowLargest = o2::gpu::GPUCommonMath::Max(rowLargest, o2::gpu::GPUCommonMath::Abs(j < largestRow ? a(largestRow, j) : a(j, largestRow)));
         }
@@ -308,7 +309,7 @@ template <typename View, typename Size>
         step = 2;
       }
     }
-    const int swapped = k + step - 1;
+    const std::int32_t swapped = k + step - 1;
     if (pivot != swapped) {
       detail::exchange(a, n, swapped, pivot);
     }
@@ -317,33 +318,33 @@ template <typename View, typename Size>
     // first entries: a lower triangle's row is contiguous.
     if (step == 1) {
       const T d = a(k, k);
-      for (int i = k + 1; i < n; ++i) {
+      for (std::int32_t i = k + 1; i < n; ++i) {
         T* row = &a(i, 0);
         const T factor = row[k] / d;
-        for (int j = k + 1; j <= i; ++j) {
+        for (std::int32_t j = k + 1; j <= i; ++j) {
           row[j] -= factor * (&a(j, 0))[k];
         }
       }
-      for (int i = k + 1; i < n; ++i) {
+      for (std::int32_t i = k + 1; i < n; ++i) {
         a(i, k) /= d;
       }
     } else {
       const detail::ScaledBlock<T> block(a(k, k), a(k + 1, k), a(k + 1, k + 1));
-      if (!(block.reduced != T(0)) || !isFiniteOf(block.scale)) {
+      if (exactlyEqual(block.reduced, T(0)) || !isFiniteOf(block.scale)) {
         return false;
       }
-      for (int i = k + 2; i < n; ++i) {
+      for (std::int32_t i = k + 2; i < n; ++i) {
         // (l_i1, l_i2) = (a_ik, a_ik+1) D^-1
         T first = a(i, k);
         T second = a(i, k + 1);
         block.solve(first, second);
         T* row = &a(i, 0);
-        for (int j = k + 2; j <= i; ++j) {
+        for (std::int32_t j = k + 2; j <= i; ++j) {
           const T* other = &a(j, 0);
           row[j] -= (first * other[k]) + (second * other[k + 1]);
         }
       }
-      for (int i = k + 2; i < n; ++i) {
+      for (std::int32_t i = k + 2; i < n; ++i) {
         T first = a(i, k);
         T second = a(i, k + 1);
         block.solve(first, second);
@@ -360,23 +361,23 @@ template <typename View, typename Size>
 
 /// x <- a^-1 x, a factored by `ldltFactor` into \a ldl, \a swaps, \a blocks.
 template <typename View, typename Size, typename T>
-GPUhdi() GPUAlwaysInline() void ldltSolve(View ldl, Size size, const int* swaps, const int* blocks, T* x)
+GPUhdi() GPUAlwaysInline() void ldltSolve(View ldl, Size size, const std::int32_t* swaps, const std::int32_t* blocks, T* x)
 {
-  const int n = static_cast<int>(size);
-  for (int k = 0; k < n; ++k) {
+  const auto n = static_cast<std::int32_t>(size);
+  for (std::int32_t k = 0; k < n; ++k) {
     if (swaps[k] != k) {
       o2::gpu::CAMath::Swap(x[k], x[swaps[k]]);
     }
   }
   // L y = P x
-  for (int k = 0; k < n; ++k) {
-    const int first = blocks[k] == 0 ? k + 1 : k + blocks[k];
-    for (int i = first; i < n; ++i) {
+  for (std::int32_t k = 0; k < n; ++k) {
+    const std::int32_t first = blocks[k] == 0 ? k + 1 : k + blocks[k];
+    for (std::int32_t i = first; i < n; ++i) {
       x[i] -= (&ldl(i, 0))[k] * x[k];
     }
   }
   // D z = y
-  for (int k = 0; k < n;) {
+  for (std::int32_t k = 0; k < n;) {
     if (blocks[k] == 1) {
       x[k] /= ldl(k, k);
       k += 1;
@@ -391,15 +392,15 @@ GPUhdi() GPUAlwaysInline() void ldltSolve(View ldl, Size size, const int* swaps,
     }
   }
   // L^T w = z
-  for (int k = n - 1; k >= 0; --k) {
-    const int first = blocks[k] == 0 ? k + 1 : k + blocks[k];
+  for (std::int32_t k = n - 1; k >= 0; --k) {
+    const std::int32_t first = blocks[k] == 0 ? k + 1 : k + blocks[k];
     T value = x[k];
-    for (int i = first; i < n; ++i) {
+    for (std::int32_t i = first; i < n; ++i) {
       value -= (&ldl(i, 0))[k] * x[i];
     }
     x[k] = value;
   }
-  for (int k = n - 1; k >= 0; --k) {
+  for (std::int32_t k = n - 1; k >= 0; --k) {
     if (swaps[k] != k) {
       o2::gpu::CAMath::Swap(x[k], x[swaps[k]]);
     }
@@ -408,12 +409,12 @@ GPUhdi() GPUAlwaysInline() void ldltSolve(View ldl, Size size, const int* swaps,
 
 /// ln |det a|, a factored by `ldltFactor`: the blocks' determinants.
 template <typename View, typename Size>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() ElementOf<View> ldltLogAbsDeterminant(View ldl, Size size, const int* blocks)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() ElementOf<View> ldltLogAbsDeterminant(View ldl, Size size, const std::int32_t* blocks)
 {
   using T = ElementOf<View>;
-  const int n = static_cast<int>(size);
+  const auto n = static_cast<std::int32_t>(size);
   T sum = T(0);
-  for (int k = 0; k < n; ++k) {
+  for (std::int32_t k = 0; k < n; ++k) {
     if (blocks[k] == 1) {
       sum += logOf(o2::gpu::GPUCommonMath::Abs(ldl(k, k)));
     } else if (blocks[k] == 2) {
@@ -434,16 +435,16 @@ template <typename View, typename Size>
 /// zero. F is not triangular. \a a (its lower triangle) is overwritten;
 /// \a order holds n ints of scratch.
 template <typename View, typename Size, typename T>
-GPUhdi() GPUAlwaysInline() void semidefiniteFactor(View a, Size size, int* order, MatrixView<T> factor)
+GPUhdi() GPUAlwaysInline() void semidefiniteFactor(View a, Size size, std::int32_t* order, MatrixView<T> factor)
 {
-  const int n = static_cast<int>(size);
-  for (int i = 0; i < n; ++i) {
+  const auto n = static_cast<std::int32_t>(size);
+  for (std::int32_t i = 0; i < n; ++i) {
     order[i] = i;
   }
-  int rank = 0;
-  for (int k = 0; k < n; ++k) {
-    int pivot = k;
-    for (int i = k + 1; i < n; ++i) {
+  std::int32_t rank = 0;
+  for (std::int32_t k = 0; k < n; ++k) {
+    std::int32_t pivot = k;
+    for (std::int32_t i = k + 1; i < n; ++i) {
       if (a(i, i) > a(pivot, pivot)) {
         pivot = i;
       }
@@ -456,18 +457,18 @@ GPUhdi() GPUAlwaysInline() void semidefiniteFactor(View a, Size size, int* order
       o2::gpu::CAMath::Swap(order[k], order[pivot]);
     }
     const T d = a(k, k);
-    for (int i = k + 1; i < n; ++i) {
+    for (std::int32_t i = k + 1; i < n; ++i) {
       a(i, k) /= d;
     }
-    for (int i = k + 1; i < n; ++i) {
-      for (int j = k + 1; j <= i; ++j) {
+    for (std::int32_t i = k + 1; i < n; ++i) {
+      for (std::int32_t j = k + 1; j <= i; ++j) {
         a(i, j) -= a(i, k) * a(j, k) * d;
       }
     }
     rank = k + 1;
   }
-  for (int i = 0; i < n; ++i) {
-    for (int k = 0; k < n; ++k) {
+  for (std::int32_t i = 0; i < n; ++i) {
+    for (std::int32_t k = 0; k < n; ++k) {
       T value = T(0);
       if (k < rank && i >= k) {
         value = (i == k ? T(1) : a(i, k)) * sqrtOf(a(k, k));

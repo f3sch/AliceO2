@@ -69,9 +69,8 @@ namespace o2::gtrk
 
 /// One entry of a `DaughterTable`.
 struct DaughterEntry {
-  // As for TrackletT: upstream's `apply` macro also uses the member names as
-  // enum constants.
-  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // As for MeasurementT: an SoA element proxy holds references.
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   template <template <class> class C>
   struct RecordT {
     MEMLAYOUT_APPLY(RecordT, track, species, state, chi2, ndf, status, failedPass, failedMeasurement, mixture)
@@ -85,7 +84,7 @@ struct DaughterEntry {
     C<std::int16_t> failedMeasurement;
     C<std::int32_t> mixture; ///< its index in the mixtures, -1 for another species than the electron
   };
-  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 /// The timeframe's (track, species) refits (see the file's comment).
@@ -93,7 +92,7 @@ template <DetectorLayout Det>
 class DaughterTable
 {
  public:
-  static constexpr int kComponents = BetheHeitlerLoss::kComponents;
+  static constexpr std::int32_t kComponents = BetheHeitlerLoss::kComponents;
   using Mixture = GSFMixture<kComponents>;
   using Entries = BoundedColumns<DaughterEntry::template RecordT>;
   using Entry = typename Entries::Record;
@@ -107,8 +106,8 @@ class DaughterTable
     if (mSpecies.empty() || mSpecies.size() > std::numeric_limits<std::uint8_t>::max()) {
       throw std::invalid_argument("daughter table: one to 255 species");
     }
-    for (std::size_t a = 0; a < mSpecies.size(); ++a) {
-      for (std::size_t b = 0; b < a; ++b) {
+    for (std::uint32_t a = 0; a < mSpecies.size(); ++a) {
+      for (std::uint32_t b = 0; b < a; ++b) {
         if (mSpecies[a] == mSpecies[b]) {
           throw std::invalid_argument("daughter table: a species listed twice");
         }
@@ -127,12 +126,12 @@ class DaughterTable
 
   /// A timeframe of \a tracks committed tracks: no entries, nothing asked
   /// for. kIndexOverflow where tracks x species exceeds the entries' index.
-  [[nodiscard]] StageStatus begin(std::size_t tracks)
+  [[nodiscard]] StageStatus begin(std::uint32_t tracks)
   {
     mEntries.resize(0U);
     mMixtures.clear();
     mTracks = 0U;
-    const std::uint64_t pairs = static_cast<std::uint64_t>(tracks) * mSpecies.size();
+    const auto pairs = static_cast<std::uint64_t>(tracks) * mSpecies.size();
     if (pairs > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max())) {
       mEntryOf.clear();
       return StageStatus::kIndexOverflow;
@@ -146,12 +145,12 @@ class DaughterTable
 
   [[nodiscard]] std::span<const Species> species() const { return mSpecies; }
   /// \a species' index in the table's species, -1 if the table has none of it.
-  [[nodiscard]] int speciesIndex(Species species) const
+  [[nodiscard]] std::int32_t speciesIndex(Species species) const
   {
     const auto found = std::ranges::find(mSpecies, species);
-    return found == mSpecies.end() ? -1 : static_cast<int>(found - mSpecies.begin());
+    return found == mSpecies.end() ? -1 : static_cast<std::int32_t>(found - mSpecies.begin());
   }
-  [[nodiscard]] std::size_t tracks() const { return mTracks; }
+  [[nodiscard]] std::uint32_t tracks() const { return mTracks; }
 
   /// Ask for \a track under species \a s; from any thread. Nothing if its
   /// entry exists or is asked for.
@@ -180,8 +179,8 @@ class DaughterTable
       if (!host_algorithms::exclusiveScan(forEach, n, chunk, isElectron, std::span<std::uint32_t>{mixtureOffsets}, mResource)) {
         return StageStatus::kIndexOverflow;
       }
-      const std::size_t base = mEntries.size();
-      const std::size_t mixtureBase = mMixtures.size();
+      const std::uint32_t base = mEntries.size();
+      const auto mixtureBase = static_cast<std::uint32_t>(mMixtures.size());
       mEntries.resize(base + n);
       try {
         mMixtures.resize(mixtureBase + mixtureOffsets[n]);
@@ -197,7 +196,7 @@ class DaughterTable
         const auto s = static_cast<std::uint8_t>(k % mSpecies.size());
         const auto at = base + i;
         const auto rows = tracks.rows(track);
-        const auto fit = refitRowsWithHypothesis<kComponents>(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = rows.data()}, static_cast<int>(rows.size()), mSpecies[s]);
+        const auto fit = refitRowsWithHypothesis<kComponents>(propagator, geometry, material, RowChain<Det>{.frame = &frame, .rows = rows.data()}, static_cast<std::int32_t>(rows.size()), mSpecies[s]);
         view.track[at] = track;
         view.species[at] = s;
         view.state[at] = fit.innermost;
@@ -225,21 +224,21 @@ class DaughterTable
     const auto entry = mEntryOf[key(track, s)];
     return entry >= 0 ? entry : kNone;
   }
-  [[nodiscard]] std::size_t size() const { return mEntries.size(); }
-  [[nodiscard]] Entry entry(std::size_t i) const { return mEntries.read(i); }
+  [[nodiscard]] std::uint32_t size() const { return mEntries.size(); }
+  [[nodiscard]] Entry entry(std::uint32_t i) const { return mEntries.read(i); }
   [[nodiscard]] typename Entries::ConstView view() const { return mEntries.view(); }
   /// Electron entry \a i's mixture on its innermost measurement.
-  [[nodiscard]] const Mixture& mixture(std::size_t i) const { return mMixtures[i]; }
+  [[nodiscard]] const Mixture& mixture(std::uint32_t i) const { return mMixtures[i]; }
 
  private:
   /// A pair asked for, not flushed yet.
   static constexpr std::int32_t kRequested = -2;
 
-  [[nodiscard]] std::size_t key(std::uint32_t track, std::uint8_t s) const { return (static_cast<std::size_t>(track) * mSpecies.size()) + s; }
+  [[nodiscard]] std::uint32_t key(std::uint32_t track, std::uint8_t s) const { return (track * static_cast<std::uint32_t>(mSpecies.size())) + s; }
 
   std::vector<Species> mSpecies;
   std::pmr::memory_resource* mResource = std::pmr::get_default_resource();
-  std::size_t mTracks = 0U;
+  std::uint32_t mTracks = 0U;
   BoundedVector<std::int32_t> mEntryOf;
   Entries mEntries;
   BoundedVector<Mixture> mMixtures;

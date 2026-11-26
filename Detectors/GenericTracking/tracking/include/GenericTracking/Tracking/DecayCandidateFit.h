@@ -75,12 +75,12 @@ struct ExpandedHypothesis {
   FixedVector<Species, decay_fit_detail::kMaxConstrainedDaughters> species;
   FixedVector<std::int8_t, decay_fit_detail::kMaxConstrainedDaughters> charges;
   DecayTopology topology;
-  std::array<FixedVector<int, decay_fit_detail::kMaxConstrainedDaughters>, decay_fit_detail::kMaxConstrainedVertices - 1> compositeLeaves{};
+  std::array<FixedVector<std::int32_t, decay_fit_detail::kMaxConstrainedDaughters>, decay_fit_detail::kMaxConstrainedVertices - 1> compositeLeaves{};
   FixedVector<double, decay_fit_detail::kMaxConstrainedVertices - 1> compositeMasses;
 };
 
 /// \a hypotheses' \a index expanded (`ExpandedHypothesis`).
-[[nodiscard]] inline ExpandedHypothesis expandHypothesis(std::span<const DecayHypothesis> hypotheses, std::size_t index)
+[[nodiscard]] inline ExpandedHypothesis expandHypothesis(std::span<const DecayHypothesis> hypotheses, std::uint32_t index)
 {
   ExpandedHypothesis out;
   if (index >= hypotheses.size()) {
@@ -88,7 +88,7 @@ struct ExpandedHypothesis {
     return out;
   }
   const auto& hypothesis = hypotheses[index];
-  std::size_t leaves = hypothesis.species.size();
+  std::uint32_t leaves = hypothesis.species.size();
   for (const auto c : hypothesis.composites) {
     if (c >= hypotheses.size() || !hypotheses[c].composites.empty()) {
       out.status = VertexFitStatus::kInvalidInput;
@@ -96,15 +96,15 @@ struct ExpandedHypothesis {
     }
     leaves += hypotheses[c].species.size();
   }
-  if (leaves > static_cast<std::size_t>(decay_fit_detail::kMaxConstrainedDaughters) || hypothesis.charges.size() != hypothesis.species.size()) {
-    out.status = leaves > static_cast<std::size_t>(decay_fit_detail::kMaxConstrainedDaughters) ? VertexFitStatus::kTooLarge : VertexFitStatus::kInvalidInput;
+  if (leaves > static_cast<std::uint32_t>(decay_fit_detail::kMaxConstrainedDaughters) || hypothesis.charges.size() != hypothesis.species.size()) {
+    out.status = leaves > static_cast<std::uint32_t>(decay_fit_detail::kMaxConstrainedDaughters) ? VertexFitStatus::kTooLarge : VertexFitStatus::kInvalidInput;
     return out;
   }
   out.topology.massGeV.push_back(hypothesis.massGeV);
   if (!hypothesis.composites.empty()) {
     out.topology.parent.push_back(-1);
   }
-  for (std::size_t c = 0; c < hypothesis.composites.size(); ++c) {
+  for (std::uint32_t c = 0; c < hypothesis.composites.size(); ++c) {
     const auto& composite = hypotheses[hypothesis.composites[c]];
     if (composite.charges.size() != composite.species.size()) {
       out.status = VertexFitStatus::kInvalidInput;
@@ -113,14 +113,14 @@ struct ExpandedHypothesis {
     out.topology.parent.push_back(0);
     out.topology.massGeV.push_back(composite.massGeV);
     out.compositeMasses.push_back(composite.massGeV);
-    for (std::size_t s = 0; s < composite.species.size(); ++s) {
-      out.compositeLeaves[c].push_back(static_cast<int>(out.species.size()));
+    for (std::uint32_t s = 0; s < composite.species.size(); ++s) {
+      out.compositeLeaves[c].push_back(static_cast<std::int32_t>(out.species.size()));
       out.species.push_back(composite.species[s]);
       out.charges.push_back(composite.charges[s]);
-      out.topology.vertexOf.push_back(static_cast<int>(c) + 1);
+      out.topology.vertexOf.push_back(static_cast<std::int32_t>(c) + 1);
     }
   }
-  for (std::size_t s = 0; s < hypothesis.species.size(); ++s) {
+  for (std::uint32_t s = 0; s < hypothesis.species.size(); ++s) {
     out.species.push_back(hypothesis.species[s]);
     out.charges.push_back(hypothesis.charges[s]);
     if (!hypothesis.composites.empty()) {
@@ -143,14 +143,14 @@ struct DecayCandidate {
 /// A fit's daughters' kinematics (`decayKinematics`) with their \a masses.
 [[nodiscard]] inline DecayKinematics fitKinematics(const DecayVertexFitResult& fit, std::span<const double> masses)
 {
-  const int vertices = static_cast<int>(fit.vertices.size());
-  return decayKinematics(std::span<const Vec3D>{fit.momenta.data(), fit.momenta.size()}, masses, std::span<const double>{fit.charges.data(), fit.charges.size()}, [&](int a, int b) { return fit.covarianceAt((3 * vertices) + a, (3 * vertices) + b); });
+  const auto vertices = static_cast<std::int32_t>(fit.vertices.size());
+  return decayKinematics(std::span<const Vec3D>{fit.momenta.data(), fit.momenta.size()}, masses, std::span<const double>{fit.charges.data(), fit.charges.size()}, [&](std::int32_t a, std::int32_t b) { return fit.covarianceAt((3 * vertices) + a, (3 * vertices) + b); });
 }
 
 /// The flight of a fit's root, of mass \a mass, from \a point (`decayFlight`).
 [[nodiscard]] inline DecayFlight fitFlight(const DecayVertexFitResult& fit, const MeasuredPoint& point, double mass)
 {
-  return decayFlight(fit.vertex, std::span<const Vec3D>{fit.momenta.data(), fit.momenta.size()}, std::span<const double>{fit.charges.data(), fit.charges.size()}, point.position, point.covariance, mass, static_cast<int>(fit.vertices.size()), [&](int a, int b) { return fit.covarianceAt(a, b); });
+  return decayFlight(fit.vertex, std::span<const Vec3D>{fit.momenta.data(), fit.momenta.size()}, std::span<const double>{fit.charges.data(), fit.charges.size()}, point.position, point.covariance, mass, fit.vertices.size(), [&](std::int32_t a, std::int32_t b) { return fit.covarianceAt(a, b); });
 }
 
 /// A candidate's fit and observables.
@@ -173,17 +173,17 @@ namespace decay_fit_detail
 /// refit succeeded (kRefitFailed otherwise), a start per vertex (kNoStart
 /// otherwise).
 template <DetectorLayout Det>
-[[nodiscard]] VertexFitStatus checkCandidate(const DecayCandidate& candidate, const ExpandedHypothesis& tree, const DaughterTable<Det>& table, std::size_t points)
+[[nodiscard]] VertexFitStatus checkCandidate(const DecayCandidate& candidate, const ExpandedHypothesis& tree, const DaughterTable<Det>& table, std::uint32_t points)
 {
   if (tree.status != VertexFitStatus::kOk) {
     return tree.status;
   }
-  const auto vertices = static_cast<std::size_t>(tree.topology.vertices());
+  const auto vertices = tree.topology.vertices();
   if ((candidate.point >= 0 && std::cmp_greater_equal(candidate.point, points)) || candidate.entries.size() != tree.species.size() || candidate.start.size() > vertices) {
     return VertexFitStatus::kInvalidInput;
   }
   const auto view = table.view();
-  for (std::size_t i = 0; i < candidate.entries.size(); ++i) {
+  for (std::uint32_t i = 0; i < candidate.entries.size(); ++i) {
     const auto e = candidate.entries[i];
     if (e >= table.size() || table.species()[view.species[e]] != tree.species[i]) {
       return VertexFitStatus::kInvalidInput;
@@ -194,7 +194,7 @@ template <DetectorLayout Det>
     if ((view.state[e].qOverP() > 0.F ? 1 : -1) != tree.charges[i]) {
       return VertexFitStatus::kInvalidInput;
     }
-    for (std::size_t j = 0; j < i; ++j) {
+    for (std::uint32_t j = 0; j < i; ++j) {
       if (view.track[candidate.entries[j]] == view.track[e]) {
         return VertexFitStatus::kInvalidInput;
       }
@@ -230,7 +230,7 @@ template <DetectorLayout Det>
   propagator.setSpecies(source.table->species()[view.species[e]]);
   DecayDaughter daughter{.innermost = view.state[e], .surface = source.innermostPlane(view.track[e]), .propagator = propagator, .mass = propagator.massGeV};
   if (view.mixture[e] >= 0) {
-    daughter.mixture = source.table->mixture(static_cast<std::size_t>(view.mixture[e]));
+    daughter.mixture = source.table->mixture(static_cast<std::uint32_t>(view.mixture[e]));
   }
   return daughter;
 }
@@ -269,7 +269,7 @@ template <DetectorLayout Det>
 /// per vertex, if it passes `checkCandidate` with \a points reference
 /// points. Its check's status: kOk with a start, kNoStart without one.
 template <DetectorLayout Det>
-[[nodiscard]] VertexFitStatus startDecayCandidate(DecayCandidate& candidate, std::span<const DecayHypothesis> hypotheses, const DaughterSource<Det>& source, std::size_t points)
+[[nodiscard]] VertexFitStatus startDecayCandidate(DecayCandidate& candidate, std::span<const DecayHypothesis> hypotheses, const DaughterSource<Det>& source, std::uint32_t points)
 {
   const auto tree = expandHypothesis(hypotheses, candidate.hypothesis);
   const auto status = decay_fit_detail::checkCandidate(candidate, tree, *source.table, points);
@@ -281,8 +281,8 @@ template <DetectorLayout Det>
   if (!decayFitStart<Det>(std::span<const DecayDaughter>{daughters.data(), daughters.size()}, candidateConstraints(hypotheses[candidate.hypothesis], tree), tree.topology, {}, start)) {
     return VertexFitStatus::kNoStart;
   }
-  for (int w = 0; w < tree.topology.vertices(); ++w) {
-    candidate.start.push_back(start[static_cast<std::size_t>(w)]);
+  for (std::uint32_t w = 0; w < tree.topology.vertices(); ++w) {
+    candidate.start.push_back(start[w]);
   }
   return VertexFitStatus::kOk;
 }
@@ -300,7 +300,7 @@ void fitDecayCandidate(const DecayCandidate& candidate, std::span<const DecayHyp
 {
   out = {};
   const auto tree = expandHypothesis(hypotheses, candidate.hypothesis);
-  if (const auto status = decay_fit_detail::checkCandidate(candidate, tree, *source.table, points.size()); status != VertexFitStatus::kOk) {
+  if (const auto status = decay_fit_detail::checkCandidate(candidate, tree, *source.table, static_cast<std::uint32_t>(points.size())); status != VertexFitStatus::kOk) {
     out.fit.status = status;
     return;
   }
@@ -321,24 +321,24 @@ void fitDecayCandidate(const DecayCandidate& candidate, std::span<const DecayHyp
     return;
   }
   std::array<double, decay_fit_detail::kMaxConstrainedDaughters> masses{};
-  for (std::size_t i = 0; i < daughters.size(); ++i) {
+  for (std::uint32_t i = 0; i < daughters.size(); ++i) {
     masses[i] = daughters[i].mass;
   }
   const std::span<const double> massSpan{masses.data(), daughters.size()};
   const std::span<const Vec3D> momenta{out.fit.momenta.data(), out.fit.momenta.size()};
   const std::span<const double> charges{out.fit.charges.data(), out.fit.charges.size()};
-  const int vertices = static_cast<int>(out.fit.vertices.size());
-  const auto at = [&](int a, int b) { return out.fit.covarianceAt(a, b); };
+  const auto vertices = static_cast<std::int32_t>(out.fit.vertices.size());
+  const auto at = [&](std::int32_t a, std::int32_t b) { return out.fit.covarianceAt(a, b); };
   out.kinematics = fitKinematics(out.fit, massSpan);
   if (candidate.point >= 0) {
-    out.flight = fitFlight(out.fit, points[static_cast<std::size_t>(candidate.point)], hypothesis.massGeV);
+    out.flight = fitFlight(out.fit, points[static_cast<std::uint32_t>(candidate.point)], hypothesis.massGeV);
     out.hasPoint = true;
   }
   const std::span<const Vec3D> fitted{out.fit.vertices.data(), out.fit.vertices.size()};
-  for (std::size_t k = 0; k < tree.compositeMasses.size(); ++k) {
-    const std::span<const int> leaves{tree.compositeLeaves[k].data(), tree.compositeLeaves[k].size()};
+  for (std::uint32_t k = 0; k < tree.compositeMasses.size(); ++k) {
+    const std::span<const std::int32_t> leaves{tree.compositeLeaves[k].data(), tree.compositeLeaves[k].size()};
     out.composites.push_back(subsetKinematics(momenta, massSpan, charges, leaves, vertices, at));
-    out.compositeFlights.push_back(compositeFlight(fitted, static_cast<int>(k) + 1, tree.topology.parent[k + 1], momenta, charges, leaves, tree.compositeMasses[k], at));
+    out.compositeFlights.push_back(compositeFlight(fitted, k + 1, static_cast<std::uint32_t>(tree.topology.parent[k + 1]), momenta, charges, leaves, tree.compositeMasses[k], at));
   }
 }
 
