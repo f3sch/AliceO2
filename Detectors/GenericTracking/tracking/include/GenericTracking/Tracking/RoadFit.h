@@ -24,6 +24,7 @@
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/Propagator.h"
 #include "GenericTracking/Tracking/RoadCount.h"
+#include "GenericTracking/Tracking/ShapeLikelihood.h"
 #include "GenericTracking/Tracking/StageOutput.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
@@ -205,8 +206,17 @@ class RoadRows
 /// tried again without its innermost cluster, then without two, down to the
 /// iteration's `innerTrim` of them and its `minClusters`, and the first the
 /// fit takes is the road's record (a decay daughter's chain walked on below
-/// it into a triplet of another's cluster).
-template <DetectorLayout Det, bool BeamLine, bool LastStepAllowance>
+/// it into a triplet of another's cluster). With \a Size, for an iteration
+/// with `roadSize`, the rows' cluster spans join the chi2 after the floor:
+/// -2 log of each row's size ratio (`logSizeRatioAlong`, the frame's
+/// shares; nothing without them), the row crossed along the chord between
+/// its neighbours (its one neighbour at the road's ends), the sum held to
+/// the road's cut at its degrees of freedom and carried into the record's
+/// chi2. A sum of size ratios is no chi2: under the position's cut it
+/// refuses roads of untypical own clusters as well as those holding noise,
+/// so it serves the passes whose roads take noise most (an outer pass on the
+/// noisiest layers), not every pass.
+template <DetectorLayout Det, bool BeamLine, bool LastStepAllowance, bool Size>
 class RoadRowsFit
 {
  public:
@@ -269,15 +279,31 @@ class RoadRowsFit
       countWork(WorkCounter::kRoadFloor);
       return false;
     }
+    Scalar chi2 = fit.chi2;
+    if constexpr (Size) {
+      if (mFrame->shapes() != nullptr) {
+        for (std::uint32_t i = 0; i < count; ++i) {
+          const std::uint32_t from = i == 0U ? 0U : i - 1U;
+          const std::uint32_t to = i + 1U == count ? i : i + 1U;
+          const Scalar direction[3]{columns.x[rows[to]] - columns.x[rows[from]], columns.y[rows[to]] - columns.y[rows[from]], columns.z[rows[to]] - columns.z[rows[from]]};
+          chi2 -= 2.F * logSizeRatioAlong<Det>(*mFrame->shapes(), *mGeometry, columns, rows[i], mGeometry->surface(columns.surface[rows[i]]).layer, direction);
+        }
+        const int ndf = (2 * static_cast<int>(count)) - fittedParameters(stepPropagator(mPropagator, *mGeometry, RowChain<Det>{.frame = mFrame, .rows = rows}, 0, static_cast<int>(count) - 1)) - (2 * static_cast<int>(fit.kinks));
+        if (!(chi2 <= mParameters->roadChi2MaxByNdf[ndf])) {
+          countWork(WorkCounter::kRoadSize);
+          return false;
+        }
+      }
+    }
     if constexpr (BeamLine) {
       Scalar beamChi2 = 0.F;
       if (!clearsBeamLine(mPropagator, *mParameters, *mFrame, *mGeometry, rows, count, fit.state, beamChi2)) {
         countWork(WorkCounter::kRoadBeam);
         return false;
       }
-      emitRecord(emitter, rows, count, fit, fit.chi2 + beamChi2);
+      emitRecord(emitter, rows, count, fit, chi2 + beamChi2);
     } else {
-      emitRecord(emitter, rows, count, fit, fit.chi2);
+      emitRecord(emitter, rows, count, fit, chi2);
     }
     return true;
   }
@@ -306,12 +332,12 @@ class RoadRowsFit
 
 /// One element per road, by its index: its rows captured (`RoadRows`) and
 /// fitted (`RoadRowsFit`, whose template arguments these are).
-template <DetectorLayout Det, bool BeamLine, bool LastStepAllowance>
+template <DetectorLayout Det, bool BeamLine, bool LastStepAllowance, bool Size>
 class RoadFitStage
 {
  public:
   using Index = StageOutput<TripletT>::Index;
-  using Fit = RoadRowsFit<Det, BeamLine, LastStepAllowance>;
+  using Fit = RoadRowsFit<Det, BeamLine, LastStepAllowance, Size>;
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
   using Record = typename Fit::Record;
 

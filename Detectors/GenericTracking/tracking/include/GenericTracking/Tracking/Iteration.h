@@ -151,6 +151,11 @@ struct IterationSettings {
   /// follow's updated direction (ShapeCut.h).
   /// False, the default, off.
   bool shapeTest = false;
+  /// Whether the road fit weighs the rows' cluster spans: -2 log of each
+  /// row's size ratio (`logSizeRatioAlong`, the frame's shares) added to the
+  /// fit's chi2, held to the road's cut and carried into the record's chi2
+  /// (RoadFit.h). False, the default, off.
+  bool roadSize = false;
   /// The lowest momentum [GeV] of a disc->disc pair's track, beside
   /// `windows.minPtGeV`; above 0, on a prompt beam line only, the iteration
   /// searches its disc->disc pairs in a window per source instead of the
@@ -327,6 +332,9 @@ struct IterationParameters {
   /// `IterationSettings::shapeTest`, read on the host only to choose the
   /// tracklet, triplet and follow stages' instantiations.
   bool shapeTest = false;
+  /// `IterationSettings::roadSize`, read on the host only to choose the road
+  /// fit's instantiation.
+  bool roadSize = false;
   /// `IterationSettings::minPGeV` [GeV]: above 0 the tracklet stage's disc
   /// windows per source (the host chooses its instantiation by it), which
   /// read it, and every layer's resolution, which they read too
@@ -500,6 +508,7 @@ template <DetectorLayout Det>
   parameters.followEndMaxSqrtDet = static_cast<Scalar>(std::max(settings.followEndMaxSqrtDet, 0.));
   parameters.followKeepDensity = static_cast<Scalar>(std::max(settings.followKeepDensity, 0.));
   parameters.shapeTest = settings.shapeTest;
+  parameters.roadSize = settings.roadSize;
   parameters.followHoles = static_cast<std::uint32_t>(std::max(settings.followHoles, 0));
   parameters.discWindowMinP = static_cast<Scalar>(settings.minPGeV);
   for (std::size_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
