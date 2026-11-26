@@ -16,5 +16,5 @@
 
 namespace o2::gtrk::study
 {
-template int track<detectors::TRKFT3TOF>(const Options& options);
+template std::int32_t track<detectors::TRKFT3TOF>(const Options& options);
 } // namespace o2::gtrk::study

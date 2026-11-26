@@ -105,11 +105,11 @@ struct SensorCellsView {
     if (cells.nPhi == 0U || cells.nSecond == 0U) {
       return false;
     }
-    const auto nPhi = static_cast<int>(cells.nPhi);
-    const auto nSecond = static_cast<int>(cells.nSecond);
-    const int phiFirst = static_cast<int>(Math::Floor((phi - phiReach) / cells.phiBin));
+    const auto nPhi = static_cast<std::int32_t>(cells.nPhi);
+    const auto nSecond = static_cast<std::int32_t>(cells.nSecond);
+    const auto phiFirst = static_cast<std::int32_t>(Math::Floor((phi - phiReach) / cells.phiBin));
     // At most every azimuth cell once.
-    const int phiCount = Math::Min(static_cast<int>(Math::Floor((phi + phiReach) / cells.phiBin)) - phiFirst + 1, nPhi);
+    const std::int32_t phiCount = Math::Min(static_cast<std::int32_t>(Math::Floor((phi + phiReach) / cells.phiBin)) - phiFirst + 1, nPhi);
     // A range beyond every sensor's footprint meets none; one touching the
     // outermost footprints' edges, at either end, reads the outermost cells,
     // which list them.
@@ -117,11 +117,11 @@ struct SensorCellsView {
     if (second + secondReach < cells.secondLow || second - secondReach > secondHigh) {
       return false;
     }
-    const int secondFirst = Math::Min(Math::Max(static_cast<int>(Math::Floor((second - secondReach - cells.secondLow) / cells.secondBin)), 0), nSecond - 1);
-    const int secondLast = Math::Min(Math::Max(static_cast<int>(Math::Floor((second + secondReach - cells.secondLow) / cells.secondBin)), 0), nSecond - 1);
-    for (int s = secondFirst; s <= secondLast; ++s) {
-      for (int i = 0; i < phiCount; ++i) {
-        const int p = (((phiFirst + i) % nPhi) + nPhi) % nPhi;
+    const std::int32_t secondFirst = Math::Min(Math::Max(static_cast<std::int32_t>(Math::Floor((second - secondReach - cells.secondLow) / cells.secondBin)), 0), nSecond - 1);
+    const std::int32_t secondLast = Math::Min(Math::Max(static_cast<std::int32_t>(Math::Floor((second + secondReach - cells.secondLow) / cells.secondBin)), 0), nSecond - 1);
+    for (std::int32_t s = secondFirst; s <= secondLast; ++s) {
+      for (std::int32_t i = 0; i < phiCount; ++i) {
+        const std::int32_t p = (((phiFirst + i) % nPhi) + nPhi) % nPhi;
         const auto cell = cells.cellOffset + static_cast<std::uint32_t>((s * nPhi) + p);
         for (auto at = offsets[cell]; at < offsets[cell + 1U]; ++at) {
           if (visit(sensors[at])) {
@@ -147,17 +147,17 @@ struct SensorCellsView {
     if (cells.nPhi == 0U || cells.nSecond == 0U) {
       return;
     }
-    const auto nPhi = static_cast<int>(cells.nPhi);
-    const auto nSecond = static_cast<int>(cells.nSecond);
-    const int phiFirst = static_cast<int>(Math::Floor((phi - phiReach) / cells.phiBin));
-    const int phiCount = Math::Min(static_cast<int>(Math::Floor((phi + phiReach) / cells.phiBin)) - phiFirst + 1, nPhi);
+    const auto nPhi = static_cast<std::int32_t>(cells.nPhi);
+    const auto nSecond = static_cast<std::int32_t>(cells.nSecond);
+    const auto phiFirst = static_cast<std::int32_t>(Math::Floor((phi - phiReach) / cells.phiBin));
+    const std::int32_t phiCount = Math::Min(static_cast<std::int32_t>(Math::Floor((phi + phiReach) / cells.phiBin)) - phiFirst + 1, nPhi);
     const Scalar secondHigh = cells.secondLow + (static_cast<Scalar>(nSecond) * cells.secondBin);
     if (second + secondReach < cells.secondLow || second - secondReach > secondHigh) {
       return;
     }
-    const int secondFirst = Math::Min(Math::Max(static_cast<int>(Math::Floor((second - secondReach - cells.secondLow) / cells.secondBin)), 0), nSecond - 1);
-    const int secondLast = Math::Min(Math::Max(static_cast<int>(Math::Floor((second + secondReach - cells.secondLow) / cells.secondBin)), 0), nSecond - 1);
-    const auto cellOf = [&](int s, int i) { return cells.cellOffset + static_cast<std::uint32_t>((s * nPhi) + ((((phiFirst + i) % nPhi) + nPhi) % nPhi)); };
+    const std::int32_t secondFirst = Math::Min(Math::Max(static_cast<std::int32_t>(Math::Floor((second - secondReach - cells.secondLow) / cells.secondBin)), 0), nSecond - 1);
+    const std::int32_t secondLast = Math::Min(Math::Max(static_cast<std::int32_t>(Math::Floor((second + secondReach - cells.secondLow) / cells.secondBin)), 0), nSecond - 1);
+    const auto cellOf = [&](std::int32_t s, std::int32_t i) { return cells.cellOffset + static_cast<std::uint32_t>((s * nPhi) + ((((phiFirst + i) % nPhi) + nPhi) % nPhi)); };
     const auto lists = [&](std::uint32_t cell, std::uint32_t sensor) {
       for (auto at = offsets[cell]; at < offsets[cell + 1U]; ++at) {
         if (sensors[at] == sensor) {
@@ -166,8 +166,8 @@ struct SensorCellsView {
       }
       return false;
     };
-    for (int s = secondFirst; s <= secondLast; ++s) {
-      for (int i = 0; i < phiCount; ++i) {
+    for (std::int32_t s = secondFirst; s <= secondLast; ++s) {
+      for (std::int32_t i = 0; i < phiCount; ++i) {
         const auto cell = cellOf(s, i);
         for (auto at = offsets[cell]; at < offsets[cell + 1U]; ++at) {
           const auto sensor = sensors[at];
@@ -186,7 +186,7 @@ template <DetectorLayout Det>
 class SensorCells
 {
  public:
-  static constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
+  static constexpr auto kLayers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
 
   SensorCells() = default;
   explicit SensorCells(const TrackingGeometry<Det>& geometry) { build(geometry); }
@@ -222,7 +222,7 @@ class SensorCells
         const double angle = u / static_cast<double>(surface.radius);
         for (const double v : {-static_cast<double>(surface.bounds.halfY), static_cast<double>(surface.bounds.halfY)}) {
           Vec3D point{};
-          for (std::size_t i = 0; i < 3; ++i) {
+          for (std::uint32_t i = 0; i < 3; ++i) {
             const double radial = (std::cos(angle) * static_cast<double>(surface.axis0[i])) + (std::sin(angle) * static_cast<double>(surface.axis1[i]));
             point[i] = static_cast<double>(surface.origin[i]) + (static_cast<double>(surface.radius + surface.depth) * radial) + (v * static_cast<double>(surface.normal[i]));
           }
@@ -237,7 +237,7 @@ class SensorCells
       };
       const auto halfY = static_cast<double>(surface.bounds.halfY);
       const std::array<Vec3D, 4> corners = {at(-static_cast<double>(surface.bounds.halfX), -halfY), at(static_cast<double>(surface.bounds.halfX), -halfY), at(static_cast<double>(surface.bounds.halfX), halfY), at(-static_cast<double>(surface.bounds.halfX), halfY)};
-      for (std::size_t i = 0; i < corners.size(); ++i) {
+      for (std::uint32_t i = 0; i < corners.size(); ++i) {
         const auto& a = corners[i];
         const auto& b = corners[(i + 1U) % corners.size()];
         add(a);
@@ -253,7 +253,7 @@ class SensorCells
     }
     Vec3D centre{};
     for (const auto& point : points) {
-      for (std::size_t i = 0; i < 3; ++i) {
+      for (std::uint32_t i = 0; i < 3; ++i) {
         centre[i] += point[i] / static_cast<double>(points.size());
       }
     }
@@ -279,7 +279,7 @@ class SensorCells
   {
     const auto& surfaces = geometry.surfaces();
     std::vector<Footprint> footprints(surfaces.size());
-    for (std::size_t id = 0; id < surfaces.size(); ++id) {
+    for (std::uint32_t id = 0; id < surfaces.size(); ++id) {
       footprints[id] = footprint(surfaces[id], Detector<Det>::isBarrelLayer(surfaces[id].layer));
     }
     const auto down = [](double value) {
@@ -291,18 +291,18 @@ class SensorCells
       return static_cast<double>(rounded) < value ? std::nextafter(rounded, std::numeric_limits<Scalar>::infinity()) : rounded;
     };
     mFootprints.resize(surfaces.size());
-    for (std::size_t id = 0; id < surfaces.size(); ++id) {
+    for (std::uint32_t id = 0; id < surfaces.size(); ++id) {
       const auto& at = footprints[id];
       mFootprints[id] = {.phiLow = down(at.phiCentre + at.phiLow), .phiHigh = up(at.phiCentre + at.phiHigh), .secondLow = down(at.secondLow), .secondHigh = up(at.secondHigh)};
     }
     mLayers.assign(kLayers, SensorCellLayer{});
     std::vector<std::vector<std::uint32_t>> lists;
-    for (std::size_t layer = 0; layer < kLayers; ++layer) {
+    for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
       double phiWidth = kTwoPi<double>;
       double secondWidth = std::numeric_limits<double>::infinity();
       double low = std::numeric_limits<double>::infinity();
       double high = -std::numeric_limits<double>::infinity();
-      for (std::size_t id = 0; id < surfaces.size(); ++id) {
+      for (std::uint32_t id = 0; id < surfaces.size(); ++id) {
         if (surfaces[id].layer != layer) {
           continue;
         }
@@ -323,27 +323,27 @@ class SensorCells
       cells.secondLow = static_cast<Scalar>(low);
       cells.secondBin = static_cast<Scalar>((high - low) / cells.nSecond);
       lists.resize(lists.size() + (static_cast<std::size_t>(cells.nPhi) * cells.nSecond));
-      const auto nPhi = static_cast<long>(cells.nPhi);
-      for (std::size_t id = 0; id < surfaces.size(); ++id) {
+      const auto nPhi = static_cast<std::int64_t>(cells.nPhi);
+      for (std::uint32_t id = 0; id < surfaces.size(); ++id) {
         if (surfaces[id].layer != layer) {
           continue;
         }
         const auto& at = footprints[id];
         // The cells the footprint reaches and one more on each side, so that
         // a query's float rounding at a cell's edge cannot miss it.
-        const auto phiFirst = static_cast<long>(std::floor((at.phiCentre + at.phiLow) / static_cast<double>(cells.phiBin))) - 1L;
-        const auto phiLast = static_cast<long>(std::floor((at.phiCentre + at.phiHigh) / static_cast<double>(cells.phiBin))) + 1L;
-        const auto bin = [&](double second) { return std::clamp(static_cast<long>(std::floor((second - static_cast<double>(cells.secondLow)) / static_cast<double>(cells.secondBin))), 0L, static_cast<long>(cells.nSecond) - 1L); };
-        for (auto s = std::max(bin(at.secondLow) - 1L, 0L); s <= std::min(bin(at.secondHigh) + 1L, static_cast<long>(cells.nSecond) - 1L); ++s) {
-          for (auto p = phiFirst; p <= std::min(phiLast, phiFirst + nPhi - 1L); ++p) {
-            const auto cell = static_cast<std::size_t>(cells.cellOffset) + static_cast<std::size_t>((s * nPhi) + (((p % nPhi) + nPhi) % nPhi));
-            lists[cell].push_back(static_cast<std::uint32_t>(id));
+        const auto phiFirst = static_cast<std::int64_t>(std::floor((at.phiCentre + at.phiLow) / static_cast<double>(cells.phiBin))) - 1;
+        const auto phiLast = static_cast<std::int64_t>(std::floor((at.phiCentre + at.phiHigh) / static_cast<double>(cells.phiBin))) + 1;
+        const auto bin = [&](double second) { return std::clamp(static_cast<std::int64_t>(std::floor((second - static_cast<double>(cells.secondLow)) / static_cast<double>(cells.secondBin))), std::int64_t{0}, static_cast<std::int64_t>(cells.nSecond) - 1); };
+        for (auto s = std::max(bin(at.secondLow) - 1, std::int64_t{0}); s <= std::min(bin(at.secondHigh) + 1, static_cast<std::int64_t>(cells.nSecond) - 1); ++s) {
+          for (auto p = phiFirst; p <= std::min(phiLast, phiFirst + nPhi - 1); ++p) {
+            const auto cell = cells.cellOffset + static_cast<std::uint32_t>((s * nPhi) + (((p % nPhi) + nPhi) % nPhi));
+            lists[cell].push_back(id);
           }
         }
       }
     }
     mOffsets.assign(lists.size() + 1U, 0U);
-    for (std::size_t cell = 0; cell < lists.size(); ++cell) {
+    for (std::uint32_t cell = 0; cell < lists.size(); ++cell) {
       mOffsets[cell + 1U] = mOffsets[cell] + static_cast<std::uint32_t>(lists[cell].size());
     }
     mSensors.clear();

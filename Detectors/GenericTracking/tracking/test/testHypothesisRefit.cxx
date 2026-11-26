@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <random>
 #include <tuple>
 #include <vector>
@@ -38,7 +39,7 @@ namespace
 
 using test::ElectronChain;
 using test::medianWidth;
-constexpr int kLayers = static_cast<int>(ElectronChain::kLayers);
+constexpr auto kLayers = static_cast<std::int32_t>(ElectronChain::kLayers);
 
 double standardDeviation(const std::vector<double>& values)
 {
@@ -91,7 +92,7 @@ BOOST_AUTO_TEST_CASE(AHadronIsTheKalmanFitAtItsMass)
 BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
 {
   const test::ChainBands material{.x2X0 = 2e-2F, .xRho = 0.44F}; // 2 % X0 per layer, the first's front part from the vertex
-  constexpr int kTracks = 1000;
+  constexpr std::int32_t kTracks = 1000;
   ElectronChain chain;
   std::mt19937 rng(1052);
   // Pions (0.5 GeV) and 3He (2 GeV), from the origin and from a vertex
@@ -103,7 +104,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
     chain.vertexX = x;
     chain.vertexY = y;
     std::array<std::vector<double>, kNBoundParams> pulls;
-    for (int track = 0; track < kTracks; ++track) {
+    for (std::int32_t track = 0; track < kTracks; ++track) {
       const Scalar qOverP = (track % 2 == 0 ? 1.F : -1.F) * chain.propagator.absCharge / momentum;
       while (!chain.generate(qOverP, material, false, rng, true)) {
       }
@@ -112,24 +113,24 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
       // The truth on the refit's perigee plane: through the vertex, as the
       // track; its direction and q/p there the vertex's.
       const double truth[kNBoundParams] = {0., 0., chain.vertex.phi(), chain.vertex.theta(), chain.vertex.qOverP()};
-      for (int i = 0; i < kNBoundParams; ++i) {
+      for (std::int32_t i = 0; i < kNBoundParams; ++i) {
         double d = static_cast<double>(refit.perigee.par[i]) - truth[i];
         if (i == kPhi) {
           math_utils::detail::bringToPMPi<double>(d);
         }
-        pulls[static_cast<std::size_t>(i)].push_back(d / std::sqrt(static_cast<double>(refit.perigee.variance(i))));
+        pulls[static_cast<std::uint32_t>(i)].push_back(d / std::sqrt(static_cast<double>(refit.perigee.variance(i))));
       }
     }
     std::string line = fmt::format("{} from the vertex at ({}, {}) cm, at the vertex, pull mean and standard deviation:", nameOf(id), x, y);
-    for (int i = 0; i < kNBoundParams; ++i) {
-      const auto& p = pulls[static_cast<std::size_t>(i)];
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+      const auto& p = pulls[static_cast<std::uint32_t>(i)];
       double mean = 0.;
       for (const double v : p) {
         mean += v / static_cast<double>(p.size());
       }
       const double width = standardDeviation(p);
-      line += fmt::format("  {} {:+.3f} {:.3f}", kNames[static_cast<std::size_t>(i)], mean, width);
-      BOOST_TEST_CONTEXT(nameOf(id) << ", vertex (" << x << ", " << y << "), " << kNames[static_cast<std::size_t>(i)] << " mean " << mean << " width " << width)
+      line += fmt::format("  {} {:+.3f} {:.3f}", kNames[static_cast<std::uint32_t>(i)], mean, width);
+      BOOST_TEST_CONTEXT(nameOf(id) << ", vertex (" << x << ", " << y << "), " << kNames[static_cast<std::uint32_t>(i)] << " mean " << mean << " width " << width)
       {
         BOOST_TEST(std::abs(mean) < 0.1);
         BOOST_TEST(std::abs(width - 1.) < 0.1);
@@ -145,7 +146,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
   std::vector<double> mode;
   std::vector<double> kalman;
   std::vector<double> d0Pull;
-  for (int track = 0; track < kTracks; ++track) {
+  for (std::int32_t track = 0; track < kTracks; ++track) {
     const Scalar qOverP = (track % 2 == 0 ? 2.F : -2.F);
     while (!chain.generate(qOverP, material, true, rng, true)) {
     }
@@ -165,7 +166,7 @@ BOOST_AUTO_TEST_CASE(TheVertexStateIsCalibrated)
     }
     const double u = chain.vertex.qOverP();
     pit.push_back(marginalCdf(electron.perigeeMixture, u));
-    mode.push_back(electron.perigeeMomentum * std::abs(u));
+    mode.push_back(static_cast<double>(electron.perigeeMomentum) * std::abs(u));
     kalman.push_back(std::abs(u / static_cast<double>(carried.qOverP())));
     d0Pull.push_back(static_cast<double>(electron.perigee.loc0()) / std::sqrt(static_cast<double>(electron.perigee.variance(kLoc0))));
   }

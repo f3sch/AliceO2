@@ -103,8 +103,8 @@ class Tracker
   using Neighbours = typename Scratch::Neighbours;
   using VertexWindows = VertexWindowParameters<Det>;
   using Index = typename Tracklets::Index;
-  static constexpr std::size_t kLayerCount = Scratch::kLayerCount;
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kLayerCount = Scratch::kLayerCount;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using Records = StageOutput<SelectionRecordOf<kMaxClusters>::template RecordT>;
 
   /// A slice's tracklets, the triplets built from them with their levels and
@@ -121,39 +121,39 @@ class Tracker
   /// What one iteration of a timeframe did.
   struct IterationSummary {
     StageStatus status = StageStatus::kComplete;
-    std::size_t slices = 0U;
-    std::size_t roads = 0U;      ///< fitted, over the slices
-    std::size_t records = 0U;    ///< passing the fit, over the slices
-    std::size_t duplicates = 0U; ///< records found by more than one slice
-    std::size_t mismatches = 0U; ///< duplicates that differ: must be none
-    std::size_t rounds = 0U;
-    std::size_t tracks = 0U;
+    std::uint32_t slices = 0U;
+    std::uint32_t roads = 0U;      ///< fitted, over the slices
+    std::uint32_t records = 0U;    ///< passing the fit, over the slices
+    std::uint32_t duplicates = 0U; ///< records found by more than one slice
+    std::uint32_t mismatches = 0U; ///< duplicates that differ: must be none
+    std::uint32_t rounds = 0U;
+    std::uint32_t tracks = 0U;
     /// Selected tracks whose two-pass refit failed, dropped after the follow
     /// (which skips them); `tracks` counts them.
-    std::size_t refitFailures = 0U;
+    std::uint32_t refitFailures = 0U;
     /// The iteration's tracks its follow grew, and the rows it added outward
     /// and inward.
-    std::size_t tracksFollowed = 0U;
-    std::size_t clustersFollowedOutward = 0U;
-    std::size_t clustersFollowedInward = 0U;
+    std::uint32_t tracksFollowed = 0U;
+    std::uint32_t clustersFollowedOutward = 0U;
+    std::uint32_t clustersFollowedInward = 0U;
     /// With followEarlier, the earlier iterations' tracks its follow grew,
     /// and their rows.
-    std::size_t tracksFollowedEarlier = 0U;
-    std::size_t clustersFollowedEarlierOutward = 0U;
-    std::size_t clustersFollowedEarlierInward = 0U;
+    std::uint32_t tracksFollowedEarlier = 0U;
+    std::uint32_t clustersFollowedEarlierOutward = 0U;
+    std::uint32_t clustersFollowedEarlierInward = 0U;
     /// Tracks below the iteration's length after the follow, dropped;
     /// `tracks` counts them.
-    std::size_t tracksDropped = 0U;
+    std::uint32_t tracksDropped = 0U;
     /// The iteration's tracks joined to an earlier iteration's (TrackJoin.h),
     /// which takes their rows; `tracks` counts them.
-    std::size_t tracksJoined = 0U;
+    std::uint32_t tracksJoined = 0U;
     /// Tracks that took an inactive layer's row on their whole fit
     /// (InactiveRows.h).
-    std::size_t inactiveRows = 0U;
+    std::uint32_t inactiveRows = 0U;
     /// The overlap partners claimed and the tracks they went to
     /// (OverlapPartners.h).
-    std::size_t overlapPartners = 0U;
-    std::size_t tracksWithPartners = 0U;
+    std::uint32_t overlapPartners = 0U;
+    std::uint32_t tracksWithPartners = 0U;
     std::size_t recordBytes = 0U; ///< the selection records held for the iteration
     std::int64_t haloPS = 0;
     /// Every phase of the iteration, from `iteration` down; empty with
@@ -179,7 +179,7 @@ class Tracker
     typename OverlapPartners<Det>::Finished partners;
     /// After the last iteration, the inactive layers' rows matched to the
     /// tracks (InactiveMatch.h).
-    std::size_t matches = 0U;
+    std::uint32_t matches = 0U;
   };
 
   /// What a run left after its first iterations, all that a later iteration
@@ -195,7 +195,7 @@ class Tracker
 
   /// One tracker for every iteration of \a iterations, their parameters built
   /// once here.
-  Tracker(std::span<const IterationSettings> iterations, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material, std::shared_ptr<BoundedMemoryResource> memoryPool, Index chunkSize, int maxConcurrency = 0)
+  Tracker(std::span<const IterationSettings> iterations, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material, std::shared_ptr<BoundedMemoryResource> memoryPool, Index chunkSize, std::int32_t maxConcurrency = 0)
     : mBeamLine(vertexSeed(beamSpot)),
       mMemoryPool(std::move(memoryPool)),
       mArena(maxConcurrency),
@@ -211,12 +211,12 @@ class Tracker
     if (iterations.empty()) {
       throw std::invalid_argument("a tracker without iterations");
     }
-    for (std::size_t iteration = 0; iteration < iterations.size(); ++iteration) {
+    for (std::uint32_t iteration = 0; iteration < iterations.size(); ++iteration) {
       const auto& settings = iterations[iteration];
       // An earlier iteration with the same windows has the same links'
       // windows and bounds: derived once (`iterationParameters`).
       const IterationParameters<Det>* alike = nullptr;
-      for (std::size_t earlier = 0; earlier < iteration && alike == nullptr; ++earlier) {
+      for (std::uint32_t earlier = 0; earlier < iteration && alike == nullptr; ++earlier) {
         if (mWindowSettings[earlier] == settings.windows && (mIterations[earlier].vertexSource == VertexSource::kNone) == (settings.vertexSource == VertexSource::kNone)) {
           alike = &mIterations[earlier];
         }
@@ -249,7 +249,7 @@ class Tracker
   }
 
   /// A tracker of one iteration.
-  Tracker(const IterationSettings& settings, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material, std::shared_ptr<BoundedMemoryResource> memoryPool, Index chunkSize, int maxConcurrency = 0)
+  Tracker(const IterationSettings& settings, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material, std::shared_ptr<BoundedMemoryResource> memoryPool, Index chunkSize, std::int32_t maxConcurrency = 0)
     : Tracker(std::span<const IterationSettings>{&settings, 1U}, beamSpot, material, std::move(memoryPool), chunkSize, maxConcurrency)
   {
   }
@@ -267,8 +267,8 @@ class Tracker
     }
   }
 
-  [[nodiscard]] std::size_t iterationCount() const { return mIterations.size(); }
-  [[nodiscard]] const IterationParameters<Det>& iteration(std::size_t index) const { return mIterations[index]; }
+  [[nodiscard]] std::uint32_t iterationCount() const { return static_cast<std::uint32_t>(mIterations.size()); }
+  [[nodiscard]] const IterationParameters<Det>& iteration(std::uint32_t index) const { return mIterations[index]; }
 
   /// Start a timeframe: every row free, and each stage's staging at what the
   /// estimator learned (`stageStaging`).
@@ -338,7 +338,7 @@ class Tracker
   /// graph lives, records null and fitSeconds 0 without \a fit. After `beginTimeframe`. An iteration that
   /// follows the earlier tracks has no graph of its own: std::invalid_argument. Returns the first status short of complete.
   template <typename Visit>
-  [[nodiscard]] StageStatus runGraph(std::size_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, bool fit, const Visit& visit)
+  [[nodiscard]] StageStatus runGraph(std::uint32_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, bool fit, const Visit& visit)
   {
     plan.check(frame, mIterations);
     if (mIterations[iteration].followEarlier) {
@@ -397,13 +397,13 @@ class Tracker
   /// then the selection, the refit and the follow. \a plan must be this
   /// tracker's plan of \a frame -- std::invalid_argument otherwise -- and
   /// outlive the run.
-  [[nodiscard]] TimeframeResult run(const Frame& frame, const TimeframePlan<Det>& plan) { return runIterations(frame, plan, nullptr, mIterations.size()); }
+  [[nodiscard]] TimeframeResult run(const Frame& frame, const TimeframePlan<Det>& plan) { return runIterations(frame, plan, nullptr, iterationCount()); }
 
   /// The first \a iterations iterations of `run(frame, plan)`, the same as
   /// far as they go: what `checkpoint` keeps.
-  [[nodiscard]] TimeframeResult run(const Frame& frame, const TimeframePlan<Det>& plan, std::size_t iterations)
+  [[nodiscard]] TimeframeResult run(const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t iterations)
   {
-    if (iterations > mIterations.size()) {
+    if (iterations > iterationCount()) {
       throw std::invalid_argument(std::to_string(iterations) + " iterations of a tracker of " + std::to_string(mIterations.size()));
     }
     return runIterations(frame, plan, nullptr, iterations);
@@ -421,7 +421,7 @@ class Tracker
     Checkpoint state;
     const auto& tracks = mRefit.tracks();
     state.tracks.reserve(tracks.size());
-    for (std::size_t track = 0; track < tracks.size(); ++track) {
+    for (std::uint32_t track = 0; track < tracks.size(); ++track) {
       state.tracks.push_back(tracks.read(track));
     }
     state.used.assign(mUsed.begin(), mUsed.end());
@@ -439,11 +439,11 @@ class Tracker
   /// ones on the same frame and plan: the caller checks the settings.
   [[nodiscard]] TimeframeResult resume(const Frame& frame, const TimeframePlan<Det>& plan, const Checkpoint& from)
   {
-    const std::size_t first = from.summaries.size();
-    if (first > mIterations.size() || from.used.size() != frame.size()) {
+    const auto first = static_cast<std::uint32_t>(from.summaries.size());
+    if (first > iterationCount() || from.used.size() != frame.size()) {
       throw std::invalid_argument("a checkpoint of " + std::to_string(first) + " iterations on " + std::to_string(from.used.size()) + " rows for a tracker of " + std::to_string(mIterations.size()) + " on " + std::to_string(frame.size()));
     }
-    return runIterations(frame, plan, &from, mIterations.size());
+    return runIterations(frame, plan, &from, iterationCount());
   }
 
   /// Profile every `run`, or leave the profiles empty (the default).
@@ -462,7 +462,7 @@ class Tracker
   /// one of \a plan's slices (or planned alike), with \a plan's frame-wide
   /// bounds. \a vertexWindows are \a plan's for the iteration (`planTimeframe`);
   /// a beam-line iteration does not read them.
-  [[nodiscard]] Result runSlice(std::size_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, const SlicePlan<Det>& slicePlan, std::span<const VertexSeed> vertices, const VertexWindows& vertexWindows)
+  [[nodiscard]] Result runSlice(std::uint32_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, const SlicePlan<Det>& slicePlan, std::span<const VertexSeed> vertices, const VertexWindows& vertexWindows)
   {
     assert(iteration < mIterations.size());
     return runPlannedSlice(iteration, frame, plan, slicePlan, slicePlan.slice, mBeamLine, vertices, vertexWindows, false);
@@ -472,7 +472,7 @@ class Tracker
   /// before the selection, with the used mask it read still in place. Every
   /// pointer is valid while the observer runs.
   struct SliceObservation {
-    std::size_t iteration = 0U;
+    std::uint32_t iteration = 0U;
     const Frame* frame = nullptr;
     const typename Frame::TimeSlice* slice = nullptr;
     const Result* result = nullptr;
@@ -484,7 +484,7 @@ class Tracker
   /// A completed iteration of `run`: its selection, refit and follow
   /// done. The selection's records() are every slice's, appended in order.
   struct IterationObservation {
-    std::size_t iteration = 0U;
+    std::uint32_t iteration = 0U;
     const GlobalSelection<kMaxClusters>* selection = nullptr;
     const IterationSummary* summary = nullptr;
     std::span<const std::uint8_t> used;                        ///< the mask after the iteration
@@ -525,11 +525,11 @@ class Tracker
   /// The beam line as a vertex seed, which a beam-line iteration reads.
   [[nodiscard]] const VertexSeed& beamLine() const { return mBeamLine; }
   /// The most tracklets, triplets and neighbours one slice placed.
-  [[nodiscard]] std::size_t trackletHighWater() const { return mTrackletHighWater; }
-  [[nodiscard]] std::size_t tripletHighWater() const { return mTripletHighWater; }
-  [[nodiscard]] std::size_t neighbourHighWater() const { return mNeighbourHighWater; }
-  [[nodiscard]] std::size_t stagingHighWater() const { return mStagingHighWater; }
-  [[nodiscard]] std::size_t stagingPredictionMisses() const { return mStagingPredictionMisses; }
+  [[nodiscard]] std::uint32_t trackletHighWater() const { return mTrackletHighWater; }
+  [[nodiscard]] std::uint32_t tripletHighWater() const { return mTripletHighWater; }
+  [[nodiscard]] std::uint32_t neighbourHighWater() const { return mNeighbourHighWater; }
+  [[nodiscard]] std::uint32_t stagingHighWater() const { return mStagingHighWater; }
+  [[nodiscard]] std::uint32_t stagingPredictionMisses() const { return mStagingPredictionMisses; }
   [[nodiscard]] std::size_t memoryHighWater() const { return mMemoryPool->getPeakMemory(); }
 
  private:
@@ -540,8 +540,8 @@ class Tracker
   template <typename StageBackend>
   void stageStaging(StagingSite site, StageBackend& backend)
   {
-    auto& granted = mGranted[static_cast<std::size_t>(site)];
-    granted = mEstimator.perThread(static_cast<std::size_t>(site), mRows);
+    auto& granted = mGranted[static_cast<std::uint32_t>(site)];
+    granted = mEstimator.perThread(static_cast<std::uint32_t>(site), mRows);
     backend.prepareStagingPerThread(granted);
     backend.resetLargestUse();
   }
@@ -550,12 +550,12 @@ class Tracker
   template <typename StageBackend>
   void learnStaging(StagingSite site, const StageBackend& backend)
   {
-    mEstimator.learn(static_cast<std::size_t>(site), backend.largestUse(), mGranted[static_cast<std::size_t>(site)], mRows, backend.grewSinceReset());
+    mEstimator.learn(static_cast<std::uint32_t>(site), backend.largestUse(), mGranted[static_cast<std::uint32_t>(site)], mRows, backend.grewSinceReset());
     mStagingPredictionMisses += backend.grewSinceReset() ? 1U : 0U;
   }
 
   /// `run` from \a from (none: the start) to iteration \a last.
-  [[nodiscard]] TimeframeResult runIterations(const Frame& frame, const TimeframePlan<Det>& plan, const Checkpoint* from, std::size_t last)
+  [[nodiscard]] TimeframeResult runIterations(const Frame& frame, const TimeframePlan<Det>& plan, const Checkpoint* from, std::uint32_t last)
   {
     plan.check(frame, mIterations);
     TimeframeResult result;
@@ -565,7 +565,7 @@ class Tracker
 
   /// `runIterations` without its profile's activation: the iterations after
   /// \a from's (from the first without one) to \a last into \a result.
-  void runTimeframe(const Frame& frame, const TimeframePlan<Det>& plan, TimeframeResult& result, const Checkpoint* from, std::size_t last)
+  void runTimeframe(const Frame& frame, const TimeframePlan<Det>& plan, TimeframeResult& result, const Checkpoint* from, std::uint32_t last)
   {
     {
       const profile::Zone zone{Phase::kBegin};
@@ -577,15 +577,15 @@ class Tracker
     mRefit.clear();
     mStore.clear();
     mClaims.clear();
-    std::size_t first = 0U;
+    std::uint32_t first = 0U;
     if (from != nullptr) {
-      first = from->summaries.size();
+      first = static_cast<std::uint32_t>(from->summaries.size());
       std::ranges::copy(from->used, mUsed.begin());
       // The tracks into the pool: a limit ends the run with a status, as anywhere.
       result.status = guardOutOfMemory([&] {
         auto& tracks = mRefit.tracks();
-        tracks.resize(from->tracks.size());
-        for (std::size_t track = 0; track < from->tracks.size(); ++track) {
+        tracks.resize(static_cast<std::uint32_t>(from->tracks.size()));
+        for (std::uint32_t track = 0; track < from->tracks.size(); ++track) {
           tracks.write(track, from->tracks[track]);
         }
         mClaims.assign(from->claims.begin(), from->claims.end());
@@ -599,7 +599,7 @@ class Tracker
       }
       result.iterations = from->summaries;
     }
-    for (std::size_t iteration = first; iteration < last; ++iteration) {
+    for (std::uint32_t iteration = first; iteration < last; ++iteration) {
       IterationSummary summary;
       profiled(summary.profile, Phase::kIteration, [&] { runIteration(iteration, frame, plan, summary); });
       result.profile += summary.profile;
@@ -609,7 +609,7 @@ class Tracker
         return;
       }
     }
-    if (last == mIterations.size()) {
+    if (last == iterationCount()) {
       const profile::Zone zone{Phase::kOverlapPartners};
       result.status = finishPartners(frame, result.partners);
       if (result.status != StageStatus::kComplete) {
@@ -617,7 +617,7 @@ class Tracker
       }
     }
     if constexpr (Detector<Det>::inactiveLayers != 0U) {
-      if (last == mIterations.size()) {
+      if (last == iterationCount()) {
         const profile::Zone zone{Phase::kInactiveMatch};
         result.status = matchInactive(frame, plan, result.matches);
         if (result.status != StageStatus::kComplete) {
@@ -631,7 +631,7 @@ class Tracker
   /// The tracks not committed yet into the store (TrackStore::commit).
   [[nodiscard]] StageStatus commitTracks()
   {
-    const auto count = static_cast<Index>(mRefit.size() - mStore.size());
+    const auto count = mRefit.size() - mStore.size();
     return mStore.commit(spreadForEach(), spreadChunk(count), std::as_const(mRefit).tracks());
   }
 
@@ -641,13 +641,13 @@ class Tracker
   /// After the last iteration, the inactive layers' rows matched to the
   /// tracks (InactiveMatch.h), how many into \a matches, and the store's
   /// matched tracks committed again with them.
-  [[nodiscard]] StageStatus matchInactive(const Frame& frame, const TimeframePlan<Det>& plan, std::size_t& matches)
+  [[nodiscard]] StageStatus matchInactive(const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t& matches)
   {
-    const auto forEach = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(static_cast<Index>(count)))(static_cast<Index>(count), body); };
+    const auto forEach = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(count))(count, body); };
     auto status = mMatch.run(forEach, mIterations.data(), frame, *mGeometry, mPropagator, std::as_const(mRefit).tracks(), std::span<std::uint8_t>{mUsed}, plan.layerMaxWidthPS);
-    matches = mMatch.matched().size();
+    matches = static_cast<std::uint32_t>(mMatch.matched().size());
     if (status == StageStatus::kComplete && matches != 0U) {
-      status = mStore.recommitMatched(spreadForEach(), spreadChunk(static_cast<Index>(matches)), mMatch.matched());
+      status = mStore.recommitMatched(spreadForEach(), spreadChunk(matches), mMatch.matched());
     }
     mMatch.clearStorage();
     return status;
@@ -696,7 +696,7 @@ class Tracker
 
   /// Iteration \a iteration of `run`: its slices, the selection, the refit
   /// and the follow, into \a summary, whose status says how far it got.
-  void runIteration(std::size_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, IterationSummary& summary)
+  void runIteration(std::uint32_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, IterationSummary& summary)
   {
     const auto forEach = hostForEach();
     const auto fits = fitForEach();
@@ -714,7 +714,7 @@ class Tracker
       summary.status = runFollow(mFollowEarlier, mIterations[iteration], frame, plan, 0U, true, summary.tracksFollowedEarlier, summary.clustersFollowedEarlierOutward, summary.clustersFollowedEarlierInward);
       if (summary.status == StageStatus::kComplete) {
         // The tracks it extended or trimmed in place, committed again.
-        summary.status = mStore.recommitChanged(spreadForEach(), spreadChunk(static_cast<Index>(mStore.size())), std::as_const(mRefit).tracks(), mChangedTracks);
+        summary.status = mStore.recommitChanged(spreadForEach(), spreadChunk(mStore.size()), std::as_const(mRefit).tracks(), mChangedTracks);
       }
       if (summary.status == StageStatus::kComplete) {
         summary.status = notePartnerCandidates();
@@ -774,8 +774,8 @@ class Tracker
     summary.duplicates = mSelection.duplicates();
     summary.mismatches = mSelection.mismatches();
     summary.rounds = mSelection.rounds();
-    summary.tracks = mSelection.selected().size();
-    const auto trackOffset = static_cast<std::uint32_t>(mRefit.size());
+    summary.tracks = static_cast<std::uint32_t>(mSelection.selected().size());
+    const auto trackOffset = mRefit.size();
     bool followed = false;
     bool started = false;
     if (summary.status == StageStatus::kComplete) {
@@ -784,8 +784,8 @@ class Tracker
         summary.status = mRefit.run(fits, mSelection, mIterations[iteration], frame, *mGeometry, mPropagator, static_cast<std::uint8_t>(iteration));
       }
       const auto status = mRefit.tracks().view().status;
-      for (auto track = static_cast<std::size_t>(trackOffset); track < mRefit.size(); ++track) {
-        summary.refitFailures += static_cast<std::size_t>(status[track] != PropagationStatus::kOk);
+      for (auto track = trackOffset; track < mRefit.size(); ++track) {
+        summary.refitFailures += static_cast<std::uint32_t>(status[track] != PropagationStatus::kOk);
       }
       if (summary.status == StageStatus::kComplete && mIterations[iteration].follow) {
         // What the follow starts from, kept only for an observer's replay.
@@ -829,15 +829,15 @@ class Tracker
       }
       if (summary.status == StageStatus::kComplete) {
         const profile::Zone zone{Phase::kInactiveRows};
-        const auto forEach = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(static_cast<Index>(count)))(static_cast<Index>(count), body); };
-        summary.status = mInactiveRows.run(forEach, spreadChunk(static_cast<Index>(mInactiveCandidates.size())), mIterations[iteration], frame, *mGeometry, mPropagator, mRefit.tracks(), std::span<const std::uint32_t>{mInactiveCandidates}, std::span<std::uint8_t>{mUsed}, plan.layerMaxWidthPS, mSensorCells.view());
-        summary.inactiveRows = mInactiveRows.changed().size();
+        const auto forEachSpread = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(count))(count, body); };
+        summary.status = mInactiveRows.run(forEachSpread, spreadChunk(static_cast<Index>(mInactiveCandidates.size())), mIterations[iteration], frame, *mGeometry, mPropagator, mRefit.tracks(), std::span<const std::uint32_t>{mInactiveCandidates}, std::span<std::uint8_t>{mUsed}, plan.layerMaxWidthPS, mSensorCells.view());
+        summary.inactiveRows = static_cast<std::uint32_t>(mInactiveRows.changed().size());
       }
     }
     const auto changedEarlier = [&](std::span<const std::uint32_t> changed) { return !changed.empty() && changed.front() < trackOffset; };
     if (summary.status == StageStatus::kComplete && (summary.tracksJoined != 0U || changedEarlier(mInactiveRows.changed()))) {
       // The earlier tracks the join or the inactive rows changed, committed again.
-      summary.status = mStore.recommitChanged(spreadForEach(), spreadChunk(static_cast<Index>(mStore.size())), std::as_const(mRefit).tracks(), mChangedTracks);
+      summary.status = mStore.recommitChanged(spreadForEach(), spreadChunk(mStore.size()), std::as_const(mRefit).tracks(), mChangedTracks);
       if (summary.status == StageStatus::kComplete) {
         summary.status = notePartnerCandidates();
       }
@@ -881,7 +881,7 @@ class Tracker
   /// \a follow run on the tracks from \a trackOffset with \a parameters
   /// (`Follow::run`), \a earlier for the earlier iterations' tracks; its
   /// proposals tallied into \a tracks, \a outward and \a inward.
-  [[nodiscard]] StageStatus runFollow(Follow<Det>& follow, const IterationParameters<Det>& parameters, const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset, bool earlier, std::size_t& tracks, std::size_t& outward, std::size_t& inward)
+  [[nodiscard]] StageStatus runFollow(Follow<Det>& follow, const IterationParameters<Det>& parameters, const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset, bool earlier, std::uint32_t& tracks, std::uint32_t& outward, std::uint32_t& inward)
   {
     if (mOccupancyOffsets.empty()) {
       throw std::logic_error("the follow needs the track model set before the timeframe began (setTrackModel, beginTimeframe)");
@@ -891,7 +891,7 @@ class Tracker
       return status;
     }
     for (const auto& proposal : follow.proposals()) {
-      tracks += static_cast<std::size_t>(proposal.outwardCount + proposal.inwardCount != 0U);
+      tracks += static_cast<std::uint32_t>(proposal.outwardCount + proposal.inwardCount != 0U);
       outward += proposal.outwardCount;
       inward += proposal.inwardCount;
     }
@@ -920,11 +920,11 @@ class Tracker
   /// selection plus the rows of every kept track, marked as they are now: a dropped track's rows
   /// no kept one holds are free again, an earlier iteration's are untouched.
   /// Returns how many were dropped.
-  std::size_t dropTracks(const IterationParameters<Det>& parameters, std::uint32_t trackOffset, bool followed, bool started)
+  std::uint32_t dropTracks(const IterationParameters<Det>& parameters, std::uint32_t trackOffset, bool followed, bool started)
   {
     auto& tracks = mRefit.tracks();
     const auto view = std::as_const(tracks).view();
-    const auto count = static_cast<Index>(tracks.size() - trackOffset);
+    const auto count = tracks.size() - trackOffset;
     const auto chunk = spreadChunk(count);
     const auto forEach = forEachIn(chunk);
     // The kept tracks, as offsets from trackOffset, in order (the serial
@@ -939,7 +939,7 @@ class Tracker
         std::atomic_ref<std::uint8_t>{mUsedBeforeSelection[row]}.store(mUsed[row], std::memory_order_relaxed);
       }
     });
-    const std::size_t dropped = count - kept;
+    const std::uint32_t dropped = count - kept;
     keepTracks(trackOffset, followed, started);
     copyInParallel(std::span<const std::uint8_t>{mUsedBeforeSelection}, std::span<std::uint8_t>{mUsed});
     return dropped;
@@ -958,13 +958,13 @@ class Tracker
   /// Iteration \a iteration's overlap partners (`OverlapPartners::run`) for
   /// its tracks, from \a trackOffset, and the earlier ones it changed: the
   /// new claims merged into the run's, which stay ordered by track.
-  [[nodiscard]] StageStatus claimPartners(std::size_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset)
+  [[nodiscard]] StageStatus claimPartners(std::uint32_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset)
   {
     auto status = guardOutOfMemory([&] {
       std::ranges::sort(mPartnerCandidates);
       const auto unique = std::ranges::unique(mPartnerCandidates);
       mPartnerCandidates.erase(unique.begin(), unique.end());
-      for (auto track = trackOffset; track < static_cast<std::uint32_t>(mRefit.size()); ++track) {
+      for (auto track = trackOffset; track < mRefit.size(); ++track) {
         mPartnerCandidates.push_back(track);
       }
       return StageStatus::kComplete;
@@ -988,17 +988,17 @@ class Tracker
   /// The join of the tracks from \a trackOffset on to the earlier ones
   /// (TrackJoin.h): the joined ones removed (`keepTracks`), the earlier ones
   /// that took them committed again; how many into \a joined.
-  [[nodiscard]] StageStatus joinTracks(const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset, bool followed, bool started, std::size_t& joined)
+  [[nodiscard]] StageStatus joinTracks(const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset, bool followed, bool started, std::uint32_t& joined)
   {
     auto& tracks = mRefit.tracks();
-    const auto forEach = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(static_cast<Index>(count)))(static_cast<Index>(count), body); };
-    auto status = mJoin.run(forEach, spreadChunk(static_cast<Index>(tracks.size() - trackOffset)), mIterations.data(), frame, *mGeometry, mPropagator, tracks, trackOffset, plan.layerMaxWidthPS);
-    joined = mJoin.joined().size();
+    const auto forEach = [&](std::uint32_t count, const auto& body) { forEachIn(spreadChunk(count))(count, body); };
+    auto status = mJoin.run(forEach, spreadChunk(tracks.size() - trackOffset), mIterations.data(), frame, *mGeometry, mPropagator, tracks, trackOffset, plan.layerMaxWidthPS);
+    joined = static_cast<std::uint32_t>(mJoin.joined().size());
     if (status != StageStatus::kComplete || joined == 0U) {
       return status;
     }
     status = guardOutOfMemory([&] {
-      const auto count = static_cast<Index>(tracks.size() - trackOffset);
+      const auto count = tracks.size() - trackOffset;
       resizeBoundedVector(mKeptTracks, count - joined, mMemoryPool.get());
       const auto gone = mJoin.joined();
       for (Index at = 0, next = 0, kept = 0; at < count; ++at) {
@@ -1020,7 +1020,7 @@ class Tracker
   [[nodiscard]] StageStatus gatherInactiveCandidates(std::uint32_t trackOffset, std::span<const std::uint32_t> joined)
   {
     return guardOutOfMemory([&] {
-      const auto own = static_cast<std::uint32_t>(mRefit.size()) - trackOffset;
+      const auto own = mRefit.size() - trackOffset;
       resizeBoundedVector(mInactiveCandidates, joined.size() + own, mMemoryPool.get());
       std::ranges::copy(joined, mInactiveCandidates.begin());
       for (std::uint32_t at = 0; at < own; ++at) {
@@ -1104,7 +1104,7 @@ class Tracker
   /// \a plan's frame-wide bounds; the stage reads \a beamLine or \a
   /// vertices, as the iteration chose, and its gate the core ranges of \a
   /// owner, the slice the caller keeps.
-  [[nodiscard]] Result runPlannedSlice(std::size_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, const SlicePlan<Det>& slicePlan, const typename Frame::TimeSlice& owner, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, const VertexWindows& vertexWindows, bool countRoads)
+  [[nodiscard]] Result runPlannedSlice(std::uint32_t iteration, const Frame& frame, const TimeframePlan<Det>& plan, const SlicePlan<Det>& slicePlan, const typename Frame::TimeSlice& owner, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, const VertexWindows& vertexWindows, bool countRoads)
   {
     assert(iteration < mIterations.size() && mUsed.size() == frame.size());
     const profile::Zone zone{Phase::kSlices};
@@ -1147,7 +1147,7 @@ class Tracker
       return runNeighbours(frame, owner, countRoads);
     });
     if (status == StageStatus::kComplete) {
-      mTrackletHighWater = std::max<std::size_t>(mTrackletHighWater, mScratch.tracklets().size());
+      mTrackletHighWater = std::max(mTrackletHighWater, mScratch.tracklets().size());
       mStagingHighWater = std::max(mStagingHighWater, mTrackletStage.stagingCapacity());
     }
     const bool complete = status == StageStatus::kComplete;
@@ -1181,8 +1181,8 @@ class Tracker
       const profile::Zone zone{Phase::kTripletPaths};
       auto& scratch = tracker->mScratch;
       auto& paths = scratch.tripletPaths();
-      paths.build(tracker->parameters(), scratch.sources(), scratch.tracklets(), scratch.permutation(), [&](Index begin, Index end, const auto& body) { staged.forEach(begin, end, [&](Index element, const auto& triplets, std::size_t at) { body(element, triplets.first[at], triplets.second[at]); }); }, tracker->hostForEach());
-      staged.compact([&](Index /*element*/, const auto& triplets, std::size_t at) { return paths.onPath(triplets.first[at], triplets.second[at]); });
+      paths.build(tracker->parameters(), scratch.sources(), scratch.tracklets(), scratch.permutation(), [&](Index begin, Index end, const auto& body) { staged.forEach(begin, end, [&](Index element, const auto& triplets, Index at) { body(element, triplets.first[at], triplets.second[at]); }); }, tracker->hostForEach());
+      staged.compact([&](Index /*element*/, const auto& triplets, Index at) { return paths.onPath(triplets.first[at], triplets.second[at]); });
     }
   };
 
@@ -1190,7 +1190,7 @@ class Tracker
   /// \a records, whose staging is that iteration's. An iteration with the
   /// beam constraint fits on the stage that also tests the beam line; the
   /// host alone makes it.
-  [[nodiscard]] StageStatus fitRoads(const Frame& frame, std::size_t owner, Records& records)
+  [[nodiscard]] StageStatus fitRoads(const Frame& frame, std::uint32_t owner, Records& records)
   {
     const auto roads = mRoads.roadCount();
     mIteration = owner;
@@ -1200,7 +1200,7 @@ class Tracker
     const auto run = [&]<bool BeamLine, bool LastStepAllowance, bool Size>() {
       const RoadFitStage<Det, BeamLine, LastStepAllowance, Size> stage{fitted, frame, *mGeometry, mPropagator, mScratch.tracklets(), mScratch.triplets(), mRoads.walk(mScratch.triplets(), mScratch.neighbours())};
       setup.reset();
-      return mRecordStage.run(records, fitChunk(static_cast<Index>(roads)), stage);
+      return mRecordStage.run(records, fitChunk(roads), stage);
     };
     // An iteration with a kink allowance takes it on the fit's last step
     // (against the road-end fakes); one with `roadSize` weighs the rows'
@@ -1209,7 +1209,7 @@ class Tracker
   }
 
   /// The slice's roads, fitted, into the selection.
-  [[nodiscard]] StageStatus runRoads(const Frame& frame, IterationSummary& summary, std::size_t iteration)
+  [[nodiscard]] StageStatus runRoads(const Frame& frame, IterationSummary& summary, std::uint32_t iteration)
   {
     const auto counted = countRoads();
     if (counted != StageStatus::kComplete) {
@@ -1274,7 +1274,7 @@ class Tracker
       return mTripletStage.run(triplets, mChunkSize, OnPathTriplets<TripletStage<Det, decltype(shape)::value>>{this, &stage});
     });
     if (result == StageStatus::kComplete) {
-      mTripletHighWater = std::max<std::size_t>(mTripletHighWater, triplets.size());
+      mTripletHighWater = std::max(mTripletHighWater, triplets.size());
     }
     return result;
   }
@@ -1314,14 +1314,14 @@ class Tracker
     }
     // Each layer's first triplet: its first permuted tracklet's (`TripletPaths::layerElements`).
     std::array<Index, kLayerCount + 1U> boundaries{};
-    for (std::size_t layer = 0U; layer <= kLayerCount; ++layer) {
+    for (std::uint32_t layer = 0U; layer <= kLayerCount; ++layer) {
       boundaries[layer] = triplets.offsets()[tripletPaths.layerElements()[layer]];
     }
     const NeighbourStage<Det> stage{parameters(), frame, mScratch.tracklets(), triplets, ending, paths, triplets.view().level, counts};
     setup.reset();
     const auto result = mNeighbourStage.run(neighbours, mChunkSize, LayeredNeighbours{stage, boundaries});
     if (result == StageStatus::kComplete) {
-      mNeighbourHighWater = std::max<std::size_t>(mNeighbourHighWater, neighbours.size());
+      mNeighbourHighWater = std::max(mNeighbourHighWater, neighbours.size());
     }
     return result;
   }
@@ -1387,7 +1387,7 @@ class Tracker
 
   std::vector<SearchWindowParams> mWindowSettings;
   std::vector<IterationParameters<Det>> mIterations;
-  std::size_t mIteration = 0U;
+  std::uint32_t mIteration = 0U;
   VertexSeed mBeamLine;
   TrackletInputs<Det> mTrackletInputs;
   SliceObserver mSliceObserver;
@@ -1442,15 +1442,15 @@ class Tracker
   profile::Trace* mTrace = nullptr;
   bool mProfiling = false;
   CapacityEstimator mEstimator;
-  std::size_t mRows = 0U;                                        ///< the timeframe's measurement rows
-  std::array<std::size_t, CapacityEstimator::kSites> mGranted{}; ///< per stage, the staging granted per thread
+  std::uint32_t mRows = 0U;                                        ///< the timeframe's measurement rows
+  std::array<std::uint32_t, CapacityEstimator::kSites> mGranted{}; ///< per stage, the staging granted per thread
   Index mChunkSize = 1U;
   static constexpr Index kFitChunksPerThread = 8U; ///< `fitChunk`
-  std::size_t mTrackletHighWater = 0U;
-  std::size_t mStagingHighWater = 0U;
-  std::size_t mStagingPredictionMisses = 0U;
-  std::size_t mTripletHighWater = 0U;
-  std::size_t mNeighbourHighWater = 0U;
+  std::uint32_t mTrackletHighWater = 0U;
+  std::uint32_t mStagingHighWater = 0U;
+  std::uint32_t mStagingPredictionMisses = 0U;
+  std::uint32_t mTripletHighWater = 0U;
+  std::uint32_t mNeighbourHighWater = 0U;
 };
 
 } // namespace o2::gtrk

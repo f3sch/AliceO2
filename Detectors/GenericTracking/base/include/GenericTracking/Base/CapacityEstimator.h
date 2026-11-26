@@ -18,6 +18,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 
 namespace o2::gtrk
 {
@@ -40,12 +41,12 @@ class CapacityEstimator
 
   /// The records to stage per thread for \a site in a timeframe of \a rows
   /// measurement rows.
-  [[nodiscard]] std::size_t perThread(std::size_t site, std::size_t rows) const;
+  [[nodiscard]] std::uint32_t perThread(std::uint32_t site, std::uint32_t rows) const;
   /// Learn from a timeframe of \a rows rows: \a largestUse, the most records
   /// one of \a site's buffers held at the end of a run; \a granted, the
   /// records per thread it was given; \a grew, whether a buffer grew past
   /// them.
-  void learn(std::size_t site, std::size_t largestUse, std::size_t granted, std::size_t rows, bool grew);
+  void learn(std::uint32_t site, std::uint32_t largestUse, std::uint32_t granted, std::uint32_t rows, bool grew);
 
  private:
   struct Entry {

@@ -83,7 +83,7 @@ GPUhdi() GPUAlwaysInline() void applyRadiation(const Propagator& /*prop*/, Scala
 /// The parameters a fit over a chain determines, which its degrees of freedom
 /// are counted against: the five, or four at zero field, where q/p is
 /// assumed (`detail::startDiffuse`).
-GPUhdi() GPUAlwaysInline() int fittedParameters(const Propagator& prop) { return prop.measuresMomentum() ? kNBoundParams : kNBoundParams - 1; }
+GPUhdi() GPUAlwaysInline() std::int32_t fittedParameters(const Propagator& prop) { return prop.measuresMomentum() ? kNBoundParams : kNBoundParams - 1; }
 
 namespace detail
 {
@@ -410,26 +410,27 @@ GPUdi() GPUAlwaysInline() PropagationStatus filterStepBody(const Prop& prop, con
 /// float holds it.
 struct DiffuseFactors {
   /// At most the angles and q/p: what a single measurement leaves undetermined.
-  static constexpr int kMaxRank = 3;
+  static constexpr std::int32_t kMaxRank = 3;
   CovarianceFactors star;
   Scalar root[kNBoundParams][kMaxRank]{}; ///< S's columns
-  int rank = 0;
+  std::int32_t rank = 0;
 };
 
 /// The fewest measurements a pass's start takes (`startPass`): the first
 /// fixes the position, the next two the direction and q/p.
-inline constexpr int kPassStart = 3;
+inline constexpr std::int32_t kPassStart = 3;
 
 /// U D U^T = sum_k w_k y_k y_k^T over \a M columns of \a y (rows the five
 /// parameters), into \a factors: modified weighted Gram-Schmidt from the last
 /// row up (`transportFactors`), a zero pivot giving a zero column of U.
-template <int M>
+template <std::size_t M>
 GPUdi() void factorColumns(Scalar (&y)[kNBoundParams][M], const Scalar (&w)[M], CovarianceFactors& factors)
 {
-  for (int j = kNBoundParams - 1; j >= 0; --j) {
+  constexpr auto kColumns = static_cast<std::int32_t>(M);
+  for (std::int32_t j = kNBoundParams - 1; j >= 0; --j) {
     Scalar weighted[M];
     Scalar d = 0.F;
-    for (int k = 0; k < M; ++k) {
+    for (std::int32_t k = 0; k < kColumns; ++k) {
       weighted[k] = w[k] * y[j][k];
       d += y[j][k] * weighted[k];
     }
@@ -440,14 +441,14 @@ GPUdi() void factorColumns(Scalar (&y)[kNBoundParams][M], const Scalar (&w)[M], 
     }
     factors.diagonal[j] = d;
     const Scalar inverse = d > 0.F ? 1.F / d : 0.F;
-    for (int i = 0; i < j; ++i) {
+    for (std::int32_t i = 0; i < j; ++i) {
       Scalar dot = 0.F;
-      for (int k = 0; k < M; ++k) {
+      for (std::int32_t k = 0; k < kColumns; ++k) {
         dot += y[i][k] * weighted[k];
       }
       const Scalar u = dot * inverse;
       factors.upper[strictUpperIndex(i, j)] = u;
-      for (int k = 0; k < M; ++k) {
+      for (std::int32_t k = 0; k < kColumns; ++k) {
         y[i][k] -= u * y[j][k];
       }
     }
@@ -455,15 +456,15 @@ GPUdi() void factorColumns(Scalar (&y)[kNBoundParams][M], const Scalar (&w)[M], 
 }
 
 /// U's columns into \a y's first five, D into \a w's.
-template <int M>
+template <std::size_t M>
 GPUdi() void factorColumnsOf(const CovarianceFactors& factors, Scalar (&y)[kNBoundParams][M], Scalar (&w)[M])
 {
-  for (int k = 0; k < kNBoundParams; ++k) {
-    for (int i = 0; i < k; ++i) {
+  for (std::int32_t k = 0; k < kNBoundParams; ++k) {
+    for (std::int32_t i = 0; i < k; ++i) {
       y[i][k] = factors.upper[strictUpperIndex(i, k)];
     }
     y[k][k] = 1.F;
-    for (int i = k + 1; i < kNBoundParams; ++i) {
+    for (std::int32_t i = k + 1; i < kNBoundParams; ++i) {
       y[i][k] = 0.F;
     }
     w[k] = factors.diagonal[k];
@@ -474,7 +475,7 @@ GPUdi() void factorColumnsOf(const CovarianceFactors& factors, Scalar (&y)[kNBou
 GPUdi() void applyJacobian(const SolenoidJacobian& jac, Scalar (&x)[kNBoundParams])
 {
   Scalar out[3]{};
-  for (int j = 0; j < kNBoundParams; ++j) {
+  for (std::int32_t j = 0; j < kNBoundParams; ++j) {
     out[0] += jac.loc0[j] * x[j];
     out[1] += jac.loc1[j] * x[j];
     out[2] += jac.phi[j] * x[j];
@@ -489,17 +490,17 @@ GPUdi() void applyJacobian(const SolenoidJacobian& jac, Scalar (&x)[kNBoundParam
 /// allowed, and P_inf -> F P_inf F^T, which no noise reaches.
 GPUdi() void transportDiffuse(const SolenoidJacobian& jac, const StepNoise& noise, DiffuseFactors& c)
 {
-  constexpr int kColumns = kNBoundParams + 7;
+  constexpr std::int32_t kColumns = kNBoundParams + 7;
   Scalar y[kNBoundParams][kColumns]{};
   Scalar w[kColumns]{};
   factorColumnsOf(c.star, y, w);
-  for (int k = 0; k < kNBoundParams; ++k) {
+  for (std::int32_t k = 0; k < kNBoundParams; ++k) {
     Scalar column[kNBoundParams];
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       column[i] = y[i][k];
     }
     applyJacobian(jac, column);
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       y[i][k] = column[i];
     }
   }
@@ -529,13 +530,13 @@ GPUdi() void transportDiffuse(const SolenoidJacobian& jac, const StepNoise& nois
   y[kLoc1][11] = jac.loc1[kTheta] * spread;
   w[11] = noise.thetaBefore;
   factorColumns(y, w, c.star);
-  for (int k = 0; k < c.rank; ++k) {
+  for (std::int32_t k = 0; k < c.rank; ++k) {
     Scalar column[kNBoundParams];
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       column[i] = c.root[i][k];
     }
     applyJacobian(jac, column);
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       c.root[i][k] = column[i];
     }
   }
@@ -553,12 +554,12 @@ GPUdi() void transportDiffuse(const SolenoidJacobian& jac, const StepNoise& nois
 template <bool Density = false>
 GPUdi() bool diffuseUpdate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams], Scalar r, Scalar v, BoundTrackState& state, [[maybe_unused]] Scalar* density = nullptr)
 {
-  constexpr int kRank = DiffuseFactors::kMaxRank;
+  constexpr std::int32_t kRank = DiffuseFactors::kMaxRank;
   // g = S^T h, K = S g / |g|^2.
   Scalar g[kRank]{};
   Scalar g2 = 0.F;
-  for (int j = 0; j < c.rank; ++j) {
-    for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t j = 0; j < c.rank; ++j) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       g[j] += h[i] * c.root[i][j];
     }
     g2 += g[j] * g[j];
@@ -570,8 +571,8 @@ GPUdi() bool diffuseUpdate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams], 
     *density += logOf(g2);
   }
   Scalar gain[kNBoundParams]{};
-  for (int i = 0; i < kNBoundParams; ++i) {
-    for (int j = 0; j < c.rank; ++j) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t j = 0; j < c.rank; ++j) {
       gain[i] += c.root[i][j] * g[j];
     }
     gain[i] /= g2;
@@ -579,45 +580,45 @@ GPUdi() bool diffuseUpdate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams], 
   // H = I - 2 u u^T / |u|^2 with g^T H = (-+|g|, 0, ...): S H's first column
   // carries h, the others are orthogonal to it.
   Scalar u[kRank]{};
-  for (int j = 0; j < c.rank; ++j) {
+  for (std::int32_t j = 0; j < c.rank; ++j) {
     u[j] = g[j];
   }
   const Scalar norm = o2::gpu::GPUCommonMath::Sqrt(g2);
   u[0] += g[0] >= 0.F ? norm : -norm;
   Scalar u2 = 0.F;
-  for (int j = 0; j < c.rank; ++j) {
+  for (std::int32_t j = 0; j < c.rank; ++j) {
     u2 += u[j] * u[j];
   }
   for (auto& row : c.root) {
     Scalar su = 0.F;
-    for (int j = 0; j < c.rank; ++j) {
+    for (std::int32_t j = 0; j < c.rank; ++j) {
       su += row[j] * u[j];
     }
     const Scalar scale = 2.F * su / u2;
-    for (int j = 0; j < c.rank; ++j) {
+    for (std::int32_t j = 0; j < c.rank; ++j) {
       row[j] -= scale * u[j];
     }
-    for (int j = 0; j + 1 < c.rank; ++j) {
+    for (std::int32_t j = 0; j + 1 < c.rank; ++j) {
       row[j] = row[j + 1];
     }
     row[c.rank - 1] = 0.F;
   }
   --c.rank;
 
-  constexpr int kColumns = kNBoundParams + 1;
+  constexpr std::int32_t kColumns = kNBoundParams + 1;
   Scalar y[kNBoundParams][kColumns]{};
   Scalar w[kColumns]{};
   factorColumnsOf(c.star, y, w);
-  for (int k = 0; k < kNBoundParams; ++k) {
+  for (std::int32_t k = 0; k < kNBoundParams; ++k) {
     Scalar hy = 0.F;
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       hy += h[i] * y[i][k];
     }
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       y[i][k] -= gain[i] * hy;
     }
   }
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     y[i][kNBoundParams] = gain[i];
   }
   w[kNBoundParams] = r;
@@ -662,17 +663,17 @@ GPUdi() bool updateCoordinate(DiffuseFactors& c, const Scalar (&h)[kNBoundParams
 template <bool Density = false>
 GPUdi() bool updateDiffuse(DiffuseFactors& c, const Measurement& measurement, BoundTrackState& state, Scalar& chi2, [[maybe_unused]] Scalar* density = nullptr)
 {
-  int a = kLoc0;
+  std::int32_t a = kLoc0;
   if (c.rank > 0) {
     Scalar projected0 = 0.F;
     Scalar projected1 = 0.F;
-    for (int j = 0; j < c.rank; ++j) {
+    for (std::int32_t j = 0; j < c.rank; ++j) {
       projected0 += c.root[kLoc0][j] * c.root[kLoc0][j];
       projected1 += c.root[kLoc1][j] * c.root[kLoc1][j];
     }
     a = projected1 > projected0 ? kLoc1 : kLoc0;
   }
-  const int b = a == kLoc0 ? kLoc1 : kLoc0;
+  const std::int32_t b = a == kLoc0 ? kLoc1 : kLoc0;
   const Scalar value[2] = {measurement.loc0, measurement.loc1};
   const Scalar variance[2] = {measurement.varLoc0, measurement.varLoc1};
   Scalar h[kNBoundParams]{};
@@ -757,14 +758,14 @@ GPUdi() bool startDiffuse(const Propagator& prop, const Measurement& measurement
 template <typename Chain>
 struct SkipChain {
   const Chain* chain;
-  int skip;
-  GPUdi() auto operator[](int i) const { return (*chain)[i < skip ? i : i + 1]; }
+  std::int32_t skip;
+  GPUdi() auto operator[](std::int32_t i) const { return (*chain)[i < skip ? i : i + 1]; }
 };
 
 /// The q/p of the helix through every measurement of the chain but the one
 /// at \a index (`makeChainSeed`), on the chain's first measurement.
 template <typename Prop, DetectorLayout Det, typename Chain>
-GPUdi() Scalar leaveOneOutQOverP(const Prop& prop, const TrackingGeometry<Det>& geometry, const Chain& measurements, int n, int index)
+GPUdi() Scalar leaveOneOutQOverP(const Prop& prop, const TrackingGeometry<Det>& geometry, const Chain& measurements, std::int32_t n, std::int32_t index)
 {
   return makeChainSeed(prop, geometry, SkipChain<Chain>{.chain = &measurements, .skip = index}, n - 1).qOverP();
 }
@@ -786,13 +787,13 @@ struct PassReference {
 
 /// Whether the pass over \a n measurements in \a direction takes the
 /// leave-one-out reference (PassReference).
-GPUdi() bool leavesOneOut(int n, PropagationDirection direction) { return direction == PropagationDirection::kForward && n > kPassStart; }
+GPUdi() bool leavesOneOut(std::int32_t n, PropagationDirection direction) { return direction == PropagationDirection::kForward && n > kPassStart; }
 
 /// The helix q/p the step to the measurement at \a index takes if the pass
 /// leaves one out (`leaveOneOutQOverP`), else 0: the same for every state a
 /// pass carries (a Gaussian-sum fit's components).
 template <typename Prop, DetectorLayout Det, typename Chain>
-GPUdi() Scalar leftOutQOverP(const Prop& prop, const TrackingGeometry<Det>& geometry, const Chain& measurements, int n, int index, PropagationDirection direction)
+GPUdi() Scalar leftOutQOverP(const Prop& prop, const TrackingGeometry<Det>& geometry, const Chain& measurements, std::int32_t n, std::int32_t index, PropagationDirection direction)
 {
   return leavesOneOut(n, direction) ? leaveOneOutQOverP(prop, geometry, measurements, n, index) : 0.F;
 }
@@ -801,18 +802,18 @@ GPUdi() Scalar leftOutQOverP(const Prop& prop, const TrackingGeometry<Det>& geom
 /// leave-one-out helix q/p (`leaveOneOutQOverP`), called only if the pass
 /// takes it.
 template <typename LeftOut>
-GPUdi() Scalar referenceFor(const PassReference& reference, int n, PropagationDirection direction, const LeftOut& leftOut)
+GPUdi() Scalar referenceFor(const PassReference& reference, std::int32_t n, PropagationDirection direction, const LeftOut& leftOut)
 {
   return leavesOneOut(n, direction) ? leftOut() * reference.lossScale : reference.qOverP;
 }
 
 /// \a reference after a step that took \a before and carried it through its
 /// energy loss to \a after.
-GPUdi() void advanceReference(PassReference& reference, int n, PropagationDirection direction, Scalar before, Scalar after)
+GPUdi() void advanceReference(PassReference& reference, std::int32_t n, PropagationDirection direction, Scalar before, Scalar after)
 {
   if (!leavesOneOut(n, direction)) {
     reference.qOverP = after;
-  } else if (before != 0.F) {
+  } else if (!exactlyEqual(before, 0.F)) {
     reference.lossScale *= after / before;
   }
 }
@@ -822,12 +823,12 @@ GPUdi() void advanceReference(PassReference& reference, int n, PropagationDirect
 /// what the fit's steps read; the fit's material (`SpanMaterial`) for both
 /// passes.
 template <DetectorLayout Det, typename Material, typename Chain>
-GPUdi() SpanMaterial<Material> spanMaterial(const TrackingGeometry<Det>& geometry, const Material& /*material*/, const Chain& measurements, int n)
+GPUdi() SpanMaterial<Material> spanMaterial(const TrackingGeometry<Det>& geometry, const Material& /*material*/, const Chain& measurements, std::int32_t n)
 {
   SpanMaterial<Material> span{};
   Scalar previous[3]{};
   LayerID previousLayer = kInvalidLayerID;
-  for (int i = 0; i < n; ++i) {
+  for (std::int32_t i = 0; i < n; ++i) {
     const auto measurement = measurements[i];
     Scalar point[3];
     const auto& plane = geometry.planeOf(measurement);

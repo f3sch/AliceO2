@@ -37,7 +37,7 @@ namespace o2::gtrk
 namespace
 {
 
-constexpr std::size_t kCapacity = 8U;
+constexpr std::uint32_t kCapacity = 8U;
 using Selection = GlobalSelection<kCapacity>;
 using Records = Selection::Records;
 using Record = BoundedColumns<SelectionRecordOf<kCapacity>::template RecordT>::Record;
@@ -51,7 +51,7 @@ struct Road {
 Record record(const Road& road)
 {
   Record result;
-  for (std::size_t i = 0; i < kCapacity; ++i) {
+  for (std::uint32_t i = 0; i < kCapacity; ++i) {
     result.clusters.index[i] = i < road.rows.size() ? road.rows[i] : ClusterList<kCapacity>::kNoCluster;
   }
   result.count = static_cast<std::uint8_t>(road.rows.size());
@@ -184,13 +184,13 @@ BOOST_AUTO_TEST_CASE(TheRoundsAreTheSequentialGreedyWalk)
   // among them, some rows already taken; for k = 0, 1 and 2, serially and on
   // 1 to 4 threads, in the given order and shuffled over two slices.
   // A fixed seed: the outcome is compared, not a rate.
-  std::mt19937_64 generator(20260926U); // NOLINT(cert-msc32-c,cert-msc51-cpp)
+  std::mt19937_64 generator(20260926U);
   constexpr std::uint32_t kRows = 1500U;
   std::vector<Road> roads;
   std::uniform_int_distribution<std::uint32_t> row(0U, kRows - 1U);
   std::uniform_int_distribution<std::uint32_t> length(4U, 8U);
   std::uniform_real_distribution<float> chi2(0.F, 20.F);
-  for (int i = 0; i < 3000; ++i) {
+  for (std::int32_t i = 0; i < 3000; ++i) {
     Road road{.rows = {}, .chi2 = chi2(generator)};
     const auto count = length(generator);
     while (road.rows.size() < count) {
@@ -227,7 +227,7 @@ BOOST_AUTO_TEST_CASE(TheRoundsAreTheSequentialGreedyWalk)
       BOOST_TEST_MESSAGE("k " << sharedInnermost << ": " << selected.size() << " of " << selection.ranked().size() << " in " << selection.rounds() << " rounds");
       BOOST_TEST(selection.rounds() > 1U);
 
-      for (const int threads : {1, 2, 4}) {
+      for (const std::int32_t threads : {1, 2, 4}) {
         for (const std::uint32_t chunk : {1U, 7U, 64U}) {
           detail::TaskArena cpuArena{threads};
           CpuStage<SelectionRecordOf<kCapacity>::template RecordT> cpu{cpuArena};

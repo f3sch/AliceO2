@@ -176,7 +176,7 @@ struct OrderedCounts {
 [[nodiscard]] inline StageStatus roadOffsets(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, const Index* starts, Index startCount, const std::uint32_t* roads, DeviceSpan<Index>& offsets, Index& total)
 {
   total = 0U;
-  const std::size_t items = std::size_t{startCount} + 1U;
+  const Index items = startCount + 1U;
   if (!offsets.allocate(arena, items)) {
     return StageStatus::kOutOfMemory;
   }
@@ -186,7 +186,7 @@ struct OrderedCounts {
   if (!counts.allocate(arena, items, ArenaEnd::kScratch) || !wide.allocate(arena, items, ArenaEnd::kScratch)) {
     return StageStatus::kOutOfMemory;
   }
-  algorithms::forEach(runtime, stream, static_cast<Index>(items), detail::WidenStartCounts{.starts = starts, .startCount = startCount, .roads = roads, .counts = counts.data()});
+  algorithms::forEach(runtime, stream, items, detail::WidenStartCounts{.starts = starts, .startCount = startCount, .roads = roads, .counts = counts.data()});
   const StageStatus scanned = algorithms::exclusiveScan(runtime, arena, stream, std::as_const(counts).data(), wide.data(), items);
   if (scanned != StageStatus::kComplete) {
     return scanned;
@@ -197,7 +197,7 @@ struct OrderedCounts {
   if (wideTotal > std::numeric_limits<Index>::max()) {
     return StageStatus::kIndexOverflow;
   }
-  algorithms::forEach(runtime, stream, static_cast<Index>(items), detail::NarrowOffsets{.wide = std::as_const(wide).data(), .offsets = offsets.data()});
+  algorithms::forEach(runtime, stream, items, detail::NarrowOffsets{.wide = std::as_const(wide).data(), .offsets = offsets.data()});
   total = static_cast<Index>(wideTotal);
   return StageStatus::kComplete;
 }

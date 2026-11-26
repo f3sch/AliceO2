@@ -100,7 +100,7 @@ size_t BoundedMemoryResource::getUsedMemory() const noexcept { return mUsedMemor
 
 size_t BoundedMemoryResource::getMaxMemory() const noexcept { return mMaxMemory.load(std::memory_order_relaxed); }
 
-size_t BoundedMemoryResource::getThrowCount() const noexcept { return mCountThrow.load(std::memory_order_relaxed); }
+std::uint64_t BoundedMemoryResource::getThrowCount() const noexcept { return mCountThrow.load(std::memory_order_relaxed); }
 
 size_t BoundedMemoryResource::getPeakMemory() const noexcept { return mPeakUsedMemory.load(std::memory_order_relaxed); }
 

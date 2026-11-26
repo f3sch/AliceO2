@@ -63,14 +63,14 @@ struct StageComparison {
   };
 
   bool sameElements = true; ///< the same number of elements; nothing else is compared otherwise
-  std::size_t referenceElements = 0U;
-  std::size_t otherElements = 0U;
-  std::size_t referenceRecords = 0U;
-  std::size_t otherRecords = 0U;
-  std::size_t elementsWithOtherCount = 0U;
-  std::size_t elementsReordered = 0U;
-  std::size_t recordsDiffering = 0U; ///< in elements of equal count, not merely reordered
-  std::array<std::size_t, kColumns> differingByColumn{};
+  std::uint32_t referenceElements = 0U;
+  std::uint32_t otherElements = 0U;
+  std::uint32_t referenceRecords = 0U;
+  std::uint32_t otherRecords = 0U;
+  std::uint32_t elementsWithOtherCount = 0U;
+  std::uint32_t elementsReordered = 0U;
+  std::uint32_t recordsDiffering = 0U; ///< in elements of equal count, not merely reordered
+  std::array<std::uint32_t, kColumns> differingByColumn{};
   std::array<double, kColumns> maxAbsDifference{};
   std::vector<Difference> first;
 
@@ -109,7 +109,7 @@ struct Record {
 };
 
 template <template <template <class> class> class S, typename View>
-[[nodiscard]] Record<S> recordAt(const View& view, std::size_t at)
+[[nodiscard]] Record<S> recordAt(const View& view, std::uint32_t at)
 {
   Record<S> record;
   std::size_t column = 0U;
@@ -131,7 +131,7 @@ template <template <template <class> class> class S, typename View>
 /// Count how \a right differs from \a left, column by column, into \a
 /// result.
 template <template <template <class> class> class S>
-void noteRecord(const Record<S>& left, const Record<S>& right, std::uint32_t element, std::uint32_t ordinal, std::size_t keep, StageComparison<S>& result)
+void noteRecord(const Record<S>& left, const Record<S>& right, std::uint32_t element, std::uint32_t ordinal, std::uint32_t keep, StageComparison<S>& result)
 {
   ++result.recordsDiffering;
   for (std::size_t column = 0; column < StageComparison<S>::kColumns; ++column) {
@@ -154,7 +154,7 @@ void noteRecord(const Record<S>& left, const Record<S>& right, std::uint32_t ele
 /// a difference is (row, 0, column, both values); rows of another number are
 /// not compared. The views are any memlayout column views of `S`.
 template <template <template <class> class> class S, typename View>
-[[nodiscard]] StageComparison<S> compareColumns(const View& reference, std::size_t referenceRows, const View& other, std::size_t otherRows, std::size_t keep = 8U)
+[[nodiscard]] StageComparison<S> compareColumns(const View& reference, std::uint32_t referenceRows, const View& other, std::uint32_t otherRows, std::uint32_t keep = 8U)
 {
   StageComparison<S> result;
   result.referenceElements = referenceRows;
@@ -165,11 +165,11 @@ template <template <template <class> class> class S, typename View>
     result.sameElements = false;
     return result;
   }
-  for (std::size_t row = 0; row < referenceRows; ++row) {
+  for (std::uint32_t row = 0; row < referenceRows; ++row) {
     const auto left = stage_comparison_detail::recordAt<S>(reference, row);
     const auto right = stage_comparison_detail::recordAt<S>(other, row);
     if (!(left == right)) {
-      stage_comparison_detail::noteRecord(left, right, static_cast<std::uint32_t>(row), 0U, keep, result);
+      stage_comparison_detail::noteRecord(left, right, row, 0U, keep, result);
     }
   }
   return result;
@@ -178,7 +178,7 @@ template <template <template <class> class> class S, typename View>
 /// Compare \a other with \a reference, element by element, keeping the first
 /// \a keep differences.
 template <template <template <class> class> class S>
-[[nodiscard]] StageComparison<S> compareStageOutputs(const StageOutput<S>& reference, const StageOutput<S>& other, std::size_t keep = 8U)
+[[nodiscard]] StageComparison<S> compareStageOutputs(const StageOutput<S>& reference, const StageOutput<S>& other, std::uint32_t keep = 8U)
 {
   using Comparison = StageComparison<S>;
   using Record = stage_comparison_detail::Record<S>;

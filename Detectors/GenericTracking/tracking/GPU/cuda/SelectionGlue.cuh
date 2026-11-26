@@ -88,7 +88,7 @@ struct WriteKeys {
   GPUdi() void operator()(Index record) const
   {
     const auto key = selection::sortedKey(clusters[record], count[record]);
-    for (std::size_t word = 0; word < K; ++word) {
+    for (std::uint32_t word = 0; word < K; ++word) {
       const Index value = key.index[word];
       keys[(word * records) + record] = value == ClusterList<K>::kNoCluster ? noCluster : value;
     }
@@ -116,7 +116,7 @@ struct MarkHeads {
     if (!differs) {
       const Index record = permutation[position];
       const Index previous = permutation[position - 1U];
-      for (std::size_t word = 0; word < K && !differs; ++word) {
+      for (std::uint32_t word = 0; word < K && !differs; ++word) {
         differs = keys[(word * records) + record] != keys[(word * records) + previous];
       }
     }
@@ -200,7 +200,7 @@ template <std::size_t K, typename RecordView>
     }
     return StageStatus::kComplete;
   }
-  const int keyEndBit = algorithms::keyBits(rows);
+  const std::int32_t keyEndBit = algorithms::keyBits(rows);
 
   // The unique records in key order, their duplicates counted.
   DeviceSpan<Index> unique;
@@ -218,7 +218,7 @@ template <std::size_t K, typename RecordView>
     algorithms::forEach(runtime, stream, recordCount, detail::Iota{.out = permutation.data()});
     Index* current = permutation.data();
     Index* next = nextPermutation.data();
-    for (std::size_t w = K; w-- > 0U;) {
+    for (auto w = static_cast<std::uint32_t>(K); w-- > 0U;) {
       algorithms::forEach(runtime, stream, recordCount, algorithms::Gather<Index>{.from = std::as_const(keys).data() + (w * recordCount), .indices = current, .to = word.data()});
       const StageStatus sorted = algorithms::sortPairs(runtime, arena, stream, std::as_const(word).data(), sortedWord.data(), current, next, recordCount, keyEndBit);
       if (sorted != StageStatus::kComplete) {

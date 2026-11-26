@@ -61,7 +61,7 @@ class NoFrameSelection
 {
  public:
   struct Mask {
-    [[nodiscard]] static bool enabled(int /*layer*/, std::uint32_t /*frame*/) { return true; }
+    [[nodiscard]] static bool enabled(std::int32_t /*layer*/, std::uint32_t /*frame*/) { return true; }
     [[nodiscard]] static bool allEnabled() { return true; }
   };
 

@@ -202,7 +202,7 @@ class TrackingInterface
     LOGP(info, "the beam line, the trackers' constraint: {}", describe(mBeamLine));
     mGrid.emplace(shipped.grid);
     mFrames.clear();
-    for (std::size_t layer = 0; layer < GridGeometry<Det>::kLayerCount; ++layer) {
+    for (std::uint32_t layer = 0; layer < GridGeometry<Det>::kLayerCount; ++layer) {
       mFrames.push_back(shipped.grid.frames(static_cast<LayerID>(layer)));
     }
     if (first) {
@@ -212,7 +212,7 @@ class TrackingInterface
     const auto chunkSize = static_cast<typename Controller::Index>(kHostChunkSize);
     // The tracker takes each iteration's configured source.
     std::vector<IterationSettings> settings;
-    for (int iteration = 0; iteration < iterationCount(param); ++iteration) {
+    for (std::uint32_t iteration = 0; iteration < iterationCount(param); ++iteration) {
       settings.push_back(iterationSettings(param, iteration));
       if (settings.back().vertexSource == VertexSource::kVertexList && !mWithVertices && !param.vertexer) {
         LOGP(fatal, "iteration {} seeds from the vertex list (GTRKReco<DET>.iterationVertexSource), and this device has none: an input of seeds or GTRKReco<DET>.vertexer", iteration);
@@ -254,7 +254,7 @@ class TrackingInterface
   /// row count, every measurement's variances fit for the fit, \a seeds
   /// time-sorted with finite z. Nullptr if it may be tracked, else why not.
   template <class Columns>
-  [[nodiscard]] static const char* checkInput(const Columns& columns, std::span<const std::uint32_t> offsets, std::size_t bucketCount, std::span<const VertexSeed> seeds)
+  [[nodiscard]] static const char* checkInput(const Columns& columns, std::span<const std::uint32_t> offsets, std::uint32_t bucketCount, std::span<const VertexSeed> seeds)
   {
     if (!std::ranges::is_sorted(seeds, {}, &VertexSeed::timePS) || !std::ranges::all_of(seeds, [](const VertexSeed& seed) { return std::isfinite(seed.z); })) {
       return "vertex seeds are not time-sorted or finite";
@@ -264,7 +264,7 @@ class TrackingInterface
     if (!measurementColumnsHaveSize(columns, n) || !validOffsets) {
       return "measurement column lengths or grid offsets are invalid";
     }
-    for (std::size_t row = 0; row < n; ++row) {
+    for (std::uint32_t row = 0; row < n; ++row) {
       if (!measurementVariancesValid(columns.varLoc0[row], columns.covLoc01[row], columns.varLoc1[row])) {
         return "a measurement has a variance the fit cannot take: not finite, not positive, or a singular spatial block";
       }
@@ -296,19 +296,19 @@ class TrackingInterface
       mDevicePlan = planTimeframe<Det>(frame, bounds, mDeviceIterations, mDeviceWindows, mTracker->beamLine(), {}, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS));
       const double planSeconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
       if (!beginDeviceTimeframe()) {
-        return {.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), .planSeconds = planSeconds, .dropped = true};
+        return {.seeds = {}, .seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), .planSeconds = planSeconds, .dropped = true};
       }
-      const auto status = mDevice->findTimeframeVertices(frame, mDevicePlan, mDeviceIterations.size() - 1U, mVertexing->settings(), beamSpotConstraint(mBeamLine, param), mDeviceFound, mDeviceReport);
+      const auto status = mDevice->findTimeframeVertices(frame, mDevicePlan, static_cast<std::uint32_t>(mDeviceIterations.size() - 1U), mVertexing->settings(), beamSpotConstraint(mBeamLine, param), mDeviceFound, mDeviceReport);
       const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
       if (status != StageStatus::kComplete) {
-        return {.seconds = seconds, .planSeconds = planSeconds, .dropped = dropOrFail(status, "the vertexing pass")};
+        return {.seeds = {}, .seconds = seconds, .planSeconds = planSeconds, .dropped = dropOrFail(status, "the vertexing pass")};
       }
       return {.seeds = mDeviceFound.vertices, .found = &mDeviceFound, .seconds = seconds, .planSeconds = planSeconds};
     }
     mPass.emplace(mVertexing->find(frame, bounds, frame.grid().geometry().blocksPerSlice(param.sliceWidthPS), keepClaims));
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     if (mPass->status != StageStatus::kComplete) {
-      return {.pass = &*mPass, .seconds = seconds, .dropped = dropOrFail(mPass->status, "the vertexing pass")};
+      return {.seeds = {}, .pass = &*mPass, .seconds = seconds, .dropped = dropOrFail(mPass->status, "the vertexing pass")};
     }
     return {.seeds = mPass->found.vertices, .found = &mPass->found, .pass = &*mPass, .seconds = seconds};
   }
@@ -388,7 +388,7 @@ class TrackingInterface
   [[nodiscard]] TimeframeGuard endTimeframeOnExit() { return TimeframeGuard{*this}; }
 
   /// The timeframes dropped so far (dropTFUponFailure).
-  [[nodiscard]] std::size_t droppedTimeframes() const { return mDropped; }
+  [[nodiscard]] std::uint32_t droppedTimeframes() const { return mDropped; }
 
   [[nodiscard]] const std::shared_ptr<BoundedMemoryResource>& pool() const { return mPool; }
   [[nodiscard]] Vertexing* vertexing() { return mVertexing.get(); }
@@ -455,7 +455,7 @@ class TrackingInterface
     }
     mDeviceIterations.clear();
     mDeviceWindows.clear();
-    for (std::size_t iteration = 0; iteration < mTracker->iterationCount(); ++iteration) {
+    for (std::uint32_t iteration = 0; iteration < mTracker->iterationCount(); ++iteration) {
       mDeviceIterations.push_back(mTracker->iteration(iteration));
       mDeviceWindows.push_back(settings[iteration].windows);
     }
@@ -484,9 +484,8 @@ class TrackingInterface
   /// the tracking's plan from \a seeds.
   [[nodiscard]] Tracked trackOnDevice(const Frame& frame, const HaloBounds<Det>& bounds, std::span<const VertexSeed> seeds, std::int32_t blocksPerSlice, std::chrono::steady_clock::time_point start)
   {
-    const auto& param = recoParam<Det>();
     const bool replaced = mVertexed;
-    const std::size_t iterations = mTracker->iterationCount();
+    const std::uint32_t iterations = mTracker->iterationCount();
     // After the device's vertexer, its plan of this frame with the vertices.
     if (replaced) {
       mDeviceTrackingPlan = planWithVertices<Det>(mDevicePlan, mDeviceWindows, seeds);
@@ -514,7 +513,7 @@ class TrackingInterface
       tracked.result.status = mDevicePartnerOffsets.empty() ? mDeviceStore.commit(serial, 1024U, std::as_const(mDeviceTracks)) : mDeviceStore.commit(serial, 1024U, std::as_const(mDeviceTracks), std::span<const std::uint32_t>{mDevicePartnerOffsets}, std::span<const OverlapPartner>{mDevicePartners});
       // Their inactive layers' matches after their references.
       mDevice->downloadMatches(mDeviceMatches);
-      tracked.result.matches = mDeviceMatches.size();
+      tracked.result.matches = static_cast<std::uint32_t>(mDeviceMatches.size());
       if (tracked.result.status == StageStatus::kComplete && !mDeviceMatches.empty()) {
         tracked.result.status = mDeviceStore.recommitMatched(serial, 1024U, std::span<const match::Matched>{mDeviceMatches});
       }
@@ -536,7 +535,7 @@ class TrackingInterface
       LOGP(error, "{} ran out of memory (GTRKReco<DET>.memoryLimitGB, or the device's --gtrk-gpu-arena-mb): the timeframe dropped, {} so far (GTRKReco<DET>.dropTFUponFailure)", what, mDropped);
       return true;
     }
-    LOGP(fatal, "{} failed with status {}", what, static_cast<int>(status));
+    LOGP(fatal, "{} failed with status {}", what, static_cast<std::int32_t>(status));
     return false;
   }
 
@@ -577,7 +576,7 @@ class TrackingInterface
   bool mDeviceTimeframe = false; ///< the device holds a timeframe
   bool mVertexed = false;        ///< the vertexer ran this timeframe
   bool mTracked = false;         ///< the tracker ran this timeframe
-  std::size_t mDropped = 0U;
+  std::uint32_t mDropped = 0U;
   std::size_t mLastArenaPeak = 0U;
 };
 

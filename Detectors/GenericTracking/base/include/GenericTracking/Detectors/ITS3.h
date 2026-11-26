@@ -45,8 +45,8 @@ namespace mosaix
 {
 
 /// A tile's pixel array: 442 rows across it, 156 columns along the beam.
-inline constexpr int kRows = 442;
-inline constexpr int kColumns = 156;
+inline constexpr std::int32_t kRows = 442;
+inline constexpr std::int32_t kColumns = 156;
 inline constexpr double kWidth = 9.197 * kMm;  ///< across, the arc at kMiddleRadius
 inline constexpr double kLength = 3.571 * kMm; ///< along the beam
 inline constexpr double kPitchRow = kWidth / static_cast<double>(kRows);
@@ -61,10 +61,10 @@ inline constexpr double kMetalStackThickness = 5 * kUm;
 inline constexpr double kInnerOffset = (kSiliconThickness + kMetalStackThickness) / 2.;
 inline constexpr double kOuterOffset = (kSiliconThickness - kMetalStackThickness) / 2.;
 
-[[nodiscard]] constexpr double innerRadius(int layer) { return kNominalRadius[static_cast<std::size_t>(layer)] - kInnerOffset; }
-[[nodiscard]] constexpr double outerRadius(int layer) { return kNominalRadius[static_cast<std::size_t>(layer)] + kOuterOffset; }
+[[nodiscard]] constexpr double innerRadius(std::int32_t layer) { return kNominalRadius[static_cast<std::uint32_t>(layer)] - kInnerOffset; }
+[[nodiscard]] constexpr double outerRadius(std::int32_t layer) { return kNominalRadius[static_cast<std::uint32_t>(layer)] + kOuterOffset; }
 /// The radius O2 measures a tile's flat coordinate at, the silicon's middle.
-[[nodiscard]] constexpr double middleRadius(int layer) { return (innerRadius(layer) + outerRadius(layer)) / 2.; }
+[[nodiscard]] constexpr double middleRadius(std::int32_t layer) { return (innerRadius(layer) + outerRadius(layer)) / 2.; }
 
 /// Where O2's dictionary puts a tile's cluster: this far above the silicon's
 /// middle (ITS3Base's APTS response depth), which the MC hits confirm.
@@ -72,16 +72,16 @@ inline constexpr double kResponseShift = 15.5 * kUm;
 
 /// A tile layer's measurement depth (Geometry::measurementDepth), from our
 /// inner surface [cm].
-[[nodiscard]] constexpr double measurementDepth(int layer) { return middleRadius(layer) - innerRadius(layer) + kResponseShift; }
+[[nodiscard]] constexpr double measurementDepth(std::int32_t layer) { return middleRadius(layer) - innerRadius(layer) + kResponseShift; }
 
 /// The angle of the middle of a tile's arc in O2's tile frame, from its
 /// local +x axis, where O2's flat coordinate starts at half the width.
-[[nodiscard]] constexpr double middleAngle(int layer) { return 0.5 * kWidth / middleRadius(layer); }
+[[nodiscard]] constexpr double middleAngle(std::int32_t layer) { return 0.5 * kWidth / middleRadius(layer); }
 
 /// The tile of layer \a layer as our curved sensor: its arc and pitch across
 /// at the inner surface, where SensorSpec::radius measures them, scaled
 /// from O2's at the middle radius.
-[[nodiscard]] constexpr SensorSpec tile(int layer)
+[[nodiscard]] constexpr SensorSpec tile(std::int32_t layer)
 {
   const double scale = innerRadius(layer) / middleRadius(layer);
   return {
@@ -104,8 +104,6 @@ struct ITS3 {
   /// an inner layer abut without overlapping.
   static constexpr std::uint64_t overlapLayers = 0b1111000U;
   // clang-format off
-  // Measured values that happen to lie near mathematical constants are not them.
-  // NOLINTBEGIN(modernize-use-std-numbers)
   // Chip counts measured by o2-gtrk-import-geometry from an ITS3 (ALICE2.1) o2sim_geometry-aligned.root: 27144 chips.
   static constexpr std::array<PlacedLayerSpec, 7> barrelLayers{{
     {.sensorCount = 864, .sensor = mosaix::tile(0)},
@@ -132,12 +130,11 @@ struct ITS3 {
     {.from = 4, .to = 5, .sourceMin = -42.71, .sourceMax = 42.71}, // 1.0000
     {.from = 5, .to = 6, .sourceMin = -67.33, .sourceMax = 67.33}, // 1.0000
   }};
-  // NOLINTEND(modernize-use-std-numbers)
   // clang-format on
   static constexpr std::array<PlacedLayerSpec, 0> discLayers{};
-  static constexpr int nSensors = countSensors(barrelLayers, discLayers);
+  static constexpr std::int32_t nSensors = countSensors(barrelLayers, discLayers);
   /// The first outer-barrel chip's ID, after every tile.
-  static constexpr int kFirstOuterSensor = countSensors(std::array{barrelLayers[0], barrelLayers[1], barrelLayers[2]}, discLayers);
+  static constexpr std::int32_t kFirstOuterSensor = countSensors(std::array{barrelLayers[0], barrelLayers[1], barrelLayers[2]}, discLayers);
 };
 
 } // namespace o2::gtrk::detectors

@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <type_traits>
 
 namespace o2::gtrk
 {
@@ -38,20 +39,20 @@ namespace o2::gtrk::detail
 {
 
 using ParallelForBody = void (*)(void*, size_t, size_t);
-using ParallelSortLess = bool (*)(void*, size_t, size_t);
+using ParallelSortLess = bool (*)(void*, std::uint32_t, std::uint32_t);
 
 /// A TBB task arena kept behind the tracking library boundary.
 class TaskArena
 {
  public:
-  explicit TaskArena(int maxConcurrency = 0);
+  explicit TaskArena(std::int32_t maxConcurrency = 0);
   ~TaskArena();
   TaskArena(const TaskArena&) = delete;
   TaskArena& operator=(const TaskArena&) = delete;
   TaskArena(TaskArena&&) = delete;
   TaskArena& operator=(TaskArena&&) = delete;
 
-  [[nodiscard]] int maxConcurrency() const noexcept;
+  [[nodiscard]] std::int32_t maxConcurrency() const noexcept;
 
  private:
   struct Impl;
@@ -70,7 +71,7 @@ void parallelSortIndices(TaskArena& arena, size_t count, void* context, Parallel
 void parallelSortKeys(TaskArena& arena, std::span<std::uint64_t> keys);
 
 void parallelFor(TaskArena& arena, size_t begin, size_t end, size_t grainSize, void* context, ParallelForBody body);
-[[nodiscard]] int currentArenaThreadIndex() noexcept;
+[[nodiscard]] std::int32_t currentArenaThreadIndex() noexcept;
 
 /// Sort \a indices in place by \a less on \a arena's threads (a sort outside
 /// it would take every core TBB has, not the tracker's threads). The sort is
@@ -80,15 +81,16 @@ void parallelFor(TaskArena& arena, size_t begin, size_t end, size_t grainSize, v
 template <typename Less>
 void parallelSort(TaskArena& arena, std::span<std::uint32_t> indices, Less less)
 {
-  parallelSortIndices(arena, indices.size(), static_cast<void*>(&less), [](void* context, std::size_t lhs, std::size_t rhs) { return (*static_cast<Less*>(context))(static_cast<std::uint32_t>(lhs), static_cast<std::uint32_t>(rhs)); }, indices.data());
+  parallelSortIndices(arena, indices.size(), static_cast<void*>(&less), [](void* context, std::uint32_t lhs, std::uint32_t rhs) { return (*static_cast<Less*>(context))(lhs, rhs); }, indices.data());
 }
 
 /// Run the loop inside an arena, which limits its concurrency independently
-/// of the process-wide TBB scheduler setting; \a grainSize > 0.
-template <typename Function>
-void parallelFor(TaskArena& arena, std::size_t begin, std::size_t end, std::size_t grainSize, Function function)
+/// of the process-wide TBB scheduler setting; \a grainSize > 0. The bounds
+/// \a function gets are of \a end's type.
+template <typename Index, typename Function>
+void parallelFor(TaskArena& arena, std::type_identity_t<Index> begin, Index end, std::type_identity_t<Index> grainSize, Function function)
 {
-  parallelFor(arena, begin, end, grainSize, static_cast<void*>(&function), [](void* context, std::size_t first, std::size_t last) { (*static_cast<Function*>(context))(first, last); });
+  parallelFor(arena, begin, end, grainSize, static_cast<void*>(&function), [](void* context, std::size_t first, std::size_t last) { (*static_cast<Function*>(context))(static_cast<Index>(first), static_cast<Index>(last)); });
 }
 
 } // namespace o2::gtrk::detail

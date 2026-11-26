@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <limits>
 
@@ -40,18 +41,18 @@ namespace o2::gtrk
 {
 
 template <DetectorLayout Det>
-inline constexpr std::size_t nLinks = std::size(Det::layerLinks);
+inline constexpr auto nLinks = static_cast<std::uint32_t>(std::size(Det::layerLinks));
 
 /// Link indices grouped by one of their ends: the links of layer `l` are
 /// `links[offsets[l]]` up to `links[offsets[l + 1]]`, in table order.
 template <DetectorLayout Det>
 struct LinksByLayer {
-  std::array<std::size_t, static_cast<std::size_t>(Detector<Det>::nLayers) + 1> offsets{};
-  std::array<std::size_t, nLinks<Det>> links{};
+  std::array<std::uint32_t, static_cast<std::size_t>(Detector<Det>::nLayers) + 1> offsets{};
+  std::array<std::uint32_t, nLinks<Det>> links{};
 
-  [[nodiscard]] constexpr std::size_t begin(LayerID layer) const { return offsets[layer]; }
-  [[nodiscard]] constexpr std::size_t end(LayerID layer) const { return offsets[layer + 1U]; }
-  [[nodiscard]] constexpr std::size_t count(LayerID layer) const { return end(layer) - begin(layer); }
+  [[nodiscard]] constexpr std::uint32_t begin(LayerID layer) const { return offsets[layer]; }
+  [[nodiscard]] constexpr std::uint32_t end(LayerID layer) const { return offsets[layer + 1U]; }
+  [[nodiscard]] constexpr std::uint32_t count(LayerID layer) const { return end(layer) - begin(layer); }
 };
 
 namespace detail
@@ -61,16 +62,16 @@ namespace detail
 template <DetectorLayout Det, bool ByTarget>
 [[nodiscard]] constexpr LinksByLayer<Det> groupLinks()
 {
-  const auto key = [](const LayerLink& link) { return static_cast<std::size_t>(ByTarget ? link.to : link.from); };
+  const auto key = [](const LayerLink& link) { return std::uint32_t{ByTarget ? link.to : link.from}; };
   LinksByLayer<Det> result{};
   for (const auto& link : Det::layerLinks) {
     ++result.offsets[key(link) + 1U];
   }
-  for (std::size_t layer = 0; layer + 1U < result.offsets.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer + 1U < result.offsets.size(); ++layer) {
     result.offsets[layer + 1U] += result.offsets[layer];
   }
   auto next = result.offsets;
-  for (std::size_t i = 0; i < nLinks<Det>; ++i) {
+  for (std::uint32_t i = 0; i < nLinks<Det>; ++i) {
     result.links[next[key(Det::layerLinks[i])]++] = i;
   }
   return result;
@@ -92,7 +93,7 @@ namespace detail
 template <DetectorLayout Det>
 struct TopologicalSort {
   std::array<LayerID, static_cast<std::size_t>(Detector<Det>::nLayers)> order{};
-  std::size_t sorted = 0;
+  std::uint32_t sorted = 0;
 };
 
 /// Kahn's algorithm, with `order` doubling as the queue. Layers with nothing
@@ -101,18 +102,18 @@ struct TopologicalSort {
 template <DetectorLayout Det>
 [[nodiscard]] constexpr TopologicalSort<Det> topologicalSort()
 {
-  constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
+  constexpr auto kLayers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   TopologicalSort<Det> result{};
-  std::array<std::size_t, kLayers> pending{};
+  std::array<std::uint32_t, kLayers> pending{};
   for (const auto& link : Det::layerLinks) {
     ++pending[link.to];
   }
-  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
     if (pending[layer] == 0) {
       result.order[result.sorted++] = static_cast<LayerID>(layer);
     }
   }
-  for (std::size_t head = 0; head < result.sorted; ++head) {
+  for (std::uint32_t head = 0; head < result.sorted; ++head) {
     const auto layer = result.order[head];
     for (auto i = outLinks<Det>.begin(layer); i < outLinks<Det>.end(layer); ++i) {
       const auto to = Det::layerLinks[outLinks<Det>.links[i]].to;
@@ -128,7 +129,7 @@ template <DetectorLayout Det>
 consteval std::array<LayerID, static_cast<std::size_t>(Detector<Det>::nLayers)> checkedLayerOrder()
 {
   constexpr auto sort = topologicalSort<Det>();
-  static_assert(sort.sorted == static_cast<std::size_t>(Detector<Det>::nLayers), "Det::layerLinks contains a cycle");
+  static_assert(sort.sorted == static_cast<std::uint32_t>(Detector<Det>::nLayers), "Det::layerLinks contains a cycle");
   return sort.order;
 }
 
@@ -143,7 +144,7 @@ inline constexpr auto layerOrder = detail::checkedLayerOrder<Det>();
 /// more than the deepest source of a link into it.
 template <DetectorLayout Det>
 inline constexpr auto layerDepth = [] {
-  std::array<std::size_t, static_cast<std::size_t>(Detector<Det>::nLayers)> depth{};
+  std::array<std::uint32_t, static_cast<std::size_t>(Detector<Det>::nLayers)> depth{};
   for (const auto layer : layerOrder<Det>) {
     for (auto i = outLinks<Det>.begin(layer); i < outLinks<Det>.end(layer); ++i) {
       const auto to = Det::layerLinks[outLinks<Det>.links[i]].to;
@@ -160,19 +161,19 @@ inline constexpr auto layerDepth = [] {
 /// so an ordered pass over the layers may take a depth's layers together.
 template <DetectorLayout Det>
 struct LayerDepthGroups {
-  static constexpr std::size_t kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
+  static constexpr auto kLayers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   std::array<LayerID, kLayers> order{};
-  std::array<std::size_t, kLayers + 1U> groups{};
-  std::size_t count = 0U;
+  std::array<std::uint32_t, kLayers + 1U> groups{};
+  std::uint32_t count = 0U;
 };
 
 template <DetectorLayout Det>
 inline constexpr LayerDepthGroups<Det> layerDepthGroups = [] {
   LayerDepthGroups<Det> result{};
-  std::size_t next = 0U;
-  for (std::size_t depth = 0U; next < LayerDepthGroups<Det>::kLayers; ++depth) {
+  std::uint32_t next = 0U;
+  for (std::uint32_t depth = 0U; next < LayerDepthGroups<Det>::kLayers; ++depth) {
     result.groups[depth] = next;
-    for (std::size_t layer = 0U; layer < LayerDepthGroups<Det>::kLayers; ++layer) {
+    for (std::uint32_t layer = 0U; layer < LayerDepthGroups<Det>::kLayers; ++layer) {
       if (layerDepth<Det>[layer] == depth) {
         result.order[next++] = static_cast<LayerID>(layer);
       }
@@ -184,17 +185,17 @@ inline constexpr LayerDepthGroups<Det> layerDepthGroups = [] {
 }();
 
 /// No link of the layout.
-inline constexpr std::size_t kNoLink = std::numeric_limits<std::size_t>::max();
+inline constexpr std::uint32_t kNoLink = std::numeric_limits<std::uint32_t>::max();
 
 /// Per (from, to) layer pair, the first link of Det's table joining them;
 /// kNoLink for none.
 template <DetectorLayout Det>
 inline constexpr auto kLinkIndex = [] {
-  constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
-  std::array<std::size_t, kLayers * kLayers> result{};
+  constexpr auto kLayers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
+  std::array<std::uint32_t, std::size_t{kLayers} * kLayers> result{};
   result.fill(kNoLink);
-  for (std::size_t link = 0; link < nLinks<Det>; ++link) {
-    auto& at = result[(static_cast<std::size_t>(Det::layerLinks[link].from) * kLayers) + Det::layerLinks[link].to];
+  for (std::uint32_t link = 0; link < nLinks<Det>; ++link) {
+    auto& at = result[(std::uint32_t{Det::layerLinks[link].from} * kLayers) + Det::layerLinks[link].to];
     if (at == kNoLink) {
       at = link;
     }
@@ -205,11 +206,11 @@ inline constexpr auto kLinkIndex = [] {
 /// The first link of Det's table from layer \a from to layer \a to; kNoLink
 /// for none or a layer outside the layout.
 template <DetectorLayout Det>
-[[nodiscard]] constexpr std::size_t linkOf(LayerID from, LayerID to)
+[[nodiscard]] constexpr std::uint32_t linkOf(LayerID from, LayerID to)
 {
-  constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
-  const auto fromIndex = static_cast<std::size_t>(from);
-  const auto toIndex = static_cast<std::size_t>(to);
+  constexpr auto kLayers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
+  const std::uint32_t fromIndex = from;
+  const std::uint32_t toIndex = to;
   return fromIndex < kLayers && toIndex < kLayers ? kLinkIndex<Det>[(fromIndex * kLayers) + toIndex] : kNoLink;
 }
 
@@ -230,7 +231,7 @@ inline constexpr std::uint64_t overlapLayers = [] {
 /// The most layers any path through the links visits, the deepest layer's
 /// depth + 1, which bounds a cell's level at `maxChainLayers - 2`.
 template <DetectorLayout Det>
-inline constexpr std::size_t maxChainLayers = layerDepthGroups<Det>.count;
+inline constexpr std::uint32_t maxChainLayers = layerDepthGroups<Det>.count;
 
 } // namespace o2::gtrk
 

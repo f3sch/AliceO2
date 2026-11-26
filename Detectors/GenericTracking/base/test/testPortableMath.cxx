@@ -58,9 +58,9 @@ std::vector<double> uniform(double low, double high, std::size_t count, std::uin
 std::vector<double> nearMultiplesOfHalfPi()
 {
   std::vector<double> values;
-  for (int n = -2000; n <= 2000; ++n) {
+  for (std::int32_t n = -2000; n <= 2000; ++n) {
     double x = n * (o2::gtrk::kPi<double> / 2.);
-    for (int step = 0; step < 4; ++step) {
+    for (std::int32_t step = 0; step < 4; ++step) {
       values.push_back(x);
       x = std::nextafter(x, std::numeric_limits<double>::infinity());
     }

@@ -26,6 +26,7 @@
 #include "ReconstructionDataFormats/TrackParametrization.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <utility>
 
 namespace o2::gtrk
@@ -40,7 +41,7 @@ GPUdi() void relativePosition(const TrackingSurface& surface, const Measurement&
 {
   Scalar global[3]{};
   surfaceToGlobal(surface, m.loc0, m.loc1, global);
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     out[i] = static_cast<T>(global[i]) - origin[i];
   }
 }
@@ -78,7 +79,7 @@ GPUdi() void relativePosition(const TrackingSurface& surface, const Measurement&
 /// \a measurements is anything indexed by `[i]` giving a `Measurement`: an
 /// array, or rows read from the frame's columns.
 template <typename T = Scalar, typename Prop, DetectorLayout Det, typename Chain>
-GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<Det>& geometry, const Chain& measurements, int n)
+GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<Det>& geometry, const Chain& measurements, std::int32_t n)
 {
   // Everything is relative to the first measurement: the circle is fitted
   // about it, and sums of large absolute coordinates would cancel.
@@ -87,7 +88,7 @@ GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<D
   {
     Scalar global[3]{};
     surfaceToGlobal(firstSurface, measurements[0].loc0, measurements[0].loc1, global);
-    for (int i = 0; i < 3; ++i) {
+    for (std::int32_t i = 0; i < 3; ++i) {
       origin[i] = static_cast<T>(global[i]);
     }
   }
@@ -109,11 +110,11 @@ GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<D
 #ifndef GPUCA_GPUCODE
   // The longitudinal pass reads these same immutable points again. Cache
   // their first transform on the CPU; avoid a larger device register frame.
-  constexpr auto kCachePoints = static_cast<std::size_t>(Detector<Det>::nLayers);
+  constexpr auto kCachePoints = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   T cachedPositions[kCachePoints][3];
   const bool cachePoints = n >= 0 && std::cmp_less_equal(n, kCachePoints);
 #endif
-  for (int i = 0; i < n; ++i) {
+  for (std::int32_t i = 0; i < n; ++i) {
     T p[3]{};
 #ifdef GPUCA_GPUCODE
     detail::relativePosition<T>(geometry.planeOf(measurements[i]), measurements[i], origin, p);
@@ -121,7 +122,7 @@ GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<D
     const auto measurement = measurements[i];
     detail::relativePosition<T>(geometry.planeOf(measurement), measurement, origin, p);
     if (cachePoints) {
-      for (int axis = 0; axis < 3; ++axis) {
+      for (std::int32_t axis = 0; axis < 3; ++axis) {
         cachedPositions[i][axis] = p[axis];
       }
     }
@@ -191,11 +192,11 @@ GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<D
   T meanZ = T(0);
   T cSS = T(0);
   T cSZ = T(0);
-  for (int i = 0; i < n; ++i) {
+  for (std::int32_t i = 0; i < n; ++i) {
     T p[3]{};
 #ifndef GPUCA_GPUCODE
     if (cachePoints) {
-      for (int axis = 0; axis < 3; ++axis) {
+      for (std::int32_t axis = 0; axis < 3; ++axis) {
         p[axis] = cachedPositions[i][axis];
       }
     } else
@@ -232,7 +233,7 @@ GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<D
   T pointFromSurface[3]{};
   T height = T(0);
   T towards = T(0);
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     pointFromSurface[i] = static_cast<T>(measurements[0].loc0) * static_cast<T>(firstSurface.axis0[i]) + static_cast<T>(measurements[0].loc1) * static_cast<T>(firstSurface.axis1[i]);
     if (i < 2) {
       pointFromSurface[i] += start[i];
@@ -243,12 +244,12 @@ GPUdi() BoundTrackState makeChainSeed(const Prop& prop, const TrackingGeometry<D
     towards += direction[i] * static_cast<T>(firstSurface.normal[i]);
   }
   if (o2::gpu::GPUCommonMath::Abs(towards) > static_cast<T>(stepPropagator(prop, geometry, measurements, 0, n - 1).minAbsCosIncidence)) {
-    for (int i = 0; i < 3; ++i) {
+    for (std::int32_t i = 0; i < 3; ++i) {
       pointFromSurface[i] -= height / towards * direction[i];
     }
   }
   T local[2]{};
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     local[0] += pointFromSurface[i] * static_cast<T>(firstSurface.axis0[i]);
     local[1] += pointFromSurface[i] * static_cast<T>(firstSurface.axis1[i]);
   }

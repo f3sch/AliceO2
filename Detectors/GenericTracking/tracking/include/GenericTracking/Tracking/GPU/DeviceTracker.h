@@ -61,7 +61,7 @@ namespace o2::gtrk
 /// existing comparisons apply.
 template <DetectorLayout Det>
 struct DeviceSliceDownload {
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
 
   explicit DeviceSliceDownload(const std::shared_ptr<BoundedMemoryResource>& pool)
   {
@@ -91,7 +91,7 @@ struct DeviceIterationDownload {
   std::shared_ptr<BoundedMemoryResource> mPool;
 
  public:
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using Records = BoundedColumns<SelectionRecordOf<kMaxClusters>::template RecordT>;
   using Tracks = typename TrackRefit<Det>::Tracks;
   using Proposal = typename Follow<Det>::Proposal;
@@ -165,7 +165,7 @@ class DeviceTracker
   /// What the last iteration's end did: its road fit, its selection, refit
   /// and follow.
   struct IterationReport {
-    std::size_t records = 0U;
+    std::uint32_t records = 0U;
     std::uint32_t duplicates = 0U;
     std::uint32_t mismatches = 0U; ///< duplicates that differ: must be none -- a record found by more than one slice is the same record in each
     std::uint32_t rounds = 0U;
@@ -208,25 +208,25 @@ class DeviceTracker
   /// The staging every staged stage starts its next run with (the flat runs
   /// have none); each then keeps what its runs needed. 2^20
   /// records by default.
-  virtual void setStagingCapacity(std::size_t records) = 0;
+  virtual void setStagingCapacity(std::uint32_t records) = 0;
   /// The flat runs' chunks held to \a pairs at most (0: the arena's free
   /// bytes decide): a test hook, so that chunks
   /// cut inside sources and first tracklets on a fixture; never a tracker's.
-  virtual void setFlatChunkPairs(std::size_t pairs) = 0;
+  virtual void setFlatChunkPairs(std::uint32_t pairs) = 0;
   /// The captured roads at which a batch's fit is due, the device's resident
   /// threads by default: a test hook, so that a fixture's slices are fitted
   /// in several batches; never a tracker's.
-  virtual void setRoadBatch(std::size_t roads) = 0;
+  virtual void setRoadBatch(std::uint32_t roads) = 0;
 
   /// Open iteration \a iteration of the configured ones; the previous
   /// iteration's records go.
-  virtual void beginIteration(std::size_t iteration) = 0;
+  virtual void beginIteration(std::uint32_t iteration) = 0;
 
   /// Run slice \a slice of the open iteration's plan, tracklets to roads,
   /// as the host tracker runs it; the roads captured so far are fitted once
   /// they fill the device (setRoadBatch), the rest at endIteration. With \a download, the slice's outputs come
   /// down into it.
-  [[nodiscard]] virtual StageStatus runSlice(std::size_t slice, DeviceSliceDownload<Det>* download) = 0;
+  [[nodiscard]] virtual StageStatus runSlice(std::uint32_t slice, DeviceSliceDownload<Det>* download) = 0;
 
   /// Close the open iteration: its last roads fitted, the records gathered
   /// and selected, the selected ones refitted and extended, the tracks kept for the timeframe and the
@@ -270,7 +270,7 @@ class DeviceTracker
   /// `VertexingPass::find` gives them; its counts too, but no per-triplet
   /// claims and no beam estimate. Not with an
   /// iteration open; the used mask and the tracks stay as they are.
-  [[nodiscard]] virtual StageStatus findVertices(std::size_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result) = 0;
+  [[nodiscard]] virtual StageStatus findVertices(std::uint32_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result) = 0;
 
   /// Replace the open timeframe's plan with \a plan, of the same frame and
   /// the same run (std::invalid_argument before anything changes
@@ -301,7 +301,7 @@ class DeviceTracker
   /// the pass, iteration \a pass, into \a result (findVertices). The
   /// timeframe stays open for trackTimeframe; \a frame and \a plan must
   /// outlive it.
-  [[nodiscard]] StageStatus findTimeframeVertices(const TimeFrame<Det>& frame, const TimeframePlan<Det>& plan, std::size_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result, TimeframeReport& report)
+  [[nodiscard]] StageStatus findTimeframeVertices(const TimeFrame<Det>& frame, const TimeframePlan<Det>& plan, std::uint32_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result, TimeframeReport& report)
   {
     report = {};
     auto start = Clock::now();
@@ -325,7 +325,7 @@ class DeviceTracker
   /// the timeframe. Stops at the first failure and returns it, as
   /// Tracker::run does; tracks the host cannot hold are kOutOfMemory. \a
   /// frame and \a plan must outlive the timeframe.
-  [[nodiscard]] StageStatus trackTimeframe(const TimeFrame<Det>& frame, const TimeframePlan<Det>& plan, std::size_t iterations, bool replaced, Tracks& tracks, TimeframeReport& report)
+  [[nodiscard]] StageStatus trackTimeframe(const TimeFrame<Det>& frame, const TimeframePlan<Det>& plan, std::uint32_t iterations, bool replaced, Tracks& tracks, TimeframeReport& report)
   {
     if (!replaced) {
       report = {};
@@ -333,12 +333,12 @@ class DeviceTracker
     auto start = Clock::now();
     StageStatus status = replaced ? replacePlan(plan) : beginTimeframe(frame, plan);
     (replaced ? report.planUploadSeconds : report.uploadSeconds) = profile::secondsSince(start);
-    for (std::size_t iteration = 0; iteration < iterations && status == StageStatus::kComplete; ++iteration) {
+    for (std::uint32_t iteration = 0; iteration < iterations && status == StageStatus::kComplete; ++iteration) {
       start = Clock::now();
       beginIteration(iteration);
       report.slices.emplace_back();
       StageStatus slices = StageStatus::kComplete;
-      for (std::size_t slice = 0; slice < plan.slices.size() && slices == StageStatus::kComplete; ++slice) {
+      for (std::uint32_t slice = 0; slice < plan.slices.size() && slices == StageStatus::kComplete; ++slice) {
         slices = runSlice(slice, nullptr);
         if (slices == StageStatus::kComplete) {
           report.slices.back().push_back(lastSlice());
@@ -368,7 +368,7 @@ class DeviceTracker
   }
 
   /// The configured run's iterations.
-  [[nodiscard]] virtual std::size_t iterationCount() const = 0;
+  [[nodiscard]] virtual std::uint32_t iterationCount() const = 0;
   [[nodiscard]] virtual const SliceReport& lastSlice() const = 0;
   [[nodiscard]] virtual const IterationReport& lastIteration() const = 0;
   /// The arena's size, what each end holds now, and the largest part of it

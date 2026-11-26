@@ -38,6 +38,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 
 namespace o2::gtrk::detectors
 {
@@ -55,9 +56,9 @@ inline constexpr double kVDThickness = 20 * kUm;
 inline constexpr double kVDPitch = 10 * kUm;
 
 /// The arc width of a VD sensor of layer \a layer [cm], as O2 computes it.
-[[nodiscard]] constexpr double vdWidth(int layer) { return (kVDRadius[static_cast<std::size_t>(layer)] * kTwoPi<double> / 4) - kVDPetalGap[static_cast<std::size_t>(layer)]; }
+[[nodiscard]] constexpr double vdWidth(std::int32_t layer) { return (kVDRadius[static_cast<std::uint32_t>(layer)] * kTwoPi<double> / 4) - kVDPetalGap[static_cast<std::uint32_t>(layer)]; }
 
-[[nodiscard]] constexpr SensorSpec vdSensor(int layer)
+[[nodiscard]] constexpr SensorSpec vdSensor(std::int32_t layer)
 {
   return {
     .shape = ShapeType::kCylinder,
@@ -66,7 +67,7 @@ inline constexpr double kVDPitch = 10 * kUm;
     .halfThickness = 0.5 * kVDThickness,
     .pitchX = kVDPitch,
     .pitchY = kVDPitch,
-    .radius = kVDRadius[static_cast<std::size_t>(layer)],
+    .radius = kVDRadius[static_cast<std::uint32_t>(layer)],
   };
 }
 
@@ -277,9 +278,9 @@ struct TRKFT3 {
     {.from = 21, .to = 22, .sourceMin = 15.18, .sourceMax = 68.29}, // 1.0000
   }};
   // clang-format on
-  static constexpr int nSensors = countSensors(barrelLayers, discLayers);
+  static constexpr std::int32_t nSensors = countSensors(barrelLayers, discLayers);
   /// The first disc sensor's ID: FT3's chip ID 0, after every barrel chip.
-  static constexpr int kFirstDiscSensor = countSensors(barrelLayers, std::array<PlacedLayerSpec, 0>{});
+  static constexpr std::int32_t kFirstDiscSensor = countSensors(barrelLayers, std::array<PlacedLayerSpec, 0>{});
 };
 
 } // namespace o2::gtrk::detectors

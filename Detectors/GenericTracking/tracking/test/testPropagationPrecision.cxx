@@ -36,6 +36,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <random>
 
@@ -52,10 +53,10 @@ BOOST_AUTO_TEST_CASE(PropagationClosesOnItsOwnHelixWithinOneMicron)
   std::mt19937_64 rng(20260928);
   std::uniform_real_distribution<double> uniform(0., 1.);
   const auto sample = [&](double low, double high) { return low + (high - low) * uniform(rng); };
-  constexpr int trials = 1000000;
+  constexpr std::int32_t trials = 1000000;
   Worst worst;
 
-  for (int trial = 0; trial < trials; ++trial) {
+  for (std::int32_t trial = 0; trial < trials; ++trial) {
     const double phi = sample(-kPi<double>, kPi<double>);
     const double theta = sample(0.01, kPi<double> - 0.01);
     const double pt = std::exp(sample(std::log(0.03), std::log(10000.)));

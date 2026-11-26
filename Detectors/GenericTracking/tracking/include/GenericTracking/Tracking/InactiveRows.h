@@ -94,9 +94,8 @@ struct Choice {
 /// candidates), the row and its place among the track's rows; the row
 /// `kNone` for the track's fit without one, its candidate's first record.
 struct RowCandidate {
-  // As for TrackletT: upstream's `apply` macro also uses the member names as
-  // enum constants.
-  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // As for MeasurementT: an SoA element proxy holds references.
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   template <template <class> class C>
   struct RecordT {
     MEMLAYOUT_APPLY(RecordT, element, row, at)
@@ -104,7 +103,7 @@ struct RowCandidate {
     C<std::uint32_t> row;
     C<std::uint8_t> at;
   };
-  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 /// \a rows (\a count of them) refitted with a budget of the track's own
@@ -112,8 +111,8 @@ struct RowCandidate {
 template <DetectorLayout Det>
 [[nodiscard]] GPUhdi() TrackFitResult refit(const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, const ClusterList<maxChainLayers<Det>>& rows, std::uint8_t count, std::uint8_t kinks)
 {
-  const KinkBudget budget{.max = static_cast<int>(kinks), .gate = parameters.kinkChi2Min};
-  return fitMeasurements(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows.index}, static_cast<int>(count), budget);
+  const KinkBudget budget{.max = static_cast<std::int32_t>(kinks), .gate = parameters.kinkChi2Min};
+  return fitMeasurements(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows.index}, static_cast<std::int32_t>(count), budget);
 }
 
 /// Whether a link of the layout leads from \a from onto \a to.
@@ -174,7 +173,7 @@ template <DetectorLayout Det>
   const Scalar secondSpread = Math::Max(window.secondHalfWidth - reach[1], 0.F);
   const Scalar radius = Math::Sqrt((landing[0] * landing[0]) + (landing[1] * landing[1]));
   const Scalar phi = Math::ATan2(landing[1], landing[0]);
-  for (int corner = 0; corner < 4; ++corner) {
+  for (std::int32_t corner = 0; corner < 4; ++corner) {
     const Scalar phiAt = phi + ((corner & 1) != 0 ? phiSpread : -phiSpread);
     const Scalar zAt = landing[2] + ((corner & 2) != 0 ? secondSpread : -secondSpread);
     Scalar sinPhi = 0.F;
@@ -201,7 +200,7 @@ template <DetectorLayout Det>
 /// candidates bound by \a maxCandidateWidthPS, the sensors' cells \a cells.
 template <DetectorLayout Det, typename Tracks>
 struct Find {
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using Record = typename BoundedColumns<RowCandidate::template RecordT>::Record;
   const IterationParameters<Det>* iteration = nullptr; ///< the iteration's
   const TimeFrame<Det>* timeFrame = nullptr;
@@ -256,7 +255,7 @@ struct Find {
         // The candidates: free rows passing the gate from either side.
         std::uint32_t found[2 * kMaxClusters];
         std::uint32_t nFound = 0U;
-        for (int pass = 0; pass < 2; ++pass) {
+        for (std::int32_t pass = 0; pass < 2; ++pass) {
           const bool forward = pass == 0;
           const auto side = forward ? i + 1U : n - i - 1U;
           if (side < 3U) {
@@ -264,14 +263,14 @@ struct Find {
           }
           const auto direction = forward ? PropagationDirection::kForward : PropagationDirection::kBackward;
           const RowChain<Det> part{.frame = &frame, .rows = forward ? rows.index : rows.index + i + 1U};
-          const BoundTrackState start = forward ? makeChainSeed(propagator, geometry, chain, static_cast<int>(n)) : tracks.outwardState[track];
+          const BoundTrackState start = forward ? makeChainSeed(propagator, geometry, chain, static_cast<std::int32_t>(n)) : tracks.outwardState[track];
           BoundTrackState state;
           Scalar chi2 = 0.F;
           std::int16_t failed = -1;
           std::int16_t kinkAt = -1;
-          int kinks = 0;
-          const auto span = detail::spanMaterial(geometry, detail::LinkSteps{}, part, static_cast<int>(side));
-          if (detail::runPass(propagator, geometry, span, part, static_cast<int>(side), direction, start, state, chi2, failed, KinkBudget{}, kinks, kinkAt, NoFitObserver{}) != PropagationStatus::kOk) {
+          std::int32_t kinks = 0;
+          const auto span = detail::spanMaterial(geometry, detail::LinkSteps{}, part, static_cast<std::int32_t>(side));
+          if (detail::runPass(propagator, geometry, span, part, static_cast<std::int32_t>(side), direction, start, state, chi2, failed, KinkBudget{}, kinks, kinkAt, NoFitObserver{}) != PropagationStatus::kOk) {
             continue;
           }
           const auto prediction = predictLayerCrossing(propagator, parameters, geometry.planeOf(state), state, layer, direction);
@@ -326,9 +325,9 @@ struct Find {
           if (!Detector<Det>::isBarrelLayer(layer) || !(parameters.layerSpans[layer].position > lastPosition)) {
             continue;
           }
-          int between = 0;
+          std::int32_t between = 0;
           bool certain = false;
-          for (int other = 0; other < static_cast<int>(Detector<Det>::nBarrelLayers); ++other) {
+          for (std::int32_t other = 0; other < static_cast<std::int32_t>(Detector<Det>::nBarrelLayers); ++other) {
             const auto position = parameters.layerSpans[other].position;
             if (Detector<Det>::isInactiveLayer(static_cast<LayerID>(other)) || ((parameters.followLayers >> other) & 1U) == 0U || !(position > lastPosition) || !(position < parameters.layerSpans[layer].position)) {
               continue;
@@ -479,7 +478,7 @@ template <DetectorLayout Det>
 class InactiveRows
 {
  public:
-  static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
+  static constexpr auto kLayerCount = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   static constexpr std::uint32_t kNone = inactive::kNone;
   using Tracks = typename TrackRefit<Det>::Tracks;
   using Rows = StageOutput<inactive::RowCandidate::template RecordT>;
@@ -548,7 +547,7 @@ class InactiveRows
         std::ranges::sort(mOrder, [&](std::uint32_t a, std::uint32_t b) {
           const auto& x = mChoices[a];
           const auto& y = mChoices[b];
-          return x.row != y.row ? x.row < y.row : (x.rise != y.rise ? x.rise < y.rise : candidates[a] < candidates[b]);
+          return x.row != y.row ? x.row < y.row : (!exactlyEqual(x.rise, y.rise) ? x.rise < y.rise : candidates[a] < candidates[b]);
         });
         std::uint32_t kept = 0U;
         for (std::uint32_t i = 0; i < chosen; ++i) {

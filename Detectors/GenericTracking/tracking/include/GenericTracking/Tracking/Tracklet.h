@@ -49,10 +49,8 @@
 namespace o2::gtrk
 {
 
-// As for MeasurementT: an SoA element proxy holds references, and `apply` is
-// upstream's macro, which also uses the camelBack member names as enum
-// constants.
-// NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+// As for MeasurementT: an SoA element proxy holds references.
+// NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
 template <template <class> class C>
 struct TrackletT {
   MEMLAYOUT_APPLY(TrackletT, source, target, link, lambda, phi)
@@ -61,7 +59,7 @@ struct TrackletT {
   C<Scalar> lambda;                ///< atan2(dz, transverse chord), source to target, in [-pi/2, pi/2]
   C<Scalar> phi;                   ///< atan2(dy, dx) of the chord, source to target, in [-pi, pi]
 };
-// NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+// NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 
 /// One tracklet record, used by emitters and host-side validation.
 using Tracklet = TrackletT<memlayout::value>;

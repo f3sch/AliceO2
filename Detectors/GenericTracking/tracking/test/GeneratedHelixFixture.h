@@ -24,6 +24,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <random>
 #include <stdexcept>
 
@@ -91,7 +92,7 @@ struct GeneratedHelixFixture {
     const double radius = layerDistance<Det>(layer);
     double low = 0.;
     double high = kPi<double> / curvature;
-    for (int i = 0; i < 100; ++i) {
+    for (std::int32_t i = 0; i < 100; ++i) {
       const double middle = 0.5 * (low + high);
       const State at = propagate(start, curvature, middle);
       (std::hypot(at.x, at.y) < radius ? low : high) = middle;

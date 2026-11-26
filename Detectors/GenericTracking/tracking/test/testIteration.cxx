@@ -116,16 +116,16 @@ void verifyVertexInterval(double minPtGeV, Scalar vertexZ, LayerID from, LayerID
   const Scalar scattering = sourceScattering<ToyBarrel4Disc8>(table, cut, vertex, from, source);
   const auto interval = vertexSecondRange(pair, bounds, source.r, source.z, vertex.z, vertex.varZ, cut.nSigma);
 
-  std::size_t accepted = 0U;
-  constexpr int kSecondSteps = 400;
-  constexpr int kPhiSteps = 40;
+  std::uint32_t accepted = 0U;
+  constexpr std::int32_t kSecondSteps = 400;
+  constexpr std::int32_t kPhiSteps = 40;
   const auto sourceRadius = static_cast<double>(sourceR);
   const auto sourcePositionZ = static_cast<double>(sourceZ);
   const auto vertexPositionZ = static_cast<double>(vertexZ);
   const double lineSecond = targetBarrel ? vertexPositionZ + ((sourcePositionZ - vertexPositionZ) * layerDistance<ToyBarrel4Disc8>(to) / sourceRadius) : sourceRadius * (discZ<ToyBarrel4Disc8>(to) - vertexPositionZ) / (sourcePositionZ - vertexPositionZ);
-  for (int secondStep = 0; secondStep <= kSecondSteps + 1; ++secondStep) {
+  for (std::int32_t secondStep = 0; secondStep <= kSecondSteps + 1; ++secondStep) {
     const double second = secondStep == kSecondSteps + 1 ? lineSecond : secondMin<ToyBarrel4Disc8>(to) + ((secondMax<ToyBarrel4Disc8>(to) - secondMin<ToyBarrel4Disc8>(to)) * static_cast<double>(secondStep) / kSecondSteps);
-    for (int phiStep = -kPhiSteps; phiStep <= kPhiSteps; ++phiStep) {
+    for (std::int32_t phiStep = -kPhiSteps; phiStep <= kPhiSteps; ++phiStep) {
       const auto phi = static_cast<double>(pair.phiHalfWidth) * phiStep / kPhiSteps;
       const auto targetR = static_cast<Scalar>(targetBarrel ? layerDistance<ToyBarrel4Disc8>(to) : second);
       const auto targetZ = static_cast<Scalar>(targetBarrel ? second : discZ<ToyBarrel4Disc8>(to));
@@ -139,10 +139,10 @@ void verifyVertexInterval(double minPtGeV, Scalar vertexZ, LayerID from, LayerID
         continue;
       }
       ++accepted;
-      BOOST_TEST_CONTEXT("pT " << minPtGeV << " vertex " << vertexZ << " link " << int(from) << " -> " << int(to) << " steep " << steep) { BOOST_TEST(secondRangeContains(interval, static_cast<Scalar>(second))); }
+      BOOST_TEST_CONTEXT("pT " << minPtGeV << " vertex " << vertexZ << " link " << std::int32_t(from) << " -> " << std::int32_t(to) << " steep " << steep) { BOOST_TEST(secondRangeContains(interval, static_cast<Scalar>(second))); }
     }
   }
-  BOOST_TEST(accepted > 0U, "pT " << minPtGeV << " vertex " << vertexZ << " link " << int(from) << " -> " << int(to));
+  BOOST_TEST(accepted > 0U, "pT " << minPtGeV << " vertex " << vertexZ << " link " << std::int32_t(from) << " -> " << std::int32_t(to));
 }
 
 } // namespace
@@ -160,8 +160,8 @@ BOOST_AUTO_TEST_CASE(WithoutSkipLinksTheHolesAreTheActiveLayers)
   const auto direct = iterationParameters<ToyBarrel4Disc8>(settings, VertexConstraint{}, *material);
   settings.layerMask = 0b1011U; // without layer 2
   const auto withoutTwo = iterationParameters<ToyBarrel4Disc8>(settings, VertexConstraint{}, *material);
-  std::size_t holed = 0U;
-  for (std::size_t link = 0; link < nLinks<ToyBarrel4Disc8>; ++link) {
+  std::uint32_t holed = 0U;
+  for (std::uint32_t link = 0; link < nLinks<ToyBarrel4Disc8>; ++link) {
     const auto& pair = ToyBarrel4Disc8::layerLinks[link];
     BOOST_TEST_CONTEXT("link " << link)
     {
@@ -215,7 +215,7 @@ BOOST_AUTO_TEST_CASE(ALooserIterationOpensEveryWindow)
   const auto loose = parametersAt(0.1);
   BOOST_TEST(loose.pairCut.twoRMin < tight.pairCut.twoRMin);
   BOOST_TEST(loose.pairCut.invBetaMomentum2 > tight.pairCut.invBetaMomentum2);
-  for (std::size_t link = 0; link < nLinks<ToyBarrel4Disc8>; ++link) {
+  for (std::uint32_t link = 0; link < nLinks<ToyBarrel4Disc8>; ++link) {
     BOOST_TEST(loose.windows[link].phiHalfWidth >= tight.windows[link].phiHalfWidth, "link " << link);
     BOOST_TEST(loose.windows[link].secondHalfWidth >= tight.windows[link].secondHalfWidth, "link " << link);
   }
@@ -335,7 +335,7 @@ BOOST_AUTO_TEST_CASE(AnIterationReachesAlongTheLinksItTakes)
     const auto taken = takenLinks<Det>(settings);
     IterationParameters<Det> parameters;
     std::uint32_t kept = 0U;
-    for (std::size_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
+    for (std::uint32_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
       parameters.outLinkOffsets[layer] = kept;
       for (auto i = outLinks<Det>.begin(static_cast<LayerID>(layer)); i < outLinks<Det>.end(static_cast<LayerID>(layer)); ++i) {
         if (taken[outLinks<Det>.links[i]]) {
@@ -391,10 +391,10 @@ BOOST_AUTO_TEST_CASE(TheGateIsTheLargestIterationsNotItsLargestParts)
   BOOST_TEST(edge.forwardPS == shortPS);
   BOOST_TEST(edge.backwardPS == longPS);
   std::vector<IterationParameters<Det>> iterations(2);
-  for (std::size_t i = 0; i < 2; ++i) {
+  for (std::uint32_t i = 0; i < 2; ++i) {
     const auto links = taken(i == 0 ? 0x78U : 0x0FU);
     std::uint32_t kept = 0U;
-    for (std::size_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
+    for (std::uint32_t layer = 0; layer < IterationParameters<Det>::kLayerCount; ++layer) {
       iterations[i].outLinkOffsets[layer] = kept;
       for (auto o = outLinks<Det>.begin(static_cast<LayerID>(layer)); o < outLinks<Det>.end(static_cast<LayerID>(layer)); ++o) {
         if (links[outLinks<Det>.links[o]]) {
@@ -541,8 +541,8 @@ BOOST_AUTO_TEST_CASE(ThePhiWindowHoldsTheTransverseTest)
       const PairPoint source{.x = sourceR, .z = sourceZ, .r = sourceR};
       const Scalar scatter = sourceScattering<ToyBarrel4Disc8>(table, cut, vertex, from, source);
       double widest = 0.;
-      constexpr int kSteps = 15000;
-      for (int step = 0; step < kSteps; ++step) {
+      constexpr std::int32_t kSteps = 15000;
+      for (std::int32_t step = 0; step < kSteps; ++step) {
         const double phi = 1.e-4 * step;
         const PairPoint target{
           .x = targetR * static_cast<Scalar>(std::cos(phi)),
@@ -553,7 +553,7 @@ BOOST_AUTO_TEST_CASE(ThePhiWindowHoldsTheTransverseTest)
           widest = phi;
         }
       }
-      BOOST_TEST_CONTEXT("pT " << pt << " link " << int(from) << " -> " << int(to))
+      BOOST_TEST_CONTEXT("pT " << pt << " link " << std::int32_t(from) << " -> " << std::int32_t(to))
       {
         BOOST_TEST(widest > 0.);
         BOOST_TEST(widest <= static_cast<double>(window.phiHalfWidth));

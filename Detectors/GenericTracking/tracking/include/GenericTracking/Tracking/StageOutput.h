@@ -78,7 +78,7 @@ class StageOutput
 
   /// The most records one element may emit. The limit is the staged ordinal's
   /// width and holds on every backend, so that they fail alike.
-  static constexpr std::size_t kMaxPerElement = std::size_t{std::numeric_limits<Ordinal>::max()} + 1U;
+  static constexpr std::uint32_t kMaxPerElement = std::uint32_t{std::numeric_limits<Ordinal>::max()} + 1U;
 
   StageOutput() = default;
   ~StageOutput() = default;

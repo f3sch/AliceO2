@@ -74,27 +74,27 @@ struct ClusterShapeBand {
   static constexpr Interval kEvery{0.F, kSlopeUnbounded};
   static constexpr Interval kNone{std::numeric_limits<Scalar>::infinity(), 0.F};
   /// The column spans a cluster can have, 0 to 255.
-  static constexpr std::size_t kSpans = 256;
+  static constexpr std::uint32_t kSpans = 256;
 
-  std::vector<int> maxRows;     ///< per layer from the first, its most rows; 0 on a layer the band does not calibrate, as every one after
+  std::vector<std::int32_t> maxRows; ///< per layer from the first, its most rows; 0 on a layer the band does not calibrate, as every one after
   std::vector<float> slopeLow;  ///< per layer and column span, at layer * kSpans + span: the interval's start
   std::vector<float> slopeHigh; ///< and its end
 
   /// The spans the frequencies tell apart: 1 to kFrequencySpans - 1, the
   /// last one and every longer one together (0: no pattern).
-  static constexpr std::size_t kFrequencySpans = 16;
+  static constexpr std::uint32_t kFrequencySpans = 16;
   std::vector<float> slopeEdges;      ///< the slope bins' edges, ascending, from 0
   std::vector<float> columnFrequency; ///< per layer of the layout, slope bin and column span, at (layer * bins + bin) * kFrequencySpans + span
   std::vector<float> rowFrequency;    ///< per layer, slope bin and row span, the same
 
-  [[nodiscard]] std::size_t slopeBins() const { return slopeEdges.empty() ? 0U : slopeEdges.size() - 1U; }
+  [[nodiscard]] std::uint32_t slopeBins() const { return slopeEdges.empty() ? 0U : static_cast<std::uint32_t>(slopeEdges.size()) - 1U; }
   /// The layers the span shares cover.
-  [[nodiscard]] std::size_t shareLayers() const { return slopeBins() == 0U ? 0U : columnFrequency.size() / (slopeBins() * kFrequencySpans); }
+  [[nodiscard]] std::uint32_t shareLayers() const { return slopeBins() == 0U ? 0U : static_cast<std::uint32_t>(columnFrequency.size()) / (slopeBins() * kFrequencySpans); }
 
   /// Whether it is a band of a layout of \a barrelLayers barrel layers: of
   /// its first layers at most, every layer's spans there --
   /// and its span shares every one of the layout's \a layers.
-  [[nodiscard]] bool fits(std::size_t barrelLayers, std::size_t layers) const
+  [[nodiscard]] bool fits(std::uint32_t barrelLayers, std::uint32_t layers) const
   {
     const auto frequencies = layers * slopeBins() * kFrequencySpans;
     return maxRows.size() <= barrelLayers && slopeLow.size() == maxRows.size() * kSpans && slopeHigh.size() == maxRows.size() * kSpans && slopeBins() != 0U && columnFrequency.size() == frequencies && rowFrequency.size() == frequencies;
@@ -102,7 +102,7 @@ struct ClusterShapeBand {
 
   /// The slope interval of a cluster of \a rowSpan rows and \a colSpan
   /// columns on layer \a layer.
-  [[nodiscard]] Interval interval(std::size_t layer, std::uint8_t rowSpan, std::uint8_t colSpan) const
+  [[nodiscard]] Interval interval(std::uint32_t layer, std::uint8_t rowSpan, std::uint8_t colSpan) const
   {
     if (colSpan == 0U || layer >= maxRows.size() || maxRows[layer] == 0) {
       return kEvery;
@@ -126,15 +126,15 @@ struct ClusterShapeBand {
     return "cluster-shape band: " + (layers.empty() ? std::string{"no layer"} : layers);
   }
 
-  ClassDefNV(ClusterShapeBand, 2);
+  ClassDefNV(ClusterShapeBand, 2)
 };
 
 /// How \a Det's layers read its detector's band: layer `layer(l)` of a band
 /// of `barrelLayers` layers at most; a layout's own numbering by default.
 template <DetectorLayout Det>
 struct ShapeBandLayers {
-  static constexpr std::size_t barrelLayers = Detector<Det>::nBarrelLayers;
-  static constexpr std::size_t layers = Detector<Det>::nLayers;
+  static constexpr auto barrelLayers = static_cast<std::uint32_t>(Detector<Det>::nBarrelLayers);
+  static constexpr auto layers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   [[nodiscard]] static constexpr LayerID layer(LayerID layer) { return layer; }
 };
 
@@ -143,8 +143,8 @@ struct ShapeBandLayers {
 /// of the band's (kInvalidLayerID, past every band layer: every slope).
 template <>
 struct ShapeBandLayers<detectors::TRKFT3TOF> {
-  static constexpr std::size_t barrelLayers = Detector<detectors::TRKFT3>::nBarrelLayers;
-  static constexpr std::size_t layers = Detector<detectors::TRKFT3>::nLayers;
+  static constexpr auto barrelLayers = static_cast<std::uint32_t>(Detector<detectors::TRKFT3>::nBarrelLayers);
+  static constexpr auto layers = static_cast<std::uint32_t>(Detector<detectors::TRKFT3>::nLayers);
   [[nodiscard]] static constexpr LayerID layer(LayerID layer) { return detectors::trkft3tof::toTRKFT3(layer); }
 };
 #endif
@@ -166,15 +166,15 @@ void fillOwnShares(const ClusterShapeBand* band, ShapeShares<Det>& shares)
   if (bins > Shares::kMaxBins) {
     throw std::runtime_error(std::format("the cluster-shape band's {} slope bins exceed the {} the shares hold", bins, Shares::kMaxBins));
   }
-  shares.bins = static_cast<std::uint32_t>(bins);
-  for (std::size_t edge = 0; edge <= bins; ++edge) {
+  shares.bins = bins;
+  for (std::uint32_t edge = 0; edge <= bins; ++edge) {
     shares.edges[edge] = band->slopeEdges[edge];
   }
   constexpr float kNone = std::numeric_limits<float>::quiet_NaN();
-  for (std::size_t layer = 0; layer < Shares::kLayers; ++layer) {
-    const auto own = static_cast<std::size_t>(ShapeBandLayers<Det>::layer(static_cast<LayerID>(layer)));
-    for (std::size_t bin = 0; bin < bins; ++bin) {
-      for (std::size_t span = 0; span < Shares::kSpans; ++span) {
+  for (std::uint32_t layer = 0; layer < Shares::kLayers; ++layer) {
+    const std::uint32_t own = ShapeBandLayers<Det>::layer(static_cast<LayerID>(layer));
+    for (std::uint32_t bin = 0; bin < bins; ++bin) {
+      for (std::uint32_t span = 0; span < Shares::kSpans; ++span) {
         const auto at = (((own * bins) + bin) * Shares::kSpans) + span;
         const bool known = own < band->shareLayers();
         shares.ownColumn[layer][bin][span] = known && band->columnFrequency[at] > 0.F ? std::log(band->columnFrequency[at]) : kNone;
@@ -192,14 +192,14 @@ template <DetectorLayout Det>
 void fillChanceShares(std::span<const std::uint32_t> columns, std::span<const std::uint32_t> rows, ShapeShares<Det>& shares)
 {
   using Shares = ShapeShares<Det>;
-  for (std::size_t layer = 0; layer < Shares::kLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < Shares::kLayers; ++layer) {
     std::uint64_t columnTotal = Shares::kSpans;
     std::uint64_t rowTotal = Shares::kSpans;
-    for (std::size_t span = 0; span < Shares::kSpans; ++span) {
+    for (std::uint32_t span = 0; span < Shares::kSpans; ++span) {
       columnTotal += columns[(layer * Shares::kSpans) + span];
       rowTotal += rows[(layer * Shares::kSpans) + span];
     }
-    for (std::size_t span = 0; span < Shares::kSpans; ++span) {
+    for (std::uint32_t span = 0; span < Shares::kSpans; ++span) {
       shares.chanceColumn[layer][span] = static_cast<float>(std::log(static_cast<double>(columns[(layer * Shares::kSpans) + span] + 1U) / static_cast<double>(columnTotal)));
       shares.chanceRow[layer][span] = static_cast<float>(std::log(static_cast<double>(rows[(layer * Shares::kSpans) + span] + 1U) / static_cast<double>(rowTotal)));
     }

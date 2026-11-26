@@ -26,6 +26,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory_resource>
 #include <vector>
@@ -44,9 +45,9 @@ struct ArenaForEach {
   template <typename Body>
   void operator()(Index count, const Body& body) const
   {
-    detail::parallelFor(*arena, 0, count, 1, [&](std::size_t first, std::size_t last) {
-      for (std::size_t i = first; i < last; ++i) {
-        body(static_cast<Index>(i));
+    detail::parallelFor(*arena, 0, count, 1, [&](Index first, Index last) {
+      for (Index i = first; i < last; ++i) {
+        body(i);
       }
     });
   }
@@ -115,23 +116,23 @@ void checkScan(const ForEach& forEach)
 /// thread one of the workers.
 BOOST_AUTO_TEST_CASE(ParallelForRunsEachIndexOnce)
 {
-  for (const int threads : {1, 3, 8}) {
+  for (const std::int32_t threads : {1, 3, 8}) {
     detail::TaskArena arena{threads};
-    for (const std::size_t begin : {std::size_t{0}, std::size_t{7}}) {
-      for (const std::size_t count : {std::size_t{0}, std::size_t{1}, std::size_t{5}, std::size_t{1000}, std::size_t{100003}}) {
-        for (const std::size_t grain : {std::size_t{1}, std::size_t{3}, std::size_t{64}, std::size_t{200000}}) {
-          std::vector<std::atomic<int>> runs(count);
-          std::atomic<int> badGrains{0};
-          detail::parallelFor(arena, begin, begin + count, grain, [&](std::size_t first, std::size_t last) {
+    for (const std::uint32_t begin : {0U, 7U}) {
+      for (const std::uint32_t count : {0U, 1U, 5U, 1000U, 100003U}) {
+        for (const std::uint32_t grain : {1U, 3U, 64U, 200000U}) {
+          std::vector<std::atomic<std::int32_t>> runs(count);
+          std::atomic<std::int32_t> badGrains{0};
+          detail::parallelFor(arena, begin, begin + count, grain, [&](std::uint32_t first, std::uint32_t last) {
             if (first >= last || last - first > grain || (first - begin) % grain != 0U) {
               ++badGrains;
             }
-            for (std::size_t i = first; i < last; ++i) {
+            for (std::uint32_t i = first; i < last; ++i) {
               ++runs[i - begin];
             }
           });
           BOOST_TEST(badGrains.load() == 0);
-          BOOST_TEST(std::ranges::all_of(runs, [](const std::atomic<int>& run) { return run.load() == 1; }));
+          BOOST_TEST(std::ranges::all_of(runs, [](const std::atomic<std::int32_t>& run) { return run.load() == 1; }));
         }
       }
     }

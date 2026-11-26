@@ -74,7 +74,7 @@ void checkGraph(std::mt19937& random)
       IterationParameters<Det> parameters;
       parameters.minClusters = length;
       parameters.roadEndLayers = mask;
-      for (std::size_t link = 0U; link < Det::layerLinks.size(); ++link) {
+      for (std::uint32_t link = 0U; link < Det::layerLinks.size(); ++link) {
         parameters.linkSources[link] = Det::layerLinks[link].from;
         parameters.linkTargets[link] = Det::layerLinks[link].to;
       }
@@ -128,7 +128,7 @@ void checkGraph(std::mt19937& random)
 BOOST_AUTO_TEST_CASE(ActualPathsMatchExhaustiveEnumeration)
 {
   std::mt19937 random{47U};
-  for (unsigned graph = 0U; graph < 100U; ++graph) {
+  for (std::uint32_t graph = 0U; graph < 100U; ++graph) {
     checkGraph(random);
   }
 }
@@ -139,7 +139,7 @@ namespace o2::gtrk
 BOOST_AUTO_TEST_CASE(TripletPathsMatchExhaustiveOverlapPaths)
 {
   std::mt19937 random{4711U};
-  for (unsigned graph = 0U; graph < 50U; ++graph) {
+  for (std::uint32_t graph = 0U; graph < 50U; ++graph) {
     std::array<MeasurementRange, 8> ranges{};
     std::array<bool, 8> presented{};
     for (Index layer = 0U; layer < 8U; ++layer) {
@@ -148,7 +148,7 @@ BOOST_AUTO_TEST_CASE(TripletPathsMatchExhaustiveOverlapPaths)
     }
     const LayerRowMap<Det> sources{ranges, presented};
     IterationParameters<Det> parameters;
-    for (std::size_t link = 0U; link < Det::layerLinks.size(); ++link) {
+    for (std::uint32_t link = 0U; link < Det::layerLinks.size(); ++link) {
       parameters.linkSources[link] = Det::layerLinks[link].from;
       parameters.linkTargets[link] = Det::layerLinks[link].to;
     }
@@ -263,7 +263,7 @@ BOOST_AUTO_TEST_CASE(PathSweepsFollowTopologyInsteadOfNumericLayerOrder)
   IterationParameters<ReverseBarrel8> parameters;
   parameters.roadEndLayers = 1U; // The end of the chain is layer 0.
   parameters.minClusters = 8U;
-  for (std::size_t link = 0U; link < ReverseBarrel8::layerLinks.size(); ++link) {
+  for (std::uint32_t link = 0U; link < ReverseBarrel8::layerLinks.size(); ++link) {
     parameters.linkSources[link] = ReverseBarrel8::layerLinks[link].from;
     parameters.linkTargets[link] = ReverseBarrel8::layerLinks[link].to;
   }

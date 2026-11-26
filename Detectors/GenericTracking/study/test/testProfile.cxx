@@ -39,7 +39,7 @@ namespace
 
 using profile::Phase;
 
-BoundTrackState stateOver(unsigned char fill)
+BoundTrackState stateOver(std::uint8_t fill)
 {
   // Every byte, padding included, set to \a fill before the fields are.
   BoundTrackState state;

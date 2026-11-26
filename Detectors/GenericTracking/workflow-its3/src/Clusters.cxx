@@ -26,6 +26,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <stdexcept>
 
@@ -44,7 +45,7 @@ ITS3Tiles::ITS3Tiles(o2::its::GeometryTGeo& geometry) : mRightHanded(specs::detI
   for (std::uint32_t chip = 0; chip < specs::detID::nChips; ++chip) {
     double r[9];
     double t[3];
-    geometry.getMatrixL2G(static_cast<int>(chip)).GetComponents(r[0], r[1], r[2], t[0], r[3], r[4], r[5], t[1], r[6], r[7], r[8], t[2]);
+    geometry.getMatrixL2G(static_cast<std::int32_t>(chip)).GetComponents(r[0], r[1], r[2], t[0], r[3], r[4], r[5], t[1], r[6], r[7], r[8], t[2]);
     const double determinant = (r[0] * ((r[4] * r[8]) - (r[5] * r[7]))) - (r[1] * ((r[3] * r[8]) - (r[5] * r[6]))) + (r[2] * ((r[3] * r[7]) - (r[4] * r[6])));
     if (std::abs(std::abs(determinant) - 1.) > 1e-9) {
       throw std::runtime_error(std::format("ITS3 tile {}: its L2G matrix has determinant {}", chip, determinant));
@@ -55,22 +56,22 @@ ITS3Tiles::ITS3Tiles(o2::its::GeometryTGeo& geometry) : mRightHanded(specs::detI
 
 std::array<double, 3> tileUnrolled(const ITS3Tiles& tiles, std::uint32_t chip, double x, double y, double z)
 {
-  const int layer = specs::detID::getDetID2Layer(static_cast<int>(chip));
+  const std::int32_t layer = specs::detID::getDetID2Layer(static_cast<std::int32_t>(chip));
   const double inner = mosaix::innerRadius(layer);
   // Our angle from the arc's middle runs with O2's on a right-handed tile.
   const double angle = std::atan2(y, x) - mosaix::middleAngle(layer);
   return {(tiles.rightHanded(chip) ? angle : -angle) * inner, z, std::hypot(x, y) - inner};
 }
 
-std::vector<LocalCluster> its3LocalClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const unsigned char> patterns, const o2::its3::TopologyDictionary& dictionary, const ITS3Tiles& tiles)
+std::vector<LocalCluster> its3LocalClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const std::uint8_t> patterns, const o2::its3::TopologyDictionary& dictionary, const ITS3Tiles& tiles)
 {
   std::vector<LocalCluster> result;
   result.reserve(clusters.size());
-  const gsl::span<const unsigned char> stream{patterns.data(), patterns.size()};
+  const gsl::span<const std::uint8_t> stream{patterns.data(), patterns.size()};
   auto pattern = stream.begin();
   for (const auto& cluster : clusters) {
     const auto chip = static_cast<std::uint32_t>(cluster.getSensorID());
-    const bool tile = specs::detID::isDetITS3(static_cast<int>(chip));
+    const bool tile = specs::detID::isDetITS3(static_cast<std::int32_t>(chip));
     const auto id = cluster.getPatternID();
     if (id != o2::itsmft::CompCluster::InvalidPatternID && id >= dictionary.getSize(tile)) {
       throw std::runtime_error(std::format("ITS3 chip {}: pattern ID {} beyond the dictionary's {}", chip, id, dictionary.getSize(tile)));
@@ -101,7 +102,7 @@ std::vector<LocalCluster> its3LocalClusters(std::span<const o2::itsmft::CompClus
     }
     if (tile) {
       const auto unrolled = tileUnrolled(tiles, chip, point.X(), point.Y(), point.Z());
-      const int layer = specs::detID::getDetID2Layer(static_cast<int>(chip));
+      const std::int32_t layer = specs::detID::getDetID2Layer(static_cast<std::int32_t>(chip));
       const double scale = mosaix::innerRadius(layer) / mosaix::middleRadius(layer);
       local.x = static_cast<float>(unrolled[0]);
       local.z = static_cast<float>(unrolled[1]);

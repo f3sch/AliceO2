@@ -35,6 +35,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <stdexcept>
 #include <utility>
@@ -57,8 +58,8 @@ static_assert(exactlyEqual(mosaix::kSiliconThickness, specs::silicon::thickness)
 static_assert(mosaix::kNominalRadius == specs::radii);
 static_assert(exactlyEqual(mosaix::kResponseShift, specs::pixelarray::pixels::apts::responseYShift));
 static_assert([] {
-  for (int layer = 0; std::cmp_less(layer, specs::nLayers); ++layer) {
-    const auto i = static_cast<std::size_t>(layer);
+  for (std::int32_t layer = 0; std::cmp_less(layer, specs::nLayers); ++layer) {
+    const auto i = static_cast<std::uint32_t>(layer);
     if (!exactlyEqual(mosaix::innerRadius(layer), specs::radiiInner[i]) || !exactlyEqual(mosaix::outerRadius(layer), specs::radiiOuter[i]) || !exactlyEqual(mosaix::middleRadius(layer), specs::radiiMiddle[i])) {
       return false;
     }
@@ -66,10 +67,10 @@ static_assert([] {
   return true;
 }());
 // The tiles are O2's chips 0 to nChips - 1, layer by layer, the outer barrel's after them.
-static_assert(detectors::ITS3::barrelLayers[0].sensorCount == static_cast<int>(specs::detID::l0IDTot));
-static_assert(detectors::ITS3::barrelLayers[1].sensorCount == static_cast<int>(specs::detID::l1IDTot));
-static_assert(detectors::ITS3::barrelLayers[2].sensorCount == static_cast<int>(specs::detID::l2IDTot));
-static_assert(detectors::ITS3::kFirstOuterSensor == static_cast<int>(specs::detID::nChips));
+static_assert(detectors::ITS3::barrelLayers[0].sensorCount == static_cast<std::int32_t>(specs::detID::l0IDTot));
+static_assert(detectors::ITS3::barrelLayers[1].sensorCount == static_cast<std::int32_t>(specs::detID::l1IDTot));
+static_assert(detectors::ITS3::barrelLayers[2].sensorCount == static_cast<std::int32_t>(specs::detID::l2IDTot));
+static_assert(detectors::ITS3::kFirstOuterSensor == static_cast<std::int32_t>(specs::detID::nChips));
 
 /// Our curved sensor on tile layer \a layer from the tile's L2G matrix.
 ///
@@ -79,7 +80,7 @@ static_assert(detectors::ITS3::kFirstOuterSensor == static_cast<int>(specs::detI
 /// is right-handed whatever O2's: the origin and z O2's, x through the arc's
 /// middle (SensorSpec::unrolledToFrame), y = z x x. On a mirrored tile our
 /// angle runs against O2's.
-Sensor tileSensor(const o2::math_utils::Transform3D& l2g, int layer)
+Sensor tileSensor(const o2::math_utils::Transform3D& l2g, std::int32_t layer)
 {
   double m[3][3];
   double t[3];
@@ -87,13 +88,13 @@ Sensor tileSensor(const o2::math_utils::Transform3D& l2g, int layer)
   const double angle = mosaix::middleAngle(layer);
   Vec3D x{};
   Vec3D z{};
-  for (std::size_t i = 0; i < 3; ++i) {
+  for (std::uint32_t i = 0; i < 3; ++i) {
     x[i] = (std::cos(angle) * m[i][0]) + (std::sin(angle) * m[i][1]);
     z[i] = m[i][2];
   }
   const Vec3D y{(z[1] * x[2]) - (z[2] * x[1]), (z[2] * x[0]) - (z[0] * x[2]), (z[0] * x[1]) - (z[1] * x[0])};
   Sensor sensor{};
-  for (std::size_t i = 0; i < 3; ++i) {
+  for (std::uint32_t i = 0; i < 3; ++i) {
     sensor.rot[(3 * i) + 0] = x[i];
     sensor.rot[(3 * i) + 1] = y[i];
     sensor.rot[(3 * i) + 2] = z[i];
@@ -112,8 +113,8 @@ std::vector<Sensor> placeChips<detectors::ITS3>()
   geometry.fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::L2G));
   std::vector<Sensor> sensors;
   sensors.reserve(static_cast<std::size_t>(geometry.getNumberOfChips()));
-  for (int chip = 0; chip < geometry.getNumberOfChips(); ++chip) {
-    const int layer = geometry.getLayer(chip);
+  for (std::int32_t chip = 0; chip < geometry.getNumberOfChips(); ++chip) {
+    const std::int32_t layer = geometry.getLayer(chip);
     const bool tile = specs::detID::isDetITS3(chip);
     if (tile != std::cmp_less(layer, specs::nLayers)) {
       throw std::runtime_error(std::format("ITS3: chip {} on layer {} is {}a tile: the loaded geometry is not ITS3's", chip, layer, tile ? "" : "not "));

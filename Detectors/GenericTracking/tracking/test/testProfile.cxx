@@ -43,7 +43,7 @@ BOOST_AUTO_TEST_CASE(ZonesNest)
   {
     const profile::Activation activation{result, nullptr};
     const profile::Zone run{Phase::kRun};
-    for (int repeat = 0; repeat < 3; ++repeat) {
+    for (std::int32_t repeat = 0; repeat < 3; ++repeat) {
       const profile::Zone begin{Phase::kBegin};
       BOOST_TEST((profile::current()->phase == Phase::kBegin));
     }

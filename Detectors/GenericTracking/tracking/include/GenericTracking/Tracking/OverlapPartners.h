@@ -115,7 +115,7 @@ struct PartnerClaim {
 
 /// The device's claims (DeviceTracker): `PartnerClaim`s as columns.
 struct PartnerClaimColumns {
-  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   template <template <class> class C>
   struct RecordT {
     MEMLAYOUT_APPLY(RecordT, track, row, path)
@@ -123,7 +123,7 @@ struct PartnerClaimColumns {
     C<std::uint32_t> row;
     C<Scalar> path;
   };
-  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 /// A track's proposal of an overlap partner (`ProposePartners`): the track
@@ -132,9 +132,8 @@ struct PartnerClaimColumns {
 /// orders the partners on one side of a row, its row's position among the
 /// track's rows and whether it lies after that row.
 struct PartnerProposal {
-  // As for TrackletT: upstream's `apply` macro also uses the member names as
-  // enum constants.
-  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // As for MeasurementT: an SoA element proxy holds references.
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   template <template <class> class C>
   struct RecordT {
     MEMLAYOUT_APPLY(RecordT, track, row, surface, chi2, path, layerRow, ahead)
@@ -146,7 +145,7 @@ struct PartnerProposal {
     C<std::uint8_t> layerRow;
     C<std::uint8_t> ahead;
   };
-  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 namespace overlap
@@ -165,10 +164,10 @@ struct RowStates {
 template <std::size_t K>
 struct RowStateObserver {
   RowStates<K>* states = nullptr;
-  GPUhdi() void operator()(PropagationDirection /*direction*/, int /*index*/, Scalar /*chi2*/) const {}
-  GPUhdi() void state(PropagationDirection direction, int index, const BoundParameters& state, const CovarianceFactors& factors) const
+  GPUhdi() void operator()(PropagationDirection /*direction*/, std::int32_t /*index*/, Scalar /*chi2*/) const {}
+  GPUhdi() void state(PropagationDirection direction, std::int32_t index, const BoundParameters& state, const CovarianceFactors& factors) const
   {
-    const auto at = static_cast<std::size_t>(index);
+    const auto at = static_cast<std::uint32_t>(index);
     const std::uint8_t pass = direction == PropagationDirection::kBackward ? 2U : 1U;
     if (states->pass[at] < pass) {
       states->state[at] = state;
@@ -296,7 +295,7 @@ template <DetectorLayout Det>
 /// from it. Its pointers may be a device's.
 template <DetectorLayout Det>
 struct ProposePartners {
-  static constexpr std::size_t kChainLayers = maxChainLayers<Det>;
+  static constexpr std::uint32_t kChainLayers = maxChainLayers<Det>;
   using TrackView = typename BoundedColumns<TrackOf<kChainLayers>::template RecordT>::ConstView;
   using Record = typename BoundedColumns<PartnerProposal::template RecordT>::Record;
 
@@ -340,7 +339,7 @@ struct ProposePartners {
       return;
     }
     overlap::RowStates<kChainLayers> states;
-    const auto fit = fitMeasurements(propagator, *geometry, detail::LinkSteps{}, RowChain<Det>{.frame = frame, .rows = rows.index}, static_cast<int>(count), kinkBudget(*parameters), overlap::RowStateObserver<kChainLayers>{.states = &states});
+    const auto fit = fitMeasurements(propagator, *geometry, detail::LinkSteps{}, RowChain<Det>{.frame = frame, .rows = rows.index}, static_cast<std::int32_t>(count), kinkBudget(*parameters), overlap::RowStateObserver<kChainLayers>{.states = &states});
     if (fit.failedPass == FitPass::kOutward) {
       return;
     }
@@ -468,7 +467,7 @@ struct ProposePartners {
 /// `e * kChainLayers + offsets[e]` on. Its pointers may be a device's.
 template <DetectorLayout Det, bool Write>
 struct FitWithPartners {
-  static constexpr std::size_t kChainLayers = maxChainLayers<Det>;
+  static constexpr std::uint32_t kChainLayers = maxChainLayers<Det>;
   using TrackView = typename BoundedColumns<TrackOf<kChainLayers>::template RecordT>::View;
 
   const IterationParameters<Det>* parameters = nullptr; ///< every iteration's, by the tracks' iteration
@@ -532,7 +531,7 @@ struct FitWithPartners {
         fresh[at] = flag;
       }
     }
-    const auto base = (static_cast<std::size_t>(element) * kChainLayers) + first;
+    const auto base = (element * kChainLayers) + first;
     std::uint32_t n = 0U;
     auto next = first;
     for (std::uint8_t k = 0; k < count; ++k) {
@@ -555,8 +554,8 @@ struct FitWithPartners {
       }
       box += other;
     }
-    const KinkBudget budget{.max = static_cast<int>(tracks.kinks[track]), .gate = parameters[tracks.iteration[track]].kinkChi2Min};
-    const auto fit = fitMeasurements(propagator, *geometry, detail::LayerMaterial{}, RowChain<Det>{.frame = frame, .rows = merged + base}, static_cast<int>(n), budget);
+    const KinkBudget budget{.max = static_cast<std::int32_t>(tracks.kinks[track]), .gate = parameters[tracks.iteration[track]].kinkChi2Min};
+    const auto fit = fitMeasurements(propagator, *geometry, detail::LayerMaterial{}, RowChain<Det>{.frame = frame, .rows = merged + base}, static_cast<std::int32_t>(n), budget);
     if (fit.status != PropagationStatus::kOk) {
       return;
     }
@@ -570,7 +569,7 @@ struct FitWithPartners {
       tracks.ndf[track] = fit.ndf;
       tracks.status[track] = fit.status;
       tracks.kinks[track] = fit.kinks;
-      tracks.kinkCluster[track] = fit.kinkMeasurement < 0 ? TrackOf<kChainLayers>::kNoKink : mergedRow[base + static_cast<std::size_t>(fit.kinkMeasurement)];
+      tracks.kinkCluster[track] = fit.kinkMeasurement < 0 ? TrackOf<kChainLayers>::kNoKink : mergedRow[base + static_cast<std::uint32_t>(fit.kinkMeasurement)];
     }
     kept[element] = 1U;
   }
@@ -583,25 +582,25 @@ template <DetectorLayout Det>
 class OverlapPartners
 {
  public:
-  static constexpr std::size_t kChainLayers = maxChainLayers<Det>;
+  static constexpr std::uint32_t kChainLayers = maxChainLayers<Det>;
   using Tracks = typename TrackRefit<Det>::Tracks;
   using Proposals = StageOutput<PartnerProposal::template RecordT>;
 
   /// What the last `run` did.
   struct Counts {
-    std::size_t proposed = 0U;  ///< partners proposed, one per track and sensor
-    std::size_t contested = 0U; ///< of those, lost to another track
-    std::size_t refused = 0U;   ///< partners of tracks whose fit with them failed
-    std::size_t attached = 0U;
-    std::size_t tracks = 0U; ///< tracks that took partners
+    std::uint32_t proposed = 0U;  ///< partners proposed, one per track and sensor
+    std::uint32_t contested = 0U; ///< of those, lost to another track
+    std::uint32_t refused = 0U;   ///< partners of tracks whose fit with them failed
+    std::uint32_t attached = 0U;
+    std::uint32_t tracks = 0U; ///< tracks that took partners
   };
 
   /// What `finish` did.
   struct Finished {
-    std::size_t tracks = 0U;   ///< tracks with partners, fitted with them
-    std::size_t partners = 0U; ///< their partners
-    std::size_t released = 0U; ///< partners of tracks whose fit with them failed, freed
-    std::size_t releasedTracks = 0U;
+    std::uint32_t tracks = 0U;   ///< tracks with partners, fitted with them
+    std::uint32_t partners = 0U; ///< their partners
+    std::uint32_t released = 0U; ///< partners of tracks whose fit with them failed, freed
+    std::uint32_t releasedTracks = 0U;
   };
 
   /// On \a arena, the tracker's.
@@ -633,7 +632,7 @@ class OverlapPartners
   /// for every i below n, serially or in parallel; \a chunk is the proposals'
   /// stage's chunk.
   template <typename ForEach>
-  [[nodiscard]] StageStatus run(const ForEach& forEach, std::uint32_t chunk, const IterationParameters<Det>* parameters, std::size_t iteration, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, const SensorCellsView& cells, std::span<const SensorFootprint> footprints, Tracks& tracks, std::span<const std::uint32_t> candidates, std::span<const PartnerClaim> held, std::span<std::uint8_t> used, std::span<const std::uint32_t> maxWidthPS, std::span<const Scalar> measurementVariance)
+  [[nodiscard]] StageStatus run(const ForEach& forEach, std::uint32_t chunk, const IterationParameters<Det>* parameters, std::uint32_t iteration, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, const SensorCellsView& cells, std::span<const SensorFootprint> footprints, Tracks& tracks, std::span<const std::uint32_t> candidates, std::span<const PartnerClaim> held, std::span<std::uint8_t> used, std::span<const std::uint32_t> maxWidthPS, std::span<const Scalar> measurementVariance)
   {
     return guardOutOfMemory([&] {
       mCounts = {};
@@ -648,7 +647,7 @@ class OverlapPartners
         heldEnd[i] = static_cast<std::uint32_t>(range.end() - held.begin());
       }
       std::vector<std::uint32_t> heldRows(held.size());
-      for (std::size_t at = 0; at < held.size(); ++at) {
+      for (std::uint32_t at = 0; at < held.size(); ++at) {
         heldRows[at] = held[at].row;
       }
       // Each candidate's proposals: count, scan, place.
@@ -659,7 +658,7 @@ class OverlapPartners
         return staged;
       }
       const auto proposals = std::as_const(mProposals).view();
-      const auto total = static_cast<std::uint32_t>(mProposals.size());
+      const auto total = mProposals.size();
       mCounts.proposed = total;
       // A row proposed by more than one track: the lowest chi2, then the
       // lowest track, takes it.
@@ -671,7 +670,7 @@ class OverlapPartners
         if (proposals.row[a] != proposals.row[b]) {
           return proposals.row[a] < proposals.row[b];
         }
-        return proposals.chi2[a] != proposals.chi2[b] ? proposals.chi2[a] < proposals.chi2[b] : proposals.track[a] < proposals.track[b];
+        return !exactlyEqual(proposals.chi2[a], proposals.chi2[b]) ? proposals.chi2[a] < proposals.chi2[b] : proposals.track[a] < proposals.track[b];
       });
       std::vector<std::uint8_t> won(total, 0U);
       std::vector<std::uint32_t> winnerCounts(n, 0U);
@@ -762,7 +761,7 @@ class OverlapPartners
       mOffsets[0] = 0U;
       std::vector<std::uint32_t> listed;
       std::vector<std::uint32_t> offsets{0U};
-      for (std::size_t at = 0; at < claims.size(); ++at) {
+      for (std::uint32_t at = 0; at < claims.size(); ++at) {
         if (at == 0U || claims[at].track != claims[at - 1U].track) {
           listed.push_back(claims[at].track);
           offsets.push_back(offsets.back());
@@ -772,7 +771,7 @@ class OverlapPartners
       const auto m = static_cast<std::uint32_t>(listed.size());
       std::vector<std::uint32_t> rows(claims.size());
       std::vector<Scalar> paths(claims.size());
-      for (std::size_t at = 0; at < claims.size(); ++at) {
+      for (std::uint32_t at = 0; at < claims.size(); ++at) {
         rows[at] = claims[at].row;
         paths[at] = claims[at].path;
       }

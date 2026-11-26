@@ -19,6 +19,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <memory_resource>
@@ -52,7 +53,7 @@ class BoundedMemoryResource final : public std::pmr::memory_resource
 
   [[nodiscard]] size_t getUsedMemory() const noexcept;
   [[nodiscard]] size_t getMaxMemory() const noexcept;
-  [[nodiscard]] size_t getThrowCount() const noexcept;
+  [[nodiscard]] std::uint64_t getThrowCount() const noexcept;
   [[nodiscard]] size_t getPeakMemory() const noexcept;
   [[nodiscard]] size_t getPeakMemoryDelta() const noexcept;
 
@@ -63,7 +64,7 @@ class BoundedMemoryResource final : public std::pmr::memory_resource
   /// The peak becomes at least \a peak.
   void raisePeakMemory(size_t peak) noexcept;
   /// Allocations served, and their bytes, since construction.
-  [[nodiscard]] size_t getAllocationCount() const noexcept { return mAllocations.load(std::memory_order_relaxed); }
+  [[nodiscard]] std::uint64_t getAllocationCount() const noexcept { return mAllocations.load(std::memory_order_relaxed); }
   [[nodiscard]] size_t getAllocatedBytes() const noexcept { return mAllocatedBytes.load(std::memory_order_relaxed); }
   void setMaxMemory(size_t max);
 
@@ -80,9 +81,9 @@ class BoundedMemoryResource final : public std::pmr::memory_resource
   [[nodiscard]] bool do_is_equal(const std::pmr::memory_resource& other) const noexcept final;
 
   std::atomic<size_t> mMaxMemory{std::numeric_limits<size_t>::max()};
-  std::atomic<size_t> mCountThrow{0};
+  std::atomic<std::uint64_t> mCountThrow{0};
   std::atomic<size_t> mUsedMemory{0};
-  std::atomic<size_t> mAllocations{0};
+  std::atomic<std::uint64_t> mAllocations{0};
   std::atomic<size_t> mAllocatedBytes{0};
   std::atomic<size_t> mPeakUsedMemory{0};
   std::atomic<size_t> mPeakBaselineMemory{0};

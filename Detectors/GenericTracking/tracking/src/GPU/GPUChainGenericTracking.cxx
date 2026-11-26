@@ -35,12 +35,12 @@ void* GPUChainGenericTracking::BlockProcessor::SetPointersBlock(void* mem) // NO
   return static_cast<char*>(mem) + mBytes;
 }
 
-size_t GPUChainGenericTracking::AddBlock(size_t bytes)
+std::uint32_t GPUChainGenericTracking::AddBlock(size_t bytes)
 {
   auto& pair = mBlocks.emplace_back(std::make_unique<BlockPair>());
   pair->host.mBytes = bytes;
   pair->device.mBytes = bytes;
-  return mBlocks.size() - 1;
+  return static_cast<std::uint32_t>(mBlocks.size() - 1);
 }
 
 void GPUChainGenericTracking::RegisterPermanentMemoryAndProcessors()
@@ -68,7 +68,7 @@ void GPUChainGenericTracking::MemorySize(size_t& gpuMem, size_t& pageLockedHostM
 
 size_t GPUChainGenericTracking::HostMemoryBytes() { return GPUProcessor::nextMultipleOf<o2::gpu::constants::GPU_MEMALIGN>(sizeof(o2::gpu::GPUConstantMem)) + o2::gpu::constants::GPU_MEMALIGN; }
 
-GPUChainGenericTracking::Block GPUChainGenericTracking::GetBlock(size_t index) const
+GPUChainGenericTracking::Block GPUChainGenericTracking::GetBlock(std::uint32_t index) const
 {
   if (index >= mBlocks.size() || mBlocks[index]->resource < 0) {
     throw std::out_of_range("GenericTracking: no such device block");

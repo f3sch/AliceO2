@@ -36,6 +36,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 
 namespace o2::gtrk
@@ -47,12 +48,12 @@ namespace decay_fit_detail
 /// u^T C v over \a n entries of u and v, C's entry (a, b) \a at(a, b): a
 /// projection's variance, or two projections' covariance.
 template <typename U, typename V, typename At>
-[[nodiscard]] GPUhdi() double quadraticForm(const U& u, const V& v, int n, const At& at)
+[[nodiscard]] GPUhdi() double quadraticForm(const U& u, const V& v, std::uint32_t n, const At& at)
 {
   double sum = 0.;
-  for (int a = 0; a < n; ++a) {
-    for (int b = 0; b < n; ++b) {
-      sum += u[a] * at(a, b) * v[b];
+  for (std::uint32_t a = 0; a < n; ++a) {
+    for (std::uint32_t b = 0; b < n; ++b) {
+      sum += u[a] * at(static_cast<std::int32_t>(a), static_cast<std::int32_t>(b)) * v[b];
     }
   }
   return sum;
@@ -77,9 +78,9 @@ template <typename At>
 {
   using namespace decay_fit_detail;
   using D = dual::Dual<3 * kMaxConstrainedDaughters>;
-  const int count = static_cast<int>(momenta.size());
+  const auto count = static_cast<std::uint32_t>(momenta.size());
   MomentumSum<D> sum;
-  for (int i = 0; i < count; ++i) {
+  for (std::uint32_t i = 0; i < count; ++i) {
     const auto momentum = momentumOfInputs<D::kInputs>(momenta[i][0], momenta[i][1], momenta[i][2], 3 * i, charges[i]);
     sum.add(momentum.vector, energyOf(momentum, masses[i]));
   }
@@ -115,7 +116,7 @@ namespace decay_fit_detail
 /// external point's (zero for a vertex of the fit, whose covariance \a at
 /// holds).
 template <typename At>
-[[nodiscard]] GPUhdi() DecayFlight flightBetween(const std::array<Dual<kConstraintInputs>, 3>& vertex, const std::array<Dual<kConstraintInputs>, 3>& point, const std::array<Dual<kConstraintInputs>, 3>& total, double mass, int n, const At& at, const std::array<double, 6>& pointCovariance)
+[[nodiscard]] GPUhdi() DecayFlight flightBetween(const std::array<Dual<kConstraintInputs>, 3>& vertex, const std::array<Dual<kConstraintInputs>, 3>& point, const std::array<Dual<kConstraintInputs>, 3>& total, double mass, std::uint32_t n, const At& at, const std::array<double, 6>& pointCovariance)
 {
   using D = Dual<kConstraintInputs>;
   const auto direction = directionOfMomentum(total);
@@ -126,7 +127,7 @@ template <typename At>
   const D& theta = direction.theta;
   // An external point's share: d length / d point = -P / |P|, d ct = (mass / |P|) d length.
   const std::array<double, 3> dLength{-total[0].v / p.v, -total[1].v / p.v, -total[2].v / p.v};
-  const double pointLength = quadraticForm(dLength, dLength, 3, [&](int a, int b) { return pointCovariance[covIndex(a, b)]; });
+  const double pointLength = quadraticForm(dLength, dLength, 3, [&](std::int32_t a, std::int32_t b) { return pointCovariance[static_cast<std::uint32_t>(covIndex(a, b))]; });
   const double pointCt = (mass / p.v) * (mass / p.v) * pointLength;
   const auto variance = [&](const D& value) { return quadraticForm(value.d, value.d, n, at); };
   const Vec3D flight{vertex[0].v - point[0].v, vertex[1].v - point[1].v, vertex[2].v - point[2].v};
@@ -143,17 +144,17 @@ template <typename At>
 /// them, the mother's first), then the momenta; \a pointCovariance the
 /// point's, packed (`covIndex`), zero for an exact point.
 template <typename At>
-[[nodiscard]] GPUhdi() DecayFlight decayFlight(const Vec3D& vertex, std::span<const Vec3D> momenta, std::span<const double> charges, const Vec3D& point, const std::array<double, 6>& pointCovariance, double mass, int vertices, const At& at)
+[[nodiscard]] GPUhdi() DecayFlight decayFlight(const Vec3D& vertex, std::span<const Vec3D> momenta, std::span<const double> charges, const Vec3D& point, const std::array<double, 6>& pointCovariance, double mass, std::uint32_t vertices, const At& at)
 {
   using namespace decay_fit_detail;
   using D = Dual<kConstraintInputs>;
-  const int count = static_cast<int>(momenta.size());
+  const auto count = static_cast<std::uint32_t>(momenta.size());
   MomentumSum<D> sum;
-  for (int i = 0; i < count; ++i) {
+  for (std::uint32_t i = 0; i < count; ++i) {
     sum.add(momentumOfInputs<kConstraintInputs>(momenta[i][0], momenta[i][1], momenta[i][2], (3 * vertices) + (3 * i), charges[i]).vector);
   }
   std::array<D, 3> from{};
-  for (int k = 0; k < 3; ++k) {
+  for (std::uint32_t k = 0; k < 3; ++k) {
     from[k].v = point[k];
   }
   return flightBetween(vertexOfInputs<kConstraintInputs>(vertex, 0), from, sum.vector, mass, (3 * vertices) + (3 * count), at, pointCovariance);
@@ -165,35 +166,38 @@ template <typename At>
 /// and the momenta the fit's, their correlations in \a at (over the fit's
 /// parameters, \a vertices vertices first).
 template <typename At>
-[[nodiscard]] GPUhdi() DecayFlight compositeFlight(std::span<const Vec3D> vertices, int w, int from, std::span<const Vec3D> momenta, std::span<const double> charges, std::span<const int> leaves, double mass, const At& at)
+[[nodiscard]] GPUhdi() DecayFlight compositeFlight(std::span<const Vec3D> vertices, std::uint32_t w, std::uint32_t from, std::span<const Vec3D> momenta, std::span<const double> charges, std::span<const std::int32_t> leaves, double mass, const At& at)
 {
   using namespace decay_fit_detail;
   using D = Dual<kConstraintInputs>;
-  const int k = static_cast<int>(vertices.size());
+  const auto k = static_cast<std::uint32_t>(vertices.size());
+  const auto count = static_cast<std::uint32_t>(momenta.size());
   MomentumSum<D> sum;
-  for (const int i : leaves) {
+  for (const std::int32_t leaf : leaves) {
+    const auto i = static_cast<std::uint32_t>(leaf);
     sum.add(momentumOfInputs<kConstraintInputs>(momenta[i][0], momenta[i][1], momenta[i][2], (3 * k) + (3 * i), charges[i]).vector);
   }
-  return flightBetween(vertexOfInputs<kConstraintInputs>(vertices[w], w), vertexOfInputs<kConstraintInputs>(vertices[from], from), sum.vector, mass, (3 * k) + (3 * static_cast<int>(momenta.size())), at, {});
+  return flightBetween(vertexOfInputs<kConstraintInputs>(vertices[w], w), vertexOfInputs<kConstraintInputs>(vertices[from], from), sum.vector, mass, (3 * k) + (3 * count), at, {});
 }
 
 /// The kinematics of \a leaves of a fit's \a momenta (`decayKinematics`),
 /// \a at the fit's covariance over its parameters (\a vertices vertices
 /// first).
 template <typename At>
-[[nodiscard]] GPUhdi() DecayKinematics subsetKinematics(std::span<const Vec3D> momenta, std::span<const double> masses, std::span<const double> charges, std::span<const int> leaves, int vertices, const At& at)
+[[nodiscard]] GPUhdi() DecayKinematics subsetKinematics(std::span<const Vec3D> momenta, std::span<const double> masses, std::span<const double> charges, std::span<const std::int32_t> leaves, std::int32_t vertices, const At& at)
 {
   std::array<Vec3D, decay_fit_detail::kMaxConstrainedDaughters> subset{};
   std::array<double, decay_fit_detail::kMaxConstrainedDaughters> subsetMasses{};
   std::array<double, decay_fit_detail::kMaxConstrainedDaughters> subsetCharges{};
   const auto count = leaves.size();
-  for (std::size_t i = 0; i < count; ++i) {
-    subset[i] = momenta[leaves[i]];
-    subsetMasses[i] = masses[leaves[i]];
-    subsetCharges[i] = charges[leaves[i]];
+  for (std::uint32_t i = 0; i < count; ++i) {
+    const auto leaf = static_cast<std::uint32_t>(leaves[i]);
+    subset[i] = momenta[leaf];
+    subsetMasses[i] = masses[leaf];
+    subsetCharges[i] = charges[leaf];
   }
-  const auto indexOf = [&](int a) { return (3 * vertices) + (3 * leaves[a / 3]) + (a % 3); };
-  return decayKinematics(std::span<const Vec3D>{subset.data(), count}, std::span<const double>{subsetMasses.data(), count}, std::span<const double>{subsetCharges.data(), count}, [&](int a, int b) { return at(indexOf(a), indexOf(b)); });
+  const auto indexOf = [&](std::int32_t a) { return (3 * vertices) + (3 * leaves[static_cast<std::uint32_t>(a / 3)]) + (a % 3); };
+  return decayKinematics(std::span<const Vec3D>{subset.data(), count}, std::span<const double>{subsetMasses.data(), count}, std::span<const double>{subsetCharges.data(), count}, [&](std::int32_t a, std::int32_t b) { return at(indexOf(a), indexOf(b)); });
 }
 
 } // namespace o2::gtrk

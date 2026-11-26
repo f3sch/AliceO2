@@ -107,14 +107,14 @@ struct PropagationResult {
 /// It takes indices rather than measurements so that a chain which reads its
 /// rows from columns (`RowChain`) is not read for a field that does not look.
 template <typename Geometry, typename Chain>
-[[nodiscard]] GPUhdi() GPUAlwaysInline() const Propagator& stepPropagator(const Propagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, int /*from*/, int /*to*/)
+[[nodiscard]] GPUhdi() GPUAlwaysInline() const Propagator& stepPropagator(const Propagator& prop, const Geometry& /*geometry*/, const Chain& /*measurements*/, std::int32_t /*from*/, std::int32_t /*to*/)
 {
   // The deleted rvalue overload below covers it; clang-tidy does not see that
   // for a template.
   return prop; // NOLINT(bugprone-return-const-ref-from-parameter)
 }
 template <typename Geometry, typename Chain>
-const Propagator& stepPropagator(const Propagator&& prop, const Geometry& geometry, const Chain& measurements, int from, int to) = delete;
+const Propagator& stepPropagator(const Propagator&& prop, const Geometry& geometry, const Chain& measurements, std::int32_t from, std::int32_t to) = delete;
 
 /// A step from \a point -- a bound state or a measurement -- on \a surface
 /// towards a point not known yet: a layer crossing to predict, a candidate
@@ -155,7 +155,7 @@ struct PropagationTrig {
 template <typename T = ExactScalar>
 GPUhdi() GPUAlwaysInline() void boundDisplacement(const TrackingSurface& from, const TrackingSurface& to, T loc0, T loc1, T delta[3])
 {
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     delta[i] = (static_cast<T>(from.origin[i]) - static_cast<T>(to.origin[i])) + loc0 * static_cast<T>(from.axis0[i]) + loc1 * static_cast<T>(from.axis1[i]);
   }
 }
@@ -168,7 +168,7 @@ GPUhdi() GPUAlwaysInline() void crossingLocal(const TrackingSurface& to, const T
   const T d[3] = {fromTarget[0] + dxy[0], fromTarget[1] + dxy[1], fromTarget[2] + dz};
   loc[0] = T{0};
   loc[1] = T{0};
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     loc[0] += d[i] * static_cast<T>(to.axis0[i]);
     loc[1] += d[i] * static_cast<T>(to.axis1[i]);
   }
@@ -226,7 +226,7 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
 
   // A track exactly along the beam has no transverse motion and no bound
   // representation on any plane here.
-  if (Math::Abs(sinTheta) < Solve{1e-9}) {
+  if (Math::Abs(sinTheta) < static_cast<Solve>(1e-9)) {
     res.status = PropagationStatus::kNotFinite;
     return res;
   }
@@ -321,7 +321,7 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
       return res;
     }
     const Solve den = bCoef + (bCoef >= Solve{0} ? Solve{1} : Solve{-1}) * sqrtOf(disc);
-    if (Math::Abs(den) < Solve{1e-30}) {
+    if (Math::Abs(den) < static_cast<Solve>(1e-30)) {
       res.status = PropagationStatus::kNoIntersection;
       return res;
     }
@@ -357,7 +357,7 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
     // So: the first root, unless it is not usable and the second lands nearer
     // the centre.
     auto firstOffCentre = Solve{0};
-    for (int root = 0; root < 2; ++root) {
+    for (std::int32_t root = 0; root < 2; ++root) {
       const Solve mu = root == 0 ? cCoef / den : den / quadratic;
       const Solve tryDxy[2] = {-a * nx + mu * tx, -a * ny + mu * ty};
 
@@ -375,10 +375,10 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
       // is the same number and is regular there. The quotient is the one to
       // take near zero only: sinc vanishes at a half turn, where psi / kappa
       // is the well-conditioned form.
-      const Solve ell = Math::Abs(tryPsi) < Solve{0.01} ? alongD / sinc<Solve>(tryPsi) : tryPsi / kappa;
+      const Solve ell = Math::Abs(tryPsi) < static_cast<Solve>(0.01) ? alongD / sinc<Solve>(tryPsi) : tryPsi / kappa;
       const Solve tryPath = ell / sinTheta;
 
-      const bool usable = isFiniteOf(static_cast<Scalar>(tryPath)) && tryPath * static_cast<Solve>(static_cast<int>(dir)) >= Solve{0};
+      const bool usable = isFiniteOf(static_cast<Scalar>(tryPath)) && tryPath * static_cast<Solve>(static_cast<std::int32_t>(dir)) >= Solve{0};
       bool take = root == 0;
       if (root != 0) {
         take = usable && detail::offCentreSquared<Solve>(to, fromTarget, tryDxy, tryPath * cosTheta) < firstOffCentre;
@@ -407,7 +407,7 @@ GPUdi() PropagationResult propagate(const Propagator& prop, BoundParameters& sta
     return res;
   }
 
-  const auto wanted = static_cast<Solve>(static_cast<int>(dir));
+  const auto wanted = static_cast<Solve>(static_cast<std::int32_t>(dir));
   if (path * wanted < Solve{0}) {
     res.status = PropagationStatus::kWrongDirection;
     res.pathLength = static_cast<Scalar>(path);

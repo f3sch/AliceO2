@@ -82,9 +82,8 @@ inline constexpr SourceID kOwnRows = 0U;
 
 /// One reference of a committed track.
 struct TrackReference {
-  // As for TrackletT: upstream's `apply` macro also uses the member names as
-  // enum constants.
-  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // As for MeasurementT: an SoA element proxy holds references.
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   template <template <class> class C>
   struct RecordT {
     MEMLAYOUT_APPLY(RecordT, row, source, role)
@@ -92,7 +91,7 @@ struct TrackReference {
     C<SourceID> source;
     C<std::uint8_t> role; ///< ReferenceRole bits
   };
-  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 /// A committed track's records in a track table: [first, first + count).
@@ -115,7 +114,7 @@ class TrackTableBase
   /// No tracks and no records; the storage kept.
   virtual void clear() = 0;
   /// Ranges for \a tracks tracks, the new ones empty.
-  virtual void resizeTracks(std::size_t tracks) = 0;
+  virtual void resizeTracks(std::uint32_t tracks) = 0;
 
  protected:
   // A table moves as its own type only, never through the base.
@@ -159,14 +158,14 @@ class TrackTable final : public detail::TrackTableBase
     mRecords.resize(0U);
   }
 
-  void resizeTracks(std::size_t tracks) override { mRanges.resize(tracks, TrackRange{}); }
+  void resizeTracks(std::uint32_t tracks) override { mRanges.resize(tracks, TrackRange{}); }
 
-  [[nodiscard]] std::size_t trackCount() const { return mRanges.size(); }
+  [[nodiscard]] std::uint32_t trackCount() const { return static_cast<std::uint32_t>(mRanges.size()); }
   /// Every record held, those of superseded ranges too.
-  [[nodiscard]] std::size_t recordCount() const { return mRecords.size(); }
-  [[nodiscard]] TrackRange range(std::size_t track) const { return mRanges[track]; }
+  [[nodiscard]] std::uint32_t recordCount() const { return mRecords.size(); }
+  [[nodiscard]] TrackRange range(std::uint32_t track) const { return mRanges[track]; }
   /// Record \a k of \a track's range.
-  [[nodiscard]] Record read(std::size_t track, std::uint32_t k) const
+  [[nodiscard]] Record read(std::uint32_t track, std::uint32_t k) const
   {
     assert(k < mRanges[track].count);
     return mRecords.read(mRanges[track].first + k);
@@ -192,7 +191,7 @@ class TrackTable final : public detail::TrackTableBase
       if (base + offsets[n] > std::numeric_limits<std::uint32_t>::max()) {
         return StageStatus::kIndexOverflow;
       }
-      mRecords.resize(static_cast<std::size_t>(base + offsets[n]));
+      mRecords.resize(static_cast<std::uint32_t>(base + offsets[n]));
       const auto view = mRecords.view();
       forEach(n, [&](std::uint32_t i) {
         const auto at = static_cast<std::uint32_t>(base + offsets[i]);
@@ -214,9 +213,8 @@ class TrackTable final : public detail::TrackTableBase
 /// A committed track's own fields: `TrackOf`'s without its rows and their
 /// count, which are its references and their range.
 struct CommittedTrack {
-  // As for TrackletT: upstream's `apply` macro also uses the member names as
-  // enum constants.
-  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // As for MeasurementT: an SoA element proxy holds references.
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   template <template <class> class C>
   struct RecordT {
     MEMLAYOUT_APPLY(RecordT, state, outwardState, timePS, widthPS, chi2, outwardChi2, ndf, status, iteration, addedOutward, addedInward, kinks, kinkCluster)
@@ -234,14 +232,14 @@ struct CommittedTrack {
     C<std::uint8_t> kinks;       ///< the inward pass's
     C<std::uint8_t> kinkCluster; ///< its last kink's position among its layer rows; kNoKink without
   };
-  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
   static constexpr std::uint8_t kNoKink = 0xFFU;
 };
 
 /// Track \a from's fields of \a tracks (a `TrackOf` view) into track \a to
 /// of \a committed (a `CommittedTrack` view), or back with \a Back.
 template <bool Back = false, typename TrackView, typename CommittedView>
-GPUhdi() void copyTrackFields(const TrackView& tracks, std::size_t from, const CommittedView& committed, std::size_t to)
+GPUhdi() void copyTrackFields(const TrackView& tracks, std::uint32_t from, const CommittedView& committed, std::uint32_t to)
 {
   const auto copy = [](auto&& field, auto&& trackField) {
     if constexpr (Back) {
@@ -336,7 +334,7 @@ template <DetectorLayout Det>
 class TrackStore
 {
  public:
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using References = TrackTable<TrackReference::template RecordT>;
   /// The tracker's tracks as it builds them, rows inline (`TrackOf`).
   using Tracks = typename TrackRefit<Det>::Tracks;
@@ -378,12 +376,12 @@ class TrackStore
 
   /// The committed tracks, in commit order: every iteration's after the
   /// ones before, each iteration's best first.
-  [[nodiscard]] std::size_t size() const { return mTracks; }
+  [[nodiscard]] std::uint32_t size() const { return mTracks; }
   [[nodiscard]] const TrackColumns& tracks() const { return mTrackColumns; }
   /// \a track's rows in its own detector's frame, in path order: its
   /// references' rows -- its layers' and its overlap partners -- every
   /// reference being one of the tracker's rows.
-  [[nodiscard]] std::span<const std::uint32_t> rows(std::size_t track) const
+  [[nodiscard]] std::span<const std::uint32_t> rows(std::uint32_t track) const
   {
     const auto range = mReferences.range(track);
     return {mReferences.view().records.row + range.first, range.count};
@@ -392,7 +390,7 @@ class TrackStore
   [[nodiscard]] References& references() { return mReferences; }
   /// \a track's layer rows alone, one per layer, in path order, into \a out
   /// (a chain's length): how many.
-  [[nodiscard]] std::uint32_t layerRows(std::size_t track, std::span<std::uint32_t, kMaxClusters> out) const
+  [[nodiscard]] std::uint32_t layerRows(std::uint32_t track, std::span<std::uint32_t, kMaxClusters> out) const
   {
     const auto range = mReferences.range(track);
     const auto records = mReferences.view().records;
@@ -450,7 +448,7 @@ class TrackStore
     return static_cast<SourceID>(mSources.size() - 1U);
   }
 
-  [[nodiscard]] std::size_t sourceCount() const { return mSources.size(); }
+  [[nodiscard]] std::uint32_t sourceCount() const { return static_cast<std::uint32_t>(mSources.size()); }
   [[nodiscard]] std::string_view sourceName(SourceID source) const { return mSources.at(source); }
 
   /// \a tracks from the first not committed yet to their end, committed with
@@ -471,7 +469,7 @@ class TrackStore
   {
     assert(offsets.size() == tracks.size() - mTracks + 1U);
     const auto view = tracks.view();
-    return commitWith(forEach, chunk, tracks, PartneredReferences<kMaxClusters, Partner>{.rows = {.clusters = view.clusters, .count = view.count}, .first = static_cast<std::uint32_t>(mTracks), .offsets = offsets.data(), .partners = partners.data()});
+    return commitWith(forEach, chunk, tracks, PartneredReferences<kMaxClusters, Partner>{.rows = {.clusters = view.clusters, .count = view.count}, .first = mTracks, .offsets = offsets.data(), .partners = partners.data()});
   }
 
   /// The committed tracks as \a tracks holds them after a step changed them
@@ -484,9 +482,9 @@ class TrackStore
     assert(tracks.size() >= mTracks);
     const auto view = tracks.view();
     const auto committed = mTrackColumns.view();
-    forEach(static_cast<std::uint32_t>(mTracks), [&](std::uint32_t track) { copyTrackFields(view, track, committed, track); });
+    forEach(mTracks, [&](std::uint32_t track) { copyTrackFields(view, track, committed, track); });
     const auto status = guardOutOfMemory([&] {
-      host_algorithms::compactIndices(forEach, static_cast<std::uint32_t>(mTracks), chunk, [&](std::uint32_t track) { return !holdsRows(view, track); }, changed);
+      host_algorithms::compactIndices(forEach, mTracks, chunk, [&](std::uint32_t track) { return !holdsRows(view, track); }, changed);
       return StageStatus::kComplete;
     });
     if (status != StageStatus::kComplete || changed.empty()) {
@@ -563,7 +561,7 @@ class TrackStore
       return false;
     }
     const auto view = tracks.view();
-    for (std::size_t track = 0; track < mTracks; ++track) {
+    for (std::uint32_t track = 0; track < mTracks; ++track) {
       if (!holdsRows(view, track) || !sameFields(view, track)) {
         return false;
       }
@@ -587,7 +585,7 @@ class TrackStore
     const auto columns = mTrackColumns.view();
     std::vector<std::uint32_t> clusters(mTracks, 0U);
     std::vector<Scalar> chi2PerDof(mTracks);
-    for (std::size_t track = 0; track < mTracks; ++track) {
+    for (std::uint32_t track = 0; track < mTracks; ++track) {
       const auto range = mReferences.range(track);
       for (std::uint32_t k = 0; k < range.count; ++k) {
         const auto reference = mReferences.read(track, k);
@@ -635,8 +633,8 @@ class TrackStore
       throw std::invalid_argument("track products whose offsets do not fit their tracks and references");
     }
     clear();
-    grow(records.size());
-    for (std::size_t track = 0; track < records.size(); ++track) {
+    grow(static_cast<std::uint32_t>(records.size()));
+    for (std::uint32_t track = 0; track < records.size(); ++track) {
       mTrackColumns.write(track, records[track]);
     }
     const auto status = mReferences.append(
@@ -665,7 +663,7 @@ class TrackStore
   /// Whether \a track's references held as its layers' are its rows in
   /// \a view, in order, its own detector's.
   template <typename View>
-  [[nodiscard]] bool holdsRows(const View& view, std::size_t track) const
+  [[nodiscard]] bool holdsRows(const View& view, std::uint32_t track) const
   {
     const auto range = mReferences.range(track);
     const auto references = mReferences.view().records;
@@ -684,7 +682,7 @@ class TrackStore
 
   /// Whether \a track's fields are those of \a view's track, bit for bit.
   template <typename View>
-  [[nodiscard]] bool sameFields(const View& view, std::size_t track) const
+  [[nodiscard]] bool sameFields(const View& view, std::uint32_t track) const
   {
     const auto mine = mTrackColumns.read(track);
     TrackRecord theirs{};
@@ -702,8 +700,8 @@ class TrackStore
   [[nodiscard]] StageStatus commitWith(const ForEach& forEach, std::uint32_t chunk, const Tracks& tracks, const References& references)
   {
     assert(tracks.size() >= mTracks);
-    const auto begin = static_cast<std::uint32_t>(mTracks);
-    const auto n = static_cast<std::uint32_t>(tracks.size() - mTracks);
+    const auto begin = mTracks;
+    const auto n = tracks.size() - mTracks;
     const auto status = guardOutOfMemory([&] {
       grow(tracks.size());
       return StageStatus::kComplete;
@@ -718,7 +716,7 @@ class TrackStore
       forEach, chunk, n, [begin](std::uint32_t i) { return begin + i; }, [&](std::uint32_t i) { return references.references(begin + i); }, [&](std::uint32_t i, const auto& out, std::uint32_t at) { references.write(begin + i, out, at); });
   }
 
-  void grow(std::size_t tracks)
+  void grow(std::uint32_t tracks)
   {
     mTrackColumns.resize(tracks);
     mReferences.resizeTracks(tracks);
@@ -729,7 +727,7 @@ class TrackStore
   }
 
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;
-  std::size_t mTracks = 0U;
+  std::uint32_t mTracks = 0U;
   TrackColumns mTrackColumns;
   References mReferences;
   std::vector<std::pair<const void*, std::unique_ptr<detail::TrackTableBase>>> mTables;
@@ -742,7 +740,7 @@ template <typename Columns>
 [[nodiscard]] TimeEstPS trackTimeBox(const Columns& columns, std::span<const std::uint32_t> rows)
 {
   auto box = timeBoxAt(columns, rows[0]);
-  for (std::size_t i = 1; i < rows.size(); ++i) {
+  for (std::uint32_t i = 1; i < rows.size(); ++i) {
     box += timeBoxAt(columns, rows[i]);
   }
   return box;
@@ -756,13 +754,13 @@ template <typename Columns>
 template <DetectorLayout Det>
 [[nodiscard]] typename TrackStore<Det>::Tracks inlineTracks(const TrackStore<Det>& store, std::pmr::memory_resource* resource)
 {
-  constexpr std::size_t kClusters = TrackStore<Det>::kMaxClusters;
+  constexpr std::uint32_t kClusters = TrackStore<Det>::kMaxClusters;
   typename TrackStore<Det>::Tracks tracks;
   tracks.setMemoryResource(resource);
   tracks.resize(store.size());
   const auto view = tracks.view();
   const auto committed = store.tracks().view();
-  for (std::size_t track = 0; track < store.size(); ++track) {
+  for (std::uint32_t track = 0; track < store.size(); ++track) {
     copyTrackFields<true>(view, track, committed, track);
     std::fill(std::begin(view.clusters[track].index), std::end(view.clusters[track].index), ClusterList<kClusters>::kNoCluster);
     const auto range = store.references().range(track);

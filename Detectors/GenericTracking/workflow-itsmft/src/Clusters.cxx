@@ -26,11 +26,11 @@
 namespace o2::gtrk::alice
 {
 
-std::vector<LocalCluster> localClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const unsigned char> patterns, const o2::itsmft::TopologyDictionary& dictionary)
+std::vector<LocalCluster> localClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const std::uint8_t> patterns, const o2::itsmft::TopologyDictionary& dictionary)
 {
   std::vector<LocalCluster> result;
   result.reserve(clusters.size());
-  const gsl::span<const unsigned char> stream{patterns.data(), patterns.size()};
+  const gsl::span<const std::uint8_t> stream{patterns.data(), patterns.size()};
   auto pattern = stream.begin();
   for (const auto& cluster : clusters) {
     const auto read = pattern;

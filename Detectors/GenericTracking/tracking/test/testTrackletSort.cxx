@@ -139,7 +139,7 @@ struct VariedGenerator {
       if (pattern == 1U) {
         lambda = kLambdas[(std::size_t{k} * 5U) % kLambdas.size()];
       } else if (pattern == 2U) {
-        lambda = static_cast<Scalar>(static_cast<int>((k * 7919U) % 4001U) - 2000) * 1.e-3F;
+        lambda = static_cast<Scalar>(static_cast<std::int32_t>((k * 7919U) % 4001U) - 2000) * 1.e-3F;
       }
       emitter.emit(Tracklet{
         .source = element,
@@ -175,7 +175,7 @@ BOOST_AUTO_TEST_CASE(TheHostSortGivesTheReferenceOrderForAnyLengthAndTies)
   BOOST_REQUIRE((runSerial(serial, VariedGenerator{}) == StageStatus::kComplete));
   sortTrackletSegments(serial);
 
-  for (const int threads : {1, 2, 4}) {
+  for (const std::int32_t threads : {1, 2, 4}) {
     for (const Index chunk : {1U, 3U, 64U}) {
       Output parallel;
       const auto parallelPool = freshPool();
@@ -226,7 +226,7 @@ BOOST_AUTO_TEST_CASE(TheKeysOrderLambdasWithDenormalsAsZero)
   for (const Scalar a : lambdas) {
     for (const Scalar b : lambdas) {
       BOOST_TEST((trackletLambdaKey(a) < trackletLambdaKey(b)) == (flushed(a) < flushed(b)), a << " " << b);
-      BOOST_TEST((trackletLambdaKey(a) == trackletLambdaKey(b)) == (flushed(a) == flushed(b)), a << " " << b);
+      BOOST_TEST((trackletLambdaKey(a) == trackletLambdaKey(b)) == exactlyEqual(flushed(a), flushed(b)), a << " " << b);
       for (const std::uint16_t la : links) {
         for (const std::uint16_t lb : links) {
           const bool keyBefore = trackletLinkLambdaKey(la, a) < trackletLinkLambdaKey(lb, b);

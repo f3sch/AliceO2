@@ -55,7 +55,7 @@ template <typename Output>
   left.apply([&](const auto&... leftColumn) {
     right.apply([&](const auto&... rightColumn) {
       static_assert(sizeof...(leftColumn) == sizeof...(rightColumn));
-      same = ((std::memcmp(leftColumn, rightColumn, static_cast<std::size_t>(lhs.size()) * sizeof(*leftColumn)) == 0) && ...);
+      same = ((std::memcmp(leftColumn, rightColumn, std::size_t{lhs.size()} * sizeof(*leftColumn)) == 0) && ...);
     });
   });
   return same;

@@ -54,10 +54,10 @@ GPUhdi() GPUAlwaysInline() void canonicalizeDirection(BoundParameters& state, Co
   if (state.theta() < 0.F) {
     state.par[kTheta] = -state.theta();
     state.par[kPhi] += kPi<Scalar>;
-    for (int i = 0; i < kTheta; ++i) {
+    for (std::int32_t i = 0; i < kTheta; ++i) {
       factors.upper[strictUpperIndex(i, kTheta)] = -factors.upper[strictUpperIndex(i, kTheta)];
     }
-    for (int j = kTheta + 1; j < kNBoundParams; ++j) {
+    for (std::int32_t j = kTheta + 1; j < kNBoundParams; ++j) {
       factors.upper[strictUpperIndex(kTheta, j)] = -factors.upper[strictUpperIndex(kTheta, j)];
     }
   }
@@ -66,7 +66,7 @@ GPUhdi() GPUAlwaysInline() void canonicalizeDirection(BoundParameters& state, Co
 
 GPUhdi() GPUAlwaysInline() void applySpatialGain(BoundParameters& state, const Scalar (&gain)[kNBoundParams], Scalar residual)
 {
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     state.par[i] += gain[i] * residual;
   }
 }

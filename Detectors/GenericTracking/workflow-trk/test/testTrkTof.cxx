@@ -54,7 +54,7 @@ namespace
 using namespace o2::gtrk;
 using Base = detectors::TRKFT3;
 using TOFLayout = detectors::TRKFT3TOF;
-constexpr int kBaseLayers = Detector<Base>::nLayers;
+constexpr std::int32_t kBaseLayers = Detector<Base>::nLayers;
 
 } // namespace
 
@@ -63,23 +63,23 @@ constexpr int kBaseLayers = Detector<Base>::nLayers;
 BOOST_AUTO_TEST_CASE(TRKFT3TOFReadsTRKsShapeBandInTRKFT3sLayers)
 {
   using Layers = workflow::ShapeBandLayers<TOFLayout>;
-  for (int layer = 0; layer < kBaseLayers; ++layer) {
+  for (std::int32_t layer = 0; layer < kBaseLayers; ++layer) {
     const auto id = static_cast<LayerID>(layer);
     BOOST_TEST(Layers::layer(detectors::trkft3tof::fromTRKFT3(id)) == id);
   }
   BOOST_TEST(Layers::layer(TOFLayout::kInnerTOFLayer) == kInvalidLayerID);
   BOOST_TEST(Layers::layer(TOFLayout::kOuterTOFLayer) == kInvalidLayerID);
   // A band calibrating TRKFT3's ML 7 alone: two rows at most, one column at slopes [0, 1).
-  constexpr std::size_t kML7 = 7;
+  constexpr std::uint32_t kML7 = 7;
   workflow::ClusterShapeBand band;
   band.maxRows.assign(Layers::barrelLayers, 0);
   band.maxRows[kML7] = 2;
-  band.slopeLow.assign(Layers::barrelLayers * workflow::ClusterShapeBand::kSpans, 0.F);
-  band.slopeHigh.assign(Layers::barrelLayers * workflow::ClusterShapeBand::kSpans, 0.F);
+  band.slopeLow.assign(std::size_t{Layers::barrelLayers} * workflow::ClusterShapeBand::kSpans, 0.F);
+  band.slopeHigh.assign(std::size_t{Layers::barrelLayers} * workflow::ClusterShapeBand::kSpans, 0.F);
   band.slopeHigh[(kML7 * workflow::ClusterShapeBand::kSpans) + 1] = 1.F;
   band.slopeEdges = {0.F, 1.F};
-  band.columnFrequency.assign(Layers::layers * workflow::ClusterShapeBand::kFrequencySpans, 0.F);
-  band.rowFrequency.assign(Layers::layers * workflow::ClusterShapeBand::kFrequencySpans, 0.F);
+  band.columnFrequency.assign(std::size_t{Layers::layers} * workflow::ClusterShapeBand::kFrequencySpans, 0.F);
+  band.rowFrequency.assign(std::size_t{Layers::layers} * workflow::ClusterShapeBand::kFrequencySpans, 0.F);
   BOOST_REQUIRE(band.fits(Layers::barrelLayers, Layers::layers));
   const auto onLayer = [&](LayerID layer) { return band.interval(Layers::layer(layer), 1, 1); };
   BOOST_TEST((onLayer(detectors::trkft3tof::fromTRKFT3(static_cast<LayerID>(kML7))) == workflow::ClusterShapeBand::Interval{0.F, 1.F}));
@@ -92,7 +92,7 @@ BOOST_AUTO_TEST_CASE(EveryTRKFT3LinkIsTRKFT3TOFs)
 {
   for (const auto& link : Base::layerLinks) {
     const auto* const found = std::ranges::find_if(TOFLayout::layerLinks, [&](const LayerLink& other) { return other.from == detectors::trkft3tof::fromTRKFT3(link.from) && other.to == detectors::trkft3tof::fromTRKFT3(link.to); });
-    BOOST_TEST_CONTEXT("link " << static_cast<int>(link.from) << " -> " << static_cast<int>(link.to))
+    BOOST_TEST_CONTEXT("link " << static_cast<std::int32_t>(link.from) << " -> " << static_cast<std::int32_t>(link.to))
     {
       BOOST_REQUIRE(found != TOFLayout::layerLinks.end());
       BOOST_TEST(found->sourceMin == link.sourceMin);
@@ -111,7 +111,7 @@ BOOST_AUTO_TEST_CASE(TheFramesAndDepthsAreTRKFT3sOnItsLayers)
 {
   std::vector<FrameTiming> frames;
   std::vector<double> depths;
-  for (int layer = 0; layer < kBaseLayers; ++layer) {
+  for (std::int32_t layer = 0; layer < kBaseLayers; ++layer) {
     frames.push_back({.lengthBC = 18 + layer, .firstStartBC = layer % 3});
     depths.push_back(-0.001 * (layer + 1));
   }
@@ -119,7 +119,7 @@ BOOST_AUTO_TEST_CASE(TheFramesAndDepthsAreTRKFT3sOnItsLayers)
   const auto tofDepths = alice::trktofMeasurementDepthsCM(depths);
   BOOST_REQUIRE(tofFrames.size() == static_cast<std::size_t>(Detector<TOFLayout>::nLayers));
   BOOST_REQUIRE(tofDepths.size() == static_cast<std::size_t>(Detector<TOFLayout>::nLayers));
-  for (int layer = 0; layer < kBaseLayers; ++layer) {
+  for (std::int32_t layer = 0; layer < kBaseLayers; ++layer) {
     const auto to = detectors::trkft3tof::fromTRKFT3(static_cast<LayerID>(layer));
     BOOST_TEST(tofFrames[to].lengthBC == frames[static_cast<std::size_t>(layer)].lengthBC);
     BOOST_TEST(tofFrames[to].firstStartBC == frames[static_cast<std::size_t>(layer)].firstStartBC);
@@ -140,7 +140,7 @@ BOOST_AUTO_TEST_CASE(TheNativeGridAndFloorsCoverLongTOFChains)
   static_assert(maxChainLayers<Base> == 15U && maxChainLayers<TOFLayout> == 17U);
   RecoSettings settings;
   settings.iterationMinPtGeV = {0.5, 0.3};
-  settings.iterationClusterMinPtGeV.assign(2U * RecoSettings::kClusterSlots, 0.);
+  settings.iterationClusterMinPtGeV.assign(std::size_t{2} * RecoSettings::kClusterSlots, 0.);
   settings.iterationClusterMinPtGeV[17] = 0.25;
   settings.iterationClusterMinPtGeV[RecoSettings::kClusterSlots + 16] = 0.5;
   o2::base::Propagator::Instance(true)->setNominalBz(20.F);
@@ -177,17 +177,17 @@ BOOST_AUTO_TEST_CASE(TheNativeGridAndFloorsCoverLongTOFChains)
 BOOST_AUTO_TEST_CASE(ATOFClusterIsItsPixelsAndTheCrossingEndingAtItsTime)
 {
   alice::TOFPixelFrame frame;
-  for (int row = 0; row < 8; ++row) {
+  for (std::int32_t row = 0; row < 8; ++row) {
     frame.rowX.push_back(0.01F * static_cast<float>(row) - 0.035F);
   }
-  for (int column = 0; column < 6; ++column) {
+  for (std::int32_t column = 0; column < 6; ++column) {
     frame.columnZ.push_back(0.025F * static_cast<float>(column) - 0.0625F);
   }
   frame.sigmaX = 0.01F / std::sqrt(12.F);
   frame.sigmaZ = 0.025F / std::sqrt(12.F);
   frame.chips = 4;
   constexpr std::uint32_t kFirstOrbit = 5;
-  constexpr int kOrbits = 2;
+  constexpr std::int32_t kOrbits = 2;
   const std::uint64_t firstBC = std::uint64_t{kFirstOrbit} * o2::constants::lhc::LHCMaxBunches;
   const std::uint64_t endBC = firstBC + (std::uint64_t{kOrbits} * o2::constants::lhc::LHCMaxBunches);
   using o2::iotof::Cluster;

@@ -53,7 +53,7 @@ class DeviceStageOutput
   using Ordinal = typename Host::Ordinal;
   using Record = typename Host::Record;
   using Columns = DeviceColumns<S>;
-  static constexpr std::size_t kMaxPerElement = Host::kMaxPerElement;
+  static constexpr std::uint32_t kMaxPerElement = Host::kMaxPerElement;
 
   /// Counts and offsets for \a elements elements. False if the arena refuses.
   [[nodiscard]] bool prepare(DeviceArena& arena, Index elements)
@@ -61,7 +61,7 @@ class DeviceStageOutput
     mElements = elements;
     mSize = 0U;
     mOutputReady = false;
-    return mCounts.allocate(arena, std::size_t{elements} + 1U) && mOffsets.allocate(arena, std::size_t{elements} + 1U);
+    return mCounts.allocate(arena, elements + 1U) && mOffsets.allocate(arena, elements + 1U);
   }
 
   /// The placed columns, once a run knows the total. False if the arena refuses.
@@ -127,7 +127,7 @@ void download(const DeviceStageOutput<S>& device, StageOutput<S>& host, DeviceSt
   const auto elements = device.elementCount();
   host.prepare(elements);
   download(device.counts(), host.counts().data(), elements, stream);
-  download(device.offsets(), host.offsets().data(), std::size_t{elements} + 1U, stream);
+  download(device.offsets(), host.offsets().data(), elements + 1U, stream);
   host.resizeOutput(device.size());
   download(device.output(), host.output(), device.size(), stream);
 }

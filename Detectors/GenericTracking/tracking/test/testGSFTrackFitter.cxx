@@ -33,6 +33,8 @@
 #include <cfloat>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <random>
 #include <vector>
@@ -48,11 +50,11 @@ using test::medianWidth;
 /// A loss of two components whatever the thickness: small and frequent, or
 /// large and rare.
 struct TwoLosses {
-  static constexpr int kComponents = 2;
+  static constexpr std::int32_t kComponents = 2;
   static constexpr Scalar kMaxX2X0 = FLT_MAX;
   static constexpr BetheHeitlerComponent kLosses[kComponents] = {{.weight = 0.7F, .mean = 0.97F, .variance = 1e-4F},
                                                                  {.weight = 0.3F, .mean = 0.7F, .variance = 4e-3F}};
-  static int mixture(Scalar /*x2X0*/, BetheHeitlerComponent (&components)[kComponents])
+  static std::int32_t mixture(Scalar /*x2X0*/, BetheHeitlerComponent (&components)[kComponents])
   {
     components[0] = kLosses[0];
     components[1] = kLosses[1];
@@ -94,7 +96,7 @@ struct Chain {
     state.surface = firstSensorOfLayer<Mixed>(0);
     std::normal_distribution<double> gauss;
     constexpr Scalar kSigma = 5e-4F;
-    for (std::size_t layer = 0; layer < N; ++layer) {
+    for (std::uint32_t layer = 0; layer < N; ++layer) {
       if (layer > 0) {
         const auto& from = tracking->surface(state.surface);
         bool crossed = false;
@@ -116,7 +118,7 @@ struct Chain {
       m.loc1 = state.loc1() + static_cast<Scalar>(gauss(rng)) * kSigma;
       m.varLoc0 = kSigma * kSigma;
       m.varLoc1 = kSigma * kSigma;
-      m.clusterIndex = static_cast<std::uint32_t>(layer);
+      m.clusterIndex = layer;
     }
     built = true;
   }
@@ -125,9 +127,9 @@ struct Chain {
 /// What one configuration of fits gives against the truth on the vertex
 /// end (the inward pass on the first plane).
 struct Coverage {
-  int fits = 0;
-  int failed = 0;       ///< the filter failed, the Kalman fit did not
-  int kalmanFailed = 0; ///< both may: skipped
+  std::int32_t fits = 0;
+  std::int32_t failed = 0;       ///< the filter failed, the Kalman fit did not
+  std::int32_t kalmanFailed = 0; ///< both may: skipped
   std::vector<double> pit;
   std::vector<double> outwardPit;  ///< the outward pass's on the last plane
   std::vector<double> kalmanRatio; ///< p / p_true of the Kalman fit
@@ -178,21 +180,21 @@ struct Coverage {
   }
 };
 
-template <typename Loss = BetheHeitlerLoss, int K = Loss::kComponents>
-Coverage coverage(double pGeV, const test::ChainBands& material, bool radiate, int tracks, std::uint32_t seed)
+template <typename Loss = BetheHeitlerLoss, std::int32_t K = Loss::kComponents>
+Coverage coverage(double pGeV, const test::ChainBands& material, bool radiate, std::int32_t tracks, std::uint32_t seed)
 {
   ElectronChain chain;
   std::mt19937 rng(seed);
   Coverage out;
-  for (int track = 0; track < tracks; ++track) {
+  for (std::int32_t track = 0; track < tracks; ++track) {
     const auto qOverP = static_cast<Scalar>((track % 2 == 0 ? 1. : -1.) / pGeV);
     while (!chain.generate(qOverP, material, radiate, rng)) {
     }
     const auto begin = std::chrono::steady_clock::now();
-    const auto gsf = fitGaussianSum<Loss, K>(chain.propagator, *chain.tracking, material, chain.measurements.data(), static_cast<int>(ElectronChain::kLayers));
+    const auto gsf = fitGaussianSum<Loss, K>(chain.propagator, *chain.tracking, material, chain.measurements.data(), static_cast<std::int32_t>(ElectronChain::kLayers));
     out.seconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - begin).count();
     const auto kalmanBegin = std::chrono::steady_clock::now();
-    const auto kalman = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), static_cast<int>(ElectronChain::kLayers));
+    const auto kalman = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), static_cast<std::int32_t>(ElectronChain::kLayers));
     out.kalmanSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - kalmanBegin).count();
     if (kalman.status != PropagationStatus::kOk) {
       ++out.kalmanFailed; // a track the fit's propagation cannot follow (a curler's turning point)
@@ -239,8 +241,8 @@ BOOST_AUTO_TEST_CASE(WithoutLossItIsTheKalmanFit)
 {
   std::mt19937 rng(105);
   const detail::LinkSteps material;
-  int fits = 0;
-  for (int trial = 0; trial < 50; ++trial) {
+  std::int32_t fits = 0;
+  for (std::int32_t trial = 0; trial < 50; ++trial) {
     const Chain<4> chain(trial % 2 == 0 ? 3.F : -5.F, rng);
     BOOST_REQUIRE(chain.built);
     const auto kalman = fitMeasurements(chain.propagator, *chain.tracking, material, chain.measurements.data(), 4);
@@ -271,14 +273,14 @@ BOOST_AUTO_TEST_CASE(WithoutLossItIsTheKalmanFit)
 /// the order of the branching, with the normalised weights.
 BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
 {
-  constexpr int kLayers = 4;     // ToyBarrel4Disc8's barrel
-  constexpr int kBranchings = 4; // every plane
-  constexpr int kPaths = 16;
+  constexpr std::int32_t kLayers = 4;     // ToyBarrel4Disc8's barrel
+  constexpr std::int32_t kBranchings = 4; // every plane
+  constexpr std::int32_t kPaths = 16;
   std::mt19937 rng(1050);
   const detail::LinkSteps material;
   double worstState = 0.;
   double worstWeight = 0.;
-  for (int trial = 0; trial < 20; ++trial) {
+  for (std::int32_t trial = 0; trial < 20; ++trial) {
     const Chain<kLayers> chain(trial % 2 == 0 ? 2.F : -4.F, rng);
     BOOST_REQUIRE(chain.built);
     const auto* measurements = chain.measurements.data();
@@ -290,13 +292,13 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
       const bool outward = direction == PropagationDirection::kForward;
       const auto& mixture = outward ? gsf.outwardMixture : gsf.mixture;
       BOOST_REQUIRE(mixture.size == kPaths);
-      const int first = outward ? 0 : kLayers - 1;
-      const int increment = outward ? 1 : -1;
+      const std::int32_t first = outward ? 0 : kLayers - 1;
+      const std::int32_t increment = outward ? 1 : -1;
       double logWeight[kPaths];
       BoundTrackState state[kPaths];
       CovarianceFactors factors[kPaths];
-      for (int path = 0; path < kPaths; ++path) {
-        const auto lossOf = [&](int b) { return TwoLosses::kLosses[(path >> (kBranchings - 1 - b)) & 1]; };
+      for (std::int32_t path = 0; path < kPaths; ++path) {
+        const auto lossOf = [&](std::int32_t b) { return TwoLosses::kLosses[(path >> (kBranchings - 1 - b)) & 1]; };
         state[path] = outward ? seed : gsf.fit.outwardState;
         logWeight[path] = 0.;
         Scalar chi2 = 0.F;
@@ -306,11 +308,11 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
           reference.qOverP *= betheHeitlerScale(loss, direction);
           reference.lossScale *= betheHeitlerScale(loss, direction);
         };
-        const auto referenceTo = [&](int index) { return detail::referenceFor(reference, kLayers, direction, [&] { return detail::leaveOneOutQOverP(chain.propagator, *chain.tracking, measurements, kLayers, index); }); };
+        const auto referenceTo = [&](std::int32_t index) { return detail::referenceFor(reference, kLayers, direction, [&] { return detail::leaveOneOutQOverP(chain.propagator, *chain.tracking, measurements, kLayers, index); }); };
         detail::DiffuseFactors diffuse;
         BOOST_REQUIRE(detail::startDiffuse(chain.propagator, measurements[first], state[path], diffuse));
-        int plane = first;
-        for (int b = 0; b < detail::kPassStart - 1; ++b, plane += increment) {
+        std::int32_t plane = first;
+        for (std::int32_t b = 0; b < detail::kPassStart - 1; ++b, plane += increment) {
           const auto loss = lossOf(b);
           logWeight[path] += std::log(static_cast<double>(loss.weight));
           BOOST_REQUIRE(detail::gsf::applyBetheHeitler(loss, direction, state[path], diffuse));
@@ -324,7 +326,7 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
         }
         BOOST_REQUIRE(diffuse.rank == 0);
         factors[path] = diffuse.star;
-        for (int b = detail::kPassStart - 1; b < kBranchings; ++b, plane += increment) {
+        for (std::int32_t b = detail::kPassStart - 1; b < kBranchings; ++b, plane += increment) {
           const auto loss = lossOf(b);
           logWeight[path] += std::log(static_cast<double>(loss.weight));
           BOOST_REQUIRE(applyBetheHeitler(loss, direction, state[path], factors[path]));
@@ -335,7 +337,7 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
             Scalar carried = stepReference;
             BOOST_REQUIRE((detail::filterStepBody<false, true>(chain.propagator, *chain.tracking, span, measurements[plane + increment], direction, state[path], factors[path], chi2, carried, 1.F, &logLikelihood) == PropagationStatus::kOk));
             detail::advanceReference(reference, kLayers, direction, stepReference, carried);
-            logWeight[path] += logLikelihood;
+            logWeight[path] += static_cast<double>(logLikelihood);
           }
         }
         covarianceFromFactors(factors[path], state[path].cov);
@@ -348,15 +350,15 @@ BOOST_AUTO_TEST_CASE(UnreducedItIsEveryLossPath)
       for (const double l : logWeight) {
         sum += std::exp(l - maxLog);
       }
-      for (int path = 0; path < kPaths; ++path) {
+      for (std::int32_t path = 0; path < kPaths; ++path) {
         const double expected = std::exp(logWeight[path] - maxLog) / sum;
         const double got = std::exp(static_cast<double>(mixture.components[path].logWeight));
         worstWeight = std::max(worstWeight, std::abs(got - expected));
-        for (int i = 0; i < kNBoundParams; ++i) {
+        for (std::int32_t i = 0; i < kNBoundParams; ++i) {
           const double sigma = std::sqrt(static_cast<double>(state[path].variance(i)));
           worstState = std::max(worstState, std::abs(static_cast<double>(mixture.components[path].state.par[i] - state[path].par[i])) / sigma);
         }
-        for (int i = 0; i < kBoundCovSize; ++i) {
+        for (std::int32_t i = 0; i < kBoundCovSize; ++i) {
           const double scale = std::abs(static_cast<double>(state[path].cov[i])) + 1e-30;
           worstState = std::max(worstState, std::abs(static_cast<double>(mixture.components[path].state.cov[i] - state[path].cov[i])) / scale);
         }
@@ -381,7 +383,7 @@ BOOST_AUTO_TEST_CASE(TheMixtureCoversSampledLosses)
 {
   const test::ChainBands thin{.x2X0 = 5e-3F, .xRho = 0.11F};  // silicon's ratio, 0.5 % X0 per layer
   const test::ChainBands thick{.x2X0 = 2e-2F, .xRho = 0.44F}; // 2 % X0 per layer
-  constexpr int kTracks = 1000;
+  constexpr std::int32_t kTracks = 1000;
   struct Row {
     std::string label;
     Coverage coverage;
@@ -490,10 +492,10 @@ BOOST_AUTO_TEST_CASE(TheReductionConverges, *boost::unit_test::disabled())
   const test::ChainBands thick{.x2X0 = 2e-2F, .xRho = 0.44F};
   ElectronChain chain;
   std::mt19937 rng(110);
-  constexpr int kTracks = 300;
-  constexpr int kLayers = static_cast<int>(ElectronChain::kLayers);
+  constexpr std::int32_t kTracks = 300;
+  constexpr auto kLayers = static_cast<std::int32_t>(ElectronChain::kLayers);
   std::array<std::array<std::vector<double>, kNBoundParams + 1>, 4> difference; // per K: the parameters, the mode
-  for (int track = 0; track < kTracks; ++track) {
+  for (std::int32_t track = 0; track < kTracks; ++track) {
     const Scalar qOverP = (track % 2 == 0 ? 2.F : -2.F);
     while (!chain.generate(qOverP, thick, true, rng)) {
     }
@@ -502,14 +504,14 @@ BOOST_AUTO_TEST_CASE(TheReductionConverges, *boost::unit_test::disabled())
     if (reference.fit.status != PropagationStatus::kOk) {
       continue;
     }
-    const auto compare = [&](int slot, const auto& gsf) {
+    const auto compare = [&](std::uint32_t slot, const auto& gsf) {
       BOOST_REQUIRE(gsf.fit.status == PropagationStatus::kOk);
-      for (int i = 0; i < kNBoundParams; ++i) {
+      for (std::int32_t i = 0; i < kNBoundParams; ++i) {
         double d = static_cast<double>(gsf.fit.state.par[i]) - static_cast<double>(reference.fit.state.par[i]);
         if (i == kPhi) {
           math_utils::detail::bringToPMPi<double>(d);
         }
-        difference[slot][i].push_back(std::abs(d) / std::sqrt(static_cast<double>(reference.fit.state.variance(i))));
+        difference[slot][static_cast<std::uint32_t>(i)].push_back(std::abs(d) / std::sqrt(static_cast<double>(reference.fit.state.variance(i))));
       }
       difference[slot][kNBoundParams].push_back(std::abs(static_cast<double>(gsf.momentumMode / reference.momentumMode) - 1.));
     };
@@ -519,15 +521,15 @@ BOOST_AUTO_TEST_CASE(TheReductionConverges, *boost::unit_test::disabled())
     compare(3, fitGaussianSum<BetheHeitlerLoss, 12>(chain.propagator, *chain.tracking, thick, measurements, kLayers));
   }
   BOOST_TEST_MESSAGE("against K 24, |difference| / sigma (median, 95 %) of loc0 loc1 phi theta q/p; the mode, relative");
-  const int ks[] = {1, 4, BetheHeitlerLoss::kComponents, 12};
-  for (int slot = 0; slot < 4; ++slot) {
+  const std::int32_t ks[] = {1, 4, BetheHeitlerLoss::kComponents, 12};
+  for (std::uint32_t slot = 0; slot < 4; ++slot) {
     std::string line = fmt::format("K {:2d}:", ks[slot]);
-    for (int i = 0; i <= kNBoundParams; ++i) {
+    for (std::uint32_t i = 0; i <= kNBoundParams; ++i) {
       line += fmt::format("  {:.3f} {:.3f}", quantile(difference[slot][i], 0.5), quantile(difference[slot][i], 0.95));
     }
     BOOST_TEST_MESSAGE(line);
   }
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::uint32_t i = 0; i < kNBoundParams; ++i) {
     BOOST_TEST_CONTEXT("the default K, parameter " << i) { BOOST_TEST(quantile(difference[2][i], 0.95) < 0.1); }
   }
   BOOST_TEST(quantile(difference[2][kNBoundParams], 0.95) < 0.02); // a fifth of the resolution here
@@ -539,12 +541,12 @@ BOOST_AUTO_TEST_CASE(TheMixtureCollapseAloneIsFinishMixtureWithoutTheMode)
   // collapse to the bit, for callers that take no mode.
   GSFMixture<4> mixture;
   mixture.size = 3;
-  for (int k = 0; k < mixture.size; ++k) {
+  for (std::int32_t k = 0; k < mixture.size; ++k) {
     auto& component = mixture.components[k];
     component.logWeight = static_cast<Scalar>(-0.5 * k);
     component.state.par[kQOverP] = static_cast<Scalar>(1. + (0.2 * k));
     component.state.par[kPhi] = static_cast<Scalar>(0.1 * k);
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       component.state.covAt(i, i) = static_cast<Scalar>(0.01 * (1 + i + k));
     }
     component.factors = factorCovariance(component.state.cov);

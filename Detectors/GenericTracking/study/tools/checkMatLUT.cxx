@@ -119,17 +119,17 @@ struct Options {
   std::string lut;
   std::string geometry;
   std::string output;
-  int events = 200;
+  std::int32_t events = 200;
   double minPt = 0.1;
   bool secondaries = false;
-  int pieces = 8;
+  std::int32_t pieces = 8;
   double maxTurn = 0.2;
-  int minSteps = 200;
-  int minCell = 30;
-  int worst = 25;
+  std::int32_t minSteps = 200;
+  std::int32_t minCell = 30;
+  std::int32_t worst = 25;
   double phiBinDeg = 1.;
   double coordinateBin = 2.;
-  int threads = -1;
+  std::int32_t threads = -1;
 };
 
 /// A point on the path [cm] with the momentum there [GeV].
@@ -140,15 +140,15 @@ struct Point {
 
 /// One step: from a crossing's entry (or the vertex) to the next one's.
 struct Step {
-  int event = 0;
-  int track = 0;
-  int pdg = 0;
+  std::int32_t event = 0;
+  std::int32_t track = 0;
+  std::int32_t pdg = 0;
   double pt = 0.;
   double eta = 0.;
   double mass = 0.;
   double absCharge = 1.; ///< |q| [e]
-  int from = -1; ///< layer, -1 the vertex
-  int to = -1;
+  std::int32_t from = -1; ///< layer, -1 the vertex
+  std::int32_t to = -1;
   Point a;
   Point b;
   double turn = 0.; ///< the circle's direction at b against the true one [rad]
@@ -159,7 +159,7 @@ struct Step {
 
 /// The step's path, \a pieces + 1 points: the transverse circle tangent to a's
 /// momentum through b, z linear in the arc. Also the circle's direction at b.
-std::vector<Vec3D> path(const Step& step, int pieces, double& directionAtB)
+std::vector<Vec3D> path(const Step& step, std::int32_t pieces, double& directionAtB)
 {
   const auto& [ax, ap] = step.a;
   const auto& bx = step.b.x;
@@ -172,7 +172,7 @@ std::vector<Vec3D> path(const Step& step, int pieces, double& directionAtB)
   std::vector<Vec3D> points;
   points.reserve(static_cast<std::size_t>(pieces) + 1U);
   if (std::abs(dn) < 1e-9 * dd) {
-    for (int i = 0; i <= pieces; ++i) {
+    for (std::int32_t i = 0; i <= pieces; ++i) {
       const double f = static_cast<double>(i) / pieces;
       points.push_back({ax[0] + (f * d[0]), ax[1] + (f * d[1]), ax[2] + (f * (bx[2] - ax[2]))});
     }
@@ -194,7 +194,7 @@ std::vector<Vec3D> path(const Step& step, int pieces, double& directionAtB)
     }
   }
   const double r = std::abs(radius);
-  for (int i = 0; i <= pieces; ++i) {
+  for (std::int32_t i = 0; i <= pieces; ++i) {
     const double f = static_cast<double>(i) / pieces;
     const double angle = start + (f * sweep);
     points.push_back({centre[0] + (r * std::cos(angle)), centre[1] + (r * std::sin(angle)), ax[2] + (f * (bx[2] - ax[2]))});
@@ -205,15 +205,15 @@ std::vector<Vec3D> path(const Step& step, int pieces, double& directionAtB)
 
 /// The step's material along its path, near and far half, from the geometry
 /// (on \a navigator) and from \a lut.
-void measure(Step& step, int pieces, const o2::base::MatLayerCylSet& lut, TGeoNavigator* navigator)
+void measure(Step& step, std::int32_t pieces, const o2::base::MatLayerCylSet& lut, TGeoNavigator* navigator)
 {
   double direction = 0.;
   const auto points = path(step, pieces, direction);
   step.turn = std::abs(o2::gtrk::toPMPiOf(direction - o2::gtrk::phiOf(step.b.p)));
-  for (int i = 0; i < pieces; ++i) {
-    const auto& p = points[static_cast<std::size_t>(i)];
-    const auto& q = points[static_cast<std::size_t>(i) + 1U];
-    const std::size_t half = 2 * i < pieces ? 0U : 1U;
+  for (std::int32_t i = 0; i < pieces; ++i) {
+    const auto& p = points[static_cast<std::uint32_t>(i)];
+    const auto& q = points[static_cast<std::uint32_t>(i) + 1U];
+    const std::uint32_t half = 2 * i < pieces ? 0U : 1U;
     const auto geo = o2::base::GeometryManager::meanMaterialBudget(static_cast<float>(p[0]), static_cast<float>(p[1]), static_cast<float>(p[2]), static_cast<float>(q[0]), static_cast<float>(q[1]), static_cast<float>(q[2]), navigator);
     if (geo.length > 0.F) {
       step.geo[half] += static_cast<double>(geo.meanX2X0);
@@ -258,7 +258,7 @@ double beyond(const std::vector<double>& v, double width, double k)
 }
 
 template <o2::gtrk::DetectorLayout Det>
-std::string layerName(int layer)
+std::string layerName(std::int32_t layer)
 {
   if (layer < 0) {
     return "vertex";
@@ -269,7 +269,7 @@ std::string layerName(int layer)
 /// The steps of every particle above --min-pt in the first --events events;
 /// \a events, the events read.
 template <o2::gtrk::DetectorLayout Det>
-std::vector<Step> collect(const Options& options, const o2::gtrk::Geometry<Det>& geometry, int& events)
+std::vector<Step> collect(const Options& options, const o2::gtrk::Geometry<Det>& geometry, std::int32_t& events)
 {
   constexpr auto kChips = o2::gtrk::study::chipsOf<Det>();
   const std::string hitName = [] {
@@ -290,10 +290,10 @@ std::vector<Step> collect(const Options& options, const o2::gtrk::Geometry<Det>&
   }
   o2::steer::MCKinematicsReader kine(options.sim + "/sgn", o2::steer::MCKinematicsReader::Mode::kMCKine);
   std::vector<Step> steps;
-  events = std::min({options.events, hits.nEvents(), static_cast<int>(kine.getNEvents(0))});
-  for (int event = 0; event < events; ++event) {
+  events = std::min({options.events, hits.nEvents(), static_cast<std::int32_t>(kine.getNEvents(0))});
+  for (std::int32_t event = 0; event < events; ++event) {
     const auto& tracks = kine.getTracks(0, event);
-    std::map<int, std::vector<const o2::gtrk::study::HitSegment*>> byTrack;
+    std::map<std::int32_t, std::vector<const o2::gtrk::study::HitSegment*>> byTrack;
     for (const auto& segment : hits.event(event)) {
       byTrack[segment.track].push_back(&segment);
     }
@@ -301,24 +301,24 @@ std::vector<Step> collect(const Options& options, const o2::gtrk::Geometry<Det>&
       if (id < 0 || std::cmp_greater_equal(id, tracks.size())) {
         continue;
       }
-      const auto& mc = tracks[static_cast<std::size_t>(id)];
+      const auto& mc = tracks[static_cast<std::uint32_t>(id)];
       if ((!options.secondaries && !mc.isPrimary()) || mc.GetPt() < options.minPt) {
         continue;
       }
       std::ranges::sort(segments, {}, &o2::gtrk::study::HitSegment::time);
       Point previous{.x = {mc.Vx(), mc.Vy(), mc.Vz()}, .p = {mc.Px(), mc.Py(), mc.Pz()}};
-      int previousLayer = -1;
+      std::int32_t previousLayer = -1;
       std::vector<bool> seen(static_cast<std::size_t>(o2::gtrk::Detector<Det>::nLayers), false);
       const auto first = steps.size();
       for (const auto* segment : segments) {
-        const int layer = geometry.sensor(segment->chip).layer;
+        const std::int32_t layer = geometry.sensor(segment->chip).layer;
         if (layer == previousLayer) {
           continue; // a second chip of the same layer: an overlap
         }
-        if (seen[static_cast<std::size_t>(layer)]) {
+        if (seen[static_cast<std::uint32_t>(layer)]) {
           break; // the layer again: a looper's next leg
         }
-        seen[static_cast<std::size_t>(layer)] = true;
+        seen[static_cast<std::uint32_t>(layer)] = true;
         const Point entry{.x = segment->start, .p = segment->momentum};
         steps.push_back({
           .event = event,
@@ -376,8 +376,8 @@ template <o2::gtrk::DetectorLayout Det>
 void report(const Options& options, const std::vector<Step>& steps)
 {
   // nodes: the far half in and the near half out
-  std::map<int, Sums> nodes;
-  std::map<std::tuple<int, int, bool>, Sums> cells;
+  std::map<std::int32_t, Sums> nodes;
+  std::map<std::tuple<std::int32_t, std::int32_t, bool>, Sums> cells;
   for (std::size_t i = 0; i + 1 < steps.size(); ++i) {
     const auto& in = steps[i];
     const auto& out = steps[i + 1];
@@ -392,8 +392,8 @@ void report(const Options& options, const std::vector<Step>& steps)
     phi = phi < 0. ? phi + 360. : phi;
     const bool barrel = o2::gtrk::Detector<Det>::isBarrelLayer(static_cast<LayerID>(in.to));
     const double coordinate = barrel ? x[2] : std::hypot(x[0], x[1]);
-    cells[{in.to, static_cast<int>(std::floor(phi / options.phiBinDeg)), true}].add(g, l);
-    cells[{in.to, static_cast<int>(std::floor(coordinate / options.coordinateBin)), false}].add(g, l);
+    cells[{in.to, static_cast<std::int32_t>(std::floor(phi / options.phiBinDeg)), true}].add(g, l);
+    cells[{in.to, static_cast<std::int32_t>(std::floor(coordinate / options.coordinateBin)), false}].add(g, l);
   }
   std::cout << std::format("\n== nodes: the material the fit applies at each layer's crossing, x/X0 [%]\n");
   std::cout << std::format("{:>6} {:>8} | {:>8} {:>8} {:>7} | LUT/geometry per node: {:>6} {:>6} {:>6} | {:>9}\n", "layer", "n", "geometry", "LUT", "ratio", "5 %", "median", "95 %", "off 25 %");
@@ -413,7 +413,7 @@ void report(const Options& options, const std::vector<Step>& steps)
     std::vector<double> pullGeo;
     std::vector<double> pullLut;
   };
-  std::map<std::pair<int, int>, StepStats> pairs;
+  std::map<std::pair<std::int32_t, std::int32_t>, StepStats> pairs;
   std::size_t turned = 0U;
   for (const auto& step : steps) {
     if (step.turn > options.maxTurn) {
@@ -451,7 +451,7 @@ void report(const Options& options, const std::vector<Step>& steps)
     std::cout << std::format("{:>13} {:>8} | {:8.4f} {:8.4f} {:7.3f} | {:>11} {:5.2f} {:5.2f} | {:>32} {:5.3f} {:5.2f}  {:>3} {:5.3f} {:5.2f}\n", layerName<Det>(key.first) + "->" + layerName<Det>(key.second), s.material.size(), 100. * s.material.geoSum / n, 100. * s.material.lutSum / n, s.material.ratio(), "", s.material.geoSum > 0. ? s.geoNear / s.material.geoSum : kNaN, s.material.lutSum > 0. ? s.lutNear / s.material.lutSum : kNaN, "", cg, beyond(s.pullGeo, cg, 3.), "", cl, beyond(s.pullLut, cl, 3.));
   }
 
-  std::vector<std::pair<double, std::tuple<int, int, bool>>> ranked;
+  std::vector<std::pair<double, std::tuple<std::int32_t, std::int32_t, bool>>> ranked;
   for (const auto& [key, sums] : cells) {
     if (std::cmp_less(sums.size(), options.minCell) || !(sums.geoSum > 0.)) {
       continue;
@@ -534,7 +534,7 @@ void write(const std::string& path, const std::vector<Step>& steps)
 }
 
 template <o2::gtrk::DetectorLayout Det>
-int runFor(const Options& options)
+std::int32_t runFor(const Options& options)
 {
   // O2 exports the ideal geometry before applying alignment, then transports
   // with the aligned geometry (O2MCApplicationBase::MisalignGeometry).
@@ -549,17 +549,17 @@ int runFor(const Options& options)
   if (!lut) {
     throw std::runtime_error("cannot load the LUT " + options.lut);
   }
-  int events = 0;
+  std::int32_t events = 0;
   auto steps = collect<Det>(options, *geometry, events);
   std::cout << std::format("{} steps of the particles above {} GeV{} in {} events\n", steps.size(), options.minPt, options.secondaries ? "" : " (primaries)", events);
 
-  int threads = options.threads < 0 ? static_cast<int>(std::thread::hardware_concurrency()) : options.threads;
+  std::int32_t threads = options.threads < 0 ? static_cast<std::int32_t>(std::thread::hardware_concurrency()) : options.threads;
   threads = std::max(threads, 1);
   gGeoManager->SetMaxThreads(threads);
   std::atomic<std::size_t> next{0};
   std::vector<std::thread> workers;
   workers.reserve(static_cast<std::size_t>(threads));
-  for (int thread = 0; thread < threads; ++thread) {
+  for (std::int32_t thread = 0; thread < threads; ++thread) {
     workers.emplace_back([&] {
       TGeoNavigator* navigator = gGeoManager->AddNavigator();
       for (std::size_t i = next++; i < steps.size(); i = next++) {
@@ -579,7 +579,7 @@ int runFor(const Options& options)
 }
 
 /// The body of main, so that clang-tidy can see that nothing escapes it.
-int run(int argc, char** argv)
+std::int32_t run(std::int32_t argc, char** argv)
 {
   Options options;
   bpo::options_description description("Hold a material LUT to the geometry along simulated particles' paths");

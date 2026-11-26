@@ -30,6 +30,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <random>
 #include <vector>
@@ -73,9 +74,9 @@ BOOST_AUTO_TEST_CASE(JacobianPublishesItsCrossingWithoutChangingTheResult)
   std::uniform_real_distribution<double> phi{-1.2, 1.2};
   std::uniform_real_distribution<double> theta{0.15, 2.99};
   std::uniform_real_distribution<double> qOverP{-20., 20.};
-  unsigned successful = 0U;
-  unsigned failed = 0U;
-  for (unsigned trial = 0U; trial < 1000U; ++trial) {
+  std::uint32_t successful = 0U;
+  std::uint32_t failed = 0U;
+  for (std::uint32_t trial = 0U; trial < 1000U; ++trial) {
     const auto to = trial % 2U == 0U ? barrelPlane(17.2, 2) : discAt(trial % 4U == 1U ? 29. : -29., 2);
     const auto seed = makeState(1, phi(random), theta(random), qOverP(random));
     SolenoidJacobian expectedJacobian;
@@ -86,7 +87,7 @@ BOOST_AUTO_TEST_CASE(JacobianPublishesItsCrossingWithoutChangingTheResult)
     SolenoidJacobian actualJacobian;
     PropagationResult actualResult;
     const auto actualStatus = jacobianAnalytic(prop, actualState, from, to, PropagationDirection::kForward, actualJacobian, &actualState, &actualResult);
-    BOOST_TEST(static_cast<unsigned>(actualStatus) == static_cast<unsigned>(expectedStatus));
+    BOOST_TEST(static_cast<std::uint32_t>(actualStatus) == static_cast<std::uint32_t>(expectedStatus));
     if (actualStatus == PropagationStatus::kOk) {
       // Bit identity is intentional, including floating-point encodings; these records have no padding.
       // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison)
@@ -94,14 +95,14 @@ BOOST_AUTO_TEST_CASE(JacobianPublishesItsCrossingWithoutChangingTheResult)
       // Bit identity is intentional, including floating-point encodings; these records have no padding.
       // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison)
       BOOST_TEST(std::memcmp(&actualJacobian, &expectedJacobian, sizeof(SolenoidJacobian)) == 0);
-      BOOST_TEST(static_cast<unsigned>(actualResult.status) == static_cast<unsigned>(expectedResult.status));
+      BOOST_TEST(static_cast<std::uint32_t>(actualResult.status) == static_cast<std::uint32_t>(expectedResult.status));
       BOOST_TEST(exactlyEqual(actualResult.pathLength, expectedResult.pathLength));
       ++successful;
     } else {
       // Bit identity is intentional, including floating-point encodings; these records have no padding.
       // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison)
       BOOST_TEST(std::memcmp(&actualState, &seed, sizeof(BoundTrackState)) == 0);
-      BOOST_TEST(static_cast<unsigned>(actualResult.status) == static_cast<unsigned>(PropagationStatus::kNotFinite));
+      BOOST_TEST(static_cast<std::uint32_t>(actualResult.status) == static_cast<std::uint32_t>(PropagationStatus::kNotFinite));
       ++failed;
     }
   }
@@ -114,12 +115,12 @@ BOOST_AUTO_TEST_CASE(JacobianPublishesItsCrossingWithoutChangingTheResult)
 static void checkMonteCarloClosure(const TrackingSurface& from, const TrackingSurface& to, const BoundTrackState& seed, double tolerance, bool analytic = false)
 {
   const Propagator prop;
-  constexpr int kSamples = 20000;
+  constexpr std::int32_t kSamples = 20000;
 
   const Scalar sigma[kNBoundParams] = {5e-3F, 5e-3F, 1e-3F, 1e-3F, 1e-3F};
 
   BoundTrackState st = seed;
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     st.variance(i) = sigma[i] * sigma[i];
   }
 
@@ -144,17 +145,17 @@ static void checkMonteCarloClosure(const TrackingSurface& from, const TrackingSu
 
   std::vector<std::array<double, kNBoundParams>> out;
   out.reserve(kSamples);
-  for (int n = 0; n < kSamples; ++n) {
+  for (std::int32_t n = 0; n < kSamples; ++n) {
     BoundTrackState s = seed;
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       s.par[i] += static_cast<Scalar>(gauss(rng) * static_cast<double>(sigma[i]));
     }
     if (propagate(prop, s, from, to, PropagationDirection::kForward).status != PropagationStatus::kOk) {
       continue;
     }
     std::array<double, kNBoundParams> row{};
-    for (int i = 0; i < kNBoundParams; ++i) {
-      row[static_cast<std::size_t>(i)] = static_cast<double>(s.par[i]);
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+      row[static_cast<std::uint32_t>(i)] = static_cast<double>(s.par[i]);
     }
     out.push_back(row);
   }
@@ -163,16 +164,16 @@ static void checkMonteCarloClosure(const TrackingSurface& from, const TrackingSu
   const auto n = static_cast<double>(out.size());
   std::array<double, kNBoundParams> mean{};
   for (const auto& row : out) {
-    for (int i = 0; i < kNBoundParams; ++i) {
-      mean[static_cast<std::size_t>(i)] += row[static_cast<std::size_t>(i)] / n;
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+      mean[static_cast<std::uint32_t>(i)] += row[static_cast<std::uint32_t>(i)] / n;
     }
   }
 
-  for (int i = 0; i < kNBoundParams; ++i) {
-    for (int j = 0; j <= i; ++j) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t j = 0; j <= i; ++j) {
       double acc = 0.;
       for (const auto& row : out) {
-        acc += (row[static_cast<std::size_t>(i)] - mean[static_cast<std::size_t>(i)]) * (row[static_cast<std::size_t>(j)] - mean[static_cast<std::size_t>(j)]);
+        acc += (row[static_cast<std::uint32_t>(i)] - mean[static_cast<std::uint32_t>(i)]) * (row[static_cast<std::uint32_t>(j)] - mean[static_cast<std::uint32_t>(j)]);
       }
       const double sample = acc / (n - 1.);
       const auto predicted = static_cast<double>(transported.covAt(i, j));
@@ -219,7 +220,7 @@ BOOST_AUTO_TEST_CASE(AnalyticJacobianAgreesWithTheReferenceAcrossTheAcceptance)
   const Propagator prop;
   const TrackingSurface pairs[3][2] = {{barrelPlane(3.4, 1), barrelPlane(7.0, 2)}, {barrelPlane(3.4, 1), barrelPlane(17.2, 2)}, {discAt(0., 1), discAt(152., 2)}};
 
-  int checked = 0;
+  std::int32_t checked = 0;
   for (const auto& pair : pairs) {
     for (const double pT : {0.05, 0.1, 0.5, 1.0, 10.0, 100.0}) {
       for (const double theta : {0.05, 0.3, 0.9, 1.5708, 2.4}) {
@@ -249,7 +250,7 @@ BOOST_AUTO_TEST_CASE(AnalyticJacobianAgreesWithTheReferenceAcrossTheAcceptance)
             expandJacobian(sol, ana);
             expandJacobian(exactSol, exact);
 
-            for (int i = 0; i < kJacobianSize; ++i) {
+            for (std::int32_t i = 0; i < kJacobianSize; ++i) {
               const double diff = std::abs(static_cast<double>(ana[i]) - static_cast<double>(ref[i]));
               const double precisionDiff = std::abs(static_cast<double>(ana[i]) - static_cast<double>(exact[i]));
               BOOST_TEST_CONTEXT("pT " << pT << ", theta " << theta << ", charge " << charge << ", phi " << phi << ", element " << i)
@@ -291,7 +292,7 @@ BOOST_AUTO_TEST_CASE(ScalarJacobianMatchesExactNearTheGrazingLimit)
       Scalar exact[kJacobianSize] = {};
       expandJacobian(scalarSol, scalar);
       expandJacobian(exactSol, exact);
-      for (int i = 0; i < kJacobianSize; ++i) {
+      for (std::int32_t i = 0; i < kJacobianSize; ++i) {
         const auto expected = static_cast<double>(exact[i]);
         const double diff = std::abs(static_cast<double>(scalar[i]) - expected);
         BOOST_TEST(diff < 2e-4 + 1e-4 * std::abs(expected));
@@ -355,7 +356,7 @@ BOOST_AUTO_TEST_CASE(FactoredPredictionMatchesTheDoubleOne)
   std::mt19937 rng(11);
   std::uniform_real_distribution<double> unit(-1., 1.);
   std::uniform_real_distribution<double> positive(0.1, 1.);
-  int checked = 0;
+  std::int32_t checked = 0;
   double worst = 0.;
   for (const auto& pair : pairs) {
     for (const double pT : {0.1, 1.0, 50.0}) {
@@ -363,22 +364,22 @@ BOOST_AUTO_TEST_CASE(FactoredPredictionMatchesTheDoubleOne)
         const BoundTrackState seed = makeState(1, 0.4, theta, std::sin(theta) / pT);
         SolenoidJacobian jac;
         BOOST_REQUIRE(jacobianAnalytic(prop, seed, pair[0], pair[1], PropagationDirection::kForward, jac) == PropagationStatus::kOk);
-        for (int trial = 0; trial < 20; ++trial) {
+        for (std::int32_t trial = 0; trial < 20; ++trial) {
           // P = L L^T with L lower triangular: positive definite, every
           // element correlated, the scales of a fit's (cm, rad, 1/GeV).
           constexpr std::array<double, kNBoundParams> kScale{1e-2, 1e-2, 1e-3, 1e-3, 1e-2};
           double l[kNBoundParams][kNBoundParams]{};
-          for (int i = 0; i < kNBoundParams; ++i) {
-            for (int j = 0; j < i; ++j) {
-              l[i][j] = 0.7 * unit(rng) * kScale[static_cast<std::size_t>(i)];
+          for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+            for (std::int32_t j = 0; j < i; ++j) {
+              l[i][j] = 0.7 * unit(rng) * kScale[static_cast<std::uint32_t>(i)];
             }
-            l[i][i] = positive(rng) * kScale[static_cast<std::size_t>(i)];
+            l[i][i] = positive(rng) * kScale[static_cast<std::uint32_t>(i)];
           }
           Scalar cov[kBoundCovSize]{};
-          for (int i = 0; i < kNBoundParams; ++i) {
-            for (int j = 0; j <= i; ++j) {
+          for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+            for (std::int32_t j = 0; j <= i; ++j) {
               double sum = 0.;
-              for (int k = 0; k <= j; ++k) {
+              for (std::int32_t k = 0; k <= j; ++k) {
                 sum += l[i][k] * l[j][k];
               }
               cov[covIndex(i, j)] = static_cast<Scalar>(sum);
@@ -400,8 +401,8 @@ BOOST_AUTO_TEST_CASE(FactoredPredictionMatchesTheDoubleOne)
           covarianceFromFactors(factors, fromFactors);
           ExactScalar exact[kBoundCovSize]{};
           predictCovarianceExact(jac, noise, cov, exact);
-          for (int i = 0; i < kNBoundParams; ++i) {
-            for (int j = 0; j <= i; ++j) {
+          for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+            for (std::int32_t j = 0; j <= i; ++j) {
               const double scale = std::sqrt(exact[covIndex(i, i)] * exact[covIndex(j, j)]);
               const double error = std::abs(static_cast<double>(fromFactors[covIndex(i, j)]) - exact[covIndex(i, j)]) / scale;
               worst = std::max(worst, error);
@@ -458,7 +459,7 @@ BOOST_AUTO_TEST_CASE(FactoredPredictionKeepsWhatAFloatCovarianceLoses)
   BOOST_TEST(std::abs(static_cast<double>(factors.diagonal[kLoc1]) / conditional - 1.) < 1e-5);
 
   BoundTrackState asState;
-  for (int i = 0; i < kBoundCovSize; ++i) {
+  for (std::int32_t i = 0; i < kBoundCovSize; ++i) {
     asState.cov[i] = cov[i];
   }
   asState.par[kTheta] = 0.0995F;

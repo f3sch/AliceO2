@@ -28,7 +28,7 @@
 namespace o2::gtrk
 {
 
-// NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+// NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
 template <template <class> class C>
 struct TripletT {
   MEMLAYOUT_APPLY(TripletT, first, second, curvature, varCurvature, level, kinked)
@@ -38,7 +38,7 @@ struct TripletT {
   C<std::uint32_t> level;         ///< CA level: 1 from the triplet stage, set by the neighbour stage stratum by stratum; 32 bits for the tests' fixed-point sweep, an atomic max
   C<std::uint8_t> kinked;         ///< 1 if it passed only with the iteration's kink allowance
 };
-// NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+// NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 
 using Triplet = TripletT<memlayout::value>;
 using TripletConstView = memlayout::Wrapper<TripletT, memlayout::const_pointer, memlayout::Layout::soa>;

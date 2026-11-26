@@ -224,7 +224,7 @@ class TrackletStage
 {
  public:
   using Index = typename LayerRowMap<Det>::Index;
-  static constexpr std::size_t kLayerCount = LayerRowMap<Det>::kLayerCount;
+  static constexpr std::uint32_t kLayerCount = LayerRowMap<Det>::kLayerCount;
   static_assert(!BeamLine || VertexCapacity == 1U, "the beam line is one vertex");
   static_assert(!DiscWindow || BeamLine, "the disc windows per source are a beam-line iteration's");
   static_assert(Origin || (BeamLine && !DiscWindow), "a pass without an origin is a beam-line stage without disc windows");
@@ -234,7 +234,7 @@ class TrackletStage
   // it.
   static constexpr std::uint32_t kVertexCapacity = VertexCapacity;
   static_assert(kVertexCapacity > 0U);
-  static_assert(nLinks<Det> <= std::size_t{std::numeric_limits<std::uint16_t>::max()} + 1U);
+  static_assert(nLinks<Det> <= std::uint32_t{std::numeric_limits<std::uint16_t>::max()} + 1U);
 
   TrackletStage(const IterationParameters<Det>& parameters, const LayerRowMap<Det>& sources, const TimeFrame<Det>& frame, BlockRange targetBlocks, const VertexSeed& beamLine, std::span<const VertexSeed> vertices, const std::array<std::uint32_t, kLayerCount>& maxCandidateWidthPS, const VertexWindowParameters<Det>& vertexWindows, const std::uint8_t* used, const SourceGate& gate = {})
     : mParameters(&parameters),
@@ -327,7 +327,7 @@ class TrackletStage
 
   /// One query of a source: a link and the window it searches (`query`).
   struct QueryContext {
-    std::size_t linkIndex = 0U;
+    std::uint32_t linkIndex = 0U;
     LayerID targetLayer = kInvalidLayerID;
     std::uint64_t holes = 0U;
     CandidateWindow window{};
@@ -429,7 +429,7 @@ class TrackletStage
   template <typename Body>
   [[nodiscard]] GPUhdi() GPUAlwaysInline() bool forEachQuery(const SourceContext& source, const CompatibleVertex* cachedVertices, const Body& body) const
   {
-    for (auto at = mParameters->outLinkOffsets[source.at.layer]; at < mParameters->outLinkOffsets[static_cast<std::size_t>(source.at.layer) + 1U]; ++at) {
+    for (auto at = mParameters->outLinkOffsets[source.at.layer]; at < mParameters->outLinkOffsets[source.at.layer + 1U]; ++at) {
       QueryContext query;
       if (prepareQuery(source, cachedVertices, mParameters->outLinkIndices[at], query) && body(query)) {
         return true;
@@ -491,7 +491,7 @@ class TrackletStage
 
   /// The query of \a source on link \a linkIndex in \a query: false when it
   /// makes none -- the source outside the link's reach, or no direct pair.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool prepareQuery(const SourceContext& source, [[maybe_unused]] const CompatibleVertex* cachedVertices, std::size_t linkIndex, QueryContext& query) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() bool prepareQuery(const SourceContext& source, [[maybe_unused]] const CompatibleVertex* cachedVertices, std::uint32_t linkIndex, QueryContext& query) const
   {
     query.linkIndex = linkIndex;
     query.targetLayer = mParameters->linkTargets[linkIndex];
@@ -604,7 +604,7 @@ class TrackletStage
 
   /// The tracklet of an accepted candidate (`emit`'s record).
   template <typename Source, typename Target>
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() Tracklet record(Index sourceRow, Index targetRow, std::size_t linkIndex, const Source& source, const Target& target) const
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() Tracklet record(Index sourceRow, Index targetRow, std::uint32_t linkIndex, const Source& source, const Target& target) const
   {
     const Scalar dx = target.x - source.x;
     const Scalar dy = target.y - source.y;
@@ -663,7 +663,7 @@ class TrackletStage
   /// (`betweenScattering`, from the link's gap at the pair's ends) is read
   /// only if it passes: the test only widens with the kink. \a link and
   /// \a targetLayer: the pair's link and its target's layer.
-  [[nodiscard]] GPUhdi() bool accepted(LayerID sourceLayer, const TimeEstPS& sourceBox, const PairPoint& source, const PairPoint& target, const CompatibleVertex* cachedVertices, std::uint32_t cachedCount, VertexRange uncachedRange, const SecondRange* intervals, Scalar targetSecond, Scalar betweenBound, std::size_t link, LayerID targetLayer, const BetweenSource<Det>& between, [[maybe_unused]] bool inWindow) const
+  [[nodiscard]] GPUhdi() bool accepted(LayerID sourceLayer, const TimeEstPS& sourceBox, const PairPoint& source, const PairPoint& target, const CompatibleVertex* cachedVertices, std::uint32_t cachedCount, VertexRange uncachedRange, const SecondRange* intervals, Scalar targetSecond, Scalar betweenBound, std::uint32_t link, LayerID targetLayer, const BetweenSource<Det>& between, [[maybe_unused]] bool inWindow) const
   {
     if constexpr (!Origin) {
       // A leg from anywhere: outward from the source to the target, nothing
@@ -735,7 +735,7 @@ class TrackletStage
   }
 
   template <typename Source, typename Target, typename Emitter>
-  GPUhdi() GPUAlwaysInline() void emit(Index sourceRow, Index targetRow, std::size_t linkIndex, const Source& source, const Target& target, Emitter& emitter) const
+  GPUhdi() GPUAlwaysInline() void emit(Index sourceRow, Index targetRow, std::uint32_t linkIndex, const Source& source, const Target& target, Emitter& emitter) const
   {
     countWork(WorkCounter::kTrackletAccepted);
     countLinkWork(linkIndex, LinkCounter::kTracklets);
@@ -750,7 +750,7 @@ class TrackletStage
     if (mVertexCount == 0U) {
       return {};
     }
-    const std::int64_t low = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(mMaxVertexWidthPS);
+    const auto low = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(mMaxVertexWidthPS);
     return {.begin = startingBefore(low), .end = startingBefore(box.upper())};
   }
 

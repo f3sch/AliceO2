@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <format>
 #include <limits>
 #include <stdexcept>
@@ -30,7 +31,7 @@ namespace
 std::array<Vec3D, 8> corners(const Sensor& sensor, const SensorSpec& spec)
 {
   std::array<Vec3D, 8> result{};
-  std::size_t n = 0;
+  std::uint32_t n = 0;
   for (const double u : {-spec.halfX, spec.halfX}) {
     for (const double v : {-spec.halfY, spec.halfY}) {
       for (const double w : {-spec.halfThickness, spec.halfThickness}) {
@@ -48,33 +49,33 @@ std::array<Vec3D, 8> corners(const Sensor& sensor, const SensorSpec& spec)
 double nearestRadius(const std::array<Vec3D, 8>& points)
 {
   std::array<Vec2D, 8> p{};
-  for (std::size_t i = 0; i < p.size(); ++i) {
+  for (std::uint32_t i = 0; i < p.size(); ++i) {
     p[i] = {points[i][0], points[i][1]};
   }
   std::ranges::sort(p);
   const auto cross = [](const auto& o, const auto& a, const auto& b) { return ((a[0] - o[0]) * (b[1] - o[1])) - ((a[1] - o[1]) * (b[0] - o[0])); };
   // Andrew's monotone chain, counter-clockwise.
   std::array<Vec2D, 16> hull{};
-  std::size_t k = 0;
+  std::uint32_t k = 0;
   for (const auto& point : p) {
     while (k >= 2 && cross(hull[k - 2], hull[k - 1], point) <= 0.) {
       --k;
     }
     hull[k++] = point;
   }
-  for (std::size_t i = p.size() - 1, lower = k + 1; i-- > 0;) {
+  for (std::uint32_t i = p.size() - 1, lower = k + 1; i-- > 0;) {
     while (k >= lower && cross(hull[k - 2], hull[k - 1], p[i]) <= 0.) {
       --k;
     }
     hull[k++] = p[i];
   }
-  const std::size_t n = k - 1; // the last point repeats the first
+  const std::uint32_t n = k - 1; // the last point repeats the first
   bool inside = n >= 3;
   double nearest = std::numeric_limits<double>::infinity();
   const Vec2D origin{0., 0.};
-  for (std::size_t i = 0; i < std::max<std::size_t>(n, 1); ++i) {
+  for (std::uint32_t i = 0; i < std::max<std::uint32_t>(n, 1); ++i) {
     const auto& a = hull[i];
-    const auto& b = hull[(i + 1) % std::max<std::size_t>(n, 1)];
+    const auto& b = hull[(i + 1) % std::max<std::uint32_t>(n, 1)];
     inside = inside && cross(a, b, origin) >= 0.;
     const double dx = b[0] - a[0];
     const double dy = b[1] - a[1];
@@ -156,12 +157,12 @@ SensorExtent extentOf(const Sensor& sensor, const SensorSpec& spec)
   return extent;
 }
 
-std::vector<LayerEnvelope> measureEnvelopes(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers, double resolution)
+std::vector<LayerEnvelope> measureEnvelopes(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::int32_t nBarrelLayers, double resolution)
 {
-  const int nLayers = static_cast<int>(specs.size());
+  const auto nLayers = static_cast<std::int32_t>(specs.size());
   std::vector<SensorExtent> extents(static_cast<std::size_t>(nLayers));
   std::vector<double> position(static_cast<std::size_t>(nLayers), 0.);
-  std::vector<std::size_t> count(static_cast<std::size_t>(nLayers), 0U);
+  std::vector<std::uint32_t> count(static_cast<std::size_t>(nLayers), 0U);
   for (const auto& sensor : sensors) {
     if (std::cmp_greater_equal(sensor.layer, nLayers)) {
       throw std::runtime_error(std::format("sensor on layer {}, beyond the {} layers", sensor.layer, nLayers));
@@ -178,7 +179,7 @@ std::vector<LayerEnvelope> measureEnvelopes(std::span<const Sensor> sensors, std
     ++count[sensor.layer];
   }
   std::vector<LayerEnvelope> result;
-  for (std::size_t layer = 0; layer < extents.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < extents.size(); ++layer) {
     if (count[layer] == 0U) {
       throw std::runtime_error(std::format("no sensor on layer {}", layer));
     }
@@ -199,10 +200,10 @@ std::vector<LayerEnvelope> measureEnvelopes(std::span<const Sensor> sensors, std
   return result;
 }
 
-std::string describeEnvelopes(std::span<const LayerEnvelope> envelopes, int nBarrelLayers)
+std::string describeEnvelopes(std::span<const LayerEnvelope> envelopes, std::int32_t nBarrelLayers)
 {
   std::string result;
-  for (std::size_t layer = 0; layer < envelopes.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < envelopes.size(); ++layer) {
     const auto& e = envelopes[layer];
     const bool barrel = std::cmp_less(layer, nBarrelLayers);
     result += std::format("layer {}: {} {:.4f}, r [{:.4f}, {:.4f}], z [{:.4f}, {:.4f}]\n", layer, barrel ? "mean radius" : "mean z", e.position, e.rMin, e.rMax, e.zMin, e.zMax);
@@ -210,10 +211,10 @@ std::string describeEnvelopes(std::span<const LayerEnvelope> envelopes, int nBar
   return result;
 }
 
-std::string describeBands(std::span<const LayerBand> bands, int nBarrelLayers)
+std::string describeBands(std::span<const LayerBand> bands, std::int32_t nBarrelLayers)
 {
   std::string out;
-  for (std::size_t layer = 0; layer < bands.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < bands.size(); ++layer) {
     out += std::format("  layer {:2}: material band {} [{:.4f}, {:.4f}]\n", layer, std::cmp_less(layer, nBarrelLayers) ? "r" : "z", bands[layer].low, bands[layer].high);
   }
   return out;

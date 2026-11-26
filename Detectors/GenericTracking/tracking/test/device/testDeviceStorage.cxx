@@ -49,7 +49,7 @@ BOOST_AUTO_TEST_CASE(SelectIndicesKeepsTheOrder)
 {
   Device device;
   std::mt19937 random{5U};
-  for (const std::size_t count : {std::size_t{0}, std::size_t{1}, std::size_t{1000}, std::size_t{300000}}) {
+  for (const std::uint32_t count : {0U, 1U, 1000U, 300000U}) {
     std::vector<std::uint8_t> mask(count);
     std::ranges::generate(mask, [&] { return static_cast<std::uint8_t>(random() % 3U == 0U ? 1U : 0U); });
     std::vector<std::uint32_t> expected;
@@ -148,7 +148,7 @@ BOOST_AUTO_TEST_CASE(ColumnChunksGatherInOrder)
     records[i] = Tracklet{.source = i, .target = 3U * i, .link = static_cast<std::uint16_t>(i % 11U), .lambda = 0.01F * static_cast<float>(i), .phi = 1.F};
   }
   const auto source = recordsOf<TrackletT>(records);
-  const std::vector<std::size_t> chunkRows{100U, 0U, 350U, 1U, 549U};
+  const std::vector<std::uint32_t> chunkRows{100U, 0U, 350U, 1U, 549U};
   {
     Device device;
     std::vector<Tracklet> gathered;

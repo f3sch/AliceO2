@@ -128,7 +128,7 @@ struct GridParams {
   /// Each layer's own cell counts, 0 for the derived count: a grid of a given
   /// shape, for the tests; no configuration
   /// key sets them.
-  static constexpr std::size_t kMaxLayers = 64;
+  static constexpr std::uint32_t kMaxLayers = 64;
   std::int32_t phiBins[kMaxLayers]{};
   std::int32_t secondBins[kMaxLayers]{};
 
@@ -271,7 +271,7 @@ template <DetectorLayout Det>
 class GridGeometry
 {
  public:
-  static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
+  static constexpr auto kLayerCount = static_cast<std::uint32_t>(Detector<Det>::nLayers);
 
   GridGeometry() = default;
 
@@ -293,7 +293,7 @@ class GridGeometry
       throw std::invalid_argument("the timeframe is longer than the 32-bit picosecond time box holds (4.29 ms)");
     }
     std::uint64_t base = 0;
-    for (std::size_t layer = 0; layer < kLayerCount; ++layer) {
+    for (std::uint32_t layer = 0; layer < kLayerCount; ++layer) {
       if (params.frames[layer].lengthBC <= 0) {
         throw std::invalid_argument("every layer of the grid has readout frames of a positive length");
       }
@@ -338,7 +338,7 @@ class GridGeometry
       // most 2^31, so the cells of a block fit 64 bits, and if they fit a
       // signed 32-bit offset so do the blocks' times them; bucket() computes
       // block * cells + cell in 32-bit signed arithmetic.
-      const std::uint64_t cells = static_cast<std::uint64_t>(axes.nPhi) * static_cast<std::uint64_t>(axes.nSecond);
+      const auto cells = static_cast<std::uint64_t>(axes.nPhi) * static_cast<std::uint64_t>(axes.nSecond);
       const std::uint64_t layerBuckets = cells <= std::uint64_t{INT32_MAX} ? static_cast<std::uint64_t>(mBlockCount) * cells : std::uint64_t{INT32_MAX} + 1U;
       mOverflow = mOverflow || layerBuckets > std::uint64_t{INT32_MAX};
       base = std::min(base + layerBuckets, std::uint64_t{UINT32_MAX} + 1U);
@@ -387,7 +387,7 @@ class GridGeometry
   /// \a phi must already be in [0, 2pi).
   [[nodiscard]] GPUhdi() GPUAlwaysInline() std::int32_t phiBinOf(LayerID layer, Scalar phi) const
   {
-    const auto& axes = mAxes[layer]; // NOLINT(clang-analyzer-security.ArrayBound): layer < kLayerCount, the geometry's
+    const auto& axes = mAxes[layer];
     return clampedBin(phi * axes.phiInvWidth, axes.nPhi);
   }
 
@@ -944,9 +944,10 @@ class MeasurementGrid
         auto entry = [&](Index visited) { visit(visited, at); };
         visitIfCompatible(row, span, entry);
       }
-      do {
+      ++at;
+      while (at < listed.count && listed.rows[at] == row) {
         ++at;
-      } while (at < listed.count && listed.rows[at] == row);
+      }
     }
   }
 

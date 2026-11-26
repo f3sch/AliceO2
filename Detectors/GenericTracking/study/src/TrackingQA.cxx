@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdint>
 #include <format>
 #include <limits>
 #include <optional>
@@ -188,7 +189,7 @@ double helixMiss(const TruthHelix& helix, double bzKiloGauss, double x, double y
   return std::abs(std::hypot(x - circle->x, y - circle->y) - circle->radius);
 }
 
-TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks, std::span<const TrackKinematics> kinematics, const SeededBy& seeded, const ParticleExtrasTable& extras, const TimeframeCollisions& inTimeframe, const TrackRows* theirs, int iterations, const ComparisonSettings& settings)
+TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks, std::span<const TrackKinematics> kinematics, const SeededBy& seeded, const ParticleExtrasTable& extras, const TimeframeCollisions& inTimeframe, const TrackRows* theirs, std::int32_t iterations, const ComparisonSettings& settings)
 {
   if (iterations < 1 || iterations > kQAMaxIterations) {
     throw std::invalid_argument(std::format("QA: {} iterations, 1 to {} supported", iterations, kQAMaxIterations));
@@ -200,14 +201,14 @@ TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth
 
   // The tracks: each one's particle, a clone after the particle's first good
   // track in iteration and then track order.
-  std::vector<std::size_t> order(tracks.size());
-  for (std::size_t track = 0; track < order.size(); ++track) {
+  std::vector<std::uint32_t> order(tracks.size());
+  for (std::uint32_t track = 0; track < order.size(); ++track) {
     order[track] = track;
     if (std::cmp_greater_equal(kinematics[track].iteration, iterations)) {
       throw std::invalid_argument(std::format("QA: a track of iteration {}, {} configured", kinematics[track].iteration, iterations));
     }
   }
-  std::ranges::stable_sort(order, {}, [&](std::size_t track) { return kinematics[track].iteration; });
+  std::ranges::stable_sort(order, {}, [&](std::uint32_t track) { return kinematics[track].iteration; });
   std::unordered_map<std::uint64_t, std::uint64_t> foundBy;
   std::unordered_map<std::uint64_t, std::uint64_t> trackLayers; // the first good track's
   const auto chains = particleLayers(rows, settings);
@@ -352,6 +353,6 @@ void streamVertices(o2::utils::TreeStreamRedirector& output, std::span<const QAV
   }
 }
 
-void streamRun(o2::utils::TreeStreamRedirector& output, int iterations, EtaRange eta, const ComparisonSettings& settings, std::size_t events, std::uint64_t fullLengthMask, std::uint64_t inactiveLayers) { output << "run" << "iterations=" << iterations << "etaLow=" << eta.low << "etaHigh=" << eta.high << "minLayers=" << settings.minLayers << "minPtGeV=" << settings.minPtGeV << "minOutwardLayers=" << settings.minOutwardLayers << "events=" << static_cast<std::uint64_t>(events) << "fullLengthMask=" << fullLengthMask << "inactiveLayers=" << inactiveLayers << "\n"; }
+void streamRun(o2::utils::TreeStreamRedirector& output, std::int32_t iterations, EtaRange eta, const ComparisonSettings& settings, std::uint32_t events, std::uint64_t fullLengthMask, std::uint64_t inactiveLayers) { output << "run" << "iterations=" << iterations << "etaLow=" << eta.low << "etaHigh=" << eta.high << "minLayers=" << settings.minLayers << "minPtGeV=" << settings.minPtGeV << "minOutwardLayers=" << settings.minOutwardLayers << "events=" << static_cast<std::uint64_t>(events) << "fullLengthMask=" << fullLengthMask << "inactiveLayers=" << inactiveLayers << "\n"; }
 
 } // namespace o2::gtrk::study

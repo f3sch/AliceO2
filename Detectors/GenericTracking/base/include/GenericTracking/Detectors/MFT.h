@@ -31,6 +31,7 @@
 #include "GenericTracking/Detectors/Alpide.h"
 
 #include <array>
+#include <cstdint>
 
 namespace o2::gtrk::detectors
 {
@@ -39,8 +40,6 @@ struct MFT {
   static constexpr const char* name = "MFT";
   static constexpr std::array<PlacedLayerSpec, 0> barrelLayers{};
   // clang-format off
-  // Measured values that happen to lie near mathematical constants are not them.
-  // NOLINTBEGIN(modernize-use-std-numbers)
   // Chip counts measured by o2-gtrk-import-geometry from an aligned o2sim_geometry-aligned.root: 936 chips.
   static constexpr std::array<PlacedLayerSpec, 10> discLayers{{
     {.sensorCount = 66, .sensor = alpide::kSensor},
@@ -88,9 +87,8 @@ struct MFT {
     {.from = 7, .to = 9, .sourceMin = 2.90, .sourceMax = 16.02}, // 0.2043
     {.from = 8, .to = 9, .sourceMin = 3.30, .sourceMax = 17.14}, // 1.0000
   }};
-  // NOLINTEND(modernize-use-std-numbers)
   // clang-format on
-  static constexpr int nSensors = countSensors(barrelLayers, discLayers);
+  static constexpr std::int32_t nSensors = countSensors(barrelLayers, discLayers);
 };
 
 } // namespace o2::gtrk::detectors

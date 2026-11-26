@@ -138,9 +138,9 @@ class DecayCensusStudy
 
  private:
   RecordWriter* mWriter = nullptr;
-  std::size_t mRecords = 0U;
-  std::size_t mClosed = 0U;
-  std::size_t mComplete = 0U;
+  std::uint64_t mRecords = 0U;
+  std::uint64_t mClosed = 0U;
+  std::uint64_t mComplete = 0U;
 };
 
 template <DetectorLayout Det>
@@ -151,11 +151,11 @@ void DecayCensusStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   }
   const auto& trees = *event.trees;
   const auto longest = longestChains(chains);
-  const auto rowsOf = [&](std::uint64_t particle) -> std::size_t {
+  const auto rowsOf = [&](std::uint64_t particle) -> std::uint32_t {
     const auto found = longest.find(particle);
-    return found == longest.end() ? 0U : found->second->rows.size();
+    return found == longest.end() ? 0U : static_cast<std::uint32_t>(found->second->rows.size());
   };
-  const auto clampRows = [](std::size_t rows) { return static_cast<std::uint16_t>(std::min<std::size_t>(rows, std::numeric_limits<std::uint16_t>::max())); };
+  const auto clampRows = [](std::uint32_t rows) { return static_cast<std::uint16_t>(std::min<std::uint32_t>(rows, std::numeric_limits<std::uint16_t>::max())); };
   const auto ptOf = [](const TreeParticle& particle) { return std::hypot(particle.momentum[0], particle.momentum[1]); };
 
   for (const auto& member : trees.particles) {
@@ -207,7 +207,7 @@ void DecayCensusStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     record.decayZ = static_cast<float>(decay[2]);
 
     std::size_t withChain = 0U;
-    std::size_t minRows = std::numeric_limits<std::size_t>::max();
+    std::uint32_t minRows = std::numeric_limits<std::uint32_t>::max();
     double minPt = std::numeric_limits<double>::infinity();
     for (const auto* leaf : shape.leaves) {
       const auto rows = rowsOf(leaf->id);

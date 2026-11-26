@@ -198,12 +198,12 @@ struct GatherTracklets {
   DeviceColumns<TrackletT>::Pointers gathered{};
   gathered.apply([&](auto&... to) {
     static_assert(sizeof...(to) == kColumns);
-    std::size_t next = 0U;
+    std::uint32_t next = 0U;
     ((to = static_cast<std::remove_reference_t<decltype(to)>>(buffers[next++])), ...);
   });
   algorithms::forEach(runtime, stream, count, detail::GatherTracklets{.from = std::as_const(tracklets).view(), .indices = values.Current(), .to = DeviceColumns<TrackletT>::View{gathered}});
   std::array<DeviceCopy, kColumns> copies{};
-  std::size_t next = 0U;
+  std::uint32_t next = 0U;
   device_storage_detail::forEachColumnPair(DeviceColumns<TrackletT>::ConstView{gathered}, view, [&](auto* to, const auto* from) {
     static_assert(sizeof(*to) <= sizeof(Index));
     copies[next++] = {.to = to, .from = from, .bytes = std::size_t{count} * sizeof(*to)};
@@ -228,12 +228,12 @@ template <DetectorLayout Det>
 /// each tracklet.
 [[nodiscard]] inline StageStatus endIndex(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream, TripletConstView triplets, Index tripletCount, Index trackletCount, DeviceSpan<Index>& offsets, DeviceSpan<Index>& indices)
 {
-  const std::size_t offsetCount = std::size_t{trackletCount} + 1U;
+  const Index offsetCount = trackletCount + 1U;
   if (!offsets.allocate(arena, offsetCount) || !indices.allocate(arena, tripletCount)) {
     return StageStatus::kOutOfMemory;
   }
   if (tripletCount == 0U) {
-    runtime.fill(offsets.data(), 0U, offsetCount * sizeof(Index), stream);
+    runtime.fill(offsets.data(), 0U, std::size_t{offsetCount} * sizeof(Index), stream);
     return StageStatus::kComplete;
   }
   auto scratch = arena.scope(ArenaEnd::kScratch);
@@ -244,7 +244,7 @@ template <DetectorLayout Det>
   if (!keys.allocate(arena, tripletCount, ArenaEnd::kScratch) || !sortedKeys.allocate(arena, tripletCount, ArenaEnd::kScratch) || !values.allocate(arena, tripletCount, ArenaEnd::kScratch) || !perTracklet.allocate(arena, offsetCount, ArenaEnd::kScratch)) {
     return StageStatus::kOutOfMemory;
   }
-  runtime.fill(perTracklet.data(), 0U, offsetCount * sizeof(Index), stream);
+  runtime.fill(perTracklet.data(), 0U, std::size_t{offsetCount} * sizeof(Index), stream);
   algorithms::forEach(runtime, stream, tripletCount, detail::EndIndexKeys{triplets, keys.data(), values.data(), perTracklet.data()});
   const StageStatus sorted = algorithms::sortPairs(runtime, arena, stream, std::as_const(keys).data(), sortedKeys.data(), std::as_const(values).data(), indices.data(), tripletCount, algorithms::keyBits(trackletCount));
   if (sorted != StageStatus::kComplete) {

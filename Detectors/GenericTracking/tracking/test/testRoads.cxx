@@ -55,7 +55,7 @@ struct Counted {
   std::vector<Road> enumerated; ///< every road by its index
 };
 
-constexpr std::size_t kMaxRoadTriplets = maxChainLayers<Det> - 2;
+constexpr std::uint32_t kMaxRoadTriplets = maxChainLayers<Det> - 2;
 
 /// Every road by its index through the walk, one element per road.
 template <typename ForEach>
@@ -74,7 +74,7 @@ std::vector<Road> enumerate(ForEach forEach, const RoadWalk& walk, RoadCount::In
 /// The road count of one tracker run, serial when \a threads is 0, else on
 /// the CPU backend in chunks of \a chunk.
 template <typename Result>
-Counted countRoads(const Result& run, const IterationParameters<Det>& parameters, std::span<const MeasurementRange> core, std::uint32_t minStartLevel, int threads = 0, RoadCount::Index chunk = 1U, std::uint64_t endLayers = 0U)
+Counted countRoads(const Result& run, const IterationParameters<Det>& parameters, std::span<const MeasurementRange> core, std::uint32_t minStartLevel, std::int32_t threads = 0, RoadCount::Index chunk = 1U, std::uint64_t endLayers = 0U)
 {
   const RoadStartRule rule{.minLevel = minStartLevel, .endLayers = endLayers, .linkTargets = parameters.linkTargets};
   RoadCount count;
@@ -103,7 +103,7 @@ Counted countRoads(const Result& run, const IterationParameters<Det>& parameters
     const auto highest = *std::max_element(triplets.level, triplets.level + run.triplets->size());
     // Replaying the complete ordered pass models a staging retry. Counts are
     // overwritten; successor marks and overflow must remain idempotent.
-    for (int attempt = 0; attempt < 2; ++attempt) {
+    for (std::int32_t attempt = 0; attempt < 2; ++attempt) {
       for (std::uint32_t level = 1U; level <= highest; ++level) {
         forEach(run.triplets->size(), [&](std::uint32_t element) {
           if (triplets.level[element] != level) {
@@ -316,7 +316,7 @@ BOOST_AUTO_TEST_CASE(RoadsOnTheDeepBarrelMatchTheirHandCount)
   BOOST_REQUIRE(roads[1].size() == 6U);
   BOOST_TEST(roads[2].size() == 2U);
   BOOST_TEST(roads[0][0] == roads[1][0]);
-  for (std::size_t level = 1; level < 4U; ++level) {
+  for (std::uint32_t level = 1; level < 4U; ++level) {
     BOOST_TEST(roads[0][level] != roads[1][level]);
   }
   BOOST_TEST(roads[0][4] == roads[1][4]);
@@ -360,8 +360,8 @@ BOOST_AUTO_TEST_CASE(RoadsMatchABruteForceWalkAndOnlyTheCoresAreCounted)
   const auto blockCount = fixture.geometry.blockCount();
 
   // The whole timeframe, then three slices whose cores own parts of it.
-  std::size_t owned = 0U;
-  std::size_t total = 0U;
+  std::uint32_t owned = 0U;
+  std::uint32_t total = 0U;
   for (const auto& [begin, end] : std::array<std::array<std::int32_t, 2>, 4>{{{0, blockCount}, {0, 20}, {20, 35}, {35, blockCount}}}) {
     const Frame::TimeSlice slice{*fixture.frame, {.begin = begin, .end = end}, haloPS};
     BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
@@ -372,7 +372,7 @@ BOOST_AUTO_TEST_CASE(RoadsMatchABruteForceWalkAndOnlyTheCoresAreCounted)
       for (const std::uint32_t minStartLevel : {1U, 2U, 5U}) {
         const auto counted = countRoads(run, parameters, slice.core, minStartLevel);
         checkAgainstBruteForce(run, parameters, slice.core, minStartLevel, counted);
-        for (const int threads : {1, 2, 4}) {
+        for (const std::int32_t threads : {1, 2, 4}) {
           for (const RoadCount::Index chunk : {1U, 3U, 16U}) {
             const auto parallel = countRoads(run, parameters, slice.core, minStartLevel, threads, chunk);
             BOOST_TEST(parallel.successorAbove == counted.successorAbove, boost::test_tools::per_element());
@@ -384,7 +384,7 @@ BOOST_AUTO_TEST_CASE(RoadsMatchABruteForceWalkAndOnlyTheCoresAreCounted)
       }
       // The roads of the minimum length, summed over the starts.
       const auto counted = countRoads(run, parameters, slice.core, parameters.minRoadStartLevel);
-      std::size_t roads = 0U;
+      std::uint32_t roads = 0U;
       for (const auto start : counted.starts) {
         roads += counted.roads[start];
       }
@@ -404,12 +404,12 @@ namespace
 std::vector<Hit> staggeredHits()
 {
   std::vector<Hit> hits;
-  for (std::size_t track = 0; track < kSliceTracks; ++track) {
+  for (std::uint32_t track = 0; track < kSliceTracks; ++track) {
     const double phi0 = std::fmod(0.3 + (0.9 * static_cast<double>(track)), kTwoPi<double>);
     const double slope = (track % 2U == 0U ? 0.03 : -0.02) + (0.002 * static_cast<double>(track));
     const double pt = 1.2 + (0.3 * static_cast<double>(track % 4U));
     const double start = 37. + (83. * static_cast<double>(track));
-    for (std::size_t layer = track % 3U; layer < kLayers; ++layer) {
+    for (std::uint32_t layer = track % 3U; layer < kLayers; ++layer) {
       hits.push_back({.point = helixAt(phi0, slope, pt, static_cast<LayerID>(layer)), .timeNS = start});
     }
   }
@@ -514,7 +514,7 @@ BOOST_AUTO_TEST_CASE(OrderedCountsSaturateAndKeepOverflowAcrossReplay)
   std::array<std::uint32_t, kNodes> successors{};
   std::uint32_t overflow = 0U;
   const OrderedRoadCounts state{.roads = roads.data(), .successorAbove = successors.data(), .overflow = &overflow};
-  for (int attempt = 0; attempt < 2; ++attempt) {
+  for (std::int32_t attempt = 0; attempt < 2; ++attempt) {
     roads[0] = roads[1] = 1U;
     for (std::uint32_t node = 2U; node < kNodes; ++node) {
       std::uint64_t sum = 0U;

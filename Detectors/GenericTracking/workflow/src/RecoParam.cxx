@@ -20,7 +20,8 @@ static auto& sRecoParamMFT = RecoParam<o2::detectors::DetID::MFT>::Instance();
 #ifdef ENABLE_UPGRADES
 static auto& sRecoParamITS3 = RecoParam<o2::detectors::DetID::IT3>::Instance();
 static auto& sRecoParamTRK = RecoParam<o2::detectors::DetID::TRK>::Instance();
-O2ParamImpl(RecoParamTRKTOF);
 static auto& sRecoParamTRKTOF = RecoParamTRKTOF::Instance();
+
+O2ParamImpl(RecoParamTRKTOF)
 #endif
 } // namespace o2::gtrk

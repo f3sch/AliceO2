@@ -50,9 +50,8 @@ namespace o2::gtrk
 /// detector's longest chain.
 template <std::size_t K>
 struct TrackOf {
-  // As for TrackletT: upstream's `apply` macro also uses the member names as
-  // enum constants.
-  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // As for MeasurementT: an SoA element proxy holds references.
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   template <template <class> class C>
   struct RecordT {
     MEMLAYOUT_APPLY(RecordT, state, outwardState, timePS, widthPS, chi2, outwardChi2, ndf, status, clusters, count, iteration, addedOutward, addedInward, kinks, kinkCluster)
@@ -73,7 +72,7 @@ struct TrackOf {
     C<std::uint8_t> kinkCluster; ///< its last kink's position in `clusters`; kNoKink without
   };
   static constexpr std::uint8_t kNoKink = 0xFFU;
-  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 /// A track's time box: the intersection of its \a count rows' boxes, not
@@ -117,7 +116,7 @@ template <DetectorLayout Det>
 class TrackRefitElement
 {
  public:
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using View = typename BoundedColumns<TrackOf<kMaxClusters>::template RecordT>::View;
 
   TrackRefitElement(const TimeFrame<Det>* frame, const TrackingGeometry<Det>* geometry, const Propagator& propagator, const ClusterList<kMaxClusters>* clusters, const std::uint8_t* count, const BoundTrackState* outward, const Scalar* outwardChi2, const std::uint32_t* selected, View tracks, std::uint32_t offset, std::uint8_t iteration, KinkBudget kinks)
@@ -144,7 +143,7 @@ class TrackRefitElement
     const std::uint8_t count = mCount[record];
     // The road fit ran the outward pass already and kept its end state. The
     // inward pass, on the link material as every fit: its state is the output.
-    const auto fit = fitInward(mPropagator, *mGeometry, detail::LinkSteps{}, RowChain<Det>{.frame = mFrame, .rows = rows.index}, static_cast<int>(count), mOutward[record], mKinks);
+    const auto fit = fitInward(mPropagator, *mGeometry, detail::LinkSteps{}, RowChain<Det>{.frame = mFrame, .rows = rows.index}, static_cast<std::int32_t>(count), mOutward[record], mKinks);
     writeFit(mTracks, track, fit, rows, count, trackTimeBox(mFrame->measurements(), rows, count));
     mTracks.outwardChi2[track] = mOutwardChi2[record];
     mTracks.iteration[track] = mIteration;
@@ -173,7 +172,7 @@ template <DetectorLayout Det>
 class TrackRefit
 {
  public:
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using Tracks = BoundedColumns<TrackOf<kMaxClusters>::template RecordT>;
 
   void setMemoryPool(std::shared_ptr<BoundedMemoryResource> pool)
@@ -196,18 +195,19 @@ class TrackRefit
   {
     return guardOutOfMemory([&] {
       const auto selected = selection.selected();
-      const auto offset = static_cast<std::uint32_t>(mTracks.size());
-      mTracks.resize(offset + selected.size());
+      const auto offset = mTracks.size();
+      const auto count = static_cast<std::uint32_t>(selected.size());
+      mTracks.resize(offset + count);
       const auto records = selection.records();
       const TrackRefitElement<Det> element{&frame, &geometry, propagator, records.clusters, records.count, records.outwardState, records.chi2, selected.data(), mTracks.view(), offset, iteration, kinkBudget(parameters)};
-      forEach(static_cast<std::uint32_t>(selected.size()), element);
+      forEach(count, element);
       return StageStatus::kComplete;
     });
   }
 
   [[nodiscard]] const Tracks& tracks() const { return mTracks; }
   [[nodiscard]] Tracks& tracks() { return mTracks; }
-  [[nodiscard]] std::size_t size() const { return mTracks.size(); }
+  [[nodiscard]] std::uint32_t size() const { return mTracks.size(); }
 
  private:
   std::shared_ptr<BoundedMemoryResource> mMemoryPool;

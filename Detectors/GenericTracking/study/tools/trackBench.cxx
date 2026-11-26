@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <format>
 #include <iostream>
 #include <stdexcept>
@@ -52,7 +53,7 @@ static double loadField(const std::string& url)
   return workflow::nominalBzKiloGauss();
 }
 
-static int run(int argc, char** argv)
+static std::int32_t run(std::int32_t argc, char** argv)
 {
   Options options;
   bpo::options_description description("Track a dumped tracking input");

@@ -26,6 +26,7 @@
 #include "GenericTracking/Detectors/Alpide.h"
 
 #include <array>
+#include <cstdint>
 
 namespace o2::gtrk::detectors
 {
@@ -37,8 +38,6 @@ struct ITS {
   /// staves overlap, and in the outer barrel a stave's two half-staves.
   static constexpr std::uint64_t overlapLayers = 0b1111111U;
   // clang-format off
-  // Measured values that happen to lie near mathematical constants are not them.
-  // NOLINTBEGIN(modernize-use-std-numbers)
   // Chip counts measured by o2-gtrk-import-geometry from an aligned o2sim_geometry-aligned.root: 24120 chips.
   static constexpr std::array<PlacedLayerSpec, 7> barrelLayers{{
     {.sensorCount = 108, .sensor = alpide::kSensor},
@@ -67,10 +66,9 @@ struct ITS {
     {.from = 4, .to = 5, .sourceMin = -42.71, .sourceMax = 42.71}, // 1.0000
     {.from = 5, .to = 6, .sourceMin = -67.33, .sourceMax = 67.33}, // 1.0000
   }};
-  // NOLINTEND(modernize-use-std-numbers)
   // clang-format on
   static constexpr std::array<PlacedLayerSpec, 0> discLayers{};
-  static constexpr int nSensors = countSensors(barrelLayers, discLayers);
+  static constexpr std::int32_t nSensors = countSensors(barrelLayers, discLayers);
 };
 
 } // namespace o2::gtrk::detectors

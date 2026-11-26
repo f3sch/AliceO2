@@ -37,7 +37,7 @@ namespace o2::gtrk::alice
 /// patterns of the group and invalid ones as it goes. Throws
 /// std::runtime_error for a pattern ID beyond \a dictionary; patterns that
 /// run out before a cluster's fail gsl::span's bounds check.
-[[nodiscard]] std::vector<LocalCluster> localClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const unsigned char> patterns, const o2::itsmft::TopologyDictionary& dictionary);
+[[nodiscard]] std::vector<LocalCluster> localClusters(std::span<const o2::itsmft::CompClusterExt> clusters, std::span<const std::uint8_t> patterns, const o2::itsmft::TopologyDictionary& dictionary);
 
 /// Our clusters from the local ones, in the same order. \a tfFirstOrbit is
 /// the timeframe's first orbit, which a cluster's time is measured from.

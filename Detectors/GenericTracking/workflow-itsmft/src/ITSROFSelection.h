@@ -82,7 +82,7 @@ struct FrameMask {
 
   /// Whether frame \a frame of layer \a layer is enabled; throws
   /// std::out_of_range for a frame the mask does not have.
-  [[nodiscard]] bool enabled(int layer, std::uint32_t frame) const;
+  [[nodiscard]] bool enabled(std::int32_t layer, std::uint32_t frame) const;
   /// Whether every frame is.
   [[nodiscard]] bool allEnabled() const;
 };
@@ -146,7 +146,7 @@ class ITSFrameSelection
  private:
   /// Whether the frame of a measurement on \a layer, its time box
   /// [\a timePS, + \a widthPS), is enabled.
-  [[nodiscard]] bool enabled(int layer, std::uint32_t timePS, std::uint32_t widthPS) const;
+  [[nodiscard]] bool enabled(std::int32_t layer, std::uint32_t timePS, std::uint32_t widthPS) const;
   [[nodiscard]] static SelectedMeasurements select(MeasurementView source, std::span<const std::uint32_t> offsets, std::span<const std::uint8_t> keep);
 
   struct State;

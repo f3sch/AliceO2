@@ -68,8 +68,8 @@ struct LayeredDependencyGenerator {
   /// layer 0) at depth 1, layer 0 at depth 2.
   struct Groups {
     std::array<Index, 4> order{3U, 2U, 1U, 0U};
-    std::array<std::size_t, 5> groups{0U, 2U, 3U, 4U, 4U};
-    std::size_t count = 3U;
+    std::array<std::uint32_t, 5> groups{0U, 2U, 3U, 4U, 4U};
+    std::uint32_t count = 3U;
   } layerGroups{};
   std::span<Index> values;
   template <typename Emitter>
@@ -111,16 +111,16 @@ BOOST_AUTO_TEST_CASE(EveryColumnReadsBackThroughItsOwnField)
   BoundedColumns<TrackletT> columns;
   columns.setMemoryResource(memory.get());
   columns.resize(3U);
-  for (std::size_t i = 0; i < columns.size(); ++i) {
+  for (std::uint32_t i = 0; i < columns.size(); ++i) {
     Tracklet record = sentinel;
-    record.source += static_cast<std::uint32_t>(i);
+    record.source += i;
     record.link = static_cast<std::uint16_t>(record.link + i);
     columns.write(i, record);
   }
 
   const TrackletView view = columns.view();
   const TrackletConstView constView = std::as_const(columns).view();
-  for (std::size_t i = 0; i < columns.size(); ++i) {
+  for (std::uint32_t i = 0; i < columns.size(); ++i) {
     BOOST_TEST(view.source[i] == sentinel.source + i);
     BOOST_TEST(view.target[i] == sentinel.target);
     BOOST_TEST(view.link[i] == sentinel.link + i);
@@ -169,7 +169,7 @@ BOOST_AUTO_TEST_CASE(TheCpuBackendMatchesTheSerialReference)
     const StageStatus serialStatus = uneven ? runSerial(serial, generator(kUneven)) : runSerial(serial, generator(kIrregular));
     BOOST_REQUIRE((serialStatus == StageStatus::kComplete));
 
-    for (const int threads : {1, 2, 4}) {
+    for (const std::int32_t threads : {1, 2, 4}) {
       for (const Index chunk : {1U, 3U, 8U, 64U, 1000U}) {
         Output parallel;
         const auto parallelPool = freshPool();
@@ -204,7 +204,7 @@ BOOST_AUTO_TEST_CASE(AStagingOverflowGivesTheExactRetrySize)
   BOOST_TEST((one.run(tight, generate) == StageStatus::kStagingOverflow));
   BOOST_TEST(one.stagedCount() == generous.size());
 
-  const std::size_t exactCapacity = one.stagedCount();
+  const std::uint32_t exactCapacity = one.stagedCount();
   BOOST_REQUIRE((SerialStage<TrackletT>{exactCapacity}.run(tight, generate) == StageStatus::kComplete));
   BOOST_TEST(sameStageOutput(tight, generous));
 }
@@ -212,7 +212,7 @@ BOOST_AUTO_TEST_CASE(AStagingOverflowGivesTheExactRetrySize)
 BOOST_AUTO_TEST_CASE(TheCpuStagingPredictionAvoidsGrowthAndAMissStaysExact)
 {
   constexpr Index kElements = 60U;
-  constexpr std::size_t kRecords = 240U;
+  constexpr std::uint32_t kRecords = 240U;
 
   Output predicted;
   const auto predictedPool = freshPool();

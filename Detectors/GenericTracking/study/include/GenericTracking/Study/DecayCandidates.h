@@ -143,7 +143,7 @@ template <typename ChargeOf>
       continue;
     }
     const auto products = decayProducts(trees, *particle);
-    if (chargeOf(particle->pdg) == 0. && !hasLeafBelow(trees, *particle)) {
+    if (exactlyEqual(chargeOf(particle->pdg), 0.) && !hasLeafBelow(trees, *particle)) {
       ++shape.neutralUnseen; // seen in nothing: taken whole, its own mass
       shape.unseen.push_back(particle);
       continue;

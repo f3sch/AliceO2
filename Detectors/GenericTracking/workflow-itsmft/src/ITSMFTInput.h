@@ -41,16 +41,16 @@
 namespace o2::gtrk::workflow
 {
 
-inline std::string clusterInputBinding(const char* name, int stream, int streams)
+inline std::string clusterInputBinding(const char* name, std::int32_t stream, std::int32_t streams)
 {
   return streams == 1 ? name : std::format("{}_{}", name, stream);
 }
 
 /// The same subscription and ordering for the converter and the output adaptor.
-inline void addITSMFTClusterInputs(std::vector<o2::framework::InputSpec>& inputs, o2::header::DataOrigin origin, bool useMC, int streams)
+inline void addITSMFTClusterInputs(std::vector<o2::framework::InputSpec>& inputs, o2::header::DataOrigin origin, bool useMC, std::int32_t streams)
 {
   using o2::framework::Lifetime;
-  for (int stream = 0; stream < streams; ++stream) {
+  for (std::int32_t stream = 0; stream < streams; ++stream) {
     inputs.emplace_back(clusterInputBinding("compclusters", stream, streams), origin, "COMPCLUSTERS", stream, Lifetime::Timeframe);
     inputs.emplace_back(clusterInputBinding("patterns", stream, streams), origin, "PATTERNS", stream, Lifetime::Timeframe);
     inputs.emplace_back(clusterInputBinding("rofs", stream, streams), origin, "CLUSTERSROF", stream, Lifetime::Timeframe);
@@ -68,12 +68,12 @@ class ITSMFTInput
   using Labels = o2::dataformats::MCTruthContainer<o2::MCCompLabel>;
   struct Stream {
     std::span<const o2::itsmft::CompClusterExt> compact;
-    std::span<const unsigned char> patterns;
+    std::span<const std::uint8_t> patterns;
     std::span<const o2::itsmft::ROFRecord> rofs;
     std::unique_ptr<const Labels> labels;
   };
   struct Source {
-    std::size_t stream;
+    std::uint32_t stream;
     std::uint32_t index;
   };
 
@@ -96,21 +96,21 @@ class ITSMFTInput
 
   [[nodiscard]] std::span<const Stream> streams() const { return mStreams; }
   [[nodiscard]] std::uint32_t size() const { return mOffsets.back(); }
-  [[nodiscard]] std::uint32_t offset(std::size_t stream) const { return mOffsets.at(stream); }
+  [[nodiscard]] std::uint32_t offset(std::uint32_t stream) const { return mOffsets.at(stream); }
 
   [[nodiscard]] Source source(std::uint32_t index) const
   {
     if (index >= size()) {
       throw std::out_of_range("ITS/MFT cluster input: cluster index out of range");
     }
-    const auto stream = static_cast<std::size_t>(std::ranges::upper_bound(mOffsets, index) - mOffsets.begin() - 1);
+    const auto stream = static_cast<std::uint32_t>(std::ranges::upper_bound(mOffsets, index) - mOffsets.begin() - 1);
     return {.stream = stream, .index = index - mOffsets[stream]};
   }
 
-  [[nodiscard]] int externalIndex(std::uint32_t index) const
+  [[nodiscard]] std::int32_t externalIndex(std::uint32_t index) const
   {
     const auto from = source(index);
-    return o2::itsmft::composeClusID(static_cast<int>(from.stream), static_cast<int>(from.index));
+    return o2::itsmft::composeClusID(static_cast<std::int32_t>(from.stream), static_cast<std::int32_t>(from.index));
   }
 
   [[nodiscard]] const o2::itsmft::CompClusterExt& cluster(std::uint32_t index) const
@@ -140,7 +140,7 @@ inline std::vector<Cluster> convertITSMFTInput(const ITSMFTInput& input, const o
   }
   std::vector<Cluster> result;
   result.reserve(input.size());
-  for (std::size_t stream = 0; stream < input.streams().size(); ++stream) {
+  for (std::uint32_t stream = 0; stream < input.streams().size(); ++stream) {
     const auto& source = input.streams()[stream];
     if (source.rofs.size() > 1U && alice::readoutFrames(source.rofs).lengthBC != timings[stream].lengthBC) {
       throw std::runtime_error(std::format("ITS/MFT stream {}: ROF spacing differs from the run's frame length {} BC", stream, timings[stream].lengthBC));
@@ -163,13 +163,13 @@ inline ITSMFTInput::Labels concatenateLabels(const ITSMFTInput& input)
   return labels;
 }
 
-inline ITSMFTInput readITSMFTInput(o2::framework::ProcessingContext& pc, bool useMC, int streams)
+inline ITSMFTInput readITSMFTInput(o2::framework::ProcessingContext& pc, bool useMC, std::int32_t streams)
 {
   std::vector<ITSMFTInput::Stream> result;
-  result.reserve(streams);
-  for (int stream = 0; stream < streams; ++stream) {
+  result.reserve(static_cast<std::size_t>(streams));
+  for (std::int32_t stream = 0; stream < streams; ++stream) {
     const auto compact = pc.inputs().get<gsl::span<o2::itsmft::CompClusterExt>>(clusterInputBinding("compclusters", stream, streams).c_str());
-    const auto patterns = pc.inputs().get<gsl::span<unsigned char>>(clusterInputBinding("patterns", stream, streams).c_str());
+    const auto patterns = pc.inputs().get<gsl::span<std::uint8_t>>(clusterInputBinding("patterns", stream, streams).c_str());
     const auto rofs = pc.inputs().get<gsl::span<o2::itsmft::ROFRecord>>(clusterInputBinding("rofs", stream, streams).c_str());
     result.push_back({
       .compact = {compact.data(), compact.size()},

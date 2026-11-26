@@ -73,9 +73,9 @@ DeviceAllocation DeviceArena::allocate(std::size_t bytes, std::size_t alignment,
 
 ArenaScope DeviceArena::scope(ArenaEnd end)
 {
-  auto& scopes = mScopes[static_cast<std::size_t>(end)];
-  scopes.push_back({.offset = mUsed[static_cast<std::size_t>(end)], .serial = mNextSerial++});
-  return ArenaScope{*this, end, scopes.size() - 1U, scopes.back().serial};
+  auto& scopes = mScopes[static_cast<std::uint32_t>(end)];
+  scopes.push_back({.offset = mUsed[static_cast<std::uint32_t>(end)], .serial = mNextSerial++});
+  return ArenaScope{*this, end, static_cast<std::uint32_t>(scopes.size() - 1U), scopes.back().serial};
 }
 
 void DeviceArena::reset() noexcept
@@ -97,8 +97,8 @@ void DeviceArena::rebind(DeviceBlock block) noexcept
 
 ArenaTag DeviceArena::currentTag(ArenaEnd end) const noexcept
 {
-  const auto& scopes = mScopes[static_cast<std::size_t>(end)];
-  return {.arena = this, .end = end, .depth = scopes.size() - 1U, .serial = scopes.back().serial};
+  const auto& scopes = mScopes[static_cast<std::uint32_t>(end)];
+  return {.arena = this, .end = end, .depth = static_cast<std::uint32_t>(scopes.size() - 1U), .serial = scopes.back().serial};
 }
 
 bool DeviceArena::live(const ArenaTag& tag) const noexcept
@@ -106,7 +106,7 @@ bool DeviceArena::live(const ArenaTag& tag) const noexcept
   if (tag.arena != this) {
     return false;
   }
-  const auto& scopes = mScopes[static_cast<std::size_t>(tag.end)];
+  const auto& scopes = mScopes[static_cast<std::uint32_t>(tag.end)];
   return tag.depth < scopes.size() && scopes[tag.depth].serial == tag.serial;
 }
 
@@ -117,9 +117,9 @@ void DeviceArena::requireLive(const ArenaTag& tag) const
   }
 }
 
-void DeviceArena::closeScope(ArenaEnd end, std::size_t depth, std::uint64_t serial, bool commit) noexcept
+void DeviceArena::closeScope(ArenaEnd end, std::uint32_t depth, std::uint64_t serial, bool commit) noexcept
 {
-  auto& scopes = mScopes[static_cast<std::size_t>(end)];
+  auto& scopes = mScopes[static_cast<std::uint32_t>(end)];
   // reset() deliberately makes outstanding ArenaScope objects inert.
   if (depth >= scopes.size() || scopes[depth].serial != serial) {
     return;
@@ -128,7 +128,7 @@ void DeviceArena::closeScope(ArenaEnd end, std::size_t depth, std::uint64_t seri
     std::terminate();
   }
   if (!commit) {
-    mUsed[static_cast<std::size_t>(end)] = scopes.back().offset;
+    mUsed[static_cast<std::uint32_t>(end)] = scopes.back().offset;
   }
   scopes.pop_back();
 }

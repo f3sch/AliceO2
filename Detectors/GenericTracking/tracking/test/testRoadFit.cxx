@@ -54,7 +54,7 @@ namespace
 using namespace toybarrel8;
 using Stage = RoadFitStage<Det, false, false, false>;
 using RecordOutput = StageOutput<SelectionRecordOf<maxChainLayers<Det>>::template RecordT>;
-constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
 /// A road cut that passes everything, per degree of freedom.
 const std::array<Scalar, (3U * kMaxClusters) - 5U> kNoCut = [] {
   std::array<Scalar, (3U * kMaxClusters) - 5U> cut{};
@@ -69,7 +69,7 @@ struct Helix {
   double ptGeV = 0.;
 };
 
-Helix helix(std::size_t track)
+Helix helix(std::uint32_t track)
 {
   const auto k = static_cast<double>(track);
   return {
@@ -80,10 +80,10 @@ Helix helix(std::size_t track)
 }
 
 /// The tracks' hits, one per layer each.
-std::vector<Hit> trackHits(std::size_t tracks)
+std::vector<Hit> trackHits(std::uint32_t tracks)
 {
   std::vector<Hit> hits;
-  for (std::size_t track = 0; track < tracks; ++track) {
+  for (std::uint32_t track = 0; track < tracks; ++track) {
     const auto h = helix(track);
     const auto one = sensorHelixHits(h.phi0, h.slope, h.ptGeV);
     BOOST_REQUIRE(one.size() == kLayers);
@@ -93,10 +93,10 @@ std::vector<Hit> trackHits(std::size_t tracks)
 }
 
 /// \a track's rows, innermost first.
-std::array<std::uint32_t, kLayers> trackRows(const Fixture& fixture, std::size_t track)
+std::array<std::uint32_t, kLayers> trackRows(const Fixture& fixture, std::uint32_t track)
 {
   std::array<std::uint32_t, kLayers> rows{};
-  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
     rows[layer] = fixture.row((kLayers * track) + layer);
   }
   return rows;
@@ -122,7 +122,7 @@ BOOST_AUTO_TEST_CASE(TheBeamLineConstrainsAPrimarysOuterRoad)
   const Fixture fixture{trackHits(6U)};
   const auto iteration = parameters();
   const auto& tracking = trackingGeometry();
-  for (std::size_t track = 0; track < 6U; ++track) {
+  for (std::uint32_t track = 0; track < 6U; ++track) {
     const auto all = trackRows(fixture, track);
     const std::array<std::uint32_t, 4> rows{all[4], all[5], all[6], all[7]};
     const auto fit = fitMeasurements(kPropagator, tracking, kNoMaterial, RowChain<Det>{.frame = fixture.frame.get(), .rows = rows.data()}, 4);
@@ -167,18 +167,18 @@ BOOST_AUTO_TEST_CASE(TheOutwardPassStopsWhereTheFullOneWouldReject)
   const auto cut = study::roadChi2Cut(iteration, kPropagator, kLayers);
   BOOST_TEST(cut > 0.F);
 
-  for (std::size_t track = 0; track < 6U; ++track) {
+  for (std::uint32_t track = 0; track < 6U; ++track) {
     const auto rows = trackRows(fixture, track);
     const RowChain<Det> chain{.frame = fixture.frame.get(), .rows = rows.data()};
     std::array<Measurement, kLayers> copied{};
-    for (std::size_t i = 0; i < kLayers; ++i) {
-      copied[i] = chain[static_cast<int>(i)];
+    for (std::uint32_t i = 0; i < kLayers; ++i) {
+      copied[i] = chain[static_cast<std::int32_t>(i)];
     }
-    const auto full = fitMeasurements(kPropagator, trackingGeometry(), kNoMaterial, copied.data(), static_cast<int>(kLayers));
-    const auto outward = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<int>(kLayers), kNoCut.data());
-    const auto cutAt = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<int>(kLayers), iteration.roadChi2MaxByNdf);
+    const auto full = fitMeasurements(kPropagator, trackingGeometry(), kNoMaterial, copied.data(), static_cast<std::int32_t>(kLayers));
+    const auto outward = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<std::int32_t>(kLayers), kNoCut.data());
+    const auto cutAt = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<std::int32_t>(kLayers), iteration.roadChi2MaxByNdf);
     // A kink cannot absorb a displaced cluster: the one after it misses.
-    const auto kinked = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<int>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
+    const auto kinked = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<std::int32_t>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
     BOOST_TEST_CONTEXT("track " << track)
     {
       // Read by row or copied, the same pass, to the bit.
@@ -204,7 +204,7 @@ BOOST_AUTO_TEST_CASE(TheOutwardPassStopsWhereTheFullOneWouldReject)
 BOOST_AUTO_TEST_CASE(TheRoadCutCoversAZeroFieldRoadOnEveryLayer)
 {
   const auto iteration = parameters();
-  constexpr int kMost = (2 * static_cast<int>(maxChainLayers<Det>)) - 4;
+  constexpr std::int32_t kMost = (2 * static_cast<std::int32_t>(maxChainLayers<Det>)) - 4;
   BOOST_REQUIRE(std::size(iteration.roadChi2MaxByNdf) == static_cast<std::size_t>(kMost + 1));
   BOOST_TEST(iteration.roadChi2MaxByNdf[kMost] > iteration.roadChi2MaxByNdf[kMost - 1]);
 }
@@ -213,9 +213,9 @@ BOOST_AUTO_TEST_CASE(SmearedRoadsHaveTheirDegreesOfFreedom)
 {
   // Every hit smeared by its own errors in loc0 and loc1: the outward chi2 of
   // 8 clusters has 2 * 8 - 5 = 11 degrees of freedom.
-  constexpr std::size_t kTracks = 400U;
+  constexpr std::uint32_t kTracks = 400U;
   auto hits = trackHits(kTracks);
-  std::mt19937_64 generator(20260926U); // NOLINT(cert-msc32-c,cert-msc51-cpp): the pulls are compared against fixed bounds
+  std::mt19937_64 generator(20260926U);
   std::normal_distribution<double> normal;
   for (std::size_t i = 0; i < hits.size(); ++i) {
     const auto scale = static_cast<double>(1U + (i % 3U));
@@ -231,11 +231,11 @@ BOOST_AUTO_TEST_CASE(SmearedRoadsHaveTheirDegreesOfFreedom)
   const Fixture fixture{hits, 100.};
   const auto cut = study::roadChi2Cut(parameters(), kPropagator, kLayers);
   double sum = 0.;
-  std::size_t accepted = 0U;
-  for (std::size_t track = 0; track < kTracks; ++track) {
+  std::uint32_t accepted = 0U;
+  for (std::uint32_t track = 0; track < kTracks; ++track) {
     const auto rows = trackRows(fixture, track);
     const RowChain<Det> chain{.frame = fixture.frame.get(), .rows = rows.data()};
-    const auto fit = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<int>(kLayers), kNoCut.data());
+    const auto fit = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain, static_cast<std::int32_t>(kLayers), kNoCut.data());
     BOOST_REQUIRE((fit.status == RoadFitStatus::kAccepted));
     sum += static_cast<double>(fit.chi2);
     accepted += fit.chi2 <= cut ? 1U : 0U;
@@ -251,12 +251,12 @@ BOOST_AUTO_TEST_CASE(SmearedRoadsHaveTheirDegreesOfFreedom)
 /// A helix whose direction turns by \a turn on the sensor of layer \a kink --
 /// a hard scatter there -- as noiseless measurements: layers up to the kink
 /// from the helix, the rest propagated from the kink with the new direction.
-static std::array<Measurement, kLayers> kinkedChain(std::size_t kink, double turn)
+static std::array<Measurement, kLayers> kinkedChain(std::uint32_t kink, double turn)
 {
   const auto hits = sensorHelixHits(0.7, 0.03, 1.5);
   BOOST_REQUIRE(hits.size() == kLayers);
   std::array<Measurement, kLayers> chain{};
-  const auto measurementOf = [](const BoundTrackState& state, std::size_t index) {
+  const auto measurementOf = [](const BoundTrackState& state, std::uint32_t index) {
     return Measurement{
       .loc0 = state.loc0(),
       .loc1 = state.loc1(),
@@ -265,11 +265,11 @@ static std::array<Measurement, kLayers> kinkedChain(std::size_t kink, double tur
       .varLoc0 = 3.e-6F,
       .covLoc01 = 0.F,
       .varLoc1 = 1.e-6F,
-      .clusterIndex = static_cast<std::uint32_t>(index),
+      .clusterIndex = index,
       .surface = state.surface,
     };
   };
-  for (std::size_t layer = 0; layer <= kink; ++layer) {
+  for (std::uint32_t layer = 0; layer <= kink; ++layer) {
     chain[layer] = Measurement{
       .loc0 = hits[layer].loc0,
       .loc1 = hits[layer].loc1,
@@ -278,14 +278,14 @@ static std::array<Measurement, kLayers> kinkedChain(std::size_t kink, double tur
       .varLoc0 = 3.e-6F,
       .covLoc01 = 0.F,
       .varLoc1 = 1.e-6F,
-      .clusterIndex = static_cast<std::uint32_t>(layer),
+      .clusterIndex = layer,
       .surface = hits[layer].surface,
     };
   }
   // The prefix's own fit gives the helix's state on the kink's sensor.
-  auto state = fitMeasurements(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<int>(kink + 1U)).outwardState;
+  auto state = fitMeasurements(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<std::int32_t>(kink + 1U)).outwardState;
   state.par[kPhi] += static_cast<Scalar>(turn);
-  for (std::size_t layer = kink + 1U; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = kink + 1U; layer < kLayers; ++layer) {
     const auto& from = trackingGeometry().surface(state.surface);
     bool crossed = false;
     for (SensorID sensor = firstSensorOfLayer<Det>(static_cast<LayerID>(layer)); sensor < firstSensorOfLayer<Det>(static_cast<LayerID>(layer + 1U)) && !crossed; ++sensor) {
@@ -303,7 +303,7 @@ static std::array<Measurement, kLayers> kinkedChain(std::size_t kink, double tur
 
 BOOST_AUTO_TEST_CASE(AKinkRecoversAScatteredRoadWithTwoDegreesOfFreedom)
 {
-  constexpr std::size_t kKink = 3U;
+  constexpr std::uint32_t kKink = 3U;
   const auto iteration = parameters();
   const auto budget = kinkBudget(iteration);
   BOOST_REQUIRE(budget.max == 1);
@@ -311,9 +311,9 @@ BOOST_AUTO_TEST_CASE(AKinkRecoversAScatteredRoadWithTwoDegreesOfFreedom)
 
   // 50 mrad: the toy's layers are centimetres apart. Without a kink the road
   // is beyond its cut; with one it passes, at two degrees of freedom fewer.
-  const auto strict = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<int>(kLayers), iteration.roadChi2MaxByNdf);
+  const auto strict = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<std::int32_t>(kLayers), iteration.roadChi2MaxByNdf);
   BOOST_TEST((strict.status == RoadFitStatus::kRejected));
-  const auto kinked = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<int>(kLayers), iteration.roadChi2MaxByNdf, budget);
+  const auto kinked = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<std::int32_t>(kLayers), iteration.roadChi2MaxByNdf, budget);
   BOOST_TEST((kinked.status == RoadFitStatus::kAccepted));
   BOOST_TEST(kinked.kinks == 1U);
   BOOST_TEST(kinked.chi2 <= study::roadChi2Cut(iteration, kPropagator, kLayers, 1U));
@@ -321,12 +321,12 @@ BOOST_AUTO_TEST_CASE(AKinkRecoversAScatteredRoadWithTwoDegreesOfFreedom)
   // Each pass takes its own: the outward one at the cluster after the kink,
   // the inward one at the cluster before it, where the direction it brings
   // from outside stops fitting.
-  const auto fit = fitMeasurements(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<int>(kLayers), budget);
+  const auto fit = fitMeasurements(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<std::int32_t>(kLayers), budget);
   BOOST_REQUIRE((fit.status == PropagationStatus::kOk));
   BOOST_TEST(fit.outwardKinks == 1U);
   BOOST_TEST(fit.kinks == 1U);
   BOOST_TEST(fit.kinkMeasurement == static_cast<std::int16_t>(kKink - 1U));
-  BOOST_TEST(fit.ndf == static_cast<std::int16_t>((2 * static_cast<int>(kLayers)) - 5 - 2));
+  BOOST_TEST(fit.ndf == static_cast<std::int16_t>((2 * static_cast<std::int32_t>(kLayers)) - 5 - 2));
   BOOST_TEST(fit.outwardChi2 == kinked.chi2);
   // Not zero: both passes start from one helix through every cluster,
   // which a 50 mrad kink leaves; a scatter of milliradians barely moves it.
@@ -334,7 +334,7 @@ BOOST_AUTO_TEST_CASE(AKinkRecoversAScatteredRoadWithTwoDegreesOfFreedom)
 
   // A straight road uses none.
   const auto straight = kinkedChain(kKink, 0.);
-  const auto clean = fitMeasurements(kPropagator, trackingGeometry(), kNoMaterial, straight.data(), static_cast<int>(kLayers), budget);
+  const auto clean = fitMeasurements(kPropagator, trackingGeometry(), kNoMaterial, straight.data(), static_cast<std::int32_t>(kLayers), budget);
   BOOST_TEST(clean.outwardKinks == 0U);
   BOOST_TEST(clean.kinks == 0U);
 }
@@ -374,7 +374,7 @@ BOOST_AUTO_TEST_CASE(AKinkCannotAbsorbAWrongLastCluster)
   const auto iteration = parameters();
   auto chain = kinkedChain(kLayers - 1U, 0.);
   chain[kLayers - 1U].loc0 += 30.F * std::sqrt(chain[kLayers - 1U].varLoc0);
-  const auto fit = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<int>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
+  const auto fit = fitOutward(kPropagator, trackingGeometry(), kNoMaterial, chain.data(), static_cast<std::int32_t>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
   BOOST_TEST((fit.status == RoadFitStatus::kRejected));
   BOOST_TEST(fit.kinks == 0U);
 }
@@ -400,10 +400,10 @@ BOOST_AUTO_TEST_CASE(TheLastStepTakesTheAllowanceNotAFreeDirection)
   const detail::LinkSteps material;
   const auto& tracking = *geometry;
   auto iteration = parameters();
-  const auto road = [&](const std::array<Measurement, kLayers>& chain) { return takesLastStepAllowance(iteration) ? fitRoad<true>(iteration, kPropagator, tracking, material, chain.data(), static_cast<int>(kLayers)) : fitRoad<false>(iteration, kPropagator, tracking, material, chain.data(), static_cast<int>(kLayers)); };
+  const auto road = [&](const std::array<Measurement, kLayers>& chain) { return takesLastStepAllowance(iteration) ? fitRoad<true>(iteration, kPropagator, tracking, material, chain.data(), static_cast<std::int32_t>(kLayers)) : fitRoad<false>(iteration, kPropagator, tracking, material, chain.data(), static_cast<std::int32_t>(kLayers)); };
   const auto inside = kinkedChain(kLayers - 2U, 0.014);
   const auto beyond = kinkedChain(kLayers - 2U, 0.08);
-  const auto refitBudget = fitOutward(kPropagator, tracking, material, inside.data(), static_cast<int>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
+  const auto refitBudget = fitOutward(kPropagator, tracking, material, inside.data(), static_cast<std::int32_t>(kLayers), iteration.roadChi2MaxByNdf, kinkBudget(iteration));
   BOOST_TEST((refitBudget.status == RoadFitStatus::kRejected));
   BOOST_TEST((road(inside).status == RoadFitStatus::kRejected));
   iteration.kinkScale2 = 25.F;
@@ -414,7 +414,7 @@ BOOST_AUTO_TEST_CASE(TheLastStepTakesTheAllowanceNotAFreeDirection)
   BOOST_TEST((road(beyond).status == RoadFitStatus::kRejected));
   // The refit's passes keep the rule: a kink at the innermost cluster going
   // inward would leave the track's direction there unchecked.
-  const auto refit = fitMeasurements(kPropagator, tracking, material, inside.data(), static_cast<int>(kLayers), kinkBudget(iteration));
+  const auto refit = fitMeasurements(kPropagator, tracking, material, inside.data(), static_cast<std::int32_t>(kLayers), kinkBudget(iteration));
   BOOST_REQUIRE((refit.status == PropagationStatus::kOk));
   BOOST_TEST(refit.outwardKinks == 0U);
 }
@@ -443,7 +443,7 @@ struct RoadsRun {
 
 BOOST_AUTO_TEST_CASE(TheStageEmitsOneRecordPerRoad)
 {
-  constexpr std::size_t kTracks = 6U;
+  constexpr std::uint32_t kTracks = 6U;
   const Fixture fixture{trackHits(kTracks)};
   const auto iteration = parameters();
   const RoadsRun roads{fixture};
@@ -466,14 +466,14 @@ BOOST_AUTO_TEST_CASE(TheStageEmitsOneRecordPerRoad)
     BOOST_TEST(view.count[record] == kLayers);
     BOOST_TEST(view.chi2[record] < 1.F);
     const auto track = fixture.frame->measurement(clusters.index[0]).clusterIndex / kLayers;
-    for (std::size_t layer = 0; layer < kMaxClusters; ++layer) {
+    for (std::uint32_t layer = 0; layer < kMaxClusters; ++layer) {
       BOOST_TEST(clusters.index[layer] == (layer < kLayers ? fixture.row((kLayers * track) + layer) : ClusterList<kMaxClusters>::kNoCluster));
     }
     found[track] = true;
   }
   BOOST_TEST(std::ranges::all_of(found, [](bool f) { return f; }));
 
-  for (const int threads : {1, 2, 4}) {
+  for (const std::int32_t threads : {1, 2, 4}) {
     RecordOutput parallel;
     const auto parallelPool = std::make_shared<BoundedMemoryResource>();
     parallel.setMemoryPool(parallelPool);
@@ -495,7 +495,7 @@ BOOST_AUTO_TEST_CASE(TheStageDropsRoadsBelowTheFloorOfTheirClusterCount)
   // The six tracks at 1.5, 1.75, 2, 2.25, 2.5 and 1.5 GeV, all on every
   // layer: a 2.1 GeV floor for that count keeps the two above it, and a floor
   // for one cluster fewer keeps them all.
-  constexpr std::size_t kTracks = 6U;
+  constexpr std::uint32_t kTracks = 6U;
   const Fixture fixture{trackHits(kTracks)};
   const RoadsRun roads{fixture};
   const auto& run = roads.result;
@@ -514,7 +514,7 @@ BOOST_AUTO_TEST_CASE(TheStageDropsRoadsBelowTheFloorOfTheirClusterCount)
     records.setMemoryPool(std::make_shared<BoundedMemoryResource>());
     records.prepare(count.roadCount());
     BOOST_REQUIRE(runSerial(records, stage) == StageStatus::kComplete);
-    std::vector<std::size_t> tracks;
+    std::vector<std::uint32_t> tracks;
     tracks.reserve(records.size());
     for (std::uint32_t record = 0; record < records.size(); ++record) {
       tracks.push_back(fixture.frame->measurement(records.view().clusters[record].index[0]).clusterIndex / kLayers);
@@ -522,8 +522,8 @@ BOOST_AUTO_TEST_CASE(TheStageDropsRoadsBelowTheFloorOfTheirClusterCount)
     std::ranges::sort(tracks);
     return tracks;
   };
-  BOOST_TEST(tracksKept(2.1, 0.) == (std::vector<std::size_t>{3U, 4U}), boost::test_tools::per_element());
-  BOOST_TEST(tracksKept(0., 100.) == (std::vector<std::size_t>{0U, 1U, 2U, 3U, 4U, 5U}), boost::test_tools::per_element());
+  BOOST_TEST(tracksKept(2.1, 0.) == (std::vector<std::uint32_t>{3U, 4U}), boost::test_tools::per_element());
+  BOOST_TEST(tracksKept(0., 100.) == (std::vector<std::uint32_t>{0U, 1U, 2U, 3U, 4U, 5U}), boost::test_tools::per_element());
 }
 
 BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
@@ -532,7 +532,7 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
   // no track clears: with innerTrim each
   // road's record is its longest suffix the floors admit, never shorter
   // than minClusters; with it off there is none.
-  constexpr std::size_t kTracks = 6U;
+  constexpr std::uint32_t kTracks = 6U;
   const Fixture fixture{trackHits(kTracks)};
   const RoadsRun roads{fixture};
   const auto& run = roads.result;
@@ -540,12 +540,12 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
   BOOST_REQUIRE(count.roadCount() == kTracks);
 
   // The records, each its cluster count times 10 plus its first layer.
-  const auto recordsOf = [&](int innerTrim, int minClusters, std::size_t refusedBelow) {
+  const auto recordsOf = [&](std::int32_t innerTrim, std::int32_t minClusters, std::uint32_t refusedBelow) {
     auto settings = iterationSettings();
     settings.innerTrim = innerTrim;
     settings.minClusters = minClusters;
     settings.follow = false;
-    for (std::size_t clusters = refusedBelow; clusters <= kLayers; ++clusters) {
+    for (std::uint32_t clusters = refusedBelow; clusters <= kLayers; ++clusters) {
       settings.minPtGeVByClusters[clusters] = 100.;
     }
     const auto iteration = iterationParameters<Det>(settings, Fixture::kBeamConstraint, noMaterial<Det>());
@@ -557,7 +557,7 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
     std::vector<std::uint32_t> kept;
     for (std::uint32_t record = 0; record < records.size(); ++record) {
       const auto innermost = fixture.frame->measurement(records.view().clusters[record].index[0]).clusterIndex;
-      kept.push_back((10U * records.view().count[record]) + static_cast<std::uint32_t>(innermost % kLayers));
+      kept.push_back((10U * records.view().count[record]) + (innermost % kLayers));
       // The clusters are the road's outermost, in order.
       const auto track = innermost / kLayers;
       for (std::uint32_t position = 0; position < records.view().count[record]; ++position) {
@@ -573,7 +573,7 @@ BOOST_AUTO_TEST_CASE(ARefusedRoadIsFittedAgainWithoutItsInnermostClusters)
   BOOST_TEST(recordsOf(1, 4, kLayers) == seven, boost::test_tools::per_element());
   BOOST_TEST(recordsOf(3, 4, kLayers - 2U) == five, boost::test_tools::per_element());
   BOOST_TEST(recordsOf(2, 4, kLayers - 2U) == none, boost::test_tools::per_element()); // two dropped are not enough
-  BOOST_TEST(recordsOf(3, static_cast<int>(kLayers) - 1, kLayers - 2U) == none,
+  BOOST_TEST(recordsOf(3, static_cast<std::int32_t>(kLayers) - 1, kLayers - 2U) == none,
              boost::test_tools::per_element()); // nor below minClusters
   // A road the stage takes whole is taken whole.
   BOOST_TEST(recordsOf(3, 4, kLayers + 1U) == std::vector<std::uint32_t>(kTracks, 80U), boost::test_tools::per_element());
@@ -583,7 +583,7 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
 {
   // Hits to tracks: tracklets, triplets, neighbours, levels, roads, their
   // fit, the selection, the refit.
-  constexpr std::size_t kTracks = 6U;
+  constexpr std::uint32_t kTracks = 6U;
   const Fixture fixture{trackHits(kTracks)};
   const auto iteration = parameters();
   const RoadsRun roads{fixture};
@@ -619,15 +619,15 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
       BOOST_TEST(tracks.count[track] == kLayers);
       std::array<Measurement, kLayers> copied{};
       const RowChain<Det> chain{.frame = fixture.frame.get(), .rows = rows.index};
-      for (std::size_t i = 0; i < kLayers; ++i) {
-        copied[i] = chain[static_cast<int>(i)];
+      for (std::uint32_t i = 0; i < kLayers; ++i) {
+        copied[i] = chain[static_cast<std::int32_t>(i)];
       }
-      const auto road = fitRoad<false>(iteration, kPropagator, trackingGeometry(), kNoMaterial, copied.data(), static_cast<int>(kLayers));
+      const auto road = fitRoad<false>(iteration, kPropagator, trackingGeometry(), kNoMaterial, copied.data(), static_cast<std::int32_t>(kLayers));
       BOOST_REQUIRE((road.status == RoadFitStatus::kAccepted));
-      const auto inward = fitInward(kPropagator, trackingGeometry(), kNoMaterial, copied.data(), static_cast<int>(kLayers), road.state, kinkBudget(iteration));
+      const auto inward = fitInward(kPropagator, trackingGeometry(), kNoMaterial, copied.data(), static_cast<std::int32_t>(kLayers), road.state, kinkBudget(iteration));
       BOOST_TEST(tracks.chi2[track] == inward.chi2);
 
-      BOOST_TEST(tracks.ndf[track] == (2 * static_cast<int>(kLayers)) - 5);
+      BOOST_TEST(tracks.ndf[track] == (2 * static_cast<std::int32_t>(kLayers)) - 5);
       // On the innermost surface, and the generating helix.
       const auto& state = tracks.state[track];
       const auto first = fixture.frame->measurement(rows.index[0]);
@@ -640,7 +640,7 @@ BOOST_AUTO_TEST_CASE(SelectedTracksAreRefittedWithBothPasses)
     }
   }
 
-  for (const int threads : {1, 2, 4}) {
+  for (const std::int32_t threads : {1, 2, 4}) {
     detail::TaskArena cpuArena{threads};
     CpuStage<TrackOf<kMaxClusters>::template RecordT> cpu{cpuArena};
     cpu.setMemoryPool(std::make_shared<BoundedMemoryResource>());

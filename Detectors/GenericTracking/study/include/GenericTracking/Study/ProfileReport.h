@@ -20,6 +20,7 @@
 #include "GenericTracking/Tracking/Profile.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <ostream>
 #include <string>
@@ -30,7 +31,7 @@ namespace o2::gtrk::study
 
 /// A profile as an indented tree: each phase with its share of its parent,
 /// and an `(other)` line for the time its children do not cover.
-void report(std::ostream& out, const profile::Profile& profile, profile::Phase root, int threads);
+void report(std::ostream& out, const profile::Profile& profile, profile::Phase root, std::int32_t threads);
 
 /// A profile as one JSON object, phase name to stats, for the scripts.
 void writeJson(std::ostream& out, const profile::Profile& profile);
@@ -40,7 +41,7 @@ void writeJson(std::ostream& out, const profile::Profile& profile);
 /// the phases' times, and the earlier iterations' tracks followed when there
 /// are any.
 template <typename Summary>
-[[nodiscard]] std::vector<std::string> describeIteration(const Summary& summary, std::size_t iteration)
+[[nodiscard]] std::vector<std::string> describeIteration(const Summary& summary, std::uint32_t iteration)
 {
   std::vector<std::string> lines;
   lines.push_back(

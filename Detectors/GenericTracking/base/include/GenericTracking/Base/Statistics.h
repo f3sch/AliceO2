@@ -16,6 +16,8 @@
 #ifndef GTRK_BASE_STATISTICS_H_
 #define GTRK_BASE_STATISTICS_H_
 
+#include "GenericTracking/Base/Definitions.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -78,11 +80,11 @@ template <std::ranges::random_access_range R>
   for (const T value : std::forward<R>(values)) {
     deviations.push_back(std::abs(value - centre));
   }
-  return static_cast<T>(1.4826 * median(deviations));
+  return static_cast<T>(1.4826 * static_cast<double>(median(deviations)));
 }
 
 /// \a part as a fraction of \a whole, and as a percentage; 0 for none.
-[[nodiscard]] inline double fraction(double part, double whole) { return whole == 0. ? 0. : part / whole; }
+[[nodiscard]] inline double fraction(double part, double whole) { return exactlyEqual(whole, 0.) ? 0. : part / whole; }
 [[nodiscard]] inline double percent(std::uint64_t part, std::uint64_t whole) { return whole == 0U ? 0. : 100. * static_cast<double>(part) / static_cast<double>(whole); }
 
 } // namespace o2::gtrk

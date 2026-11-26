@@ -39,6 +39,7 @@
 
 #include <gsl/span>
 
+#include <cstdint>
 #include <span>
 #include <string>
 #include <vector>
@@ -78,7 +79,7 @@ class ClusterConverterTask : public o2::framework::Task
 
     std::vector<FrameTiming> timings;
     timings.reserve(Detector<Det>::nLayers);
-    for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+    for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
       timings.push_back({.lengthBC = param.getROFLengthInBC(layer), .firstStartBC = param.getROFDelayInBC(layer) + param.getROFBiasInBC(layer)});
       if (mStreams == 1 && timings.back() != timings.front()) {
         throw std::runtime_error("staggered ITS/MFT timing needs per-layer cluster input (--enable-its-staggering or --enable-mft-staggering)");
@@ -103,7 +104,7 @@ class ClusterConverterTask : public o2::framework::Task
 
  private:
   bool mUseMC;
-  int mStreams;
+  std::int32_t mStreams;
   ITSTriggers mTriggers;                                       ///< the ITS's frame selection's (ITSROFSelection.h)
   const o2::itsmft::TopologyDictionary* mDictionary = nullptr; ///< the CCDB cache's, from the run's ITS/MFT Calib/ClusterDictionary
 };
@@ -115,7 +116,7 @@ o2::framework::DataProcessorSpec getITSMFTClusterConverterSpec(bool useMC, bool 
 {
   using namespace o2::framework;
   const auto origin = Conditions<Det>::origin();
-  const int streams = staggered ? Detector<Det>::nLayers : 1;
+  const std::int32_t streams = staggered ? Detector<Det>::nLayers : 1;
   std::vector<InputSpec> inputs;
   addITSMFTClusterInputs(inputs, origin, useMC, streams);
   const auto detector = origin.template as<std::string>();

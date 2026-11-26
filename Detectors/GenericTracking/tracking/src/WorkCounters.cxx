@@ -36,13 +36,13 @@ struct Registry {
 /// statics are gone.
 Registry& registry()
 {
-  static auto* instance = new Registry; // NOLINT(cppcoreguidelines-owning-memory)
+  static auto* instance = new Registry;
   return *instance;
 }
 
 void add(WorkCounts& sum, const WorkCounts& counts)
 {
-  for (std::size_t counter = 0; counter < kWorkCounterCount; ++counter) {
+  for (std::uint32_t counter = 0; counter < kWorkCounterCount; ++counter) {
     sum[counter] += counts[counter];
   }
 }
@@ -52,8 +52,8 @@ void add(LinkWorkCounts& sum, const LinkWorkCounts& counts)
   if (sum.size() < counts.size()) {
     sum.resize(counts.size());
   }
-  for (std::size_t link = 0; link < counts.size(); ++link) {
-    for (std::size_t counter = 0; counter < kLinkCounterCount; ++counter) {
+  for (std::uint32_t link = 0; link < counts.size(); ++link) {
+    for (std::uint32_t counter = 0; counter < kLinkCounterCount; ++counter) {
       sum[link][counter] += counts[link][counter];
     }
   }

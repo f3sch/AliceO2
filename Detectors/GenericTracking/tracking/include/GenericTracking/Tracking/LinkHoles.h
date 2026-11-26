@@ -203,7 +203,7 @@ template <DetectorLayout Det>
 {
   static_assert(Detector<Det>::nLayers <= std::numeric_limits<std::uint64_t>::digits);
   std::uint64_t holes = 0U;
-  for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+  for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
     const auto id = static_cast<LayerID>(layer);
     if (id == from || id == to) {
       continue;
@@ -220,7 +220,7 @@ template <DetectorLayout Det>
 [[nodiscard]] constexpr std::uint64_t barrelLayerBits()
 {
   std::uint64_t bits = 0U;
-  for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+  for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
     bits |= Detector<Det>::isBarrelLayer(static_cast<LayerID>(layer)) ? std::uint64_t{1} << layer : 0U;
   }
   return bits;

@@ -28,6 +28,7 @@
 #include "GenericTracking/Tracking/Tracker.h"
 #include "GenericTracking/Tracking/VertexStage.h"
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 
@@ -55,7 +56,7 @@ class VertexingPass
 
   /// \a pass the pass's iteration (GridConfig.h, `vertexingPassSettings`),
   /// \a vertexer the vertexer's settings; the rest as for a Tracker.
-  VertexingPass(const IterationSettings& pass, const VertexerSettings& vertexer, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material, std::shared_ptr<BoundedMemoryResource> memoryPool, typename Pass::Index chunkSize, int maxConcurrency = 0)
+  VertexingPass(const IterationSettings& pass, const VertexerSettings& vertexer, const VertexConstraint& beamSpot, const LinkMaterial<Det>& material, std::shared_ptr<BoundedMemoryResource> memoryPool, typename Pass::Index chunkSize, std::int32_t maxConcurrency = 0)
     : mPass(pass, beamSpot, material, memoryPool, chunkSize, maxConcurrency),
       mVertexer(vertexer, beamSpot),
       mMemoryPool(std::move(memoryPool))
@@ -107,16 +108,16 @@ class VertexingPass
       const auto triplets = slice.triplets->view();
       const auto found = mVertexer.find(frame.measurements(), tracklets, triplets, slice.triplets->size(), &mPass.arena(), keepClaims, errors, mMemoryPool.get(), ownedFrames(frame.grid().geometry(), planned.slice.coreBlocks));
       const auto offset = static_cast<std::int32_t>(result.found.vertices.size());
-      for (std::size_t t = 0; t < found.tripletVertex.size(); ++t) {
+      for (std::uint32_t t = 0; t < found.tripletVertex.size(); ++t) {
         if (const auto vertex = found.tripletVertex[t]; vertex != VertexerResult::kNotOwned) {
-          result.claims.push_back({.rows = tripletRows(tracklets, triplets, static_cast<std::uint32_t>(t)), .vertex = vertex < 0 ? vertex : offset + vertex});
+          result.claims.push_back({.rows = tripletRows(tracklets, triplets, t), .vertex = vertex < 0 ? vertex : offset + vertex});
         }
       }
       appendVertices(result.found, found);
     }
     const auto placeOf = orderVertices(result.found);
     for (auto& claim : result.claims) {
-      claim.vertex = claim.vertex < 0 ? claim.vertex : placeOf[static_cast<std::size_t>(claim.vertex)];
+      claim.vertex = claim.vertex < 0 ? claim.vertex : placeOf[static_cast<std::uint32_t>(claim.vertex)];
     }
     return result;
   }

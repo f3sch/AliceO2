@@ -57,12 +57,12 @@ template <DetectorLayout Det>
   const std::int32_t columnBin = binOf(columnSlope);
   if (columnBin >= 0) {
     const float own = shares.ownColumn[layer][columnBin][column];
-    ratio += own == own ? own - shares.chanceColumn[layer][column] : 0.F;
+    ratio += exactlyEqual(own, own) ? own - shares.chanceColumn[layer][column] : 0.F;
   }
   const std::int32_t rowBin = binOf(rowSlope);
   if (rowBin >= 0) {
     const float own = shares.ownRow[layer][rowBin][row];
-    ratio += own == own ? own - shares.chanceRow[layer][row] : 0.F;
+    ratio += exactlyEqual(own, own) ? own - shares.chanceRow[layer][row] : 0.F;
   }
   return ratio;
 }

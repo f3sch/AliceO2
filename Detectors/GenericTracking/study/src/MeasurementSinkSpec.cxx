@@ -126,7 +126,7 @@ using Funnel = StageFunnel<Det, Controller>;
 /// Whether two frames' bounds are the same, bit for bit.
 [[nodiscard]] bool sameBounds(const HaloBounds<Det>& a, const HaloBounds<Det>& b)
 {
-  for (std::size_t layer = 0; layer < HaloBounds<Det>::kLayerCount; ++layer) {
+  for (std::uint32_t layer = 0; layer < HaloBounds<Det>::kLayerCount; ++layer) {
     if (a.widthPS[layer] != b.widthPS[layer] || a.rowsAreFrames[layer] != b.rowsAreFrames[layer] || !sameBits(a.varLoc[layer], b.varLoc[layer]) || !sameBits(a.target[layer].varZ, b.target[layer].varZ) || !sameBits(a.target[layer].varR, b.target[layer].varR) || !sameBits(a.target[layer].varRPhi, b.target[layer].varRPhi)) {
       return false;
     }
@@ -155,9 +155,9 @@ struct TrackletRunSummary {
   std::uint64_t haloTriplets = 0U;
   std::array<std::uint64_t, kCountBins> countHistogram{};
   std::uint32_t maxPerSource = 0U;
-  std::size_t trackletHighWater = 0U;
-  std::size_t stagingHighWater = 0U;
-  std::size_t stagingPredictionMisses = 0U;
+  std::uint32_t trackletHighWater = 0U;
+  std::uint32_t stagingHighWater = 0U;
+  std::uint32_t stagingPredictionMisses = 0U;
   std::size_t poolHighWater = 0U;
   std::array<std::uint64_t, nLinks<Det>> truePairs{};
   std::array<std::uint64_t, nLinks<Det>> truePairsKept{};
@@ -176,13 +176,13 @@ struct TrackletRunSummary {
   std::array<std::uint64_t, kPtBins> trueTripletsKeptByPt{};
   double curvaturePullSum = 0.;
   double curvaturePullSum2 = 0.;
-  double curvatureResidualSum2 = 0.;   ///< relative to the MC curvature
-  std::size_t curvatureResiduals = 0U; ///< its count: none at zero field
+  double curvatureResidualSum2 = 0.;     ///< relative to the MC curvature
+  std::uint32_t curvatureResiduals = 0U; ///< its count: none at zero field
   // The same pull by the particle's pT: the triplet's scattering is taken at
   // pT_min, so above it the pull's rms falls below 1 by design.
   std::array<double, kPtBins> curvaturePullSumByPt{};
   std::array<double, kPtBins> curvaturePullSum2ByPt{};
-  std::size_t tripletHighWater = 0U;
+  std::uint32_t tripletHighWater = 0U;
   // What the triplets that are not MC-true are.
   std::uint64_t notTrueCombinatorial = 0U; ///< a, b, c not one particle
   std::uint64_t notTrueSecondary = 0U;
@@ -213,7 +213,7 @@ struct TrackletRunSummary {
   std::uint64_t tripletsWorked = 0U; ///< core and halo, summed over the slices
   std::uint64_t chained = 0U;        ///< of those, swept: with a predecessor
   std::uint64_t slices = 0U;
-  std::size_t neighbourHighWater = 0U;
+  std::uint32_t neighbourHighWater = 0U;
 };
 
 /// A true triplet as the owning slice found it.
@@ -330,7 +330,7 @@ struct TrueCrossing {
   Vec3D position{};
   Vec3D momentum{};
   double mass = 0.;
-  int pdg = 0;
+  std::int32_t pdg = 0;
 };
 
 /// A particle's crossings of its rows' chips, in layer order; empty without
@@ -359,7 +359,7 @@ struct TrueCrossingReport {
   double offsetCM = 0.;         ///< the cluster's distance from the crossing, the larger of r-phi and z
   double pt = 0.;               ///< entering the layer [GeV]
   double z = 0.;                ///< of the crossing [cm]
-  int pdg = 0;
+  std::int32_t pdg = 0;
 };
 
 /// \a crossings' reports, one per layer (a second crossing of the same layer,
@@ -487,7 +487,7 @@ template <typename McOf>
 
   // Down to the lowest iteration's pT_min: every particle some iteration is for.
   double minPtGeV = workflow::iterationSettings(param, 0).windows.minPtGeV;
-  for (int iteration = 1; iteration < workflow::iterationCount(param); ++iteration) {
+  for (std::uint32_t iteration = 1; iteration < workflow::iterationCount(param); ++iteration) {
     minPtGeV = std::min(minPtGeV, workflow::iterationSettings(param, iteration).windows.minPtGeV);
   }
   std::vector<Frame::Index> firstPass;
@@ -587,7 +587,7 @@ std::string histogramText(const std::array<std::uint64_t, kCountBins>& histogram
 inline constexpr std::size_t kSpeciesCount = 6U;
 
 /// A PDG code's species index (below kSpeciesCount).
-[[nodiscard]] std::size_t reportSpeciesOf(int pdg)
+[[nodiscard]] std::size_t reportSpeciesOf(std::int32_t pdg)
 {
   switch (std::abs(pdg)) {
     case 11:
@@ -686,7 +686,7 @@ void reportLostPairs(const Frame& frame, const IterationParameters<Det>& paramet
         const auto sourceRow = frame.measurement(sourceIndex);
         const auto targetRow = frame.measurement(targetIndex);
         const auto ticks = std::lround((static_cast<double>(targetRow.timePS) - static_cast<double>(sourceRow.timePS)) / static_cast<double>(sourceRow.widthPS));
-        ++timeTicksByLayer[from][static_cast<std::size_t>(std::clamp<long>(ticks, -3L, 3L) + 3L)];
+        ++timeTicksByLayer[from][static_cast<std::size_t>(std::clamp<std::int64_t>(ticks, -3, 3) + 3)];
       } else if (reason == PairLoss::kCurvature) {
         ++originCurvature[binOf(truth.originR, kOriginEdges)];
         const auto pullAt = pullBin((static_cast<double>(terms.curvature) - static_cast<double>(terms.bound)) / std::sqrt(static_cast<double>(terms.varCurvature)), curvaturePulls);
@@ -700,7 +700,7 @@ void reportLostPairs(const Frame& frame, const IterationParameters<Det>& paramet
     }
     {
       std::string ticksLine;
-      for (std::size_t layer = 0; layer < timeTicksByLayer.size(); ++layer) {
+      for (std::uint32_t layer = 0; layer < timeTicksByLayer.size(); ++layer) {
         const auto& slots = timeTicksByLayer[layer];
         if (std::accumulate(slots.begin(), slots.end(), std::uint64_t{0}) == 0U) {
           continue;
@@ -794,7 +794,7 @@ void reportLostPairs(const Frame& frame, const IterationParameters<Det>& paramet
           bool off = false;
           auto ptAtSource = static_cast<double>(truth.pt);
           double ptAtTarget = ptAtSource;
-          int pdg = 0;
+          std::int32_t pdg = 0;
           for (const auto& report : found->second) {
             pdg = report.pdg;
             if (report.layer > to) {
@@ -846,13 +846,13 @@ void reportLostPairs(const Frame& frame, const IterationParameters<Det>& paramet
         }
         LOGP(info, "    the MC hits on the pairs the {} cut lost, by pull:{}", kCutNames[which], line);
         std::string links;
-        for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+        for (std::uint32_t link = 0; link < nLinks<Det>; ++link) {
           if (noneByLink[which][link] != 0U) {
             links += fmt::format(" {}->{}: {}", Det::layerLinks[link].from, Det::layerLinks[link].to, noneByLink[which][link]);
           }
         }
         std::string scatterers;
-        for (std::size_t layer = 0; layer < Frame::kLayerCount; ++layer) {
+        for (std::uint32_t layer = 0; layer < Frame::kLayerCount; ++layer) {
           if (kinkAtScatterer[which][layer] != 0U) {
             scatterers += fmt::format(" {}: {}", layer, kinkAtScatterer[which][layer]);
           }
@@ -878,11 +878,10 @@ class StageTruth
 {
  public:
   /// At the iteration's first slice, with the used mask it read.
-  StageTruth(const Frame& frame, const Controller& tracker, std::size_t iteration, const RecoSettings& param, const Propagator& propagator, std::span<const TruePair> allPairs, std::span<const TruthRow> rows, const ParticleTable& particles, const LinkMaterial<Det>& scattering, const o2::base::MatLayerCylSet* material, const TrueCrossings& crossings)
+  StageTruth(const Frame& frame, const Controller& tracker, std::uint32_t iteration, const RecoSettings& param, const Propagator& propagator, std::span<const TruePair> allPairs, std::span<const TruthRow> rows, const ParticleTable& particles, const LinkMaterial<Det>& scattering, const o2::base::MatLayerCylSet* material, const TrueCrossings& crossings)
     : mFrame{&frame},
-      mParam{&param},
       mIteration{iteration},
-      mSettings{workflow::iterationSettings(param, static_cast<int>(iteration))},
+      mSettings{workflow::iterationSettings(param, iteration)},
       mParameters{tracker.iteration(iteration)},
       mBeamLine{tracker.beamLine()},
       mBzKiloGauss{propagator.bzKiloGauss},
@@ -974,7 +973,7 @@ class StageTruth
     }
     const auto tracklets = run.tracklets->view();
     for (Tracklets::Index i = 0U; i < run.tracklets->size(); ++i) {
-      const auto link = static_cast<std::size_t>(tracklets[i].link);
+      const auto link = static_cast<std::uint32_t>(tracklets[i].link);
       const LayerID sourceLayer = parameters.linkSources[link];
       const auto core = slice.core[sourceLayer];
       const bool coreSource = tracklets[i].source >= core.begin && tracklets[i].source < core.end;
@@ -1037,7 +1036,7 @@ class StageTruth
     const auto neighbourOffsets = neighbours.offsets();
     summary.tripletsWorked += triplets.size();
     // The triplets with predecessors.
-    for (std::size_t triplet = 0; triplet + 1U < neighbourOffsets.size(); ++triplet) {
+    for (std::uint32_t triplet = 0; triplet + 1U < neighbourOffsets.size(); ++triplet) {
       summary.chained += neighbourOffsets[triplet + 1U] != neighbourOffsets[triplet] ? 1U : 0U;
     }
     ++summary.slices;
@@ -1084,7 +1083,6 @@ class StageTruth
   [[nodiscard]] TrackletRunSummary finish(const Controller& tracker, const Controller::IterationObservation& observed)
   {
     const auto& frame = *mFrame;
-    const auto& param = *mParam;
     const auto& parameters = mParameters;
     const auto& settings = mSettings;
     const auto& beamLine = mBeamLine;
@@ -1189,17 +1187,17 @@ class StageTruth
     LOGP(info,
          "  arena/staging high-water {} / {} records ({:.1f} / {:.1f} MB), "
          "pool {:.1f} MB, {} staging prediction misses",
-         summary.trackletHighWater, summary.stagingHighWater, static_cast<double>(summary.trackletHighWater * kTrackletBytes) / 1.e6, static_cast<double>(summary.stagingHighWater * kTrackletBytes) / 1.e6, static_cast<double>(summary.poolHighWater) / 1.e6, summary.stagingPredictionMisses);
+         summary.trackletHighWater, summary.stagingHighWater, static_cast<double>(std::size_t{summary.trackletHighWater} * kTrackletBytes) / 1.e6, static_cast<double>(std::size_t{summary.stagingHighWater} * kTrackletBytes) / 1.e6, static_cast<double>(summary.poolHighWater) / 1.e6, summary.stagingPredictionMisses);
     LOGP(info, "  accepted per source, max {}: {}", summary.maxPerSource, histogramText(summary.countHistogram));
     std::uint64_t trueTotal = 0U;
     std::uint64_t trueKept = 0U;
-    for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+    for (std::uint32_t link = 0; link < nLinks<Det>; ++link) {
       trueTotal += summary.truePairs[link];
       trueKept += summary.truePairsKept[link];
     }
     if (trueTotal != 0U) {
       LOGP(info, "  MC-true primary pairs: {}/{} kept ({:.3f}%)", trueKept, trueTotal, percent(trueKept, trueTotal));
-      for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+      for (std::uint32_t link = 0; link < nLinks<Det>; ++link) {
         LOGP(info, "    {:>2} -> {:<2}: {}/{} ({:.3f}%)", Det::layerLinks[link].from, Det::layerLinks[link].to, summary.truePairsKept[link], summary.truePairs[link], percent(summary.truePairsKept[link], summary.truePairs[link]));
       }
     }
@@ -1207,7 +1205,7 @@ class StageTruth
     const double tripletSeconds = observed.summary->seconds(profile::Phase::kTriplets);
     const double timePerFirstNS = summary.firstTracklets == 0U ? 0. : 1.e9 * tripletSeconds / static_cast<double>(summary.firstTracklets);
     LOGP(info, "triplets, {}: {} from {} first tracklets, {:.3f} s, {:.1f} ns/first tracklet", label, summary.triplets, summary.firstTracklets, tripletSeconds, timePerFirstNS);
-    LOGP(info, "  arena high-water {} records ({:.1f} MB); halo-owned triplets, within the slice gate: {} ({:.3f}%)", summary.tripletHighWater, static_cast<double>(summary.tripletHighWater * sizeof(Triplet)) / 1.e6, summary.haloTriplets, percent(summary.haloTriplets, summary.triplets + summary.haloTriplets));
+    LOGP(info, "  arena high-water {} records ({:.1f} MB); halo-owned triplets, within the slice gate: {} ({:.3f}%)", summary.tripletHighWater, static_cast<double>(std::size_t{summary.tripletHighWater} * sizeof(Triplet)) / 1.e6, summary.haloTriplets, percent(summary.haloTriplets, summary.triplets + summary.haloTriplets));
     if (summary.trueTriplets != 0U) {
       LOGP(info, "  MC-true triplets: {}/{} kept ({:.3f}%); with both pairs kept as tracklets {}/{} ({:.3f}%)", summary.trueTripletsKept, summary.trueTriplets, percent(summary.trueTripletsKept, summary.trueTriplets), summary.trueTripletsKept, summary.trueTripletsPairsKept, percent(summary.trueTripletsKept, summary.trueTripletsPairsKept));
       if (summary.tripletsKinked != 0U) {
@@ -1230,7 +1228,7 @@ class StageTruth
     const double neighbourSeconds = observed.summary->seconds(profile::Phase::kNeighbours);
     const double neighbourPerTripletNS = summary.tripletsWorked == 0U ? 0. : 1.e9 * neighbourSeconds / static_cast<double>(summary.tripletsWorked);
     LOGP(info, "neighbours, {}: {} from {} triplets worked, {:.3f} s, {:.1f} ns/triplet", label, summary.neighbours, summary.tripletsWorked, neighbourSeconds, neighbourPerTripletNS);
-    LOGP(info, "  arena high-water {} records ({:.1f} MB); swept {:.2f}% of the triplets", summary.neighbourHighWater, static_cast<double>(summary.neighbourHighWater * sizeof(Neighbour)) / 1.e6, percent(summary.chained, summary.tripletsWorked));
+    LOGP(info, "  arena high-water {} records ({:.1f} MB); swept {:.2f}% of the triplets", summary.neighbourHighWater, static_cast<double>(std::size_t{summary.neighbourHighWater} * sizeof(Neighbour)) / 1.e6, percent(summary.chained, summary.tripletsWorked));
     LOGP(info, "  predecessors per triplet, max {}: {}", summary.maxNeighbours, histogramText(summary.neighbourHistogram));
     if (summary.trueNeighbours != 0U) {
       LOGP(info, "  MC-true neighbours: {}/{} kept; with both triplets kept {}/{} ({:.3f}%)", summary.trueNeighboursKept, summary.trueNeighbours, summary.trueNeighboursKept, summary.trueNeighboursTripletsKept, percent(summary.trueNeighboursKept, summary.trueNeighboursTripletsKept));
@@ -1285,8 +1283,7 @@ class StageTruth
   }
 
   const Frame* mFrame;
-  const RecoSettings* mParam;
-  std::size_t mIteration;
+  std::uint32_t mIteration;
   IterationSettings mSettings;
   IterationParameters<Det> mParameters;
   VertexSeed mBeamLine;
@@ -1297,7 +1294,7 @@ class StageTruth
   const o2::base::MatLayerCylSet* mMaterial;
   const TrueCrossings* mCrossings;
   std::vector<std::uint8_t> mUsed; ///< the mask the iteration read
-  std::size_t mInitialPredictionMisses;
+  std::uint32_t mInitialPredictionMisses;
   std::vector<TruePair> mTruePairs; ///< above pT_min, on free clusters
   std::vector<std::pair<std::size_t, std::size_t>> mTrueTriplets;
   std::vector<std::pair<std::size_t, std::size_t>> mTrueChains;
@@ -1324,11 +1321,11 @@ void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFa
   }
   constexpr std::array<const char*, 3> kPasses{"none", "outward", "inward"};
   constexpr std::array<const char*, 8> kStatuses{"ok", "no intersection", "wrong direction", "out of bounds", "grazing", "not finite", "too many turns", "stopped"};
-  constexpr std::size_t kExamples = 12U;
+  constexpr std::uint32_t kExamples = 12U;
   std::map<std::pair<std::uint8_t, std::uint8_t>, std::uint64_t> byPassStatus;
-  std::map<std::tuple<std::uint8_t, int, int>, std::uint64_t> bySteps;
-  std::map<int, std::uint64_t> bySpecies;
-  std::map<std::size_t, std::uint64_t> byCount;
+  std::map<std::tuple<std::uint8_t, std::int32_t, std::int32_t>, std::uint64_t> bySteps;
+  std::map<std::int32_t, std::uint64_t> bySpecies;
+  std::map<std::int32_t, std::uint64_t> byCount;
   std::array<std::uint64_t, 2> byPrimary{};
   // From the MC hits, in the chain's order: the particle loops -- it turns
   // more than half a turn between two crossings (|dz| pT / |pz| over its
@@ -1345,18 +1342,18 @@ void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFa
                              kKinds };
   constexpr std::array<const char*, kKinds> kKindNames{"loops (> half a turn between crossings)", "turns back", "loses > 20 % of p", "hard scatter (>= 5 theta0)", "none of these", "no hits"};
   std::array<std::uint64_t, kKinds> byKind{};
-  std::size_t examples = 0U;
+  std::uint32_t examples = 0U;
   for (const auto& failure : failures) {
     const auto& rows = failure.rows;
     const auto& fit = failure.fit;
-    const int n = static_cast<int>(rows.size());
-    const auto layerOf = [&](int index) { return static_cast<int>(layerOfRow(frame, tracking, rows[static_cast<std::size_t>(index)])); };
-    const int to = fit.failedMeasurement;
-    const int from = fit.failedPass == FitPass::kInward ? to + 1 : to - 1;
+    const auto n = static_cast<std::int32_t>(rows.size());
+    const auto layerOf = [&](std::int32_t index) { return static_cast<std::int32_t>(layerOfRow(frame, tracking, rows[static_cast<std::uint32_t>(index)])); };
+    const std::int32_t to = fit.failedMeasurement;
+    const std::int32_t from = fit.failedPass == FitPass::kInward ? to + 1 : to - 1;
     const bool stepInChain = std::min(from, to) >= 0 && std::max(from, to) < n;
     ++byPassStatus[{static_cast<std::uint8_t>(fit.failedPass), static_cast<std::uint8_t>(fit.status)}];
     ++bySteps[{static_cast<std::uint8_t>(fit.failedPass), stepInChain ? layerOf(from) : -1, to >= 0 && to < n ? layerOf(to) : -1}];
-    ++byCount[rows.size()];
+    ++byCount[n];
     const auto found = particles.find(failure.id);
     const ParticleTruth truth = found == particles.end() ? ParticleTruth{} : found->second;
     ++bySpecies[truth.pdg];
@@ -1416,14 +1413,14 @@ void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFa
       const auto qOverP = static_cast<double>(std::abs(seed.qOverP()));
       const double seedPt = qOverP > 0. ? std::abs(std::sin(static_cast<double>(seed.theta()))) / qOverP : 0.;
       std::string layers;
-      for (int i = 0; i < n; ++i) {
-        const auto m = frame.measurement(rows[static_cast<std::size_t>(i)]);
+      for (std::int32_t i = 0; i < n; ++i) {
+        const auto m = frame.measurement(rows[static_cast<std::uint32_t>(i)]);
         layers += fmt::format(" {}(r {:.2f}, z {:.2f}, phi {:.3f})", layerOf(i), m.r, m.z, std::atan2(m.y, m.x));
       }
       LOGP(info,
            "    true chain {:#x}: {} {} at index {} of {}; pdg {} (mother {}, process {}), {} at ({:.2f}, {:.2f}, {:.2f}); MC pT {:.3f}, eta {:.3f}; seed pT "
            "{:.3f}, theta {:.4f}; {}; layers{}; hits{}",
-           failure.id, kPasses[static_cast<std::size_t>(fit.failedPass)], kStatuses[static_cast<std::size_t>(fit.status)], to, n, truth.pdg, truth.motherPdg, static_cast<int>(truth.process), truth.primary ? "primary" : "secondary", truth.vx, truth.vy, truth.vz, truth.pt, truth.eta, seedPt, seed.theta(), kKindNames[kind], layers, hits);
+           failure.id, kPasses[static_cast<std::size_t>(fit.failedPass)], kStatuses[static_cast<std::size_t>(fit.status)], to, n, truth.pdg, truth.motherPdg, static_cast<std::int32_t>(truth.process), truth.primary ? "primary" : "secondary", truth.vx, truth.vy, truth.vz, truth.pt, truth.eta, seedPt, seed.theta(), kKindNames[kind], layers, hits);
     }
   }
   LOGP(info, "  true chains whose fit fails: {}; primary {}, secondary {}", failures.size(), byPrimary[0], byPrimary[1]);
@@ -1465,7 +1462,7 @@ void reportTrueRoadFitFailures(const Frame& frame, std::span<const TrueRoadFitFa
 /// passes, so the inner layers are seen too.
 void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Controller& tracker, std::span<const TruePair> truePairs, const ParticleTable& particles, const TrackingGeometry<Det>& tracking, const o2::base::MatLayerCylSet& material, const Propagator& propagator, const TrueCrossings& crossings, const LinkMaterial<Det>& scattering)
 {
-  constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  constexpr auto kMaxClusters = maxChainLayers<Det>;
   constexpr double kMedianChi2Two = 1.3862943611198906; // 2 ln 2
   const auto settings = workflow::iterationSettings(param, 0);
   const auto& parameters = tracker.iteration(0);
@@ -1528,25 +1525,25 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
     }
     rows.push_back(static_cast<std::uint32_t>(truePairs[pair].key >> 32U));
     std::ranges::reverse(rows);
-    rows.resize(std::min(rows.size(), kMaxClusters));
-    const int n = static_cast<int>(rows.size());
+    rows.resize(std::min<std::size_t>(rows.size(), kMaxClusters));
+    const auto n = static_cast<std::int32_t>(rows.size());
     std::array<float, kMaxClusters> outwardSpatial{};
     std::array<float, kMaxClusters> inwardSpatial{};
-    const auto observe = [&](PropagationDirection direction, int index, Scalar increment) { (direction == PropagationDirection::kForward ? outwardSpatial : inwardSpatial)[static_cast<std::size_t>(index)] = increment; };
+    const auto observe = [&](PropagationDirection direction, std::int32_t index, Scalar increment) { (direction == PropagationDirection::kForward ? outwardSpatial : inwardSpatial)[static_cast<std::uint32_t>(index)] = increment; };
     const auto fit = fitMeasurements(propagator, tracking, material, RowChain<Det>{.frame = &frame, .rows = rows.data()}, n, kinkBudget(parameters), observe);
-    auto& length = byLength[static_cast<std::size_t>(n)];
+    auto& length = byLength[static_cast<std::uint32_t>(n)];
     ++length.chains;
     if (fit.status != PropagationStatus::kOk) {
       ++length.fitFailed;
       failures.push_back({.id = id, .rows = rows, .fit = fit});
       continue;
     }
-    const int outwardNdf = (2 * n) - fittedParameters(propagator) - (2 * fit.outwardKinks);
+    const std::int32_t outwardNdf = (2 * n) - fittedParameters(propagator) - (2 * fit.outwardKinks);
     chi2Sum += static_cast<double>(fit.outwardChi2);
     ndfSum += static_cast<double>(outwardNdf);
-    const auto layerOf = [&](int index) { return static_cast<std::size_t>(layerOfRow(frame, tracking, rows[static_cast<std::size_t>(index)])); };
-    for (int index = 0; index < n; ++index) {
-      const auto at = static_cast<std::size_t>(index);
+    const auto layerOf = [&](std::int32_t index) { return static_cast<std::uint32_t>(layerOfRow(frame, tracking, rows[static_cast<std::uint32_t>(index)])); };
+    for (std::int32_t index = 0; index < n; ++index) {
+      const auto at = static_cast<std::uint32_t>(index);
       if (index >= 3) {
         spatial[layerOf(index)].push_back(outwardSpatial[at]);
       }
@@ -1558,22 +1555,22 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
     chi2PerNdf.push_back(fit.outwardChi2 / static_cast<float>(outwardNdf));
     if (!(fit.outwardChi2 <= roadChi2Cut(parameters, propagator, static_cast<std::uint32_t>(n), fit.outwardKinks))) {
       ++length.failed;
-      int worst = 0;
-      for (int index = 1; index < n; ++index) {
-        if (outwardSpatial[static_cast<std::size_t>(index)] > outwardSpatial[static_cast<std::size_t>(worst)]) {
+      std::int32_t worst = 0;
+      for (std::int32_t index = 1; index < n; ++index) {
+        if (outwardSpatial[static_cast<std::uint32_t>(index)] > outwardSpatial[static_cast<std::uint32_t>(worst)]) {
           worst = index;
         }
       }
       ++worstOfFailed[layerOf(worst)];
-      std::size_t beyond = 0U;
-      for (int index = 1; index < n; ++index) {
-        beyond += outwardSpatial[static_cast<std::size_t>(index)] > parameters.kinkChi2Min ? 1U : 0U;
+      std::uint32_t beyond = 0U;
+      for (std::int32_t index = 1; index < n; ++index) {
+        beyond += outwardSpatial[static_cast<std::uint32_t>(index)] > parameters.kinkChi2Min ? 1U : 0U;
       }
-      ++failedByBeyondGate[std::min<std::size_t>(beyond, 3U)];
+      ++failedByBeyondGate[std::min(beyond, 3U)];
       {
         Why why = kWhyDiffuse;
         if (beyond != 0U) {
-          const bool lastBeyond = outwardSpatial[static_cast<std::size_t>(n - 1)] > parameters.kinkChi2Min;
+          const bool lastBeyond = outwardSpatial[static_cast<std::uint32_t>(n - 1)] > parameters.kinkChi2Min;
           if (fit.outwardKinks >= parameters.maxKinks) {
             why = kWhySpent;
           } else if (lastBeyond && beyond == 1U) {
@@ -1584,12 +1581,12 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
         }
         ++failedByWhy[why];
         inwardPassesByWhy[why] += fit.chi2 <= roadChi2Cut(parameters, propagator, static_cast<std::uint32_t>(n), fit.kinks) ? 1U : 0U;
-        fullLengthByWhy[why] += static_cast<std::size_t>(n) >= static_cast<std::size_t>(Detector<Det>::nLayers) ? 1U : 0U;
+        fullLengthByWhy[why] += n >= Detector<Det>::nLayers ? 1U : 0U;
       }
       if (beyond == 0U) {
         bool barrel = false;
         bool disc = false;
-        for (int index = 0; index < n; ++index) {
+        for (std::int32_t index = 0; index < n; ++index) {
           (Detector<Det>::isBarrelLayer(static_cast<LayerID>(layerOf(index))) ? barrel : disc) = true;
         }
         std::size_t kind = 0U;
@@ -1600,14 +1597,14 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
         }
         ++diffuseByKind[kind];
       }
-      const auto worstShare = static_cast<double>(outwardSpatial[static_cast<std::size_t>(worst)]) / std::max(static_cast<double>(fit.outwardChi2), 1e-30);
+      const auto worstShare = static_cast<double>(outwardSpatial[static_cast<std::uint32_t>(worst)]) / std::max(static_cast<double>(fit.outwardChi2), 1e-30);
       ++failedByWorstShare[std::min<std::size_t>(static_cast<std::size_t>(worstShare * 4.), 3U)];
     }
   }
 
   ByLength all;
   std::string lengths;
-  for (std::size_t n = 0; n < byLength.size(); ++n) {
+  for (std::uint32_t n = 0; n < byLength.size(); ++n) {
     if (byLength[n].chains != 0U) {
       all.chains += byLength[n].chains;
       all.failed += byLength[n].failed;
@@ -1618,7 +1615,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
   LOGP(info,
        "true roads, iteration 0 (pT_min {} GeV, {} clusters or more): {} chains; the road cut fails {} ({:.2f}%), a calibrated chi2 {:.2f}%; fit failed {}; "
        "a kink taken by {} ({:.2f}%, at most {})",
-       settings.windows.minPtGeV, minClusters, all.chains, all.failed, percent(all.failed, all.chains), 100. * std::erfc(nSigma / std::sqrt(2.)), all.fitFailed, kinked, percent(kinked, all.chains), static_cast<int>(parameters.maxKinks));
+       settings.windows.minPtGeV, minClusters, all.chains, all.failed, percent(all.failed, all.chains), 100. * std::erfc(nSigma / std::sqrt(2.)), all.fitFailed, kinked, percent(kinked, all.chains), static_cast<std::int32_t>(parameters.maxKinks));
   LOGP(info, "  by clusters, chains and failing:{}", lengths);
   reportTrueRoadFitFailures(frame, failures, particles, tracking, propagator, crossings, scattering, material);
   if (!chi2PerNdf.empty()) {
@@ -1638,7 +1635,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
   }
   LOGP(info, "  failing chains without a step beyond the gate: barrel only {}, discs only {}, both {}", diffuseByKind[0], diffuseByKind[1], diffuseByKind[2]);
   LOGP(info, "  chi2/ndf {:.3f}", chi2Sum / std::max(ndfSum, 1.));
-  for (std::size_t layer = 0; layer < spatial.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < spatial.size(); ++layer) {
     if (spatial[layer].empty()) {
       continue;
     }
@@ -1667,7 +1664,7 @@ void reportTrueRoadChi2(const Frame& frame, const RecoSettings& param, const Con
 /// for what a cut on it would reach.
 void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<const TruthRow> rows, const ParticleTable& particles, const Funnel* funnel, const Controller& tracker, const TrackStore<Det>& tracks, const TrackingGeometry<Det>& tracking, const o2::base::MatLayerCylSet& material, const Propagator& propagator, const char* label)
 {
-  constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  constexpr auto kMaxClusters = maxChainLayers<Det>;
   constexpr std::size_t kClasses = 4U;
   constexpr std::array<const char*, kClasses> kClassNames{"every layer", "innermost four", "outermost four", "other layers"};
   const auto nLayers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
@@ -1695,7 +1692,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
 
   // Every track: its label and class; the fakes kept for the second look.
   struct Fake {
-    std::size_t track = 0U;
+    std::uint32_t track = 0U;
     std::uint64_t label = kNoTrackParticle;
     std::uint32_t most = 0U;
     std::size_t cls = 0U;
@@ -1706,7 +1703,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
   std::array<std::array<std::uint64_t, 2>, kClasses> kinkedByClass{};
   std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> ownRows; // the fakes' labels -> every row carrying them
   const auto view = tracks.tracks().view();
-  for (std::size_t track = 0; track < tracks.size(); ++track) {
+  for (std::uint32_t track = 0; track < tracks.size(); ++track) {
     const auto count = tracks.rows(track).size();
     const auto trackRows = tracks.rows(track);
     const auto [id, most] = majorityParticle(rows, trackRows);
@@ -1791,7 +1788,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
       continue;
     }
     const auto& parameters = tracker.iteration(view.iteration[fake.track]);
-    const int n = static_cast<int>(count);
+    const auto n = static_cast<std::int32_t>(count);
     const auto fitRows = [&](const std::uint32_t* chain) { return fitMeasurements(propagator, tracking, material, RowChain<Det>{.frame = &frame, .rows = chain}, n, kinkBudget(parameters)); };
     const auto fakeFit = fitRows(trackRows.data());
     const auto passes = [&](const TrackFitResult& fit) { return fit.status == PropagationStatus::kOk && fit.outwardChi2 <= roadChi2Cut(parameters, propagator, count, fit.outwardKinks); };
@@ -1842,7 +1839,7 @@ void reportFakeAnatomy(const Frame& frame, const RecoSettings& param, std::span<
       std::size_t kind = 2U;
       if (found != particles.end() && !found->second.primary) {
         kind = 1U;
-      } else if (found != particles.end() && static_cast<double>(found->second.pt) < workflow::iterationSettings(param, static_cast<int>(view.iteration[fake.track])).windows.minPtGeV) {
+      } else if (found != particles.end() && static_cast<double>(found->second.pt) < workflow::iterationSettings(param, view.iteration[fake.track]).windows.minPtGeV) {
         kind = 0U;
       }
       ++t.noRecord[kind];
@@ -1890,14 +1887,14 @@ void reportTrackTimeBoxes(const Frame& frame, const TrackStore<Det>& tracks)
   std::uint64_t narrowed = 0U;
   std::array<std::uint64_t, 3> byFrames{}; // 1, 2, 3 or more
   double widthSumNS = 0.;
-  for (std::size_t track = 0; track < tracks.size(); ++track) {
+  for (std::uint32_t track = 0; track < tracks.size(); ++track) {
     const auto rows = tracks.rows(track);
     const auto box = trackTimeBox(frame.measurements(), rows);
     empty += box.width == 0U ? 1U : 0U;
     narrowed += box.width < timeBoxAt(frame.measurements(), rows[0]).width ? 1U : 0U;
     widthSumNS += 1.e-3 * static_cast<double>(box.width);
     std::vector<std::uint32_t> starts(rows.size());
-    for (std::size_t i = 0; i < rows.size(); ++i) {
+    for (std::uint32_t i = 0; i < rows.size(); ++i) {
       starts[i] = timeBoxAt(frame.measurements(), rows[i]).start;
     }
     const std::span<std::uint32_t> used{starts};
@@ -1936,14 +1933,14 @@ void addLostPairs(const Funnel::IterationStages& survived, std::array<std::uint6
 /// measureTracks's, by id, with `pt` and `longest`; \a goodTracks: each
 /// particle's good tracks.
 template <typename Particles>
-void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKiloGauss, const TrackingGeometry<Det>& tracking, const TrackStore<Det>& tracks, std::span<const TruthRow> truthRows, const Funnel* funnel, const Particles& particles, const std::unordered_map<std::uint64_t, std::vector<std::size_t>>& goodTracks, std::size_t iterations, const char* set, const TrueCrossings& crossings = {}, const LinkMaterial<Det>* scattering = nullptr, const o2::base::MatLayerCylSet* material = nullptr)
+void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKiloGauss, const TrackingGeometry<Det>& tracking, const TrackStore<Det>& tracks, std::span<const TruthRow> truthRows, const Funnel* funnel, const Particles& particles, const std::unordered_map<std::uint64_t, std::vector<std::uint32_t>>& goodTracks, std::uint32_t iterations, const char* set, const TrueCrossings& crossings = {}, const LinkMaterial<Det>* scattering = nullptr, const o2::base::MatLayerCylSet* material = nullptr)
 {
   const auto view = tracks.tracks().view();
   constexpr auto nLayers = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   std::vector<std::uint32_t> holder(frame.size(), std::numeric_limits<std::uint32_t>::max());
-  for (std::size_t track = 0; track < tracks.size(); ++track) {
+  for (std::uint32_t track = 0; track < tracks.size(); ++track) {
     for (std::uint32_t i = 0; i < tracks.rows(track).size(); ++i) {
-      holder[tracks.rows(track)[i]] = static_cast<std::uint32_t>(track);
+      holder[tracks.rows(track)[i]] = track;
     }
   }
   std::vector<bool> isGood(tracks.size(), false);
@@ -1978,8 +1975,8 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
   constexpr std::array<const char*, kWhys> kWhyNames{"below the iteration's floors", "a lacking cluster taken by another track", "free, chain lost at tracklets", "free, at triplets", "free, at neighbours", "free, at roads", "free, at the road fit", "free, in the selection", "free, not in the funnel"};
   std::array<std::uint64_t, kWhys> whys{};
   std::array<std::array<std::uint64_t, 3>, kWhys> whysByPt{}; // below 0.3 GeV, 0.3-1, above 1
-  constexpr auto kLayerSlots = static_cast<std::size_t>(Detector<Det>::nLayers);
-  constexpr std::size_t kNotALink = nLinks<Det>;                               // the link that broke is none of the table's
+  constexpr auto kLayerSlots = Frame::kLayerCount;
+  constexpr auto kNotALink = nLinks<Det>;                                      // the link that broke is none of the table's
   std::array<std::array<std::uint64_t, nLinks<Det> + 1U>, kWhys> brokenLink{}; // by why, the link that broke
   std::array<std::uint64_t, kPairLosses> trackletLostPairs{};
   std::uint64_t trackletLostNone = 0U;
@@ -2025,7 +2022,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
   std::array<std::uint64_t, kWhys> incompleteNoHits{};
   for (const auto& [id, rows] : rowsOf) {
     const auto& list = goodTracks.at(id);
-    const auto best = *std::ranges::max_element(list, {}, [&](std::size_t track) { return tracks.rows(track).size(); });
+    const auto best = *std::ranges::max_element(list, {}, [&](std::uint32_t track) { return tracks.rows(track).size(); });
     const auto& particle = particles.at(id);
     const auto ptBin = binOf(particle.pt, kTrackPtEdges);
     ++allLayerFound;
@@ -2039,7 +2036,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
       particlesWithHits += reports.empty() ? 0U : 1U;
       for (const auto& report : reports) {
         if (std::isfinite(report.kinkPath)) {
-          const auto slot = std::min<std::size_t>(report.scatterer, kLayerSlots - 1U);
+          const auto slot = std::min(report.scatterer, kLayerSlots - 1U);
           ++kinkPathByScatterer[slot][kinkBin(report.kinkPath)];
           pathX2X0Sum[slot] += report.pathX2X0;
           ++pathCount[slot];
@@ -2053,11 +2050,11 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
           hardestAt = report.scatterer;
         }
         if (std::isfinite(report.kink)) {
-          ++kinkByScatterer[std::min<std::size_t>(report.scatterer, kLayerSlots - 1U)][kinkBin(report.kink)];
-          ++kinkByScattererZ[std::min<std::size_t>(report.scatterer, kLayerSlots - 1U)][zBinOf(report.z)][kinkBin(report.kink)];
+          ++kinkByScatterer[std::min(report.scatterer, kLayerSlots - 1U)][kinkBin(report.kink)];
+          ++kinkByScattererZ[std::min(report.scatterer, kLayerSlots - 1U)][zBinOf(report.z)][kinkBin(report.kink)];
         }
         if (report.offsetCM > kOffsetCM) {
-          ++offByLayer[std::min<std::size_t>(report.layer, kLayerSlots - 1U)];
+          ++offByLayer[std::min(report.layer, kLayerSlots - 1U)];
           anyOff = true;
         }
       }
@@ -2068,7 +2065,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
     }
     ++incomplete;
     ++incompleteByPt[ptBin];
-    const auto iteration = std::min<std::size_t>(view.iteration[best], iterations - 1U);
+    const auto iteration = std::min<std::uint32_t>(view.iteration[best], iterations - 1U);
     ++byIteration[iteration];
     std::uint32_t has = 0U;
     for (std::uint32_t i = 0; i < tracks.rows(best).size(); ++i) {
@@ -2099,7 +2096,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
     } else {
       ++lacksMiddle;
     }
-    const auto settings = workflow::iterationSettings(param, static_cast<int>(iteration));
+    const auto settings = workflow::iterationSettings(param, iteration);
     const double fullFloor = nLayers < settings.minPtGeVByClusters.size() ? settings.minPtGeVByClusters[nLayers] : 0.;
     const auto survived = funnel != nullptr ? funnel->stages(id, iteration) : std::nullopt;
     Why why = kWhyFreeLater;
@@ -2152,14 +2149,14 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
       }
     }
     const auto broken = std::ranges::find_if(Det::layerLinks, [&](const auto& link) { return std::cmp_equal(link.from, brokenInner) && std::cmp_equal(link.to, brokenInner + 1U); });
-    ++brokenLink[why][static_cast<std::size_t>(broken - Det::layerLinks.begin())];
+    ++brokenLink[why][static_cast<std::uint32_t>(broken - Det::layerLinks.begin())];
     if (withHits) {
       if (reports.empty()) {
         ++incompleteNoHits[why];
       } else {
         ++incompleteKink[why][kinkBin(hardest)];
         if (hardest >= kHardKink) {
-          ++incompleteKinkLayer[why][std::min<std::size_t>(hardestAt, kLayerSlots - 1U)];
+          ++incompleteKinkLayer[why][std::min(hardestAt, kLayerSlots - 1U)];
           incompleteKinkAtBroken[why] += hardestAt == brokenInner ? 1U : 0U;
         }
         incompleteOff[why] += anyOff ? 1U : 0U;
@@ -2171,7 +2168,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
     whyLine += fmt::format("{} {} {} ({}/{}/{} below 0.3, 0.3-1, above 1 GeV)", why == 0U ? "" : ",", kWhyNames[why], whys[why], whysByPt[why][0], whysByPt[why][1], whysByPt[why][2]);
   }
   std::string iterationLine;
-  for (std::size_t iteration = 0; iteration < iterations; ++iteration) {
+  for (std::uint32_t iteration = 0; iteration < iterations; ++iteration) {
     iterationLine += fmt::format(" {}: {}", iteration, byIteration[iteration]);
   }
   std::string ptLine;
@@ -2195,7 +2192,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
       continue;
     }
     std::string links;
-    for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+    for (std::uint32_t link = 0; link < nLinks<Det>; ++link) {
       if (brokenLink[why][link] != 0U) {
         links += fmt::format(" {}->{}: {}", Det::layerLinks[link].from, Det::layerLinks[link].to, brokenLink[why][link]);
       }
@@ -2209,7 +2206,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
   if (withHits) {
     std::string spectrum;
     std::string off;
-    for (std::size_t layer = 0; layer < kLayerSlots; ++layer) {
+    for (std::uint32_t layer = 0; layer < kLayerSlots; ++layer) {
       if (std::accumulate(kinkByScatterer[layer].begin(), kinkByScatterer[layer].end(), std::uint64_t{0}) != 0U) {
         spectrum += fmt::format(" {}:{};", layer, kinkBinsLine(kinkByScatterer[layer]));
       }
@@ -2222,7 +2219,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
          "their crossing by more than {:.0f} um, by layer:{}",
          particlesWithHits, spectrum, 1e4 * kOffsetCM, off);
     std::string byZ;
-    for (std::size_t layer = 0; layer < kLayerSlots; ++layer) {
+    for (std::uint32_t layer = 0; layer < kLayerSlots; ++layer) {
       std::string bins;
       for (std::size_t zBin = 0; zBin + 1U < kZEdges.size(); ++zBin) {
         const auto& counts = kinkByScattererZ[layer][zBin];
@@ -2245,14 +2242,14 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
     LOGP(info, "    the kink over theta0 by the layer that scattered and |z| [cm] of the crossing it shows at:{}", byZ);
     if (material != nullptr) {
       std::string path;
-      for (std::size_t layer = 0; layer < kLayerSlots; ++layer) {
+      for (std::uint32_t layer = 0; layer < kLayerSlots; ++layer) {
         if (pathCount[layer] != 0U) {
           path += fmt::format(" {} (mean x/X0 {:.3f} %):{};", layer, 100. * pathX2X0Sum[layer] / static_cast<double>(pathCount[layer]), kinkBinsLine(kinkPathByScatterer[layer]));
         }
       }
       LOGP(info, "    the same kink over theta0 from the LUT's x/X0 along the path between the two crossings, by the layer left:{}", path);
       std::string normal;
-      for (std::size_t layer = 0; layer < kLayerSlots; ++layer) {
+      for (std::uint32_t layer = 0; layer < kLayerSlots; ++layer) {
         std::string bins;
         for (std::size_t zBin = 0; zBin + 1U < kZEdges.size(); ++zBin) {
           if (pathCountZ[layer][zBin] != 0U) {
@@ -2270,7 +2267,7 @@ void reportIncomplete(const Frame& frame, const RecoSettings& param, double bzKi
         continue;
       }
       std::string layers;
-      for (std::size_t layer = 0; layer < kLayerSlots; ++layer) {
+      for (std::uint32_t layer = 0; layer < kLayerSlots; ++layer) {
         if (incompleteKinkLayer[why][layer] != 0U) {
           layers += fmt::format(" {}: {}", layer, incompleteKinkLayer[why][layer]);
         }
@@ -2350,7 +2347,7 @@ void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const Reco
   // Findable by the comparison's rule (isFindable): the funnel's, the QA's.
   const auto first = workflow::iterationSettings(param, 0);
   const auto minLayers = static_cast<std::uint32_t>(findableRule.minLayers);
-  const auto iterations = static_cast<std::size_t>(workflow::iterationCount(param));
+  const auto iterations = workflow::iterationCount(param);
   auto& tracker = interface.tracker();
   const auto run = interface.track(frame, bounds, vertices);
   if (run.dropped) {
@@ -2368,7 +2365,7 @@ void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const Reco
   LOGP(info, "digest, {}: {:016x}", label, trackingDigest(result, tracker.used()));
   LOGP(info, "digest, {}, clusters: {:016x}", label, clusterDigest(result, frame, tracker.used()));
   using profile::Phase;
-  for (std::size_t iteration = 0; iteration < result.iterations.size(); ++iteration) {
+  for (std::uint32_t iteration = 0; iteration < result.iterations.size(); ++iteration) {
     const auto& summary = result.iterations[iteration];
     for (const auto& line : study::describeIteration(summary, iteration)) {
       LOGP(info, "{}", line);
@@ -2457,10 +2454,10 @@ void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const Reco
   std::unordered_map<std::uint64_t, bool> heldByOwnFake;
   std::unordered_map<std::uint64_t, bool> heldByOtherFake;
   // Every good track of a particle, in output order: iteration, then best first.
-  std::unordered_map<std::uint64_t, std::vector<std::size_t>> goodTracks;
-  for (std::size_t track = 0; track < tracks.size(); ++track) {
+  std::unordered_map<std::uint64_t, std::vector<std::uint32_t>> goodTracks;
+  for (std::uint32_t track = 0; track < tracks.size(); ++track) {
     const auto count = tracks.rows(track).size();
-    const auto iteration = std::min<std::size_t>(view.iteration[track], iterations - 1U);
+    const auto iteration = std::min<std::uint32_t>(view.iteration[track], iterations - 1U);
     ++tracksByIteration[iteration];
     ++tracksByCount[std::min<std::size_t>(count, kCountSlots - 1U)];
     const auto trackRows = tracks.rows(track);
@@ -2697,7 +2694,7 @@ void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const Reco
   }
   LOGP(info, "  tracks by clusters:{}", byCount);
   std::string kinkLayers;
-  for (std::size_t layer = 0; layer < kinksByLayer.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < kinksByLayer.size(); ++layer) {
     if (kinksByLayer[layer] != 0U) {
       kinkLayers += fmt::format(" {}: {}", layer, kinksByLayer[layer]);
     }
@@ -2713,8 +2710,8 @@ void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const Reco
   LOGP(info, "  follow MC: {}/{} added clusters ({:.2f}%) belong to the original track's majority particle", ownAddedClusters, addedClusters, percent(ownAddedClusters, addedClusters));
   LOGP(info, "  fakes by their majority particle's share: <50% {}, 50-75% {}, 75-90% {}, 90-100% {}, noise only {}", fakePurity[0], fakePurity[1], fakePurity[2], fakePurity[3], fakePurity[4]);
   LOGP(info, "  good tracks of a particle not findable (below {} GeV, or no chain of {} layers): {}", findableRule.minPtGeV, minLayers, goodNotFindable);
-  for (std::size_t iteration = 0; iteration < result.iterations.size(); ++iteration) {
-    const auto settings = workflow::iterationSettings(param, static_cast<int>(iteration));
+  for (std::uint32_t iteration = 0; iteration < result.iterations.size(); ++iteration) {
+    const auto settings = workflow::iterationSettings(param, iteration);
     std::string shape = fmt::format(", {} clusters or more", std::max(settings.minClusters, 4));
     if (!settings.skipLinks) {
       shape += ", no holes";
@@ -2805,8 +2802,8 @@ void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const Reco
       } else if (sameLayers) {
         relation = kSameLayers;
       }
-      const auto iterationA = std::min<std::size_t>(view.iteration[a], iterations - 1U);
-      const auto iterationB = std::min<std::size_t>(view.iteration[b], iterations - 1U);
+      const auto iterationA = std::min<std::uint32_t>(view.iteration[a], iterations - 1U);
+      const auto iterationB = std::min<std::uint32_t>(view.iteration[b], iterations - 1U);
       ++cloneRelations[iterationA][iterationB][relation];
       if (relation == kInner || relation == kOuter) {
         // The chain the two make: their layer rows.
@@ -2848,8 +2845,8 @@ void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const Reco
       ++cloneClusters[std::min<std::size_t>(tracks.rows(b).size(), kCountSlots - 1U)];
     }
   }
-  for (std::size_t iterationA = 0; iterationA < result.iterations.size(); ++iterationA) {
-    for (std::size_t iterationB = iterationA; iterationB < result.iterations.size(); ++iterationB) {
+  for (std::uint32_t iterationA = 0; iterationA < result.iterations.size(); ++iterationA) {
+    for (std::uint32_t iterationB = iterationA; iterationB < result.iterations.size(); ++iterationB) {
       const auto& relations = cloneRelations[iterationA][iterationB];
       const auto total = relations[kInner] + relations[kOuter] + relations[kSameLayers] + relations[kInterleaved];
       if (total != 0U) {
@@ -2884,16 +2881,16 @@ void measureTracks(const Frame& frame, const HaloBounds<Det>& bounds, const Reco
   }
 }
 
-void writeTruthBreakdown(std::ostream& output, std::size_t timeframe, const char* vertexSource, const TrackletRunSummary& summary)
+void writeTruthBreakdown(std::ostream& output, std::uint32_t timeframe, const char* vertexSource, const TrackletRunSummary& summary)
 {
-  for (std::size_t link = 0; link < nLinks<Det>; ++link) {
+  for (std::uint32_t link = 0; link < nLinks<Det>; ++link) {
     for (std::size_t pt = 0; pt < kPtBins; ++pt) {
       for (std::size_t cot = 0; cot < kCotThetaBins; ++cot) {
         const auto total = summary.truthBreakdown[link][pt][cot];
         if (total == 0U) {
           continue;
         }
-        output << timeframe << ',' << vertexSource << ',' << static_cast<unsigned int>(Det::layerLinks[link].from) << ',' << static_cast<unsigned int>(Det::layerLinks[link].to) << ',' << kPtEdges[pt] << ',' << kPtEdges[pt + 1U] << ',' << kCotThetaEdges[cot] << ',' << kCotThetaEdges[cot + 1U] << ',' << summary.truthBreakdownKept[link][pt][cot] << ',' << total << '\n';
+        output << timeframe << ',' << vertexSource << ',' << static_cast<std::uint32_t>(Det::layerLinks[link].from) << ',' << static_cast<std::uint32_t>(Det::layerLinks[link].to) << ',' << kPtEdges[pt] << ',' << kPtEdges[pt + 1U] << ',' << kCotThetaEdges[cot] << ',' << kCotThetaEdges[cot + 1U] << ',' << summary.truthBreakdownKept[link][pt][cot] << ',' << total << '\n';
       }
     }
   }
@@ -3005,7 +3002,7 @@ class MeasurementSinkTask : public Task
     if (!mDumpInput.empty()) {
       writeParameters(mDumpInput + ".ini");
     }
-    mDumpTimeframe = static_cast<std::size_t>(std::max(ic.options().get<int>("dump-timeframe"), 0));
+    mDumpTimeframe = static_cast<std::uint32_t>(std::max(ic.options().get<std::int32_t>("dump-timeframe"), 0));
     mDumpOnly = ic.options().get<bool>("dump-only");
     mConditions->init(ic);
   }
@@ -3060,12 +3057,12 @@ class MeasurementSinkTask : public Task
 
     const auto view = measurementView(columns);
 
-    const auto n = columns.loc0.size();
+    const auto n = static_cast<std::uint32_t>(columns.loc0.size());
     static_assert(std::is_same_v<decltype(view[0].timePS), const std::uint32_t&>, "the view must not be writable");
 
     const auto& param = recoParam<Det>();
     const auto& geometry = mInterface.grid();
-    if (const char* invalid = workflow::TrackingInterface<Det>::checkInput(columns, offsets, static_cast<std::size_t>(geometry.bucketCount()), input.seeds)) {
+    if (const char* invalid = workflow::TrackingInterface<Det>::checkInput(columns, offsets, geometry.bucketCount(), input.seeds)) {
       LOGP(fatal, "{}", invalid);
       return;
     }
@@ -3121,7 +3118,7 @@ class MeasurementSinkTask : public Task
       LOGP(info, "vertexer: {} vertices from {} candidates of {} triplets in {:.4f} s", seeds.size(), pass->found.candidates, pass->found.triplets, found.seconds);
     }
     LOGP(info, "bound {} measurements over {} columns, {} layers and {} buckets", n, kNMeasurementColumns, Frame::kLayerCount, geometry.bucketCount());
-    for (std::size_t layer = 0; layer < Frame::kLayerCount; ++layer) {
+    for (std::uint32_t layer = 0; layer < Frame::kLayerCount; ++layer) {
       const auto rows = frame.grid().layerRows(static_cast<LayerID>(layer));
       LOGP(info, "  layer {:>2}  {:>9} measurements  [{:>9}, {:>9})", layer, rows.size(), rows.begin, rows.end);
     }
@@ -3144,8 +3141,8 @@ class MeasurementSinkTask : public Task
         comparisonTrees = decayTreesOf(comparisonParticles);
       }
       const auto mcOf = [&](std::uint64_t id) -> const o2::MCTrack* {
-        const auto found = mParticleLabels.find(id);
-        return found == mParticleLabels.end() ? nullptr : mKinematics->getTrack(found->second.source, found->second.event, found->second.track);
+        const auto labelled = mParticleLabels.find(id);
+        return labelled == mParticleLabels.end() ? nullptr : mKinematics->getTrack(labelled->second.source, labelled->second.event, labelled->second.track);
       };
       if (mTruthReports) {
         truePairs = mcTruePairs(frame, comparisonRows, mcOf, mInterface.geometry(), param, mInterface.propagator().bzKiloGauss);
@@ -3168,7 +3165,7 @@ class MeasurementSinkTask : public Task
     std::optional<ParticleChains> particleChains;
     const auto truthEvent = [&] {
       return TruthEvent<Det>{
-        .timeframe = static_cast<std::uint32_t>(mTimeframe),
+        .timeframe = mTimeframe,
         .frame = &frame,
         .geometry = &mInterface.tracking(),
         .material = &mInterface.material(),
@@ -3193,10 +3190,12 @@ class MeasurementSinkTask : public Task
       // with MC the truth to score its tracks by.
       std::vector<double> depths;
       depths.reserve(Detector<Det>::nLayers);
-      for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+      for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
         depths.push_back(mInterface.geometry().measurementDepth(static_cast<LayerID>(layer)));
       }
-      writeTrackingInput(mDumpInput, view, n, offsets, seeds, mInterface.beamLine(), mInterface.frames(), depths, std::span<const std::uint8_t>{reinterpret_cast<const std::uint8_t*>(&input.shipped.shapes), sizeof(input.shipped.shapes)});
+      std::vector<std::uint8_t> shapes(sizeof(input.shipped.shapes));
+      std::memcpy(shapes.data(), &input.shipped.shapes, shapes.size());
+      writeTrackingInput(mDumpInput, view, n, offsets, seeds, mInterface.beamLine(), mInterface.frames(), depths, shapes);
       LOGP(info, "tracking input written to {} and {}.ini", mDumpInput, mDumpInput);
       if (mUseMC) {
         writeTrackingTruth(mDumpInput + ".truth", std::span<const std::uint32_t>{columns.clusterIndex.data(), n}, comparisonRows, comparisonParticles, comparisonCollisions, comparisonTrees);
@@ -3217,7 +3216,7 @@ class MeasurementSinkTask : public Task
     // against the truth, from its first slice, and with MC the stage funnel.
     mObservers.summaries.clear();
     if (mTruthReports) {
-      mObservers.openStage = [&](const Controller& tracker, std::size_t iteration, std::optional<StageTruth>& stage) { stage.emplace(frame, tracker, iteration, param, propagator, truePairs, comparisonRows, comparisonParticles, mInterface.linkMaterial(), &mInterface.material(), crossingsOf); };
+      mObservers.openStage = [&](const Controller& tracker, std::uint32_t iteration, std::optional<StageTruth>& stage) { stage.emplace(frame, tracker, iteration, param, propagator, truePairs, comparisonRows, comparisonParticles, mInterface.linkMaterial(), &mInterface.material(), crossingsOf); };
     }
     if (!comparisonRows.empty() && mTruthReports) {
       reportTrueRoadChi2(frame, param, mInterface.tracker(), truePairs, comparisonParticles, mInterface.tracking(), mInterface.material(), propagator, crossingsOf, mInterface.linkMaterial());
@@ -3276,9 +3275,9 @@ class MeasurementSinkTask : public Task
       if (comparisonRows.empty()) {
         return;
       }
-      std::vector<double> minPtGeV(static_cast<std::size_t>(workflow::iterationCount(param)));
-      for (std::size_t iteration = 0; iteration < minPtGeV.size(); ++iteration) {
-        minPtGeV[iteration] = workflow::iterationSettings(param, static_cast<int>(iteration)).windows.minPtGeV;
+      std::vector<double> minPtGeV(workflow::iterationCount(param));
+      for (std::uint32_t iteration = 0; iteration < minPtGeV.size(); ++iteration) {
+        minPtGeV[iteration] = workflow::iterationSettings(param, iteration).windows.minPtGeV;
       }
       funnel.emplace(frame, comparisonRows, comparisonParticles, findableRule(), vertexSeed(beamSpot), std::move(minPtGeV));
       // The refused roads refitted for their reason, as the bench's funnel.
@@ -3327,7 +3326,7 @@ class MeasurementSinkTask : public Task
     const std::string name = mQAOutput->GetFile()->GetName();
     if (mInterface.configured()) {
       // The MC events: the signal source's, as the truth is.
-      streamRun(*mQAOutput, workflow::iterationCount(recoParam<Det>()), etaReach(PlacedEnvelopes<Det>::all()), findableRule(), mKinematics ? mKinematics->getNEvents(0) : 0U, kAlice3Tracker ? 0U : (std::uint64_t{1} << Detector<Det>::nLayers) - 1U, Detector<Det>::inactiveLayers);
+      streamRun(*mQAOutput, static_cast<std::int32_t>(workflow::iterationCount(recoParam<Det>())), etaReach(PlacedEnvelopes<Det>::all()), findableRule(), mKinematics ? static_cast<std::uint32_t>(mKinematics->getNEvents(0)) : 0U, kAlice3Tracker ? 0U : (std::uint64_t{1} << Detector<Det>::nLayers) - 1U, Detector<Det>::inactiveLayers);
     }
     mQAOutput->Close();
     mQAOutput.reset();
@@ -3363,7 +3362,7 @@ class MeasurementSinkTask : public Task
     if (theirs.size() != tracks.size()) {
       difference = fmt::format("the device has {} tracks", theirs.size());
     } else {
-      for (std::size_t track = 0; track < tracks.size(); ++track) {
+      for (std::uint32_t track = 0; track < tracks.size(); ++track) {
         if (const auto field = differingField(tracks.tracks().read(track), theirs.tracks().read(track)); field >= 0) {
           difference = fmt::format("track {}, field {} (memlayout order)", track, field);
           break;
@@ -3416,7 +3415,7 @@ class MeasurementSinkTask : public Task
   /// padding between fields is not compared, and no field has padding of
   /// its own (BoundTrackState.h).
   template <class Record>
-  [[nodiscard]] static int differingField(const Record& mine, const Record& theirs)
+  [[nodiscard]] static std::int32_t differingField(const Record& mine, const Record& theirs)
   {
     constexpr auto kFields = static_cast<std::size_t>(Record::Column::ColumnCount);
     using Fields = std::array<std::pair<const void*, std::size_t>, kFields>;
@@ -3433,7 +3432,7 @@ class MeasurementSinkTask : public Task
     const auto right = fieldsOf(theirs);
     for (std::size_t field = 0; field < kFields; ++field) {
       if (std::memcmp(left[field].first, right[field].first, left[field].second) != 0) {
-        return static_cast<int>(field);
+        return static_cast<std::int32_t>(field);
       }
     }
     return -1;
@@ -3441,7 +3440,7 @@ class MeasurementSinkTask : public Task
 
   /// The charged physical primaries the generator made in \a source's
   /// \a event at |eta| < 0.5.
-  [[nodiscard]] std::uint32_t chargedPrimariesMidrapidity(int source, int event) const
+  [[nodiscard]] std::uint32_t chargedPrimariesMidrapidity(std::int32_t source, std::int32_t event) const
   {
     const auto& tracks = mKinematics->getTracks(source, event);
     std::uint32_t count = 0U;
@@ -3450,7 +3449,7 @@ class MeasurementSinkTask : public Task
         continue;
       }
       const auto* pdg = o2::O2DatabasePDG::Instance()->GetParticle(track.GetPdgCode());
-      if (pdg != nullptr && pdg->Charge() != 0. && particleOrigin(track, tracks) == ParticleOrigin::kPhysicalPrimary) {
+      if (pdg != nullptr && !exactlyEqual(pdg->Charge(), 0.) && particleOrigin(track, tracks) == ParticleOrigin::kPhysicalPrimary) {
         ++count;
       }
     }
@@ -3476,7 +3475,7 @@ class MeasurementSinkTask : public Task
         .width = static_cast<float>(kNSPerPS * static_cast<double>(vertex.widthPS)),
         .contributors = found.contributors[v],
         .fake = collision < 0,
-        .best = collision >= 0 && std::cmp_equal(score.perCollision[static_cast<std::size_t>(collision)].vertex, v),
+        .best = collision >= 0 && std::cmp_equal(score.perCollision[static_cast<std::uint32_t>(collision)].vertex, v),
       });
     }
     const double startNS = static_cast<double>(orbit) * o2::constants::lhc::LHCOrbitNS;
@@ -3505,7 +3504,7 @@ class MeasurementSinkTask : public Task
         }
       }
       if (match.vertex >= 0) {
-        const auto& vertex = vertices[static_cast<std::size_t>(match.vertex)];
+        const auto& vertex = vertices[static_cast<std::uint32_t>(match.vertex)];
         entry.z = vertex.z;
         entry.sigmaZ = vertex.sigmaZ;
         entry.t = vertex.t;
@@ -3531,7 +3530,7 @@ class MeasurementSinkTask : public Task
     std::vector<QAResolution> resolution;
     const Propagator propagator = mInterface.propagator();
     const auto particleChains = particleLayers(rows, findableRule());
-    for (std::size_t track = 0; track < tracks.size(); ++track) {
+    for (std::uint32_t track = 0; track < tracks.size(); ++track) {
       const auto& state = view.state[track];
       const auto theta = static_cast<double>(state.theta());
       kinematics[track] = {
@@ -3688,9 +3687,9 @@ class MeasurementSinkTask : public Task
         }
       }
     }
-    stream(*mQAOutput, trackingQA(rows, particles, ours, kinematics, funnel != nullptr ? funnel->seededBy() : SeededBy{}, extras, inTimeframe, theirs, workflow::iterationCount(recoParam<Det>()), findableRule()));
+    stream(*mQAOutput, trackingQA(rows, particles, ours, kinematics, funnel != nullptr ? funnel->seededBy() : SeededBy{}, extras, inTimeframe, theirs, static_cast<std::int32_t>(workflow::iterationCount(recoParam<Det>())), findableRule()));
     if (theirs != nullptr) {
-      const auto nativeKinematics = mO2Tracks->kinematics(static_cast<long long>(mTimeframe));
+      const auto nativeKinematics = mO2Tracks->kinematics(static_cast<std::int64_t>(mTimeframe));
       const auto nativeQA = trackingQA(rows, particles, *theirs, nativeKinematics, {}, extras, inTimeframe, nullptr, 1, findableRule());
       streamTracks(*mQAOutput, nativeQA.tracks, "tracksO2");
     }
@@ -3706,7 +3705,7 @@ class MeasurementSinkTask : public Task
           continue;
         }
         const auto [label, carried] = majorityParticle(rows, track);
-        const std::size_t most = carried;
+        const std::uint32_t most = carried;
         if (most == 0U || most == track.size() || !legMomenta.contains(label)) {
           continue;
         }
@@ -3807,7 +3806,7 @@ class MeasurementSinkTask : public Task
   /// The particle \a id, track \a track of \a source's MC \a event, into
   /// \a particles and mParticleLabels; \a mc its kinematics, none where the
   /// kinematics lack it.
-  void addParticle(std::uint64_t id, int source, int event, int track, const o2::MCTrack* mc, ParticleTable& particles)
+  void addParticle(std::uint64_t id, std::int32_t source, std::int32_t event, std::int32_t track, const o2::MCTrack* mc, ParticleTable& particles)
   {
     const o2::MCTrack* mother = nullptr;
     if (mc == nullptr) {
@@ -3868,11 +3867,11 @@ class MeasurementSinkTask : public Task
         const auto& tracks = mKinematics->getTracks(part.sourceID, part.entryID);
         for (std::size_t track = 0; track < tracks.size(); ++track) {
           const auto& mc = tracks[track];
-          const auto id = o2::MCCompLabel(static_cast<int>(track), part.entryID, part.sourceID).getTrackEventSourceID();
-          if (particles.contains(id) || particleCharge(mc.GetPdgCode()) == 0. || particleOrigin(mc, tracks) == ParticleOrigin::kMaterial) {
+          const auto id = o2::MCCompLabel(static_cast<std::int32_t>(track), part.entryID, part.sourceID).getTrackEventSourceID();
+          if (particles.contains(id) || exactlyEqual(particleCharge(mc.GetPdgCode()), 0.) || particleOrigin(mc, tracks) == ParticleOrigin::kMaterial) {
             continue;
           }
-          addParticle(id, part.sourceID, part.entryID, static_cast<int>(track), &mc, particles);
+          addParticle(id, part.sourceID, part.entryID, static_cast<std::int32_t>(track), &mc, particles);
         }
       }
     }
@@ -3884,27 +3883,27 @@ class MeasurementSinkTask : public Task
   /// tree species, and every daughter of those ancestors.
   [[nodiscard]] DecayTrees decayTreesOf(const ParticleTable& particles) const
   {
-    const auto pack = [](int track, int event, int source) { return o2::MCCompLabel(track, event, source).getTrackEventSourceID(); };
+    const auto pack = [](std::int32_t track, std::int32_t event, std::int32_t source) { return o2::MCCompLabel(track, event, source).getTrackEventSourceID(); };
     // Each touched event's particles by mother, built on its first use.
-    std::unordered_map<std::uint64_t, std::vector<std::vector<int>>> children;
-    const auto childrenOf = [&](int source, int event) -> const std::vector<std::vector<int>>& {
+    std::unordered_map<std::uint64_t, std::vector<std::vector<std::int32_t>>> children;
+    const auto childrenOf = [&](std::int32_t source, std::int32_t event) -> const std::vector<std::vector<std::int32_t>>& {
       auto [entry, inserted] = children.try_emplace(collisionOf(pack(0, event, source)));
       if (inserted) {
         const auto& tracks = mKinematics->getTracks(source, event);
         entry->second.resize(tracks.size());
         for (std::size_t index = 0; index < tracks.size(); ++index) {
-          const int mother = tracks[index].getMotherTrackId();
-          if (mother >= 0 && static_cast<std::size_t>(mother) < tracks.size()) {
-            entry->second[mother].push_back(static_cast<int>(index));
+          const std::int32_t mother = tracks[index].getMotherTrackId();
+          if (mother >= 0 && std::cmp_less(mother, tracks.size())) {
+            entry->second[static_cast<std::uint32_t>(mother)].push_back(static_cast<std::int32_t>(index));
           }
         }
       }
       return entry->second;
     };
     struct Member {
-      int source = 0;
-      int event = 0;
-      int track = 0;
+      std::int32_t source = 0;
+      std::int32_t event = 0;
+      std::int32_t track = 0;
       bool ancestor = false;
     };
     std::unordered_map<std::uint64_t, Member> members;
@@ -3913,13 +3912,13 @@ class MeasurementSinkTask : public Task
       if (label == mParticleLabels.end() || label->second.source < 0 || label->second.event < 0) {
         continue;
       }
-      const int event = label->second.event;
-      const int track = label->second.track;
-      const int source = label->second.source;
+      const std::int32_t event = label->second.event;
+      const std::int32_t track = label->second.track;
+      const std::int32_t source = label->second.source;
       members.try_emplace(entry.first, Member{.source = source, .event = event, .track = track});
       const auto& tracks = mKinematics->getTracks(source, event);
-      for (int above = tracks[track].getMotherTrackId(); above >= 0 && static_cast<std::size_t>(above) < tracks.size(); above = tracks[above].getMotherTrackId()) {
-        if (!isTreeSpecies(tracks[above].GetPdgCode())) {
+      for (std::int32_t above = tracks[static_cast<std::uint32_t>(track)].getMotherTrackId(); above >= 0 && std::cmp_less(above, tracks.size()); above = tracks[static_cast<std::uint32_t>(above)].getMotherTrackId()) {
+        if (!isTreeSpecies(tracks[static_cast<std::uint32_t>(above)].GetPdgCode())) {
           break;
         }
         auto [member, inserted] = members.try_emplace(pack(above, event, source), Member{.source = source, .event = event, .track = above, .ancestor = true});
@@ -3939,7 +3938,7 @@ class MeasurementSinkTask : public Task
     }
     for (const auto id : ancestors) {
       const auto member = members.at(id);
-      for (const auto child : childrenOf(member.source, member.event)[member.track]) {
+      for (const auto child : childrenOf(member.source, member.event)[static_cast<std::uint32_t>(member.track)]) {
         members.try_emplace(pack(child, member.event, member.source), Member{.source = member.source, .event = member.event, .track = child});
       }
     }
@@ -3953,7 +3952,7 @@ class MeasurementSinkTask : public Task
     trees.particles.reserve(ids.size());
     for (const auto id : ids) {
       const auto& member = members.at(id);
-      const auto& mc = mKinematics->getTracks(member.source, member.event)[member.track];
+      const auto& mc = mKinematics->getTracks(member.source, member.event)[static_cast<std::uint32_t>(member.track)];
       const auto motherId = mc.getMotherTrackId() >= 0 ? pack(mc.getMotherTrackId(), member.event, member.source) : kNoTreeParticle;
       auto& particle = trees.particles.emplace_back(TreeParticle{
         .id = id,
@@ -3965,7 +3964,7 @@ class MeasurementSinkTask : public Task
         .firstDaughter = static_cast<std::uint32_t>(trees.daughters.size()),
       });
       if (member.ancestor) {
-        for (const auto child : childrenOf(member.source, member.event)[member.track]) {
+        for (const auto child : childrenOf(member.source, member.event)[static_cast<std::uint32_t>(member.track)]) {
           trees.daughters.push_back(pack(child, member.event, member.source));
         }
         particle.daughterCount = static_cast<std::uint32_t>(trees.daughters.size() - particle.firstDaughter);
@@ -3987,38 +3986,38 @@ class MeasurementSinkTask : public Task
     // Which GTRK tracks hold each row.
     std::vector<std::vector<std::uint32_t>> tracksOfRow(frame.size());
     std::vector<std::uint32_t> ourCount(tracks.size(), 0U);
-    for (std::size_t track = 0; track < tracks.size(); ++track) {
-      ourCount[track] = tracks.rows(track).size();
+    for (std::uint32_t track = 0; track < tracks.size(); ++track) {
+      ourCount[track] = static_cast<std::uint32_t>(tracks.rows(track).size());
       for (std::uint32_t i = 0; i < tracks.rows(track).size(); ++i) {
-        tracksOfRow[tracks.rows(track)[i]].push_back(static_cast<std::uint32_t>(track));
+        tracksOfRow[tracks.rows(track)[i]].push_back(track);
       }
     }
     const auto theirs = o2Clusters(frame);
-    constexpr auto kMaxClusters = static_cast<std::size_t>(Detector<Det>::nLayers) + 1U;
-    std::array<std::size_t, kMaxClusters> o2Total{};
-    std::array<std::size_t, kMaxClusters> o2Found{};
-    std::array<std::size_t, kMaxClusters> o2Reproduced{};
+    constexpr auto kMaxClusters = Frame::kLayerCount + 1U;
+    std::array<std::uint32_t, kMaxClusters> o2Total{};
+    std::array<std::uint32_t, kMaxClusters> o2Found{};
+    std::array<std::uint32_t, kMaxClusters> o2Reproduced{};
     std::vector<std::uint32_t> bestShared(tracks.size(), 0U); // per GTRK track, the most clusters shared with any O2 track
     std::vector<std::uint32_t> sharedWith;                    // scratch: per GTRK track, the clusters shared with the O2 track at hand
     sharedWith.assign(tracks.size(), 0U);
     std::vector<std::uint32_t> touched;
-    std::size_t unknownClusters = 0U;
+    std::uint32_t unknownClusters = 0U;
     // Of O2's full-length tracks that GTRK finds shorter: the layers GTRK's
     // track lacks, and GTRK's track length.
-    std::array<std::size_t, kMaxClusters> lackingLayer{};
-    std::array<std::size_t, kMaxClusters> shorterLength{};
-    std::size_t fullFoundShorter = 0U;
-    std::size_t shorterLackingTaken = 0U; // of those, with a lacking cluster held by another GTRK track
-    std::size_t shorterLackingFree = 0U;  // with every lacking cluster free
+    std::array<std::uint32_t, kMaxClusters> lackingLayer{};
+    std::array<std::uint32_t, kMaxClusters> shorterLength{};
+    std::uint32_t fullFoundShorter = 0U;
+    std::uint32_t shorterLackingTaken = 0U; // of those, with a lacking cluster held by another GTRK track
+    std::uint32_t shorterLackingFree = 0U;  // with every lacking cluster free
     // O2's full-length tracks by their pT and |tan lambda| at the innermost
     // cluster (the ITS only): found full-length, found shorter, missed.
     constexpr std::array<double, 7> kO2PtEdges{0., 0.1, 0.2, 0.3, 0.5, 1., std::numeric_limits<double>::infinity()};
     constexpr std::array<double, 6> kO2TglEdges{0., 0.3, 0.6, 0.9, 1.2, std::numeric_limits<double>::infinity()};
-    std::array<std::array<std::size_t, 3>, kO2PtEdges.size() - 1U> fullByPt{};
-    std::array<std::array<std::size_t, 3>, kO2TglEdges.size() - 1U> fullByTgl{};
+    std::array<std::array<std::uint32_t, 3>, kO2PtEdges.size() - 1U> fullByPt{};
+    std::array<std::array<std::uint32_t, 3>, kO2TglEdges.size() - 1U> fullByTgl{};
     std::vector<o2::track::TrackParCov> states;
     if constexpr (std::same_as<Det, detectors::ITS> || std::same_as<Det, detectors::ITS3>) {
-      states = mO2Tracks->innerStates(static_cast<long long>(mTimeframe));
+      states = mO2Tracks->innerStates(static_cast<std::int64_t>(mTimeframe));
     }
     const auto binOf = [](const auto& edges, double value) {
       std::size_t bin = 0U;
@@ -4029,6 +4028,7 @@ class MeasurementSinkTask : public Task
     };
     for (std::size_t theirIndex = 0; theirIndex < theirs.size(); ++theirIndex) {
       const auto& track = theirs[theirIndex];
+      const auto clusters = static_cast<std::uint32_t>(track.size());
       touched.clear();
       std::uint32_t best = 0U;
       std::uint32_t bestTrack = std::numeric_limits<std::uint32_t>::max();
@@ -4047,14 +4047,14 @@ class MeasurementSinkTask : public Task
           }
         }
       }
-      const auto n = std::min(track.size(), kMaxClusters - 1U);
+      const auto n = std::min(clusters, kMaxClusters - 1U);
       ++o2Total[n];
-      if (track.size() == static_cast<std::size_t>(Detector<Det>::nLayers) && theirIndex < states.size()) {
+      if (clusters == Frame::kLayerCount && theirIndex < states.size()) {
         const auto& state = states[theirIndex];
         std::size_t outcome = 0U; // full, shorter, missed
         if (best < kSharedToMatch) {
           outcome = 2U;
-        } else if (ourCount[bestTrack] < track.size()) {
+        } else if (ourCount[bestTrack] < clusters) {
           outcome = 1U;
         }
         const auto q2pt = std::abs(static_cast<double>(state.getParam(4)));
@@ -4064,9 +4064,9 @@ class MeasurementSinkTask : public Task
       }
       if (best >= kSharedToMatch) {
         ++o2Found[n];
-        if (track.size() == static_cast<std::size_t>(Detector<Det>::nLayers) && ourCount[bestTrack] < track.size()) {
+        if (clusters == Frame::kLayerCount && ourCount[bestTrack] < clusters) {
           ++fullFoundShorter;
-          ++shorterLength[std::min<std::size_t>(ourCount[bestTrack], kMaxClusters - 1U)];
+          ++shorterLength[std::min(ourCount[bestTrack], kMaxClusters - 1U)];
           bool taken = false;
           for (const auto cluster : track) {
             if (cluster >= rowOfCluster.size() || rowOfCluster[cluster] == std::numeric_limits<std::uint32_t>::max()) {
@@ -4075,7 +4075,7 @@ class MeasurementSinkTask : public Task
             const auto row = rowOfCluster[cluster];
             const auto& ours = tracksOfRow[row];
             if (std::ranges::find(ours, bestTrack) == ours.end()) {
-              ++lackingLayer[std::min<std::size_t>(layerOfRow(frame, mInterface.geometry(), row), kMaxClusters - 1U)];
+              ++lackingLayer[std::min<std::uint32_t>(layerOfRow(frame, mInterface.geometry(), row), kMaxClusters - 1U)];
               taken |= !ours.empty();
             }
           }
@@ -4083,7 +4083,7 @@ class MeasurementSinkTask : public Task
         }
       }
       for (const auto ours : touched) {
-        if (sharedWith[ours] == track.size() && sharedWith[ours] == ourCount[ours]) {
+        if (sharedWith[ours] == clusters && sharedWith[ours] == ourCount[ours]) {
           ++o2Reproduced[n];
           break;
         }
@@ -4093,11 +4093,11 @@ class MeasurementSinkTask : public Task
         sharedWith[ours] = 0U;
       }
     }
-    std::array<std::size_t, kMaxClusters> ourTotal{};
-    std::array<std::size_t, kMaxClusters> ourMatched{};
-    std::map<std::uint32_t, std::size_t> shortPatterns; // GTRK's tracks short of a layer, by their layer mask
-    for (std::size_t track = 0; track < tracks.size(); ++track) {
-      const auto n = std::min<std::size_t>(ourCount[track], kMaxClusters - 1U);
+    std::array<std::uint32_t, kMaxClusters> ourTotal{};
+    std::array<std::uint32_t, kMaxClusters> ourMatched{};
+    std::map<std::uint32_t, std::uint32_t> shortPatterns; // GTRK's tracks short of a layer, by their layer mask
+    for (std::uint32_t track = 0; track < tracks.size(); ++track) {
+      const auto n = std::min(ourCount[track], kMaxClusters - 1U);
       ++ourTotal[n];
       if (bestShared[track] >= kSharedToMatch) {
         ++ourMatched[n];
@@ -4110,10 +4110,10 @@ class MeasurementSinkTask : public Task
         ++shortPatterns[mask];
       }
     }
-    const auto sum = [](const auto& counts) { return std::accumulate(counts.begin(), counts.end(), std::size_t{0}); };
+    const auto sum = [](const auto& counts) { return std::accumulate(counts.begin(), counts.end(), std::uint32_t{0}); };
     const auto byClusters = [&](const auto& part, const auto& whole) {
       std::string line;
-      for (std::size_t n = kSharedToMatch; n < kMaxClusters; ++n) {
+      for (std::uint32_t n = kSharedToMatch; n < kMaxClusters; ++n) {
         if (whole[n] != 0U) {
           line += std::format(" {}: {}/{} ({:.1f})", n, part[n], whole[n], percent(part[n], whole[n]));
         }
@@ -4125,11 +4125,11 @@ class MeasurementSinkTask : public Task
     LOGP(info, "    GTRK: {} tracks, {} with an O2 track ({:.2f} %), {} GTRK's own ({:.2f} %); with O2 by clusters (%):{}", tracks.size(), sum(ourMatched), percent(sum(ourMatched), tracks.size()), tracks.size() - sum(ourMatched), percent(tracks.size() - sum(ourMatched), tracks.size()), byClusters(ourMatched, ourTotal));
     if (fullFoundShorter != 0U) {
       std::string lacking;
-      for (std::size_t layer = 0; layer < static_cast<std::size_t>(Detector<Det>::nLayers); ++layer) {
+      for (std::uint32_t layer = 0; layer < Frame::kLayerCount; ++layer) {
         lacking += std::format(" {}: {:.1f}", layer, percent(lackingLayer[layer], fullFoundShorter));
       }
       std::string lengths;
-      for (std::size_t n = kSharedToMatch; n < kMaxClusters; ++n) {
+      for (std::uint32_t n = kSharedToMatch; n < kMaxClusters; ++n) {
         if (shorterLength[n] != 0U) {
           lengths += std::format(" {}: {:.1f}", n, percent(shorterLength[n], fullFoundShorter));
         }
@@ -4154,20 +4154,20 @@ class MeasurementSinkTask : public Task
       LOGP(info, "    O2's full-length tracks by |tan lambda| (count: % full / % shorter / % missed):{}", bins(kO2TglEdges, fullByTgl));
     }
     {
-      std::vector<std::pair<std::size_t, std::uint32_t>> top;
+      std::vector<std::pair<std::uint32_t, std::uint32_t>> top;
       top.reserve(shortPatterns.size());
       for (const auto& [mask, count] : shortPatterns) {
         top.emplace_back(count, mask);
       }
       std::ranges::sort(top, std::ranges::greater{});
       std::string line;
-      std::size_t shortTotal = 0U;
+      std::uint32_t shortTotal = 0U;
       for (const auto& [count, mask] : top) {
         shortTotal += count;
       }
       for (std::size_t i = 0; i < std::min<std::size_t>(top.size(), 6U); ++i) {
         std::string layers;
-        for (std::size_t layer = 0; layer < static_cast<std::size_t>(Detector<Det>::nLayers); ++layer) {
+        for (std::uint32_t layer = 0; layer < Frame::kLayerCount; ++layer) {
           if ((top[i].second & (1U << layer)) != 0U) {
             layers += std::to_string(layer);
           }
@@ -4200,7 +4200,7 @@ class MeasurementSinkTask : public Task
   /// Monolithic references (stream zero) already are dense indices.
   [[nodiscard]] TrackClusters o2Clusters(const Frame& frame) const
   {
-    auto tracks = mO2Tracks->read(static_cast<long long>(mTimeframe));
+    auto tracks = mO2Tracks->read(static_cast<std::int64_t>(mTimeframe));
     std::array<std::uint32_t, Detector<Det>::nLayers + 1U> offsets{};
     for (Frame::Index row = 0U; row < frame.size(); ++row) {
       ++offsets[layerOfRow(frame, mInterface.geometry(), row) + 1U];
@@ -4208,11 +4208,11 @@ class MeasurementSinkTask : public Task
     std::partial_sum(offsets.begin(), offsets.end(), offsets.begin());
     for (auto& track : tracks) {
       for (auto& cluster : track) {
-        const auto layer = static_cast<std::size_t>(o2::itsmft::clusID2Layer(static_cast<int>(cluster)));
+        const auto layer = static_cast<std::uint32_t>(o2::itsmft::clusID2Layer(static_cast<std::int32_t>(cluster)));
         if (layer == 0U) {
           continue;
         }
-        const auto index = static_cast<std::uint32_t>(o2::itsmft::clusID2Index(static_cast<int>(cluster)));
+        const auto index = static_cast<std::uint32_t>(o2::itsmft::clusID2Index(static_cast<std::int32_t>(cluster)));
         cluster = layer + 1U < offsets.size() && index < offsets[layer + 1U] - offsets[layer]
                     ? offsets[layer] + index
                     : std::numeric_limits<std::uint32_t>::max();
@@ -4249,7 +4249,7 @@ class MeasurementSinkTask : public Task
       LOGP(info, "{}", line);
     }
     // The rule held to O2's own: its track labels' fake flags.
-    const auto flags = mO2Tracks->fakeFlags(static_cast<long long>(mTimeframe));
+    const auto flags = mO2Tracks->fakeFlags(static_cast<std::int64_t>(mTimeframe));
     const auto fakes = std::ranges::count(flags, true);
     LOGP(info, "  O2's own track labels: {} of {} fake ({:.2f} %)", fakes, flags.size(), percent(static_cast<std::uint64_t>(fakes), flags.size()));
     if (mHitIndex) {
@@ -4340,8 +4340,8 @@ class MeasurementSinkTask : public Task
     }
     const auto variance = [&](const Scalar* h) {
       double v = 0.;
-      for (int i = 0; i < kNBoundParams; ++i) {
-        for (int j = 0; j < kNBoundParams; ++j) {
+      for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+        for (std::int32_t j = 0; j < kNBoundParams; ++j) {
           v += static_cast<double>(h[i]) * static_cast<double>(state.covAt(i, j)) * static_cast<double>(h[j]);
         }
       }
@@ -4357,8 +4357,8 @@ class MeasurementSinkTask : public Task
       // the track's own momentum.
       const auto& beam = mInterface.beamLine();
       const auto point = pairPointAt(frame.measurements(), row);
-      const Scalar variance = beamScattering(mInterface.linkMaterial(), surface.layer, static_cast<Scalar>(beam.x), static_cast<Scalar>(beam.y), static_cast<Scalar>(header.GetZ()), point, momentum, propagator.massGeV, propagator.absCharge, static_cast<Scalar>(sinTheta));
-      entry.dcaScattering = {std::sqrt(variance), static_cast<float>(static_cast<double>(std::sqrt(variance)) / sinTheta)};
+      const Scalar beamVariance = beamScattering(mInterface.linkMaterial(), surface.layer, static_cast<Scalar>(beam.x), static_cast<Scalar>(beam.y), static_cast<Scalar>(header.GetZ()), point, momentum, propagator.massGeV, propagator.absCharge, static_cast<Scalar>(sinTheta));
+      entry.dcaScattering = {std::sqrt(beamVariance), static_cast<float>(static_cast<double>(std::sqrt(beamVariance)) / sinTheta)};
       PairCut ownMomentum;
       const Scalar betaPT = betaMomentum(momentum, propagator.massGeV) * static_cast<Scalar>(sinTheta);
       ownMomentum.invBetaMomentum2 = 1.F / (betaPT * betaPT);
@@ -4407,7 +4407,7 @@ class MeasurementSinkTask : public Task
     auto oursByKink = split("GTRK q/p", kKinkClasses);
     const auto view = tracks.tracks().view();
     std::vector<std::uint32_t> trackRows;
-    for (std::size_t track = 0; track < tracks.size(); ++track) {
+    for (std::uint32_t track = 0; track < tracks.size(); ++track) {
       const auto mine = tracks.rows(track);
       trackRows.assign(mine.begin(), mine.end());
       const auto particle = goodParticle(rows, trackRows);
@@ -4448,7 +4448,7 @@ class MeasurementSinkTask : public Task
         const auto m = frame.measurement(row);
         return Vec3D{static_cast<double>(m.x), static_cast<double>(m.y), static_cast<double>(m.z)};
       };
-      const auto states = mO2Tracks->innerStates(static_cast<long long>(mTimeframe));
+      const auto states = mO2Tracks->innerStates(static_cast<std::int64_t>(mTimeframe));
       PullTable o2{"O2 at the innermost cluster, tracking-frame parameters", {{.name = "y", .unit = "um", .scale = 1e4}, {.name = "z", .unit = "um", .scale = 1e4}, {.name = "snp", .unit = "1e-3", .scale = 1e3}, {.name = "tgl", .unit = "1e-3", .scale = 1e3}, {.name = "q/pT", .unit = "1/GeV", .scale = 1.}}};
       PullTable o2Common{"O2, common residuals", common};
       auto o2BySpecies = split("O2 q/pT by species", kSpecies);
@@ -4480,8 +4480,8 @@ class MeasurementSinkTask : public Task
         std::array<double, 5> residual{};
         std::array<double, 5> sigma{};
         for (std::size_t i = 0; i < 5U; ++i) {
-          residual[i] = static_cast<double>(state.getParam(static_cast<int>(i))) - truth[i];
-          sigma[i] = sqrtClampedOf(static_cast<double>(state.getDiagError2(static_cast<int>(i))));
+          residual[i] = static_cast<double>(state.getParam(static_cast<std::int32_t>(i))) - truth[i];
+          sigma[i] = sqrtClampedOf(static_cast<double>(state.getDiagError2(static_cast<std::int32_t>(i))));
         }
         o2.add(pt, residual, sigma);
         o2Common.add(pt, std::array<double, 5>{residual[0], residual[1], std::asin(std::clamp(static_cast<double>(state.getParam(2)), -1., 1.)) - std::asin(truth[2]), std::atan(static_cast<double>(state.getParam(3))) - std::atan(truth[3]), (std::abs(truth[4]) / std::abs(static_cast<double>(state.getParam(4)))) - 1.}, std::array<double, 5>{});
@@ -4506,11 +4506,11 @@ class MeasurementSinkTask : public Task
   std::unique_ptr<o2::gtrk::detail::TaskArena> mStudyArena; ///< the truth studies' threads
   /// Every particle the comparison saw, as its MC label and charge.
   struct ParticleLabel {
-    int event = -1;
-    int track = -1;
-    int source = -1;
+    std::int32_t event = -1;
+    std::int32_t track = -1;
+    std::int32_t source = -1;
     double charge = 0.;
-    int pdg = 0;
+    std::int32_t pdg = 0;
     TruthHelix helix{}; ///< at production
     // NOLINTNEXTLINE(readability-redundant-member-init): GCC's -Wmissing-field-initializers wants it
     std::optional<TruthHelix> mother{}; ///< the mother's at its own production
@@ -4537,14 +4537,14 @@ class MeasurementSinkTask : public Task
   struct RunObservers {
     std::optional<StageTruth> stage;
     std::vector<TrackletRunSummary> summaries;
-    std::function<void(const Controller&, std::size_t, std::optional<StageTruth>&)> openStage; ///< set per timeframe
+    std::function<void(const Controller&, std::uint32_t, std::optional<StageTruth>&)> openStage; ///< set per timeframe
     std::optional<Funnel> funnel;
   };
   RunObservers mObservers;
-  std::string mDumpInput;          ///< where the dumped timeframe's tracking input goes; empty: nowhere
-  std::size_t mDumpTimeframe = 0U; ///< which timeframe, counting from 0
-  bool mDumpOnly = false;          ///< the dumped timeframe is not tracked
-  std::size_t mTimeframe = 0U;
+  std::string mDumpInput;            ///< where the dumped timeframe's tracking input goes; empty: nowhere
+  std::uint32_t mDumpTimeframe = 0U; ///< which timeframe, counting from 0
+  bool mDumpOnly = false;            ///< the dumped timeframe is not tracked
+  std::uint32_t mTimeframe = 0U;
 };
 
 /// The detector's MC hits in an O2 production's timeframe directory.

@@ -73,7 +73,7 @@ struct RowParticles {
 [[nodiscard]] inline o2::MCCompLabel labelOfParticle(std::uint64_t particle, bool fake = false)
 {
   using L = o2::MCCompLabel;
-  return {static_cast<int>(particle & L::maskTrackID), static_cast<int>((particle >> L::nbitsTrackID) & L::maskEvID), static_cast<int>((particle >> (L::nbitsTrackID + L::nbitsEvID)) & L::maskSrcID), fake};
+  return {static_cast<std::int32_t>(particle & L::maskTrackID), static_cast<std::int32_t>((particle >> L::nbitsTrackID) & L::maskEvID), static_cast<std::int32_t>((particle >> (L::nbitsTrackID + L::nbitsEvID)) & L::maskSrcID), fake};
 }
 
 /// No particle: a fake's good particle, or noise only.

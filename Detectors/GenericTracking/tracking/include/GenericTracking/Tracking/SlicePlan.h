@@ -61,7 +61,7 @@ namespace o2::gtrk
 /// so that no consumer scans the frame again.
 template <DetectorLayout Det>
 struct HaloBounds {
-  static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
+  static constexpr auto kLayerCount = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   std::array<std::uint32_t, kLayerCount> widthPS{};
   std::array<TripletTargetBounds, kLayerCount> target{};
   std::array<Scalar, kLayerCount> varLoc{};
@@ -77,7 +77,7 @@ struct HaloBounds {
 
   /// One more row of \a layer, whose readout frames are \a frames: its time
   /// box \a box, its z, r and r-phi variances and its two local ones.
-  void add(std::size_t layer, const FrameTiming& frames, const TimeEstPS& box, Scalar varZ, Scalar varR, Scalar varRPhi, Scalar varLoc0, Scalar varLoc1)
+  void add(std::uint32_t layer, const FrameTiming& frames, const TimeEstPS& box, Scalar varZ, Scalar varR, Scalar varRPhi, Scalar varLoc0, Scalar varLoc1)
   {
     auto& bounds = target[layer];
     widthPS[layer] = std::max(widthPS[layer], box.width);
@@ -95,7 +95,7 @@ template <DetectorLayout Det>
   auto result = HaloBounds<Det>::none();
   const auto columns = frame.measurements();
   const auto& geometry = frame.grid().geometry();
-  for (std::size_t layer = 0; layer < HaloBounds<Det>::kLayerCount; ++layer) {
+  for (std::uint32_t layer = 0; layer < HaloBounds<Det>::kLayerCount; ++layer) {
     const auto& frames = geometry.frames(static_cast<LayerID>(layer));
     for (auto row = rows[layer].begin; row < rows[layer].end; ++row) {
       result.add(layer, frames, {.start = columns.timePS[row], .width = columns.widthPS[row]}, columns.varZ[row], columns.varR[row], columns.varRPhi[row], columns.varLoc0[row], columns.varLoc1[row]);
@@ -112,7 +112,7 @@ template <DetectorLayout Det>
 [[nodiscard]] HaloBounds<Det> frameBounds(const TimeFrame<Det>& frame)
 {
   std::array<MeasurementRange, HaloBounds<Det>::kLayerCount> layers{};
-  for (std::size_t layer = 0; layer < layers.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < layers.size(); ++layer) {
     layers[layer] = frame.grid().layerRows(static_cast<LayerID>(layer));
   }
   return boundsOver(frame, std::span<const MeasurementRange, HaloBounds<Det>::kLayerCount>{layers});
@@ -276,7 +276,7 @@ template <DetectorLayout Det>
 /// the gate's window of box starts around its core.
 template <DetectorLayout Det>
 struct SlicePlan {
-  static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
+  static constexpr auto kLayerCount = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   using Slice = typename TimeFrame<Det>::TimeSlice;
 
   Slice slice;
@@ -322,7 +322,7 @@ template <DetectorLayout Det>
 /// was planned from.
 template <DetectorLayout Det>
 struct TimeframePlan {
-  static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
+  static constexpr auto kLayerCount = static_cast<std::uint32_t>(Detector<Det>::nLayers);
 
   // What it was planned from.
   std::uint32_t rows = 0U;
@@ -356,7 +356,7 @@ struct TimeframePlan {
     if (configured.size() != parameters.size() || vertexWindows.size() != parameters.size()) {
       throw std::invalid_argument("a timeframe plan of another number of iterations");
     }
-    for (std::size_t i = 0; i < parameters.size(); ++i) {
+    for (std::uint32_t i = 0; i < parameters.size(); ++i) {
       // Padding included, deliberately: both sides are copies of the same
       // objects, made by std::copy or assign, which move their bytes as they are.
       // NOLINTNEXTLINE(bugprone-suspicious-memory-comparison)
@@ -382,7 +382,7 @@ template <DetectorLayout Det>
   plan.vertices.assign(vertices.begin(), vertices.end());
   plan.vertexWindows.clear();
   plan.vertexWindows.reserve(plan.parameters.size());
-  for (std::size_t iteration = 0; iteration < plan.parameters.size(); ++iteration) {
+  for (std::uint32_t iteration = 0; iteration < plan.parameters.size(); ++iteration) {
     plan.vertexWindows.push_back(vertexWindowParameters<Det>(plan.parameters[iteration], windowSettings[iteration], vertices));
   }
   return plan;

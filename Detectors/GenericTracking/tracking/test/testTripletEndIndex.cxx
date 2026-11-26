@@ -158,7 +158,7 @@ BOOST_AUTO_TEST_CASE(ParallelBuildEqualsSerialBuild)
       checkAgainstBruteForce(serial, tracklets, triplets);
     }
     // The chunks bounded as the tracker bounds them, to one, or not at all.
-    for (const auto& [threads, maxChunks] : std::initializer_list<std::pair<int, Index>>{{1, 0U}, {3, 0U}, {8, 0U}, {3, 1U}, {8, 64U}}) {
+    for (const auto& [threads, maxChunks] : std::initializer_list<std::pair<std::int32_t, Index>>{{1, 0U}, {3, 0U}, {8, 0U}, {3, 1U}, {8, 64U}}) {
       BOOST_TEST_CONTEXT("elements " << elements << ", tracklets " << tracklets << ", threads " << threads << ", chunks at most " << maxChunks)
       {
         detail::TaskArena cpuArena{threads};

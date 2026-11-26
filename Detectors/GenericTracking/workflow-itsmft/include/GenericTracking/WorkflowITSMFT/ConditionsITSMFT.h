@@ -50,6 +50,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <memory>
 #include <stdexcept>
@@ -134,7 +135,7 @@ class Conditions<Det, WithMaterial, Holder>
     const auto& param = AlpideParam::Instance();
     std::vector<FrameTiming> result;
     result.reserve(Detector<Det>::nLayers);
-    for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+    for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
       const auto length = param.getROFLengthInBC(layer);
       if (length <= 0) {
         throw std::runtime_error(std::format("{} layer {}: AlpideParam gives readout frames of {} BC", Det::name, layer, length));
@@ -146,7 +147,7 @@ class Conditions<Det, WithMaterial, Holder>
 
   /// The run's orbits per timeframe, its GRPECS's, as O2's ITS tracking
   /// takes them.
-  [[nodiscard]] static int orbitsPerTimeframe() { return o2::base::GRPGeomHelper::getNHBFPerTF(); }
+  [[nodiscard]] static std::int32_t orbitsPerTimeframe() { return o2::base::GRPGeomHelper::getNHBFPerTF(); }
 
   /// None: the ALPIDE's clusters are at the effective sensitive layer's
   /// centre, 0 on every layer; on ITS3's tiles O2's response depth.
@@ -154,8 +155,8 @@ class Conditions<Det, WithMaterial, Holder>
   {
     if constexpr (kITS3) {
       std::vector<double> depths(Detector<Det>::nLayers, 0.);
-      for (std::size_t layer = 0; layer < detectors::mosaix::kNominalRadius.size(); ++layer) {
-        depths[layer] = detectors::mosaix::measurementDepth(static_cast<int>(layer));
+      for (std::uint32_t layer = 0; layer < detectors::mosaix::kNominalRadius.size(); ++layer) {
+        depths[layer] = detectors::mosaix::measurementDepth(static_cast<std::int32_t>(layer));
       }
       return depths;
     } else {

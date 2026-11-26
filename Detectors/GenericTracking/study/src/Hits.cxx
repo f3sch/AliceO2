@@ -21,6 +21,7 @@
 #include <TFile.h>
 #include <TTree.h>
 
+#include <cstdint>
 #include <format>
 #include <limits>
 #include <stdexcept>
@@ -94,9 +95,9 @@ HitFile::HitFile(const std::string& path, Chips chips, const std::string& discPa
 
 HitFile::~HitFile() = default;
 
-int HitFile::nEvents() const { return static_cast<int>(mTree->GetEntries()); }
+std::int32_t HitFile::nEvents() const { return static_cast<std::int32_t>(mTree->GetEntries()); }
 
-const std::vector<HitSegment>& HitFile::event(int event)
+const std::vector<HitSegment>& HitFile::event(std::int32_t event)
 {
   // Every event at the first call, in the file's order: the callers ask in their particles' order, and
   // a basket holds many events, so entry by entry would read the file many times over.
@@ -130,7 +131,7 @@ const std::vector<HitSegment>& HitFile::event(int event)
 
 HitIndex::HitIndex(HitFile& file)
 {
-  for (int event = 0; event < file.nEvents(); ++event) {
+  for (std::int32_t event = 0; event < file.nEvents(); ++event) {
     for (const auto& segment : file.event(event)) {
       mSegments[packKey(static_cast<std::uint32_t>(event), static_cast<std::uint32_t>(segment.track))].push_back(&segment);
     }

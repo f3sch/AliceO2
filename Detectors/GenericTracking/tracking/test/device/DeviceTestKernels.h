@@ -96,7 +96,7 @@ struct FlatRunInfo {
 /// What a synthetic GpuStage run reports besides its output.
 struct SyntheticRunInfo {
   bool predictionMissed = false;
-  std::size_t capacityAfter = 0U; ///< the staging capacity the stage keeps
+  std::uint32_t capacityAfter = 0U; ///< the staging capacity the stage keeps
   std::size_t scratchAfter = 0U;  ///< the arena's scratch end once run returned
   std::uint32_t listed = 0U;      ///< the elements a listed run generated
 };
@@ -113,7 +113,7 @@ struct RoadGlueResult {
   std::uint32_t chained = 0U;
 };
 
-inline constexpr std::size_t kToyBarrel8Clusters = maxChainLayers<ToyBarrel8Det>;
+inline constexpr std::uint32_t kToyBarrel8Clusters = maxChainLayers<ToyBarrel8Det>;
 using ToyBarrel8Records = BoundedColumns<SelectionRecordOf<kToyBarrel8Clusters>::RecordT>;
 
 /// What the selection glue left, read back.
@@ -194,15 +194,15 @@ struct DeviceTestEntry {
   void (*trig)(DeviceRuntime&, DeviceStream&, const double* ys, const double* xs, TrigRow* rows, std::uint32_t count) = nullptr;
   /// GpuStage<TrackletT> over the synthetic generator, its output prepared in
   /// the caller's scope of \a arena and, if complete, downloaded to \a result.
-  StageStatus (*runSynthetic)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t elements, std::size_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info) = nullptr;
+  StageStatus (*runSynthetic)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t elements, std::uint32_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info) = nullptr;
   /// The same over a list: every element that emits and every third of the
   /// rest (`GpuStage::run` with a list).
-  StageStatus (*runSyntheticListed)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t elements, std::size_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info) = nullptr;
+  StageStatus (*runSyntheticListed)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t elements, std::uint32_t stagingCapacity, StageOutput<TrackletT>& result, SyntheticRunInfo& info) = nullptr;
   /// The flat form (`flat::runFlat`) over the
   /// synthetic candidates of \a kind with `synthetic::Accept{divisor}`: all
   /// the elements, or the listed ones (as `runSyntheticListed` lists them);
   /// chunks of at most \a maxChunkPairs pairs (0: the arena decides).
-  StageStatus (*runFlatSynthetic)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t divisor, std::uint32_t elements, bool listedRun, std::size_t maxChunkPairs, StageOutput<TrackletT>& result, FlatRunInfo& info) = nullptr;
+  StageStatus (*runFlatSynthetic)(DeviceRuntime&, DeviceStream&, DeviceArena&, synthetic::Kind, std::uint32_t divisor, std::uint32_t elements, bool listedRun, std::uint32_t maxChunkPairs, StageOutput<TrackletT>& result, FlatRunInfo& info) = nullptr;
   /// The device tracker for the ToyBarrel8 fixtures.
   std::unique_ptr<DeviceTracker<detectors::ToyBarrel8>> (*makeToyBarrel8Tracker)(DeviceRuntime&, DeviceBlock arena) = nullptr;
   /// The slice's glue passes on host inputs copied to the device, their
@@ -223,11 +223,11 @@ struct DeviceTestEntry {
   /// \a rows tracklets of \a source from \a sourceOffset copied into a device
   /// destination of \a destinationRows rows, all bits set, at
   /// \a destinationOffset; the destination read back.
-  StageStatus (*copyColumns)(DeviceRuntime&, DeviceStream&, DeviceArena&, const StageOutput<TrackletT>& source, std::size_t sourceOffset, std::size_t destinationRows, std::size_t destinationOffset, std::size_t rows, std::vector<Tracklet>& destination) = nullptr;
+  StageStatus (*copyColumns)(DeviceRuntime&, DeviceStream&, DeviceArena&, const StageOutput<TrackletT>& source, std::uint32_t sourceOffset, std::uint32_t destinationRows, std::uint32_t destinationOffset, std::uint32_t rows, std::vector<Tracklet>& destination) = nullptr;
   /// \a source cut into chunks of \a chunkRows rows, appended on the scratch
   /// end in one scope, gathered on the base end and read back; false if the
   /// arena refused a chunk or the gather.
-  bool (*gatherChunks)(DeviceRuntime&, DeviceStream&, DeviceArena&, const StageOutput<TrackletT>& source, std::span<const std::size_t> chunkRows, std::vector<Tracklet>& gathered) = nullptr;
+  bool (*gatherChunks)(DeviceRuntime&, DeviceStream&, DeviceArena&, const StageOutput<TrackletT>& source, std::span<const std::uint32_t> chunkRows, std::vector<Tracklet>& gathered) = nullptr;
   /// The selection glue over \a records into a copy of \a mask, in an arena
   /// scope closed on return.
   StageStatus (*selectionGlue)(DeviceRuntime&, DeviceStream&, DeviceArena&, const ToyBarrel8Records& records, std::span<const std::uint8_t> mask, std::uint32_t sharedInnermost, SelectionGlueResult& result) = nullptr;

@@ -26,6 +26,7 @@
 #include "CommonConstants/MathConstants.h"
 
 #include <cfloat>
+#include <cstdint>
 #include <type_traits>
 
 namespace o2::gtrk
@@ -107,13 +108,13 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
   const Scalar* rows[3] = {jac.loc0, jac.loc1, jac.phi};
   // The three dense rows (loc0, loc1, phi) of the columns; column 7 is e_phi,
   // nonzero in phi's row only until the phi row fills the others.
-  constexpr int kColumns = 11;
+  constexpr std::int32_t kColumns = 11;
   Scalar y[3][kColumns]{};
   Scalar w[kColumns]{};
-  for (int r = 0; r < 3; ++r) {
-    for (int k = 0; k < kNBoundParams; ++k) {
+  for (std::int32_t r = 0; r < 3; ++r) {
+    for (std::int32_t k = 0; k < kNBoundParams; ++k) {
       Scalar value = rows[r][k];
-      for (int l = 0; l < k; ++l) {
+      for (std::int32_t l = 0; l < k; ++l) {
         value += rows[r][l] * factors.upper[strictUpperIndex(l, k)];
       }
       y[r][k] = value;
@@ -129,7 +130,7 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
     }
   }
   y[kPhi][7] = 1.F;
-  for (int k = 0; k < kNBoundParams; ++k) {
+  for (std::int32_t k = 0; k < kNBoundParams; ++k) {
     w[k] = factors.diagonal[k];
   }
   w[5] = noise.phiBefore;
@@ -146,7 +147,7 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
   const Scalar kept = factors.diagonal[kQOverP] / dQOverP;
   w[kQOverP] = noise.qOverPAfter * kept;
   factors.diagonal[kQOverP] = dQOverP;
-  for (int r = 0; r < 3; ++r) {
+  for (std::int32_t r = 0; r < 3; ++r) {
     factors.upper[strictUpperIndex(r, kQOverP)] = y[r][kQOverP] * kept;
   }
   factors.upper[strictUpperIndex(kTheta, kQOverP)] = thetaQOverP * kept;
@@ -159,7 +160,7 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
   }
   factors.diagonal[kTheta] = dTheta;
   const Scalar inverseTheta = 1.F / dTheta;
-  for (int r = 0; r < 3; ++r) {
+  for (std::int32_t r = 0; r < 3; ++r) {
     const Scalar u = ((y[r][kTheta] * w[kTheta]) + (y[r][kQOverP] * weighted4) + (y[r][6] * w[6])) * inverseTheta;
     factors.upper[strictUpperIndex(r, kTheta)] = u;
     y[r][kTheta] -= u;
@@ -169,10 +170,10 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
   }
 
   // phi, loc1, loc0: dense rows.
-  for (int j = 2; j >= 0; --j) {
+  for (std::int32_t j = 2; j >= 0; --j) {
     Scalar weighted[kColumns];
     Scalar dj = 0.F;
-    for (int k = 0; k < kColumns; ++k) {
+    for (std::int32_t k = 0; k < kColumns; ++k) {
       weighted[k] = w[k] * y[j][k];
       dj += y[j][k] * weighted[k];
     }
@@ -183,14 +184,14 @@ GPUhdi() bool transportFactors(const SolenoidJacobian& jac, const StepNoise& noi
     }
     factors.diagonal[j] = dj;
     const Scalar inverse = 1.F / dj;
-    for (int i = 0; i < j; ++i) {
+    for (std::int32_t i = 0; i < j; ++i) {
       Scalar dot = 0.F;
-      for (int k = 0; k < kColumns; ++k) {
+      for (std::int32_t k = 0; k < kColumns; ++k) {
         dot += y[i][k] * weighted[k];
       }
       const Scalar u = dot * inverse;
       factors.upper[strictUpperIndex(i, j)] = u;
-      for (int k = 0; k < kColumns; ++k) {
+      for (std::int32_t k = 0; k < kColumns; ++k) {
         y[i][k] -= u * y[j][k];
       }
     }
@@ -273,7 +274,7 @@ GPUdi() PropagationStatus jacobianAnalytic(const Propagator& prop, const BoundPa
   T n1[3] = {};
   T u1[3] = {};
   T v1[3] = {};
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     n1[i] = static_cast<T>(to.normal[i]);
     u1[i] = static_cast<T>(to.axis0[i]);
     v1[i] = static_cast<T>(to.axis1[i]);
@@ -289,7 +290,7 @@ GPUdi() PropagationStatus jacobianAnalytic(const Propagator& prop, const BoundPa
   // Derivatives of the arrival point with respect to each source parameter,
   // taken at fixed path length.
   T dr[kNBoundParams][3] = {};
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     dr[kLoc0][i] = static_cast<T>(from.axis0[i]);
     dr[kLoc1][i] = static_cast<T>(from.axis1[i]);
     dr[kPhi][i] = sinTheta * (sh * w[i] - ch * u[i]);
@@ -299,11 +300,11 @@ GPUdi() PropagationStatus jacobianAnalytic(const Propagator& prop, const BoundPa
 
   // d/d(q/p) enters only through kp, so it is dSh/dkp and dCh/dkp times b.
   const T scale = sinTheta * bField * s * s;
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     dr[kQOverP][i] = scale * (dSinc<T>(psi) * u[i] + dVersine<T>(psi) * w[i]);
   }
 
-  for (int x = 0; x < kNBoundParams; ++x) {
+  for (std::int32_t x = 0; x < kNBoundParams; ++x) {
     const T ndr = dotOf(n1, dr[x]);
     const T udr = dotOf(u1, dr[x]);
     const T vdr = dotOf(v1, dr[x]);

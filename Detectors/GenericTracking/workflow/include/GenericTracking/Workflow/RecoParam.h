@@ -38,7 +38,6 @@
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
 #endif
 
-#include <cstddef>
 #include <cstdint>
 #include <string_view>
 #include <type_traits>
@@ -53,7 +52,7 @@ struct RecoSettings {
   /// time box widened by this much at both ends, for a hit recorded in the
   /// neighbouring frame. One entry per layer, or
   /// none for 0 on every layer, O2's default.
-  std::vector<int> frameMarginBC;
+  std::vector<std::int32_t> frameMarginBC;
 
   /// Width of the outer time block in the measurement grid [ps], 0 for one
   /// block. This is the minimum slice quantum and is chosen from the worker
@@ -86,16 +85,16 @@ struct RecoSettings {
   double vertexerMinPtGeV = 0.5;
   double vertexerMaxChi2RZ = 5.;   ///< a triplet's r-z kink chi2 cut, with its scattering at its own momentum; 0 for none
   double vertexerMaxDcaCM = 0.02;  ///< its circle's transverse distance to the beam axis [cm], 0 for none
-  int vertexerWindowUM = 150;      ///< a peak's window [um]
-  int vertexerClaimUM = 2000;      ///< the half-width a vertex claims around its peak [um]
-  int vertexerMinContributors = 4; ///< the least candidates a peak's window holds
+  std::int32_t vertexerWindowUM = 150;      ///< a peak's window [um]
+  std::int32_t vertexerClaimUM = 2000;      ///< the half-width a vertex claims around its peak [um]
+  std::int32_t vertexerMinContributors = 4; ///< the least candidates a peak's window holds
   /// The least in a frame where none holds vertexerMinContributors: that
   /// frame's rounds run again at this minimum; 0, none, by default.
-  int vertexerAloneMinContributors = 0;
+  std::int32_t vertexerAloneMinContributors = 0;
   double vertexerSignificance = 5.; ///< a peak's excess over the sidebands, in their Poisson sigmas
   /// Whether the vertexing pass tests its pairs and triplets against their
   /// measurements' cluster shapes (`iterationShapeTest`); 0, off, by default.
-  int vertexerShapeTest = 0;
+  std::int32_t vertexerShapeTest = 0;
 
   /// Tracking iterations, run one after another: one per entry of
   /// `iterationMinPtGeV`. Each other per-iteration vector holds one entry per
@@ -111,15 +110,15 @@ struct RecoSettings {
   /// Where each iteration's vertex seeds come from: 0 the beam line (the
   /// default), 1 the timeframe's vertex list, 2 none: straight legs from
   /// anywhere, cosmic muons (barrel links only, no beam constraint).
-  std::vector<int> iterationVertexSource;
+  std::vector<std::int32_t> iterationVertexSource;
   /// The shortest road each iteration fits, in clusters, 4 by default; a road
   /// is at least 4 clusters, two triplets, whatever is set. An iteration takes
   /// only the links on a path of this many layers (Iteration.h, `takenLinks`).
   /// ITS asks 7 of its first two iterations and 4 of the third.
-  std::vector<int> iterationMinClusters;
+  std::vector<std::int32_t> iterationMinClusters;
   /// The kinks each iteration's fit may take per pass;
   /// 0 for none, 1 by default.
-  std::vector<int> iterationMaxKinks;
+  std::vector<std::int32_t> iterationMaxKinks;
   /// The kink allowance of each iteration's triplet and neighbour cuts: a
   /// triplet failing the nominal cuts is kept, flagged kinked, if it passes with the middle
   /// layer's scattering at pT_min scaled by this factor; 1 (the default) for
@@ -134,7 +133,7 @@ struct RecoSettings {
   /// crosses the envelope of another layer of its mask (the default); 0 for
   /// none, so the tracks past a shorter layer's end are kept and those
   /// through a gap are not.
-  std::vector<int> iterationSkipLinks;
+  std::vector<std::int32_t> iterationSkipLinks;
   /// The layers each iteration's seeds take rows on, a bit per layer; 0 for
   /// every layer (the default): its links join two of them, and of the layers
   /// a link passes over those among them are holes (`iterationSkipLinks`).
@@ -155,36 +154,36 @@ struct RecoSettings {
   /// floor at all. O2's ITS async asks 1/12 of 7 clusters in every iteration,
   /// and 1/5, 1 and 1/6 of 6, 5 and 4 in its third (entries 7, 25, 43, 42,
   /// 41, 40).
-  static constexpr std::size_t kClusterSlots = 18U;
+  static constexpr std::uint32_t kClusterSlots = 18U;
   std::vector<double> iterationClusterMinPtGeV;
   /// How many of a track's innermost clusters each iteration lets it share
   /// with another; 0, strict, by default.
-  std::vector<int> iterationSharedInnermost;
+  std::vector<std::int32_t> iterationSharedInnermost;
   /// Whether each iteration follows its selected tracks after their refit,
   /// outward and then inward, as a CKF does, before the next iteration;
   /// 1, on, by default.
-  std::vector<int> iterationFollow;
+  std::vector<std::int32_t> iterationFollow;
   /// The holes each iteration's follow lets a track cross in each direction,
   /// a sensor crossed without a row; 0 by default.
-  std::vector<int> iterationFollowHoles;
+  std::vector<std::int32_t> iterationFollowHoles;
   /// The innermost clusters each iteration's road fit may drop from a road it
   /// refuses, one more each time, down to the iteration's minimum, the first
   /// it takes the road's record; 0, off, by
   /// default.
-  std::vector<int> iterationInnerTrim;
+  std::vector<std::int32_t> iterationInnerTrim;
   /// Whether each iteration tests its pairs and triplets against their
   /// measurements' cluster shapes: a candidate's local slope at each of its measurements -- its line's
   /// |dz| over its length along the sensor's normal -- must lie in the
   /// measurement's slope interval, which the measurement producer makes from
   /// its detector's calibrated band (ClusterShapeBand.h); 0, off, by default.
-  std::vector<int> iterationShapeTest;
+  std::vector<std::int32_t> iterationShapeTest;
   /// Whether each iteration's road fit also weighs its rows' cluster spans:
   /// -2 log of how much more likely each row's spans are for the road's
   /// crossing than for any row of its layer (the measurement producer's
   /// shares, from the detector's calibrated band) added to the fit's chi2,
   /// held to the road's cut and carried into the record's chi2; nothing on a
   /// layout without a band; 0, off, by default.
-  std::vector<int> iterationRoadSize;
+  std::vector<std::int32_t> iterationRoadSize;
   /// Each iteration's lowest momentum [GeV] of a disc->disc pair's track,
   /// beside its minimum pT. Above 0, on a prompt beam line only, the
   /// iteration searches its disc->disc pairs in a window per source -- from
@@ -201,24 +200,24 @@ struct RecoSettings {
   std::vector<double> iterationFollowKeepDensity;
   /// The clusters each iteration's tracks must hold after the follow; 0 for
   /// none (the default). A shorter track is dropped and its rows given back.
-  std::vector<int> iterationMinClustersAfterFollow;
+  std::vector<std::int32_t> iterationMinClustersAfterFollow;
   /// Whether each iteration updates its roads with the beam line on their
   /// innermost surface and refuses them above the update's gate, to start
   /// the follow inward from the constrained state; 0, off, by default.
-  std::vector<int> iterationBeamConstraint;
+  std::vector<std::int32_t> iterationBeamConstraint;
   /// Whether each iteration follows every earlier iteration's tracks too,
   /// with its own settings, their rows kept, as a recovery pass does; 0, off,
   /// by default. Needs the iteration's
   /// iterationFollow; iterationMinClustersAfterFollow applies to the
   /// iteration's own tracks only.
-  std::vector<int> iterationFollowEarlier;
+  std::vector<std::int32_t> iterationFollowEarlier;
 
   /// Requested width of one time slice [ps]. The actual width is rounded up
   /// to whole grid blocks, and zero means one slice over the timeframe.
   std::int64_t sliceWidthPS = 10'000'000;
 
   /// Maximum CPU workers; zero uses TBB's default.
-  int threads = 0;
+  std::int32_t threads = 0;
 
   /// The host tracker's memory [GB]: a stage that would hold more fails with
   /// kOutOfMemory, and the timeframe's tracking with it, instead of growing.
@@ -232,7 +231,7 @@ struct RecoSettings {
 };
 
 /// Detector \a N's parameter name: `GTRKReco<DET>`, ITS3's `GTRKRecoITS3`.
-[[nodiscard]] constexpr std::string_view recoParamName(int n)
+[[nodiscard]] constexpr std::string_view recoParamName(std::int32_t n)
 {
 #ifdef ENABLE_UPGRADES
   if (n == o2::detectors::DetID::IT3) {
@@ -245,14 +244,14 @@ struct RecoSettings {
 /// Detector \a N's settings (`o2::detectors::DetID`): `GTRKReco<DET>`.
 // O2ParamDef deletes the copy constructor and supplies the rest of the
 // boilerplate, so the rule about declaring all five has nothing to act on here.
-template <int N>
+template <std::int32_t N>
 // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions)
 struct RecoParam : public o2::conf::ConfigurableParamPromoter<RecoParam<N>, RecoSettings> {
   static constexpr std::string_view getParamName() { return recoParamName(N); }
-  O2ParamDef(RecoParam, getParamName().data());
+  O2ParamDef(RecoParam, getParamName().data())
 };
 
-template <int N>
+template <std::int32_t N>
 RecoParam<N> RecoParam<N>::sInstance;
 
 /// A detector layout's O2 detector and data origin (DataSpecs.h).
@@ -290,7 +289,7 @@ struct RecoParamOf {
 /// TRKFT3TOF's settings, `GTRKRecoTRKTOF`: TRK's detector with its own keys.
 // NOLINTNEXTLINE(cppcoreguidelines-special-member-functions): as RecoParam's
 struct RecoParamTRKTOF : public o2::conf::ConfigurableParamPromoter<RecoParamTRKTOF, RecoSettings> {
-  O2ParamDef(RecoParamTRKTOF, "GTRKRecoTRKTOF");
+  O2ParamDef(RecoParamTRKTOF, "GTRKRecoTRKTOF")
 };
 
 template <>

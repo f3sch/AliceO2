@@ -128,7 +128,7 @@ struct FollowLaunch {
     tracker_detail::follow(runtime, stream, count, stage);
   }
 
-  void clearBids(std::uint32_t* bids, std::size_t rows) const { runtime.fill(bids, 0U, rows * sizeof(std::uint32_t), stream); }
+  void clearBids(std::uint32_t* bids, std::uint32_t rows) const { runtime.fill(bids, 0U, std::size_t{rows} * sizeof(std::uint32_t), stream); }
 };
 
 /// Whether a source has a query (`TrackletStage::hasQuery`), for the
@@ -235,13 +235,13 @@ struct LowerBounds {
 /// A track index as columns: the candidates of the next iteration's overlap
 /// partners the follow of earlier tracks changed.
 struct TrackIndexColumns {
-  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   template <template <class> class C>
   struct RecordT {
     MEMLAYOUT_APPLY(RecordT, track)
     C<std::uint32_t> track;
   };
-  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 /// The iteration's own tracks' global indices: \a earlier on.
@@ -454,7 +454,7 @@ struct FlatTracklets {
   struct FillState {
     bool stored = false;
     std::uint32_t query = 0U;
-    std::size_t lastLink = 0U;
+    std::uint32_t lastLink = 0U;
   };
   Stage stage;
   std::uint32_t queriesPerSource = 1U; ///< the most out-links of a layer
@@ -519,7 +519,7 @@ struct FlatTracklets {
   }
   GPUdi() void keep(std::uint32_t slot, std::uint32_t query, const QueryContext& context, const SecondRange* intervals) const
   {
-    Query& out = queries[(std::size_t{slot} * queriesPerSource) + query];
+    Query& out = queries[(slot * queriesPerSource) + query];
     out.context = context;
     out.hasIntervals = intervals != nullptr;
     if (intervals != nullptr) {
@@ -532,7 +532,7 @@ struct FlatTracklets {
   [[nodiscard]] GPUdi() bool test(std::uint32_t, const flat::CandidatePair& pair) const
   {
     const Source& source = sources[pair.key >> kQueryBits];
-    const Query& query = queries[(std::size_t{pair.key >> kQueryBits} * queriesPerSource) + (pair.key & ((1U << kQueryBits) - 1U))];
+    const Query& query = queries[((pair.key >> kQueryBits) * queriesPerSource) + (pair.key & ((1U << kQueryBits) - 1U))];
     const MeasurementView columns = stage.columns();
     const PairPoint target = pairPointAt(columns, pair.row);
     return stage.testCandidate(source.context, source.vertices, source.between, query.context, query.hasIntervals ? query.intervals : nullptr, columns, pair.row, target);
@@ -540,7 +540,7 @@ struct FlatTracklets {
   [[nodiscard]] GPUdi() Tracklet emit(std::uint32_t, const flat::CandidatePair& pair, std::uint32_t) const
   {
     const Source& source = sources[pair.key >> kQueryBits];
-    const Query& query = queries[(std::size_t{pair.key >> kQueryBits} * queriesPerSource) + (pair.key & ((1U << kQueryBits) - 1U))];
+    const Query& query = queries[((pair.key >> kQueryBits) * queriesPerSource) + (pair.key & ((1U << kQueryBits) - 1U))];
     const PairPoint target = pairPointAt(stage.columns(), pair.row);
     return stage.record(source.context.at.row, pair.row, query.context.linkIndex, source.context.point, target);
   }
@@ -625,14 +625,14 @@ struct FlatTriplets {
 /// road's rows and their count.
 template <std::size_t K>
 struct CapturedRoadOf {
-  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   template <template <class> class C>
   struct RecordT {
     MEMLAYOUT_APPLY(RecordT, rows, count)
     C<ClusterList<K>> rows;
     C<std::uint8_t> count;
   };
-  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 /// One road of a slice captured into \a roads, by its index.
@@ -900,9 +900,9 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   using Report = typename DeviceTracker<Det>::SliceReport;
   using Frame = TimeFrame<Det>;
   using Index = std::uint32_t;
-  static constexpr std::size_t kLayerCount = LayerRowMap<Det>::kLayerCount;
-  static constexpr std::size_t kInitialStaging = std::size_t{1} << 20U;
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kLayerCount = LayerRowMap<Det>::kLayerCount;
+  static constexpr std::uint32_t kInitialStaging = std::uint32_t{1} << 20U;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   using Records = DeviceStageOutput<SelectionRecordOf<kMaxClusters>::template RecordT>;
   using CapturedRoads = DeviceColumns<tracker_detail::CapturedRoadOf<kMaxClusters>::template RecordT>;
   using IterationReport = typename DeviceTracker<Det>::IterationReport;
@@ -922,7 +922,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       mPartnerStage(runtime, mArena, mStream),
       mJoinStage(runtime, mArena, mStream),
       mInactiveStage(runtime, mArena, mStream),
-      mRoadBatch(static_cast<std::size_t>(runtime.properties().residentThreads))
+      mRoadBatch(static_cast<std::uint32_t>(runtime.properties().residentThreads))
   {
     setStagingCapacity(kInitialStaging);
   }
@@ -1006,7 +1006,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     mStream.synchronize(); // the host objects may go once this returns
     mHostParameters.assign(iterations.begin(), iterations.end());
     mPropagator = propagator;
-    mIterationCount = iterations.size();
+    mIterationCount = static_cast<std::uint32_t>(iterations.size());
     mConfigured = true;
     return StageStatus::kComplete;
   }
@@ -1020,7 +1020,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     mStream.synchronize();
     closeFrom(Scope::kTimeframe);
     mTimeframeScope.emplace(mArena.scope());
-    const std::size_t rows = frame.size();
+    const Index rows = frame.size();
     const auto offsets = frame.grid().offsets();
     if (!mColumns.allocate(mArena, rows) || !mOffsets.allocate(mArena, offsets.size()) || !mUsed.allocate(mArena, rows) || !mFrame.allocate(mArena) || (frame.shapes() != nullptr && !mShapes.allocate(mArena)) || !uploadPlan(plan)) {
       closeFrom(Scope::kTimeframe);
@@ -1049,17 +1049,17 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     return StageStatus::kComplete;
   }
 
-  void setFlatChunkPairs(std::size_t pairs) final { mFlatOptions.maxChunkPairs = pairs; }
-  void setRoadBatch(std::size_t roads) final { mRoadBatch = roads; }
+  void setFlatChunkPairs(std::uint32_t pairs) final { mFlatOptions.maxChunkPairs = pairs; }
+  void setRoadBatch(std::uint32_t roads) final { mRoadBatch = roads; }
 
-  void setStagingCapacity(std::size_t records) final
+  void setStagingCapacity(std::uint32_t records) final
   {
     mTrackletStage.prepareStaging(records);
     mNeighbourStage.prepareStaging(records);
     mRecordStage.prepareStaging(records);
   }
 
-  void beginIteration(std::size_t iteration) final
+  void beginIteration(std::uint32_t iteration) final
   {
     requireTimeframe();
     if (mIterationOpen) {
@@ -1079,7 +1079,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     mIterationOpen = true;
   }
 
-  [[nodiscard]] StageStatus runSlice(std::size_t slice, DeviceSliceDownload<Det>* download) final
+  [[nodiscard]] StageStatus runSlice(std::uint32_t slice, DeviceSliceDownload<Det>* download) final
   {
     if (!mIterationOpen) {
       throw std::logic_error("runSlice outside an open iteration");
@@ -1121,7 +1121,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       // base end: the selection's input.
       mIterationScope.emplace(mArena.scope());
       mGathered = {};
-      const std::size_t recordRows = mChunks.rows();
+      const std::uint32_t recordRows = mChunks.rows();
       mIterationReport.records = recordRows;
       if (status == StageStatus::kComplete && !mGathered.allocate(mArena, recordRows)) {
         status = StageStatus::kOutOfMemory;
@@ -1179,10 +1179,10 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     }
     // Per track, the listed ones' partners from `finishPartners`.
     offsets.assign(mTrackChunks.rows() + 1U, 0U);
-    for (std::size_t e = 0; e < mFinishedListed.size(); ++e) {
+    for (std::uint32_t e = 0; e < mFinishedListed.size(); ++e) {
       offsets[mFinishedListed[e] + 1U] = mFinishedOffsets[e + 1U] - mFinishedOffsets[e];
     }
-    for (std::size_t track = 0; track < mTrackChunks.rows(); ++track) {
+    for (std::uint32_t track = 0; track < mTrackChunks.rows(); ++track) {
       offsets[track + 1U] += offsets[track];
     }
     partners = mFinishedPartners;
@@ -1197,12 +1197,12 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     if constexpr (overlapLayers<Det> == 0U) {
       return StageStatus::kComplete;
     } else {
-      const auto total = static_cast<Index>(mClaimChunks.rows());
+      const auto total = mClaimChunks.rows();
       if (total == 0U) {
         return StageStatus::kComplete;
       }
       auto scratch = mArena.scope(ArenaEnd::kScratch);
-      const auto trackCount = static_cast<Index>(mTrackChunks.rows());
+      const auto trackCount = mTrackChunks.rows();
       // The claims ordered by track, stably: each track's in the order claimed.
       DeviceColumns<PartnerClaimColumns::template RecordT> claims;
       DeviceSpan<Index> order;
@@ -1291,7 +1291,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     if constexpr (Detector<Det>::inactiveLayers == 0U) {
       return StageStatus::kComplete;
     } else {
-      const auto trackCount = static_cast<Index>(mTrackChunks.rows());
+      const auto trackCount = mTrackChunks.rows();
       if (trackCount == 0U) {
         return StageStatus::kComplete;
       }
@@ -1318,7 +1318,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
         return StageStatus::kOutOfMemory;
       }
       if (freeCount == 0U) {
-        mRuntime->fill(begin.data(), Index{0U}, std::size_t{kSensors} + 1U, mStream);
+        mRuntime->fill(begin.data(), std::uint8_t{0U}, (std::size_t{kSensors} + 1U) * sizeof(Index), mStream);
       } else {
         algorithms::forEach(*mRuntime, mStream, freeCount, tracker_detail::SensorTimeKeys<Det>{.frame = std::as_const(mFrame).data(), .listed = std::as_const(freeRows).data(), .keys = keys.data()});
         status = algorithms::sortPairs(*mRuntime, mArena, mStream, std::as_const(keys).data(), sortedKeys.data(), std::as_const(freeRows).data(), sortedRows.data(), freeCount, 64);
@@ -1389,7 +1389,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     }
   }
 
-  [[nodiscard]] StageStatus findVertices(std::size_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result) final
+  [[nodiscard]] StageStatus findVertices(std::uint32_t pass, const VertexerSettings& settings, const VertexConstraint& beamSpot, VertexerResult& result) final
   {
     requireNoIteration("findVertices");
     if (pass >= mIterationCount) {
@@ -1400,7 +1400,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     result = {};
     const auto& slices = mPlan->slices;
     StageStatus status = StageStatus::kComplete;
-    for (std::size_t slice = 0; slice < slices.size() && status == StageStatus::kComplete; ++slice) {
+    for (std::uint32_t slice = 0; slice < slices.size() && status == StageStatus::kComplete; ++slice) {
       openSlice();
       DeviceStageOutput<TrackletT> tracklets;
       DeviceSpan<Index> permutation;
@@ -1408,7 +1408,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       status = tripletStages(pass, slice, tracklets, permutation, triplets);
       VertexerResult found;
       if (status == StageStatus::kComplete) {
-        status = vertex_glue::findVertices<Det>(*mRuntime, mArena, mStream, std::as_const(mColumns).view(), static_cast<Index>(mRows), constView(tracklets), constView(triplets), triplets.size(), mParameters.data() + pass, settings, beamSpot, ownedFrames(mHostFrame->grid().geometry(), slices[slice].slice.coreBlocks), found);
+        status = vertex_glue::findVertices<Det>(*mRuntime, mArena, mStream, std::as_const(mColumns).view(), mRows, constView(tracklets), constView(triplets), triplets.size(), mParameters.data() + pass, settings, beamSpot, ownedFrames(mHostFrame->grid().geometry(), slices[slice].slice.coreBlocks), found);
       }
       // A complete vertexer has synchronised after its last readback.
       if (status != StageStatus::kComplete) {
@@ -1448,7 +1448,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   [[nodiscard]] const IterationReport& lastIteration() const final { return mIterationReport; }
 
   [[nodiscard]] const Report& lastSlice() const final { return mReport; }
-  [[nodiscard]] std::size_t iterationCount() const final { return mIterationCount; }
+  [[nodiscard]] std::uint32_t iterationCount() const final { return mIterationCount; }
   [[nodiscard]] std::size_t arenaBytes() const final { return mArena.capacity(); }
   [[nodiscard]] std::size_t arenaUsedBytes(ArenaEnd end) const final { return mArena.used(end); }
   [[nodiscard]] std::size_t arenaPeakBytes() const final { return mArena.peak(); }
@@ -1477,7 +1477,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     }
     const bool startMasks = std::ranges::any_of(mHostParameters, [](const IterationParameters<Det>& one) { return one.roadStartLayers != 0U; });
     if (startMasks) {
-      for (std::size_t iteration = 0U; iteration < plan.parameters.size(); ++iteration) {
+      for (std::uint32_t iteration = 0U; iteration < plan.parameters.size(); ++iteration) {
         for (const auto& slice : plan.slices) {
           const auto masked = roadCores(std::span<const MeasurementRange, kLayerCount>{slice.slice.core}, mHostParameters[iteration].roadStartLayers);
           maskedCores.insert(maskedCores.end(), masked.begin(), masked.end());
@@ -1550,7 +1550,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   /// and all the vertexing pass runs, into \a tracklets and \a triplets in
   /// the slice scope, with the triplet stage's first-tracklet order in
   /// \a permutation, with iteration \a iteration's parameters.
-  StageStatus tripletStages(std::size_t iteration, std::size_t sliceIndex, DeviceStageOutput<TrackletT>& tracklets, DeviceSpan<Index>& permutation, DeviceStageOutput<TripletT>& triplets)
+  StageStatus tripletStages(std::uint32_t iteration, std::uint32_t sliceIndex, DeviceStageOutput<TrackletT>& tracklets, DeviceSpan<Index>& permutation, DeviceStageOutput<TripletT>& triplets)
   {
     const IterationParameters<Det>* parameters = mParameters.data() + iteration;
     const IterationParameters<Det>& hostParameters = mHostParameters[iteration];
@@ -1594,7 +1594,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
                                                              }
                                                              // The flat run: the sources' candidates listed, tested one a thread.
                                                              std::uint32_t queriesPerSource = 1U;
-                                                             for (std::size_t layer = 0; layer < kLayerCount; ++layer) {
+                                                             for (std::uint32_t layer = 0; layer < kLayerCount; ++layer) {
                                                                queriesPerSource = std::max(queriesPerSource, hostParameters.outLinkOffsets[layer + 1U] - hostParameters.outLinkOffsets[layer]);
                                                              }
                                                              if (queriesPerSource > (1U << tracker_detail::FlatTracklets<decltype(bound)>::kQueryBits)) {
@@ -1652,7 +1652,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     return StageStatus::kComplete;
   }
 
-  StageStatus runStages(std::size_t iteration, std::size_t sliceIndex, DeviceSliceDownload<Det>* download)
+  StageStatus runStages(std::uint32_t iteration, std::uint32_t sliceIndex, DeviceSliceDownload<Det>* download)
   {
     const IterationParameters<Det>* parameters = mParameters.data() + iteration;
     const IterationParameters<Det>& hostParameters = mHostParameters[iteration];
@@ -1794,20 +1794,17 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       }
       // The order the roads are fitted in (`RoadOrderKey`); the records are
       // placed by road whatever the order.
-      const std::size_t count = roads.size();
+      const Index count = roads.size();
       DeviceSpan<std::uint64_t> keys;
       DeviceSpan<std::uint64_t> sortedKeys;
       DeviceSpan<std::uint32_t> indices;
       DeviceSpan<std::uint32_t> order;
-      if (status == StageStatus::kComplete && count > std::size_t{std::numeric_limits<Index>::max()}) {
-        status = StageStatus::kIndexOverflow;
-      }
       if (status == StageStatus::kComplete && (!keys.allocate(mArena, count, ArenaEnd::kScratch) || !sortedKeys.allocate(mArena, count, ArenaEnd::kScratch) || !indices.allocate(mArena, count, ArenaEnd::kScratch) || !order.allocate(mArena, count, ArenaEnd::kScratch))) {
         status = StageStatus::kOutOfMemory;
       }
       if (status == StageStatus::kComplete) {
-        algorithms::forEach(*mRuntime, mStream, static_cast<std::uint32_t>(count), tracker_detail::RoadOrderKey<Det, kMaxClusters>{mGeometry.data(), mFrame.data(), std::as_const(roads).view(), keys.data(), indices.data()});
-        status = algorithms::sortPairs(*mRuntime, mArena, mStream, std::as_const(keys).data(), sortedKeys.data(), std::as_const(indices).data(), order.data(), static_cast<std::uint32_t>(count), 64);
+        algorithms::forEach(*mRuntime, mStream, count, tracker_detail::RoadOrderKey<Det, kMaxClusters>{mGeometry.data(), mFrame.data(), std::as_const(roads).view(), keys.data(), indices.data()});
+        status = algorithms::sortPairs(*mRuntime, mArena, mStream, std::as_const(keys).data(), sortedKeys.data(), std::as_const(indices).data(), order.data(), count, 64);
       }
       if (status == StageStatus::kComplete) {
         status = fitRoads(roads, order.data(), records);
@@ -1830,7 +1827,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   /// the roads in \a order.
   [[nodiscard]] StageStatus fitRoads(const CapturedRoads& roads, const Index* order, Records& records)
   {
-    if (!records.prepare(mArena, static_cast<Index>(roads.size()))) {
+    if (!records.prepare(mArena, roads.size())) {
       return StageStatus::kOutOfMemory;
     }
     const IterationParameters<Det>* parameters = mParameters.data() + mIteration;
@@ -1842,7 +1839,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     const auto run = [&]<bool BeamLine, bool LastStepAllowance, bool Size>() {
       using Fit = RoadRowsFit<Det, BeamLine, LastStepAllowance, Size>;
       const tracker_detail::CapturedRoadFit<Fit, kMaxClusters> fit{.fit = Fit{parameters, mFrame.data(), mGeometry.data(), mPropagator}, .roads = std::as_const(roads).view()};
-      return mRecordStage.run(records, fit, order, static_cast<Index>(roads.size()));
+      return mRecordStage.run(records, fit, order, roads.size());
     };
     const StageStatus status = withBools([&]<bool BeamLine, bool LastStepAllowance, bool Size>(std::bool_constant<BeamLine>, std::bool_constant<LastStepAllowance>, std::bool_constant<Size>) { return run.template operator()<BeamLine, LastStepAllowance, Size>(); }, hostParameters.beamConstraint, takesLastStepAllowance(hostParameters), hostParameters.roadSize);
     mIterationReport.readbacks += mRecordStage.stagingPredictionMissed() ? 2U : 1U;
@@ -1856,9 +1853,9 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   /// before the commit leaves the used mask and the tracks as they were.
   [[nodiscard]] StageStatus endStages(DeviceIterationDownload<Det>* download)
   {
-    const Index rows = static_cast<Index>(mRows);
+    const Index rows = mRows;
     const auto records = std::as_const(mGathered).view();
-    const auto recordCount = static_cast<Index>(mGathered.size());
+    const auto recordCount = mGathered.size();
     const IterationParameters<Det>& hostParameters = mHostParameters[mIteration];
     const IterationParameters<Det>* parameters = mParameters.data() + mIteration;
     auto& report = mIterationReport;
@@ -1939,13 +1936,13 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     // earlier tracks it changes go back into their chunks as the last step,
     // after every fallible one.
     DeviceColumns<TrackRecord::template RecordT> gathered;
-    const auto earlier = static_cast<Index>(mTrackChunks.rows());
-    const std::size_t earlierChunks = mTrackChunks.chunks().size();
+    const auto earlier = mTrackChunks.rows();
+    const auto earlierChunks = static_cast<std::uint32_t>(mTrackChunks.chunks().size());
     const bool joins = earlier != 0U && keptCount != 0U;
     DeviceSpan<Index> changed;
     Index joinedCount = 0U;
     if (joins) {
-      if (!gathered.allocate(mArena, std::size_t{earlier} + keptCount)) {
+      if (!gathered.allocate(mArena, earlier + keptCount)) {
         return StageStatus::kOutOfMemory;
       }
       mTrackChunks.gather(gathered, 0U, mStream);
@@ -2048,7 +2045,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     if (gathered != nullptr) {
       all = *gathered;
     } else if (earlier != 0U) {
-      if (!all.allocate(mArena, std::size_t{earlier} + count)) {
+      if (!all.allocate(mArena, earlier + count)) {
         return StageStatus::kOutOfMemory;
       }
       mTrackChunks.gather(all, 0U, mStream);
@@ -2069,7 +2066,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       mRuntime->copyOnDevice(listed.view().track + carried, changed.data(), std::size_t{joined} * sizeof(Index), mStream);
     }
     algorithms::forEach(*mRuntime, mStream, count, tracker_detail::OwnTracks{earlier, listed.view().track + carried + joined});
-    const int trackBits = algorithms::keyBits(earlier + count);
+    const std::int32_t trackBits = algorithms::keyBits(earlier + count);
     auto status = algorithms::sortKeys(*mRuntime, mArena, mStream, std::as_const(listed).view().track, sortedListed.data(), listedCount, trackBits);
     if (status != StageStatus::kComplete) {
       return status;
@@ -2118,7 +2115,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     if (!proposals.prepare(mArena, n)) {
       return StageStatus::kOutOfMemory;
     }
-    mPartnerStage.prepareStaging(std::max<std::size_t>(mPartnerStage.stagingCapacity(), n));
+    mPartnerStage.prepareStaging(std::max(mPartnerStage.stagingCapacity(), n));
     const ProposePartners<Det> propose{.parameters = mParameters.data() + mIteration, .frame = mFrame.data(), .geometry = mGeometry.data(), .propagator = mPropagator, .cells = mSensorCells, .tracks = std::as_const(all).view(), .candidates = std::as_const(candidates).data(), .heldBegin = std::as_const(heldBegin).data(), .heldEnd = std::as_const(heldEnd).data(), .heldRows = std::as_const(heldRows).data(), .used = std::as_const(working).data(), .maxWidthPS = std::as_const(mLayerMaxWidthPS).data(), .measurementVariance = std::as_const(mLayerMaxLocVariance).data(), .footprints = std::as_const(mCellFootprints).data()};
     status = runStage(mPartnerStage, proposals, propose);
     if (status != StageStatus::kComplete) {
@@ -2169,7 +2166,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     }
     algorithms::forEach(*mRuntime, mStream, n + 1U, tracker_detail::ZeroCounts{entryCounts.data()});
     algorithms::forEach(*mRuntime, mStream, n, tracker_detail::EntryCounts{std::as_const(winnerOffsets).data(), std::as_const(heldBegin).data(), std::as_const(heldEnd).data(), entryCounts.data()});
-    status = algorithms::exclusiveScan(*mRuntime, mArena, mStream, std::as_const(entryCounts).data(), entryOffsets.data(), std::size_t{n} + 1U);
+    status = algorithms::exclusiveScan(*mRuntime, mArena, mStream, std::as_const(entryCounts).data(), entryOffsets.data(), n + 1U);
     if (status != StageStatus::kComplete) {
       return status;
     }
@@ -2203,7 +2200,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     }
     algorithms::forEach(*mRuntime, mStream, n + 1U, tracker_detail::ZeroCounts{claimCounts.data()});
     algorithms::forEach(*mRuntime, mStream, n, tracker_detail::ClaimCounts{std::as_const(winnerOffsets).data(), std::as_const(kept).data(), claimCounts.data()});
-    status = algorithms::exclusiveScan(*mRuntime, mArena, mStream, std::as_const(claimCounts).data(), claimOffsets.data(), std::size_t{n} + 1U);
+    status = algorithms::exclusiveScan(*mRuntime, mArena, mStream, std::as_const(claimCounts).data(), claimOffsets.data(), n + 1U);
     if (status != StageStatus::kComplete) {
       return status;
     }
@@ -2252,7 +2249,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       return StageStatus::kOutOfMemory;
     }
     algorithms::forEach(*mRuntime, mStream, ends, tracker_detail::EndRows<kMaxClusters>{constView.clusters, constView.count, std::as_const(listed).data(), endRows.data(), startRows.data()});
-    const int rowBits = algorithms::keyBits(static_cast<std::uint32_t>(mRows));
+    const std::int32_t rowBits = algorithms::keyBits(mRows);
     for (const bool outermost : {true, false}) {
       status = algorithms::sortPairs(*mRuntime, mArena, mStream, std::as_const(outermost ? endRows : startRows).data(), (outermost ? sortedEndRows : sortedStartRows).data(), std::as_const(listed).data(), (outermost ? sortedEndTracks : sortedStartTracks).data(), ends, rowBits);
       if (status != StageStatus::kComplete) {
@@ -2265,7 +2262,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     if (!pairs.prepare(mArena, count) || !choices.allocate(mArena, count)) {
       return StageStatus::kOutOfMemory;
     }
-    mJoinStage.prepareStaging(std::max<std::size_t>(mJoinStage.stagingCapacity(), count));
+    mJoinStage.prepareStaging(std::max(mJoinStage.stagingCapacity(), count));
     status = mJoinStage.run(pairs, join::Find<Det, View>{.parameters = std::as_const(mParameters).data(), .frame = std::as_const(mFrame).data(), .geometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = all.view(), .trackOffset = earlier, .endRows = std::as_const(sortedEndRows).data(), .endTracks = std::as_const(sortedEndTracks).data(), .startRows = std::as_const(sortedStartRows).data(), .startTracks = std::as_const(sortedStartTracks).data(), .endCount = ends, .maxCandidateWidthPS = std::as_const(mLayerMaxWidthPS).data()});
     report.readbacks += mJoinStage.stagingPredictionMissed() ? 2U : 1U;
     if (status != StageStatus::kComplete) {
@@ -2373,7 +2370,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       algorithms::forEach(*mRuntime, mStream, ownCount, tracker_detail::Sequence{own, candidates.data() + changedCount});
     }
     // Each candidate's rows, their fits, its row of the least rise.
-    mInactiveStage.prepareStaging(std::max<std::size_t>(mInactiveStage.stagingCapacity(), count));
+    mInactiveStage.prepareStaging(std::max(mInactiveStage.stagingCapacity(), count));
     auto status = mInactiveStage.run(found, inactive::Find<Det, View>{.iteration = parameters, .timeFrame = std::as_const(mFrame).data(), .trackingGeometry = std::as_const(mGeometry).data(), .propagator = mPropagator, .tracks = view, .candidates = std::as_const(candidates).data(), .used = std::as_const(working).data(), .maxCandidateWidthPS = std::as_const(mLayerMaxWidthPS).data(), .cells = mSensorCells});
     report.readbacks += mInactiveStage.stagingPredictionMissed() ? 2U : 1U;
     if (status != StageStatus::kComplete || found.size() == 0U) {
@@ -2426,10 +2423,10 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   /// with \a working as the used mask, its bids in \a slots (one per row,
   /// \a rows): the host's `Follow::run` with `earlier`. The tracks, updated,
   /// replace the chunks as one.
-  [[nodiscard]] StageStatus followEarlier(std::size_t successor, const DeviceColumns<TrackRecord::template RecordT>& tracks, Index trackCount, DeviceSpan<std::uint8_t>& working, DeviceSpan<Index>& slots, Index rows, const DeviceColumns<TrackRecord::template RecordT>* gathered)
+  [[nodiscard]] StageStatus followEarlier(std::uint32_t successor, const DeviceColumns<TrackRecord::template RecordT>& tracks, Index trackCount, DeviceSpan<std::uint8_t>& working, DeviceSpan<Index>& slots, Index rows, const DeviceColumns<TrackRecord::template RecordT>* gathered)
   {
     const IterationParameters<Det>& host = mHostParameters[successor];
-    const auto earlier = static_cast<Index>(mTrackChunks.rows());
+    const auto earlier = mTrackChunks.rows();
     const Index total = earlier + trackCount;
     DeviceColumns<TrackRecord::template RecordT> all;
     DeviceSpan<Proposal> proposals;
@@ -2479,12 +2476,12 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   /// layer's first entry kept, for the timeframe.
   [[nodiscard]] StageStatus buildOccupancy(Index rows)
   {
-    constexpr auto kLayers = static_cast<Index>(kLayerCount);
+    constexpr Index kLayers = kLayerCount;
     if (!mOccupancyOffsets.allocate(mArena, std::size_t{kLayers} + 1U) || !mOccupancyLower.allocate(mArena, std::max<std::size_t>(rows, 1U)) || !mOccupancyUpper.allocate(mArena, std::max<std::size_t>(rows, 1U))) {
       return StageStatus::kOutOfMemory;
     }
     if (rows == 0U) {
-      mRuntime->fill(mOccupancyOffsets.data(), Index{0U}, std::size_t{kLayers} + 1U, mStream);
+      mRuntime->fill(mOccupancyOffsets.data(), std::uint8_t{0U}, (std::size_t{kLayers} + 1U) * sizeof(Index), mStream);
       return StageStatus::kComplete;
     }
     auto scratch = mArena.scope(ArenaEnd::kScratch);
@@ -2515,7 +2512,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   /// \a settled, the combined rows into \a followRows and \a followCounts, the
   /// bids in \a slots (one per row, \a rows of them), the marks in
   /// \a working.
-  void runFollow(std::size_t iteration, DeviceColumns<TrackRecord::template RecordT>& tracks, Index count, bool earlier, Proposal* settled, DeviceSpan<ClusterList<kMaxClusters>>& followRows, DeviceSpan<std::uint8_t>& followCounts, DeviceSpan<Index>& slots, Index rows, DeviceSpan<std::uint8_t>& working)
+  void runFollow(std::uint32_t iteration, DeviceColumns<TrackRecord::template RecordT>& tracks, Index count, bool earlier, Proposal* settled, DeviceSpan<ClusterList<kMaxClusters>>& followRows, DeviceSpan<std::uint8_t>& followCounts, DeviceSpan<Index>& slots, Index rows, DeviceSpan<std::uint8_t>& working)
   {
     const IterationParameters<Det>& host = mHostParameters[iteration];
     follow::runSequence(tracker_detail::FollowLaunch{.runtime = *mRuntime, .stream = mStream}, follow::Inputs<Det>{
@@ -2650,7 +2647,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   GpuStage<join::PairCandidate::template RecordT> mJoinStage;
   GpuStage<inactive::RowCandidate::template RecordT> mInactiveStage;
   DeviceColumnChunks<tracker_detail::CapturedRoadOf<kMaxClusters>::template RecordT> mRoadChunks; ///< the open batch's roads, a chunk per slice
-  std::size_t mRoadBatch = 0U;                                                                    ///< the roads that fill the device: a batch's fit is due at them
+  std::uint32_t mRoadBatch = 0U;                                                                  ///< the roads that fill the device: a batch's fit is due at them
   DeviceColumnChunks<SelectionRecordOf<kMaxClusters>::template RecordT> mChunks;
   DeviceColumns<SelectionRecordOf<kMaxClusters>::template RecordT> mGathered;
   DeviceColumnChunks<TrackRecord::template RecordT> mTrackChunks;
@@ -2682,7 +2679,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   std::optional<SensorCells<Det>> mHostCells;
   std::array<std::byte, sizeof(TrackingGeometry<Det>)> mHostCellsGeometry{};
   Propagator mPropagator;
-  std::size_t mIterationCount = 0U;
+  std::uint32_t mIterationCount = 0U;
   bool mConfigured = false;
   bool mFollows = false;          ///< whether an iteration follows: the timeframe's layers' rows in time then
   DeviceSpan<Scalar> mLayerArea;  ///< each layer's sensors' area, the run's
@@ -2697,7 +2694,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   DeviceSpan<Index> mOccupancyOffsets;    ///< the layers' rows in time (`buildOccupancy`), the timeframe's
   DeviceSpan<Index> mOccupancyLower;
   DeviceSpan<Index> mOccupancyUpper;
-  std::size_t mRows = 0U;
+  std::uint32_t mRows = 0U;
   const Frame* mHostFrame = nullptr;
   const TimeframePlan<Det>* mPlan = nullptr;
   DeviceSpan<LayerRowMap<Det>> mSliceSources;
@@ -2715,7 +2712,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   std::optional<ArenaScope> mBatchScope; ///< the open batch's roads, inside the chunks
   std::optional<ArenaScope> mIterationScope;
   std::optional<ArenaScope> mSliceScope;
-  std::size_t mIteration = 0U;
+  std::uint32_t mIteration = 0U;
   StageStatus mIterationStatus = StageStatus::kComplete;
   bool mIterationOpen = false;
 };

@@ -33,6 +33,7 @@
 #include "GenericTracking/Base/Sensor.h"
 
 #include <array>
+#include <cstdint>
 #include <limits>
 #include <span>
 #include <stdexcept>
@@ -78,10 +79,10 @@ struct SensorExtent {
 /// up and the position to the nearest; 0 leaves the values exact. Throws
 /// std::runtime_error for a sensor beyond the layers, a layer without one or a
 /// curved sensor whose axis is not the beam's.
-[[nodiscard]] std::vector<LayerEnvelope> measureEnvelopes(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers, double resolution = 0.);
+[[nodiscard]] std::vector<LayerEnvelope> measureEnvelopes(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::int32_t nBarrelLayers, double resolution = 0.);
 
 /// One line per layer, for a log; layers numbered barrel first.
-[[nodiscard]] std::string describeEnvelopes(std::span<const LayerEnvelope> envelopes, int nBarrelLayers);
+[[nodiscard]] std::string describeEnvelopes(std::span<const LayerEnvelope> envelopes, std::int32_t nBarrelLayers);
 
 /// One entry per layer of the layout \a Det loaded in this process: its
 /// envelope (`PlacedEnvelopes`) or its sensor shape (`PlacedSensorSpecs`).
@@ -100,7 +101,7 @@ class PlacedLayers
     if (entries.size() != sTable.size()) {
       throw std::invalid_argument(std::string{Det::name} + ": " + std::to_string(entries.size()) + " placed layers for " + std::to_string(sTable.size()));
     }
-    for (std::size_t layer = 0; layer < sTable.size(); ++layer) {
+    for (std::uint32_t layer = 0; layer < sTable.size(); ++layer) {
       sTable[layer] = entries[layer];
     }
     sPublished = true;
@@ -149,7 +150,7 @@ struct LayerBand {
 };
 
 /// One line per layer, for a log; layers numbered barrel first.
-[[nodiscard]] std::string describeBands(std::span<const LayerBand> bands, int nBarrelLayers);
+[[nodiscard]] std::string describeBands(std::span<const LayerBand> bands, std::int32_t nBarrelLayers);
 
 } // namespace o2::gtrk
 

@@ -66,20 +66,23 @@ using Host = Tracker<Det>;
 /// Twelve tracks on the sensors over 1.1 us, the even ones stiff (2 to 3
 /// GeV), the odd ones soft (0.4 to 0.7 GeV): the first iteration takes the
 /// stiff ones, and the second, down to 0.3 GeV, works around their rows.
-constexpr std::size_t kTracks = 12U;
+constexpr std::uint32_t kTracks = 12U;
 constexpr double kDurationNS = 1100.;
 
 /// The layers from which the soft tracks get twins (`hits`).
 constexpr LayerID kFirstTwinLayer = 5;
 
 /// With \a twins, a second hit 5 um beside each soft track's on the layers
-/// from `kFirstTwinLayer` out, on the same sensor and at the same time: two
-/// rows for the follow to choose between (its lookahead), where an iteration
-/// whose links stop below those layers leaves them to it.
+/// from `kFirstTwinLayer` out but the outermost, on the same sensor and at the
+/// same time: two rows for the follow to choose between (its lookahead), where
+/// an iteration whose links stop below those layers leaves them to it. The
+/// outermost row stays single: the follow's trim drops an ambiguous last row
+/// (`follow::TrimAmbiguous`), then the next one inward while that is ambiguous
+/// too, so twins out to the last layer would leave no row added.
 std::vector<Hit> hits(bool twins = false)
 {
   std::vector<Hit> result;
-  for (std::size_t track = 0; track < kTracks; ++track) {
+  for (std::uint32_t track = 0; track < kTracks; ++track) {
     const auto k = static_cast<double>(track);
     const bool stiff = track % 2U == 0U;
     const double pt = stiff ? 2. + (0.2 * static_cast<double>(track % 5U)) : 0.4 + (0.06 * static_cast<double>(track % 5U));
@@ -89,7 +92,7 @@ std::vector<Hit> hits(bool twins = false)
       continue;
     }
     for (const auto& hit : one) {
-      if (hit.point.layer < kFirstTwinLayer) {
+      if (hit.point.layer < kFirstTwinLayer || hit.point.layer + 1 == Detector<Det>::nLayers) {
         continue;
       }
       Hit twin = hit;
@@ -120,8 +123,8 @@ std::vector<VertexSeed> trackVertices()
 {
   std::vector<VertexSeed> vertices;
   vertices.reserve(kTracks);
-  for (std::size_t track = 0; track < kTracks; ++track) {
-    const auto timePS = static_cast<std::uint32_t>(37'000U + (83'000U * track));
+  for (std::uint32_t track = 0; track < kTracks; ++track) {
+    const std::uint32_t timePS = 37'000U + (83'000U * track);
     vertices.push_back({.timePS = timePS, .widthPS = 0U, .z = 0.F, .varZ = 4.e-4F, .varTransverse = 1.e-6F});
   }
   return vertices;
@@ -143,19 +146,19 @@ bool matchesHost(const StageOutput<S>& host, const StageOutput<S>& device)
 }
 
 struct Totals {
-  std::size_t iterations = 0U;
-  std::size_t slices = 0U;
-  std::size_t tracklets = 0U;
-  std::size_t triplets = 0U;
-  std::size_t neighbours = 0U;
-  std::size_t chained = 0U;
-  std::size_t roads = 0U;
-  std::size_t records = 0U;
-  std::size_t gathered = 0U;
-  std::size_t tracks = 0U;
-  std::size_t rounds = 0U;
-  std::size_t extended = 0U;     ///< tracks the follow added clusters to, on the device
-  std::size_t maskedSlices = 0U; ///< slices that read a used mask with exclusive rows
+  std::uint32_t iterations = 0U;
+  std::uint32_t slices = 0U;
+  std::uint32_t tracklets = 0U;
+  std::uint32_t triplets = 0U;
+  std::uint32_t neighbours = 0U;
+  std::uint32_t chained = 0U;
+  std::uint32_t roads = 0U;
+  std::uint32_t records = 0U;
+  std::uint32_t gathered = 0U;
+  std::uint32_t tracks = 0U;
+  std::uint32_t rounds = 0U;
+  std::uint32_t extended = 0U;     ///< tracks the follow added clusters to, on the device
+  std::uint32_t maskedSlices = 0U; ///< slices that read a used mask with exclusive rows
   bool missed = false;
 };
 
@@ -194,7 +197,7 @@ std::vector<IterationParameters<Det>> parametersOf(const Host& host)
 {
   std::vector<IterationParameters<Det>> parameters;
   parameters.reserve(host.iterationCount());
-  for (std::size_t iteration = 0; iteration < host.iterationCount(); ++iteration) {
+  for (std::uint32_t iteration = 0; iteration < host.iterationCount(); ++iteration) {
     parameters.push_back(host.iteration(iteration));
   }
   return parameters;
@@ -209,15 +212,15 @@ void configure(DeviceTracker<Det>& device, const Host& host) { BOOST_REQUIRE((de
 /// tracks -- rows, count, iteration -- in any order, each with the same time
 /// box: its rows', not the fit's.
 template <typename View>
-bool sameTracks(const View& host, std::size_t hostRows, const View& device, std::size_t deviceRows)
+bool sameTracks(const View& host, std::uint32_t hostRows, const View& device, std::uint32_t deviceRows)
 {
 #ifdef GPUCA_DETERMINISTIC_MODE
   return study::compareColumns<TrackOf<maxChainLayers<Det>>::RecordT>(host, hostRows, device, deviceRows).identical();
 #else
-  const auto rowsOf = [](const View& view, std::size_t rows) {
+  const auto rowsOf = [](const View& view, std::uint32_t rows) {
     std::vector<std::vector<std::uint64_t>> result;
     result.reserve(rows);
-    for (std::size_t i = 0; i < rows; ++i) {
+    for (std::uint32_t i = 0; i < rows; ++i) {
       std::vector<std::uint64_t> track{view.clusters[i].index, view.clusters[i].index + view.count[i]};
       track.push_back(view.iteration[i]);
       track.push_back(view.timePS[i]);
@@ -233,10 +236,10 @@ bool sameTracks(const View& host, std::size_t hostRows, const View& device, std:
   // Check states explicitly: a non-arithmetic memlayout column has no scalar
   // maxAbsDifference in StageComparison, so matching identities is not a
   // numerical check of its parameters and covariance.
-  const auto order = [](const View& view, std::size_t rows) {
-    std::vector<std::pair<std::vector<std::uint32_t>, std::size_t>> sorted;
+  const auto order = [](const View& view, std::uint32_t rows) {
+    std::vector<std::pair<std::vector<std::uint32_t>, std::uint32_t>> sorted;
     sorted.reserve(rows);
-    for (std::size_t i = 0; i < rows; ++i) {
+    for (std::uint32_t i = 0; i < rows; ++i) {
       sorted.emplace_back(std::vector<std::uint32_t>{view.clusters[i].index, view.clusters[i].index + view.count[i]}, i);
     }
     std::ranges::sort(sorted);
@@ -249,7 +252,7 @@ bool sameTracks(const View& host, std::size_t hostRows, const View& device, std:
     if (a.surface != b.surface || std::abs(a.surfacePhi - b.surfacePhi) > tolerance) {
       return false;
     }
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       Scalar delta = a.par[i] - b.par[i];
       if (i == kPhi) {
         o2::math_utils::detail::bringToPMPi<Scalar>(delta);
@@ -293,9 +296,9 @@ bool sameProposals(const Proposals& host, const std::vector<FollowProposal<maxCh
   return std::ranges::equal(host, device, sameProposal);
 #else
   const auto added = [](const auto& proposals) {
-    std::size_t sum = 0U;
+    std::uint32_t sum = 0U;
     for (const auto& proposal : proposals) {
-      sum += std::size_t{proposal.outwardCount} + proposal.inwardCount;
+      sum += std::uint32_t{proposal.outwardCount} + proposal.inwardCount;
     }
     return sum;
   };
@@ -319,8 +322,8 @@ Totals compare(DeviceTracker<Det>& device, const Options& options)
   Totals totals;
   const auto pool = std::make_shared<BoundedMemoryResource>();
   bool open = false;
-  std::size_t openIteration = 0U;
-  std::size_t nextSlice = 0U;
+  std::uint32_t openIteration = 0U;
+  std::uint32_t nextSlice = 0U;
   tracker->setIterationObserver([&](const Host&, const Host::IterationObservation& iteration) {
     BOOST_REQUIRE(open);
     BOOST_TEST(openIteration == iteration.iteration);
@@ -354,7 +357,7 @@ Totals compare(DeviceTracker<Det>& device, const Options& options)
     totals.gathered += onDevice.records.size();
     totals.tracks += onDevice.tracks.size();
     totals.rounds += report.rounds;
-    totals.extended += static_cast<std::size_t>(std::ranges::count_if(onDevice.proposals, [](const auto& proposal) { return proposal.outwardCount + proposal.inwardCount != 0U; }));
+    totals.extended += static_cast<std::uint32_t>(std::ranges::count_if(onDevice.proposals, [](const auto& proposal) { return proposal.outwardCount + proposal.inwardCount != 0U; }));
     ++totals.iterations;
   });
   tracker->setSliceObserver([&](const Host& host, const Host::SliceObservation& slice) {
@@ -556,7 +559,7 @@ BOOST_AUTO_TEST_CASE(ARunAloneGivesTheHostsTracks)
       typename TrackRefit<Det>::Tracks tracks;
       tracks.setMemoryResource(pool.get());
       typename DeviceTracker<Det>::TimeframeReport report;
-      BOOST_REQUIRE((tracker->trackTimeframe(*fixture.frame, plan, plan.parameters.size(), false, tracks, report) == StageStatus::kComplete));
+      BOOST_REQUIRE((tracker->trackTimeframe(*fixture.frame, plan, static_cast<std::uint32_t>(plan.parameters.size()), false, tracks, report) == StageStatus::kComplete));
       tracker->endTimeframe();
       BOOST_TEST(tracks.size() == kTracks);
       BOOST_TEST(sameTracks(host->workingTracks().view(), host->workingTracks().size(), std::as_const(tracks).view(), tracks.size()));
@@ -609,10 +612,10 @@ BOOST_AUTO_TEST_CASE(CallsOutOfOrderAreRefused)
   BOOST_REQUIRE((tracker.beginTimeframe(frame, configured.plan) == StageStatus::kComplete));
   BOOST_CHECK_THROW(static_cast<void>(tracker.runSlice(0U, nullptr)), std::logic_error);
   BOOST_CHECK_THROW(static_cast<void>(tracker.endIteration(nullptr)), std::logic_error);
-  BOOST_CHECK_THROW(tracker.beginIteration(configured.parameters.size()), std::invalid_argument);
+  BOOST_CHECK_THROW(tracker.beginIteration(static_cast<std::uint32_t>(configured.parameters.size())), std::invalid_argument);
   tracker.beginIteration(0U);
   BOOST_CHECK_THROW(tracker.beginIteration(1U), std::logic_error);
-  BOOST_CHECK_THROW(static_cast<void>(tracker.runSlice(configured.plan.slices.size(), nullptr)), std::logic_error);
+  BOOST_CHECK_THROW(static_cast<void>(tracker.runSlice(static_cast<std::uint32_t>(configured.plan.slices.size()), nullptr)), std::logic_error);
   BOOST_CHECK_THROW(tracker.downloadTracks(tracks), std::logic_error);
   BOOST_TEST((tracker.runSlice(0U, nullptr) == StageStatus::kComplete));
   BOOST_TEST((tracker.endIteration(nullptr) == StageStatus::kComplete));
@@ -691,10 +694,10 @@ namespace
 /// -- larger than anything a slice needs.
 std::vector<Hit> hitsWithLonelyRows()
 {
-  constexpr std::size_t kLonely = 30000U;
+  constexpr std::uint32_t kLonely = 30000U;
   auto result = hits();
   result.reserve(result.size() + kLonely);
-  for (std::size_t i = 0; i < kLonely; ++i) {
+  for (std::uint32_t i = 0; i < kLonely; ++i) {
     const auto k = static_cast<double>(i);
     result.push_back({
       .point = helixAt(std::fmod(0.37 * k, kTwoPi<double>), 0.02 * std::sin(k), 5., static_cast<LayerID>(kLayers - 1U)),
@@ -707,23 +710,25 @@ std::vector<Hit> hitsWithLonelyRows()
 } // namespace
 
 /// An iteration whose end the arena refuses -- in the gather, the
-/// selection, the refit's or the extension's storage, the track chunk --
-/// fails and leaves the used mask and the tracks as they were:
-/// nothing kept, and the next iteration
-/// runs on a free mask, as a host run of that iteration alone does.
+/// selection, the refit's storage, the track chunk -- fails and leaves the
+/// used mask and the tracks as they were: nothing kept, and the next
+/// iteration runs on a free mask, as a host run of that iteration alone
+/// does. Without the follow: a run that follows sorts the layers'
+/// occupancy when the timeframe begins, in more scratch than an end takes,
+/// so no arena would begin the timeframe and then refuse an end.
 namespace
 {
 
 /// Two collisions of eight tracks each, 500 ns apart: one vertex each for
 /// the vertexing pass.
-constexpr std::size_t kTracksPerCollision = 8U;
+constexpr std::uint32_t kTracksPerCollision = 8U;
 constexpr Vec2D kCollisionsNS{37., 537.};
 constexpr double kCollisionDurationNS = 600.;
 
 std::vector<Hit> collisionHits()
 {
   std::vector<Hit> result;
-  for (std::size_t track = 0; track < kTracksPerCollision * kCollisionsNS.size(); ++track) {
+  for (std::uint32_t track = 0; track < kTracksPerCollision * kCollisionsNS.size(); ++track) {
     const auto k = static_cast<double>(track);
     const double pt = 0.5 + (0.3 * static_cast<double>(track % kTracksPerCollision));
     const auto one = sensorHelixHits(std::fmod(0.3 + (2.1 * k), kTwoPi<double>), 0.03 * std::cos(1.3 * k), pt, kCollisionsNS[track / kTracksPerCollision]);
@@ -774,7 +779,7 @@ BOOST_AUTO_TEST_CASE(TheVertexerRerunsAFrameWithoutAVertexAsTheHost)
   parameters.push_back(pass.passParameters());
   std::vector<SearchWindowParams> windows;
   windows.reserve(parameters.size());
-  for (std::size_t iteration = 0; iteration < host->iterationCount(); ++iteration) {
+  for (std::uint32_t iteration = 0; iteration < host->iterationCount(); ++iteration) {
     windows.push_back(iterations(VertexSource::kVertexList)[iteration].windows);
   }
   windows.push_back(passSettings().windows);
@@ -824,7 +829,7 @@ BOOST_AUTO_TEST_CASE(TheVertexingPassGivesTheHostsListAndTracks)
   parameters.push_back(pass.passParameters());
   std::vector<SearchWindowParams> windows;
   windows.reserve(parameters.size());
-  for (std::size_t iteration = 0; iteration < host->iterationCount(); ++iteration) {
+  for (std::uint32_t iteration = 0; iteration < host->iterationCount(); ++iteration) {
     windows.push_back(iterations(VertexSource::kVertexList)[iteration].windows);
   }
   windows.push_back(passSettings().windows);
@@ -848,9 +853,9 @@ BOOST_AUTO_TEST_CASE(TheVertexingPassGivesTheHostsListAndTracks)
   // The tracking's plan with the device's list replaces the empty one.
   const auto trackingPlan = planTimeframe<Det>(*fixture.frame, frameBounds(*fixture.frame), parameters, windows, host->beamLine(), found.vertices, 13);
   BOOST_REQUIRE((tracker->replacePlan(trackingPlan) == StageStatus::kComplete));
-  for (std::size_t iteration = 0; iteration < host->iterationCount(); ++iteration) {
+  for (std::uint32_t iteration = 0; iteration < host->iterationCount(); ++iteration) {
     tracker->beginIteration(iteration);
-    for (std::size_t slice = 0; slice < trackingPlan.slices.size(); ++slice) {
+    for (std::uint32_t slice = 0; slice < trackingPlan.slices.size(); ++slice) {
       BOOST_REQUIRE((tracker->runSlice(slice, nullptr) == StageStatus::kComplete));
     }
     BOOST_REQUIRE((tracker->endIteration(nullptr) == StageStatus::kComplete));
@@ -874,26 +879,28 @@ BOOST_AUTO_TEST_CASE(AFailedEndLeavesTheMaskAndTheTracks)
 {
   auto* device = runtime();
   const Fixture fixture{hitsWithLonelyRows(), kDurationNS};
-  const auto host = makeHost({});
+  const auto host = makeHost({.extension = false});
   const auto parameters = parametersOf(*host);
   const auto plan = host->planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, 13);
   const auto pool = std::make_shared<BoundedMemoryResource>();
 
   // The second iteration alone on the host: its mask from a free one.
-  auto alone = std::make_unique<Host>(std::vector<IterationSettings>{iterations(VertexSource::kBeamLine)[1]}, Fixture::kBeamConstraint, trackingGeometry().material(), std::make_shared<BoundedMemoryResource>(), 2U, 2);
+  auto second = iterations(VertexSource::kBeamLine)[1];
+  second.follow = false;
+  auto alone = std::make_unique<Host>(std::vector<IterationSettings>{second}, Fixture::kBeamConstraint, trackingGeometry().material(), std::make_shared<BoundedMemoryResource>(), 2U, 2);
   alone->setTrackModel(trackingGeometry(), Propagator{});
-  std::vector<std::size_t> aloneTracklets;
+  std::vector<std::uint32_t> aloneTracklets;
   alone->setSliceObserver([&](const Host&, const Host::SliceObservation& slice) { aloneTracklets.push_back(slice.result->tracklets->size()); });
   const auto aloneResult = alone->run(*fixture.frame, alone->planTimeframe(*fixture.frame, frameBounds(*fixture.frame), {}, 13));
   BOOST_REQUIRE(aloneResult.status == StageStatus::kComplete);
   const std::vector<std::uint8_t> aloneMask{alone->used().begin(), alone->used().end()};
 
   // What the first iteration's slices need, and what its end needs besides.
-  std::vector<std::size_t> tracklets;
-  const auto runSlices = [&](DeviceTracker<Det>& tracker, std::size_t iteration) {
+  std::vector<std::uint32_t> tracklets;
+  const auto runSlices = [&](DeviceTracker<Det>& tracker, std::uint32_t iteration) {
     tracklets.clear();
     tracker.beginIteration(iteration);
-    for (std::size_t slice = 0; slice < plan.slices.size(); ++slice) {
+    for (std::uint32_t slice = 0; slice < plan.slices.size(); ++slice) {
       if (tracker.runSlice(slice, nullptr) != StageStatus::kComplete) {
         return false;
       }
@@ -921,8 +928,8 @@ BOOST_AUTO_TEST_CASE(AFailedEndLeavesTheMaskAndTheTracks)
   BOOST_REQUIRE(endPeak > slicePeak);
   constexpr std::size_t kAlignment = 256U;
   const std::size_t step = std::max(kAlignment, ((endPeak - slicePeak) / 48U) / kAlignment * kAlignment);
-  std::size_t failedEnds = 0U;
-  std::size_t checkedAfter = 0U;
+  std::uint32_t failedEnds = 0U;
+  std::uint32_t checkedAfter = 0U;
   for (std::size_t bytes = slicePeak; bytes < endPeak; bytes += step) {
     const SliceScope slices;
     const auto tracker = kernels().makeToyBarrel8Tracker(*device, block(bytes));

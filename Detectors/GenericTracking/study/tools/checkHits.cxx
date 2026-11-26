@@ -36,6 +36,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <exception>
 #include <format>
 #include <iostream>
@@ -63,15 +64,15 @@ namespace
 /// the half length in the unrolled frame: the 99.9th percentile and the
 /// largest.
 template <DetectorLayout Det>
-int checkHits(const Geometry<Det>& geometry, study::Chips chips, const std::string& file, const std::string& discFile)
+std::int32_t checkHits(const Geometry<Det>& geometry, study::Chips chips, const std::string& file, const std::string& discFile)
 {
   study::HitFile hits(file, chips, discFile);
-  std::vector<long> total(Detector<Det>::nLayers, 0);
-  std::vector<long> off(Detector<Det>::nLayers, 0);
+  std::vector<std::int64_t> total(Detector<Det>::nLayers, 0);
+  std::vector<std::int64_t> off(Detector<Det>::nLayers, 0);
   std::vector<double> worst(Detector<Det>::nLayers, 0.);
   std::vector<std::vector<float>> across(Detector<Det>::nLayers);
   std::vector<std::vector<float>> along(Detector<Det>::nLayers);
-  for (int event = 0; event < hits.nEvents(); ++event) {
+  for (std::int32_t event = 0; event < hits.nEvents(); ++event) {
     for (const auto& segment : hits.event(event)) {
       const auto& sensor = geometry.sensor(segment.chip);
       const auto& spec = geometry.specOf(segment.chip);
@@ -99,8 +100,8 @@ int checkHits(const Geometry<Det>& geometry, study::Chips chips, const std::stri
     }
     return {quantile(std::span{values}, 0.999), *std::ranges::max_element(values)};
   };
-  int status = 0;
-  for (std::size_t layer = 0; layer < total.size(); ++layer) {
+  std::int32_t status = 0;
+  for (std::uint32_t layer = 0; layer < total.size(); ++layer) {
     const auto [acrossQ, acrossMax] = reach(across[layer]);
     const auto [alongQ, alongMax] = reach(along[layer]);
     std::cout << std::format(
@@ -113,14 +114,14 @@ int checkHits(const Geometry<Det>& geometry, study::Chips chips, const std::stri
 }
 
 template <DetectorLayout Det>
-int runFor(study::Chips chips, const std::string& file, const std::string& discFile)
+std::int32_t runFor(study::Chips chips, const std::string& file, const std::string& discFile)
 {
   const auto placed = workflow::makeGeometry<Det>();
   const Geometry<Det>& geometry = *placed;
   return checkHits(geometry, chips, file, discFile);
 }
 
-int run(int argc, char** argv)
+std::int32_t run(std::int32_t argc, char** argv)
 {
   std::string geometry;
   std::string detector;

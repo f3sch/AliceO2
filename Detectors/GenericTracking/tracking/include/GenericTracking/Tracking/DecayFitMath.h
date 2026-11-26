@@ -25,6 +25,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <span>
 #include <type_traits>
@@ -50,9 +51,14 @@ GPUhdi() void fillN(T* to, std::size_t n, const V& value)
   }
 }
 
+/// `covIndex` and `covSize` for rows, columns and sizes counted in
+/// std::uint32_t.
+[[nodiscard]] GPUhdi() constexpr std::uint32_t packedIndex(std::uint32_t row, std::uint32_t column) { return static_cast<std::uint32_t>(covIndex(static_cast<std::int32_t>(row), static_cast<std::int32_t>(column))); }
+[[nodiscard]] GPUhdi() constexpr std::uint32_t packedSize(std::uint32_t n) { return static_cast<std::uint32_t>(covSize(static_cast<std::int32_t>(n))); }
+
 /// q/p's numerator for a particle of \a charge: |q|, 1 for a neutral one
 /// (its q/p is 1/p).
-[[nodiscard]] GPUhdi() double numeratorOf(double charge) { return charge != 0. ? o2::gpu::CAMath::Abs(charge) : 1.; }
+[[nodiscard]] GPUhdi() double numeratorOf(double charge) { return !exactlyEqual(charge, 0.) ? o2::gpu::CAMath::Abs(charge) : 1.; }
 
 /// A momentum: its vector and its magnitude [GeV].
 template <typename T>
@@ -68,7 +74,7 @@ template <typename T>
 {
   using dual::valueOf;
   using Value = typename dual::ScalarOf<T>::type;
-  const T p = T{static_cast<Value>(valueOf(qOverP) > 0. ? numerator : -numerator)} / qOverP;
+  const T p = T{static_cast<Value>(static_cast<double>(valueOf(qOverP)) > 0. ? numerator : -numerator)} / qOverP;
   const T pt = p * sinOf(theta);
   return {{pt * cosOf(phi), pt * sinOf(phi), p * cosOf(theta)}, p};
 }
@@ -76,19 +82,19 @@ template <typename T>
 /// The momentum of a daughter of \a charge whose phi, theta and q/p are the
 /// inputs \a first, \a first + 1 and \a first + 2 of N, at \a phi, \a theta
 /// and \a qOverP: its derivatives by them.
-template <int N, typename M = double>
-[[nodiscard]] GPUhdi() Momentum<Dual<N, M>> momentumOfInputs(double phi, double theta, double qOverP, int first, double charge)
+template <std::int32_t N, typename M = double>
+[[nodiscard]] GPUhdi() Momentum<Dual<N, M>> momentumOfInputs(double phi, double theta, double qOverP, std::uint32_t first, double charge)
 {
-  return momentumOf(dual::variable<N, M>(phi, first), dual::variable<N, M>(theta, first + 1), dual::variable<N, M>(qOverP, first + 2), numeratorOf(charge));
+  return momentumOf(dual::variable<N, M>(static_cast<M>(phi), first), dual::variable<N, M>(static_cast<M>(theta), first + 1), dual::variable<N, M>(static_cast<M>(qOverP), first + 2), numeratorOf(charge));
 }
 
 /// The vertex \a vertex as dual numbers over N inputs: the parameters'
 /// vertex \a w, its coordinates the inputs 3 w, 3 w + 1, 3 w + 2.
-template <int N, typename M = double>
-[[nodiscard]] GPUhdi() std::array<Dual<N, M>, 3> vertexOfInputs(const Vec3D& vertex, int w)
+template <std::int32_t N, typename M = double>
+[[nodiscard]] GPUhdi() std::array<Dual<N, M>, 3> vertexOfInputs(const Vec3D& vertex, std::uint32_t w)
 {
   std::array<Dual<N, M>, 3> v{};
-  for (int k = 0; k < 3; ++k) {
+  for (std::uint32_t k = 0; k < 3; ++k) {
     v[k].v = static_cast<M>(vertex[k]);
     v[k].d[(3 * w) + k] = M(1.);
   }
@@ -99,7 +105,8 @@ template <int N, typename M = double>
 template <typename T>
 [[nodiscard]] GPUhdi() T energyOf(const Momentum<T>& momentum, double mass)
 {
-  return sqrtOf((momentum.magnitude * momentum.magnitude) + (mass * mass));
+  using Value = typename dual::ScalarOf<T>::type;
+  return sqrtOf((momentum.magnitude * momentum.magnitude) + static_cast<Value>(mass * mass));
 }
 
 /// Momenta summed (a composite's, a resonance's), with their energies where
@@ -110,7 +117,7 @@ struct MomentumSum {
   T energy{};
   GPUhdi() void add(const std::array<T, 3>& momentum)
   {
-    for (int c = 0; c < 3; ++c) {
+    for (std::uint32_t c = 0; c < 3; ++c) {
       vector[c] = vector[c] + momentum[c];
     }
   }
@@ -145,7 +152,7 @@ template <typename T>
 /// no longer moves a double; Gauss-Newton under a fixed model converges
 /// quadratically near its solution, far faster; a fit that reaches the cap
 /// is reported as not converged.
-inline constexpr int kMaxSteps = std::numeric_limits<double>::digits;
+inline constexpr std::int32_t kMaxSteps = std::numeric_limits<double>::digits;
 
 /// A tolerance, stated openly: how far the material model may still move a
 /// converged solution, in its chi2 metric (step^T N step), and the fit count
@@ -157,7 +164,7 @@ inline constexpr double kModelTolerance = 1.;
 
 /// A free state -- x, y, z, phi, theta, q/p -- with its derivatives by N
 /// inputs, in the arithmetic T.
-template <int N, typename T = double>
+template <std::int32_t N, typename T = double>
 using FreeState = std::array<Dual<N, T>, 6>;
 
 /// \a from carried along its helix (\a fieldScale = Bz B2C, the curvature per
@@ -175,7 +182,7 @@ template <typename V>
   return {start[0] + (chord * cosOf(phi + half)), start[1] + (chord * sinOf(phi + half)), start[2] + (s * cotTheta)};
 }
 
-template <int N, typename T>
+template <std::int32_t N, typename T>
 [[nodiscard]] GPUhdi() bool crossToPlane(const FreeState<N, T>& from, const TrackingSurface& plane, double fieldScale, FreeState<N, T>& to, std::array<Dual<N, T>, 2>& local)
 {
   using D = Dual<N, T>;
@@ -188,7 +195,7 @@ template <int N, typename T>
   const D cotTheta = cosOf(theta) / sinTheta;
   const D rho = static_cast<T>(fieldScale) * (from[5] / sinTheta);
   D s;
-  if (nz == 0.) {
+  if (exactlyEqual(static_cast<double>(nz), 0.)) {
     // Oriented so that the helix leaves through the plane's front (the
     // normal and the direction on the same side, cos(delta) > 0): the
     // crossing then has sin(delta + rho s) = sin(delta) - rho u, u the start's
@@ -202,21 +209,21 @@ template <int N, typename T>
     const D sinDelta = side * sinOf(delta);
     const D cosDelta = side * cosOf(delta);
     const D sinEnd = sinDelta - (rho * u);
-    if (!(o2::gpu::CAMath::Abs(sinEnd.v) < 1.) || !(cosDelta.v > 0.)) {
+    if (!(static_cast<double>(o2::gpu::CAMath::Abs(sinEnd.v)) < 1.) || !(static_cast<double>(cosDelta.v) > 0.)) {
       return false; // missed, grazing, or along the plane: no crossing to bind to
     }
     const D cosEnd = sqrtOf((-(sinEnd * sinEnd)) + 1.);
-    if (!((cosEnd.v * cosDelta.v) + (sinEnd.v * sinDelta.v) > 0.)) {
+    if (!(static_cast<double>((cosEnd.v * cosDelta.v) + (sinEnd.v * sinDelta.v)) > 0.)) {
       return false; // beyond a quarter turn
     }
     const D wOverRho = (-(u * cosDelta)) - ((sinDelta * u) * (sinEnd + sinDelta) / (cosDelta + cosEnd));
     const D w = rho * wOverRho;
-    if (!(o2::gpu::CAMath::Abs(w.v) < 1.)) {
+    if (!(static_cast<double>(o2::gpu::CAMath::Abs(w.v)) < 1.)) {
       return false;
     }
     s = wOverRho * o2::gtrk::detail::asinOverArgument(w);
-  } else if (nx == 0. && ny == 0.) {
-    if (!(o2::gpu::CAMath::Abs(cotTheta.v) > 0.)) {
+  } else if (exactlyEqual(static_cast<double>(nx), 0.) && exactlyEqual(static_cast<double>(ny), 0.)) {
+    if (!(static_cast<double>(o2::gpu::CAMath::Abs(cotTheta.v)) > 0.)) {
       return false;
     }
     s = (((-1.) * from[2]) + static_cast<T>(plane.origin[2])) / cotTheta;
@@ -231,14 +238,14 @@ template <int N, typename T>
     };
     const auto slope = [&](T at) { return (nx * cosOf(phi.v + (rho.v * at))) + (ny * sinOf(phi.v + (rho.v * at))) + (nz * cotTheta.v); };
     const T ahead = slope(0.);
-    if (!(o2::gpu::CAMath::Abs(ahead) > 0.)) {
+    if (!(static_cast<double>(o2::gpu::CAMath::Abs(ahead)) > 0.)) {
       return false;
     }
     T at = -f(D{0.}).v / ahead;
     T last = std::numeric_limits<T>::infinity();
-    for (int step = 0; step < kMaxSteps; ++step) {
+    for (std::int32_t step = 0; step < kMaxSteps; ++step) {
       const T fs = slope(at);
-      if (!(o2::gpu::CAMath::Abs(fs) > 0.)) {
+      if (!(static_cast<double>(o2::gpu::CAMath::Abs(fs)) > 0.)) {
         return false;
       }
       const T change = f(D{at}).v / fs;
@@ -254,7 +261,7 @@ template <int N, typename T>
     {
       const auto x = helixPointOf<T>({from[0].v, from[1].v, from[2].v}, phi.v, rho.v, cotTheta.v, at);
       T size = 0.;
-      for (int c = 0; c < 3; ++c) {
+      for (std::uint32_t c = 0; c < 3; ++c) {
         size += o2::gpu::CAMath::Abs(static_cast<T>(plane.normal[c])) * (o2::gpu::CAMath::Abs(x[c]) + o2::gpu::CAMath::Abs(static_cast<T>(plane.origin[c])));
       }
       if (!(o2::gpu::CAMath::Abs(value.v) <= static_cast<T>(std::numeric_limits<Scalar>::epsilon()) * size)) {
@@ -263,7 +270,7 @@ template <int N, typename T>
     }
     s = D{at};
     const T fs = slope(at);
-    for (int k = 0; k < N; ++k) {
+    for (std::uint32_t k = 0; k < s.d.size(); ++k) {
       s.d[k] = -value.d[k] / fs;
     }
   }
@@ -286,14 +293,14 @@ template <int N, typename T>
 /// `covSize(n)`).
 template <typename S = double>
 struct Cholesky {
-  int n = 0;
+  std::uint32_t n = 0;
   S* l = nullptr;
   /// Factor \a a (\a size x \a size, packed); false if it is not positive
   /// definite.
-  [[nodiscard]] GPUhdi() bool factor(const S* a, int size)
+  [[nodiscard]] GPUhdi() bool factor(const S* a, std::uint32_t size)
   {
     n = size;
-    copyN(a, covSize(n), l);
+    copyN(a, packedSize(n), l);
     return dense::choleskyFactor(dense::PackedView<S>{l}, n);
   }
   [[nodiscard]] GPUhdi() S logDeterminant() const { return dense::choleskyLogDeterminant(dense::PackedView<S>{l}, n); }
@@ -326,15 +333,15 @@ template <typename S = double, typename State>
 /// double.
 template <typename S = double>
 struct MixtureCollapse {
-  int n = 0;
-  int count = 0; ///< the components taken
+  std::uint32_t n = 0;
+  std::int32_t count = 0; ///< the components taken
   double logScale = -std::numeric_limits<double>::infinity();
   double weight = 0.;
   double chi2 = 0.;
   std::span<double> mean;
   std::span<S> scatter; ///< packed (`covIndex`)
 
-  GPUhdi() MixtureCollapse(std::span<double> meanStorage, std::span<S> scatterStorage) : n(static_cast<int>(meanStorage.size())), mean(meanStorage), scatter(scatterStorage)
+  GPUhdi() MixtureCollapse(std::span<double> meanStorage, std::span<S> scatterStorage) : n(static_cast<std::uint32_t>(meanStorage.size())), mean(meanStorage), scatter(scatterStorage)
   {
     fillN(mean.data(), mean.size(), 0.);
     fillN(scatter.data(), scatter.size(), S(0.));
@@ -355,14 +362,14 @@ struct MixtureCollapse {
   /// The collapse's covariance, S / W, into \a covariance (packed).
   GPUhdi() void covarianceInto(S* covariance) const
   {
-    for (std::size_t i = 0; i < scatter.size(); ++i) {
-      covariance[i] = static_cast<S>(scatter[i] / weight);
+    for (std::uint32_t i = 0; i < scatter.size(); ++i) {
+      covariance[i] = static_cast<S>(static_cast<double>(scatter[i]) / weight);
     }
   }
   [[nodiscard]] GPUhdi() double meanChi2() const { return chi2 / weight; }
 
  private:
-  GPUhdi() void combine(double logScaleB, double weightB, std::span<const double> meanB, std::span<const S> scatterB, double chi2B, int countB)
+  GPUhdi() void combine(double logScaleB, double weightB, std::span<const double> meanB, std::span<const S> scatterB, double chi2B, std::int32_t countB)
   {
     if (count == 0) {
       logScale = logScaleB;
@@ -379,17 +386,17 @@ struct MixtureCollapse {
     const double u = a * weight;
     const double v = b * weightB;
     const double w = u + v;
-    for (int i = 0; i < n; ++i) {
-      for (int j = 0; j <= i; ++j) {
+    for (std::uint32_t i = 0; i < n; ++i) {
+      for (std::uint32_t j = 0; j <= i; ++j) {
         const double di = meanB[i] - mean[i];
         const double dj = meanB[j] - mean[j];
-        const int ij = covIndex(i, j);
-        scatter[ij] = static_cast<S>((a * scatter[ij]) + (b * scatterB[ij]) + ((u * v / w) * di * dj));
+        const std::uint32_t ij = packedIndex(i, j);
+        scatter[ij] = static_cast<S>((a * static_cast<double>(scatter[ij])) + (b * static_cast<double>(scatterB[ij])) + ((u * v / w) * di * dj));
       }
     }
     // the mean anchored on the larger contribution, the smaller added as a
     // correction: a contribution whose weight underflows leaves no trace
-    for (int i = 0; i < n; ++i) {
+    for (std::uint32_t i = 0; i < n; ++i) {
       if (v > u) {
         mean[i] = meanB[i] + ((u / w) * (mean[i] - meanB[i]));
       } else {

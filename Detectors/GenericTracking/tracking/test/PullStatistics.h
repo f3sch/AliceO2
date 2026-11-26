@@ -25,6 +25,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <string>
 #include <vector>
@@ -62,9 +63,9 @@ inline PullWidth widthOf(std::vector<double> pulls)
 struct PullPoint {
   double ptGeV = 0.;
   double eta = 0.;
-  int fits = 0;
-  int failed = 0;
-  int lostVariance = 0; ///< fits with a variance that is not positive
+  std::int32_t fits = 0;
+  std::int32_t failed = 0;
+  std::int32_t lostVariance = 0; ///< fits with a variance that is not positive
   std::array<PullWidth, 5> width{};
 };
 
@@ -72,11 +73,11 @@ constexpr std::array<const char*, 5> kNames{"loc0", "loc1", "phi", "theta", "q/p
 /// Collect fitted-state pulls; detector-specific generation and smearing
 /// live in the trial callback so that each scan keeps its random sequence.
 template <typename Chain, typename Trial>
-PullPoint collectPulls(const Chain& chain, double ptGeV, double eta, int trials, const Trial& trialFit)
+PullPoint collectPulls(const Chain& chain, double ptGeV, double eta, std::int32_t trials, const Trial& trialFit)
 {
   std::array<std::vector<double>, 5> pulls;
   PullPoint point{.ptGeV = ptGeV, .eta = eta};
-  for (int trial = 0; trial < trials; ++trial) {
+  for (std::int32_t trial = 0; trial < trials; ++trial) {
     const auto fit = trialFit(trial);
     if (fit.status != PropagationStatus::kOk) {
       ++point.failed;
@@ -84,19 +85,19 @@ PullPoint collectPulls(const Chain& chain, double ptGeV, double eta, int trials,
     }
     ++point.fits;
     bool positive = true;
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       positive = positive && fit.state.variance(i) > 0.F;
     }
     if (!positive) {
       ++point.lostVariance;
       continue;
     }
-    for (int i = 0; i < kNBoundParams; ++i) {
+    for (std::int32_t i = 0; i < kNBoundParams; ++i) {
       double diff = static_cast<double>(fit.state.par[i]) - static_cast<double>(chain.truth[0].par[i]);
       if (i == kPhi) {
         math_utils::detail::bringToPMPi<double>(diff);
       }
-      pulls[static_cast<std::size_t>(i)].push_back(diff / std::sqrt(static_cast<double>(fit.state.variance(i))));
+      pulls[static_cast<std::uint32_t>(i)].push_back(diff / std::sqrt(static_cast<double>(fit.state.variance(i))));
     }
   }
   for (std::size_t i = 0; i < pulls.size(); ++i) {

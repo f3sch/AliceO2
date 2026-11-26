@@ -44,7 +44,7 @@ namespace
 
 using namespace device_test;
 using namespace toybarrel8;
-constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
+constexpr auto kLayerCount = static_cast<std::uint32_t>(Detector<Det>::nLayers);
 constexpr std::uint32_t kRowsPerLayer = 1000U;
 
 const auto kSerial = [](std::uint32_t elements, const auto& body) {
@@ -62,8 +62,8 @@ IterationParameters<Det> parameters()
 std::array<MeasurementRange, kLayerCount> core()
 {
   std::array<MeasurementRange, kLayerCount> result{};
-  for (std::size_t layer = 0; layer < kLayerCount; ++layer) {
-    const auto begin = static_cast<std::uint32_t>(layer) * kRowsPerLayer;
+  for (std::uint32_t layer = 0; layer < kLayerCount; ++layer) {
+    const auto begin = layer * kRowsPerLayer;
     result[layer] = {.begin = begin, .end = begin + (kRowsPerLayer / 2U)};
   }
   return result;
@@ -110,7 +110,7 @@ StageStatus compare(const IterationParameters<Det>& iteration, const Graph& inpu
   RoadCount host;
   host.setMemoryPool(std::make_shared<BoundedMemoryResource>());
   const auto hostStatus = fixedPointRoads(host, kSerial, iteration.linkSources, cores.data(), roadStartRule(iteration), *input.tracklets, *input.triplets, *input.neighbours);
-  BOOST_TEST_MESSAGE("host: " << host.starts().size() << " starts, " << host.roadCount() << " roads, status " << static_cast<int>(hostStatus));
+  BOOST_TEST_MESSAGE("host: " << host.starts().size() << " starts, " << host.roadCount() << " roads, status " << static_cast<std::int32_t>(hostStatus));
   Device device;
   RoadGlueResult ordered;
   const auto orderedStatus = kernels().orderedRoadGlue(*device.runtime, device.stream, *device.arena, iteration, *input.tracklets, *input.triplets, *input.neighbours, cores, ordered);
@@ -131,7 +131,7 @@ StageStatus compare(const IterationParameters<Det>& iteration, const Graph& inpu
 Graph ladder(const IterationParameters<Det>& iteration, std::uint32_t levels)
 {
   const auto coreRow = static_cast<std::uint32_t>(iteration.linkSources[0]) * kRowsPerLayer;
-  const std::size_t tripletCount = std::size_t{2U} * levels;
+  const std::uint32_t tripletCount = 2U * levels;
   std::vector<Tracklet> tracklets(tripletCount);
   std::vector<std::uint32_t> first(tripletCount);
   std::vector<std::vector<std::uint32_t>> predecessors(tripletCount);
@@ -158,7 +158,7 @@ BOOST_AUTO_TEST_CASE(RandomGraphsGiveTheHostsRoads)
     constexpr std::uint32_t kTracklets = 5000U;
     std::vector<Tracklet> tracklets(kTracklets);
     for (auto& tracklet : tracklets) {
-      const auto link = static_cast<std::uint16_t>(static_cast<std::uint32_t>(random()) % static_cast<std::uint32_t>(nLinks<Det>));
+      const auto link = static_cast<std::uint16_t>(static_cast<std::uint32_t>(random()) % nLinks<Det>);
       const auto layer = static_cast<std::uint32_t>(iteration.linkSources[link]);
       const auto source = (layer * kRowsPerLayer) + (static_cast<std::uint32_t>(random()) % kRowsPerLayer);
       tracklet = Tracklet{.source = source, .target = source, .link = link, .lambda = 0.F, .phi = 0.F};

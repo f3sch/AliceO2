@@ -175,11 +175,11 @@ class OverlapFitStudy
   void fitChain(const TruthEvent<Det>& event, ChainSource source, Work& work) const;
 
   RecordWriter* mWriter = nullptr;
-  std::size_t mChains = 0U;
-  std::size_t mNoPair = 0U;
-  std::size_t mFewLayers = 0U;
-  std::size_t mUnsupported = 0U;
-  std::size_t mRecords = 0U;
+  std::uint64_t mChains = 0U;
+  std::uint64_t mNoPair = 0U;
+  std::uint64_t mFewLayers = 0U;
+  std::uint64_t mUnsupported = 0U;
+  std::uint64_t mRecords = 0U;
 };
 
 template <DetectorLayout Det>
@@ -194,7 +194,7 @@ void OverlapFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const
       ++mUnsupported;
       continue;
     }
-    Work one{.chain = &chain, .species = *species, .charge = charge};
+    Work one{.chain = &chain, .species = *species, .charge = charge, .perLayer = {}, .perSensor = {}, .records = {}};
     std::uint64_t layers = 0U;
     std::vector<std::uint32_t> surfaces;
     for (const auto at : chain.rows) {
@@ -259,7 +259,7 @@ void OverlapFitStudy<Det>::fitChain(const TruthEvent<Det>& event, ChainSource so
   };
   for (std::uint8_t variant = 0U; variant < 2U; ++variant) {
     const auto& rows = variant == 0U ? work.perLayer : work.perSensor;
-    const auto count = static_cast<int>(rows.size());
+    const auto count = static_cast<std::int32_t>(rows.size());
     OverlapFitRecord record = base;
     record.variant = variant;
     record.rows = static_cast<std::uint8_t>(count);

@@ -103,7 +103,7 @@ class Digest
 
   /// Every column of a memlayout view, \a rows rows each, in schema order.
   template <typename View>
-  void columns(const View& view, std::size_t rows)
+  void columns(const View& view, std::uint32_t rows)
   {
     view.apply([&](const auto*... columns) { (column(columns, rows), ...); });
   }
@@ -124,7 +124,7 @@ class Digest
   /// The bytes \a data, \a size of them, in order.
   void bytes(const void* data, std::size_t size)
   {
-    const auto* at = static_cast<const unsigned char*>(data);
+    const auto* at = static_cast<const std::uint8_t*>(data);
     while (size >= sizeof(std::uint64_t)) {
       std::uint64_t word = 0U;
       std::memcpy(&word, at, sizeof(word));
@@ -157,7 +157,7 @@ template <typename Result>
 void addSummaries(Digest& digest, const Result& result)
 {
   for (const auto& summary : result.iterations) {
-    for (const std::size_t count : {static_cast<std::size_t>(summary.status), summary.slices, summary.roads, summary.records, summary.duplicates, summary.mismatches, summary.rounds, summary.tracks, summary.refitFailures, summary.tracksFollowed, summary.clustersFollowedOutward, summary.clustersFollowedInward}) {
+    for (const std::uint32_t count : {static_cast<std::uint32_t>(summary.status), summary.slices, summary.roads, summary.records, summary.duplicates, summary.mismatches, summary.rounds, summary.tracks, summary.refitFailures, summary.tracksFollowed, summary.clustersFollowedOutward, summary.clustersFollowedInward}) {
       digest.add(static_cast<std::uint64_t>(count));
     }
     digest.add(summary.haloPS);
@@ -176,7 +176,7 @@ void addOtherReferences(Digest& digest, const TrackStore<Det>& store, const Time
   const auto& references = store.references();
   const auto view = references.view().records;
   std::vector<std::array<std::uint32_t, 4>> others;
-  for (std::size_t track = 0; track < store.size(); ++track) {
+  for (std::uint32_t track = 0; track < store.size(); ++track) {
     const auto range = references.range(track);
     const std::size_t mine = others.size();
     std::uint32_t firstRow = 0U;
@@ -189,7 +189,7 @@ void addOtherReferences(Digest& digest, const TrackStore<Det>& store, const Time
         }
         continue;
       }
-      others.push_back({static_cast<std::uint32_t>(track), view.row[at], view.source[at], view.role[at]});
+      others.push_back({track, view.row[at], view.source[at], view.role[at]});
     }
     if (inClusters != nullptr) {
       const auto columns = inClusters->measurements();
@@ -205,7 +205,7 @@ void addOtherReferences(Digest& digest, const TrackStore<Det>& store, const Time
   if (inClusters != nullptr) {
     std::ranges::sort(others);
   }
-  digest.add(static_cast<std::uint64_t>(others.size()));
+  digest.add(std::uint64_t{others.size()});
   for (const auto& other : others) {
     digest.add(other);
   }
@@ -243,18 +243,18 @@ void addTracksInClusters(Digest& digest, const typename TrackRefit<Det>::Tracks&
   const auto columns = frame.measurements();
   const auto clusterOf = [&](std::uint32_t row) { return row == ClusterList<kMaxClusters>::kNoCluster ? row : columns.clusterIndex[row]; };
   const auto view = tracks.view();
-  const std::size_t n = tracks.size();
+  const std::uint32_t n = tracks.size();
   std::vector<ClusterList<kMaxClusters>> clusters(n);
-  for (std::size_t track = 0; track < n; ++track) {
-    for (std::size_t at = 0; at < kMaxClusters; ++at) {
+  for (std::uint32_t track = 0; track < n; ++track) {
+    for (std::uint32_t at = 0; at < kMaxClusters; ++at) {
       clusters[track].index[at] = at < view.count[track] ? clusterOf(view.clusters[track].index[at]) : ClusterList<kMaxClusters>::kNoCluster;
     }
   }
-  std::vector<std::size_t> order(n);
-  for (std::size_t track = 0; track < n; ++track) {
+  std::vector<std::uint32_t> order(n);
+  for (std::uint32_t track = 0; track < n; ++track) {
     order[track] = track;
   }
-  std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+  std::sort(order.begin(), order.end(), [&](std::uint32_t a, std::uint32_t b) {
     const auto& first = clusters[a].index;
     const auto& second = clusters[b].index;
     const auto differ = std::mismatch(std::begin(first), std::end(first), std::begin(second));
@@ -349,8 +349,9 @@ template <DetectorLayout Det>
 {
   typename TrackRefit<Det>::Tracks tracks;
   tracks.setMemoryResource(resource);
-  tracks.resize(records.size());
-  for (std::size_t track = 0; track < records.size(); ++track) {
+  const auto n = static_cast<std::uint32_t>(records.size());
+  tracks.resize(n);
+  for (std::uint32_t track = 0; track < n; ++track) {
     tracks.write(track, records[track]);
   }
   return tracks;

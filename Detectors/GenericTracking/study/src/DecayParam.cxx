@@ -11,4 +11,4 @@
 
 #include "GenericTracking/Study/DecayParam.h"
 
-O2ParamImpl(o2::gtrk::study::DecayParam);
+O2ParamImpl(o2::gtrk::study::DecayParam)

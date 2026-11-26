@@ -96,7 +96,7 @@ struct ChainIdentity {
 /// The particles a study takes, from either source.
 struct ChainSelection {
   /// A bit per `ParticleOrigin`: physical primaries and decay daughters.
-  std::uint8_t origins = (1U << static_cast<unsigned>(ParticleOrigin::kPhysicalPrimary)) | (1U << static_cast<unsigned>(ParticleOrigin::kDecay));
+  std::uint8_t origins = (1U << static_cast<std::uint32_t>(ParticleOrigin::kPhysicalPrimary)) | (1U << static_cast<std::uint32_t>(ParticleOrigin::kDecay));
   std::vector<std::int32_t> pdgs; ///< |PDG codes|; empty, every species
   double minPtGeV = 0.;
   std::uint32_t minRows = 0U; ///< on the chain
@@ -112,12 +112,12 @@ struct ChainSelection {
 
 /// What a producer took and left.
 struct ChainCounts {
-  std::size_t selected = 0U; ///< particles the selection takes
-  std::size_t chains = 0U;
-  std::size_t untimed = 0U;  ///< truth: a row without its crossing
-  std::size_t inward = 0U;   ///< truth: the first leg runs inward
-  std::size_t tooShort = 0U; ///< fewer rows than `minRows`
-  std::size_t noTruth = 0U;  ///< tracks: no good particle, no row on the state's surface, or no crossing there
+  std::uint64_t selected = 0U; ///< particles the selection takes
+  std::uint64_t chains = 0U;
+  std::uint64_t untimed = 0U;  ///< truth: a row without its crossing
+  std::uint64_t inward = 0U;   ///< truth: the first leg runs inward
+  std::uint64_t tooShort = 0U; ///< fewer rows than `minRows`
+  std::uint64_t noTruth = 0U;  ///< tracks: no good particle, no row on the state's surface, or no crossing there
 };
 
 /// \a counts in one line, \a label first.
@@ -129,7 +129,7 @@ namespace study_chains_detail
 /// in \a all; \a findable its chains by the QA's rule, if asked.
 [[nodiscard]] inline bool selected(const ChainSelection& selection, const ParticleTruth& truth, std::span<const std::uint32_t> rows, std::span<const TruthRow> all, const std::unordered_map<std::uint64_t, ParticleLayers>* findable, const ComparisonSettings* rule, std::uint64_t particle)
 {
-  if ((selection.origins & (1U << static_cast<unsigned>(truth.origin))) == 0U || static_cast<double>(truth.pt) < selection.minPtGeV) {
+  if ((selection.origins & (1U << static_cast<std::uint32_t>(truth.origin))) == 0U || static_cast<double>(truth.pt) < selection.minPtGeV) {
     return false;
   }
   if (!selection.pdgs.empty() && std::ranges::find(selection.pdgs, std::abs(truth.pdg)) == selection.pdgs.end()) {
@@ -178,7 +178,7 @@ template <DetectorLayout Det>
       ++counts.inward;
       continue;
     }
-    std::size_t n = 0U;
+    std::uint32_t n = 0U;
     while (n < own.rows.size() && own.legs[n] == 0U) {
       ++n;
     }
@@ -186,7 +186,7 @@ template <DetectorLayout Det>
       ++counts.tooShort;
       continue;
     }
-    chains.push_back({.particle = particle, .rows = std::span<const std::uint32_t>{own.rows.data(), n}});
+    chains.push_back({.particle = particle, .rows = std::span<const std::uint32_t>{own.rows.data(), n}, .track = {}});
   }
   counts.chains += chains.size();
   return chains;
@@ -203,7 +203,7 @@ template <DetectorLayout Det>
   const auto findable = selection.findable ? particleLayers(event.rows, rule) : std::unordered_map<std::uint64_t, ParticleLayers>{};
   const auto view = tracks.tracks().view();
   std::vector<Chain> chains;
-  for (std::size_t track = 0; track < tracks.size(); ++track) {
+  for (std::uint32_t track = 0; track < tracks.size(); ++track) {
     const auto rows = tracks.rows(track);
     const auto particle = goodParticle(event.rows, rows);
     const auto found = particle == kNoTrackParticle ? event.particles->end() : event.particles->find(particle);
@@ -230,7 +230,7 @@ template <DetectorLayout Det>
       .particle = particle,
       .rows = rows,
       .track = TrackContext{
-        .track = static_cast<std::uint32_t>(track),
+        .track = track,
         .state = state,
         .outward = view.outwardState[track],
         .comparisonRow = *innermost,

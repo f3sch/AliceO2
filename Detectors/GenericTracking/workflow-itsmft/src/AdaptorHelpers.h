@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <limits>
 #include <span>
 #include <stdexcept>
@@ -45,22 +46,22 @@ struct ClusterFrames {
   std::vector<std::int64_t> recordBC; ///< per record
 };
 
-[[nodiscard]] inline ClusterFrames clusterFrames(std::span<const o2::itsmft::ROFRecord> rofs, std::size_t clusters, std::uint32_t tfFirstOrbit)
+[[nodiscard]] inline ClusterFrames clusterFrames(std::span<const o2::itsmft::ROFRecord> rofs, std::uint32_t clusters, std::uint32_t tfFirstOrbit)
 {
   ClusterFrames result;
   result.record.assign(clusters, std::numeric_limits<std::uint32_t>::max());
   result.recordBC.reserve(rofs.size());
-  std::size_t next = 0U;
-  for (std::size_t r = 0; r < rofs.size(); ++r) {
+  std::uint32_t next = 0U;
+  for (std::uint32_t r = 0; r < rofs.size(); ++r) {
     if (rofs[r].getFirstEntry() < 0 || std::cmp_not_equal(rofs[r].getFirstEntry(), next) ||
         rofs[r].getNEntries() < 0 || std::cmp_greater(rofs[r].getNEntries(), clusters - next)) {
       throw std::runtime_error("cluster ROFs do not cover the input in order");
     }
-    next += static_cast<std::size_t>(rofs[r].getNEntries());
+    next += static_cast<std::uint32_t>(rofs[r].getNEntries());
     const auto& ir = rofs[r].getBCData();
     result.recordBC.push_back(((static_cast<std::int64_t>(ir.orbit) - tfFirstOrbit) * o2::constants::lhc::LHCMaxBunches) + ir.bc);
-    for (int i = 0; i < rofs[r].getNEntries(); ++i) {
-      result.record[static_cast<std::size_t>(rofs[r].getFirstEntry()) + static_cast<std::size_t>(i)] = static_cast<std::uint32_t>(r);
+    for (std::int32_t i = 0; i < rofs[r].getNEntries(); ++i) {
+      result.record[static_cast<std::uint32_t>(rofs[r].getFirstEntry()) + static_cast<std::uint32_t>(i)] = r;
     }
   }
   if (next != clusters) {
@@ -106,7 +107,7 @@ template <typename Record, typename LayerOf>
 }
 
 /// Each cluster's pixel count, the converter's decoding (`localClusters`).
-[[nodiscard]] inline std::vector<std::uint32_t> pixelCounts(std::span<const o2::itsmft::CompClusterExt> compact, std::span<const unsigned char> patterns, const o2::itsmft::TopologyDictionary& dictionary)
+[[nodiscard]] inline std::vector<std::uint32_t> pixelCounts(std::span<const o2::itsmft::CompClusterExt> compact, std::span<const std::uint8_t> patterns, const o2::itsmft::TopologyDictionary& dictionary)
 {
   const auto local = alice::localClusters(compact, patterns, dictionary);
   std::vector<std::uint32_t> result(local.size());
@@ -121,14 +122,14 @@ template <typename Record, typename LayerOf>
 {
   std::vector<RowParticles> particles(rows.size());
   std::vector<std::uint32_t> order(rows.size());
-  for (std::size_t i = 0; i < rows.size(); ++i) {
+  for (std::uint32_t i = 0; i < rows.size(); ++i) {
     const auto all = input.labels(clusterIndex[rows[i]]);
     particles[i] = rowParticles(std::span<const o2::MCCompLabel>{all.data(), all.size()});
-    order[i] = static_cast<std::uint32_t>(i);
+    order[i] = i;
   }
   const auto majority = majorityParticle(particles, std::span<const std::uint32_t>{order});
   const bool good = majority.particle != kNoTrackParticle && majority.carried == rows.size();
-  for (std::size_t i = 0; i < rows.size(); ++i) {
+  for (std::uint32_t i = 0; i < rows.size(); ++i) {
     carried[i] = majority.particle != kNoTrackParticle && particles[i].carries(majority.particle);
   }
   return labelOf(majority.particle, good);
@@ -144,11 +145,11 @@ class ExportRows
   template <typename Reference>
   ExportRows(std::span<const std::uint32_t> offsets, std::span<const Reference> references)
   {
-    const std::size_t tracks = offsets.empty() ? 0U : offsets.size() - 1U;
+    const auto tracks = static_cast<std::uint32_t>(offsets.empty() ? 0U : offsets.size() - 1U);
     mOffsets.reserve(tracks + 1U);
     mOffsets.push_back(0U);
     mRows.reserve(references.size());
-    for (std::size_t track = 0; track < tracks; ++track) {
+    for (std::uint32_t track = 0; track < tracks; ++track) {
       for (std::uint32_t at = offsets[track]; at < offsets[track + 1U]; ++at) {
         if (references[at].source == kOwnRows && (references[at].role & static_cast<std::uint8_t>(ReferenceRole::kLayerRow)) != 0U) {
           mRows.push_back(references[at].row);
@@ -158,7 +159,7 @@ class ExportRows
     }
   }
 
-  [[nodiscard]] std::span<const std::uint32_t> of(std::size_t track) const { return {mRows.data() + mOffsets[track], mOffsets[track + 1U] - mOffsets[track]}; }
+  [[nodiscard]] std::span<const std::uint32_t> of(std::uint32_t track) const { return {mRows.data() + mOffsets[track], mOffsets[track + 1U] - mOffsets[track]}; }
 
  private:
   std::vector<std::uint32_t> mOffsets;
@@ -171,7 +172,7 @@ class ExportRows
   ClusterFrames result;
   result.record.reserve(input.size());
   for (const auto& stream : input.streams()) {
-    auto frames = clusterFrames(stream.rofs, stream.compact.size(), orbit);
+    auto frames = clusterFrames(stream.rofs, static_cast<std::uint32_t>(stream.compact.size()), orbit);
     const auto offset = static_cast<std::uint32_t>(result.recordBC.size());
     for (const auto record : frames.record) {
       result.record.push_back(offset + record);
@@ -196,29 +197,29 @@ class ExportRows
 
 /// O2's output clock is the layer with the most frames per timeframe. Equal
 /// lengths retain the first layer, independently of the input's occupancy.
-[[nodiscard]] inline std::size_t clockLayer(std::span<const FrameTiming> timings)
+[[nodiscard]] inline std::uint32_t clockLayer(std::span<const FrameTiming> timings)
 {
   if (timings.empty() || std::ranges::any_of(timings, [](const auto& timing) { return timing.lengthBC <= 0; })) {
     throw std::invalid_argument("output clock needs positive per-layer frame lengths");
   }
-  return static_cast<std::size_t>(std::ranges::min_element(timings, {}, &FrameTiming::lengthBC) - timings.begin());
+  return static_cast<std::uint32_t>(std::ranges::min_element(timings, {}, &FrameTiming::lengthBC) - timings.begin());
 }
 
 /// Frame records carry the delay, whereas frame intervals also carry the bias.
 /// Normalise a delayed record across an orbit boundary.
 template <typename Records>
-inline void fillClockRecords(Records& result, std::size_t count, int lengthBC, int delayBC, std::uint32_t orbit)
+inline void fillClockRecords(Records& result, std::uint32_t count, std::int32_t lengthBC, std::int32_t delayBC, std::uint32_t orbit)
 {
   if (lengthBC <= 0 || delayBC < 0) {
     throw std::invalid_argument("invalid output clock record");
   }
   result.resize(count);
-  for (std::size_t i = 0; i < count; ++i) {
+  for (std::uint32_t i = 0; i < count; ++i) {
     const auto bc = static_cast<std::int64_t>(i) * lengthBC + delayBC;
     auto& rof = result[i];
     rof.setBCData(o2::InteractionRecord(static_cast<std::uint16_t>(bc % o2::constants::lhc::LHCMaxBunches),
                                         orbit + static_cast<std::uint32_t>(bc / o2::constants::lhc::LHCMaxBunches)));
-    rof.setROFrame(static_cast<std::uint32_t>(i));
+    rof.setROFrame(i);
     rof.setNEntries(0);
     rof.setFirstEntry(-1);
   }

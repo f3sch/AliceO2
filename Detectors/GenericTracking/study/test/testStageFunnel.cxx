@@ -69,7 +69,7 @@ std::vector<TruthRow> truthRows(const toybarrel8::Fixture& fixture)
 BOOST_AUTO_TEST_CASE(ChainsAreCountedInNodesWhateverTheEdgeOrder)
 {
   // Rows 0-3 on layers 0-3, a branch 1 -> 4 on layer 2; listed outermost first.
-  const std::array<int, 5> layer{0, 1, 2, 3, 2};
+  const std::array<std::int32_t, 5> layer{0, 1, 2, 3, 2};
   const std::vector<std::pair<std::uint32_t, std::uint32_t>> edges{{2, 3}, {1, 4}, {1, 2}, {0, 1}};
   const auto layerOf = [&](std::uint32_t node) { return layer[node]; };
   BOOST_TEST(longestChain(edges, layerOf) == 4U);

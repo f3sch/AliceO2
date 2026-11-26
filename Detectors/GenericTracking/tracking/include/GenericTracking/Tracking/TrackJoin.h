@@ -93,9 +93,8 @@ struct Choice {
 /// A piece's pair past the tests without a fit (`Find`): the piece (from the
 /// iteration's first), its partner, and whether the piece is the inner track.
 struct PairCandidate {
-  // As for TrackletT: upstream's `apply` macro also uses the member names as
-  // enum constants.
-  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // As for MeasurementT: an SoA element proxy holds references.
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   template <template <class> class C>
   struct RecordT {
     MEMLAYOUT_APPLY(RecordT, piece, partner, pieceInner)
@@ -103,7 +102,7 @@ struct PairCandidate {
     C<std::uint32_t> partner;
     C<std::uint8_t> pieceInner;
   };
-  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 /// The layers one link, or two, of the layout reach from \a layer in
@@ -133,8 +132,8 @@ GPUhdi() TrackFitResult joinedFit(const IterationParameters<Det>& parameters, co
   for (std::uint8_t i = 0; i < tracks.count[outer]; ++i) {
     rows.index[count++] = tracks.clusters[outer].index[i];
   }
-  const KinkBudget budget{.max = static_cast<int>(tracks.kinks[inner]) + static_cast<int>(tracks.kinks[outer]) + 1, .gate = parameters.kinkChi2Min};
-  return fitMeasurements(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows.index}, static_cast<int>(count), budget);
+  const KinkBudget budget{.max = static_cast<std::int32_t>(tracks.kinks[inner]) + static_cast<std::int32_t>(tracks.kinks[outer]) + 1, .gate = parameters.kinkChi2Min};
+  return fitMeasurements(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows.index}, static_cast<std::int32_t>(count), budget);
 }
 
 /// Whether the pair \a inner, \a outer of \a tracks passes the tests
@@ -152,7 +151,7 @@ GPUhdi() bool pairAdmitted(const TimeFrame<Det>& frame, const TrackingGeometry<D
   for (std::uint8_t i = 0; i < tracks.count[outer]; ++i) {
     outerLayers |= std::uint64_t{1} << geometry.surface(measurements.surface[tracks.clusters[outer].index[i]]).layer;
   }
-  if ((innerLayers & outerLayers) != 0U || static_cast<std::size_t>(tracks.count[inner]) + tracks.count[outer] > maxChainLayers<Det>) {
+  if ((innerLayers & outerLayers) != 0U || std::uint32_t{tracks.count[inner]} + tracks.count[outer] > maxChainLayers<Det>) {
     return false;
   }
   const TimeEstPS innerBox{.start = tracks.timePS[inner], .width = tracks.widthPS[inner]};
@@ -174,11 +173,11 @@ GPUhdi() Scalar pairScore(const IterationParameters<Det>* parameters, const Time
   if (!follow::passesRoadChi2(own, fit)) {
     return kRefused;
   }
-  const int outwardNdf = (2 * static_cast<int>(count)) - fittedParameters(propagator) - (2 * static_cast<int>(fit.outwardKinks));
-  if (outwardNdf <= 0 || outwardNdf >= static_cast<int>(std::size(own.roadChi2MaxByNdf)) || !(fit.outwardChi2 <= own.roadChi2MaxByNdf[outwardNdf])) {
+  const std::int32_t outwardNdf = (2 * static_cast<std::int32_t>(count)) - fittedParameters(propagator) - (2 * static_cast<std::int32_t>(fit.outwardKinks));
+  if (outwardNdf <= 0 || outwardNdf >= static_cast<std::int32_t>(std::size(own.roadChi2MaxByNdf)) || !(fit.outwardChi2 <= own.roadChi2MaxByNdf[outwardNdf])) {
     return kRefused;
   }
-  const int added = fit.ndf - tracks.ndf[inner] - tracks.ndf[outer];
+  const std::int32_t added = fit.ndf - tracks.ndf[inner] - tracks.ndf[outer];
   if (added <= 0) {
     return kRefused;
   }
@@ -224,7 +223,7 @@ struct Find {
     for (std::uint8_t i = 0; i < tracks.count[piece]; ++i) {
       pieceLayers |= std::uint64_t{1} << geometry->surface(measurements.surface[tracks.clusters[piece].index[i]]).layer;
     }
-    for (int side = 0; side < 2; ++side) {
+    for (std::int32_t side = 0; side < 2; ++side) {
       const bool inward = side == 0;
       const auto direction = inward ? PropagationDirection::kBackward : PropagationDirection::kForward;
       const BoundTrackState& state = inward ? tracks.state[piece] : tracks.outwardState[piece];
@@ -311,7 +310,7 @@ struct Pick {
     for (auto k = offsets[at]; k < offsets[at + 1U]; ++k) {
       const auto partner = partners[k];
       const auto score = scores[k];
-      if (score < best.score || (score == best.score && best.partner != kNone && partner < best.partner)) {
+      if (score < best.score || (exactlyEqual(score, best.score) && best.partner != kNone && partner < best.partner)) {
         best = {.partner = partner, .pieceInner = pieceInner[k] != 0U, .score = score};
       }
     }
@@ -353,7 +352,7 @@ template <DetectorLayout Det>
 class TrackJoin
 {
  public:
-  static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
+  static constexpr auto kLayerCount = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   static constexpr std::uint32_t kNone = join::kNone;
   using Tracks = typename TrackRefit<Det>::Tracks;
   using Pairs = StageOutput<join::PairCandidate::template RecordT>;
@@ -388,7 +387,7 @@ class TrackJoin
     return guardOutOfMemory([&] {
       const auto view = tracks.view();
       using View = std::remove_const_t<decltype(view)>;
-      const auto size = static_cast<std::uint32_t>(tracks.size());
+      const auto size = tracks.size();
       const auto pieces = size - trackOffset;
       resizeBoundedVector(mJoined, 0U, mMemoryPool.get());
       resizeBoundedVector(mChanged, 0U, mMemoryPool.get());

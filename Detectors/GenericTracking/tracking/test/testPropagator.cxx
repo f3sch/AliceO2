@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <iterator>
 #include <limits>
@@ -100,8 +101,8 @@ BOOST_AUTO_TEST_CASE(ABackwardStepAtLowMomentumIsNeverRefusedForRunningForwards)
   const auto to = circleAt(psiTo);
   const double truePath = (psiTo - psiFrom) / kappa; // negative: it is behind
 
-  int reachedTheSensor = 0;
-  for (int degrees = -80; degrees <= 80; degrees += 5) {
+  std::int32_t reachedTheSensor = 0;
+  for (std::int32_t degrees = -80; degrees <= 80; degrees += 5) {
     // The plane always passes through the true crossing; only its orientation
     // about that point changes, and with it which root carries the crossing.
     const double radial = std::atan2(to.second, to.first) + (static_cast<double>(degrees) * kPi<double> / 180.);
@@ -202,14 +203,14 @@ BOOST_AUTO_TEST_CASE(ForwardThenBackwardReturnsTheOriginalState)
   const TrackingSurface inner = planeAt(3.4, 0., 0., 1., 0., 0., 11);
   for (const double radius : {7., 17.2}) {
     const TrackingSurface outer = planeAt(radius, 0., 0., 1., 0., 0., 12);
-    const std::vector<double> momenta = radius == 7. ? std::vector<double>{0.05, 0.1, 0.5} : std::vector<double>{0.3, 0.5, 1., 10., 100.};
+    const std::vector<double> momenta = exactlyEqual(radius, 7.) ? std::vector<double>{0.05, 0.1, 0.5} : std::vector<double>{0.3, 0.5, 1., 10., 100.};
 
     for (const double pT : momenta) {
       for (const double charge : {1., -1.}) {
         for (const double theta : {0.6, 1.2, 1.5708}) {
           const double qOverP = charge / (pT / std::sin(theta));
 
-          BoundTrackState st = stateOn(inner, radius == 7. ? 0. : 0.05, theta, qOverP);
+          BoundTrackState st = stateOn(inner, exactlyEqual(radius, 7.) ? 0. : 0.05, theta, qOverP);
           const BoundTrackState original = st;
 
           const auto out = propagate(prop, st, inner, outer, PropagationDirection::kForward);
@@ -341,7 +342,7 @@ BOOST_AUTO_TEST_CASE(AFlippedNormalChangesOnlyTheSignOfLoc0)
   // change, by their sign. That holds for the target and for the source.
   const Propagator prop{.bzKiloGauss = 5.F};
   const auto flip = [](TrackingSurface s) {
-    for (int i = 0; i < 3; ++i) {
+    for (std::int32_t i = 0; i < 3; ++i) {
       s.normal[i] = -s.normal[i];
       s.axis0[i] = -s.axis0[i];
     }
@@ -365,7 +366,7 @@ BOOST_AUTO_TEST_CASE(AFlippedNormalChangesOnlyTheSignOfLoc0)
   }};
 
   Scalar start[kBoundCovSize] = {};
-  for (int i = 0; i < kNBoundParams; ++i) {
+  for (std::int32_t i = 0; i < kNBoundParams; ++i) {
     start[covIndex(i, i)] = 1e-2F * static_cast<Scalar>(i + 1);
   }
   start[covIndex(kLoc0, kPhi)] = 2e-3F;
@@ -384,7 +385,7 @@ BOOST_AUTO_TEST_CASE(AFlippedNormalChangesOnlyTheSignOfLoc0)
         if (flipSource) {
           // The same point and covariance, written in the flipped source.
           seen.par[kLoc0] = -seen.par[kLoc0];
-          for (int j = 0; j < kNBoundParams; ++j) {
+          for (std::int32_t j = 0; j < kNBoundParams; ++j) {
             if (j != kLoc0) {
               seenCov[covIndex(kLoc0, j)] = -seenCov[covIndex(kLoc0, j)];
             }
@@ -419,8 +420,8 @@ BOOST_AUTO_TEST_CASE(AFlippedNormalChangesOnlyTheSignOfLoc0)
         std::ranges::copy(seenCov, std::begin(cb));
         transportCovarianceDense(da, ca);
         transportCovarianceDense(db, cb);
-        for (int i = 0; i < kNBoundParams; ++i) {
-          for (int j = 0; j <= i; ++j) {
+        for (std::int32_t i = 0; i < kNBoundParams; ++i) {
+          for (std::int32_t j = 0; j <= i; ++j) {
             const double sign = (i == kLoc0) != (j == kLoc0) ? -1. : 1.;
             const double expected = sign * static_cast<double>(ca[covIndex(i, j)]);
             const auto got = static_cast<double>(cb[covIndex(i, j)]);
@@ -442,7 +443,7 @@ BOOST_AUTO_TEST_CASE(ANaNParameterIsReportedNotFinite)
   const auto barrel = planeAt(7., 0., 0., 1., 0., 0., 2);
   const auto disc = planeAt(0., 0., 12., 0., 0., 1., 3);
   for (const auto* to : {&barrel, &disc}) {
-    for (const int index : {kPhi, kTheta, kQOverP}) {
+    for (const std::int32_t index : {kPhi, kTheta, kQOverP}) {
       auto state = stateOn(from, 0.1, 1.0, 0.5);
       state.par[index] = std::numeric_limits<Scalar>::quiet_NaN();
       const auto before = state;

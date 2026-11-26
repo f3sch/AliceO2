@@ -167,7 +167,7 @@ template <typename Errors>
   Scalar sw = 0.F;
   Scalar swr = 0.F;
   Scalar swz = 0.F;
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     weights[i] = 1.F / (points[i].varZ > 1.e-12F ? points[i].varZ : 1.e-12F);
     sw += weights[i];
     swr += weights[i] * points[i].r;
@@ -177,7 +177,7 @@ template <typename Errors>
   const Scalar zMean = swz / sw;
   Scalar srr = 0.F;
   Scalar srz = 0.F;
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     const Scalar dr = points[i].r - rMean;
     srr += weights[i] * dr * dr;
     srz += weights[i] * dr * (points[i].z - zMean);
@@ -359,14 +359,14 @@ struct ScatteringErrors {
       own.invBetaMomentum2 = (1.F + (cut.mass2 / (pt * pt))) / (pt * pt);
       own.logBeta2 = logOf(momentum2 / (momentum2 + cut.mass2));
     }
-    return tripletScattering(tripletMaterial(*table, static_cast<std::size_t>(table->link(LayerID{0}, LayerID{1})), static_cast<std::size_t>(table->link(LayerID{1}, LayerID{2})), a, b, c), own, detail::referenceSinTheta(a, c));
+    return tripletScattering(tripletMaterial(*table, static_cast<std::uint32_t>(table->link(LayerID{0}, LayerID{1})), static_cast<std::uint32_t>(table->link(LayerID{1}, LayerID{2})), a, b, c), own, detail::referenceSinTheta(a, c));
   }
 
   /// The steps of `operator()`'s trapezoid integral over 1/pT: its error goes
   /// as 1/steps^2, and at 64 the variance is within 0.3 % of the converged
   /// integral for the points' part of the width 0.15-1 / GeV and the kick's
   /// 0.3-1.2 per unit of 1/pT (the ITS's 0.4-0.6 and 0.6).
-  static constexpr int kPosteriorSteps = 64;
+  static constexpr std::int32_t kPosteriorSteps = 64;
 
   /// The mean of x^2 = 1/pT^2 [1/GeV^2] given the triplet \a a, \a b, \a c's
   /// curvature (`operator()`'s posterior: a flat prior on [0, 1/floor], the
@@ -399,7 +399,7 @@ struct ScatteringErrors {
     // E[x^2 | m] by the trapezoid rule on [0, 1/floor].
     Scalar sum = 0.F;
     Scalar sumX2 = 0.F;
-    for (int step = 0; step <= kPosteriorSteps; ++step) {
+    for (std::int32_t step = 0; step <= kPosteriorSteps; ++step) {
       const Scalar x = xFloor * static_cast<Scalar>(step) / static_cast<Scalar>(kPosteriorSteps);
       const Scalar s2 = varPoints + (kick2 * x * x);
       if (!(s2 > 0.F)) {
@@ -449,14 +449,14 @@ struct ScatteringErrors {
     Scalar w[3] = {};
     Scalar sw = 0.F;
     Scalar swr = 0.F;
-    for (int i = 0; i < 3; ++i) {
+    for (std::int32_t i = 0; i < 3; ++i) {
       w[i] = 1.F / (points[i].varZ > 1.e-12F ? points[i].varZ : 1.e-12F);
       sw += w[i];
       swr += w[i] * points[i].r;
     }
     const Scalar rMean = swr / sw;
     Scalar srr = 0.F;
-    for (int i = 0; i < 3; ++i) {
+    for (std::int32_t i = 0; i < 3; ++i) {
       srr += w[i] * (points[i].r - rMean) * (points[i].r - rMean);
     }
     const Scalar dz0dz2 = (w[2] / sw) - (rMean * w[2] * (c.r - rMean) / srr);
@@ -677,9 +677,9 @@ struct VertexerResult {
   std::vector<std::int32_t> tripletVertex;
   /// The triplets given and the accepted ones count every triplet of a
   /// slice, its halo's too: over slices they add up the slices' work.
-  std::size_t triplets = 0U;
-  std::size_t accepted = 0U;   ///< the candidates past the cuts
-  std::size_t candidates = 0U; ///< those kept, cluster-disjoint, of the frames owned
+  std::uint32_t triplets = 0U;
+  std::uint32_t accepted = 0U;   ///< the candidates past the cuts
+  std::uint32_t candidates = 0U; ///< those kept, cluster-disjoint, of the frames owned
   std::uint32_t rounds = 0U;   ///< the most rounds any frame took, the last finding nothing included
 };
 
@@ -714,7 +714,7 @@ inline void appendVertices(VertexerResult& into, const VertexerResult& slice)
 /// the old.
 inline std::vector<std::int32_t> orderVertices(VertexerResult& found)
 {
-  const auto n = found.vertices.size();
+  const auto n = static_cast<std::uint32_t>(found.vertices.size());
   std::vector<std::uint32_t> order(n);
   std::iota(order.begin(), order.end(), 0U);
   std::ranges::stable_sort(order, [&](std::uint32_t a, std::uint32_t b) {
@@ -731,7 +731,7 @@ inline std::vector<std::int32_t> orderVertices(VertexerResult& found)
   std::vector<std::int32_t> placeOf(n);
   std::vector<VertexSeed> vertices(n);
   std::vector<std::uint32_t> contributors(n);
-  for (std::size_t place = 0; place < n; ++place) {
+  for (std::uint32_t place = 0; place < n; ++place) {
     placeOf[order[place]] = static_cast<std::int32_t>(place);
     vertices[place] = found.vertices[order[place]];
     contributors[place] = found.contributors[order[place]];
@@ -766,7 +766,7 @@ class Vertexer
   /// deduplication still sees every candidate it has, so that a frame's
   /// comes out as in one slice over the timeframe.
   template <typename Measurements, typename Tracklets, typename Triplets, typename Errors>
-  [[nodiscard]] VertexerResult find(const Measurements& measurements, const Tracklets& tracklets, const Triplets& triplets, std::size_t tripletCount, detail::TaskArena* arena, bool keepTripletVertex, const Errors& errors, std::pmr::memory_resource* pool = nullptr, const OwnedFrames& owned = {}) const
+  [[nodiscard]] VertexerResult find(const Measurements& measurements, const Tracklets& tracklets, const Triplets& triplets, std::uint32_t tripletCount, detail::TaskArena* arena, bool keepTripletVertex, const Errors& errors, std::pmr::memory_resource* pool = nullptr, const OwnedFrames& owned = {}) const
   {
     std::pmr::memory_resource* const resource = pool != nullptr ? pool : std::pmr::get_default_resource();
     VertexerResult result;
@@ -782,17 +782,17 @@ class Vertexer
     BoundedVector<TimeEstPS> boxes(tripletCount, resource);
     BoundedVector<VertexCandidateStatus> status(tripletCount, VertexCandidateStatus::kDegenerate, resource);
     // body(begin, end) over [0, n) in \a arena, in pieces of \a grain, or at once.
-    const auto parallel = [&](std::size_t n, std::size_t grain, const auto& body) {
+    const auto parallel = [&](std::uint32_t n, std::uint32_t grain, const auto& body) {
       if (arena != nullptr) {
         detail::parallelFor(*arena, 0U, n, grain, body);
       } else {
         body(0U, n);
       }
     };
-    const auto map = [&](std::size_t begin, std::size_t end) {
+    const auto map = [&](std::uint32_t begin, std::uint32_t end) {
       for (auto t = begin; t < end; ++t) {
         VertexCandidateFit fit;
-        status[t] = measureCandidate(measurements, tracklets, triplets, static_cast<std::uint32_t>(t), mSettings, errors, fit, weights[t], reachWeights[t], boxes[t], nullptr);
+        status[t] = measureCandidate(measurements, tracklets, triplets, t, mSettings, errors, fit, weights[t], reachWeights[t], boxes[t], nullptr);
         keys[t] = fit.key;
         chi2[t] = fit.chi2RZ;
       }
@@ -800,12 +800,12 @@ class Vertexer
     parallel(tripletCount, 4096U, map);
     BoundedVector<std::uint32_t> accepted(resource);
     accepted.reserve(tripletCount);
-    for (std::size_t t = 0; t < tripletCount; ++t) {
+    for (std::uint32_t t = 0; t < tripletCount; ++t) {
       if (status[t] == VertexCandidateStatus::kAccepted) {
-        accepted.push_back(static_cast<std::uint32_t>(t));
+        accepted.push_back(t);
       }
     }
-    result.accepted = accepted.size();
+    result.accepted = static_cast<std::uint32_t>(accepted.size());
     // The deduplication: in increasing chi2, the lower triplet first on
     // ties, each accepted candidate kept if none of its clusters is a kept
     // one's; kept ones in triplet order.
@@ -830,9 +830,9 @@ class Vertexer
     // frames but the degenerate, by key, and each measurement of a frame's
     // triplets one slot, (frame << 32) | row, so that frames own apart.
     BoundedVector<Source> sources(resource);
-    for (std::size_t t = 0; t < tripletCount; ++t) {
+    for (std::uint32_t t = 0; t < tripletCount; ++t) {
       if (status[t] != VertexCandidateStatus::kDegenerate && owned.owns(vertexKeyFrame(keys[t]))) {
-        sources.push_back({.key = keys[t], .triplet = static_cast<std::uint32_t>(t), .reachWeight = reachWeights[t]});
+        sources.push_back({.key = keys[t], .triplet = t, .reachWeight = reachWeights[t]});
       }
     }
     std::ranges::stable_sort(sources, {}, &Source::key);
@@ -849,12 +849,12 @@ class Vertexer
     const auto slotsOf = [&](std::uint64_t key, std::uint32_t triplet) {
       std::array<std::uint32_t, 3> slots{};
       const auto rows = tripletRows(tracklets, triplets, triplet);
-      for (std::size_t k = 0; k < 3U; ++k) {
+      for (std::uint32_t k = 0; k < 3U; ++k) {
         slots[k] = static_cast<std::uint32_t>(std::ranges::lower_bound(slotKeys, ownedSlotKey(key, rows[k])) - slotKeys.begin());
       }
       return slots;
     };
-    parallel(sources.size(), 4096U, [&](std::size_t begin, std::size_t end) {
+    parallel(static_cast<std::uint32_t>(sources.size()), 4096U, [&](std::uint32_t begin, std::uint32_t end) {
       for (auto i = begin; i < end; ++i) {
         sources[i].slots = slotsOf(sources[i].key, sources[i].triplet);
       }
@@ -867,22 +867,23 @@ class Vertexer
         candidates.push_back({.key = keys[t], .triplet = t, .box = boxes[t], .weight = weights[t], .reachWeight = reachWeights[t], .slots = slotsOf(keys[t], t)});
       }
     }
-    result.candidates = candidates.size();
+    const auto candidateCount = static_cast<std::uint32_t>(candidates.size());
+    result.candidates = candidateCount;
     // Order: one stable sort, so that equal keys keep the triplets' order.
     std::ranges::stable_sort(candidates, {}, &Candidate::key);
     // Rounds: the frames' segments, and each frame's rounds.
-    BoundedVector<std::size_t> frameBegin(resource);
-    for (std::size_t i = 0; i < candidates.size(); ++i) {
+    BoundedVector<std::uint32_t> frameBegin(resource);
+    for (std::uint32_t i = 0; i < candidateCount; ++i) {
       if (i == 0U || vertexKeyFrame(candidates[i].key) != vertexKeyFrame(candidates[i - 1U].key)) {
         frameBegin.push_back(i);
       }
     }
-    frameBegin.push_back(candidates.size());
-    const std::size_t frames = frameBegin.size() - 1U;
+    frameBegin.push_back(candidateCount);
+    const auto frames = static_cast<std::uint32_t>(frameBegin.size()) - 1U;
     BoundedVector<BoundedVector<Found>> found(frames, BoundedVector<Found>(resource), resource);
     BoundedVector<std::int32_t> claimedBy(candidates.size(), kClaimFree, resource);
     BoundedVector<std::uint32_t> rounds(frames, 0U, resource);
-    const auto rounder = [&](std::size_t begin, std::size_t end) {
+    const auto rounder = [&](std::uint32_t begin, std::uint32_t end) {
       for (auto f = begin; f < end; ++f) {
         const std::span<const Candidate> segment{candidates.data() + frameBegin[f], frameBegin[f + 1U] - frameBegin[f]};
         const std::span<std::int32_t> claims{claimedBy.data() + frameBegin[f], segment.size()};
@@ -895,7 +896,7 @@ class Vertexer
     parallel(frames, 1U, rounder);
     // Seeds: the list, in frame order and each frame's in z; the claims renumbered.
     BoundedVector<std::int32_t> firstOfFrame(frames, 0, resource);
-    for (std::size_t f = 0; f < frames; ++f) {
+    for (std::uint32_t f = 0; f < frames; ++f) {
       firstOfFrame[f] = static_cast<std::int32_t>(result.vertices.size());
       result.rounds = std::max(result.rounds, rounds[f]);
       for (const auto& vertex : found[f]) {
@@ -905,7 +906,7 @@ class Vertexer
     }
     // Each candidate's vertex in the list: free, a dropped one too.
     BoundedVector<std::int32_t> vertexOf(candidates.size(), VertexerResult::kFree, resource);
-    for (std::size_t f = 0; f < frames; ++f) {
+    for (std::uint32_t f = 0; f < frames; ++f) {
       for (auto i = frameBegin[f]; i < frameBegin[f + 1U]; ++i) {
         if (claimedBy[i] >= 0) {
           vertexOf[i] = firstOfFrame[f] + claimedBy[i];
@@ -914,12 +915,12 @@ class Vertexer
     }
     if (keepTripletVertex) {
       result.tripletVertex.assign(tripletCount, VertexerResult::kNone);
-      for (std::size_t t = 0; t < tripletCount; ++t) {
+      for (std::uint32_t t = 0; t < tripletCount; ++t) {
         if (!owned.owns(measurements.timePS[tracklets.target[triplets.first[t]]])) {
           result.tripletVertex[t] = VertexerResult::kNotOwned;
         }
       }
-      for (std::size_t i = 0; i < candidates.size(); ++i) {
+      for (std::uint32_t i = 0; i < candidateCount; ++i) {
         result.tripletVertex[candidates[i].triplet] = vertexOf[i];
       }
     }
@@ -961,13 +962,13 @@ class Vertexer
   /// taken, the last included -- of the rerun alone where it ran.
   std::uint32_t findInFrame(std::span<const Candidate> segment, std::span<std::int32_t> claims, BoundedVector<Found>& found, std::span<const Source> sources, std::span<std::uint8_t> ownedSlots) const
   {
-    const std::size_t n = segment.size();
+    const auto n = static_cast<std::uint32_t>(segment.size());
     std::pmr::memory_resource* const resource = found.get_allocator().resource();
     BoundedVector<std::int64_t> z(n, resource);
-    for (std::size_t i = 0; i < n; ++i) {
+    for (std::uint32_t i = 0; i < n; ++i) {
       z[i] = vertexKeyZUM(segment[i].key);
     }
-    const auto at = [&](std::int64_t value) { return static_cast<std::size_t>(std::ranges::lower_bound(z, value) - z.begin()); };
+    const auto at = [&](std::int64_t value) { return static_cast<std::uint32_t>(std::ranges::lower_bound(z, value) - z.begin()); };
     const std::int64_t window = mSettings.windowUM;
     const std::int64_t claim = mSettings.claimUM;
     // A candidate's and a source's reach (`claimReach`), and the farthest of
@@ -990,13 +991,13 @@ class Vertexer
     std::uint32_t rounds = 0U;
     while (true) {
       ++rounds;
-      for (std::size_t i = 0; i < n; ++i) {
+      for (std::uint32_t i = 0; i < n; ++i) {
         count[i + 1U] = count[i] + (claims[i] == kClaimFree ? 1U : 0U);
       }
       const auto countIn = [&](std::int64_t low, std::int64_t high) { return count[at(high)] - count[at(low)]; };
       std::int64_t bestExcess = 0;
-      std::size_t best = n;
-      for (std::size_t i = 0; i < n; ++i) {
+      std::uint32_t best = n;
+      for (std::uint32_t i = 0; i < n; ++i) {
         if (claims[i] != kClaimFree) {
           continue;
         }
@@ -1048,13 +1049,13 @@ class Vertexer
       std::uint64_t weightSum = 0U;
       std::int64_t weightedZSum = 0;
       std::int64_t selectedCount = 0;
-      const auto select = [&](std::size_t k) {
+      const auto select = [&](std::uint32_t k) {
         selected[k] = 1U;
         weightSum += claimedWeight[k];
         weightedZSum += static_cast<std::int64_t>(claimedWeight[k]) * claimed[k];
         ++selectedCount;
       };
-      for (std::size_t k = 0; k < claimed.size(); ++k) {
+      for (std::uint32_t k = 0; k < claimed.size(); ++k) {
         if (withinZ(claimed[k], centre, static_cast<Scalar>(window))) {
           select(k);
         }
@@ -1062,7 +1063,7 @@ class Vertexer
       for (bool grew = true; grew;) {
         grew = false;
         const auto moments = zMoments(weightSum, weightedZSum);
-        for (std::size_t k = 0; k < claimed.size(); ++k) {
+        for (std::uint32_t k = 0; k < claimed.size(); ++k) {
           if (selected[k] == 0U && withinError(claimed[k], claimedWeight[k], moments, mSettings.clipNSigma)) {
             select(k);
             grew = true;
@@ -1071,7 +1072,7 @@ class Vertexer
       }
       const auto settled = zMoments(weightSum, weightedZSum);
       std::uint64_t scatterSum = 0U;
-      for (std::size_t k = 0; k < claimed.size(); ++k) {
+      for (std::uint32_t k = 0; k < claimed.size(); ++k) {
         if (selected[k] != 0U) {
           scatterSum += candidateScatter(claimed[k], claimedWeight[k], settled.mean);
         }
@@ -1089,7 +1090,7 @@ class Vertexer
           }
         }
       }
-      for (std::size_t i = 0; i < n; ++i) {
+      for (std::uint32_t i = 0; i < n; ++i) {
         if (claims[i] == kClaimFree && std::ranges::any_of(segment[i].slots, [&](std::uint32_t slot) { return ownedSlots[slot] != 0U; })) {
           claims[i] = kClaimDropped;
         }
@@ -1098,19 +1099,19 @@ class Vertexer
     // The frame's vertices by z, ties by the order found, and the claims
     // renumbered to match.
     BoundedVector<std::uint32_t> order(found.size(), resource);
-    for (std::size_t v = 0; v < order.size(); ++v) {
-      order[v] = static_cast<std::uint32_t>(v);
+    for (std::uint32_t v = 0; v < order.size(); ++v) {
+      order[v] = v;
     }
     std::ranges::stable_sort(order, {}, [&](std::uint32_t v) { return found[v].seed.z; });
     BoundedVector<std::int32_t> placeOf(found.size(), resource);
     BoundedVector<Found> sorted(resource);
     sorted.reserve(found.size());
-    for (std::size_t place = 0; place < order.size(); ++place) {
+    for (std::uint32_t place = 0; place < order.size(); ++place) {
       placeOf[order[place]] = static_cast<std::int32_t>(place);
       sorted.push_back(found[order[place]]);
     }
     for (auto& owner : claims) {
-      owner = owner < 0 ? owner : placeOf[static_cast<std::size_t>(owner)];
+      owner = owner < 0 ? owner : placeOf[static_cast<std::uint32_t>(owner)];
     }
     found.swap(sorted);
     return rounds;

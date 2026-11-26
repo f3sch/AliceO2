@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 namespace o2::gtrk::propagation_precision
 {
@@ -34,7 +35,7 @@ inline TrackingSurface plane(double x, double y, double z, double angle, bool di
 /// axes: the same plane, its centre elsewhere.
 inline void slideOrigin(TrackingSurface& surface, double offset0, double offset1)
 {
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     surface.origin[i] += static_cast<Scalar>(offset0 * static_cast<double>(surface.axis0[i]) + offset1 * static_cast<double>(surface.axis1[i]));
   }
 }
@@ -63,7 +64,7 @@ inline Closure closure(const Propagator& prop, const BoundTrackState& before, co
 
   double point[3];
   surfaceToGlobal(from, before.loc0(), before.loc1(), point);
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     point[i] += step[i];
   }
   double local[3];
@@ -78,7 +79,7 @@ inline Closure closure(const Propagator& prop, const BoundTrackState& before, co
 
 struct Worst {
   Closure value;
-  int checked = 0;
+  std::int32_t checked = 0;
 
   void add(const Closure& next)
   {

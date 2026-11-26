@@ -181,10 +181,10 @@ class SpeciesFitStudy
   void fitChain(const TruthEvent<Det>& event, const Chain& chain, Species species, double charge, const ChainIdentity& identity, std::vector<SpeciesFitRecord>& records, bool& noSeed) const;
 
   RecordWriter* mWriter = nullptr;
-  std::size_t mChains = 0U;
-  std::size_t mUnsupported = 0U;
-  std::size_t mNoSeed = 0U;
-  std::size_t mRecords = 0U;
+  std::uint64_t mChains = 0U;
+  std::uint64_t mUnsupported = 0U;
+  std::uint64_t mNoSeed = 0U;
+  std::uint64_t mRecords = 0U;
 };
 
 template <DetectorLayout Det>
@@ -206,7 +206,7 @@ void SpeciesFitStudy<Det>::process(const TruthEvent<Det>& event, std::span<const
       ++mUnsupported;
       continue;
     }
-    work.push_back({.chain = &chain, .species = *species, .charge = charge});
+    work.push_back({.chain = &chain, .species = *species, .charge = charge, .records = {}});
   }
   o2::gtrk::detail::parallelFor(*event.arena, 0U, work.size(), 16, [&](std::size_t begin, std::size_t end) {
     for (std::size_t i = begin; i < end; ++i) {
@@ -231,7 +231,7 @@ void SpeciesFitStudy<Det>::fitChain(const TruthEvent<Det>& event, const Chain& c
   const auto& frame = *event.frame;
   const auto& geometry = *event.geometry;
   constexpr o2::gtrk::detail::LayerMaterial material{};
-  const auto count = static_cast<int>(chain.rows.size());
+  const auto count = static_cast<std::int32_t>(chain.rows.size());
   const auto row = chain.track ? chain.track->comparisonRow : chain.rows.front();
   const RowChain<Det> rows{.frame = &frame, .rows = chain.rows.data()};
   const auto crossing = [&](std::uint32_t at) {

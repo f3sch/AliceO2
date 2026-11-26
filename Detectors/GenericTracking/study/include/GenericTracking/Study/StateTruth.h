@@ -99,8 +99,8 @@ template <DetectorLayout Det>
   const double momentum = std::hypot(truth.pt, p[2]);
   truth.momentum = momentum;
   truth.residual = {static_cast<double>(state.par[kLoc0]) - (*crossing)[0], static_cast<double>(state.par[kLoc1]) - (*crossing)[1], toPMPiOf(static_cast<double>(state.par[kPhi]) - phiOf(p)), static_cast<double>(state.par[kTheta]) - std::atan2(truth.pt, p[2]), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
-  for (int i = 0; i < 5; ++i) {
-    truth.sigma[static_cast<std::size_t>(i)] = sqrtClampedOf(static_cast<double>(state.covAt(i, i)));
+  for (std::int32_t i = 0; i < 5; ++i) {
+    truth.sigma[static_cast<std::uint32_t>(i)] = sqrtClampedOf(static_cast<double>(state.covAt(i, i)));
   }
   // pT = |q| sin(theta) / |q/p|: d/dtheta = |q| cos(theta) / |q/p|, d/d(q/p) = -pT / (q/p).
   const auto theta = static_cast<double>(state.par[kTheta]);
@@ -131,8 +131,8 @@ struct PerigeeTruth {
   const double momentum = static_cast<double>(truth.pt) * std::cosh(eta);
   PerigeeTruth result;
   result.residual = {static_cast<double>(state.par[kLoc0]), static_cast<double>(state.par[kLoc1]) - static_cast<double>(truth.vz), toPMPiOf(static_cast<double>(state.par[kPhi]) - static_cast<double>(truth.phi)), static_cast<double>(state.par[kTheta]) - thetaOfEta(eta), static_cast<double>(state.par[kQOverP]) - (charge / momentum)};
-  for (int i = 0; i < 5; ++i) {
-    result.sigma[static_cast<std::size_t>(i)] = sqrtClampedOf(static_cast<double>(state.covAt(i, i)));
+  for (std::int32_t i = 0; i < 5; ++i) {
+    result.sigma[static_cast<std::uint32_t>(i)] = sqrtClampedOf(static_cast<double>(state.covAt(i, i)));
   }
   return result;
 }

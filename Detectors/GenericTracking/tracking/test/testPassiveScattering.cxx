@@ -44,6 +44,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <random>
 #include <span>
@@ -82,7 +83,7 @@ struct ToyPipe {
     {.from = 4, .to = 5, .sourceMin = -10., .sourceMax = 10.},
   }};
 
-  static constexpr int nSensors = countSensors(barrelLayers, discLayers);
+  static constexpr std::int32_t nSensors = countSensors(barrelLayers, discLayers);
 };
 
 [[maybe_unused]] const bool kToyPipePublished = publishToy<ToyPipe>();
@@ -94,8 +95,8 @@ constexpr double kLayerX2X0 = 1.e-3;
 constexpr double kPipeRadius = 3.;
 constexpr double kBzKiloGauss = 20.;
 constexpr double kMinPtGeV = 0.3;
-constexpr std::size_t kCrossingLink = 2; // 2 -> 3
-constexpr std::size_t kBeyondLink = 3;   // 3 -> 4, the pipe inside its source
+constexpr std::uint32_t kCrossingLink = 2; // 2 -> 3
+constexpr std::uint32_t kBeyondLink = 3;   // 3 -> 4, the pipe inside its source
 
 SearchWindowParams windowParams()
 {
@@ -121,7 +122,7 @@ struct PairTerms {
   Scalar between = 0.F;
 };
 
-PairTerms pairTerms(const IterationParameters<Det>& parameters, std::size_t link, const VertexSeed& vertex, const PairPoint& source, const PairPoint& target, bool withBetween)
+PairTerms pairTerms(const IterationParameters<Det>& parameters, std::uint32_t link, const VertexSeed& vertex, const PairPoint& source, const PairPoint& target, bool withBetween)
 {
   const auto& pair = Det::layerLinks[link];
   Scalar spanX = 0.F;
@@ -151,12 +152,12 @@ Crossings follow(double pt, double phi, double cotTheta, double charge, double v
   // Every radius the track has to reach, in order, and what happens there.
   struct Stop {
     double r;
-    int layer;   // -1: a scatterer only
+    std::int32_t layer; // -1: a scatterer only
     double x2X0; // scattering at the crossing
   };
   std::vector<Stop> stops;
   stops.reserve(layers.size() + scatterers.size());
-  int layer = 0;
+  std::int32_t layer = 0;
   for (const auto& spec : layers) {
     stops.push_back({.r = spec.r, .layer = layer++, .x2X0 = kLayerX2X0});
   }
@@ -196,7 +197,7 @@ Crossings follow(double pt, double phi, double cotTheta, double charge, double v
       previousR = r;
       low = high;
     }
-    for (int i = 0; i < 60; ++i) {
+    for (std::int32_t i = 0; i < 60; ++i) {
       const double mid = 0.5 * (low + high);
       at(mid, px, py);
       (std::hypot(px, py) < stop.r ? low : high) = mid;
@@ -209,7 +210,7 @@ Crossings follow(double pt, double phi, double cotTheta, double charge, double v
     phi += charge * path / radius;
     if (stop.layer >= 0) {
       const auto r = static_cast<Scalar>(std::hypot(x, y));
-      result.points[static_cast<std::size_t>(stop.layer)] = {
+      result.points[static_cast<std::uint32_t>(stop.layer)] = {
         .x = static_cast<Scalar>(x),
         .y = static_cast<Scalar>(y),
         .z = static_cast<Scalar>(z),
@@ -234,10 +235,10 @@ Crossings follow(double pt, double phi, double cotTheta, double charge, double v
 }
 
 struct LinkCount {
-  int pairs = 0;
-  int accepted = 0;
-  int inPhiWindow = 0;
-  int inSecondWindow = 0;
+  std::int32_t pairs = 0;
+  std::int32_t accepted = 0;
+  std::int32_t inPhiWindow = 0;
+  std::int32_t inSecondWindow = 0;
 };
 
 /// Pairs of consecutive layers of tracks at pT_min -- where the curvature test
@@ -245,7 +246,7 @@ struct LinkCount {
 /// as the tracklet stage runs it -- \a withBetween false leaves the kink
 /// between source and target out, \a cutTable is the table the cut is built
 /// with.
-std::array<LinkCount, 5> countPairs(const LinkMaterial<Det>& cutTable, bool withBetween, double pipeX2X0, int tracks)
+std::array<LinkCount, 5> countPairs(const LinkMaterial<Det>& cutTable, bool withBetween, double pipeX2X0, std::int32_t tracks)
 {
   IterationSettings settings;
   settings.windows = windowParams();
@@ -257,7 +258,7 @@ std::array<LinkCount, 5> countPairs(const LinkMaterial<Det>& cutTable, bool with
   const std::array<double, 1> scatterers{kPipeRadius};
   const std::array<double, 1> scattererX2X0{pipeX2X0};
   std::array<LinkCount, 5> counts{};
-  for (int track = 0; track < tracks; ++track) {
+  for (std::int32_t track = 0; track < tracks; ++track) {
     const double phi = kTwoPi<double> * uniform(rng);
     const double cotTheta = -0.5 + uniform(rng);
     const double charge = track % 2 == 0 ? 1. : -1.;
@@ -266,7 +267,7 @@ std::array<LinkCount, 5> countPairs(const LinkMaterial<Det>& cutTable, bool with
     if (!crossings.complete) {
       continue;
     }
-    for (std::size_t link = 0; link < Det::layerLinks.size(); ++link) {
+    for (std::uint32_t link = 0; link < Det::layerLinks.size(); ++link) {
       const auto& source = crossings.points[Det::layerLinks[link].from];
       const auto& target = crossings.points[Det::layerLinks[link].to];
       const auto terms = pairTerms(parameters, link, beamLine, source, target, withBetween);
@@ -294,7 +295,7 @@ struct ChainCounts {
   std::array<LinkCount, 3> neighbours{};
 };
 
-ChainCounts countChains(const LinkMaterial<Det>& cutTable, double pipeX2X0, int tracks)
+ChainCounts countChains(const LinkMaterial<Det>& cutTable, double pipeX2X0, std::int32_t tracks)
 {
   IterationSettings settings;
   settings.windows = windowParams();
@@ -307,7 +308,7 @@ ChainCounts countChains(const LinkMaterial<Det>& cutTable, double pipeX2X0, int 
   const std::array<double, 1> scattererX2X0{pipeX2X0};
   const TripletTargetBounds bounds{.varZ = 2.5e-7F, .varR = 2.5e-7F, .varRPhi = 2.5e-7F};
   ChainCounts counts;
-  for (int track = 0; track < tracks; ++track) {
+  for (std::int32_t track = 0; track < tracks; ++track) {
     const double phi = kTwoPi<double> * uniform(rng);
     const double cotTheta = -0.5 + uniform(rng);
     const double charge = track % 2 == 0 ? 1. : -1.;
@@ -316,9 +317,9 @@ ChainCounts countChains(const LinkMaterial<Det>& cutTable, double pipeX2X0, int 
     if (!crossings.complete) {
       continue;
     }
-    const auto timed = [&](std::size_t layer) { return TimedPoint{.point = crossings.points[layer], .time = {.start = 0U, .width = 1U}}; };
+    const auto timed = [&](std::uint32_t layer) { return TimedPoint{.point = crossings.points[layer], .time = {.start = 0U, .width = 1U}}; };
     std::array<bool, 5> pairPasses{};
-    for (std::size_t link = 0; link < Det::layerLinks.size(); ++link) {
+    for (std::uint32_t link = 0; link < Det::layerLinks.size(); ++link) {
       const auto& source = crossings.points[Det::layerLinks[link].from];
       const auto& target = crossings.points[Det::layerLinks[link].to];
       const auto terms = pairTerms(parameters, link, beamLine, source, target, true);
@@ -327,7 +328,7 @@ ChainCounts countChains(const LinkMaterial<Det>& cutTable, double pipeX2X0, int 
     std::array<bool, 4> tripletPasses{};
     std::array<TripletFitResult, 4> fits{};
     std::array<KinkTerms, 4> terms{};
-    for (std::size_t first = 0; first + 1U < Det::layerLinks.size(); ++first) {
+    for (std::uint32_t first = 0; first + 1U < Det::layerLinks.size(); ++first) {
       if (!pairPasses[first] || !pairPasses[first + 1U]) {
         continue;
       }
@@ -354,7 +355,7 @@ ChainCounts countChains(const LinkMaterial<Det>& cutTable, double pipeX2X0, int 
     // `first` stays below `neighbours.size()`.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Warray-bounds"
-    for (std::size_t first = 0; first + 2U < Det::layerLinks.size(); ++first) {
+    for (std::uint32_t first = 0; first + 2U < Det::layerLinks.size(); ++first) {
       if (!tripletPasses[first] || !tripletPasses[first + 1U]) {
         continue;
       }
@@ -387,7 +388,7 @@ BOOST_AUTO_TEST_CASE(ThePipeIsBetweenOrInsideByRadius)
   const auto withPipe = table(0.01);
   const auto withoutPipe = table(0.);
   const auto parameters = iterationParameters<Det>(settings, kBeamSpot, *withPipe);
-  for (std::size_t link = 0; link < Det::layerLinks.size(); ++link) {
+  for (std::uint32_t link = 0; link < Det::layerLinks.size(); ++link) {
     BOOST_TEST_CONTEXT("link " << link) { BOOST_TEST((parameters.betweenBound[link] > 0.F) == (link == kCrossingLink)); }
   }
 
@@ -398,7 +399,7 @@ BOOST_AUTO_TEST_CASE(ThePipeIsBetweenOrInsideByRadius)
   const PairPoint far{.x = 10.F, .z = 2.F, .r = 10.F};
   BOOST_TEST(sourceScattering<Det>(*withPipe, cut, beamLine, 2, inside) == sourceScattering<Det>(*withoutPipe, cut, beamLine, 2, inside));
   BOOST_TEST(sourceScattering<Det>(*withPipe, cut, beamLine, 3, beyond) > sourceScattering<Det>(*withoutPipe, cut, beamLine, 3, beyond));
-  const auto between = [&](const LinkMaterial<Det>& material, std::size_t link, LayerID from, const PairPoint& source, const PairPoint& target) {
+  const auto between = [&](const LinkMaterial<Det>& material, std::uint32_t link, LayerID from, const PairPoint& source, const PairPoint& target) {
     Scalar spanX = 0.F;
     static_cast<void>(sourceScattering<Det>(material, cut, beamLine, from, source, atan2Of(source.y, source.x), spanX));
     return betweenScattering<Det>(material, cut, betweenSource<Det>(source, from), link, static_cast<LayerID>(from + 1), beamLine, source, target, spanX).between;
@@ -427,10 +428,10 @@ BOOST_AUTO_TEST_CASE(NoPairsKinkExceedsItsLinksBound)
 
 BOOST_AUTO_TEST_CASE(TruePairsPassAcrossAndBeyondThePipe)
 {
-  constexpr int kTracks = 20000;
+  constexpr std::int32_t kTracks = 20000;
   constexpr double kPipeX2X0 = 0.01;
   const auto full = countPairs(*table(kPipeX2X0), true, kPipeX2X0, kTracks);
-  for (std::size_t link = 0; link < full.size(); ++link) {
+  for (std::uint32_t link = 0; link < full.size(); ++link) {
     const auto& count = full[link];
     BOOST_TEST_MESSAGE("link " << link << ": " << count.accepted << "/" << count.pairs << " accepted, " << count.inPhiWindow << " and " << count.inSecondWindow << " of them in the phi and second windows");
     BOOST_TEST_CONTEXT("link " << link)
@@ -458,15 +459,15 @@ BOOST_AUTO_TEST_CASE(TruePairsPassAcrossAndBeyondThePipe)
 /// fail without it.
 BOOST_AUTO_TEST_CASE(TripletsAndNeighboursAcrossThePipe)
 {
-  constexpr int kTracks = 20000;
+  constexpr std::int32_t kTracks = 20000;
   constexpr double kPipeX2X0 = 0.01;
   const auto full = countChains(*table(kPipeX2X0), kPipeX2X0, kTracks);
   const auto without = countChains(*table(0.), kPipeX2X0, kTracks);
-  for (std::size_t first = 0; first < full.triplets.size(); ++first) {
+  for (std::uint32_t first = 0; first < full.triplets.size(); ++first) {
     BOOST_TEST_MESSAGE("triplet " << first << "-" << first + 2U << ": " << full.triplets[first].accepted << "/" << full.triplets[first].pairs << ", without the pipe " << without.triplets[first].accepted << "/" << without.triplets[first].pairs);
     BOOST_TEST_CONTEXT("triplet from layer " << first) { BOOST_TEST(fraction(full.triplets[first].accepted, full.triplets[first].pairs) > 0.99); }
   }
-  for (std::size_t first = 0; first < full.neighbours.size(); ++first) {
+  for (std::uint32_t first = 0; first < full.neighbours.size(); ++first) {
     BOOST_TEST_MESSAGE("neighbour " << first << "-" << first + 3U << ": " << full.neighbours[first].accepted << "/" << full.neighbours[first].pairs << ", without the pipe " << without.neighbours[first].accepted << "/" << without.neighbours[first].pairs);
     BOOST_TEST_CONTEXT("neighbour from layer " << first) { BOOST_TEST(fraction(full.neighbours[first].accepted, full.neighbours[first].pairs) > 0.99); }
   }

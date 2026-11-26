@@ -193,8 +193,8 @@ class GpuStage
   GpuStage(DeviceRuntime& runtime, DeviceArena& arena, DeviceStream& stream) : mRuntime(&runtime), mArena(&arena), mStream(&stream) {}
 
   /// The staging the next run starts with: the estimator's prediction.
-  void prepareStaging(std::size_t records) { mCapacity = records; }
-  [[nodiscard]] std::size_t stagingCapacity() const noexcept { return mCapacity; }
+  void prepareStaging(std::uint32_t records) { mCapacity = records; }
+  [[nodiscard]] std::uint32_t stagingCapacity() const noexcept { return mCapacity; }
   /// Whether the last run's staging overflowed and was retried at the exact size.
   [[nodiscard]] bool stagingPredictionMissed() const noexcept { return mMissed; }
 
@@ -226,7 +226,7 @@ class GpuStage
     mMissed = false;
     mStaged = 0U;
     const Index elements = output.elementCount();
-    if (elements >= static_cast<Index>(std::numeric_limits<int>::max())) {
+    if (elements >= static_cast<Index>(std::numeric_limits<std::int32_t>::max())) {
       return StageStatus::kIndexOverflow; // the scan's item count is an int on CUB and hipCUB
     }
     if (elements == 0U) {
@@ -237,14 +237,14 @@ class GpuStage
       output.setSize(0U);
       return StageStatus::kComplete;
     }
-    for (int attempt = 0; attempt < 2; ++attempt) {
+    for (std::int32_t attempt = 0; attempt < 2; ++attempt) {
       const StageStatus status = attemptRun<Listed>(output, generate, listed, listedCount);
       if (status != StageStatus::kStagingOverflow) {
         return status;
       }
       // Rung 2 of the overflow ladder: grow once to the exact size and keep it.
       mMissed = true;
-      mCapacity = static_cast<std::size_t>(mStaged);
+      mCapacity = static_cast<std::uint32_t>(mStaged);
     }
     return StageStatus::kStagingOverflow;
   }
@@ -328,7 +328,7 @@ class GpuStage
     // the run found it, counts and offsets only. run() keeps elements below
     // INT_MAX, the scan's item count.
     const auto total = static_cast<Index>(emitted);
-    const StageStatus scanned = algorithms::exclusiveScan(*mRuntime, *mArena, *mStream, std::as_const(output.counts()).data(), output.offsets().data(), std::size_t{elements} + 1U);
+    const StageStatus scanned = algorithms::exclusiveScan(*mRuntime, *mArena, *mStream, std::as_const(output.counts()).data(), output.offsets().data(), elements + 1U);
     if (scanned != StageStatus::kComplete || !output.allocateOutput(*mArena, total)) {
       return StageStatus::kOutOfMemory;
     }
@@ -345,7 +345,7 @@ class GpuStage
   DeviceRuntime* mRuntime = nullptr;
   DeviceArena* mArena = nullptr;
   DeviceStream* mStream = nullptr;
-  std::size_t mCapacity = 1024U;
+  std::uint32_t mCapacity = 1024U;
   std::uint64_t mStaged = 0U;
   bool mMissed = false;
 };

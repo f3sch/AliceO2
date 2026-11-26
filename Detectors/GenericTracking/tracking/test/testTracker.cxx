@@ -47,7 +47,7 @@ using Scratch = TimeFrameScratch<Det>;
 using Sources = LayerRowMap<Det>;
 using Output = StageOutput<TrackletT>;
 using Controller = Tracker<Det>;
-constexpr std::size_t kMeasurements = 4U;
+constexpr std::uint32_t kMeasurements = 4U;
 
 struct InputPoint {
   LayerID layer = kInvalidLayerID;
@@ -78,7 +78,7 @@ class Fixture
       {.layer = 1, .timePS = 41'000U, .widthPS = 29'000U, .r = 4.F},
     }};
 
-    frame = test::frameOf(geometry, input.size(), [&](std::size_t i) { return test::FramePoint{.layer = input[i].layer, .x = input[i].r, .r = input[i].r}; }, [&](std::size_t i) { return TimeEstPS{.start = input[i].timePS, .width = input[i].widthPS}; }, [&](std::size_t /*i*/) { return test::PointVariances{.z = 1e-4F, .r = 1e-4F, .rPhi = 1e-4F}; }, columns, offsets);
+    frame = test::frameOf(geometry, kMeasurements, [&](std::uint32_t i) { return test::FramePoint{.layer = input[i].layer, .x = input[i].r, .r = input[i].r}; }, [&](std::uint32_t i) { return TimeEstPS{.start = input[i].timePS, .width = input[i].widthPS}; }, [&](std::uint32_t /*i*/) { return test::PointVariances{.z = 1e-4F, .r = 1e-4F, .rPhi = 1e-4F}; }, columns, offsets);
     used.assign(frame->size(), kFree);
   }
 
@@ -95,7 +95,7 @@ class Fixture
 std::array<std::uint32_t, Sources::kLayerCount> candidateWidthBounds(const Fixture& fixture, const Frame::TimeSlice& slice)
 {
   std::array<std::uint32_t, Sources::kLayerCount> result{};
-  for (std::size_t layer = 0; layer < result.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < result.size(); ++layer) {
     for (auto row = slice.halo[layer].begin; row < slice.halo[layer].end; ++row) {
       result[layer] = std::max(result[layer], fixture.frame->measurement(row).widthPS);
     }
@@ -170,13 +170,13 @@ BOOST_AUTO_TEST_CASE(EndTimeframeGivesTheMemoryBack)
   const Fixture fixture;
   const Frame::TimeSlice slice{*fixture.frame, {.begin = 1, .end = 2}, 1'000};
   const auto& scattering = noMaterial<Det>();
-  for (const int threads : {1, 4}) {
+  for (const std::int32_t threads : {1, 4}) {
     BOOST_TEST_CONTEXT("threads " << threads)
     {
       const auto memory = std::make_shared<BoundedMemoryResource>();
       Controller tracker{iterationSettings(), Fixture::kBeamConstraint, scattering, memory, 1U, threads};
       const auto before = memory->getUsedMemory();
-      for (int timeframe = 0; timeframe < 3; ++timeframe) {
+      for (std::int32_t timeframe = 0; timeframe < 3; ++timeframe) {
         BOOST_REQUIRE(tracker.beginTimeframe(*fixture.frame) == StageStatus::kComplete);
         const auto result = test::runSlice(tracker, 0U, *fixture.frame, slice, {});
         BOOST_REQUIRE(result.status == StageStatus::kComplete);

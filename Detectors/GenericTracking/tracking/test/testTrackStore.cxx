@@ -42,19 +42,19 @@ namespace
 using Det = toybarrel8::Det;
 using Store = TrackStore<Det>;
 using Tracks = Store::Tracks;
-constexpr std::size_t kClusters = Store::kMaxClusters;
+constexpr std::uint32_t kClusters = Store::kMaxClusters;
 
 /// A matching step's record, as another component would add: per committed
 /// track, any number of hits of its detector with their chi2.
 struct ToyMatch {
-  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   template <template <class> class C>
   struct RecordT {
     MEMLAYOUT_APPLY(RecordT, hit, chi2)
     C<std::uint32_t> hit;
     C<float> chi2;
   };
-  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+  // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
 
 /// body(i) for i below n, in order.
@@ -82,19 +82,20 @@ const auto threaded = [](std::uint32_t n, const auto& body) {
 void appendTracks(Tracks& tracks, const std::vector<std::uint8_t>& counts)
 {
   const auto begin = tracks.size();
-  tracks.resize(begin + counts.size());
+  const auto added = static_cast<std::uint32_t>(counts.size());
+  tracks.resize(begin + added);
   const auto view = tracks.view();
-  for (std::size_t i = 0; i < counts.size(); ++i) {
+  for (std::uint32_t i = 0; i < added; ++i) {
     const auto track = begin + i;
     view.count[track] = counts[i];
     std::ranges::fill(view.clusters[track].index, ClusterList<kClusters>::kNoCluster);
     for (std::uint8_t k = 0; k < counts[i]; ++k) {
-      view.clusters[track].index[k] = static_cast<std::uint32_t>((100U * track) + k);
+      view.clusters[track].index[k] = (100U * track) + k;
     }
   }
 }
 
-std::vector<std::uint32_t> referencedRows(const Store& store, std::size_t track)
+std::vector<std::uint32_t> referencedRows(const Store& store, std::uint32_t track)
 {
   std::vector<std::uint32_t> rows;
   for (std::uint32_t k = 0; k < store.references().range(track).count; ++k) {
@@ -123,7 +124,7 @@ BOOST_AUTO_TEST_CASE(EachCommittedTrackRefersToItsRows)
   BOOST_TEST(store.holds(tracks));
   BOOST_TEST(store.references().recordCount() == 3U + 0U + kClusters + 4U + 2U);
   std::uint32_t next = 0U;
-  for (std::size_t track = 0; track < store.size(); ++track) {
+  for (std::uint32_t track = 0; track < store.size(); ++track) {
     const auto range = store.references().range(track);
     BOOST_TEST(range.first == next);
     BOOST_TEST(range.count == tracks.view().count[track]);
@@ -149,7 +150,7 @@ BOOST_AUTO_TEST_CASE(TheProductsAreOrderedByTimeThenQuality)
   const std::uint32_t timePS[] = {200U, 100U, 100U, 100U};
   const float chi2[] = {1.F, 9.F, 5.F, 0.F};
   const std::int16_t ndf[] = {1, 5, 5, 0};
-  for (std::size_t track = 0; track < tracks.size(); ++track) {
+  for (std::uint32_t track = 0; track < tracks.size(); ++track) {
     view.timePS[track] = timePS[track];
     view.chi2[track] = chi2[track];
     view.ndf[track] = ndf[track];
@@ -159,7 +160,7 @@ BOOST_AUTO_TEST_CASE(TheProductsAreOrderedByTimeThenQuality)
   std::vector<std::uint32_t> offsets;
   std::vector<Store::ReferenceRecord> references;
   store.flatten(records, offsets, references);
-  const std::size_t expected[] = {2U, 1U, 3U, 0U};
+  const std::uint32_t expected[] = {2U, 1U, 3U, 0U};
   BOOST_REQUIRE(records.size() == 4U);
   for (std::size_t place = 0; place < records.size(); ++place) {
     const auto track = expected[place];
@@ -181,7 +182,7 @@ BOOST_AUTO_TEST_CASE(AParallelCommitIsTheSerialOne)
   Tracks tracks;
   std::vector<std::uint8_t> counts;
   counts.reserve(101U);
-  for (std::size_t track = 0; track < 101U; ++track) {
+  for (std::uint32_t track = 0; track < 101U; ++track) {
     counts.push_back(static_cast<std::uint8_t>((track * 7U) % (kClusters + 1U)));
   }
   appendTracks(tracks, counts);
@@ -190,7 +191,7 @@ BOOST_AUTO_TEST_CASE(AParallelCommitIsTheSerialOne)
   BOOST_REQUIRE(one.commit(serial, 8U, tracks) == StageStatus::kComplete);
   BOOST_REQUIRE(four.commit(threaded, 8U, tracks) == StageStatus::kComplete);
   BOOST_TEST(four.holds(tracks));
-  for (std::size_t track = 0; track < tracks.size(); ++track) {
+  for (std::uint32_t track = 0; track < tracks.size(); ++track) {
     BOOST_TEST(one.references().range(track).first == four.references().range(track).first);
     BOOST_TEST(one.references().range(track).count == four.references().range(track).count);
   }

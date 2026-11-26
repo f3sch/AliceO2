@@ -134,7 +134,7 @@ template <typename Tracks>
 {
   TrackRows rows(tracks.size());
   const auto view = tracks.view();
-  for (std::size_t track = 0; track < tracks.size(); ++track) {
+  for (std::uint32_t track = 0; track < tracks.size(); ++track) {
     rows[track].assign(std::begin(view.clusters[track].index), std::begin(view.clusters[track].index) + view.count[track]);
   }
   return rows;
@@ -145,7 +145,7 @@ template <DetectorLayout Det>
 [[nodiscard]] TrackRows trackRows(const TrackStore<Det>& tracks)
 {
   TrackRows rows(tracks.size());
-  for (std::size_t track = 0; track < tracks.size(); ++track) {
+  for (std::uint32_t track = 0; track < tracks.size(); ++track) {
     const auto mine = tracks.rows(track);
     rows[track].assign(mine.begin(), mine.end());
   }
@@ -172,12 +172,12 @@ struct ChainLink {
 };
 
 struct ComparisonSettings {
-  int nLayers = 0;       ///< the detector's
-  int minLayers = 4;     ///< the second findable class
+  std::int32_t nLayers = 0;   ///< the detector's
+  std::int32_t minLayers = 4; ///< the second findable class
   double minPtGeV = 0.1; ///< the findable floor
   /// The QA's second findable rule (TrackingQA.h, `outwardLayers`): the
   /// layers its MC hits reach on their way out, at the same floor.
-  int minOutwardLayers = 7;
+  std::int32_t minOutwardLayers = 7;
   /// The inner edges of the decay daughters' production bins after the first,
   /// which starts at 0 [cm]: the layers' radii for a barrel, their |z| for
   /// discs. Empty, one bin.
@@ -216,7 +216,7 @@ struct ComparisonSettings {
 /// [-3.8, -2.0] rather than the barrel's [-1.5, 1.5], which would hold every
 /// one of its tracks in one bin.
 template <DetectorLayout Det>
-[[nodiscard]] ComparisonSettings comparisonSettings(int minLayers = 4, double minPtGeV = 0.1)
+[[nodiscard]] ComparisonSettings comparisonSettings(std::int32_t minLayers = 4, double minPtGeV = 0.1)
 {
   ComparisonSettings settings{.nLayers = Detector<Det>::nLayers, .minLayers = minLayers, .minPtGeV = minPtGeV, .productionAlongZ = !Detector<Det>::hasBarrel};
   for (const auto from : layerOrder<Det>) {
@@ -228,11 +228,11 @@ template <DetectorLayout Det>
     }
   }
   settings.barrelLayers = barrelLayerBits<Det>();
-  for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+  for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
     settings.layerSpans.push_back(layerSpan<Det>(static_cast<LayerID>(layer)));
   }
   if constexpr (!(Detector<Det>::hasBarrel && Detector<Det>::hasDiscs)) {
-    for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+    for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
       settings.productionEdges.push_back(std::abs(static_cast<double>(PlacedEnvelopes<Det>::get(static_cast<LayerID>(layer)).position)));
     }
   }

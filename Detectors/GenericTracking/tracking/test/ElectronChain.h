@@ -63,7 +63,7 @@ struct ChainBands {
 /// taken on arriving there, before its measurement (what the refit's carry
 /// to the vertex undoes); `vertex` holds that start.
 struct ElectronChain {
-  static constexpr std::size_t kLayers = 8;
+  static constexpr std::uint32_t kLayers = 8;
   using Barrel = detectors::ToyBarrel8;
   Geometry<Barrel> geometry = toyGeometry<Barrel>();
   /// On the heap: with its link material it is megabytes. Its link material
@@ -90,10 +90,10 @@ struct ElectronChain {
   }
 
   /// The share of the momentum radiated between rows \a first and \a last.
-  [[nodiscard]] double radiatedBetween(std::size_t first, std::size_t last) const
+  [[nodiscard]] double radiatedBetween(std::uint32_t first, std::uint32_t last) const
   {
     double kept = 1.;
-    for (std::size_t i = first; i < last; ++i) {
+    for (std::uint32_t i = first; i < last; ++i) {
       kept *= after[i] * before[i + 1];
     }
     return 1. - kept;
@@ -125,7 +125,7 @@ struct ElectronChain {
   /// every layer.
   bool generate(Scalar qOverP, const ChainBands& bands, bool radiate, std::mt19937& rng, bool fromVertex = false)
   {
-    if (bands.x2X0 != held.x2X0 || bands.xRho != held.xRho) {
+    if (!exactlyEqual(bands.x2X0, held.x2X0) || !exactlyEqual(bands.xRho, held.xRho)) {
       std::array<double, kLayers> x{};
       std::array<double, kLayers> rho{};
       x.fill(bands.x2X0);
@@ -199,7 +199,7 @@ struct ElectronChain {
     Scalar previous[3];
     surfaceToGlobal(tracking->surface(state.surface), state.loc0(), state.loc1(), previous);
     Scalar span = 0.F;
-    for (std::size_t layer = 1; layer < kLayers; ++layer) {
+    for (std::uint32_t layer = 1; layer < kLayers; ++layer) {
       if (!cross(state, static_cast<LayerID>(layer))) {
         return false;
       }
@@ -212,7 +212,7 @@ struct ElectronChain {
       std::copy(point, point + 3, previous);
     }
     state = start;
-    for (std::size_t layer = 0; layer < kLayers; ++layer) {
+    for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
       if (layer > 0) {
         if (!cross(state, static_cast<LayerID>(layer))) {
           return false;
@@ -234,7 +234,7 @@ struct ElectronChain {
       m.loc1 = state.loc1() + static_cast<Scalar>(gauss(rng)) * sigma;
       m.varLoc0 = sigma * sigma;
       m.varLoc1 = sigma * sigma;
-      m.clusterIndex = static_cast<std::uint32_t>(layer);
+      m.clusterIndex = layer;
       if (layer + 1 < kLayers) {
         scatteringKick(state, highlandTheta0(leaving[layer], span, propagator.momentum(state.qOverP()), propagator.massGeV, propagator.absCharge), gauss, rng);
         if (radiate) {

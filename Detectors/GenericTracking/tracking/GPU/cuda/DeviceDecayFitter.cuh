@@ -143,9 +143,9 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
     mStream.synchronize();
     timing.uploadSeconds = profile::secondsSince(start);
 
-    const DecayFitBatchView view{.decays = decays.data(), .daughters = daughters.data(), .mothers = mothers.data(), .planes = planes.data(), .positions = positions.data(), .covariance = covariance.data(), .count = static_cast<std::uint32_t>(count)};
+    const DecayFitBatchView view{.decays = decays.data(), .daughters = daughters.data(), .mothers = mothers.data(), .planes = planes.data(), .positions = positions.data(), .covariance = covariance.data(), .count = count};
     start = Clock::now();
-    algorithms::forEach(*mRuntime, mStream, static_cast<std::uint32_t>(count), SizeWorkspace<Det, Variant, Material>{.batch = view, .material = mMaterial.data(), .bytes = bytes.data()});
+    algorithms::forEach(*mRuntime, mStream, count, SizeWorkspace<Det, Variant, Material>{.batch = view, .material = mMaterial.data(), .bytes = bytes.data()});
     std::vector<std::uint64_t> sizes;
     download(bytes, sizes, count, mStream);
     mStream.synchronize();
@@ -156,10 +156,10 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
     std::vector<std::uint32_t> refusedDecays;
     std::vector<std::uint64_t> offsets;
     start = Clock::now();
-    for (std::size_t first = 0; first < count;) {
+    for (std::uint32_t first = 0; first < count;) {
       const std::size_t available = mArena.capacity() - mArena.used();
       offsets.assign(1U, 0U);
-      std::size_t last = first;
+      std::uint32_t last = first;
       for (; last < count; ++last) {
         const std::uint64_t slice = ((sizes[last] + kSliceAlignment - 1U) / kSliceAlignment) * kSliceAlignment;
         const std::uint64_t total = offsets.back() + slice;
@@ -171,12 +171,12 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
         offsets.push_back(total);
       }
       if (last == first) {
-        refusedDecays.push_back(static_cast<std::uint32_t>(first));
+        refusedDecays.push_back(first);
         ++first;
         continue;
       }
       auto launch = mArena.scope(ArenaEnd::kScratch);
-      const auto launched = static_cast<std::uint32_t>(last - first);
+      const auto launched = last - first;
       DeviceSpan<std::uint64_t> deviceOffsets;
       DeviceSpan<std::byte> scratch;
       DeviceSpan<DecayVertexFitResult> fitted;
@@ -184,7 +184,7 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
         return false;
       }
       upload(offsets.data(), deviceOffsets, offsets.size(), mStream);
-      algorithms::forEach(*mRuntime, mStream, launched, FitDecay<Det, Variant, Material>{.batch = view, .material = mMaterial.data(), .first = static_cast<std::uint32_t>(first), .offsets = deviceOffsets.data(), .scratch = scratch.data(), .results = fitted.data()});
+      algorithms::forEach(*mRuntime, mStream, launched, FitDecay<Det, Variant, Material>{.batch = view, .material = mMaterial.data(), .first = first, .offsets = deviceOffsets.data(), .scratch = scratch.data(), .results = fitted.data()});
       const auto copied = Clock::now();
       download(fitted, results.data() + first, launched, mStream);
       // The next launch takes these slices: this one must be done with them.
@@ -198,7 +198,7 @@ class DeviceDecayFitterImpl final : public DeviceDecayFitter<Det, Material>
       results[index].reset();
       results[index].status = VertexFitStatus::kTooLarge;
     }
-    timing.refused = refusedDecays.size();
+    timing.refused = static_cast<std::uint32_t>(refusedDecays.size());
     timing.peakBytes = mArena.peak();
     return true;
   }

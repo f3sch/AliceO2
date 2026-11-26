@@ -122,7 +122,7 @@ struct Sink {
 /// decide); set only by the tests, directly or through
 /// `DeviceTracker::setFlatChunkPairs`.
 struct FlatOptions {
-  std::size_t maxChunkPairs = 0U;
+  std::uint32_t maxChunkPairs = 0U;
 };
 
 namespace detail
@@ -308,7 +308,7 @@ template <template <template <class> class> class S, typename Adapter>
   const Index elements = output.elementCount();
   // CUB's item counts are ints: past them the run ends with kIndexOverflow,
   // as a `GpuStage` run's.
-  if (std::size_t{elements} + 1U > static_cast<std::size_t>(std::numeric_limits<int>::max()) || std::size_t{listedCount} + 1U > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+  if (std::size_t{elements} + 1U > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()) || std::size_t{listedCount} + 1U > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())) {
     return StageStatus::kIndexOverflow;
   }
   auto* counts = output.counts().data();
@@ -325,7 +325,7 @@ template <template <template <class> class> class S, typename Adapter>
   detail::FlatWords* const device = words.data();
   runtime.fill(device, 0U, sizeof(detail::FlatWords), stream);
   algorithms::forEach(runtime, stream, listedCount + 1U, detail::CountElements<Adapter>{adapter, listed, listedCount, candidateCounts.data()});
-  StageStatus status = algorithms::exclusiveScan(runtime, arena, stream, candidateCounts.data(), offsets.data(), std::size_t{listedCount} + 1U);
+  StageStatus status = algorithms::exclusiveScan(runtime, arena, stream, candidateCounts.data(), offsets.data(), listedCount + 1U);
   if (status != StageStatus::kComplete) {
     return status;
   }
@@ -359,15 +359,15 @@ template <template <template <class> class> class S, typename Adapter>
     // contexts of the elements it reaches -- fits the arena's free bytes;
     // one pair at least, so the run progresses or fails for memory.
     const std::size_t free = arena.capacity() - arena.used();
-    std::size_t chunkPairs = std::size_t{total} - a;
+    std::uint32_t chunkPairs = total - a;
     if (options.maxChunkPairs > 0U) {
       chunkPairs = std::min(chunkPairs, options.maxChunkPairs);
     }
-    chunkPairs = std::min<std::size_t>(chunkPairs, static_cast<std::size_t>(std::numeric_limits<int>::max()) - 1U);
+    chunkPairs = std::min(chunkPairs, static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()) - 1U);
     std::uint32_t b = a;
     std::uint32_t range[2]{0U, listedCount};
     for (;;) {
-      b = static_cast<std::uint32_t>(std::size_t{a} + chunkPairs);
+      b = a + chunkPairs;
       // The chunk's elements: every listed one when the chunk is the whole list.
       range[0] = 0U;
       range[1] = listedCount;
@@ -379,7 +379,7 @@ template <template <template <class> class> class S, typename Adapter>
         ++report.readbacks;
       }
       const std::uint32_t reached = range[1] > range[0] ? range[1] - range[0] : 0U;
-      const std::size_t need = (perPair * std::max<std::size_t>(chunkPairs, 1U)) + adapter.contextBytes(reached) + (2U * sizeof(std::uint32_t) * reached);
+      const std::size_t need = (perPair * std::max(chunkPairs, 1U)) + adapter.contextBytes(reached) + (2U * sizeof(std::uint32_t) * reached);
       if (need <= free || total == 0U) {
         break;
       }
@@ -422,7 +422,7 @@ template <template <template <class> class> class S, typename Adapter>
       return StageStatus::kOutOfMemory;
     }
     algorithms::forEach(runtime, stream, selectedCount, detail::EmitPairs<S, Adapter>{adapter, listed, pairs.data(), selectedCount > 0U ? selected.data() : nullptr, selectedCount, sourceBegin, accepted.view(), runStart, runEnd});
-    algorithms::forEach(runtime, stream, sourceCount, detail::AddCounts{listed, sourceBegin, runStart, runEnd, counts, &device->overflow, static_cast<std::uint32_t>(DeviceStageOutput<S>::kMaxPerElement)});
+    algorithms::forEach(runtime, stream, sourceCount, detail::AddCounts{listed, sourceBegin, runStart, runEnd, counts, &device->overflow, DeviceStageOutput<S>::kMaxPerElement});
     chunks.adopt(accepted);
     a = b;
     if (total == 0U) {
@@ -431,7 +431,7 @@ template <template <template <class> class> class S, typename Adapter>
   }
 
   // The offsets; the limit flag; the records from the chunks' rows.
-  status = algorithms::exclusiveScan(runtime, arena, stream, counts, output.offsets().data(), std::size_t{elements} + 1U);
+  status = algorithms::exclusiveScan(runtime, arena, stream, counts, output.offsets().data(), elements + 1U);
   if (status != StageStatus::kComplete) {
     return status;
   }
@@ -445,7 +445,7 @@ template <template <template <class> class> class S, typename Adapter>
   if (chunks.rows() > std::numeric_limits<Index>::max()) {
     return StageStatus::kIndexOverflow;
   }
-  const auto records = static_cast<Index>(chunks.rows());
+  const auto records = chunks.rows();
   if (report.chunks == 1U) {
     output.adoptOutput(accepted, records);
     return StageStatus::kComplete;

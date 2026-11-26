@@ -11,4 +11,4 @@
 
 #include "GenericTracking/Study/MCVertexParam.h"
 
-O2ParamImpl(o2::gtrk::study::MCVertexParam);
+O2ParamImpl(o2::gtrk::study::MCVertexParam)

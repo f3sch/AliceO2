@@ -45,9 +45,9 @@ using Frame = TimeFrame<Det>;
 using TrackletOutput = StageOutput<TrackletT>;
 using Triplets = StageOutput<TripletT>;
 using Controller = Tracker<Det>;
-constexpr std::size_t kLayers = 8U;
+constexpr std::uint32_t kLayers = 8U;
 /// The helices of the fixtures by index: direction, dip slope and pT.
-constexpr std::size_t kHelixTracks = 5U;
+constexpr std::uint32_t kHelixTracks = 5U;
 
 using InputPoint = test::FramePoint;
 
@@ -59,7 +59,7 @@ inline IterationSettings iterationSettings() { return test::toyIteration(windowP
 /// and \a ptGeV crosses \a layer.
 inline InputPoint helixAt(double phi0, double slope, double ptGeV, LayerID layer) { return test::toyHelixAt<Det>(phi0, slope, ptGeV, layer); }
 
-inline InputPoint helixPoint(std::size_t track, LayerID layer)
+inline InputPoint helixPoint(std::uint32_t track, LayerID layer)
 {
   constexpr std::array<double, kHelixTracks> kPhi{{0.10, 1.35, 3.05, 4.75, 5.80}};
   constexpr std::array<double, kHelixTracks> kSlope{{0.04, -0.05, 0.03, -0.02, 0.01}};
@@ -108,7 +108,7 @@ inline std::vector<Hit> sensorHelixHits(double phi0, double slope, double ptGeV,
     position[2] = slope * arc;
   };
   std::vector<Hit> hits;
-  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
     const auto id = static_cast<LayerID>(layer);
     const double radius = layerDistance<Det>(id);
     const double crossing = 2. * std::asin(0.5 * curvature * radius) / curvature;
@@ -128,7 +128,7 @@ inline std::vector<Hit> sensorHelixHits(double phi0, double slope, double ptGeV,
       if ((height(low) < 0.) == (height(high) < 0.)) {
         continue;
       }
-      for (int i = 0; i < 100; ++i) {
+      for (std::int32_t i = 0; i < 100; ++i) {
         const double middle = 0.5 * (low + high);
         ((height(middle) < 0.) == (height(low) < 0.) ? low : high) = middle;
       }
@@ -189,13 +189,13 @@ class Fixture
     : geometry(test::cappedGrid<Det>(durationNS, params, windowParameters(), kBeamConstraint, 16, 8)),
       offsets(static_cast<std::size_t>(geometry.bucketCount()) + 1U),
       frame(test::frameOf(
-        geometry, hits.size(), [&](std::size_t i) { return hits[i].point; }, [&](std::size_t i) { return boxOf(hits[i]); },
-        [&](std::size_t i) {
+        geometry, static_cast<std::uint32_t>(hits.size()), [&](std::uint32_t i) { return hits[i].point; }, [&](std::uint32_t i) { return boxOf(hits[i]); },
+        [&](std::uint32_t i) {
           const auto scale = static_cast<Scalar>(1U + (i % 3U));
           return test::PointVariances{.z = scale * 1.e-6F, .r = scale * 2.e-6F, .rPhi = scale * 3.e-6F};
         },
         columns, offsets,
-        [&](std::size_t i, std::uint32_t row) {
+        [&](std::uint32_t i, std::uint32_t row) {
           columns.surface[row] = hits[i].surface;
           columns.loc0[row] = hits[i].loc0;
           columns.loc1[row] = hits[i].loc1;
@@ -205,9 +205,9 @@ class Fixture
   {
   }
 
-  [[nodiscard]] static constexpr std::size_t logicalIndex(std::size_t track, std::size_t layer) { return test::logicalIndex(kLayers, track, layer); }
+  [[nodiscard]] static constexpr std::uint32_t logicalIndex(std::uint32_t track, std::uint32_t layer) { return test::logicalIndex(kLayers, track, layer); }
 
-  [[nodiscard]] std::uint32_t row(std::size_t logical) const { return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, static_cast<std::uint32_t>(logical)) - columns.clusterIndex.begin()); }
+  [[nodiscard]] std::uint32_t row(std::uint32_t logical) const { return static_cast<std::uint32_t>(std::ranges::find(columns.clusterIndex, logical) - columns.clusterIndex.begin()); }
 
   GridGeometry<Det> geometry;
   std::vector<std::uint32_t> offsets;
@@ -244,16 +244,16 @@ inline std::vector<Hit> levelHits()
 {
   std::vector<Hit> hits;
   hits.reserve(kTrack2.back() + 1U);
-  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
     hits.push_back({.point = helixPoint(0U, static_cast<LayerID>(layer))});
   }
   hits.push_back({.point = moved(helixPoint(0U, 3), 0.0005, 0.)});
-  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
     if (layer != 3U) {
       hits.push_back({.point = helixPoint(1U, static_cast<LayerID>(layer))});
     }
   }
-  for (std::size_t layer = 5; layer < kLayers; ++layer) {
+  for (std::uint32_t layer = 5; layer < kLayers; ++layer) {
     hits.push_back({.point = helixPoint(2U, static_cast<LayerID>(layer))});
   }
   return hits;
@@ -267,18 +267,18 @@ inline std::vector<Hit> levelHits()
 /// cut, and the chain crosses several 20 ns blocks. Every third track has a
 /// second hit on layer 3, so some triplets have two predecessors.
 constexpr double kSliceDurationNS = 1100.;
-constexpr std::size_t kSliceTracks = 12U;
+constexpr std::uint32_t kSliceTracks = 12U;
 
 inline std::vector<Hit> sliceHits()
 {
   constexpr std::array<double, kLayers> kSteps{{0., 0., 0., 25., 25., 25., 50., 50.}};
   std::vector<Hit> hits;
-  for (std::size_t track = 0; track < kSliceTracks; ++track) {
+  for (std::uint32_t track = 0; track < kSliceTracks; ++track) {
     const double phi0 = std::fmod(0.3 + (0.9 * static_cast<double>(track)), kTwoPi<double>);
     const double slope = (track % 2U == 0U ? 0.03 : -0.02) + (0.002 * static_cast<double>(track));
     const double pt = 1.2 + (0.3 * static_cast<double>(track % 4U));
     const double start = 37. + (83. * static_cast<double>(track));
-    for (std::size_t layer = 0; layer < kLayers; ++layer) {
+    for (std::uint32_t layer = 0; layer < kLayers; ++layer) {
       const double step = track % 2U == 0U ? kSteps[layer] : 0.;
       hits.push_back({.point = helixAt(phi0, slope, pt, static_cast<LayerID>(layer)), .timeNS = start + step});
     }

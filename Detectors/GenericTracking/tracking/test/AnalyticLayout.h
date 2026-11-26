@@ -42,7 +42,7 @@ namespace o2::gtrk
 /// beam, front and back; nModules is even for that alternation to close.
 struct RingSpec {
   double r;       ///< radius of the sensor centres
-  int nModules;   ///< sensors around the ring
+  std::int32_t nModules; ///< sensors around the ring
   double phi0;    ///< azimuth of the first sensor
   double zOffset; ///< displacement of the whole ring from the disc's own z
   double gap;     ///< front-to-back separation of alternate modules
@@ -52,32 +52,32 @@ struct RingSpec {
 /// nModulesPerStave sensors along it.
 struct BarrelLayerSpec {
   double r;             ///< radius of the stave centres
-  int nStaves;          ///< staves in azimuth
-  int nModulesPerStave; ///< sensors along one stave
+  std::int32_t nStaves; ///< staves in azimuth
+  std::int32_t nModulesPerStave; ///< sensors along one stave
   double phi0;          ///< azimuth of the first stave
   double tilt;          ///< stave rotation about its own long axis
   double moduleGap;     ///< gap between consecutive sensors along a stave
   SensorSpec sensor;
 
-  [[nodiscard]] constexpr int nSensors() const { return nStaves * nModulesPerStave; }
+  [[nodiscard]] constexpr std::int32_t nSensors() const { return nStaves * nModulesPerStave; }
 
   /// Half the length spanned by the sensors of one stave.
   [[nodiscard]] constexpr double halfLength() const { return 0.5 * (static_cast<double>(nModulesPerStave) * (2. * sensor.halfY + moduleGap) - moduleGap); }
 };
 
-inline constexpr int kMaxRings = 5;
+inline constexpr std::int32_t kMaxRings = 5;
 
 /// A disc layer: one or more concentric rings of one sensor shape at a fixed z.
 struct DiscLayerSpec {
   double z; ///< position along the beam
-  int nRings;
+  std::int32_t nRings;
   RingSpec rings[kMaxRings];
   SensorSpec sensor;
 
-  [[nodiscard]] constexpr int nSensors() const
+  [[nodiscard]] constexpr std::int32_t nSensors() const
   {
-    int n = 0;
-    for (int i = 0; i < nRings; ++i) {
+    std::int32_t n = 0;
+    for (std::int32_t i = 0; i < nRings; ++i) {
       n += rings[i].nModules;
     }
     return n;
@@ -143,11 +143,11 @@ template <AnalyticToy Toy>
     const double dPhi = kTwoPi<double> / static_cast<double>(spec.nStaves);
     const double pitchZ = 2. * spec.sensor.halfY + spec.moduleGap;
     const double z0 = -0.5 * static_cast<double>(spec.nModulesPerStave - 1) * pitchZ;
-    for (int iStave = 0; iStave < spec.nStaves; ++iStave) {
+    for (std::int32_t iStave = 0; iStave < spec.nStaves; ++iStave) {
       const double phi = spec.phi0 + dPhi * static_cast<double>(iStave);
       const double cosA = std::cos(phi + spec.tilt);
       const double sinA = std::sin(phi + spec.tilt);
-      for (int iMod = 0; iMod < spec.nModulesPerStave; ++iMod) {
+      for (std::int32_t iMod = 0; iMod < spec.nModulesPerStave; ++iMod) {
         sensors.push_back({
           .rot = {-sinA, 0., cosA, cosA, 0., sinA, 0., 1., 0.},
           .trans = {spec.r * std::cos(phi), spec.r * std::sin(phi), z0 + pitchZ * static_cast<double>(iMod)},
@@ -158,10 +158,10 @@ template <AnalyticToy Toy>
     ++layer;
   }
   for (const auto& spec : Toy::discSpecs) {
-    for (int iRing = 0; iRing < spec.nRings; ++iRing) {
+    for (std::int32_t iRing = 0; iRing < spec.nRings; ++iRing) {
       const RingSpec& ring = spec.rings[iRing];
       const double dPhi = kTwoPi<double> / static_cast<double>(ring.nModules);
-      for (int iMod = 0; iMod < ring.nModules; ++iMod) {
+      for (std::int32_t iMod = 0; iMod < ring.nModules; ++iMod) {
         const double phi = ring.phi0 + dPhi * static_cast<double>(iMod);
         const double cosP = std::cos(phi);
         const double sinP = std::sin(phi);

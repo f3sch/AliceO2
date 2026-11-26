@@ -41,8 +41,11 @@
 
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <span>
 #include <type_traits>
+#include <utility>
 
 namespace o2::gtrk
 {
@@ -51,11 +54,11 @@ namespace decay_fit_detail
 {
 /// The most vertices and daughters the constraints take, and so their
 /// derivatives' width.
-inline constexpr int kMaxConstrainedVertices = 3;
-inline constexpr int kMaxConstrainedDaughters = 5;
+inline constexpr std::int32_t kMaxConstrainedVertices = 3;
+inline constexpr std::int32_t kMaxConstrainedDaughters = 5;
 /// The most resonances among the daughters: each has two products or more,
 /// so a tree of them over the daughters has at most one fewer.
-inline constexpr int kMaxResonances = kMaxConstrainedDaughters - 1;
+inline constexpr std::int32_t kMaxResonances = kMaxConstrainedDaughters - 1;
 } // namespace decay_fit_detail
 
 /// A decay tree's shape: which vertex each daughter leaves, and how the
@@ -64,18 +67,18 @@ inline constexpr int kMaxResonances = kMaxConstrainedDaughters - 1;
 /// (`parent[v] < v`), whose momentum is the sum of its subtree's daughters'.
 /// Empty, one vertex for every daughter.
 struct DecayTopology {
-  FixedVector<int, decay_fit_detail::kMaxConstrainedDaughters> vertexOf; ///< per daughter
-  FixedVector<int, decay_fit_detail::kMaxConstrainedVertices> parent;    ///< per vertex, -1 for the root
+  FixedVector<std::int32_t, decay_fit_detail::kMaxConstrainedDaughters> vertexOf; ///< per daughter
+  FixedVector<std::int32_t, decay_fit_detail::kMaxConstrainedVertices> parent;    ///< per vertex, -1 for the root
   /// Per vertex, the decaying particle's mass [GeV]: its flight's material
   /// (DecayVertexFit.h's chains); empty or 0 where unknown.
   FixedVector<double, decay_fit_detail::kMaxConstrainedVertices> massGeV;
-  [[nodiscard]] GPUhdi() int vertices() const { return parent.empty() ? 1 : static_cast<int>(parent.size()); }
-  [[nodiscard]] GPUhdi() int vertexOfDaughter(int daughter) const { return vertexOf.empty() ? 0 : vertexOf[daughter]; }
+  [[nodiscard]] GPUhdi() std::uint32_t vertices() const { return parent.empty() ? 1U : parent.size(); }
+  [[nodiscard]] GPUhdi() std::int32_t vertexOfDaughter(std::uint32_t daughter) const { return vertexOf.empty() ? 0 : vertexOf[daughter]; }
   /// Whether \a daughter's vertex is \a vertex or below it.
-  [[nodiscard]] GPUhdi() bool under(int daughter, int vertex) const
+  [[nodiscard]] GPUhdi() bool under(std::uint32_t daughter, std::uint32_t vertex) const
   {
-    for (int v = vertexOfDaughter(daughter); v >= 0; v = parent.empty() ? -1 : parent[v]) {
-      if (v == vertex) {
+    for (std::int32_t v = vertexOfDaughter(daughter); v >= 0; v = parent.empty() ? -1 : parent[static_cast<std::uint32_t>(v)]) {
+      if (std::cmp_equal(v, vertex)) {
         return true;
       }
     }
@@ -84,10 +87,10 @@ struct DecayTopology {
   /// The summed charge of the daughters (their \a charges) at \a vertex or
   /// below it.
   template <typename Charges>
-  [[nodiscard]] GPUhdi() double chargeUnder(const Charges& charges, int vertex) const
+  [[nodiscard]] GPUhdi() double chargeUnder(const Charges& charges, std::uint32_t vertex) const
   {
     double sum = 0.;
-    for (int i = 0; i < static_cast<int>(charges.size()); ++i) {
+    for (std::uint32_t i = 0; i < charges.size(); ++i) {
       sum += under(i, vertex) ? charges[i] : 0.;
     }
     return sum;
@@ -102,7 +105,7 @@ struct DecayTopology {
 /// Gaussian in m: a Gaussian's quadratic penalty pulls the decays in the
 /// tails, which the Cauchy's logarithmic one leaves.
 struct Resonance {
-  FixedVector<int, decay_fit_detail::kMaxConstrainedDaughters> daughters; ///< its products among the fit's daughters
+  FixedVector<std::int32_t, decay_fit_detail::kMaxConstrainedDaughters> daughters; ///< its products among the fit's daughters
   double massGeV = 0.;
   double widthGeV = 0.;
 };
@@ -125,30 +128,30 @@ struct DecayConstraints {
   /// Resonances' masses, measured softly (a term of the chi2 each).
   FixedVector<Resonance, decay_fit_detail::kMaxResonances> resonances;
   /// The composites whose mass is held.
-  [[nodiscard]] GPUhdi() int heldMasses() const
+  [[nodiscard]] GPUhdi() std::uint32_t heldMasses() const
   {
-    int held = 0;
+    std::uint32_t held = 0;
     for (const auto m : compositeMasses) {
-      held += m > 0. ? 1 : 0;
+      held += m > 0. ? 1U : 0U;
     }
     return held;
   }
   /// What the constraints add to the degrees of freedom: besides the
   /// equations, the links' two each (a charged composite's through its
   /// chain) and the resonances' terms.
-  [[nodiscard]] GPUhdi() int count(const DecayTopology& topology = {}) const
+  [[nodiscard]] GPUhdi() std::uint32_t count(const DecayTopology& topology = {}) const
   {
-    return (mass ? 1 : 0) + (production ? 2 : 0) + heldMasses() + (2 * (topology.vertices() - 1)) + static_cast<int>(resonances.size());
+    return (mass ? 1U : 0U) + (production ? 2U : 0U) + heldMasses() + (2 * (topology.vertices() - 1)) + resonances.size();
   }
 };
 
 namespace decay_fit_detail
 {
 
-inline constexpr int kConstraintInputs = (3 * kMaxConstrainedVertices) + (3 * kMaxConstrainedDaughters);
+inline constexpr std::int32_t kConstraintInputs = (3 * kMaxConstrainedVertices) + (3 * kMaxConstrainedDaughters);
 /// The most equations `evaluateConstraints` gives: the mother's mass, and per
 /// composite below the root its link (two) and its mass.
-inline constexpr int kMaxHardRows = 1 + (3 * (kMaxConstrainedVertices - 1));
+inline constexpr std::int32_t kMaxHardRows = 1 + (3 * (kMaxConstrainedVertices - 1));
 
 /// Equations written as values and rows of derivatives: equation j's value
 /// into \a values[j], its derivatives by the first \a width parameters
@@ -158,12 +161,12 @@ template <typename S>
 struct EquationWriter {
   S* values = nullptr;
   S* rows = nullptr;
-  int stride = 0;
-  int width = 0;
-  int capacity = 0;
-  int written = 0;
+  std::uint32_t stride = 0;
+  std::uint32_t width = 0;
+  std::uint32_t capacity = 0;
+  std::uint32_t written = 0;
   bool room = true;
-  template <int N, typename M>
+  template <std::int32_t N, typename M>
   GPUhdi() void push(const Dual<N, M>& value)
   {
     if (written >= capacity) {
@@ -171,7 +174,7 @@ struct EquationWriter {
       return;
     }
     values[written] = static_cast<S>(value.v);
-    for (int c = 0; c < width; ++c) {
+    for (std::uint32_t c = 0; c < width; ++c) {
       rows[(written * stride) + c] = static_cast<S>(value.d[c]);
     }
     ++written;
@@ -188,55 +191,55 @@ template <typename M = double, typename S>
 [[nodiscard]] GPUhdi() bool evaluateConstraints(const DecayConstraints& constraints, const DecayTopology& topology, std::span<const Vec3D> vertices, std::span<const Vec3D> momenta, std::span<const double> masses, std::span<const double> charges, EquationWriter<S>& out)
 {
   using D = Dual<kConstraintInputs, M>;
-  const int count = static_cast<int>(momenta.size());
-  const int k = topology.vertices();
+  const auto count = static_cast<std::uint32_t>(momenta.size());
+  const std::uint32_t k = topology.vertices();
   if (count > kMaxConstrainedDaughters || k > kMaxConstrainedVertices) {
     return false;
   }
   std::array<std::array<D, 3>, kMaxConstrainedVertices> v{};
-  for (int w = 0; w < k; ++w) {
+  for (std::uint32_t w = 0; w < k; ++w) {
     v[w] = vertexOfInputs<kConstraintInputs, M>(vertices[w], w);
   }
   // Every daughter's momentum vector and energy.
   std::array<std::array<D, 3>, kMaxConstrainedDaughters> vectors{};
   std::array<D, kMaxConstrainedDaughters> energies{};
-  for (int i = 0; i < count; ++i) {
+  for (std::uint32_t i = 0; i < count; ++i) {
     const auto momentum = momentumOfInputs<kConstraintInputs, M>(momenta[i][0], momenta[i][1], momenta[i][2], (3 * k) + (3 * i), charges[i]);
     vectors[i] = momentum.vector;
     energies[i] = energyOf(momentum, masses[i]);
   }
   // A vertex's composite: its subtree's momentum and energy.
-  const auto composite = [&](int vertex) {
+  const auto composite = [&](std::uint32_t vertex) {
     MomentumSum<D> sum;
-    for (int i = 0; i < count; ++i) {
+    for (std::uint32_t i = 0; i < count; ++i) {
       if (topology.under(i, vertex)) {
         sum.add(vectors[i], energies[i]);
       }
     }
     return sum;
   };
-  const auto massOf = [&](const MomentumSum<D>& sum, double m) { return sum.massSquared() + (-(m * m)); };
+  const auto massOf = [&](const MomentumSum<D>& sum, double m) { return sum.massSquared() + static_cast<M>(-(m * m)); };
   if (constraints.mass) {
     out.push(massOf(composite(0), constraints.massGeV));
   }
   // The links: each composite below the root flies from its parent's vertex
   // to its own along its momentum P: the offset's components across P, on
   // u1 = z x P / |z x P| (x where P is along z) and u2 = P x u1 / |P|.
-  for (int w = 1; w < k; ++w) {
-    if (topology.chargeUnder(charges, w) != 0.) {
+  for (std::uint32_t w = 1; w < k; ++w) {
+    if (!exactlyEqual(topology.chargeUnder(charges, w), 0.)) {
       continue; // a charged composite's link: its chain's (DecayVertexFit.h)
     }
     const auto sum = composite(w);
     const auto& total = sum.vector;
-    const int up = topology.parent[w];
+    const auto up = static_cast<std::uint32_t>(topology.parent[w]);
     std::array<D, 3> offset{};
-    for (int c = 0; c < 3; ++c) {
+    for (std::uint32_t c = 0; c < 3; ++c) {
       offset[c] = v[w][c] - v[up][c];
     }
     const D p = sqrtOf(sum.squared());
     std::array<D, 3> u1{-total[1], total[0], D{}};
     D across = sqrtOf((u1[0] * u1[0]) + (u1[1] * u1[1]));
-    if (across.v == 0.) {
+    if (exactlyEqual(static_cast<double>(across.v), 0.)) {
       u1 = {D{1.}, D{}, D{}};
       across = D{1.};
     }
@@ -250,7 +253,7 @@ template <typename M = double, typename S>
     out.push(dotOf(offset, u1));
     out.push(dotOf(offset, u2));
   }
-  for (int w = 1; w < k && w - 1 < static_cast<int>(constraints.compositeMasses.size()); ++w) {
+  for (std::uint32_t w = 1; w < k && w - 1 < constraints.compositeMasses.size(); ++w) {
     if (constraints.compositeMasses[w - 1] > 0.) {
       out.push(massOf(composite(w), constraints.compositeMasses[w - 1]));
     }
@@ -267,14 +270,14 @@ template <typename M = double, typename S>
 /// zero row) holds exactly, one with a small S is no ill-conditioned weight.
 template <typename S = double>
 struct ScatteredEquations {
-  int at = -1;  ///< eta's first parameter; -1: none
-  int row = -1; ///< the first equation's row
-  int count = 0;
+  std::uint32_t at = 0;  ///< eta's first parameter
+  std::uint32_t row = 0; ///< the first equation's row
+  std::uint32_t count = 0;
   const S* factor = nullptr; ///< L, count x count (`semidefiniteFactor`: not triangular)
-  GPUhdi() void apply(std::span<const double> p, int n, S* values, S* rows) const
+  GPUhdi() void apply(std::span<const double> p, std::uint32_t n, S* values, S* rows) const
   {
-    for (int a = 0; a < count; ++a) {
-      for (int b = 0; b < count; ++b) {
+    for (std::uint32_t a = 0; a < count; ++a) {
+      for (std::uint32_t b = 0; b < count; ++b) {
         const S l = factor[(a * count) + b];
         values[row + a] -= l * static_cast<S>(p[at + b]);
         rows[((row + a) * n) + at + b] = -l;
@@ -284,10 +287,10 @@ struct ScatteredEquations {
   /// \a normal packed (`dense::PackedView`).
   GPUhdi() void addPrior(std::span<const double> p, double& chi2, S* normal, S* gradient) const
   {
-    for (int b = 0; b < count; ++b) {
+    for (std::uint32_t b = 0; b < count; ++b) {
       chi2 += p[at + b] * p[at + b];
       if (normal != nullptr) {
-        normal[covIndex(at + b, at + b)] += S(1.);
+        normal[packedIndex(at + b, at + b)] += S(1.);
         gradient[at + b] -= static_cast<S>(p[at + b]);
       }
     }
@@ -301,8 +304,8 @@ template <typename S = double>
 struct LagrangeSpace {
   S* system = nullptr;
   S* solution = nullptr;
-  int* swaps = nullptr;
-  int* blocks = nullptr;
+  std::int32_t* swaps = nullptr;
+  std::int32_t* blocks = nullptr;
 };
 
 /// The Gauss-Newton step under the hard constraints C step + c = 0 (\a rows
@@ -316,32 +319,32 @@ struct LagrangeSpace {
 /// lambda; with \a logDeterminant, ln |det| of the system. False if the
 /// system is singular (an exactly singular pivot block).
 template <typename S>
-[[nodiscard]] GPUhdi() bool constrainedStep(const LagrangeSpace<S>& space, const S* normal, int n, const S* gradient, const S* rows, std::span<const S> values, std::type_identity_t<S>* step, std::type_identity_t<S>* covariance, std::type_identity_t<S>* multipliers = nullptr, std::type_identity_t<S>* logDeterminant = nullptr)
+[[nodiscard]] GPUhdi() bool constrainedStep(const LagrangeSpace<S>& space, const S* normal, std::uint32_t n, const S* gradient, const S* rows, std::span<const S> values, std::type_identity_t<S>* step, std::type_identity_t<S>* covariance, std::type_identity_t<S>* multipliers = nullptr, std::type_identity_t<S>* logDeterminant = nullptr)
 {
-  const int m = static_cast<int>(values.size());
-  const int size = n + m;
+  const auto m = static_cast<std::uint32_t>(values.size());
+  const std::uint32_t size = n + m;
   const dense::PackedView<S> system{space.system};
-  for (int a = 0; a < n; ++a) {
-    for (int b = 0; b <= a; ++b) {
-      system(a, b) = normal[covIndex(a, b)];
+  for (std::uint32_t a = 0; a < n; ++a) {
+    for (std::uint32_t b = 0; b <= a; ++b) {
+      space.system[packedIndex(a, b)] = normal[packedIndex(a, b)];
     }
   }
-  for (int j = 0; j < m; ++j) {
-    for (int b = 0; b < n; ++b) {
-      system(n + j, b) = rows[(j * n) + b];
+  for (std::uint32_t j = 0; j < m; ++j) {
+    for (std::uint32_t b = 0; b < n; ++b) {
+      space.system[packedIndex(n + j, b)] = rows[(j * n) + b];
     }
-    for (int k = 0; k <= j; ++k) {
-      system(n + j, n + k) = S(0.);
+    for (std::uint32_t k = 0; k <= j; ++k) {
+      space.system[packedIndex(n + j, n + k)] = S(0.);
     }
   }
   if (!dense::ldltFactor(system, size, space.swaps, space.blocks)) {
     return false;
   }
   S* solution = space.solution;
-  for (int a = 0; a < n; ++a) {
+  for (std::uint32_t a = 0; a < n; ++a) {
     solution[a] = gradient[a];
   }
-  for (int j = 0; j < m; ++j) {
+  for (std::uint32_t j = 0; j < m; ++j) {
     solution[n + j] = -values[j];
   }
   dense::ldltSolve(system, size, space.swaps, space.blocks, solution);
@@ -356,12 +359,12 @@ template <typename S>
   }
   if (covariance != nullptr) {
     // The system's inverse's N block, a column at a time, its lower triangle.
-    for (int b = 0; b < n; ++b) {
+    for (std::uint32_t b = 0; b < n; ++b) {
       fillN(solution, size, S(0.));
       solution[b] = S(1.);
       dense::ldltSolve(system, size, space.swaps, space.blocks, solution);
-      for (int a = b; a < n; ++a) {
-        covariance[covIndex(a, b)] = solution[a];
+      for (std::uint32_t a = b; a < n; ++a) {
+        covariance[packedIndex(a, b)] = solution[a];
       }
     }
   }

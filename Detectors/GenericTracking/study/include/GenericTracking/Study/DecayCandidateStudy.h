@@ -178,15 +178,15 @@ class DecayCandidateStudy
     for (const auto& pair : pairs) {
       for (std::size_t h = 0; h < hypotheses.size(); ++h) {
         const auto& hypothesis = hypotheses[h];
-        DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = reference.of(collisionOf(pair.mother->id))};
+        DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = reference.of(collisionOf(pair.mother->id)), .entries = {}, .start = {}};
         bool pidMatch = true;
-        for (std::size_t slot = 0; slot < 2U; ++slot) {
+        for (std::uint32_t slot = 0; slot < 2U; ++slot) {
           const auto entry = table.entryOf(pair.tracks[slot], static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
           candidate.entries.push_back(static_cast<std::uint32_t>(entry));
           const auto truthSpecies = speciesOf(pair.pdgs[slot]);
           pidMatch = pidMatch && truthSpecies && *truthSpecies == hypothesis.species[slot];
         }
-        static_cast<void>(startDecayCandidate(candidate, std::span<const DecayHypothesis>{hypotheses}, daughters, reference.points.size()));
+        static_cast<void>(startDecayCandidate(candidate, std::span<const DecayHypothesis>{hypotheses}, daughters, static_cast<std::uint32_t>(reference.points.size())));
         candidates.push_back(candidate);
         records.push_back({.timeframe = event.timeframe, .particle = pair.mother->id, .pdg = pair.mother->pdg, .hypothesis = static_cast<std::uint8_t>(h), .pidMatch = static_cast<std::uint8_t>(pidMatch ? 1U : 0U), .trueHypothesis = static_cast<std::uint8_t>(pair.mother->pdg == kV0Mothers[h] ? 1U : 0U)});
       }
@@ -228,10 +228,10 @@ class DecayCandidateStudy
 
  private:
   RecordWriter* mWriter = nullptr;
-  std::size_t mPairs = 0U;
-  std::size_t mCandidates = 0U;
-  std::size_t mFitted = 0U;
-  std::size_t mEntries = 0U;
+  std::uint64_t mPairs = 0U;
+  std::uint64_t mCandidates = 0U;
+  std::uint64_t mFitted = 0U;
+  std::uint64_t mEntries = 0U;
   double mFlushSeconds = 0.;
 };
 

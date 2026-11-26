@@ -23,6 +23,7 @@
 #include "GenericTracking/Base/Sensor.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <span>
 #include <vector>
@@ -35,14 +36,14 @@ namespace o2::gtrk::tools
 /// The threads of a fill from the geometry: \a threads, or where it is
 /// negative NTHREADS_MATBUD as O2's own fill reads it
 /// (`MatLayerCylSet::getNThreadsFromEnv`); at least one.
-[[nodiscard]] int fillThreads(int threads);
+[[nodiscard]] std::int32_t fillThreads(std::int32_t threads);
 
 /// \a work(i, navigator) for every i below \a count, shared out over
 /// \a threads threads (at least one), each taking the next item with a TGeo
 /// navigator of its own; on one thread in order, on gGeoManager's current
 /// navigator. Each item writes its own result, so the split does not move
 /// it.
-void forEachOnNavigators(std::size_t count, int threads, const std::function<void(std::size_t, TGeoNavigator*)>& work);
+void forEachOnNavigators(std::size_t count, std::int32_t threads, const std::function<void(std::size_t, TGeoNavigator*)>& work);
 
 /// The metal stack O2 builds on a chip's sensor, by face [cm].
 struct ChipStack {
@@ -59,13 +60,13 @@ struct ChipStack {
 /// centre, both ways, through the stack's volumes, the layer's thickest.
 /// Throws std::runtime_error without a geometry or where a sensor's centre is
 /// not in a sensor volume.
-[[nodiscard]] std::vector<ChipStack> trkStackThickness(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers);
+[[nodiscard]] std::vector<ChipStack> trkStackThickness(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::int32_t nBarrelLayers);
 
 /// The TOF's material on each barrel sensor's silicon, per barrel layer: its
 /// chip and the stave's services behind it, every solid volume (from 0.01
 /// g/cm^3) the sensor's normal crosses from its centre, both ways, until a
 /// gas. As `trkStackThickness`, for \a sensors of O2's IOTOF.
-[[nodiscard]] std::vector<ChipStack> tofSolidThickness(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers);
+[[nodiscard]] std::vector<ChipStack> tofSolidThickness(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::int32_t nBarrelLayers);
 
 /// \a envelopes, the silicon's, with each barrel layer's \a stack: the hull
 /// of its sensors taken that much thicker on each face, measured as
@@ -103,7 +104,7 @@ struct SideWalls {
 /// ending there keeps the cylinder's material at its radius. The z positions
 /// are shared out over \a threads, each with its
 /// own TGeo navigator. Throws std::runtime_error without a geometry.
-[[nodiscard]] std::vector<double> beamLineCylinderFaces(double rMax, double zMax, double dz, int threads = 1);
+[[nodiscard]] std::vector<double> beamLineCylinderFaces(double rMax, double zMax, double dz, std::int32_t threads = 1);
 
 } // namespace o2::gtrk::tools
 

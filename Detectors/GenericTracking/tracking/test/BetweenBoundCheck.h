@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <random>
 #include <vector>
 
@@ -61,7 +62,7 @@ struct BetweenBoundRatio {
 template <DetectorLayout Det>
 std::vector<BetweenBoundRatio> betweenOverBound(const LinkMaterial<Det>& material, const SearchWindowParams& windows, const VertexConstraint& beamSpot)
 {
-  constexpr int kDraws = 8192;
+  constexpr std::int32_t kDraws = 8192;
   IterationSettings settings;
   settings.windows = windows;
   const auto parameters = iterationParameters<Det>(settings, beamSpot, material);
@@ -69,7 +70,7 @@ std::vector<BetweenBoundRatio> betweenOverBound(const LinkMaterial<Det>& materia
   std::mt19937 rng(20261010);
   std::uniform_real_distribution<double> uniform(0., 1.);
   std::vector<BetweenBoundRatio> ratios;
-  for (std::size_t link = 0; link < Det::layerLinks.size(); ++link) {
+  for (std::uint32_t link = 0; link < Det::layerLinks.size(); ++link) {
     if (!(parameters.betweenBound[link] > 0.F)) {
       continue;
     }
@@ -78,16 +79,16 @@ std::vector<BetweenBoundRatio> betweenOverBound(const LinkMaterial<Det>& materia
     const bool barrelFrom = Detector<Det>::isBarrelLayer(pair.from);
     const bool barrelTo = Detector<Det>::isBarrelLayer(pair.to);
     const double positionTo = PlacedEnvelopes<Det>::get(pair.to).position;
-    for (int draw = 0; draw < kDraws; ++draw) {
+    for (std::int32_t draw = 0; draw < kDraws; ++draw) {
       auto vertex = vertexSeed(beamSpot);
       vertex.z = static_cast<Scalar>(interpolate(beamSpot.z - reach, beamSpot.z + reach, uniform(rng)));
       const double phi = kTwoPi<double> * uniform(rng);
       const double r = barrelFrom ? PlacedEnvelopes<Det>::get(pair.from).position : interpolate(radiusMin<Det>(pair.from), radiusMax<Det>(pair.from), uniform(rng));
       const double z = barrelFrom ? interpolate(std::max(pair.sourceMin, zMin<Det>(pair.from)), std::min(pair.sourceMax, zMax<Det>(pair.from)), uniform(rng)) : PlacedEnvelopes<Det>::get(pair.from).position;
       // The line from the vertex through the source to the target's surface.
-      const double scale = barrelTo ? positionTo / r : (positionTo - vertex.z) / (z - vertex.z);
+      const double scale = barrelTo ? positionTo / r : (positionTo - static_cast<double>(vertex.z)) / (z - static_cast<double>(vertex.z));
       const double rTarget = barrelTo ? positionTo : r * scale;
-      const double zTarget = barrelTo ? vertex.z + ((z - vertex.z) * scale) : positionTo;
+      const double zTarget = barrelTo ? static_cast<double>(vertex.z) + ((z - static_cast<double>(vertex.z)) * scale) : positionTo;
       if (!(scale > 1.) || rTarget < radiusMin<Det>(pair.to) || rTarget > radiusMax<Det>(pair.to) || zTarget < zMin<Det>(pair.to) || zTarget > zMax<Det>(pair.to)) {
         continue;
       }

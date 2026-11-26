@@ -49,16 +49,16 @@ using Pass = VertexingPass<Det>;
 
 /// Two collisions of eight tracks each, 500 ns apart, every track 0.5 to 2.6
 /// GeV from the origin.
-constexpr std::size_t kCollisions = 2U;
-constexpr std::size_t kTracksPerCollision = 8U;
-constexpr std::size_t kTracks = kCollisions * kTracksPerCollision;
+constexpr std::uint32_t kCollisions = 2U;
+constexpr std::uint32_t kTracksPerCollision = 8U;
+constexpr std::uint32_t kTracks = kCollisions * kTracksPerCollision;
 constexpr std::array<double, kCollisions> kStartNS{37., 537.};
 constexpr double kDurationNS = 600.;
 
 std::vector<Hit> hits()
 {
   std::vector<Hit> result;
-  for (std::size_t track = 0; track < kTracks; ++track) {
+  for (std::uint32_t track = 0; track < kTracks; ++track) {
     const auto k = static_cast<double>(track);
     const double pt = 0.5 + (0.3 * static_cast<double>(track % kTracksPerCollision));
     const auto one = sensorHelixHits(std::fmod(0.3 + (2.1 * k), kTwoPi<double>), 0.03 * std::cos(1.3 * k), pt, kStartNS[track / kTracksPerCollision]);
@@ -86,7 +86,7 @@ const LinkMaterial<Det>& noScattering() { return noMaterial<Det>(); }
 /// The pass's slices: three blocks, as the tracking's in these tests.
 constexpr std::int32_t kSliceBlocks = 3;
 
-Pass::Result findVertices(const Fixture& fixture, int threads, std::int32_t sliceBlocks = kSliceBlocks)
+Pass::Result findVertices(const Fixture& fixture, std::int32_t threads, std::int32_t sliceBlocks = kSliceBlocks)
 {
   Pass pass{passSettings(), VertexerSettings{}, Fixture::kBeamConstraint, noScattering(), std::make_shared<BoundedMemoryResource>(), 2U, threads};
   auto result = pass.find(*fixture.frame, frameBounds(*fixture.frame), sliceBlocks);
@@ -118,7 +118,7 @@ std::vector<Found> trackFrom(const Fixture& fixture, std::span<const VertexSeed>
   std::vector<Found> tracks;
   tracks.reserve(result.store->size());
   const auto view = result.store->tracks().view();
-  for (std::size_t i = 0; i < result.store->size(); ++i) {
+  for (std::uint32_t i = 0; i < result.store->size(); ++i) {
     const auto rows = result.store->rows(i);
     tracks.push_back({
       .iteration = view.iteration[i],
@@ -136,13 +136,13 @@ std::vector<Found> trackFrom(const Fixture& fixture, std::span<const VertexSeed>
 BOOST_AUTO_TEST_CASE(EndTimeframeGivesTheMemoryBack)
 {
   const Fixture fixture{hits(), kDurationNS};
-  for (const int threads : {1, 4}) {
+  for (const std::int32_t threads : {1, 4}) {
     BOOST_TEST_CONTEXT("threads " << threads)
     {
       const auto memory = std::make_shared<BoundedMemoryResource>();
       Pass pass{passSettings(), VertexerSettings{}, Fixture::kBeamConstraint, noScattering(), memory, 2U, threads};
       const auto before = memory->getUsedMemory();
-      for (int timeframe = 0; timeframe < 2; ++timeframe) {
+      for (std::int32_t timeframe = 0; timeframe < 2; ++timeframe) {
         const auto result = pass.find(*fixture.frame, frameBounds(*fixture.frame), kSliceBlocks);
         BOOST_REQUIRE(result.status == StageStatus::kComplete);
         BOOST_TEST(result.found.vertices.size() == kCollisions);
@@ -165,7 +165,7 @@ BOOST_AUTO_TEST_CASE(OneVertexPerCollision)
   BOOST_TEST(found.triplets > kTracks);
   BOOST_TEST(found.candidates == kTracks);
   BOOST_REQUIRE(found.vertices.size() == kCollisions);
-  for (std::size_t collision = 0; collision < kCollisions; ++collision) {
+  for (std::uint32_t collision = 0; collision < kCollisions; ++collision) {
     BOOST_TEST_CONTEXT("collision " << collision)
     {
       const auto& vertex = found.vertices[collision];

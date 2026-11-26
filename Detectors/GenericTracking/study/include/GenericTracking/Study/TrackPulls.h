@@ -22,6 +22,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <span>
 #include <string>
@@ -61,7 +62,7 @@ class PullTable
   std::string mName;
   std::vector<PullParameter> mParameters;
   std::vector<std::array<Samples, kPtBins>> mSamples; ///< per parameter, per pT bin
-  std::size_t mTracks = 0U;
+  std::uint64_t mTracks = 0U;
 };
 
 } // namespace o2::gtrk::study

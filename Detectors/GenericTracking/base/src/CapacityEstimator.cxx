@@ -27,23 +27,23 @@ struct Config {
   float marginMax{4.00F};
   float marginUp{1.50F};        ///< the most a timeframe that grew raises the margin by
   float marginDown{0.98F};      ///< what a timeframe without growth lowers it by
-  std::size_t floorSlots{1024}; ///< per thread: before anything is learned, and never below
+  std::uint32_t floorSlots{1024}; ///< per thread: before anything is learned, and never below
 };
 constexpr Config kConfig{};
 
 } // namespace
 
-std::size_t CapacityEstimator::perThread(std::size_t site, std::size_t rows) const
+std::uint32_t CapacityEstimator::perThread(std::uint32_t site, std::uint32_t rows) const
 {
   const auto& entry = mEntries[site];
   if (!entry.learned || rows == 0U) {
     return kConfig.floorSlots;
   }
   const double raw = static_cast<double>(entry.ratio) * static_cast<double>(rows) * static_cast<double>(entry.margin);
-  return std::max(kConfig.floorSlots, static_cast<std::size_t>(std::ceil(raw)));
+  return std::max(kConfig.floorSlots, static_cast<std::uint32_t>(std::ceil(raw)));
 }
 
-void CapacityEstimator::learn(std::size_t site, std::size_t largestUse, std::size_t granted, std::size_t rows, bool grew)
+void CapacityEstimator::learn(std::uint32_t site, std::uint32_t largestUse, std::uint32_t granted, std::uint32_t rows, bool grew)
 {
   if (rows == 0U) {
     return;

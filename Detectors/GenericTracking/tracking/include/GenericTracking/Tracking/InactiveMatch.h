@@ -70,7 +70,7 @@ inline constexpr std::uint32_t kNone = std::numeric_limits<std::uint32_t>::max()
 
 /// How many inactive layers \a Det has: a track's choices per layer.
 template <DetectorLayout Det>
-inline constexpr std::uint32_t kInactiveCount = static_cast<std::uint32_t>(std::popcount(Detector<Det>::inactiveLayers));
+inline constexpr auto kInactiveCount = static_cast<std::uint32_t>(std::popcount(Detector<Det>::inactiveLayers));
 
 /// A track's choice on one inactive layer: the row, its likelihood ratio, and
 /// the squared distance from the track's outward state to the layer's
@@ -107,12 +107,13 @@ template <typename Columns>
     return 0U;
   }
   // The first start that can reach the box: after box.lower() - maxWidthPS.
-  const std::int64_t earliest = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(maxWidthPS);
+  const auto earliest = static_cast<std::int64_t>(box.lower()) - static_cast<std::int64_t>(maxWidthPS);
   std::uint32_t lo = table.begin[sensor];
   std::uint32_t hi = table.begin[sensor + 1U];
   while (lo < hi) {
     const std::uint32_t mid = lo + ((hi - lo) / 2U);
-    if (static_cast<std::int64_t>(table.startPS[mid]) <= earliest) {
+    const std::int64_t start = table.startPS[mid];
+    if (start <= earliest) {
       lo = mid + 1U;
     } else {
       hi = mid;
@@ -130,7 +131,7 @@ template <typename Columns>
 /// (`kInactiveCount` per track, in the layers' order).
 template <DetectorLayout Det, typename Tracks>
 struct Choose {
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   const IterationParameters<Det>* iterations = nullptr; ///< every iteration's, the track's own read
   const TimeFrame<Det>* timeFrame = nullptr;
   const TrackingGeometry<Det>* trackingGeometry = nullptr;
@@ -143,7 +144,7 @@ struct Choose {
 
   GPUhdi() void operator()(std::uint32_t track) const
   {
-    Choice* mine = choices + (std::size_t{track} * kInactiveCount<Det>);
+    Choice* mine = choices + (track * kInactiveCount<Det>);
     for (std::uint32_t k = 0; k < kInactiveCount<Det>; ++k) {
       mine[k] = Choice{};
     }
@@ -220,7 +221,7 @@ template <DetectorLayout Det>
 class InactiveMatch
 {
  public:
-  static constexpr std::size_t kLayerCount = static_cast<std::size_t>(Detector<Det>::nLayers);
+  static constexpr auto kLayerCount = static_cast<std::uint32_t>(Detector<Det>::nLayers);
   static constexpr std::uint32_t kNone = match::kNone;
   static constexpr std::uint32_t kSlots = match::kInactiveCount<Det>;
   using Tracks = typename TrackRefit<Det>::Tracks;
@@ -255,7 +256,7 @@ class InactiveMatch
           freeRows += used[row] == kFree && Detector<Det>::isInactiveLayer(geometry.surface(measurements.surface[row]).layer) ? 1U : 0U;
         }
         resizeBoundedVector(mBegin, std::size_t{sensors} + 1U, mMemoryPool.get());
-        std::fill(mBegin.begin(), mBegin.end(), 0U);
+        std::ranges::fill(mBegin, 0U);
         resizeBoundedVector(mRows, freeRows, mMemoryPool.get());
         resizeBoundedVector(mStarts, freeRows, mMemoryPool.get());
         for (std::uint32_t row = 0, at = 0; row < rowCount; ++row) {
@@ -277,7 +278,7 @@ class InactiveMatch
         }
         const match::SensorRows table{.begin = mBegin.data(), .rows = mRows.data(), .startPS = mStarts.data(), .sensors = sensors};
         // Each track's choices.
-        const auto count = static_cast<std::uint32_t>(tracks.size());
+        const auto count = tracks.size();
         resizeBoundedVector(mChoices, std::size_t{count} * kSlots, mMemoryPool.get());
         const auto view = tracks.view();
         forEach(count, match::Choose<Det, std::remove_const_t<decltype(view)>>{.iterations = iterations, .timeFrame = &frame, .trackingGeometry = &geometry, .propagator = propagator, .tracks = view, .used = used.data(), .maxCandidateWidthPS = maxCandidateWidthPS.data(), .freeRows = table, .choices = mChoices.data()});
@@ -299,7 +300,7 @@ class InactiveMatch
           if (ca.row != cb.row) {
             return ca.row < cb.row;
           }
-          if (ca.ratio != cb.ratio) {
+          if (!exactlyEqual(ca.ratio, cb.ratio)) {
             return ca.ratio > cb.ratio;
           }
           return a < b;

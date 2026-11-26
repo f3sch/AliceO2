@@ -61,6 +61,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -84,10 +85,10 @@ const char* geometryFile() { return std::getenv("GTRK_ALICE3_GEOMETRY"); }
 
 constexpr Scalar kBzKiloGauss = 20.F;
 constexpr double kX2X0PerCm = 1e-3;
-constexpr std::size_t kMinMeasurements = 8; ///< the VD's three and the ML's five
+constexpr std::uint32_t kMinMeasurements = 8; ///< the VD's three and the ML's five
 /// Forward: the VD's three and three discs. At |eta| 3 a track leaves the VD
 /// at its end, passes the ML and falls through the inner holes of two discs.
-constexpr std::size_t kMinForwardMeasurements = 6;
+constexpr std::uint32_t kMinForwardMeasurements = 6;
 
 /// Where a state meets a curved sensor: the tangent plane at the angle the
 /// track crosses it, found by moving the plane to where the propagated track
@@ -96,7 +97,7 @@ constexpr std::size_t kMinForwardMeasurements = 6;
 std::optional<std::pair<BoundTrackState, Scalar>> toCylinder(const Propagator& propagator, const BoundTrackState& state, const TrackingSurface& from, const TrackingSurface& cylinder, Scalar angle)
 {
   BoundTrackState probe = state;
-  for (int round = 0; round < 6; ++round) {
+  for (std::int32_t round = 0; round < 6; ++round) {
     probe = state;
     const auto plane = tangentPlane(cylinder, angle);
     const auto status = propagate(propagator, probe, from, plane, PropagationDirection::kForward).status;
@@ -124,7 +125,7 @@ struct BarrelChain {
   /// The link material as \a medium's, filled when it changes.
   void hold(const UniformMaterial& medium)
   {
-    if (medium.x2X0PerCm != filled.x2X0PerCm || medium.rho != filled.rho) {
+    if (!exactlyEqual(medium.x2X0PerCm, filled.x2X0PerCm) || !exactlyEqual(medium.rho, filled.rho)) {
       fillFromMedium<TRKFT3>(tracking->material(), medium);
       filled = medium;
     }
@@ -302,7 +303,7 @@ struct BarrelChain {
     }
     if (forward) {
       // FT3's order: six discs at -z, then their mirrors at +z.
-      for (int disc = 6; disc < Detector<TRKFT3>::nDiscLayers; ++disc) {
+      for (std::int32_t disc = 6; disc < Detector<TRKFT3>::nDiscLayers; ++disc) {
         layers.push_back(static_cast<LayerID>(Detector<TRKFT3>::nBarrelLayers + disc));
       }
     }
@@ -314,14 +315,14 @@ struct BarrelChain {
   /// crosses first; false if fewer than \a minMeasurements remain. The kicks'
   /// Highland logarithm is at the span's material (`SpanMaterial`): the
   /// chords of the chain without scattering.
-  bool generate(bool scatter, std::mt19937& rng, std::span<const LayerID> layers, std::size_t minMeasurements)
+  bool generate(bool scatter, std::mt19937& rng, std::span<const LayerID> layers, std::uint32_t minMeasurements)
   {
     Scalar spanX2X0 = 0.F;
     if (scatter) {
       if (!trace(false, rng, layers, minMeasurements, 0.F)) {
         return false;
       }
-      for (std::size_t k = 1; k < truth.size(); ++k) {
+      for (std::uint32_t k = 1; k < truth.size(); ++k) {
         const auto a = globalOf(truth[k - 1]);
         const auto b = globalOf(truth[k]);
         spanX2X0 += static_cast<Scalar>(kX2X0PerCm) * std::hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
@@ -332,18 +333,18 @@ struct BarrelChain {
 
   /// The chain as `generate` describes it, with the span's material
   /// \a spanX2X0 given.
-  bool trace(bool scatter, std::mt19937& rng, std::span<const LayerID> layers, std::size_t minMeasurements, Scalar spanX2X0)
+  bool trace(bool scatter, std::mt19937& rng, std::span<const LayerID> layers, std::uint32_t minMeasurements, Scalar spanX2X0)
   {
     std::normal_distribution<double> gauss(0., 1.);
     truth.resize(1);
-    std::size_t next = 0;
+    std::uint32_t next = 0;
     while (next < layers.size()) {
       BoundTrackState outgoing = truth.back();
       const auto here = globalOf(outgoing);
       std::optional<BoundTrackState> unkicked;
-      std::size_t chosen = layers.size();
+      auto chosen = static_cast<std::uint32_t>(layers.size());
       Scalar nearest = std::numeric_limits<Scalar>::infinity();
-      for (std::size_t i = next; i < layers.size(); ++i) {
+      for (std::uint32_t i = next; i < layers.size(); ++i) {
         const auto crossing = cross(outgoing, layers[i]);
         if (!crossing) {
           continue;
@@ -384,7 +385,7 @@ struct BarrelChain {
       return false;
     }
     measurements.clear();
-    for (std::size_t i = 0; i < truth.size(); ++i) {
+    for (std::uint32_t i = 0; i < truth.size(); ++i) {
       const auto& spec = Detector<TRKFT3>::sensor(tracking->surface(truth[i].surface).layer);
       const auto var = static_cast<Scalar>(spec.pitchX * spec.pitchX / 12.);
       measurements.push_back(Measurement{
@@ -395,7 +396,7 @@ struct BarrelChain {
         .varLoc0 = var,
         .covLoc01 = 0.F,
         .varLoc1 = var,
-        .clusterIndex = static_cast<std::uint32_t>(i),
+        .clusterIndex = i,
         .surface = truth[i].surface,
       });
     }
@@ -405,7 +406,7 @@ struct BarrelChain {
 
 using namespace test::pulls;
 
-PullPoint pullsAt(BarrelChain& chain, double ptGeV, double eta, bool withMaterial, int trials, std::uint32_t seed)
+PullPoint pullsAt(BarrelChain& chain, double ptGeV, double eta, bool withMaterial, std::int32_t trials, std::uint32_t seed)
 {
   const bool forward = eta > 1.5;
   const auto layers = BarrelChain::sequence(forward);
@@ -419,12 +420,12 @@ PullPoint pullsAt(BarrelChain& chain, double ptGeV, double eta, bool withMateria
   // Vertices along the beam, so that the chains cross the chips everywhere
   // and not all on the seams between them at z = 0.
   std::uniform_real_distribution<double> uniformZ(-5., 5.);
-  return collectPulls(chain, ptGeV, eta, trials, [&](int trial) {
+  return collectPulls(chain, ptGeV, eta, trials, [&](std::int32_t trial) {
     const Scalar charge = (trial % 2) != 0 ? 1.F : -1.F;
     bool built = false;
     // Gaps between petals and chips lose some lines; draw again. At |eta| 3
     // most lines fall through the discs' inner holes, hence the many draws.
-    for (int attempt = 0; attempt < 1000 && !built; ++attempt) {
+    for (std::int32_t attempt = 0; attempt < 1000 && !built; ++attempt) {
       built = chain.start(static_cast<Scalar>(uniformPhi(rng)), static_cast<Scalar>(theta), static_cast<Scalar>(static_cast<double>(charge) / p), static_cast<Scalar>(uniformZ(rng))) && chain.generate(withMaterial, rng, layers, forward ? kMinForwardMeasurements : kMinMeasurements);
     }
     BOOST_REQUIRE_MESSAGE(built, "no chain in 1000 draws at pT " << ptGeV << " eta " << eta << (withMaterial ? "" : ", no material"));
@@ -433,7 +434,7 @@ PullPoint pullsAt(BarrelChain& chain, double ptGeV, double eta, bool withMateria
       m.loc0 += static_cast<Scalar>(gauss(rng)) * std::sqrt(m.varLoc0);
       m.loc1 += static_cast<Scalar>(gauss(rng)) * std::sqrt(m.varLoc1);
     }
-    return fitMeasurements(chain.propagator, *chain.tracking, material, smeared.data(), static_cast<int>(smeared.size()));
+    return fitMeasurements(chain.propagator, *chain.tracking, material, smeared.data(), static_cast<std::int32_t>(smeared.size()));
   });
 }
 
@@ -450,7 +451,7 @@ constexpr Vec3D kForwardEtas{2., 2.5, 3.};
 /// The widths of n unit-Gaussian pulls scatter by 1 / sqrt(2 n) (plain) and
 /// about 1.6 times that (robust, the median's): at 2000, 1.6 % and 2.6 %, so
 /// 15 % is beyond 5 sigma of either over the scan's 600 widths.
-constexpr int kTrials = 2000;
+constexpr std::int32_t kTrials = 2000;
 constexpr double kTolerance = 0.15;
 
 struct Scans {
@@ -516,7 +517,7 @@ BOOST_AUTO_TEST_CASE(EveryPetalPlacesItsMeasurements)
   o2::base::GeometryManager::loadGeometry(geometryFile());
   const auto geometry = std::make_unique<const Geometry<TRKFT3>>(alice::placeChecked<TRKFT3>());
   const auto tracking = std::make_unique<const TrackingGeometry<TRKFT3>>(*geometry);
-  int petals = 0;
+  std::int32_t petals = 0;
   for (SensorID id = 0; id < static_cast<SensorID>(TRKFT3::nSensors); ++id) {
     const auto& spec = geometry->specOf(id);
     if (!spec.curved()) {
@@ -533,7 +534,7 @@ BOOST_AUTO_TEST_CASE(EveryPetalPlacesItsMeasurements)
       const auto plane = tracking->planeOf(m);
       Scalar global[3];
       surfaceToGlobal(plane, m.loc0, m.loc1, global);
-      for (int i = 0; i < 3; ++i) {
+      for (std::int32_t i = 0; i < 3; ++i) {
         BOOST_TEST(std::abs(static_cast<double>(global[i]) - expected[i]) < 1e-5); // float, at 25 cm
       }
       // The plane's normal is radial there.
@@ -587,7 +588,7 @@ BOOST_AUTO_TEST_CASE(NoPairsKinkExceedsItsLinksBound)
   const auto ratios = test::betweenOverBound<TRKFT3>(*material, windows, VertexConstraint{.z = 0., .sigmaZ = 5., .sigmaTransverse = 0.005});
   BOOST_TEST(!ratios.empty());
   for (const auto& ratio : ratios) {
-    BOOST_TEST_CONTEXT("link " << static_cast<int>(ratio.from) << " -> " << static_cast<int>(ratio.to))
+    BOOST_TEST_CONTEXT("link " << static_cast<std::int32_t>(ratio.from) << " -> " << static_cast<std::int32_t>(ratio.to))
     {
       BOOST_TEST(ratio.worst <= 1.);
       BOOST_TEST(ratio.worstSourceScale <= 1.);
@@ -620,8 +621,8 @@ BOOST_AUTO_TEST_CASE(TheTrksFramesAreTheDigitisersPerLayer)
     std::ofstream out{path};
     out << "[TRKAlmiraParam]\n";
     // The VD's 22 BC, ML and OT's 81 BC, the last layer unset.
-    constexpr std::array<int, 11> kLengths{22, 22, 22, 81, 81, 81, 81, 81, 81, 81, 0};
-    for (std::size_t layer = 0; layer < kLengths.size(); ++layer) {
+    constexpr std::array<std::int32_t, 11> kLengths{22, 22, 22, 81, 81, 81, 81, 81, 81, 81, 0};
+    for (std::uint32_t layer = 0; layer < kLengths.size(); ++layer) {
       out << "roFrameLengthInBCPerLayer[" << layer << "]=" << kLengths[layer] << '\n';
     }
     out << "roFrameBiasInBCPerLayer[4]=5\nroFrameDelayInBCPerLayer[4]=2\n";
@@ -636,7 +637,7 @@ BOOST_AUTO_TEST_CASE(TheTrksFramesAreTheDigitisersPerLayer)
   BOOST_TEST((frames[3] == FrameTiming{.lengthBC = 81, .firstStartBC = 0}));
   BOOST_TEST((frames[4] == FrameTiming{.lengthBC = 81, .firstStartBC = 7}));
   // An unset layer takes O2's default frame.
-  constexpr int kDefault = o2::trk::AlmiraParam::kDefROFLengthInBC;
+  constexpr std::int32_t kDefault = o2::trk::AlmiraParam::kDefROFLengthInBC;
   BOOST_TEST((frames[10] == FrameTiming{.lengthBC = kDefault, .firstStartBC = 0}));
   BOOST_TEST((frames[11] == FrameTiming{.lengthBC = 81, .firstStartBC = 3}));
   BOOST_TEST((frames[22] == FrameTiming{.lengthBC = kDefault, .firstStartBC = 0}));

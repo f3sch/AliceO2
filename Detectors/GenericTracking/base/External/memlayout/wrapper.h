@@ -15,6 +15,7 @@
 // Upstream forward-declares std::iterator_traits here.  libc++ declares it
 // differently, so the two are ambiguous in any translation unit that also
 // includes a standard container.  Including the real header instead.
+#include <cstdint>
 #include <iterator>
 #include <type_traits>
 
@@ -49,7 +50,7 @@ namespace memlayout
 {
 
 using size_t = decltype(sizeof(0));
-using ptrdiff_t = decltype(static_cast<int*>(nullptr) - static_cast<int*>(nullptr));
+using ptrdiff_t = decltype(static_cast<std::int32_t*>(nullptr) - static_cast<std::int32_t*>(nullptr));
 
 template <class T>
 using value = T;

@@ -96,6 +96,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <format>
 #include <functional>
@@ -141,14 +142,14 @@ struct Options {
 template <typename ClusterType>
 struct Alice3Stream {
   std::vector<ClusterType> compact;
-  std::vector<unsigned char> patterns;
+  std::vector<std::uint8_t> patterns;
   std::vector<o2::trkft3::ROFRecord> rofs;
   o2::dataformats::MCTruthContainer<o2::MCCompLabel> labels;
 };
 
 /// Stream \a stream of \a tree, whose branches start with \a prefix (TRK, FT3).
 template <typename ClusterType>
-Alice3Stream<ClusterType> readStream(TTree& tree, const std::string& prefix, int stream)
+Alice3Stream<ClusterType> readStream(TTree& tree, const std::string& prefix, std::int32_t stream)
 {
   Alice3Stream<ClusterType> result;
   auto* compactPtr = &result.compact;
@@ -181,7 +182,7 @@ TTree& clusterTree(const std::string& path, std::unique_ptr<TFile>& file)
 /// One timeframe of one detector's cluster file.
 struct ClusterFile {
   std::vector<o2::itsmft::CompClusterExt> clusters;
-  std::vector<unsigned char> patterns;
+  std::vector<std::uint8_t> patterns;
   std::vector<o2::itsmft::ROFRecord> rofs;
   o2::dataformats::MCTruthContainer<o2::MCCompLabel> labels;
   bool hasLabels = false;
@@ -209,9 +210,9 @@ ClusterFile readClusters(const std::string& path, const std::string& prefix)
 
 struct Deviation {
   double worst = 0.;
-  std::size_t at = 0;
+  std::uint32_t at = 0;
 
-  void add(double value, std::size_t index)
+  void add(double value, std::uint32_t index)
   {
     if (value > worst) {
       worst = value;
@@ -221,7 +222,7 @@ struct Deviation {
 };
 
 template <DetectorLayout Det, typename GeometryTGeo>
-int runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& prefix)
+std::int32_t runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& prefix)
 {
   const auto geometry = workflow::makeGeometry<Det>();
   const auto tracking = std::make_unique<const TrackingGeometry<Det>>(*geometry);
@@ -241,11 +242,11 @@ int runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& 
 
   Deviation exact;
   Deviation narrow;
-  std::size_t wrongLayer = 0;
-  std::size_t outside = 0;
-  std::size_t outsideTime = 0;
-  std::size_t badSpans = 0;
-  std::vector<std::size_t> perLayer(static_cast<std::size_t>(Detector<Det>::nLayers), 0U);
+  std::uint32_t wrongLayer = 0;
+  std::uint32_t outside = 0;
+  std::uint32_t outsideTime = 0;
+  std::uint32_t badSpans = 0;
+  std::vector<std::uint32_t> perLayer(static_cast<std::size_t>(Detector<Det>::nLayers), 0U);
   std::vector<float> rowSpans;
   std::vector<float> colSpans;
   rowSpans.reserve(clusters.size());
@@ -254,9 +255,9 @@ int runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& 
   std::vector<float> sigmaY;
   sigmaX.reserve(clusters.size());
   sigmaY.reserve(clusters.size());
-  for (std::size_t i = 0; i < clusters.size(); ++i) {
+  for (std::uint32_t i = 0; i < clusters.size(); ++i) {
     const auto& cluster = clusters[i];
-    const auto chip = static_cast<int>(cluster.chipID);
+    const auto chip = static_cast<std::int32_t>(cluster.chipID);
     const auto& l2g = o2Geometry.getMatrixL2G(chip);
 
     // Double: O2's matrix and our sensor, on the same local position.
@@ -274,7 +275,7 @@ int runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& 
     narrow.add(std::max({std::abs(static_cast<double>(point[0] - o2Float.X())), std::abs(static_cast<double>(point[1] - o2Float.Y())), std::abs(static_cast<double>(point[2] - o2Float.Z()))}), i);
 
     const auto layer = geometry->sensor(cluster.chipID).layer;
-    wrongLayer += static_cast<int>(layer) != o2Geometry.getLayer(chip) ? 1U : 0U;
+    wrongLayer += static_cast<std::int32_t>(layer) != o2Geometry.getLayer(chip) ? 1U : 0U;
     // The active area: the float tracking surface's rectangular bounds on
     // the unrolled coordinates, the ones the tracking reads.
     outside += surface.bounds.isInside(cluster.xLocal, cluster.yLocal) ? 0U : 1U;
@@ -295,7 +296,7 @@ int runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& 
     sigmaY.push_back(cluster.sigmaYLocal);
   }
 
-  std::size_t filled = 0;
+  std::uint32_t filled = 0;
   for (const auto& rof : file.rofs) {
     filled += rof.getNEntries() > 0 ? 1U : 0U;
   }
@@ -309,16 +310,16 @@ int runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& 
     return std::format("{} / {} / {} / {}", at(0.5), at(0.9), at(0.99), at(1.));
   };
   std::cout << std::format("{}: {} clusters in {} readout frames of {} BC ({} with clusters), first TF orbit {}\n", Det::name, clusters.size(), file.rofs.size(), frames.lengthBC, filled, tfFirstOrbit) << std::format("  per layer:");
-  for (std::size_t layer = 0; layer < perLayer.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < perLayer.size(); ++layer) {
     std::cout << std::format(" {}:{}", layer, perLayer[layer]);
   }
   std::cout << std::format("\n  sigma across, median / 90 % / 99 % / max: {} um\n", quantiles(sigmaX)) << std::format("  sigma along,  median / 90 % / 99 % / max: {} um\n", quantiles(sigmaY)) << std::format("  double position: worst {:.3g} cm (cluster {}), tolerance {:.0e}\n", exact.worst, exact.at, kDoubleTolerance) << std::format("  float position:  worst {:.3g} cm (cluster {}), tolerance {:.0e}\n", narrow.worst, narrow.at, kFloatTolerance) << std::format("  wrong layer {}, outside the active matrix {}, outside the timeframe {}\n", wrongLayer, outside, outsideTime) << std::format("  rows, median / 90 % / 99 % / max: {}; columns: {}; spans that cannot hold their pixels {}\n", spanQuantiles(rowSpans), spanQuantiles(colSpans), badSpans);
 
   // Which topologies the errors come from: the most used, with the
   // dictionary's errors and whether each is a group.
-  std::map<int, std::size_t> use;
-  std::size_t invalid = 0;
-  std::size_t groups = 0;
+  std::map<std::int32_t, std::uint32_t> use;
+  std::uint32_t invalid = 0;
+  std::uint32_t groups = 0;
   for (const auto& cluster : file.clusters) {
     const auto id = cluster.getPatternID();
     if (id == o2::itsmft::CompCluster::InvalidPatternID) {
@@ -328,7 +329,7 @@ int runFor(const Options& options, GeometryTGeo& o2Geometry, const std::string& 
     groups += dictionary->isGroup(id) ? 1U : 0U;
     ++use[id];
   }
-  std::vector<std::pair<std::size_t, int>> top;
+  std::vector<std::pair<std::uint32_t, std::int32_t>> top;
   top.reserve(use.size());
   for (const auto& [id, count] : use) {
     top.emplace_back(count, id);
@@ -391,15 +392,15 @@ struct Spread {
 /// and held to O2's position of the same entry at the layer's depth, our
 /// geometry placed at the dictionaries' depths; the residuals are the
 /// dictionary's, taken at those depths.
-int runTRK(const Options& options)
+std::int32_t runTRK(const Options& options)
 {
   if (options.clusterDictionaries.empty()) {
     throw std::runtime_error("TRKFT3 needs --cluster-dictionaries");
   }
   using Det = detectors::TRKFT3;
   using Segmentation = o2::trk::SegmentationChip;
-  constexpr int kLayers = Detector<Det>::nLayers;
-  constexpr int kBarrelLayers = Detector<Det>::nBarrelLayers;
+  constexpr std::int32_t kLayers = Detector<Det>::nLayers;
+  constexpr std::int32_t kBarrelLayers = Detector<Det>::nBarrelLayers;
   constexpr auto kFirstDisc = static_cast<std::uint32_t>(Det::kFirstDiscSensor);
   auto& o2Geometry = *o2::trk::GeometryTGeo::Instance();
   o2Geometry.fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::L2G));
@@ -430,11 +431,11 @@ int runTRK(const Options& options)
   // scanning its event (Pb-Pb events are large).
   using HitIndex = std::unordered_map<std::uint64_t, std::vector<const study::HitSegment*>>;
   std::vector<std::optional<HitIndex>> hitIndex(static_cast<std::size_t>(hits.nEvents()));
-  const auto segmentsOf = [&](int event, int track, std::uint32_t chip) -> const std::vector<const study::HitSegment*>* {
+  const auto segmentsOf = [&](std::int32_t event, std::int32_t track, std::uint32_t chip) -> const std::vector<const study::HitSegment*>* {
     if (event < 0 || event >= hits.nEvents()) {
       return nullptr;
     }
-    auto& index = hitIndex[static_cast<std::size_t>(event)];
+    auto& index = hitIndex[static_cast<std::uint32_t>(event)];
     if (!index) {
       index.emplace();
       for (const auto& segment : hits.event(event)) {
@@ -447,29 +448,29 @@ int runTRK(const Options& options)
 
   Deviation exact;
   Deviation narrow;
-  std::size_t total = 0;
-  std::size_t wrongLayer = 0;
-  std::size_t outside = 0;
-  std::size_t outsideTime = 0;
-  std::size_t badFrames = 0;
-  std::size_t unlabelled = 0;
-  std::size_t signal = 0;
-  std::size_t noHit = 0;
+  std::uint32_t total = 0;
+  std::uint32_t wrongLayer = 0;
+  std::uint32_t outside = 0;
+  std::uint32_t outsideTime = 0;
+  std::uint32_t badFrames = 0;
+  std::uint32_t unlabelled = 0;
+  std::uint32_t signal = 0;
+  std::uint32_t noHit = 0;
   // Every signal cluster with its particle's hit on its chip: the cluster's
   // unrolled position, the hit's two ends unrolled (across, along, depth),
   // its sub-detector and its spans.
   struct Match {
-    int layer = 0;
-    int subDet = 0;
-    int rowSpan = 0;
-    int colSpan = 0;
+    std::int32_t layer = 0;
+    std::int32_t subDet = 0;
+    std::int32_t rowSpan = 0;
+    std::int32_t colSpan = 0;
     Vec2D cluster{};
     std::array<Vec3D, 2> ends{};
   };
   std::vector<Match> matches;
   std::cout << "TRKFT3 layer | clusters | frames: records' length, configured length@first start\n";
   // One layer's stream: TRK's barrel layer, or FT3's disc after them.
-  const auto checkLayer = [&]<typename ClusterType>(int layer, const Alice3Stream<ClusterType>& stream) {
+  const auto checkLayer = [&]<typename ClusterType>(std::int32_t layer, const Alice3Stream<ClusterType>& stream) {
     constexpr bool kDisc = std::is_same_v<ClusterType, o2::trkft3::FT3Cluster>;
     const auto& [compact, patterns, rofs, labels] = stream;
     const auto local = [&]() {
@@ -480,19 +481,19 @@ int runTRK(const Options& options)
       }
     }();
     const auto spacing = alice::readoutFrames(std::span<const o2::trkft3::ROFRecord>{rofs});
-    badFrames += spacing.lengthBC != frames[static_cast<std::size_t>(layer)].lengthBC ? 1U : 0U;
+    badFrames += spacing.lengthBC != frames[static_cast<std::uint32_t>(layer)].lengthBC ? 1U : 0U;
     const auto clusters = alice::toClusters(local, std::span<const o2::trkft3::ROFRecord>{rofs}, spacing, tfFirstOrbit);
     unlabelled += labels.getIndexedSize() == clusters.size() ? 0U : 1U;
-    std::cout << std::format("{:9} | {:8} | {:3} BC, {}@{}\n", layer, clusters.size(), spacing.lengthBC, frames[static_cast<std::size_t>(layer)].lengthBC, frames[static_cast<std::size_t>(layer)].firstStartBC);
+    std::cout << std::format("{:9} | {:8} | {:3} BC, {}@{}\n", layer, clusters.size(), spacing.lengthBC, frames[static_cast<std::uint32_t>(layer)].lengthBC, frames[static_cast<std::uint32_t>(layer)].firstStartBC);
 
     std::size_t offset = 0;
-    for (std::size_t i = 0; i < clusters.size(); ++i, ++total) {
+    for (std::uint32_t i = 0; i < clusters.size(); ++i, ++total) {
       const auto& cluster = clusters[i];
       const auto& o2Cluster = compact[i];
       const auto* pattern = patterns.data() + offset;
       const std::size_t bytes = 2U + ((static_cast<std::size_t>(pattern[0]) * pattern[1] + 7U) / 8U);
       offset += bytes;
-      const auto chip = static_cast<int>(kDisc ? cluster.chipID - kFirstDisc : cluster.chipID); // O2's
+      const auto chip = static_cast<std::int32_t>(kDisc ? cluster.chipID - kFirstDisc : cluster.chipID); // O2's
       const auto& l2g = kDisc ? ft3Geometry.getMatrixL2G(chip) : o2Geometry.getMatrixL2G(chip);
 
       // O2's position: its dictionary entry's at the layer's depth, curved on
@@ -516,8 +517,8 @@ int runTRK(const Options& options)
       const auto point = gridPoint<Det>(*geometry, cluster.chipID, static_cast<double>(cluster.xLocal), static_cast<double>(cluster.yLocal));
       narrow.add(std::max({std::abs(static_cast<double>(point.x - o2Float.X())), std::abs(static_cast<double>(point.y - o2Float.Y())), std::abs(static_cast<double>(point.z - o2Float.Z()))}), total);
 
-      const auto ourLayer = static_cast<int>(geometry->sensor(cluster.chipID).layer);
-      const int o2Layer = kDisc ? kBarrelLayers + ft3Geometry.getLayer(chip) : o2Geometry.getLayerTRK(chip);
+      const auto ourLayer = static_cast<std::int32_t>(geometry->sensor(cluster.chipID).layer);
+      const std::int32_t o2Layer = kDisc ? kBarrelLayers + ft3Geometry.getLayer(chip) : o2Geometry.getLayerTRK(chip);
       wrongLayer += ourLayer != layer || ourLayer != o2Layer ? 1U : 0U;
       // The active area: the double sensor spec's rectangular bounds on the
       // unrolled coordinates (a curved VD sensor's too).
@@ -528,7 +529,7 @@ int runTRK(const Options& options)
       // of the hit's path through the silicon, in the unrolled frame.
       const o2::MCCompLabel* label = nullptr;
       if (i < labels.getIndexedSize()) {
-        for (const auto& candidate : labels.getLabels(static_cast<std::uint32_t>(i))) {
+        for (const auto& candidate : labels.getLabels(i)) {
           if (candidate.isValid() && !candidate.isNoise() && candidate.getSourceID() == 0) {
             label = &candidate;
             break;
@@ -573,7 +574,7 @@ int runTRK(const Options& options)
       matches.push_back(match);
     }
   };
-  for (int layer = 0; layer < kLayers; ++layer) {
+  for (std::int32_t layer = 0; layer < kLayers; ++layer) {
     if (layer < kBarrelLayers) {
       checkLayer(layer, readStream<o2::trkft3::TRKCluster>(trkTree, "TRK", layer));
     } else {
@@ -608,7 +609,7 @@ int runTRK(const Options& options)
     return Vec2D{match.cluster[0] - (a[0] + (t * (b[0] - a[0]))), match.cluster[1] - (a[1] + (t * (b[1] - a[1])))};
   };
   std::cout << "  each layer's measurement depth, the dictionaries' (our unrolled z) [um]:";
-  for (int layer = 0; layer < kLayers; ++layer) {
+  for (std::int32_t layer = 0; layer < kLayers; ++layer) {
     std::cout << std::format(" {}:{:.1f}", layer, 1e4 * geometry->measurementDepth(static_cast<LayerID>(layer)));
   }
   std::cout << '\n';
@@ -617,20 +618,20 @@ int runTRK(const Options& options)
   constexpr std::size_t kSpans = 7; // 1-5, 6+; 0 every span
   std::array<std::array<std::array<Spread, kSpans>, 2>, kSubDets> residuals{};
   for (const auto& match : matches) {
-    const auto subDet = static_cast<std::size_t>(match.subDet);
+    const auto subDet = static_cast<std::uint32_t>(match.subDet);
     const auto residual = residualAt(match, geometry->measurementDepth(static_cast<LayerID>(match.layer)));
-    const std::array<int, 2> spans{match.rowSpan, match.colSpan};
-    for (std::size_t axis = 0; axis < 2; ++axis) {
+    const std::array<std::int32_t, 2> spans{match.rowSpan, match.colSpan};
+    for (std::uint32_t axis = 0; axis < 2; ++axis) {
       residuals[subDet][axis][0].values.push_back(residual[axis]);
-      residuals[subDet][axis][static_cast<std::size_t>(std::min(spans[axis], 6))].values.push_back(residual[axis]);
+      residuals[subDet][axis][static_cast<std::uint32_t>(std::min(spans[axis], 6))].values.push_back(residual[axis]);
     }
   }
   std::cout << "  residuals at each layer's measurement depth [um]: clusters, mean, rms, core (half the 68 % range), 1.4826 MAD\n";
-  for (std::size_t subDet = 0; subDet < kSubDets; ++subDet) {
-    for (std::size_t axis = 0; axis < 2; ++axis) {
+  for (std::uint32_t subDet = 0; subDet < kSubDets; ++subDet) {
+    for (std::uint32_t axis = 0; axis < 2; ++axis) {
       const double pitch = 1e4 * pitches[subDet][axis];
       std::cout << std::format("  {} {}: pitch {:.1f}, pitch/sqrt(12) {:.2f}, pitch/2 {:.2f}\n", subDets[subDet], axes[axis], pitch, pitch / std::sqrt(12.), 0.5 * pitch) << std::format("    every span {}\n", residuals[subDet][axis][0].describe());
-      for (std::size_t span = 1; span < kSpans; ++span) {
+      for (std::uint32_t span = 1; span < kSpans; ++span) {
         std::cout << std::format("    span {}{} {}\n", span, span + 1 == kSpans ? "+" : " ", residuals[subDet][axis][span].describe());
       }
     }
@@ -648,14 +649,14 @@ int runTRK(const Options& options)
 /// each signal tile cluster against its particle's MC hit on the tile, the
 /// residuals at a scan of depths, by O2's topology class, to read which depth
 /// the clusters are measured at.
-int runITS3(const Options& options)
+std::int32_t runITS3(const Options& options)
 {
   using Det = detectors::ITS3;
   auto& o2Geometry = *o2::its::GeometryTGeo::Instance();
   o2Geometry.fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::L2G));
   std::array<double, Detector<Det>::nLayers> depths{};
-  for (std::size_t layer = 0; layer < detectors::mosaix::kNominalRadius.size(); ++layer) {
-    depths[layer] = detectors::mosaix::measurementDepth(static_cast<int>(layer));
+  for (std::uint32_t layer = 0; layer < detectors::mosaix::kNominalRadius.size(); ++layer) {
+    depths[layer] = detectors::mosaix::measurementDepth(static_cast<std::int32_t>(layer));
   }
   const auto geometry = workflow::makeGeometry<Det>(depths);
   const alice::ITS3Tiles tiles(o2Geometry);
@@ -677,40 +678,40 @@ int runITS3(const Options& options)
   std::vector<std::uint8_t> common; // a common topology's, which O2 puts at the response depth
   o2Local.reserve(file.clusters.size());
   {
-    const gsl::span<const unsigned char> stream{file.patterns.data(), file.patterns.size()};
+    const gsl::span<const std::uint8_t> stream{file.patterns.data(), file.patterns.size()};
     auto pattern = stream.begin();
     for (const auto& cluster : file.clusters) {
       double sigma2X = 0.;
       double sigma2Z = 0.;
       o2Local.push_back(o2::its3::ioutils::extractClusterData<decltype(pattern), double>(cluster, pattern, dictionary.get(), sigma2X, sigma2Z));
       const auto id = cluster.getPatternID();
-      const bool tile = o2::its3::constants::detID::isDetITS3(static_cast<int>(cluster.getSensorID()));
+      const bool tile = o2::its3::constants::detID::isDetITS3(static_cast<std::int32_t>(cluster.getSensorID()));
       common.push_back(id != o2::itsmft::CompCluster::InvalidPatternID && !dictionary->isGroup(id, tile) ? 1U : 0U);
     }
   }
 
   Deviation exact;
   Deviation narrow;
-  std::size_t wrongLayer = 0;
-  std::size_t outside = 0;
-  std::size_t outsideTime = 0;
-  std::size_t badSpans = 0;
-  std::size_t badErrors = 0;
-  std::size_t defaultErrors = 0; // the dictionary's entry without errors, O2's default taken
-  std::size_t signal = 0;
-  std::size_t noHit = 0;
-  std::array<std::size_t, 2> tileClusters{}; // by class: group or invalid, common
-  std::array<std::size_t, 2> offDepth{};     // O2's depth more than 0.1 um from the layer's, by class
-  std::vector<std::size_t> perLayer(static_cast<std::size_t>(Detector<Det>::nLayers), 0U);
+  std::uint32_t wrongLayer = 0;
+  std::uint32_t outside = 0;
+  std::uint32_t outsideTime = 0;
+  std::uint32_t badSpans = 0;
+  std::uint32_t badErrors = 0;
+  std::uint32_t defaultErrors = 0; // the dictionary's entry without errors, O2's default taken
+  std::uint32_t signal = 0;
+  std::uint32_t noHit = 0;
+  std::array<std::uint32_t, 2> tileClusters{}; // by class: group or invalid, common
+  std::array<std::uint32_t, 2> offDepth{};     // O2's depth more than 0.1 um from the layer's, by class
+  std::vector<std::uint32_t> perLayer(static_cast<std::size_t>(Detector<Det>::nLayers), 0U);
   struct Match {
     bool common = false;
     Vec2D cluster{};
     std::array<Vec3D, 2> ends{};
   };
   std::vector<Match> matches;
-  for (std::size_t i = 0; i < clusters.size(); ++i) {
+  for (std::uint32_t i = 0; i < clusters.size(); ++i) {
     const auto& cluster = clusters[i];
-    const auto chip = static_cast<int>(cluster.chipID);
+    const auto chip = static_cast<std::int32_t>(cluster.chipID);
     const auto& l2g = o2Geometry.getMatrixL2G(chip);
     const auto& spec = geometry->specOf(cluster.chipID);
     const auto layer = geometry->sensor(cluster.chipID).layer;
@@ -734,13 +735,13 @@ int runITS3(const Options& options)
       const double radius = std::hypot(static_cast<double>(point.x), static_cast<double>(point.y));
       const double across = radius * std::abs(toPMPiOf(std::atan2(static_cast<double>(point.y), static_cast<double>(point.x)) - std::atan2(static_cast<double>(o2Float.Y()), static_cast<double>(o2Float.X()))));
       narrow.add(std::max(across, std::abs(static_cast<double>(point.z - o2Float.Z()))), i);
-      const auto kind = static_cast<std::size_t>(common[i]);
+      const auto kind = static_cast<std::uint32_t>(common[i]);
       ++tileClusters[kind];
       offDepth[kind] += std::abs(depth - geometry->measurementDepth(layer)) > 1e-5 ? 1U : 0U;
     } else {
       narrow.add(std::max({std::abs(static_cast<double>(point.x - o2Float.X())), std::abs(static_cast<double>(point.y - o2Float.Y())), std::abs(static_cast<double>(point.z - o2Float.Z()))}), i);
     }
-    wrongLayer += static_cast<int>(layer) != o2Geometry.getLayer(chip) ? 1U : 0U;
+    wrongLayer += static_cast<std::int32_t>(layer) != o2Geometry.getLayer(chip) ? 1U : 0U;
     outside += tools::contains(spec, static_cast<double>(cluster.xLocal), static_cast<double>(cluster.yLocal)) ? 0U : 1U;
     outsideTime += boxCentreNS(cluster) < durationNS ? 0U : 1U;
     const auto rows = static_cast<std::uint32_t>(cluster.rowSpan);
@@ -757,7 +758,7 @@ int runITS3(const Options& options)
       continue;
     }
     const o2::MCCompLabel* label = nullptr;
-    for (const auto& candidate : file.labels.getLabels(static_cast<std::uint32_t>(i))) {
+    for (const auto& candidate : file.labels.getLabels(i)) {
       if (candidate.isValid() && !candidate.isNoise() && candidate.getSourceID() == 0) {
         label = &candidate;
         break;
@@ -795,7 +796,7 @@ int runITS3(const Options& options)
   }
 
   std::cout << std::format("{}: {} clusters in {} readout frames of {} BC, first TF orbit {}\n  per layer:", Det::name, clusters.size(), file.rofs.size(), frames.lengthBC, tfFirstOrbit);
-  for (std::size_t layer = 0; layer < perLayer.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < perLayer.size(); ++layer) {
     std::cout << std::format(" {}:{}", layer, perLayer[layer]);
   }
   std::cout << std::format("\n  double position (at O2's depth): worst {:.3g} cm (cluster {}), tolerance {:.0e}\n", exact.worst, exact.at, kDoubleTolerance)
@@ -805,7 +806,7 @@ int runITS3(const Options& options)
             << std::format("  tile clusters: common topologies {} ({} off the layer's depth), groups and invalid IDs {} ({} off it)\n", tileClusters[1], offDepth[1], tileClusters[0], offDepth[0])
             << std::format("  tile signal clusters {}, without their particle's hit on the tile {}\n", signal, noHit);
   std::cout << "  each layer's measurement depth (our unrolled z) [um]:";
-  for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+  for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
     std::cout << std::format(" {}:{:.1f}", layer, 1e4 * geometry->measurementDepth(static_cast<LayerID>(layer)));
   }
   std::cout << "\n  tile residuals to the MC hit at depths from the inner surface [um]: clusters, mean, rms, core (half the 68 % range), 1.4826 MAD\n";
@@ -834,7 +835,7 @@ int runITS3(const Options& options)
   return ok ? 0 : 1;
 }
 
-int run(int argc, char** argv)
+std::int32_t run(std::int32_t argc, char** argv)
 {
   Options options;
   bpo::options_description description("Convert one timeframe of O2's ITS, ITS3, MFT or TRKFT3 clusters and hold the result to O2");

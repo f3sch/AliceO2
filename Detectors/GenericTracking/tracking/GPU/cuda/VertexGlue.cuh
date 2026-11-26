@@ -246,7 +246,7 @@ struct SortedColumns {
   const Index* upper = nullptr;
   const std::uint64_t* weights = nullptr;
   const std::uint64_t* reachWeights = nullptr;
-  long long* z = nullptr;
+  std::int64_t* z = nullptr;
   std::uint64_t* weight = nullptr;
   std::uint64_t* reachWeight = nullptr;
   Index* boxLower = nullptr;
@@ -344,7 +344,7 @@ struct SourceColumns {
   Index frames = 0U;
   const std::uint64_t* reachWeights = nullptr;
   Index* sourceSlots = nullptr;
-  long long* sourceZ = nullptr;
+  std::int64_t* sourceZ = nullptr;
   std::uint64_t* sourceWeight = nullptr;
   Index* sourceFrame = nullptr;
   GPUdi() void operator()(Index source) const
@@ -371,7 +371,7 @@ struct CandidateSlots {
 
 /// What the rounds read of the candidates and their frames.
 struct Candidates {
-  const long long* z = nullptr;
+  const std::int64_t* z = nullptr;
   const std::uint64_t* weight = nullptr;      ///< in the vertex's mean
   const std::uint64_t* reachWeight = nullptr; ///< for the reach (`claimReach`)
   const Index* boxLower = nullptr;
@@ -383,7 +383,7 @@ struct Candidates {
   GPUdi() Index frameEnd(Index f) const { return f + 1U < frames ? frameBegin[f + 1U] : count; }
   /// The first candidate of [\a begin, \a end) whose z is at least \a value:
   /// the host's `std::ranges::lower_bound` in the frame.
-  GPUdi() Index at(Index begin, Index end, long long value) const
+  GPUdi() Index at(Index begin, Index end, std::int64_t value) const
   {
     return o2::gpu::CAAlgo::partitionPoint(begin, end - begin, [&](Index i) { return z[i] < value; });
   }
@@ -405,7 +405,7 @@ struct FreeColumns {
   Candidates candidates;
   const std::int32_t* claims = nullptr;
   Index* freeCount = nullptr;
-  long long* freeZ = nullptr;
+  std::int64_t* freeZ = nullptr;
   GPUdi() void operator()(Index candidate) const
   {
     const bool free = candidate < candidates.count && claims[candidate] == kClaimFree;
@@ -434,12 +434,12 @@ struct Score {
   Candidates candidates;
   const std::int32_t* claims = nullptr;
   const Index* countBefore = nullptr;
-  long long window = 0;
-  long long claim = 0;
+  std::int64_t window = 0;
+  std::int64_t claim = 0;
   Index minContributors = 0U;
   float k2 = 0.F;
   const std::uint8_t* skipped = nullptr;
-  long long* excess = nullptr;
+  std::int64_t* excess = nullptr;
   Round round;
   GPUdi() void operator()(Index i) const
   {
@@ -453,7 +453,7 @@ struct Score {
     }
     const Index begin = candidates.frameBegin[f];
     const Index end = candidates.frameEnd(f);
-    const long long z = candidates.z[i];
+    const std::int64_t z = candidates.z[i];
     const auto countIn = [&](std::int64_t low, std::int64_t high) { return countBefore[candidates.at(begin, end, high)] - countBefore[candidates.at(begin, end, low)]; };
     const std::int64_t score = peakExcess(z, window, claim, minContributors, k2, countIn);
     if (score <= 0) {
@@ -467,7 +467,7 @@ struct Score {
 /// The lowest index among the frame's candidates with its largest excess.
 struct Pick {
   Candidates candidates;
-  const long long* excess = nullptr;
+  const std::int64_t* excess = nullptr;
   Round round;
   GPUdi() void operator()(Index i) const
   {
@@ -483,8 +483,8 @@ struct Pick {
 struct Centre {
   Candidates candidates;
   const Index* countBefore = nullptr;
-  const long long* zBefore = nullptr;
-  long long window = 0;
+  const std::int64_t* zBefore = nullptr;
+  std::int64_t window = 0;
   Round round;
   Index* changed = nullptr;
   GPUdi() void operator()(Index f) const
@@ -494,7 +494,7 @@ struct Centre {
       return;
     }
     const Index windowEnd = candidates.at(candidates.frameBegin[f], candidates.frameEnd(f), candidates.z[best] + window);
-    const long long sum = zBefore[windowEnd] - zBefore[best];
+    const std::int64_t sum = zBefore[windowEnd] - zBefore[best];
     const Index members = countBefore[windowEnd] - countBefore[best];
     round.centre[f] = static_cast<float>(sum) / static_cast<float>(members);
     *changed = 1U;
@@ -534,7 +534,7 @@ struct Claim {
 /// centre: its measurements owned.
 struct Own {
   const Index* sourceSlots = nullptr;
-  const long long* sourceZ = nullptr;
+  const std::int64_t* sourceZ = nullptr;
   const std::uint64_t* sourceWeight = nullptr;
   const Index* sourceFrame = nullptr;
   std::uint8_t* ownedSlots = nullptr;
@@ -590,7 +590,7 @@ struct Selection {
     selected[i] = 1U;
     const std::uint64_t w = candidates.weight[i];
     atomicAdd(weightSum + v, static_cast<Counter>(w));
-    atomicAdd(weightedZSum + v, static_cast<Counter>(static_cast<long long>(w) * candidates.z[i]));
+    atomicAdd(weightedZSum + v, static_cast<Counter>(static_cast<std::int64_t>(w) * candidates.z[i]));
     atomicAdd(count + v, Counter{1U});
   }
 };
@@ -799,7 +799,7 @@ template <DetectorLayout Det>
   if (status != StageStatus::kComplete) {
     return status;
   }
-  DeviceSpan<long long> z;
+  DeviceSpan<std::int64_t> z;
   DeviceSpan<Index> boxLower;
   DeviceSpan<Index> boxUpper;
   DeviceSpan<Index> frameStart;
@@ -882,7 +882,7 @@ template <DetectorLayout Det>
   DeviceSpan<std::uint64_t> uniqueSlots;
   DeviceSpan<std::uint8_t> ownedSlots;
   DeviceSpan<Index> sourceSlots;
-  DeviceSpan<long long> sourceZ;
+  DeviceSpan<std::int64_t> sourceZ;
   DeviceSpan<std::uint64_t> sourceWeight;
   DeviceSpan<Index> sourceFrame;
   DeviceSpan<Index> candidateSlots;
@@ -917,17 +917,17 @@ template <DetectorLayout Det>
   // Rounds: every frame at once.
   DeviceSpan<std::int32_t> claims;
   DeviceSpan<Index> freeCount;
-  DeviceSpan<long long> freeZ;
+  DeviceSpan<std::int64_t> freeZ;
   DeviceSpan<Index> countBefore;
-  DeviceSpan<long long> zBefore;
-  DeviceSpan<long long> excess;
+  DeviceSpan<std::int64_t> zBefore;
+  DeviceSpan<std::int64_t> excess;
   const Index scanned = count + 1U;
   if (!claims.allocate(arena, count) || !freeCount.allocate(arena, scanned) || !freeZ.allocate(arena, scanned) || !countBefore.allocate(arena, scanned) || !zBefore.allocate(arena, scanned) || !excess.allocate(arena, count)) {
     return StageStatus::kOutOfMemory;
   }
   runtime.fill(claims.data(), 0xFFU, std::size_t{count} * sizeof(std::int32_t), stream);
-  const auto window = static_cast<long long>(settings.windowUM);
-  const auto claim = static_cast<long long>(settings.claimUM);
+  const auto window = static_cast<std::int64_t>(settings.windowUM);
+  const auto claim = static_cast<std::int64_t>(settings.claimUM);
   const Scalar k2 = 2.F * settings.significance * settings.significance;
   std::vector<RoundStorage> rounds;
   bool outOfMemory = false;
@@ -1015,8 +1015,8 @@ template <DetectorLayout Det>
 
   // Each vertex's selection, grown from its core: one slot per vertex number,
   // round * frames + frame.
-  const std::size_t found = rounds.size() - 1U; // the last round found nothing (a rerun's: the first sweep's last too)
-  const auto vertexSlots = static_cast<Index>(found * frames);
+  const auto found = static_cast<Index>(rounds.size() - 1U); // the last round found nothing (a rerun's: the first sweep's last too)
+  const auto vertexSlots = found * frames;
   DeviceSpan<float> centres;
   DeviceSpan<std::uint8_t> selected;
   DeviceSpan<Counter> selectedWeightSum;
@@ -1029,7 +1029,7 @@ template <DetectorLayout Det>
     if (!centres.allocate(arena, vertexSlots) || !selected.allocate(arena, count) || !selectedWeightSum.allocate(arena, vertexSlots) || !selectedWeightedZSum.allocate(arena, vertexSlots) || !selectedScatterSum.allocate(arena, vertexSlots) || !selectedCount.allocate(arena, vertexSlots) || !mean.allocate(arena, vertexSlots) || !varMean.allocate(arena, vertexSlots)) {
       return StageStatus::kOutOfMemory;
     }
-    for (std::size_t r = 0; r < found; ++r) {
+    for (Index r = 0; r < found; ++r) {
       runtime.copyOnDevice(centres.data() + (r * frames), std::as_const(rounds[r].centre).data(), frames * sizeof(float), stream);
     }
     runtime.fill(selected.data(), 0U, count, stream);
@@ -1070,8 +1070,8 @@ template <DetectorLayout Det>
   std::vector<Counter> members(found * frames);
   std::vector<Index> earliest(found * frames);
   std::vector<Index> latest(found * frames);
-  for (std::size_t r = 0; r < found; ++r) {
-    const std::size_t at = r * frames;
+  for (Index r = 0; r < found; ++r) {
+    const Index at = r * frames;
     download(rounds[r].bestIndex, bestIndex.data() + at, frames, stream);
     download(rounds[r].contributors, contributors.data() + at, frames, stream);
     download(rounds[r].earliest, earliest.data() + at, frames, stream);
@@ -1091,8 +1091,8 @@ template <DetectorLayout Det>
       Index contributors = 0U;
     };
     std::vector<Found> inFrame;
-    for (std::size_t r = 0; r < found; ++r) {
-      const std::size_t at = (r * frames) + f;
+    for (Index r = 0; r < found; ++r) {
+      const Index at = (r * frames) + f;
       if (bestIndex[at] == kNoIndex) {
         continue;
       }

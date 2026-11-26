@@ -50,11 +50,8 @@ namespace o2::gtrk
 /// the producer writes 0.
 ///
 /// Instantiated with C = const_reference, every member *is* a reference --
-/// that is what an SoA element proxy is -- and `apply` is upstream's macro,
-/// which takes a forwarding reference it does not forward.  Neither is a
-/// defect here.  The macro also uses these camelBack member names as enum
-/// constants.
-// NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+/// that is what an SoA element proxy is, not a defect.
+// NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
 template <template <class> class C>
 struct MeasurementT {
   MEMLAYOUT_APPLY(MeasurementT, loc0, loc1, timePS, widthPS, varLoc0, covLoc01, varLoc1, clusterIndex, surface, x, y, z, r, phi, varZ, varR, varRPhi, slopeLow, slopeHigh, spans)
@@ -106,7 +103,7 @@ struct MeasurementT {
   /// (`measurementRowSpan`, `measurementColumnSpan`).
   C<std::uint32_t> spans = memlayout::default_value<C>(std::uint32_t{0});
 };
-// NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+// NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 
 /// A cluster's row and column spans as `MeasurementT::spans` holds them.
 [[nodiscard]] GPUhdi() constexpr std::uint32_t measurementSpans(std::uint8_t rowSpan, std::uint8_t columnSpan) { return static_cast<std::uint32_t>(rowSpan) | (static_cast<std::uint32_t>(columnSpan) << 8U); }
@@ -127,7 +124,7 @@ using MeasurementView = memlayout::Wrapper<MeasurementT, memlayout::const_pointe
 /// generates these IDs from that same field list.
 using MeasurementColumn = Measurement::Column;
 
-inline constexpr std::uint32_t kNMeasurementColumns = static_cast<std::uint32_t>(MeasurementColumn::ColumnCount);
+inline constexpr auto kNMeasurementColumns = static_cast<std::uint32_t>(MeasurementColumn::ColumnCount);
 /// Prefix offsets for every `(layer, time block, phi cell, second cell)`
 /// bucket, followed by the total measurement count.
 inline constexpr std::uint32_t kColGridOffsets = kNMeasurementColumns;
@@ -139,13 +136,13 @@ inline constexpr std::uint32_t kNMeasurementParts = kNMeasurementColumns + 1;
 template <template <class> class Container, class Factory>
 [[nodiscard]] auto makeMeasurementColumns(Factory factory)
 {
-  std::size_t column = 0U;
+  std::uint32_t column = 0U;
   return Measurement{}.apply([&]<class... T>(const T&...) { return memlayout::Wrapper<MeasurementT, Container, memlayout::Layout::soa>{MeasurementT<Container>{factory(std::type_identity<T>{}, static_cast<MeasurementColumn>(column++))...}}; });
 }
 
 /// Resize every owned column together.
 template <class Columns>
-void resizeMeasurementColumns(Columns& columns, std::size_t rows)
+void resizeMeasurementColumns(Columns& columns, std::uint32_t rows)
 {
   columns.apply([rows](auto&... column) { (column.resize(rows), ...); });
 }
@@ -158,7 +155,7 @@ template <class Columns>
 }
 
 template <class Columns>
-void writeMeasurement(Columns& columns, std::size_t row, const Measurement& measurement)
+void writeMeasurement(Columns& columns, std::uint32_t row, const Measurement& measurement)
 {
   auto target = columns[row];
   target.apply(measurement, [](auto& destination, const auto& source) -> auto& {

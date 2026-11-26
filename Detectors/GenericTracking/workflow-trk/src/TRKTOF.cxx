@@ -65,9 +65,9 @@ std::vector<Sensor> placeChips<detectors::TRKFT3TOF>()
   // (TOFPixelFrame).
   auto& tof = *o2::iotof::GeometryTGeo::Instance();
   const auto& specs = o2::iotof::ChipSpecificsParam::Instance();
-  const double cx = 0.5 * (tof.detectorToLocal(0, 0, 0).X() + tof.detectorToLocal(specs.NRows - 1, 0, 0).X());
-  const int chips = tof.getITOFNumberOfChips() + tof.getOTOFNumberOfChips();
-  for (int chip = 0; chip < chips; ++chip) {
+  const double cx = 0.5 * static_cast<double>(tof.detectorToLocal(0, 0, 0).X() + tof.detectorToLocal(specs.NRows - 1, 0, 0).X());
+  const std::int32_t chips = tof.getITOFNumberOfChips() + tof.getOTOFNumberOfChips();
+  for (std::int32_t chip = 0; chip < chips; ++chip) {
     const auto* placement = tof.extractMatrixSensor(chip);
     if (placement == nullptr) {
       throw std::runtime_error("TRKFT3TOF: IOTOF chip " + std::to_string(chip) + " has no sensor matrix");
@@ -91,10 +91,10 @@ std::array<SensorSpec, Detector<detectors::TRKFT3TOF>::nLayers> placeSpecs<detec
     throw std::runtime_error(std::format("IOTOF chip of {} x {} pixels of {} x {} cm, {} cm thick", chip.NRows, chip.NCols, chip.PitchRow, chip.PitchCol, thickness));
   }
   for (const auto layer : {Layout::kInnerTOFLayer, Layout::kOuterTOFLayer}) {
-    specs[static_cast<std::size_t>(layer)] = {
+    specs[layer] = {
       .shape = ShapeType::kRectangle,
-      .halfX = 0.5 * chip.ActiveMatrixSizeRows(),
-      .halfY = 0.5 * chip.ActiveMatrixSizeCols(),
+      .halfX = 0.5 * static_cast<double>(chip.ActiveMatrixSizeRows()),
+      .halfY = 0.5 * static_cast<double>(chip.ActiveMatrixSizeCols()),
       .halfThickness = 0.5 * thickness,
       .pitchX = chip.PitchRow,
       .pitchY = chip.PitchCol,
@@ -107,7 +107,7 @@ TOFPixelFrame TOFPixelFrame::build(const o2::iotof::GeometryTGeo& geometry)
 {
   const auto& specs = o2::iotof::ChipSpecificsParam::Instance();
   TOFPixelFrame frame;
-  while (geometry.isValidIOTOFChipIndex(static_cast<int>(frame.chips))) {
+  while (geometry.isValidIOTOFChipIndex(static_cast<std::int32_t>(frame.chips))) {
     ++frame.chips;
   }
   if (frame.chips == 0 || specs.NRows <= 0 || specs.NCols <= 0) {
@@ -116,21 +116,21 @@ TOFPixelFrame TOFPixelFrame::build(const o2::iotof::GeometryTGeo& geometry)
   // The pixel centres in the chip frame: x depends on the row alone, z on
   // the column alone (GeometryTGeo::detectorToLocal), about the active
   // matrix's centre (`placeChips<TRKFT3TOF>`), along z O2's own.
-  const double cx = 0.5 * (geometry.detectorToLocal(0, 0, 0).X() + geometry.detectorToLocal(specs.NRows - 1, 0, 0).X());
+  const double cx = 0.5 * static_cast<double>(geometry.detectorToLocal(0, 0, 0).X() + geometry.detectorToLocal(specs.NRows - 1, 0, 0).X());
   frame.rowX.resize(static_cast<std::size_t>(specs.NRows));
   frame.columnZ.resize(static_cast<std::size_t>(specs.NCols));
-  for (int row = 0; row < specs.NRows; ++row) {
-    frame.rowX[static_cast<std::size_t>(row)] = static_cast<float>(geometry.detectorToLocal(row, 0, 0).X() - cx);
+  for (std::int32_t row = 0; row < specs.NRows; ++row) {
+    frame.rowX[static_cast<std::uint32_t>(row)] = static_cast<float>(static_cast<double>(geometry.detectorToLocal(row, 0, 0).X()) - cx);
   }
-  for (int column = 0; column < specs.NCols; ++column) {
-    frame.columnZ[static_cast<std::size_t>(column)] = static_cast<float>(geometry.detectorToLocal(0, column, 0).Z());
+  for (std::int32_t column = 0; column < specs.NCols; ++column) {
+    frame.columnZ[static_cast<std::uint32_t>(column)] = geometry.detectorToLocal(0, column, 0).Z();
   }
-  frame.sigmaX = static_cast<float>(specs.PitchRow / std::sqrt(12.));
-  frame.sigmaZ = static_cast<float>(specs.PitchCol / std::sqrt(12.));
+  frame.sigmaX = static_cast<float>(static_cast<double>(specs.PitchRow) / std::sqrt(12.));
+  frame.sigmaZ = static_cast<float>(static_cast<double>(specs.PitchCol) / std::sqrt(12.));
   return frame;
 }
 
-std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, const TOFPixelFrame& frame, std::uint32_t tfFirstOrbit, int orbitsPerTimeframe, std::vector<std::uint32_t>& kept, TOFSkipped& skipped)
+std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, const TOFPixelFrame& frame, std::uint32_t tfFirstOrbit, std::int32_t orbitsPerTimeframe, std::vector<std::uint32_t>& kept, TOFSkipped& skipped)
 {
   constexpr double kBunchNS = o2::constants::lhc::LHCBunchSpacingNS;
   const auto firstBC = static_cast<std::int64_t>(tfFirstOrbit) * o2::constants::lhc::LHCMaxBunches;
@@ -140,7 +140,7 @@ std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, c
   result.reserve(clusters.size());
   kept.clear();
   kept.reserve(clusters.size());
-  for (std::size_t index = 0; index < clusters.size(); ++index) {
+  for (std::uint32_t index = 0; index < clusters.size(); ++index) {
     const auto& cluster = clusters[index];
     const auto chip = cluster.getChipID();
     if (chip >= frame.chips) {
@@ -154,20 +154,20 @@ std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, c
     }
     // The fired pixels' mean centre: the pattern is the cluster's
     // rows x columns, row-major, from its first row and column.
-    const unsigned rows = cluster.getRowSpan();
-    const unsigned columns = cluster.getColSpan();
-    const unsigned mask = cluster.getPattern();
+    const std::uint32_t rows = cluster.getRowSpan();
+    const std::uint32_t columns = cluster.getColSpan();
+    const std::uint32_t mask = cluster.getPattern();
     if (cluster.getTopology() == o2::iotof::Topologies::kHuge || rows == 0 || columns == 0 || rows * columns > o2::iotof::ClusterInfo::NBitsPattern || cluster.getRow() + rows > frame.rowX.size() || cluster.getCol() + columns > frame.columnZ.size()) {
       ++skipped.pattern;
       continue;
     }
     double x = 0.;
     double z = 0.;
-    int pixels = 0;
-    for (unsigned bit = 0; bit < rows * columns; ++bit) {
+    std::int32_t pixels = 0;
+    for (std::uint32_t bit = 0; bit < rows * columns; ++bit) {
       if ((mask & (1U << bit)) != 0U) {
-        x += frame.rowX[cluster.getRow() + (bit / columns)];
-        z += frame.columnZ[cluster.getCol() + (bit % columns)];
+        x += static_cast<double>(frame.rowX[cluster.getRow() + (bit / columns)]);
+        z += static_cast<double>(frame.columnZ[cluster.getCol() + (bit % columns)]);
         ++pixels;
       }
     }
@@ -190,7 +190,7 @@ std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, c
       start = 0;
     }
     result.push_back({
-      .chipID = static_cast<SensorID>(detectors::TRKFT3TOF::kFirstTOFSensor + static_cast<int>(chip)),
+      .chipID = static_cast<SensorID>(detectors::TRKFT3TOF::kFirstTOFSensor + static_cast<std::int32_t>(chip)),
       .xLocal = static_cast<float>(x / pixels),
       .yLocal = static_cast<float>(z / pixels),
       .sigmaXLocal = frame.sigmaX,
@@ -200,7 +200,7 @@ std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, c
       .rowSpan = static_cast<std::uint8_t>(rows),
       .colSpan = static_cast<std::uint8_t>(columns),
     });
-    kept.push_back(static_cast<std::uint32_t>(index));
+    kept.push_back(index);
   }
   // In box-start order, as the measurement producer takes a layer timed per
   // hit (MeasurementProducer.h): its stable counting sort keeps every
@@ -210,7 +210,7 @@ std::vector<Cluster> tofClusters(std::span<const o2::iotof::Cluster> clusters, c
   std::ranges::stable_sort(order, {}, [&](std::uint32_t i) { return result[i].timePS; });
   std::vector<Cluster> sorted(result.size());
   std::vector<std::uint32_t> sortedKept(kept.size());
-  for (std::size_t i = 0; i < order.size(); ++i) {
+  for (std::uint32_t i = 0; i < order.size(); ++i) {
     sorted[i] = result[order[i]];
     sortedKept[i] = kept[order[i]];
   }
@@ -225,7 +225,7 @@ std::vector<FrameTiming> trktofFrameTiming(std::span<const FrameTiming> trk)
     throw std::invalid_argument(std::format("TRKFT3TOF: {} TRKFT3 layers' frames, the layout has {}", trk.size(), Detector<detectors::TRKFT3>::nLayers));
   }
   std::vector<FrameTiming> frames(static_cast<std::size_t>(Detector<Layout>::nLayers), FrameTiming{.lengthBC = 1, .firstStartBC = 0});
-  for (std::size_t layer = 0; layer < trk.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < trk.size(); ++layer) {
     frames[detectors::trkft3tof::fromTRKFT3(static_cast<LayerID>(layer))] = trk[layer];
   }
   return frames;
@@ -238,7 +238,7 @@ std::vector<double> trktofMeasurementDepthsCM(std::span<const double> trk)
     throw std::invalid_argument(std::format("TRKFT3TOF: {} TRKFT3 layers' measurement depths, the layout has {}", trk.size(), Detector<detectors::TRKFT3>::nLayers));
   }
   std::vector<double> depths(static_cast<std::size_t>(Detector<Layout>::nLayers), 0.);
-  for (std::size_t layer = 0; layer < trk.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < trk.size(); ++layer) {
     depths[detectors::trkft3tof::fromTRKFT3(static_cast<LayerID>(layer))] = trk[layer];
   }
   return depths;

@@ -106,7 +106,7 @@ struct TrackKinematics {
 };
 
 /// Iterations a particle's `foundBy` holds.
-inline constexpr int kQAMaxIterations = std::numeric_limits<std::uint64_t>::digits;
+inline constexpr std::int32_t kQAMaxIterations = std::numeric_limits<std::uint64_t>::digits;
 
 /// The value of `QAParticle::lostAt` and `pairLoss` where nothing was
 /// observed: no stage funnel, or a particle it does not hold.
@@ -364,7 +364,7 @@ using TimeframeCollisions = std::unordered_set<std::uint64_t>;
 /// extras, and the other tracker's tracks, if any. Throws
 /// std::invalid_argument for a track's iteration outside \a iterations, or
 /// more than kQAMaxIterations.
-[[nodiscard]] TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks, std::span<const TrackKinematics> kinematics, const SeededBy& seeded, const ParticleExtrasTable& extras, const TimeframeCollisions& inTimeframe, const TrackRows* theirs, int iterations, const ComparisonSettings& settings);
+[[nodiscard]] TrackingQA trackingQA(std::span<const TruthRow> rows, const ParticleTable& truth, const TrackRows& tracks, std::span<const TrackKinematics> kinematics, const SeededBy& seeded, const ParticleExtrasTable& extras, const TimeframeCollisions& inTimeframe, const TrackRows* theirs, std::int32_t iterations, const ComparisonSettings& settings);
 
 /// \a qa's records into \a output's `particles` and `tracks` trees.
 void stream(o2::utils::TreeStreamRedirector& output, const TrackingQA& qa);
@@ -426,7 +426,7 @@ void streamVertices(o2::utils::TreeStreamRedirector& output, std::span<const QAV
 /// requires all detector layers; zero denotes per-particle MC traversal masks.
 /// The layout's \a inactiveLayers (LayerSpec.h), a bit each: the layers the
 /// macro shows the matching on.
-void streamRun(o2::utils::TreeStreamRedirector& output, int iterations, EtaRange eta, const ComparisonSettings& settings, std::size_t events, std::uint64_t fullLengthMask = 0U, std::uint64_t inactiveLayers = 0U);
+void streamRun(o2::utils::TreeStreamRedirector& output, std::int32_t iterations, EtaRange eta, const ComparisonSettings& settings, std::uint32_t events, std::uint64_t fullLengthMask = 0U, std::uint64_t inactiveLayers = 0U);
 
 } // namespace o2::gtrk::study
 

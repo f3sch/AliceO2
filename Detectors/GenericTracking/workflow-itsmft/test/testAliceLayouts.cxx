@@ -31,6 +31,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <span>
@@ -55,17 +56,17 @@ void checkAgainstL2G(GeometryTGeo& o2Geometry, std::span<const Sensor> sensors)
 {
   o2Geometry.fillMatrixCache(o2::math_utils::bit2Mask(o2::math_utils::TransformType::L2G));
   double worst = 0.;
-  for (std::size_t chip = 0; chip < sensors.size(); chip += 7U) {
+  for (std::uint32_t chip = 0; chip < sensors.size(); chip += 7U) {
     for (const double xa : {-0.6, 0.0581, 0.7}) {
       for (const double za : {-1.4, 0., 1.4}) {
-        const auto expected = o2Geometry.getMatrixL2G(static_cast<int>(chip))(o2::math_utils::Point3D<double>{xa, 0., za});
+        const auto expected = o2Geometry.getMatrixL2G(static_cast<std::int32_t>(chip))(o2::math_utils::Point3D<double>{xa, 0., za});
         const double local[3] = {xa - alice::kActiveCentreX, za, 0.};
         double global[3];
         sensors[chip].toGlobal(local, global);
         worst = std::max({worst, std::abs(global[0] - expected.X()), std::abs(global[1] - expected.Y()), std::abs(global[2] - expected.Z())});
       }
     }
-    BOOST_TEST(static_cast<int>(sensors[chip].layer) == o2Geometry.getLayer(static_cast<int>(chip)));
+    BOOST_TEST(static_cast<std::int32_t>(sensors[chip].layer) == o2Geometry.getLayer(static_cast<std::int32_t>(chip)));
   }
   BOOST_TEST(worst < 1e-9);
 }
@@ -102,7 +103,7 @@ template <DetectorLayout Det, std::size_t N>
 void checkReference(const std::array<LayerEnvelope, N>& reference)
 {
   static_assert(N == Detector<Det>::nLayers);
-  for (std::size_t layer = 0; layer < N; ++layer) {
+  for (std::uint32_t layer = 0; layer < N; ++layer) {
     const auto& e = PlacedEnvelopes<Det>::all()[layer];
     BOOST_TEST(e.position == reference[layer].position);
     BOOST_TEST(e.rMin == reference[layer].rMin);

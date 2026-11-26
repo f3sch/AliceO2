@@ -74,12 +74,12 @@ class TrkClusterConverterTask : public o2::framework::Task
  public:
   static constexpr bool kTOF = std::same_as<Det, detectors::TRKFT3TOF>;
   /// TRK's and FT3's streams, TRKFT3's layers.
-  static constexpr int kLayers = Detector<detectors::TRKFT3>::nLayers;
-  static constexpr int kBarrelLayers = Detector<detectors::TRKFT3>::nBarrelLayers;
+  static constexpr std::int32_t kLayers = Detector<detectors::TRKFT3>::nLayers;
+  static constexpr std::int32_t kBarrelLayers = Detector<detectors::TRKFT3>::nBarrelLayers;
 
   /// TRKFT3's layer \a layer's stream: TRK's barrel layer, or FT3's disc after them.
-  [[nodiscard]] static o2::header::DataOrigin originOf(int layer) { return layer < kBarrelLayers ? o2::header::DataOrigin{"TRK"} : o2::header::DataOrigin{"FT3"}; }
-  [[nodiscard]] static o2::header::DataHeader::SubSpecificationType subspecOf(int layer) { return static_cast<o2::header::DataHeader::SubSpecificationType>(layer < kBarrelLayers ? layer : layer - kBarrelLayers); }
+  [[nodiscard]] static o2::header::DataOrigin originOf(std::int32_t layer) { return layer < kBarrelLayers ? o2::header::DataOrigin{"TRK"} : o2::header::DataOrigin{"FT3"}; }
+  [[nodiscard]] static o2::header::DataHeader::SubSpecificationType subspecOf(std::int32_t layer) { return static_cast<o2::header::DataHeader::SubSpecificationType>(layer < kBarrelLayers ? layer : layer - kBarrelLayers); }
 
   TrkClusterConverterTask(bool useMC, TrkDictionaryConditions dictionaries, std::shared_ptr<o2::base::GRPGeomRequest> geometryRequest)
     : mUseMC(useMC), mDictionaries(dictionaries), mGeometryRequest(std::move(geometryRequest)) {}
@@ -103,8 +103,8 @@ class TrkClusterConverterTask : public o2::framework::Task
     const auto& timing = pc.services().get<o2::framework::TimingInfo>();
     std::vector<Cluster> clusters;
     o2::dataformats::MCTruthContainer<o2::MCCompLabel> labels;
-    for (int layer = 0; layer < kLayers; ++layer) {
-      const auto patterns = pc.inputs().get<gsl::span<unsigned char>>(std::format("patterns_{}", layer));
+    for (std::int32_t layer = 0; layer < kLayers; ++layer) {
+      const auto patterns = pc.inputs().get<gsl::span<std::uint8_t>>(std::format("patterns_{}", layer));
       const auto rofs = pc.inputs().get<gsl::span<o2::trkft3::ROFRecord>>(std::format("rofs_{}", layer));
       if (rofs.empty()) {
         continue;
@@ -115,7 +115,7 @@ class TrkClusterConverterTask : public o2::framework::Task
       if (implied != timing.firstTForbit) {
         LOGP(fatal, "TRKFT3 layer {}: the readout frames belong to the timeframe starting at orbit {}, DPL says {}", layer, implied, timing.firstTForbit);
       }
-      const std::span<const unsigned char> patternBytes{patterns.data(), patterns.size()};
+      const std::span<const std::uint8_t> patternBytes{patterns.data(), patterns.size()};
       const auto local = [&]() {
         if (layer < kBarrelLayers) {
           const auto compact = pc.inputs().get<gsl::span<o2::trkft3::TRKCluster>>(std::format("compclusters_{}", layer));
@@ -152,7 +152,7 @@ class TrkClusterConverterTask : public o2::framework::Task
     using namespace o2::framework;
     std::vector<InputSpec> inputs;
     std::vector<OutputSpec> outputs{OutputSpec{gDataOrigin, description<Det>(kClusters), 0, Lifetime::Timeframe}};
-    for (int layer = 0; layer < kLayers; ++layer) {
+    for (std::int32_t layer = 0; layer < kLayers; ++layer) {
       const auto origin = originOf(layer);
       const auto subspec = subspecOf(layer);
       inputs.emplace_back(std::format("compclusters_{}", layer), origin, "COMPCLUSTERS", subspec, Lifetime::Timeframe);
@@ -213,8 +213,8 @@ class TrkClusterConverterTask : public o2::framework::Task
       if (tofLabels->getIndexedSize() != tof.size()) {
         LOGP(fatal, "TRKFT3TOF: {} labelled TOF clusters for {} clusters", tofLabels->getIndexedSize(), tof.size());
       }
-      const auto first = clusters.size();
-      for (std::size_t i = 0; i < kept.size(); ++i) {
+      const auto first = static_cast<std::uint32_t>(clusters.size());
+      for (std::uint32_t i = 0; i < kept.size(); ++i) {
         const auto own = tofLabels->getLabels(kept[i]);
         labels.addElements(first + i, gsl::span<const o2::MCCompLabel>{own.data(), own.size()});
       }

@@ -56,7 +56,7 @@ enum class Species : std::uint8_t { kElectron,
                                     kHyperHelium4,
                                     kHyperHelium5,
                                     kCount };
-inline constexpr int kNSpecies = static_cast<int>(Species::kCount);
+inline constexpr auto kNSpecies = static_cast<std::int32_t>(Species::kCount);
 
 /// The mass [GeV] of \a species: O2's (`PhysicsConstants.h`); the lithium
 /// ions' from O2's ion table (`extra_ions_pdg_table.dat`).
@@ -179,7 +179,7 @@ GPUhdi() constexpr float absChargeOf(Species species)
 [[nodiscard]] constexpr std::optional<Species> speciesOf(std::int32_t pdg)
 {
   const std::int32_t code = pdg < 0 ? -pdg : pdg;
-  for (int s = 0; s < kNSpecies; ++s) {
+  for (std::int32_t s = 0; s < kNSpecies; ++s) {
     if (pdgOf(static_cast<Species>(s)) == code) {
       return static_cast<Species>(s);
     }
@@ -191,7 +191,7 @@ GPUhdi() constexpr float absChargeOf(Species species)
 [[nodiscard]] constexpr std::string_view nameOf(Species species)
 {
   constexpr std::string_view kNames[kNSpecies] = {"e", "mu", "pi", "K", "p", "d", "t", "3He", "4He", "6Li", "7Li", "Xi", "Omega", "Sigma+", "Sigma-", "3LH", "4LH", "4LHe", "5LHe"};
-  return species == Species::kCount ? std::string_view{} : kNames[static_cast<int>(species)];
+  return species == Species::kCount ? std::string_view{} : kNames[static_cast<std::int32_t>(species)];
 }
 #endif
 

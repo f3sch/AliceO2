@@ -118,7 +118,7 @@ class ClusterPullStudy
       const auto& truth = event.particles->at(chain.particle);
       const double mass = particleMass(truth.pdg);
       const double absCharge = std::abs(particleCharge(truth.pdg));
-      for (std::size_t i = 0; i < chain.rows.size(); ++i) {
+      for (std::uint32_t i = 0; i < chain.rows.size(); ++i) {
         const auto m = frame.measurement(chain.rows[i]);
         const auto* segment = segmentOf(chain.particle, chain.rows[i]);
         if (segment == nullptr) {
@@ -150,7 +150,7 @@ class ClusterPullStudy
           .timeframe = event.timeframe,
           .particle = chain.particle,
           .pdg = truth.pdg,
-          .row = static_cast<std::uint8_t>(std::min<std::size_t>(i, 255U)),
+          .row = static_cast<std::uint8_t>(std::min(i, 255U)),
           .surface = static_cast<std::uint32_t>(m.surface),
           .r = static_cast<float>(std::hypot(static_cast<double>(m.x), static_cast<double>(m.y))),
           .z = m.z,
@@ -176,8 +176,8 @@ class ClusterPullStudy
 
  private:
   RecordWriter* mWriter = nullptr;
-  std::size_t mRecords = 0U;
-  std::size_t mMissing = 0U;
+  std::uint64_t mRecords = 0U;
+  std::uint64_t mMissing = 0U;
 };
 
 } // namespace o2::gtrk::study

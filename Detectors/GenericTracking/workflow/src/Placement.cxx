@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <bitset>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <set>
@@ -54,11 +55,11 @@ Matrix componentsOf(const o2::math_utils::Transform3D& l2g)
 
 } // namespace
 
-Sensor flatSensor(const o2::math_utils::Transform3D& l2g, int layer, double activeCentreX)
+Sensor flatSensor(const o2::math_utils::Transform3D& l2g, std::int32_t layer, double activeCentreX)
 {
   const auto [m, t] = componentsOf(l2g);
   Sensor sensor{};
-  for (int i = 0; i < 3; ++i) {
+  for (std::int32_t i = 0; i < 3; ++i) {
     // Row-major local -> global, so column j is the global direction of our
     // local axis j.
     sensor.rot[(3 * i) + 0] = m[i][0];
@@ -70,12 +71,12 @@ Sensor flatSensor(const o2::math_utils::Transform3D& l2g, int layer, double acti
   return sensor;
 }
 
-Sensor curvedSensor(const o2::math_utils::Transform3D& l2g, int layer)
+Sensor curvedSensor(const o2::math_utils::Transform3D& l2g, std::int32_t layer)
 {
   const auto [m, t] = componentsOf(l2g);
   Sensor sensor{};
-  for (int i = 0; i < 3; ++i) {
-    for (int j = 0; j < 3; ++j) {
+  for (std::int32_t i = 0; i < 3; ++i) {
+    for (std::int32_t j = 0; j < 3; ++j) {
       sensor.rot[(3 * i) + j] = m[i][j];
     }
     sensor.trans[i] = t[i];
@@ -136,8 +137,8 @@ double leastRadius(const std::vector<std::array<double, 2>>& points)
 /// reaches to the equatorial gap).
 double nearestToAxis(const TGeoShape& shape, const TGeoHMatrix& matrix, const std::vector<std::array<double, 2>>& corners, double zMin, double zMax, double boxBound)
 {
-  constexpr int kRays = 360;
-  constexpr int kZSteps = 5;
+  constexpr std::int32_t kRays = 360;
+  constexpr std::int32_t kZSteps = 5;
   double from = 0.;
   double span = kTwoPi<double>;
   if (boxBound > 0.) {
@@ -161,7 +162,7 @@ double nearestToAxis(const TGeoShape& shape, const TGeoHMatrix& matrix, const st
     span = high - low;
   }
   double least = TGeoShape::Big();
-  for (int step = 0; step < kZSteps; ++step) {
+  for (std::int32_t step = 0; step < kZSteps; ++step) {
     const double z = zMin + ((zMax - zMin) * static_cast<double>(step) / static_cast<double>(kZSteps - 1));
     const double global[3] = {0., 0., z};
     double local[3];
@@ -169,7 +170,7 @@ double nearestToAxis(const TGeoShape& shape, const TGeoHMatrix& matrix, const st
     if (shape.Contains(local)) {
       return 0.;
     }
-    for (int ray = 0; ray <= kRays; ++ray) {
+    for (std::int32_t ray = 0; ray <= kRays; ++ray) {
       const double angle = from + (span * static_cast<double>(ray) / static_cast<double>(kRays));
       const double direction[3] = {std::cos(angle), std::sin(angle), 0.};
       double localDirection[3];
@@ -214,7 +215,7 @@ ShapeExtent extentOf(const TGeoShape& shape, const TGeoHMatrix& matrix, double r
   } else if (alongBeam && shape.IsA()->InheritsFrom(TGeoPcon::Class())) {
     const auto& pcon = dynamic_cast<const TGeoPcon&>(shape);
     double least = std::numeric_limits<double>::infinity();
-    for (int i = 0; i < pcon.GetNz(); ++i) {
+    for (std::int32_t i = 0; i < pcon.GetNz(); ++i) {
       least = std::min(least, pcon.GetRmin(i));
     }
     out.rMin = least;
@@ -226,13 +227,13 @@ ShapeExtent extentOf(const TGeoShape& shape, const TGeoHMatrix& matrix, double r
 
 } // namespace
 
-std::vector<LayerBand> materialBands(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::span<const LayerEnvelope> envelopes, int nBarrelLayers)
+std::vector<LayerBand> materialBands(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::span<const LayerEnvelope> envelopes, std::int32_t nBarrelLayers)
 {
   if (gGeoManager == nullptr) {
     throw std::runtime_error("material bands: no geometry loaded");
   }
   using Layers = std::bitset<64>;
-  const auto layerCount = envelopes.size();
+  const auto layerCount = static_cast<std::uint32_t>(envelopes.size());
   if (layerCount > Layers{}.size()) {
     throw std::runtime_error("material bands: more layers than the band search holds");
   }
@@ -283,7 +284,7 @@ std::vector<LayerBand> materialBands(std::span<const Sensor> sensors, std::span<
     }
   };
   std::vector<LayerBand> bands(layerCount);
-  for (std::size_t layer = 0; layer < layerCount; ++layer) {
+  for (std::uint32_t layer = 0; layer < layerCount; ++layer) {
     const bool barrel = std::cmp_less(layer, nBarrelLayers);
     const auto& e = envelopes[layer];
     double low = barrel ? e.rMin : e.zMin;
@@ -320,9 +321,9 @@ std::vector<LayerBand> materialBands(std::span<const Sensor> sensors, std::span<
   }
   // Two barrel layers whose bands meet over a common z end half-way between
   // their envelopes.
-  const auto barrels = static_cast<std::size_t>(nBarrelLayers);
-  for (std::size_t a = 0; a < barrels; ++a) {
-    for (std::size_t b = 0; b < barrels; ++b) {
+  const auto barrels = static_cast<std::uint32_t>(nBarrelLayers);
+  for (std::uint32_t a = 0; a < barrels; ++a) {
+    for (std::uint32_t b = 0; b < barrels; ++b) {
       const auto& ea = envelopes[a];
       const auto& eb = envelopes[b];
       const double aHigh = ea.rMax;

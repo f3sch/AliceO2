@@ -56,6 +56,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <iomanip>
 #include <iostream>
@@ -86,15 +87,15 @@ struct Options {
   std::string field;       ///< the run's GRPMagField file
   double bzKiloGauss = 0.; ///< its nominal Bz, set once the field is loaded
   double etaMax;
-  int etaSteps;
-  int z0Steps;
-  int curvatureSteps;
+  std::int32_t etaSteps;
+  std::int32_t z0Steps;
+  std::int32_t curvatureSteps;
   double margin;
   /// Links carrying less than this fraction of their source layer's crossings
   /// are left out of the printed table (the shares are those of the full trace).
   double minShare;
   std::string geometry;
-  int phiSteps;
+  std::int32_t phiSteps;
 };
 
 /// One barrel layer's surface in (r, z): its stated envelope; the discs are
@@ -110,7 +111,7 @@ template <DetectorLayout Det>
 std::vector<Surface> surfaces()
 {
   std::vector<Surface> result;
-  for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
+  for (std::int32_t layer = 0; layer < Detector<Det>::nLayers; ++layer) {
     const auto id = static_cast<LayerID>(layer);
     if (Detector<Det>::isBarrelLayer(id)) {
       result.push_back({.layer = id, .position = layerDistance<Det>(id), .low = secondMin<Det>(id), .high = secondMax<Det>(id)});
@@ -128,7 +129,7 @@ struct Crossing {
 
 /// What is known about one link from either source.
 struct LinkStats {
-  std::size_t count = 0;
+  std::uint32_t count = 0;
   double low = std::numeric_limits<double>::infinity();
   double high = -std::numeric_limits<double>::infinity();
 
@@ -171,7 +172,7 @@ struct DiscCoverage {
   double z = 0.;    ///< [cm]
   double rMin = 0.; ///< [cm]
   double rMax = 0.;
-  int cells = 0; ///< per side
+  std::int32_t cells = 0; ///< per side
   std::vector<bool> covered;
 
   [[nodiscard]] double half() const { return 0.5 * kCell * cells; }
@@ -183,7 +184,7 @@ struct DiscCoverage {
     if (ix < 0. || iy < 0. || ix >= cells || iy >= cells) {
       return false;
     }
-    return covered[(static_cast<std::size_t>(iy) * static_cast<std::size_t>(cells)) + static_cast<std::size_t>(ix)];
+    return covered[(static_cast<std::uint32_t>(iy) * static_cast<std::uint32_t>(cells)) + static_cast<std::uint32_t>(ix)];
   }
 };
 
@@ -193,10 +194,10 @@ template <DetectorLayout Det>
 std::vector<DiscCoverage> discCoverage(const Geometry<Det>& geometry)
 {
   std::vector<DiscCoverage> result;
-  for (int layer = Detector<Det>::nBarrelLayers; layer < Detector<Det>::nLayers; ++layer) {
+  for (std::int32_t layer = Detector<Det>::nBarrelLayers; layer < Detector<Det>::nLayers; ++layer) {
     const auto id = static_cast<LayerID>(layer);
     DiscCoverage coverage{.layer = id, .z = discZ<Det>(id), .rMin = secondMin<Det>(id), .rMax = secondMax<Det>(id), .cells = 0, .covered = {}};
-    coverage.cells = 2 * static_cast<int>(std::ceil(coverage.rMax / DiscCoverage::kCell)) + 2;
+    coverage.cells = 2 * static_cast<std::int32_t>(std::ceil(coverage.rMax / DiscCoverage::kCell)) + 2;
     coverage.covered.assign(static_cast<std::size_t>(coverage.cells) * static_cast<std::size_t>(coverage.cells), false);
     const double half = coverage.half();
     for (const auto& sensor : geometry.sensors()) {
@@ -212,20 +213,20 @@ std::vector<DiscCoverage> discCoverage(const Geometry<Det>& geometry)
           const double local[3] = {u, v, 0.};
           double global[3];
           sensor.toGlobal(local, global);
-          for (int i = 0; i < 2; ++i) {
+          for (std::int32_t i = 0; i < 2; ++i) {
             low[i] = std::min(low[i], global[i]);
             high[i] = std::max(high[i], global[i]);
           }
         }
       }
-      const auto cell = [half](double value) { return static_cast<int>(std::floor((value + half) / DiscCoverage::kCell)); };
-      for (int iy = std::max(cell(low[1]), 0); iy <= std::min(cell(high[1]), coverage.cells - 1); ++iy) {
-        for (int ix = std::max(cell(low[0]), 0); ix <= std::min(cell(high[0]), coverage.cells - 1); ++ix) {
+      const auto cell = [half](double value) { return static_cast<std::int32_t>(std::floor((value + half) / DiscCoverage::kCell)); };
+      for (std::int32_t iy = std::max(cell(low[1]), 0); iy <= std::min(cell(high[1]), coverage.cells - 1); ++iy) {
+        for (std::int32_t ix = std::max(cell(low[0]), 0); ix <= std::min(cell(high[0]), coverage.cells - 1); ++ix) {
           const double global[3] = {((ix + 0.5) * DiscCoverage::kCell) - half, ((iy + 0.5) * DiscCoverage::kCell) - half, sensor.trans[2]};
           double local[3];
           toLocal(sensor, global, local);
           if (contains(spec, local[0], local[1])) {
-            coverage.covered[(static_cast<std::size_t>(iy) * static_cast<std::size_t>(coverage.cells)) + static_cast<std::size_t>(ix)] = true;
+            coverage.covered[static_cast<std::uint32_t>((iy * coverage.cells) + ix)] = true;
           }
         }
       }
@@ -246,12 +247,12 @@ LinkMap trace(const Options& options, std::span<const DiscCoverage> placedDiscs)
   std::vector<Crossing> all;
   std::vector<std::pair<const DiscCoverage*, double>> reached; // a placed disc and the transverse path to it
   std::vector<bool> seen(static_cast<std::size_t>(Detector<Det>::nLayers));
-  const auto step = [](double low, double high, int steps, int i) { return steps > 1 ? low + ((high - low) * i / (steps - 1)) : 0.5 * (low + high); };
-  for (int ie = 0; ie < options.etaSteps; ++ie) {
+  const auto step = [](double low, double high, std::int32_t steps, std::int32_t i) { return steps > 1 ? low + ((high - low) * i / (steps - 1)) : 0.5 * (low + high); };
+  for (std::int32_t ie = 0; ie < options.etaSteps; ++ie) {
     const double cotTheta = std::sinh(step(-options.etaMax, options.etaMax, options.etaSteps, ie));
-    for (int iz = 0; iz < options.z0Steps; ++iz) {
+    for (std::int32_t iz = 0; iz < options.z0Steps; ++iz) {
       const double z0 = step(options.beamSpotZ - options.beamSpotHalfRange, options.beamSpotZ + options.beamSpotHalfRange, options.z0Steps, iz);
-      for (int ik = 0; ik < options.curvatureSteps; ++ik) {
+      for (std::int32_t ik = 0; ik < options.curvatureSteps; ++ik) {
         const double k = options.curvatureSteps > 1 ? maxCurvature * ik / (options.curvatureSteps - 1) : 0.;
         const double halfTurn = k > 0. ? kPi<double> / k : std::numeric_limits<double>::infinity();
         crossings.clear();
@@ -284,7 +285,7 @@ LinkMap trace(const Options& options, std::span<const DiscCoverage> placedDiscs)
           continue;
         }
         for (const double charge : {-1., 1.}) {
-          for (int ip = 0; ip < options.phiSteps; ++ip) {
+          for (std::int32_t ip = 0; ip < options.phiSteps; ++ip) {
             const double phi0 = kTwoPi<double> * ip / options.phiSteps;
             all = crossings;
             for (const auto& [disc, s] : reached) {
@@ -322,7 +323,7 @@ std::string layerName(LayerID layer)
 /// The fraction of each link's source layer's transitions that take it.
 std::map<std::pair<LayerID, LayerID>, double> weights(const LinkMap& links)
 {
-  std::map<LayerID, std::size_t> leaving;
+  std::map<LayerID, std::uint32_t> leaving;
   for (const auto& [link, stats] : links) {
     leaving[link.first] += stats.count;
   }
@@ -370,12 +371,12 @@ void printTable(const LinkMap& links, const Options& options)
 template <DetectorLayout Det>
 void printSummary(const LinkMap& links)
 {
-  std::size_t twoLinkPaths = 0;
-  std::map<LayerID, std::size_t> outDegree;
+  std::uint32_t twoLinkPaths = 0;
+  std::map<LayerID, std::uint32_t> outDegree;
   for (const auto& [link, stats] : links) {
     ++outDegree[link.first];
   }
-  std::size_t maxOut = 0;
+  std::uint32_t maxOut = 0;
   for (const auto& [link, stats] : links) {
     twoLinkPaths += outDegree.contains(link.second) ? outDegree[link.second] : 0U;
     maxOut = std::max(maxOut, outDegree[link.first]);
@@ -384,7 +385,7 @@ void printSummary(const LinkMap& links)
 }
 
 template <DetectorLayout Det>
-int runFor(const Options& options)
+std::int32_t runFor(const Options& options)
 {
   // A layout's extents are its loaded geometry's, on the ITS as well as on the MFT.
   o2::base::GeometryManager::loadGeometry(options.geometry);
@@ -399,7 +400,7 @@ int runFor(const Options& options)
   return 0;
 }
 
-int run(int argc, char** argv)
+std::int32_t run(std::int32_t argc, char** argv)
 {
   Options options;
   bpo::options_description description("Trace a detector's layer links");

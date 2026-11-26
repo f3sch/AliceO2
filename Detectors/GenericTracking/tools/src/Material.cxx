@@ -31,6 +31,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <functional>
 #include <map>
@@ -45,9 +46,9 @@
 namespace o2::gtrk::tools
 {
 
-int fillThreads(int threads) { return std::max(threads < 0 ? o2::base::MatLayerCylSet::getNThreadsFromEnv() : threads, 1); }
+std::int32_t fillThreads(std::int32_t threads) { return std::max(threads < 0 ? o2::base::MatLayerCylSet::getNThreadsFromEnv() : threads, 1); }
 
-void forEachOnNavigators(std::size_t count, int threads, const std::function<void(std::size_t, TGeoNavigator*)>& work)
+void forEachOnNavigators(std::size_t count, std::int32_t threads, const std::function<void(std::size_t, TGeoNavigator*)>& work)
 {
   threads = std::max(threads, 1);
   if (threads == 1) {
@@ -72,7 +73,7 @@ void forEachOnNavigators(std::size_t count, int threads, const std::function<voi
   std::atomic<std::size_t> next{0};
   std::vector<std::thread> workers;
   workers.reserve(static_cast<std::size_t>(threads));
-  for (int thread = 0; thread < threads; ++thread) {
+  for (std::int32_t thread = 0; thread < threads; ++thread) {
     workers.emplace_back([&] {
       TGeoNavigator* navigator = gGeoManager->AddNavigator();
       for (std::size_t i = next++; i < count; i = next++) {
@@ -124,23 +125,23 @@ namespace
 constexpr double kGasDensity = 0.01; // g/cm^3
 } // namespace
 
-std::vector<double> beamLineCylinderFaces(double rMax, double zMax, double dz, int threads)
+std::vector<double> beamLineCylinderFaces(double rMax, double zMax, double dz, std::int32_t threads)
 {
   if (gGeoManager == nullptr || gGeoManager->GetTopVolume() == nullptr) {
     throw std::runtime_error("beamLineCylinderFaces: no geometry loaded");
   }
-  constexpr int kAzimuths = 256;
+  constexpr std::int32_t kAzimuths = 256;
   constexpr double kResolution = 1e-4; // cm
   const double golden = kPi<double> * (3. - std::sqrt(5.));
-  const auto nz = static_cast<int>(std::floor(2. * zMax / dz)) + 1;
+  const auto nz = static_cast<std::int32_t>(std::floor(2. * zMax / dz)) + 1;
   const auto facesAt = [&](double z, TGeoNavigator* navigator) {
-    std::map<long, int> seen; // per radius, the azimuths meeting it
-    for (int ia = 0; ia < kAzimuths; ++ia) {
+    std::map<std::int64_t, std::int32_t> seen; // per radius, the azimuths meeting it
+    for (std::int32_t ia = 0; ia < kAzimuths; ++ia) {
       const double phi = ia * golden;
       const Vec3D direction{std::cos(phi), std::sin(phi), 0.};
       Vec3D start{0., 0., z};
       navigator->InitTrack(start.data(), direction.data());
-      std::set<long> mine;
+      std::set<std::int64_t> mine;
       double r = 0.;
       bool solid = false;
       while (r < rMax && !navigator->IsOutside()) {
@@ -156,11 +157,11 @@ std::vector<double> beamLineCylinderFaces(double rMax, double zMax, double dz, i
         }
         r += step;
       }
-      for (const long face : mine) {
+      for (const std::int64_t face : mine) {
         ++seen[face];
       }
     }
-    std::vector<long> found;
+    std::vector<std::int64_t> found;
     for (const auto& [face, count] : seen) {
       if (2 * count > kAzimuths && face > 0) {
         found.push_back(face);
@@ -168,15 +169,15 @@ std::vector<double> beamLineCylinderFaces(double rMax, double zMax, double dz, i
     }
     return found;
   };
-  std::vector<std::vector<long>> byZ(static_cast<std::size_t>(nz));
+  std::vector<std::vector<std::int64_t>> byZ(static_cast<std::size_t>(nz));
   forEachOnNavigators(byZ.size(), threads, [&](std::size_t iz, TGeoNavigator* navigator) { byZ[iz] = facesAt(-zMax + (static_cast<double>(iz) * dz), navigator); });
-  std::set<long> faces;
+  std::set<std::int64_t> faces;
   for (const auto& found : byZ) {
     faces.insert(found.begin(), found.end());
   }
   std::vector<double> result;
   result.reserve(faces.size());
-  for (const long face : faces) {
+  for (const std::int64_t face : faces) {
     result.push_back(static_cast<double>(face) * kResolution);
   }
   return result;
@@ -190,7 +191,7 @@ namespace
 /// accepts, per barrel layer the thickest; both read gGeoManager's current
 /// volume.
 template <typename IsSensor, typename Beyond>
-std::vector<ChipStack> alongNormals(const char* who, std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers, const IsSensor& isSensor, const Beyond& beyond)
+std::vector<ChipStack> alongNormals(const char* who, std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::int32_t nBarrelLayers, const IsSensor& isSensor, const Beyond& beyond)
 {
   if (gGeoManager == nullptr) {
     throw std::runtime_error(std::format("{}: no geometry loaded", who));
@@ -251,14 +252,14 @@ bool currentNamed(std::string_view pattern)
 }
 } // namespace
 
-std::vector<ChipStack> trkStackThickness(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers)
+std::vector<ChipStack> trkStackThickness(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::int32_t nBarrelLayers)
 {
   const std::string sensorPattern = o2::trk::GeometryTGeo::getTRKSensorPattern();
   const std::string stackPattern = o2::trk::GeometryTGeo::getTRKMetalStackPattern();
   return alongNormals("trkStackThickness", sensors, specs, nBarrelLayers, [&] { return currentNamed(sensorPattern); }, [&] { return currentNamed(stackPattern); });
 }
 
-std::vector<ChipStack> tofSolidThickness(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers)
+std::vector<ChipStack> tofSolidThickness(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::int32_t nBarrelLayers)
 {
   const std::string inner = o2::iotof::GeometryTGeo::getITOFSensorPattern();
   const std::string outer = o2::iotof::GeometryTGeo::getOTOFSensorPattern();
@@ -275,7 +276,7 @@ std::vector<LayerEnvelope> withStacks(std::span<const LayerEnvelope> envelopes, 
   // stack moves in.
   const auto thicker = [&](bool outer) {
     std::vector<SensorSpec> result(specs.begin(), specs.end());
-    for (std::size_t layer = 0; layer < stack.size(); ++layer) {
+    for (std::uint32_t layer = 0; layer < stack.size(); ++layer) {
       auto& spec = result[layer];
       if (spec.curved()) {
         spec.radius -= stack[layer].inner;
@@ -284,12 +285,12 @@ std::vector<LayerEnvelope> withStacks(std::span<const LayerEnvelope> envelopes, 
         spec.halfThickness += outer ? stack[layer].outer : stack[layer].inner;
       }
     }
-    return measureEnvelopes(sensors, result, static_cast<int>(stack.size()), kEnvelopeResolution);
+    return measureEnvelopes(sensors, result, static_cast<std::int32_t>(stack.size()), kEnvelopeResolution);
   };
   const auto inward = thicker(false);
   const auto outward = thicker(true);
   std::vector<LayerEnvelope> result(envelopes.begin(), envelopes.end());
-  for (std::size_t layer = 0; layer < stack.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < stack.size(); ++layer) {
     result[layer].rMin = inward[layer].rMin;
     result[layer].rMax = outward[layer].rMax;
   }

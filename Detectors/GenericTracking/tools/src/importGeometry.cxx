@@ -54,6 +54,7 @@
 #include <cmath>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <format>
 #include <iostream>
@@ -72,7 +73,7 @@ namespace
 
 /// How a layer's sensor is named in the layout header.
 template <DetectorLayout Det>
-std::string sensorName(std::size_t layer)
+std::string sensorName(std::uint32_t layer)
 {
   if constexpr (std::same_as<Det, detectors::TRKFT3>) {
     return layer < detectors::trkft3::kVDRadius.size() ? std::format("trkft3::vdSensor({})", layer) : std::string{"trkft3::kChip"};
@@ -91,17 +92,17 @@ double checkTRKPixels(std::span<const Sensor> sensors)
   using Segmentation = o2::trk::SegmentationChip;
   auto& geometry = *o2::trk::GeometryTGeo::Instance();
   auto& ft3 = *o2::ft3::GeometryTGeo::Instance();
-  constexpr auto kFirstDisc = static_cast<std::size_t>(detectors::TRKFT3::kFirstDiscSensor);
+  constexpr auto kFirstDisc = static_cast<std::uint32_t>(detectors::TRKFT3::kFirstDiscSensor);
   double worst = 0.;
-  for (std::size_t chip = 0; chip < sensors.size(); ++chip) {
+  for (std::uint32_t chip = 0; chip < sensors.size(); ++chip) {
     const bool disc = chip >= kFirstDisc;
-    const int id = static_cast<int>(disc ? chip - kFirstDisc : chip); // O2's chip ID
-    const int subDet = disc ? ft3.getSubDetID(id) : geometry.getSubDetID(id);
-    const int layer = disc ? ft3.getLayer(id) : geometry.getLayer(id); // within the sub-detector
+    const auto id = static_cast<std::int32_t>(disc ? chip - kFirstDisc : chip); // O2's chip ID
+    const std::int32_t subDet = disc ? ft3.getSubDetID(id) : geometry.getSubDetID(id);
+    const std::int32_t layer = disc ? ft3.getLayer(id) : geometry.getLayer(id); // within the sub-detector
     const auto& spec = Detector<detectors::TRKFT3>::sensor(sensors[chip].layer);
-    const int nRows = subDet == 0 ? Segmentation::getNRowsVD(layer) : o2::trk::constants::moduleMLOT::chip::nRows;
-    const int nCols = subDet == 0 ? o2::trk::constants::VD::petal::layer::nCols : o2::trk::constants::moduleMLOT::chip::nCols;
-    for (const auto [row, col] : std::array<std::array<int, 2>, 5>{{{0, 0}, {nRows - 1, 0}, {0, nCols - 1}, {nRows - 1, nCols - 1}, {nRows / 2, nCols / 2}}}) {
+    const std::int32_t nRows = subDet == 0 ? Segmentation::getNRowsVD(layer) : o2::trk::constants::moduleMLOT::chip::nRows;
+    const std::int32_t nCols = subDet == 0 ? o2::trk::constants::VD::petal::layer::nCols : o2::trk::constants::moduleMLOT::chip::nCols;
+    for (const auto [row, col] : std::array<std::array<std::int32_t, 2>, 5>{{{0, 0}, {nRows - 1, 0}, {0, nCols - 1}, {nRows - 1, nCols - 1}, {nRows / 2, nCols / 2}}}) {
       float xRow = 0.F;
       float zCol = 0.F;
       Segmentation::detectorToLocalUnchecked(row, col, xRow, zCol, subDet, layer, -1);
@@ -131,17 +132,17 @@ double checkITS3Pixels(std::span<const Sensor> sensors)
   using o2::its3::SegmentationMosaix;
   auto& geometry = *o2::its::GeometryTGeo::Instance();
   double worst = 0.;
-  for (int chip = 0; chip < detectors::ITS3::kFirstOuterSensor; ++chip) {
-    const int layer = geometry.getLayer(chip);
+  for (std::int32_t chip = 0; chip < detectors::ITS3::kFirstOuterSensor; ++chip) {
+    const std::int32_t layer = geometry.getLayer(chip);
     const SegmentationMosaix segmentation{layer};
-    const auto& spec = Detector<detectors::ITS3>::sensor(sensors[static_cast<std::size_t>(chip)].layer);
+    const auto& spec = Detector<detectors::ITS3>::sensor(sensors[static_cast<std::uint32_t>(chip)].layer);
     const auto& l2g = geometry.getMatrixL2G(chip);
     double r[9];
     double t[3];
     l2g.GetComponents(r[0], r[1], r[2], t[0], r[3], r[4], r[5], t[1], r[6], r[7], r[8], t[2]);
     const double handedness = (r[0] * ((r[4] * r[8]) - (r[5] * r[7]))) - (r[1] * ((r[3] * r[8]) - (r[5] * r[6]))) + (r[2] * ((r[3] * r[7]) - (r[4] * r[6])));
     const double middle = detectors::mosaix::middleRadius(layer);
-    for (const auto [row, col] : std::array<std::array<int, 2>, 5>{{{0, 0}, {SegmentationMosaix::NRows - 1, 0}, {0, SegmentationMosaix::NCols - 1}, {SegmentationMosaix::NRows - 1, SegmentationMosaix::NCols - 1}, {SegmentationMosaix::NRows / 2, SegmentationMosaix::NCols / 2}}}) {
+    for (const auto [row, col] : std::array<std::array<std::int32_t, 2>, 5>{{{0, 0}, {SegmentationMosaix::NRows - 1, 0}, {0, SegmentationMosaix::NCols - 1}, {SegmentationMosaix::NRows - 1, SegmentationMosaix::NCols - 1}, {SegmentationMosaix::NRows / 2, SegmentationMosaix::NCols / 2}}}) {
       float xRow = 0.F;
       float zCol = 0.F;
       segmentation.detectorToLocalUnchecked(static_cast<float>(row), static_cast<float>(col), xRow, zCol);
@@ -153,7 +154,7 @@ double checkITS3Pixels(std::span<const Sensor> sensors)
       double frame[3];
       spec.unrolledToFrame(x, static_cast<double>(zCol), middle - spec.radius, frame);
       double ours[3];
-      sensors[static_cast<std::size_t>(chip)].toGlobal(frame, ours);
+      sensors[static_cast<std::uint32_t>(chip)].toGlobal(frame, ours);
       worst = std::max(worst, std::hypot(ours[0] - expected.X(), ours[1] - expected.Y(), ours[2] - expected.Z()));
     }
   }
@@ -329,15 +330,15 @@ void barrelArcs(const Sensor& sensor, const SensorSpec& spec, double z, std::vec
 /// barrel sensor counts with its cut by the plane at that z, seen from the
 /// beam line; a disc sensor with its mid-plane projected along the beam.
 /// Layers numbered barrel first, as for `measureEnvelopes`.
-std::vector<std::vector<Vec2D>> measureCoverage(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, int nBarrelLayers)
+std::vector<std::vector<Vec2D>> measureCoverage(std::span<const Sensor> sensors, std::span<const SensorSpec> specs, std::int32_t nBarrelLayers)
 {
-  const auto nLayers = specs.size();
-  std::vector<std::vector<std::size_t>> byLayer(nLayers);
-  for (std::size_t i = 0; i < sensors.size(); ++i) {
+  const auto nLayers = static_cast<std::uint32_t>(specs.size());
+  std::vector<std::vector<std::uint32_t>> byLayer(nLayers);
+  for (std::uint32_t i = 0; i < sensors.size(); ++i) {
     byLayer[sensors[i].layer].push_back(i);
   }
   std::vector<std::vector<Vec2D>> result(nLayers);
-  for (std::size_t layer = 0; layer < nLayers; ++layer) {
+  for (std::uint32_t layer = 0; layer < nLayers; ++layer) {
     const bool barrel = std::cmp_less(layer, nBarrelLayers);
     const auto& spec = specs[layer];
     // Each sensor's range of the second coordinate, and the values where the
@@ -450,45 +451,45 @@ std::vector<std::vector<Vec2D>> measureCoverage(std::span<const Sensor> sensors,
 }
 
 template <DetectorLayout Det>
-int runFor(const std::string& file)
+std::int32_t runFor(const std::string& file)
 {
   const auto sensors = alice::placeChips<Det>();
   constexpr auto specs = Geometry<Det>::layoutSpecs();
   const auto measured = measureEnvelopes(sensors, specs, Detector<Det>::nBarrelLayers, kEnvelopeResolution);
-  std::vector<int> counts(measured.size(), 0);
+  std::vector<std::int32_t> counts(measured.size(), 0);
   for (const auto& sensor : sensors) {
     ++counts[sensor.layer];
   }
   std::cout << std::format("  // Chip counts measured by o2-gtrk-import-geometry from {}: {} chips.\n", file, sensors.size());
-  const auto printLayers = [&](const char* member, std::size_t first, std::size_t end) {
+  const auto printLayers = [&](const char* member, std::uint32_t first, std::uint32_t end) {
     if (first == end) {
       return;
     }
     std::cout << std::format("  static constexpr std::array<PlacedLayerSpec, {}> {}{{{{\n", end - first, member);
-    for (std::size_t layer = first; layer < end; ++layer) {
+    for (std::uint32_t layer = first; layer < end; ++layer) {
       std::cout << std::format("    {{.sensorCount = {}, .sensor = {}}},\n", counts[layer], sensorName<Det>(layer));
     }
     std::cout << "  }};\n";
   };
-  constexpr auto kBarrel = static_cast<std::size_t>(Detector<Det>::nBarrelLayers);
+  constexpr auto kBarrel = static_cast<std::uint32_t>(Detector<Det>::nBarrelLayers);
   printLayers("barrelLayers", 0, kBarrel);
-  printLayers("discLayers", kBarrel, measured.size());
+  printLayers("discLayers", kBarrel, static_cast<std::uint32_t>(measured.size()));
   std::cout << "\n"
             << std::format("Envelopes of the active silicon, rounded outwards to {} um, which the tracking measures at load and nothing compiled holds:\n", kEnvelopeResolution * 1e4) << describeEnvelopes(measured, Detector<Det>::nBarrelLayers);
   // Where each layer covers every azimuth: z on a barrel layer, r on a disc.
   const auto start = std::chrono::steady_clock::now();
   const auto coverage = measureCoverage(sensors, specs, Detector<Det>::nBarrelLayers);
   std::cout << std::format("\nevery azimuth covered, measured in {:.3f} s:\n", std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
-  for (std::size_t layer = 0; layer < coverage.size(); ++layer) {
+  for (std::uint32_t layer = 0; layer < coverage.size(); ++layer) {
     std::string line = std::format("layer {}:", layer);
     for (const auto& [low, high] : coverage[layer]) {
       line += std::format(" [{:.4f}, {:.4f}]", low, high);
     }
     std::cout << line << '\n';
   }
-  int status = 0;
-  for (std::size_t layer = 0; layer < measured.size(); ++layer) {
-    const int stated = Detector<Det>::sensorCount(static_cast<LayerID>(layer));
+  std::int32_t status = 0;
+  for (std::uint32_t layer = 0; layer < measured.size(); ++layer) {
+    const std::int32_t stated = Detector<Det>::sensorCount(static_cast<LayerID>(layer));
     if (stated != counts[layer]) {
       std::cout << std::format("\ncompiled {} layer {}: {} chips, the geometry has {}", Det::name, layer, stated, counts[layer]);
       status = 1;
@@ -507,7 +508,7 @@ int runFor(const std::string& file)
   return status;
 }
 
-int run(int argc, char** argv)
+std::int32_t run(std::int32_t argc, char** argv)
 {
   std::string file;
   std::string detector;

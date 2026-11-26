@@ -67,7 +67,7 @@ template <DetectorLayout Det>
 
 /// One particle's crossing of one chip, in the global frame [cm, GeV].
 struct HitSegment {
-  int track = -1;          ///< MC track ID within its event
+  std::int32_t track = -1; ///< MC track ID within its event
   std::uint32_t chip = 0U; ///< our sensor ID: O2's chip ID; FT3's after TRK's (TRKFT3::kFirstDiscSensor), the TOF's after those (TRKFT3TOF::kFirstTOFSensor)
   Vec3D start{};
   Vec3D end{};
@@ -91,10 +91,10 @@ class HitFile
   HitFile& operator=(HitFile&&) = delete;
 
   /// The segments of event \a event; every event's read at the first call and kept.
-  [[nodiscard]] const std::vector<HitSegment>& event(int event);
+  [[nodiscard]] const std::vector<HitSegment>& event(std::int32_t event);
 
   /// How many MC events the file holds.
-  [[nodiscard]] int nEvents() const;
+  [[nodiscard]] std::int32_t nEvents() const;
 
  private:
   Chips mChips;

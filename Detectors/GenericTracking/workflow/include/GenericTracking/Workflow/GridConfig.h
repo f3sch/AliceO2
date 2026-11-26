@@ -143,14 +143,11 @@ inline void checkRecoParam(const RecoSettings& param)
 /// Each other per-iteration vector must have one entry per iteration or none
 /// (`RecoSettings::kClusterSlots` per iteration for `iterationClusterMinPtGeV`); anything else is a
 /// configuration error.
-[[nodiscard]] inline int iterationCount(const RecoSettings& param)
+[[nodiscard]] inline std::uint32_t iterationCount(const RecoSettings& param)
 {
   const auto count = param.iterationMinPtGeV.size();
   if (count == 0U) {
     throw std::invalid_argument("GTRKReco<DET>.iterationMinPtGeV has no iteration");
-  }
-  if (count == 0U) {
-    throw std::invalid_argument("GTRKReco<DET>.iterationMinPtGeV is empty: no iteration to run");
   }
   const auto check = [&](const char* name, std::size_t size, std::size_t perIteration) {
     if (size != 0U && size != count * perIteration) {
@@ -182,31 +179,30 @@ inline void checkRecoParam(const RecoSettings& param)
   if (floors != 0U && floors != count * RecoSettings::kClusterSlots) {
     throw std::invalid_argument(std::format("GTRKReco<DET>.iterationClusterMinPtGeV has {} entries; {} iterations want {} per iteration, or none", floors, count, RecoSettings::kClusterSlots));
   }
-  return static_cast<int>(count);
+  return static_cast<std::uint32_t>(count);
 }
 
 /// Iteration \a iteration's settings: the grid's window physics with the
 /// iteration's minimum pT, and each other knob its vector's entry or default.
-[[nodiscard]] inline IterationSettings iterationSettings(const RecoSettings& param, int iteration)
+[[nodiscard]] inline IterationSettings iterationSettings(const RecoSettings& param, std::uint32_t iteration)
 {
-  if (iteration < 0 || iteration >= iterationCount(param)) {
+  if (iteration >= iterationCount(param)) {
     throw std::out_of_range(std::format("iteration {} of {}", iteration, param.iterationMinPtGeV.size()));
   }
-  const auto index = static_cast<std::size_t>(iteration);
   // A key without entries takes IterationSettings' default.
   const IterationSettings defaults{};
-  const auto entry = [&](const std::vector<int>& values, int fallback) { return values.empty() ? fallback : values[index]; };
-  const auto flag = [&](const std::vector<int>& values, bool fallback) { return values.empty() ? fallback : values[index] != 0; };
-  const auto entryDouble = [&](const std::vector<double>& values, double fallback) { return values.empty() ? fallback : values[index]; };
+  const auto entry = [&](const std::vector<std::int32_t>& values, std::int32_t fallback) { return values.empty() ? fallback : values[iteration]; };
+  const auto flag = [&](const std::vector<std::int32_t>& values, bool fallback) { return values.empty() ? fallback : values[iteration] != 0; };
+  const auto entryDouble = [&](const std::vector<double>& values, double fallback) { return values.empty() ? fallback : values[iteration]; };
   // The layer masks: 64 bits, one per layer of the largest layout.
-  const auto entryMask = [&](const std::vector<long>& values, std::uint64_t fallback) { return values.empty() ? fallback : static_cast<std::uint64_t>(values[index]); };
+  const auto entryMask = [&](const std::vector<long>& values, std::uint64_t fallback) { return values.empty() ? fallback : static_cast<std::uint64_t>(values[iteration]); };
   auto windows = searchWindowPhysics(param);
-  windows.minPtGeV = param.iterationMinPtGeV[index];
+  windows.minPtGeV = param.iterationMinPtGeV[iteration];
   static_assert(RecoSettings::kClusterSlots == IterationSettings::kClusterSlots);
   std::array<double, IterationSettings::kClusterSlots> floors{};
   if (!param.iterationClusterMinPtGeV.empty()) {
-    for (std::size_t count = 0; count < floors.size(); ++count) {
-      floors[count] = param.iterationClusterMinPtGeV[(index * floors.size()) + count];
+    for (std::uint32_t count = 0; count < IterationSettings::kClusterSlots; ++count) {
+      floors[count] = param.iterationClusterMinPtGeV[(iteration * IterationSettings::kClusterSlots) + count];
     }
   }
   const bool follow = flag(param.iterationFollow, defaults.follow);
@@ -214,18 +210,18 @@ inline void checkRecoParam(const RecoSettings& param)
   if (followEarlier && !follow) {
     throw std::invalid_argument(std::format("GTRKReco<DET>.iterationFollowEarlier of iteration {} needs its iterationFollow", iteration));
   }
-  const int followHoles = entry(param.iterationFollowHoles, defaults.followHoles);
+  const std::int32_t followHoles = entry(param.iterationFollowHoles, defaults.followHoles);
   if (followHoles < 0) {
     throw std::invalid_argument(std::format("GTRKReco<DET>.iterationFollowHoles of iteration {} is {}", iteration, followHoles));
   }
   const bool beamConstraint = flag(param.iterationBeamConstraint, defaults.beamConstraint);
-  const int innerTrim = entry(param.iterationInnerTrim, defaults.innerTrim);
+  const std::int32_t innerTrim = entry(param.iterationInnerTrim, defaults.innerTrim);
   if (innerTrim < 0) {
     throw std::invalid_argument(std::format("GTRKReco<DET>.iterationInnerTrim of iteration {} is {}", iteration, innerTrim));
   }
   const double kinkSigma = entryDouble(param.iterationKinkSigma, defaults.kinkSigma);
-  const int vertexSource = entry(param.iterationVertexSource, static_cast<int>(defaults.vertexSource));
-  if (vertexSource < 0 || vertexSource > static_cast<int>(VertexSource::kNone)) {
+  const std::int32_t vertexSource = entry(param.iterationVertexSource, static_cast<std::int32_t>(defaults.vertexSource));
+  if (vertexSource < 0 || vertexSource > static_cast<std::int32_t>(VertexSource::kNone)) {
     throw std::invalid_argument(std::format("GTRKReco<DET>.iterationVertexSource of iteration {} is {}: 0, 1 or 2", iteration, vertexSource));
   }
   return {
@@ -240,7 +236,7 @@ inline void checkRecoParam(const RecoSettings& param)
     .roadEndLayers = entryMask(param.iterationRoadEndLayers, defaults.roadEndLayers),
     .roadStartLayers = entryMask(param.iterationRoadStartLayers, defaults.roadStartLayers),
     .minPtGeVByClusters = floors,
-    .sharedInnermost = static_cast<std::uint32_t>(std::max(entry(param.iterationSharedInnermost, static_cast<int>(defaults.sharedInnermost)), 0)),
+    .sharedInnermost = static_cast<std::uint32_t>(std::max(entry(param.iterationSharedInnermost, static_cast<std::int32_t>(defaults.sharedInnermost)), 0)),
     .follow = follow,
     .followHoles = followHoles,
     .innerTrim = innerTrim,
@@ -297,8 +293,8 @@ inline void checkRecoParam(const RecoSettings& param)
 [[nodiscard]] inline std::vector<IterationSettings> gridIterations(const RecoSettings& param)
 {
   std::vector<IterationSettings> iterations;
-  iterations.reserve(static_cast<std::size_t>(iterationCount(param)) + 1U);
-  for (int iteration = 0; iteration < iterationCount(param); ++iteration) {
+  iterations.reserve(std::size_t{iterationCount(param)} + 1U);
+  for (std::uint32_t iteration = 0; iteration < iterationCount(param); ++iteration) {
     iterations.push_back(iterationSettings(param, iteration));
   }
   if (param.vertexer) {
@@ -312,7 +308,7 @@ inline void checkRecoParam(const RecoSettings& param)
 /// takes the detector's cluster-shape band (ClusterShapeBand.h).
 [[nodiscard]] inline bool testsShapes(const RecoSettings& param)
 {
-  return (param.vertexer && param.vertexerShapeTest != 0) || std::ranges::any_of(param.iterationShapeTest, [](int test) { return test != 0; });
+  return (param.vertexer && param.vertexerShapeTest != 0) || std::ranges::any_of(param.iterationShapeTest, [](std::int32_t test) { return test != 0; });
 }
 
 /// What a timeframe's measurements are relative to, which the producer ships
@@ -345,7 +341,7 @@ struct MeasurementGeometry {
 }
 
 /// A timeframe of \a orbits orbits' span [ps], its bunch crossings' rounded down.
-[[nodiscard]] inline std::int64_t timeframeDurationPS(int orbits) { return psOfBC(static_cast<std::int64_t>(orbits) * o2::constants::lhc::LHCMaxBunches); }
+[[nodiscard]] inline std::int64_t timeframeDurationPS(std::int32_t orbits) { return psOfBC(static_cast<std::int64_t>(orbits) * o2::constants::lhc::LHCMaxBunches); }
 
 /// \a table filled from the material \a lut (`fillLinkMaterial`) over the
 /// vertices' z the run's passes reach about \a beamSpot (`gridIterations`:
@@ -372,7 +368,7 @@ Interval fillRunLinkMaterial(LinkMaterial<Det>& table, const RecoSettings& param
 /// readout frames, which its time blocks follow and the slices' reach reads;
 /// \a orbitsPerTimeframe: the run's (`Conditions::orbitsPerTimeframe`).
 template <DetectorLayout Det>
-[[nodiscard]] GridGeometry<Det> makeGridGeometry(const RecoSettings& param, const BeamLine& beam, std::span<const FrameTiming> frames, int orbitsPerTimeframe, const LinkMaterial<Det>& material)
+[[nodiscard]] GridGeometry<Det> makeGridGeometry(const RecoSettings& param, const BeamLine& beam, std::span<const FrameTiming> frames, std::int32_t orbitsPerTimeframe, const LinkMaterial<Det>& material)
 {
   const auto iterations = gridIterations(param);
   if (frames.size() != static_cast<std::size_t>(Detector<Det>::nLayers)) {

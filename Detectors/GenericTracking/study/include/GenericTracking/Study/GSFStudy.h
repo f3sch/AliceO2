@@ -137,7 +137,7 @@ class GSFStudy
   /// The fits' count and their time.
   [[nodiscard]] std::vector<std::string> summary() const
   {
-    const auto perFit = [&](double seconds) { return 1e3 * seconds / static_cast<double>(std::max<std::size_t>(mFits, 1U)); };
+    const auto perFit = [&](double seconds) { return 1e3 * seconds / static_cast<double>(std::max<std::uint64_t>(mFits, 1U)); };
     return {std::format("GSF study: {} chains, {} records into {}; refused {} neutral, {} with fewer than {} layers; per fit (both passes, one thread) the Gaussian-sum fit {:.3f} ms, the Kalman fit {:.4f} ms", mChains, mRecords, mWriter->path(), mNeutral, mFewLayers, o2::gtrk::detail::kPassStart, perFit(mGsfSeconds), perFit(mKfSeconds))};
   }
 
@@ -151,23 +151,23 @@ class GSFStudy
   struct Leg {
     const Chain* chain = nullptr;
     std::vector<std::uint32_t> rows;
-    int charge = 0;
+    std::int32_t charge = 0;
     std::vector<double> pTrue;
     double legLoss = 0.;
     std::vector<GSFRecord> records;
     double gsfSeconds = 0.;
     double kfSeconds = 0.;
-    std::size_t fits = 0U;
+    std::uint32_t fits = 0U;
   };
 
   void fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propagator& prop, const ChainIdentity& identity) const;
 
   RecordWriter* mWriter = nullptr;
-  std::size_t mChains = 0U;
-  std::size_t mNeutral = 0U;   ///< chains refused: no charge
-  std::size_t mFewLayers = 0U; ///< chains refused: fewer layers than a pass needs
-  std::size_t mRecords = 0U;
-  std::size_t mFits = 0U;
+  std::uint64_t mChains = 0U;
+  std::uint64_t mNeutral = 0U;   ///< chains refused: no charge
+  std::uint64_t mFewLayers = 0U; ///< chains refused: fewer layers than a pass needs
+  std::uint64_t mRecords = 0U;
+  std::uint64_t mFits = 0U;
   double mGsfSeconds = 0.;
   double mKfSeconds = 0.;
 };
@@ -182,21 +182,21 @@ void GSFStudy<Det>::process(const TruthEvent<Det>& event, std::span<const Chain>
   // chain's records apart, written in the chains' order.
   std::vector<Leg> legs;
   for (const auto& chain : chains) {
-    Leg leg{.chain = &chain};
+    Leg leg{.chain = &chain, .rows = {}, .pTrue = {}, .records = {}};
     std::uint64_t layers = 0U;
-    for (std::size_t k = 0; k < chain.rows.size() && leg.rows.size() < kMaxClusters; ++k) {
+    for (std::uint32_t k = 0; k < chain.rows.size() && leg.rows.size() < kMaxClusters; ++k) {
       const auto bit = std::uint64_t{1} << event.rows[chain.rows[k]].layer;
       if ((layers & bit) == 0U) {
         leg.rows.push_back(chain.rows[k]);
         layers |= bit;
       }
     }
-    leg.charge = static_cast<int>(std::lround(particleCharge(event.particles->at(chain.particle).pdg)));
+    leg.charge = static_cast<std::int32_t>(std::lround(particleCharge(event.particles->at(chain.particle).pdg)));
     if (leg.charge == 0) {
       ++mNeutral;
       continue;
     }
-    if (static_cast<int>(leg.rows.size()) < o2::gtrk::detail::kPassStart) {
+    if (static_cast<std::int32_t>(leg.rows.size()) < o2::gtrk::detail::kPassStart) {
       ++mFewLayers;
       continue;
     }
@@ -237,10 +237,10 @@ void GSFStudy<Det>::fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propaga
   constexpr o2::gtrk::detail::LayerMaterial material{};
   const auto& frame = *event.frame;
   const auto& chain = leg.rows;
-  const int n = static_cast<int>(chain.size());
+  const auto n = static_cast<std::int32_t>(chain.size());
   const RowChain<Det> whole{.frame = &frame, .rows = chain.data()};
   std::vector<double> x2X0(chain.size());
-  for (int k = 0; k < n; ++k) {
+  for (std::int32_t k = 0; k < n; ++k) {
     x2X0[static_cast<std::size_t>(k)] = o2::gtrk::detail::gsf::planeRadiation(geometry, whole, n, k);
   }
   GSFRecord base{.timeframe = identity.timeframe, .source = identity.source, .track = identity.track, .particle = identity.particle, .leg = identity.leg};
@@ -249,11 +249,11 @@ void GSFStudy<Det>::fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propaga
   base.eta = truth.eta;
   base.n = n;
   base.legLoss = leg.legLoss;
-  for (int k = 0; k < n; ++k) {
+  for (std::int32_t k = 0; k < n; ++k) {
     for (const auto direction : {PropagationDirection::kForward, PropagationDirection::kBackward}) {
       const bool outward = direction == PropagationDirection::kForward;
-      const int first = outward ? 0 : k;
-      const int count = outward ? k + 1 : n - k;
+      const std::int32_t first = outward ? 0 : k;
+      const std::int32_t count = outward ? k + 1 : n - k;
       const double pTrue = leg.pTrue[static_cast<std::size_t>(k)];
       if (count < o2::gtrk::detail::kPassStart || std::isnan(pTrue)) {
         continue;
@@ -284,14 +284,14 @@ void GSFStudy<Det>::fitLeg(Leg& leg, const TruthEvent<Det>& event, const Propaga
         pit = cdf(truthQOverP);
         double low = std::numeric_limits<double>::max();
         double high = -std::numeric_limits<double>::max();
-        for (int c = 0; c < mixture.size; ++c) {
+        for (std::int32_t c = 0; c < mixture.size; ++c) {
           const auto& state = mixture.components[c].state;
           const double m = state.qOverP();
           const double sigma = std::sqrt(static_cast<double>(state.variance(kQOverP)));
           low = std::min(low, m - (8. * sigma));
           high = std::max(high, m + (8. * sigma));
         }
-        for (int step = 0; step < 100 && high - low > 1e-12 * std::abs(high); ++step) {
+        for (std::int32_t step = 0; step < 100 && high - low > 1e-12 * std::abs(high); ++step) {
           const double middle = 0.5 * (low + high);
           (cdf(middle) < 0.5 ? low : high) = middle;
         }

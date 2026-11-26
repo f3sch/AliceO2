@@ -171,7 +171,7 @@ class JoinStudy
     }
     // The arbitration: each piece its accepted pair of the least
     // deterioration, each earlier track the least among those choosing it.
-    const auto better = [&](const Pair& a, const Pair& b) { return a.deterioration < b.deterioration || (a.deterioration == b.deterioration && (a.earlier < b.earlier || (a.earlier == b.earlier && a.piece < b.piece))); };
+    const auto better = [&](const Pair& a, const Pair& b) { return a.deterioration < b.deterioration || (exactlyEqual(a.deterioration, b.deterioration) && (a.earlier < b.earlier || (a.earlier == b.earlier && a.piece < b.piece))); };
     std::unordered_map<std::uint32_t, std::size_t> bestOfPiece;
     for (std::size_t i = 0; i < pairs.size(); ++i) {
       if (!pairs[i].accepted) {
@@ -238,7 +238,7 @@ class JoinStudy
   }
 
  private:
-  static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
+  static constexpr std::uint32_t kMaxClusters = maxChainLayers<Det>;
   struct Pair {
     const char* kind = "candidate";
     std::uint32_t piece = 0U;
@@ -250,15 +250,15 @@ class JoinStudy
     double qptPull = std::numeric_limits<double>::quiet_NaN();
     PropagationStatus status = PropagationStatus::kOk;
     double chi2 = std::numeric_limits<double>::quiet_NaN();
-    int ndf = 0;
+    std::int32_t ndf = 0;
     double outwardChi2 = std::numeric_limits<double>::quiet_NaN();
-    int kinks = 0;
-    int outwardKinks = 0;
-    int kinkAt = 99;
+    std::int32_t kinks = 0;
+    std::int32_t outwardKinks = 0;
+    std::int32_t kinkAt = 99;
     bool passes = false;
     bool passesOutward = false;
     double deterioration = std::numeric_limits<double>::infinity();
-    int addedNdf = 0;
+    std::int32_t addedNdf = 0;
     bool accepted = false;
     bool best = false;
     bool winner = false;
@@ -266,7 +266,7 @@ class JoinStudy
     /// outermost layer to the piece's innermost (-1 not asked), and the
     /// earlier track's end against the piece's backward window there, the
     /// larger of its distances in the window's half widths.
-    int linked = -1;
+    std::int32_t linked = -1;
     double endDistance = std::numeric_limits<double>::quiet_NaN();
   };
 
@@ -323,7 +323,7 @@ class JoinStudy
       return static_cast<double>(s.variance(kQOverP)) / (sinTheta * sinTheta);
     };
     pair.qptPull = (qpt(inner) - qpt(outer)) / std::sqrt(qptVariance(inner) + qptVariance(outer));
-    const std::uint32_t count = static_cast<std::uint32_t>(view.count[earlier]) + view.count[piece];
+    const auto count = static_cast<std::uint32_t>(view.count[earlier]) + view.count[piece];
     if (!pair.disjoint || count > kMaxClusters) {
       return pair;
     }
@@ -331,8 +331,8 @@ class JoinStudy
     std::copy_n(view.clusters[earlier].index, view.count[earlier], rows.begin());
     std::copy_n(view.clusters[piece].index, view.count[piece], rows.begin() + view.count[earlier]);
     const auto& parameters = tracker.iteration(view.iteration[earlier]);
-    const KinkBudget budget{.max = static_cast<int>(view.kinks[earlier]) + static_cast<int>(view.kinks[piece]) + 1, .gate = parameters.kinkChi2Min};
-    const auto fit = fitMeasurements(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows.data()}, static_cast<int>(count), budget);
+    const KinkBudget budget{.max = static_cast<std::int32_t>(view.kinks[earlier]) + static_cast<std::int32_t>(view.kinks[piece]) + 1, .gate = parameters.kinkChi2Min};
+    const auto fit = fitMeasurements(propagator, geometry, detail::LinkSteps{}, RowChain<Det>{.frame = &frame, .rows = rows.data()}, static_cast<std::int32_t>(count), budget);
     pair.status = fit.status;
     if (fit.status != PropagationStatus::kOk) {
       return pair;
@@ -342,10 +342,10 @@ class JoinStudy
     pair.outwardChi2 = static_cast<double>(fit.outwardChi2);
     pair.kinks = fit.kinks;
     pair.outwardKinks = fit.outwardKinks;
-    pair.kinkAt = fit.kinkMeasurement < 0 ? 99 : fit.kinkMeasurement - static_cast<int>(view.count[earlier]);
+    pair.kinkAt = fit.kinkMeasurement < 0 ? 99 : fit.kinkMeasurement - static_cast<std::int32_t>(view.count[earlier]);
     pair.passes = follow::passesRoadChi2(parameters, fit);
-    const int outwardNdf = (2 * static_cast<int>(count)) - fittedParameters(propagator) - (2 * fit.outwardKinks);
-    const auto cuts = static_cast<int>(std::size(parameters.roadChi2MaxByNdf));
+    const std::int32_t outwardNdf = (2 * static_cast<std::int32_t>(count)) - fittedParameters(propagator) - (2 * fit.outwardKinks);
+    const auto cuts = static_cast<std::int32_t>(std::size(parameters.roadChi2MaxByNdf));
     pair.passesOutward = outwardNdf > 0 && outwardNdf < cuts && fit.outwardChi2 <= parameters.roadChi2MaxByNdf[outwardNdf];
     pair.addedNdf = fit.ndf - view.ndf[earlier] - view.ndf[piece];
     pair.deterioration = pair.addedNdf > 0 ? (static_cast<double>(fit.chi2) - static_cast<double>(view.chi2[earlier]) - static_cast<double>(view.chi2[piece])) / pair.addedNdf : std::numeric_limits<double>::infinity();
@@ -354,7 +354,7 @@ class JoinStudy
   }
 
   template <typename View, typename ParticleOf, typename RowsOf>
-  void write(std::size_t iteration, const View& view, const Pair& pair, const ParticleOf& particleOf, const RowsOf& rowsOf)
+  void write(std::uint32_t iteration, const View& view, const Pair& pair, const ParticleOf& particleOf, const RowsOf& rowsOf)
   {
     const auto [earlierParticle, earlierGood] = particleOf(pair.earlier);
     const auto [pieceParticle, pieceGood] = particleOf(pair.piece);
@@ -381,17 +381,17 @@ class JoinStudy
       return at != mTruth->particles.end() ? at->second.pdg : 0;
     };
     mOut << std::format("{},{},{},{},{},{},{},{},{},{},{:d},{:d},{:d},{:.3f},{},{:.4g},{},{:.4g},{},{},{},{:d},{:d},{:.4g},{},{:d},{:d},{:d},{},{},{},{},{},{},{:.4f},{:.4f},{},{:.3f}\n", pair.kind, iteration,
-                        pair.piece, pair.earlier, static_cast<int>(view.iteration[pair.earlier]), static_cast<int>(mTruth->rows[pieceRows.front()].layer),
-                        pair.target == kInvalidLayerID ? -1 : static_cast<int>(pair.target), static_cast<int>(mTruth->rows[earlierRows.back()].layer), earlierRows.size(), pieceRows.size(),
-                        pair.disjoint, pair.time, pair.charge, pair.qptPull, static_cast<int>(pair.status), pair.chi2, pair.ndf, pair.outwardChi2, pair.kinks, pair.outwardKinks, pair.kinkAt,
+                        pair.piece, pair.earlier, static_cast<std::int32_t>(view.iteration[pair.earlier]), static_cast<std::int32_t>(mTruth->rows[pieceRows.front()].layer),
+                        pair.target == kInvalidLayerID ? -1 : static_cast<std::int32_t>(pair.target), static_cast<std::int32_t>(mTruth->rows[earlierRows.back()].layer), earlierRows.size(), pieceRows.size(),
+                        pair.disjoint, pair.time, pair.charge, pair.qptPull, static_cast<std::int32_t>(pair.status), pair.chi2, pair.ndf, pair.outwardChi2, pair.kinks, pair.outwardKinks, pair.kinkAt,
                         pair.passes, pair.passesOutward, pair.deterioration, pair.addedNdf, pair.accepted, pair.best, pair.winner, truth, earlierParticle, pieceParticle, pdg(earlierParticle),
-                        pdg(pieceParticle), known ? static_cast<int>(found->second.origin) : -1, known ? static_cast<double>(found->second.pt) : -1., known ? static_cast<double>(found->second.eta) : 0., pair.linked, pair.endDistance);
+                        pdg(pieceParticle), known ? static_cast<std::int32_t>(found->second.origin) : -1, known ? static_cast<double>(found->second.pt) : -1., known ? static_cast<double>(found->second.eta) : 0., pair.linked, pair.endDistance);
   }
 
   std::ofstream mOut;
   const TrackingTruth* mTruth = nullptr;
   std::vector<std::uint32_t> mMaxWidthPS; ///< per layer, the widest time box
-  std::array<std::array<std::size_t, 3>, 2> mCounts{};
+  std::array<std::array<std::uint32_t, 3>, 2> mCounts{};
 };
 
 } // namespace o2::gtrk::study

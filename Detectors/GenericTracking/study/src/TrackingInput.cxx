@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <format>
 #include <fstream>
@@ -159,7 +160,7 @@ void readBlock(std::ifstream& in, T* data, std::size_t count, const char* what)
 
 } // namespace
 
-void writeTrackingInput(const std::string& path, const MeasurementView& view, std::size_t rows, std::span<const std::uint32_t> offsets, std::span<const VertexSeed> vertices, const workflow::BeamLine& beamLine, std::span<const FrameTiming> frames, std::span<const double> depths, std::span<const std::uint8_t> shapes)
+void writeTrackingInput(const std::string& path, const MeasurementView& view, std::uint32_t rows, std::span<const std::uint32_t> offsets, std::span<const VertexSeed> vertices, const workflow::BeamLine& beamLine, std::span<const FrameTiming> frames, std::span<const double> depths, std::span<const std::uint8_t> shapes)
 {
   std::ofstream out{path, std::ios::binary | std::ios::trunc};
   if (!out) {
@@ -203,7 +204,7 @@ void writeParameters(const std::string& path)
   const auto add = [&exact](const std::string& section, const RecoSettings& param) {
     auto& values = exact[section];
     auto* members = TClass::GetClass(typeid(RecoSettings))->GetListOfDataMembers();
-    for (int i = 0; i < members->GetEntries(); ++i) {
+    for (std::int32_t i = 0; i < members->GetEntries(); ++i) {
       const auto* member = dynamic_cast<const TDataMember*>(members->At(i));
       const auto* type = member == nullptr ? nullptr : member->GetDataType();
       if (type == nullptr || (member->Property() & kIsStatic) != 0 || (type->GetType() != kDouble_t && type->GetType() != kFloat_t)) {
@@ -212,14 +213,14 @@ void writeParameters(const std::string& path)
       if (member->GetArrayDim() > 1) {
         throw std::runtime_error(std::format("parameters: {}.{} has more than one dimension", section, member->GetName()));
       }
-      const int size = member->GetArrayDim() == 1 ? member->GetMaxIndex(0) : 1;
+      const std::int32_t size = member->GetArrayDim() == 1 ? member->GetMaxIndex(0) : 1;
       const auto bytes = std::span{bytesOf(&param), sizeof(param)}.subspan(static_cast<std::size_t>(member->GetOffset()));
-      const auto value = [&]<typename T>(T, int index) {
+      const auto value = [&]<typename T>(T, std::int32_t index) {
         T number;
         std::memcpy(&number, bytes.subspan(static_cast<std::size_t>(index) * sizeof(T), sizeof(T)).data(), sizeof(T));
         return std::format("{}", number);
       };
-      for (int index = 0; index < size; ++index) {
+      for (std::int32_t index = 0; index < size; ++index) {
         const auto name = size > 1 ? std::format("{}[{}]", member->GetName(), index) : std::string{member->GetName()};
         values[name] = type->GetType() == kDouble_t ? value(0., index) : value(0.F, index);
       }
@@ -282,7 +283,7 @@ TrackingInput readTrackingInput(const std::string& path)
   input.beamLine = {.x = header.beamX, .y = header.beamY, .z = header.beamZ, .sigmaX = header.beamSigmaX, .sigmaY = header.beamSigmaY, .sigmaZ = header.beamSigmaZ};
   input.frames.resize(header.frameLayers);
   readBlock(in, input.frames.data(), input.frames.size(), "the readout frames");
-  resizeMeasurementColumns(input.columns, header.rows);
+  resizeMeasurementColumns(input.columns, static_cast<std::uint32_t>(header.rows));
   input.columns.apply([&](auto&... columns) { (readBlock(in, columns.data(), header.rows, "a measurement column"), ...); });
   input.offsets.resize(header.offsets);
   readBlock(in, input.offsets.data(), input.offsets.size(), "the grid offsets");
@@ -448,10 +449,10 @@ TrackingTruth readTrackingTruth(const std::string& path, const TrackingInput& in
   if (header.version != kTruthVersion || header.maxParticles != TruthRow::kMaxParticles) {
     throw std::runtime_error("tracking truth: " + path + " was written with another layout; dump it again");
   }
-  const auto rows = static_cast<std::size_t>(header.rows);
-  if (rows != input.columns.clusterIndex.size()) {
-    throw std::runtime_error(std::format("tracking truth: {} has {} rows, the tracking input {}", path, rows, input.columns.clusterIndex.size()));
+  if (header.rows != input.columns.clusterIndex.size()) {
+    throw std::runtime_error(std::format("tracking truth: {} has {} rows, the tracking input {}", path, header.rows, input.columns.clusterIndex.size()));
   }
+  const auto rows = static_cast<std::uint32_t>(header.rows);
   std::vector<std::uint32_t> clusterIndex(rows);
   std::vector<std::uint64_t> rowParticles(rows * TruthRow::kMaxParticles);
   std::vector<std::uint8_t> counts(rows);
@@ -531,7 +532,7 @@ TrackingTruth readTrackingTruth(const std::string& path, const TrackingInput& in
 
   TrackingTruth truth;
   truth.rows.resize(rows);
-  for (std::size_t row = 0; row < rows; ++row) {
+  for (std::uint32_t row = 0; row < rows; ++row) {
     auto& entry = truth.rows[row];
     std::copy_n(rowParticles.begin() + static_cast<std::ptrdiff_t>(row * TruthRow::kMaxParticles), TruthRow::kMaxParticles, entry.particles.begin());
     if (counts[row] > TruthRow::kMaxParticles) {

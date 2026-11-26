@@ -39,6 +39,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 
@@ -389,8 +390,8 @@ template <DetectorLayout Det>
 {
   constexpr double kQuarter = 0.5 * kPi<double>;
   constexpr double kStep = 1.e-3;
-  constexpr int kSteps = static_cast<int>(kQuarter / kStep) + 1;
-  constexpr int kSamples = 5;
+  constexpr auto kSteps = static_cast<std::int32_t>(kQuarter / kStep) + 1;
+  constexpr std::int32_t kSamples = 5;
   const double halfKappa = 0.5 * maxCurvature(params);
   const double fromLow = radiusMin<Det>(from);
   const double fromHigh = radiusMax<Det>(from);
@@ -417,7 +418,7 @@ template <DetectorLayout Det>
   };
 
   double widest = 0.;
-  for (int i = 0; i < kSamples; ++i) {
+  for (std::int32_t i = 0; i < kSamples; ++i) {
     const double rFrom = fromLow + ((fromHigh - fromLow) * i / (kSamples - 1));
     double toLow = radiusMin<Det>(to);
     double toHigh = radiusMax<Det>(to);
@@ -429,12 +430,12 @@ template <DetectorLayout Det>
         continue;
       }
     }
-    for (int j = 0; j < kSamples; ++j) {
+    for (std::int32_t j = 0; j < kSamples; ++j) {
       const double rTo = toLow + ((toHigh - toLow) * j / (kSamples - 1));
       if (!(rTo > 0.)) {
         continue;
       }
-      for (int step = kSteps; step >= 0 && kStep * (step + 1) > widest; --step) {
+      for (std::int32_t step = kSteps; step >= 0 && kStep * (step + 1) > widest; --step) {
         if (accepted(rFrom, rTo, kStep * step)) {
           widest = kStep * (step + 1);
           break;

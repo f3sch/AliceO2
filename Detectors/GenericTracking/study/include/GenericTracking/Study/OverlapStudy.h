@@ -204,7 +204,7 @@ class OverlapStudy
         }
       }
     }
-    std::size_t fakes = 0U;
+    std::uint32_t fakes = 0U;
     for (std::uint32_t track = 0; track < tracks.size(); ++track) {
       const bool fake = holders.good[track] == kNoTrackParticle;
       const bool clone = !fake && holders.best.at(holders.good[track]) != track;
@@ -213,7 +213,7 @@ class OverlapStudy
       if (!fake && !clone) {
         continue;
       }
-      std::size_t claimable = 0U;
+      std::uint32_t claimable = 0U;
       std::array<bool, 3> when{}; // the claimer earlier, the same iteration, later
       for (const auto row : rowsOf(track)) {
         const auto by = claimer[row];
@@ -253,7 +253,7 @@ class OverlapStudy
       lines.push_back(std::format("overlap study: {} overlap partners on {} tracks: on tracks good on their layer rows {} right, {} wrong ({} such tracks made fakes by them); {} on tracks fake on their layer rows", mPartners, mPartnerTracks, mPartnersRight, mPartnersWrong, mMadeFake, mPartnersOnFakes));
     }
     if (mTracks > 0U) {
-      const auto line = [&](std::string_view what, std::size_t all, const Claims& c) {
+      const auto line = [&](std::string_view what, std::uint64_t all, const Claims& c) {
         return std::format("overlap study: {} {} of {} tracks; {} hold claimable rows ({} rows; by rows 1/2/3+: {}/{}/{}; their other rows {:.2f} on average), the best track from an earlier iteration for {}, the same for {}, a later one for {}", all, what, mTracks, c.tracks, c.rows, c.byRows[1], c.byRows[2], c.byRows[3], c.tracks > 0U ? static_cast<double>(c.lengthLeft) / static_cast<double>(c.tracks) : 0., c.earlier, c.same, c.later);
       };
       lines.push_back(line("fakes", mFakes, mFakeClaims));
@@ -271,7 +271,7 @@ class OverlapStudy
     const auto view = references.view().records;
     std::vector<std::uint32_t> layerRows;
     std::vector<std::uint32_t> partners;
-    for (std::size_t track = 0; track < tracks.size(); ++track) {
+    for (std::uint32_t track = 0; track < tracks.size(); ++track) {
       const auto range = references.range(track);
       layerRows.clear();
       partners.clear();
@@ -309,13 +309,13 @@ class OverlapStudy
   };
 
   struct Claims {
-    std::size_t tracks = 0U;
-    std::size_t rows = 0U;
-    std::size_t earlier = 0U;
-    std::size_t same = 0U;
-    std::size_t later = 0U;
-    std::size_t lengthLeft = 0U;
-    std::array<std::size_t, 4> byRows{};
+    std::uint64_t tracks = 0U;
+    std::uint64_t rows = 0U;
+    std::uint64_t earlier = 0U;
+    std::uint64_t same = 0U;
+    std::uint64_t later = 0U;
+    std::uint64_t lengthLeft = 0U;
+    std::array<std::uint64_t, 4> byRows{};
   };
 
   void write(const TruthEvent<Det>& event, std::span<const Chain> chains, const Holders* holders)
@@ -421,7 +421,7 @@ class OverlapStudy
             .dRPhi = static_cast<float>(ra * dphi),
             .dZ = b.z - a.z,
             .dist = static_cast<float>(std::hypot(static_cast<double>(b.x - a.x), static_cast<double>(b.y - a.y), static_cast<double>(b.z - a.z))),
-            .cosNormals = static_cast<float>(std::abs((static_cast<double>(na[0]) * nb[0]) + (static_cast<double>(na[1]) * nb[1]) + (static_cast<double>(na[2]) * nb[2]))),
+            .cosNormals = static_cast<float>(std::abs((static_cast<double>(na[0]) * static_cast<double>(nb[0])) + (static_cast<double>(na[1]) * static_cast<double>(nb[1])) + (static_cast<double>(na[2]) * static_cast<double>(nb[2])))),
             .found = static_cast<std::uint8_t>(found ? 1U : 0U),
             .bestTrack = found ? static_cast<std::int32_t>(bestTrack) : -1,
             .bestIteration = found ? holders->iteration[bestTrack] : static_cast<std::uint8_t>(0xFFU),
@@ -438,19 +438,19 @@ class OverlapStudy
 
   RecordWriter* mWriter = nullptr;
   ChainSelection mSelection;
-  std::size_t mPairs = 0U;
-  std::size_t mTwoSensors = 0U;
-  std::size_t mChains = 0U;
-  std::size_t mUntimed = 0U;
-  std::size_t mTracks = 0U;
-  std::size_t mFakes = 0U;
-  std::size_t mClones = 0U;
-  std::size_t mPartners = 0U;
-  std::size_t mPartnerTracks = 0U;
-  std::size_t mPartnersRight = 0U;
-  std::size_t mPartnersWrong = 0U;
-  std::size_t mMadeFake = 0U;
-  std::size_t mPartnersOnFakes = 0U;
+  std::uint64_t mPairs = 0U;
+  std::uint64_t mTwoSensors = 0U;
+  std::uint64_t mChains = 0U;
+  std::uint64_t mUntimed = 0U;
+  std::uint64_t mTracks = 0U;
+  std::uint64_t mFakes = 0U;
+  std::uint64_t mClones = 0U;
+  std::uint64_t mPartners = 0U;
+  std::uint64_t mPartnerTracks = 0U;
+  std::uint64_t mPartnersRight = 0U;
+  std::uint64_t mPartnersWrong = 0U;
+  std::uint64_t mMadeFake = 0U;
+  std::uint64_t mPartnersOnFakes = 0U;
   Claims mFakeClaims;
   Claims mCloneClaims;
 };

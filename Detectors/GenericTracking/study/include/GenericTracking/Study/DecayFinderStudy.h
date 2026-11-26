@@ -333,7 +333,7 @@ struct LegTruth {
 struct TruthV0 {
   const TreeParticle* mother = nullptr;
   std::array<const TreeParticle*, 2> legs{}; ///< the positive, the negative daughter
-  int hypothesis = 0;
+  std::int32_t hypothesis = 0;
   DecayFinderDecayRecord record;
   bool fitted = false;
   LambdaRejection rejection = LambdaRejection::kNotFitted; ///< a Lambda's own candidate's, for its cascade
@@ -344,8 +344,8 @@ struct TruthCascade {
   const TreeParticle* mother = nullptr;
   std::size_t lambda = 0U; ///< into `TruthDecays::decays`
   const TreeParticle* bachelor = nullptr;
-  int sign = 0; ///< 0 a Lambda's, 1 an anti-Lambda's
-  int omega = 0;
+  std::int32_t sign = 0; ///< 0 a Lambda's, 1 an anti-Lambda's
+  std::int32_t omega = 0;
   CascadeFinderDecayRecord record;
   bool fitted = false;
 };
@@ -375,7 +375,7 @@ struct TruthDecays {
 /// Whether \a legs are, slot by slot, \a h's species and charges.
 [[nodiscard]] inline bool slotsMatch(const DecayHypothesis& h, std::span<const TreeParticle* const> legs)
 {
-  for (std::size_t slot = 0; slot < legs.size(); ++slot) {
+  for (std::uint32_t slot = 0; slot < legs.size(); ++slot) {
     const auto truth = speciesOf(legs[slot]->pdg);
     if (!truth || *truth != h.species[slot] || (particleCharge(legs[slot]->pdg) > 0.) != (h.charges[slot] > 0)) {
       return false;
@@ -399,7 +399,7 @@ template <DetectorLayout Det>
     if (found == kV0Mothers.end()) {
       continue;
     }
-    const auto h = static_cast<int>(found - kV0Mothers.begin());
+    const auto h = static_cast<std::int32_t>(found - kV0Mothers.begin());
     const auto products = decayProducts(trees, member);
     if (products.size() != 2U) {
       continue;
@@ -407,7 +407,7 @@ template <DetectorLayout Det>
     const bool firstPositive = particleCharge(products[0]->pdg) > 0.;
     const std::array<const TreeParticle*, 2> legs{firstPositive ? products[0] : products[1], firstPositive ? products[1] : products[0]};
     bool matches = particleCharge(legs[0]->pdg) > 0. && particleCharge(legs[1]->pdg) < 0.;
-    for (std::size_t slot = 0; slot < 2U && matches; ++slot) {
+    for (std::uint32_t slot = 0; slot < 2U && matches; ++slot) {
       const auto truth = speciesOf(legs[slot]->pdg);
       matches = truth && *truth == hypotheses[static_cast<std::size_t>(h)].species[slot];
     }
@@ -430,11 +430,11 @@ template <DetectorLayout Det>
   auto& cascades = out.cascades;
   auto& cascadeOfLambda = out.cascadeOfLambda;
   for (const auto& member : trees.particles) {
-    const int sign = member.pdg == 3312 || member.pdg == 3334 ? 0 : (member.pdg == -3312 || member.pdg == -3334 ? 1 : -1);
+    const std::int32_t sign = member.pdg == 3312 || member.pdg == 3334 ? 0 : (member.pdg == -3312 || member.pdg == -3334 ? 1 : -1);
     if (sign < 0) {
       continue;
     }
-    const int omega = std::abs(member.pdg) == 3334 ? 1 : 0;
+    const std::int32_t omega = std::abs(member.pdg) == 3334 ? 1 : 0;
     const auto products = decayProducts(trees, member);
     if (products.size() != 2U) {
       continue;
@@ -483,7 +483,7 @@ template <DetectorLayout Det>
     if (!matched) {
       continue;
     }
-    TruthCharm charm{.mother = &member, .hypothesis = k};
+    TruthCharm charm{.mother = &member, .hypothesis = k, .legs = {}, .record = {}};
     float ptMin = std::numeric_limits<float>::infinity();
     for (const auto* leg : slots) {
       charm.legs.push_back(leg);
@@ -616,14 +616,14 @@ template <DetectorLayout Det>
   }
   const auto ePositive = table.entryOf(positive->second, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[0])));
   const auto eNegative = table.entryOf(negative->second, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[1])));
-  if (ePositive < 0 || eNegative < 0 || entries.status[static_cast<std::size_t>(ePositive)] != PropagationStatus::kOk || entries.status[static_cast<std::size_t>(eNegative)] != PropagationStatus::kOk) {
+  if (ePositive < 0 || eNegative < 0 || entries.status[static_cast<std::uint32_t>(ePositive)] != PropagationStatus::kOk || entries.status[static_cast<std::uint32_t>(eNegative)] != PropagationStatus::kOk) {
     return FinderStage::kRefitFailed;
   }
-  if (noPoint[static_cast<std::size_t>(ePositive)] != 0U || noPoint[static_cast<std::size_t>(eNegative)] != 0U) {
+  if (noPoint[static_cast<std::uint32_t>(ePositive)] != 0U || noPoint[static_cast<std::uint32_t>(eNegative)] != 0U) {
     return FinderStage::kNoPoint;
   }
-  d.s2Positive = s2[static_cast<std::size_t>(ePositive)];
-  d.s2Negative = s2[static_cast<std::size_t>(eNegative)];
+  d.s2Positive = s2[static_cast<std::uint32_t>(ePositive)];
+  d.s2Negative = s2[static_cast<std::uint32_t>(eNegative)];
   if (std::isnan(d.s2Positive) || std::isnan(d.s2Negative)) {
     return FinderStage::kCarryFailed;
   }
@@ -648,7 +648,7 @@ void writeLegTruth(DecayFinderDecayRecord& d, std::size_t slot, std::uint32_t t,
   const auto entries = table.view();
   const auto particle = daughter.id;
   const auto rows = store.rows(t);
-  int wrong = 0;
+  std::int32_t wrong = 0;
   for (const auto row : rows) {
     wrong += event.rows[row].carries(particle) ? 0 : 1;
   }
@@ -657,18 +657,18 @@ void writeLegTruth(DecayFinderDecayRecord& d, std::size_t slot, std::uint32_t t,
   *leg.wrong = static_cast<std::uint8_t>(std::min(wrong, 255));
   *leg.layer = static_cast<std::uint8_t>(event.rows[rows.front()].layer);
   const auto e = table.entryOf(t, static_cast<std::uint8_t>(table.speciesIndex(species)));
-  if (e < 0 || entries.status[static_cast<std::size_t>(e)] != PropagationStatus::kOk || event.hits == nullptr) {
+  if (e < 0 || entries.status[static_cast<std::uint32_t>(e)] != PropagationStatus::kOk || event.hits == nullptr) {
     return;
   }
   const double charge = particleCharge(daughter.pdg);
-  const auto& state = entries.state[static_cast<std::size_t>(e)];
+  const auto& state = entries.state[static_cast<std::uint32_t>(e)];
   const auto truth = stateTruth(geometry, *event.hits, *event.frame, state, particle, rows.front(), charge);
   if (!truth) {
     return;
   }
-  for (int k = 0; k < 5; ++k) {
-    const double sign = k == 4 ? (charge > 0. ? 1. : -1.) : 1.;
-    *leg.pulls[static_cast<std::size_t>(k)] = static_cast<float>(sign * truth->residual[static_cast<std::size_t>(k)] / truth->sigma[static_cast<std::size_t>(k)]);
+  for (std::uint32_t k = 0; k < 5; ++k) {
+    const double sign = k == 4U ? (charge > 0. ? 1. : -1.) : 1.;
+    *leg.pulls[k] = static_cast<float>(sign * truth->residual[k] / truth->sigma[k]);
   }
   *leg.dpRel = static_cast<float>((1. / std::abs(static_cast<double>(state.qOverP()))) / truth->momentum - 1.);
 }
@@ -713,25 +713,25 @@ class DecayFinderStudy
   std::unique_ptr<RecordWriter> mCascadeDecayWriter;
   std::unique_ptr<RecordWriter> mCharmWriter;
   std::unique_ptr<RecordWriter> mCharmDecayWriter;
-  std::size_t mCharmCandidates = 0U;
-  std::size_t mCharmFitted = 0U;
-  std::size_t mCharmDecays = 0U;
-  std::size_t mCharmFound = 0U;
+  std::uint64_t mCharmCandidates = 0U;
+  std::uint64_t mCharmFitted = 0U;
+  std::uint64_t mCharmDecays = 0U;
+  std::uint64_t mCharmFound = 0U;
   double mCharmMicroseconds = 0.;
-  std::size_t mLambdasTaken = 0U;
-  std::size_t mCascadeCandidates = 0U;
-  std::size_t mCascadesFitted = 0U;
-  std::size_t mCascades = 0U;
-  std::size_t mCascadesFound = 0U;
+  std::uint64_t mLambdasTaken = 0U;
+  std::uint64_t mCascadeCandidates = 0U;
+  std::uint64_t mCascadesFitted = 0U;
+  std::uint64_t mCascades = 0U;
+  std::uint64_t mCascadesFound = 0U;
   double mCascadeMicroseconds = 0.;
-  std::size_t mTracks = 0U;
-  std::size_t mUnassociated = 0U;
-  std::size_t mContributors = 0U;
-  std::size_t mPairs = 0U;
-  std::size_t mFitted = 0U;
-  std::size_t mDecays = 0U;
-  std::size_t mFound = 0U;
-  std::size_t mEntries = 0U;
+  std::uint64_t mTracks = 0U;
+  std::uint64_t mUnassociated = 0U;
+  std::uint64_t mContributors = 0U;
+  std::uint64_t mPairs = 0U;
+  std::uint64_t mFitted = 0U;
+  std::uint64_t mDecays = 0U;
+  std::uint64_t mFound = 0U;
+  std::uint64_t mEntries = 0U;
   double mFlushSeconds = 0.;
   double mDisplacementSeconds = 0.;
   double mVertexSeconds = 0.;
@@ -823,7 +823,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       noPoint[e] = 1U;
       return;
     }
-    s2[e] = static_cast<float>(displacement(daughters, e, points[static_cast<std::size_t>(point)]));
+    s2[e] = static_cast<float>(displacement(daughters, e, points[static_cast<std::uint32_t>(point)]));
   });
   mDisplacementSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - displacementStart).count();
 
@@ -850,7 +850,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     return fake[t] == 0U && found != event.particles->end() && found->second.origin == ParticleOrigin::kPhysicalPrimary;
   };
   const auto radiusOf = [&](std::int32_t e) {
-    const auto& state = entries.state[static_cast<std::size_t>(e)];
+    const auto& state = entries.state[static_cast<std::uint32_t>(e)];
     std::array<Scalar, 3> at{};
     surfaceToGlobal(geometry.planeOf(state), state.loc0(), state.loc1(), at.data());
     return std::hypot(at[0], at[1]);
@@ -864,13 +864,13 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   struct TakenLambda {
     std::uint32_t positive = 0U;
     std::uint32_t negative = 0U;
-    int sign = 0; ///< 0 Lambda, 1 anti-Lambda
+    std::int32_t sign = 0; ///< 0 Lambda, 1 anti-Lambda
     std::int32_t ePositive = -1;
     std::int32_t eNegative = -1;
     const DecayFinderCandidateRecord* record = nullptr; ///< its V0 record (class, mother, PID, S^2, mass)
     bool own = false;                                   ///< its MC Lambda's own pair
   };
-  const auto rejectionOf = [&](const DecayFinderCandidateRecord& record, int ahead) {
+  const auto rejectionOf = [&](const DecayFinderCandidateRecord& record, std::int32_t ahead) {
     if (record.status != static_cast<std::uint8_t>(VertexFitStatus::kOk)) {
       return LambdaRejection::kNotFitted;
     }
@@ -909,12 +909,12 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
         const bool clone = fake[bachelor] == 0U && ((fake[lambda.positive] == 0U && particleOf[bachelor] == particleOf[lambda.positive]) || (fake[lambda.negative] == 0U && particleOf[bachelor] == particleOf[lambda.negative]));
         const bool trueBachelor = lambdaCascade != cascadeOfLambda.end() && fake[bachelor] == 0U && particleOf[bachelor] == cascades[lambdaCascade->second].bachelor->id;
         const auto bachelorTruth = speciesOf(event.particles->at(particleOf[bachelor]).pdg);
-        for (int omega = 0; omega < 2; ++omega) {
+        for (std::int32_t omega = 0; omega < 2; ++omega) {
           const Species bachelorSpecies = omega != 0 ? Species::kKaon : Species::kPion;
           const auto eBachelor = table.entryOf(bachelor, static_cast<std::uint8_t>(table.speciesIndex(bachelorSpecies)));
-          const bool bachelorRefitted = entries.status[static_cast<std::size_t>(eBachelor)] == PropagationStatus::kOk;
-          const float s2Bachelor = s2[static_cast<std::size_t>(eBachelor)];
-          for (int held = 0; held < 2; ++held) {
+          const bool bachelorRefitted = entries.status[static_cast<std::uint32_t>(eBachelor)] == PropagationStatus::kOk;
+          const float s2Bachelor = s2[static_cast<std::uint32_t>(eBachelor)];
+          for (std::int32_t held = 0; held < 2; ++held) {
             const auto h = cascadeIndex(lambda.sign, omega, held);
             CascadeFinderCandidateRecord record{.timeframe = event.timeframe, .collision = collision, .sign = static_cast<std::uint8_t>(lambda.sign), .omega = static_cast<std::uint8_t>(omega), .held = static_cast<std::uint8_t>(held), .lambdaClass = v0.truthClass, .s2Positive = v0.s2Positive, .s2Negative = v0.s2Negative, .s2Bachelor = s2Bachelor, .lambdaV0Mass = v0.mass, .lambdaV0SMass = v0.sMass};
             record.pidMatch = static_cast<std::uint8_t>(v0.pidMatch != 0U && bachelorTruth && *bachelorTruth == bachelorSpecies ? 1U : 0U);
@@ -939,14 +939,14 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
             } else {
               record.truthClass = static_cast<std::uint8_t>(CascadeClass::kCombinatorial);
             }
-            DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = point};
+            DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = point, .entries = {}, .start = {}};
             candidate.entries.push_back(static_cast<std::uint32_t>(lambda.ePositive));
             candidate.entries.push_back(static_cast<std::uint32_t>(lambda.eNegative));
             candidate.entries.push_back(static_cast<std::uint32_t>(eBachelor));
             DecayCandidateResult result;
             const auto started = std::chrono::steady_clock::now();
             if (bachelorRefitted) {
-              static_cast<void>(startDecayCandidate(candidate, allHypotheses, daughters, points.size()));
+              static_cast<void>(startDecayCandidate(candidate, allHypotheses, daughters, static_cast<std::uint32_t>(points.size())));
             }
             fitDecayCandidate(candidate, allHypotheses, daughters, geometry.material(), std::span<const MeasuredPoint>{points}, workspace, result);
             record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
@@ -966,7 +966,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
             // The mother made at the point: what that adds to the chi2.
             const auto pointChi2 = [&](std::span<const DecayMother> mothers, double chi2, const MeasuredPoint* at = nullptr) {
               DecayCandidateResult made;
-              fitDecayCandidate(candidate, allHypotheses, daughters, geometry.material(), std::span<const MeasuredPoint>{points}, workspace, made, mothers, at != nullptr ? at : &points[static_cast<std::size_t>(point)]);
+              fitDecayCandidate(candidate, allHypotheses, daughters, geometry.material(), std::span<const MeasuredPoint>{points}, workspace, made, mothers, at != nullptr ? at : &points[static_cast<std::uint32_t>(point)]);
               return made.fit.status == VertexFitStatus::kOk ? static_cast<float>(made.fit.chi2 - chi2) : CascadeFinderCandidateRecord::kNaN;
             };
             if (fitted && held != 0 && point >= 0) {
@@ -974,7 +974,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
             }
             if (fitted && held != 0) {
               // The mother's own rows, and the fit with them.
-              const auto tree = expandHypothesis(allHypotheses, h);
+              const auto tree = expandHypothesis(allHypotheses, static_cast<std::uint32_t>(h));
               const auto start = motherStateAt(result.fit, tree.topology, 0, fieldScale);
               const std::array<std::uint32_t, 3> tracks{lambda.positive, lambda.negative, bachelor};
               TimeEstPS box{.start = committed.timePS[tracks[0]], .width = committed.widthPS[tracks[0]]};
@@ -1001,8 +1001,8 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
                   for (std::size_t k = 0; k < found.rows.size(); ++k) {
                     const auto row = found.rows[k];
                     chi2 += found.chi2[k];
-                    record.motherFree += owned[row] == 0U ? 1U : 0U;
-                    record.motherTrue += record.cascade != 0U && event.rows[row].carries(record.cascade) ? 1U : 0U;
+                    record.motherFree = static_cast<std::uint8_t>(record.motherFree + (owned[row] == 0U ? 1U : 0U));
+                    record.motherTrue = static_cast<std::uint8_t>(record.motherTrue + (record.cascade != 0U && event.rows[row].carries(record.cascade) ? 1U : 0U));
                     const auto m = event.frame->measurement(row);
                     planes.push_back(geometry.planeOf(m));
                     positions.push_back({m.loc0, m.loc1});
@@ -1090,12 +1090,12 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
   const auto preMassOf = [&](std::size_t k, std::span<const std::uint32_t> tracks) {
     const auto& hypothesis = hypotheses[charmFirst + k];
     decay_fit_detail::MomentumSum<double> sum;
-    for (std::size_t slot = 0; slot < tracks.size(); ++slot) {
+    for (std::uint32_t slot = 0; slot < tracks.size(); ++slot) {
       const auto e = table.entryOf(tracks[slot], static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
-      if (e < 0 || entries.status[static_cast<std::size_t>(e)] != PropagationStatus::kOk) {
+      if (e < 0 || entries.status[static_cast<std::uint32_t>(e)] != PropagationStatus::kOk) {
         return std::numeric_limits<double>::quiet_NaN();
       }
-      const auto& state = entries.state[static_cast<std::size_t>(e)];
+      const auto& state = entries.state[static_cast<std::uint32_t>(e)];
       const auto momentum = decay_fit_detail::momentumOf<double>(state.phi(), state.theta(), state.qOverP(), 1.);
       sum.add(momentum.vector, decay_fit_detail::energyOf(momentum, massOf(hypothesis.species[slot])));
     }
@@ -1113,22 +1113,22 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
         return; // a three-prong outside the pre-fit mass window: no candidate
       }
       CharmFinderCandidateRecord record{.timeframe = event.timeframe, .collision = collision, .hypothesis = static_cast<std::uint8_t>(k), .preMass = static_cast<float>(preMass)};
-      DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = point};
+      DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = point, .entries = {}, .start = {}};
       bool refitted = true;
       bool pid = true;
       std::array<float*, 3> s2Slots{&record.s2First, &record.s2Second, &record.s2Third};
       float ptMin = std::numeric_limits<float>::infinity();
-      for (std::size_t slot = 0; slot < tracks.size(); ++slot) {
+      for (std::uint32_t slot = 0; slot < tracks.size(); ++slot) {
         const auto e = table.entryOf(tracks[slot], static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
         candidate.entries.push_back(static_cast<std::uint32_t>(e));
-        refitted = refitted && entries.status[static_cast<std::size_t>(e)] == PropagationStatus::kOk;
-        *s2Slots[slot] = s2[static_cast<std::size_t>(e)];
+        refitted = refitted && entries.status[static_cast<std::uint32_t>(e)] == PropagationStatus::kOk;
+        *s2Slots[slot] = s2[static_cast<std::uint32_t>(e)];
         if (refitted) {
-          const auto& state = entries.state[static_cast<std::size_t>(e)];
+          const auto& state = entries.state[static_cast<std::uint32_t>(e)];
           ptMin = std::min(ptMin, static_cast<float>(std::abs(std::sin(state.theta()) / state.qOverP())));
         }
-        const auto truth = speciesOf(event.particles->at(particleOf[tracks[slot]]).pdg);
-        pid = pid && truth && *truth == hypothesis.species[slot];
+        const auto trueSpecies = speciesOf(event.particles->at(particleOf[tracks[slot]]).pdg);
+        pid = pid && trueSpecies && *trueSpecies == hypothesis.species[slot];
       }
       record.ptMin = refitted ? ptMin : CharmFinderCandidateRecord::kNaN;
       record.pidMatch = pid ? 1U : 0U;
@@ -1137,7 +1137,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       DecayCandidateResult result;
       const auto started = std::chrono::steady_clock::now();
       if (refitted) {
-        static_cast<void>(startDecayCandidate(candidate, allHypotheses, daughters, points.size()));
+        static_cast<void>(startDecayCandidate(candidate, allHypotheses, daughters, static_cast<std::uint32_t>(points.size())));
       }
       fitDecayCandidate(candidate, allHypotheses, daughters, geometry.material(), std::span<const MeasuredPoint>{points}, workspace, result);
       record.microseconds = static_cast<float>(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count());
@@ -1148,7 +1148,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
         record.ahead = static_cast<std::uint8_t>(leavesAhead(candidate, allHypotheses, daughters, result));
         if (point >= 0) {
           DecayCandidateResult made;
-          fitDecayCandidate(candidate, allHypotheses, daughters, geometry.material(), std::span<const MeasuredPoint>{points}, workspace, made, {}, &points[static_cast<std::size_t>(point)]);
+          fitDecayCandidate(candidate, allHypotheses, daughters, geometry.material(), std::span<const MeasuredPoint>{points}, workspace, made, {}, &points[static_cast<std::uint32_t>(point)]);
           if (made.fit.status == VertexFitStatus::kOk) {
             record.pointChi2 = static_cast<float>(made.fit.chi2 - result.fit.chi2);
           }
@@ -1191,19 +1191,19 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       }
     }
     // The three-prongs: two of the first charge (the sign's), one of the other.
-    for (int sign = 0; sign < 2; ++sign) {
+    for (std::size_t sign = 0; sign < 2U; ++sign) {
       const auto& same = lists[sign];
-      const auto& other = lists[1 - sign];
+      const auto& other = lists[1U - sign];
       for (std::size_t i = 0; i < same.size(); ++i) {
         for (std::size_t j = i + 1; j < same.size(); ++j) {
           for (const auto third : other) {
             const std::array<std::uint32_t, 3> ij{same[i], same[j], third};
             const std::array<std::uint32_t, 3> ji{same[j], same[i], third};
-            fitOne(2 + static_cast<std::size_t>(sign), ij); // D+: the two pions once
-            fitOne(4 + static_cast<std::size_t>(sign), ij);
-            fitOne(4 + static_cast<std::size_t>(sign), ji);
-            fitOne(6 + static_cast<std::size_t>(sign), ij);
-            fitOne(6 + static_cast<std::size_t>(sign), ji);
+            fitOne(2 + sign, ij); // D+: the two pions once
+            fitOne(4 + sign, ij);
+            fitOne(4 + sign, ji);
+            fitOne(6 + sign, ij);
+            fitOne(6 + sign, ji);
           }
         }
       }
@@ -1232,9 +1232,9 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
               const auto& hypothesis = hypotheses[h];
               const auto ePositive = table.entryOf(positive, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[0])));
               const auto eNegative = table.entryOf(negative, static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[1])));
-              const float s2Positive = s2[static_cast<std::size_t>(ePositive)];
-              const float s2Negative = s2[static_cast<std::size_t>(eNegative)];
-              const bool own = ownPair && decays[ownDecay->second].hypothesis == static_cast<int>(h);
+              const float s2Positive = s2[static_cast<std::uint32_t>(ePositive)];
+              const float s2Negative = s2[static_cast<std::uint32_t>(eNegative)];
+              const bool own = ownPair && decays[ownDecay->second].hypothesis == static_cast<std::int32_t>(h);
               DecayFinderCandidateRecord record{.timeframe = event.timeframe, .collision = collision, .hypothesis = static_cast<std::uint8_t>(h), .s2Positive = s2Positive, .s2Negative = s2Negative};
               record.primaries = static_cast<std::uint8_t>((isPrimary(positive) ? 1 : 0) + (isPrimary(negative) ? 1 : 0));
               const auto truthPositive = speciesOf(event.particles->at(particleOf[positive]).pdg);
@@ -1248,7 +1248,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
                 record.motherPdg = m != nullptr ? m->pdg : 0;
                 if (ownDecay != decayOfLeg.end()) {
                   const bool chargesRight = particleCharge(event.particles->at(particleOf[positive]).pdg) > 0. && particleCharge(event.particles->at(particleOf[negative]).pdg) < 0.;
-                  record.truthClass = static_cast<std::uint8_t>(!chargesRight ? FinderClass::kWrongCharge : (decays[ownDecay->second].hypothesis == static_cast<int>(h) ? FinderClass::kTrue : FinderClass::kOtherHypothesis));
+                  record.truthClass = static_cast<std::uint8_t>(!chargesRight ? FinderClass::kWrongCharge : (decays[ownDecay->second].hypothesis == static_cast<std::int32_t>(h) ? FinderClass::kTrue : FinderClass::kOtherHypothesis));
                 } else {
                   record.truthClass = static_cast<std::uint8_t>(FinderClass::kOtherDecay);
                 }
@@ -1257,24 +1257,24 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
                 const bool negativeLeg = decayOfLeg.contains(particleOf[negative]);
                 record.truthClass = static_cast<std::uint8_t>(positiveLeg != negativeLeg ? FinderClass::kOneLeg : FinderClass::kCombinatorial);
               }
-              const auto ptOf = [&](std::int32_t e) { const auto& state = entries.state[static_cast<std::size_t>(e)]; return static_cast<float>(std::abs(std::sin(state.theta()) / state.qOverP())); };
-              const auto refitted = [&](std::int32_t e) { return entries.status[static_cast<std::size_t>(e)] == PropagationStatus::kOk; };
+              const auto ptOf = [&](std::int32_t e) { const auto& state = entries.state[static_cast<std::uint32_t>(e)]; return static_cast<float>(std::abs(std::sin(state.theta()) / state.qOverP())); };
+              const auto refitted = [&](std::int32_t e) { return entries.status[static_cast<std::uint32_t>(e)] == PropagationStatus::kOk; };
               const auto nan = std::numeric_limits<float>::quiet_NaN();
               record.ptPositive = refitted(ePositive) ? ptOf(ePositive) : nan;
               record.ptNegative = refitted(eNegative) ? ptOf(eNegative) : nan;
               record.firstPositive = refitted(ePositive) ? radiusOf(ePositive) : nan;
               record.firstNegative = refitted(eNegative) ? radiusOf(eNegative) : nan;
-              DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = point};
+              DecayCandidate candidate{.hypothesis = static_cast<std::uint16_t>(h), .point = point, .entries = {}, .start = {}};
               candidate.entries.push_back(static_cast<std::uint32_t>(ePositive));
               candidate.entries.push_back(static_cast<std::uint32_t>(eNegative));
               DecayCandidateResult result;
               const auto started = std::chrono::steady_clock::now();
               if (refitted(ePositive) && refitted(eNegative)) {
-                static_cast<void>(startDecayCandidate(candidate, std::span<const DecayHypothesis>{hypotheses}, daughters, points.size()));
+                static_cast<void>(startDecayCandidate(candidate, std::span<const DecayHypothesis>{hypotheses}, daughters, static_cast<std::uint32_t>(points.size())));
                 // The legs' helices where they come closest: the start of a pair.
-                const auto legs = candidateDaughters(candidate, daughters);
+                const auto pairLegs = candidateDaughters(candidate, daughters);
                 const auto entryOf = [](const DecayDaughter& daughter) { return decay_fit_detail::StartEntry{.state = &daughter.innermost, .surface = &daughter.surface, .propagator = &daughter.propagator}; };
-                if (const auto approach = decay_fit_detail::approachOf(entryOf(legs[0]), entryOf(legs[1])); approach.found) {
+                if (const auto approach = decay_fit_detail::approachOf(entryOf(pairLegs[0]), entryOf(pairLegs[1])); approach.found) {
                   record.startRadius = static_cast<float>(std::hypot(approach.start[0], approach.start[1]));
                   record.gapXY = static_cast<float>(approach.gapXY);
                   record.gapZ = static_cast<float>(approach.gapZ);
@@ -1310,7 +1310,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
               }
               out.push_back(record);
               if (rejection == LambdaRejection::kTaken) {
-                taken.push_back({.positive = positive, .negative = negative, .sign = static_cast<int>(h) - 1, .ePositive = ePositive, .eNegative = eNegative, .record = &out.back(), .own = own});
+                taken.push_back({.positive = positive, .negative = negative, .sign = static_cast<std::int32_t>(h) - 1, .ePositive = ePositive, .eNegative = eNegative, .record = &out.back(), .own = own});
               }
             }
           }
@@ -1324,20 +1324,20 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       for (const auto& record : perCollision[c - first]) {
         mWriter->write(record);
         mFitted += record.status == static_cast<std::uint8_t>(VertexFitStatus::kOk) ? 1U : 0U;
-        mFitMicroseconds += record.microseconds;
+        mFitMicroseconds += static_cast<double>(record.microseconds);
       }
       mPairs += perCollision[c - first].size();
       for (const auto& record : perCollisionCascades[c - first]) {
         mCascadeWriter->write(record);
         mCascadesFitted += record.status == static_cast<std::uint8_t>(VertexFitStatus::kOk) ? 1U : 0U;
-        mCascadeMicroseconds += record.microseconds;
+        mCascadeMicroseconds += static_cast<double>(record.microseconds);
       }
       mCascadeCandidates += perCollisionCascades[c - first].size();
       mLambdasTaken += perCollisionTaken[c - first];
       for (const auto& record : perCollisionCharm[c - first]) {
         mCharmWriter->write(record);
         mCharmFitted += record.status == static_cast<std::uint8_t>(VertexFitStatus::kOk) ? 1U : 0U;
-        mCharmMicroseconds += record.microseconds;
+        mCharmMicroseconds += static_cast<double>(record.microseconds);
       }
       mCharmCandidates += perCollisionCharm[c - first].size();
     }
@@ -1356,7 +1356,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     }
     if (positive != trackOfLeg.end() && negative != trackOfLeg.end()) {
       const auto& hypothesis = hypotheses[static_cast<std::size_t>(decay.hypothesis)];
-      for (std::size_t slot = 0; slot < 2U; ++slot) {
+      for (std::uint32_t slot = 0; slot < 2U; ++slot) {
         writeLegTruth(d, slot, (slot == 0 ? positive : negative)->second, *decay.legs[slot], hypothesis.species[slot], event, table);
       }
     }
@@ -1393,9 +1393,9 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
         return CascadeStage::kContributor;
       }
       const auto& lambdaHypothesis = hypotheses[static_cast<std::size_t>(lambda.hypothesis)];
-      for (std::size_t i = 0; i < 2U; ++i) {
+      for (std::uint32_t i = 0; i < 2U; ++i) {
         const auto e = table.entryOf(tracks[i], static_cast<std::uint8_t>(table.speciesIndex(lambdaHypothesis.species[i])));
-        if (e < 0 || entries.status[static_cast<std::size_t>(e)] != PropagationStatus::kOk) {
+        if (e < 0 || entries.status[static_cast<std::uint32_t>(e)] != PropagationStatus::kOk) {
           return CascadeStage::kLambdaRefitFailed;
         }
       }
@@ -1406,7 +1406,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
         return CascadeStage::kLambdaRejected;
       }
       const auto eBachelor = table.entryOf(tracks[2], static_cast<std::uint8_t>(table.speciesIndex(cascade.omega != 0 ? Species::kKaon : Species::kPion)));
-      if (eBachelor < 0 || entries.status[static_cast<std::size_t>(eBachelor)] != PropagationStatus::kOk) {
+      if (eBachelor < 0 || entries.status[static_cast<std::uint32_t>(eBachelor)] != PropagationStatus::kOk) {
         return CascadeStage::kBachelorRefitFailed;
       }
       if (!cascade.fitted) {
@@ -1428,7 +1428,7 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
     auto& d = charm.record;
     const auto& hypothesis = hypotheses[charmFirst + charm.hypothesis];
     std::array<std::uint32_t, 3> tracks{};
-    for (std::size_t slot = 0; slot < charm.legs.size(); ++slot) {
+    for (std::uint32_t slot = 0; slot < charm.legs.size(); ++slot) {
       const auto found = trackOfLeg.find(charm.legs[slot]->id);
       if (found == trackOfLeg.end()) {
         d.missing |= static_cast<std::uint8_t>(1U << slot);
@@ -1444,9 +1444,9 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
       if (std::ranges::any_of(own, [&](std::uint32_t t) { return association.contributor(t); })) {
         return CharmStage::kContributor;
       }
-      for (std::size_t slot = 0; slot < own.size(); ++slot) {
+      for (std::uint32_t slot = 0; slot < own.size(); ++slot) {
         const auto e = table.entryOf(own[slot], static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
-        if (e < 0 || entries.status[static_cast<std::size_t>(e)] != PropagationStatus::kOk) {
+        if (e < 0 || entries.status[static_cast<std::uint32_t>(e)] != PropagationStatus::kOk) {
           return CharmStage::kRefitFailed;
         }
       }
@@ -1456,16 +1456,16 @@ void DecayFinderStudy<Det>::process(const TruthEvent<Det>& event, std::span<cons
         float qMax = 0.F;
         float angleMax = 0.F;
         bool any = false;
-        for (std::size_t slot = 0; slot < own.size(); ++slot) {
+        for (std::uint32_t slot = 0; slot < own.size(); ++slot) {
           const auto e = table.entryOf(own[slot], static_cast<std::uint8_t>(table.speciesIndex(hypothesis.species[slot])));
           const double charge = particleCharge(charm.legs[slot]->pdg);
-          const auto truth = stateTruth(geometry, *event.hits, *event.frame, entries.state[static_cast<std::size_t>(e)], charm.legs[slot]->id, store.rows(own[slot]).front(), charge);
-          if (!truth) {
+          const auto legTruth = stateTruth(geometry, *event.hits, *event.frame, entries.state[static_cast<std::uint32_t>(e)], charm.legs[slot]->id, store.rows(own[slot]).front(), charge);
+          if (!legTruth) {
             continue;
           }
           any = true;
-          qMax = std::max(qMax, static_cast<float>(std::abs(truth->residual[kQOverP] / truth->sigma[kQOverP])));
-          angleMax = std::max({angleMax, static_cast<float>(std::abs(truth->residual[kPhi] / truth->sigma[kPhi])), static_cast<float>(std::abs(truth->residual[kTheta] / truth->sigma[kTheta]))});
+          qMax = std::max(qMax, static_cast<float>(std::abs(legTruth->residual[kQOverP] / legTruth->sigma[kQOverP])));
+          angleMax = std::max({angleMax, static_cast<float>(std::abs(legTruth->residual[kPhi] / legTruth->sigma[kPhi])), static_cast<float>(std::abs(legTruth->residual[kTheta] / legTruth->sigma[kTheta]))});
         }
         if (any) {
           d.qOverPPullMax = qMax;

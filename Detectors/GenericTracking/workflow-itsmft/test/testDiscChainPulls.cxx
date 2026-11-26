@@ -52,6 +52,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <random>
@@ -88,7 +89,7 @@ struct DiscSetup {
   Scalar bzKiloGauss = 0.F;
   double sigmaLoc = 0.;            ///< [cm], both directions
   double x2X0PerCm = 0.;           ///< UniformMaterial along the chain
-  std::size_t minMeasurements = 0; ///< discs the track must leave a measurement on
+  std::uint32_t minMeasurements = 0; ///< discs the track must leave a measurement on
 };
 
 /// The MFT's ten faces, -45 to -77 cm, at an ALICE run's field, with the
@@ -102,7 +103,7 @@ struct DiscChain {
   /// The link material as \a medium's, filled when it changes.
   void hold(const UniformMaterial& medium)
   {
-    if (medium.x2X0PerCm != filled.x2X0PerCm || medium.rho != filled.rho) {
+    if (!exactlyEqual(medium.x2X0PerCm, filled.x2X0PerCm) || !exactlyEqual(medium.rho, filled.rho)) {
       fillFromMedium<Det>(tracking->material(), medium);
       filled = medium;
     }
@@ -119,12 +120,12 @@ struct DiscChain {
     for (SensorID id = 0; id < static_cast<SensorID>(Det::nSensors); ++id) {
       const auto found = std::ranges::find(setup.layers, tracking->surface(id).layer);
       if (found != setup.layers.end()) {
-        sensorsOfStep[static_cast<std::size_t>(found - setup.layers.begin())].push_back(id);
+        sensorsOfStep[static_cast<std::uint32_t>(found - setup.layers.begin())].push_back(id);
       }
     }
   }
 
-  [[nodiscard]] SensorID crossed(const BoundTrackState& state, const TrackingSurface& from, std::size_t step) const
+  [[nodiscard]] SensorID crossed(const BoundTrackState& state, const TrackingSurface& from, std::uint32_t step) const
   {
     for (const SensorID id : sensorsOfStep[step]) {
       BoundTrackState probe = state;
@@ -176,7 +177,7 @@ struct DiscChain {
       if (!trace(false, rng, 0.F)) {
         return false;
       }
-      for (std::size_t k = 1; k < truth.size(); ++k) {
+      for (std::uint32_t k = 1; k < truth.size(); ++k) {
         Scalar a[3]{};
         Scalar b[3]{};
         surfaceToGlobal(tracking->surface(truth[k - 1].surface), truth[k - 1].loc0(), truth[k - 1].loc1(), a);
@@ -194,7 +195,7 @@ struct DiscChain {
     std::normal_distribution<double> gauss(0., 1.);
     const auto x2X0PerCm = static_cast<Scalar>(setup.x2X0PerCm);
     truth.resize(1);
-    for (std::size_t step = 1; step < setup.layers.size(); ++step) {
+    for (std::uint32_t step = 1; step < setup.layers.size(); ++step) {
       const auto& from = tracking->surface(truth.back().surface);
       BoundTrackState outgoing = truth.back();
       const auto unkicked = crossed(outgoing, from, step);
@@ -233,7 +234,7 @@ struct DiscChain {
     }
     const auto var = static_cast<Scalar>(setup.sigmaLoc * setup.sigmaLoc);
     measurements.clear();
-    for (std::size_t i = 0; i < truth.size(); ++i) {
+    for (std::uint32_t i = 0; i < truth.size(); ++i) {
       measurements.push_back(Measurement{
         .loc0 = truth[i].loc0(),
         .loc1 = truth[i].loc1(),
@@ -242,7 +243,7 @@ struct DiscChain {
         .varLoc0 = var,
         .covLoc01 = 0.F,
         .varLoc1 = var,
-        .clusterIndex = static_cast<std::uint32_t>(i),
+        .clusterIndex = i,
         .surface = truth[i].surface,
       });
     }
@@ -253,10 +254,10 @@ struct DiscChain {
 using namespace test::pulls;
 
 /// How many of MftPullsWithScatteringAreUnit's checks are expected to fail.
-constexpr unsigned kMftExpectedFailures = 46;
+constexpr std::uint32_t kMftExpectedFailures = 46;
 
 template <DetectorLayout Det>
-PullPoint pullsAt(DiscChain<Det>& chain, double ptGeV, double eta, bool withMaterial, int trials, std::uint32_t seed)
+PullPoint pullsAt(DiscChain<Det>& chain, double ptGeV, double eta, bool withMaterial, std::int32_t trials, std::uint32_t seed)
 {
   const UniformMaterial material{.x2X0PerCm = withMaterial ? static_cast<Scalar>(chain.setup.x2X0PerCm) : 0.F};
   chain.hold(material);
@@ -265,11 +266,11 @@ PullPoint pullsAt(DiscChain<Det>& chain, double ptGeV, double eta, bool withMate
   std::mt19937 rng(seed);
   std::normal_distribution<double> gauss(0., 1.);
   std::uniform_real_distribution<double> uniformPhi(-kPi<double>, kPi<double>);
-  return collectPulls(chain, ptGeV, eta, trials, [&](int trial) {
+  return collectPulls(chain, ptGeV, eta, trials, [&](std::int32_t trial) {
     const Scalar charge = (trial % 2) != 0 ? 1.F : -1.F;
     bool built = false;
     // Gaps between sensors lose a good part of the lines; draw again.
-    for (int attempt = 0; attempt < 100 && !built; ++attempt) {
+    for (std::int32_t attempt = 0; attempt < 100 && !built; ++attempt) {
       built = chain.start(static_cast<Scalar>(uniformPhi(rng)), static_cast<Scalar>(theta), static_cast<Scalar>(static_cast<double>(charge) / p)) && chain.generate(withMaterial, rng);
     }
     BOOST_REQUIRE(built);
@@ -278,14 +279,14 @@ PullPoint pullsAt(DiscChain<Det>& chain, double ptGeV, double eta, bool withMate
       m.loc0 += static_cast<Scalar>(gauss(rng) * chain.setup.sigmaLoc);
       m.loc1 += static_cast<Scalar>(gauss(rng) * chain.setup.sigmaLoc);
     }
-    return fitMeasurements(chain.propagator, *chain.tracking, material, smeared.data(), static_cast<int>(smeared.size()));
+    return fitMeasurements(chain.propagator, *chain.tracking, material, smeared.data(), static_cast<std::int32_t>(smeared.size()));
   });
 }
 
 constexpr std::array<double, 5> kPtScan{0.1, 0.2, 0.5, 1., 2.};
 
 template <DetectorLayout Det>
-std::vector<PullPoint> scan(DiscChain<Det>& chain, std::span<const double> etas, bool withMaterial, int trials)
+std::vector<PullPoint> scan(DiscChain<Det>& chain, std::span<const double> etas, bool withMaterial, std::int32_t trials)
 {
   std::vector<PullPoint> points;
   std::uint32_t seed = 20260930;
@@ -302,7 +303,7 @@ std::vector<PullPoint> scan(DiscChain<Det>& chain, std::span<const double> etas,
 /// The widths of 1000 unit-Gaussian pulls scatter by about 2 % (plain) and
 /// 4 % (robust); 15 % is far outside that.
 constexpr double kTolerance = 0.15;
-constexpr int kTrials = 1000;
+constexpr std::int32_t kTrials = 1000;
 
 constexpr Vec3D kMftEtas{-2.6, -3.0, -3.4};
 

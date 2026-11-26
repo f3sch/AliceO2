@@ -71,14 +71,14 @@ struct Toy {
 /// \a helix carried along its path by the Lorentz force alone, in \a steps
 /// steps of \a step [cm] of transverse path, backward for a negative one:
 /// the field's equations of motion, midpoint rule, with no circle in them.
-TruthHelix integrate(TruthHelix helix, double bzKiloGauss, double step, int steps)
+TruthHelix integrate(TruthHelix helix, double bzKiloGauss, double step, std::int32_t steps)
 {
   const double pt = std::hypot(helix.momentum[0], helix.momentum[1]);
   // du/ds = (q Bz c / pT) (uy, -ux): F = q v x B with B along z.
   const double k = helix.charge * bzKiloGauss * 0.299792458e-3 / pt;
   double ux = helix.momentum[0] / pt;
   double uy = helix.momentum[1] / pt;
-  for (int i = 0; i < steps; ++i) {
+  for (std::int32_t i = 0; i < steps; ++i) {
     const double mx = ux + (0.5 * step * k * uy);
     const double my = uy - (0.5 * step * k * ux);
     helix.position[0] += step * mx;
@@ -332,10 +332,10 @@ BOOST_AUTO_TEST_CASE(ADisplacedHelixMissesTheBeamLineByItsCircle)
         // The nearer pass: half a turn back and half a turn ahead, step by step.
         double best = std::hypot(helix.position[0], helix.position[1]);
         double bestZ = helix.position[2];
-        const int halfTurn = static_cast<int>(kPi<double> * radius / 1e-3);
+        const auto halfTurn = static_cast<std::int32_t>(kPi<double> * radius / 1e-3);
         for (const double step : {-1e-3, 1e-3}) {
           auto walker = helix;
-          for (int i = 0; i < halfTurn; ++i) {
+          for (std::int32_t i = 0; i < halfTurn; ++i) {
             walker = integrate(walker, bz, step, 1);
             if (const double distance = std::hypot(walker.position[0], walker.position[1]); distance < best) {
               best = distance;

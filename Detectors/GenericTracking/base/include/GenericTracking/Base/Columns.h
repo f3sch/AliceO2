@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <memory_resource>
 
 namespace o2::gtrk
@@ -53,9 +54,9 @@ class BoundedColumns
   /// to its size before -- which allocates nothing -- and the exception goes
   /// on. Columns of different sizes would let `size()`, which reads the first,
   /// promise rows a later column does not have.
-  void resize(std::size_t size)
+  void resize(std::uint32_t size)
   {
-    const std::size_t before = this->size();
+    const std::uint32_t before = this->size();
     try {
       mColumns.apply([size](auto&... column) { (column.resize(size), ...); });
     } catch (...) {
@@ -70,7 +71,7 @@ class BoundedColumns
   /// first, so that a growing slice neither copies rows it overwrites nor
   /// doubles the capacity. If an allocation
   /// throws, every column is left empty, and the exception goes on.
-  void resizeRewritten(std::size_t size)
+  void resizeRewritten(std::uint32_t size)
   {
     try {
       mColumns.apply([size](auto&... column) { (resizeBoundedVector(column, size), ...); });
@@ -80,9 +81,9 @@ class BoundedColumns
     }
   }
 
-  [[nodiscard]] std::size_t size() const
+  [[nodiscard]] std::uint32_t size() const
   {
-    return mColumns.apply([](const auto& first, const auto&... /*rest*/) { return first.size(); });
+    return mColumns.apply([](const auto& first, const auto&... /*rest*/) { return static_cast<std::uint32_t>(first.size()); });
   }
 
   [[nodiscard]] View view()
@@ -95,20 +96,20 @@ class BoundedColumns
     return mColumns.apply([](const auto&... column) { return ConstView{S<memlayout::const_pointer>{column.data()...}}; });
   }
 
-  void write(std::size_t index, const Record& record)
+  void write(std::uint32_t index, const Record& record)
   {
     assert(index < size());
     mColumns.apply([&](auto&... column) { record.apply([&](const auto&... value) { ((column[index] = value), ...); }); });
   }
 
-  [[nodiscard]] Record read(std::size_t index) const
+  [[nodiscard]] Record read(std::uint32_t index) const
   {
     assert(index < size());
     return mColumns.apply([index](const auto&... column) { return Record{column[index]...}; });
   }
 
   /// Copy \a count rows starting at \a from into \a destination at \a to.
-  void copyTo(std::size_t from, BoundedColumns& destination, std::size_t to, std::size_t count) const
+  void copyTo(std::uint32_t from, BoundedColumns& destination, std::uint32_t to, std::uint32_t count) const
   {
     assert(from + count <= size() && to + count <= destination.size());
     mColumns.apply([&](const auto&... source) { destination.mColumns.apply([&](auto&... target) { (std::copy_n(source.begin() + static_cast<std::ptrdiff_t>(from), count, target.begin() + static_cast<std::ptrdiff_t>(to)), ...); }); });
