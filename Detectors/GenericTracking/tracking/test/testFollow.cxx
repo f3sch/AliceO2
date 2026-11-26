@@ -49,6 +49,22 @@ namespace o2::gtrk
 
 namespace
 {
+/// A frame's layers' rows in time for the follow's last-row trim
+/// (`follow::LayerOccupancy`), held.
+template <DetectorLayout Det>
+struct HeldOccupancy {
+  std::vector<std::uint32_t> offsets;
+  std::vector<std::uint32_t> lower;
+  std::vector<std::uint32_t> upper;
+  std::array<Scalar, static_cast<std::size_t>(Detector<Det>::nLayers)> area{};
+
+  HeldOccupancy(const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry)
+    : offsets(static_cast<std::size_t>(Detector<Det>::nLayers) + 1U), lower(frame.size()), upper(frame.size()), area(follow::layerAreas(geometry))
+  {
+    follow::fillLayerOccupancy(frame, geometry, std::span{offsets}, std::span{lower}, std::span{upper}, SerialForEach{});
+  }
+  [[nodiscard]] follow::LayerOccupancy view() const { return {.offsets = offsets.data(), .lower = lower.data(), .upper = upper.data(), .area = area.data()}; }
+};
 
 template <DetectorLayout Det>
 IterationParameters<Det> parameters()
@@ -143,7 +159,11 @@ ToyProposal followTrack(const toybarrel8::Fixture& fixture, const ToyTracks& tra
 bool sameProposal(const ToyProposal& a, const ToyProposal& b) { return a.outwardCount == b.outwardCount && a.inwardCount == b.inwardCount && std::ranges::equal(a.outward, b.outward) && std::ranges::equal(a.inward, b.inward); }
 
 /// The follow's passes over \a tracks (`Follow::run`), serially.
-StageStatus followAll(const toybarrel8::Fixture& fixture, const IterationParameters<toybarrel8::Det>& parameters, ToyTracks& tracks, std::vector<std::uint8_t>& used, Follow<toybarrel8::Det>& follow) { return follow.run(SerialForEach{}, parameters, *fixture.frame, toybarrel8::trackingGeometry(), Propagator{}, tracks, 0U, true, false, used, widthBounds(fixture), toyCells().view()); }
+StageStatus followAll(const toybarrel8::Fixture& fixture, const IterationParameters<toybarrel8::Det>& parameters, ToyTracks& tracks, std::vector<std::uint8_t>& used, Follow<toybarrel8::Det>& follow)
+{
+  const HeldOccupancy<toybarrel8::Det> occupancy{*fixture.frame, toybarrel8::trackingGeometry()};
+  return follow.run(SerialForEach{}, parameters, *fixture.frame, toybarrel8::trackingGeometry(), Propagator{}, tracks, 0U, true, false, used, widthBounds(fixture), toyCells().view(), occupancy.view());
+}
 
 template <DetectorLayout Det>
 SensorID crossedSensor(const TrackingGeometry<Det>& geometry, const Propagator& propagator, const BoundTrackState& state, LayerID target, PropagationDirection direction)

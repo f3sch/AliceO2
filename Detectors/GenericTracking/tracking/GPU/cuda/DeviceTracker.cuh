@@ -806,6 +806,23 @@ struct SensorTimeKeys {
   }
 };
 
+/// Each row's layer and its box's start (or, with \a ends, end) as one key:
+/// sorted, the layers' rows in time (`follow::LayerOccupancy`, `SensorBegins`
+/// over the layers).
+template <DetectorLayout Det>
+struct LayerTimeKeys {
+  const TimeFrame<Det>* frame = nullptr;
+  const TrackingGeometry<Det>* geometry = nullptr;
+  bool ends = false;
+  std::uint64_t* keys = nullptr;
+  GPUdi() void operator()(std::uint32_t row) const
+  {
+    const auto measurements = frame->measurements();
+    const auto box = timeBoxAt(measurements, row);
+    keys[row] = (std::uint64_t{geometry->surface(measurements.surface[row]).layer} << 32U) | std::uint64_t{ends ? box.upper() : box.lower()};
+  }
+};
+
 /// From the sorted keys: each entry's box start, and per sensor where its
 /// rows begin -- the entry that starts a sensor's run fills the sensors from
 /// the previous run's on, the last also those after it.
@@ -976,6 +993,16 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
       upload(cells.footprints().data(), mCellFootprints, cells.footprints().size(), mStream);
       mSensorCells = {.layers = mCellLayers.data(), .offsets = mCellOffsets.data(), .sensors = mCellSensors.data()};
     }
+    // The layers' sensors' area, for the follow's last-row trim.
+    mFollows = std::ranges::any_of(iterations, [](const auto& parameters) { return parameters.follow; });
+    if (mFollows) {
+      const auto area = follow::layerAreas(geometry);
+      if (!mLayerArea.allocate(mArena, area.size())) {
+        closeFrom(Scope::kRun);
+        return StageStatus::kOutOfMemory;
+      }
+      upload(area.data(), mLayerArea, area.size(), mStream);
+    }
     mStream.synchronize(); // the host objects may go once this returns
     mHostParameters.assign(iterations.begin(), iterations.end());
     mPropagator = propagator;
@@ -995,17 +1022,24 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     mTimeframeScope.emplace(mArena.scope());
     const std::size_t rows = frame.size();
     const auto offsets = frame.grid().offsets();
-    if (!mColumns.allocate(mArena, rows) || !mOffsets.allocate(mArena, offsets.size()) || !mUsed.allocate(mArena, rows) || !mFrame.allocate(mArena) || !uploadPlan(plan)) {
+    if (!mColumns.allocate(mArena, rows) || !mOffsets.allocate(mArena, offsets.size()) || !mUsed.allocate(mArena, rows) || !mFrame.allocate(mArena) || (frame.shapes() != nullptr && !mShapes.allocate(mArena)) || !uploadPlan(plan)) {
       closeFrom(Scope::kTimeframe);
       return StageStatus::kOutOfMemory;
     }
     upload<MeasurementT>(frame.measurements(), rows, mColumns, mStream);
     upload(offsets.data(), mOffsets, offsets.size(), mStream);
     mRuntime->fill(mUsed.data(), std::uint8_t{kFree}, rows, mStream);
+    if (frame.shapes() != nullptr) {
+      uploadObject(*frame.shapes(), mShapes, mStream);
+    }
     // The frame is a view: built on the host over the device columns, and
     // copied as the value it is.
-    const Frame device{std::as_const(mColumns).view(), frame.grid().geometry(), std::span<const Index>{mOffsets.data(), offsets.size()}, static_cast<Index>(rows)};
+    const Frame device{std::as_const(mColumns).view(), frame.grid().geometry(), std::span<const Index>{mOffsets.data(), offsets.size()}, static_cast<Index>(rows), frame.shapes() != nullptr ? mShapes.data() : nullptr};
     uploadObject(device, mFrame, mStream);
+    if (mFollows && buildOccupancy(static_cast<Index>(rows)) != StageStatus::kComplete) {
+      closeFrom(Scope::kTimeframe);
+      return StageStatus::kOutOfMemory;
+    }
     mStream.synchronize();
     // The tracks' chunks, at the bottom of the scratch end for the timeframe.
     mTracksScope.emplace(mArena.scope(ArenaEnd::kScratch));
@@ -2439,6 +2473,42 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     return StageStatus::kComplete;
   }
 
+  /// The frame's rows' time boxes by layer, each layer's starts and ends
+  /// sorted (`follow::LayerOccupancy`, the host's `fillLayerOccupancy`): the
+  /// rows' layer-and-time keys radix-sorted, their low halves and each
+  /// layer's first entry kept, for the timeframe.
+  [[nodiscard]] StageStatus buildOccupancy(Index rows)
+  {
+    constexpr auto kLayers = static_cast<Index>(kLayerCount);
+    if (!mOccupancyOffsets.allocate(mArena, std::size_t{kLayers} + 1U) || !mOccupancyLower.allocate(mArena, std::max<std::size_t>(rows, 1U)) || !mOccupancyUpper.allocate(mArena, std::max<std::size_t>(rows, 1U))) {
+      return StageStatus::kOutOfMemory;
+    }
+    if (rows == 0U) {
+      mRuntime->fill(mOccupancyOffsets.data(), Index{0U}, std::size_t{kLayers} + 1U, mStream);
+      return StageStatus::kComplete;
+    }
+    auto scratch = mArena.scope(ArenaEnd::kScratch);
+    DeviceSpan<std::uint64_t> keys;
+    DeviceSpan<std::uint64_t> sorted;
+    if (!keys.allocate(mArena, rows, ArenaEnd::kScratch) || !sorted.allocate(mArena, rows, ArenaEnd::kScratch)) {
+      return StageStatus::kOutOfMemory;
+    }
+    for (const bool ends : {false, true}) {
+      algorithms::forEach(*mRuntime, mStream, rows, tracker_detail::LayerTimeKeys<Det>{.frame = std::as_const(mFrame).data(), .geometry = std::as_const(mGeometry).data(), .ends = ends, .keys = keys.data()});
+      const auto status = algorithms::sortKeys(*mRuntime, mArena, mStream, std::as_const(keys).data(), sorted.data(), rows, 32 + algorithms::keyBits(kLayers));
+      if (status != StageStatus::kComplete) {
+        return status;
+      }
+      algorithms::forEach(*mRuntime, mStream, rows, tracker_detail::SensorBegins{.keys = std::as_const(sorted).data(), .count = rows, .sensors = kLayers, .starts = ends ? mOccupancyUpper.data() : mOccupancyLower.data(), .begin = mOccupancyOffsets.data()});
+    }
+    // The scratch's keys are released on return, once the stream has run them.
+    mStream.synchronize();
+    return StageStatus::kComplete;
+  }
+
+  /// The layers' rows in time, the timeframe's.
+  [[nodiscard]] follow::LayerOccupancy occupancy() const { return {.offsets = std::as_const(mOccupancyOffsets).data(), .lower = std::as_const(mOccupancyLower).data(), .upper = std::as_const(mOccupancyUpper).data(), .area = std::as_const(mLayerArea).data()}; }
+
   /// The follow of iteration \a iteration over \a count tracks of \a tracks
   /// (`follow::runSequence`, as the host's `Follow::run`): \a earlier the
   /// earlier iterations' tracks (`followEarlier`), the proposals into
@@ -2468,6 +2538,7 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
                                                                                                  .bids = slots.data(),
                                                                                                  .rows = followRows.data(),
                                                                                                  .counts = followCounts.data(),
+                                                                                                 .occupancy = occupancy(),
                                                                                                });
   }
 
@@ -2556,6 +2627,8 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     mCellSensors = {};
     mCellFootprints = {};
     mSensorCells = {};
+    mLayerArea = {};
+    mFollows = false;
   }
 
   void closeChunks() noexcept
@@ -2611,6 +2684,8 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   Propagator mPropagator;
   std::size_t mIterationCount = 0U;
   bool mConfigured = false;
+  bool mFollows = false;          ///< whether an iteration follows: the timeframe's layers' rows in time then
+  DeviceSpan<Scalar> mLayerArea;  ///< each layer's sensors' area, the run's
 
   std::optional<ArenaScope> mTimeframeScope;
   DeviceColumns<MeasurementT> mColumns;
@@ -2618,6 +2693,10 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
   DeviceSpan<std::uint8_t> mUsed;
   std::vector<match::Matched> mMatched; ///< `matchInactive`'s matches (`downloadMatches`)
   DeviceObject<Frame> mFrame;
+  DeviceObject<ShapeShares<Det>> mShapes; ///< the frame's cluster spans' shares, where it has them
+  DeviceSpan<Index> mOccupancyOffsets;    ///< the layers' rows in time (`buildOccupancy`), the timeframe's
+  DeviceSpan<Index> mOccupancyLower;
+  DeviceSpan<Index> mOccupancyUpper;
   std::size_t mRows = 0U;
   const Frame* mHostFrame = nullptr;
   const TimeframePlan<Det>* mPlan = nullptr;

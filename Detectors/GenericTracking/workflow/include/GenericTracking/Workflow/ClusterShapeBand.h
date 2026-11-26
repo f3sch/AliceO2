@@ -24,6 +24,18 @@
 /// gives, none. The slope is the barrel's (the normal radial, the columns
 /// along z), so a band calibrates barrel layers only.
 ///
+/// Beside the band, how often such a particle leaves each span at each
+/// slope: per layer of the detector's whole layout -- the barrel's, then the
+/// discs' (`ShapeBandLayers::layers`) -- and bin of the slope (`slopeEdges`),
+/// the share of the calibration's crossings leaving each column span at its
+/// slope along the columns and each row span at its slope along the rows,
+/// spans from `kFrequencySpans` - 1 on together; none (every share 0) on a
+/// layer or in a bin with too few crossings to say. On the barrel the slopes
+/// are the band's (along z and along r-phi, over the length along the radial
+/// normal); on a disc the chip's own (along its columns, loc1, and its rows,
+/// loc0, over the length along its normal). The follow's last-row trim reads
+/// them (`follow::ShapeFrequencies`) against the timeframe's own rows' spans.
+///
 /// A band is its detector's sensors', so its layers are numbered as the
 /// detector's own layout numbers them, whatever layout tracks the detector
 /// (`ShapeBandLayers`): TRK's band serves TRKFT3 and TRKFT3TOF alike.
@@ -34,6 +46,7 @@
 #include "GenericTracking/Base/Definitions.h"
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/ShapeCut.h"
+#include "GenericTracking/Tracking/ShapeShares.h"
 #ifdef ENABLE_UPGRADES
 #include "GenericTracking/Detectors/TRKFT3.h"
 #include "GenericTracking/Detectors/TRKFT3TOF.h"
@@ -41,10 +54,13 @@
 
 #include <Rtypes.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <format>
 #include <limits>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -64,9 +80,25 @@ struct ClusterShapeBand {
   std::vector<float> slopeLow;  ///< per layer and column span, at layer * kSpans + span: the interval's start
   std::vector<float> slopeHigh; ///< and its end
 
+  /// The spans the frequencies tell apart: 1 to kFrequencySpans - 1, the
+  /// last one and every longer one together (0: no pattern).
+  static constexpr std::size_t kFrequencySpans = 16;
+  std::vector<float> slopeEdges;      ///< the slope bins' edges, ascending, from 0
+  std::vector<float> columnFrequency; ///< per layer of the layout, slope bin and column span, at (layer * bins + bin) * kFrequencySpans + span
+  std::vector<float> rowFrequency;    ///< per layer, slope bin and row span, the same
+
+  [[nodiscard]] std::size_t slopeBins() const { return slopeEdges.empty() ? 0U : slopeEdges.size() - 1U; }
+  /// The layers the span shares cover.
+  [[nodiscard]] std::size_t shareLayers() const { return slopeBins() == 0U ? 0U : columnFrequency.size() / (slopeBins() * kFrequencySpans); }
+
   /// Whether it is a band of a layout of \a barrelLayers barrel layers: of
-  /// its first layers at most, every layer's spans there.
-  [[nodiscard]] bool fits(std::size_t barrelLayers) const { return maxRows.size() <= barrelLayers && slopeLow.size() == maxRows.size() * kSpans && slopeHigh.size() == maxRows.size() * kSpans; }
+  /// its first layers at most, every layer's spans there --
+  /// and its span shares every one of the layout's \a layers.
+  [[nodiscard]] bool fits(std::size_t barrelLayers, std::size_t layers) const
+  {
+    const auto frequencies = layers * slopeBins() * kFrequencySpans;
+    return maxRows.size() <= barrelLayers && slopeLow.size() == maxRows.size() * kSpans && slopeHigh.size() == maxRows.size() * kSpans && slopeBins() != 0U && columnFrequency.size() == frequencies && rowFrequency.size() == frequencies;
+  }
 
   /// The slope interval of a cluster of \a rowSpan rows and \a colSpan
   /// columns on layer \a layer.
@@ -94,7 +126,7 @@ struct ClusterShapeBand {
     return "cluster-shape band: " + (layers.empty() ? std::string{"no layer"} : layers);
   }
 
-  ClassDefNV(ClusterShapeBand, 1);
+  ClassDefNV(ClusterShapeBand, 2);
 };
 
 /// How \a Det's layers read its detector's band: layer `layer(l)` of a band
@@ -102,6 +134,7 @@ struct ClusterShapeBand {
 template <DetectorLayout Det>
 struct ShapeBandLayers {
   static constexpr std::size_t barrelLayers = Detector<Det>::nBarrelLayers;
+  static constexpr std::size_t layers = Detector<Det>::nLayers;
   [[nodiscard]] static constexpr LayerID layer(LayerID layer) { return layer; }
 };
 
@@ -111,9 +144,67 @@ struct ShapeBandLayers {
 template <>
 struct ShapeBandLayers<detectors::TRKFT3TOF> {
   static constexpr std::size_t barrelLayers = Detector<detectors::TRKFT3>::nBarrelLayers;
+  static constexpr std::size_t layers = Detector<detectors::TRKFT3>::nLayers;
   [[nodiscard]] static constexpr LayerID layer(LayerID layer) { return detectors::trkft3tof::toTRKFT3(layer); }
 };
 #endif
+
+/// \a shares' calibration side from \a band, per layer of \a Det through
+/// `ShapeBandLayers`: the logarithms of its span shares, NaN where it has
+/// none; no calibration (0 bins) without a band. Throws std::runtime_error
+/// for a band of more slope bins than the shares hold.
+template <DetectorLayout Det>
+void fillOwnShares(const ClusterShapeBand* band, ShapeShares<Det>& shares)
+{
+  using Shares = ShapeShares<Det>;
+  static_assert(Shares::kSpans == ClusterShapeBand::kFrequencySpans);
+  shares.bins = 0U;
+  if (band == nullptr) {
+    return;
+  }
+  const auto bins = band->slopeBins();
+  if (bins > Shares::kMaxBins) {
+    throw std::runtime_error(std::format("the cluster-shape band's {} slope bins exceed the {} the shares hold", bins, Shares::kMaxBins));
+  }
+  shares.bins = static_cast<std::uint32_t>(bins);
+  for (std::size_t edge = 0; edge <= bins; ++edge) {
+    shares.edges[edge] = band->slopeEdges[edge];
+  }
+  constexpr float kNone = std::numeric_limits<float>::quiet_NaN();
+  for (std::size_t layer = 0; layer < Shares::kLayers; ++layer) {
+    const auto own = static_cast<std::size_t>(ShapeBandLayers<Det>::layer(static_cast<LayerID>(layer)));
+    for (std::size_t bin = 0; bin < bins; ++bin) {
+      for (std::size_t span = 0; span < Shares::kSpans; ++span) {
+        const auto at = (((own * bins) + bin) * Shares::kSpans) + span;
+        const bool known = own < band->shareLayers();
+        shares.ownColumn[layer][bin][span] = known && band->columnFrequency[at] > 0.F ? std::log(band->columnFrequency[at]) : kNone;
+        shares.ownRow[layer][bin][span] = known && band->rowFrequency[at] > 0.F ? std::log(band->rowFrequency[at]) : kNone;
+      }
+    }
+  }
+}
+
+/// \a shares' timeframe side from each layer's counts of its rows' column
+/// and row spans (\a columns, \a rows: layer * kSpans + span, spans from
+/// kSpans - 1 on together): the logarithms of their shares, each span counted
+/// once more (no share 0).
+template <DetectorLayout Det>
+void fillChanceShares(std::span<const std::uint32_t> columns, std::span<const std::uint32_t> rows, ShapeShares<Det>& shares)
+{
+  using Shares = ShapeShares<Det>;
+  for (std::size_t layer = 0; layer < Shares::kLayers; ++layer) {
+    std::uint64_t columnTotal = Shares::kSpans;
+    std::uint64_t rowTotal = Shares::kSpans;
+    for (std::size_t span = 0; span < Shares::kSpans; ++span) {
+      columnTotal += columns[(layer * Shares::kSpans) + span];
+      rowTotal += rows[(layer * Shares::kSpans) + span];
+    }
+    for (std::size_t span = 0; span < Shares::kSpans; ++span) {
+      shares.chanceColumn[layer][span] = static_cast<float>(std::log(static_cast<double>(columns[(layer * Shares::kSpans) + span] + 1U) / static_cast<double>(columnTotal)));
+      shares.chanceRow[layer][span] = static_cast<float>(std::log(static_cast<double>(rows[(layer * Shares::kSpans) + span] + 1U) / static_cast<double>(rowTotal)));
+    }
+  }
+}
 
 } // namespace o2::gtrk::workflow
 

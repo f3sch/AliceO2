@@ -42,6 +42,7 @@
 #include "GenericTracking/Tracking/RoadFit.h"
 #include "GenericTracking/Tracking/SensorCells.h"
 #include "GenericTracking/Tracking/ShapeCut.h"
+#include "GenericTracking/Tracking/ShapeLikelihood.h"
 #include "GenericTracking/Tracking/TimeFrame.h"
 #include "GenericTracking/Tracking/TrackRefit.h"
 #include "GenericTracking/Tracking/TrackingSurface.h"
@@ -51,6 +52,7 @@
 #include "GPUCommonMath.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -375,7 +377,7 @@ template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typen
 
 /// `transportCandidateInline`, never inlined on the device: the one copy
 /// every search shares. Only
-/// `FollowStage::passingOn` takes the body inline (`updateCandidate`'s
+/// `FollowStage::rowEvidence` takes the body inline (`updateCandidate`'s
 /// \a Inlined).
 template <typename Solve = ExactScalar, typename Prop, DetectorLayout Det, typename Material>
 [[nodiscard]] GPUhdnii() bool transportCandidate(const Prop& prop, const TrackingGeometry<Det>& geometry, const Material& material, const TrackingSurface& to, PropagationDirection direction, const BoundParameters& GPUrestrict() input, const CovarianceFactors& GPUrestrict() inputFactors, BoundParameters& GPUrestrict() output, CovarianceFactors& GPUrestrict() outputFactors, detail::StepMaterial* GPUrestrict() traversed = nullptr)
@@ -635,6 +637,105 @@ struct DensityChild : Child {
 /// A search's row type with or without \a Determinant.
 template <bool Determinant>
 using ChildOf = std::conditional_t<Determinant, DensityChild, Child>;
+
+/// Every row's time box by layer, for the density of a layer's rows that a
+/// time window lets through by chance: layer l's rows from offsets[l] to
+/// offsets[l + 1], their boxes' starts ascending in `lower` and their ends
+/// ascending in `upper` (each sorted on its own), and the layer's sensors'
+/// area [cm2] in `area`. Every row counts, held or free.
+struct LayerOccupancy {
+  const std::uint32_t* offsets = nullptr;
+  const std::uint32_t* lower = nullptr;
+  const std::uint32_t* upper = nullptr;
+  const Scalar* area = nullptr;
+};
+
+/// Each layer's sensors' area [cm2], `LayerOccupancy::area`'s.
+template <DetectorLayout Det>
+[[nodiscard]] std::array<Scalar, static_cast<std::size_t>(Detector<Det>::nLayers)> layerAreas(const TrackingGeometry<Det>& geometry)
+{
+  std::array<Scalar, static_cast<std::size_t>(Detector<Det>::nLayers)> area{};
+  for (const auto& surface : geometry.surfaces()) {
+    if (static_cast<std::size_t>(surface.layer) < area.size()) {
+      area[surface.layer] += 4.F * surface.bounds.halfX * surface.bounds.halfY;
+    }
+  }
+  return area;
+}
+
+/// \a frame's rows' time boxes by layer into \a offsets (the layers' count
+/// and one), \a lower and \a upper (one per row), each layer's starts and
+/// ends sorted on their own (`LayerOccupancy`); \a forEach(count, body) runs
+/// body(layer) for each layer, the sorts. On the host.
+template <DetectorLayout Det, typename ForEach>
+void fillLayerOccupancy(const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, std::span<std::uint32_t> offsets, std::span<std::uint32_t> lower, std::span<std::uint32_t> upper, const ForEach& forEach)
+{
+  constexpr auto kLayers = static_cast<std::size_t>(Detector<Det>::nLayers);
+  const auto& measurements = frame.measurements();
+  const auto rows = static_cast<std::uint32_t>(frame.size());
+  std::fill(offsets.begin(), offsets.end(), 0U);
+  for (std::uint32_t row = 0; row < rows; ++row) {
+    ++offsets[geometry.surface(measurements.surface[row]).layer + 1U];
+  }
+  for (std::size_t layer = 0; layer < kLayers; ++layer) {
+    offsets[layer + 1U] += offsets[layer];
+  }
+  std::array<std::uint32_t, kLayers> next{};
+  std::copy_n(offsets.begin(), kLayers, next.begin());
+  for (std::uint32_t row = 0; row < rows; ++row) {
+    const auto at = next[geometry.surface(measurements.surface[row]).layer]++;
+    const auto box = timeBoxAt(measurements, row);
+    lower[at] = box.lower();
+    upper[at] = box.upper();
+  }
+  forEach(static_cast<std::uint32_t>(kLayers), [&](std::uint32_t layer) {
+    std::sort(lower.begin() + offsets[layer], lower.begin() + offsets[layer + 1U]);
+    std::sort(upper.begin() + offsets[layer], upper.begin() + offsets[layer + 1U]);
+  });
+}
+
+/// The rows of \a layer that \a window's time test lets through -- a start
+/// up to latestPS and an end after afterPS; a box no wider than the layer's
+/// widest starts after earliestPS when it ends after afterPS -- over the
+/// layer's area [1/cm2]. Two binary searches: the starts up to latestPS
+/// less the ends up to afterPS, which all start before it.
+[[nodiscard]] GPUhdi() Scalar layerDensity(const LayerOccupancy& occupancy, LayerID layer, const CandidateWindow& window)
+{
+  const std::uint32_t first = occupancy.offsets[layer];
+  const std::uint32_t last = occupancy.offsets[layer + 1U];
+  const auto countUpTo = [&](const std::uint32_t* values, std::int64_t bound) {
+    std::uint32_t lo = first;
+    std::uint32_t hi = last;
+    while (lo < hi) {
+      const std::uint32_t mid = lo + ((hi - lo) / 2U);
+      if (static_cast<std::int64_t>(values[mid]) <= bound) {
+        lo = mid + 1U;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo - first;
+  };
+  const std::uint32_t started = countUpTo(occupancy.lower, window.latestPS);
+  const std::uint32_t ended = countUpTo(occupancy.upper, static_cast<std::int64_t>(window.afterPS));
+  const Scalar area = occupancy.area[layer];
+  return area > 0.F && started > ended ? static_cast<Scalar>(started - ended) / area : 0.F;
+}
+
+/// What the nominal step from a state sees of one row on its layer
+/// (`FollowStage::rowEvidence`): whether the window could be made, the free
+/// rows passing the gate, and the row's own update -- its chi2 and the
+/// innovation covariance's determinant [cm^4] -- where it passes.
+struct RowEvidence {
+  bool window = false;
+  bool found = false;
+  std::uint32_t passing = 0U;
+  Scalar chi2 = 0.F;
+  Scalar determinant = 0.F;
+  Scalar phi = 0.F;   ///< the row's update's direction
+  Scalar theta = 0.F;
+  CandidateWindow box{};
+};
 
 /// Where \a child's update writes its determinant (`updateCandidate`):
 /// nowhere for a `Child`.
@@ -978,13 +1079,14 @@ class FollowStage
     walkInward(inner, rows.index[0], capacity - proposal.outwardCount, box, heldLayers, proposal, observe, group);
   }
 
-  /// How many free rows of \a layer pass the nominal gate from \a state, its
-  /// covariance \a factors, in \a direction within the time \a box: what a
-  /// nominal step from there would see on that layer (`follow::TrimAmbiguous`).
-  /// None where no link of the layout leads from the state's layer to
-  /// \a layer, or the window cannot be made.
-  [[nodiscard]] GPUhdi() GPUAlwaysInline() std::uint32_t passingOn(const BoundParameters& state, const CovarianceFactors& factors, LayerID layer, const TimeEstPS& box, PropagationDirection direction) const
+  /// What a nominal step from \a state, its covariance \a factors, in
+  /// \a direction within the time \a box would see on \a layer: the free rows
+  /// passing the gate and \a row's own update among them
+  /// (`follow::TrimAmbiguous`). No window where no link of the layout leads
+  /// from the state's layer to \a layer, or the window cannot be made.
+  [[nodiscard]] GPUhdi() GPUAlwaysInline() follow::RowEvidence rowEvidence(const BoundParameters& state, const CovarianceFactors& factors, LayerID layer, const TimeEstPS& box, PropagationDirection direction, std::uint32_t row) const
   {
+    follow::RowEvidence evidence;
     follow::Target targets[follow::maxDegree<Det>];
     const std::uint32_t nTargets = targetsOf(state, direction, targets);
     for (std::uint32_t t = 0; t < nTargets; ++t) {
@@ -992,21 +1094,27 @@ class FollowStage
       if (target.layer != layer) {
         continue;
       }
-      CandidateWindow window;
       Scalar reach[2]{};
       detail::StepMaterial traversed;
-      if (!targetWindow(state, factors, box, target, direction, window, reach, traversed)) {
-        return 0U;
+      if (!targetWindow(state, factors, box, target, direction, evidence.box, reach, traversed)) {
+        return evidence;
       }
-      std::uint32_t passing = 0U;
-      // The search inlined with its transports: called, it slows
-      // `TrimAmbiguous`'s kernel on a device.
-      follow::visitInline<false, true, Shape>(
-        context(), state, factors, 0.F, 0.F, target.layer, direction, window, traversed, 0U, WorkCounter::kFollowTrimUpdates, SoloGroup{}, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},
-        [&](const follow::Child& /*candidate*/) { ++passing; });
-      return passing;
+      evidence.window = true;
+      follow::visitInline<true, true, Shape>(
+        context(), state, factors, 0.F, 0.F, target.layer, direction, evidence.box, traversed, 0U, WorkCounter::kFollowTrimUpdates, SoloGroup{}, [](std::uint32_t /*row*/, StepOutcome /*outcome*/, Scalar /*chi2*/) {},
+        [&](const follow::DensityChild& candidate) {
+          ++evidence.passing;
+          if (candidate.row == row) {
+            evidence.found = true;
+            evidence.chi2 = candidate.chi2;
+            evidence.determinant = candidate.determinant;
+            evidence.phi = candidate.state.phi();
+            evidence.theta = candidate.state.theta();
+          }
+        });
+      return evidence;
     }
-    return 0U;
+    return evidence;
   }
 
   /// The walk inward after the outward one, from \a inner (`inwardStart`)
@@ -1723,15 +1831,24 @@ struct Refit {
   }
 };
 
-/// The trim of an ambiguous last row, after the refit: a track whose last row
+/// The trim of a doubtful last row, after the refit: a track whose last row
 /// is one its follow added outward is refitted without it. Where that fit
-/// passes the road's chi2 cut, the track one row shorter keeps the cuts after
-/// the follow (`keptAfterFollow`), and from the fit's outward state two rows
-/// or more of that row's layer pass the nominal gate (`passingOn`: free rows,
-/// the row itself among them -- nothing is marked before `Mark`), the row is
-/// dropped and the track written with that fit; else the track stays as the
-/// refit left it. The row dropped is not marked: it is free for the
-/// iterations after.
+/// passes the road's chi2 cut and the track one row shorter keeps the cuts
+/// after the follow (`keptAfterFollow`), the row is dropped and the track
+/// written with that fit if, from the fit's outward state,
+///  - on an active layer two rows or more of that layer pass the nominal
+///    gate (free rows, the row itself among them -- nothing is marked
+///    before `Mark`): an ambiguous row; or
+///  - the row is less likely the track's than a chance row of its layer: the
+///    Gaussian density of the prediction at the row,
+///    exp(-chi2 / 2) / (2 pi sqrt(det S)), S the update's innovation
+///    covariance, times how much more likely its cluster's spans are for the
+///    track's crossing than for a row of the layer (`logSizeRatioAlong`, the
+///    frame's shares), below the density of the layer's rows in the track's
+///    time box (`layerDensity`); or it does not pass the nominal gate at
+///    all.
+/// Else the track stays as the refit left it. The row dropped is not
+/// marked: it is free for the iterations after.
 template <DetectorLayout Det, bool Shape = false>
 struct TrimAmbiguous {
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
@@ -1747,6 +1864,8 @@ struct TrimAmbiguous {
   TrackView tracks;
   FollowProposal<kMaxClusters>* proposals = nullptr;
   std::uint32_t trackOffset = 0U;
+  /// The layers' rows in time (`layerDensity`).
+  LayerOccupancy occupancy{};
 
   GPUhdi() void operator()(std::uint32_t element) const
   {
@@ -1760,12 +1879,7 @@ struct TrimAmbiguous {
     // The outward rows are the track's last (`Combine`).
     ClusterList<kMaxClusters> rows = tracks.clusters[track];
     const std::uint32_t row = rows.index[count - 1U];
-    // Preserve the last row when it comes from an inactive layer.
-    if constexpr (Detector<Det>::inactiveLayers != 0U) {
-      if (Detector<Det>::isInactiveLayer(geometry->surface(frame->measurements().surface[row]).layer)) {
-        return;
-      }
-    }
+    const LayerID layer = geometry->surface(frame->measurements().surface[row]).layer;
     rows.index[count - 1U] = ClusterList<kMaxClusters>::kNoCluster;
     const auto shorter = static_cast<std::uint8_t>(count - 1U);
     countWork(WorkCounter::kFollowTrimFits);
@@ -1774,9 +1888,26 @@ struct TrimAmbiguous {
       return;
     }
     const auto box = trackTimeBox(frame->measurements(), rows, shorter);
-    const LayerID layer = geometry->surface(frame->measurements().surface[row]).layer;
-    if (search.passingOn(fit.outwardState, factorCovariance(fit.outwardState.cov), layer, box, PropagationDirection::kForward) < 2U) {
+    const auto evidence = search.rowEvidence(fit.outwardState, factorCovariance(fit.outwardState.cov), layer, box, PropagationDirection::kForward, row);
+    // An inactive layer's row is not ambiguous: its layer holds no hole.
+    const bool ambiguous = !Detector<Det>::isInactiveLayer(layer) && evidence.passing >= 2U;
+    bool unlikely = false;
+    if (!ambiguous && evidence.window) {
+      // log g + log size ratio < log rho, g = exp(-chi2 / 2) / (2 pi sqrt(det S)).
+      const Scalar rho = layerDensity(occupancy, layer, evidence.box);
+      Scalar size = 0.F;
+      if (evidence.found && frame->shapes() != nullptr) {
+        const Scalar sinTheta = o2::gpu::CAMath::Sin(evidence.theta);
+        const Scalar direction[3]{o2::gpu::CAMath::Cos(evidence.phi) * sinTheta, o2::gpu::CAMath::Sin(evidence.phi) * sinTheta, o2::gpu::CAMath::Cos(evidence.theta)};
+        size = logSizeRatioAlong<Det>(*frame->shapes(), *geometry, frame->measurements(), row, layer, direction);
+      }
+      unlikely = !evidence.found || (evidence.determinant > 0.F && rho > 0.F && evidence.chi2 + logOf(evidence.determinant) - 2.F * size > -2.F * logOf(kTwoPi<Scalar> * rho));
+    }
+    if (!ambiguous && !unlikely) {
       return;
+    }
+    if (unlikely) {
+      countWork(evidence.found ? WorkCounter::kFollowTrimUnlikely : WorkCounter::kFollowTrimOutsideGate);
     }
     writeFit(tracks, track, fit, rows, shorter, box);
     tracks.addedOutward[track] = static_cast<std::uint8_t>(tracks.addedOutward[track] - 1U);
@@ -1841,6 +1972,7 @@ struct Inputs {
   std::uint32_t* bids = nullptr;
   ClusterList<kMaxClusters>* rows = nullptr;
   std::uint8_t* counts = nullptr;
+  LayerOccupancy occupancy{}; ///< the layers' rows in time (`TrimAmbiguous`)
 };
 
 /// The host's launches of the follow's passes: each in its profile zone,
@@ -1914,6 +2046,7 @@ void runSequence(const Launch& launch, const Inputs<Det>& in)
                     .tracks = in.tracks,
                     .proposals = in.proposals,
                     .trackOffset = in.trackOffset,
+                    .occupancy = in.occupancy,
                   });
     },
               choices.shapeTest);
@@ -1954,7 +2087,7 @@ class Follow
   /// tracks (`followEarlier`), counted and timed apart -- within the
   /// caller's `kFollowEarlier` zone, no phase of its own.
   template <typename ForEach>
-  [[nodiscard]] StageStatus run(ForEach forEach, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, Tracks& tracks, std::uint32_t trackOffset, bool inward, bool earlier, std::span<std::uint8_t> used, std::span<const std::uint32_t, kLayerCount> maxCandidateWidthPS, SensorCellsView cells)
+  [[nodiscard]] StageStatus run(ForEach forEach, const IterationParameters<Det>& parameters, const TimeFrame<Det>& frame, const TrackingGeometry<Det>& geometry, const Propagator& propagator, Tracks& tracks, std::uint32_t trackOffset, bool inward, bool earlier, std::span<std::uint8_t> used, std::span<const std::uint32_t, kLayerCount> maxCandidateWidthPS, SensorCellsView cells, follow::LayerOccupancy occupancy)
   {
     using profile::Phase;
     return guardOutOfMemory([&] {
@@ -1989,6 +2122,7 @@ class Follow
                                                                                                   .bids = mBids.data(),
                                                                                                   .rows = mRows.data(),
                                                                                                   .counts = mCounts.data(),
+                                                                                                  .occupancy = occupancy,
                                                                                                 });
       return StageStatus::kComplete;
     });

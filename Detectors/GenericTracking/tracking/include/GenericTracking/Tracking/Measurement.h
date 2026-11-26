@@ -57,7 +57,7 @@ namespace o2::gtrk
 // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
 template <template <class> class C>
 struct MeasurementT {
-  MEMLAYOUT_APPLY(MeasurementT, loc0, loc1, timePS, widthPS, varLoc0, covLoc01, varLoc1, clusterIndex, surface, x, y, z, r, phi, varZ, varR, varRPhi, slopeLow, slopeHigh)
+  MEMLAYOUT_APPLY(MeasurementT, loc0, loc1, timePS, widthPS, varLoc0, covLoc01, varLoc1, clusterIndex, surface, x, y, z, r, phi, varZ, varR, varRPhi, slopeLow, slopeHigh, spans)
   C<Scalar> loc0 = memlayout::default_value<C>(0.F); ///< sensor-local position [cm]
   C<Scalar> loc1 = memlayout::default_value<C>(0.F);
   /// The time box `[timePS, timePS + widthPS)` [ps from the timeframe's
@@ -101,8 +101,17 @@ struct MeasurementT {
   /// shape to go by. An iteration with `shapeTest` reads them.
   C<Scalar> slopeLow = memlayout::default_value<C>(0.F);
   C<Scalar> slopeHigh = memlayout::default_value<C>(kSlopeUnbounded);
+  /// The cluster's pattern: its row span (across, loc0) in the low byte, its
+  /// column span (along, loc1) in the next; 0 without a pattern
+  /// (`measurementRowSpan`, `measurementColumnSpan`).
+  C<std::uint32_t> spans = memlayout::default_value<C>(std::uint32_t{0});
 };
 // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members,cppcoreguidelines-missing-std-forward,readability-identifier-naming)
+
+/// A cluster's row and column spans as `MeasurementT::spans` holds them.
+[[nodiscard]] GPUhdi() constexpr std::uint32_t measurementSpans(std::uint8_t rowSpan, std::uint8_t columnSpan) { return static_cast<std::uint32_t>(rowSpan) | (static_cast<std::uint32_t>(columnSpan) << 8U); }
+[[nodiscard]] GPUhdi() constexpr std::uint32_t measurementRowSpan(std::uint32_t spans) { return spans & 0xFFU; }
+[[nodiscard]] GPUhdi() constexpr std::uint32_t measurementColumnSpan(std::uint32_t spans) { return (spans >> 8U) & 0xFFU; }
 
 /// The record: one measurement, as the fit and the QA hold it.
 using Measurement = MeasurementT<memlayout::value>;

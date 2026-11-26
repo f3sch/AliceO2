@@ -3100,7 +3100,7 @@ class MeasurementSinkTask : public Task
       return;
     }
 
-    const Frame frame{view, geometry, offsets};
+    const Frame frame{view, geometry, offsets, &input.shipped.shapes};
     // The shipped bounds, the frame's as the producer took them, compared
     // with a scan of the rows.
     const auto& bounds = input.shipped.bounds;
@@ -3196,7 +3196,7 @@ class MeasurementSinkTask : public Task
       for (int layer = 0; layer < Detector<Det>::nLayers; ++layer) {
         depths.push_back(mInterface.geometry().measurementDepth(static_cast<LayerID>(layer)));
       }
-      writeTrackingInput(mDumpInput, view, n, offsets, seeds, mInterface.beamLine(), mInterface.frames(), depths);
+      writeTrackingInput(mDumpInput, view, n, offsets, seeds, mInterface.beamLine(), mInterface.frames(), depths, std::span<const std::uint8_t>{reinterpret_cast<const std::uint8_t*>(&input.shipped.shapes), sizeof(input.shipped.shapes)});
       LOGP(info, "tracking input written to {} and {}.ini", mDumpInput, mDumpInput);
       if (mUseMC) {
         writeTrackingTruth(mDumpInput + ".truth", std::span<const std::uint32_t>{columns.clusterIndex.data(), n}, comparisonRows, comparisonParticles, comparisonCollisions, comparisonTrees);

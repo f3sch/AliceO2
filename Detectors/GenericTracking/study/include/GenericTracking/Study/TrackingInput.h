@@ -36,11 +36,13 @@
 #include "GenericTracking/Base/LayerSpec.h"
 #include "GenericTracking/Tracking/Measurement.h"
 #include "GenericTracking/Tracking/PairCut.h"
+#include "GenericTracking/Tracking/ShapeShares.h"
 #include "GenericTracking/Workflow/BeamLine.h"
 #include "GenericTracking/Study/DecayTrees.h"
 #include "GenericTracking/Study/TrackComparison.h"
 
 #include <cstdint>
+#include <cstring>
 #include <format>
 #include <span>
 #include <stdexcept>
@@ -62,12 +64,29 @@ struct TrackingInput {
   /// Each layer's measurement depth [cm] (Geometry::measurementDepth), which
   /// the rows were placed at.
   std::vector<double> depths;
+  /// The cluster spans' shares the producer shipped (`ShapeShares<Det>`), as
+  /// their bytes (`shapeSharesOf`).
+  std::vector<std::uint8_t> shapes;
 };
 
+/// \a input's cluster spans' shares as \a Det's. Throws std::runtime_error
+/// for shares of another layout.
+template <DetectorLayout Det>
+[[nodiscard]] ShapeShares<Det> shapeSharesOf(const TrackingInput& input)
+{
+  ShapeShares<Det> shares;
+  if (input.shapes.size() != sizeof(shares)) {
+    throw std::runtime_error("tracking input: cluster spans' shares of another layout; dump it again");
+  }
+  std::memcpy(static_cast<void*>(&shares), input.shapes.data(), sizeof(shares));
+  return shares;
+}
+
 /// Write \a view's \a rows rows, \a offsets, \a vertices, \a beamLine,
-/// \a frames and \a depths to \a path; the caller writes the parameters to
-/// `<path>.ini` with `writeParameters`. Throws std::runtime_error.
-void writeTrackingInput(const std::string& path, const MeasurementView& view, std::size_t rows, std::span<const std::uint32_t> offsets, std::span<const VertexSeed> vertices, const workflow::BeamLine& beamLine, std::span<const FrameTiming> frames, std::span<const double> depths);
+/// \a frames, \a depths and the cluster spans' shares \a shapes (a
+/// `ShapeShares<Det>`'s bytes) to \a path; the caller writes the parameters
+/// to `<path>.ini` with `writeParameters`. Throws std::runtime_error.
+void writeTrackingInput(const std::string& path, const MeasurementView& view, std::size_t rows, std::span<const std::uint32_t> offsets, std::span<const VertexSeed> vertices, const workflow::BeamLine& beamLine, std::span<const FrameTiming> frames, std::span<const double> depths, std::span<const std::uint8_t> shapes);
 
 /// Every configurable parameter to \a path as INI, as
 /// `ConfigurableParam::writeINI` writes it, but GTRKReco<DET>'s floating-point

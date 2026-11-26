@@ -277,6 +277,11 @@ class Tracker
     return guardOutOfMemory([&] {
       clearResizeBoundedVector(mUsed, frame.size(), mMemoryPool.get(), std::uint8_t{kFree});
       mRows = frame.size();
+      // The layers' rows in time for the follow's last-row trim; none for a
+      // tracker that does not follow (the vertexing pass's).
+      if (std::ranges::any_of(mIterations, [](const auto& iteration) { return iteration.follow; })) {
+        buildOccupancy(frame);
+      }
       stageStaging(StagingSite::kTracklets, mTrackletStage);
       stageStaging(StagingSite::kTriplets, mTripletStage);
       stageStaging(StagingSite::kNeighbours, mNeighbourStage);
@@ -302,6 +307,7 @@ class Tracker
     mRefit.clearStorage();
     mStore.clearStorage();
     deepVectorClear(mMemoryPool.get(), mUsed, mUsedBeforeSelection, mClaims);
+    deepVectorClear(mMemoryPool.get(), mOccupancyOffsets, mOccupancyLower, mOccupancyUpper);
     mFollowStartInner = {};
     mFollowStart = {};
     mFollowStartCount = {};
@@ -876,7 +882,7 @@ class Tracker
   /// proposals tallied into \a tracks, \a outward and \a inward.
   [[nodiscard]] StageStatus runFollow(Follow<Det>& follow, const IterationParameters<Det>& parameters, const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset, bool earlier, std::size_t& tracks, std::size_t& outward, std::size_t& inward)
   {
-    const auto status = follow.run(fitForEach(), parameters, frame, *mGeometry, mPropagator, mRefit.tracks(), trackOffset, parameters.sharedInnermost == 0U, earlier, mUsed, plan.layerMaxWidthPS, mSensorCells.view());
+    const auto status = follow.run(fitForEach(), parameters, frame, *mGeometry, mPropagator, mRefit.tracks(), trackOffset, parameters.sharedInnermost == 0U, earlier, mUsed, plan.layerMaxWidthPS, mSensorCells.view(), occupancy());
     if (status != StageStatus::kComplete) {
       return status;
     }
@@ -1340,6 +1346,20 @@ class Tracker
   }
 
   /// `hostForEach` in fit chunks (`fitChunk`).
+  /// \a frame's rows' time boxes by layer, each layer's starts and ends
+  /// sorted, and its sensors' area (`follow::LayerOccupancy`): the chance
+  /// density the follow's last-row trim compares a row with.
+  void buildOccupancy(const Frame& frame)
+  {
+    clearResizeBoundedVector(mOccupancyOffsets, static_cast<std::size_t>(Detector<Det>::nLayers) + 1U, mMemoryPool.get(), 0U);
+    resizeBoundedVector(mOccupancyLower, frame.size(), mMemoryPool.get());
+    resizeBoundedVector(mOccupancyUpper, frame.size(), mMemoryPool.get());
+    follow::fillLayerOccupancy(frame, *mGeometry, std::span{mOccupancyOffsets}, std::span{mOccupancyLower}, std::span{mOccupancyUpper}, fitForEach());
+    mOccupancyArea = follow::layerAreas(*mGeometry);
+  }
+
+  [[nodiscard]] follow::LayerOccupancy occupancy() const { return {.offsets = mOccupancyOffsets.data(), .lower = mOccupancyLower.data(), .upper = mOccupancyUpper.data(), .area = mOccupancyArea.data()}; }
+
   [[nodiscard]] auto fitForEach()
   {
     return [this](Index count, const auto& body) { mNeighbourStage.forEachElement(count, fitChunk(count), body); };
@@ -1400,6 +1420,11 @@ class Tracker
   std::vector<std::uint8_t> mFollowEndCount;
   std::vector<BoundTrackState> mFollowEndState;
   SensorCells<Det> mSensorCells;
+  // Every row's time box by layer, for the last-row trim's chance density (`buildOccupancy`).
+  BoundedVector<std::uint32_t> mOccupancyOffsets;
+  BoundedVector<std::uint32_t> mOccupancyLower;
+  BoundedVector<std::uint32_t> mOccupancyUpper;
+  std::array<Scalar, static_cast<std::size_t>(Detector<Det>::nLayers)> mOccupancyArea{};
   BoundedVector<std::uint8_t> mUsed;
   BoundedVector<std::uint8_t> mUsedBeforeSelection; ///< the mask as the selection found it (`dropTracks`)
   BoundedVector<Index> mKeptTracks;                 ///< `dropTracks`' kept tracks

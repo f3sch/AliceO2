@@ -369,7 +369,7 @@ inline void printWork(const WorkCounts& work, std::size_t iteration)
     std::cout << std::format("  work, iteration {}, shapes: {} tracklet candidates and {} thirds refused\n", iteration, at(kTrackletShape), at(kTripletShape));
   }
   if (at(kFollowTrimFits) != 0U) {
-    std::cout << std::format("  work, iteration {}, follow trim: {} tracks refitted without their last outward row, {} trimmed, {} updates\n", iteration, at(kFollowTrimFits), at(kFollowTrimmed), at(kFollowTrimUpdates));
+    std::cout << std::format("  work, iteration {}, follow trim: {} tracks refitted without their last outward row, {} trimmed ({} unlikely, {} outside the gate), {} updates\n", iteration, at(kFollowTrimFits), at(kFollowTrimmed), at(kFollowTrimUnlikely), at(kFollowTrimOutsideGate), at(kFollowTrimUpdates));
   }
   if (at(kFollowEarlierProposed) != 0U) {
     std::cout << std::format("  work, iteration {}, earlier iterations' follow: {} rows proposed, {} outbid, {} with a failed refit\n", iteration, at(kFollowEarlierProposed), at(kFollowEarlierOutbid), at(kFollowEarlierRefitRejected));
@@ -2024,7 +2024,9 @@ int track(const Options& options) // NOLINT(readability-function-size): the benc
     std::cout << std::format(" {}x{}", axes.nPhi, axes.nSecond);
   }
   std::cout << std::format("; {} buckets, offsets {:.1f} MB\n", geometry.bucketCount(), static_cast<double>(input.offsets.size() * sizeof(std::uint32_t)) / 1.e6);
-  const Frame frame{measurementView(input.columns), geometry, std::span<const typename Frame::Index>{input.offsets}};
+  // The cluster spans' shares the producer shipped with the dump's timeframe.
+  const auto shapes = std::make_unique<const ShapeShares<Det>>(study::shapeSharesOf<Det>(input));
+  const Frame frame{measurementView(input.columns), geometry, std::span<const typename Frame::Index>{input.offsets}, shapes.get()};
   // The frame's bounds, which the measurement producer ships with the grid and a
   // dump does not hold: taken once here, outside the timed runs, as it would.
   const auto bounds = frameBounds(frame);

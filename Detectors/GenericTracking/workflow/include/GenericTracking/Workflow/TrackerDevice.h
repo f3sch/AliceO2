@@ -150,7 +150,7 @@ void trackTimeframe(o2::framework::ProcessingContext& pc, TrackingInterface<Det>
     const auto mask = selection.clockMask();
     selectedROFs.assign(mask.begin(), mask.end());
   }
-  const TimeFrame<Det> frame{measurements, interface.grid(), offsets};
+  const TimeFrame<Det> frame{measurements, interface.grid(), offsets, &input.shipped.shapes};
   // The vertex cut's frames are fewer rows than the producer bounded.
   const auto tracked = interface.track(frame, afterVertices ? frameBounds(frame) : input.shipped.bounds, trackingSeeds);
   if (tracked.dropped) {

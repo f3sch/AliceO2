@@ -42,7 +42,7 @@ namespace
 constexpr std::array<char, 8> kMagic{'G', 'T', 'R', 'K', 'T', 'I', 'N', '1'};
 
 /// Bumped whenever the layout below or a column's type changes.
-constexpr std::uint32_t kVersion = 9U;
+constexpr std::uint32_t kVersion = 11U;
 
 /// The header: the blocks' element counts and the beam line the rows were
 /// placed about. The blocks follow: the readout frames, every measurement
@@ -58,6 +58,7 @@ struct Header {
   std::uint64_t vertices = 0U;
   std::uint64_t frameLayers = 0U;
   std::uint64_t depthLayers = 0U;
+  std::uint64_t shapeBytes = 0U;
   double beamX = 0.;
   double beamY = 0.;
   double beamZ = 0.;
@@ -65,7 +66,7 @@ struct Header {
   double beamSigmaY = 0.;
   double beamSigmaZ = 0.;
 };
-static_assert(std::is_trivially_copyable_v<Header> && sizeof(Header) == 112U, "the header has no padding");
+static_assert(std::is_trivially_copyable_v<Header> && sizeof(Header) == 120U, "the header has no padding");
 static_assert(std::is_trivially_copyable_v<VertexSeed> && std::is_trivially_copyable_v<FrameTiming>);
 
 constexpr std::array<char, 8> kTruthMagic{'G', 'T', 'R', 'K', 'T', 'R', 'U', '1'};
@@ -158,7 +159,7 @@ void readBlock(std::ifstream& in, T* data, std::size_t count, const char* what)
 
 } // namespace
 
-void writeTrackingInput(const std::string& path, const MeasurementView& view, std::size_t rows, std::span<const std::uint32_t> offsets, std::span<const VertexSeed> vertices, const workflow::BeamLine& beamLine, std::span<const FrameTiming> frames, std::span<const double> depths)
+void writeTrackingInput(const std::string& path, const MeasurementView& view, std::size_t rows, std::span<const std::uint32_t> offsets, std::span<const VertexSeed> vertices, const workflow::BeamLine& beamLine, std::span<const FrameTiming> frames, std::span<const double> depths, std::span<const std::uint8_t> shapes)
 {
   std::ofstream out{path, std::ios::binary | std::ios::trunc};
   if (!out) {
@@ -170,6 +171,7 @@ void writeTrackingInput(const std::string& path, const MeasurementView& view, st
     .vertices = vertices.size(),
     .frameLayers = frames.size(),
     .depthLayers = depths.size(),
+    .shapeBytes = shapes.size(),
     .beamX = beamLine.x,
     .beamY = beamLine.y,
     .beamZ = beamLine.z,
@@ -183,6 +185,7 @@ void writeTrackingInput(const std::string& path, const MeasurementView& view, st
   writeBlock(out, offsets.data(), offsets.size());
   writeBlock(out, vertices.data(), vertices.size());
   writeBlock(out, depths.data(), depths.size());
+  writeBlock(out, shapes.data(), shapes.size());
   out.close();
   if (!out) {
     throw std::runtime_error("tracking input: cannot write " + path);
@@ -287,6 +290,8 @@ TrackingInput readTrackingInput(const std::string& path)
   readBlock(in, input.vertices.data(), input.vertices.size(), "the vertices");
   input.depths.resize(header.depthLayers);
   readBlock(in, input.depths.data(), input.depths.size(), "the measurement depths");
+  input.shapes.resize(header.shapeBytes);
+  readBlock(in, input.shapes.data(), input.shapes.size(), "the cluster spans' shares");
   return input;
 }
 
