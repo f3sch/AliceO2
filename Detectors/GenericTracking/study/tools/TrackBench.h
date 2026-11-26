@@ -369,7 +369,7 @@ inline void printWork(const WorkCounts& work, std::size_t iteration)
     std::cout << std::format("  work, iteration {}, shapes: {} tracklet candidates and {} thirds refused\n", iteration, at(kTrackletShape), at(kTripletShape));
   }
   if (at(kFollowTrimFits) != 0U) {
-    std::cout << std::format("  work, iteration {}, follow trim: {} tracks refitted without their last outward row, {} trimmed ({} unlikely, {} outside the gate), {} updates\n", iteration, at(kFollowTrimFits), at(kFollowTrimmed), at(kFollowTrimUnlikely), at(kFollowTrimOutsideGate), at(kFollowTrimUpdates));
+    std::cout << std::format("  work, iteration {}, follow trim: {} refits without a last outward row, {} trimmed ({} unlikely, {} outside the gate), {} updates\n", iteration, at(kFollowTrimFits), at(kFollowTrimmed), at(kFollowTrimUnlikely), at(kFollowTrimOutsideGate), at(kFollowTrimUpdates));
   }
   if (at(kFollowEarlierProposed) != 0U) {
     std::cout << std::format("  work, iteration {}, earlier iterations' follow: {} rows proposed, {} outbid, {} with a failed refit\n", iteration, at(kFollowEarlierProposed), at(kFollowEarlierOutbid), at(kFollowEarlierRefitRejected));

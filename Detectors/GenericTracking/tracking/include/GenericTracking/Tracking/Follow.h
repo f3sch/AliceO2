@@ -1831,7 +1831,7 @@ struct Refit {
   }
 };
 
-/// The trim of a doubtful last row, after the refit: a track whose last row
+/// The trim of doubtful last rows, after the refit: a track whose last row
 /// is one its follow added outward is refitted without it. Where that fit
 /// passes the road's chi2 cut and the track one row shorter keeps the cuts
 /// after the follow (`keptAfterFollow`), the row is dropped and the track
@@ -1847,8 +1847,9 @@ struct Refit {
 ///    frame's shares), below the density of the layer's rows in the track's
 ///    time box (`layerDensity`); or it does not pass the nominal gate at
 ///    all.
-/// Else the track stays as the refit left it. The row dropped is not
-/// marked: it is free for the iterations after.
+/// Else the track stays as the refit left it. After a drop the new last row
+/// is tested the same way while it is one the follow added outward. The
+/// rows dropped are not marked: they are free for the iterations after.
 template <DetectorLayout Det, bool Shape = false>
 struct TrimAmbiguous {
   static constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
@@ -1871,48 +1872,52 @@ struct TrimAmbiguous {
   {
     const std::uint32_t track = trackOffset + element;
     auto& proposal = proposals[element];
-    const std::uint32_t outward = proposal.outwardCount;
-    const std::uint32_t count = tracks.count[track];
+    std::uint32_t outward = proposal.outwardCount;
+    std::uint32_t count = tracks.count[track];
     if (outward == 0U || tracks.status[track] != PropagationStatus::kOk) {
       return;
     }
-    // The outward rows are the track's last (`Combine`).
+    // The outward rows are the track's last (`Combine`), in the walk's order.
     ClusterList<kMaxClusters> rows = tracks.clusters[track];
-    const std::uint32_t row = rows.index[count - 1U];
-    const LayerID layer = geometry->surface(frame->measurements().surface[row]).layer;
-    rows.index[count - 1U] = ClusterList<kMaxClusters>::kNoCluster;
-    const auto shorter = static_cast<std::uint8_t>(count - 1U);
-    countWork(WorkCounter::kFollowTrimFits);
-    const auto fit = fitMeasurements(propagator, *geometry, detail::LinkSteps{}, RowChain<Det>{.frame = frame, .rows = rows.index}, static_cast<int>(shorter), kinkBudget(*parameters));
-    if (!passesRoadChi2(*parameters, fit) || !keptAfterFollow(*parameters, shorter, fit.state)) {
-      return;
-    }
-    const auto box = trackTimeBox(frame->measurements(), rows, shorter);
-    const auto evidence = search.rowEvidence(fit.outwardState, factorCovariance(fit.outwardState.cov), layer, box, PropagationDirection::kForward, row);
-    // An inactive layer's row is not ambiguous: its layer holds no hole.
-    const bool ambiguous = !Detector<Det>::isInactiveLayer(layer) && evidence.passing >= 2U;
-    bool unlikely = false;
-    if (!ambiguous && evidence.window) {
-      // log g + log size ratio < log rho, g = exp(-chi2 / 2) / (2 pi sqrt(det S)).
-      const Scalar rho = layerDensity(occupancy, layer, evidence.box);
-      Scalar size = 0.F;
-      if (evidence.found && frame->shapes() != nullptr) {
-        const Scalar sinTheta = o2::gpu::CAMath::Sin(evidence.theta);
-        const Scalar direction[3]{o2::gpu::CAMath::Cos(evidence.phi) * sinTheta, o2::gpu::CAMath::Sin(evidence.phi) * sinTheta, o2::gpu::CAMath::Cos(evidence.theta)};
-        size = logSizeRatioAlong<Det>(*frame->shapes(), *geometry, frame->measurements(), row, layer, direction);
+    while (outward != 0U) {
+      const std::uint32_t row = rows.index[count - 1U];
+      const LayerID layer = geometry->surface(frame->measurements().surface[row]).layer;
+      rows.index[count - 1U] = ClusterList<kMaxClusters>::kNoCluster;
+      const auto shorter = static_cast<std::uint8_t>(count - 1U);
+      countWork(WorkCounter::kFollowTrimFits);
+      const auto fit = fitMeasurements(propagator, *geometry, detail::LinkSteps{}, RowChain<Det>{.frame = frame, .rows = rows.index}, static_cast<int>(shorter), kinkBudget(*parameters));
+      if (!passesRoadChi2(*parameters, fit) || !keptAfterFollow(*parameters, shorter, fit.state)) {
+        return;
       }
-      unlikely = !evidence.found || (evidence.determinant > 0.F && rho > 0.F && evidence.chi2 + logOf(evidence.determinant) - 2.F * size > -2.F * logOf(kTwoPi<Scalar> * rho));
+      const auto box = trackTimeBox(frame->measurements(), rows, shorter);
+      const auto evidence = search.rowEvidence(fit.outwardState, factorCovariance(fit.outwardState.cov), layer, box, PropagationDirection::kForward, row);
+      // An inactive layer's row is not ambiguous: its layer holds no hole.
+      const bool ambiguous = !Detector<Det>::isInactiveLayer(layer) && evidence.passing >= 2U;
+      bool unlikely = false;
+      if (!ambiguous && evidence.window) {
+        // log g + log size ratio < log rho, g = exp(-chi2 / 2) / (2 pi sqrt(det S)).
+        const Scalar rho = layerDensity(occupancy, layer, evidence.box);
+        Scalar size = 0.F;
+        if (evidence.found && frame->shapes() != nullptr) {
+          const Scalar sinTheta = o2::gpu::CAMath::Sin(evidence.theta);
+          const Scalar direction[3]{o2::gpu::CAMath::Cos(evidence.phi) * sinTheta, o2::gpu::CAMath::Sin(evidence.phi) * sinTheta, o2::gpu::CAMath::Cos(evidence.theta)};
+          size = logSizeRatioAlong<Det>(*frame->shapes(), *geometry, frame->measurements(), row, layer, direction);
+        }
+        unlikely = !evidence.found || (evidence.determinant > 0.F && rho > 0.F && evidence.chi2 + logOf(evidence.determinant) - 2.F * size > -2.F * logOf(kTwoPi<Scalar> * rho));
+      }
+      if (!ambiguous && !unlikely) {
+        return;
+      }
+      if (unlikely) {
+        countWork(evidence.found ? WorkCounter::kFollowTrimUnlikely : WorkCounter::kFollowTrimOutsideGate);
+      }
+      writeFit(tracks, track, fit, rows, shorter, box);
+      tracks.addedOutward[track] = static_cast<std::uint8_t>(tracks.addedOutward[track] - 1U);
+      --outward;
+      proposal.outwardCount = static_cast<std::uint8_t>(outward);
+      count = shorter;
+      countWork(WorkCounter::kFollowTrimmed);
     }
-    if (!ambiguous && !unlikely) {
-      return;
-    }
-    if (unlikely) {
-      countWork(evidence.found ? WorkCounter::kFollowTrimUnlikely : WorkCounter::kFollowTrimOutsideGate);
-    }
-    writeFit(tracks, track, fit, rows, shorter, box);
-    tracks.addedOutward[track] = static_cast<std::uint8_t>(tracks.addedOutward[track] - 1U);
-    proposal.outwardCount = static_cast<std::uint8_t>(outward - 1U);
-    countWork(WorkCounter::kFollowTrimmed);
   }
 };
 
