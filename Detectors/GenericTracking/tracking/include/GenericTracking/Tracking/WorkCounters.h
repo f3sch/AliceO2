@@ -120,8 +120,8 @@ enum class WorkCounter : std::uint8_t {
   kFollowUnconfirmed,          ///< last rows dropped, no row confirming them where a sensor was crossed
   kFollowDensityKept,          ///< of the unconfirmed last rows, kept on their density (followKeepDensity)
   kFollowEndRefused,           ///< inward last rows refused at the layout's end on sqrt|V| (followEndMaxSqrtDet)
-  kFollowTrimFits,             ///< tracks refitted without their last outward row (`follow::TrimAmbiguous`)
-  kFollowTrimmed,              ///< of them, the row trimmed: ambiguous or unlikely, the track kept the cuts
+  kFollowTrimFits,             ///< refits of a track without its last outward row (`follow::TrimAmbiguous`), one per row tested
+  kFollowTrimmed,              ///< of them, the rows trimmed: ambiguous or unlikely, the track kept the cuts
   kFollowTrimUnlikely,         ///< of the trimmed, less likely the track's than a chance row of its layer
   kFollowTrimOutsideGate,      ///< of the trimmed, outside the gate from the rest of the track
   kFollowTrimUpdates,          ///< the updates of the rows that pass the trimmed row's gate

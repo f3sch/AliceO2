@@ -869,7 +869,8 @@ BOOST_AUTO_TEST_CASE(AnUnconfirmedRowStaysFreeAfterThePasses)
 /// off the particle's, makes the follow's last row one of two passing: the
 /// row is dropped and left free, the track refitted one row shorter; it stays
 /// without the second row, and where the length after the follow would drop
-/// the track one row shorter.
+/// the track one row shorter. With such a second row on the two outermost
+/// layers, the new last row is tested again after the drop and dropped too.
 BOOST_AUTO_TEST_CASE(AnAmbiguousLastRowIsTrimmedWhereTheTrackKeepsItsCuts)
 {
   using namespace toybarrel8;
@@ -899,6 +900,17 @@ BOOST_AUTO_TEST_CASE(AnAmbiguousLastRowIsTrimmedWhereTheTrackKeepsItsCuts)
   BOOST_TEST(outward == 2U);
   BOOST_TEST(added == 2U);
   BOOST_TEST(last == kFree);
+  auto twice = ambiguous;
+  Hit below = clean[kLayers - 2U];
+  below.point = moved(below.point, 0.0005, 0.0005);
+  below.loc0 += 0.0005F;
+  below.loc1 += 0.0005F;
+  twice.push_back(below);
+  const auto [twiceCount, twiceOutward, twiceAdded, twiceLast] = run(twice, 0U);
+  BOOST_TEST(twiceCount == kLayers - 2U);
+  BOOST_TEST(twiceOutward == 1U);
+  BOOST_TEST(twiceAdded == 1U);
+  BOOST_TEST(twiceLast == kFree);
   using Case = std::tuple<std::vector<Hit>, std::uint32_t>;
   for (const auto& [hits, minAfter] : {Case{clean, 0U}, Case{ambiguous, static_cast<std::uint32_t>(kLayers)}}) {
     BOOST_TEST_CONTEXT("rows " << hits.size() << ", length after the follow " << minAfter)
