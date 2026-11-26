@@ -342,8 +342,8 @@ inline void printWork(const WorkCounts& work, std::size_t iteration)
     iteration, at(kNeighbourTriplets), at(kNeighbourCandidates), at(kNeighbourBothKinked), at(kNeighbourCurvature), at(kNeighbourTime), at(kNeighbourFits), at(kNeighbourFitFailed), at(kNeighbourChi2), at(kNeighbourFits) - at(kNeighbourFitFailed) - at(kNeighbourChi2), perFit(kNeighbourFitNS, kNeighbourFits));
   std::cout << std::format(
     "  work, iteration {}, roads: {} without a common time, {} fitted, {} of {} filter steps taken; rejected {} by chi2, {} by propagation, {} "
-    "below the pT floor, {} by the beam line; {} accepted ({} of them without their innermost clusters, of {} such fits)\n",
-    iteration, at(kRoadTime), at(kRoadFits), at(kRoadSteps), at(kRoadStepsPossible), at(kRoadChi2), at(kRoadPropagation), at(kRoadFloor), at(kRoadBeam), at(kRoadAccepted), at(kRoadTrimAccepted), at(kRoadTrimFits));
+    "below the pT floor, {} by the beam line, {} by the cluster spans; {} accepted ({} of them without their innermost clusters, of {} such fits)\n",
+    iteration, at(kRoadTime), at(kRoadFits), at(kRoadSteps), at(kRoadStepsPossible), at(kRoadChi2), at(kRoadPropagation), at(kRoadFloor), at(kRoadBeam), at(kRoadSize), at(kRoadAccepted), at(kRoadTrimAccepted), at(kRoadTrimFits));
   std::cout << std::format(
     "  work, iteration {}, tracklets: {} sources, {} queries, {} not made as every pair would cross another layer; {} candidates held by earlier "
     "tracks, {} crossing another layer, {} refused at the bound on a kink between the layers, {} pair tests, {} past the transverse test, {} past "

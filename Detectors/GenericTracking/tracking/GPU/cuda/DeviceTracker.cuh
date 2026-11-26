@@ -1838,13 +1838,13 @@ class DeviceTrackerImpl final : public DeviceTracker<Det>
     // An iteration with a kink allowance takes it on the fit's last step
     // (against the road-end fakes): its own instantiation. An iteration with
     // the beam constraint fits on the stage that also tests the beam line, as
-    // the host.
-    const auto run = [&]<bool BeamLine, bool LastStepAllowance>() {
-      using Fit = RoadRowsFit<Det, BeamLine, LastStepAllowance>;
+    // the host; one with `roadSize` weighs the rows' cluster spans.
+    const auto run = [&]<bool BeamLine, bool LastStepAllowance, bool Size>() {
+      using Fit = RoadRowsFit<Det, BeamLine, LastStepAllowance, Size>;
       const tracker_detail::CapturedRoadFit<Fit, kMaxClusters> fit{.fit = Fit{parameters, mFrame.data(), mGeometry.data(), mPropagator}, .roads = std::as_const(roads).view()};
       return mRecordStage.run(records, fit, order, static_cast<Index>(roads.size()));
     };
-    const StageStatus status = withBools([&]<bool BeamLine, bool LastStepAllowance>(std::bool_constant<BeamLine>, std::bool_constant<LastStepAllowance>) { return run.template operator()<BeamLine, LastStepAllowance>(); }, hostParameters.beamConstraint, takesLastStepAllowance(hostParameters));
+    const StageStatus status = withBools([&]<bool BeamLine, bool LastStepAllowance, bool Size>(std::bool_constant<BeamLine>, std::bool_constant<LastStepAllowance>, std::bool_constant<Size>) { return run.template operator()<BeamLine, LastStepAllowance, Size>(); }, hostParameters.beamConstraint, takesLastStepAllowance(hostParameters), hostParameters.roadSize);
     mIterationReport.readbacks += mRecordStage.stagingPredictionMissed() ? 2U : 1U;
     return status;
   }

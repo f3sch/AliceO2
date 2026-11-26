@@ -52,7 +52,7 @@ namespace
 {
 
 using namespace toybarrel8;
-using Stage = RoadFitStage<Det, false, false>;
+using Stage = RoadFitStage<Det, false, false, false>;
 using RecordOutput = StageOutput<SelectionRecordOf<maxChainLayers<Det>>::template RecordT>;
 constexpr std::size_t kMaxClusters = maxChainLayers<Det>;
 /// A road cut that passes everything, per degree of freedom.

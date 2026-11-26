@@ -178,6 +178,13 @@ struct RecoSettings {
   /// measurement's slope interval, which the measurement producer makes from
   /// its detector's calibrated band (ClusterShapeBand.h); 0, off, by default.
   std::vector<int> iterationShapeTest;
+  /// Whether each iteration's road fit also weighs its rows' cluster spans:
+  /// -2 log of how much more likely each row's spans are for the road's
+  /// crossing than for any row of its layer (the measurement producer's
+  /// shares, from the detector's calibrated band) added to the fit's chi2,
+  /// held to the road's cut and carried into the record's chi2; nothing on a
+  /// layout without a band; 0, off, by default.
+  std::vector<int> iterationRoadSize;
   /// Each iteration's lowest momentum [GeV] of a disc->disc pair's track,
   /// beside its minimum pT. Above 0, on a prompt beam line only, the
   /// iteration searches its disc->disc pairs in a window per source -- from

@@ -68,6 +68,7 @@ enum class WorkCounter : std::uint8_t {
   kRoadPropagation,     ///< the propagation failed
   kRoadFloor,           ///< below the pT floor for their cluster count
   kRoadBeam,            ///< refused by the beam line
+  kRoadSize,            ///< refused once the rows' cluster spans join the chi2 (roadSize)
   kRoadAccepted,        ///< selection records emitted
   kRoadTrimFits,        ///< roads fitted again without their innermost clusters (innerTrim)
   kRoadTrimAccepted,    ///< of the roads, the ones a fit without their innermost clusters took
