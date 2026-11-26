@@ -278,8 +278,9 @@ class Tracker
       clearResizeBoundedVector(mUsed, frame.size(), mMemoryPool.get(), std::uint8_t{kFree});
       mRows = frame.size();
       // The layers' rows in time for the follow's last-row trim; none for a
-      // tracker that does not follow (the vertexing pass's).
-      if (std::ranges::any_of(mIterations, [](const auto& iteration) { return iteration.follow; })) {
+      // tracker that does not follow (the vertexing pass's) or has no track
+      // model (a run of the slice stages alone, `runSlice`).
+      if (mGeometry != nullptr && std::ranges::any_of(mIterations, [](const auto& iteration) { return iteration.follow; })) {
         buildOccupancy(frame);
       }
       stageStaging(StagingSite::kTracklets, mTrackletStage);
@@ -882,6 +883,9 @@ class Tracker
   /// proposals tallied into \a tracks, \a outward and \a inward.
   [[nodiscard]] StageStatus runFollow(Follow<Det>& follow, const IterationParameters<Det>& parameters, const Frame& frame, const TimeframePlan<Det>& plan, std::uint32_t trackOffset, bool earlier, std::size_t& tracks, std::size_t& outward, std::size_t& inward)
   {
+    if (mOccupancyOffsets.empty()) {
+      throw std::logic_error("the follow needs the track model set before the timeframe began (setTrackModel, beginTimeframe)");
+    }
     const auto status = follow.run(fitForEach(), parameters, frame, *mGeometry, mPropagator, mRefit.tracks(), trackOffset, parameters.sharedInnermost == 0U, earlier, mUsed, plan.layerMaxWidthPS, mSensorCells.view(), occupancy());
     if (status != StageStatus::kComplete) {
       return status;
